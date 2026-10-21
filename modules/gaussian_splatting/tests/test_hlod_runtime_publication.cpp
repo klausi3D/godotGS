@@ -3,6 +3,8 @@ void gs_hlod_runtime_publication_tests_link() {}
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/gs_vector_alloc.h"
+#include "../lod/hlod_runtime_selection.h"
+#include <cmath>
 #include "../nodes/gaussian_splat_world_3d.h"
 #include <limits>
 
@@ -64,5 +66,57 @@ TEST_CASE("[GaussianSplatting][HLOD] pixel threshold rejects invalid updates ato
 	node->set_hlod_tau_px(0.0f);
 	CHECK(node->get_hlod_tau_px() == 0.0f);
 	memdelete(node);
+}
+}
+
+namespace TestHlodRuntimePublication {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] rounded runtime sphere retains a tiny leaf at the frustum boundary") {
+    Ref<GaussianData> data;
+    data.instantiate();
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(2);
+    for (uint32_t i = 0; i < 2; ++i) {
+        gaussians[i].position = Vector3(16.0f + float(i + 2) * std::ldexp(1.0f, -19), 1.0f, -10.0f);
+        const float scale = std::ldexp(1.0f, -30);
+        gaussians[i].scale = Vector3(scale, scale, scale);
+        gaussians[i].rotation = Quaternion();
+        gaussians[i].opacity = 0.5f;
+    }
+    LocalVector<Vector3> sh;
+    data->set_gaussian_payload(gaussians, sh, 0u, 0u, false, false);
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(data);
+    if (world->bake_hlod() != OK) { FAIL("tiny exact-coordinate world bake failed"); return; }
+    const float baked_radius = world->get_hlod_tree().nodes[0].radius;
+    Ref<GaussianSplatHlodRuntimeData> snapshot;
+    String reason;
+    if (world->capture_hlod_runtime_snapshot(snapshot, reason) != OK || snapshot.is_null()) {
+        FAIL("snapshot failed: ", reason.utf8().get_data()); return;
+    }
+    if (snapshot->nodes.size() != 1) { FAIL("expected one complete leaf"); return; }
+    const Plane boundary(Vector3(-1, 0, 0), -gaussians[1].position.x);
+    const auto &node = snapshot->nodes[0];
+    // This fixture discriminates: the old unchanged radius rejected the node,
+    // although the second canonical splat center lies on the inclusive plane.
+    CHECK(boundary.distance_to(node.bounds_center) > baked_radius);
+    CHECK(boundary.distance_to(gaussians[1].position) == 0.0f);
+    CHECK(boundary.distance_to(node.bounds_center) <= node.topology.radius);
+    CHECK(world->get_hlod_tree().nodes[0].radius == baked_radius);
+    gs_hlod_runtime::CutHistory history;
+    if (!history.reserve(1)) { FAIL("cut workspace unavailable"); return; }
+    gs_hlod_runtime::CutRequest request;
+    request.frustum_enabled = true;
+    for (Plane &plane : request.frustum) { plane = Plane(Vector3(0, 1, 0), 1000.0f); }
+    request.frustum[0] = boundary;
+    request.focal_pixels = 100.0;
+    request.tau_pixels = 1.0;
+    request.record_budget = 1000.0;
+    request.splat_budget = 2;
+    request.node_budget = 1;
+    const auto selected = history.select(*snapshot, request);
+    CHECK(selected.status == gs_hlod_runtime::CutHistory::COMPLETE);
+    CHECK(selected.selected_count == 1);
+    CHECK(selected.selected_splats == 2);
 }
 }

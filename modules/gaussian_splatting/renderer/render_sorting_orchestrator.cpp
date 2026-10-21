@@ -1078,7 +1078,9 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 		}
 	}
 
-	if (!renderer->get_resource_state().hlod_prepared_snapshot.is_valid() && !force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
+	// HLOD disables reuse above, but still requires this fresh instance sort.
+	// Its CPU cut does not populate the legacy culled_indices splat domain.
+	if (!force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
 			instance_pipeline_active && instance_sort_inputs_ready) {
 		if (sorting_pipeline) {
 			_bind_sort_pipeline_host_context(sorting_pipeline, renderer);

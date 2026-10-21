@@ -1426,7 +1426,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         const SortBufferHandles handles = subsystem_state.sorting_pipeline->get_buffer_handles();
         uint64_t after_bytes = UINT64_MAX;
         if (!get_hlod_owned_byte_upper_bound(after_bytes)) { after_bytes = UINT64_MAX; }
-        if (!handles.valid || handles.capacity < sort_capacity || !input->is_current() || after_bytes > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) {
+        if (!handles.valid || handles.capacity < sort_capacity || !input->is_current() || after_bytes > route_limit) {
             release_hlod_bundle(canonical);
             release_hlod_bundle(relative);
             state.hlod_reason = "hlod_candidate_readiness_or_memory_failed";
@@ -1471,15 +1471,27 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             director->get_sphere_effector_count_for_renderer(this) != 0) { return fallback("deformation_or_instance_domain"); }
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
+    const uint64_t device_budget = get_device_state().rd->get_device_memory_budget();
+    const uint64_t route_limit = device_budget ? MIN(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) : GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT;
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
     state.hlod_owned_byte_upper_bound = route_bytes;
-    if (route_bytes > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) { return fallback("route_memory_limit"); }
+    if (route_bytes > route_limit) { return fallback("route_memory_limit"); }
     const uint32_t total = input->leaf_count + input->parent_count;
     const uint32_t capacity = state.hlod_relative.buffers.max_visible_splats;
-    if (!tile->prepare_hlod_scratch(p_context.viewport_size, total, capacity,
-                GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT - route_bytes)) { return fallback("tile_capacity_warmup_or_memory_limit"); }
-    if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) { return fallback("prepared_route_memory_limit"); }
+    const PipelineFeatureSet *features = p_context.deps.pipeline_features;
+    if (!features) { return fallback("current_pipeline_features_unavailable"); }
+    TileRenderer::RenderParams scratch_params;
+    scratch_params.viewport_size = p_context.viewport_size;
+    scratch_params.total_gaussians = total;
+    scratch_params.max_visible_splats = capacity;
+    scratch_params.request_packed_stage_data = features->enable_packed_stage_data;
+    scratch_params.request_tighter_bounds = features->enable_tighter_bounds;
+    scratch_params.request_sh_amortization = features->enable_sh_amortization;
+    scratch_params.sh_amortization_divisor = features->sh_amortization_divisor;
+    if (!tile->prepare_hlod_scratch(scratch_params,
+                route_limit - route_bytes)) { return fallback("tile_capacity_warmup_or_memory_limit"); }
+    if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("prepared_route_memory_limit"); }
     state.hlod_owned_byte_upper_bound = route_bytes;
     const uint32_t records = tile->get_allocated_overlap_capacity();
     if (records == 0) { return fallback("overlap_capacity_unavailable"); }

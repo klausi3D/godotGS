@@ -921,13 +921,25 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
             }
             double center[3];
             hlod_tree.node_cell_center(node, center);
+            double bounds_center_shift_squared = 0.0;
             for (int a = 0; a < 3; ++a) {
                 out.exact_cell_center[a] = center[a];
                 out.payload_center[a] = float(center[a]);
-                out.bounds_center[a] = float(center[a] + (double(node.aabb_min[a]) + node.aabb_max[a]) * 0.5);
+                const double exact_bounds_center = center[a] + (double(node.aabb_min[a]) + node.aabb_max[a]) * 0.5;
+                out.bounds_center[a] = float(exact_bounds_center);
                 if (!Math::is_finite(out.payload_center[a]) || !Math::is_finite(out.bounds_center[a])) {
                     return fail(ERR_INVALID_DATA, "hlod_center_unrepresentable");
                 }
+                const double shift = exact_bounds_center - double(out.bounds_center[a]);
+                bounds_center_shift_squared += shift * shift;
+            }
+            // Moving the sphere center to float32 must never narrow coverage.
+            // Enlarge only this detached runtime bound by the center displacement,
+            // then round outwards; the baked tree and its format stay unchanged.
+            const double runtime_radius = double(node.radius) + std::sqrt(bounds_center_shift_squared);
+            out.topology.radius = std::nextafter(float(runtime_radius), std::numeric_limits<float>::infinity());
+            if (!std::isfinite(runtime_radius) || runtime_radius < 0.0 || !std::isfinite(out.topology.radius)) {
+                return fail(ERR_INVALID_DATA, "hlod_bounds_radius_unrepresentable");
             }
             for (uint32_t j = 0; j < node.payload_count; ++j) {
                 const uint64_t index = node.payload_first + j;

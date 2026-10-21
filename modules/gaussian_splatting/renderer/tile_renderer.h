@@ -132,7 +132,7 @@ public:
     // Physical texture-allocation deltas, retained conservatively through deferred release.
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
-    bool prepare_hlod_scratch(const Vector2i &p_viewport, uint32_t p_total, uint32_t p_visible, uint64_t p_headroom);
+    bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -441,7 +441,7 @@ private:
 	RenderingDevice *_get_resource_device() const;
 	RenderingDevice *_get_submission_device();
 	RenderingDevice *_acquire_submission_device();
-	void _invalidate_descriptor_cache();
+	void _invalidate_descriptor_cache(bool p_preserve_scene_depth = false);
 	// Free the compiled tile shaders/pipelines before clearing their RIDs. Forced
 	// recompiles (config/debug toggles) must not abandon the previous GPU objects;
 	// a bare shader_resources.reset_state() would null the RIDs and leak them.
@@ -550,6 +550,7 @@ private:
     uint64_t hlod_texture_bytes = 0;
     uint64_t hlod_texture_device = 0;
     bool hlod_texture_ledger_valid = true;
+    bool hlod_scratch_preparing = false;
     void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
 
     // Cache keys for binning/raster uniform sets live in stage structs.
