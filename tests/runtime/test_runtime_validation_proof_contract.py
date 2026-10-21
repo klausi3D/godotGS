@@ -18,6 +18,7 @@ runner entry executes.
 from __future__ import annotations
 
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -2422,6 +2423,155 @@ class AdvisoryLadderEndToEndTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 1, "a forged marker must fail the run even in step 1")
         self.assertGreater(report["failed"], 0)
+
+
+class HlodMainViewRequiredWiringTests(unittest.TestCase):
+    """Required migration policy, including removal of invocation/registration.
+
+    No Godot process is launched here. Positive output-format acceptance is
+    covered by HlodMainViewCapturedProducerTests on an actual native capture.
+    """
+
+    def test_shipped_profiles_and_registry_require_the_real_scenario(self) -> None:
+        config = runtime_validation._load_scenario_config(runtime_validation.DEFAULT_SCENARIO_CONFIG)
+        runtime_validation._validate_hlod_profile_wiring(config)
+        runtime_validation._validate_scenario_fixture_contracts()
+        self.assertEqual(runtime_validation.HLOD_REQUIRED_PROFILES, ("streaming-gpu-ci", "release-ci"))
+        for profile in ("streaming-gpu-ci", "release-ci"):
+            self.assertEqual(config["profiles"][profile]["gd_tests"].count("Resident HLOD Main View"), 1)
+
+    def test_profile_wiring_deletions_fail_through_config_loader(self) -> None:
+        original = json.loads(runtime_validation.DEFAULT_SCENARIO_CONFIG.read_text(encoding="utf-8"))
+        for profile in ("streaming-gpu-ci", "release-ci"):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
+                mutated = copy.deepcopy(original)
+                mutated["profiles"][profile]["gd_tests"].remove("Resident HLOD Main View")
+                path = Path(tmp) / "runtime_scenarios.json"
+                path.write_text(json.dumps(mutated), encoding="utf-8")
+                with mock.patch.object(runtime_validation, "DEFAULT_SCENARIO_CONFIG", path):
+                    with self.assertRaisesRegex(ValueError, "must select Resident HLOD Main View"):
+                        runtime_validation._load_scenario_config(path)
+
+    def test_registry_deletion_fails_through_config_loader(self) -> None:
+        registry = dict(runtime_validation.GDS_TESTS)
+        del registry["Resident HLOD Main View"]
+        with mock.patch.object(runtime_validation, "GDS_TESTS", registry):
+            with self.assertRaisesRegex(ValueError, "registry/source"):
+                runtime_validation._load_scenario_config(runtime_validation.DEFAULT_SCENARIO_CONFIG)
+
+    def test_empty_native_output_is_required_failure_in_the_actual_gd_runner(self) -> None:
+        config = runtime_validation.GodotRunConfig("never-launched", "windows-vulkan", 30, (), True, (), None)
+        raw = _raw_result("Resident HLOD Main View", stdout="exited without evidence\n")
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, "failed")
+        self.assertIn("Required native HLOD", " ".join(results[0].reasons))
+
+    def test_no_skip_override_can_replace_hlod_positive_evidence(self) -> None:
+        result = runtime_validation._classify_result(
+            _raw_result("Resident HLOD Main View", stdout="[RUNTIME_SKIP] missing GPU\n"),
+            fail_on_skip=False, allow_skip_tests={"Resident HLOD Main View"})
+        self.assertEqual(result.status, "failed")
+
+    def test_full_required_profile_cannot_omit_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "report.json"
+            argv = [str(SCRIPT), "--profile", "streaming-gpu-ci", "--skip-cpp", "--skip-gd", "--report-path", str(report)]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(runtime_validation, "run_command", side_effect=AssertionError("must not launch")), \
+                    mock.patch.object(runtime_validation.subprocess, "run", side_effect=AssertionError("must not launch")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runtime_validation.main(), 1)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertTrue(any(row["name"] == "Required HLOD Main View Execution" and row["status"] == "failed" for row in result["tests"]))
+
+
+class HlodMainViewCapturedProducerTests(unittest.TestCase):
+    """Replay original producer bytes, then corrupt those bytes for controls.
+
+    Set GS_HLOD_RUNTIME_CAPTURE to a JSON capture containing native exit_code,
+    stdout and stderr. Absent env means explicitly SKIPPED. An explicitly
+    requested missing/broken/nonpassing capture FAILS. This class never launches
+    Godot, and never manufactures a passing producer record.
+    """
+
+    def setUp(self) -> None:
+        capture_path = os.environ.get("GS_HLOD_RUNTIME_CAPTURE", "").strip()
+        if not capture_path:
+            self.skipTest("Native HLOD producer capture not requested (GS_HLOD_RUNTIME_CAPTURE)")
+        try:
+            capture = json.loads(Path(capture_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested native HLOD capture unavailable: {exc}")
+        self.assertIsInstance(capture, dict)
+        self.assertIs(type(capture.get("exit_code")), int)
+        self.assertIsInstance(capture.get("stdout"), str)
+        self.assertIsInstance(capture.get("stderr"), str)
+        self.capture = capture
+        self.assertEqual(capture["exit_code"], 0, "Native producer failed; cannot use it as positive evidence")
+        classified = self._replay(capture["stdout"])
+        self.assertEqual(classified.status, "passed", classified.reasons)
+
+    def _replay(self, stdout: str):
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        raw = _raw_result("Resident HLOD Main View", exit_code=self.capture["exit_code"], stdout=stdout, stderr=self.capture["stderr"])
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        return results[0]
+
+    def _mutate_metrics(self, mutate):
+        lines = self.capture["stdout"].splitlines()
+        records = [i for i, line in enumerate(lines) if line.lstrip().startswith(runtime_validation.METRICS_MARKER)]
+        self.assertEqual(len(records), 1, "Capture must retain its one original metrics record")
+        index = records[0]
+        metrics = json.loads(lines[index].lstrip()[len(runtime_validation.METRICS_MARKER):])
+        mutate(metrics)
+        lines[index] = runtime_validation.METRICS_MARKER + " " + json.dumps(metrics)
+        return "\n".join(lines) + "\n"
+
+    def test_original_native_producer_passes_through_actual_runner(self) -> None:
+        self.assertEqual(self._replay(self.capture["stdout"]).status, "passed")
+
+    def test_missing_and_duplicate_completion_are_rejected(self) -> None:
+        lines = self.capture["stdout"].splitlines()
+        markers = [line for line in lines if line.lstrip().startswith(runtime_validation.PASS_MARKER)]
+        self.assertEqual(len(markers), 1)
+        missing = "\n".join(line for line in lines if line not in markers)
+        self.assertEqual(self._replay(missing).status, "failed")
+        self.assertEqual(self._replay(self.capture["stdout"] + "\n" + markers[0]).status, "failed")
+
+    def test_actual_binding_route_and_payload_corruptions_fail(self) -> None:
+        corruptions = {
+            "hlod_active": False, "hlod_selected_nodes": 0, "hlod_selected_splats": 1,
+            "hlod_selected_parents": 1, "stage_sort_sorted_count": 0, "sorted_splats": 0,
+            "hlod_bound_relative": True, "hlod_bound_atlas_valid": False,
+            "hlod_canonical_atlas_valid": False, "hlod_bound_atlas_rid": 0,
+            "hlod_canonical_world_submission_active": True, "hlod_relative_world_submission_active": True,
+            "renderer_device_object_id": 0, "hlod_bound_source_generation": 0,
+            "stage_metrics_valid": False, "stage_cull_route_uid": "INSTANCE.CULL.GPU",
+            "cull_route_uid": "INSTANCE.CULL.GPU", "cull_route_reason": "stale_gpu_path",
+            "rendered_content": False, "stage_cull_time_ms": -1.0,
+            "hlod_cpu_prepare_timing_scope": "gpu", "culling_time_ms": -1.0,
+        }
+        for key, value in corruptions.items():
+            with self.subTest(key=key):
+                changed = self._mutate_metrics(lambda m, k=key, v=value: m["samples"][1].__setitem__(k, v))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("engine_frame", "frame_count", "hlod_content_generation"):
+            with self.subTest(stale=key):
+                changed = self._mutate_metrics(lambda m, k=key: m["samples"][1].__setitem__(k, m["samples"][0][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_missing_sample_and_missing_observations_fail(self) -> None:
+        changed = self._mutate_metrics(lambda m: m["samples"].pop())
+        self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("hlod_bound_atlas_valid", "hlod_canonical_atlas_rid", "renderer_device_object_id", "stage_cull_time_ms"):
+            changed = self._mutate_metrics(lambda m, k=key: m["samples"][1].pop(k))
+            self.assertEqual(self._replay(changed).status, "failed")
 
 
 if __name__ == "__main__":

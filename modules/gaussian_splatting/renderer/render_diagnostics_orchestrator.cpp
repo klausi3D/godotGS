@@ -1506,6 +1506,21 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_source_generation"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->get_instance_id()) : int64_t(0);
     stats["hlod_content_generation"] = int64_t(resource_state.hlod_content_serial);
     stats["hlod_view_epoch"] = int64_t(resource_state.hlod_view_epoch);
+    // Actual post-pass bindings, not admission-success proxies. ObjectID/RID
+    // bit patterns may be negative when exposed through Variant's signed int.
+    const auto &hlod_bound = const_renderer->get_instance_pipeline_buffers();
+    const RID hlod_bound_atlas = hlod_bound.atlas_gaussian_buffer;
+    const RID hlod_canonical_atlas = resource_state.hlod_canonical.buffers.atlas_gaussian_buffer;
+    stats["hlod_bound_atlas_valid"] = hlod_bound_atlas.is_valid();
+    stats["hlod_canonical_atlas_valid"] = hlod_canonical_atlas.is_valid();
+    stats["hlod_bound_atlas_rid"] = int64_t(hlod_bound_atlas.get_id());
+    stats["hlod_canonical_atlas_rid"] = int64_t(hlod_canonical_atlas.get_id());
+    stats["hlod_bound_relative"] = hlod_bound.hlod_relative;
+    stats["hlod_bound_source_generation"] = int64_t(hlod_bound.hlod_source_generation);
+    stats["hlod_canonical_world_submission_active"] = resource_state.hlod_canonical.buffers.world_submission_active;
+    stats["hlod_relative_world_submission_active"] = resource_state.hlod_relative.buffers.world_submission_active;
+    stats["renderer_device_object_id"] = rendering_device ? int64_t(rendering_device->get_instance_id()) : int64_t(0);
+    stats["stage_cull_route_uid"] = debug_state.last_stage_metrics_valid ? debug_state.last_stage_metrics.cull_result.route_uid : String();
 	stats["resident_atlas_reduced"] = resource_state.resident_atlas_reduced;
 	stats["resident_atlas_source_count"] = static_cast<int64_t>(resource_state.resident_atlas_source_count);
 	stats["resident_atlas_packed_count"] = static_cast<int64_t>(resource_state.resident_atlas_gaussian_count);

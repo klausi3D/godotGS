@@ -1,6 +1,3 @@
-#ifdef TESTS_ENABLED
-extern void gs_hlod_runtime_gpu_tests_link();
-#endif
 #include "tile_renderer.h"
 
 #include "../core/gs_vector_alloc.h"
@@ -1584,9 +1581,6 @@ TileRenderer::TileRenderer() : debug_stats(*this), params_builder(*this), prefix
         resolve_stage(*this), adaptive_controller(*this), async_readback(*this), global_sort_resources(*this),
         uniform_buffers(*this), projection_buffers(*this), sh_cache_buffers(*this), subpixel_history_buffers(*this),
         subpixel_visibility_buffers(*this), shader_resources(*this), resource_controller(*this), render_targets(*this) {
-#ifdef TESTS_ENABLED
-    gs_hlod_runtime_gpu_tests_link(); // Retain the GPU contract cases in static-library builds.
-#endif
     adaptive_controller.reset_state(config_state.tile_size);
     device_context.resource_rd = nullptr;
     device_context.submission_rd = nullptr;

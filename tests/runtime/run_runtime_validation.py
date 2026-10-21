@@ -82,9 +82,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shlex
 import subprocess
+import struct
 import sys
 import time
 from dataclasses import dataclass, field
@@ -217,7 +219,13 @@ GDS_TESTS: Dict[str, Path] = {
     "Data Flow Recent Window": RUNTIME_DIR / "test_data_flow_recent_window.gd",
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
+    "Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd",
 }
+
+# COR-S2A-009: migrated positive native main-view acceptance is mandatory in
+# these existing GPU lanes. This does not flip the legacy completion ladder.
+HLOD_MAIN_VIEW_SCENARIO = "Resident HLOD Main View"
+HLOD_REQUIRED_PROFILES = ("streaming-gpu-ci", "release-ci")
 
 # Explicit dependency policy for every registered runtime scenario. Empty tuples
 # are deliberate fixture-free declarations, not an inferred absence. A scenario
@@ -272,6 +280,9 @@ SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
     ),
     "GDScript: Monitor Lifecycle Hardening": ScenarioFixtureContract(
         GDS_TESTS["Monitor Lifecycle Hardening"], ()
+    ),
+    "GDScript: Resident HLOD Main View": ScenarioFixtureContract(
+        GDS_TESTS["Resident HLOD Main View"], ()
     ),
 }
 
@@ -716,7 +727,7 @@ def _evaluate_completion(
     return result
 
 
-def _classify_result(
+def _classify_base_result(
         result: TestResult,
         *,
         fail_on_skip: bool,
@@ -768,6 +779,121 @@ def _classify_result(
         combined_output,
         zero_assertion_allowlist if zero_assertion_allowlist is not None else {},
     )
+
+
+def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
+    """Validate actual native samples; absent or ambiguous observations fail.
+
+    IDs are signed Variant bit patterns, not positive counters. Both RIDs must
+    be valid before equality can establish restoration. No timing minimum.
+    """
+    if metrics.get("hlod_main_view_proof_status") != "passed":
+        return ["Required HLOD main-view proof did not report passed."]
+    samples = metrics.get("samples")
+    if not isinstance(samples, list) or len(samples) != 2:
+        return ["Required HLOD proof needs exactly two consecutive actual samples."]
+    failures: List[str] = []
+    exact = {
+        "hlod_active": True, "hlod_reason": "active", "hlod_selected_nodes": 1,
+        "hlod_selected_splats": 2, "hlod_selected_parents": 0,
+        "hlod_bound_relative": False, "hlod_bound_atlas_valid": True,
+        "hlod_canonical_atlas_valid": True, "hlod_canonical_world_submission_active": False,
+        "hlod_relative_world_submission_active": False, "stage_metrics_valid": True,
+        "stage_cull_route_uid": "INSTANCE.CULL.HLOD_CPU", "cull_route_uid": "INSTANCE.CULL.HLOD_CPU",
+        "cull_route_reason": "hlod_cpu_view_admission_selection_upload",
+        "hlod_cpu_prepare_timing_scope": "cpu_view_admission_selection_draw_upload",
+        "sort_route_uid": "INSTANCE.SORT.GPU", "stage_sort_sorted_count": 2,
+        "sorted_splats": 2, "rendered_content": True,
+        "stage_cull_status": "success", "stage_sort_status": "success",
+        "stage_raster_status": "success", "stage_composite_status": "success",
+    }
+    identity_keys = (
+        "hlod_source_generation", "hlod_view_epoch", "hlod_bound_atlas_rid",
+        "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id",
+        "hlod_bound_source_generation",
+    )
+    counter_keys = ("engine_frame", "frame_count", "hlod_content_generation", "hlod_cpu_cut_usec", "hlod_cpu_prepare_usec")
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            failures.append(f"HLOD sample {index} is not an object.")
+            continue
+        for key, expected in exact.items():
+            if type(sample.get(key)) is not type(expected) or sample.get(key) != expected:
+                failures.append(f"HLOD sample {index}: {key} must equal {expected!r}.")
+        for key in identity_keys:
+            if type(sample.get(key)) is not int or sample[key] == 0:
+                failures.append(f"HLOD sample {index}: {key} must be a nonzero signed integer.")
+        for key in counter_keys:
+            if type(sample.get(key)) is not int or sample[key] < 0:
+                failures.append(f"HLOD sample {index}: {key} must be a nonnegative integer.")
+        for first, second in (
+            ("hlod_bound_atlas_rid", "hlod_canonical_atlas_rid"),
+            ("hlod_bound_source_generation", "hlod_source_generation"),
+            ("renderer_device_object_id", "server_device_object_id"),
+        ):
+            if first not in sample or second not in sample or sample[first] != sample[second]:
+                failures.append(f"HLOD sample {index}: {first} differs from {second}.")
+        prep, cut = sample.get("hlod_cpu_prepare_usec"), sample.get("hlod_cpu_cut_usec")
+        stage, perf = sample.get("stage_cull_time_ms"), sample.get("culling_time_ms")
+        if type(prep) is int and type(cut) is int and prep >= cut >= 0:
+            try:
+                f32 = lambda value: struct.unpack("<f", struct.pack("<f", value))[0]
+                expected_ms = f32(f32(prep) * f32(0.001))
+                if (type(stage) not in (int, float) or type(perf) not in (int, float)
+                        or not math.isfinite(stage) or not math.isfinite(perf)
+                        or stage != expected_ms or perf != stage):
+                    failures.append(f"HLOD sample {index}: CPU timing scope/propagation mismatch.")
+            except (OverflowError, struct.error):
+                failures.append(f"HLOD sample {index}: CPU duration is not representable.")
+        else:
+            failures.append(f"HLOD sample {index}: preparation does not contain selection duration.")
+    if all(isinstance(sample, dict) for sample in samples):
+        first, second = samples
+        for key in ("engine_frame", "frame_count"):
+            if type(first.get(key)) is not int or type(second.get(key)) is not int or second[key] != first[key] + 1:
+                failures.append(f"HLOD {key} samples are not consecutive.")
+        for key in ("hlod_source_generation", "hlod_view_epoch", "hlod_canonical_atlas_rid", "server_device_object_id"):
+            if key not in first or key not in second or first[key] != second[key]:
+                failures.append(f"HLOD {key} changed across the static proof.")
+        if (type(first.get("hlod_content_generation")) is not int
+                or type(second.get("hlod_content_generation")) is not int
+                or second["hlod_content_generation"] <= first["hlod_content_generation"]):
+            failures.append("HLOD cut content generation did not advance.")
+    for key in ("image_width", "image_height"):
+        if type(metrics.get(key)) is not int or metrics[key] <= 0:
+            failures.append(f"HLOD target capture has no positive {key}.")
+    if not isinstance(metrics.get("image_path"), str) or not metrics["image_path"]:
+        failures.append("HLOD target capture path missing.")
+    digest = metrics.get("image_sha256")
+    if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        failures.append("HLOD target capture SHA256 missing or malformed.")
+    return failures
+
+
+def _classify_result(
+        result: TestResult,
+        *,
+        fail_on_skip: bool,
+        allow_skip_tests: set[str],
+        zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
+) -> TestResult:
+    result = _classify_base_result(result, fail_on_skip=fail_on_skip,
+        allow_skip_tests=allow_skip_tests, zero_assertion_allowlist=zero_assertion_allowlist)
+    if result.name != HLOD_MAIN_VIEW_SCENARIO:
+        return result
+    if result.status != "passed":
+        result.status = "failed"
+        result.reasons.append("Required native HLOD main-view completion is unavailable; no skip/advisory substitute.")
+        return result
+    failures = _hlod_main_view_proof_failures(result.metrics)
+    metric_lines = [line for line in (result.stdout + "\n" + result.stderr).splitlines()
+                    if line.lstrip().startswith(METRICS_MARKER)]
+    if len(metric_lines) != 1:
+        failures.append("Required HLOD proof needs exactly one producer metrics record.")
+    if failures:
+        result.status = "failed"
+        result.reasons.extend(failures)
+    return result
 
 
 def _format_command(command: Iterable[str]) -> str:
@@ -1257,6 +1383,22 @@ def _floor_governed_fixture_consumers(
     return consumers
 
 
+def _validate_hlod_profile_wiring(config: Dict[str, object]) -> None:
+    source = RUNTIME_DIR / "test_hlod_resident_main_view.gd"
+    if GDS_TESTS.get(HLOD_MAIN_VIEW_SCENARIO) != source or not source.is_file():
+        raise ValueError("Required Resident HLOD Main View registry/source is missing.")
+    contract = SCENARIO_FIXTURE_CONTRACTS.get(f"GDScript: {HLOD_MAIN_VIEW_SCENARIO}")
+    if contract is None or contract.source != source or contract.fixtures != ():
+        raise ValueError("Required HLOD scenario must declare its in-memory fixture producer.")
+    profiles = config.get("profiles", {})
+    for name in HLOD_REQUIRED_PROFILES:
+        profile = profiles.get(name, {}) if isinstance(profiles, dict) else {}
+        if profile.get("gd_tests", []).count(HLOD_MAIN_VIEW_SCENARIO) != 1:
+            raise ValueError(f"Required {name} must select Resident HLOD Main View exactly once.")
+        if profile.get("fail_on_skip") is not True or profile.get("gd_mode") not in ("windows-vulkan", "non-headless"):
+            raise ValueError(f"Required {name} must execute native HLOD without skips.")
+
+
 def _load_scenario_config(path: Path) -> Dict[str, object]:
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -1318,6 +1460,11 @@ def _load_scenario_config(path: Path) -> Dict[str, object]:
         )
 
     _validate_zero_assertion_allowlist(raw.get("zero_assertion_allowlist", []))
+
+    # The shipped CI profiles own this additional requirement. Custom/ad-hoc
+    # configs retain their existing semantics; they cannot alter these lanes.
+    if path.resolve() == DEFAULT_SCENARIO_CONFIG.resolve():
+        _validate_hlod_profile_wiring(raw)
 
     return raw
 
@@ -1912,6 +2059,15 @@ def main() -> int:
                 zero_assertion_allowlist=zero_assertion_allowlist,
             )
         )
+
+    # A full required profile must not go green when its execution wiring drops
+    # the migrated positive scenario. Named local subsets remain subsets.
+    if profile_name in HLOD_REQUIRED_PROFILES and not args.gd_test and not args.gd_script:
+        matches = [result for result in all_results if result.name == HLOD_MAIN_VIEW_SCENARIO]
+        if len(matches) != 1:
+            reason = "Required HLOD main-view result missing or duplicated in full profile."
+            all_results.append(TestResult(name="Required HLOD Main View Execution", command=[],
+                duration=0.0, exit_code=1, stdout="", stderr=reason, reasons=[reason]))
 
     summary = summarise(all_results)
     summary["profile"] = profile_name

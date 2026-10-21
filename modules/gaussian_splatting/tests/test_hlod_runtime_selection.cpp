@@ -1,4 +1,4 @@
-void gs_hlod_runtime_selection_tests_link() {}
+extern "C" int test_hlod_runtime_selection_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_runtime_selection.h"
 #include "../core/gs_vector_alloc.h"

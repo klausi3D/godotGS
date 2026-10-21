@@ -126,6 +126,12 @@
 	static const volatile int test_asset_dependency_manager_cpp_force_link_anchor = test_asset_dependency_manager_cpp_force_link();
 	extern "C" int test_gaussian_splatting_cpp_force_link();
 	static const volatile int test_gaussian_splatting_cpp_force_link_anchor = test_gaussian_splatting_cpp_force_link();
+	extern "C" int test_hlod_runtime_gpu_identity_cpp_force_link();
+	static const volatile int test_hlod_runtime_gpu_identity_cpp_force_link_anchor = test_hlod_runtime_gpu_identity_cpp_force_link();
+	extern "C" int test_hlod_runtime_publication_cpp_force_link();
+	static const volatile int test_hlod_runtime_publication_cpp_force_link_anchor = test_hlod_runtime_publication_cpp_force_link();
+	extern "C" int test_hlod_runtime_selection_cpp_force_link();
+	static const volatile int test_hlod_runtime_selection_cpp_force_link_anchor = test_hlod_runtime_selection_cpp_force_link();
 	extern "C" int test_integration_cpp_force_link();
 	static const volatile int test_integration_cpp_force_link_anchor = test_integration_cpp_force_link();
 	extern "C" int test_lod_system_cpp_force_link();

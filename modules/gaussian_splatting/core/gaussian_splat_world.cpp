@@ -1,6 +1,3 @@
-#ifdef TESTS_ENABLED
-extern void gs_hlod_runtime_publication_tests_link();
-#endif
 #include "gaussian_splat_world.h"
 
 #include "../io/gaussian_splat_world_io.h"
@@ -805,9 +802,6 @@ bool GaussianSplatWorld::is_hlod_runtime_snapshot_current(const GaussianSplatHlo
 }
 
 Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const {
-#ifdef TESTS_ENABLED
-    ::gs_hlod_runtime_publication_tests_link(); // Retain this test translation unit in static-library builds.
-#endif
     const uint64_t started = OS::get_singleton()->get_ticks_usec();
     Ref<GaussianSplatHlodRuntimeData> next;
     next.instantiate();

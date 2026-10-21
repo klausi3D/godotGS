@@ -153,8 +153,8 @@
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 217,
-    "sha256": "342a641a87046cb61f731f425b44eaf6fd5e567c8aeca2b3559add518ce37161",
-    "sha256_last_changed_by": "HLOD resident runtime: additive allocation-ledger and relative draw-list GPU cases in existing GpuSorting, plus an actual World3D render_scene_instance cut regression in existing WorldSceneTree. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; deferred and orphan policies unchanged. Native compiled case selection remains separately required.",
+    "sha256": "98066a028ad865abaf9c7e6f8661b5f63726460a9a7209f5544ed2efdfdfd1cf",
+    "sha256_last_changed_by": "HLOD resident runtime COR-S2A-009: preserve all 214 base GPU cases and two additive GpuSorting cases; rename the new WorldSceneTree case to the actual unsupported-view canonical control. All positive main-view assertions migrate to the mandatory native Resident HLOD Main View runtime scenario. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; deferred and orphan policies unchanged. Native compiled case selection remains separately required.",
     "deferred_tags_any": [
       "Importer"
     ],

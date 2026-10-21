@@ -1,6 +1,3 @@
-#ifdef TESTS_ENABLED
-extern void gs_hlod_runtime_selection_tests_link();
-#endif
 #include "hlod_runtime_selection.h"
 
 #include "../core/gs_vector_alloc.h"
@@ -10,9 +7,6 @@ extern void gs_hlod_runtime_selection_tests_link();
 namespace gs_hlod_runtime {
 
 bool CutHistory::reserve(uint32_t p_nodes) {
-#ifdef TESTS_ENABLED
-    ::gs_hlod_runtime_selection_tests_link(); // Retain this test translation unit in static-library builds.
-#endif
 	if (p_nodes == 0 || p_nodes > GaussianSplatHlodRuntimeData::MAX_NODES) {
 		return false;
 	}

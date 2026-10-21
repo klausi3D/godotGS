@@ -1,4 +1,4 @@
-void gs_hlod_runtime_publication_tests_link() {}
+extern "C" int test_hlod_runtime_publication_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
