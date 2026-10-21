@@ -3403,6 +3403,7 @@ inline Ref<GaussianSplatWorld> hlod_cut_fixture(uint32_t p_degree)
 	bake_input.count = input.size();
 	bake_input.sh_high_order = high ? sh.ptr() : nullptr;
 	bake_input.sh_high_order_count = high;
+	bake_input.sh_first_order_count = p_degree ? 3u : 0u;
 	gs_hlod::BakeParams params;
 	params.leaf_max_splats = 32u;
 	params.interior.node_max_splats = 32u;
@@ -3444,7 +3445,8 @@ inline bool hlod_cut_bits(const T &p_a, const T &p_b)
 
 inline bool hlod_cut_semantics(const Gaussian &p_a, const Gaussian &p_b)
 {
-	// All semantic members, deliberately excluding the meaningless padding slots.
+	// check_gaussian_layout_sync.py derives coverage from Gaussian's declaration;
+	// only the exact _padding and _padding2 storage slots are excluded.
 	return hlod_cut_bits(p_a.position, p_b.position) && hlod_cut_bits(p_a.opacity, p_b.opacity) &&
 	       hlod_cut_bits(p_a.scale, p_b.scale) && hlod_cut_bits(p_a.area, p_b.area) &&
 	       hlod_cut_bits(p_a.rotation, p_b.rotation) && hlod_cut_bits(p_a.sh_dc, p_b.sh_dc) &&

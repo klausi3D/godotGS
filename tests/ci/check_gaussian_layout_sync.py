@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HOST_LAYOUT = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_gpu_layout.h"
+GAUSSIAN_DATA_H = ROOT / "modules" / "gaussian_splatting" / "core" / "gaussian_data.h"
+HLOD_TEST_H = ROOT / "modules" / "gaussian_splatting" / "tests" / "test_gaussian_splat_hlod.h"
 STREAMING_QUANTIZATION_H = ROOT / "modules" / "gaussian_splatting" / "core" / "streaming_quantization.h"
 TILE_RENDER_TYPES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_types.h"
 TILE_RENDER_DEBUG_STATS_CPP = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_debug_stats.cpp"
@@ -1699,6 +1701,71 @@ def _check_render_params_ubo(host_text: str, failures: list[str]) -> None:
     _check_render_params_version(host_text, defines, glsl_rel, host_rel, failures)
 
 
+def _check_hlod_cut_semantic_coverage(failures: list[str]) -> int:
+    """Pin the oracle's field coverage, not C++ execution or padding contents.
+
+    Deliberately accept only plain member declarations and a return conjunction of
+    whole-member bit comparisons/equalities. New syntax must fail for inspection,
+    rather than allowing a mention, a comment or an OR branch to count as coverage.
+    The column-zero terminator distinguishes the struct end from `sh_1[3] = {};`.
+    """
+    declaration = re.search(
+        r"\bstruct\s+Gaussian\s*\{(.*?)^\};",
+        _strip_c_comments(GAUSSIAN_DATA_H.read_text(encoding="utf-8")),
+        re.DOTALL | re.MULTILINE,
+    )
+    if declaration is None:
+        failures.append("HLOD cut oracle: missing Gaussian declaration")
+        return 0
+    fields: dict[str, RawField] = {}
+    for statement in declaration.group(1).split(";"):
+        if not statement.strip():
+            continue
+        match = _FIELD_RE.fullmatch(statement.strip() + ";")
+        if match is None or (match.group("count") is not None and not match.group("count").isdigit()):
+            failures.append(f"HLOD cut oracle: unsupported Gaussian declaration: {statement.strip()}")
+            return 0
+        field = RawField(match.group("type"), match.group("name"), int(match.group("count")) if match.group("count") else None)
+        if field.name in fields:
+            failures.append(f"HLOD cut oracle: duplicate Gaussian member {field.name}")
+            return 0
+        fields[field.name] = field
+
+    # Explicit policy, not a prefix exemption: alignment before brush_axes and
+    # tail storage to reach 144 bytes. Changed type/extent requires inspection too.
+    padding = (RawField("float", "_padding"), RawField("float", "_padding2", 2))
+    for field in padding:
+        if fields.get(field.name) != field:
+            failures.append(f"HLOD cut oracle: exact padding declaration changed: {field.name}")
+    semantic = set(fields) - {field.name for field in padding}
+    if not semantic:
+        failures.append("HLOD cut oracle: no semantic Gaussian members found")
+        return 0
+
+    comparator = re.search(
+        r"\binline\s+bool\s+hlod_cut_semantics\s*\(\s*const\s+Gaussian\s*&\s*p_a\s*,"
+        r"\s*const\s+Gaussian\s*&\s*p_b\s*\)\s*\{\s*return\s+([^{};]+);\s*\}",
+        _strip_c_comments(HLOD_TEST_H.read_text(encoding="utf-8")),
+    )
+    if comparator is None:
+        failures.append("HLOD cut oracle: missing or unsupported hlod_cut_semantics return conjunction")
+        return 0
+    compared: set[str] = set()
+    for term in comparator.group(1).split("&&"):
+        match = re.fullmatch(r"hlod_cut_bits\(\s*p_a\.(\w+)\s*,\s*p_b\.\1\s*\)", term.strip())
+        if match is None:
+            match = re.fullmatch(r"p_a\.(\w+)\s*==\s*p_b\.\1", term.strip())
+        if match is None:
+            failures.append(f"HLOD cut oracle: unsupported comparison: {term.strip()}")
+            return 0
+        compared.add(match.group(1))
+    for name in sorted(semantic - compared):
+        failures.append(f"HLOD cut oracle: Gaussian.{name} is not compared by hlod_cut_semantics")
+    for name in sorted(compared - semantic):
+        failures.append(f"HLOD cut oracle: hlod_cut_semantics compares undeclared or padding member {name}")
+    return len(semantic & compared)
+
+
 def main() -> int:
     host_offsets, host_size = _parse_host_contracts(HOST_LAYOUT)
     packed_host_structs = {
@@ -1758,6 +1825,7 @@ def main() -> int:
         _check_push_constant_mirror(host_header, host_name, shader_mirrors, failures)
 
     _check_render_params_ubo(host_text, failures)
+    hlod_semantic_count = _check_hlod_cut_semantic_coverage(failures)
 
     if failures:
         for failure in failures:
@@ -1800,6 +1868,7 @@ def main() -> int:
         + "."
     )
     print("[gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU (bidirectional): offsets, scalar kinds, byte widths, component widths, reverse coverage, size, and layout version.")
+    print(f"[gaussian-layout-check] HLOD cut oracle compares all {hlod_semantic_count} semantic Gaussian members; exact padding declarations excluded.")
     return 0
 
 

@@ -8,8 +8,8 @@ anything the check did, so the output looked identical (Codex review on PR #1041
 drive the REAL `main()` against the committed tree and assert the check was reached and
 examined something; `run_module_tests.py` runs this file before the guard itself.
 
-Nothing is patched except a pass-through wrapper that records calls, so the tests see exactly
-what the guard lane sees.
+The HLOD oracle coverage tests also mutate copies of the real declarations/comparator and
+exercise the existing runner wiring. No invented declaration inventory stands in for the source.
 """
 
 from __future__ import annotations
@@ -19,8 +19,10 @@ import importlib.util
 import io
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -121,6 +123,127 @@ class QuantizedStorageWiringTests(unittest.TestCase):
             self.assertEqual(actual_size, 160)
             self.assertIn(guard.FlatField("sh_encoded", "uint", 24), fields)
             self.assertIn(guard.FlatField("_tail_padding", "uint", 2), fields)
+
+
+class HlodCutSemanticCoverageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.declaration = guard.GAUSSIAN_DATA_H.read_text(encoding="utf-8")
+        cls.oracle = guard.HLOD_TEST_H.read_text(encoding="utf-8")
+
+    def _run_sources(self, declaration: str, oracle: str, *, through_main: bool = False) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            data_h = Path(directory) / "gaussian_data.h"
+            test_h = Path(directory) / "test_gaussian_splat_hlod.h"
+            data_h.write_text(declaration, encoding="utf-8")
+            test_h.write_text(oracle, encoding="utf-8")
+            with mock.patch.object(guard, "GAUSSIAN_DATA_H", data_h), mock.patch.object(guard, "HLOD_TEST_H", test_h):
+                if not through_main:
+                    failures: list[str] = []
+                    guard._check_hlod_cut_semantic_coverage(failures)
+                    return int(bool(failures)), "\n".join(failures)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    result = guard.main()
+                return result, output.getvalue()
+
+    def test_main_reaches_oracle_check_and_reports_actual_coverage(self) -> None:
+        counts = []
+        real = guard._check_hlod_cut_semantic_coverage
+
+        def recording(failures):
+            count = real(failures)
+            counts.append(count)
+            return count
+
+        with mock.patch.object(guard, "_check_hlod_cut_semantic_coverage", recording):
+            result, output = self._run_sources(self.declaration, self.oracle, through_main=True)
+        self.assertEqual(result, 0, output)
+        self.assertEqual(len(counts), 1, "main must invoke the oracle coverage check exactly once")
+        self.assertGreater(counts[0], 0)
+        self.assertIn(f"HLOD cut oracle compares all {counts[0]} semantic Gaussian members", output)
+
+    def test_main_propagates_missing_semantic_comparison(self) -> None:
+        oracle = self.oracle.replace("hlod_cut_bits(p_a.area, p_b.area) &&", "")
+        result, output = self._run_sources(self.declaration, oracle, through_main=True)
+        self.assertEqual(result, 1, output)
+        self.assertIn("Gaussian.area is not compared", output)
+
+    def test_same_size_padding_repurpose_requires_comparison(self) -> None:
+        for name in ("semantic_value", "_padding_future"):
+            with self.subTest(name=name):
+                declaration = self.declaration.replace("float _padding = 0.0f;", f"float {name} = 0.0f;")
+                result, output = self._run_sources(declaration, self.oracle)
+                self.assertEqual(result, 1, output)
+                self.assertIn(f"Gaussian.{name} is not compared", output)
+
+    def test_same_size_new_field_in_tail_padding_requires_comparison(self) -> None:
+        declaration = self.declaration.replace(
+            "float _padding2[2] = { 0.0f, 0.0f };",
+            "float semantic_value = 0.0f;\n    float _padding2[1] = { 0.0f };",
+        )
+        result, output = self._run_sources(declaration, self.oracle)
+        self.assertEqual(result, 1, output)
+        self.assertIn("Gaussian.semantic_value is not compared", output)
+        self.assertIn("exact padding declaration changed: _padding2", output)
+
+    def test_new_field_with_comparison_passes_coverage_without_inventory_update(self) -> None:
+        # Only the coverage property is exercised here; size/version gates are independent.
+        declaration = self.declaration.replace("struct Gaussian {", "struct Gaussian {\n    float semantic_value = 0.0f;")
+        oracle = self.oracle.replace(
+            "return hlod_cut_bits(p_a.position, p_b.position)",
+            "return hlod_cut_bits(p_a.semantic_value, p_b.semantic_value) && hlod_cut_bits(p_a.position, p_b.position)",
+        )
+        result, output = self._run_sources(declaration, oracle)
+        self.assertEqual(result, 0, output)
+
+    def test_removed_comparisons_are_not_covered_by_comments_or_other_uses(self) -> None:
+        for expression, name in (
+            ("hlod_cut_bits(p_a.area, p_b.area) &&", "area"),
+            ("p_a.painterly_meta == p_b.painterly_meta &&", "painterly_meta"),
+        ):
+            with self.subTest(name=name):
+                oracle = self.oracle.replace(expression, f"/* {expression} */")
+                result, output = self._run_sources(self.declaration, oracle)
+                self.assertEqual(result, 1, output)
+                self.assertIn(f"Gaussian.{name} is not compared", output)
+
+    def test_unsupported_comparison_and_declaration_fail_closed(self) -> None:
+        for declaration, oracle in (
+            (self.declaration, self.oracle.replace("p_a.area, p_b.area", "p_a.area, p_a.area")),
+            (self.declaration, self.oracle.replace("p_a.area, p_b.area)", "p_a.area, p_b.area) || true")),
+            (self.declaration.replace("float _padding =", "uint32_t _padding ="), self.oracle),
+            (self.declaration.replace("Vector3 position;", "Vector3 position, added_position;"), self.oracle),
+            (self.declaration, self.oracle.replace("inline bool hlod_cut_semantics(", "inline bool removed_comparator(")),
+        ):
+            with self.subTest(declaration_changed=declaration != self.declaration, oracle_changed=oracle != self.oracle):
+                result, output = self._run_sources(declaration, oracle)
+                self.assertEqual(result, 1, output)
+                self.assertIn("HLOD cut oracle:", output)
+
+    def test_existing_guard_lane_invokes_both_layout_scripts(self) -> None:
+        runner_spec = importlib.util.spec_from_file_location("hlod_layout_runner", ROOT / "tests/ci/run_module_tests.py")
+        assert runner_spec and runner_spec.loader
+        runner = importlib.util.module_from_spec(runner_spec)
+        sys.modules[runner_spec.name] = runner
+        self.addCleanup(sys.modules.pop, runner_spec.name)
+        runner_spec.loader.exec_module(runner)
+        commands = []
+
+        def command(args):
+            commands.append(args)
+            return 0, "", ""
+
+        def message_guard(callback, *args, **kwargs):
+            if callback is runner._run_gaussian_layout_guard:
+                self.assertTrue(callback()[0])
+            return None
+
+        # Traverse the real enabled-runner list and script loop, without spawning
+        # this test recursively or executing unrelated guards.
+        with mock.patch.object(runner, "_run_command", command), mock.patch.object(runner, "_run_message_guard", message_guard):
+            self.assertIsNone(runner._run_optional_message_guards(SimpleNamespace(skip_build_metadata_guard=False)))
+        self.assertEqual(commands, [[sys.executable, str(Path(__file__).resolve())], [sys.executable, str(SCRIPT)]])
 
 
 class SHSelectionWiringTests(unittest.TestCase):
