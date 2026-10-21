@@ -92,6 +92,16 @@ struct ResourceState {
     // Failure-only seams at the actual publisher boundaries; no success override.
     std::atomic<int> hlod_test_failure{ 0 };
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
+    // Actual resident sort inputs, retained before the post-frame canonical restore.
+    // Borrowed RID only; the observer validates lifetime, device and frame before readback.
+    RID hlod_test_sort_count_buffer;
+    uint64_t hlod_test_sort_frame = 0;
+    uint64_t hlod_test_sort_pass_frame = 0;
+    uint64_t hlod_test_sort_source = 0;
+    uint64_t hlod_test_sort_input_generation = 0;
+    uint64_t hlod_test_sort_device = 0;
+    uint64_t hlod_test_sort_content_generation = 0;
+    bool hlod_test_sort_relative = false;
 #endif
 	bool gpu_resources_initialized = false;
 	bool gpu_initialization_pending = false;

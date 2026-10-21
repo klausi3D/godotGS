@@ -2834,10 +2834,48 @@ class HlodMainViewCapturedProducerTests(unittest.TestCase):
             for key, value in (("hlod_selected_parents", 0), ("hlod_selected_splats", 8)):
                 changed = self._mutate_metrics(lambda m, p=phase, k=key, v=value: m["lod_policy_transition"][p]["stats"].__setitem__(k, v))
                 self.assertEqual(self._replay(changed).status, "failed")
-        for key, value in (("hlod_active", True), ("hlod_selected_splats", 1), ("sorted_splats", 2),
-                           ("stage_sort_sorted_count", 2), ("hlod_reason", "active")):
+        for key, value in (("hlod_active", True), ("hlod_selected_splats", 1), ("hlod_reason", "active")):
             changed = self._mutate_metrics(lambda m, k=key, v=value: m["lod_policy_transition"]["off"]["stats"].__setitem__(k, v))
             self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_current_gpu_count_and_full_header_are_required(self) -> None:
+        for phase in ("on", "off", "reenabled"):
+            def replace_count(metrics, phase=phase):
+                gpu = metrics["lod_policy_transition"][phase]["gpu_sort_count"]
+                count = gpu["element_count"] + 1
+                # Corrupt the complete original readback coherently: rejection
+                # must compare actual GPU coverage to selected/current leaves,
+                # not merely compare parsed fields to the same corrupted bytes.
+                values = [(count + 255) // 256, 1, 1, count, 0, count]
+                gpu["header_hex"] = b"".join(v.to_bytes(4, "little") for v in values).hex()
+                for key, value in zip(("dispatch_x", "dispatch_y", "dispatch_z", "element_count", "overflow_flag", "unclamped_total"), values):
+                    gpu[key] = value
+            with self.subTest(phase=phase, mutation="wrong_count"):
+                self.assertEqual(self._replay(self._mutate_metrics(replace_count)).status, "failed")
+            for key, value in (("header_bytes", 16), ("header_hex", ""), ("overflow_flag", 1),
+                               ("count_buffer_rid", 0), ("relative", phase == "off")):
+                with self.subTest(phase=phase, key=key):
+                    changed = self._mutate_metrics(lambda m, p=phase, k=key, v=value:
+                        m["lod_policy_transition"][p]["gpu_sort_count"].__setitem__(k, v))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in ("gpu_sort_count", "async_sort_count"):
+                changed = self._mutate_metrics(lambda m, p=phase, k=key: m["lod_policy_transition"][p].pop(k))
+                self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_gpu_count_requires_current_frame_source_and_device(self) -> None:
+        for key in ("renderer_frame", "pass_frame", "source_data_id", "input_source_generation", "device_instance_id"):
+            with self.subTest(key=key):
+                changed = self._mutate_metrics(lambda m, k=key:
+                    m["lod_policy_transition"]["off"]["gpu_sort_count"].__setitem__(k,
+                        m["lod_policy_transition"]["off"]["gpu_sort_count"][k] - 1))
+                self.assertEqual(self._replay(changed).status, "failed")
+        def stale_frame(metrics):
+            gpu = metrics["lod_policy_transition"]["off"]["gpu_sort_count"]
+            gpu["renderer_frame"] -= 1
+            gpu["pass_frame"] -= 1
+        # Both frame fields remain internally consistent but refer to an older
+        # pass, so comparison to the actual completed renderer frame is required.
+        self.assertEqual(self._replay(self._mutate_metrics(stale_frame)).status, "failed")
 
     def test_transition_consumer_wiring_mutation_is_detected(self) -> None:
         # Mutate actual captured bytes, then delete this check's call effect.

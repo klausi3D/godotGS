@@ -197,6 +197,26 @@ func _check_current_publication(observation: Dictionary, source: GaussianData, c
 	return _check(observation["bound_atlas_count"] == count and observation["source_leaf_count"] == count, "Current complete leaf atlas missing")
 
 
+func _check_current_gpu_count(observation: Dictionary, expected_count: int, active: bool) -> bool:
+	var gpu: Dictionary = observation.get("gpu_sort_count", {})
+	var stats: Dictionary = observation["stats"]
+	var header := str(gpu.get("header_hex", "")).hex_decode()
+	if not _check(gpu.get("header_bytes", 0) == 24 and header.size() == 24, "Complete actual IndirectDispatchLayout readback missing"):
+		return false
+	var fields := ["dispatch_x", "dispatch_y", "dispatch_z", "element_count", "overflow_flag", "unclamped_total"]
+	var expected := [ceili(float(expected_count) / 256.0), 1, 1, expected_count, 0, expected_count]
+	for i in range(fields.size()):
+		if not _check(gpu.get(fields[i], -1) == expected[i] and header.decode_u32(i * 4) == expected[i], "Actual GPU %s does not match this complete visible fixture" % fields[i]):
+			return false
+	for key in ["source_data_id", "input_source_generation", "device_instance_id"]:
+		if not _check(int(gpu.get(key, 0)) != 0 and gpu[key] == observation[key], "Actual GPU count belongs to another %s" % key):
+			return false
+	if not _check(int(gpu.get("count_buffer_rid", 0)) != 0 and gpu.get("relative") == active and gpu.get("renderer_frame") == stats["frame_count"] and int(gpu.get("pass_frame", -2)) + 1 == int(stats["frame_count"]), "Actual GPU count route/frame is stale"):
+		return false
+	var async_count: Dictionary = observation.get("async_sort_count", {})
+	return _check(async_count.has("valid") and int(async_count.get("sample_pass_frame", -1)) >= 0 and int(async_count["sample_pass_frame"]) <= int(gpu["pass_frame"]) and int(async_count.get("element_count", -1)) >= 0, "Separate async count provenance missing")
+
+
 func _wait_publication(source: GaussianData, count: int, active: bool, reason: String, deadline: int, after_frame: int, instance_before: Dictionary = {}) -> Dictionary:
 	while Time.get_ticks_msec() < deadline:
 		await RenderingServer.frame_post_draw
@@ -230,6 +250,7 @@ func _wait_publication(source: GaussianData, count: int, active: bool, reason: S
 			stages_succeeded = stages_succeeded and stats[key] == "success"
 		if not stages_succeeded:
 			continue
+		_metrics["last_publication_observation"] = observation
 		if not _check(observation["rendered_content"] and stats["sort_route_uid"] == "INSTANCE.SORT.GPU" and not stats["hlod_bound_relative"], "Current route did not render and restore canonically"):
 			return {}
 		if not _check(bool(observation["prepared_current"]) == active or reason == "lod_disabled_canonical_leaves", "Prepared eligibility differs from publication phase"):
@@ -238,11 +259,15 @@ func _wait_publication(source: GaussianData, count: int, active: bool, reason: S
 			if not _check(int(observation["prepared_source_generation"]) == 0 and int(observation["failure_hits"]) > 0, "Failure seam did not invalidate the previous prepared route"):
 				return {}
 		if active:
-			if not _check(int(observation["prepared_source_generation"]) == int(observation["input_source_generation"]) and int(stats["hlod_selected_splats"]) > 0 and stats["stage_sort_sorted_count"] == stats["hlod_selected_splats"] and stats["sorted_splats"] == stats["hlod_selected_splats"], "Prepared cut did not reach the actual GPU sort"):
+			if not _check(int(observation["prepared_source_generation"]) == int(observation["input_source_generation"]) and int(stats["hlod_selected_splats"]) > 0, "Prepared cut identity or selected payload missing"):
 				return {}
 		if not active:
-			if not _check(stats["hlod_selected_nodes"] == 0 and stats["hlod_selected_splats"] == 0 and stats["hlod_selected_parents"] == 0 and stats["stage_sort_sorted_count"] == count and stats["sorted_splats"] == count, "Canonical fallback did not render current complete leaves"):
+			if not _check(stats["hlod_selected_nodes"] == 0 and stats["hlod_selected_splats"] == 0 and stats["hlod_selected_parents"] == 0, "Canonical fallback retained a selected cut"):
 				return {}
+		# These statistics retain their asynchronous CPU-sample semantics. Require
+		# exact current GPU coverage from the actual route's count buffer instead.
+		if not _check_current_gpu_count(observation, int(stats["hlod_selected_splats"]) if active else count, active):
+			return {}
 		_last_publication_engine_frame = int(observation["engine_frame"])
 		return observation
 	_fail("Publication transition did not complete within deadline: %s" % reason)

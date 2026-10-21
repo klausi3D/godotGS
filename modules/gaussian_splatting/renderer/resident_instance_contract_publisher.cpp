@@ -25,6 +25,7 @@
 #ifdef TESTS_ENABLED
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_bake.h"
+#include "pipeline_io_contracts.h"
 #include "servers/rendering_server.h"
 #include "core/config/engine.h"
 #endif
@@ -1333,6 +1334,9 @@ void GaussianSplatRenderer::release_hlod_bundle(GaussianRenderFacadeState::HlodB
 
 void GaussianSplatRenderer::release_hlod_resources() {
     auto &state = get_resource_state();
+#ifdef TESTS_ENABLED
+    state.hlod_test_sort_count_buffer = RID();
+#endif
     if (get_instance_pipeline_buffers().atlas_gaussian_buffer == state.hlod_canonical.buffers.atlas_gaussian_buffer ||
             get_instance_pipeline_buffers().atlas_gaussian_buffer == state.hlod_relative.buffers.atlas_gaussian_buffer) {
         clear_instance_pipeline_buffers();
@@ -1808,6 +1812,52 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
     result["current_instance_generation"] = int64_t(director->get_instance_generation_for_renderer(this));
     result["current_grading_generation"] = int64_t(state.instance_grading_defaults_generation.load(std::memory_order_relaxed));
     result["relative_capacity"] = MIN<uint32_t>(count, MAX(1, get_performance_settings().max_splats));
+    // The frame has already restored the canonical bundle. Use the RID captured
+    // on the actual sort route, not the currently bound canonical count buffer.
+    const RID count_buffer = state.hlod_test_sort_count_buffer;
+    const RID expected_count_buffer = state.hlod_frame_active
+            ? state.hlod_relative.buffers.instance_count_buffer : bound.instance_count_buffer;
+    if (state.hlod_test_sort_frame != get_frame_state().frame_counter ||
+            state.hlod_test_sort_source != uint64_t(source->get_instance_id()) ||
+            state.hlod_snapshot.is_null() ||
+            state.hlod_test_sort_input_generation != uint64_t(state.hlod_snapshot->get_instance_id()) ||
+            state.hlod_test_sort_device != rd->get_device_instance_id() ||
+            state.hlod_test_sort_relative != state.hlod_frame_active ||
+            (state.hlod_frame_active && state.hlod_test_sort_content_generation != state.hlod_relative.buffers.hlod_content_generation) ||
+            !count_buffer.is_valid() || count_buffer != expected_count_buffer ||
+            get_resource_owner(count_buffer, nullptr) != rd || !rd->buffer_is_valid(count_buffer) ||
+            subsystem_state.sorting_pipeline.is_null()) {
+        result["error"] = "current_resident_sort_count_provenance_required"; return result;
+    }
+    const Vector<uint8_t> count_bytes = rd->buffer_get_data(count_buffer);
+    if (count_bytes.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout))) {
+        result["error"] = "complete_indirect_dispatch_header_required"; return result;
+    }
+    GaussianSplatting::IndirectDispatchLayout header = {};
+    memcpy(&header, count_bytes.ptr(), sizeof(header));
+    Dictionary gpu_count;
+    gpu_count["header_hex"] = String::hex_encode_buffer(count_bytes.ptr(), count_bytes.size());
+    gpu_count["header_bytes"] = count_bytes.size();
+    gpu_count["dispatch_x"] = header.dispatch_x;
+    gpu_count["dispatch_y"] = header.dispatch_y;
+    gpu_count["dispatch_z"] = header.dispatch_z;
+    gpu_count["element_count"] = header.element_count;
+    gpu_count["overflow_flag"] = header.overflow_flag;
+    gpu_count["unclamped_total"] = header.unclamped_total;
+    gpu_count["count_buffer_rid"] = int64_t(count_buffer.get_id());
+    gpu_count["renderer_frame"] = int64_t(state.hlod_test_sort_frame);
+    gpu_count["pass_frame"] = int64_t(state.hlod_test_sort_pass_frame);
+    gpu_count["source_data_id"] = int64_t(state.hlod_test_sort_source);
+    gpu_count["input_source_generation"] = int64_t(state.hlod_test_sort_input_generation);
+    gpu_count["device_instance_id"] = int64_t(state.hlod_test_sort_device);
+    gpu_count["content_generation"] = int64_t(state.hlod_test_sort_content_generation);
+    gpu_count["relative"] = state.hlod_test_sort_relative;
+    result["gpu_sort_count"] = gpu_count;
+    Dictionary async_count;
+    async_count["valid"] = subsystem_state.sorting_pipeline->_test_get_last_instance_visible_splat_count_valid();
+    async_count["sample_pass_frame"] = int64_t(subsystem_state.sorting_pipeline->_test_get_last_instance_visible_splat_count_frame());
+    async_count["element_count"] = subsystem_state.sorting_pipeline->get_last_instance_visible_splat_count();
+    result["async_sort_count"] = async_count;
     result["stats"] = get_render_stats();
     result["rendered_content"] = has_rendered_content();
     return result;

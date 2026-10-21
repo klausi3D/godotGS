@@ -893,8 +893,53 @@ def _hlod_transition_proof_failures(metrics: Dict[str, object]) -> List[str]:
             exact(stats, key, route, label)
         selected = stats.get("hlod_selected_splats")
         emitted = selected if active else count
+        # These are intentionally retained as lagged CPU statistics. The actual
+        # current GPU header below, captured before canonical restore, is the
+        # coverage oracle across a changing cut/source.
         for key in ("stage_sort_sorted_count", "sorted_splats"):
-            exact(stats, key, emitted, label)
+            if type(stats.get(key)) is not int or stats[key] < 0:
+                fail(label, f"{key} must remain a nonnegative asynchronous statistic")
+        gpu = value.get("gpu_sort_count")
+        if not isinstance(gpu, dict):
+            fail(label, "current actual GPU count/header provenance missing")
+        else:
+            exact(gpu, "header_bytes", 24, label)
+            header_hex = gpu.get("header_hex")
+            header = (bytes.fromhex(header_hex) if isinstance(header_hex, str) and len(header_hex) == 48
+                      and all(c in "0123456789abcdef" for c in header_hex) else b"")
+            if len(header) != 24:
+                fail(label, "complete actual IndirectDispatchLayout bytes missing")
+            expected_header = ((emitted + 255) // 256, 1, 1, emitted, 0, emitted) if type(emitted) is int and emitted >= 0 else None
+            if expected_header is None or len(header) != 24 or struct.unpack("<6I", header) != expected_header:
+                fail(label, "actual GPU dispatch/count/overflow header differs from current selected or canonical payload")
+            for index, key in enumerate(("dispatch_x", "dispatch_y", "dispatch_z", "element_count", "overflow_flag", "unclamped_total")):
+                if expected_header is not None:
+                    exact(gpu, key, expected_header[index], label)
+            exact(gpu, "relative", active, label)
+            exact(gpu, "renderer_frame", stats.get("frame_count"), label)
+            if (type(gpu.get("pass_frame")) is not int or gpu["pass_frame"] < 0
+                    or type(stats.get("frame_count")) is not int or gpu["pass_frame"] + 1 != stats["frame_count"]):
+                fail(label, "GPU pass frame does not identify this completed renderer frame")
+            for key in ("source_data_id", "input_source_generation", "device_instance_id"):
+                exact(gpu, key, value.get(key), label)
+            if type(gpu.get("count_buffer_rid")) is not int or gpu["count_buffer_rid"] == 0:
+                fail(label, "actual count buffer RID missing")
+            if (type(gpu.get("content_generation")) is not int or gpu["content_generation"] < 0
+                    or (active and gpu["content_generation"] == 0)):
+                fail(label, "actual relative content generation missing")
+        async_count = value.get("async_sort_count")
+        if not isinstance(async_count, dict):
+            fail(label, "separate asynchronous sample provenance missing")
+        else:
+            if type(async_count.get("valid")) is not bool:
+                fail(label, "async sample validity missing")
+            for key in ("element_count", "sample_pass_frame"):
+                if type(async_count.get(key)) is not int or async_count[key] < 0:
+                    fail(label, f"async {key} must be a nonnegative integer")
+            if (isinstance(gpu, dict) and type(gpu.get("pass_frame")) is int
+                    and type(async_count.get("sample_pass_frame")) is int
+                    and async_count["sample_pass_frame"] > gpu["pass_frame"]):
+                fail(label, "async sample comes from a future GPU pass")
         if active and (type(selected) is not int or not 0 < selected <= count
                        or type(stats.get("hlod_selected_nodes")) is not int or stats["hlod_selected_nodes"] <= 0):
             fail(label, "active cut has no selected payload")
