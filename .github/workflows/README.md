@@ -118,16 +118,13 @@ workflow files and job markers only;
 the stronger no-downgrade workflow rules remain documented review policy until
 the checker grows a real GitHub Actions behavior parser.
 
-External checks are not automatically renderer release blockers. `qlty check`
-is currently documented in the manifest as a deferred, non-blocking external
-signal because `master` branch protection does **not** require it — the required
-contexts are `agentic-pr-gate` and `docs-build` (live state observed 2026-10-08, see
-[Required Checks](#required-checks) above) — and the repo does not track a qlty
-configuration/log contract. If branch protection later requires qlty, update the
-manifest before treating a qlty result as part of public-alpha signoff.
-`docs/reference/renderer_release_gate_manifest.json` and
-`docs/reference/renderer-release-gates.md` state the same rationale, re-checked
-against live branch protection on 2026-10-01.
+External checks are not automatically renderer release blockers. The only
+required contexts are `agentic-pr-gate` and `docs-build` (live state observed
+2026-10-08, see [Required Checks](#required-checks) above). The external
+status-check policy lives in `external_status_check_policy` in
+`docs/reference/renderer_release_gate_manifest.json` and is explained in
+`docs/reference/renderer-release-gates.md`; update the manifest before treating
+any other external result as part of public-alpha signoff.
 
 ### Fast-math finiteness guard (`finite_math_guard`)
 
