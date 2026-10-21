@@ -130,7 +130,10 @@
   },
   "external_status_check_policy": {
     "source": "GitHub branch protection for master checked on 2026-10-08 (first checked 2026-05-21)",
-    "branch_protection_required_status_checks": ["agentic-pr-gate", "docs-build"],
+    "branch_protection_required_status_checks": [
+      "agentic-pr-gate",
+      "docs-build"
+    ],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -149,9 +152,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 214,
-    "sha256": "4b8d0b273e801cd6334d5cf46f30e158cfb684bba40a378255456334f8dcc3e1",
-    "sha256_last_changed_by": "Merge of #1200 (master d4ab7a775c6) into #1205: master's inventory (count 212, digest 9bb024eb01b8df7aad74d054a2ed6b8c8113518ffbf025ff7d69625dffd039e0, named-batch 147, deferred 2) plus #1205's two RequiresGPU cases: test_sh_encoding.h \"Partial SH prefixes render the even degree-2 colour in both GPU layouts\" ([GaussianSplatting][SceneTree][RequiresGPU], RendererSceneTree batch) and test_gpu_sorting.h \"Instance depth pass gives each instance of a shared chunk its own LOD SH limit\" ([GaussianSplatting][GPUSortPipeline][RequiresGPU], GpuSorting batch). count 212 -> 214, running_in_a_named_batch 147 -> 149, deferred 2 and unbatched_backlog 63 unchanged. Count and digest recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary. Never hand-edited.",
+    "test_count": 215,
+    "sha256": "96cf26fbcc870ac8aee762747b0e23f3562edf057bff938e6957a6a679f08791",
+    "sha256_last_changed_by": "HLOD resident runtime: additive actual RadixSort allocation-ledger case in test_hlod_runtime_gpu_identity.cpp, tagged [Sort][RequiresGPU] for the existing GpuSorting batch. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; deferred and orphan policies unchanged. Native compiled case selection remains separately required.",
     "deferred_tags_any": [
       "Importer"
     ],

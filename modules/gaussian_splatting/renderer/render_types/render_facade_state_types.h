@@ -6,6 +6,7 @@
 #ifndef GAUSSIAN_RENDER_FACADE_STATE_TYPES_H
 #define GAUSSIAN_RENDER_FACADE_STATE_TYPES_H
 
+#include "../../core/gaussian_splat_hlod_runtime_data.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "core/object/object.h"
@@ -14,6 +15,7 @@
 #include "core/templates/rid.h"
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "../gaussian_gpu_layout.h"
+#include "render_pipeline_io_types.h"
 #include "../gpu_buffer_manager.h"
 #include "../gpu_performance_monitor.h"
 #include <atomic>
@@ -43,7 +45,44 @@ struct DeviceState {
 	bool reported_missing_render_device = false;
 };
 
+// All RIDs in owned[] belong to the enclosing ResourceState. Sort buffers remain
+// borrowed from its existing sorting subsystem and never appear in owned[].
+struct HlodBundle {
+    GaussianRenderPipeline::InstancePipelineBuffers buffers;
+    RID owned[14];
+    uint32_t owned_count = 0;
+    uint64_t device_id = 0;
+    uint64_t bytes = 0;
+    uint64_t generation = 0;
+    bool quantized = false;
+    Vector<VisibleChunkRefGPU> draw_entries;
+};
+
 struct ResourceState {
+    Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+    String hlod_reason;
+    float hlod_tau_px = 0.0f;
+    uint64_t hlod_owner_key = 0;
+    Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
+    HlodBundle hlod_canonical;
+    HlodBundle hlod_relative;
+    uint64_t hlod_content_serial = 0;
+    uint64_t hlod_budget_bound_frames = 0;
+    uint64_t hlod_root_dropped_frames = 0;
+    uint64_t hlod_cpu_cut_usec = 0;
+    uint64_t hlod_device_byte_upper_bound = 0;
+    uint64_t hlod_view_epoch = 0;
+    uint32_t hlod_visited_nodes = 0;
+    uint32_t hlod_selected_nodes = 0;
+    uint32_t hlod_selected_parents = 0;
+    uint64_t hlod_selected_splats = 0;
+    double hlod_estimated_records = 0.0;
+    bool hlod_active = false;
+    bool hlod_frame_active = false;
+    uint64_t hlod_owned_byte_upper_bound = 0;
+    uint64_t hlod_retired_bytes = 0;
+    uint64_t hlod_instance_generation = 0;
+    uint64_t hlod_grading_generation = 0;
 	bool gpu_resources_initialized = false;
 	bool gpu_initialization_pending = false;
 	Ref<GPUBufferManager> buffer_manager;

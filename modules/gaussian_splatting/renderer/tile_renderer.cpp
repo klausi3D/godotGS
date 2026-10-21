@@ -1,3 +1,6 @@
+#ifdef TESTS_ENABLED
+extern void gs_hlod_runtime_gpu_tests_link();
+#endif
 #include "tile_renderer.h"
 
 #include "../core/gs_vector_alloc.h"
@@ -655,7 +658,7 @@ private:
 		}
 
 		effective_visible_splats = _resolve_effective_visible_splats();
-		renderer._ensure_global_projection_buffer(effective_visible_splats);
+		if (!params.hlod_relative) { renderer._ensure_global_projection_buffer(effective_visible_splats); }
 		renderer.subpixel_visibility_buffers.ensure_visibility_buffer(effective_visible_splats);
 
 		if (!renderer.projection_buffers.projection_buffer.is_valid() ||
@@ -827,7 +830,7 @@ private:
 				// Async auto-resize: If the previous frame detected overflow via async readback,
 				// proactively resize buffers BEFORE the count pass. This allows disabling sync
 				// readback for a pure GPU-driven pipeline with no CPU stalls.
-				if (renderer.async_readback.overflow_state.first_frame_complete && renderer.async_readback.overflow_state.overflow_detected) {
+				if (!params.hlod_relative && renderer.async_readback.overflow_state.first_frame_complete && renderer.async_readback.overflow_state.overflow_detected) {
 					const uint32_t headroom_factor = 3u; // 50% headroom = multiply by 1.5 ≈ 3/2
 					const uint64_t needed64 = uint64_t(renderer.async_readback.overflow_state.last_unclamped_total) * headroom_factor / 2u;
 					const uint32_t needed = needed64 > UINT32_MAX ? UINT32_MAX : uint32_t(needed64);
@@ -872,7 +875,7 @@ private:
 							overlap_estimate = MAX(overlap_estimate, adaptive_overlap_floor);
 						}
 					}
-					renderer._ensure_global_sort_resources(overlap_estimate);
+					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate); }
 				renderer.global_sort_resources.advance_tile_counts_buffer();
 			tile_counts_buffer_advanced = true;
 			if (renderer.global_sort_resources.capacity == 0 ||
@@ -989,7 +992,7 @@ private:
 					measured_overlap_demand = MAX(measured_overlap_demand, adaptive_overlap_budget_suggested);
 				}
 				renderer.global_sort_resources.last_observed_demand = measured_overlap_demand;
-			if (overlap_capacity_request > renderer.global_sort_resources.capacity) {
+			if (!params.hlod_relative && overlap_capacity_request > renderer.global_sort_resources.capacity) {
 				const uint64_t gen_before = renderer.descriptor_generation;
 				renderer._ensure_global_sort_resources(overlap_capacity_request);
 
@@ -1550,6 +1553,9 @@ TileRenderer::TileRenderer() : debug_stats(*this), params_builder(*this), prefix
         resolve_stage(*this), adaptive_controller(*this), async_readback(*this), global_sort_resources(*this),
         uniform_buffers(*this), projection_buffers(*this), sh_cache_buffers(*this), subpixel_history_buffers(*this),
         subpixel_visibility_buffers(*this), shader_resources(*this), resource_controller(*this), render_targets(*this) {
+#ifdef TESTS_ENABLED
+    gs_hlod_runtime_gpu_tests_link(); // Retain the GPU contract cases in static-library builds.
+#endif
     adaptive_controller.reset_state(config_state.tile_size);
     device_context.resource_rd = nullptr;
     device_context.submission_rd = nullptr;
@@ -2318,6 +2324,9 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
 		if (instance_pipeline_buffers.quantization_required) {
 			defines.push_back("#define USE_QUANTIZED_GAUSSIANS 1\n");
 		}
+    if (instance_pipeline_buffers.hlod_relative) {
+        defines.push_back("#define GS_HLOD_RELATIVE_PAYLOAD 1\n");
+    }
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 	uint32_t max_directional_lights = light_storage ? light_storage->get_max_directional_lights() : 1u;
 	if (max_directional_lights == 0u) {
@@ -3374,6 +3383,19 @@ void TileRenderer::_invalidate_descriptor_cache() {
 }
 
 bool TileRenderer::_update_instance_pipeline_bindings(const RenderParams &p_params) {
+    RenderParams same_content = p_params;
+    same_content.hlod_content_generation = instance_pipeline_buffers.hlod_content_generation;
+    if (!_instance_pipeline_bindings_changed(instance_pipeline_buffers, same_content) &&
+            instance_pipeline_buffers.hlod_content_generation != p_params.hlod_content_generation) {
+        // Same storage, new draw-list contents. Invalidate descriptor/readiness generation
+        // without destroying unrelated fallback textures on every HLOD frame.
+        ++descriptor_generation;
+        _assign_instance_pipeline_bindings(instance_pipeline_buffers, p_params);
+        return true;
+    }
+    if (instance_pipeline_buffers.hlod_relative != p_params.hlod_relative) {
+        _release_compiled_shaders();
+    }
 	return _apply_instance_pipeline_bindings(instance_pipeline_buffers, p_params, [this]() {
 		_invalidate_descriptor_cache();
 	});
@@ -3395,7 +3417,12 @@ bool TileRenderer::_apply_instance_pipeline_bindings(InstancePipelineBindings &r
 bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBindings &p_bindings,
 		const RenderParams &p_params) {
 	const bool new_quantization_required = p_params.quantization_buffer.is_valid();
-	return p_bindings.instance_buffer != p_params.instance_buffer ||
+    return p_bindings.hlod_relative != p_params.hlod_relative ||
+            p_bindings.hlod_draw_entry_buffer != p_params.hlod_draw_entry_buffer ||
+            p_bindings.hlod_draw_list_buffer != p_params.hlod_draw_list_buffer ||
+            p_bindings.hlod_source_generation != p_params.hlod_source_generation ||
+            p_bindings.hlod_content_generation != p_params.hlod_content_generation ||
+            p_bindings.instance_buffer != p_params.instance_buffer ||
 			p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
 			p_bindings.splat_ref_buffer != p_params.splat_ref_buffer ||
 			p_bindings.chunk_meta_buffer != p_params.chunk_meta_buffer ||
@@ -3407,6 +3434,11 @@ bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBin
 
 void TileRenderer::_assign_instance_pipeline_bindings(InstancePipelineBindings &r_bindings,
 		const RenderParams &p_params) {
+    r_bindings.hlod_relative = p_params.hlod_relative;
+    r_bindings.hlod_draw_entry_buffer = p_params.hlod_draw_entry_buffer;
+    r_bindings.hlod_draw_list_buffer = p_params.hlod_draw_list_buffer;
+    r_bindings.hlod_source_generation = p_params.hlod_source_generation;
+    r_bindings.hlod_content_generation = p_params.hlod_content_generation;
 	r_bindings.instance_buffer = p_params.instance_buffer;
 	r_bindings.instance_grading_buffer = p_params.instance_grading_buffer;
 	r_bindings.splat_ref_buffer = p_params.splat_ref_buffer;
@@ -3867,4 +3899,56 @@ TileRenderer::RenderResult TileRenderer::render_with_contract(RenderingDevice *p
 			result.depth_texture, result.has_depth ? result.depth_owner : nullptr);
 
 	return result;
+}
+
+void TileRenderer::_record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created) {
+    const uint64_t after = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
+    const uint64_t device_id = p_device->get_device_instance_id();
+    if ((hlod_texture_device != 0 && hlod_texture_device != device_id) || after < p_before ||
+            (p_created.is_valid() && after == p_before) || after - p_before > UINT64_MAX - hlod_texture_bytes) {
+        hlod_texture_ledger_valid = false;
+        return;
+    }
+    hlod_texture_device = device_id;
+    hlod_texture_bytes += after - p_before;
+}
+
+bool TileRenderer::get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const {
+    r_bytes = hlod_texture_bytes;
+    return hlod_texture_ledger_valid && get_active_device() &&
+            hlod_texture_device == get_active_device()->get_device_instance_id();
+}
+
+bool TileRenderer::prepare_hlod_scratch(const Vector2i &p_viewport, uint32_t p_total, uint32_t p_visible, uint64_t p_headroom) {
+    // Output targets and overlap storage must already be warm on the canonical path.
+    // Resizes return to that path; no per-frame HLOD growth or hidden texture allocation.
+    if (grid_state.viewport_size != p_viewport || !render_targets.output_texture.is_valid() ||
+            !render_targets.resolved_texture.is_valid() || !render_targets.normal_texture.is_valid() ||
+            !render_settings.global_sort_enabled || get_allocated_overlap_capacity() == 0 ||
+            !global_sort_resources.sorter.is_valid()) { return false; }
+    uint64_t sorter_bytes = 0;
+    if (!global_sort_resources.sorter->get_allocated_buffer_bytes(sorter_bytes)) { return false; }
+    uint32_t projection_capacity = 0;
+    const uint64_t projection_bytes = _compute_projection_buffer_bytes(p_visible, projection_capacity);
+    const uint64_t history_bytes = uint64_t(p_total) * 4u;
+    const uint64_t visibility_bytes = uint64_t(MAX(p_visible, 1u)) * 4u;
+    const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
+            uint32_t(history_bytes), sh_cache_buffers.sh_color_cache_size, 0);
+    uint64_t extra = 0;
+    if (projection_buffers.projection_buffer_size < projection_bytes) { extra += projection_bytes; }
+    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { extra += history_bytes; }
+    if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { extra += visibility_bytes; }
+    if (render_settings.enable_sh_amortization && sh_cache_buffers.sh_color_cache_size < history_bytes) { extra += sh_plan.target_bytes; }
+    if (extra > p_headroom || projection_bytes > UINT32_MAX || visibility_bytes > UINT32_MAX) { return false; }
+    if (projection_buffers.projection_buffer_size < projection_bytes) { _ensure_global_projection_buffer(p_visible); }
+    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { subpixel_history_buffers.ensure_history_buffer(p_total); }
+    if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { subpixel_visibility_buffers.ensure_visibility_buffer(p_visible); }
+    if (render_settings.enable_sh_amortization && sh_cache_buffers.sh_color_cache_size < history_bytes) {
+        sh_cache_buffers.ensure_color_cache(p_total);
+        sh_cache_needs_full_update = true;
+    }
+    return projection_buffers.projection_buffer_size >= projection_bytes &&
+            subpixel_history_buffers.subpixel_history_size >= history_bytes &&
+            subpixel_visibility_buffers.subpixel_visibility_size >= visibility_bytes &&
+            (!render_settings.enable_sh_amortization || sh_cache_buffers.sh_color_cache_size >= history_bytes);
 }

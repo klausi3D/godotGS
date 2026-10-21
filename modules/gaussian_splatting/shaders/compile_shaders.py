@@ -149,6 +149,11 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318", "#1324"),
         variants=(
+            *(Variant(f"hlod_{mode}_{storage}", _merge_defines(
+                TILE_COMMON_DEFINES, TILE_SORT_TIE_DEFINES, TILE_DIAGNOSTICS_OFF,
+                ("GS_DISPATCH_LOCAL_SIZE_X=256", "GS_HLOD_RELATIVE_PAYLOAD=1", f"GS_TILE_GLOBAL_SORT_{mode.upper()}_PASS=1"),
+                ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else ()), ("#1131",))
+                for mode in ("count", "emit") for storage in ("raw", "quantized")),
             Variant(
                 "emit_prod",
                 _merge_defines(
@@ -663,6 +668,8 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318"),
         variants=(
+            Variant("hlod_raw", ("GS_HLOD_RELATIVE_PAYLOAD=1",), ("#1131",)),
+            Variant("hlod_quantized", ("GS_HLOD_RELATIVE_PAYLOAD=1", "USE_QUANTIZED_GAUSSIANS=1"), ("#1131",)),
             Variant("default", (), ("#1318",)),
             Variant("quantized", ("USE_QUANTIZED_GAUSSIANS=1",), ("#1318",)),
         ),

@@ -15,6 +15,7 @@
 #define GAUSSIAN_SPLAT_RENDERER_H
 
 // Scene includes not available in modules - using core Node instead
+#include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "core/math/aabb.h"
 #include "core/object/object.h"
 #include "core/object/ref_counted.h"
@@ -263,6 +264,10 @@ public:
     };
 
     struct WorldSubmissionContract {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_owner_key = 0;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
         Vector<StaticChunk> static_chunks;
@@ -280,6 +285,10 @@ public:
     };
 
     struct WorldSubmissionRuntimeStateSnapshot {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_owner_key = 0;
         bool valid = false;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
@@ -877,6 +886,14 @@ public:
     const JacobianDebugConfig &get_jacobian_debug() const { return jacobian_debug; }
     // Publishes the shared atlas-shaped instance contract together with the renderer-owned
     // dense asset-ID remap sidecar.
+    // C++ runtime seams; deliberately not script-visible APIs.
+    int try_publish_hlod_resident_contract(String &r_reason);
+    bool prepare_hlod_frame(const RenderFrameContext &p_context);
+    bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
+    void release_hlod_resources();
+    void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
+    void publish_hlod_bundle(bool p_relative);
+
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,
             uint64_t p_source_generation, const String &p_contract_shape = "atlas_emulation");

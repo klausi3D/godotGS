@@ -671,6 +671,10 @@ GaussianStreamingSystem::ConfigOverrides GaussianSplatRenderer::get_streaming_co
 GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot GaussianSplatRenderer::snapshot_world_submission_runtime_state() const {
 	WorldSubmissionRuntimeStateSnapshot snapshot;
 	snapshot.valid = true;
+    snapshot.hlod_snapshot = get_resource_state().hlod_snapshot;
+    snapshot.hlod_reason = get_resource_state().hlod_reason;
+    snapshot.hlod_tau_px = get_resource_state().hlod_tau_px;
+    snapshot.hlod_owner_key = get_resource_state().hlod_owner_key;
 	snapshot.gaussian_data = get_scene_state().gaussian_data;
 	snapshot.payload_source = get_streaming_state().pending_payload_source;
 	snapshot.payload_source_splat_count = get_scene_state().payload_source_splat_count;
@@ -749,7 +753,11 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 		clear_static_chunks();
 	}
 
-	world_submission_contract_active = has_active_world_submission;
+	resource_state.hlod_snapshot = p_snapshot.hlod_snapshot;
+    resource_state.hlod_reason = p_snapshot.hlod_reason;
+    resource_state.hlod_tau_px = p_snapshot.hlod_tau_px;
+    resource_state.hlod_owner_key = p_snapshot.hlod_owner_key;
+    world_submission_contract_active = has_active_world_submission;
 	world_submission_has_residency_hint = has_residency_hint;
 	world_submission_residency_hint = has_residency_hint ? p_snapshot.desired_residency_hint : 0;
 	return OK;
@@ -823,7 +831,11 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 		return OK;
 	}
 
-	world_submission_contract_active = true;
+	resource_state.hlod_snapshot = p_contract.hlod_snapshot;
+    resource_state.hlod_reason = p_contract.hlod_reason;
+    resource_state.hlod_tau_px = p_contract.hlod_tau_px;
+    resource_state.hlod_owner_key = p_contract.hlod_owner_key;
+    world_submission_contract_active = true;
 	world_submission_has_residency_hint = p_contract.has_desired_residency_hint;
 	world_submission_residency_hint = p_contract.has_desired_residency_hint ? p_contract.desired_residency_hint : 0;
 	return OK;
