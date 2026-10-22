@@ -127,7 +127,9 @@ RID TileRenderer::TileRasterizerStage::_ensure_scene_depth_fallback(RenderingDev
 	memcpy(data.ptrw(), &far_clear, sizeof(float));
 	Vector<Vector<uint8_t>> initial;
 	initial.push_back(data);
+	const uint64_t texture_bytes_before = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
 	RID texture = p_device->texture_create(fmt, RD::TextureView(), initial);
+	owner._record_hlod_texture_allocation(p_device, texture_bytes_before, texture);
 	if (texture.is_valid()) {
 		p_device->set_resource_name(texture, "GS_TileRenderer_SceneDepthFallback");
 		scene_depth_fallback_texture = texture;

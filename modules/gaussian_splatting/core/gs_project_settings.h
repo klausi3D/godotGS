@@ -391,6 +391,19 @@ static inline GSSphereEffectorSettings get_sphere_effector_settings(ProjectSetti
 	return settings;
 }
 
+inline bool get_hlod_runtime_cut_enabled(ProjectSettings *p_ps) {
+    return get_bool(p_ps, "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled", false);
+}
+
+inline float get_hlod_tau_px(ProjectSettings *p_ps) {
+    const float tau = get_float(p_ps, "rendering/gaussian_splatting/lod/hlod_tau_px", 1.0f);
+    if (!Math::is_finite(tau) || tau <= 0.0f) {
+        WARN_PRINT_ONCE("Invalid HLOD pixel threshold; using the documented 1px default.");
+        return 1.0f;
+    }
+    return tau;
+}
+
 } // namespace settings
 } // namespace gs
 

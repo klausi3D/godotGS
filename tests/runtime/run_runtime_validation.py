@@ -82,9 +82,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shlex
 import subprocess
+import struct
 import sys
 import time
 from dataclasses import dataclass, field
@@ -217,7 +219,14 @@ GDS_TESTS: Dict[str, Path] = {
     "Data Flow Recent Window": RUNTIME_DIR / "test_data_flow_recent_window.gd",
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
+    "Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd",
 }
+
+# COR-S2A-009: migrated positive native main-view acceptance is mandatory in
+# these existing GPU lanes. This does not flip the legacy completion ladder.
+HLOD_MAIN_VIEW_SCENARIO = "Resident HLOD Main View"
+HLOD_REQUIRED_PROFILES = ("streaming-gpu-ci", "release-ci")
+HLOD_MAIN_VIEW_PROJECT = RUNTIME_DIR / "hlod_main_view_project"
 
 # Explicit dependency policy for every registered runtime scenario. Empty tuples
 # are deliberate fixture-free declarations, not an inferred absence. A scenario
@@ -272,6 +281,9 @@ SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
     ),
     "GDScript: Monitor Lifecycle Hardening": ScenarioFixtureContract(
         GDS_TESTS["Monitor Lifecycle Hardening"], ()
+    ),
+    "GDScript: Resident HLOD Main View": ScenarioFixtureContract(
+        GDS_TESTS["Resident HLOD Main View"], ()
     ),
 }
 
@@ -716,7 +728,7 @@ def _evaluate_completion(
     return result
 
 
-def _classify_result(
+def _classify_base_result(
         result: TestResult,
         *,
         fail_on_skip: bool,
@@ -768,6 +780,423 @@ def _classify_result(
         combined_output,
         zero_assertion_allowlist if zero_assertion_allowlist is not None else {},
     )
+
+
+def _hlod_orthographic_proof_failures(samples: object, last_positive: object) -> List[str]:
+    """Require a later real view refusal without replacing the perspective proof."""
+    if not isinstance(samples, list) or len(samples) != 2:
+        return ["Required HLOD orthographic proof needs exactly two consecutive actual samples."]
+    if not isinstance(last_positive, dict):
+        return ["HLOD orthographic proof has no valid preceding perspective sample."]
+    failures: List[str] = []
+    exact = {
+        "camera_projection": 1,  # Camera3D.PROJECTION_ORTHOGONAL, recorded by the producer.
+        "hlod_active": False, "hlod_reason": "unsupported_view_or_material",
+        "hlod_selected_nodes": 0, "hlod_selected_splats": 0, "hlod_selected_parents": 0,
+        "hlod_bound_relative": False, "hlod_bound_atlas_valid": True,
+        "hlod_canonical_atlas_valid": True, "hlod_canonical_world_submission_active": False,
+        "hlod_relative_world_submission_active": False, "stage_metrics_valid": True,
+        "stage_cull_route_uid": "INSTANCE.CULL.GPU", "cull_route_uid": "INSTANCE.CULL.GPU",
+        "sort_route_uid": "INSTANCE.SORT.GPU", "stage_sort_sorted_count": 2,
+        "sorted_splats": 2, "rendered_content": True,
+        "stage_cull_status": "success", "stage_sort_status": "success",
+        "stage_raster_status": "success", "stage_composite_status": "success",
+    }
+    identity_keys = (
+        "hlod_source_generation", "hlod_bound_source_generation", "hlod_bound_atlas_rid",
+        "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id",
+    )
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            failures.append(f"HLOD orthographic sample {index} is not an object.")
+            continue
+        for key, expected in exact.items():
+            if type(sample.get(key)) is not type(expected) or sample.get(key) != expected:
+                failures.append(f"HLOD orthographic sample {index}: {key} must equal {expected!r}.")
+        for key in identity_keys:
+            if (type(sample.get(key)) is not int or sample[key] == 0
+                    or type(last_positive.get(key)) is not int or sample[key] != last_positive[key]):
+                failures.append(f"HLOD orthographic sample {index}: {key} must retain the nonzero perspective identity.")
+        for key in ("engine_frame", "frame_count"):
+            if (type(sample.get(key)) is not int or type(last_positive.get(key)) is not int
+                    or sample[key] <= last_positive[key]):
+                failures.append(f"HLOD orthographic sample {index}: {key} must follow the perspective proof.")
+    if all(isinstance(sample, dict) for sample in samples):
+        first, second = samples
+        for key in ("engine_frame", "frame_count"):
+            if type(first.get(key)) is not int or type(second.get(key)) is not int or second[key] != first[key] + 1:
+                failures.append(f"HLOD orthographic {key} samples are not consecutive.")
+    # No HLOD CPU-route timing or view-epoch advance: this gate refuses the
+    # view before history acquisition and renders through ordinary GPU culling.
+    return failures
+
+
+def _hlod_transition_proof_failures(metrics: Dict[str, object]) -> List[str]:
+    """Check real TESTS_ENABLED readbacks, faults and recovery, never inferred flags."""
+    failures: List[str] = []
+    reasons = (
+        "canonical_sort_capacity_warmup", "resource_ledger_warmup_or_unavailable",
+        "hlod_candidate_memory_limit", "hlod_candidate_allocation_failed",
+        "hlod_candidate_readiness_or_memory_failed",
+    )
+
+    def fail(label: str, message: str) -> None:
+        failures.append(f"HLOD transition {label}: {message}.")
+
+    def exact(obj: dict, key: str, value: object, label: str) -> None:
+        if type(obj.get(key)) is not type(value) or obj[key] != value:
+            fail(label, f"{key} must equal {value!r}")
+
+    def sample(value: object, label: str, count: int, mode: int = 0, *, lod_off: bool = False) -> dict:
+        if not isinstance(value, dict) or not isinstance(value.get("stats"), dict):
+            fail(label, "actual observation/stats missing")
+            return {}
+        stats = value["stats"]
+        active = mode == 0 and not lod_off
+        for key, expected in (("source_leaf_count", count), ("bound_atlas_count", count),
+                              ("source_first_order_count", 3), ("source_high_order_count", 12),
+                              ("input_current", True), ("prepared_current", mode == 0),
+                              ("rendered_content", True), ("failure_mode", mode)):
+            exact(value, key, expected, label)
+        for key in ("source_data_id", "input_source_generation", "device_instance_id"):
+            if type(value.get(key)) is not int or value[key] == 0:
+                fail(label, f"{key} must be a nonzero signed integer")
+        for key in ("engine_frame", "source_revision", "current_instance_generation", "current_grading_generation", "failure_hits"):
+            if type(value.get(key)) is not int or value[key] < 0:
+                fail(label, f"{key} must be a nonnegative integer")
+        if "error" in value:
+            fail(label, "readback reported an error")
+        # ABI sizes from gaussian_gpu_layout.h; the consumer checks full current
+        # bytes, not a caller-supplied success bit or a hash of an unknown range.
+        for actual, expected, size in (("atlas_hex", "source_leaf_hex", count * 176),
+                                       ("instance_hex", "expected_instance_hex", 112),
+                                       ("grading_hex", "expected_grading_hex", 32)):
+            raw = value.get(actual)
+            if (not isinstance(raw, str) or len(raw) != size * 2
+                    or any(c not in "0123456789abcdef" for c in raw) or raw != value.get(expected)):
+                fail(label, f"{actual} differs from complete current bytes")
+        reason = reasons[mode - 1] if mode else ("lod_disabled_canonical_leaves" if lod_off else "active")
+        for key, expected in (("hlod_active", active), ("hlod_reason", reason),
+                              ("hlod_bound_relative", False), ("hlod_bound_atlas_valid", True),
+                              ("stage_metrics_valid", True), ("sort_route_uid", "INSTANCE.SORT.GPU")):
+            exact(stats, key, expected, label)
+        for stage in ("cull", "sort", "raster", "composite"):
+            exact(stats, f"stage_{stage}_status", "success", label)
+        for key in ("frame_count", "hlod_selected_nodes", "hlod_selected_splats", "hlod_selected_parents"):
+            if type(stats.get(key)) is not int or stats[key] < 0:
+                fail(label, f"{key} must be a nonnegative integer")
+        for key in ("hlod_bound_atlas_rid", "renderer_device_object_id"):
+            if type(stats.get(key)) is not int or stats[key] == 0:
+                fail(label, f"{key} must be a valid signed identity")
+        route = "INSTANCE.CULL.HLOD_CPU" if active else "INSTANCE.CULL.GPU"
+        for key in ("cull_route_uid", "stage_cull_route_uid"):
+            exact(stats, key, route, label)
+        selected = stats.get("hlod_selected_splats")
+        emitted = selected if active else count
+        # These are intentionally retained as lagged CPU statistics. The actual
+        # current GPU header below, captured before canonical restore, is the
+        # coverage oracle across a changing cut/source.
+        for key in ("stage_sort_sorted_count", "sorted_splats"):
+            if type(stats.get(key)) is not int or stats[key] < 0:
+                fail(label, f"{key} must remain a nonnegative asynchronous statistic")
+        gpu = value.get("gpu_sort_count")
+        if not isinstance(gpu, dict):
+            fail(label, "current actual GPU count/header provenance missing")
+        else:
+            exact(gpu, "header_bytes", 24, label)
+            header_hex = gpu.get("header_hex")
+            header = (bytes.fromhex(header_hex) if isinstance(header_hex, str) and len(header_hex) == 48
+                      and all(c in "0123456789abcdef" for c in header_hex) else b"")
+            if len(header) != 24:
+                fail(label, "complete actual IndirectDispatchLayout bytes missing")
+            expected_header = ((emitted + 255) // 256, 1, 1, emitted, 0, emitted) if type(emitted) is int and emitted >= 0 else None
+            if expected_header is None or len(header) != 24 or struct.unpack("<6I", header) != expected_header:
+                fail(label, "actual GPU dispatch/count/overflow header differs from current selected or canonical payload")
+            for index, key in enumerate(("dispatch_x", "dispatch_y", "dispatch_z", "element_count", "overflow_flag", "unclamped_total")):
+                if expected_header is not None:
+                    exact(gpu, key, expected_header[index], label)
+            exact(gpu, "relative", active, label)
+            exact(gpu, "renderer_frame", stats.get("frame_count"), label)
+            if (type(gpu.get("pass_frame")) is not int or gpu["pass_frame"] < 0
+                    or type(stats.get("frame_count")) is not int or gpu["pass_frame"] + 1 != stats["frame_count"]):
+                fail(label, "GPU pass frame does not identify this completed renderer frame")
+            for key in ("source_data_id", "input_source_generation", "device_instance_id"):
+                exact(gpu, key, value.get(key), label)
+            if type(gpu.get("count_buffer_rid")) is not int or gpu["count_buffer_rid"] == 0:
+                fail(label, "actual count buffer RID missing")
+            if (type(gpu.get("content_generation")) is not int or gpu["content_generation"] < 0
+                    or (active and gpu["content_generation"] == 0)):
+                fail(label, "actual relative content generation missing")
+        async_count = value.get("async_sort_count")
+        if not isinstance(async_count, dict):
+            fail(label, "separate asynchronous sample provenance missing")
+        else:
+            if type(async_count.get("valid")) is not bool:
+                fail(label, "async sample validity missing")
+            for key in ("element_count", "sample_pass_frame"):
+                if type(async_count.get(key)) is not int or async_count[key] < 0:
+                    fail(label, f"async {key} must be a nonnegative integer")
+            if (isinstance(gpu, dict) and type(gpu.get("pass_frame")) is int
+                    and type(async_count.get("sample_pass_frame")) is int
+                    and async_count["sample_pass_frame"] > gpu["pass_frame"]):
+                fail(label, "async sample comes from a future GPU pass")
+        if active and (type(selected) is not int or not 0 < selected <= count
+                       or type(stats.get("hlod_selected_nodes")) is not int or stats["hlod_selected_nodes"] <= 0):
+            fail(label, "active cut has no selected payload")
+        if not active:
+            for key in ("hlod_selected_nodes", "hlod_selected_splats", "hlod_selected_parents"):
+                exact(stats, key, 0, label)
+        if mode:
+            exact(value, "prepared_source_generation", 0, label)
+            if type(value.get("failure_hits")) is not int or value["failure_hits"] <= 0:
+                fail(label, "actual failure branch was not exercised")
+        else:
+            exact(value, "failure_hits", 0, label)
+            exact(value, "prepared_source_generation", value.get("input_source_generation"), label)
+            exact(stats, "hlod_source_generation", value.get("input_source_generation"), label)
+            exact(stats, "hlod_bound_source_generation", value.get("input_source_generation"), label)
+            exact(stats, "hlod_canonical_atlas_valid", True, label)
+            exact(stats, "hlod_bound_atlas_rid", stats.get("hlod_canonical_atlas_rid"), label)
+        return value
+
+    def later(a: dict, b: dict, label: str) -> None:
+        for x, y, key in ((a, b, "engine_frame"), (a.get("stats", {}), b.get("stats", {}), "frame_count")):
+            if type(x.get(key)) is not int or type(y.get(key)) is not int or y[key] <= x[key]:
+                fail(label, f"{key} must strictly advance")
+
+    def same(a: dict, b: dict, keys: tuple, label: str) -> None:
+        for key in keys:
+            if key not in a or key not in b or a[key] != b[key]:
+                fail(label, f"current {key} changed unexpectedly")
+
+    current_keys = ("source_data_id", "source_revision", "atlas_hex", "input_source_generation", "device_instance_id")
+    last: dict = {}
+    transitions = metrics.get("publication_transitions")
+    if not isinstance(transitions, list) or len(transitions) != 5:
+        fail("publication", "all five actual A-to-B refusal/recovery transitions are required")
+    else:
+        for mode, row in enumerate(transitions, 1):
+            label = f"publication[{mode}]"
+            if not isinstance(row, dict):
+                fail(label, "observation row missing")
+                continue
+            exact(row, "failure", mode, label)
+            before = sample(row.get("before"), label + ".before", 2)
+            refused = sample(row.get("refused"), label + ".refused", 2, mode)
+            recovered = sample(row.get("recovered"), label + ".recovered", 2)
+            if last:
+                if before != last:
+                    fail(label, "before must retain the preceding actual recovery")
+            elif isinstance(metrics.get("orthographic_samples"), list) and metrics["orthographic_samples"]:
+                prior = metrics["orthographic_samples"][-1]
+                if isinstance(prior, dict):
+                    later({"engine_frame": prior.get("engine_frame"), "stats": prior}, before, label)
+            later(before, refused, label)
+            later(refused, recovered, label)
+            for key in ("source_data_id", "atlas_hex", "input_source_generation"):
+                if key not in before or key not in refused or before[key] == refused[key]:
+                    fail(label, f"A-to-B must discriminate {key}")
+            same(refused, recovered, current_keys, label)
+            last = recovered
+    identities = metrics.get("identity_transitions")
+    if not isinstance(identities, list) or len(identities) != 3:
+        fail("identity", "instance, grading and capacity refusal/recovery are required")
+    else:
+        for change, row in zip(("instance", "grading", "capacity"), identities):
+            label = "identity." + change
+            if not isinstance(row, dict):
+                fail(label, "observation row missing")
+                continue
+            exact(row, "change", change, label)
+            before = sample(row.get("before"), label + ".before", 2)
+            refused = sample(row.get("refused"), label + ".refused", 2, 4)
+            recovered = sample(row.get("recovered"), label + ".recovered", 2)
+            if before != last:
+                fail(label, "before must retain preceding actual recovery")
+            later(before, refused, label)
+            later(refused, recovered, label)
+            # Isolate the instance predicate: a simultaneous snapshot replacement
+            # would invalidate independently and mask a missing generation guard.
+            same(before, refused, current_keys if change == "instance" else current_keys[:3] + ("device_instance_id",), label)
+            if change == "instance":
+                same(before, refused, ("current_grading_generation", "grading_hex", "relative_capacity"), label)
+            same(refused, recovered, current_keys, label)
+            if change in ("instance", "grading"):
+                key, generation = change + "_hex", "current_" + change + "_generation"
+                if change == "grading" and (key not in refused or key not in before or refused[key] == before[key]):
+                    fail(label, "actual GPU grading rows did not change")
+                if (type(refused.get(generation)) is not int or type(before.get(generation)) is not int
+                        or refused[generation] <= before[generation]):
+                    fail(label, "actual identity generation did not advance")
+                same(refused, recovered, (generation,) if change == "instance" else (key, generation), label)
+            else:
+                exact(refused, "relative_capacity", 1, label)
+                exact(before, "relative_capacity", 2, label)
+                exact(recovered, "relative_capacity", 2, label)
+            last = recovered
+    device = metrics.get("device_transition")
+    if not isinstance(device, dict) or not isinstance(device.get("foreign"), dict):
+        fail("device", "actual distinct-device refusal and main-device recovery required")
+    else:
+        before = sample(device.get("before"), "device.before", 2)
+        recovered = sample(device.get("recovered"), "device.recovered", 2)
+        if before != last:
+            fail("device", "before must retain preceding actual recovery")
+        foreign = device["foreign"]
+        exact(foreign, "original_device", before.get("device_instance_id"), "device")
+        if (type(foreign.get("foreign_device")) is not int or foreign["foreign_device"] == 0
+                or foreign["foreign_device"] == foreign.get("original_device") or "error" in foreign):
+            fail("device", "actual distinct device unavailable")
+        exact(foreign, "publication_succeeded", False, "device")
+        exact(foreign, "prepared_retained", False, "device")
+        same(before, recovered, current_keys, "device")
+        later(before, recovered, "device")
+        last = recovered
+    lod = metrics.get("lod_policy_transition")
+    if not isinstance(lod, dict):
+        fail("LOD", "actual parent-selecting on/off/on proof required")
+    else:
+        on = sample(lod.get("on"), "LOD.on", 8)
+        off = sample(lod.get("off"), "LOD.off", 8, lod_off=True)
+        enabled = sample(lod.get("reenabled"), "LOD.reenabled", 8)
+        later(last, on, "LOD.on")
+        later(on, off, "LOD.off")
+        later(off, enabled, "LOD.reenabled")
+        same(on, off, current_keys[:3] + ("device_instance_id",), "LOD.off")
+        same(off, enabled, current_keys[:3] + ("device_instance_id",), "LOD.reenabled")
+        for label, value in (("LOD.on", on), ("LOD.reenabled", enabled)):
+            stats = value.get("stats", {})
+            if (type(stats.get("hlod_selected_parents")) is not int or stats["hlod_selected_parents"] <= 0
+                    or type(stats.get("hlod_selected_splats")) is not int or not 0 < stats["hlod_selected_splats"] < 8):
+                fail(label, "fixture must actually select a reduced parent payload")
+    return failures
+
+
+def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
+    """Validate actual native samples; absent or ambiguous observations fail.
+
+    IDs are signed Variant bit patterns, not positive counters. Both RIDs must
+    be valid before equality can establish restoration. No timing minimum.
+    """
+    if metrics.get("hlod_main_view_proof_status") != "passed":
+        return ["Required HLOD main-view proof did not report passed."]
+    samples = metrics.get("samples")
+    if not isinstance(samples, list) or len(samples) != 2:
+        return ["Required HLOD proof needs exactly two consecutive actual samples."]
+    failures: List[str] = []
+    exact = {
+        "hlod_active": True, "hlod_reason": "active", "hlod_selected_nodes": 1,
+        "hlod_selected_splats": 2, "hlod_selected_parents": 0,
+        "hlod_bound_relative": False, "hlod_bound_atlas_valid": True,
+        "hlod_canonical_atlas_valid": True, "hlod_canonical_world_submission_active": False,
+        "hlod_relative_world_submission_active": False, "stage_metrics_valid": True,
+        "stage_cull_route_uid": "INSTANCE.CULL.HLOD_CPU", "cull_route_uid": "INSTANCE.CULL.HLOD_CPU",
+        "cull_route_reason": "hlod_cpu_view_admission_selection_upload",
+        "hlod_cpu_prepare_timing_scope": "cpu_view_admission_selection_draw_upload",
+        "sort_route_uid": "INSTANCE.SORT.GPU", "stage_sort_sorted_count": 2,
+        "sorted_splats": 2, "rendered_content": True,
+        "stage_cull_status": "success", "stage_sort_status": "success",
+        "stage_raster_status": "success", "stage_composite_status": "success",
+    }
+    identity_keys = (
+        "hlod_source_generation", "hlod_view_epoch", "hlod_bound_atlas_rid",
+        "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id",
+        "hlod_bound_source_generation",
+    )
+    counter_keys = ("engine_frame", "frame_count", "hlod_content_generation", "hlod_cpu_cut_usec", "hlod_cpu_prepare_usec")
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            failures.append(f"HLOD sample {index} is not an object.")
+            continue
+        for key, expected in exact.items():
+            if type(sample.get(key)) is not type(expected) or sample.get(key) != expected:
+                failures.append(f"HLOD sample {index}: {key} must equal {expected!r}.")
+        for key in identity_keys:
+            if type(sample.get(key)) is not int or sample[key] == 0:
+                failures.append(f"HLOD sample {index}: {key} must be a nonzero signed integer.")
+        for key in counter_keys:
+            if type(sample.get(key)) is not int or sample[key] < 0:
+                failures.append(f"HLOD sample {index}: {key} must be a nonnegative integer.")
+        for first, second in (
+            ("hlod_bound_atlas_rid", "hlod_canonical_atlas_rid"),
+            ("hlod_bound_source_generation", "hlod_source_generation"),
+            ("renderer_device_object_id", "server_device_object_id"),
+        ):
+            if first not in sample or second not in sample or sample[first] != sample[second]:
+                failures.append(f"HLOD sample {index}: {first} differs from {second}.")
+        prep, cut = sample.get("hlod_cpu_prepare_usec"), sample.get("hlod_cpu_cut_usec")
+        stage, perf = sample.get("stage_cull_time_ms"), sample.get("culling_time_ms")
+        if type(prep) is int and type(cut) is int and prep >= cut >= 0:
+            try:
+                f32 = lambda value: struct.unpack("<f", struct.pack("<f", value))[0]
+                expected_ms = f32(f32(prep) * f32(0.001))
+                if (type(stage) not in (int, float) or type(perf) not in (int, float)
+                        or not math.isfinite(stage) or not math.isfinite(perf)
+                        or stage != expected_ms or perf != stage):
+                    failures.append(f"HLOD sample {index}: CPU timing scope/propagation mismatch.")
+            except (OverflowError, struct.error):
+                failures.append(f"HLOD sample {index}: CPU duration is not representable.")
+        else:
+            failures.append(f"HLOD sample {index}: preparation does not contain selection duration.")
+    if all(isinstance(sample, dict) for sample in samples):
+        first, second = samples
+        for key in ("engine_frame", "frame_count"):
+            if type(first.get(key)) is not int or type(second.get(key)) is not int or second[key] != first[key] + 1:
+                failures.append(f"HLOD {key} samples are not consecutive.")
+        for key in ("hlod_source_generation", "hlod_view_epoch", "hlod_canonical_atlas_rid", "server_device_object_id"):
+            if key not in first or key not in second or first[key] != second[key]:
+                failures.append(f"HLOD {key} changed across the static proof.")
+        if (type(first.get("hlod_content_generation")) is not int
+                or type(second.get("hlod_content_generation")) is not int
+                or second["hlod_content_generation"] <= first["hlod_content_generation"]):
+            failures.append("HLOD cut content generation did not advance.")
+    failures.extend(_hlod_orthographic_proof_failures(metrics.get("orthographic_samples"), samples[-1]))
+    failures.extend(_hlod_transition_proof_failures(metrics))
+    for key, expected in (("project_file_present", True), ("editor_hint", False),
+                          ("initial_root_children", 0), ("capture_root_children", 1),
+                          ("capture_scene_is_only_root_child", True)):
+        if type(metrics.get(key)) is not type(expected) or metrics.get(key) != expected:
+            failures.append(f"HLOD native project context requires {key}={expected!r}.")
+    if not isinstance(metrics.get("project_path"), str) or not metrics["project_path"]:
+        failures.append("HLOD actual project path missing.")
+    for key in ("image_width", "image_height"):
+        if type(metrics.get(key)) is not int or metrics[key] != 64:
+            failures.append(f"HLOD target capture requires {key}=64.")
+    nonblack = metrics.get("image_nonblack_rgb_pixels")
+    if type(nonblack) is not int or not 0 < nonblack < 64 * 64:
+        failures.append("HLOD target must contain visible RGB signal and black background.")
+    if not isinstance(metrics.get("image_path"), str) or not metrics["image_path"]:
+        failures.append("HLOD target capture path missing.")
+    digest = metrics.get("image_sha256")
+    if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        failures.append("HLOD target capture SHA256 missing or malformed.")
+    return failures
+
+
+def _classify_result(
+        result: TestResult,
+        *,
+        fail_on_skip: bool,
+        allow_skip_tests: set[str],
+        zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
+) -> TestResult:
+    result = _classify_base_result(result, fail_on_skip=fail_on_skip,
+        allow_skip_tests=allow_skip_tests, zero_assertion_allowlist=zero_assertion_allowlist)
+    if result.name != HLOD_MAIN_VIEW_SCENARIO:
+        return result
+    if result.status != "passed":
+        result.status = "failed"
+        result.reasons.append("Required native HLOD main-view completion is unavailable; no skip/advisory substitute.")
+        return result
+    failures = _hlod_main_view_proof_failures(result.metrics)
+    metric_lines = [line for line in (result.stdout + "\n" + result.stderr).splitlines()
+                    if line.lstrip().startswith(METRICS_MARKER)]
+    if len(metric_lines) != 1:
+        failures.append("Required HLOD proof needs exactly one producer metrics record.")
+    if failures:
+        result.status = "failed"
+        result.reasons.extend(failures)
+    return result
 
 
 def _format_command(command: Iterable[str]) -> str:
@@ -1020,15 +1449,24 @@ def _resolve_mode_args(mode: str) -> List[str]:
 
 def _build_godot_command(config: GodotRunConfig, script: Path) -> List[str]:
     command = [config.binary, *_resolve_mode_args(config.mode)]
-    if config.project_path is not None:
-        command.extend(["--path", str(config.project_path)])
+    project_path = config.project_path
+    if script == RUNTIME_DIR / "test_hlod_resident_main_view.gd":
+        # An editor binary with --script but no project silently starts the
+        # project manager. Keep this isolated default local to the HLOD proof;
+        # an explicit caller project still has precedence.
+        if project_path is None:
+            project_path = HLOD_MAIN_VIEW_PROJECT
+        if not (project_path / "project.godot").is_file():
+            raise ValueError(f"Required HLOD project.godot missing under {project_path}.")
+    if project_path is not None:
+        command.extend(["--path", str(project_path)])
     command.extend(config.extra_args)
     script_arg: Path
-    if config.project_path is None:
+    if project_path is None:
         script_arg = script.relative_to(ROOT)
     else:
         try:
-            script_arg = script.relative_to(config.project_path)
+            script_arg = script.relative_to(project_path)
         except ValueError:
             script_arg = script
     command.extend(["--verbose", "--script", str(script_arg)])
@@ -1257,6 +1695,24 @@ def _floor_governed_fixture_consumers(
     return consumers
 
 
+def _validate_hlod_profile_wiring(config: Dict[str, object]) -> None:
+    source = RUNTIME_DIR / "test_hlod_resident_main_view.gd"
+    if GDS_TESTS.get(HLOD_MAIN_VIEW_SCENARIO) != source or not source.is_file():
+        raise ValueError("Required Resident HLOD Main View registry/source is missing.")
+    if not (HLOD_MAIN_VIEW_PROJECT / "project.godot").is_file():
+        raise ValueError("Required Resident HLOD Main View native project is missing.")
+    contract = SCENARIO_FIXTURE_CONTRACTS.get(f"GDScript: {HLOD_MAIN_VIEW_SCENARIO}")
+    if contract is None or contract.source != source or contract.fixtures != ():
+        raise ValueError("Required HLOD scenario must declare its in-memory fixture producer.")
+    profiles = config.get("profiles", {})
+    for name in HLOD_REQUIRED_PROFILES:
+        profile = profiles.get(name, {}) if isinstance(profiles, dict) else {}
+        if profile.get("gd_tests", []).count(HLOD_MAIN_VIEW_SCENARIO) != 1:
+            raise ValueError(f"Required {name} must select Resident HLOD Main View exactly once.")
+        if profile.get("fail_on_skip") is not True or profile.get("gd_mode") not in ("windows-vulkan", "non-headless"):
+            raise ValueError(f"Required {name} must execute native HLOD without skips.")
+
+
 def _load_scenario_config(path: Path) -> Dict[str, object]:
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -1318,6 +1774,11 @@ def _load_scenario_config(path: Path) -> Dict[str, object]:
         )
 
     _validate_zero_assertion_allowlist(raw.get("zero_assertion_allowlist", []))
+
+    # The shipped CI profiles own this additional requirement. Custom/ad-hoc
+    # configs retain their existing semantics; they cannot alter these lanes.
+    if path.resolve() == DEFAULT_SCENARIO_CONFIG.resolve():
+        _validate_hlod_profile_wiring(raw)
 
     return raw
 
@@ -1625,10 +2086,22 @@ def run_gd_tests(
         ]
 
     availability_error = _godot_binary_is_available(config.binary)
-    if availability_error:
-        results: List[TestResult] = []
-        for name, script in gd_tests.items():
+    if not availability_error:
+        print(
+            "[runtime] GDScript mode="
+            f"{config.mode} fail_on_skip={'yes' if config.fail_on_skip else 'no'} "
+            f"allow_skip_tests={len(config.allow_skip_tests)}"
+        )
+    results: List[TestResult] = []
+    allow_skip_tests = set(config.allow_skip_tests)
+    for name, script in gd_tests.items():
+        try:
             command = _build_godot_command(config, script)
+        except ValueError as exc:
+            results.append(TestResult(name=name, command=[], duration=0.0,
+                exit_code=1, stdout="", stderr=str(exc), status="failed", reasons=[str(exc)]))
+            continue
+        if availability_error:
             results.append(
                 TestResult(
                     name=name,
@@ -1641,17 +2114,7 @@ def run_gd_tests(
                     reasons=[availability_error],
                 )
             )
-        return results
-
-    print(
-        "[runtime] GDScript mode="
-        f"{config.mode} fail_on_skip={'yes' if config.fail_on_skip else 'no'} "
-        f"allow_skip_tests={len(config.allow_skip_tests)}"
-    )
-    results: List[TestResult] = []
-    allow_skip_tests = set(config.allow_skip_tests)
-    for name, script in gd_tests.items():
-        command = _build_godot_command(config, script)
+            continue
         result = run_command(name, command, cwd=ROOT, timeout=config.timeout)
         results.append(
             _classify_result(
@@ -1912,6 +2375,15 @@ def main() -> int:
                 zero_assertion_allowlist=zero_assertion_allowlist,
             )
         )
+
+    # A full required profile must not go green when its execution wiring drops
+    # the migrated positive scenario. Named local subsets remain subsets.
+    if profile_name in HLOD_REQUIRED_PROFILES and not args.gd_test and not args.gd_script:
+        matches = [result for result in all_results if result.name == HLOD_MAIN_VIEW_SCENARIO]
+        if len(matches) != 1:
+            reason = "Required HLOD main-view result missing or duplicated in full profile."
+            all_results.append(TestResult(name="Required HLOD Main View Execution", command=[],
+                duration=0.0, exit_code=1, stdout="", stderr=reason, reasons=[reason]))
 
     summary = summarise(all_results)
     summary["profile"] = profile_name

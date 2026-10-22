@@ -91,6 +91,13 @@ layout(set = 0, binding = 9, std140) uniform Params {
     vec4 cull_frustum_radius; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy
 } params;
 
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+// Parallel to SplatRef: values[] still sorts the original accepted write index.
+layout(set = 0, binding = 10, std430) writeonly buffer HlodDrawEntryBuffer {
+    uint draw_entries[];
+} hlod_draw_entry_buffer;
+#endif
+
 // Rotate vector `v` by quaternion `q`.
 vec3 quat_rotate(vec4 q, vec3 v) {
     vec3 t = 2.0 * cross(q.xyz, v);
@@ -159,6 +166,9 @@ void main() {
     vec3 local_scale = gaussian.scale;
 #endif
 
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    local_position += vec3(chunk.node_center_x, chunk.node_center_y, chunk.node_center_z);
+#endif
     InstanceDataGPU instance = instance_buffer.instances[visible_chunk.instance_id];
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
@@ -232,6 +242,9 @@ void main() {
         return;
     }
 
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    hlod_draw_entry_buffer.draw_entries[write_index] = visible_chunk_index;
+#endif
     splat_ref_buffer.splat_refs[write_index].instance_id = visible_chunk.instance_id;
     // Registered chunks are shared by every instance of an asset, so the SH limit also
     // follows this instance's resolved LOD; the per-chunk limit still caps it.
