@@ -25,6 +25,7 @@
 #ifdef TESTS_ENABLED
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_bake.h"
+#include "../interfaces/sync_policy.h"
 #include "pipeline_io_contracts.h"
 #include "servers/rendering_server.h"
 #endif
@@ -1767,7 +1768,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
                 snapshot.get_sh_first_order_count(), high_count);
         memcpy(expected.ptrw() + uint64_t(i) * sizeof(packed), &packed, sizeof(packed));
     }
-    const Vector<uint8_t> observed = rd->buffer_get_data(bound.atlas_gaussian_buffer);
+    const Vector<uint8_t> observed = gs_device_utils::safe_buffer_get_data(rd, bound.atlas_gaussian_buffer);
     result["atlas_hex"] = String::hex_encode_buffer(observed.ptr(), observed.size());
     result["source_leaf_hex"] = String::hex_encode_buffer(expected.ptr(), expected.size());
     result["source_data_id"] = int64_t(source->get_instance_id());
@@ -1801,8 +1802,8 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
         instances[0].ids[0] = 0u;
         instances[0].lod[1] = instance_asset_remap.generation == 0 ? 1u : uint32_t(instance_asset_remap.generation & uint64_t(UINT32_MAX));
     }
-    const Vector<uint8_t> instance_bytes = rd->buffer_get_data(bound.instance_buffer);
-    const Vector<uint8_t> grading_bytes = rd->buffer_get_data(bound.instance_grading_buffer);
+    const Vector<uint8_t> instance_bytes = gs_device_utils::safe_buffer_get_data(rd, bound.instance_buffer);
+    const Vector<uint8_t> grading_bytes = gs_device_utils::safe_buffer_get_data(rd, bound.instance_grading_buffer);
     result["instance_hex"] = String::hex_encode_buffer(instance_bytes.ptr(), instance_bytes.size());
     result["expected_instance_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(instances.ptr()), instances.size() * sizeof(InstanceDataGPU));
     result["grading_hex"] = String::hex_encode_buffer(grading_bytes.ptr(), grading_bytes.size());
@@ -1827,7 +1828,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
             subsystem_state.sorting_pipeline.is_null()) {
         result["error"] = "current_resident_sort_count_provenance_required"; return result;
     }
-    const Vector<uint8_t> count_bytes = rd->buffer_get_data(count_buffer);
+    const Vector<uint8_t> count_bytes = gs_device_utils::safe_buffer_get_data(rd, count_buffer);
     if (count_bytes.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout))) {
         result["error"] = "complete_indirect_dispatch_header_required"; return result;
     }
