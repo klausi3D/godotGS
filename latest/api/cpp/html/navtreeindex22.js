@@ -1,5 +1,8 @@
 var NAVTREEINDEX22 =
 {
+"quantization__config_8cpp.html#adb92671a7c697b1763e2bddca9010c2d":[2,0,0,0,12,31,1],
+"quantization__config_8h.html":[2,0,0,0,12,32],
+"quantization__config_8h.html#a8c11460d07de14a065bf834f2469116b":[2,0,0,0,12,32,1],
 "quantization__config_8h.html#ab52158f920a57bafe1a68c252f6e492b":[2,0,0,0,12,32,3],
 "quantization__config_8h.html#adb92671a7c697b1763e2bddca9010c2d":[2,0,0,0,12,32,2],
 "quantization__config_8h_source.html":[2,0,0,0,12,32],
@@ -246,8 +249,5 @@ var NAVTREEINDEX22 =
 "sh__config_8h_source.html":[2,0,0,0,12,71],
 "shader__compilation__helper_8cpp.html":[2,0,0,0,12,72],
 "shader__compilation__helper_8h.html":[2,0,0,0,12,73],
-"shader__compilation__helper_8h_source.html":[2,0,0,0,12,73],
-"shader__compilation__types_8h.html":[2,0,0,0,12,74],
-"shader__compilation__types_8h_source.html":[2,0,0,0,12,74],
-"sort__benchmark__metrics_8h.html":[2,0,0,0,12,75]
+"shader__compilation__helper_8h_source.html":[2,0,0,0,12,73]
 };
