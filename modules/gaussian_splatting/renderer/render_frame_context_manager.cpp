@@ -48,6 +48,77 @@ void RenderFrameContextManager::reset_view_state_defaults() {
 }
 
 void RenderFrameContextManager::reset() {
+    clear_hlod_histories();
 	reset_frame_state();
 	reset_view_state_defaults();
+}
+
+namespace {
+std::atomic<uint64_t> hlod_lifecycle_epoch{ 1 };
+}
+
+void GaussianHlodViewLifetime::configure(RenderSceneBuffersRD *p_buffers) {
+    epoch = p_buffers ? hlod_lifecycle_epoch.fetch_add(1, std::memory_order_relaxed) : 0;
+}
+
+void GaussianHlodViewLifetime::free_data() {
+    epoch = hlod_lifecycle_epoch.fetch_add(1, std::memory_order_relaxed);
+}
+
+gs_hlod_runtime::CutHistory *RenderFrameContextManager::acquire_hlod_history(RenderSceneBuffersRD *p_buffers,
+        uint64_t p_source, uint64_t p_policy, uint32_t p_node_count, uint64_t &r_epoch) {
+    r_epoch = 0;
+    if (!p_buffers || !p_buffers->get_render_target().is_valid()) {
+        return nullptr;
+    }
+    const StringName token_name = SNAME("gaussian_splat_hlod_view_lifetime");
+    Ref<RenderBufferCustomDataRD> existing = p_buffers->has_custom_data(token_name) ? p_buffers->get_custom_data(token_name) : Ref<RenderBufferCustomDataRD>();
+    Ref<GaussianHlodViewLifetime> token = existing;
+    if (existing.is_valid() && token.is_null()) {
+        return nullptr; // Never replace another custom-data owner.
+    }
+    if (token.is_null()) {
+        token.instantiate();
+        token->configure(p_buffers); // set_custom_data does not call configure.
+        p_buffers->set_custom_data(token_name, token);
+    }
+    r_epoch = token->get_epoch();
+    if (r_epoch == 0) { return nullptr; }
+    HlodViewSlot *slot = nullptr;
+    for (HlodViewSlot &candidate : hlod_views) {
+        if (candidate.buffers == p_buffers->get_instance_id() && candidate.epoch == r_epoch &&
+                candidate.target == p_buffers->get_render_target()) {
+            slot = &candidate;
+            break;
+        }
+    }
+    if (!slot) {
+        slot = &hlod_views[0];
+        for (HlodViewSlot &candidate : hlod_views) {
+            if (candidate.last_used < slot->last_used) { slot = &candidate; }
+        }
+        if (!slot->history.reserve(p_node_count)) { return nullptr; }
+        slot->buffers = p_buffers->get_instance_id();
+        slot->target = p_buffers->get_render_target();
+        slot->epoch = r_epoch;
+        slot->source = p_source;
+        slot->policy = p_policy;
+    } else if (slot->source != p_source || slot->policy != p_policy) {
+        if (!slot->history.reserve(p_node_count)) { return nullptr; }
+        slot->source = p_source;
+        slot->policy = p_policy;
+    }
+    slot->last_used = ++hlod_view_clock;
+    return &slot->history;
+}
+
+uint64_t RenderFrameContextManager::hlod_history_bytes() const {
+    uint64_t bytes = 0;
+    for (const HlodViewSlot &slot : hlod_views) { bytes += slot.history.allocated_bytes(); }
+    return bytes;
+}
+
+void RenderFrameContextManager::clear_hlod_histories() {
+    for (HlodViewSlot &slot : hlod_views) { slot = HlodViewSlot(); }
+    hlod_view_clock = 0;
 }

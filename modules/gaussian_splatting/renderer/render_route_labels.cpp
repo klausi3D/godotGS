@@ -321,6 +321,9 @@ String describe_cull_route_uid(const String &p_cull_route_uid) {
 	if (cull_route_uid == String(RenderRouteUID::INSTANCE_CULL_GPU)) {
 		return "Culled splats with the GPU instance culler";
 	}
+	if (cull_route_uid == String(RenderRouteUID::INSTANCE_CULL_HLOD_CPU)) {
+		return "Prepared the resident HLOD cut on the CPU";
+	}
 	if (cull_route_uid == String(RenderRouteUID::INSTANCE_CULL_CPU_FALLBACK)) {
 		return "Fell back to CPU culling for the instance pipeline";
 	}
@@ -350,6 +353,9 @@ String describe_backend_selection_reason(const String &p_reason) {
 }
 
 String describe_cull_route_reason(const String &p_reason) {
+	if (p_reason == "hlod_cpu_view_admission_selection_upload") {
+		return "Measured CPU view admission, cut selection and draw-list upload";
+	}
 	const String description = _describe_cull_reason_token(p_reason);
 	return description.is_empty() ? p_reason : description;
 }

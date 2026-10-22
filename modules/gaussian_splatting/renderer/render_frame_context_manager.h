@@ -7,7 +7,22 @@
 #include "core/math/vector3.h"
 #include "servers/rendering/rendering_device.h"
 
+#include "../lod/hlod_runtime_selection.h"
+#include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
+
 #include <atomic>
+
+// RenderSceneBuffersRD owns this token. It owns no renderer, render-buffer Ref or RID.
+class GaussianHlodViewLifetime : public RenderBufferCustomDataRD {
+    GDCLASS(GaussianHlodViewLifetime, RenderBufferCustomDataRD);
+    uint64_t epoch = 0;
+protected:
+    static void _bind_methods() {}
+public:
+    void configure(RenderSceneBuffersRD *p_buffers) override;
+    void free_data() override;
+    uint64_t get_epoch() const { return epoch; }
+};
 
 class RenderFrameContextManager {
 public:
@@ -48,11 +63,27 @@ public:
 	ViewState &get_view_state() { return view_state; }
 	const ViewState &get_view_state() const { return view_state; }
 
+    gs_hlod_runtime::CutHistory *acquire_hlod_history(RenderSceneBuffersRD *p_buffers,
+            uint64_t p_source, uint64_t p_policy, uint32_t p_node_count, uint64_t &r_epoch);
+    uint64_t hlod_history_bytes() const;
+    void clear_hlod_histories();
+
 	void reset_frame_state();
 	void reset_view_state_defaults();
 	void reset();
 
 private:
+    struct HlodViewSlot {
+        ObjectID buffers;
+        RID target;
+        uint64_t epoch = 0;
+        uint64_t source = 0;
+        uint64_t policy = 0;
+        uint64_t last_used = 0;
+        gs_hlod_runtime::CutHistory history;
+    };
+    HlodViewSlot hlod_views[4];
+    uint64_t hlod_view_clock = 0;
 	FrameState frame_state;
 	ViewState view_state;
 };

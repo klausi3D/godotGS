@@ -1,0 +1,12 @@
+; Isolated native context for test_hlod_resident_main_view.gd (--script).
+; Keep scene creation and Gaussian settings in the scenario itself.
+config_version=5
+
+[application]
+
+config/name="GodotGS Resident HLOD Main View"
+
+[display]
+
+window/size/viewport_width=64
+window/size/viewport_height=64

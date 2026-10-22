@@ -83,9 +83,9 @@ struct ChunkMetaGPU {
     uint lod_level;
     uint flags;
     uint sh_limit;           // per-chunk SH band limit (optional)
-    uint pad0;
-    uint pad1;
-    uint pad2;
+    float node_center_x;
+    float node_center_y;
+    float node_center_z;
 };
 
 // Global chunk index indirection (dense).
