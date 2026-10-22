@@ -24,6 +24,7 @@ struct BakeInput {
 	const Vector3 *sh_high_order = nullptr; // count * sh_high_order_count, may be null if 0
 	uint32_t count = 0u;
 	uint32_t sh_high_order_count = 0u;
+	uint32_t sh_first_order_count = 0u; // explicit compact prefix; high_count alone cannot distinguish SH0/SH1
 };
 
 struct BakeResult {
