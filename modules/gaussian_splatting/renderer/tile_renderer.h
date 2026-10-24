@@ -301,6 +301,19 @@ public:
     const TilePerformanceMetrics &_test_raster_metrics() const { return perf_metrics; }
     static Vector<uint64_t> _test_instance_pipeline_binding_generation_trace(
             const Vector<RenderParams> &p_params_sequence);
+    struct TestDescriptorCacheSnapshot {
+        uint64_t generation;
+        RID binning_params;
+        RID fragment_params;
+        RID compute_params;
+        RID depth_fallback;
+        RID depth_sampler;
+    };
+    TestDescriptorCacheSnapshot _test_descriptor_cache_snapshot() const {
+        return { descriptor_generation, binning_stage.cached_binning_param_uniform_set,
+            raster_stage.cached_raster_param_uniform_set, raster_stage.cached_raster_compute_param_uniform_set,
+            raster_stage.scene_depth_fallback_texture, raster_stage.scene_depth_sampler };
+    }
 
     // Codex PR #419 round-2 Finding 2: aggregate non-byte RID-leak coverage for
     // the tile_shader_recompile lifetime scenario (#298 regression). The forced
