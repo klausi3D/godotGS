@@ -1,5 +1,5 @@
 /*
- * Live "newest build per platform" table for docs/getting-started/downloads.md.
+ * Direct editor downloads for docs/getting-started/downloads.md.
  *
  * Nightlies are published Linux-only whenever the Windows lane fails, so the
  * newest nightly is not necessarily the newest Windows build. Hand-written
@@ -11,8 +11,8 @@
  *
  * Progressive enhancement only: the placeholder is empty and `hidden` in the
  * page source, so with JS off, the API rate-limited (403/429) or offline the
- * page reads exactly as its static prose and Releases link. Failure shows one
- * quiet line pointing at Releases, nothing more.
+ * page retains its manual download and run instructions. Export templates are
+ * rendered separately from the editor downloads. Failure points at Releases.
  *
  * Deliberately NOT `releases/latest`: that endpoint skips prereleases, and
  * every nightly is a prerelease.
@@ -36,11 +36,11 @@
     {
       key: "linux-editor",
       label: "Linux editor",
-      // This table renders above the page's build-flavor warning, and the
+      // This picker renders above the page's build-flavor warning, and the
       // static download-flavor guard (tests/ci/check_download_build_flavor_warning.py)
-      // cannot see JS-built links, so the row carries its own -O0 marker.
+      // cannot see JS-built links, so the card carries its own -O0 marker.
       flavor: "dev_build=yes, -O0: do not benchmark",
-      flavorHref: "#build-flavor-and-performance",
+      flavorHref: "#linux-nightly-speed",
       pattern: /^godotgs-linux-x86_64-.+\.tar\.xz$/,
       ext: ".tar.xz",
     },
@@ -65,10 +65,26 @@
   }
 
   function isSafeDownloadUrl(url, repo) {
-    return (
-      typeof url === "string" &&
-      url.indexOf("https://github.com/" + repo + "/releases/download/") === 0
-    );
+    var pathPrefix = "/" + repo + "/releases/download/";
+    if (typeof url !== "string" || url.indexOf("https://github.com" + pathPrefix) !== 0) {
+      return false;
+    }
+    try {
+      // Browsers normalize literal and percent-encoded dot segments. A raw
+      // prefix alone can therefore admit a link to another repository.
+      var parsed = new URL(url);
+      var decodedPath = decodeURIComponent(parsed.pathname);
+      return parsed.origin === "https://github.com" &&
+        parsed.pathname.indexOf(pathPrefix) === 0 &&
+        decodedPath.indexOf(pathPrefix) === 0 &&
+        !/%(?:2f|5c)/i.test(parsed.pathname) &&
+        decodedPath.indexOf("%") === -1 &&
+        !decodedPath.split("/").some(function (part) {
+          return part === "." || part === ".." || part.indexOf("\\") !== -1;
+        });
+    } catch (e) {
+      return false; // malformed URL or percent escape
+    }
   }
 
   /* Reduce the API payload to the fields this page uses (also what is cached). */
@@ -244,132 +260,103 @@
     return a;
   }
 
-  // Dates and file names must not break at their hyphens; set via the DOM so
-  // no stylesheet is needed for one table.
-  function nowrapCell() {
-    var td = el("td");
-    td.style.whiteSpace = "nowrap";
-    return td;
-  }
-
-  function renderTable(container, repo, releases, now) {
+  function renderDownloads(container, repo, releases, now, fromCache) {
     var picks = pickPerPlatform(releases);
-
     var box = el("div");
-    box.className = "admonition info";
-    var title = el("p", "Newest build per platform");
-    title.className = "admonition-title";
-    box.appendChild(title);
-    box.appendChild(
-      el(
-        "p",
-        "Fetched live from the GitHub Releases API when this page loaded. " +
-          "Each row links the newest release that actually contains that " +
-          "file (all builds are x86_64)."
-      )
-    );
-
-    var table = el("table");
-    var thead = el("thead");
-    var headRow = el("tr");
-    ["Platform", "Newest build", "Published", "Download", "SHA-256"].forEach(
-      function (h) {
-        headRow.appendChild(el("th", h));
-      }
-    );
-    thead.appendChild(headRow);
-    table.appendChild(thead);
-
-    var tbody = el("tbody");
-    picks.forEach(function (p) {
-      var tr = el("tr");
-      var platformCell = el("td", p.platform.label);
+    var grid = el("div");
+    grid.className = "gs-download-grid";
+    // The selector's platform order stays unchanged; editors alone are primary.
+    [picks[1], picks[0]].forEach(function (p) {
+      var os = p.platform.key === "windows-editor" ? "Windows" : "Linux";
+      var card = el("section");
+      card.className = "gs-download-card";
+      card.appendChild(el("h3", os));
+      var format = p.platform.ext === ".zip" ? "ZIP" : "TAR.XZ";
+      var size = p.asset ? formatSize(p.asset.size) : "";
+      var meta = el("p", "x86_64 · " + format + (size ? " · " + size : ""));
+      meta.className = "gs-download-meta";
+      card.appendChild(meta);
       if (p.platform.flavor) {
-        platformCell.appendChild(el("br"));
-        var flavorNote = el("small");
-        flavorNote.appendChild(link(p.platform.flavorHref, p.platform.flavor));
-        platformCell.appendChild(flavorNote);
+        var flavor = el("p");
+        flavor.className = "gs-download-flavor";
+        flavor.appendChild(link(p.platform.flavorHref, p.platform.flavor));
+        card.appendChild(flavor);
       }
-      tr.appendChild(platformCell);
       if (!p.release) {
-        var none = el("td");
-        none.colSpan = 4;
-        none.appendChild(
-          document.createTextNode(
-            "No build in the " + releases.length + " most recent releases; see "
-          )
-        );
-        none.appendChild(link(releasesPageUrl(repo), "Releases"));
-        none.appendChild(document.createTextNode("."));
-        tr.appendChild(none);
-        tbody.appendChild(tr);
+        card.appendChild(el("p", "No editor in the " + releases.length + " most recent releases."));
+        card.appendChild(link(releasesPageUrl(repo), "Check release assets for " + os));
+        grid.appendChild(card);
         return;
       }
-      var tagCell = nowrapCell();
-      tagCell.appendChild(el("code", p.release.tag));
-      tr.appendChild(tagCell);
-
-      var dateCell = nowrapCell();
+      var build = el("p");
+      build.className = "gs-download-meta";
+      build.appendChild(el("code", p.release.tag));
+      build.appendChild(document.createTextNode(p.release.prerelease ? " · Prerelease" : " · Release"));
+      card.appendChild(build);
+      var date = el("p", "Published ");
+      date.className = "gs-download-meta";
       var time = el("time", isoDate(p.release.published));
       time.dateTime = isoDate(p.release.published);
-      dateCell.appendChild(time);
-      dateCell.appendChild(el("br"));
-      dateCell.appendChild(
-        document.createTextNode(relativeDays(p.release.published, now))
-      );
-      tr.appendChild(dateCell);
-
-      var dl = nowrapCell();
+      date.appendChild(time);
+      card.appendChild(date);
       if (isSafeDownloadUrl(p.asset.url, repo)) {
-        dl.appendChild(link(p.asset.url, p.platform.ext, p.asset.name));
-        var size = formatSize(p.asset.size);
-        if (size) {
-          dl.appendChild(el("br"));
-          dl.appendChild(document.createTextNode(size));
-        }
+        var download = link(p.asset.url, "Download for " + os, p.asset.name);
+        download.className = "md-button md-button--primary gs-download-button";
+        card.appendChild(download);
       } else {
-        dl.textContent = "—";
+        card.appendChild(el("p", "Download link unavailable."));
+        card.appendChild(link(releasesPageUrl(repo), "Check release assets for " + os));
       }
-      tr.appendChild(dl);
-
-      var sha = nowrapCell();
+      var verify = el("p");
+      verify.className = "gs-download-meta";
       if (p.sidecar && isSafeDownloadUrl(p.sidecar.url, repo)) {
-        sha.appendChild(link(p.sidecar.url, ".sha256", p.sidecar.name));
+        verify.appendChild(link(p.sidecar.url, "SHA-256 checksum for " + os, p.sidecar.name));
       } else {
-        sha.textContent = "—";
+        verify.appendChild(document.createTextNode("Checksum unavailable; check release assets."));
       }
-      tr.appendChild(sha);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-
-    var wrap = el("div");
-    wrap.className = "md-typeset__scrollwrap";
-    var inner = el("div");
-    inner.className = "md-typeset__table";
-    inner.appendChild(table);
-    wrap.appendChild(inner);
-    box.appendChild(wrap);
-
-    var notes = staleNotes(picks, releases, now);
-    if (notes.length) {
-      var ul = el("ul");
+      card.appendChild(verify);
+      var notes = staleNotes([p], releases, now);
       notes.forEach(function (n) {
-        ul.appendChild(el("li", n));
+        card.appendChild(el("p", n));
       });
-      box.appendChild(ul);
-    }
-
+      grid.appendChild(card);
+    });
+    box.appendChild(grid);
+    var status = el("p", fromCache
+      ? "Using the release list cached in this browser session (up to 10 minutes old)."
+      : "Checked the " + releases.length + " most recent published releases. Each button downloads the newest available editor for that platform.");
+    status.className = "gs-download-meta";
+    box.appendChild(status);
     container.replaceChildren(box);
     container.hidden = false;
+
+    var exportContainer = document.getElementById("gs-export-template-download");
+    if (exportContainer) {
+      var p = picks[2];
+      var exportLink = el("p");
+      if (p.release && isSafeDownloadUrl(p.asset.url, repo)) {
+        exportLink.appendChild(link(p.asset.url, "Download Windows export template", p.asset.name));
+        exportLink.appendChild(document.createTextNode(" · " + p.release.tag));
+        if (p.sidecar && isSafeDownloadUrl(p.sidecar.url, repo)) {
+          exportLink.appendChild(document.createTextNode(" · "));
+          exportLink.appendChild(link(p.sidecar.url, "SHA-256 checksum", p.sidecar.name));
+        }
+      } else {
+        exportLink.appendChild(link(releasesPageUrl(repo), "Find Windows export templates in release assets"));
+      }
+      var exportNotes = staleNotes([p], releases, now);
+      exportContainer.replaceChildren(exportLink);
+      exportNotes.forEach(function (n) { exportContainer.appendChild(el("p", n)); });
+      exportContainer.hidden = false;
+    }
   }
 
   function renderFailure(container, repo) {
     var p = el("p");
     var em = el("em");
-    em.appendChild(document.createTextNode("Couldn't load the live list; see "));
-    em.appendChild(link(releasesPageUrl(repo), "Releases"));
-    em.appendChild(document.createTextNode("."));
+    em.appendChild(document.createTextNode("Couldn't load editor downloads. "));
+    em.appendChild(link(releasesPageUrl(repo), "Open GitHub Releases"));
+    em.appendChild(document.createTextNode(" and use the manual download instructions below."));
     p.appendChild(em);
     container.replaceChildren(p);
     container.hidden = false;
@@ -454,11 +441,15 @@
       return; // static prose stays the whole story
     }
     container.setAttribute("data-gs-state", "loading");
+    var loading = el("p", "Finding editor downloads…");
+    loading.setAttribute("role", "status");
+    container.replaceChildren(loading);
+    container.hidden = false;
 
     var now = Date.now();
     var cached = readCache(repo, now);
     if (cached) {
-      renderTable(container, repo, cached, now);
+      renderDownloads(container, repo, cached, now, true);
       container.setAttribute("data-gs-state", "live");
       return;
     }
@@ -466,7 +457,7 @@
       function (releases) {
         writeCache(repo, releases, now);
         if (document.body.contains(container)) {
-          renderTable(container, repo, releases, now);
+          renderDownloads(container, repo, releases, now, false);
           container.setAttribute("data-gs-state", "live");
         }
       },

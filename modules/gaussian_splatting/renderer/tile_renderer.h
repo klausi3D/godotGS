@@ -551,7 +551,10 @@ private:
     void _on_debug_counters_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_stats_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_signal_readback(const Vector<uint8_t> &p_data);
-    void _on_splat_audit_readback(const Vector<uint8_t> &p_data);
+#ifdef TESTS_ENABLED
+	void _on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce);
+#endif
+	void _on_splat_audit_readback(const Vector<uint8_t> &p_data);
     void _on_tile_counts_readback(const Vector<uint8_t> &p_data, int64_t p_request_frame_serial);
     static bool _instance_pipeline_bindings_changed(const InstancePipelineBindings &p_bindings,
             const RenderParams &p_params);

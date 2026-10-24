@@ -19,6 +19,7 @@
 #include "../core/gs_vector_alloc.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/resource_importer_gsplatworld.h"
+#include "../lod/hlod_runtime_cut.h"
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -3936,4 +3937,752 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] world public meta
 			CHECK(hlod_read_file(source.path) == malformed);
 		}
 	}
+}
+
+// CPU-only cut falsifier. These inputs go through the real bake, including its leaf
+// permutation and interior merge. No hand-authored hierarchy stands in for that producer.
+namespace TestGaussianSplatHlod {
+
+inline Ref<GaussianSplatWorld> hlod_cut_fixture(uint32_t p_degree)
+{
+	LocalVector<Gaussian> input;
+	hlod_make_fixture(256u, 128u, input);
+	const uint32_t high = p_degree < 2u ? 0u : (p_degree + 1u) * (p_degree + 1u) - 4u;
+	LocalVector<Vector3> sh;
+	sh.resize(input.size() * high);
+	for (uint32_t i = 0; i < input.size(); ++i) {
+		Gaussian &g = input[i];
+		g.position += Vector3(128, 16, -64); // Nonzero cell centres make double-offset mistakes observable.
+		g.area = float(i + 1u) / 1024.0f;
+		g.normal = Vector3(0, 1, 0);
+		g.stroke_age = float(i + 1u) / 2048.0f;
+		g.brush_axes = Vector2(float(i + 1u) / 512.0f, 0.25f);
+		g.painterly_meta = gaussian_pack_painterly_meta(uint16_t(i), 300);
+		// Mixed encodings are separate merge buckets: the producer's 2 -> 1
+		// reduction cannot combine them. Keep each baked world homogeneous,
+		// while exercising both DC encodings across the SH0-4 fixtures.
+		g.render_meta = gaussian_set_dc_encoding(0x80u, (p_degree & 1u) ? GAUSSIAN_DC_ENCODING_LINEAR_RGB
+		                                                                : GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
+		for (uint32_t k = 0; k < 3u; ++k) {
+			const float value = p_degree == 0 ? 0.0f : float(3u * i + k + 1u) / 4096.0f;
+			g.sh_1[k] = Vector3(value, -value, value * 0.5f);
+		}
+		for (uint32_t k = 0; k < high; ++k) {
+			const float value = float(i * high + k + 1u) / 32768.0f;
+			sh[i * high + k] = Vector3(value, -value, value * 0.25f);
+		}
+	}
+	gs_hlod::BakeInput bake_input;
+	bake_input.gaussians = input.ptr();
+	bake_input.count = input.size();
+	bake_input.sh_high_order = high ? sh.ptr() : nullptr;
+	bake_input.sh_high_order_count = high;
+	bake_input.sh_first_order_count = p_degree ? 3u : 0u;
+	gs_hlod::BakeParams params;
+	params.leaf_max_splats = 32u;
+	params.interior.node_max_splats = 32u;
+	gs_hlod::BakeResult baked;
+	String error;
+	if (!gs_hlod::bake_world(bake_input, params, baked, &error)) {
+		print_line("HLODCut bake failed: " + error);
+		return Ref<GaussianSplatWorld>();
+	}
+	Ref<GaussianData> data;
+	data.instantiate();
+	data->set_gaussian_payload(baked.leaf_gaussians, baked.leaf_sh_high_order, p_degree ? 3u : 0u, high,
+	                           (p_degree & 1u) != 0, p_degree >= 2u);
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_gaussian_data(data);
+	world->set_hlod_tree(std::move(baked.tree));
+	const auto &tree = world->get_hlod_tree();
+	world->set_bounds(tree.node_world_aabb(tree.nodes[0]));
+	return world;
+}
+
+inline gs_hlod::runtime_cut::Request hlod_cut_request(const Ref<GaussianSplatWorld> &p_world)
+{
+	gs_hlod::runtime_cut::Request request;
+	request.source_revision = p_world->get_gaussian_data()->get_content_revision();
+	gs_hlod::runtime_cut::View view;
+	view.position = Vector3(128, 16, 1000);
+	request.views.push_back(view);
+	request.threshold_pixels = 1e6;
+	return request;
+}
+
+template <class T>
+inline bool hlod_cut_bits(const T &p_a, const T &p_b)
+{
+	return std::memcmp(&p_a, &p_b, sizeof(T)) == 0;
+}
+
+inline bool hlod_cut_semantics(const Gaussian &p_a, const Gaussian &p_b)
+{
+	// check_gaussian_layout_sync.py derives coverage from Gaussian's declaration;
+	// only the exact _padding and _padding2 storage slots are excluded.
+	return hlod_cut_bits(p_a.position, p_b.position) && hlod_cut_bits(p_a.opacity, p_b.opacity) &&
+	       hlod_cut_bits(p_a.scale, p_b.scale) && hlod_cut_bits(p_a.area, p_b.area) &&
+	       hlod_cut_bits(p_a.rotation, p_b.rotation) && hlod_cut_bits(p_a.sh_dc, p_b.sh_dc) &&
+	       hlod_cut_bits(p_a.sh_1, p_b.sh_1) && hlod_cut_bits(p_a.normal, p_b.normal) &&
+	       hlod_cut_bits(p_a.stroke_age, p_b.stroke_age) && hlod_cut_bits(p_a.brush_axes, p_b.brush_axes) &&
+	       p_a.painterly_meta == p_b.painterly_meta && p_a.render_meta == p_b.render_meta;
+}
+
+inline bool hlod_cut_snapshot_equal(const GaussianData::SaveSnapshot &p_a, const GaussianData::SaveSnapshot &p_b)
+{
+	if (p_a.get_gaussians().size() != p_b.get_gaussians().size() ||
+	    p_a.get_sh_high_order().size() != p_b.get_sh_high_order().size() ||
+	    p_a.get_sh_degree() != p_b.get_sh_degree() ||
+	    p_a.get_sh_first_order_count() != p_b.get_sh_first_order_count() ||
+	    p_a.get_sh_high_order_count() != p_b.get_sh_high_order_count() ||
+	    p_a.get_antialiased() != p_b.get_antialiased() || p_a.get_2d_mode() != p_b.get_2d_mode()) {
+		return false;
+	}
+	for (int i = 0; i < p_a.get_gaussians().size(); ++i) {
+		if (!hlod_cut_semantics(p_a.get_gaussians()[i], p_b.get_gaussians()[i])) {
+			return false;
+		}
+	}
+	for (int i = 0; i < p_a.get_sh_high_order().size(); ++i) {
+		if (!hlod_cut_bits(p_a.get_sh_high_order()[i], p_b.get_sh_high_order()[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline bool hlod_cut_bounds_enclose(const AABB &p_bounds, const double p_lo[3], const double p_hi[3])
+{
+	if (!hlod_aabb_encloses(p_bounds, p_lo, p_hi)) {
+		return false;
+	}
+	const Vector3 runtime_end = p_bounds.get_end();
+	for (int a = 0; a < 3; ++a) {
+		if (double(runtime_end[a]) < p_hi[a]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hlod::runtime_cut::Result &p_result)
+{
+	using namespace gs_hlod::runtime_cut;
+	if (p_result.status != Status::COMPLETE || p_result.world.is_null() || !p_result.coverage_complete ||
+	    !p_result.budget_satisfied || p_result.selected_nodes.is_empty()) {
+		return false;
+	}
+	const auto &tree = p_source->get_hlod_tree();
+	Vector<uint8_t> selected;
+	selected.resize(tree.nodes.size());
+	selected.fill(0);
+	uint64_t count = 0;
+	for (uint32_t id : p_result.selected_nodes) {
+		if (id >= tree.nodes.size() || selected[id]) {
+			return false;
+		}
+		selected.write[id] = 1;
+		count += tree.nodes[id].payload_count;
+	}
+	// Independent coverage: ascend EVERY leaf, rather than merely checking an antichain.
+	for (uint32_t id = 0; id < tree.nodes.size(); ++id) {
+		if (!tree.nodes[id].is_leaf()) {
+			continue;
+		}
+		uint32_t hits = 0;
+		for (uint32_t ancestor = id; ancestor != gs_hlod::kNoParent; ancestor = tree.nodes[ancestor].parent) {
+			hits += selected[ancestor];
+		}
+		if (hits != 1u) {
+			return false;
+		}
+	}
+	GaussianData::SaveSnapshot original, out;
+	if (p_source->get_gaussian_data()->capture_save_snapshot(original) != OK ||
+	    p_result.world->get_gaussian_data()->capture_save_snapshot(out) != OK) {
+		return false;
+	}
+	const uint32_t high = original.get_sh_high_order_count();
+	if (count != p_result.selected_splats || count != uint64_t(out.get_gaussians().size()) ||
+	    uint64_t(out.get_sh_high_order().size()) != count * high || out.get_sh_degree() != original.get_sh_degree() ||
+	    out.get_sh_first_order_count() != original.get_sh_first_order_count() ||
+	    out.get_sh_high_order_count() != high || out.get_2d_mode() != original.get_2d_mode() ||
+	    out.get_antialiased() != original.get_antialiased()) {
+		return false;
+	}
+	const auto &chunks = p_result.world->get_static_chunks();
+	if (chunks.size() != p_result.selected_nodes.size()) {
+		return false;
+	}
+	uint32_t cursor = 0;
+	bool rounding = false;
+	for (int k = 0; k < p_result.selected_nodes.size(); ++k) {
+		const auto &node = tree.nodes[p_result.selected_nodes[k]];
+		const uint64_t first = node.is_leaf() ? node.payload_first : node.payload_first - tree.leaf_splat_count;
+		const int64_t indices[3] = {node.cell.ix, node.cell.iy, node.cell.iz};
+		double center[3];
+		// Independently evaluate the documented lattice; do not call the helper's conversion.
+		for (int a = 0; a < 3; ++a) {
+			center[a] = tree.origin[a] + ((node.flags & gs_hlod::kNodeFlagOriginCentredRoot)
+			                                      ? 0.0
+			                                      : (double(indices[a]) + 0.5) * std::ldexp(1.0, node.cell.e));
+		}
+		if (chunks[k].indices.size() != int(node.payload_count)) {
+			return false;
+		}
+		for (uint32_t i = 0; i < node.payload_count; ++i, ++cursor) {
+			Gaussian expected =
+			        node.is_leaf() ? original.get_gaussians()[first + i] : tree.interior_gaussians[first + i];
+			if (!node.is_leaf()) {
+				for (int a = 0; a < 3; ++a) {
+					const double absolute = center[a] + double(expected.position[a]);
+					expected.position[a] = real_t(absolute);
+					rounding |= double(expected.position[a]) != absolute;
+				}
+			}
+			if (!hlod_cut_semantics(out.get_gaussians()[cursor], expected) || chunks[k].indices[i] != cursor) {
+				return false;
+			}
+			for (uint32_t s = 0; s < high; ++s) {
+				const Vector3 &expected_sh = node.is_leaf() ? original.get_sh_high_order()[(first + i) * high + s]
+				                                            : tree.interior_sh_high_order[(first + i) * high + s];
+				if (!hlod_cut_bits(out.get_sh_high_order()[uint64_t(cursor) * high + s], expected_sh)) {
+					return false;
+				}
+			}
+			// Use the bake's exact support semantics, with independently checked copied fields.
+			double covariance[6];
+			gs_hlod::splat_covariance(expected, covariance);
+			const int diag[] = {0, 3, 5};
+			double lo[3], hi[3];
+			for (int a = 0; a < 3; ++a) {
+				const double support = 3.0 * std::sqrt(MAX(covariance[diag[a]], 0.0));
+				lo[a] = double(expected.position[a]) - support;
+				hi[a] = double(expected.position[a]) + support;
+			}
+			if (!hlod_cut_bounds_enclose(chunks[k].bounds, lo, hi)) {
+				return false;
+			}
+		}
+		double lo[3], hi[3];
+		for (int a = 0; a < 3; ++a) {
+			lo[a] = center[a] + double(node.aabb_min[a]);
+			hi[a] = center[a] + double(node.aabb_max[a]);
+		}
+		if (!hlod_cut_bounds_enclose(chunks[k].bounds, lo, hi)) {
+			return false;
+		}
+		for (int a = 0; a < 3; ++a) {
+			lo[a] = chunks[k].bounds.position[a];
+			hi[a] = double(chunks[k].bounds.position[a]) + chunks[k].bounds.size[a];
+		}
+		if (!hlod_cut_bounds_enclose(p_result.world->get_bounds(), lo, hi)) {
+			return false;
+		}
+		double radius2 = 0;
+		for (int a = 0; a < 3; ++a) {
+			const double extent = MAX(std::abs(lo[a] - chunks[k].center[a]), std::abs(hi[a] - chunks[k].center[a]));
+			radius2 += extent * extent;
+		}
+		if (double(chunks[k].radius) < std::sqrt(radius2)) {
+			return false;
+		}
+	}
+	double root_lo[3], root_hi[3];
+	hlod_root_extent(tree, root_lo, root_hi);
+	if (!hlod_cut_bounds_enclose(p_result.world->get_bounds(), root_lo, root_hi)) {
+		return false;
+	}
+	for (int a = 0; a < 3; ++a) {
+		root_lo[a] = p_source->get_bounds().position[a];
+		root_hi[a] = double(p_source->get_bounds().position[a]) + p_source->get_bounds().size[a];
+	}
+	return cursor == count && rounding == p_result.position_rounding_occurred &&
+	       hlod_cut_bounds_enclose(p_result.world->get_bounds(), root_lo, root_hi);
+}
+
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes exact leaves and interior blocks")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod::runtime_cut;
+	for (uint32_t degree = 0; degree <= 4; ++degree) {
+		CAPTURE(degree);
+		Ref<GaussianSplatWorld> source = hlod_cut_fixture(degree);
+		if (source.is_null()) {
+			FAIL("actual bake fixture unavailable");
+			return;
+		}
+		const auto &tree = source->get_hlod_tree();
+		if (tree.nodes.size() <= 1u || tree.interior_splat_count == 0u) {
+			FAIL("fixture must contain real interior payloads");
+			return;
+		}
+		const GaussianSplatHlodTree before_tree = tree;
+		const AABB before_bounds = source->get_bounds();
+		const auto before_chunks = source->get_static_chunks();
+		GaussianData::SaveSnapshot before, after;
+		if (source->get_gaussian_data()->capture_save_snapshot(before) != OK) {
+			FAIL("source snapshot");
+			return;
+		}
+		Request request = hlod_cut_request(source);
+		for (bool canonical : {true, false}) {
+			CAPTURE(canonical);
+			request.force_leaves = canonical;
+			const Result result = build_cut(source, request);
+			if (result.status != Status::COMPLETE) {
+				print_line(result.reason);
+				FAIL("cut must be complete");
+				return;
+			}
+			if (result.world.is_null()) {
+				FAIL("complete result must own a world");
+				return;
+			}
+			const Ref<GaussianData> result_data = result.world->get_gaussian_data();
+			if (result_data.is_null()) {
+				FAIL("complete result must own GaussianData");
+				return;
+			}
+			CHECK(hlod_cut_oracle(source, result));
+			CHECK(result.canonical_leaves == canonical);
+			CHECK(result.heuristic_available);
+			CHECK(result.heuristic_satisfied);
+			CHECK(result.source_revision == before.get_content_revision());
+			CHECK(result.admitted_allocation_bytes > 0u);
+			CHECK(result.admitted_allocation_bytes <= request.allocation_budget_bytes);
+			if (canonical) {
+				CHECK(result.selected_splats == tree.leaf_splat_count);
+			} else {
+				CHECK(result.selected_nodes.size() == 1);
+				if (result.selected_nodes.size() == 1) {
+					CHECK(result.selected_nodes[0] == 0u);
+				} else {
+					FAIL("interior cut must contain exactly the root");
+					return;
+				}
+			}
+			const Result repeated = build_cut(source, request);
+			if (repeated.world.is_null()) {
+				FAIL("repeated result must own a world");
+				return;
+			}
+			const Ref<GaussianData> repeated_data = repeated.world->get_gaussian_data();
+			if (repeated_data.is_null()) {
+				FAIL("repeated result must own GaussianData");
+				return;
+			}
+			CHECK(hlod_cut_oracle(source, repeated));
+			CHECK(repeated.selected_nodes == result.selected_nodes);
+			GaussianData::SaveSnapshot first_output, second_output;
+			if (result_data->capture_save_snapshot(first_output) != OK ||
+			    repeated_data->capture_save_snapshot(second_output) != OK) {
+				FAIL("repeat snapshot");
+				return;
+			}
+			CHECK(hlod_cut_snapshot_equal(first_output, second_output));
+			// The prepared world owns its own payload, independently of source and another result.
+			CHECK(result.world != source);
+			CHECK(result.world->get_gaussian_data() != source->get_gaussian_data());
+			result_data->set_antialiased(!before.get_antialiased());
+			CHECK(source->get_gaussian_data()->get_antialiased() == before.get_antialiased());
+			CHECK(repeated_data->get_antialiased() == before.get_antialiased());
+			print_line(vformat("HLODCut degree=%d canonical=%d nodes=%d splats=%d admitted_bytes=%d cpu_usec=%d",
+			                   degree, int(canonical), result.selected_nodes.size(), result.selected_splats,
+			                   result.admitted_allocation_bytes, result.cpu_usec));
+		}
+		if (source->get_gaussian_data()->capture_save_snapshot(after) != OK) {
+			FAIL("source after snapshot");
+			return;
+		}
+		CHECK(hlod_cut_snapshot_equal(before, after));
+		CHECK(before.get_content_revision() == after.get_content_revision());
+		CHECK(source->get_bounds() == before_bounds);
+		CHECK(source->get_static_chunks().size() == before_chunks.size());
+		CHECK(tree.nodes.size() == before_tree.nodes.size());
+		if (tree.nodes.size() != before_tree.nodes.size()) {
+			FAIL("source node cardinality changed");
+			return;
+		}
+		for (uint32_t i = 0; i < tree.nodes.size() && i < before_tree.nodes.size(); ++i) {
+			CHECK(hlod_nodes_equal(tree.nodes[i], before_tree.nodes[i]));
+		}
+		if (tree.interior_gaussians.size() != before_tree.interior_gaussians.size()) {
+			FAIL("source interior Gaussian cardinality changed");
+			return;
+		}
+		for (uint32_t i = 0; i < tree.interior_gaussians.size() && i < before_tree.interior_gaussians.size(); ++i) {
+			CHECK(hlod_cut_semantics(tree.interior_gaussians[i], before_tree.interior_gaussians[i]));
+		}
+		if (tree.interior_sh_high_order.size() != before_tree.interior_sh_high_order.size()) {
+			FAIL("source interior SH cardinality changed");
+			return;
+		}
+		for (uint32_t i = 0; i < tree.interior_sh_high_order.size() && i < before_tree.interior_sh_high_order.size();
+		     ++i) {
+			CHECK(hlod_cut_bits(tree.interior_sh_high_order[i], before_tree.interior_sh_high_order[i]));
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] complete coverage survives budgets residency and static multiview")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod::runtime_cut;
+	Ref<GaussianSplatWorld> source = hlod_cut_fixture(3u);
+	if (source.is_null()) {
+		FAIL("actual bake fixture");
+		return;
+	}
+	const auto &tree = source->get_hlod_tree();
+	Request request = hlod_cut_request(source);
+	{
+		// Axis-aligned camera: independently derive nearest root depth from its
+		// absolute upper Z bound. A binary-exact relative margin avoids an ULP-only oracle.
+		double root_lo[3], root_hi[3];
+		hlod_root_extent(tree, root_lo, root_hi);
+		const View far = request.views[0];
+		const double far_depth = double(far.position.z) - root_hi[2];
+		const double far_pixels = double(tree.nodes[0].geometric_error) / far_depth * far.focal_pixels;
+		if (!(far_depth > far.near_plane) || !std::isfinite(far_pixels) || !(far_pixels > 0)) {
+			FAIL("finite root-error crossing admission");
+			return;
+		}
+		Request finite = request;
+		finite.threshold_pixels = far_pixels * (1.0 + 1.0 / 1024.0);
+		Result threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		CHECK(threshold_result.selected_nodes.size() == 1);
+		if (threshold_result.selected_nodes.size() == 1) {
+			CHECK(threshold_result.selected_nodes[0] == 0u);
+		} else {
+			FAIL("complete root cut");
+			return;
+		}
+		CHECK(threshold_result.heuristic_available);
+		CHECK(threshold_result.heuristic_satisfied);
+		finite.threshold_pixels = far_pixels * (1.0 - 1.0 / 1024.0);
+		threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		for (uint32_t id : threshold_result.selected_nodes) {
+			CHECK(id != 0u);
+		}
+		CHECK(threshold_result.heuristic_available);
+		CHECK(threshold_result.heuristic_satisfied);
+
+		View near = far;
+		near.position.z = real_t(root_hi[2] + 64.0);
+		const double near_depth = double(near.position.z) - root_hi[2];
+		const double near_pixels = double(tree.nodes[0].geometric_error) / near_depth * near.focal_pixels;
+		if (!(near_depth > near.near_plane) || !std::isfinite(near_pixels) || !(near_pixels > far_pixels)) {
+			FAIL("two finite-view decisions admission");
+			return;
+		}
+		finite.threshold_pixels = far_pixels + (near_pixels - far_pixels) * 0.5;
+		threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		CHECK(threshold_result.selected_nodes.size() == 1);
+		if (threshold_result.selected_nodes.size() == 1) {
+			CHECK(threshold_result.selected_nodes[0] == 0u);
+		} else {
+			FAIL("far-view root cut");
+			return;
+		}
+		finite.views.push_back(near);
+		threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		for (uint32_t id : threshold_result.selected_nodes) {
+			CHECK(id != 0u);
+		}
+		CHECK(threshold_result.heuristic_available);
+		CHECK(threshold_result.heuristic_satisfied);
+	}
+	request.force_leaves = true;
+	request.splat_budget = tree.nodes[0].payload_count;
+	Result result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK_FALSE(result.heuristic_satisfied);
+	CHECK_FALSE(result.canonical_leaves);
+	CHECK(result.selected_splats <= request.splat_budget);
+	request.splat_budget = 0;
+	result = build_cut(source, request);
+	CHECK(result.status == Status::BUDGET_INFEASIBLE);
+	CHECK_FALSE(result.coverage_complete);
+	CHECK(result.world.is_null());
+	CHECK(result.selected_nodes.is_empty());
+
+	request = hlod_cut_request(source);
+	request.force_leaves = true;
+	request.payload_available.resize(tree.nodes.size());
+	request.payload_available.fill(0);
+	request.payload_available.write[0] = 1;
+	request.splat_budget = UINT64_MAX; // Unavailable descendants must not become a partial empty cut.
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK(result.selected_nodes.size() == 1);
+	CHECK_FALSE(result.heuristic_satisfied);
+	request.payload_available.write[0] = 0;
+	result = build_cut(source, request);
+	CHECK(result.status == Status::UNAVAILABLE);
+	CHECK(result.world.is_null());
+	CHECK(result.selected_nodes.is_empty());
+
+	request = hlod_cut_request(source);
+	request.payload_available.resize(tree.nodes.size());
+	request.payload_available.fill(1);
+	request.payload_available.write[0] = 0;
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	for (uint32_t id : result.selected_nodes) {
+		CHECK(id != 0u);
+	}
+
+	request = hlod_cut_request(source);
+	View opposite;
+	opposite.position = Vector3(128, 16, -1000);
+	opposite.forward = Vector3(0, 0, 1);
+	request.views.push_back(opposite);
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK(result.heuristic_available);
+	CHECK(result.heuristic_satisfied);
+	request.views.write[1].position = tree.node_world_aabb(tree.nodes[0]).get_center();
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK_FALSE(result.heuristic_available);
+	CHECK_FALSE(result.heuristic_satisfied);
+	CHECK(result.selected_nodes.size() > 1);
+	request.splat_budget = tree.nodes[0].payload_count;
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK_FALSE(result.heuristic_available);
+	CHECK_FALSE(result.heuristic_satisfied);
+
+	// Adversarial mutation of the genuine bake: duplicate root payload entries,
+	// preserving their support and SH, so children fit although the root does not.
+	// This is a budget-feasibility control, not a claim about the bake's reduction.
+	const GaussianSplatHlodTree original = tree;
+	GaussianSplatHlodTree expensive = tree;
+	uint32_t child_cost = 0;
+	for (uint32_t c = tree.nodes[0].first_child; c < tree.nodes[0].first_child + tree.nodes[0].child_count; ++c) {
+		child_cost += tree.nodes[c].payload_count;
+	}
+	const uint32_t old_root_count = tree.nodes[0].payload_count;
+	if (child_cost < old_root_count || child_cost + 1u > gs_hlod::kMaxNodeSplats ||
+	    tree.nodes[0].payload_first != tree.leaf_splat_count) {
+		FAIL("adversarial budget control admission");
+		return;
+	}
+	const uint32_t added = child_cost + 1u - old_root_count;
+	expensive.interior_gaussians.resize(tree.interior_splat_count + added);
+	expensive.interior_sh_high_order.resize((tree.interior_splat_count + added) * tree.sh_high_order_count);
+	for (uint32_t i = 0; i < expensive.interior_gaussians.size(); ++i) {
+		const uint32_t from = i < child_cost + 1u ? i % old_root_count : i - added;
+		expensive.interior_gaussians[i] = tree.interior_gaussians[from];
+		for (uint32_t s = 0; s < tree.sh_high_order_count; ++s) {
+			expensive.interior_sh_high_order[i * tree.sh_high_order_count + s] =
+			        tree.interior_sh_high_order[from * tree.sh_high_order_count + s];
+		}
+	}
+	expensive.nodes[0].payload_count += added;
+	expensive.interior_splat_count += added;
+	for (uint32_t id = 1; id < expensive.nodes.size(); ++id) {
+		if (!expensive.nodes[id].is_leaf()) {
+			expensive.nodes[id].payload_first += added;
+		}
+	}
+	source->set_hlod_tree(std::move(expensive));
+	request = hlod_cut_request(source);
+	request.splat_budget = child_cost;
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK(result.selected_splats <= child_cost);
+	for (uint32_t id : result.selected_nodes) {
+		CHECK(id != 0u);
+	}
+	GaussianSplatHlodTree restored = original;
+	source->set_hlod_tree(std::move(restored));
+
+	// Valid topology with nonresident interiors is distinct from a missing child.
+	GaussianSplatHlodTree nonresident = tree;
+	nonresident.interior_resident = false;
+	nonresident.interior_gaussians.clear();
+	nonresident.interior_sh_high_order.clear();
+	nonresident.interior_file_path = "unread://not-permitted-in-this-resident-prototype";
+	source->set_hlod_tree(std::move(nonresident));
+	request = hlod_cut_request(source);
+	result = build_cut(source, request);
+	CHECK(hlod_cut_oracle(source, result));
+	CHECK(result.canonical_leaves);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] invalid stale unsupported and bounded inputs fail without partial "
+          "output")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod::runtime_cut;
+	Ref<GaussianSplatWorld> source = hlod_cut_fixture(4u);
+	if (source.is_null()) {
+		FAIL("actual bake fixture");
+		return;
+	}
+	const Request good = hlod_cut_request(source);
+	auto rejected = [&](const Request &p_request, Status p_status) {
+		const Result result = build_cut(source, p_request);
+		CHECK(result.status == p_status);
+		CHECK(result.world.is_null());
+		CHECK(result.selected_nodes.is_empty());
+		CHECK_FALSE(result.coverage_complete);
+	};
+	Request request = good;
+	request.source_revision++;
+	rejected(request, Status::STALE);
+	request = good;
+	request.deformation = true;
+	rejected(request, Status::UNSUPPORTED);
+	request = good;
+	request.views.write[0].forward = Vector3();
+	rejected(request, Status::INVALID_INPUT);
+	request = good;
+	request.views.write[0].focal_pixels = NAN;
+	rejected(request, Status::INVALID_INPUT);
+	request = good;
+	request.views.write[0].position.x = INFINITY;
+	rejected(request, Status::INVALID_INPUT);
+	request = good;
+	request.threshold_pixels = -1;
+	rejected(request, Status::INVALID_INPUT);
+	request = good;
+	request.allocation_budget_bytes = 0;
+	rejected(request, Status::ALLOCATION_FAILED);
+	request = good;
+	request.payload_available.push_back(1);
+	rejected(request, Status::INVALID_INPUT);
+	request = good;
+	request.payload_available.resize(source->get_hlod_tree().nodes.size());
+	request.payload_available.fill(2);
+	rejected(request, Status::INVALID_INPUT);
+
+	const GaussianSplatHlodTree original = source->get_hlod_tree();
+	auto bad_tree = [&](GaussianSplatHlodTree p_tree, Status p_status) {
+		source->set_hlod_tree(std::move(p_tree));
+		rejected(good, p_status);
+		GaussianSplatHlodTree restore = original;
+		source->set_hlod_tree(std::move(restore));
+	};
+	GaussianSplatHlodTree bad = original;
+	bad.bake_rule_version++;
+	bad_tree(std::move(bad), Status::UNSUPPORTED);
+	bad = original;
+	bad.instances.push_back(GaussianSplatHlodInstance());
+	bad_tree(std::move(bad), Status::UNSUPPORTED);
+	bad = original;
+	bad.interior_splat_count = UINT32_MAX;
+	bad_tree(std::move(bad), Status::INVALID_INPUT);
+	bad = original;
+	bad.nodes[0].first_child = bad.nodes.size();
+	bad_tree(std::move(bad), Status::INVALID_INPUT);
+	bad = original;
+	bad.nodes[0].payload_first = UINT64_MAX;
+	bad_tree(std::move(bad), Status::INVALID_INPUT);
+	bad = original;
+	bad.interior_sh_high_order.resize(1u);
+	bad_tree(std::move(bad), Status::INVALID_INPUT);
+	bad = original;
+	bad.interior_gaussians[0].opacity = NAN;
+	bad_tree(std::move(bad), Status::INVALID_INPUT);
+	bad = original;
+	bad.interior_gaussians[0].position.x = FLT_MAX;
+	bad_tree(std::move(bad), Status::INVALID_INPUT);
+	CHECK(hlod_cut_oracle(source, build_cut(source, good)));
+
+	// Actual view state can change without changing the baked base revision.
+	// The caller's default deformation=false must not bypass its admission.
+	const Ref<GaussianData> data = source->get_gaussian_data();
+	CHECK_FALSE(good.deformation);
+	Ref<GaussianSplatting::GaussianAnimationStateMachine> animation;
+	animation.instantiate();
+	data->set_animation_state_machine(animation);
+	CHECK(data->has_animation());
+	CHECK(data->get_content_revision() == good.source_revision);
+	CHECK(source->is_hlod_payload_current());
+	rejected(good, Status::UNSUPPORTED);
+	data->set_animation_state_machine(Ref<GaussianSplatting::GaussianAnimationStateMachine>());
+	CHECK_FALSE(data->has_animation());
+	CHECK(hlod_cut_oracle(source, build_cut(source, good)));
+	for (int overlay = 0; overlay < 3; ++overlay) {
+		CAPTURE(overlay);
+		if (overlay == 0) {
+			data->set_runtime_position(0, data->get_gaussians()[0].position + Vector3(1, 0, 0));
+		}
+		if (overlay == 1) {
+			data->set_runtime_color(0, Color(0.1f, 0.2f, 0.3f, 1));
+		}
+		if (overlay == 2) {
+			data->set_runtime_opacity(0, 0.125f);
+		}
+		CHECK(data->has_modifications());
+		CHECK(data->get_content_revision() == good.source_revision);
+		CHECK(source->is_hlod_payload_current());
+		rejected(good, Status::UNSUPPORTED);
+		data->revert_runtime_changes();
+		CHECK_FALSE(data->has_modifications());
+		CHECK(hlod_cut_oracle(source, build_cut(source, good)));
+	}
+
+	source->get_gaussian_data()->set_antialiased(!source->get_antialiased());
+	request = hlod_cut_request(source);
+	rejected(request, Status::STALE); // Tree stale even with current requested data revision.
+	Ref<GaussianSplatWorld> empty;
+	empty.instantiate();
+	Ref<GaussianData> empty_data;
+	empty_data.instantiate();
+	empty->set_gaussian_data(empty_data);
+	CHECK(build_cut(empty, good).status == Status::EMPTY_INPUT);
+	CHECK(build_cut(Ref<GaussianSplatWorld>(), good).status == Status::INVALID_INPUT);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] allocation failures retain the source and no partial world")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod::runtime_cut;
+	Ref<GaussianSplatWorld> source = hlod_cut_fixture(4u);
+	if (source.is_null()) {
+		FAIL("actual bake fixture");
+		return;
+	}
+	const Request request = hlod_cut_request(source);
+	GaussianData::SaveSnapshot before;
+	if (source->get_gaussian_data()->capture_save_snapshot(before) != OK) {
+		FAIL("snapshot");
+		return;
+	}
+	for (const char *site :
+	     {"HLODCut topology", "GaussianData::capture_save_snapshot geometry", "GaussianData::capture_save_snapshot SH",
+	      "HLODCut minimum", "HLODCut selected", "HLODCut payload", "HLODCut SH", "HLODCut chunks", "HLODCut indices",
+	      "HLODCut world payload", "HLODCut world SH"}) {
+		INFO(site);
+		gs_vector_alloc_force_failure_at(site);
+		ERR_PRINT_OFF;
+		const Result result = build_cut(source, request);
+		ERR_PRINT_ON;
+		const bool fired = !gs_vector_alloc_forced_failure_is_armed();
+		gs_vector_alloc_clear_forced_failure();
+		CHECK(fired);
+		CHECK(result.status == Status::ALLOCATION_FAILED);
+		CHECK(result.world.is_null());
+		CHECK(result.selected_nodes.is_empty());
+		GaussianData::SaveSnapshot after;
+		if (source->get_gaussian_data()->capture_save_snapshot(after) != OK) {
+			FAIL("after snapshot");
+			return;
+		}
+		CHECK(hlod_cut_snapshot_equal(before, after));
+		CHECK(before.get_content_revision() == after.get_content_revision());
+		CHECK(source->is_hlod_payload_current());
+	}
+	CHECK(hlod_cut_oracle(source, build_cut(source, request)));
 }
