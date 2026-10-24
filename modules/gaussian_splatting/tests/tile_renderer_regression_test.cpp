@@ -1676,6 +1676,27 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
                                                 : GaussianSplatting::ComputeRasterPolicy::ForceOff;
         auto &capture = tile_renderer->_test_debug_stats();
         capture.membership_all_control = p_capture ? 3u : 0u; // Existing real no-drop full-packet control.
+        // HLOD admission requires output/overlap resources warmed by the canonical
+        // route. Suppress capture admission for this setup frame, without changing
+        // descriptor recording or validation; neither HLOD observation may be faked
+        // by counting this canonical frame.
+        capture.membership_finished = true;
+        auto warmup = params;
+        warmup.hlod_relative = false;
+        warmup.hlod_draw_entry_buffer = RID();
+        warmup.hlod_draw_list_buffer = RID();
+        warmup.chunk_meta_buffer = RID();
+        warmup.hlod_source_generation = 0;
+        warmup.hlod_content_generation = 0;
+        warmup.frame_serial = ++params.frame_serial;
+        if (!tile_renderer->render(p_rd, warmup).is_valid() ||
+                p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(packed)).size() != sizeof(packed) ||
+                !tile_renderer->prepare_hlod_scratch(params, 64u * 1024u) ||
+                capture.membership_captures != 0 || capture.membership_pending || capture.membership_armed) {
+            result.error_message = "Canonical warm-up or bounded HLOD scratch admission failed";
+            return false;
+        }
+        capture.membership_finished = false;
         auto observe = [&]() -> bool {
             const uint64_t started = OS::get_singleton()->get_ticks_usec();
             do {
