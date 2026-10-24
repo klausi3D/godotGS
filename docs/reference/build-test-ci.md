@@ -255,12 +255,6 @@ enforces: [GitHub settings](../governance/github-settings.md). An earlier revisi
 of this section said `master` had no required status checks at all; that was stale
 in the dangerous direction.
 
-External advisory checks: `qlty check` is not part of the local renderer
-release gate, because branch protection does **not** require it (the
-required contexts are `agentic-pr-gate` and `docs-build`, above) and the repo has no tracked qlty
-configuration. Treat qlty as a non-blocking signal unless branch protection or
-`docs/reference/renderer_release_gate_manifest.json` is changed to require it.
-
 ## Common Failure Modes
 
 - Wrong binary (stock Godot instead of module-enabled build)

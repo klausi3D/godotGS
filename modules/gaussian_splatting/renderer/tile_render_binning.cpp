@@ -88,6 +88,10 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning(uint32_t p_gaussi
 	}
 
 	uint32_t timestamp_base = submission_device->get_captured_timestamps_count();
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_before_emit(submission_device, p_buffer_uniform_set, p_param_uniform_set,
+	                                         p_lighting_uniform_set);
+#endif
 	String binning_label = "TileBinning_" + String::num_uint64(owner.frame_state.current_frame_serial);
 	submission_device->capture_timestamp(binning_label + String("_Begin"));
 	ScopedGpuMarker binning_marker(submission_device, "GS_TileBinning_EMIT", Color(0.3f, 0.9f, 0.3f, 1.0f));
@@ -119,6 +123,9 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning(uint32_t p_gaussi
 	owner.timing_state.binning_timestamp.label = binning_label;
 	owner.timing_state.overlap_emit_timestamp = owner.timing_state.binning_timestamp;
 
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_after_emit(submission_device);
+#endif
 	owner._queue_submission(submission_device, p_requires_sync);
 
 	if (p_lighting_uniform_set.is_valid() && submission_device->uniform_set_is_valid(p_lighting_uniform_set)) {
@@ -153,6 +160,10 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning_count(uint32_t p_
 	}
 
 	uint32_t timestamp_base = submission_device->get_captured_timestamps_count();
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_before_count(submission_device, p_buffer_uniform_set, p_param_uniform_set,
+	                                          p_lighting_uniform_set);
+#endif
 	String count_label = "TileOverlapCount_" + String::num_uint64(owner.frame_state.current_frame_serial);
 	submission_device->capture_timestamp(count_label + String("_Begin"));
 	ScopedGpuMarker overlap_marker(submission_device, "GS_TileBinning_COUNT", Color(0.4f, 0.85f, 0.35f, 1.0f));
@@ -193,6 +204,9 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning_count(uint32_t p_
 	owner.timing_state.overlap_count_timestamp.end_index = timestamp_base + 1;
 	owner.timing_state.overlap_count_timestamp.label = count_label;
 
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_after_count(submission_device);
+#endif
 	owner._queue_submission(submission_device, p_requires_sync);
 
 	if (p_lighting_uniform_set.is_valid() && submission_device->uniform_set_is_valid(p_lighting_uniform_set)) {
@@ -410,6 +424,17 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 	audit_uniform.binding = 10;
 	audit_uniform.append_id(owner.debug_stats.debug_splat_audit_buffer);
 	uniforms.push_back(audit_uniform);
+#ifdef TESTS_ENABLED
+	if (owner.debug_stats.membership_enabled()) {
+		ERR_FAIL_COND_V (!owner.debug_stats.membership_buffer.is_valid(), RID())
+			;
+		RD::Uniform capture_uniform;
+		capture_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		capture_uniform.binding = 21;
+		capture_uniform.append_id(owner.debug_stats.membership_buffer);
+		uniforms.push_back(capture_uniform);
+	}
+#endif
 
 	if (owner.render_settings.enable_sh_amortization) {
 		RD::Uniform sh_cache_uniform;
@@ -429,8 +454,11 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
         ERR_FAIL_V_MSG(RID(), "[TileRenderer] Failed to create binning buffer uniform set (projection buffer path)");
     }
     p_device->set_resource_name(new_uniform_set, "GS_TileRenderer_BinningBufferSet");
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, new_uniform_set, uniforms);
+#endif
 
-    RID *target_set = &cached_binning_buffer_uniform_set;
+	RID *target_set = &cached_binning_buffer_uniform_set;
     RID *target_counts = &cached_binning_tile_counts;
     if (cached_binning_buffer_uniform_set.is_valid()) {
         if (!cached_binning_buffer_uniform_set_alt.is_valid()) {
@@ -617,11 +645,25 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 	audit_uniform.binding = 10;
 	audit_uniform.append_id(owner.debug_stats.debug_splat_audit_buffer);
 	uniforms.push_back(audit_uniform);
+#ifdef TESTS_ENABLED
+	if (owner.debug_stats.membership_enabled()) {
+		ERR_FAIL_COND_V (!owner.debug_stats.membership_buffer.is_valid(), RID())
+			;
+		RD::Uniform capture_uniform;
+		capture_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		capture_uniform.binding = 21;
+		capture_uniform.append_id(owner.debug_stats.membership_buffer);
+		uniforms.push_back(capture_uniform);
+	}
+#endif
 
 	RID new_uniform_set = p_device->uniform_set_create(uniforms, owner.shader_resources.tile_binning_count_shader, 0);
 	ERR_FAIL_COND_V_MSG(!new_uniform_set.is_valid(), RID(),
 			"[TileRenderer] Failed to create global count uniform set (tile_binning.glsl count pass)");
 	p_device->set_resource_name(new_uniform_set, "GS_TileRenderer_BinningCountSet");
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, new_uniform_set, uniforms);
+#endif
 
 	RID *target_set = &cached_binning_count_uniform_set;
 	RID *target_counts = &cached_binning_count_tile_counts;
@@ -685,10 +727,24 @@ RID TileRenderer::TileBinningStage::acquire_binning_param_uniform_set(RenderingD
 	params_uniform.binding = 0;
 	params_uniform.append_id(owner.uniform_buffers.param_uniform_buffer);
 	uniforms.push_back(params_uniform);
+#ifdef TESTS_ENABLED
+	if (owner.debug_stats.membership_enabled()) {
+		ERR_FAIL_COND_V (!owner.debug_stats.membership_control.is_valid(), RID())
+			;
+		RD::Uniform control_uniform;
+		control_uniform.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		control_uniform.binding = 1;
+		control_uniform.append_id(owner.debug_stats.membership_control);
+		uniforms.push_back(control_uniform);
+	}
+#endif
 
 	cached_binning_param_uniform_set = p_device->uniform_set_create(uniforms, owner.shader_resources.tile_binning_shader, 1);
 	ERR_FAIL_COND_V_MSG(!cached_binning_param_uniform_set.is_valid(), RID(), "[TileRenderer] Failed to create binning param uniform set");
 	p_device->set_resource_name(cached_binning_param_uniform_set, "GS_TileRenderer_BinningParamSet");
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, cached_binning_param_uniform_set, uniforms);
+#endif
 	cached_binning_param_device = p_device;
 
 	return cached_binning_param_uniform_set;
@@ -902,6 +958,9 @@ RID TileRenderer::TileBinningStage::create_binning_lighting_uniform_set(Renderin
 	RID lighting_uniform_set = p_device->uniform_set_create(uniforms, owner.shader_resources.tile_binning_shader, 2);
 	if (lighting_uniform_set.is_valid()) {
 		p_device->set_resource_name(lighting_uniform_set, "GS_TileRenderer_BinningLightingSet");
+#ifdef TESTS_ENABLED
+		owner.debug_stats.membership_record_set(p_device, lighting_uniform_set, uniforms);
+#endif
 	}
 	return lighting_uniform_set;
 }

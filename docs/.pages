@@ -102,6 +102,7 @@ nav:
           - architecture/g2-malformed-corpus.md
           - Decision Records:
               - Advisory Lane Result Ledger: architecture/adr-advisory-lane-ledger.md
+              - Editor Download Picker: architecture/adr-editor-download-picker.md
               - Decompose GaussianSplatNode3D: architecture/adr-decompose-node3d.md
               - Decompose the Renderer Facade: architecture/adr-decompose-renderer-facade.md
               - Decompose the Scene Director: architecture/adr-decompose-scene-director.md

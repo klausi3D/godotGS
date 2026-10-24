@@ -1335,6 +1335,8 @@ private:
 			result = renderer._dispatch_tile_rasterizer(params.splat_count, buffer_uniform_set, raster_sets.param_uniform_set, uniform_device);
 		}
 #ifdef TESTS_ENABLED
+		renderer.debug_stats.membership_after_raster(uniform_device, buffer_uniform_set, raster_sets.param_uniform_set,
+		                                             result == RasterDispatchResult::RECORDED);
 		renderer.shader_resources.tile_raster_compute_pipeline = saved_compute_pipeline;
 		renderer.shader_resources.tile_raster_shader = saved_fragment_shader;
 		renderer.shader_resources.shader_device_instance = saved_generation;
@@ -1659,6 +1661,13 @@ void TileRenderer::_on_overflow_stats_readback(const Vector<uint8_t> &p_data) {
 void TileRenderer::_on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
     debug_stats.on_overflow_signal_readback(p_data);
 }
+
+#ifdef TESTS_ENABLED
+void TileRenderer::_on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce)
+{
+	debug_stats.membership_readback(p_data, uint64_t(p_nonce));
+}
+#endif
 
 void TileRenderer::_on_splat_audit_readback(const Vector<uint8_t> &p_data) {
     debug_stats.on_splat_audit_readback(p_data);
@@ -2318,7 +2327,12 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
     defines.push_back(vformat("#define GS_TILE_SIZE %d\n", config_state.tile_size));
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_X %d\n", config_state.tile_size));
     defines.push_back(vformat("#define GS_TILE_LOCAL_SIZE_Y %d\n", config_state.tile_size));
-    if (p_include_dispatch_group) {
+#ifdef TESTS_ENABLED
+	if (p_include_dispatch_group && debug_stats.membership_enabled()) {
+		defines.push_back("#define GS_RECORD_LOSS_CAPTURE 1\n");
+	}
+#endif
+	if (p_include_dispatch_group) {
         defines.push_back(vformat("#define GS_DISPATCH_LOCAL_SIZE_X %d\n", int(BINNING_GROUP_SIZE)));
     }
     // Enable subgroup optimizations if GPU supports them
@@ -3327,6 +3341,9 @@ void TileRenderer::_release_compiled_shaders() {
 }
 
 void TileRenderer::_invalidate_descriptor_cache(bool p_preserve_scene_depth) {
+#ifdef TESTS_ENABLED
+    debug_stats.membership_sets.clear();
+#endif
     descriptor_generation++;
 
     // Release GPU uniform set objects. The generation counter will force
