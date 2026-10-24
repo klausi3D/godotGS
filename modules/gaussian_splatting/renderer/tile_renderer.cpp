@@ -3440,7 +3440,16 @@ bool TileRenderer::_update_instance_pipeline_bindings(const RenderParams &p_para
             instance_pipeline_buffers.hlod_content_generation != p_params.hlod_content_generation) {
         // Same storage, new draw-list contents. Invalidate descriptor/readiness generation
         // without destroying unrelated fallback textures on every HLOD frame.
-        ++descriptor_generation;
+#ifdef TESTS_ENABLED
+        if (debug_stats.membership_enabled()) {
+            // Capture records describe the generation at set creation. Rebuild
+            // cached parameter sets as well, retaining same-device depth inputs.
+            _invalidate_descriptor_cache(true);
+        } else
+#endif
+        {
+            ++descriptor_generation;
+        }
         _assign_instance_pipeline_bindings(instance_pipeline_buffers, p_params);
         return true;
     }
