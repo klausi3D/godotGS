@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 217,
-    "sha256": "1bd0190099973f6e3b54fb4cb57e0dc4b7942caf335c68dc1adcefc5b22c75e1",
-    "sha256_last_changed_by": "HLOD resident runtime V11: preserve all 214 base GPU cases and both additive GpuSorting cases; rename only the new WorldSceneTree case to its actual early ledger-refusal canonical control. The required native Resident HLOD Main View scenario retains its perspective/image proof and adds the late orthographic refusal proof. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; 217 total, 152 batched, 2 waived and 63 backlog unchanged. Native compiled case selection remains separately required.",
+    "test_count": 218,
+    "sha256": "cd9907c6073a52ce263344034be9b287b3f60d9f8e0d1288f4edc688f74929ad",
+    "sha256_last_changed_by": "HLOD-MERGE-DOM-001: add one TileRenderer RequiresGPU case for two completed real RecordLoss captures across unchanged-RID HLOD content generations, with diagnostics-off and both actual raster routes. Existing cases, batch filters, waivers and backlog unchanged. Count/digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot. Native GPU negative/positive execution is separately required.",
     "deferred_tags_any": [
       "Importer"
     ],
