@@ -1,7 +1,9 @@
 """Small deterministic admission/publication controls; no engine/GPU process is launched."""
 
 import copy
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import struct
@@ -48,8 +50,42 @@ class AdmissionTests(unittest.TestCase):
             self.assertFalse(RUNNER._run_hlod_offline_contract_tests()[0])
         for code in (1, -9, 0):
             with self.subTest(code=code), mock.patch.object(RUNNER, "_run_command", return_value=(code, "", "")) as run:
-                self.assertEqual(RUNNER._run_hlod_offline_contract_tests()[0], code == 0)
+                self.assertFalse(RUNNER._run_hlod_offline_contract_tests()[0])
                 self.assertEqual(run.call_args.args[0], [sys.executable, str(RUNNER.HLOD_OFFLINE_CONTRACT_TEST_SCRIPT)])
+
+    def test_portable_guard_requires_complete_nonempty_unskipped_unittest_result(self):
+        # Capture the actual unittest producer rather than inventing its footer.
+        class Probe(unittest.TestCase):
+            def test_pass(self):
+                self.assertTrue(True)
+
+            @unittest.skip("intentional contract control")
+            def test_skip(self):
+                pass
+
+        def capture(names):
+            stream = io.StringIO()
+            unittest.TextTestRunner(stream=stream).run(unittest.TestSuite(Probe(name) for name in names))
+            return stream.getvalue()
+
+        complete = capture(["test_pass"])
+        for output, expected in ((complete, True), (capture([]), False),
+                                 (capture(["test_pass", "test_skip"]), False),
+                                 (complete.rsplit("OK", 1)[0], False), ("", False)):
+            with self.subTest(output=output), mock.patch.object(RUNNER, "_run_command", return_value=(0, "", output)):
+                self.assertEqual(RUNNER._run_hlod_offline_contract_tests()[0], expected)
+        with mock.patch.object(RUNNER, "_run_command", return_value=(0, complete, "")):
+            self.assertTrue(RUNNER._run_hlod_offline_contract_tests()[0])
+
+    def test_deleting_unittest_main_cannot_pass_the_guard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "probe.py"
+            source = "import unittest\nclass Probe(unittest.TestCase):\n    def test_probe(self):\n        self.assertTrue(True)\n"
+            with mock.patch.object(RUNNER, "HLOD_OFFLINE_CONTRACT_TEST_SCRIPT", script):
+                script.write_text(source + "unittest.main()\n")
+                self.assertTrue(RUNNER._run_hlod_offline_contract_tests()[0])
+                script.write_text(source)
+                self.assertFalse(RUNNER._run_hlod_offline_contract_tests()[0])
 
     def test_every_limit_is_mandatory_and_exact(self):
         control = manifest()
@@ -198,6 +234,89 @@ class PublicationTests(unittest.TestCase):
 
 
 class PrivatePhaseTests(unittest.TestCase):
+    def test_confirmed_publication_cleanup_releases_admission_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "published.gsplatworld"
+            output.write_bytes(b"confirmed package")
+            job = object.__new__(JOB.NativeJob)
+            job.handles, job.process, job.pid = [], None, 1
+            job.drain = {"status": "DRAINED"}
+            job.publication_started, job.publication_uncertain = True, False
+            job.marker_owned, job.poison_path = True, Path(directory) / "blocked.json"
+            job.poison_path.write_text("active fixture")
+            job.__exit__(None, None, None)
+            self.assertFalse(job.marker_owned)
+            self.assertFalse(job.poison_path.exists())
+            self.assertEqual(job.drain["status"], "DRAINED")
+            self.assertEqual(output.read_bytes(), b"confirmed package")
+
+    def test_admission_cleanup_failure_retains_confirmed_output_but_fails_job_and_cli(self):
+        # Exercise the supervisor and its real __exit__; native launch is replaced
+        # by tiny deterministic phase receipts. This is not Job Object evidence.
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            source, binary, output = (directory / name for name in ("source.ply", "engine.exe", "new.gsplatworld"))
+            source.write_bytes(b"source identity fixture")
+            binary.write_bytes(b"binary identity fixture")
+            poison = directory / "admission-block.json"
+            control = manifest()
+            control["source"].update(path=str(source), bytes=source.stat().st_size, sha256=JOB.sha256(source))
+            control["implementation"]["build_sha256"] = JOB.sha256(binary)
+            control["output"] = str(output)
+
+            class AdmittedFixture(JOB.NativeJob):
+                def __init__(self, limits):
+                    self.handles, self.process, self.pid = [], None, 1
+                    self.drain = {"status": "DRAINED"}
+                    self.publication_started = self.publication_uncertain = False
+                    self.marker_owned, self.poison_path = True, poison
+                    poison.write_text("active fixture")
+                    self.lock_source = mock.Mock()
+                    self.host_memory = mock.Mock(return_value={"available_physical": 1 << 40, "available_commit": 1 << 40})
+                    self.peak = mock.Mock(return_value=1)
+
+                def __enter__(self):
+                    return self
+
+            def phase(_job, name, _command, stage, _log, _record, _check):
+                candidate = stage / "candidate.gsplatworld"
+                if name == "admit":
+                    JOB.write_json(stage / "admit.json", {"status": "CONTROL_COMPLETED", "control_sha256": JOB.control_identities(stage)})
+                elif name == "engine":
+                    candidate.write_bytes(b"confirmed data fixture")
+                else:
+                    JOB.publish_candidate(candidate, output, JOB.sha256(candidate), source)
+                    JOB.write_json(stage / "verify.json", {"status": "PUBLISHED", "publication_committed": True,
+                        "published_identity": JOB.file_identity(output), "candidate_identity": JOB.file_identity(candidate),
+                        "candidate_sha256": JOB.sha256(candidate), "worker": {}})
+
+            original_unlink = Path.unlink
+            def fail_marker_unlink(path, *args, **kwargs):
+                if path == poison:
+                    raise PermissionError("injected admission marker unlink failure")
+                return original_unlink(path, *args, **kwargs)
+
+            platform = mock.Mock(wraps=os)
+            platform.name = "nt"
+            with mock.patch.object(JOB, "os", platform), mock.patch.object(JOB, "NativeJob", AdmittedFixture), \
+                    mock.patch.object(JOB, "run_owned_phase", side_effect=phase), \
+                    mock.patch.object(JOB.shutil, "disk_usage", return_value=mock.Mock(free=1 << 40)), \
+                    mock.patch.object(Path, "unlink", fail_marker_unlink):
+                record = JOB.run_job(control, binary, directory / "evidence")
+            self.assertEqual(record["status"], "FAILED")
+            self.assertEqual(record["publication"]["status"], "CONFIRMED")
+            self.assertEqual(record["admission_cleanup"], "BLOCKED")
+            self.assertIn("marker unlink failure", record["failure"])
+            self.assertTrue(poison.exists())
+            self.assertEqual(output.read_bytes(), b"confirmed data fixture")
+            self.assertEqual(source.read_bytes(), b"source identity fixture")
+            manifest_path = directory / "manifest.json"
+            JOB.write_json(manifest_path, control)
+            with mock.patch.object(JOB, "run_job", return_value=record), \
+                    mock.patch.object(sys, "argv", ["offline", "--manifest", str(manifest_path), "--godot", str(binary), "--evidence", str(directory)]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(JOB.main(), 1)
+
     def test_source_and_candidate_locks_deny_write_and_delete_sharing(self):
         job = object.__new__(JOB.NativeJob)
         job.kernel = mock.Mock()

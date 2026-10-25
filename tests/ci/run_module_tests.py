@@ -937,6 +937,14 @@ def _run_hlod_offline_contract_tests() -> tuple[bool, list[str]]:
     output_lines = [line for line in (out + err).splitlines() if line.strip()]
     if code != 0:
         return False, output_lines or [f"HLOD offline portable contract tests failed with exit code {code}."]
+    # Require unittest's complete nonempty success footer. Exit 0 alone also
+    # describes a deleted unittest.main(), zero discovered cases, or skipped tests.
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["HLOD offline portable tests have no complete, nonempty success summary without skips."]
     return True, output_lines
 
 

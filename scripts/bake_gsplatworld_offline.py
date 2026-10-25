@@ -612,17 +612,20 @@ def run_job(manifest, godot, evidence):
             require(file_identity(output) == verified["published_identity"], "Published identity mismatch")
             check()
             record.update(worker=verified["worker"], output_sha256=verified["candidate_sha256"],
-                          output_bytes=verified["candidate_identity"][2], peak_job_process_commit_bytes=job.peak())
+                          output_bytes=verified["candidate_identity"][2], peak_job_process_commit_bytes=job.peak(),
+                          publication={"status": "CONFIRMED", "path": str(output)})
             job.publication_uncertain = False
-            record["status"] = "PUBLISHED"
+        # Successful publication and successful admission cleanup are both required.
+        record["status"] = "PUBLISHED"
     except BaseException as error:
         record["failure"] = repr(error)
-        if job is not None and job.publication_uncertain:
-            record["status"] = "UNCONFIRMED"
+        confirmed = record.get("publication", {}).get("status") == "CONFIRMED"
+        record["status"] = "UNCONFIRMED" if job is not None and job.publication_uncertain and not confirmed else "FAILED"
     finally:
         record["elapsed_seconds"] = time.monotonic() - started
         if job is not None:
             record["drain"] = job.drain
+            record["admission_cleanup"] = "BLOCKED" if job.marker_owned else "RELEASED"
         write_json(evidence / "result.json", record)
         # Each attempt keeps its own stage as evidence and restarts fresh. Partial files
         # are never checkpoint inputs. A failed drain additionally poisons future admission.
