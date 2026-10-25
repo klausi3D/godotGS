@@ -2558,6 +2558,22 @@ def _hlod_async_observation_contract_errors(script: str, native: str) -> list[st
         errors.append("both callers must supply the same existing deadline")
     if re.search(r'\["engine_frame"\]\s*=', dispatch):
         errors.append("delivery must not relabel the frozen copy frame")
+    if ('observation["engine_frame"] = copy_engine_frame' not in observe
+            or "Engine.get_frames_drawn()" in observe
+            or not re.search(r'if request_id == 0:\s*\n\s*copy_engine_frame = int\(observation.get\("copy_engine_frame", -1\)\)', observe)
+            or len(re.findall(r"^\s*copy_engine_frame\s*=", observe, re.MULTILINE)) != 1):
+        errors.append("completion must retain only the initial submission engine frame")
+    bracket = ('if Engine.get_frames_drawn() != copy_engine_frame:\n'
+               '\t\t\tobservation = {"error": "engine_frame_changed_during_publication_copy", "fatal": true}\n'
+               '\t\telse:\n\t\t\tobservation["copy_engine_frame"] = copy_engine_frame')
+    if (bracket not in dispatch
+            or 'if not foreign_device and request_id == 0 and bool(observation.get("pending", false)):' not in dispatch
+            or 'var copy_engine_frame := Engine.get_frames_drawn() if not foreign_device and request_id == 0 else -1' not in dispatch):
+        errors.append("initial copy interval must reject changing engine frame identity")
+    check = script.split("func _check_current_publication(", 1)[1].split("\n\nfunc ", 1)[0]
+    if ('int(observation.get("copy_renderer_frame", -1)) == int(observation["stats"]["frame_count"])' not in check
+            or 'int(observation.get("readback_poll_renderer_frame", -1)) >= int(observation.get("copy_renderer_frame", 0))' not in check):
+        errors.append("copy renderer frame must match frozen stats and precede its poll")
     wait = script.split("func _wait_publication(", 1)[1].split("\n\nfunc ", 1)[0]
     if not re.search(r'if observation.has\("error"\):\s*\n\s*if bool\(observation.get\("fatal", false\)\):\s*\n\s*_fail\([^\n]+\)\s*\n\s*return \{\}', wait):
         errors.append("admitted readback failures must end the test before warmup retry")
@@ -2568,6 +2584,11 @@ def _hlod_async_observation_contract_errors(script: str, native: str) -> list[st
         errors.append("publication observation must not synchronously read GPU buffers")
     if not re.search(r"\bbuffer_get_data_async\s*\(", code):
         errors.append("actual asynchronous GPU readback submission is missing")
+    if ('const uint64_t copy_renderer_frame = get_frame_state().frame_counter;' not in code
+            or 'result["copy_renderer_frame"] = int64_t(copy_renderer_frame);' not in code
+            or 'result["readback_poll_renderer_frame"] = int64_t(get_frame_state().frame_counter);' not in code
+            or 'if (get_frame_state().frame_counter != copy_renderer_frame)' not in code):
+        errors.append("native observation must freeze and check its actual renderer copy frame")
     return errors
 
 
@@ -2608,6 +2629,30 @@ class HlodAsyncObservationSourceContractTests(unittest.TestCase):
             changed = self.script.replace(fatal_branch, replacement, 1)
             self.assertIn("admitted readback failures must end the test before warmup retry",
                           _hlod_async_observation_contract_errors(changed, self.native))
+
+    def test_copy_frame_cannot_be_replaced_by_poll_or_changed_during_submission(self) -> None:
+        script_mutations = (
+            self.script.replace('observation["engine_frame"] = copy_engine_frame',
+                                'observation["engine_frame"] = Engine.get_frames_drawn()', 1),
+            self.script.replace('if request_id == 0:\n\t\t\tcopy_engine_frame =',
+                                'if request_id >= 0:\n\t\t\tcopy_engine_frame =', 1),
+            self.script.replace('if Engine.get_frames_drawn() != copy_engine_frame:', 'if false:', 1),
+            self.script.replace('int(observation.get("copy_renderer_frame", -1)) ==',
+                                'int(observation.get("copy_renderer_frame", -1)) >=', 1),
+        )
+        for changed in script_mutations:
+            with self.subTest(kind="script"):
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_async_observation_contract_errors(changed, self.native))
+        for changed in (
+            self.native.replace('result["copy_renderer_frame"] = int64_t(copy_renderer_frame);',
+                                'result["copy_renderer_frame"] = 0;', 1),
+            self.native.replace('if (get_frame_state().frame_counter != copy_renderer_frame)', 'if (false)', 1),
+        ):
+            with self.subTest(kind="native"):
+                self.assertNotEqual(changed, self.native)
+                self.assertIn("native observation must freeze and check its actual renderer copy frame",
+                              _hlod_async_observation_contract_errors(self.script, changed))
 
     def test_poll_delivery_cannot_replace_the_original_engine_frame(self) -> None:
         changed = self.script.replace("\t_deliver_publication_observation.call_deferred(observation)",

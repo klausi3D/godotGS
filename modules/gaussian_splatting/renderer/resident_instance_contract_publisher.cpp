@@ -23,7 +23,6 @@
 #include <cstdint>
 #include <cmath>
 #ifdef TESTS_ENABLED
-#include "core/config/engine.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_bake.h"
 #include "../interfaces/sync_policy.h"
@@ -1836,7 +1835,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
             if (!observation->complete) { return result; }
             result = observation->result.duplicate(true);
             result["pending"] = false;
-            result["readback_poll_engine_frame"] = int64_t(Engine::get_singleton()->get_frames_drawn());
+            result["readback_poll_renderer_frame"] = int64_t(get_frame_state().frame_counter);
         }
         test_hlod_observation.unref();
         // A completed historical snapshot cannot certify a newly installed source
@@ -1859,8 +1858,8 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
         return result;
     }
     if (test_hlod_observation.is_valid()) { result["error"] = "publication_readback_busy"; result["fatal"] = true; return result; }
-    const uint64_t engine_frame = Engine::get_singleton()->get_frames_drawn();
-    result["engine_frame"] = int64_t(engine_frame);
+    const uint64_t copy_renderer_frame = get_frame_state().frame_counter;
+    result["copy_renderer_frame"] = int64_t(copy_renderer_frame);
     const auto &state = get_resource_state();
     const auto &bound = get_instance_pipeline_buffers();
     RenderingDevice *rd = get_device_state().rd;
@@ -1990,8 +1989,8 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
             break;
         }
     }
-    if (Engine::get_singleton()->get_frames_drawn() != engine_frame) {
-        observation->fail("engine_frame_changed_during_publication_copy");
+    if (get_frame_state().frame_counter != copy_renderer_frame) {
+        observation->fail("renderer_frame_changed_during_publication_copy");
     }
     Dictionary pending;
     pending["pending"] = true;

@@ -175,26 +175,40 @@ func _deliver_publication_observation(observation: Dictionary) -> void:
 
 
 func _read_publication_on_render_thread(foreign_device: bool, request_id: int) -> void:
+	# Only the initial render-thread hook submits copies. Bracket that call here;
+	# native metadata separately freezes its actual renderer-frame identity.
+	var copy_engine_frame := Engine.get_frames_drawn() if not foreign_device and request_id == 0 else -1
 	var observation: Dictionary = _renderer.test_hlod_foreign_device_publication() if foreign_device else _renderer.test_observe_hlod_publication(request_id)
-	# Native submission freezes engine_frame alongside the source, route and GPU
-	# copies. Completion/polling may happen later and must not relabel that frame.
+	if not foreign_device and request_id == 0 and bool(observation.get("pending", false)):
+		if Engine.get_frames_drawn() != copy_engine_frame:
+			observation = {"error": "engine_frame_changed_during_publication_copy", "fatal": true}
+		else:
+			observation["copy_engine_frame"] = copy_engine_frame
 	_deliver_publication_observation.call_deferred(observation)
 
 
 func _observe_publication(deadline: int, foreign_device := false) -> Dictionary:
 	var request_id := 0
+	var copy_engine_frame := -1
 	while Time.get_ticks_msec() < deadline:
 		RenderingServer.call_on_render_thread(_read_publication_on_render_thread.bind(foreign_device, request_id))
 		var observation: Dictionary = await publication_observed
 		if Time.get_ticks_msec() >= deadline:
 			return {"error": "publication_observation_deadline"}
 		if not bool(observation.get("pending", false)):
-			if not foreign_device and not observation.has("error") and (request_id <= 0 or int(observation.get("observation_request_id", 0)) != request_id):
-				return {"error": "publication_observation_request_mismatch", "fatal": true}
+			if not foreign_device and not observation.has("error"):
+				if request_id <= 0 or int(observation.get("observation_request_id", 0)) != request_id or copy_engine_frame <= 0:
+					return {"error": "publication_observation_request_mismatch", "fatal": true}
+				# Preserve the initial copy interval across all callbacks/polls.
+				observation["engine_frame"] = copy_engine_frame
 			return observation
 		var observed_request := int(observation.get("observation_request_id", 0))
 		if observed_request <= 0 or (request_id != 0 and request_id != observed_request):
 			return {"error": "publication_observation_request_mismatch", "fatal": true}
+		if request_id == 0:
+			copy_engine_frame = int(observation.get("copy_engine_frame", -1))
+			if copy_engine_frame <= 0:
+				return {"error": "publication_copy_engine_frame_missing", "fatal": true}
 		request_id = observed_request
 		# Keep the actual renderer/GPU moving; no blocking readback or fresh timeout.
 		await RenderingServer.frame_post_draw
@@ -204,7 +218,7 @@ func _observe_publication(deadline: int, foreign_device := false) -> Dictionary:
 func _check_current_publication(observation: Dictionary, source: GaussianData, count: int) -> bool:
 	if not _check(not observation.has("error"), "Actual publication readback failed: %s" % observation.get("error", "")):
 		return false
-	if not _check(observation.get("readback_complete", false) and int(observation.get("readback_completed_mask", 0)) == 15 and int(observation.get("observation_request_id", 0)) > 0 and int(observation.get("readback_poll_engine_frame", -1)) >= int(observation.get("engine_frame", 0)), "Complete matching asynchronous GPU snapshot missing"):
+	if not _check(observation.get("readback_complete", false) and int(observation.get("readback_completed_mask", 0)) == 15 and int(observation.get("observation_request_id", 0)) > 0 and int(observation.get("copy_renderer_frame", -1)) == int(observation["stats"]["frame_count"]) and int(observation.get("readback_poll_renderer_frame", -1)) >= int(observation.get("copy_renderer_frame", 0)), "Complete matching asynchronous GPU snapshot missing"):
 		return false
 	for pair in [["atlas_hex", "source_leaf_hex"], ["instance_hex", "expected_instance_hex"], ["grading_hex", "expected_grading_hex"]]:
 		if not _check(not str(observation.get(pair[0], "")).is_empty() and observation.get(pair[0]) == observation.get(pair[1]), "Current %s differs from actual source/instance/grading" % pair[0]):
