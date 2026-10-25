@@ -5,7 +5,8 @@
   for streaming, precision and locally editable large worlds. Acceptance of this design
   does not establish implementation or runtime acceptance; source code and GitHub PRs carry
   those separately. §9 retains the original slices and their gates; §14.7 maps the extension
-  onto them. The earlier independent review responses remain in §13.
+  onto them. The earlier independent review responses remain in §13. The separate offline
+  preparation contract in **§15 is proposed, not accepted**, and changes no existing gate.
 - **Risk class:** this file is R0 (`docs/**`). It is the **R3 design record** that
   `docs/governance/agentic-engineering.md` requires before implementation, because the
   decision changes an on-disk format (`.gsplatworld`), importer format versions, the renderer
