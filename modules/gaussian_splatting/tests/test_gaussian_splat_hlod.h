@@ -5429,13 +5429,20 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] canonical import pres
 			}
 			const PackedByteArray before = hlod_read_file(source);
 			Variant in_place_metadata;
-			if (importer->import(ResourceUID::INVALID_ID, source, source.get_basename(), options, nullptr, nullptr,
-			                     &in_place_metadata) != OK) {
-				FAIL("validated in-place import");
-				return;
-			}
-			CHECK(hlod_read_file(source) == before);
+			ERR_PRINT_OFF;
+			const Error in_place_error = importer->import(ResourceUID::INVALID_ID, source, source.get_basename(),
+			        options, nullptr, nullptr, &in_place_metadata);
+			ERR_PRINT_ON;
+#ifdef WINDOWS_ENABLED
+			// The unchanged canonical importer copies through an open source handle.
+			// Windows refuses atomic replacement of that same file. The optional
+			// offline job must reject source aliases before entering this path.
+			CHECK(in_place_error == FAILED);
+#else
+			CHECK(in_place_error == OK);
 			CHECK(String(Dictionary(in_place_metadata)["hlod_skip_reason"]) == "source_already_hlod");
+#endif
+			CHECK(hlod_read_file(source) == before);
 #ifdef WINDOWS_ENABLED
 			if (control == 4) {
 				const String alias_base = source.get_base_dir().path_join(source.get_file().get_basename().to_upper());
@@ -5445,12 +5452,11 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] canonical import pres
 					return;
 				}
 				Variant alias_metadata;
-				if (importer->import(ResourceUID::INVALID_ID, source, alias_base, options, nullptr, nullptr,
-				                     &alias_metadata) != OK) {
-					FAIL("case-alias in-place import");
-					return;
-				}
-				CHECK(String(Dictionary(alias_metadata)["hlod_skip_reason"]) == "source_already_hlod");
+				ERR_PRINT_OFF;
+				const Error alias_import_error = importer->import(ResourceUID::INVALID_ID, source, alias_base,
+				        options, nullptr, nullptr, &alias_metadata);
+				ERR_PRINT_ON;
+				CHECK(alias_import_error == FAILED);
 				CHECK(hlod_read_file(source) == before);
 				CHECK(hlod_read_file(alias_path) == before);
 				Error alias_error = ERR_BUG;
