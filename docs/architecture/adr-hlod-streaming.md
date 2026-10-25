@@ -1,8 +1,11 @@
 # ADR: Hierarchical LOD for streamed splat worlds (budgeted cut, merged nodes, node streaming)
 
 - **Status:** **Accepted (maintainer, 2026-10-02)** — option D, with the decisions recorded
-  in §11. This revision also answers the independent review of `7fa337d4a41` (§13). Nothing
-  here is implemented yet; §9 is the slice plan the implementation follows.
+  in §11. The **2026-10-25 integration amendment (§14)** defines the approved next stages
+  for streaming, precision and locally editable large worlds. Acceptance of this design
+  does not establish implementation or runtime acceptance; source code and GitHub PRs carry
+  those separately. §9 retains the original slices and their gates; §14.7 maps the extension
+  onto them. The earlier independent review responses remain in §13.
 - **Risk class:** this file is R0 (`docs/**`). It is the **R3 design record** that
   `docs/governance/agentic-engineering.md` requires before implementation, because the
   decision changes an on-disk format (`.gsplatworld`), importer format versions, the renderer
@@ -23,11 +26,14 @@
      truncation**.
   3. The target is streamed open worlds of many millions up to billions of splats in real
      time; rendering cost must scale with the **screen**, not with world size or view distance.
-- **Verified against:** `origin/master` = **`efb2c8bfba7`**. Every `file:line` below was read
+- **Historical source baseline (§§1–13):** `origin/master` = **`efb2c8bfba7`**. Every
+  `file:line` below was read
   at that commit unless it names the #1088 branch, which was read at **`f3ddae2a162`**
   (PR #1134's head `feec67befa6` merges #1130 into it; the allocator code is unchanged).
-- **Measurements:** §5. All numbers come from scratch scripts run for this ADR (§5.7 says how
-  to reproduce them); none of that code is in this PR.
+- **Measurements:** §5 records the original prototype measurements (§5.7 describes their
+  reproduction). They are not measurements of the integrated architecture in §14. The source
+  baseline for this amendment is `36f73d36f8daa0b4bb710d1e172a8f9f3b8af5d8`; it adds
+  requirements, not new measured results.
 
 ## 1. Problem
 
@@ -85,7 +91,7 @@ the view distance. §5.3 shows the draw count of any flat scheme growing with wo
 | Piece | Where (at `efb2c8bfba7`) | Fate |
 | --- | --- | --- |
 | Per-chunk distance level (Octree-GS formula) | `lod/lod_config.cpp:179-199`, `streaming_visibility_controller.cpp:871-886` | Replaced by the cut (§6.4) |
-| Prefix draw `splat_count = effective_count` | `streaming_global_atlas_registry.cpp:440-444` | Kept only for a pinned node that is still uploading (§6.6) |
+| Prefix draw `splat_count = effective_count` | `streaming_global_atlas_registry.cpp:440-444` | Historical upload preview only (§6.6); not complete coverage or readiness (§14.2) |
 | GPU chunk meta, 64 B with `lod_level` + 3 pads | `renderer/gaussian_gpu_layout.h:187-202` | A node is a chunk; one pad carries the fade factor (S6) |
 | Asset LOD ranges (8 levels) | `gaussian_gpu_layout.h:151-173` | Not used; the cut emits a flat node list |
 | Atomic truncation at the cap | `depth_compute.glsl:225-227`, `compute/instance_count_clamp.glsl:44-47` | Becomes unreachable: the CPU cut guarantees `count <= cap` (§6.5) |
@@ -420,8 +426,9 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
 
 - Every node stores **≤ 16,384 splats**, contiguous in the file and **ordered by importance
   inside the node** (`opacity x sigma_a x sigma_b`, the A-area order of §5.2). A prefix of
-  whole pages is therefore the best available subset of that node. Prefixes are drawn only for
-  a pinned node that is still uploading (§6.6), never as the LOD mechanism.
+  whole pages is therefore an importance subset of that node, not a coverage guarantee.
+  The historical pinned-upload preview (§6.6) is never the LOD mechanism and does not
+  qualify a node for the integrated drawn set (§14.2).
 - Interior payloads are plain splats in the same 144 B layout. The renderer cannot tell a
   merged splat from an original, so a better bake is a re-import, not a format or runtime
   change.
@@ -525,7 +532,8 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
 
 The cut is computed **on the CPU** each frame, over all instances at once (§6.9). What it
 produces is the **drawn set**, and every budget and cap applies to the drawn set, never to an
-ideal cut.
+ideal cut. For the integrated route, §14.2 adds a complete initial frontier before this
+refinement loop; a root that does not fit must not short-circuit that search.
 
 - **Refinement order.** Start from the top-level tree's roots (§6.9); **top-level nodes are
   expanded first, ahead of every asset node and regardless of priority**, down to the visible
@@ -565,14 +573,16 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
 | --- | --- | --- |
 | Visible splats | `max_visible_splats`, `depth_compute.glsl:225-227` (Channel B) | **Bounded.** The effective splat budget is `min(quality/max_splat_count, max_sort_elements, allocated buffer capacity)` (the resident publisher already applies `sort_cap`, `resident_instance_contract_publisher.cpp:865-868`). `max_visible_splats` is sized **once** from it, not per frame. The drawn set's count, including fade pairs and prefixes, is ≤ it. |
 | Visible chunks / nodes | `max_visible_chunks`, `frustum_cull.glsl:143`, `overflowed_chunks`; sized at `render_streaming_orchestrator.cpp:1803-1808` | **Bounded.** The drawn node count, fade pairs included, is a cut cap; the buffer is sized from the configured node cap. For HLOD content the list is written by the CPU in the cut's order (S2b's `DrawnNodeGPU`), not appended by GPU atomics. |
-| Global overlap records | `max_overlap_records`, tile binning (overflow ADR Channel A, #54) | **Bounded by estimate.** Each node bakes a footprint `F = sum (6 sigma_a)(6 sigma_b)` (m²); the cut keeps `sum (count + F f_px² / (d² x tile_area))` ≤ 80% of the effective record budget. The estimate is conservative, not exact, so `overflow_splats_clamped` stays the tripwire. |
+| Global overlap records | `max_overlap_records`, tile binning (overflow ADR Channel A, #54) | **Admission estimate.** Each node bakes a footprint `F = sum (6 sigma_a)(6 sigma_b)` (m²); the cut keeps `sum (count + F f_px² / (d² x tile_area))` ≤ 80% of the effective record budget. This is an admission estimate without a guaranteed upper bound, so `overflow_splats_clamped` stays the tripwire. |
 | Per-tile raster records | `GS_MAX_RASTER_SPLATS_PER_TILE` = 12,288 per 16 px tile under the default `gpu_preset="high"` (#1137) | **Residual.** It depends on depth complexity per tile, which node-level estimates cannot bound. HLOD lowers it where #1137 bites (far, dense content becomes fewer splats), but merged splats are larger, so S2a's evidence reports peak records per tile at the A/B views. Its drop must be counted and warned (#1137's fix); test 1 asserts it is zero. |
 
-- **Never an undrawn instance.** Every instance's asset root node is pinned (§6.6), so a
-  visible instance always has something to draw. If the visible instance roots alone exceed a
-  cap, whole instances are dropped **farthest first**, ties by instance key, with
-  `WARN_PRINT_ONCE` and a counter (the same rule as tree-less content below). This is the only
-  case in which a visible instance is not drawn, and it is counted.
+- **Historical alpha admission fallback.** Every instance's asset root node is pinned
+  (§6.6). If the visible instance roots alone exceed a cap, the original S2a contract drops
+  whole instances **farthest first**, ties by instance key, with `WARN_PRINT_ONCE` and a
+  counter. This counted loss remains an explicit legacy fallback; it is not complete
+  coverage. Prepared worlds opting into §14 instead require a complete initial frontier
+  and explicit admission failure when none fits. This amendment does not change the
+  existing legacy route or waive its loss counters.
 - **Content without a tree** (a `.gsplatworld` v1 not re-imported) has no coarser
   representation. Its fallback moves into **S2a** (it was S4): whole chunks are dropped
   farthest first, ties by `(instance key, chunk id)`, with `WARN_PRINT_ONCE` and a counter.
@@ -587,17 +597,19 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
 
 - **The streaming unit is a tree node.** The page allocator and byte budget are #1134's.
 - **Whole-run admission.** A node's whole run (≤ 16 pages) is allocated on admission and its
-  pages upload in payload order. A node never changes size, so it is never released and
-  re-allocated for refinement and never needs a second run. Refinement between levels is a
-  different node with its own run.
+  pages upload in payload order. An immutable node payload never changes size; refinement
+  between levels uses a different node and run. In §14, edits create a new version with a
+  separate run; overlapping old/new versions count against the budget until retirement.
 - **The protected closure.** The byte budget is checked against the **allocated pages** of the
   closure `pinned ∪ drawn ∪ ancestors(drawn) ∪ fade pairs ∪ in-flight runs`, not against the
   drawn set alone. Ancestors stay resident because a refined node's parent must be available
   when the camera moves back. Only nodes outside the closure may be evicted.
-- **Pinned levels.** Every asset's root node, and the top levels down to the first level whose
-  total payload exceeds 5% of the budget, are pinned and uploaded before the first frame is
-  drawn; a pinned node still
-  uploading draws its uploaded prefix, so the first frame is never empty.
+- **Pinned levels.** The original alpha plan pins every asset's root and the top levels
+  down to the first level whose total payload exceeds 5% of the budget. Its partially
+  uploaded pinned-node prefix is a loading preview, not proof of a non-empty *complete*
+  first frame. In the integrated route (§14.2), the complete bootstrap frontier and required
+  fallback closure must fit and finish validation/upload before readiness; a partial
+  prefix never enters its drawn set. The 5% heuristic cannot override that requirement.
 - **Requests.** For every node the ideal cut would refine but (2) of §6.4 blocked, its missing
   children are requested, in refinement-priority order, within the per-frame upload byte
   budget.
@@ -792,7 +804,8 @@ is still not reachable, they report the numbers to the maintainer for an explici
      five different prior drawn sets;
    - **top level:** payload-less top-level nodes are always expanded before any asset node, and
      no visible instance is left undrawn under a binding budget unless the visible instance
-     roots alone exceed a cap, in which case instances drop farthest first, counted;
+     roots alone exceed a cap, in which case the legacy fallback drops instances farthest
+     first, counted; integrated-route coverage additionally requires §14.2 admission;
    - **threshold hysteresis:** a node at `tau < e ≤ h x tau` keeps its previous state.
 3. **Bake unit tests (S1a):** deterministic output; **no node over 16,384 splats**, including
    a fixture with 40,000 coincident centres (index-split group); node bounds contain the
@@ -816,7 +829,9 @@ is still not reachable, they report the numbers to the maintainer for an explici
    no frame blocks on an unplaceable run.
 6. **Coverage under streaming (S3):** cold start with the budget binding; no frame has a
    node-shaped hole (coverage mask against the warm frame) **and** no frame draws a node
-   together with one of its ancestors outside a fade pair.
+   together with one of its ancestors outside a fade pair. Report loading previews
+   separately; a prefix is not a passing coverage frame. The integrated route also checks
+   readiness, including an inside-root camera, against §14.2 before accepting its first frame.
 7. **Corridor lane (S3):** `vram_cap_hit_frames <= 0` at 1 GiB, `residency_ratio >= 0.70`,
    every overflow counter of test 1 at zero, with GPU evidence.
 8. **Visual gate on real scans (S2a):** §5.2 re-run on the three scans against the real
@@ -854,7 +869,9 @@ on one GPU.
 
 ## 9. Staged slice plan
 
-One PR per slice, each against `master`, each stating its base SHA.
+One PR per slice, each stating its immutable base SHA. A stack also states its base PR;
+review covers the fixed diff. These are the original alpha slices, not a completion report.
+The integrated large-world sequence is §14.7 and retains their acceptance dependencies.
 
 ### Stage 1 — the alpha (eight PRs)
 
@@ -886,8 +903,10 @@ content needs; there is no fixed number of levels.
 - **GPU cut** if CPU traversal shows up in profiles at billions of splats.
 - **Compression:** quantized node-relative payloads (the 80 B path) and per-level SH degree
   reduction.
-- **Out-of-core bake** for worlds that do not fit in RAM, stitched at the top levels; the
-  world-aligned grid makes it possible without a format change.
+- **Out-of-core bake** for worlds that do not fit in RAM, stitched at the top levels.
+  The lattice remains reusable, but bounded paged startup and preparation now require the
+  explicit V4 contract in §14.4; the old assumption that no format change is needed does
+  not cover that extension.
 
 ### What would force a rebuild if stage 1 were done more cheaply
 
@@ -970,8 +989,11 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
 
 ## 12. What was not verified
 
-- **No production code exists.** All quality numbers come from rendering prototype outputs
-  through the engine; the bake is a Python prototype.
+This section records the limits of the original §5 investigation. It is not an inventory of
+current code or completed PRs. The integration acceptance requirements are in §14.8.
+
+- **No integrated implementation was measured by that investigation.** Its quality numbers
+  came from rendering prototype outputs through the engine; its bake was a Python prototype.
 - **The prototype predates the world-aligned grid (decision 5):** §5's trees split at the
   data's bounding-box midpoints. S1a re-runs §5.2 and §5.5 on the fixed grid.
 - **Not prototyped at all:** the per-node choice and its 22-view metric (cost in §6.3 is an
@@ -1019,3 +1041,244 @@ Follow-up review of `a1da9be37bf`:
 | R7 (P3) | Compaction cannot move protected nodes | §6.6: protected nodes move by copy-then-switch; fixed 16-page slots named as the outcome if test 5 fails |
 | R8 (P3) | "Modelled lower bound" on one point | §5.3: "likely under-predicts" |
 | R9 (P3) | S2 size | S2 split into S2a (closes #1131) and S2b (instance tree, camera-relative space) |
+
+## 14. Integration amendment: streamed, locally editable worlds (2026-10-25)
+
+The maintainer approved this extension for staged implementation. HLOD chooses a complete
+representation; streaming supplies its versioned node payloads through the existing page
+allocator, upload path and renderer. They share one residency contract. A second independent
+streamer, a whole-world resident copy and a permanently resident full-detail edit world are
+outside this design.
+
+The first capacity acceptance target is a Cartesian world spanning **at least 100 km**, with
+**at least 200 million physically stored full-detail SH3 splats**, plus interior payloads,
+and a working target of **about one million drawn splats**. Logical instance multiplication
+and metadata-only fixtures do not count as stored capacity. SH0–4 compatibility remains
+required; an SH0 capacity run cannot substitute for SH3. The renderer performance target is
+120+ native FPS: 8.33 ms for a complete game frame. 1440p and a 3–5 ms GS GPU allocation are
+planning assumptions, not measurements or acceptance evidence. Neither the §5 prototypes
+nor a CPU oracle establishes those capabilities.
+
+### 14.1 Identity, sets and shared residency
+
+The following terms describe internal contracts, not new registered classes or bound APIs:
+
+| Term | Contract |
+| --- | --- |
+| `NodeKey` | Stable world/asset identity plus stable node identity; independent of atlas address, array order and request lifetime. Instance placement has a separate stable key. Deleted identities are never reassigned to unrelated content. |
+| `NodeVersion` | Immutable payload and bounds for a `NodeKey`, identified by content revision and bake-rule revision. A parent records the exact child versions it represents. |
+| `Desired(view)` | Quality-driven target nodes and missing dependencies for one view. May include absent nodes; supplies demand, never drawable addresses. |
+| `Resident` | Globally shared, validated and completely uploaded node versions whose GPU lifetime is valid. Allocated or partly uploaded runs are accounted for separately and are not resident-ready. |
+| `Drawn(view)` | Complete, non-overlapping cut for an admitted view, made only from eligible resident versions, with budgeted fade pairs as the sole ancestor/descendant overlap. |
+
+The selection input is an immutable snapshot of hierarchy/content revision, active views,
+transforms, origin revision, residency and budgets. Each view has its own cut, history and
+draw records. There is one physical residency budget across views and instances; shared
+payload storage is charged once, while each view's sort, record and draw allocations are
+charged where they are actually used. Adding a view must reserve its resources or return
+an explicit admission result; it cannot silently degrade another view to an incomplete cut.
+
+Protection is the union over all admitted views of drawn versions, valid fallback coverage,
+fade pairs, in-flight work and edit reservations. It includes old and new allocations during
+copy/upload/compaction and resources awaiting GPU retirement. Budget checks use allocated
+bytes, including SH and allocator rounding, not just selected splat counts. An invalidated
+parent can remain allocated for old GPU work but is no longer a valid fallback (§14.5).
+
+A request carries node key/version, world-generation identity and request generation;
+publication additionally checks the device generation and upload completion. Reuse the
+streamer's existing generation, upload-sequence and retirement boundaries. Cancellation or
+an obsolete revision prevents publication; it does not free memory still referenced by I/O
+or GPU work. A late completion cannot resurrect an unloaded world, overwritten node or old
+device. Compaction changes an address only after its copy completes and all draw references
+switch coherently; stable identities, tie-breaks and wind seeds do not change.
+
+### 14.2 Complete initial frontier and readiness
+
+Before refinement, find a complete frontier for the admitted visible domain. Payload-less
+hierarchy nodes are expanded; every visible branch is represented by one eligible payload.
+This applies when the camera is inside a root and when a root payload alone exceeds a cap:
+bounded deterministic search must consider a complete child frontier that may fit before
+declaring failure. Each frontier obeys the splat, node, record and memory limits. The
+overlap estimate in §6.5 is still an estimate; measured overflow remains a failing tripwire,
+not an exact mathematical bound supplied by this amendment.
+
+Only after establishing this frontier does §6.4's refinement order apply. Its stop at the
+first budget refusal and its history/monotonicity tests remain requirements. Initial-search
+work has a configured bound and reports exhaustion separately from proof that no frontier
+fits. Neither result may produce a partial cut labelled complete. Test the transition between
+initial frontiers under changing budgets as well as subsequent refinements; do not assume
+the refinement proof also proves initial-frontier monotonicity.
+
+Readiness has explicit outcomes: loading, ready with a complete coarse representation,
+not admitted by the configured budgets, or failed validation/I/O. These are semantic states,
+not a proposed enum binding. The ready transition requires the entire bootstrap frontier
+and its fallback resources to be validated, uploaded and reserved. An uploaded prefix may
+be exposed as loading progress by the legacy route, but never satisfies readiness or
+coverage. Counted whole-instance drops in §6.5 remain legacy behavior and fail the integrated
+coverage contract. If even the minimum complete representation cannot be admitted, report
+that condition rather than silently omitting regions.
+
+Refine only when all replacement children required for visible coverage are ready and the
+whole transition fits. On a miss, cancellation or failed replacement, retain the valid old
+cut. At camera/view changes, establish coverage for the new domain before declaring it ready;
+keeping a previous view's cut is not evidence of coverage of newly exposed regions. Views
+with exhausted budgets report their state without corrupting already admitted views.
+
+### 14.3 Precise world frame and node-local rendering
+
+Keep global placement as a precise CPU representation: double origin/translation plus the
+integer lattice address, with node-local float payloads. Import and preparation must retain
+source precision before conversion; casting an already rounded absolute float to double
+cannot restore it. The first expansion uses a flat Cartesian frame, not planetary curvature.
+
+S2b's per-draw camera-relative offset is computed in double from that representation and
+only then converted to GPU float. Payloads shared by multiple instances/views never store a
+view-dependent offset. Depth, culling, SH view direction, sorting, wind and effectors use
+consistent frames; host/shader layout checks cover the per-draw contract. No fp16-centre
+optimization is implied. The conditional precision estimate in §6.2 is not a substitute for
+near-detail tests at large offsets, especially for budget-forced coarse nodes or inside-root
+views where its projected-error premise need not hold.
+
+The origin context belongs to the Gaussian Splatting module. Changing it never repositions
+unrelated scene nodes; external gameplay and physics origin handling uses explicit
+integration hooks. Every origin change increments an origin revision. Draw/cull snapshots and
+caches that depend on that frame include the revision and cannot mix old and new offsets.
+Stored node-local payloads and stable edit identities do not change on an origin shift.
+Two simultaneous views, one perspective and one orthographic, repeated origin shifts and
+unload/reload at 0, 1 km and 100 km must preserve the expected relative geometry and
+deterministic ties at equal quality.
+
+### 14.4 V4 paged packages and bounded preparation
+
+The approved new package design is **V4**, with a paged hierarchy/index, a bounded bootstrap
+directory and independently verifiable node payloads. Its implementation task must confirm
+that the version number is still free and specify exact byte layouts before coding. It must
+not reinterpret V3 bytes. Released legacy formats keep their strict validation and loading
+behavior; early-start semantics are a distinct opt-in format/content path.
+
+File-wide counts and byte offsets are checked unsigned 64-bit quantities. Every range
+operation checks overflow, file bounds, section/page overlap, record sizes, schema/SH degree
+and configured decode limits before allocation or reading. Index pages and payload records
+carry integrity metadata and explicit sizes; integrity checks do not replace semantic
+validation of bounds, topology, finite fields and parent/child versions. Validate each page
+before exposing its entries and each complete payload before admission. Malformed later
+pages fail their requests with a retained valid fallback, or explicit unavailability if
+none exists; they cannot be reported as a fully validated world.
+
+Startup reads the header, bounded directory, index pages needed for the initial frontier,
+and that frontier's payloads. Full leaf traversal is not a readiness prerequisite. The
+readiness report therefore means the admitted representation is valid, not that every
+unread byte is valid. Budget and measure index-cache bytes and startup I/O separately from
+payload residency. A file source must keep a stable file/content generation so replacement
+on disk cannot mix pages from different package versions.
+
+Preparation is out of core: bounded leaf input batches, bounded merge/quality work queues,
+paged index output and bottom-up parent production. The selected candidate must still use
+the full-detail descendant leaves (§6.3), with bounded reads and stable leaf ranges/IDs;
+substituting selected children would change the quality contract. Leaf-range metadata and
+its validator belong here, not in a prerequisite-only PR disconnected from their consumer.
+SH0–4, DC encoding, source preservation and the S1b quality/bake-cost gates remain in force.
+Preparation reports peak RAM, scratch disk, bytes read/written and elapsed time; a hidden
+whole-world `GaussianData` materialization is a failure. Existing canonical imports retain
+their behavior; the optimized prepared-package workflow is explicit.
+
+### 14.5 Persistent edits in a reserved active area
+
+The first mutable scope is discrete game edits within a prepared near area, with an
+individual tool or small explosion affecting a region of **at most 5 m radius**. Larger
+operations require coordinated subtransactions and explicitly defined commit boundaries.
+Continuous world-scale deformation, networking and collision simulation are outside this
+stage. Rendering exposes coupling hooks; it does not invent collision geometry.
+
+Before accepting an edit, resolve its stable affected IDs and reserve the complete
+replacement cut, payload copies, upload overlap, journal space and bounded rebuild work.
+Reservation includes siblings/descendants needed to cover regions whose ancestor will become
+invalid, across all admitted views, not just splats geometrically inside the tool radius.
+If the active area or any reserve is unavailable, defer or reject explicitly before commit;
+never partially apply the edit to fit memory.
+
+Each accepted edit creates immutable new leaf versions. At the atomic publication boundary,
+the replacement cut is complete and ready, and every ancestor representing an old affected
+child version becomes ineligible for new draws and fallback. Old GPU submissions may finish
+and retire normally; no submission after the confirmed edit may redisplay the old content.
+Retain an eligible complete cut until bottom-up rebuilding produces new parents from the
+exact child versions and passes the same bake/quality validation. A failed or superseded
+parent job preserves that cut and its reservation; it does not revive the stale parent.
+Subsequent edits require fresh admission, so persistent rebuild failure cannot grow memory
+without bound. The latency to prepare/commit and the time until coarsening is restored are
+separate measurements, with no promise of an unmeasured instant rebuild.
+
+Persistence uses an append-only, versioned journal keyed by stable world/node/splat identity,
+with expected prior revisions and complete transaction boundaries. Array indices and atlas
+addresses are not identities. Durable commit precedes success acknowledgement and visible
+publication; crash recovery replays complete commits idempotently and ignores/reports
+incomplete tails without exposing half an edit. Unload/reload resolves the committed versions
+before becoming ready. Checkpoint/compaction preserves identity and committed revisions;
+parent payloads are replaceable derived data and must match the recovered children.
+
+### 14.6 Public integration contracts
+
+The implementation will bind a small API only after its R3 compatibility review. These are
+required operations/results, not currently available method names:
+
+| Boundary | Required inputs and observable results |
+| --- | --- |
+| World opening | Explicit strict legacy or prepared-package route; progress, generation, readiness/admission result and validation/I/O failure. |
+| Views and budgets | Stable view/instance identity, precise frame and configured budgets; admitted state, per-view cut counts and global allocated/reserved/retired bytes. |
+| Edit admission | Region, stable operation/target IDs and expected revisions; accepted reservation token, deferred reason or rejection with no changes. |
+| Edit commit/cancel | Single-use transaction identity; durable committed revision or no commit; cancellation cannot undo an acknowledged commit. |
+| World-change hooks | Committed transaction, affected global bounds and new revisions for gameplay/collision consumers; origin-revision notification without rewriting stable content IDs. |
+
+Hook delivery must distinguish durable commit from GPU presentation and background parent
+rebuild. A collision consumer may track its own readiness; rendering readiness does not
+claim collision completion. Legacy alpha APIs and resource loading remain compatible.
+
+### 14.7 Dependency-ordered implementation packages
+
+Each package receives its own task contract, immutable base, worktree and focused PR; large
+packages may be split into dependent PRs with the same acceptance boundaries. Reuse existing
+work after checking its current source and review state. This table is a dependency plan,
+not a second status tracker or permission to bypass an open gate. Design acceptance,
+an existing experimental runtime path or a passing CPU oracle does not clear a failed
+S1b gate or authorize advancement to dependent runtime slices.
+
+| Package | Minimal coherent scope and dependency | Required evidence before advancing |
+| --- | --- | --- |
+| **A — architecture and baseline** | This ADR amendment; separately establish a discriminating renderer baseline. | Independent review of this contract; baseline control fails for the intended defect and candidate exercises the real path. A failing/non-discriminating baseline blocks evidence that relies on it. |
+| **B — global selection** | Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b. Extend S2a using the CPU oracle. | S1b test 12 remains prerequisite; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates. |
+| **C — precise frame** | Precise placement, origin revision and per-draw node-local renderer contract; follows B and maps to S2b. | Far-origin/multi-view/origin-shift tests plus host/shader and runtime/GPU review; preserve SH0–4, ties and geometry. |
+| **D — hierarchical residency** | Feed selected node demand into the existing allocator/upload path; whole transitions, cancellation, protection, eviction and compaction; follows C. Start with strict existing files. | S3 tests 5–7 and mandatory test 11, including old/new GPU lifetime controls; report loading, ready and failure separately. |
+| **E — large prepared packages** | V4 paged index/payloads, early coarse startup and bounded preparation, including leaf ranges; follows D. | Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures. S1b bake/quality gates still apply. |
+| **F — editable regions** | Reserved 5 m edits, immutable revisions, stale-parent exclusion, bottom-up rebuild and durable stable-ID journal; follows E. | Budget exhaustion/rejection, superseded/failed rebuild, crash recovery, multi-view and edit→unload→reload controls, including actual rendered changed regions. |
+| **G — integrated capacity and performance** | Complete file→coarse→detail→edit→new coarse→unload→reload run; follows B–F and their gates. | Physical 100 km / 200M SH3 acceptance and matched full-frame/RAM/VRAM/quality measurements (§14.8); no unmeasured performance claim. |
+
+S1a → S1b → S2a → S2b remains sequential. S5's resident-route and stable-tie requirements
+remain; S6 follows S2b and may progress alongside S3 with disjoint ownership. Telemetry from
+S4 is implemented where the measured contracts need it. Neither splitting the integration
+nor enabling prepared packages removes the original alpha acceptance criteria.
+
+### 14.8 Acceptance and stop conditions
+
+Use small real scans for coverage/quality and physical large packages for capacity; report
+them separately. Record exact base/head and binary, hardware/driver, asset hashes/SH degree,
+paths, views, resolution and quality semantics. Match those inputs for A/B comparisons.
+Measure cold startup, moving views, steady state and the entire edit/reload cycle:
+
+- CPU frame and traversal/request/edit/bake time, GPU stages and total GPU frame, present
+  cadence and full game-frame p50/p95/p99; synchronous readback timing is not interactive FPS.
+- Peak RAM separately for index cache, payload staging, edit reservations and jobs; physical
+  GPU bytes separately for SH/atlas, sort/records/draw buffers, transitions and retired runs.
+- Bytes read/written and startup latency, desired/resident/drawn counts, request latency,
+  refinement/compaction/rebuild backlog, all overflow/loss counters and allocation failures.
+- Coverage masks and real captures for first ready frame, transitions, inside-root views,
+  far-origin near detail, two simultaneous views (one perspective and one orthographic),
+  committed edits and subsequent reload. Both views must meet their readiness and coverage
+  contracts under the shared residency budget.
+
+Stop advancement on holes, stale edited content in new submissions after edit publication,
+record loss, unbounded memory or queues, silent whole-world materialization, or a
+nondiscriminating test. Already submitted frames may still present after durable edit
+acknowledgement (§14.5); that is distinct from publishing a new draw with stale content.
+Preserve failing results. If a gate fails, improve the implementation or seek the maintainer's
+explicit disposition under §8; this amendment grants no waiver. A capacity success is not a
+speedup, and a fast synthetic run is not real-scan quality acceptance.
