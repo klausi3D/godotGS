@@ -21,9 +21,41 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../core/gaussian_data.h"
+#include "../core/gaussian_splat_manager.h"
 #include "gs_test_setting_guard.h"
 
 namespace {
+
+// Match the GPU-sorter tests' borrowed-device scope. The HLOD scratch ledger
+// and sorter teardown must recognize this local RD as live. Restore the
+// manager slot after every renderer/sorter dies and before ScopedLocalRD frees
+// the device; the manager must never acquire ownership of the borrowed RD.
+class ScopedTileCaptureManagerDevice {
+    GaussianSplatManager *manager = nullptr;
+    RenderingDevice *previous_primary = nullptr;
+    bool owns_manager = false;
+
+public:
+    explicit ScopedTileCaptureManagerDevice(RenderingDevice *p_device) {
+        manager = GaussianSplatManager::get_singleton();
+        if (!manager) {
+            manager = memnew(GaussianSplatManager);
+            owns_manager = true;
+        }
+        if (manager) {
+            previous_primary = manager->set_primary_rendering_device_for_testing(p_device);
+        }
+    }
+    ~ScopedTileCaptureManagerDevice() {
+        if (manager) {
+            manager->set_primary_rendering_device_for_testing(previous_primary);
+            if (owns_manager) {
+                memdelete(manager);
+            }
+        }
+    }
+    bool is_valid() const { return manager != nullptr; }
+};
 
 // #1137: records the text of every warning/error emitted while it is in scope, through
 // Godot's ErrorHandlerList (WARN_PRINT and WARN_PRINT_ONCE both reach it).
@@ -3582,6 +3614,11 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] HLOD content generatio
     RenderingDevice *local_device = local_rd_scope.rd;
     if (local_device == nullptr) {
         FAIL("HLOD content capture regression requires a real local RenderingDevice from the GPU harness.");
+        return;
+    }
+    ScopedTileCaptureManagerDevice manager_device(local_device);
+    if (!manager_device.is_valid()) {
+        FAIL("HLOD content capture regression requires the GPU-sorter manager/device lifetime contract.");
         return;
     }
     // Separate renderer lifetimes for diagnostics off/on and both actual raster
