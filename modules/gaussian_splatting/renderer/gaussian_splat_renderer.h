@@ -715,22 +715,31 @@ public:
     void _release_resident_contract_buffers();
 #ifdef TESTS_ENABLED
     void _test_dispatch_noop_callback(uint64_t p_request_id);
-    // Render-thread submission/polling and RD callbacks share one bounded request.
-    // The mutex also serializes teardown's cancellation; no GPU RID is owned here.
-    struct HlodPublicationObservation {
+    // Each queued Callable retains this request independently of the renderer.
+    // The box holds no renderer, device or Callable reference, so there is no cycle.
+    class HlodPublicationObservation : public RefCounted {
+        GDCLASS(HlodPublicationObservation, RefCounted);
+        static void _bind_methods() {}
+        void _fail_locked(const String &p_error);
+        static void _readback(const Vector<uint8_t> &p_bytes, const Ref<HlodPublicationObservation> &p_observation,
+                int64_t p_request_id, int p_slot, int64_t p_device_id);
+    public:
+        Mutex mutex;
         uint64_t request_id = 0;
         uint64_t device_id = 0;
-        uint64_t device_object_id = 0;
         uint64_t expected_bytes[4] = {};
         uint32_t received_mask = 0;
         bool complete = false;
+        bool failed = false;
+        bool cancelled = false;
         Dictionary result;
+        void cancel();
+        void fail(const String &p_error);
+        static Callable make_callback(const Ref<HlodPublicationObservation> &p_observation, int p_slot);
     };
-    Mutex test_hlod_observation_mutex;
-    HlodPublicationObservation test_hlod_observation;
+    Ref<HlodPublicationObservation> test_hlod_observation;
     uint64_t test_hlod_observation_serial = 0;
     void _test_cancel_hlod_publication_observation();
-    static void _test_hlod_publication_readback(const Vector<uint8_t> &p_bytes, int64_t p_renderer_id, int64_t p_request_id, int p_slot, int64_t p_device_id);
 #endif
     // p_request_id comes FIRST: see the argument-order contract on
     // IRenderThreadDispatcher::dispatch_call_on_render_thread_blocking().

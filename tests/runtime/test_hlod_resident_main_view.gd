@@ -190,11 +190,11 @@ func _observe_publication(deadline: int, foreign_device := false) -> Dictionary:
 			return {"error": "publication_observation_deadline"}
 		if not bool(observation.get("pending", false)):
 			if not foreign_device and not observation.has("error") and (request_id <= 0 or int(observation.get("observation_request_id", 0)) != request_id):
-				return {"error": "publication_observation_request_mismatch"}
+				return {"error": "publication_observation_request_mismatch", "fatal": true}
 			return observation
 		var observed_request := int(observation.get("observation_request_id", 0))
 		if observed_request <= 0 or (request_id != 0 and request_id != observed_request):
-			return {"error": "publication_observation_request_mismatch"}
+			return {"error": "publication_observation_request_mismatch", "fatal": true}
 		request_id = observed_request
 		# Keep the actual renderer/GPU moving; no blocking readback or fresh timeout.
 		await RenderingServer.frame_post_draw
@@ -204,7 +204,7 @@ func _observe_publication(deadline: int, foreign_device := false) -> Dictionary:
 func _check_current_publication(observation: Dictionary, source: GaussianData, count: int) -> bool:
 	if not _check(not observation.has("error"), "Actual publication readback failed: %s" % observation.get("error", "")):
 		return false
-	if not _check(observation.get("readback_complete", false) and int(observation.get("readback_completed_mask", 0)) == 15 and int(observation.get("observation_request_id", 0)) > 0 and int(observation.get("readback_completion_engine_frame", -1)) >= int(observation.get("engine_frame", 0)), "Complete matching asynchronous GPU snapshot missing"):
+	if not _check(observation.get("readback_complete", false) and int(observation.get("readback_completed_mask", 0)) == 15 and int(observation.get("observation_request_id", 0)) > 0 and int(observation.get("readback_poll_engine_frame", -1)) >= int(observation.get("engine_frame", 0)), "Complete matching asynchronous GPU snapshot missing"):
 		return false
 	for pair in [["atlas_hex", "source_leaf_hex"], ["instance_hex", "expected_instance_hex"], ["grading_hex", "expected_grading_hex"]]:
 		if not _check(not str(observation.get(pair[0], "")).is_empty() and observation.get(pair[0]) == observation.get(pair[1]), "Current %s differs from actual source/instance/grading" % pair[0]):
@@ -243,7 +243,10 @@ func _wait_publication(source: GaussianData, count: int, active: bool, reason: S
 		if Time.get_ticks_msec() >= deadline:
 			break
 		if observation.has("error"):
-			continue # A genuinely absent current contract is warmup, never success.
+			if bool(observation.get("fatal", false)):
+				_fail("Admitted publication readback failed: %s" % observation["error"])
+				return {}
+			continue # Only a genuinely absent or obsolete contract is warmup.
 		var stats: Dictionary = observation["stats"]
 		if int(stats["frame_count"]) <= after_frame or int(observation["engine_frame"]) <= _last_publication_engine_frame:
 			continue

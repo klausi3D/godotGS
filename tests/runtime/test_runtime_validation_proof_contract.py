@@ -2558,6 +2558,9 @@ def _hlod_async_observation_contract_errors(script: str, native: str) -> list[st
         errors.append("both callers must supply the same existing deadline")
     if re.search(r'\["engine_frame"\]\s*=', dispatch):
         errors.append("delivery must not relabel the frozen copy frame")
+    wait = script.split("func _wait_publication(", 1)[1].split("\n\nfunc ", 1)[0]
+    if not re.search(r'if observation.has\("error"\):\s*\n\s*if bool\(observation.get\("fatal", false\)\):\s*\n\s*_fail\([^\n]+\)\s*\n\s*return \{\}', wait):
+        errors.append("admitted readback failures must end the test before warmup retry")
     observer = native.split("Dictionary GaussianSplatRenderer::test_observe_hlod_publication(", 1)[1].split(
         "Dictionary GaussianSplatRenderer::test_hlod_foreign_device_publication", 1)[0]
     code = _without_cpp_comments(observer)
@@ -2595,6 +2598,16 @@ class HlodAsyncObservationSourceContractTests(unittest.TestCase):
             with self.subTest(changed=changed != self.script):
                 self.assertNotEqual(changed, self.script)
                 self.assertTrue(_hlod_async_observation_contract_errors(changed, self.native))
+
+    def test_fatal_transport_failure_cannot_be_retried_as_warmup(self) -> None:
+        fatal_branch = ('\t\t\tif bool(observation.get("fatal", false)):\n'
+                        '\t\t\t\t_fail("Admitted publication readback failed: %s" % observation["error"])\n'
+                        '\t\t\t\treturn {}\n')
+        self.assertIn(fatal_branch, self.script)
+        for replacement in ("", fatal_branch.replace("return {}", "continue")):
+            changed = self.script.replace(fatal_branch, replacement, 1)
+            self.assertIn("admitted readback failures must end the test before warmup retry",
+                          _hlod_async_observation_contract_errors(changed, self.native))
 
     def test_poll_delivery_cannot_replace_the_original_engine_frame(self) -> None:
         changed = self.script.replace("\t_deliver_publication_observation.call_deferred(observation)",

@@ -1738,31 +1738,54 @@ bool GaussianSplatRenderer::test_hlod_publication_refuses(int p_failure) {
 }
 
 void GaussianSplatRenderer::_test_cancel_hlod_publication_observation() {
-    MutexLock lock(test_hlod_observation_mutex);
-    test_hlod_observation = HlodPublicationObservation();
+    Ref<HlodPublicationObservation> observation = test_hlod_observation;
+    test_hlod_observation.unref();
+    if (observation.is_valid()) { observation->cancel(); }
 }
 
-void GaussianSplatRenderer::_test_hlod_publication_readback(const Vector<uint8_t> &p_bytes,
-        int64_t p_renderer_id, int64_t p_request_id, int p_slot, int64_t p_device_id) {
-    // RD owns the queued callable, which carries IDs only. A late completion
-    // after renderer destruction is discarded without calling a dead Object.
-    auto *renderer = Object::cast_to<GaussianSplatRenderer>(ObjectDB::get_instance(ObjectID(uint64_t(p_renderer_id))));
-    if (!renderer) { return; }
-    MutexLock lock(renderer->test_hlod_observation_mutex);
-    auto &observation = renderer->test_hlod_observation;
-    if (renderer->teardown_resources_started.load(std::memory_order_acquire) || p_request_id <= 0 ||
-            observation.request_id != uint64_t(p_request_id) || observation.device_id != uint64_t(p_device_id) ||
-            observation.complete) { return; }
-    RenderingDevice *device = Object::cast_to<RenderingDevice>(ObjectDB::get_instance(ObjectID(observation.device_object_id)));
-    if (!device || device->get_device_instance_id() != observation.device_id || device != renderer->get_device_state().rd) {
-        observation.result["error"] = "publication_readback_device_changed";
-        observation.complete = true;
-        return;
-    }
+void GaussianSplatRenderer::HlodPublicationObservation::_fail_locked(const String &p_error) {
+    if (failed || cancelled) { return; }
+    failed = true;
+    complete = true;
+    result["error"] = p_error;
+    result["fatal"] = true;
+    result["readback_complete"] = false;
+}
+
+void GaussianSplatRenderer::HlodPublicationObservation::fail(const String &p_error) {
+    MutexLock lock(mutex);
+    _fail_locked(p_error);
+}
+
+void GaussianSplatRenderer::HlodPublicationObservation::cancel() {
+    MutexLock lock(mutex);
+    cancelled = true;
+    complete = true;
+    result["error"] = "publication_readback_cancelled";
+    result["fatal"] = true;
+    result["readback_complete"] = false;
+}
+
+Callable GaussianSplatRenderer::HlodPublicationObservation::make_callback(
+        const Ref<HlodPublicationObservation> &p_observation, int p_slot) {
+    if (p_observation.is_null()) { return Callable(); }
+    MutexLock lock(p_observation->mutex);
+    // Binding the Ref pins only the box until RD releases its queued Callable.
+    // No lookup of the releasing renderer/device is needed by a late callback.
+    return callable_mp_static(&HlodPublicationObservation::_readback).bind(
+            p_observation, int64_t(p_observation->request_id), p_slot, int64_t(p_observation->device_id));
+}
+
+void GaussianSplatRenderer::HlodPublicationObservation::_readback(const Vector<uint8_t> &p_bytes,
+        const Ref<HlodPublicationObservation> &p_observation, int64_t p_request_id, int p_slot, int64_t p_device_id) {
+    if (p_observation.is_null()) { return; }
+    MutexLock lock(p_observation->mutex);
+    HlodPublicationObservation &observation = *p_observation.ptr();
+    if (observation.cancelled || observation.failed || p_request_id <= 0 ||
+            observation.request_id != uint64_t(p_request_id) || observation.device_id != uint64_t(p_device_id)) { return; }
     if (p_slot < 0 || p_slot >= 4 || (observation.received_mask & (1u << p_slot)) != 0 ||
             uint64_t(p_bytes.size()) != observation.expected_bytes[p_slot]) {
-        observation.result["error"] = "publication_readback_incomplete_or_duplicate";
-        observation.complete = true;
+        observation._fail_locked("publication_readback_incomplete_or_duplicate");
         return;
     }
     // Only actual callback bytes populate observed fields. Expected bytes and all
@@ -1789,7 +1812,6 @@ void GaussianSplatRenderer::_test_hlod_publication_readback(const Vector<uint8_t
     if (observation.received_mask == 15u) {
         observation.result["readback_complete"] = true;
         observation.result["readback_completed_mask"] = observation.received_mask;
-        observation.result["readback_completion_engine_frame"] = int64_t(Engine::get_singleton()->get_frames_drawn());
         observation.complete = true;
     }
 }
@@ -1802,18 +1824,21 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
     if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
     if (teardown_resources_started.load(std::memory_order_acquire)) { result["error"] = "renderer_teardown"; return result; }
     if (p_request_id != 0) {
+        const Ref<HlodPublicationObservation> observation = test_hlod_observation;
+        if (observation.is_null()) { result["error"] = "publication_readback_request_mismatch"; result["fatal"] = true; return result; }
         {
-            MutexLock lock(test_hlod_observation_mutex);
-            if (p_request_id < 0 || test_hlod_observation.request_id != uint64_t(p_request_id)) {
-                result["error"] = "publication_readback_request_mismatch"; return result;
+            MutexLock lock(observation->mutex);
+            if (p_request_id < 0 || observation->request_id != uint64_t(p_request_id)) {
+                result["error"] = "publication_readback_request_mismatch"; result["fatal"] = true; return result;
             }
             result["observation_request_id"] = p_request_id;
-            result["pending"] = !test_hlod_observation.complete;
-            if (!test_hlod_observation.complete) { return result; }
-            result = test_hlod_observation.result;
+            result["pending"] = !observation->complete;
+            if (!observation->complete) { return result; }
+            result = observation->result.duplicate(true);
             result["pending"] = false;
-            test_hlod_observation = HlodPublicationObservation();
+            result["readback_poll_engine_frame"] = int64_t(Engine::get_singleton()->get_frames_drawn());
         }
+        test_hlod_observation.unref();
         // A completed historical snapshot cannot certify a newly installed source
         // or device. Frame/content serials may advance normally during async work;
         // their frozen values still identify the copied frame, never the poll frame.
@@ -1833,10 +1858,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
         }
         return result;
     }
-    {
-        MutexLock lock(test_hlod_observation_mutex);
-        if (test_hlod_observation.request_id != 0) { result["error"] = "publication_readback_busy"; return result; }
-    }
+    if (test_hlod_observation.is_valid()) { result["error"] = "publication_readback_busy"; result["fatal"] = true; return result; }
     const uint64_t engine_frame = Engine::get_singleton()->get_frames_drawn();
     result["engine_frame"] = int64_t(engine_frame);
     const auto &state = get_resource_state();
@@ -1945,38 +1967,31 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_reques
             result["error"] = "publication_readback_buffer_owner_mismatch"; return result;
         }
     }
-    uint64_t request_id;
-    {
-        MutexLock lock(test_hlod_observation_mutex);
-        if (test_hlod_observation_serial >= uint64_t(INT64_MAX)) { result["error"] = "publication_request_id_exhausted"; return result; }
-        request_id = ++test_hlod_observation_serial;
-        result["observation_request_id"] = int64_t(request_id);
-        test_hlod_observation.request_id = request_id;
-        test_hlod_observation.device_id = rd->get_device_instance_id();
-        test_hlod_observation.device_object_id = uint64_t(rd->get_instance_id());
-        test_hlod_observation.expected_bytes[0] = expected.size();
-        test_hlod_observation.expected_bytes[1] = uint64_t(instances.size()) * sizeof(InstanceDataGPU);
-        test_hlod_observation.expected_bytes[2] = uint64_t(grading.size()) * sizeof(InstanceGradingGPU);
-        test_hlod_observation.expected_bytes[3] = sizeof(GaussianSplatting::IndirectDispatchLayout);
-        test_hlod_observation.result = result.duplicate(true);
-    }
-    // Do not hold the observation mutex across RD calls: staging pressure can
-    // deliver an older callback while a new transfer is being queued.
+    if (test_hlod_observation_serial >= uint64_t(INT64_MAX)) { result["error"] = "publication_request_id_exhausted"; result["fatal"] = true; return result; }
+    const uint64_t request_id = ++test_hlod_observation_serial;
+    result["observation_request_id"] = int64_t(request_id);
+    Ref<HlodPublicationObservation> observation;
+    observation.instantiate();
+    observation->request_id = request_id;
+    observation->device_id = rd->get_device_instance_id();
+    observation->expected_bytes[0] = expected.size();
+    observation->expected_bytes[1] = uint64_t(instances.size()) * sizeof(InstanceDataGPU);
+    observation->expected_bytes[2] = uint64_t(grading.size()) * sizeof(InstanceGradingGPU);
+    observation->expected_bytes[3] = sizeof(GaussianSplatting::IndirectDispatchLayout);
+    observation->result = result.duplicate(true);
+    test_hlod_observation = observation;
+    // Do not hold the box mutex across RD calls: staging pressure can deliver
+    // an earlier callback while a new transfer is being queued.
     for (int slot = 0; slot < 4; ++slot) {
-        Callable callback = callable_mp_static(&GaussianSplatRenderer::_test_hlod_publication_readback)
-                .bind(int64_t(get_instance_id()), int64_t(request_id), slot, int64_t(rd->get_device_instance_id()));
+        const Callable callback = HlodPublicationObservation::make_callback(observation, slot);
         const Error error = rd->buffer_get_data_async(buffers[slot], callback, 0, 0);
         if (error != OK) {
-            MutexLock lock(test_hlod_observation_mutex);
-            test_hlod_observation.result["error"] = "publication_readback_submission_failed";
-            test_hlod_observation.complete = true;
+            observation->fail("publication_readback_submission_failed");
             break;
         }
     }
     if (Engine::get_singleton()->get_frames_drawn() != engine_frame) {
-        MutexLock lock(test_hlod_observation_mutex);
-        test_hlod_observation.result["error"] = "engine_frame_changed_during_publication_copy";
-        test_hlod_observation.complete = true;
+        observation->fail("engine_frame_changed_during_publication_copy");
     }
     Dictionary pending;
     pending["pending"] = true;
