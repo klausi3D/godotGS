@@ -870,10 +870,12 @@ is still not reachable, they report the numbers to the maintainer for an explici
     choice takes at most 2x the merge-only bake for canonical imports, the current public bake
     path and runtime edit rebakes. Only explicitly selected offline prepared-content jobs
     replace that relative cost criterion with the finite, predeclared and enforced contract
-    in §15, including its validation sequence. The original 22 views, SH0–4/DC semantics,
-    every quality row and all other tests remain required for that route. If the 0.5 dB
-    criterion fails, the implementer improves the metric or the candidates first; if it is
-    still not reachable, the numbers go to the maintainer for an explicit decision (decision 4).
+    in §15. Offline S1b acceptance before package B requires the implemented job contract
+    and §15.3 steps 1–2, plus every unchanged S1b quality gate: the original 22 views,
+    SH0–4/DC semantics and every quality row. All other tests remain required at their
+    respective stages. If the 0.5 dB criterion fails, the implementer improves the metric or
+    the candidates first; if it is still not reachable, the numbers go to the maintainer for
+    an explicit decision (decision 4).
 
 Single-vendor blind spot: all GPU evidence so far is NVIDIA. Atomic order differs by vendor,
 which is why the oracle must pass by construction (no atomic decides membership), not by luck
@@ -1258,19 +1260,21 @@ work after checking its current source and review state. This table is a depende
 not a second status tracker or permission to bypass an open gate. Design acceptance,
 including the scoped offline cost disposition in §15, an existing experimental runtime path
 or a passing CPU oracle does not establish S1b acceptance or authorize advancement to
-dependent runtime slices. S1b must pass test 12 for the content route used: the offline route
-requires the implemented and validated §15 contract plus every unchanged quality gate.
+dependent runtime slices. S1b must pass test 12 for the content route used: before B, the
+offline route requires the implemented §15 job contract validated by §15.3 steps 1–2 plus
+every unchanged S1b quality gate. Physical scaling in §15.3 step 3 is the later mandatory
+E/G capacity acceptance, using the V4 implementation from E and integrated runtime from G.
 Packages B–G also retain their applicable runtime gates.
 
 | Package | Minimal coherent scope and dependency | Required evidence before advancing |
 | --- | --- | --- |
 | **A — architecture and baseline** | This ADR amendment; separately establish a discriminating renderer baseline. | Independent review of this contract; baseline control fails for the intended defect and candidate exercises the real path. A failing/non-discriminating baseline blocks evidence that relies on it. |
-| **B — global selection** | Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b for the content route used. Extend S2a using the CPU oracle. | S1b test 12 remains prerequisite, including implemented and validated §15 requirements for the offline route; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates. |
+| **B — global selection** | Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b for the content route used. Extend S2a using the CPU oracle. | S1b test 12 remains prerequisite: the offline route requires its implemented job contract, §15.3 steps 1–2 and every unchanged S1b quality gate; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates. |
 | **C — precise frame** | Precise placement, origin revision and per-draw node-local renderer contract; follows B and maps to S2b. | Far-origin/multi-view/origin-shift tests plus host/shader and runtime/GPU review; preserve SH0–4, ties and geometry. |
 | **D — hierarchical residency** | Feed selected node demand into the existing allocator/upload path; whole transitions, cancellation, protection, eviction and compaction; follows C. Start with strict existing files. | S3 tests 5–7 and mandatory test 11, including old/new GPU lifetime controls; report loading, ready and failure separately. |
-| **E — large prepared packages** | V4 paged index/payloads, early coarse startup and bounded preparation, including leaf ranges; follows D. | Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures. All S1b quality gates and the applicable preparation-cost contract (§8 test 12 and §15) still apply. |
+| **E — large prepared packages** | V4 paged index/payloads, early coarse startup and bounded preparation, including leaf ranges; follows D. | Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures; physical preparation scaling under §15.3 step 3. All S1b quality gates and the applicable preparation-cost contract (§8 test 12 and §15) still apply. |
 | **F — editable regions** | Reserved 5 m edits, immutable revisions, stale-parent exclusion, bottom-up rebuild and durable stable-ID journal; follows E. | Budget exhaustion/rejection, superseded/failed rebuild, crash recovery, multi-view and edit→unload→reload controls, including actual rendered changed regions. |
-| **G — integrated capacity and performance** | Complete file→coarse→detail→edit→new coarse→unload→reload run; follows B–F and their gates. | Physical 100 km / 200M SH3 acceptance and matched full-frame/RAM/VRAM/quality measurements (§14.8); no unmeasured performance claim. |
+| **G — integrated capacity and performance** | Complete file→coarse→detail→edit→new coarse→unload→reload run; follows B–F and their gates. | Physical 100 km / 200M SH3 acceptance and matched full-frame/RAM/VRAM/quality measurements (§14.8), completing §15.3 step 3; no unmeasured performance claim. |
 
 S1a → S1b → S2a → S2b remains sequential. S5's resident-route and stable-tie requirements
 remain; S6 follows S2b and may progress alongside S3 with disjoint ownership. Telemetry from
@@ -1375,7 +1379,16 @@ may resume only complete validated units with matching source and rule identitie
 first implementation has no resumable checkpoints, state that explicitly and restart into
 a new temporary output; never trust a partial package as a checkpoint.
 
-### 15.3 Smallest validation sequence
+<a id="153-smallest-validation-sequence"></a>
+
+### 15.3 Staged validation sequence
+
+Acceptance proceeds in dependency order. **S1b before package B** requires the implemented
+§15 job contract to pass steps 1–2 below, together with every unchanged S1b quality gate in
+test 12. **Step 3 remains mandatory for capacity acceptance in packages E and G**: physical
+preparation scaling is validated with E's V4 pipeline, followed by the integrated 100 km /
+200M SH3 runtime acceptance in G. Passing steps 1–2 cannot substitute for step 3 or any
+applicable runtime test. This staging records requirements; it does not accept S1b.
 
 1. **Small real scans:** run the existing S1b quality rows against the original 22-view rule,
    preserving the merge-only comparison. Measure public API wall time and peak RAM, exclusive
@@ -1385,9 +1398,9 @@ a new temporary output; never trust a partial package as a checkpoint.
    restart/resume, and change the input/rule identity. Verify bounded shutdown, no incomplete
    published package and retention of the previous valid output. A failing control blocks
    admission of a larger job.
-3. **Physical scaling:** after the smaller gates pass, prepare increasing physical datasets
-   under fixed predeclared resource caps using the V4 pipeline. Record total input versus
-   simultaneously resident data, peak memory, bytes and elapsed work; synthetic multiplicity
+3. **Physical scaling (packages E and G):** after the smaller gates pass, prepare increasing
+   physical datasets under fixed predeclared resource caps using the V4 pipeline. Record
+   total input versus simultaneously resident data, peak memory, bytes and elapsed work; synthetic multiplicity
    is a separate diagnostic. Complete the 200M acceptance only with its physical dataset and
    the integrated runtime evidence of §14.8.
 
