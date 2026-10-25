@@ -1689,11 +1689,23 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
         warmup.hlod_source_generation = 0;
         warmup.hlod_content_generation = 0;
         warmup.frame_serial = ++params.frame_serial;
-        if (!tile_renderer->render(p_rd, warmup).is_valid() ||
-                p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(packed)).size() != sizeof(packed) ||
-                !tile_renderer->prepare_hlod_scratch(params, 64u * 1024u) ||
-                capture.membership_captures != 0 || capture.membership_pending || capture.membership_armed) {
-            result.error_message = "Canonical warm-up or bounded HLOD scratch admission failed";
+        if (!tile_renderer->render(p_rd, warmup).is_valid()) {
+            result.error_message = "Canonical warm-up did not publish a rendered frame";
+            return false;
+        }
+        if (p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(packed)).size() != sizeof(packed)) {
+            result.error_message = "Canonical warm-up readback failed";
+            return false;
+        }
+        if (!tile_renderer->prepare_hlod_scratch(params, 64u * 1024u)) {
+            uint64_t sorter_bytes = 0;
+            const auto &sorter = tile_renderer->_test_global_sort_resources().sorter;
+            const bool sorter_bytes_known = sorter.is_valid() && sorter->get_allocated_buffer_bytes(sorter_bytes);
+            result.error_message = vformat("Bounded HLOD scratch admission failed; sorter_bytes_known=%s", sorter_bytes_known);
+            return false;
+        }
+        if (capture.membership_captures != 0 || capture.membership_pending || capture.membership_armed) {
+            result.error_message = "Canonical warm-up incorrectly admitted a diagnostic capture";
             return false;
         }
         capture.membership_finished = false;
@@ -3581,7 +3593,9 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] HLOD content generatio
             regression_test.instantiate();
             const auto result = regression_test->test_hlod_content_capture(local_device, capture, compute);
             regression_test.unref();
-            INFO("capture=", capture, ", compute=", compute, ": ", result.error_message.utf8().get_data());
+            print_line(vformat("[HLOD-CONTENT-CAPTURE] capture=%s compute=%s passed=%s detail=%s",
+                    capture, compute, result.passed, result.error_message));
+            INFO("capture=", capture, ", compute=", compute, ": ", doctest::String(result.error_message.utf8().get_data()));
             CHECK(result.passed);
         }
     }
