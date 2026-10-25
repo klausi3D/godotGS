@@ -167,9 +167,11 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 JOB.inspect_source(path, control["source"], control["limits"])
 
-    @unittest.skipIf(os.name == "nt", "Native Windows enforcement is tested in the process lane")
     def test_unsupported_platform_refuses(self):
-        with self.assertRaises(ValueError):
+        platform = mock.Mock(wraps=os)
+        platform.name = "unsupported-platform-control"
+        # Replace only this module's facade; pathlib and the process os stay native.
+        with mock.patch.object(JOB, "os", platform), self.assertRaisesRegex(ValueError, "requires native Windows Python"):
             JOB.NativeJob(manifest()["limits"])
 
 
