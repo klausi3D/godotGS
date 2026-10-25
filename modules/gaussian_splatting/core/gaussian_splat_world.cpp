@@ -572,6 +572,10 @@ static bool _probe_bake_payload(uint64_t p_gaussian_bytes, uint64_t p_sh_bytes, 
 }
 
 Error GaussianSplatWorld::bake_hlod() {
+    return _bake_hlod(false);
+}
+
+Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
     // The 2D flag is carried through, not refused: the PLY loader sets it for any PLY with
     // nx/ny/nz (io/ply_loader.cpp, "has_normals"), which standard 3DGS exports carry, and no
     // shader reads it (GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D in gs_instance_layout.glsl
@@ -624,9 +628,11 @@ Error GaussianSplatWorld::bake_hlod() {
         gs_hlod::BakeInput input;
         input.gaussians = gaussians.ptr();
         input.count = gaussians.size();
+        input.sh_first_order_count = sh_first_order;
         input.sh_high_order_count = sh_high_order_count;
         input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
         gs_hlod::BakeParams params;
+        params.mode = p_quality_selection ? gs_hlod::BakeParams::QUALITY_SELECTION : gs_hlod::BakeParams::MERGE_ONLY;
         String error;
         Error bake_err = ERR_INVALID_DATA;
         if (!gs_hlod::bake_world(input, params, result, &error, &bake_err)) {

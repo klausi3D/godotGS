@@ -33,6 +33,7 @@ private:
     GaussianSplatHlodTree hlod_tree;
 
     void _assign_gaussian_data(const Ref<GaussianData> &p_data, bool p_keep_hlod);
+    Error _bake_hlod(bool p_quality_selection);
 
 protected:
     static void _bind_methods();
@@ -92,6 +93,11 @@ public:
     // reorders the payload into leaf order and replaces the chunks with
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
     Error bake_hlod();
+#ifdef TESTS_ENABLED
+    // Preserves the candidate publication/error tests without exposing an
+    // unbounded quality bake to scripts, imports or ordinary runtime rebakes.
+    Error test_bake_hlod_quality() { return _bake_hlod(true); }
+#endif
 #ifdef TESTS_ENABLED
     using HlodBakeTestHook = void (*)(void *, GaussianSplatWorld *);
     static HlodBakeTestHook hlod_bake_test_hook;
