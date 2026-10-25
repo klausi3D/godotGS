@@ -573,7 +573,7 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
 | --- | --- | --- |
 | Visible splats | `max_visible_splats`, `depth_compute.glsl:225-227` (Channel B) | **Bounded.** The effective splat budget is `min(quality/max_splat_count, max_sort_elements, allocated buffer capacity)` (the resident publisher already applies `sort_cap`, `resident_instance_contract_publisher.cpp:865-868`). `max_visible_splats` is sized **once** from it, not per frame. The drawn set's count, including fade pairs and prefixes, is ≤ it. |
 | Visible chunks / nodes | `max_visible_chunks`, `frustum_cull.glsl:143`, `overflowed_chunks`; sized at `render_streaming_orchestrator.cpp:1803-1808` | **Bounded.** The drawn node count, fade pairs included, is a cut cap; the buffer is sized from the configured node cap. For HLOD content the list is written by the CPU in the cut's order (S2b's `DrawnNodeGPU`), not appended by GPU atomics. |
-| Global overlap records | `max_overlap_records`, tile binning (overflow ADR Channel A, #54) | **Bounded by estimate.** Each node bakes a footprint `F = sum (6 sigma_a)(6 sigma_b)` (m²); the cut keeps `sum (count + F f_px² / (d² x tile_area))` ≤ 80% of the effective record budget. The estimate is conservative, not exact, so `overflow_splats_clamped` stays the tripwire. |
+| Global overlap records | `max_overlap_records`, tile binning (overflow ADR Channel A, #54) | **Admission estimate.** Each node bakes a footprint `F = sum (6 sigma_a)(6 sigma_b)` (m²); the cut keeps `sum (count + F f_px² / (d² x tile_area))` ≤ 80% of the effective record budget. This is an admission estimate without a guaranteed upper bound, so `overflow_splats_clamped` stays the tripwire. |
 | Per-tile raster records | `GS_MAX_RASTER_SPLATS_PER_TILE` = 12,288 per 16 px tile under the default `gpu_preset="high"` (#1137) | **Residual.** It depends on depth complexity per tile, which node-level estimates cannot bound. HLOD lowers it where #1137 bites (far, dense content becomes fewer splats), but merged splats are larger, so S2a's evidence reports peak records per tile at the A/B views. Its drop must be counted and warned (#1137's fix); test 1 asserts it is zero. |
 
 - **Historical alpha admission fallback.** Every instance's asset root node is pinned
@@ -1139,11 +1139,14 @@ optimization is implied. The conditional precision estimate in §6.2 is not a su
 near-detail tests at large offsets, especially for budget-forced coarse nodes or inside-root
 views where its projected-error premise need not hold.
 
-Every origin change increments an origin revision. Draw/cull snapshots and caches that depend
-on that frame include the revision and cannot mix old and new offsets. Stored node-local
-payloads and stable edit identities do not change on an origin shift. Two views, repeated
-origin shifts and unload/reload at 0, 1 km and 100 km must preserve the expected relative
-geometry and deterministic ties at equal quality.
+The origin context belongs to the Gaussian Splatting module. Changing it never repositions
+unrelated scene nodes; external gameplay and physics origin handling uses explicit
+integration hooks. Every origin change increments an origin revision. Draw/cull snapshots and
+caches that depend on that frame include the revision and cannot mix old and new offsets.
+Stored node-local payloads and stable edit identities do not change on an origin shift.
+Two simultaneous views, one perspective and one orthographic, repeated origin shifts and
+unload/reload at 0, 1 km and 100 km must preserve the expected relative geometry and
+deterministic ties at equal quality.
 
 ### 14.4 V4 paged packages and bounded preparation
 
@@ -1268,10 +1271,14 @@ Measure cold startup, moving views, steady state and the entire edit/reload cycl
 - Bytes read/written and startup latency, desired/resident/drawn counts, request latency,
   refinement/compaction/rebuild backlog, all overflow/loss counters and allocation failures.
 - Coverage masks and real captures for first ready frame, transitions, inside-root views,
-  far-origin near detail, two simultaneous views, committed edits and subsequent reload.
+  far-origin near detail, two simultaneous views (one perspective and one orthographic),
+  committed edits and subsequent reload. Both views must meet their readiness and coverage
+  contracts under the shared residency budget.
 
-Stop advancement on holes, old content after a confirmed edit, record loss, unbounded memory
-or queues, silent whole-world materialization, or a nondiscriminating test. Preserve failing
-results. If a gate fails, improve the implementation or seek the maintainer's explicit
-disposition under §8; this amendment grants no waiver. A capacity success is not a speedup,
-and a fast synthetic run is not real-scan quality acceptance.
+Stop advancement on holes, stale edited content in new submissions after edit publication,
+record loss, unbounded memory or queues, silent whole-world materialization, or a
+nondiscriminating test. Already submitted frames may still present after durable edit
+acknowledgement (§14.5); that is distinct from publishing a new draw with stale content.
+Preserve failing results. If a gate fails, improve the implementation or seek the maintainer's
+explicit disposition under §8; this amendment grants no waiver. A capacity success is not a
+speedup, and a fast synthetic run is not real-scan quality acceptance.
