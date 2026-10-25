@@ -1,7 +1,10 @@
 #include "gaussian_splat_world.h"
 
 #include "../io/gaussian_splat_world_io.h"
+#include "../io/gs_atomic_file_writer.h"
+#include "core/io/dir_access.h"
 #include "gaussian_splat_hlod_bake.h"
+#include "gaussian_splat_hlod_job.h"
 #include "gs_vector_alloc.h"
 
 #include <algorithm>
@@ -113,7 +116,9 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear"), &GaussianSplatWorld::clear);
     ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianSplatWorld::save_to_file);
     ClassDB::bind_method(D_METHOD("bake_hlod"), &GaussianSplatWorld::bake_hlod);
-    ClassDB::bind_method(D_METHOD("has_hlod_tree"), &GaussianSplatWorld::has_hlod_tree);
+	ClassDB::bind_method(D_METHOD("bake_hlod_offline", "limits", "candidate_path"),
+	                     &GaussianSplatWorld::bake_hlod_offline);
+	ClassDB::bind_method(D_METHOD("has_hlod_tree"), &GaussianSplatWorld::has_hlod_tree);
     ClassDB::bind_method(D_METHOD("get_hlod_info"), &GaussianSplatWorld::get_hlod_info);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "gaussian_data", PROPERTY_HINT_RESOURCE_TYPE, "GaussianData"),
@@ -575,6 +580,92 @@ Error GaussianSplatWorld::bake_hlod() {
     return _bake_hlod(false);
 }
 
+Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, const String &p_candidate_path) const
+{
+	Dictionary report;
+	report["error"] = ERR_INVALID_PARAMETER;
+	gs_hlod::OfflineJob job;
+	// The first route has no arbitrary metadata/instances, compression or checkpoints.
+	// Refuse those before serialization can allocate an unaccounted JSON/blob copy.
+    if (!job.configure(p_limits) || !metadata.is_empty() || get_antialiased() || !hlod_tree.instances.is_empty() ||
+	    !hlod_tree.top_level_nodes.is_empty() || hlod_tree.nodes.size() > job.nodes ||
+	    uint64_t(get_splat_count()) + hlod_tree.interior_splat_count > job.prepared ||
+        p_candidate_path.get_extension().to_lower() != "gsplatworld" || FileAccess::exists(p_candidate_path) ||
+        DirAccess::dir_exists_absolute(p_candidate_path)) {
+		return report;
+	}
+	const uint64_t old_interior = uint64_t(hlod_tree.interior_gaussians.get_capacity()) * sizeof(Gaussian) +
+	                              uint64_t(hlod_tree.interior_sh_high_order.get_capacity()) * sizeof(Vector3);
+	if (!job.reserve(get_splat_count(), get_sh_high_order_count(), old_interior)) {
+		report["error"] = ERR_OUT_OF_MEMORY;
+		return report;
+	}
+	report["reserved_scratch_bytes"] = int64_t(job.reserved);
+	gs_hlod::OfflineJobScope scope(job);
+	if (!scope.acquired) {
+		report["error"] = ERR_BUSY;
+		return report;
+	}
+	if (job.check() != OK) {
+		report["error"] = job.check();
+		return report;
+	}
+	Ref<GaussianSplatWorld> candidate;
+	candidate.instantiate();
+	// Borrow the source owner; _bake_hlod snapshots and publishes only into candidate.
+	candidate->gaussian_data = gaussian_data;
+	candidate->chunk_payload_source = chunk_payload_source;
+	candidate->splat_count_metadata = splat_count_metadata;
+	candidate->sh_degree_metadata = sh_degree_metadata;
+	candidate->sh_first_order_count_metadata = sh_first_order_count_metadata;
+	candidate->sh_high_order_count_metadata = sh_high_order_count_metadata;
+	candidate->is_2d_metadata = is_2d_metadata;
+	candidate->antialiased_metadata = antialiased_metadata;
+	candidate->bounds = bounds;
+	const uint64_t started = OS::get_singleton()->get_ticks_usec();
+	Error error = candidate->_bake_hlod(true);
+	report["bake_ms"] = double(OS::get_singleton()->get_ticks_usec() - started) / 1000.0;
+	if (error == OK) {
+		error = job.check();
+	}
+	if (error == OK) {
+		ResourceFormatSaverGaussianSplatWorld saver;
+		const uint64_t save_started = OS::get_singleton()->get_ticks_usec();
+		error = saver.save_offline_candidate(candidate, p_candidate_path, job.output);
+		report["save_ms"] = double(OS::get_singleton()->get_ticks_usec() - save_started) / 1000.0;
+	}
+	if (error == OK) {
+		error = job.check();
+	}
+	if (error == OK) {
+		// Direct strict loader, bypassing ResourceLoader caches/import remaps.
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		const uint64_t validate_started = OS::get_singleton()->get_ticks_usec();
+		Ref<GaussianSplatWorld> validated = loader.load_resident(p_candidate_path, &error);
+		report["validate_ms"] = double(OS::get_singleton()->get_ticks_usec() - validate_started) / 1000.0;
+		if (error == OK && (validated.is_null() || !validated->has_hlod_tree() ||
+		                    validated->get_hlod_tree().bake_rule_version != gs_hlod::kQualityBakeRuleVersion ||
+		                    validated->get_splat_count() != get_splat_count() ||
+		                    validated->get_sh_first_order_count() != get_sh_first_order_count() ||
+		                    validated->get_sh_high_order_count() != get_sh_high_order_count())) {
+			error = ERR_FILE_CORRUPT;
+		}
+		if (error == OK) {
+			report["hlod_info"] = validated->get_hlod_info();
+		}
+	}
+	if (error == OK) {
+		error = job.check();
+	}
+	if (error != OK) {
+		_gs_atomic_remove_temp(p_candidate_path);
+	}
+	report["error"] = error;
+	report["total_ms"] = double(OS::get_singleton()->get_ticks_usec() - started) / 1000.0;
+	report["bake_rule_version"] = gs_hlod::kQualityBakeRuleVersion;
+	return report;
+}
+
 Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
     // The 2D flag is carried through, not refused: the PLY loader sets it for any PLY with
     // nx/ny/nz (io/ply_loader.cpp, "has_normals"), which standard 3DGS exports carry, and no
@@ -602,7 +693,13 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
         bool snapshot_fits;
         if (original_data.is_valid()) {
             RWLockRead lock(original_data->data_rwlock);
-            snapshot_fits = _probe_bake_payload(uint64_t(original_data->get_count()) * sizeof(Gaussian),
+			ERR_FAIL_COND_V (
+			        gs_hlod::active_offline_job &&
+			                (original_data->get_count() != gs_hlod::active_offline_job->admitted_count ||
+			                 original_data->get_sh_high_order_count() != gs_hlod::active_offline_job->admitted_high),
+			        ERR_INVALID_DATA)
+				;
+			snapshot_fits = _probe_bake_payload(uint64_t(original_data->get_count()) * sizeof(Gaussian),
                     uint64_t(original_data->get_count()) * original_data->get_sh_high_order_count() * sizeof(Vector3),
                     "GaussianSplatWorld::bake_hlod snapshot_gaussians", "GaussianSplatWorld::bake_hlod snapshot_sh_high_order");
             captured = snapshot_fits && original_data->_capture_chunk_snapshot_locked(0, original_data->get_count(),
@@ -610,7 +707,12 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
             is_2d = snapshot_metadata.is_2d_mode;
             antialiased = snapshot_metadata.is_antialiased;
         } else {
-            snapshot_fits = _probe_bake_payload(uint64_t(original_source->get_count()) * sizeof(Gaussian),
+			ERR_FAIL_COND_V (gs_hlod::active_offline_job &&
+			                         (original_source->get_count() != gs_hlod::active_offline_job->admitted_count ||
+			                          sh_high_order_count_metadata != gs_hlod::active_offline_job->admitted_high),
+			                 ERR_INVALID_DATA)
+				;
+			snapshot_fits = _probe_bake_payload(uint64_t(original_source->get_count()) * sizeof(Gaussian),
                     uint64_t(original_source->get_count()) * sh_high_order_count_metadata * sizeof(Vector3),
                     "GaussianSplatWorld::bake_hlod snapshot_gaussians", "GaussianSplatWorld::bake_hlod snapshot_sh_high_order");
             captured = snapshot_fits && original_source->capture_chunk_snapshot(0, original_source->get_count(),

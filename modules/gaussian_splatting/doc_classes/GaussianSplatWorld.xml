@@ -46,6 +46,15 @@
 				Returns a summary of the HLOD tree: [code]has_hlod[/code], node, leaf and interior-splat counts, height, the interior overhead and, after [method bake_hlod] in this session, the bake timings in milliseconds.
 			</description>
 		</method>
+		<method name="bake_hlod_offline" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="limits" type="Dictionary" />
+			<param index="1" name="candidate_path" type="String" />
+			<description>
+				Explicitly prepares a separate rule-2 HLOD candidate with the full SH0–4, 22-view quality rule. This resource is unchanged. The candidate path must be new; the candidate is strictly reloaded before success. Returns [code]error[/code], reservation bytes, timings and HLOD information. Missing, non-finite or exhausted limits fail closed. The first route supports classic worlds without arbitrary metadata or instances and has no resumable checkpoints. Antialiased training is refused because the existing world format cannot preserve that flag.
+				Use [code]scripts/bake_gsplatworld_offline.py[/code] with an author-frozen manifest to run this operation. Its native Windows supervisor admits the source and build hashes, source bytes/count/SH, process RAM, wall and drain deadlines, disk space, one worker and zero queued jobs before loading the source, and atomically publishes a validated candidate. Calling this method alone does not establish process, host or disk admission. The [code]limits[/code] dictionary requires every numeric field listed by that supervisor, plus its private [code]cancel_path[/code]. Scratch includes the conservative simultaneous allocation reservation and the existing metric memory ledger. Canonical [method bake_hlod] and imports retain rule 1.
+			</description>
+		</method>
 		<method name="has_hlod_tree" qualifiers="const">
 			<return type="bool" />
 			<description>

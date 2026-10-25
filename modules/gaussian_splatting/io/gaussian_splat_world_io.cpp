@@ -4,20 +4,21 @@
 #include "../core/gs_vector_alloc.h"
 
 #include "core/error/error_macros.h"
-#include "core/io/file_access.h"
-#include "core/io/resource_importer.h"
-#include "core/io/json.h"
 #include "core/io/compression.h"
-#include "core/string/ustring.h"
+#include "core/io/file_access.h"
+#include "core/io/json.h"
+#include "core/io/resource_importer.h"
 #include "core/math/math_funcs.h"
-#include "io_settings_utils.h"
-#include "gs_atomic_file_writer.h"
+#include "core/string/ustring.h"
 #include "../core/gaussian_data.h"
-#include "../core/gaussian_splat_hlod_tree.h"
+#include "../core/gaussian_splat_hlod_job.h"
 #include "../core/gaussian_splat_hlod_merge.h"
+#include "../core/gaussian_splat_hlod_tree.h"
 #include "../core/gaussian_splat_world.h"
 #include "../interfaces/gpu_culler.h"
 #include "../logger/gs_logger.h"
+#include "gs_atomic_file_writer.h"
+#include "io_settings_utils.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -30,6 +31,9 @@
 #ifdef TESTS_ENABLED
 ResourceFormatSaverGaussianSplatWorld::HlodSnapshotTestHook ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook = nullptr;
 void *ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata = nullptr;
+ResourceFormatSaverGaussianSplatWorld::OfflineWriteTestHook
+        ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook = nullptr;
+void *ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata = nullptr;
 #endif
 
 namespace {
@@ -371,8 +375,21 @@ static Error _write_buffer_sliced(const Ref<FileAccess> &p_file,
 	constexpr uint64_t kSliceBytes = 256u * 1024u * 1024u;
 	uint64_t written = 0;
 	while (written < p_size) {
-		const uint64_t slice = MIN(kSliceBytes, p_size - written);
+		if (gs_hlod::offline_job_check() != OK) {
+			return gs_hlod::offline_job_check();
+		}
+		const uint64_t slice = MIN(gs_hlod::active_offline_job ? uint64_t(1u << 20u) : kSliceBytes, p_size - written);
+		if (gs_hlod::active_offline_job && (p_file->get_position() > gs_hlod::active_offline_job->output ||
+		                                    slice > gs_hlod::active_offline_job->output - p_file->get_position())) {
+			return ERR_OUT_OF_MEMORY;
+		}
 		p_file->store_buffer(p_src + written, slice);
+#ifdef TESTS_ENABLED
+		if (gs_hlod::active_offline_job && ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook) {
+			ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook(
+			        ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata);
+		}
+#endif
 		const Error err = _ensure_file_write_ok(p_file, p_context);
 		if (err != OK) {
 			return err;
@@ -1196,8 +1213,35 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 }
 
 static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref<GaussianData> &p_gaussian_data,
-		const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode) {
+                                    const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode,
+                                    uint64_t p_max_bytes = 0)
+{
 	const GaussianSplatHlodTree &tree = p_world->get_hlod_tree();
+	if (p_max_bytes) {
+		ERR_FAIL_COND_V (!gs_hlod::active_offline_job || !p_world->get_metadata().is_empty() ||
+		                         !tree.top_level_nodes.is_empty() || !tree.instances.is_empty() ||
+		                         !tree.interior_resident ||
+		                         p_mode != ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED,
+		                 ERR_INVALID_PARAMETER)
+			;
+		const uint64_t total = uint64_t(tree.leaf_splat_count) + tree.interior_splat_count;
+		ERR_FAIL_COND_V (total > gs_hlod::active_offline_job->prepared ||
+		                         tree.nodes.size() > gs_hlod::active_offline_job->nodes ||
+		                         tree.sh_high_order_count > 21u,
+		                 ERR_OUT_OF_MEMORY)
+			;
+		uint64_t remaining = p_max_bytes;
+		ERR_FAIL_COND_V (
+		        !gs_hlod::quality_charge_product(remaining, kHlodHeaderSizeBytes, 1u) ||
+		                !gs_hlod::quality_charge_product(remaining, total,
+		                                                 sizeof(Gaussian) + uint64_t(tree.sh_high_order_count) *
+		                                                                            sizeof(Vector3)) ||
+		                !gs_hlod::quality_charge_product(remaining, tree.nodes.size(), gs_hlod::kNodeRecordBytes),
+		        ERR_OUT_OF_MEMORY)
+			;
+		ERR_FAIL_COND_V (gs_hlod::offline_job_check() != OK, gs_hlod::offline_job_check())
+			;
+	}
 	ERR_FAIL_COND_V_MSG(!p_world->is_hlod_payload_current(), ERR_INVALID_DATA,
 			vformat("Refusing to save %s: the gaussian payload was edited after its HLOD tree was baked, so the tree's merged "
 					"nodes are stale. Call bake_hlod() again, or set_gaussian_data() to drop the tree.",
@@ -1370,6 +1414,9 @@ static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref
 			}
 		}
 		for (uint32_t i = 0; i < tree.nodes.size(); i++) {
+			if (p_max_bytes && (i & 63u) == 0u && gs_hlod::offline_job_check() != OK) {
+				return gs_hlod::offline_job_check();
+			}
 			_write_hlod_node(file, tree.nodes[i]);
 		}
 		for (uint32_t i = 0; i < tree.top_level_nodes.size(); i++) {
@@ -1384,6 +1431,9 @@ static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref
 		}
 		if (!metadata_bytes.is_empty()) {
 			file->store_buffer(metadata_bytes.ptr(), metadata_bytes.size());
+		}
+		if (p_max_bytes && (file->get_position() > p_max_bytes || gs_hlod::offline_job_check() != OK)) {
+			return file->get_position() > p_max_bytes ? ERR_OUT_OF_MEMORY : gs_hlod::offline_job_check();
 		}
 		return _ensure_file_write_ok(file, "save(v3 final)");
 	});
@@ -1981,6 +2031,18 @@ Error ResourceFormatSaverGaussianSplatWorld::save_with_payload_mode(const Ref<Re
 	return gs_atomic_file_write(p_path, [&](const Ref<FileAccess> &file) -> Error {
 		return _write_world_save_sections(file, world, gaussian_data, chunks, layout);
 	});
+}
+
+Error ResourceFormatSaverGaussianSplatWorld::save_offline_candidate(const Ref<Resource> &p_resource,
+                                                                    const String &p_path, uint64_t p_max_bytes)
+{
+	GaussianSplatWorld *world = Object::cast_to<GaussianSplatWorld>(*p_resource);
+	ERR_FAIL_COND_V (!world || !world->has_hlod_tree() || world->get_gaussian_data().is_null() || !p_max_bytes ||
+	                         !gs_hlod::active_offline_job || p_max_bytes != gs_hlod::active_offline_job->output,
+	                 ERR_INVALID_PARAMETER)
+		;
+	return _save_gsplatworld_hlod(world, world->get_gaussian_data(), p_path, SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED,
+	                              p_max_bytes);
 }
 
 void ResourceFormatSaverGaussianSplatWorld::get_recognized_extensions(const Ref<Resource> &p_resource,
