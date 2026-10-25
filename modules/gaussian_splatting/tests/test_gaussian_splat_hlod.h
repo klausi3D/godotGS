@@ -3201,7 +3201,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a plain v3 source i
 
 	Ref<ResourceImporterGSplatWorld> importer;
 	importer.instantiate();
-	CHECK_EQ(importer->get_format_version(), 6);
+	CHECK_EQ(importer->get_format_version(), 5);
 	const String save_base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_" + itos(OS::get_singleton()->get_ticks_usec()));
 	HashMap<StringName, Variant> options;
 	Variant metadata;
@@ -5926,8 +5926,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] mixed outlier actual 
 		CHECK(memcmp(&actual, &source[i], sizeof(Gaussian)) == 0);
 	}
 #ifdef TOOLS_ENABLED
-	// Successful fallback is the validated unchanged source, not an unmeasured
-	// candidate. Existing import policy is retained, including atomic replacement.
+	// This geometry exceeds the quality image budget, not the canonical merge
+	// domain. Normal import must still bake rule 1, preserving the source bytes.
 	ResourceFormatSaverGaussianSplatWorld saver;
 	ResourceFormatLoaderGaussianSplatWorld loader;
 	Ref<ResourceImporterGSplatWorld> importer;
@@ -5947,19 +5947,26 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] mixed outlier actual 
 	ERR_PRINT_ON;
 	CHECK(imported == OK);
 	CHECK(hlod_read_file(path) == bytes);
-	CHECK(hlod_read_file(output) == bytes);
 	if (metadata.get_type() != Variant::DICTIONARY) {
-		FAIL("resource-rejected fallback metadata");
+		FAIL("canonical import metadata");
 		return;
 	}
-	CHECK(String(Dictionary(metadata)["hlod_skip_reason"]) == "bake_failed");
+	CHECK(String(Dictionary(metadata)["hlod_skip_reason"]).is_empty());
 	Error loaded_error = ERR_BUG;
 	Ref<GaussianSplatWorld> loaded = loader.load_resident(output, &loaded_error);
-	if (loaded_error != OK || loaded.is_null()) {
-		FAIL("resource-rejected fallback decodes");
+	if (loaded_error != OK || loaded.is_null() || !loaded->has_hlod_tree() || loaded->get_gaussian_data().is_null()) {
+		FAIL("canonical import retains a complete baked world despite quality-only rejection");
 		return;
 	}
-	CHECK_FALSE(loaded->has_hlod_tree());
+	CHECK(loaded->get_hlod_tree().bake_rule_version == 1u);
+	if (loaded->get_gaussian_data()->get_count() != int(source.size())) {
+		FAIL("canonical import retains every source leaf");
+		return;
+	}
+	for (uint32_t i = 0; i < source.size(); ++i) {
+		const Gaussian actual = loaded->get_gaussian_data()->get_gaussian(i);
+		CHECK(memcmp(&actual, &source[i], sizeof(Gaussian)) == 0);
+	}
 	loaded.unref();
 	DirAccess::remove_absolute(output);
 	DirAccess::remove_absolute(path);
