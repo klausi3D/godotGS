@@ -4713,6 +4713,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#15-separate-acceptance-for-offline-preparation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Separate acceptance for offline preparation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15. Separate acceptance for offline preparation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#151-accepted-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.1 Accepted scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#152-bounded-job-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.2 Bounded job contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#153-staged-validation-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.3 Staged validation sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -5498,6 +5548,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#15-separate-acceptance-for-offline-preparation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Separate acceptance for offline preparation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15. Separate acceptance for offline preparation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#151-accepted-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.1 Accepted scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#152-bounded-job-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.2 Bounded job contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#153-staged-validation-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.3 Staged validation sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -5595,7 +5695,11 @@
   for streaming, precision and locally editable large worlds. Acceptance of this design
   does not establish implementation or runtime acceptance; source code and GitHub PRs carry
   those separately. §9 retains the original slices and their gates; §14.7 maps the extension
-  onto them. The earlier independent review responses remain in §13.</li>
+  onto them. The earlier independent review responses remain in §13. The <strong>offline cost
+  disposition in §15 was accepted by the maintainer on 2026-10-25</strong>: only explicitly selected
+  offline prepared-content jobs replace the relative ≤2× bake-cost requirement with a
+  predeclared, finite and enforced resource/deadline/publication contract. This design
+  approval alone does not accept S1b or advance packages B–G.</li>
 <li><strong>Risk class:</strong> this file is R0 (<code>docs/**</code>). It is the <strong>R3 design record</strong> that
   <code>docs/governance/agentic-engineering.md</code> requires before implementation, because the
   decision changes an on-disk format (<code>.gsplatworld</code>), importer format versions, the renderer
@@ -6463,10 +6567,14 @@ independent review of <code>7fa337d4a41</code> (13 findings); §13 maps each fin
   splat, or about 26 per source splat once the ~20% interior share is applied, at a few pixels
   each. The grazing and oblique views are rendered at half resolution (they are the
   coverage check; the axis views carry the colour detail), which brings the estimate to about
-  the cost of the merge itself. <strong>S1b's acceptance limit stays at most 2x the merge-only bake.</strong>
-  If it is exceeded, the pre-declared order of reductions is: drop the oblique corner views to
-  4, then lower the grazing resolution again; if 2x is still missed, the numbers go to the
-  maintainer (decision 4's rule, §8).</li>
+  the cost of the merge itself. <strong>Canonical imports, the current public bake path and runtime
+  edit rebakes retain the limit of at most 2x the merge-only bake.</strong> For those routes, if it is
+  exceeded, the pre-declared order of reductions remains: drop the oblique corner views to 4,
+  then lower the grazing resolution again; if 2x is still missed, the numbers go to the
+  maintainer (decision 4's rule, §8). <strong>Only explicitly selected offline prepared-content jobs
+  use the accepted §15 contract in place of this relative cost limit.</strong> They retain the
+  original 22-view metric and all quality requirements; the finite job limits and their
+  enforcement must be implemented and validated before route-specific S1b acceptance.</li>
 <li><strong>Storage.</strong> Each node record carries a 2-bit representation kind (<code>leaf</code>, <code>merged</code>,
   <code>selected</code>, reserved), the chosen and the rejected candidate's <code>E</code> (float32 each), and the
   file carries <code>bake_rule_version</code>. The renderer ignores all of it; it exists for diagnostics,
@@ -6820,10 +6928,16 @@ is still not reachable, they report the numbers to the maintainer for an explici
 <li><strong>Per-node choice (S1b, decision 2):</strong> the §5.2 rows re-run with the per-node choice, in the
     prototype harness (a test-only cut that writes the drawn set as a PLY and renders it in the
     engine, since S2a's runtime cut does not exist yet). In every row it must be within 0.5 dB
-    of the better of <code>sat</code> and A-area, or better; the choice is deterministic; the bake with the
-    choice takes at most 2x the merge-only bake. If the 0.5 dB criterion fails, the
-    implementer improves the metric or the candidates first; if it is still not reachable, the
-    numbers go to the maintainer for an explicit decision (decision 4).</li>
+    of the better of <code>sat</code> and A-area, or better; the choice is deterministic. The bake with the
+    choice takes at most 2x the merge-only bake for canonical imports, the current public bake
+    path and runtime edit rebakes. Only explicitly selected offline prepared-content jobs
+    replace that relative cost criterion with the finite, predeclared and enforced contract
+    in §15. Offline S1b acceptance before package B requires the implemented job contract
+    and §15.3 steps 1–2, plus every unchanged S1b quality gate: the original 22 views,
+    SH0–4/DC semantics and every quality row. All other tests remain required at their
+    respective stages. If the 0.5 dB criterion fails, the implementer improves the metric or
+    the candidates first; if it is still not reachable, the numbers go to the maintainer for
+    an explicit decision (decision 4).</li>
 </ol>
 <p>Single-vendor blind spot: all GPU evidence so far is NVIDIA. Atomic order differs by vendor,
 which is why the oracle must pass by construction (no atomic decides membership), not by luck
@@ -6978,7 +7092,8 @@ budget-driven selection, done here by the cut.</p>
    pre-declared reduction order; (c) no implicit bake in <code>export_world_resource</code>, an opt-in
    <code>GaussianSplatWorld.bake_hlod()</code> plus the importer bake, agreed by the coordinator; (d) the
    <code>sat</code> single-child mapping was a prototype bug; single-child cells are now the identity and
-   §5.2 was re-measured.</p>
+   §5.2 was re-measured. The later offline-only cost disposition is recorded in §15
+   (2026-10-25); the other requirements above remain unchanged.</p>
 </li>
 <li>
 <p><strong>Origin-centred root ratified (2026-10-04)</strong> for content that straddles a plane through the
@@ -7284,7 +7399,11 @@ paged index output and bottom-up parent production. The selected candidate must 
 the full-detail descendant leaves (§6.3), with bounded reads and stable leaf ranges/IDs;
 substituting selected children would change the quality contract. Leaf-range metadata and
 its validator belong here, not in a prerequisite-only PR disconnected from their consumer.
-SH0–4, DC encoding, source preservation and the S1b quality/bake-cost gates remain in force.
+SH0–4, DC encoding, source preservation and all S1b quality gates remain in force. The
+accepted §15 contract replaces only the relative ≤2× cost gate for explicitly selected
+offline prepared-content jobs; its finite limits, failure controls and publication rules
+must be implemented and validated. Canonical imports, the current public bake path and
+runtime edit rebakes retain their existing contracts.
 Preparation reports peak RAM, scratch disk, bytes read/written and elapsed time; a hidden
 whole-world <code>GaussianData</code> materialization is a failure. Existing canonical imports retain
 their behavior; the optimized prepared-package workflow is explicit.</p>
@@ -7358,8 +7477,13 @@ claim collision completion. Legacy alpha APIs and resource loading remain compat
 packages may be split into dependent PRs with the same acceptance boundaries. Reuse existing
 work after checking its current source and review state. This table is a dependency plan,
 not a second status tracker or permission to bypass an open gate. Design acceptance,
-an existing experimental runtime path or a passing CPU oracle does not clear a failed
-S1b gate or authorize advancement to dependent runtime slices.</p>
+including the scoped offline cost disposition in §15, an existing experimental runtime path
+or a passing CPU oracle does not establish S1b acceptance or authorize advancement to
+dependent runtime slices. S1b must pass test 12 for the content route used: before B, the
+offline route requires the implemented §15 job contract validated by §15.3 steps 1–2 plus
+every unchanged S1b quality gate. Physical scaling in §15.3 step 3 is the later mandatory
+E/G capacity acceptance, using the V4 implementation from E and integrated runtime from G.
+Packages B–G also retain their applicable runtime gates.</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
@@ -7376,8 +7500,8 @@ S1b gate or authorize advancement to dependent runtime slices.</p>
 </tr>
 <tr>
 <td><strong>B — global selection</strong></td>
-<td>Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b. Extend S2a using the CPU oracle.</td>
-<td>S1b test 12 remains prerequisite; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates.</td>
+<td>Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b for the content route used. Extend S2a using the CPU oracle.</td>
+<td>S1b test 12 remains prerequisite: the offline route requires its implemented job contract, §15.3 steps 1–2 and every unchanged S1b quality gate; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates.</td>
 </tr>
 <tr>
 <td><strong>C — precise frame</strong></td>
@@ -7392,7 +7516,7 @@ S1b gate or authorize advancement to dependent runtime slices.</p>
 <tr>
 <td><strong>E — large prepared packages</strong></td>
 <td>V4 paged index/payloads, early coarse startup and bounded preparation, including leaf ranges; follows D.</td>
-<td>Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures. S1b bake/quality gates still apply.</td>
+<td>Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures; physical preparation scaling under §15.3 step 3. All S1b quality gates and the applicable preparation-cost contract (§8 test 12 and §15) still apply.</td>
 </tr>
 <tr>
 <td><strong>F — editable regions</strong></td>
@@ -7402,14 +7526,15 @@ S1b gate or authorize advancement to dependent runtime slices.</p>
 <tr>
 <td><strong>G — integrated capacity and performance</strong></td>
 <td>Complete file→coarse→detail→edit→new coarse→unload→reload run; follows B–F and their gates.</td>
-<td>Physical 100 km / 200M SH3 acceptance and matched full-frame/RAM/VRAM/quality measurements (§14.8); no unmeasured performance claim.</td>
+<td>Physical 100 km / 200M SH3 acceptance and matched full-frame/RAM/VRAM/quality measurements (§14.8), completing §15.3 step 3; no unmeasured performance claim.</td>
 </tr>
 </tbody>
 </table></div>
 <p>S1a → S1b → S2a → S2b remains sequential. S5's resident-route and stable-tie requirements
 remain; S6 follows S2b and may progress alongside S3 with disjoint ownership. Telemetry from
-S4 is implemented where the measured contracts need it. Neither splitting the integration
-nor enabling prepared packages removes the original alpha acceptance criteria.</p>
+S4 is implemented where the measured contracts need it. Apart from the explicit offline-only
+cost substitution in §15, splitting the integration or enabling prepared packages changes
+none of the original alpha acceptance criteria.</p>
 <h3 id="148-acceptance-and-stop-conditions">14.8 Acceptance and stop conditions<a class="headerlink" href="#148-acceptance-and-stop-conditions" title="Permanent link">¶</a></h3>
 <p>Use small real scans for coverage/quality and physical large packages for capacity; report
 them separately. Record exact base/head and binary, hardware/driver, asset hashes/SH degree,
@@ -7432,8 +7557,118 @@ record loss, unbounded memory or queues, silent whole-world materialization, or 
 nondiscriminating test. Already submitted frames may still present after durable edit
 acknowledgement (§14.5); that is distinct from publishing a new draw with stale content.
 Preserve failing results. If a gate fails, improve the implementation or seek the maintainer's
-explicit disposition under §8; this amendment grants no waiver. A capacity success is not a
-speedup, and a fast synthetic run is not real-scan quality acceptance.</p>
+explicit disposition under §8. Section 15 records only the accepted offline cost substitution;
+it waives no quality or runtime gate. A capacity success is not a speedup, and a fast
+synthetic run is not real-scan quality acceptance.</p>
+<p><a id="15-proposed-separate-acceptance-for-offline-preparation"></a></p>
+<h2 id="15-separate-acceptance-for-offline-preparation">15. Separate acceptance for offline preparation<a class="headerlink" href="#15-separate-acceptance-for-offline-preparation" title="Permanent link">¶</a></h2>
+<p><strong>Status: accepted by the maintainer, 2026-10-25.</strong> The maintainer approved bounded offline
+preparation as specified in <a href="https://github.com/klausi3D/godotGS/pull/1274">PR #1274</a>.
+This is the explicit disposition required by §8 after the prescribed S1b cost reductions
+failed. Sections 6.3, 8 and 14 now apply the scoped cost contract below. Approval or merge
+of this documentation alone does not accept S1b or advance packages B–G: the offline job
+contract must be implemented and validated, and every other applicable quality and runtime
+gate must pass.</p>
+<p>The preserved Holzbank diagnostic in <a href="https://github.com/klausi3D/godotGS/pull/1266">PR #1266</a>
+measured the original 22-view candidate at
+<code>41157d67b14ae119b7dd04cb9176a1fbb99e86fb</code>: median public bake time was 3042.415 ms,
+against 308.400 ms for merge-only, or <strong>9.865×</strong>. Both prescribed reductions also missed
+the 2× limit (8.288× and 7.773× in separate batches). These are historical CPU preparation
+measurements on one scan, not current-head measurements, GPU frame times or evidence for
+200M-splat preparation. They remain failures under the original contract against which they
+were measured; this disposition does not retroactively pass them.</p>
+<p><a id="151-decision-requested"></a></p>
+<h3 id="151-accepted-scope">15.1 Accepted scope<a class="headerlink" href="#151-accepted-scope" title="Permanent link">¶</a></h3>
+<p>Provide an explicit <strong>offline prepared-content route</strong> whose preparation budget is separate
+from its rendering budget. It must be selected by the author; canonical imports, source
+preservation, existing formats and the current public bake path keep their contracts.
+An offline job cannot silently move into import, first-frame loading or the game loop.</p>
+<p>Only this offline route replaces test 12's relative bake-cost criterion with the bounded-job
+requirements below. Its merge-only comparison remains a mandatory reported measurement,
+with the historical failures retained. The original 22-view metric,
+candidate selection, SH0–4/DC handling, deterministic choice, 0.5 dB quality criterion,
+all rows/assets and the other tests in §8 remain unchanged. The reduced-view experiments
+are not the offline route's default. Runtime acceptance still measures full frame costs,
+coverage, transitions and physical residency; an offline preparation pass cannot satisfy
+those gates.</p>
+<p>The accepted cost substitution applies only after the author explicitly selects this
+offline route and freezes its job contract before execution. A run without that contract
+or without validated enforcement cannot claim offline-route acceptance. No exception
+applies to canonical imports, the current public bake path or runtime edit rebakes.
+In particular, the mutable-world rebuild jobs in §14.5 need their own bounded
+latency and reservation evidence; they cannot inherit an unrestricted offline schedule.</p>
+<h3 id="152-bounded-job-contract">15.2 Bounded job contract<a class="headerlink" href="#152-bounded-job-contract" title="Permanent link">¶</a></h3>
+<p>Before launching a preparation experiment, freeze a job manifest alongside its evidence:</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Required input</th>
+<th>Acceptance boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Input and implementation identity</td>
+<td>Exact source/build hashes, source assets and hashes, SH/DC semantics, complete bake rule, hardware and worker count. Resume verifies the same identities.</td>
+</tr>
+<tr>
+<td>Finite resource limits</td>
+<td>Numeric wall-time deadline, cancellation/drain deadline, peak process RAM, scratch/output bytes, live work/queue limits and worker count, declared before the run. Missing limits refuse admission. GPU workers additionally reserve and report physical GPU bytes.</td>
+</tr>
+<tr>
+<td>Workload and quality</td>
+<td>Fixed asset list, full-detail leaf references and the unchanged views/quality rows. A smaller crop or fewer views cannot substitute for the declared job.</td>
+</tr>
+<tr>
+<td>Publication target</td>
+<td>Separate temporary output; complete validated output is published atomically. Failure, cancellation or disk exhaustion leaves the last valid package and canonical source intact.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Choose the limits from the intended author's available machine/time/storage allocation,
+not from the candidate's observed result. Record the reason for each limit before execution;
+this ADR does not invent a universal preparation-time allowance or treat today's small-scan
+timing as a capacity model. Exceeding any limit is a failed job, even when its quality passes.
+An enforced process deadline may terminate a stuck worker; that is failure, not completion.</p>
+<p>Out-of-core preparation in §14.4 must bound input batches, descendant-leaf reads, quality
+images, sort work, queues and metadata as well as payloads. Track allocation reservations
+before admission; an OS out-of-memory kill is not an acceptable memory limiter. A checkpoint
+may resume only complete validated units with matching source and rule identities. If the
+first implementation has no resumable checkpoints, state that explicitly and restart into
+a new temporary output; never trust a partial package as a checkpoint.</p>
+<p><a id="153-smallest-validation-sequence"></a></p>
+<h3 id="153-staged-validation-sequence">15.3 Staged validation sequence<a class="headerlink" href="#153-staged-validation-sequence" title="Permanent link">¶</a></h3>
+<p>Acceptance proceeds in dependency order. <strong>S1b before package B</strong> requires the implemented
+§15 job contract to pass steps 1–2 below, together with every unchanged S1b quality gate in
+test 12. <strong>Step 3 remains mandatory for capacity acceptance in packages E and G</strong>: physical
+preparation scaling is validated with E's V4 pipeline, followed by the integrated 100 km /
+200M SH3 runtime acceptance in G. Passing steps 1–2 cannot substitute for step 3 or any
+applicable runtime test. This staging records requirements; it does not accept S1b.</p>
+<ol>
+<li><strong>Small real scans:</strong> run the existing S1b quality rows against the original 22-view rule,
+   preserving the merge-only comparison. Measure public API wall time and peak RAM, exclusive
+   preparation stages, I/O and scratch/output size. Keep CPU cost and image quality separate;
+   neither a work counter nor a unit test replaces these measurements.</li>
+<li><strong>Failure controls:</strong> exhaust each configured limit, cancel while writing, interrupt and
+   restart/resume, and change the input/rule identity. Verify bounded shutdown, no incomplete
+   published package and retention of the previous valid output. A failing control blocks
+   admission of a larger job.</li>
+<li><strong>Physical scaling (packages E and G):</strong> after the smaller gates pass, prepare increasing
+   physical datasets under fixed predeclared resource caps using the V4 pipeline. Record
+   total input versus simultaneously resident data, peak memory, bytes and elapsed work; synthetic multiplicity
+   is a separate diagnostic. Complete the 200M acceptance only with its physical dataset and
+   the integrated runtime evidence of §14.8.</li>
+</ol>
+<p>For a candidate that claims faster preparation, compare the same source assets, rule,
+quality, hardware/build options and worker count; report warmups and per-run measurements.
+For rendering, compare the same prepared content and camera path at equal quality and
+resolution, measuring CPU/GPU/full-frame percentiles and physical RAM/VRAM separately.
+Do not combine these speedups or extrapolate either to an unmeasured world size.</p>
+<p>Stop on a quality, coverage, identity, publication or resource failure and retain the
+result. Improve the implementation within the frozen contract or request a new disposition;
+do not raise limits during a batch. Rollback disables the opt-in preparation route and
+retains canonical sources and previously validated packages. This disposition needs no file
+migration and provides no new runtime or performance claim.</p>
 
 
 
@@ -7454,7 +7689,7 @@ speedup, and a fast synthetic run is not real-scan quality acceptance.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 25, 2026 15:41:13 UTC">October 25, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 25, 2026 15:46:17 UTC">October 25, 2026</span>
   </span>
 
     
