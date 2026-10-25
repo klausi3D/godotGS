@@ -30,6 +30,39 @@ Repository setting requirement:
 
 - GitHub Pages source must be configured to deploy from the `gh-pages` branch.
 
+## Decision record: source content dates
+
+Decision dated 2026-10-25. The page footer must report when its source content
+last changed. Staged files under `.site/public-docs/` have no Git history;
+querying those paths with the revision-date plugin can substitute the build
+clock, including when `mike deploy` rebuilds the site.
+
+`scripts/stage_public_docs.py` will resolve the supplied source ref to one commit
+and check each original Markdown file against that commit's blob before rewriting
+links. With complete Git history and matching content, it will place the source
+file's last content-change date in Material's `revision_date` metadata. Rebuilding,
+an unrelated commit and a different SHA in rewritten links must preserve that
+date. The staged-path revision-date plugin will be removed from `mkdocs.yml`.
+
+Missing Git, an absent or unresolved ref, shallow history, untracked files and
+generated or edited content that differs from the selected commit will produce
+no asserted date. Existing date metadata cannot bypass these checks. Staging
+will preserve other front matter and leave source files unchanged; it will never
+substitute a file modification time, the build clock or the repository's latest
+commit date.
+
+This date describes the page source. Measurement timestamps, evidence dates and
+release publication dates retain their separate meanings and sources. A new
+validated run can have a new measurement date even when its numbers are unchanged.
+A documentation rebuild cannot create such a run.
+
+Verification covers committed and unchanged files, unrelated commits, unreliable
+history, front matter, link rewriting and a local `mike deploy` without `--push`.
+Mutation checks must reject both incorrect date logic and removed staging
+integration. The change retains the R3 reviews, CODEOWNER and human merge
+requirements. Rollback reverts the isolated change without modifying evidence
+data.
+
 ## Navigation Rules
 
 - Keep `docs/.pages` as the source of truth for top-level section order.
