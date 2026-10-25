@@ -37,18 +37,18 @@ last changed. Staged files under `.site/public-docs/` have no Git history;
 querying those paths with the revision-date plugin can substitute the build
 clock, including when `mike deploy` rebuilds the site.
 
-`scripts/stage_public_docs.py` will resolve the supplied source ref to one commit
-and check each original Markdown file against that commit's blob before rewriting
-links. With complete Git history and matching content, it will place the source
+`scripts/stage_public_docs.py` resolves the supplied source ref to one commit
+and checks each original Markdown file against that commit's blob before rewriting
+links. With complete Git history and matching content, it places the source
 file's last content-change date in Material's `revision_date` metadata. Rebuilding,
 an unrelated commit and a different SHA in rewritten links must preserve that
-date. The staged-path revision-date plugin will be removed from `mkdocs.yml`.
+date. `mkdocs.yml` does not run a staged-path revision-date plugin.
 
 Missing Git, an absent or unresolved ref, shallow history, untracked files and
-generated or edited content that differs from the selected commit will produce
+generated or edited content that differs from the selected commit produce
 no asserted date. Existing date metadata cannot bypass these checks. Staging
-will preserve other front matter and leave source files unchanged; it will never
-substitute a file modification time, the build clock or the repository's latest
+preserves other front matter and leaves source files unchanged; it never
+substitutes a file modification time, the build clock or the repository's latest
 commit date.
 
 This date describes the page source. Measurement timestamps, evidence dates and
@@ -75,7 +75,7 @@ data.
 
 ```bash
 python3 -m pip install -r docs/requirements.txt -r docs/requirements-site.txt
-ENABLE_GIT_DATES=false python3 scripts/build_docs_site.py --strict
+python3 scripts/build_docs_site.py --strict --ref "$(git rev-parse HEAD)"
 python3 scripts/docs/release_acceptance.py
 ```
 
@@ -87,6 +87,11 @@ regenerate the lock with the pip-tools command recorded in its header. Run it
 with `PIP_CONFIG_FILE` set to the null device (`/dev/null`, or `nul` on
 Windows), so a local extra index is never consulted. A lock compiled on Windows also pins `tzdata`, which
 `mkdocs-git-revision-date-localized-plugin` requires only on Windows.
+
+Dates are supplied during staging. Pass `--ref` (or set `GITHUB_SHA`) to select
+the source commit; without one, staged pages have no asserted update date.
+`ENABLE_GIT_DATES` is no longer used, including when the workflow sets it for
+the preliminary build.
 
 Equivalent Make targets:
 
@@ -126,7 +131,7 @@ manual dispatch. It has a read-only token and never deploys. Steps, in order:
 4. Enforce media budgets:
    - `python3 scripts/check_docs_media_budget.py --root .site/public-docs --max-file-mb 25 --max-total-mb 250`
 5. Validate the site:
-   - `ENABLE_GIT_DATES=false mkdocs build --strict --config-file mkdocs.yml`
+   - `mkdocs build --strict --config-file mkdocs.yml`
 6. Run the release acceptance script **report-only** (`continue-on-error`):
    - `python3 scripts/docs/release_acceptance.py`
 
@@ -156,7 +161,7 @@ without the freshness check and the release acceptance script, and then publishe
 Run these checks before every publish candidate:
 
 1. Stage and build the public docs tree:
-   - `ENABLE_GIT_DATES=false python3 scripts/build_docs_site.py`
+   - `python3 scripts/build_docs_site.py --ref "$(git rev-parse HEAD)"`
 2. Run the repository markdown link check:
    - `python3 scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md`
 3. Run the release acceptance script:
