@@ -6333,6 +6333,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODOffline] cancellation during s
 	Ref<GaussianSplatWorld> world = hlod_make_world(g);
 	const Ref<GaussianData> original = world->get_gaussian_data();
 	const String candidate = hlod_temp_path("offline_cancel_write");
+	const String last_good = hlod_temp_path("offline_last_good");
+	if (world->save_to_file(last_good) != OK) {
+		FAIL("save independent last-good package before cancellation");
+		return;
+	}
+	const PackedByteArray last_good_bytes = hlod_read_file(last_good);
 	String cancel_path = candidate + ".cancel";
 	struct HookScope {
 		HookScope(String *p_cancel)
@@ -6359,9 +6365,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODOffline] cancellation during s
 	CHECK_FALSE(FileAccess::exists(candidate));
 	CHECK(world->get_gaussian_data() == original);
 	CHECK_FALSE(world->has_hlod_tree());
+	CHECK(hlod_read_file(last_good) == last_good_bytes);
 	DirAccess::remove_absolute(cancel_path);
 	const String fresh = hlod_temp_path("offline_fresh_restart");
 	CHECK(int(world->bake_hlod_offline(hlod_offline_limits(fresh + ".cancel"), fresh)["error"]) == OK);
 	CHECK(FileAccess::exists(fresh));
+	CHECK(hlod_read_file(last_good) == last_good_bytes);
 	DirAccess::remove_absolute(fresh);
+	DirAccess::remove_absolute(last_good);
 }

@@ -5,7 +5,9 @@ import importlib.util
 import json
 import os
 import struct
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("hlod_offline_job", ROOT / "scripts/bake_gsplatworld_offline.py")
 JOB = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(JOB)
+RUNNER_SPEC = importlib.util.spec_from_file_location("hlod_module_test_runner", ROOT / "tests/ci/run_module_tests.py")
+RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
+sys.modules[RUNNER_SPEC.name] = RUNNER
+RUNNER_SPEC.loader.exec_module(RUNNER)
 
 
 def manifest():
@@ -31,6 +37,20 @@ def manifest():
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_portable_contracts_are_mandatory_in_guard_lane(self):
+        with mock.patch.object(RUNNER, "_run_message_guard", return_value=None) as invoke:
+            self.assertIsNone(RUNNER._run_required_message_guards())
+        callbacks = [call.args[0] for call in invoke.call_args_list]
+        self.assertIn(RUNNER._run_hlod_offline_contract_tests, callbacks)
+
+    def test_portable_guard_fails_closed_and_accepts_success(self):
+        with mock.patch.object(RUNNER, "HLOD_OFFLINE_CONTRACT_TEST_SCRIPT", ROOT / "missing-offline-test.py"):
+            self.assertFalse(RUNNER._run_hlod_offline_contract_tests()[0])
+        for code in (1, -9, 0):
+            with self.subTest(code=code), mock.patch.object(RUNNER, "_run_command", return_value=(code, "", "")) as run:
+                self.assertEqual(RUNNER._run_hlod_offline_contract_tests()[0], code == 0)
+                self.assertEqual(run.call_args.args[0], [sys.executable, str(RUNNER.HLOD_OFFLINE_CONTRACT_TEST_SCRIPT)])
+
     def test_every_limit_is_mandatory_and_exact(self):
         control = manifest()
         JOB.validate_manifest(control)
@@ -123,6 +143,7 @@ class PublicationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.source = Path(self.temp.name) / "source.ply"
         self.output = Path(self.temp.name) / "last-good.gsplatworld"
+        self.fresh_output = Path(self.temp.name) / "fresh.gsplatworld"
         self.candidate = Path(self.temp.name) / "new.gsplatworld"
         self.source.write_bytes(b"canonical source")
         self.output.write_bytes(b"previous valid package")
@@ -144,25 +165,63 @@ class PublicationTests(unittest.TestCase):
 
     def test_invalid_candidate_cancellation_and_disk_failure_preserve_destination(self):
         with self.assertRaises(ValueError):
-            JOB.publish_candidate(self.candidate, self.output, "0" * 64, self.source)
+            JOB.publish_candidate(self.candidate, self.fresh_output, "0" * 64, self.source)
         self.assert_retained()
         def cancelled():
             raise ValueError("cancelled while validating")
         with self.assertRaises(ValueError):
-            JOB.publish_candidate(self.candidate, self.output, JOB.sha256(self.candidate), self.source, cancelled)
+            JOB.publish_candidate(self.candidate, self.fresh_output, JOB.sha256(self.candidate), self.source, cancelled)
         self.assert_retained()
-        with mock.patch.object(JOB.os, "replace", side_effect=OSError("disk exhausted")), self.assertRaises(OSError):
-            JOB.publish_candidate(self.candidate, self.output, JOB.sha256(self.candidate), self.source)
+        with mock.patch.object(JOB.os, "link", side_effect=OSError("disk exhausted")), self.assertRaises(OSError):
+            JOB.publish_candidate(self.candidate, self.fresh_output, JOB.sha256(self.candidate), self.source)
         self.assert_retained()
 
     def test_success_publishes_atomically_and_preserves_source(self):
-        JOB.publish_candidate(self.candidate, self.output, JOB.sha256(self.candidate), self.source)
-        self.assertEqual(self.output.read_bytes(), b"strictly validated new package")
-        self.assertEqual(self.source.read_bytes(), b"canonical source")
-        self.assertFalse(self.candidate.exists())
+        JOB.publish_candidate(self.candidate, self.fresh_output, JOB.sha256(self.candidate), self.source)
+        self.assertEqual(self.fresh_output.read_bytes(), b"strictly validated new package")
+        self.assertTrue(os.path.samefile(self.fresh_output, self.candidate))
+        self.assert_retained()
+
+    def test_existing_and_racing_destination_never_clobbered(self):
+        with self.assertRaises(ValueError):
+            JOB.require_fresh_output(self.source, self.output)
+        with self.assertRaises(ValueError):
+            JOB.publish_candidate(self.candidate, self.output, JOB.sha256(self.candidate), self.source)
+        self.assert_retained()
+        def create_racing_output():
+            self.fresh_output.write_bytes(b"concurrent valid output")
+        with self.assertRaises(FileExistsError):
+            JOB.publish_verified_candidate(self.candidate, self.fresh_output, self.source,
+                                           JOB.file_identity(self.candidate), create_racing_output)
+        self.assertEqual(self.fresh_output.read_bytes(), b"concurrent valid output")
+        self.assert_retained()
 
 
 class PrivatePhaseTests(unittest.TestCase):
+    def test_source_and_candidate_locks_deny_write_and_delete_sharing(self):
+        job = object.__new__(JOB.NativeJob)
+        job.kernel = mock.Mock()
+        job.own = mock.Mock(return_value=123)
+        self.assertEqual(job.lock_source(__file__), 123)
+        arguments = job.kernel.CreateFileW.call_args.args
+        self.assertEqual(arguments[1:3], (0x80000000, 1))
+
+    def test_executed_controls_must_match_admission_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            for name in ("worker.gd", "project.godot", "request.json"):
+                (stage / name).write_bytes(b"frozen control")
+            admitted = {"control_sha256": JOB.control_identities(stage)}
+            JOB.verify_control_identity(stage, admitted)
+            for name in admitted["control_sha256"]:
+                with self.subTest(name=name):
+                    (stage / name).write_bytes(b"changed control")
+                    with self.assertRaises(ValueError):
+                        JOB.verify_control_identity(stage, admitted)
+                    (stage / name).write_bytes(b"frozen control")
+            with self.assertRaises(ValueError):
+                JOB.verify_control_identity(stage, {})
+
     def test_private_admission_and_final_hash_control(self):
         # Tiny control files exercise the phase protocol, not an engine acceptance run.
         with tempfile.TemporaryDirectory() as directory:
@@ -175,11 +234,14 @@ class PrivatePhaseTests(unittest.TestCase):
             binary = stage / "fixture.exe"
             binary.write_bytes(b"identity control, never executed")
             (stage / "worker.gd").write_text("# fixture, never executed\n")
+            (stage / "project.godot").write_text("# fixture, never executed\n")
             request = manifest()
             request["source"].update(path=str(source), bytes=source.stat().st_size, sha256=JOB.sha256(source))
             request["implementation"]["build_sha256"] = JOB.sha256(binary)
             request.update(original_source_path=str(source), godot_path=str(binary),
-                           candidate_path=str(stage / "candidate.gsplatworld"))
+                           candidate_path=str(stage / "candidate.gsplatworld"), output=str(stage / "fresh.gsplatworld"),
+                           deadline_monotonic=time.monotonic() + 60)
+            request["limits"]["cancel_path"] = str(stage / "cancel")
             request_path = stage / "request.json"
             JOB.write_json(request_path, request)
             self.assertEqual(JOB.private_phase("admit", request_path), 0)
@@ -192,6 +254,9 @@ class PrivatePhaseTests(unittest.TestCase):
             self.assertEqual(JOB.private_phase("verify", request_path), 0)
             verified = json.loads((stage / "verify.json").read_text())
             self.assertEqual(verified["candidate_identity"], JOB.file_identity(candidate))
+            self.assertEqual(verified["status"], "PUBLISHED")
+            # Remove only the test's publication link before the next independent negative control.
+            Path(request["output"]).unlink()
             candidate.write_bytes(b"changed after engine receipt")
             self.assertEqual(JOB.private_phase("verify", request_path), 1)
             self.assertEqual(json.loads((stage / "verify.json").read_text())["status"], "FAILED")
@@ -212,6 +277,21 @@ class PrivatePhaseTests(unittest.TestCase):
             self.assertEqual(job.drain["status"], "FAILED")
             job.kernel.TerminateJobObject.assert_called_once_with(8, 1)
             job.kernel.TerminateProcess.assert_not_called()
+
+    def test_commit_without_acknowledgement_keeps_admission_block_after_drain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job = object.__new__(JOB.NativeJob)
+            job.kernel = mock.Mock()
+            job.handles, job.process, job.pid = [], None, 99
+            job.drain = {"status": "DRAINED"}
+            job.publication_uncertain, job.marker_owned = True, True
+            job.poison_path = Path(directory) / "blocked.json"
+            job.poison_path.write_text('{"status":"ACTIVE_OR_UNDRAINED"}')
+            job.stop = mock.Mock()
+            job.__exit__(None, None, None)
+            self.assertTrue(job.poison_path.exists())
+            self.assertEqual(json.loads(job.poison_path.read_text())["status"], "UNCONFIRMED_PUBLICATION")
+            self.assertTrue(job.marker_owned)
 
 
 if __name__ == "__main__":

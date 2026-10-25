@@ -60,4 +60,4 @@ func _initialize() -> void:
 		return
 	report["candidate_sha256"] = FileAccess.get_sha256(request["candidate_path"])
 	report["status"] = "VALIDATED_CANDIDATE"
-	finish(OK, "Strict candidate reload passed; supervisor owns publication")
+	finish(OK, "Strict candidate reload passed; bounded verification worker owns publication")

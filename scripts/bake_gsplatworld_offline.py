@@ -6,7 +6,7 @@ Usage: python scripts/bake_gsplatworld_offline.py --manifest job.json --godot en
 
 The manifest is author-supplied and frozen before launch. Required fields:
 schema_version=1; source={path,sha256,bytes,count,sh_degree};
-implementation={source_sha,build_sha256}; output; limits (see REQUIRED_LIMITS);
+implementation={source_sha,build_sha256}; output (must be a fresh name); limits (see REQUIRED_LIMITS);
 quality must equal the complete frozen QUALITY dictionary below.
 The first route admits binary little-endian scalar-vertex PLY and uncompressed v3
 worlds without metadata/instances. This is bounded resident preparation, not V4.
@@ -71,6 +71,7 @@ def write_json(path, value):
 
 
 def validate_manifest(manifest):
+    require(len(json.dumps(manifest, allow_nan=False).encode()) <= 65536, "Manifest control reservation")
     require(manifest.get("schema_version") == 1, "Unsupported manifest version")
     limits = manifest.get("limits", {})
     for name in REQUIRED_LIMITS:
@@ -108,6 +109,11 @@ def refuse_alias(source, output):
     if output.exists():
         require(not os.path.samefile(source, output), "Source/output hardlink alias")
     require(not output.is_symlink(), "Output must not be a symlink")
+
+
+def require_fresh_output(source, output):
+    refuse_alias(source, output)
+    require(not os.path.lexists(output), "Existing output is never replaced; select a fresh destination name")
 
 
 def inspect_source(path, source, limits):
@@ -198,6 +204,8 @@ class NativeJob:
         self.pid = None
         self.drain = {"status": "NOT_NEEDED"}
         self.marker_owned = False
+        self.publication_uncertain = False
+        self.publication_started = False
         self.poison_path = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "GodotGS" / "offline-hlod-drain-failed.json"
         self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         k = self.kernel
@@ -261,9 +269,11 @@ class NativeJob:
             self.__exit__(None, None, None)
             raise
 
-    def lock_source(self, path, allow_delete=False):
+    def lock_source(self, path):
         # Permit readers only: source cannot be written, renamed or removed during the job.
-        return self.own(self.kernel.CreateFileW(str(Path(path).resolve()), 0x80000000, 1 | (4 if allow_delete else 0), None, 3, 0x80, None))
+        # CreateHardLinkW can publish a fresh name while this lock also protects the
+        # candidate path; no FILE_SHARE_DELETE or path-replacement window is needed.
+        return self.own(self.kernel.CreateFileW(str(Path(path).resolve()), 0x80000000, 1, None, 3, 0x80, None))
 
     def host_memory(self):
         value = MemoryStatus()
@@ -360,30 +370,54 @@ class NativeJob:
                 if not self.kernel.CloseHandle(handle):
                     drained = False
             self.handles.clear()
-            if self.marker_owned and drained and self.drain["status"] != "FAILED":
+            if not drained:
+                self.drain["status"] = "FAILED"
+                self.publication_uncertain = self.publication_uncertain or self.publication_started
+            if self.marker_owned and self.publication_uncertain:
+                write_json(self.poison_path, {"status": "UNCONFIRMED_PUBLICATION", "pid": self.pid,
+                                              "drain": self.drain})
+            elif self.marker_owned and drained and self.drain["status"] != "FAILED":
                 self.poison_path.unlink()
                 self.marker_owned = False
+            if not drained:
+                raise RuntimeError("Owned process exit or handle closure was not confirmed; admission remains blocked")
 
 
-def publish_candidate(candidate, output, expected_hash, source, check_before_replace=lambda: None):
+def publish_candidate(candidate, output, expected_hash, source, check_before_publish=lambda: None):
     """Called only after native strict validation, process success and final checks."""
-    require(sha256(candidate, check_before_replace) == expected_hash, "Validated candidate identity changed")
-    publish_verified_candidate(candidate, output, source, file_identity(candidate), check_before_replace)
+    require(sha256(candidate, check_before_publish) == expected_hash, "Validated candidate identity changed")
+    publish_verified_candidate(candidate, output, source, file_identity(candidate), check_before_publish)
 
 
 def publish_verified_candidate(candidate, output, source, identity, check):
-    """Final metadata/rename only; the owned verify phase has checked the full hash."""
-    refuse_alias(source, output)
-    require(file_identity(candidate) == identity, "Candidate identity changed before replace")
+    """Atomic fresh-name publication, called inside the bounded verification worker."""
+    require_fresh_output(source, output)
+    require(file_identity(candidate) == identity, "Candidate identity changed before publication")
     check()
-    # Staging is a sibling directory on the output volume. os.replace uses the native
-    # replace operation and has no remove/backup-swap interval.
-    os.replace(candidate, output)
+    # One complete, already validated file gains a new directory entry. This is an
+    # atomic no-clobber operation (CreateHardLinkW on Windows); an existing/racing
+    # target causes failure. Unsupported filesystems refuse. Retain the staging link
+    # as evidence so no second operation is needed at the publication commit point.
+    os.link(candidate, output)
 
 
 def file_identity(path):
     value = Path(path).stat()
     return [value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns]
+
+
+def control_identities(stage):
+    """Only bounded control files; the supervisor never hashes source/output payloads."""
+    identities = {}
+    for name, limit in (("worker.gd", 65536), ("project.godot", 65536), ("request.json", 1 << 20)):
+        path = Path(stage) / name
+        require(path.stat().st_size <= limit, "Private control byte reservation: " + name)
+        identities[name] = sha256(path)
+    return identities
+
+
+def verify_control_identity(stage, admitted):
+    require(control_identities(stage) == admitted.get("control_sha256"), "Admitted private control identity changed")
 
 
 def private_phase(phase, request_path):
@@ -412,10 +446,14 @@ def private_phase(phase, request_path):
                         write.write(block)
                         copied += len(block)
                 require(sha256(private_source) == request["source"]["sha256"], "Private source copy mismatch")
-            result["worker_sha256"] = sha256(stage / "worker.gd")
-            result["request_sha256"] = sha256(request_path)
+            result["control_sha256"] = control_identities(stage)
             result["supervisor_sha256"] = sha256(__file__)
         elif phase == "verify":
+            admission_path = stage / "admit.json"
+            require(admission_path.stat().st_size <= 1 << 20, "Admission receipt reservation")
+            admitted = json.loads(admission_path.read_text(encoding="utf-8"))
+            require(admitted.get("status") == "CONTROL_COMPLETED", "No admission receipt")
+            verify_control_identity(stage, admitted)
             worker_path = stage / "result.json"
             require(worker_path.stat().st_size <= 1 << 20, "Worker report reservation")
             worker = json.loads(worker_path.read_text(encoding="utf-8"))
@@ -427,13 +465,22 @@ def private_phase(phase, request_path):
             require(sha256(candidate) == worker["candidate_sha256"], "Strictly validated candidate hash changed")
             require(file_identity(candidate) == identity, "Candidate changed during final hash")
             result.update(candidate_identity=identity, candidate_sha256=worker["candidate_sha256"], worker=worker)
+            def before_publish():
+                require(time.monotonic() < request["deadline_monotonic"], "Job deadline before publication")
+                require(not Path(request["limits"]["cancel_path"]).exists(), "Cancelled before publication")
+            publish_verified_candidate(candidate, request["output"], original, identity, before_publish)
+            result["publication_committed"] = True
+            result["published_identity"] = file_identity(request["output"])
+            before_publish()
         else:
             raise ValueError("Unknown private phase")
-        result["status"] = "CONTROL_COMPLETED"
+        result["status"] = "PUBLISHED" if phase == "verify" else "CONTROL_COMPLETED"
     except BaseException as error:
         result["failure"] = repr(error)
+        if result.get("publication_committed"):
+            result["status"] = "UNCONFIRMED"
     write_json(stage / (phase + ".json"), result)
-    return 0 if result["status"] == "CONTROL_COMPLETED" else 1
+    return 0 if result["status"] in ("CONTROL_COMPLETED", "PUBLISHED") else 1
 
 
 def run_owned_phase(job, phase, command, stage, log, record, check):
@@ -452,6 +499,13 @@ def run_owned_phase(job, phase, command, stage, log, record, check):
             record["log_bytes"] += len(block)
             check()
             require(job.peak() <= job.limits["process_private_bytes"], "Hard process RAM limit exceeded")
+            host = job.host_memory()
+            require(min(host["available_physical"], host["available_commit"]) >=
+                    job.limits["minimum_free_host_physical_and_commit_bytes"], "Host physical/commit headroom exhausted")
+            phase_record["minimum_observed_free_physical_bytes"] = min(
+                phase_record.get("minimum_observed_free_physical_bytes", host["available_physical"]), host["available_physical"])
+            phase_record["minimum_observed_free_commit_bytes"] = min(
+                phase_record.get("minimum_observed_free_commit_bytes", host["available_commit"]), host["available_commit"])
             code = job.poll()
             if code is not None:
                 while block := job.read_log():
@@ -477,7 +531,7 @@ def run_job(manifest, godot, evidence):
     source = Path(manifest["source"]["path"]).resolve(strict=True)
     output = Path(manifest["output"]).absolute()
     require(output.suffix.lower() == ".gsplatworld" and output.parent.is_dir(), "Output directory/extension")
-    refuse_alias(source, output)
+    require_fresh_output(source, output)
     godot = Path(godot).resolve(strict=True)
     require(os.name == "nt", "Unsupported platform: no hard owned-process enforcement")
     evidence = Path(evidence)
@@ -485,7 +539,7 @@ def run_job(manifest, godot, evidence):
     record = {"status": "FAILED", "manifest": manifest, "log_bytes": 0,
               "python": {"path": sys.executable, "version": sys.version},
               "scope": "CPU offline preparation only; quality/runtime acceptance separate",
-              "deadline_scope": "One shared job deadline from first source processing through admission/hash/copy, engine, final hash and publication; batch deadline is an additional cap"}
+              "deadline_scope": "One shared job deadline from first source processing through admission/hash/copy, engine, final hash and atomic fresh-name publication; batch deadline is an additional cap"}
     stage = job = None
     try:
         def check():
@@ -518,41 +572,53 @@ def run_job(manifest, godot, evidence):
             request = json.loads(json.dumps(manifest))
             request["original_source_path"] = str(source)
             request["godot_path"] = str(godot)
+            request["output"] = str(output)
+            request["deadline_monotonic"] = started + min(limits["job_wall_seconds"], limits["batch_wall_seconds"])
             request["source"]["path"] = str(stage / "input.gsplatworld" if source.suffix.lower() == ".gsplatworld" else source)
             request["limits"]["cancel_path"] = str(cancel)
             request["candidate_path"] = str(candidate)
             request_path = stage / "request.json"
             write_json(request_path, request)
+            job.lock_source(request_path)
+            job.lock_source(stage / "worker.gd")
+            job.lock_source(stage / "project.godot")
             record.update(stage=str(stage), cancel_file=str(cancel))
             write_json(evidence / "manifest.json", record)
             with (evidence / "engine.log").open("wb") as log:
                 control_command = [sys.executable, str(Path(__file__).resolve()), "--request", str(request_path), "--private-phase"]
                 run_owned_phase(job, "admit", control_command + ["admit"], stage, log, record, check)
                 admission_path = stage / "admit.json"
+                job.lock_source(admission_path)
                 require(admission_path.stat().st_size <= 1 << 20, "Admission receipt reservation")
                 admission = json.loads(admission_path.read_text(encoding="utf-8"))
                 require(admission.get("status") == "CONTROL_COMPLETED", "Admission phase has no valid receipt")
+                verify_control_identity(stage, admission)
                 record["admission"] = admission
                 if source.suffix.lower() == ".gsplatworld":
                     job.lock_source(request["source"]["path"])
                 engine = [str(godot), "--headless", "--path", str(stage), "--script", "res://worker.gd"]
                 run_owned_phase(job, "engine", engine, stage, log, record, check)
-                # Disallow writes to the candidate through final verification/publication.
-                # Share-delete permits the final atomic rename; file ID is checked after the hash.
-                job.lock_source(candidate, allow_delete=True)
+                # Disallow candidate writes/deletion/replacement through publication.
+                job.lock_source(candidate)
+                job.lock_source(stage / "result.json")
+                job.publication_started = True
+                job.publication_uncertain = True
                 run_owned_phase(job, "verify", control_command + ["verify"], stage, log, record, check)
             verify_path = stage / "verify.json"
             require(verify_path.stat().st_size <= 1 << 20, "Verification receipt reservation")
             verified = json.loads(verify_path.read_text(encoding="utf-8"))
-            require(verified.get("status") == "CONTROL_COMPLETED", "Missing final identity receipt")
+            require(verified.get("status") == "PUBLISHED" and verified.get("publication_committed") is True,
+                    "Missing publication receipt")
+            require(file_identity(output) == verified["published_identity"], "Published identity mismatch")
+            check()
             record.update(worker=verified["worker"], output_sha256=verified["candidate_sha256"],
                           output_bytes=verified["candidate_identity"][2], peak_job_process_commit_bytes=job.peak())
-            # Same-volume native atomic replacement. No blocking data hash/copy remains in
-            # the supervisor; only the verified candidate handle is renamed.
-            publish_verified_candidate(candidate, output, source, verified["candidate_identity"], check)
+            job.publication_uncertain = False
             record["status"] = "PUBLISHED"
     except BaseException as error:
         record["failure"] = repr(error)
+        if job is not None and job.publication_uncertain:
+            record["status"] = "UNCONFIRMED"
     finally:
         record["elapsed_seconds"] = time.monotonic() - started
         if job is not None:
@@ -576,7 +642,7 @@ def main():
         return private_phase(args.private_phase, args.request)
     require(args.manifest is not None and args.godot is not None and args.evidence is not None,
             "Required: --manifest, --godot, --evidence")
-    require(args.manifest.stat().st_size <= 1 << 20, "Manifest control reservation")
+    require(args.manifest.stat().st_size <= 65536, "Manifest control reservation")
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     record = run_job(manifest, args.godot, args.evidence)
     print(json.dumps({"status": record["status"], "evidence": str(args.evidence), "failure": record.get("failure")}))
