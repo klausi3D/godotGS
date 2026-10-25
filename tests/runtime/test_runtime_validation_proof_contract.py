@@ -2539,6 +2539,71 @@ class HlodMainViewProjectWiringTests(unittest.TestCase):
                          runtime_validation.GDS_TESTS["Engine Capability Sanity"].relative_to(ROOT))
 
 
+def _hlod_async_observation_contract_errors(script: str, native: str) -> list[str]:
+    """Narrow source guard only; actual GPU completion still needs a native run."""
+    errors = []
+    if "func _observe_publication(deadline: int," not in script:
+        return ["observation must consume the caller's existing deadline"]
+    observe = script.split("func _observe_publication(deadline: int,", 1)[1].split("\n\nfunc ", 1)[0]
+    dispatch = script.split("func _read_publication_on_render_thread(", 1)[1].split("\n\nfunc ", 1)[0]
+    if "const TIMEOUT_MSEC := 10_000" not in script or "while Time.get_ticks_msec() < deadline:" not in observe:
+        errors.append("original overall deadline must bound polling")
+    if "TIMEOUT_MSEC" in observe or re.search(r"deadline\s*=", observe):
+        errors.append("polling must not reset its deadline")
+    if not re.search(r"await publication_observed\s*\n\s*if Time.get_ticks_msec\(\) >= deadline:\s*\n\s*return", observe):
+        errors.append("the delivered observation must be deadline-checked before success")
+    if "await RenderingServer.frame_post_draw" not in observe:
+        errors.append("pending readbacks must keep real frames moving")
+    if "await _observe_publication(deadline)" not in script or "await _observe_publication(deadline, true)" not in script:
+        errors.append("both callers must supply the same existing deadline")
+    if re.search(r'\["engine_frame"\]\s*=', dispatch):
+        errors.append("delivery must not relabel the frozen copy frame")
+    observer = native.split("Dictionary GaussianSplatRenderer::test_observe_hlod_publication(", 1)[1].split(
+        "Dictionary GaussianSplatRenderer::test_hlod_foreign_device_publication", 1)[0]
+    code = _without_cpp_comments(observer)
+    if re.search(r"\b(?:safe_)?buffer_get_data\s*\(", code):
+        errors.append("publication observation must not synchronously read GPU buffers")
+    if not re.search(r"\bbuffer_get_data_async\s*\(", code):
+        errors.append("actual asynchronous GPU readback submission is missing")
+    return errors
+
+
+class HlodAsyncObservationSourceContractTests(unittest.TestCase):
+    """Prevent the known blocking/poll-deadline regressions, not GPU certification."""
+
+    def setUp(self) -> None:
+        self.script = (ROOT / "tests/runtime/test_hlod_resident_main_view.gd").read_text(encoding="utf-8")
+        self.native = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+
+    def test_current_source_keeps_async_submission_and_original_deadline(self) -> None:
+        self.assertEqual(_hlod_async_observation_contract_errors(self.script, self.native), [])
+
+    def test_synchronous_regression_and_deleted_gpu_submission_are_rejected(self) -> None:
+        for replacement in ("buffer_get_data", "removed_readback_submission"):
+            with self.subTest(replacement=replacement):
+                changed = self.native.replace("buffer_get_data_async", replacement)
+                self.assertNotEqual(changed, self.native)
+                self.assertTrue(_hlod_async_observation_contract_errors(self.script, changed))
+
+    def test_late_observation_or_fresh_deadline_cannot_pass_the_guard(self) -> None:
+        mutations = (
+            self.script.replace("if Time.get_ticks_msec() >= deadline:\n\t\t\treturn", "if false:\n\t\t\treturn", 1),
+            self.script.replace("var request_id := 0", "var request_id := 0\n\tdeadline = Time.get_ticks_msec() + TIMEOUT_MSEC", 1),
+            self.script.replace("await _observe_publication(deadline)", "await _observe_publication(Time.get_ticks_msec() + TIMEOUT_MSEC)", 1),
+        )
+        for changed in mutations:
+            with self.subTest(changed=changed != self.script):
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_async_observation_contract_errors(changed, self.native))
+
+    def test_poll_delivery_cannot_replace_the_original_engine_frame(self) -> None:
+        changed = self.script.replace("\t_deliver_publication_observation.call_deferred(observation)",
+            '\tobservation["engine_frame"] = Engine.get_frames_drawn()\n\t_deliver_publication_observation.call_deferred(observation)', 1)
+        self.assertNotEqual(changed, self.script)
+        self.assertIn("delivery must not relabel the frozen copy frame",
+                      _hlod_async_observation_contract_errors(changed, self.native))
+
+
 class HlodMainViewProjectManagerCaptureTests(unittest.TestCase):
     def test_actual_project_manager_capture_is_rejected(self) -> None:
         """The independently inspected a74 PM image is negative evidence only."""

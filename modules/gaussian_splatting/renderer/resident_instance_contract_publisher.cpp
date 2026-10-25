@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cmath>
 #ifdef TESTS_ENABLED
+#include "core/config/engine.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_bake.h"
 #include "../interfaces/sync_policy.h"
@@ -1736,17 +1737,113 @@ bool GaussianSplatRenderer::test_hlod_publication_refuses(int p_failure) {
     return true;
 }
 
-Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
+void GaussianSplatRenderer::_test_cancel_hlod_publication_observation() {
+    MutexLock lock(test_hlod_observation_mutex);
+    test_hlod_observation = HlodPublicationObservation();
+}
+
+void GaussianSplatRenderer::_test_hlod_publication_readback(const Vector<uint8_t> &p_bytes,
+        int64_t p_renderer_id, int64_t p_request_id, int p_slot, int64_t p_device_id) {
+    // RD owns the queued callable, which carries IDs only. A late completion
+    // after renderer destruction is discarded without calling a dead Object.
+    auto *renderer = Object::cast_to<GaussianSplatRenderer>(ObjectDB::get_instance(ObjectID(uint64_t(p_renderer_id))));
+    if (!renderer) { return; }
+    MutexLock lock(renderer->test_hlod_observation_mutex);
+    auto &observation = renderer->test_hlod_observation;
+    if (renderer->teardown_resources_started.load(std::memory_order_acquire) || p_request_id <= 0 ||
+            observation.request_id != uint64_t(p_request_id) || observation.device_id != uint64_t(p_device_id) ||
+            observation.complete) { return; }
+    RenderingDevice *device = Object::cast_to<RenderingDevice>(ObjectDB::get_instance(ObjectID(observation.device_object_id)));
+    if (!device || device->get_device_instance_id() != observation.device_id || device != renderer->get_device_state().rd) {
+        observation.result["error"] = "publication_readback_device_changed";
+        observation.complete = true;
+        return;
+    }
+    if (p_slot < 0 || p_slot >= 4 || (observation.received_mask & (1u << p_slot)) != 0 ||
+            uint64_t(p_bytes.size()) != observation.expected_bytes[p_slot]) {
+        observation.result["error"] = "publication_readback_incomplete_or_duplicate";
+        observation.complete = true;
+        return;
+    }
+    // Only actual callback bytes populate observed fields. Expected bytes and all
+    // route/source/frame metadata were frozen before the four GPU copies.
+    const String hex = String::hex_encode_buffer(p_bytes.ptr(), p_bytes.size());
+    if (p_slot < 3) {
+        static const char *keys[3] = { "atlas_hex", "instance_hex", "grading_hex" };
+        observation.result[keys[p_slot]] = hex;
+    } else {
+        GaussianSplatting::IndirectDispatchLayout header = {};
+        memcpy(&header, p_bytes.ptr(), sizeof(header));
+        Dictionary gpu_count = observation.result["gpu_sort_count"];
+        gpu_count["header_hex"] = hex;
+        gpu_count["header_bytes"] = p_bytes.size();
+        gpu_count["dispatch_x"] = header.dispatch_x;
+        gpu_count["dispatch_y"] = header.dispatch_y;
+        gpu_count["dispatch_z"] = header.dispatch_z;
+        gpu_count["element_count"] = header.element_count;
+        gpu_count["overflow_flag"] = header.overflow_flag;
+        gpu_count["unclamped_total"] = header.unclamped_total;
+        observation.result["gpu_sort_count"] = gpu_count;
+    }
+    observation.received_mask |= 1u << p_slot;
+    if (observation.received_mask == 15u) {
+        observation.result["readback_complete"] = true;
+        observation.result["readback_completed_mask"] = observation.received_mask;
+        observation.result["readback_completion_engine_frame"] = int64_t(Engine::get_singleton()->get_frames_drawn());
+        observation.complete = true;
+    }
+}
+
+Dictionary GaussianSplatRenderer::test_observe_hlod_publication(int64_t p_request_id) {
     Dictionary result;
-    // Explicit test readback on the actual render thread, never a production
-    // per-frame readback or a fabricated successful observation. Bounded fixture.
+    // Explicit TESTS-only snapshots of a bounded main-view fixture. Submit with
+    // request_id=0, then poll that request while the normal frame loop advances.
     RenderingServer *server = RenderingServer::get_singleton();
     if (!server || !server->is_on_render_thread()) { result["error"] = "render_thread_required"; return result; }
+    if (teardown_resources_started.load(std::memory_order_acquire)) { result["error"] = "renderer_teardown"; return result; }
+    if (p_request_id != 0) {
+        {
+            MutexLock lock(test_hlod_observation_mutex);
+            if (p_request_id < 0 || test_hlod_observation.request_id != uint64_t(p_request_id)) {
+                result["error"] = "publication_readback_request_mismatch"; return result;
+            }
+            result["observation_request_id"] = p_request_id;
+            result["pending"] = !test_hlod_observation.complete;
+            if (!test_hlod_observation.complete) { return result; }
+            result = test_hlod_observation.result;
+            result["pending"] = false;
+            test_hlod_observation = HlodPublicationObservation();
+        }
+        // A completed historical snapshot cannot certify a newly installed source
+        // or device. Frame/content serials may advance normally during async work;
+        // their frozen values still identify the copied frame, never the poll frame.
+        const auto &state = get_resource_state();
+        const Ref<GaussianData> source = get_scene_state().gaussian_data;
+        RenderingDevice *device = get_device_state().rd;
+        auto *director = GaussianSplatSceneDirector::get_singleton();
+        if (!result.has("error") && (!device || !director || source.is_null() ||
+                int64_t(device->get_device_instance_id()) != int64_t(result["device_instance_id"]) ||
+                int64_t(source->get_instance_id()) != int64_t(result["source_data_id"]) ||
+                int64_t(source->get_content_revision()) != int64_t(result["source_revision"]) ||
+                state.hlod_snapshot.is_null() || !state.hlod_snapshot->is_current() ||
+                int64_t(state.hlod_snapshot->get_instance_id()) != int64_t(result["input_source_generation"]) ||
+                int64_t(director->get_instance_generation_for_renderer(this)) != int64_t(result["current_instance_generation"]) ||
+                int64_t(state.instance_grading_defaults_generation.load(std::memory_order_relaxed)) != int64_t(result["current_grading_generation"]))) {
+            result["error"] = "publication_readback_identity_changed";
+        }
+        return result;
+    }
+    {
+        MutexLock lock(test_hlod_observation_mutex);
+        if (test_hlod_observation.request_id != 0) { result["error"] = "publication_readback_busy"; return result; }
+    }
+    const uint64_t engine_frame = Engine::get_singleton()->get_frames_drawn();
+    result["engine_frame"] = int64_t(engine_frame);
     const auto &state = get_resource_state();
     const auto &bound = get_instance_pipeline_buffers();
     RenderingDevice *rd = get_device_state().rd;
     const Ref<GaussianData> source = get_scene_state().gaussian_data;
-    if (!rd || source.is_null() || source->get_count() == 0 || source->get_count() > 64 ||
+    if (!rd || rd != server->get_rendering_device() || source.is_null() || source->get_count() == 0 || source->get_count() > 64 ||
             bound.hlod_relative || bound.quantization_required || !bound.atlas_gaussian_buffer.is_valid() ||
             !rd->buffer_is_valid(bound.atlas_gaussian_buffer)) {
         result["error"] = "current_small_raw_canonical_fixture_required";
@@ -1756,6 +1853,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
     if (source->capture_save_snapshot(snapshot) != OK) { result["error"] = "source_snapshot_failed"; return result; }
     Vector<uint8_t> expected;
     const uint32_t count = snapshot.get_gaussians().size();
+    if (count == 0 || count > 64) { result["error"] = "current_small_raw_canonical_fixture_required"; return result; }
     if (!gs_resize_or_fail(expected, uint64_t(count) * sizeof(PackedGaussian), "HLOD test expected raw bytes")) {
         result["error"] = "expected_payload_allocation_failed"; return result;
     }
@@ -1768,8 +1866,6 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
                 snapshot.get_sh_first_order_count(), high_count);
         memcpy(expected.ptrw() + uint64_t(i) * sizeof(packed), &packed, sizeof(packed));
     }
-    const Vector<uint8_t> observed = gs_device_utils::safe_buffer_get_data(rd, bound.atlas_gaussian_buffer);
-    result["atlas_hex"] = String::hex_encode_buffer(observed.ptr(), observed.size());
     result["source_leaf_hex"] = String::hex_encode_buffer(expected.ptr(), expected.size());
     result["source_data_id"] = int64_t(source->get_instance_id());
     result["device_instance_id"] = int64_t(rd->get_device_instance_id());
@@ -1802,11 +1898,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
         instances[0].ids[0] = 0u;
         instances[0].lod[1] = instance_asset_remap.generation == 0 ? 1u : uint32_t(instance_asset_remap.generation & uint64_t(UINT32_MAX));
     }
-    const Vector<uint8_t> instance_bytes = gs_device_utils::safe_buffer_get_data(rd, bound.instance_buffer);
-    const Vector<uint8_t> grading_bytes = gs_device_utils::safe_buffer_get_data(rd, bound.instance_grading_buffer);
-    result["instance_hex"] = String::hex_encode_buffer(instance_bytes.ptr(), instance_bytes.size());
     result["expected_instance_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(instances.ptr()), instances.size() * sizeof(InstanceDataGPU));
-    result["grading_hex"] = String::hex_encode_buffer(grading_bytes.ptr(), grading_bytes.size());
     result["expected_grading_hex"] = String::hex_encode_buffer(reinterpret_cast<const uint8_t *>(grading.ptr()), grading.size() * sizeof(InstanceGradingGPU));
     result["current_instance_generation"] = int64_t(director->get_instance_generation_for_renderer(this));
     result["current_grading_generation"] = int64_t(state.instance_grading_defaults_generation.load(std::memory_order_relaxed));
@@ -1828,21 +1920,7 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
             subsystem_state.sorting_pipeline.is_null()) {
         result["error"] = "current_resident_sort_count_provenance_required"; return result;
     }
-    const Vector<uint8_t> count_bytes = gs_device_utils::safe_buffer_get_data(rd, count_buffer);
-    if (count_bytes.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout))) {
-        result["error"] = "complete_indirect_dispatch_header_required"; return result;
-    }
-    GaussianSplatting::IndirectDispatchLayout header = {};
-    memcpy(&header, count_bytes.ptr(), sizeof(header));
     Dictionary gpu_count;
-    gpu_count["header_hex"] = String::hex_encode_buffer(count_bytes.ptr(), count_bytes.size());
-    gpu_count["header_bytes"] = count_bytes.size();
-    gpu_count["dispatch_x"] = header.dispatch_x;
-    gpu_count["dispatch_y"] = header.dispatch_y;
-    gpu_count["dispatch_z"] = header.dispatch_z;
-    gpu_count["element_count"] = header.element_count;
-    gpu_count["overflow_flag"] = header.overflow_flag;
-    gpu_count["unclamped_total"] = header.unclamped_total;
     gpu_count["count_buffer_rid"] = int64_t(count_buffer.get_id());
     gpu_count["renderer_frame"] = int64_t(state.hlod_test_sort_frame);
     gpu_count["pass_frame"] = int64_t(state.hlod_test_sort_pass_frame);
@@ -1857,9 +1935,53 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
     async_count["sample_pass_frame"] = int64_t(subsystem_state.sorting_pipeline->_test_get_last_instance_visible_splat_count_frame());
     async_count["element_count"] = subsystem_state.sorting_pipeline->get_last_instance_visible_splat_count();
     result["async_sort_count"] = async_count;
-    result["stats"] = get_render_stats();
+    result["stats"] = get_render_stats().duplicate(true);
     result["rendered_content"] = has_rendered_content();
-    return result;
+    const RID buffers[4] = { bound.atlas_gaussian_buffer, bound.instance_buffer, bound.instance_grading_buffer, count_buffer };
+    // Preserve whole-buffer coverage (size=0), not a matching prefix of an
+    // oversized buffer. Every callback must have the complete expected ABI size.
+    for (const RID &buffer : buffers) {
+        if (get_resource_owner(buffer, nullptr) != rd || !rd->buffer_is_valid(buffer)) {
+            result["error"] = "publication_readback_buffer_owner_mismatch"; return result;
+        }
+    }
+    uint64_t request_id;
+    {
+        MutexLock lock(test_hlod_observation_mutex);
+        if (test_hlod_observation_serial >= uint64_t(INT64_MAX)) { result["error"] = "publication_request_id_exhausted"; return result; }
+        request_id = ++test_hlod_observation_serial;
+        result["observation_request_id"] = int64_t(request_id);
+        test_hlod_observation.request_id = request_id;
+        test_hlod_observation.device_id = rd->get_device_instance_id();
+        test_hlod_observation.device_object_id = uint64_t(rd->get_instance_id());
+        test_hlod_observation.expected_bytes[0] = expected.size();
+        test_hlod_observation.expected_bytes[1] = uint64_t(instances.size()) * sizeof(InstanceDataGPU);
+        test_hlod_observation.expected_bytes[2] = uint64_t(grading.size()) * sizeof(InstanceGradingGPU);
+        test_hlod_observation.expected_bytes[3] = sizeof(GaussianSplatting::IndirectDispatchLayout);
+        test_hlod_observation.result = result.duplicate(true);
+    }
+    // Do not hold the observation mutex across RD calls: staging pressure can
+    // deliver an older callback while a new transfer is being queued.
+    for (int slot = 0; slot < 4; ++slot) {
+        Callable callback = callable_mp_static(&GaussianSplatRenderer::_test_hlod_publication_readback)
+                .bind(int64_t(get_instance_id()), int64_t(request_id), slot, int64_t(rd->get_device_instance_id()));
+        const Error error = rd->buffer_get_data_async(buffers[slot], callback, 0, 0);
+        if (error != OK) {
+            MutexLock lock(test_hlod_observation_mutex);
+            test_hlod_observation.result["error"] = "publication_readback_submission_failed";
+            test_hlod_observation.complete = true;
+            break;
+        }
+    }
+    if (Engine::get_singleton()->get_frames_drawn() != engine_frame) {
+        MutexLock lock(test_hlod_observation_mutex);
+        test_hlod_observation.result["error"] = "engine_frame_changed_during_publication_copy";
+        test_hlod_observation.complete = true;
+    }
+    Dictionary pending;
+    pending["pending"] = true;
+    pending["observation_request_id"] = int64_t(request_id);
+    return pending;
 }
 
 Dictionary GaussianSplatRenderer::test_hlod_foreign_device_publication() {

@@ -174,25 +174,37 @@ func _deliver_publication_observation(observation: Dictionary) -> void:
 	publication_observed.emit(observation)
 
 
-func _read_publication_on_render_thread(foreign_device: bool) -> void:
-	var engine_frame_before := Engine.get_frames_drawn()
-	var observation: Dictionary = _renderer.test_hlod_foreign_device_publication() if foreign_device else _renderer.test_observe_hlod_publication()
-	if not foreign_device:
-		# Observe the real engine clock in this test producer, as for the view
-		# samples. A frame spanning the GPU readback cannot establish freshness.
-		observation["engine_frame"] = Engine.get_frames_drawn()
-		if observation["engine_frame"] != engine_frame_before:
-			observation["error"] = "engine_frame_changed_during_publication_readback"
+func _read_publication_on_render_thread(foreign_device: bool, request_id: int) -> void:
+	var observation: Dictionary = _renderer.test_hlod_foreign_device_publication() if foreign_device else _renderer.test_observe_hlod_publication(request_id)
+	# Native submission freezes engine_frame alongside the source, route and GPU
+	# copies. Completion/polling may happen later and must not relabel that frame.
 	_deliver_publication_observation.call_deferred(observation)
 
 
-func _observe_publication(foreign_device := false) -> Dictionary:
-	RenderingServer.call_on_render_thread(_read_publication_on_render_thread.bind(foreign_device))
-	return await publication_observed
+func _observe_publication(deadline: int, foreign_device := false) -> Dictionary:
+	var request_id := 0
+	while Time.get_ticks_msec() < deadline:
+		RenderingServer.call_on_render_thread(_read_publication_on_render_thread.bind(foreign_device, request_id))
+		var observation: Dictionary = await publication_observed
+		if Time.get_ticks_msec() >= deadline:
+			return {"error": "publication_observation_deadline"}
+		if not bool(observation.get("pending", false)):
+			if not foreign_device and not observation.has("error") and (request_id <= 0 or int(observation.get("observation_request_id", 0)) != request_id):
+				return {"error": "publication_observation_request_mismatch"}
+			return observation
+		var observed_request := int(observation.get("observation_request_id", 0))
+		if observed_request <= 0 or (request_id != 0 and request_id != observed_request):
+			return {"error": "publication_observation_request_mismatch"}
+		request_id = observed_request
+		# Keep the actual renderer/GPU moving; no blocking readback or fresh timeout.
+		await RenderingServer.frame_post_draw
+	return {"error": "publication_observation_deadline"}
 
 
 func _check_current_publication(observation: Dictionary, source: GaussianData, count: int) -> bool:
 	if not _check(not observation.has("error"), "Actual publication readback failed: %s" % observation.get("error", "")):
+		return false
+	if not _check(observation.get("readback_complete", false) and int(observation.get("readback_completed_mask", 0)) == 15 and int(observation.get("observation_request_id", 0)) > 0 and int(observation.get("readback_completion_engine_frame", -1)) >= int(observation.get("engine_frame", 0)), "Complete matching asynchronous GPU snapshot missing"):
 		return false
 	for pair in [["atlas_hex", "source_leaf_hex"], ["instance_hex", "expected_instance_hex"], ["grading_hex", "expected_grading_hex"]]:
 		if not _check(not str(observation.get(pair[0], "")).is_empty() and observation.get(pair[0]) == observation.get(pair[1]), "Current %s differs from actual source/instance/grading" % pair[0]):
@@ -227,7 +239,7 @@ func _check_current_gpu_count(observation: Dictionary, expected_count: int, acti
 func _wait_publication(source: GaussianData, count: int, active: bool, reason: String, deadline: int, after_frame: int, instance_before: Dictionary = {}) -> Dictionary:
 	while Time.get_ticks_msec() < deadline:
 		await RenderingServer.frame_post_draw
-		var observation := await _observe_publication()
+		var observation := await _observe_publication(deadline)
 		if Time.get_ticks_msec() >= deadline:
 			break
 		if observation.has("error"):
@@ -395,7 +407,7 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 			return false
 		_metrics["identity_transitions"].append({"change": change, "before": before, "refused": refused, "recovered": recovered})
 		before = recovered
-	var foreign := await _observe_publication(true)
+	var foreign := await _observe_publication(deadline, true)
 	if not _check(not foreign.has("error") and int(foreign.get("original_device", 0)) != 0 and int(foreign.get("foreign_device", 0)) != 0 and foreign.get("original_device") != foreign.get("foreign_device"), "Actual second RenderingDevice probe missing"):
 		return false
 	if not _check(not foreign["publication_succeeded"] and not foreign["prepared_retained"], "Foreign device published or retained first-device HLOD resources"):

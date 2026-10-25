@@ -715,6 +715,22 @@ public:
     void _release_resident_contract_buffers();
 #ifdef TESTS_ENABLED
     void _test_dispatch_noop_callback(uint64_t p_request_id);
+    // Render-thread submission/polling and RD callbacks share one bounded request.
+    // The mutex also serializes teardown's cancellation; no GPU RID is owned here.
+    struct HlodPublicationObservation {
+        uint64_t request_id = 0;
+        uint64_t device_id = 0;
+        uint64_t device_object_id = 0;
+        uint64_t expected_bytes[4] = {};
+        uint32_t received_mask = 0;
+        bool complete = false;
+        Dictionary result;
+    };
+    Mutex test_hlod_observation_mutex;
+    HlodPublicationObservation test_hlod_observation;
+    uint64_t test_hlod_observation_serial = 0;
+    void _test_cancel_hlod_publication_observation();
+    static void _test_hlod_publication_readback(const Vector<uint8_t> &p_bytes, int64_t p_renderer_id, int64_t p_request_id, int p_slot, int64_t p_device_id);
 #endif
     // p_request_id comes FIRST: see the argument-order contract on
     // IRenderThreadDispatcher::dispatch_call_on_render_thread_blocking().
@@ -2054,7 +2070,7 @@ public:
     void test_override_rendering_device(RenderingDevice *p_device);
     void test_set_hlod_publication_failure(int p_failure);
     bool test_hlod_publication_refuses(int p_failure);
-    Dictionary test_observe_hlod_publication();
+    Dictionary test_observe_hlod_publication(int64_t p_request_id = 0);
     Dictionary test_hlod_foreign_device_publication();
     Ref<Resource> test_bake_hlod_small_leaf_fixture(const Ref<GaussianData> &p_data);
     void test_disable_gpu_culler();

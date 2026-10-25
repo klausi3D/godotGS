@@ -285,7 +285,7 @@ void GaussianSplatRenderer::_bind_methods() {
 
 #ifdef TESTS_ENABLED
     ClassDB::bind_method(D_METHOD("test_set_hlod_publication_failure", "failure"), &GaussianSplatRenderer::test_set_hlod_publication_failure);
-    ClassDB::bind_method(D_METHOD("test_observe_hlod_publication"), &GaussianSplatRenderer::test_observe_hlod_publication);
+    ClassDB::bind_method(D_METHOD("test_observe_hlod_publication", "request_id"), &GaussianSplatRenderer::test_observe_hlod_publication, DEFVAL(0));
     ClassDB::bind_method(D_METHOD("test_hlod_foreign_device_publication"), &GaussianSplatRenderer::test_hlod_foreign_device_publication);
     ClassDB::bind_method(D_METHOD("test_set_hlod_grading", "grading"), &GaussianSplatRenderer::set_color_grading);
     ClassDB::bind_method(D_METHOD("test_bake_hlod_small_leaf_fixture", "data"), &GaussianSplatRenderer::test_bake_hlod_small_leaf_fixture);

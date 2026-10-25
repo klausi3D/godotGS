@@ -1363,6 +1363,9 @@ void GaussianSplatRenderer::_teardown_resources() {
         return;
     }
 
+#ifdef TESTS_ENABLED
+    _test_cancel_hlod_publication_observation();
+#endif
     _release_shared_dynamic_asset();
     get_resource_state().deletion_queue.flush_all();
 
