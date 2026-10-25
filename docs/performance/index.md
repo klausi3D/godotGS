@@ -1,6 +1,6 @@
 # Performance Dashboard
 
-This page surfaces the current published benchmark snapshot and the suite lanes that are expected to grow it.
+This page presents the published benchmark snapshot captured on 2026-07-19 and the suite lanes available for further measurements. The results describe the recorded measured commit, not the current `master` revision.
 
 The published baseline lane is `dense_resident_2m` (~4.9M visible splats, ~12 FPS). It was chosen because it is the only lane that exercises the resident sort/raster path under load; a headline taken from a lightweight smoke lane would describe a workload the project does not ship. See [#790](https://github.com/klausi3D/godotGS/issues/790).
 
@@ -44,7 +44,7 @@ Every number on this page comes from one machine, one build, and one commit. Rea
 | `lighting_stress` | Animated light and shading | 9 | 90,000 | 72.6 | 13.78 | 15.15 | 13.90 | ~612 |
 | `instance_storm` | Many-instance submission pressure | 36 | 360,000 | 31.5 | 31.75 | 31.82 | 30.09 | ~1,128 |
 
-**The published figure for this project is ~12 FPS**, from `dense_resident_2m` at 4.9M visible splats. That is far below interactive, and it is the number we publish: it is the only lane that drives the resident sort/raster path under load, so it is the only lane whose result describes a workload someone might actually ship. Read it as the honest ceiling of the current resident path on a high-end desktop GPU (RTX 3090), not as a good number.
+**The historical dense-resident result is ~12 FPS**, from `dense_resident_2m` at 4.9M visible splats on the RTX 3090. It measures the resident sort/raster path under load at commit `9161d92f349`, captured on 2026-07-19. Subsequent renderer improvements require a comparable new capture before this page can report their effect on that workload.
 
 `static_baseline` is retained as a low-noise regression reference, not as a headline. At a single 10,000-splat instance its frame time is dominated by fixed per-frame overhead rather than by splat workload, which makes it a sensitive detector of overhead regressions and a poor description of the renderer's capability. Until [#790](https://github.com/klausi3D/godotGS/issues/790) it carried `evidence_role: published_baseline`, and its 455 FPS was quoted as the project's top-line result — a number produced by a workload nobody ships. It no longer holds that role.
 
@@ -72,7 +72,7 @@ statistics.mean(r["gpu_pass_ms"]["sort_ms"] for r in runs)   # -> 33.458
 | `instance_storm` | 1.091 | 0.017 | 1.516 | 26.051 | 1.407 | 0.016 | 30.10 | 87% |
 | `dense_resident_2m` | 2.095 | 0.017 | 3.039 | 33.458 | 13.553 | 0.014 | 52.18 | 64% |
 
-The depth sort dominates GPU cost on every lane measured, from 64% to 87% of GPU frame time. That is the single largest optimization target in the current pipeline.
+The depth sort accounted for 64% to 87% of GPU frame time across the lanes in this snapshot. It was the largest measured cost at that commit.
 
 ### Measured vs derived
 
@@ -101,7 +101,7 @@ This snapshot was measured at `9161d92f349`, which was 8 commits behind `master`
 | [#667](https://github.com/klausi3D/godotGS/pull/667) — P2 shared-renderer gating convergence | Marginally | The per-frame cost is unchanged: the gate is still one predicate evaluation per node per frame, now edge-triggered. The added convergence work fires on **peer-set change**, which in these lanes happens only during setup — no lane adds or removes nodes mid-capture. |
 | [#665](https://github.com/klausi3D/godotGS/pull/665) — `world_mutex` deferrals + `ThreadOwnedMutex` | Marginally | `world_mutex` *is* taken on per-frame render paths, so the new owner bookkeeping (one atomic store on lock; a compare and store on unlock) does reach steady state. It is on the order of tens of nanoseconds per acquisition. Reaching even the 0.5% run-to-run spread already observed on `dense_resident_2m` (~0.4 ms of an 81 ms frame) would require on the order of 10⁴ additional lock acquisitions per frame. The same change also moves apply work *out* of the lock, which if anything reduces contention. |
 
-**Judgement: a re-run was not considered warranted for numerical accuracy.** The expected effect of these changes on steady-state frame time is below the run-to-run variance already published above, so a re-measurement could not distinguish them from noise. The gap is recorded here because it is a **provenance** fact a reader is entitled to — not because the numbers are believed to be wrong. If a future change touches the per-frame render path materially, re-measure rather than trusting this reasoning.
+**Judgement at publication: a re-run was not considered warranted for that eight-commit gap.** The expected effect of those changes on steady-state frame time was below the run-to-run variance published above. That assessment applies only to the listed changes; later changes to the per-frame render path require new measurements.
 
 ### Caveats
 
