@@ -218,9 +218,9 @@ struct alignas(16) ChunkMetaGPU {
     uint32_t lod_level;
     uint32_t flags;
     uint32_t sh_limit;           // per-chunk SH band limit (optional)
-    uint32_t pad0;
-    uint32_t pad1;
-    uint32_t pad2;
+    float node_center_x;
+    float node_center_y;
+    float node_center_z;
 };
 
 static_assert(alignof(ChunkMetaGPU) == 16, "ChunkMetaGPU must be 16-byte aligned");
@@ -229,7 +229,7 @@ static_assert(offsetof(ChunkMetaGPU, atlas_base) == 0, "ChunkMetaGPU.atlas_base 
 static_assert(offsetof(ChunkMetaGPU, bounds_center_local) == 16, "ChunkMetaGPU.bounds_center_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, bounds_radius_local) == 28, "ChunkMetaGPU.bounds_radius_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, asset_id) == 32, "ChunkMetaGPU.asset_id offset mismatch");
-static_assert(offsetof(ChunkMetaGPU, pad2) == 56, "ChunkMetaGPU.pad2 offset mismatch");
+static_assert(offsetof(ChunkMetaGPU, node_center_z) == 56, "ChunkMetaGPU.node_center_z offset mismatch");
 
 // Global chunk index indirection (dense).
 struct AssetChunkIndexGPU {

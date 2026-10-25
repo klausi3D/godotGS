@@ -270,6 +270,12 @@ private:
     uint64_t cached_framebuffer_next_id = 0;
     uint64_t framebuffer_validation_next_id = 0;
 
+    // Cumulative physical scratch allocations, including retired textures. No frame-count
+    // heuristic asserts that a deferred allocation has been released.
+    uint64_t hlod_scratch_texture_bytes = 0;
+    uint64_t hlod_scratch_device = 0;
+    bool hlod_scratch_ledger_valid = true;
+
     // State
     bool initialized = false;
     RenderingDevice *rd = nullptr;

@@ -295,10 +295,10 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 			});
 }
 
-// Loads a plain source resident, bakes its HLOD tree and writes the v3 imported copy with the same
-// payload mode as the source (streamable, resident or resident-compressed). The source file is
-// only read. r_bake_failed tells a failure to produce the baked file (load, bake, temp save) apart
-// from a failure to publish it (the final replace, e.g. #714's ERR_BUSY).
+// Loads a plain or supported old-rule source resident, bakes its HLOD tree and writes the v3 imported copy with the
+// same payload mode as the source (streamable, resident or resident-compressed). The source file is only read.
+// r_bake_failed tells a failure to produce the baked file (load, bake, temp save) apart from a failure to publish it
+// (the final replace, e.g. #714's ERR_BUSY).
 //
 // Peak memory: the source payload is resident while the bake runs (snapshot + bake working set,
 // three full-sized copies plus merged nodes, scratch and allocator overhead), then two
@@ -407,47 +407,83 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 				p_source_file, validation_err));
 		return validation_err;
 	}
+	uint32_t source_rule = 0u;
+	bool old_rebake_supported = false;
 	{
 		// Validate every source before publishing either the baked output or a plain
 		// fallback. A valid-looking v1 header can still fail the loader's SH checks.
 		ResourceFormatLoaderGaussianSplatWorld source_loader;
 		Error source_err = OK;
-		Ref<Resource> source_world = source_loader.load(p_source_file, "", &source_err);
+		Ref<GaussianSplatWorld> source_world = source_loader.load(p_source_file, "", &source_err);
 		if (source_world.is_null()) {
 			const Error final_err = source_err != OK ? source_err : ERR_FILE_CORRUPT;
 			GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer rejected invalid payload %s (error %d); the previous import is unchanged.",
 					p_source_file, final_err));
 			return final_err;
 		}
+		if (source_world->has_hlod_tree()) {
+			const GaussianSplatHlodTree &tree = source_world->get_hlod_tree();
+			source_rule = tree.bake_rule_version;
+			// The existing single-world baker does not preserve these extra structures.
+			// Keep unsupported old sources intact instead of silently dropping them.
+			old_rebake_supported = tree.origin[0] == 0.0 && tree.origin[1] == 0.0 && tree.origin[2] == 0.0 &&
+			                       tree.instances.is_empty() && tree.top_level_nodes.is_empty();
+		}
 	}
 
 	String save_path = p_save_path + "." + get_save_extension();
-	// Plain sources are baked into a v3 HLOD imported copy (ADR §7). HLOD sources (already baked) and
-	// empty worlds are copied unchanged.
+	// Plain sources and supported old bake rules produce a current-rule v3 imported copy.
+	// Current/future rules and unsupported old envelopes stay byte-preserving.
 	// An in-place import (destination == source) must not rewrite the user's source file (ADR §7:
 	// "the source file is not touched"); it keeps the plain, byte-preserving copy.
-	const bool in_place = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path() ==
-			ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
-	const bool bake = !header_info.has_hlod && header_info.splat_count > 0u && !in_place;
+	const String absolute_source = ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
+	const String absolute_destination = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path();
+	bool in_place = absolute_source == absolute_destination;
+	if (!in_place && FileAccess::exists(absolute_destination)) {
+		Ref<DirAccess> filesystem = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+		if (filesystem.is_null()) {
+			return ERR_CANT_OPEN;
+		}
+		// Case aliases, hard links and other existing aliases must never replace the source.
+		in_place = filesystem->is_equivalent(absolute_source, absolute_destination);
+	}
+	const bool old_rule = source_rule > 0u && source_rule < gs_hlod::kBakeRuleVersion;
+	const bool bake =
+	        (!header_info.has_hlod || (old_rule && old_rebake_supported)) && header_info.splat_count > 0u && !in_place;
 	Error err = OK;
 	String hlod_skip_reason;
 	if (bake) {
 		bool bake_failed = false;
 		err = _bake_world_copy(p_source_file, save_path, header_info, bake_failed);
 		if (err != OK && bake_failed) {
-			// A world that imported before the HLOD bump must still import: fall back to the plain
-			// (tree-less) copy, which renders through the tree-less path (ADR §6.5), and say so.
-			GS_LOG_WARN_DEFAULT(vformat("GaussianSplatWorld importer could not bake an HLOD tree for %s (error %d); "
-										"importing it without one. It will render without HLOD until it bakes.",
-					p_source_file, err));
-			hlod_skip_reason = String("bake_failed");
+			if (old_rule) {
+				GS_LOG_WARN_DEFAULT(vformat("GaussianSplatWorld importer could not rebake %s (error %d); retaining its "
+				                            "validated old HLOD rule %d unchanged.",
+				                            p_source_file, err, source_rule));
+				hlod_skip_reason = "old_hlod_rebake_failed";
+			} else {
+				GS_LOG_WARN_DEFAULT(
+				        vformat("GaussianSplatWorld importer could not bake an HLOD tree for %s (error %d); "
+				                "importing it without one. It will render without HLOD until it bakes.",
+				                p_source_file, err));
+				hlod_skip_reason = "bake_failed";
+			}
 			err = _copy_binary_file(p_source_file, save_path);
 		}
 	} else {
-		hlod_skip_reason = header_info.has_hlod ? String("source_already_hlod")
-				: in_place                          ? String("destination_is_source")
-													: String("empty_world");
-		err = _copy_binary_file(p_source_file, save_path);
+		if (in_place) {
+			hlod_skip_reason = "destination_is_source";
+		} else if (header_info.splat_count == 0u) {
+			hlod_skip_reason = "empty_world";
+		} else if (old_rule) {
+			hlod_skip_reason = "old_hlod_rebake_unsupported_envelope";
+		} else if (source_rule > gs_hlod::kBakeRuleVersion) {
+			hlod_skip_reason = "source_hlod_rule_newer";
+		} else {
+			hlod_skip_reason = "source_already_hlod";
+		}
+		// An in-place import has already validated its exact output; never replace the source.
+		err = in_place ? OK : _copy_binary_file(p_source_file, save_path);
 	}
 	if (err == ERR_BUSY) {
 		// #714: the copy itself succeeded; the atomic replace was refused because a
@@ -473,7 +509,7 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 		const Error final_err = imported_decode_err != OK ? imported_decode_err : ERR_FILE_CORRUPT;
 		GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer produced unreadable output %s (error %d)",
 				save_path, final_err));
-		if (FileAccess::exists(save_path)) {
+		if (!in_place && FileAccess::exists(save_path)) {
 			DirAccess::remove_absolute(save_path);
 		}
 		return final_err;
@@ -499,6 +535,7 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 																		  : static_cast<int64_t>(header_info.chunk_count);
 		import_metadata[StringName("hlod")] = imported.is_valid() ? imported->get_hlod_info() : Dictionary();
 		import_metadata[StringName("hlod_skip_reason")] = hlod_skip_reason;
+		import_metadata[StringName("source_hlod_rule")] = source_rule;
 		import_metadata[StringName("sh_degree")] = static_cast<int64_t>(header_info.sh_degree);
 		import_metadata[StringName("sh_first_order")] = static_cast<int64_t>(header_info.sh_first_order);
 		import_metadata[StringName("sh_high_order")] = static_cast<int64_t>(header_info.sh_high_order);

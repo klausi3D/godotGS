@@ -35,7 +35,8 @@
         "Painterly Material Render",
         "Data Flow Recent Window",
         "Pipeline Trace Freshness",
-        "Monitor Lifecycle Hardening"
+        "Monitor Lifecycle Hardening",
+        "Resident HLOD Main View"
       ],
       "godot_args": [],
       "fail_on_skip": true,
@@ -70,7 +71,8 @@
       "gd_tests": [
         "GPU Streaming Stress",
         "World Streaming Gate",
-        "Streaming Residency API"
+        "Streaming Residency API",
+        "Resident HLOD Main View"
       ],
       "godot_args": [],
       "gd_timeout": 420,

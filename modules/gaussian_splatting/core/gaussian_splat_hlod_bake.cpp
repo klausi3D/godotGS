@@ -1,4 +1,5 @@
 #include "gaussian_splat_hlod_bake.h"
+#include "gaussian_splat_hlod_quality.h"
 
 #include "gs_vector_alloc.h"
 
@@ -15,6 +16,16 @@
 namespace gs_hlod {
 
 namespace {
+
+// Preserve the merge helper's owned payload without copying it into new storage.
+// SELECTED uses genuinely fallible Vector storage; only the winning payload survives.
+struct NodePayload {
+	SplatList merged;
+	QualityPayload selected;
+	bool use_selected = false;
+	SplatSpan span() const { return use_selected ? selected.span() : merged.span(); }
+	uint32_t size() const { return use_selected ? selected.size() : merged.size(); }
+};
 
 struct BuildNode {
 	GaussianSplatHlodCell cell;
@@ -221,6 +232,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	const uint32_t sh_count = p_input.sh_high_order_count;
 	if (n == 0u || p_input.gaussians == nullptr) {
 		return fail("HLOD bake needs at least one splat.");
+	}
+	if (p_input.sh_first_order_count > 3u || sh_count > 21u) {
+		return fail("HLOD quality metric supports compact SH0 through SH4 only.");
 	}
 	if (sh_count > 0u && p_input.sh_high_order == nullptr) {
 		return fail("HLOD bake input declares SH coefficients but provides none.");
@@ -544,6 +558,13 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	if (!resize_or_fail(r_result.leaf_source_index, n, "gs_hlod::bake_world leaf_source_index")) {
 		return false;
 	}
+	Vector<uint32_t> dfs_leaves, first_descendant_leaf, descendant_leaf_count;
+	if (!quality_resize_or_fail(dfs_leaves, node_count, "gs_hlod::quality dfs_leaves") ||
+	    !quality_resize_or_fail(first_descendant_leaf, node_count, "gs_hlod::quality first_descendant_leaf") ||
+	    !quality_resize_or_fail(descendant_leaf_count, node_count, "gs_hlod::quality descendant_leaf_count")) {
+		return fail("Cannot allocate HLOD full-detail descendant ranges.", ERR_OUT_OF_MEMORY);
+	}
+	uint32_t leaf_ordinal = 0u;
 	uint32_t leaf_cursor = 0u;
 	LocalVector<uint32_t> dfs;
 	dfs.push_back(0u);
@@ -564,6 +585,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		std::sort(range, range + count, [imp](uint32_t p_a, uint32_t p_b) {
 			return imp[p_a] > imp[p_b] || (imp[p_a] == imp[p_b] && p_a < p_b);
 		});
+		dfs_leaves.write[leaf_ordinal] = node_index;
+		first_descendant_leaf.write[node_index] = leaf_ordinal++;
+		descendant_leaf_count.write[node_index] = 1u;
 		node.payload_first = leaf_cursor;
 		node.payload_count = count;
 		for (uint32_t i = 0; i < count; i++) {
@@ -582,7 +606,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	// ---------------------------------------------------------------- interior merge (§6.3)
 	// Bottom-up (reverse BFS). Every payload is node-relative: positions relative to the centre
 	// of the node's cell; children are re-expressed relative to the parent's centre first.
-	LocalVector<SplatList> interior_payloads;
+	LocalVector<NodePayload> interior_payloads;
 	if (!resize_or_fail(interior_payloads, node_count, "gs_hlod::bake_world interior_payloads")) {
 		return false;
 	}
@@ -591,6 +615,10 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			!resize_or_fail(node_hi, uint64_t(node_count) * 3u, "gs_hlod::bake_world node_hi")) {
 		return false;
 	}
+	QualityScratch quality_scratch;
+	uint64_t quality_bake_work_remaining = quality_resource_limits().bake_work;
+	QualityPayload selected;
+	const SplatSpan full_leaves = {r_result.leaf_gaussians.ptr(), r_result.leaf_sh_high_order.ptr(), n, sh_count};
 	InteriorBakeScratch interior_scratch;
 	InteriorBakeResult interior_result;
 	SplatList children_frame;
@@ -617,6 +645,19 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 				rel_shift[a] = 0.0;
 			}
 		} else {
+			uint32_t descendant_count = 0u;
+			const uint32_t first_leaf = first_descendant_leaf[node.first_child];
+			for (uint32_t c = 0; c < node.child_count; ++c) {
+				const uint32_t child = node.first_child + c;
+				if (first_leaf > leaf_ordinal || descendant_count > leaf_ordinal - first_leaf ||
+				    first_descendant_leaf[child] != first_leaf + descendant_count ||
+				    descendant_leaf_count[child] > leaf_ordinal - first_leaf - descendant_count) {
+					return fail("HLOD descendant leaf ranges are not contiguous.");
+				}
+				descendant_count += descendant_leaf_count[child];
+			}
+			first_descendant_leaf.write[i] = first_leaf;
+			descendant_leaf_count.write[i] = descendant_count;
 			// Children in this node's frame.
 			children_frame.clear();
 			child_spans.resize(node.child_count);
@@ -677,9 +718,31 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			}
 			merge_usec += interior_result.merge_usec;
 			order_usec += interior_result.order_usec;
-			// Moved, not copied: the payload was allocated fallibly in bake_interior_node(), and a
-			// copy would be a second, unprobed allocation per node (all retained until the end).
-			interior_payloads[i] = std::move(interior_result.payload);
+			Error quality_error = quality_select(tree, dfs_leaves, first_leaf, descendant_count, full_leaves,
+			                                     interior_result.payload.size(), center, quality_scratch, selected);
+			QualityResult quality;
+			if (quality_error == OK) {
+				quality_error = quality_compare(children_frame.span(), interior_result.payload.span(), selected.span(),
+				                                p_input.sh_first_order_count, interior_result.geometric_error,
+				                                quality_scratch, quality, &quality_bake_work_remaining);
+			}
+			if (quality_error != OK) {
+				return fail(vformat("HLOD node %d: full-SH candidate quality evaluation failed (error %d).", i,
+				                    quality_error),
+				            quality_error);
+			}
+			NodePayload &chosen = interior_payloads[i];
+			chosen.use_selected = !quality.use_merged;
+			if (quality.use_merged) {
+				chosen.merged = std::move(interior_result.payload);
+			} else {
+				chosen.selected = std::move(selected);
+				interior_result.payload.clear();
+			}
+			node.flags =
+			        (node.flags & ~kNodeFlagKindMask) | (quality.use_merged ? NODE_KIND_MERGED : NODE_KIND_SELECTED);
+			node.error_chosen = quality.use_merged ? quality.merged_error : quality.selected_error;
+			node.error_rejected = quality.use_merged ? quality.selected_error : quality.merged_error;
 			node.geometric_error = round_up(interior_result.geometric_error);
 			// Monotone after float rounding: a parent's error is at least twice its children's
 			// in double; keep it >= every child after rounding too.
@@ -752,15 +815,15 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		if (node.child_count == 0u) {
 			continue;
 		}
-		const SplatList &payload = interior_payloads[i];
+		const SplatSpan payload = interior_payloads[i].span();
 		node.payload_first = uint64_t(n) + interior_cursor;
-		node.payload_count = payload.size();
-		memcpy(tree.interior_gaussians.ptr() + interior_cursor, payload.gaussians.ptr(), sizeof(Gaussian) * payload.size());
+		node.payload_count = payload.count;
+		memcpy(tree.interior_gaussians.ptr() + interior_cursor, payload.gaussians, sizeof(Gaussian) * payload.count);
 		if (sh_count > 0u) {
-			memcpy(tree.interior_sh_high_order.ptr() + uint64_t(interior_cursor) * sh_count, payload.sh_high_order.ptr(),
-					sizeof(Vector3) * payload.size() * sh_count);
+			memcpy(tree.interior_sh_high_order.ptr() + uint64_t(interior_cursor) * sh_count, payload.sh_high_order,
+			       sizeof(Vector3) * payload.count * sh_count);
 		}
-		interior_cursor += payload.size();
+		interior_cursor += payload.count;
 	}
 	tree.interior_resident = true;
 

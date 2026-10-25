@@ -21,9 +21,41 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../core/gaussian_data.h"
+#include "../core/gaussian_splat_manager.h"
 #include "gs_test_setting_guard.h"
 
 namespace {
+
+// Match the GPU-sorter tests' borrowed-device scope. The HLOD scratch ledger
+// and sorter teardown must recognize this local RD as live. Restore the
+// manager slot after every renderer/sorter dies and before ScopedLocalRD frees
+// the device; the manager must never acquire ownership of the borrowed RD.
+class ScopedTileCaptureManagerDevice {
+    GaussianSplatManager *manager = nullptr;
+    RenderingDevice *previous_primary = nullptr;
+    bool owns_manager = false;
+
+public:
+    explicit ScopedTileCaptureManagerDevice(RenderingDevice *p_device) {
+        manager = GaussianSplatManager::get_singleton();
+        if (!manager) {
+            manager = memnew(GaussianSplatManager);
+            owns_manager = true;
+        }
+        if (manager) {
+            previous_primary = manager->set_primary_rendering_device_for_testing(p_device);
+        }
+    }
+    ~ScopedTileCaptureManagerDevice() {
+        if (manager) {
+            manager->set_primary_rendering_device_for_testing(previous_primary);
+            if (owns_manager) {
+                memdelete(manager);
+            }
+        }
+    }
+    bool is_valid() const { return manager != nullptr; }
+};
 
 // #1137: records the text of every warning/error emitted while it is in scope, through
 // Godot's ErrorHandlerList (WARN_PRINT and WARN_PRINT_ONCE both reach it).
@@ -273,6 +305,7 @@ public:
     // resident-signal telemetry (overflow_drop_events) goes non-zero. Self-initializes the
     // tile renderer, so it can be driven standalone from a dedicated [RequiresGPU] TEST_CASE.
     TestResult test_overflow_drop_telemetry(RenderingDevice *p_rd);
+    TestResult test_hlod_content_capture(RenderingDevice *p_rd, bool p_capture, bool p_compute);
     // #1137: one 16 px tile holding p_splat_count depth-spread records, rendered through the
     // real instance pipeline under the shipped default gpu_preset with an explicit
     // max_raster_splats_per_tile. p_expect_drop selects the assertion: the production
@@ -1576,6 +1609,221 @@ bool TileRendererRegressionTest::compare_render_output(RID texture1, RID texture
 bool TileRendererRegressionTest::generate_reference_captures(RenderingDevice *p_rd) {
     // Stub implementation
     return true;
+}
+
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_content_capture(
+        RenderingDevice *p_rd, bool p_capture, bool p_compute) {
+    // Restore the caller's opt-in/output/stop state, including absent variables.
+    struct EnvironmentScope {
+        const char *names[3] = { "GS_RECORD_LOSS_CAPTURE", "GS_RECORD_LOSS_OUTPUT", "GS_RECORD_LOSS_STOP" };
+        String values[3];
+        bool present[3];
+        EnvironmentScope() {
+            for (int i = 0; i < 3; ++i) {
+                present[i] = OS::get_singleton()->has_environment(names[i]);
+                values[i] = OS::get_singleton()->get_environment(names[i]);
+            }
+        }
+        ~EnvironmentScope() {
+            for (int i = 0; i < 3; ++i) {
+                if (present[i]) {
+                    OS::get_singleton()->set_environment(names[i], values[i]);
+                } else {
+                    OS::get_singleton()->unset_environment(names[i]);
+                }
+            }
+        }
+    } environment_scope;
+    OS::get_singleton()->set_environment("GS_RECORD_LOSS_CAPTURE", p_capture ? "1" : "0");
+    OS::get_singleton()->set_environment("GS_RECORD_LOSS_STOP", "0");
+    const String output = OS::get_singleton()->get_temp_path().path_join(
+            "godotgs_hlod_content_capture_" + itos(OS::get_singleton()->get_process_id()) + "_" +
+            itos(OS::get_singleton()->get_ticks_usec()));
+    OS::get_singleton()->set_environment("GS_RECORD_LOSS_OUTPUT", output);
+
+    TestResult result;
+    RID gaussian_buffer;
+    RID indices;
+    RID chunks;
+    RID draw_list;
+    RID sidecar;
+    InstancePipelineTestInputs instances;
+    result.passed = [&]() -> bool {
+        if (tile_renderer->initialize(p_rd, Vector2i(16, 16), 16) != OK) {
+            result.error_message = "HLOD capture renderer initialization failed";
+            return false;
+        }
+        Gaussian gaussian = {};
+        gaussian.position = Vector3(0, 0, -5);
+        gaussian.scale = Vector3(0.5, 0.5, 0.5);
+        gaussian.rotation = Quaternion();
+        gaussian.opacity = 0.5f;
+        gaussian.sh_dc = Color(1, 0.5, 0.2, 1);
+        gaussian.normal = Vector3(0, 0, 1);
+        gaussian.brush_axes = Vector2(1, 1);
+        PackedGaussian packed;
+        SHCompressionMetrics metrics;
+        pack_gaussian(gaussian, packed, metrics, nullptr, 0, 0, 0);
+        auto upload = [&](const auto &p_data) {
+            Vector<uint8_t> bytes;
+            bytes.resize(sizeof(p_data));
+            memcpy(bytes.ptrw(), &p_data, sizeof(p_data));
+            return p_rd->storage_buffer_create(bytes.size(), bytes);
+        };
+        gaussian_buffer = upload(packed);
+        indices = create_test_sorted_indices(p_rd, 1);
+        instances = create_instance_pipeline_test_inputs(p_rd, 1);
+        ChunkMetaGPU chunk = {};
+        chunk.splat_count = 1;
+        chunks = upload(chunk);
+        const VisibleChunkRefGPU entry = { 0u, 0u };
+        draw_list = upload(entry);
+        sidecar = upload(uint32_t(0));
+        if (!gaussian_buffer.is_valid() || !indices.is_valid() || !instances.is_valid() ||
+                !chunks.is_valid() || !draw_list.is_valid() || !sidecar.is_valid()) {
+            result.error_message = "HLOD capture fixture allocation failed";
+            return false;
+        }
+        // Match the packed SH0 input, with no optional SH payload or asset conversion.
+        const SplatRefGPU splat_ref = { 0u, gs_splat_ref::gs_pack_splat_ref_atlas_index(0u, 0u) };
+        if (p_rd->buffer_update(instances.splat_ref_buffer, 0, sizeof(splat_ref), &splat_ref) != OK) {
+            result.error_message = "HLOD capture reference upload failed";
+            return false;
+        }
+        auto params = make_render_params(gaussian_buffer, indices, 1, 16, 16, 16);
+        bind_instance_pipeline_inputs(params, instances, 1);
+        params.hlod_relative = true;
+        params.hlod_draw_entry_buffer = sidecar;
+        params.hlod_draw_list_buffer = draw_list;
+        params.chunk_meta_buffer = chunks;
+        params.hlod_source_generation = 1;
+        params.hlod_content_generation = 1;
+        params.debug_show_performance_hud = false;
+        params.enable_direct_lighting = false;
+        params.distance_cull_enabled = false;
+        params.tiny_splat_screen_radius = 0.1f;
+        params.request_sh_amortization = false;
+        params.wind_enabled = false;
+        params.compute_raster_policy = p_compute ? GaussianSplatting::ComputeRasterPolicy::ForceOn
+                                                : GaussianSplatting::ComputeRasterPolicy::ForceOff;
+        auto &capture = tile_renderer->_test_debug_stats();
+        capture.membership_all_control = p_capture ? 3u : 0u; // Existing real no-drop full-packet control.
+        // HLOD admission requires output/overlap resources warmed by the canonical
+        // route. Suppress capture admission for this setup frame, without changing
+        // descriptor recording or validation; neither HLOD observation may be faked
+        // by counting this canonical frame.
+        capture.membership_finished = true;
+        auto warmup = params;
+        warmup.hlod_relative = false;
+        warmup.hlod_draw_entry_buffer = RID();
+        warmup.hlod_draw_list_buffer = RID();
+        warmup.chunk_meta_buffer = RID();
+        warmup.hlod_source_generation = 0;
+        warmup.hlod_content_generation = 0;
+        warmup.frame_serial = ++params.frame_serial;
+        if (!tile_renderer->render(p_rd, warmup).is_valid()) {
+            result.error_message = "Canonical warm-up did not publish a rendered frame";
+            return false;
+        }
+        if (p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(packed)).size() != sizeof(packed)) {
+            result.error_message = "Canonical warm-up readback failed";
+            return false;
+        }
+        if (!tile_renderer->prepare_hlod_scratch(params, 64u * 1024u)) {
+            uint64_t sorter_bytes = 0;
+            const auto &sorter = tile_renderer->_test_global_sort_resources().sorter;
+            const bool sorter_bytes_known = sorter.is_valid() && sorter->get_allocated_buffer_bytes(sorter_bytes);
+            result.error_message = vformat("Bounded HLOD scratch admission failed; sorter_bytes_known=%s", sorter_bytes_known);
+            return false;
+        }
+        if (capture.membership_captures != 0 || capture.membership_pending || capture.membership_armed) {
+            result.error_message = "Canonical warm-up incorrectly admitted a diagnostic capture";
+            return false;
+        }
+        capture.membership_finished = false;
+        auto observe = [&]() -> bool {
+            const uint64_t started = OS::get_singleton()->get_ticks_usec();
+            do {
+                ++params.frame_serial;
+                const auto before = tile_renderer->_test_raster_metrics();
+                if (!tile_renderer->render(p_rd, params).is_valid()) {
+                    result.error_message = "HLOD observation did not publish a rendered frame";
+                    return false;
+                }
+                const auto &after = tile_renderer->_test_raster_metrics();
+                if (after.last_raster_used_compute != p_compute ||
+                        after.compute_raster_frames != before.compute_raster_frames + (p_compute ? 1u : 0u) ||
+                        after.fragment_raster_frames != before.fragment_raster_frames + (p_compute ? 0u : 1u)) {
+                    result.error_message = "Requested HLOD raster route did not actually execute";
+                    return false;
+                }
+                // Local test device only: submit/flush the existing work and async
+                // callbacks, as in the RecordLoss controls. No production sync is added.
+                if (p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(packed)).size() != sizeof(packed) ||
+                        OS::get_singleton()->get_ticks_usec() - started > 5000000u) {
+                    result.error_message = "HLOD capture flush failed or exceeded five seconds";
+                    return false;
+                }
+            } while (p_capture && !capture.membership_finished);
+            if (p_capture && (!capture.membership_control_observed || !capture.membership_error.is_empty() ||
+                    capture.membership_pending || capture.membership_followup_ready || capture.membership_armed ||
+                    capture.membership_budget_reserved != 0 || capture.membership_invalid_observations != 0)) {
+                result.error_message = "HLOD full capture incomplete or invalid: " + capture.membership_error;
+                return false;
+            }
+            return true;
+        };
+        if (!observe()) {
+            return false;
+        }
+        const auto before = tile_renderer->_test_descriptor_cache_snapshot();
+        const RID before_raster = p_compute ? before.compute_params : before.fragment_params;
+        if (!before.binning_params.is_valid() || !before_raster.is_valid() ||
+                !before.depth_fallback.is_valid() || !before.depth_sampler.is_valid() ||
+                (p_capture && (capture.membership_header_observations != 1 || capture.membership_full_observations != 1))) {
+            result.error_message = "First HLOD observation did not populate live caches and a complete capture";
+            return false;
+        }
+        if (p_capture) {
+            // Re-arm only after the full asynchronous packet finished and released its
+            // reservation. Keep all cached sets, creation records, nonces and counters;
+            // resetting any of them here would hide the production update-path defect.
+            capture.membership_finished = false;
+            capture.membership_control_observed = false;
+        }
+        ++params.hlod_content_generation; // All input RIDs and source generation stay unchanged.
+        if (!observe()) {
+            return false;
+        }
+        const auto after = tile_renderer->_test_descriptor_cache_snapshot();
+        const RID after_raster = p_compute ? after.compute_params : after.fragment_params;
+        if (after.generation != before.generation + 1 || after.depth_fallback != before.depth_fallback ||
+                after.depth_sampler != before.depth_sampler || !p_rd->texture_is_valid(after.depth_fallback)) {
+            result.error_message = "HLOD content update changed depth resources or advanced the wrong generation";
+            return false;
+        }
+        if (p_capture ? (capture.membership_captures != 2 || capture.membership_header_observations != 2 ||
+                               capture.membership_full_observations != 2)
+                      : (after.binning_params != before.binning_params || after_raster != before_raster ||
+                               capture.membership_captures != 0)) {
+            result.error_message = "Expected two completed captures, or unchanged diagnostics-off parameter caches";
+            return false;
+        }
+        return true;
+    }();
+    // Descriptor owners must release bindings before their fixture inputs are freed.
+    tile_renderer->cleanup();
+    instances.free(p_rd);
+    const RID fixture_rids[] = { gaussian_buffer, indices, chunks, draw_list, sidecar };
+    for (RID rid : fixture_rids) {
+        if (rid.is_valid()) {
+            p_rd->free(rid);
+        }
+    }
+    if (p_capture) {
+        print_line("[HLOD-CONTENT-CAPTURE] Native packet artifacts: " + output);
+    }
+    return result;
 }
 
 TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow_drop_telemetry(RenderingDevice *p_rd) {
@@ -3358,6 +3606,36 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
         MESSAGE(result.error_message.utf8().get_data());
     }
     CHECK(result.passed);
+}
+
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] HLOD content generations preserve completed RecordLoss captures") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("HLOD content capture regression requires a real local RenderingDevice from the GPU harness.");
+        return;
+    }
+    ScopedTileCaptureManagerDevice manager_device(local_device);
+    if (!manager_device.is_valid()) {
+        FAIL("HLOD content capture regression requires the GPU-sorter manager/device lifetime contract.");
+        return;
+    }
+    // Separate renderer lifetimes for diagnostics off/on and both actual raster
+    // routes. Each capture phase retains the same renderer and input RIDs for
+    // both observations, exercising _update_instance_pipeline_bindings itself.
+    for (bool compute : { false, true }) {
+        for (bool capture : { false, true }) {
+            Ref<TileRendererRegressionTest> regression_test;
+            regression_test.instantiate();
+            const auto result = regression_test->test_hlod_content_capture(local_device, capture, compute);
+            regression_test.unref();
+            print_line(vformat("[HLOD-CONTENT-CAPTURE] capture=%s compute=%s passed=%s detail=%s",
+                    capture, compute, result.passed, result.error_message));
+            INFO("capture=", capture, ", compute=", compute, ": ", doctest::String(result.error_message.utf8().get_data()));
+            CHECK(result.passed);
+        }
+    }
 }
 
 // #1137, on a real device through the real instance pipeline (fail-closed device idiom of the

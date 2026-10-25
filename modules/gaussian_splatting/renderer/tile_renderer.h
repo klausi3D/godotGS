@@ -129,6 +129,10 @@ public:
     RID get_tile_raster_pipeline() const { return shader_resources.tile_raster_pipeline; }
     uint64_t get_shader_defines_hash() const { return shader_resources.shader_defines_hash; }
 
+    // Physical texture-allocation deltas, retained conservatively through deferred release.
+    bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
+    uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
+    bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -297,6 +301,19 @@ public:
     const TilePerformanceMetrics &_test_raster_metrics() const { return perf_metrics; }
     static Vector<uint64_t> _test_instance_pipeline_binding_generation_trace(
             const Vector<RenderParams> &p_params_sequence);
+    struct TestDescriptorCacheSnapshot {
+        uint64_t generation;
+        RID binning_params;
+        RID fragment_params;
+        RID compute_params;
+        RID depth_fallback;
+        RID depth_sampler;
+    };
+    TestDescriptorCacheSnapshot _test_descriptor_cache_snapshot() const {
+        return { descriptor_generation, binning_stage.cached_binning_param_uniform_set,
+            raster_stage.cached_raster_param_uniform_set, raster_stage.cached_raster_compute_param_uniform_set,
+            raster_stage.scene_depth_fallback_texture, raster_stage.scene_depth_sampler };
+    }
 
     // Codex PR #419 round-2 Finding 2: aggregate non-byte RID-leak coverage for
     // the tile_shader_recompile lifetime scenario (#298 regression). The forced
@@ -437,7 +454,7 @@ private:
 	RenderingDevice *_get_resource_device() const;
 	RenderingDevice *_get_submission_device();
 	RenderingDevice *_acquire_submission_device();
-	void _invalidate_descriptor_cache();
+	void _invalidate_descriptor_cache(bool p_preserve_scene_depth = false);
 	// Free the compiled tile shaders/pipelines before clearing their RIDs. Forced
 	// recompiles (config/debug toggles) must not abandon the previous GPU objects;
 	// a bare shader_resources.reset_state() would null the RIDs and leak them.
@@ -524,6 +541,11 @@ private:
         RID instance_buffer;
         RID instance_grading_buffer;
         RID splat_ref_buffer;
+        RID hlod_draw_entry_buffer;
+        RID hlod_draw_list_buffer;
+        bool hlod_relative = false;
+        uint64_t hlod_source_generation = 0;
+        uint64_t hlod_content_generation = 0;
         RID chunk_meta_buffer;
         RID quantization_buffer;
         RID indirect_count_buffer;
@@ -538,6 +560,11 @@ private:
     TileDeviceContext device_context;
     bool gpu_timestamp_capture_enabled = true;
     TileRenderTargets render_targets;
+    uint64_t hlod_texture_bytes = 0;
+    uint64_t hlod_texture_device = 0;
+    bool hlod_texture_ledger_valid = true;
+    bool hlod_scratch_preparing = false;
+    void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
 
     // Cache keys for binning/raster uniform sets live in stage structs.
     // Depth buffer for post-processing compatibility (Issue #128) lives in TileRenderTargets.
