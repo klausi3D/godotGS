@@ -1282,3 +1282,92 @@ acknowledgement (§14.5); that is distinct from publishing a new draw with stale
 Preserve failing results. If a gate fails, improve the implementation or seek the maintainer's
 explicit disposition under §8; this amendment grants no waiver. A capacity success is not a
 speedup, and a fast synthetic run is not real-scan quality acceptance.
+
+## 15. Proposed separate acceptance for offline preparation
+
+**Status: proposed; no gate changed.** This section requests the explicit disposition
+required by §8 after the prescribed S1b cost reductions failed. Sections 6.3, 8 and 14
+remain normative until the maintainer accepts a replacement contract and its scope.
+Neither this proposal nor its merge alone accepts S1b or advances the dependent slices.
+
+The preserved Holzbank diagnostic in [PR #1266](https://github.com/klausi3D/godotGS/pull/1266)
+measured the original 22-view candidate at
+`41157d67b14ae119b7dd04cb9176a1fbb99e86fb`: median public bake time was 3042.415 ms,
+against 308.400 ms for merge-only, or **9.865×**. Both prescribed reductions also missed
+the 2× limit (8.288× and 7.773× in separate batches). These are historical CPU preparation
+measurements on one scan, not current-head measurements, GPU frame times or evidence for
+200M-splat preparation. They remain failures under the existing contract.
+
+### 15.1 Decision requested
+
+Provide an explicit **offline prepared-content route** whose preparation budget is separate
+from its rendering budget. It must be selected by the author; canonical imports, source
+preservation, existing formats and the current public bake path keep their contracts.
+An offline job cannot silently move into import, first-frame loading or the game loop.
+
+If approved, only the offline route would replace test 12's relative bake-cost criterion
+with the bounded-job requirements below. Its merge-only comparison remains a mandatory
+reported measurement, with the historical failures retained. The original 22-view metric,
+candidate selection, SH0–4/DC handling, deterministic choice, 0.5 dB quality criterion,
+all rows/assets and the other tests in §8 remain unchanged. The reduced-view experiments
+are not the offline route's default. Runtime acceptance still measures full frame costs,
+coverage, transitions and physical residency; an offline preparation pass cannot satisfy
+those gates.
+
+The maintainer decision must name the affected route and explicitly amend the cost clauses
+in §6.3, test 12 and §14.4/§14.7. Until then, the implementation remains experimental and
+the ≤2× failure remains blocking. No exception applies to ordinary imports or runtime
+rebakes. In particular, the mutable-world rebuild jobs in §14.5 need their own bounded
+latency and reservation evidence; they cannot inherit an unrestricted offline schedule.
+
+### 15.2 Bounded job contract
+
+Before launching a preparation experiment, freeze a job manifest alongside its evidence:
+
+| Required input | Acceptance boundary |
+| --- | --- |
+| Input and implementation identity | Exact source/build hashes, source assets and hashes, SH/DC semantics, complete bake rule, hardware and worker count. Resume verifies the same identities. |
+| Finite resource limits | Numeric wall-time deadline, cancellation/drain deadline, peak process RAM, scratch/output bytes, live work/queue limits and worker count, declared before the run. Missing limits refuse admission. GPU workers additionally reserve and report physical GPU bytes. |
+| Workload and quality | Fixed asset list, full-detail leaf references and the unchanged views/quality rows. A smaller crop or fewer views cannot substitute for the declared job. |
+| Publication target | Separate temporary output; complete validated output is published atomically. Failure, cancellation or disk exhaustion leaves the last valid package and canonical source intact. |
+
+Choose the limits from the intended author's available machine/time/storage allocation,
+not from the candidate's observed result. Record the reason for each limit before execution;
+this ADR does not invent a universal preparation-time allowance or treat today's small-scan
+timing as a capacity model. Exceeding any limit is a failed job, even when its quality passes.
+An enforced process deadline may terminate a stuck worker; that is failure, not completion.
+
+Out-of-core preparation in §14.4 must bound input batches, descendant-leaf reads, quality
+images, sort work, queues and metadata as well as payloads. Track allocation reservations
+before admission; an OS out-of-memory kill is not an acceptable memory limiter. A checkpoint
+may resume only complete validated units with matching source and rule identities. If the
+first implementation has no resumable checkpoints, state that explicitly and restart into
+a new temporary output; never trust a partial package as a checkpoint.
+
+### 15.3 Smallest validation sequence
+
+1. **Small real scans:** run the existing S1b quality rows against the original 22-view rule,
+   preserving the merge-only comparison. Measure public API wall time and peak RAM, exclusive
+   preparation stages, I/O and scratch/output size. Keep CPU cost and image quality separate;
+   neither a work counter nor a unit test replaces these measurements.
+2. **Failure controls:** exhaust each configured limit, cancel while writing, interrupt and
+   restart/resume, and change the input/rule identity. Verify bounded shutdown, no incomplete
+   published package and retention of the previous valid output. A failing control blocks
+   admission of a larger job.
+3. **Physical scaling:** after the smaller gates pass, prepare increasing physical datasets
+   under fixed predeclared resource caps using the V4 pipeline. Record total input versus
+   simultaneously resident data, peak memory, bytes and elapsed work; synthetic multiplicity
+   is a separate diagnostic. Complete the 200M acceptance only with its physical dataset and
+   the integrated runtime evidence of §14.8.
+
+For a candidate that claims faster preparation, compare the same source assets, rule,
+quality, hardware/build options and worker count; report warmups and per-run measurements.
+For rendering, compare the same prepared content and camera path at equal quality and
+resolution, measuring CPU/GPU/full-frame percentiles and physical RAM/VRAM separately.
+Do not combine these speedups or extrapolate either to an unmeasured world size.
+
+Stop on a quality, coverage, identity, publication or resource failure and retain the
+result. Improve the implementation within the frozen contract or request a new disposition;
+do not raise limits during a batch. Rollback disables the opt-in preparation route and
+retains canonical sources and previously validated packages. This proposal needs no file
+migration and provides no new runtime or performance claim.
