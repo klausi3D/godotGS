@@ -6007,7 +6007,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODCanonicalBake] quality admissi
 	using namespace TestGaussianSplatHlod;
 	using namespace gs_hlod;
 	for (uint32_t degree = 0; degree <= 4; ++degree) {
-		for (uint32_t encoding : {GAUSSIAN_DC_ENCODING_LEGACY_BIAS, GAUSSIAN_DC_ENCODING_LINEAR_RGB}) {
+		for (GaussianDCEncoding encoding : {GAUSSIAN_DC_ENCODING_LEGACY_BIAS, GAUSSIAN_DC_ENCODING_LINEAR_RGB}) {
 			LocalVector<Gaussian> splats;
 			hlod_make_fixture(24, 8, splats);
 			const uint32_t high = degree < 2 ? 0 : (degree + 1) * (degree + 1) - 4;
