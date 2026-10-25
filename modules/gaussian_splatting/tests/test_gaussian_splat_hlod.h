@@ -3775,6 +3775,100 @@ inline bool hlod_has_world_extension(const List<String> &p_extensions) {
 
 } // namespace TestGaussianSplatHlod
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] finite maximum bounds survive revalidation and reload") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_needle_fixture(g);
+	Ref<GaussianSplatWorld> baked = hlod_make_world(g);
+	if (baked->bake_hlod() != OK || baked->get_hlod_tree().nodes.size() != 1u) {
+		FAIL("the reload control needs one real baked leaf");
+		return;
+	}
+	GaussianSplatHlodTree tree = baked->get_hlod_tree();
+	tree.origin[0] += std::ldexp(1.0, 102);
+	for (uint32_t i = 0; i < g.size(); ++i) {
+		g[i].position.x = real_t(std::ldexp(1.0, 102));
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	world->set_hlod_tree(std::move(tree));
+	if (!world->has_hlod_tree()) {
+		FAIL("the translated tree and source payload must be installed");
+		return;
+	}
+	double root_lo[3], root_hi[3];
+	hlod_root_extent(world->get_hlod_tree(), root_lo, root_hi);
+	if (root_lo[0] != std::ldexp(1.0, 102) || root_hi[0] != root_lo[0]) {
+		FAIL("the control requires exact world X endpoints at 2^102");
+		return;
+	}
+	const Ref<GaussianData> data = world->get_gaussian_data();
+	const uint64_t revision = data->get_content_revision();
+	const AABB requested(Vector3(std::numeric_limits<float>::max(), 0, 0), Vector3());
+	ScopedWorldProbeErrors errors;
+	world->set_bounds(requested);
+	const AABB actual = world->get_bounds();
+	CHECK(hlod_aabb_encloses(actual, root_lo, root_hi));
+	CHECK(actual.get_end().x == requested.position.x);
+	CHECK(Math::is_finite(actual.get_end().x));
+	// At 2^102 the old tight interval ends at FLT_MAX in float, but its
+	// double endpoint exceeds FLT_MAX and is rejected on the next validation.
+	CHECK(double(actual.position.x) + double(actual.size.x) <= double(std::numeric_limits<real_t>::max()));
+	world->set_bounds(actual);
+	CHECK(world->get_bounds() == actual);
+	CHECK(errors.messages.is_empty());
+	CHECK(world->get_gaussian_data() == data);
+	CHECK(data->get_content_revision() == revision);
+
+	ScopedWorldProbeFile file("finite_max_bounds_reload");
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	if (saver.save(world, file.path) != OK) {
+		FAIL("save the accepted finite maximum bounds through the public saver");
+		return;
+	}
+	for (bool resident : { false, true }) {
+		CAPTURE(resident);
+		Error code = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded;
+		if (resident) {
+			loaded = loader.load_resident(file.path, &code);
+		} else {
+			loaded = loader.load(file.path, "", &code);
+		}
+		if (code != OK || loaded.is_null()) {
+			FAIL("accepted finite maximum bounds must reload, error=", int(code));
+			continue;
+		}
+		CHECK(loaded->has_hlod_tree());
+		CHECK(loaded->get_bounds() == actual);
+		CHECK(hlod_aabb_encloses(loaded->get_bounds(), root_lo, root_hi));
+		CHECK(loaded->is_payload_source_backed() == !resident);
+		loaded->set_bounds(loaded->get_bounds());
+		CHECK(loaded->get_bounds() == actual);
+		LocalVector<Gaussian> payload;
+		LocalVector<Vector3> sh;
+		uint32_t first = 0u, high = 0u;
+		bool captured = false;
+		if (resident && loaded->get_gaussian_data().is_valid()) {
+			captured = loaded->get_gaussian_data()->capture_chunk_snapshot(0, g.size(), payload, sh, first, high);
+		} else if (!resident && loaded->get_chunk_payload_source().is_valid()) {
+			captured = loaded->get_chunk_payload_source()->capture_chunk_snapshot(0, g.size(), payload, sh, first, high);
+		}
+		if (!captured || payload.size() != g.size()) {
+			FAIL("reload must preserve the complete source payload");
+			continue;
+		}
+		CHECK(memcmp(payload.ptr(), g.ptr(), g.size() * sizeof(Gaussian)) == 0);
+		CHECK(sh.is_empty());
+		CHECK(first == 0u);
+		CHECK(high == 0u);
+		CHECK(loaded->is_payload_source_backed() == !resident);
+	}
+	CHECK(errors.messages.is_empty());
+	CHECK(world->get_gaussian_data() == data);
+	CHECK(data->get_content_revision() == revision);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] world public metadata probes preserve custom format ownership") {
 	using namespace TestGaussianSplatHlod;
 	ResourceFormatSaverGaussianSplatWorld saver;
