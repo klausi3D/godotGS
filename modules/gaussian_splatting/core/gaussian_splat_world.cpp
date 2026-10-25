@@ -59,9 +59,10 @@ bool hlod_live_bounds(const GaussianSplatHlodTree &p_tree, const AABB &p_request
             extent = std::nextafter(extent, real_t(INFINITY));
         }
         real_t end = begin + extent;
-        if (!Math::is_finite(end) && lo >= 0.0) {
-            // Rounding the tight positive-domain extent upward can overflow its
-            // runtime end even when [lo, hi] is representable (2^103..FLT_MAX).
+        if ((!Math::is_finite(end) || double(begin) + double(extent) > double(std::numeric_limits<real_t>::max())) && lo >= 0.0) {
+            // The rounded extent can exceed real_t_max in double even while its
+            // runtime end stays finite (2^102..FLT_MAX), or overflow that end
+            // (2^103..FLT_MAX). Both endpoints must survive later revalidation.
             // Since 0 <= lo <= hi <= upper <= real_t_max, [0, upper] is a finite
             // conservative union, with an exactly represented runtime endpoint.
             begin = real_t(0);
