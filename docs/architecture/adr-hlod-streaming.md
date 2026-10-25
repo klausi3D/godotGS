@@ -5,8 +5,11 @@
   for streaming, precision and locally editable large worlds. Acceptance of this design
   does not establish implementation or runtime acceptance; source code and GitHub PRs carry
   those separately. §9 retains the original slices and their gates; §14.7 maps the extension
-  onto them. The earlier independent review responses remain in §13. The separate offline
-  preparation contract in **§15 is proposed, not accepted**, and changes no existing gate.
+  onto them. The earlier independent review responses remain in §13. The **offline cost
+  disposition in §15 was accepted by the maintainer on 2026-10-25**: only explicitly selected
+  offline prepared-content jobs replace the relative ≤2× bake-cost requirement with a
+  predeclared, finite and enforced resource/deadline/publication contract. This design
+  approval alone does not accept S1b or advance packages B–G.
 - **Risk class:** this file is R0 (`docs/**`). It is the **R3 design record** that
   `docs/governance/agentic-engineering.md` requires before implementation, because the
   decision changes an on-disk format (`.gsplatworld`), importer format versions, the renderer
@@ -520,10 +523,14 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
   splat, or about 26 per source splat once the ~20% interior share is applied, at a few pixels
   each. The grazing and oblique views are rendered at half resolution (they are the
   coverage check; the axis views carry the colour detail), which brings the estimate to about
-  the cost of the merge itself. **S1b's acceptance limit stays at most 2x the merge-only bake.**
-  If it is exceeded, the pre-declared order of reductions is: drop the oblique corner views to
-  4, then lower the grazing resolution again; if 2x is still missed, the numbers go to the
-  maintainer (decision 4's rule, §8).
+  the cost of the merge itself. **Canonical imports, the current public bake path and runtime
+  edit rebakes retain the limit of at most 2x the merge-only bake.** For those routes, if it is
+  exceeded, the pre-declared order of reductions remains: drop the oblique corner views to 4,
+  then lower the grazing resolution again; if 2x is still missed, the numbers go to the
+  maintainer (decision 4's rule, §8). **Only explicitly selected offline prepared-content jobs
+  use the accepted §15 contract in place of this relative cost limit.** They retain the
+  original 22-view metric and all quality requirements; the finite job limits and their
+  enforcement must be implemented and validated before route-specific S1b acceptance.
 - **Storage.** Each node record carries a 2-bit representation kind (`leaf`, `merged`,
   `selected`, reserved), the chosen and the rejected candidate's `E` (float32 each), and the
   file carries `bake_rule_version`. The renderer ignores all of it; it exists for diagnostics,
@@ -859,10 +866,14 @@ is still not reachable, they report the numbers to the maintainer for an explici
 12. **Per-node choice (S1b, decision 2):** the §5.2 rows re-run with the per-node choice, in the
     prototype harness (a test-only cut that writes the drawn set as a PLY and renders it in the
     engine, since S2a's runtime cut does not exist yet). In every row it must be within 0.5 dB
-    of the better of `sat` and A-area, or better; the choice is deterministic; the bake with the
-    choice takes at most 2x the merge-only bake. If the 0.5 dB criterion fails, the
-    implementer improves the metric or the candidates first; if it is still not reachable, the
-    numbers go to the maintainer for an explicit decision (decision 4).
+    of the better of `sat` and A-area, or better; the choice is deterministic. The bake with the
+    choice takes at most 2x the merge-only bake for canonical imports, the current public bake
+    path and runtime edit rebakes. Only explicitly selected offline prepared-content jobs
+    replace that relative cost criterion with the finite, predeclared and enforced contract
+    in §15, including its validation sequence. The original 22 views, SH0–4/DC semantics,
+    every quality row and all other tests remain required for that route. If the 0.5 dB
+    criterion fails, the implementer improves the metric or the candidates first; if it is
+    still not reachable, the numbers go to the maintainer for an explicit decision (decision 4).
 
 Single-vendor blind spot: all GPU evidence so far is NVIDIA. Atomic order differs by vendor,
 which is why the oracle must pass by construction (no atomic decides membership), not by luck
@@ -974,7 +985,8 @@ budget-driven selection, done here by the cut.
    pre-declared reduction order; (c) no implicit bake in `export_world_resource`, an opt-in
    `GaussianSplatWorld.bake_hlod()` plus the importer bake, agreed by the coordinator; (d) the
    `sat` single-child mapping was a prototype bug; single-child cells are now the identity and
-   §5.2 was re-measured.
+   §5.2 was re-measured. The later offline-only cost disposition is recorded in §15
+   (2026-10-25); the other requirements above remain unchanged.
 
 9. **Origin-centred root ratified (2026-10-04)** for content that straddles a plane through the
    lattice origin (§6.1).
@@ -1178,7 +1190,11 @@ paged index output and bottom-up parent production. The selected candidate must 
 the full-detail descendant leaves (§6.3), with bounded reads and stable leaf ranges/IDs;
 substituting selected children would change the quality contract. Leaf-range metadata and
 its validator belong here, not in a prerequisite-only PR disconnected from their consumer.
-SH0–4, DC encoding, source preservation and the S1b quality/bake-cost gates remain in force.
+SH0–4, DC encoding, source preservation and all S1b quality gates remain in force. The
+accepted §15 contract replaces only the relative ≤2× cost gate for explicitly selected
+offline prepared-content jobs; its finite limits, failure controls and publication rules
+must be implemented and validated. Canonical imports, the current public bake path and
+runtime edit rebakes retain their existing contracts.
 Preparation reports peak RAM, scratch disk, bytes read/written and elapsed time; a hidden
 whole-world `GaussianData` materialization is a failure. Existing canonical imports retain
 their behavior; the optimized prepared-package workflow is explicit.
@@ -1240,23 +1256,27 @@ Each package receives its own task contract, immutable base, worktree and focuse
 packages may be split into dependent PRs with the same acceptance boundaries. Reuse existing
 work after checking its current source and review state. This table is a dependency plan,
 not a second status tracker or permission to bypass an open gate. Design acceptance,
-an existing experimental runtime path or a passing CPU oracle does not clear a failed
-S1b gate or authorize advancement to dependent runtime slices.
+including the scoped offline cost disposition in §15, an existing experimental runtime path
+or a passing CPU oracle does not establish S1b acceptance or authorize advancement to
+dependent runtime slices. S1b must pass test 12 for the content route used: the offline route
+requires the implemented and validated §15 contract plus every unchanged quality gate.
+Packages B–G also retain their applicable runtime gates.
 
 | Package | Minimal coherent scope and dependency | Required evidence before advancing |
 | --- | --- | --- |
 | **A — architecture and baseline** | This ADR amendment; separately establish a discriminating renderer baseline. | Independent review of this contract; baseline control fails for the intended defect and candidate exercises the real path. A failing/non-discriminating baseline blocks evidence that relies on it. |
-| **B — global selection** | Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b. Extend S2a using the CPU oracle. | S1b test 12 remains prerequisite; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates. |
+| **B — global selection** | Shared identity/budget contracts, per-view Desired/Drawn sets and complete initial frontier; follows A and accepted S1b for the content route used. Extend S2a using the CPU oracle. | S1b test 12 remains prerequisite, including implemented and validated §15 requirements for the offline route; S2a tests 1, 2 and 8, including inside-root and cap-pressure controls. CPU tests alone do not satisfy GPU or real-scan gates. |
 | **C — precise frame** | Precise placement, origin revision and per-draw node-local renderer contract; follows B and maps to S2b. | Far-origin/multi-view/origin-shift tests plus host/shader and runtime/GPU review; preserve SH0–4, ties and geometry. |
 | **D — hierarchical residency** | Feed selected node demand into the existing allocator/upload path; whole transitions, cancellation, protection, eviction and compaction; follows C. Start with strict existing files. | S3 tests 5–7 and mandatory test 11, including old/new GPU lifetime controls; report loading, ready and failure separately. |
-| **E — large prepared packages** | V4 paged index/payloads, early coarse startup and bounded preparation, including leaf ranges; follows D. | Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures. S1b bake/quality gates still apply. |
+| **E — large prepared packages** | V4 paged index/payloads, early coarse startup and bounded preparation, including leaf ranges; follows D. | Legacy compatibility, corrupt-page/overflow controls, bounded I/O/RAM, real physical files and first complete-frame captures. All S1b quality gates and the applicable preparation-cost contract (§8 test 12 and §15) still apply. |
 | **F — editable regions** | Reserved 5 m edits, immutable revisions, stale-parent exclusion, bottom-up rebuild and durable stable-ID journal; follows E. | Budget exhaustion/rejection, superseded/failed rebuild, crash recovery, multi-view and edit→unload→reload controls, including actual rendered changed regions. |
 | **G — integrated capacity and performance** | Complete file→coarse→detail→edit→new coarse→unload→reload run; follows B–F and their gates. | Physical 100 km / 200M SH3 acceptance and matched full-frame/RAM/VRAM/quality measurements (§14.8); no unmeasured performance claim. |
 
 S1a → S1b → S2a → S2b remains sequential. S5's resident-route and stable-tie requirements
 remain; S6 follows S2b and may progress alongside S3 with disjoint ownership. Telemetry from
-S4 is implemented where the measured contracts need it. Neither splitting the integration
-nor enabling prepared packages removes the original alpha acceptance criteria.
+S4 is implemented where the measured contracts need it. Apart from the explicit offline-only
+cost substitution in §15, splitting the integration or enabling prepared packages changes
+none of the original alpha acceptance criteria.
 
 ### 14.8 Acceptance and stop conditions
 
@@ -1281,15 +1301,21 @@ record loss, unbounded memory or queues, silent whole-world materialization, or 
 nondiscriminating test. Already submitted frames may still present after durable edit
 acknowledgement (§14.5); that is distinct from publishing a new draw with stale content.
 Preserve failing results. If a gate fails, improve the implementation or seek the maintainer's
-explicit disposition under §8; this amendment grants no waiver. A capacity success is not a
-speedup, and a fast synthetic run is not real-scan quality acceptance.
+explicit disposition under §8. Section 15 records only the accepted offline cost substitution;
+it waives no quality or runtime gate. A capacity success is not a speedup, and a fast
+synthetic run is not real-scan quality acceptance.
 
-## 15. Proposed separate acceptance for offline preparation
+<a id="15-proposed-separate-acceptance-for-offline-preparation"></a>
 
-**Status: proposed; no gate changed.** This section requests the explicit disposition
-required by §8 after the prescribed S1b cost reductions failed. Sections 6.3, 8 and 14
-remain normative until the maintainer accepts a replacement contract and its scope.
-Neither this proposal nor its merge alone accepts S1b or advances the dependent slices.
+## 15. Separate acceptance for offline preparation
+
+**Status: accepted by the maintainer, 2026-10-25.** The maintainer approved bounded offline
+preparation as specified in [PR #1274](https://github.com/klausi3D/godotGS/pull/1274).
+This is the explicit disposition required by §8 after the prescribed S1b cost reductions
+failed. Sections 6.3, 8 and 14 now apply the scoped cost contract below. Approval or merge
+of this documentation alone does not accept S1b or advance packages B–G: the offline job
+contract must be implemented and validated, and every other applicable quality and runtime
+gate must pass.
 
 The preserved Holzbank diagnostic in [PR #1266](https://github.com/klausi3D/godotGS/pull/1266)
 measured the original 22-view candidate at
@@ -1297,28 +1323,32 @@ measured the original 22-view candidate at
 against 308.400 ms for merge-only, or **9.865×**. Both prescribed reductions also missed
 the 2× limit (8.288× and 7.773× in separate batches). These are historical CPU preparation
 measurements on one scan, not current-head measurements, GPU frame times or evidence for
-200M-splat preparation. They remain failures under the existing contract.
+200M-splat preparation. They remain failures under the original contract against which they
+were measured; this disposition does not retroactively pass them.
 
-### 15.1 Decision requested
+<a id="151-decision-requested"></a>
+
+### 15.1 Accepted scope
 
 Provide an explicit **offline prepared-content route** whose preparation budget is separate
 from its rendering budget. It must be selected by the author; canonical imports, source
 preservation, existing formats and the current public bake path keep their contracts.
 An offline job cannot silently move into import, first-frame loading or the game loop.
 
-If approved, only the offline route would replace test 12's relative bake-cost criterion
-with the bounded-job requirements below. Its merge-only comparison remains a mandatory
-reported measurement, with the historical failures retained. The original 22-view metric,
+Only this offline route replaces test 12's relative bake-cost criterion with the bounded-job
+requirements below. Its merge-only comparison remains a mandatory reported measurement,
+with the historical failures retained. The original 22-view metric,
 candidate selection, SH0–4/DC handling, deterministic choice, 0.5 dB quality criterion,
 all rows/assets and the other tests in §8 remain unchanged. The reduced-view experiments
 are not the offline route's default. Runtime acceptance still measures full frame costs,
 coverage, transitions and physical residency; an offline preparation pass cannot satisfy
 those gates.
 
-The maintainer decision must name the affected route and explicitly amend the cost clauses
-in §6.3, test 12 and §14.4/§14.7. Until then, the implementation remains experimental and
-the ≤2× failure remains blocking. No exception applies to ordinary imports or runtime
-rebakes. In particular, the mutable-world rebuild jobs in §14.5 need their own bounded
+The accepted cost substitution applies only after the author explicitly selects this
+offline route and freezes its job contract before execution. A run without that contract
+or without validated enforcement cannot claim offline-route acceptance. No exception
+applies to canonical imports, the current public bake path or runtime edit rebakes.
+In particular, the mutable-world rebuild jobs in §14.5 need their own bounded
 latency and reservation evidence; they cannot inherit an unrestricted offline schedule.
 
 ### 15.2 Bounded job contract
@@ -1370,5 +1400,5 @@ Do not combine these speedups or extrapolate either to an unmeasured world size.
 Stop on a quality, coverage, identity, publication or resource failure and retain the
 result. Improve the implementation within the frozen contract or request a new disposition;
 do not raise limits during a batch. Rollback disables the opt-in preparation route and
-retains canonical sources and previously validated packages. This proposal needs no file
+retains canonical sources and previously validated packages. This disposition needs no file
 migration and provides no new runtime or performance claim.
