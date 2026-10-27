@@ -8,6 +8,80 @@
 #include <cmath>
 #include <limits>
 
+namespace {
+
+// Live AABBs must enclose both the root and the requested box in double AND in
+// real_t arithmetic. Unlike the file-header helper, never drop an unrepresentable
+// requested union. No state is published until all three axes have been checked.
+bool hlod_live_bounds(const GaussianSplatHlodTree &p_tree, const AABB &p_requested, AABB &r_bounds) {
+    if (p_tree.nodes.is_empty()) {
+        return false;
+    }
+    const GaussianSplatHlodNode &root = p_tree.nodes[0];
+    double center[3];
+    p_tree.node_cell_center(root, center);
+    AABB candidate;
+    for (int a = 0; a < 3; ++a) {
+        const real_t requested_end = p_requested.position[a] + p_requested.size[a];
+        const double exact_end = double(p_requested.position[a]) + double(p_requested.size[a]);
+        const double root_lo = center[a] + double(root.aabb_min[a]);
+        const double root_hi = center[a] + double(root.aabb_max[a]);
+        if (!Math::is_finite(p_requested.position[a]) || !Math::is_finite(p_requested.size[a]) ||
+                p_requested.size[a] < real_t(0) || !Math::is_finite(requested_end) || !Math::is_finite(exact_end) ||
+                !Math::is_finite(root_lo) || !Math::is_finite(root_hi) || root_lo > root_hi) {
+            return false;
+        }
+        // Zero extents are points/planes: retain them too, even if has_surface() is false.
+        const double lo = MIN(root_lo, double(p_requested.position[a]));
+        const double hi = MAX(root_hi, MAX(exact_end, double(requested_end)));
+        if (lo < -double(std::numeric_limits<real_t>::max()) || hi > double(std::numeric_limits<real_t>::max())) {
+            return false;
+        }
+        real_t begin = real_t(lo);
+        if (double(begin) > lo) {
+            begin = std::nextafter(begin, real_t(-INFINITY));
+        }
+        real_t upper = real_t(hi);
+        if (double(upper) < hi) {
+            upper = std::nextafter(upper, real_t(INFINITY));
+        }
+        const double exact_extent = double(upper) - double(begin);
+        if (!Math::is_finite(exact_extent) || exact_extent > double(std::numeric_limits<real_t>::max())) {
+            return false;
+        }
+        real_t extent = real_t(exact_extent);
+        if (double(extent) < exact_extent) {
+            extent = std::nextafter(extent, real_t(INFINITY));
+        }
+        // Cancellation in the double subtraction can lose a small positive upper
+        // endpoint. One outward step repairs it; final checks remain fail-closed.
+        if (double(begin) + double(extent) < hi || double(real_t(begin + extent)) < hi) {
+            extent = std::nextafter(extent, real_t(INFINITY));
+        }
+        real_t end = begin + extent;
+        if ((!Math::is_finite(end) || double(begin) + double(extent) > double(std::numeric_limits<real_t>::max())) && lo >= 0.0) {
+            // The rounded extent can exceed real_t_max in double even while its
+            // runtime end stays finite (2^102..FLT_MAX), or overflow that end
+            // (2^103..FLT_MAX). Both endpoints must survive later revalidation.
+            // Since 0 <= lo <= hi <= upper <= real_t_max, [0, upper] is a finite
+            // conservative union, with an exactly represented runtime endpoint.
+            begin = real_t(0);
+            extent = upper;
+            end = begin + extent;
+        }
+        if (!Math::is_finite(begin) || !Math::is_finite(extent) || !Math::is_finite(end) || extent < real_t(0) ||
+                double(begin) > lo || double(begin) + double(extent) < hi || double(end) < hi) {
+            return false;
+        }
+        candidate.position[a] = begin;
+        candidate.size[a] = extent;
+    }
+    r_bounds = candidate;
+    return true;
+}
+
+} // namespace
+
 #ifdef TESTS_ENABLED
 GaussianSplatWorld::HlodBakeTestHook GaussianSplatWorld::hlod_bake_test_hook = nullptr;
 void *GaussianSplatWorld::hlod_bake_test_userdata = nullptr;
@@ -156,7 +230,10 @@ bool GaussianSplatWorld::has_resident_gaussian_data() const {
 }
 
 void GaussianSplatWorld::set_bounds(const AABB &p_bounds) {
-    bounds = p_bounds;
+    AABB next_bounds = p_bounds;
+    ERR_FAIL_COND_MSG(!hlod_tree.is_empty() && !hlod_live_bounds(hlod_tree, p_bounds, next_bounds),
+            "GaussianSplatWorld.set_bounds(): invalid or unrepresentable HLOD bounds; previous bounds retained.");
+    bounds = next_bounds;
     emit_changed();
 }
 
@@ -413,7 +490,11 @@ Error GaussianSplatWorld::save_to_file(const String &p_path) const {
 }
 
 void GaussianSplatWorld::set_hlod_tree(GaussianSplatHlodTree &&p_tree) {
+    AABB next_bounds = bounds;
+    ERR_FAIL_COND_MSG(!p_tree.is_empty() && !hlod_live_bounds(p_tree, bounds, next_bounds),
+            "GaussianSplatWorld.set_hlod_tree(): invalid or unrepresentable HLOD bounds; previous state retained.");
     hlod_tree = std::move(p_tree);
+    bounds = next_bounds;
     hlod_tree.leaf_payload_revision_valid = gaussian_data.is_valid();
     hlod_tree.leaf_payload_revision = gaussian_data.is_valid() ? gaussian_data->get_content_revision() : 0u;
     notify_property_list_changed();
@@ -577,7 +658,7 @@ Error GaussianSplatWorld::bake_hlod() {
     // The bounds become the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
     // so they must enclose the root's covariance-aware support, as the v2 saver's header does.
     AABB baked_bounds;
-    if (!gs_hlod_bounds_enclosing_root(result.tree, bounds.has_volume() ? bounds : baked->get_aabb(), baked_bounds)) {
+    if (!hlod_live_bounds(result.tree, bounds.has_volume() ? bounds : baked->get_aabb(), baked_bounds)) {
         ERR_FAIL_V_MSG(ERR_INVALID_DATA, "GaussianSplatWorld.bake_hlod(): the HLOD root bounds do not fit runtime coordinates.");
     }
     auto publish = [&]() {

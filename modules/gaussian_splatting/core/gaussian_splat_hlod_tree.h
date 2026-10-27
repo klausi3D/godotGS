@@ -28,6 +28,7 @@
 // importance-ordered; [leaf_splat_count, total) are interior payloads, root first in node-table
 // (breadth-first) order, each importance-ordered.
 
+#include "core/error/error_list.h"
 #include "core/math/aabb.h"
 #include "core/math/vector3.h"
 #include "core/string/ustring.h"
@@ -204,6 +205,7 @@ struct GaussianSplatHlodTree {
 //   unknown flag bits; grouped_leaf only on leaves; heights consistent;
 // - instances: every instance references a top-level LEAF; the top-level tree has the same shape
 //   rules with empty payloads; transforms finite.
-bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason);
+// Optional typed status distinguishes allocation failure from malformed input; success writes OK.
+bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason, Error *r_error = nullptr);
 
 #endif // GAUSSIAN_SPLAT_HLOD_TREE_H

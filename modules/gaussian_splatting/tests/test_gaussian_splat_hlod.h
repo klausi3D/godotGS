@@ -25,6 +25,8 @@
 #include "core/io/file_access.h"
 #include "core/io/compression.h"
 #include "core/io/resource_loader.h"
+#include "core/io/resource_saver.h"
+#include "core/error/error_macros.h"
 #include "core/math/geometry_3d.h"
 #include "core/math/math_funcs.h"
 #include "core/math/projection.h"
@@ -34,6 +36,7 @@
 #include <cmath>
 #include <cfloat>
 #include <cstring>
+#include <limits>
 #include <string>
 
 namespace TestGaussianSplatHlod {
@@ -1655,10 +1658,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r3 header 
 	// bake_hlod() publishes bounds that enclose the root on the live world, too.
 	CHECK(hlod_aabb_encloses(world->get_bounds(), lo, hi));
 	// Control: on this valid content GaussianData::get_aabb() misses the rotated three-sigma
-	// support, so writing it verbatim reproduces the defect. Put it back as the world's bounds
-	// (as a caller's set_bounds() can) so the saver below must widen it.
+	// support, so writing it verbatim reproduces the defect. The live setter now preserves
+	// root enclosure before the saver is reached. The malformed byte corpus below still
+	// independently tests every rejected on-disk bounds mutation.
 	world->set_bounds(world->get_gaussian_data()->get_aabb());
-	CHECK_FALSE(hlod_aabb_encloses(world->get_bounds(), lo, hi));
+	CHECK_FALSE(hlod_aabb_encloses(world->get_gaussian_data()->get_aabb(), lo, hi));
+	CHECK(hlod_aabb_encloses(world->get_bounds(), lo, hi));
 	CHECK(hi[0] - lo[0] > 10.0);
 
 	// Producer: every payload mode writes header bounds that enclose the root and the world's bounds.
@@ -3301,8 +3306,10 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v3 world bounds k
 	CHECK(source->get_bounds().has_volume());
 	CHECK(in_near(source->get_bounds()));
 	CHECK_FALSE(in_far(source->get_bounds()));
-	// Loaded worlds: the saver must widen bounds that miss the root (e.g. set by a caller).
+	// The actual post-bake setter must retain root visibility before saving.
 	source->set_bounds(payload_aabb);
+	CHECK(in_near(source->get_bounds()));
+	CHECK_FALSE(in_far(source->get_bounds()));
 
 	ResourceFormatSaverGaussianSplatWorld saver;
 	ResourceFormatLoaderGaussianSplatWorld loader;
@@ -3320,6 +3327,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v3 world bounds k
 			DirAccess::remove_absolute(path);
 			return;
 		}
+		// Repeat the public mutation on the actual loaded world, not only the source.
+		loaded->set_bounds(payload_aabb);
 		const AABB published = loaded->get_bounds();
 		// _update_bounds() falls back to GaussianData::get_aabb() for bounds without volume.
 		CHECK(published.has_volume());
@@ -3362,6 +3371,665 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake_hlod and world copies keep th
 		copy.instantiate();
 		CHECK(copy->copy_from(world) == OK);
 		CHECK(copy->get_antialiased() == antialiased);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] validation allocation failures retain typed errors and atomic publication") {
+	using namespace TestGaussianSplatHlod;
+	const char *sites[] = { "gs_hlod_validate_tree leaf_ranges", "gs_hlod_validate_tree interior_ranges" };
+	GaussianSplatHlodTree table;
+	hlod_make_valid_tree(table);
+	String reason;
+	Error code = ERR_BUG;
+	if (!gs_hlod_validate_tree(table, &reason, &code)) {
+		FAIL("valid table control: ", reason.utf8().get_data());
+		return;
+	}
+	CHECK(code == OK);
+	for (const char *site : sites) {
+		INFO(site);
+		gs_vector_alloc_force_failure_at(site);
+		ERR_PRINT_OFF;
+		const bool accepted = gs_hlod_validate_tree(table, &reason, &code);
+		ERR_PRINT_ON;
+		const bool fired = !gs_vector_alloc_forced_failure_is_armed();
+		gs_vector_alloc_clear_forced_failure();
+		CHECK(fired);
+		CHECK_FALSE(accepted);
+		CHECK(code == ERR_OUT_OF_MEMORY);
+		CHECK_FALSE(reason.is_empty());
+	}
+	if (table.nodes.is_empty()) {
+		FAIL("validated table must contain a root");
+		return;
+	}
+	table.nodes[0].payload_count = 0;
+	CHECK_FALSE(gs_hlod_validate_tree(table, &reason, &code));
+	CHECK(code == ERR_INVALID_DATA);
+
+	// The real default baker must have both leaf and interior ranges, unlike a
+	// one-leaf fixture whose zero-sized interior allocation would never be needed.
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(9000u, 9000u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	const Ref<GaussianData> original = world->get_gaussian_data();
+	if (original.is_null()) {
+		FAIL("real fixture must expose GaussianData");
+		return;
+	}
+	const uint64_t revision = original->get_content_revision();
+	const AABB before_bounds = world->get_bounds();
+	const PackedInt32Array before_chunks = world->get_chunk_sizes();
+	for (const char *site : sites) {
+		INFO(site);
+		gs_vector_alloc_force_failure_at(site);
+		ERR_PRINT_OFF;
+		code = world->bake_hlod();
+		ERR_PRINT_ON;
+		const bool fired = !gs_vector_alloc_forced_failure_is_armed();
+		gs_vector_alloc_clear_forced_failure();
+		CHECK(fired);
+		CHECK(code == ERR_OUT_OF_MEMORY);
+		CHECK(world->get_gaussian_data() == original);
+		CHECK(original->get_content_revision() == revision);
+		CHECK(world->get_bounds() == before_bounds);
+		CHECK(world->get_chunk_sizes() == before_chunks);
+		CHECK_FALSE(world->has_hlod_tree());
+	}
+	if (world->bake_hlod() != OK || world->get_hlod_tree().interior_splat_count == 0u) {
+		FAIL("real default bake with interior payload");
+		return;
+	}
+	const Ref<GaussianData> baked = world->get_gaussian_data();
+	if (baked.is_null()) {
+		FAIL("successful bake must publish GaussianData");
+		return;
+	}
+	const uint64_t baked_revision = baked->get_content_revision();
+	const Dictionary baked_info = world->get_hlod_info();
+	Ref<GaussianSplatWorld> malformed;
+	malformed.instantiate();
+	if (malformed->copy_from(world) != OK || world->get_hlod_tree().nodes.is_empty()) {
+		FAIL("copy the valid world for a separate malformed-data control");
+		return;
+	}
+	GaussianSplatHlodTree invalid_tree = world->get_hlod_tree();
+	invalid_tree.nodes[0].payload_count = 0u;
+	malformed->set_hlod_tree(std::move(invalid_tree));
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (int mode = 1; mode <= 3; ++mode) {
+		CAPTURE(mode);
+		const String path = hlod_temp_path("integrity_oom");
+		const auto payload_mode = ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode);
+		if (saver.save_with_payload_mode(world, path, payload_mode) != OK) {
+			FAIL("establish valid output before injected save failure");
+			return;
+		}
+		const PackedByteArray saved = hlod_read_file(path);
+		if (saved.is_empty()) {
+			FAIL("valid saved output must contain bytes");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		for (const char *site : sites) {
+			INFO(site);
+			gs_vector_alloc_force_failure_at(site);
+			ERR_PRINT_OFF;
+			code = saver.save_with_payload_mode(world, path, payload_mode);
+			ERR_PRINT_ON;
+			const bool save_fired = !gs_vector_alloc_forced_failure_is_armed();
+			gs_vector_alloc_clear_forced_failure();
+			CHECK(save_fired);
+			CHECK(code == ERR_OUT_OF_MEMORY);
+			CHECK(hlod_read_file(path) == saved);
+			CHECK(world->get_gaussian_data() == baked);
+			CHECK(baked->get_content_revision() == baked_revision);
+			CHECK(world->get_hlod_info() == baked_info);
+			gs_vector_alloc_force_failure_at(site);
+			ERR_PRINT_OFF;
+			Ref<GaussianSplatWorld> failed = loader.load(path, "", &code);
+			ERR_PRINT_ON;
+			const bool load_fired = !gs_vector_alloc_forced_failure_is_armed();
+			gs_vector_alloc_clear_forced_failure();
+			CHECK(load_fired);
+			CHECK(failed.is_null());
+			CHECK(code == ERR_OUT_OF_MEMORY);
+			CHECK(hlod_read_file(path) == saved);
+		}
+		// A genuine malformed table must retain the data-error mapping, not OOM.
+		ERR_PRINT_OFF;
+		const Error malformed_save = saver.save_with_payload_mode(malformed, path, payload_mode);
+		ERR_PRINT_ON;
+		CHECK(malformed_save == ERR_INVALID_DATA);
+		CHECK(hlod_read_file(path) == saved);
+		if (saved.size() < 192) {
+			FAIL("valid v3 file needs the complete header");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		uint64_t node_offset = 0u;
+		memcpy(&node_offset, saved.ptr() + 144, sizeof(node_offset));
+		if (node_offset > uint64_t(saved.size()) - 92u) {
+			FAIL("valid v3 root record must contain payload_count");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		PackedByteArray bad_bytes = saved;
+		const uint32_t zero = 0u;
+		memcpy(bad_bytes.ptrw() + node_offset + 88u, &zero, sizeof(zero));
+		const String malformed_path = hlod_temp_path("integrity_malformed");
+		if (!hlod_write_file(malformed_path, bad_bytes)) {
+			FAIL("write the isolated malformed table");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		ERR_PRINT_OFF;
+		const Ref<Resource> malformed_load = loader.load(malformed_path, "", &code);
+		ERR_PRINT_ON;
+		CHECK(malformed_load.is_null());
+		CHECK(code == ERR_FILE_CORRUPT);
+		DirAccess::remove_absolute(malformed_path);
+		Ref<GaussianSplatWorld> loaded = loader.load(path, "", &code);
+		CHECK(loaded.is_valid());
+		CHECK(code == OK);
+		loaded.unref();
+		DirAccess::remove_absolute(path);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] live bounds keep the root and requested box or reject atomically") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_needle_fixture(g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK) {
+		FAIL("real needle bake");
+		return;
+	}
+	const Ref<GaussianData> data = world->get_gaussian_data();
+	if (data.is_null() || world->get_hlod_tree().nodes.is_empty()) {
+		FAIL("successful needle bake must publish data and a root");
+		return;
+	}
+	const uint64_t revision = data->get_content_revision();
+	const Dictionary tree_info = world->get_hlod_info();
+	const Array chunks = world->get_chunk_aabbs();
+	double root_lo[3], root_hi[3];
+	hlod_root_extent(world->get_hlod_tree(), root_lo, root_hi);
+	HlodBakeObserver *observer = memnew(HlodBakeObserver);
+	world->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	// Includes a point at the origin, a disjoint point, a plane, and cancellation
+	// across many orders of magnitude (the runtime end may not collapse to zero).
+	const AABB requests[] = {
+		data->get_aabb(), AABB(), AABB(Vector3(32, 16, 8), Vector3()),
+		AABB(Vector3(-32, -16, -8), Vector3(2, 0, 4)),
+		AABB(Vector3(-1.0e30f, -16, -8), Vector3(1, 4, 8)),
+	};
+	for (const AABB &requested : requests) {
+		const int notifications = observer->notifications;
+		world->set_bounds(requested);
+		const AABB got = world->get_bounds();
+		CHECK(observer->notifications == notifications + 1);
+		CHECK(hlod_aabb_encloses(got, root_lo, root_hi));
+		for (int a = 0; a < 3; ++a) {
+			CHECK(Math::is_finite(got.position[a]));
+			CHECK(Math::is_finite(got.size[a]));
+			CHECK(Math::is_finite(got.get_end()[a]));
+			CHECK(double(got.position[a]) <= double(requested.position[a]));
+			CHECK(double(got.get_end()[a]) >= root_hi[a]);
+			CHECK(double(got.position[a]) + double(got.size[a]) >= double(requested.position[a]) + double(requested.size[a]));
+			CHECK(got.get_end()[a] >= requested.get_end()[a]);
+		}
+		CHECK(world->get_gaussian_data() == data);
+		CHECK(data->get_content_revision() == revision);
+		CHECK(world->get_hlod_info() == tree_info);
+		CHECK(world->get_chunk_aabbs() == chunks);
+	}
+	const AABB before = world->get_bounds();
+	const int notifications = observer->notifications;
+	const real_t largest = std::numeric_limits<real_t>::max();
+	const AABB invalid[] = {
+		AABB(Vector3(NAN, 0, 0), Vector3(1, 1, 1)),
+		AABB(Vector3(), Vector3(INFINITY, 1, 1)),
+		AABB(Vector3(), Vector3(-1, 1, 1)),
+		AABB(Vector3(largest, 0, 0), Vector3(largest, 1, 1)),
+		AABB(Vector3(-largest, 0, 0), Vector3(1, 1, 1)),
+	};
+	for (const AABB &requested : invalid) {
+		ERR_PRINT_OFF;
+		world->set_bounds(requested);
+		ERR_PRINT_ON;
+		CHECK(world->get_bounds() == before);
+		CHECK(observer->notifications == notifications);
+	}
+	GaussianSplatHlodTree replacement = world->get_hlod_tree();
+	replacement.origin[0] = NAN;
+	const uint32_t replacement_nodes = replacement.nodes.size();
+	ERR_PRINT_OFF;
+	world->set_hlod_tree(std::move(replacement));
+	ERR_PRINT_ON;
+	CHECK(replacement.nodes.size() == replacement_nodes); // failure did not consume caller ownership
+	CHECK(world->get_bounds() == before);
+	CHECK(world->get_hlod_info() == tree_info);
+	CHECK(world->get_gaussian_data() == data);
+	CHECK(data->get_content_revision() == revision);
+	CHECK(world->get_chunk_aabbs() == chunks);
+	CHECK(observer->notifications == notifications);
+	world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	memdelete(observer);
+
+	// The unchanged file predicate evaluates header endpoints in double. A valid
+	// translated table can pass it while a float runtime AABB overflows. Publication
+	// must fail closed, not return an apparently successful world with no HLOD tree.
+	world->set_bounds(data->get_aabb());
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	const String path = hlod_temp_path("integrity_runtime_end");
+	if (saver.save(world, path) != OK) {
+		FAIL("save valid needle for runtime endpoint admission");
+		return;
+	}
+	const PackedByteArray saved = hlod_read_file(path);
+	if (saved.size() < 192) {
+		FAIL("runtime endpoint control requires a v3 header");
+		DirAccess::remove_absolute(path);
+		return;
+	}
+	const float translated_position = 1.0e32f;
+	const double translated_origin = double(translated_position);
+	for (bool overflow : { false, true }) {
+		PackedByteArray bytes = saved;
+		const float extent = overflow ? std::numeric_limits<float>::max() : 1024.0f;
+		memcpy(bytes.ptrw() + 28, &translated_position, sizeof(translated_position));
+		memcpy(bytes.ptrw() + 40, &extent, sizeof(extent));
+		memcpy(bytes.ptrw() + 112, &translated_origin, sizeof(translated_origin));
+		if (!hlod_write_file(path, bytes)) {
+			FAIL("write translated runtime endpoint control");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		const bool should_load = !overflow || sizeof(real_t) > sizeof(float);
+		for (bool resident : { false, true }) {
+			CAPTURE(overflow);
+			CAPTURE(resident);
+			Error code = ERR_BUG;
+			ERR_PRINT_OFF;
+			Ref<GaussianSplatWorld> loaded;
+			if (resident) {
+				loaded = loader.load_resident(path, &code);
+			} else {
+				loaded = loader.load(path, "", &code);
+			}
+			ERR_PRINT_ON;
+			CHECK(loaded.is_valid() == should_load);
+			CHECK(code == (should_load ? OK : ERR_FILE_CORRUPT));
+			if (loaded.is_valid()) {
+				CHECK(loaded->has_hlod_tree());
+				CHECK(Math::is_finite(loaded->get_bounds().get_end().x));
+			}
+		}
+	}
+	DirAccess::remove_absolute(path);
+
+	Ref<GaussianSplatWorld> plain = hlod_make_world(g);
+	const AABB plain_bounds(Vector3(7, 8, 9), Vector3(-1, 0, 2));
+	plain->set_bounds(plain_bounds);
+	CHECK(plain->get_bounds() == plain_bounds); // no-HLOD behavior is unchanged
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] representable positive bounds union reaches the largest float") {
+	using namespace TestGaussianSplatHlod;
+	GaussianSplatHlodTree tree;
+	hlod_make_valid_tree(tree);
+	tree.origin[0] = std::ldexp(1.0, 103);
+	String reason;
+	Error validation_error = ERR_BUG;
+	if (!gs_hlod_validate_tree(tree, &reason, &validation_error) || tree.nodes.is_empty()) {
+		FAIL("positive-range control must be a valid tree: ", reason.utf8().get_data());
+		return;
+	}
+	CHECK(validation_error == OK);
+	double root_lo[3], root_hi[3];
+	hlod_root_extent(tree, root_lo, root_hi);
+	if (root_lo[0] != std::ldexp(1.0, 103) || root_hi[0] != root_lo[0]) {
+		FAIL("the control requires exact world X endpoints at 2^103");
+		return;
+	}
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_hlod_tree(std::move(tree));
+	if (!world->has_hlod_tree()) {
+		FAIL("valid positive-range tree must be installed");
+		return;
+	}
+	HlodBakeObserver *observer = memnew(HlodBakeObserver);
+	world->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	const AABB requested(Vector3(std::numeric_limits<float>::max(), 0, 0), Vector3());
+	// With float real_t, an upward-rounded tight extent overflows when added to
+	// 2^103. The conservative interval [0, FLT_MAX] is nevertheless representable.
+	ERR_PRINT_OFF;
+	world->set_bounds(requested);
+	ERR_PRINT_ON;
+	const AABB actual = world->get_bounds();
+	CHECK(observer->notifications == 1);
+	CHECK(hlod_aabb_encloses(actual, root_lo, root_hi));
+	for (int axis = 0; axis < 3; ++axis) {
+		CHECK(Math::is_finite(actual.position[axis]));
+		CHECK(Math::is_finite(actual.size[axis]));
+		CHECK(Math::is_finite(actual.get_end()[axis]));
+		CHECK(actual.size[axis] >= real_t(0));
+		CHECK(double(actual.position[axis]) <= root_lo[axis]);
+		CHECK(double(actual.get_end()[axis]) >= root_hi[axis]);
+		CHECK(actual.position[axis] <= requested.position[axis]);
+		CHECK(actual.get_end()[axis] >= requested.get_end()[axis]);
+		CHECK(double(actual.position[axis]) + double(actual.size[axis]) >= double(requested.get_end()[axis]));
+	}
+	world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	memdelete(observer);
+}
+
+namespace TestGaussianSplatHlod {
+
+// Observe the actual engine diagnostic channel; never suppress valid-path errors.
+struct ScopedWorldProbeErrors : public ErrorHandlerList {
+	Vector<String> messages;
+
+	static void capture(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType p_type) {
+		if (p_type != ERR_HANDLER_ERROR) {
+			return;
+		}
+		ScopedWorldProbeErrors *self = static_cast<ScopedWorldProbeErrors *>(p_userdata);
+		String message = p_error ? String::utf8(p_error) : String();
+		if (p_message && p_message[0]) {
+			message += String(" | ") + String::utf8(p_message);
+		}
+		self->messages.push_back(message);
+	}
+
+	ScopedWorldProbeErrors() {
+		errfunc = capture;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedWorldProbeErrors() { remove_error_handler(this); }
+	ScopedWorldProbeErrors(const ScopedWorldProbeErrors &) = delete;
+	ScopedWorldProbeErrors &operator=(const ScopedWorldProbeErrors &) = delete;
+};
+
+struct ScopedWorldProbeFile {
+	String path;
+	explicit ScopedWorldProbeFile(const String &p_name) : path(hlod_temp_path(p_name)) {}
+	~ScopedWorldProbeFile() { DirAccess::remove_absolute(path); }
+};
+
+inline bool hlod_has_world_extension(const List<String> &p_extensions) {
+	for (const String &extension : p_extensions) {
+		if (extension == "gsplatworld") {
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] finite maximum bounds survive revalidation and reload") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_needle_fixture(g);
+	Ref<GaussianSplatWorld> baked = hlod_make_world(g);
+	if (baked->bake_hlod() != OK || baked->get_hlod_tree().nodes.size() != 1u) {
+		FAIL("the reload control needs one real baked leaf");
+		return;
+	}
+	GaussianSplatHlodTree tree = baked->get_hlod_tree();
+	tree.origin[0] += std::ldexp(1.0, 102);
+	for (uint32_t i = 0; i < g.size(); ++i) {
+		g[i].position.x = real_t(std::ldexp(1.0, 102));
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	world->set_hlod_tree(std::move(tree));
+	if (!world->has_hlod_tree()) {
+		FAIL("the translated tree and source payload must be installed");
+		return;
+	}
+	double root_lo[3], root_hi[3];
+	hlod_root_extent(world->get_hlod_tree(), root_lo, root_hi);
+	if (root_lo[0] != std::ldexp(1.0, 102) || root_hi[0] != root_lo[0]) {
+		FAIL("the control requires exact world X endpoints at 2^102");
+		return;
+	}
+	const Ref<GaussianData> data = world->get_gaussian_data();
+	const uint64_t revision = data->get_content_revision();
+	const AABB requested(Vector3(std::numeric_limits<float>::max(), 0, 0), Vector3());
+	ScopedWorldProbeErrors errors;
+	world->set_bounds(requested);
+	const AABB actual = world->get_bounds();
+	CHECK(hlod_aabb_encloses(actual, root_lo, root_hi));
+	CHECK(actual.get_end().x == requested.position.x);
+	CHECK(Math::is_finite(actual.get_end().x));
+	// At 2^102 the old tight interval ends at FLT_MAX in float, but its
+	// double endpoint exceeds FLT_MAX and is rejected on the next validation.
+	CHECK(double(actual.position.x) + double(actual.size.x) <= double(std::numeric_limits<real_t>::max()));
+	world->set_bounds(actual);
+	CHECK(world->get_bounds() == actual);
+	CHECK(errors.messages.is_empty());
+	CHECK(world->get_gaussian_data() == data);
+	CHECK(data->get_content_revision() == revision);
+
+	ScopedWorldProbeFile file("finite_max_bounds_reload");
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	if (saver.save(world, file.path) != OK) {
+		FAIL("save the accepted finite maximum bounds through the public saver");
+		return;
+	}
+	for (bool resident : { false, true }) {
+		CAPTURE(resident);
+		Error code = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded;
+		if (resident) {
+			loaded = loader.load_resident(file.path, &code);
+		} else {
+			loaded = loader.load(file.path, "", &code);
+		}
+		if (code != OK || loaded.is_null()) {
+			FAIL("accepted finite maximum bounds must reload, error=", int(code));
+			continue;
+		}
+		CHECK(loaded->has_hlod_tree());
+		CHECK(loaded->get_bounds() == actual);
+		CHECK(hlod_aabb_encloses(loaded->get_bounds(), root_lo, root_hi));
+		CHECK(loaded->is_payload_source_backed() == !resident);
+		loaded->set_bounds(loaded->get_bounds());
+		CHECK(loaded->get_bounds() == actual);
+		LocalVector<Gaussian> payload;
+		LocalVector<Vector3> sh;
+		uint32_t first = 0u, high = 0u;
+		bool captured = false;
+		if (resident && loaded->get_gaussian_data().is_valid()) {
+			captured = loaded->get_gaussian_data()->capture_chunk_snapshot(0, g.size(), payload, sh, first, high);
+		} else if (!resident && loaded->get_chunk_payload_source().is_valid()) {
+			captured = loaded->get_chunk_payload_source()->capture_chunk_snapshot(0, g.size(), payload, sh, first, high);
+		}
+		if (!captured || payload.size() != g.size()) {
+			FAIL("reload must preserve the complete source payload");
+			continue;
+		}
+		CHECK(memcmp(payload.ptr(), g.ptr(), g.size() * sizeof(Gaussian)) == 0);
+		CHECK(sh.is_empty());
+		CHECK(first == 0u);
+		CHECK(high == 0u);
+		CHECK(loaded->is_payload_source_backed() == !resident);
+	}
+	CHECK(errors.messages.is_empty());
+	CHECK(world->get_gaussian_data() == data);
+	CHECK(data->get_content_revision() == revision);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] world public metadata probes preserve custom format ownership") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	LocalVector<Gaussian> fixture;
+	hlod_make_fixture(32u, 32u, fixture);
+	for (bool baked : { false, true }) {
+		CAPTURE(baked);
+		Ref<GaussianSplatWorld> world = hlod_make_world(fixture);
+		if (baked && world->bake_hlod() != OK) {
+			FAIL("produce the HLOD metadata-probe control");
+			return;
+		}
+		GaussianData::SaveSnapshot expected;
+		if (world->get_gaussian_data()->capture_save_snapshot(expected) != OK) {
+			FAIL("capture the actual producer payload");
+			return;
+		}
+		CHECK(world->get_base_extension() == String("gsplatworld"));
+		List<String> load_extensions;
+		ResourceLoader::get_recognized_extensions_for_type("GaussianSplatWorld", &load_extensions);
+		CHECK(hlod_has_world_extension(load_extensions));
+		List<String> save_extensions;
+		ResourceSaver::get_recognized_extensions(world, &save_extensions);
+		CHECK(hlod_has_world_extension(save_extensions));
+
+		for (int mode = 1; mode <= 3; ++mode) {
+			CAPTURE(mode);
+			ScopedWorldProbeFile source("public_probe_source");
+			ScopedWorldProbeFile resaved("public_probe_resaved");
+			ScopedWorldProbeErrors errors;
+			if (saver.save_with_payload_mode(world, source.path,
+					ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+				FAIL("write the authentic plain/HLOD payload-mode control");
+				return;
+			}
+			const PackedByteArray source_before = hlod_read_file(source.path);
+			// Raw GSPW does not embed a UID. An editor-generated .import remains its
+			// separate source of UID authority, covered by the native editor import test.
+			CHECK(ResourceLoader::get_resource_uid(source.path) == ResourceUID::INVALID_ID);
+			for (bool add_types : { false, true }) {
+				List<String> dependencies;
+				ResourceLoader::get_dependencies(source.path, &dependencies, add_types);
+				CHECK(dependencies.is_empty());
+			}
+			Error load_error = ERR_BUG;
+			Ref<GaussianSplatWorld> loaded = ResourceLoader::load(source.path, "GaussianSplatWorld",
+					ResourceFormatLoader::CACHE_MODE_IGNORE, &load_error);
+			if (loaded.is_null() || load_error != OK) {
+				FAIL("public ResourceLoader must load the custom producer file");
+				return;
+			}
+			CHECK(loaded->get_splat_count() == fixture.size());
+			CHECK(loaded->has_hlod_tree() == baked);
+			CHECK(loaded->get_sh_degree() == 0u);
+			if (loaded->materialize_resident_gaussian_data() != OK || loaded->get_gaussian_data().is_null()) {
+				FAIL("materialize the public loader payload");
+				return;
+			}
+			GaussianData::SaveSnapshot actual;
+			if (loaded->get_gaussian_data()->capture_save_snapshot(actual) != OK ||
+					actual.get_gaussians().size() != expected.get_gaussians().size()) {
+				FAIL("the public load must preserve producer payload cardinality");
+				return;
+			}
+			for (int i = 0; i < expected.get_gaussians().size(); ++i) {
+				const Gaussian &got = actual.get_gaussians()[i];
+				const Gaussian &want = expected.get_gaussians()[i];
+				CHECK(got.position == want.position);
+				CHECK(got.scale == want.scale);
+				CHECK(got.rotation == want.rotation);
+				CHECK(got.opacity == want.opacity);
+				CHECK(got.sh_dc == want.sh_dc);
+				CHECK(got.render_meta == want.render_meta);
+			}
+			// Generic ResourceSaver must still route to the registered custom saver,
+			// even though get_base_extension also advertises its preferred suffix.
+			if (ResourceSaver::save(loaded, resaved.path) != OK) {
+				FAIL("public ResourceSaver must retain custom GSPW output");
+				return;
+			}
+			const PackedByteArray resaved_bytes = hlod_read_file(resaved.path);
+			if (resaved_bytes.size() < 4) {
+				FAIL("public saver output must contain the format magic");
+				return;
+			}
+			CHECK(resaved_bytes[0] == 'G');
+			CHECK(resaved_bytes[1] == 'S');
+			CHECK(resaved_bytes[2] == 'P');
+			CHECK(resaved_bytes[3] == 'W');
+			CHECK(ResourceLoader::get_resource_uid(resaved.path) == ResourceUID::INVALID_ID);
+			List<String> dependencies;
+			ResourceLoader::get_dependencies(resaved.path, &dependencies, true);
+			CHECK(dependencies.is_empty());
+			Ref<GaussianSplatWorld> reloaded = ResourceLoader::load(resaved.path, "GaussianSplatWorld",
+					ResourceFormatLoader::CACHE_MODE_IGNORE, &load_error);
+			CHECK(load_error == OK);
+			if (reloaded.is_null()) {
+				FAIL("public saver output must load through the public loader");
+				return;
+			}
+			CHECK(reloaded->get_splat_count() == fixture.size());
+			CHECK(reloaded->has_hlod_tree() == baked);
+			CHECK(hlod_read_file(source.path) == source_before);
+			for (const String &message : errors.messages) {
+				INFO(message.utf8().get_data());
+			}
+			CHECK(errors.messages.is_empty());
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] world public metadata probes do not bypass malformed payload rejection") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld raw_loader;
+	LocalVector<Gaussian> fixture;
+	hlod_make_fixture(32u, 32u, fixture);
+	for (bool baked : { false, true }) {
+		CAPTURE(baked);
+		Ref<GaussianSplatWorld> world = hlod_make_world(fixture);
+		if (baked && world->bake_hlod() != OK) {
+			FAIL("produce the malformed HLOD sibling");
+			return;
+		}
+		for (int mode = 1; mode <= 3; ++mode) {
+			CAPTURE(mode);
+			ScopedWorldProbeFile source("public_probe_malformed");
+			if (saver.save_with_payload_mode(world, source.path,
+					ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+				FAIL("produce the valid file before the SH-degree mutation");
+				return;
+			}
+			PackedByteArray malformed = hlod_read_file(source.path);
+			if (malformed.size() < 20) {
+				FAIL("the authentic producer header must contain sh_degree");
+				return;
+			}
+			const uint32_t unsupported_degree = 5u;
+			memcpy(malformed.ptrw() + 16, &unsupported_degree, sizeof(unsupported_degree));
+			if (!hlod_write_file(source.path, malformed)) {
+				FAIL("write the single-field malformed sibling");
+				return;
+			}
+			Error load_error = OK;
+			CHECK(raw_loader.load(source.path, "", &load_error).is_null());
+			CHECK(load_error == ERR_FILE_CORRUPT);
+			ScopedWorldProbeErrors errors;
+			// Expected malformed-load diagnostics are still emitted to the handler;
+			// only console printing is disabled for this negative control.
+			ERR_PRINT_OFF;
+			Ref<Resource> rejected = ResourceLoader::load(source.path, "GaussianSplatWorld",
+					ResourceFormatLoader::CACHE_MODE_IGNORE, &load_error);
+			ERR_PRINT_ON;
+			CHECK(rejected.is_null());
+			CHECK(load_error == ERR_FILE_CORRUPT);
+			CHECK_FALSE(errors.messages.is_empty());
+			for (const String &message : errors.messages) {
+				CHECK_FALSE(message.contains("Unrecognized binary resource file"));
+			}
+			CHECK(hlod_read_file(source.path) == malformed);
+		}
 	}
 }
 
