@@ -6,9 +6,12 @@ import argparse
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Iterable, Sequence
 from urllib.parse import quote, urlsplit, urlunsplit
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +62,75 @@ HTML_ATTR_PATTERN = re.compile(
 )
 REMOTE_URL_PATTERN = re.compile(r"^https?://", flags=re.IGNORECASE)
 MEDIA_EXTENSIONS = {".avif", ".gif", ".jpeg", ".jpg", ".mp4", ".png", ".svg", ".webm", ".webp"}
+FRONT_MATTER_PATTERN = re.compile(r"\A---[ \t]*\n(.*?)^(?:---|\.\.\.)[ \t]*(?:\n|\Z)", re.MULTILINE | re.DOTALL)
+
+
+def git_output(*args: str) -> bytes | None:
+    """Read source history without ever substituting build or filesystem time."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(REPO_ROOT), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def source_commit(ref: str | None) -> str | None:
+    """Freeze the caller's ref once; incomplete history cannot establish dates."""
+    if not ref or git_output("rev-parse", "--is-shallow-repository") != b"false\n":
+        return None
+    commit = git_output("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}")
+    if commit is None:
+        return None
+    return commit.decode("ascii").strip()
+
+
+def source_revision_date(source_file: Path, original: bytes, commit: str | None) -> str | None:
+    """Date only content that is actually present at the selected source commit."""
+    if commit is None or not path_is_within(source_file, REPO_ROOT):
+        return None
+    relative = source_file.relative_to(REPO_ROOT).as_posix()
+    if git_output("show", f"{commit}:{relative}") != original:
+        return None
+    history = git_output("log", "--format=%cs", "--raw", "--no-abbrev", "--follow",
+                         "--diff-merges=first-parent", commit, "--", f":(literal){relative}")
+    if history is None:
+        return None
+    date = None
+    for line in history.splitlines():
+        if re.fullmatch(rb"\d{4}-\d{2}-\d{2}", line):
+            date = line.decode("ascii")
+        elif line.startswith(b":"):
+            # Raw diff fields: old mode, new mode, old blob, new blob, status.
+            # A mode-only commit touches the path without changing its content.
+            fields = line.split(b"\t", 1)[0].split()
+            if len(fields) == 5 and fields[2] != fields[3]:
+                return date
+    return None
+
+
+def with_revision_date(text: str, date: str | None) -> str:
+    """Use the existing YAML parser; old footer metadata cannot override evidence."""
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    front_matter = FRONT_MATTER_PATTERN.match(text)
+    metadata = yaml.safe_load(front_matter.group(1)) if front_matter else {}
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        raise ValueError("Markdown front matter must be a YAML mapping")
+    metadata = {
+        key: value for key, value in metadata.items()
+        if key != "revision_date" and not str(key).startswith(("git_revision_date", "git_creation_date"))
+    }
+    if date is not None:
+        metadata["revision_date"] = f"Source updated: {date}"
+    body = text[front_matter.end():] if front_matter else text
+    # Even empty YAML blocks stop MkDocs from interpreting body text as legacy
+    # key/value metadata, which could otherwise reintroduce an unverified date.
+    return f"---\n{yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)}---\n{body}"
 
 
 def path_is_within(path: Path, root: Path) -> bool:
@@ -265,6 +337,7 @@ def copy_docs_tree(
 
     copied_files = 0
     rewritten_markdown = 0
+    commit = source_commit(ref)
 
     for source_file in source_root.rglob("*"):
         if source_file.is_dir():
@@ -277,7 +350,9 @@ def copy_docs_tree(
         destination_file.parent.mkdir(parents=True, exist_ok=True)
 
         if source_file.suffix.lower() in {".md", ".markdown"}:
-            text = source_file.read_text(encoding="utf-8")
+            original = source_file.read_bytes()
+            date = source_revision_date(source_file, original, commit)
+            text = with_revision_date(original.decode("utf-8"), date)
             rewritten = rewrite_markdown(
                 text,
                 source_file=source_file,
@@ -341,7 +416,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--repo-url", default=default_repo_url(), help="GitHub repository URL for rewritten links.")
-    parser.add_argument("--ref", default=default_ref(), help="Git ref/SHA used for rewritten GitHub links.")
+    parser.add_argument("--ref", default=default_ref(), help="Source Git ref/SHA for content dates and rewritten GitHub links.")
     return parser.parse_args()
 
 
