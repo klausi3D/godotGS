@@ -1,5 +1,6 @@
 var NAVTREEINDEX43 =
 {
+"structPackedGaussian.html#a3697bf34a3c5860218afbdc37cc5d7fb":[1,0,149,3],
 "structPackedGaussian.html#a394844fbda496967b691fc0e131617aa":[1,0,149,6],
 "structPackedGaussian.html#a7390cb3986a67841e43f5c39008b5f9b":[1,0,149,5],
 "structPackedGaussian.html#a739e4376777d650c0c6fef846dc10fe0":[1,0,149,2],
@@ -248,6 +249,5 @@ var NAVTREEINDEX43 =
 "structRasterParams.html#ad76fbc69c99c37e3203dbb4e8e0329eb":[1,0,173,13],
 "structRasterParams.html#ad79235efad9b375084ff8c60d8a08a99":[1,0,173,26],
 "structRasterParams.html#ae317a91a7993dd3516d8eebbc7f8f48b":[1,0,173,6],
-"structRasterParams.html#ae35dcb2ca4f16bc0dc8a0e2be63676c8":[1,0,173,0],
-"structRasterParams.html#aef97363ee251b6fe864a3284a0c13317":[1,0,173,15]
+"structRasterParams.html#ae35dcb2ca4f16bc0dc8a0e2be63676c8":[1,0,173,0]
 };

@@ -1,5 +1,6 @@
 var NAVTREEINDEX20 =
 {
+"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a1ca67e799d099560930113bcfa1e342a":[0,0,12,0,10],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a3e14ff5ee9422f2c27d924383ca77956":[0,0,12,0,13],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a6f5ae7595f89777668ab2446d38be9b1":[0,0,12,0,14],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a72fbc97357b86bdc2e17276b7d59e1f6":[0,0,12,0,11],
@@ -248,6 +249,5 @@ var NAVTREEINDEX20 =
 "namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480edace138ec8d8aadff7e1db3c13b62c3d16":[0,0,21,2,6],
 "namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480edadc30ec20708ef7b0f641ef78b7880a15":[0,0,21,2,4],
 "namespacegs__logger.html#a60c326a895591600382c9536a9482d4a":[0,0,21,4],
-"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106":[0,0,21,1],
-"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a0cfb08c7ab7533901dc073d6b7f0e39a":[0,0,21,1,8]
+"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106":[0,0,21,1]
 };

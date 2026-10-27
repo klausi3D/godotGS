@@ -1,5 +1,6 @@
 var NAVTREEINDEX21 =
 {
+"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a0cfb08c7ab7533901dc073d6b7f0e39a":[0,0,21,1,8],
 "namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a13b0af488d94be2d081f3f55dcd76786":[0,0,21,1,3],
 "namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a4b032b083e9b0502597cb9ddbc3f0af6":[0,0,21,1,4],
 "namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a7484c5a4af658e646e720c596a54b19a":[0,0,21,1,5],
@@ -35,8 +36,8 @@ var NAVTREEINDEX21 =
 "namespacegs__tier__cap.html#af759a7218e938099ff20efb13599dbee":[0,0,24,1],
 "namespacegs__world__format.html":[0,0,25],
 "namespacegs__world__format.html#a5de3c4e540614ef068e666671db4e511":[0,0,25,1],
-"namespacemembers.html":[0,1,0,0],
 "namespacemembers.html":[0,1,0],
+"namespacemembers.html":[0,1,0,0],
 "namespacemembers_a.html":[0,1,0,1],
 "namespacemembers_b.html":[0,1,0,2],
 "namespacemembers_c.html":[0,1,0,3],
@@ -248,6 +249,5 @@ var NAVTREEINDEX21 =
 "quality__tier__config_8h.html#aefc16d04df19521f60685d146993e447":[2,0,0,0,3,44,1],
 "quality__tier__config_8h_source.html":[2,0,0,0,3,44],
 "quantization__config_8cpp.html":[2,0,0,0,12,31],
-"quantization__config_8cpp.html#a8c11460d07de14a065bf834f2469116b":[2,0,0,0,12,31,0],
-"quantization__config_8cpp.html#ab52158f920a57bafe1a68c252f6e492b":[2,0,0,0,12,31,2]
+"quantization__config_8cpp.html#a8c11460d07de14a065bf834f2469116b":[2,0,0,0,12,31,0]
 };

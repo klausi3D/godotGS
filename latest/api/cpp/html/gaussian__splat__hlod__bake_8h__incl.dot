@@ -99,11 +99,12 @@ digraph "gaussian_splat_hlod_bake.h"
   Node2 -> Node32 [id="edge59_Node000002_Node000032",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node35 [id="edge60_Node000001_Node000035",color="steelblue1",style="solid",tooltip=" "];
   Node35 [id="Node000035",label="gaussian_splat_hlod\l_tree.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__hlod__tree_8h.html",tooltip=" "];
-  Node35 -> Node20 [id="edge61_Node000035_Node000020",color="steelblue1",style="solid",tooltip=" "];
-  Node35 -> Node4 [id="edge62_Node000035_Node000004",color="steelblue1",style="solid",tooltip=" "];
-  Node35 -> Node5 [id="edge63_Node000035_Node000005",color="steelblue1",style="solid",tooltip=" "];
-  Node35 -> Node6 [id="edge64_Node000035_Node000006",color="steelblue1",style="solid",tooltip=" "];
-  Node35 -> Node28 [id="edge65_Node000035_Node000028",color="steelblue1",style="solid",tooltip=" "];
-  Node35 -> Node7 [id="edge66_Node000035_Node000007",color="steelblue1",style="solid",tooltip=" "];
-  Node35 -> Node32 [id="edge67_Node000035_Node000032",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node3 [id="edge61_Node000035_Node000003",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node20 [id="edge62_Node000035_Node000020",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node4 [id="edge63_Node000035_Node000004",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node5 [id="edge64_Node000035_Node000005",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node6 [id="edge65_Node000035_Node000006",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node28 [id="edge66_Node000035_Node000028",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node7 [id="edge67_Node000035_Node000007",color="steelblue1",style="solid",tooltip=" "];
+  Node35 -> Node32 [id="edge68_Node000035_Node000032",color="steelblue1",style="solid",tooltip=" "];
 }

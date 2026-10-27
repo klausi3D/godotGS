@@ -1,5 +1,6 @@
 var NAVTREEINDEX16 =
 {
+"functions_vars_i.html":[1,3,2,9],
 "functions_vars_j.html":[1,3,2,10],
 "functions_vars_k.html":[1,3,2,11],
 "functions_vars_l.html":[1,3,2,12],
@@ -224,14 +225,14 @@ var NAVTREEINDEX16 =
 "gaussian__splat__hlod__merge_8h.html#af8f4cf0c1bc1477e1885d885e00a4e3a":[2,0,0,0,3,18,13],
 "gaussian__splat__hlod__merge_8h_source.html":[2,0,0,0,3,18],
 "gaussian__splat__hlod__tree_8cpp.html":[2,0,0,0,3,19],
-"gaussian__splat__hlod__tree_8cpp.html#a8bfa083f8a9373540dfb8e1a0f4ad309":[2,0,0,0,3,19,0],
+"gaussian__splat__hlod__tree_8cpp.html#a960e442f7594e6f4c734c7063529cfc5":[2,0,0,0,3,19,0],
 "gaussian__splat__hlod__tree_8h.html":[2,0,0,0,3,20],
 "gaussian__splat__hlod__tree_8h.html#a61d31a5975aafd0c45fedcf727c40262":[2,0,0,0,3,20,5],
 "gaussian__splat__hlod__tree_8h.html#a61d31a5975aafd0c45fedcf727c40262a23d650bcd569aeda6f822fdf95ae377a":[2,0,0,0,3,20,5,2],
 "gaussian__splat__hlod__tree_8h.html#a61d31a5975aafd0c45fedcf727c40262a912c715c1ec2b11d2871875888e0f953":[2,0,0,0,3,20,5,0],
 "gaussian__splat__hlod__tree_8h.html#a61d31a5975aafd0c45fedcf727c40262ababb20b0b7a662a72574def4c4dffbcb":[2,0,0,0,3,20,5,3],
 "gaussian__splat__hlod__tree_8h.html#a61d31a5975aafd0c45fedcf727c40262acc847f4339abea58a05ec2a329316b24":[2,0,0,0,3,20,5,1],
-"gaussian__splat__hlod__tree_8h.html#a8bfa083f8a9373540dfb8e1a0f4ad309":[2,0,0,0,3,20,6],
+"gaussian__splat__hlod__tree_8h.html#a92001bc4450b6fc33d9b79a741b9adc4":[2,0,0,0,3,20,6],
 "gaussian__splat__hlod__tree_8h_source.html":[2,0,0,0,3,20],
 "gaussian__splat__manager_8cpp.html":[2,0,0,0,3,21],
 "gaussian__splat__manager_8cpp.html#a1dc1bedaaa68c7c0737a2a1c4408b804":[2,0,0,0,3,21,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX16 =
 "gaussian__splat__node__3d_8h.html#a019510ceebc65d72facc5fa62295d64c":[2,0,0,0,9,7,2],
 "gaussian__splat__node__3d_8h.html#a32fc92aeff20bfc1a95e2e348447fd5f":[2,0,0,0,9,7,4],
 "gaussian__splat__node__3d_8h.html#a5f60591149eab8e43641e939437991fd":[2,0,0,0,9,7,3],
-"gaussian__splat__node__3d_8h.html#a6c2fd80564b092960a3b5c27610389ed":[2,0,0,0,9,7,1],
-"gaussian__splat__node__3d_8h_source.html":[2,0,0,0,9,7]
+"gaussian__splat__node__3d_8h.html#a6c2fd80564b092960a3b5c27610389ed":[2,0,0,0,9,7,1]
 };

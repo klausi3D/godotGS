@@ -95,6 +95,7 @@ $(document).ready(function(){initNavTree('gaussian__splat__hlod__tree_8cpp.html'
 </div><!--header-->
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="gaussian__splat__hlod__tree_8h_source.html">gaussian_splat_hlod_tree.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="gs__vector__alloc_8h_source.html">gs_vector_alloc.h</a>&quot;</code><br />
 <code>#include &quot;core/io/file_access.h&quot;</code><br />
 <code>#include &quot;core/math/math_funcs.h&quot;</code><br />
 <code>#include &lt;algorithm&gt;</code><br />
@@ -108,12 +109,12 @@ Include dependency graph for gaussian_splat_hlod_tree.cpp:</div>
 </div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a8bfa083f8a9373540dfb8e1a0f4ad309" id="r_a8bfa083f8a9373540dfb8e1a0f4ad309"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__splat__hlod__tree_8cpp.html#a8bfa083f8a9373540dfb8e1a0f4ad309">gs_hlod_validate_tree</a> (const <a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;p_tree, String *r_reason)</td></tr>
-<tr class="separator:a8bfa083f8a9373540dfb8e1a0f4ad309"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a960e442f7594e6f4c734c7063529cfc5" id="r_a960e442f7594e6f4c734c7063529cfc5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__splat__hlod__tree_8cpp.html#a960e442f7594e6f4c734c7063529cfc5">gs_hlod_validate_tree</a> (const <a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;p_tree, String *r_reason, Error *r_error)</td></tr>
+<tr class="separator:a960e442f7594e6f4c734c7063529cfc5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="a8bfa083f8a9373540dfb8e1a0f4ad309" name="a8bfa083f8a9373540dfb8e1a0f4ad309"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8bfa083f8a9373540dfb8e1a0f4ad309">&#9670;&#160;</a></span>gs_hlod_validate_tree()</h2>
+<a id="a960e442f7594e6f4c734c7063529cfc5" name="a960e442f7594e6f4c734c7063529cfc5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a960e442f7594e6f4c734c7063529cfc5">&#9670;&#160;</a></span>gs_hlod_validate_tree()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -128,7 +129,13 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">String *&#160;</td>
-          <td class="paramname"><em>r_reason</em>&#160;</td>
+          <td class="paramname"><em>r_reason</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Error *&#160;</td>
+          <td class="paramname"><em>r_error</em>&#160;</td>
         </tr>
         <tr>
           <td></td>
