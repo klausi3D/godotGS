@@ -54,15 +54,16 @@ static constexpr int64_t kMaxCellIndexMagnitude = int64_t(1) << 52;
 // Heights are bounded by the lattice levels between the coarsest and finest cell (78) plus the
 // index-split groups under a finest cell (at most 6 levels for 2^32 splats); fails closed above.
 static constexpr uint32_t kMaxHeight = 128u;
-// Version of the bake RULES (grid, merge, ordering, and from S1b the per-node choice). Not a
-// format version: a later rule re-bakes on import without changing the layout (§7).
+// The canonical importer/public bake remain merge-only. Quality selection has a
+// separate explicit rule identity; its introduction must not trigger re-imports.
 static constexpr uint32_t kBakeRuleVersion = 1u;
+static constexpr uint32_t kQualityBakeRuleVersion = 2u;
 
 // Representation kind, low two bits of GaussianSplatHlodNode::flags (§6.3, §7).
 enum NodeKind : uint32_t {
-	NODE_KIND_LEAF = 0u, // original splats
-	NODE_KIND_MERGED = 1u, // `sat` moment-matched merge of the children
-	NODE_KIND_SELECTED = 2u, // importance selection (written from S1b)
+	NODE_KIND_LEAF = 0u,     // original splats
+	NODE_KIND_MERGED = 1u,   // `sat` moment-matched merge of the children
+	NODE_KIND_SELECTED = 2u, // full-detail leaf-prefix importance selection
 	NODE_KIND_RESERVED = 3u,
 };
 static constexpr uint32_t kNodeFlagKindMask = 0x3u;
@@ -105,7 +106,8 @@ struct GaussianSplatHlodNode {
 	float radius = 0.0f;
 	// World-space size of the merge cell (`eps`, §6.3). 0 for leaves; monotone up the tree.
 	float geometric_error = 0.0f;
-	// Bake-time image error E of the kept and the rejected candidate (§6.3). 0 until S1b.
+	// Rule 2 full-SH 22-view proxy errors (§6.3); leaves/legacy rule 1 use 0.
+	// MERGED wins a 1% preference, so chosen may be slightly greater than rejected.
 	float error_chosen = 0.0f;
 	float error_rejected = 0.0f;
 	uint32_t parent = gs_hlod::kNoParent;
