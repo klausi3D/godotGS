@@ -3110,6 +3110,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#decision-record-source-content-dates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision record: source content dates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#navigation-rules" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4729,6 +4740,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#decision-record-source-content-dates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision record: source content dates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#navigation-rules" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4979,6 +5001,33 @@
 <ul>
 <li>GitHub Pages source must be configured to deploy from the <code>gh-pages</code> branch.</li>
 </ul>
+<h2 id="decision-record-source-content-dates">Decision record: source content dates<a class="headerlink" href="#decision-record-source-content-dates" title="Permanent link">¶</a></h2>
+<p>Decision dated 2026-10-25. The page footer must report when its source content
+last changed. Staged files under <code>.site/public-docs/</code> have no Git history;
+querying those paths with the revision-date plugin can substitute the build
+clock, including when <code>mike deploy</code> rebuilds the site.</p>
+<p><code>scripts/stage_public_docs.py</code> resolves the supplied source ref to one commit
+and checks each original Markdown file against that commit's blob before rewriting
+links. With complete Git history and matching content, it places the source
+file's last content-change date in Material's <code>revision_date</code> metadata. Rebuilding,
+an unrelated commit and a different SHA in rewritten links must preserve that
+date. <code>mkdocs.yml</code> does not run a staged-path revision-date plugin.</p>
+<p>Missing Git, an absent or unresolved ref, shallow history, untracked files and
+generated or edited content that differs from the selected commit produce
+no asserted date. Existing date metadata cannot bypass these checks. Staging
+preserves other front matter and leaves source files unchanged; it never
+substitutes a file modification time, the build clock or the repository's latest
+commit date.</p>
+<p>This date describes the page source. Measurement timestamps, evidence dates and
+release publication dates retain their separate meanings and sources. A new
+validated run can have a new measurement date even when its numbers are unchanged.
+A documentation rebuild cannot create such a run.</p>
+<p>Verification covers committed and unchanged files, unrelated commits, unreliable
+history, front matter, link rewriting and a local <code>mike deploy</code> without <code>--push</code>.
+Mutation checks must reject both incorrect date logic and removed staging
+integration. The change retains the R3 reviews, CODEOWNER and human merge
+requirements. Rollback reverts the isolated change without modifying evidence
+data.</p>
 <h2 id="navigation-rules">Navigation Rules<a class="headerlink" href="#navigation-rules" title="Permanent link">¶</a></h2>
 <ul>
 <li>Keep <code>docs/.pages</code> as the source of truth for top-level section order.</li>
@@ -4989,7 +5038,7 @@
 </ul>
 <h2 id="local-commands">Local Commands<a class="headerlink" href="#local-commands" title="Permanent link">¶</a></h2>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>docs/requirements.txt<span class="w"> </span>-r<span class="w"> </span>docs/requirements-site.txt
-<span class="nv">ENABLE_GIT_DATES</span><span class="o">=</span><span class="nb">false</span><span class="w"> </span>python3<span class="w"> </span>scripts/build_docs_site.py<span class="w"> </span>--strict
+python3<span class="w"> </span>scripts/build_docs_site.py<span class="w"> </span>--strict<span class="w"> </span>--ref<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">"</span>
 python3<span class="w"> </span>scripts/docs/release_acceptance.py
 </code></pre></div>
 <p>CI (<code>docs_pages.yml</code>) does not install the loose <code>&gt;=</code> ranges above. It installs
@@ -5000,6 +5049,10 @@ regenerate the lock with the pip-tools command recorded in its header. Run it
 with <code>PIP_CONFIG_FILE</code> set to the null device (<code>/dev/null</code>, or <code>nul</code> on
 Windows), so a local extra index is never consulted. A lock compiled on Windows also pins <code>tzdata</code>, which
 <code>mkdocs-git-revision-date-localized-plugin</code> requires only on Windows.</p>
+<p>Dates are supplied during staging. Pass <code>--ref</code> (or set <code>GITHUB_SHA</code>) to select
+the source commit; without one, staged pages have no asserted update date.
+<code>ENABLE_GIT_DATES</code> is no longer used, including when the workflow sets it for
+the preliminary build.</p>
 <p>Equivalent Make targets:</p>
 <div class="highlight"><pre><span></span><code>make<span class="w"> </span>docs-site
 </code></pre></div>
@@ -5032,7 +5085,7 @@ manual dispatch. It has a read-only token and never deploys. Steps, in order:</p
 <li>Enforce media budgets:</li>
 <li><code>python3 scripts/check_docs_media_budget.py --root .site/public-docs --max-file-mb 25 --max-total-mb 250</code></li>
 <li>Validate the site:</li>
-<li><code>ENABLE_GIT_DATES=false mkdocs build --strict --config-file mkdocs.yml</code></li>
+<li><code>mkdocs build --strict --config-file mkdocs.yml</code></li>
 <li>Run the release acceptance script <strong>report-only</strong> (<code>continue-on-error</code>):</li>
 <li><code>python3 scripts/docs/release_acceptance.py</code></li>
 </ol>
@@ -5057,7 +5110,7 @@ without the freshness check and the release acceptance script, and then publishe
 <p>Run these checks before every publish candidate:</p>
 <ol>
 <li>Stage and build the public docs tree:</li>
-<li><code>ENABLE_GIT_DATES=false python3 scripts/build_docs_site.py</code></li>
+<li><code>python3 scripts/build_docs_site.py --ref "$(git rev-parse HEAD)"</code></li>
 <li>Run the repository markdown link check:</li>
 <li><code>python3 scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md</code></li>
 <li>Run the release acceptance script:</li>
@@ -5223,7 +5276,7 @@ installed locally, <code>build_documentation.py</code> skips this step.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 27, 2026 23:26:32 UTC">October 27, 2026</span>
+    Source updated: 2026-10-28
   </span>
 
     
