@@ -27,6 +27,16 @@ Two modes:
     (warnings, engine ``ERROR:`` prints), and the last lines of the run. The full
     log path is always printed so nothing is lost.
 
+``hook --codex``
+    The same, in the Codex ``PreToolUse`` protocol (wired in
+    ``.codex/hooks.json``): Codex applies ``updatedInput`` only with
+    ``permissionDecision: "allow"``, and its shell may be PowerShell, so the
+    command is rewritten to the shell-agnostic ``run`` form below.
+
+``run --kind {scons,runner} --hex <hex>``
+    Decodes the command, runs it (``shell=True``), condenses its combined output
+    like ``filter`` and exits with the command's own exit status.
+
 What the condensed view does NOT claim: a view with no matched lines is not
 evidence of success. The exit status of the wrapped command is the verdict;
 ``pipefail`` passes it through unchanged, because this filter itself exits 0.
@@ -109,8 +119,27 @@ def rewrite(command: str, kind: str) -> str:
     )
 
 
-def run_hook(stdin_text: str) -> str:
-    """Return the hook's JSON answer for one PreToolUse payload."""
+def rewrite_portable(command: str, kind: str) -> str:
+    """Shell-agnostic rewrite for agents whose shell may be PowerShell, cmd or sh.
+
+    The original command travels hex-encoded, so no shell can re-quote or
+    re-interpret it; ``run`` decodes it and executes it itself. Only a bare
+    interpreter name, one double-quoted path and ``[a-z0-9 -]`` remain, which
+    parse identically in bash, PowerShell and cmd.
+    """
+    interpreter = "python" if os.name == "nt" else "python3"
+    script = _posix(str(Path(__file__).resolve()))
+    encoded = command.strip().encode("utf-8").hex()
+    return f'{interpreter} "{script}" run --kind {kind} --hex {encoded}'
+
+
+def run_hook(stdin_text: str, codex: bool = False) -> str:
+    """Return the hook's JSON answer for one PreToolUse payload.
+
+    ``codex=True`` speaks the Codex protocol: Codex applies ``updatedInput`` only
+    together with ``permissionDecision: "allow"``, and its shell may be
+    PowerShell, so the portable rewrite is used.
+    """
     if os.environ.get("GS_RAW_OUTPUT") == "1":
         return "{}"
     try:
@@ -127,6 +156,18 @@ def run_hook(stdin_text: str) -> str:
     if kind is None:
         return "{}"
     updated = dict(tool_input)
+    if codex:
+        updated["command"] = rewrite_portable(command, kind)
+        return json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason": "condense build/test output (scripts/agentic/condense_output.py)",
+                    "updatedInput": updated,
+                }
+            }
+        )
     updated["command"] = rewrite(command, kind)
     return json.dumps(
         {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}}
@@ -178,38 +219,77 @@ def condense(lines: list[str], kind: str) -> list[str]:
     return out
 
 
-def run_filter(kind: str) -> int:
+def _condense_stream(kind: str, stream, ran: str | None = None) -> None:
+    """Log every line of ``stream`` to a file and print the condensed view."""
     log_dir = Path(os.environ.get("GS_AGENT_LOG_DIR") or DEFAULT_LOG_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     log_path = log_dir / f"{kind}-{stamp}-{os.getpid()}.log"
     lines: list[str] = []
     with open(log_path, "w", encoding="utf-8", newline="\n") as log:
-        for raw in sys.stdin.buffer:
+        for raw in stream:
             line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
             log.write(line + "\n")
             lines.append(line)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if ran is not None:
+        print(f"[condense] ran: {ran}")
     header = (
         f"[condense] {len(lines)} line(s) of {kind} output; full log: {_posix(str(log_path))} "
-        f"(rerun with GS_RAW_OUTPUT=1 prefix for raw output)"
+        f"(set GS_RAW_OUTPUT=1 for raw output)"
     )
     print(header)
     print("\n".join(condense(lines, kind)))
+    sys.stdout.flush()
+
+
+def run_filter(kind: str) -> int:
+    _condense_stream(kind, sys.stdin.buffer)
     return 0
+
+
+def run_command(kind: str, encoded: str) -> int:
+    """Run a hex-encoded command, condense its output, return ITS exit status."""
+    import subprocess
+
+    command = bytes.fromhex(encoded).decode("utf-8")
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+    )
+    assert process.stdout is not None
+    _condense_stream(kind, process.stdout, ran=command)
+    code = process.wait()
+    print(f"[condense] exit status: {code}")
+    if code < 0:  # POSIX signal
+        return 128 - code
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="mode", required=True)
-    sub.add_parser("hook", help="Claude Code PreToolUse hook (JSON on stdin).")
+    hook = sub.add_parser("hook", help="PreToolUse hook (JSON on stdin).")
+    hook.add_argument("--codex", action="store_true", help="Speak the Codex hook protocol.")
     filt = sub.add_parser("filter", help="Condense output read on stdin.")
     filt.add_argument("--kind", choices=sorted(_STRONG), required=True)
+    run = sub.add_parser("run", help="Run a hex-encoded command and condense its output.")
+    run.add_argument("--kind", choices=sorted(_STRONG), required=True)
+    run.add_argument("--hex", required=True)
     args = parser.parse_args(argv)
     if args.mode == "hook":
-        print(run_hook(sys.stdin.read()))
+        try:
+            answer = run_hook(sys.stdin.read(), codex=args.codex)
+        except Exception:  # never block or break the agent's command
+            answer = "{}"
+        print(answer)
         return 0
+    if args.mode == "run":
+        return run_command(args.kind, args.hex)
     return run_filter(args.kind)
 
 
