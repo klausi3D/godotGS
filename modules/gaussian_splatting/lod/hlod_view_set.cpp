@@ -26,9 +26,8 @@ bool caps_valid(const Caps &p_caps) {
 }
 // Uniform scale and rotation only: distances scale together with geometric error, so a cut computed in
 // the instance frame needs no scale correction. Shear and non-uniform scale are refused.
-bool rigid_uniform(const Transform3D &p_transform) {
-	if (!p_transform.origin.is_finite()) { return false; }
-	const Vector3 c0 = p_transform.basis.get_column(0), c1 = p_transform.basis.get_column(1), c2 = p_transform.basis.get_column(2);
+bool rigid_uniform(const Basis &p_basis) {
+	const Vector3 c0 = p_basis.get_column(0), c1 = p_basis.get_column(1), c2 = p_basis.get_column(2);
 	if (!c0.is_finite() || !c1.is_finite() || !c2.is_finite()) { return false; }
 	const double s = c0.length();
 	if (!(s > 1.0e-12) || !std::isfinite(s)) { return false; }
@@ -219,7 +218,7 @@ bool ViewSet::validate_snapshot(const SelectionSnapshot &p_snapshot) const {
 	const int instances = p_snapshot.instances.size();
 	for (int i = 0; i < instances; ++i) {
 		const SnapshotInstance &inst = p_snapshot.instances[i];
-		if (inst.asset_index >= uint32_t(p_snapshot.assets.size()) || !rigid_uniform(inst.transform) || !caps_valid(inst.caps)) {
+		if (inst.asset_index >= uint32_t(p_snapshot.assets.size()) || !rigid_uniform(inst.placement.basis) || !caps_valid(inst.caps)) {
 			return false;
 		}
 		key_scratch.write[i] = inst.instance_key;
@@ -366,6 +365,7 @@ ViewSet::AdmitResult ViewSet::admit_view(const SelectionSnapshot &p_snapshot, co
 	view.reserved_bytes = view_bytes;
 	view.reserved_history_bytes = history_bytes;
 	view.reserved_draw_capacity = draw_capacity;
+	view.origin_revision = p_snapshot.origin_revision;
 	build_order(p_snapshot);
 	if (!prepare_slots(view, p_snapshot) || !gs_resize_or_fail(view.drawn, draw_capacity, "HLOD view draw records") ||
 			!gs_resize_or_fail(view.staging, draw_capacity, "HLOD view draw staging") ||
@@ -408,6 +408,13 @@ const DrawRecord *ViewSet::drawn(uint64_t p_view_key, uint32_t &r_count) const {
 	return nullptr;
 }
 
+uint64_t ViewSet::drawn_origin_revision(uint64_t p_view_key) const {
+	for (int i = 0; i < views.size(); ++i) {
+		if (views[i].view_key == p_view_key) { return views[i].ready ? views[i].drawn_origin_revision : 0; }
+	}
+	return 0;
+}
+
 uint64_t ViewSet::allocated_bytes() const {
 	uint64_t bytes = uint64_t(result_store.size()) * sizeof(ViewResult) + uint64_t(order.size()) * sizeof(uint32_t) +
 			uint64_t(index_scratch.size()) * sizeof(uint32_t) + uint64_t(key_scratch.size()) * sizeof(uint64_t);
@@ -447,6 +454,16 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 		result.view_key = view.view_key;
 		result.draw_generation = view.draw_generation;
 		view.ready = false; // Re-established only by a READY outcome below.
+		if (view.origin_revision != p_snapshot.origin_revision) {
+			// The frame moved: every history and the published draw set belong to the old offsets. Drop them
+			// before anything is selected; the published set is replaced only by a complete selection below.
+			for (int s = 0; s < view.slots.size(); ++s) { view.slots.write[s].history.invalidate(); }
+			view.drawn_count = 0;
+			view.drawn_origin_revision = 0;
+			view.origin_revision = p_snapshot.origin_revision;
+			result.origin_changed = true;
+		}
+		result.origin_revision = p_snapshot.origin_revision;
 		uint64_t own_cost = 0;
 		const bool unaffordable = !add_u64(current.shared_payload_bytes, view.reserved_bytes, own_cost) ||
 				own_cost > p_snapshot.budget.physical_bytes;
@@ -476,16 +493,18 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				slot.policy = policy;
 			}
 			// Camera and frustum in the instance frame (rigid + uniform scale: error and distance scale together).
-			const Transform3D inverse = inst.transform.affine_inverse();
+			Transform3D frame_transform;
+			if (!inst.placement.to_frame_transform(p_snapshot.origin, frame_transform)) { any_failed = true; continue; }
+			const Transform3D inverse = frame_transform.affine_inverse();
 			CutRequest request;
 			request.camera = inverse.xform(spec->camera);
 			request.frustum_enabled = spec->frustum_enabled;
 			bool bad_frustum = false;
 			for (int p = 0; p < 6 && spec->frustum_enabled; ++p) {
 				const Vector3 &n = spec->frustum[p].normal;
-				const Basis &b = inst.transform.basis;
+				const Basis &b = frame_transform.basis;
 				Vector3 local(b.get_column(0).dot(n), b.get_column(1).dot(n), b.get_column(2).dot(n));
-				double d = spec->frustum[p].d - n.dot(inst.transform.origin);
+				double d = spec->frustum[p].d - n.dot(frame_transform.origin);
 				const double len = local.length();
 				if (!(len > 0.0) || !std::isfinite(len)) { bad_frustum = true; break; }
 				request.frustum[p] = Plane(local / len, d / len);
@@ -503,6 +522,10 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				request.resident = asset.resident.ptr();
 				request.resident_count = asset.resident.size();
 			}
+			// The camera in the precise frame: origin plus the (float) frame-space camera, added in double.
+			const double camera_delta[3] = { double(spec->camera.x), double(spec->camera.y), double(spec->camera.z) };
+			gs_world_frame::PreciseCoord camera_precise;
+			if (!p_snapshot.origin.translated(camera_delta, camera_precise)) { any_failed = true; continue; }
 			const CutHistory::Result cut = slot.history.select(*asset.data.ptr(), request);
 			result.selected_splats += cut.selected_splats;
 			result.visited_nodes += cut.visited_nodes;
@@ -517,7 +540,12 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 						rec.instance_key = inst.instance_key;
 						rec.node = slot.history.selected_node(k);
 						rec.version = NodeVersion{ asset.data->source_revision, asset.bake_rule_revision };
-						if (!make_node_key(*asset.data.ptr(), rec.node, asset.asset_key, rec.key)) { any_failed = true; break; }
+						if (!make_node_key(*asset.data.ptr(), rec.node, asset.asset_key, rec.key) ||
+								!gs_world_frame::camera_relative_offset(inst.placement, asset.data->nodes[rec.node].precise_center,
+										camera_precise, rec.camera_offset)) {
+							any_failed = true;
+							break;
+						}
 						++staged;
 					}
 					break;
@@ -555,6 +583,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			});
 			std::swap(view.drawn, view.staging);
 			view.drawn_count = staged;
+			view.drawn_origin_revision = p_snapshot.origin_revision;
 			++view.draw_generation;
 			view.ready = true;
 			result.readiness = READY;

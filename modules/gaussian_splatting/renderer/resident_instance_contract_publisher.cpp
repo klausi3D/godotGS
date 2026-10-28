@@ -1676,7 +1676,16 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // buffers and the payload are already inside the route ledger above (route_bytes), so the ViewSet
     // budget is the remaining headroom and charges only what it allocates on the CPU (histories, draw records).
     snapshot.hierarchy_revision = input->source_revision;
+    // The render-frame origin and its revision come from the module's origin context (the director), so a shift
+    // invalidates this view's cut in ViewSet::select(). The GPU instance buffer of this route is still the
+    // scene-frame float transform (the per-draw camera-relative offset is the shader slice, S2b/C2): a shifted
+    // origin would put the cut and the GPU in different frames, so it is refused explicitly instead.
+    snapshot.origin = gs_world_frame::PreciseCoord();
     snapshot.origin_revision = 0;
+    if (const GaussianSplatSceneDirector *origin_director = GaussianSplatSceneDirector::get_singleton()) {
+        origin_director->get_world_origin(snapshot.origin, snapshot.origin_revision);
+    }
+    if (snapshot.origin != gs_world_frame::PreciseCoord()) { return fallback("hlod_world_origin_shifted"); }
     snapshot.budget = gs_hlod_runtime::ResidencyBudget();
     snapshot.budget.physical_bytes = route_limit - route_bytes;
     snapshot.assets.resize(1);
@@ -1690,7 +1699,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     gs_hlod_runtime::SnapshotInstance &instance = snapshot.instances.write[0];
     instance.instance_key = 1;
     instance.asset_index = 0;
-    instance.transform = Transform3D();
+    instance.placement = gs_world_frame::PrecisePlacement(); // World == asset frame (the tree origin is double).
     instance.caps = spec.caps;
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
     const HlodViewOutcome outcome = frame_context_manager.select_hlod_view(identity, input->get_instance_id(), snapshot, spec);

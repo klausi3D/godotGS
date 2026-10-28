@@ -42,6 +42,17 @@ static Ref<GaussianSplatHlodRuntimeData> make_tree(const uint32_t p_perm[7], uin
 	}
 	return data;
 }
+static gs_world_frame::PreciseCoord coord(double p_x, double p_y, double p_z) {
+	const double v[3] = { p_x, p_y, p_z };
+	gs_world_frame::PreciseCoord c;
+	CHECK(gs_world_frame::PreciseCoord::from_doubles(v, c));
+	return c;
+}
+static gs_world_frame::PrecisePlacement lifted(const Transform3D &p_transform) {
+	gs_world_frame::PrecisePlacement p;
+	CHECK(gs_world_frame::PrecisePlacement::from_frame_transform(p_transform, gs_world_frame::PreciseCoord(), p));
+	return p;
+}
 static constexpr uint64_t ASSET = 0xA55E7;
 static const uint32_t IDENT[7] = { 0, 1, 2, 3, 4, 5, 6 };
 static const uint32_t SWAPPED[7] = { 0, 2, 1, 6, 5, 4, 3 };
@@ -309,7 +320,7 @@ TEST_CASE("[GaussianSplatting][HLOD] shared payload is charged once per asset, v
 	auto snap = snapshot(tree);
 	SnapshotInstance second = snap.instances[0];
 	second.instance_key = 12;
-	second.transform.origin = Vector3(500, 0, 0);
+	second.placement.translation = coord(500, 0, 0);
 	snap.instances.push_back(second); // Same asset, second placement.
 	snap.instances.write[0].caps = caps(50, 4, 500);
 	snap.instances.write[1].caps = caps(50, 4, 500);
@@ -357,7 +368,7 @@ TEST_CASE("[GaussianSplatting][HLOD] instance transforms are applied to the view
 		world.frustum[i] = Plane(wn, wn.dot(wp));
 	}
 	auto placed = snapshot(tree);
-	placed.instances.write[0].transform = placement;
+	placed.instances.write[0].placement = lifted(placement);
 	ViewSet set;
 	CHECK(set.admit_view(placed, world).status == ViewSet::ADMITTED);
 	placed.views.push_back(world);
@@ -367,7 +378,7 @@ TEST_CASE("[GaussianSplatting][HLOD] instance transforms are applied to the view
 	// The unmoved world view no longer sees the placed instance the same way: transform is not ignored.
 	ViewSet naive;
 	auto moved_only = snapshot(tree);
-	moved_only.instances.write[0].transform = placement;
+	moved_only.instances.write[0].placement = lifted(placement);
 	CHECK(naive.admit_view(moved_only, local).status == ViewSet::ADMITTED);
 	moved_only.views.push_back(local);
 	Vector<ViewSet::ViewResult> r2;
@@ -375,7 +386,7 @@ TEST_CASE("[GaussianSplatting][HLOD] instance transforms are applied to the view
 	CHECK_FALSE(same(nodes_of(naive, 1), { 3, 4 }));
 	// Non-uniform scale cannot keep error and distance consistent: refused up front.
 	auto skew = snapshot(tree);
-	skew.instances.write[0].transform.basis = Basis().scaled(Vector3(1, 2, 1));
+	skew.instances.write[0].placement.basis = Basis().scaled(Vector3(1, 2, 1));
 	ViewSet refused;
 	CHECK(refused.admit_view(skew, perspective(1)).status == ViewSet::REFUSED_INVALID);
 }
@@ -385,7 +396,7 @@ TEST_CASE("[GaussianSplatting][HLOD] per-view publication is deterministic, orde
 	auto snap = snapshot(tree, 1000, 100000);
 	SnapshotInstance second = snap.instances[0];
 	second.instance_key = 5; // Sorts before instance 11 whatever the listing order.
-	second.transform.origin = Vector3(0.5, 0, 0);
+	second.placement.translation = coord(0.5, 0, 0);
 	snap.instances.push_back(second);
 	snap.instances.write[0].caps = caps(50, 4, 500);
 	snap.instances.write[1].caps = caps(50, 4, 500);

@@ -3,6 +3,7 @@
 
 #include "gaussian_data.h"
 #include "gaussian_splat_hlod_tree.h"
+#include "gaussian_splat_world_frame.h"
 
 // Detached, same-generation input to the bounded resident runtime. Publication is by Ref;
 // after capture succeeds every payload below is immutable. The source resource is retained,
@@ -19,6 +20,9 @@ public:
 		GaussianSplatHlodNode topology;
 		Vector3 payload_center;
 		double exact_cell_center[3] = {};
+		// Source-precision cell centre in asset space: tree origin (double) plus the integer lattice address,
+		// never reconstructed from payload_center (a rounded float). The per-draw offset reads this.
+		gs_world_frame::PreciseCoord precise_center;
 		Vector3 bounds_center;
 		double footprint = 0.0;
 		uint32_t dc_encoding = 0;

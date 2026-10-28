@@ -15,6 +15,7 @@
 
 #include "gaussian_data.h"
 #include "gaussian_splat_asset.h"
+#include "gaussian_splat_world_frame.h"
 #include "streaming_chunk_payload_source.h"
 #include "thread_owned_mutex.h"
 #include "../lod/lod_config.h"
@@ -112,6 +113,16 @@ public:
     };
 
     static GaussianSplatSceneDirector *get_singleton();
+
+    // Origin of the GS render frame (ADR 14.3, package C). Owned by the module, never by a scene node: changing
+    // it moves no scene node and no stored payload; it bumps a revision that frame-dependent snapshots and caches
+    // key on. Gameplay/physics origin handling attaches through add_world_origin_hook() only. Thread-safe.
+    bool set_world_origin(const gs_world_frame::PreciseCoord &p_origin);
+    bool shift_world_origin_by(const double p_delta[3]);
+    void get_world_origin(gs_world_frame::PreciseCoord &r_origin, uint64_t &r_revision) const;
+    uint64_t get_world_origin_revision() const;
+    void add_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook);
+    void remove_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook);
 
     GaussianSplatSceneDirector();
     ~GaussianSplatSceneDirector();
@@ -1109,6 +1120,9 @@ public:
 
 private:
     static GaussianSplatSceneDirector *singleton;
+    // Guards `world_origin` (main thread writes, render thread reads). Hooks run under it: they must not block.
+    mutable Mutex world_origin_mutex;
+    gs_world_frame::WorldOriginContext world_origin;
 
     // #611: a plain `Mutex` cannot answer "does this thread already hold me?",
     // so the renderer-contract boundary below had no way to check the ordering

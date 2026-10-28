@@ -1163,6 +1163,16 @@ Two simultaneous views, one perspective and one orthographic, repeated origin sh
 unload/reload at 0, 1 km and 100 km must preserve the expected relative geometry and
 deterministic ties at equal quality.
 
+Implementation status of package C (C1 landed, C2 open). C1: `core/gaussian_splat_world_frame.{h,cpp}` holds the
+precise representation (int64 lattice address plus double offset), `WorldOriginContext` (owned by the scene
+director, revision per change, explicit `OriginShiftHook`) and the double per-draw offset
+`camera_relative_offset`; runtime nodes carry a source-precision `precise_center`; `ViewSet` takes the origin and
+its revision in the `SelectionSnapshot`, drops histories and the published set on a revision change, and
+publishes the per-draw offset in each `DrawRecord`; the cull-config reuse signature includes the revision. Until
+C2 (the `DrawnNodeGPU` upload and the camera-space rewrite of `depth_compute`/`tile_binning`), the HLOD route
+refuses a shifted origin with `hlod_world_origin_shifted` because the GPU instance transform is still the
+scene-frame float transform.
+
 ### 14.4 V4 paged packages and bounded preparation
 
 The approved new package design is **V4**, with a paged hierarchy/index, a bounded bootstrap
