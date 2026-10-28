@@ -6448,3 +6448,64 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODOffline] cancellation during s
 	DirAccess::remove_absolute(fresh);
 	DirAccess::remove_absolute(last_good);
 }
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a streamable file loads with file-backed interiors and materialization makes the tree runtime-capturable (#1131)") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24000u, 16000u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK || !world->has_hlod_tree() || world->get_hlod_tree().interior_splat_count == 0u) {
+		FAIL("fixture must bake a tree with interior splats");
+		return;
+	}
+	const uint32_t interior_count = world->get_hlod_tree().interior_splat_count;
+	const String path = hlod_temp_path("engage_streamable");
+	ResourceFormatSaverGaussianSplatWorld saver;
+	if (saver.save(world, path) != OK) {
+		FAIL("streamable save failed");
+		return;
+	}
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Error load_err = ERR_BUG;
+	Ref<GaussianSplatWorld> loaded = loader.load(path, "", &load_err);
+	if (load_err != OK || loaded.is_null() || !loaded->has_hlod_tree()) {
+		FAIL("streamable load failed");
+		DirAccess::remove_absolute(path);
+		return;
+	}
+	// The streamable layout keeps the interiors on disk: the resident runtime cannot take it as loaded.
+	CHECK_FALSE(loaded->get_hlod_tree().interior_resident);
+	Ref<GaussianSplatHlodRuntimeData> snapshot;
+	String reason;
+	CHECK(loaded->capture_hlod_runtime_snapshot(snapshot, reason) != OK);
+	CHECK(reason == "hlod_requires_resident_complete_uninstanced_tree");
+	// materialize_resident_gaussian_data() is the supported way to make the world resident.
+	if (loaded->materialize_resident_gaussian_data() != OK) {
+		FAIL("materialize failed");
+		DirAccess::remove_absolute(path);
+		return;
+	}
+	const GaussianSplatHlodTree &tree = loaded->get_hlod_tree();
+	CHECK(tree.interior_resident);
+	const GaussianSplatHlodTree &baked = world->get_hlod_tree();
+	if (tree.interior_gaussians.size() != interior_count || baked.interior_gaussians.size() != interior_count) {
+		FAIL("materialized interior size ", tree.interior_gaussians.size(), " != ", interior_count);
+		DirAccess::remove_absolute(path);
+		return;
+	}
+	// Interior payload equals the baked source bit-for-bit.
+	bool same = true;
+	for (uint32_t i = 0; same && i < interior_count; ++i) {
+		same = memcmp(&tree.interior_gaussians[i], &baked.interior_gaussians[i], sizeof(Gaussian)) == 0;
+	}
+	CHECK(same);
+	reason = String();
+	const Error captured = loaded->capture_hlod_runtime_snapshot(snapshot, reason);
+	CHECK_MESSAGE(captured == OK, reason.utf8().get_data());
+	if (captured == OK && snapshot.is_valid()) {
+		CHECK(snapshot->leaf_count == g.size());
+		CHECK(snapshot->parent_count == interior_count);
+		CHECK(snapshot->is_current());
+	}
+	DirAccess::remove_absolute(path);
+}

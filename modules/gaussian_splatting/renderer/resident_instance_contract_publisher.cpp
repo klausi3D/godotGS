@@ -1408,12 +1408,12 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
                 GaussianSplatting::InstancePipelineContract::first_raster_violation(ready) != InvariantViolationReason::NONE) { return false; }
     }
     const uint64_t budget = rd->get_device_memory_budget();
-    const uint64_t limit = budget ? MIN(budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) : GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT;
+    const uint64_t limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
     const uint64_t atlas_limit = ResidentAtlasBudget::compute_effective_atlas_cap_bytes(budget, override_mb);
     uint64_t bytes = 0;
     return uint64_t(input->leaf_count + input->parent_count) * (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
-            get_hlod_owned_byte_upper_bound(bytes) && bytes <= limit;
+            state.hlod_canonical.bytes + state.hlod_relative.bytes <= GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT && get_hlod_owned_byte_upper_bound(bytes) && bytes <= limit;
 }
 
 bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
@@ -1504,7 +1504,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const bool prepared = is_hlod_prepared_contract_current();
     if (!prepared) {
         const uint64_t device_budget = rd->get_device_memory_budget();
-        const uint64_t route_limit = device_budget ? MIN(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) : GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT;
+        const uint64_t route_limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
         const uint32_t atlas_override = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
         const uint64_t atlas_limit = ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget, atlas_override);
         if (uint64_t(input->leaf_count + input->parent_count) * (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) > atlas_limit) {
@@ -1523,6 +1523,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 #ifdef TESTS_ENABLED
                 test_hlod_publication_refuses(3) ||
 #endif
+                candidate_bytes > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT ||
                 candidate_bytes > route_limit ||
                 device_bytes > route_limit - candidate_bytes ||
                 (state.hlod_prepared_snapshot.is_valid() && state.hlod_prepared_snapshot != input &&
@@ -1624,7 +1625,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
     const uint64_t device_budget = get_device_state().rd->get_device_memory_budget();
-    const uint64_t route_limit = device_budget ? MIN(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) : GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT;
+    const uint64_t route_limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
     state.hlod_owned_byte_upper_bound = route_bytes;

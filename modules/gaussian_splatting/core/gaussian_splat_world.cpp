@@ -418,6 +418,8 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
     Ref<ChunkPayloadSource> source;
     uint64_t epoch;
     bool mode_2d, aa;
+    GaussianSplatHlodTree interior_extent; // file extents only
+    bool load_interior = false;
     {
         MutexLock lock(render_input_mutex);
         if (gaussian_data.is_valid()) {
@@ -427,9 +429,27 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
         epoch = render_input_epoch;
         mode_2d = is_2d_metadata;
         aa = antialiased_metadata;
+        // A streamable file leaves the HLOD interiors on disk (interior_resident == false), but the
+        // resident runtime (capture_hlod_runtime_snapshot) needs them in memory. Describe only the
+        // file extents, never copy the node tables; the read happens outside the lock. Counts above
+        // the runtime's admission cap are not read: the runtime refuses them by name anyway.
+        if (!hlod_tree.is_empty() && !hlod_tree.interior_resident && hlod_tree.interior_splat_count > 0u &&
+                uint64_t(hlod_tree.leaf_splat_count) + hlod_tree.interior_splat_count <= GaussianSplatHlodRuntimeData::MAX_PAYLOAD) {
+            interior_extent.interior_splat_count = hlod_tree.interior_splat_count;
+            interior_extent.sh_high_order_count = hlod_tree.sh_high_order_count;
+            interior_extent.interior_file_path = hlod_tree.interior_file_path;
+            interior_extent.interior_gaussian_offset = hlod_tree.interior_gaussian_offset;
+            interior_extent.interior_sh_offset = hlod_tree.interior_sh_offset;
+            load_interior = true;
+        }
     }
     if (source.is_null() || !source->is_valid()) {
         return ERR_UNCONFIGURED;
+    }
+    LocalVector<Gaussian> interior;
+    LocalVector<Vector3> interior_sh;
+    if (load_interior && interior_extent.read_interior_payload(interior, interior_sh) != OK) {
+        return ERR_FILE_CANT_READ;
     }
     LocalVector<Gaussian> gaussians;
     LocalVector<Vector3> sh_high_order;
@@ -448,6 +468,11 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
             return ERR_BUSY;
         }
         _assign_gaussian_data_locked(materialized, true);
+        if (load_interior) {
+            hlod_tree.interior_gaussians = std::move(interior);
+            hlod_tree.interior_sh_high_order = std::move(interior_sh);
+            hlod_tree.interior_resident = true;
+        }
         ++render_input_epoch;
     }
     notify_property_list_changed();
