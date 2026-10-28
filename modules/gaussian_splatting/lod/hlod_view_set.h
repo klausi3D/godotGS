@@ -93,7 +93,13 @@ struct SnapshotInstance {
 
 struct ViewSpec {
 	uint64_t view_key = 0;
-	Vector3 camera; // Frame space: world minus the snapshot origin.
+	Vector3 camera; // Frame space: world minus the snapshot origin. Float: used for selection.
+	// Camera contract: when `camera_precise_valid` the per-draw offset uses `camera_precise` (absolute, source
+	// precision). Otherwise it is origin + `camera`, which is only as precise as the float `camera`: a float
+	// camera 100 km from the origin is already rounded to millimetres. The origin must therefore be kept near
+	// the camera; shifting the origin is what keeps a float-only camera precise (ADR 14.3).
+	gs_world_frame::PreciseCoord camera_precise;
+	bool camera_precise_valid = false;
 	Plane frustum[6]; // Frame space.
 	bool frustum_enabled = true;
 	double focal_pixels = 0.0;

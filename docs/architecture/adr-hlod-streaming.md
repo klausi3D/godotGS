@@ -1173,6 +1173,12 @@ C2 (the `DrawnNodeGPU` upload and the camera-space rewrite of `depth_compute`/`t
 refuses a shifted origin with `hlod_world_origin_shifted` because the GPU instance transform is still the
 scene-frame float transform.
 
+Camera contract (C1): the scene camera is a float transform, so the camera's precise position is the origin plus
+that float. A float camera 100 km from the origin is already rounded to millimetres; the origin must therefore be
+kept near the camera, and shifting the origin is what keeps the camera precise. `ViewSpec::camera_precise` carries
+an absolute camera when a source with more precision exists. "Source precision" here means the node cell centre
+(tree origin plus integer lattice address); splat positions are float at the source.
+
 ### 14.4 V4 paged packages and bounded preparation
 
 The approved new package design is **V4**, with a paged hierarchy/index, a bounded bootstrap

@@ -523,9 +523,12 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				request.resident_count = asset.resident.size();
 			}
 			// The camera in the precise frame: origin plus the (float) frame-space camera, added in double.
-			const double camera_delta[3] = { double(spec->camera.x), double(spec->camera.y), double(spec->camera.z) };
-			gs_world_frame::PreciseCoord camera_precise;
-			if (!p_snapshot.origin.translated(camera_delta, camera_precise)) { any_failed = true; continue; }
+			gs_world_frame::PreciseCoord camera_precise = spec->camera_precise;
+			if (!spec->camera_precise_valid) {
+				// Float-only camera: precise only to the float rounding of `camera` (see ViewSpec).
+				const double camera_delta[3] = { double(spec->camera.x), double(spec->camera.y), double(spec->camera.z) };
+				if (!p_snapshot.origin.translated(camera_delta, camera_precise)) { any_failed = true; continue; }
+			}
 			const CutHistory::Result cut = slot.history.select(*asset.data.ptr(), request);
 			result.selected_splats += cut.selected_splats;
 			result.visited_nodes += cut.visited_nodes;

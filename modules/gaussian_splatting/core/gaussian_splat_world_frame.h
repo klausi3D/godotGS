@@ -80,7 +80,9 @@ public:
 	virtual void on_world_origin_changed(const PreciseCoord &p_old, const PreciseCoord &p_new, uint64_t p_revision) = 0;
 };
 
-// Origin of the GS render frame. Owned by the scene director (one per module). Not thread-safe: main thread only.
+// Origin of the GS render frame. Owned by the scene director (one per module). The context itself is not
+// thread-safe; the director guards it with `world_origin_mutex` (main thread writes, render thread reads).
+// Hooks run under that recursive lock, so a slow hook blocks the render thread: keep hooks short.
 class WorldOriginContext {
 public:
 	const PreciseCoord &get_origin() const { return origin; }

@@ -395,6 +395,62 @@ TEST_CASE("[GaussianSplatting][HLOD] an origin revision change drops hysteresis 
 	CHECK(set.drawn_origin_revision(1) == 0);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] a return to origin 0 under a new revision still drops the histories") {
+	// 0 -> A -> 0 where the A frame is never selected (the renderer falls back before select()): the revision is 2,
+	// the origin equals the one the histories were built under, and they must still be dropped.
+	const double base = OFFSETS[2];
+	auto tree = make_tree();
+	WorldOriginContext ctx;
+	ViewSet set;
+	SelectionSnapshot snap = make_snapshot(tree, base, ctx.get_origin(), ctx.get_revision());
+	REQUIRE(set.admit_view(snap, perspective_at(1, base, 14.0, ctx.get_origin())).status == ViewSet::ADMITTED);
+	CHECK(select_one(set, snap, perspective_at(1, base, 14.0, ctx.get_origin())).readiness == ViewSet::READY);
+	snap = make_snapshot(tree, base, ctx.get_origin(), ctx.get_revision());
+	select_one(set, snap, perspective_at(1, base, 360.0, ctx.get_origin()));
+	CHECK(same_nodes(copy_draw(set, 1).nodes, { 1, 2 })); // Control: hysteresis holds under an unchanged revision.
+	REQUIRE(ctx.set_origin(coord(base, 0, 300)));
+	REQUIRE(ctx.set_origin(PreciseCoord()));
+	CHECK(ctx.get_revision() == 2);
+	CHECK(ctx.get_origin() == PreciseCoord());
+	snap = make_snapshot(tree, base, ctx.get_origin(), ctx.get_revision());
+	const ViewSet::ViewResult back = select_one(set, snap, perspective_at(1, base, 360.0, ctx.get_origin()));
+	CHECK(back.origin_changed);
+	CHECK(same_nodes(copy_draw(set, 1).nodes, { 0 }));
+	CHECK(set.drawn_origin_revision(1) == 2);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] a float-only camera is limited by its float; a precise camera is not") {
+	const double base = OFFSETS[2];
+	auto tree = make_tree();
+	const PreciseCoord far_origin; // Origin 0, camera and asset 100 km away: the float camera is already rounded.
+	const PreciseCoord near_origin = coord(base, 0, 0); // Shifting the origin near the camera keeps it precise.
+	// Node 3 sits at asset x = -3 (placed at x = base); the camera is at base + 0.3. Offset x is -3.3, z is -10.
+	const Vector3 truth(-3.3f, 0, -10);
+	for (int mode = 0; mode < 3; ++mode) { // 0 float, origin 0; 1 precise, origin 0; 2 float, near origin.
+		const PreciseCoord &origin = mode == 2 ? near_origin : far_origin;
+		SelectionSnapshot snap = make_snapshot(tree, base, origin, 0);
+		ViewSpec spec = perspective_at(1, base, 10.0, origin);
+		const PreciseCoord world_camera = coord(base + 0.3, 0, 10);
+		spec.camera = offset_vec(world_camera, origin);
+		spec.camera_precise = world_camera;
+		spec.camera_precise_valid = mode == 1;
+		ViewSet set;
+		REQUIRE(set.admit_view(snap, spec).status == ViewSet::ADMITTED);
+		CHECK(select_one(set, snap, spec).readiness == ViewSet::READY);
+		const DrawCopy d = copy_draw(set, 1);
+		if (d.nodes.is_empty() || d.nodes[0] != 3) {
+			FAIL("expected node 3 first");
+			return;
+		}
+		const double error = max_abs(d.offsets[0] - truth);
+		if (mode == 0) {
+			CHECK(error > 1.0e-3); // Float camera 100 km out: millimetres lost.
+		} else {
+			CHECK(error <= 2.0e-6);
+		}
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] unload and reload at 0, 1 km and 100 km reproduce keys and camera-relative offsets") {
 	DrawCopy reference;
 	for (int k = 0; k < 3; ++k) {
