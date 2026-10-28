@@ -13,6 +13,7 @@
 #include "test_macros.h"
 
 #include "../core/gaussian_splat_hlod_bake.h"
+#include "../core/gaussian_splat_hlod_job.h"
 #include "../core/gaussian_splat_hlod_merge.h"
 #include "../core/gaussian_splat_hlod_quality.h"
 #include "../core/gaussian_splat_hlod_tree.h"
@@ -6161,4 +6162,215 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] checked writable COW 
 		CHECK(selected_seed.shares.size() == 2);
 		CHECK(selected_seed.order.size() == 1);
 	}
+}
+
+namespace TestGaussianSplatHlod {
+inline Dictionary hlod_offline_limits(const String &p_cancel)
+{
+	Dictionary d;
+	d["job_wall_seconds"] = 30;
+	d["batch_wall_seconds"] = 60;
+	d["cancel_and_drain_seconds"] = 5;
+	d["process_private_bytes"] = int64_t(2) << 30;
+	d["minimum_free_host_physical_and_commit_bytes"] = 1;
+	d["minimum_free_output_volume_bytes"] = 1;
+	d["max_source_bytes"] = int64_t(1) << 27;
+	d["max_input_splats"] = 32768;
+	d["max_prepared_splats"] = 65536;
+	d["max_nodes"] = 256;
+	d["max_output_bytes"] = int64_t(1) << 27;
+	d["max_scratch_bytes"] = int64_t(1) << 30;
+	d["concurrent_jobs"] = 1;
+	d["pending_jobs"] = 0;
+	d["bake_workers"] = 1;
+	d["image_payload_bytes"] = int64_t(1) << 26;
+	d["metric_scratch_peak_bytes"] = int64_t(1) << 28;
+	d["node_work"] = int64_t(1) << 28;
+	d["bake_work"] = int64_t(1) << 34;
+	d["cancel_path"] = p_cancel;
+	return d;
+}
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODOffline] admission refuses absent limits and preserves the source")
+{
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(8u, 0u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	const Ref<GaussianData> original = world->get_gaussian_data();
+	const String candidate = hlod_temp_path("offline_refused");
+	const Dictionary valid = hlod_offline_limits(candidate + ".cancel");
+	const Array keys = valid.keys();
+	for (int i = 0; i < keys.size(); ++i) {
+		Dictionary incomplete = valid.duplicate();
+		incomplete.erase(keys[i]);
+		const Dictionary report = world->bake_hlod_offline(incomplete, candidate);
+		CHECK(int(report["error"]) == ERR_INVALID_PARAMETER);
+		CHECK_FALSE(FileAccess::exists(candidate));
+		CHECK(world->get_gaussian_data() == original);
+		CHECK_FALSE(world->has_hlod_tree());
+	}
+	for (double invalid :
+	     {0.0, -1.0, 0.5, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+		Dictionary limits = valid.duplicate();
+		limits["job_wall_seconds"] = invalid;
+		CHECK(int(world->bake_hlod_offline(limits, candidate)["error"]) == ERR_INVALID_PARAMETER);
+	}
+	Dictionary limits = valid.duplicate();
+	limits["max_scratch_bytes"] = 1;
+	CHECK(int(world->bake_hlod_offline(limits, candidate)["error"]) == ERR_OUT_OF_MEMORY);
+	limits = valid.duplicate();
+	limits["max_input_splats"] = 7;
+	CHECK(int(world->bake_hlod_offline(limits, candidate)["error"]) == ERR_OUT_OF_MEMORY);
+	limits = valid.duplicate();
+	limits["max_output_bytes"] = 1;
+	ERR_PRINT_OFF;
+	CHECK(int(world->bake_hlod_offline(limits, candidate)["error"]) == ERR_OUT_OF_MEMORY);
+	ERR_PRINT_ON;
+	CHECK_FALSE(FileAccess::exists(candidate));
+	CHECK(world->get_gaussian_data() == original);
+	CHECK_FALSE(world->has_hlod_tree());
+	Ref<FileAccess> cancel = FileAccess::open(candidate + ".cancel", FileAccess::WRITE);
+	if (cancel.is_null()) {
+		FAIL("create owned cancellation sentinel");
+		return;
+	}
+	cancel.unref();
+	CHECK(int(world->bake_hlod_offline(valid, candidate)["error"]) == ERR_SKIP);
+	DirAccess::remove_absolute(candidate + ".cancel");
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODOffline] explicit candidate preserves source and full SH0-4")
+{
+	using namespace TestGaussianSplatHlod;
+	for (uint32_t degree = 0; degree <= 4; ++degree) {
+		LocalVector<Gaussian> g;
+		hlod_make_fixture(8u, 0u, g);
+		const uint32_t high_count = degree > 1 ? (degree + 1) * (degree + 1) - 4 : 0;
+		LocalVector<Vector3> high;
+		high.resize(g.size() * high_count);
+		for (uint32_t i = 0; i < high.size(); ++i) {
+			high[i] = Vector3(float(i) / 1024.0f, -0.125f, 0.25f);
+		}
+		Ref<GaussianData> data;
+		data.instantiate();
+		data->set_gaussian_payload(g, high, degree ? 3 : 0, high_count, false, false);
+		Ref<GaussianSplatWorld> world;
+		world.instantiate();
+		world->set_gaussian_data(data);
+		const String candidate = hlod_temp_path("offline_sh");
+		const Dictionary limits = hlod_offline_limits(candidate + ".cancel");
+		const Dictionary report = world->bake_hlod_offline(limits, candidate);
+		if (int(report["error"]) != OK) {
+			FAIL("explicit offline candidate should complete");
+			return;
+		}
+		CHECK(world->get_gaussian_data() == data);
+		CHECK_FALSE(world->has_hlod_tree());
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		Error error = OK;
+		Ref<GaussianSplatWorld> loaded = loader.load_resident(candidate, &error);
+		if (error != OK || loaded.is_null()) {
+			FAIL("strict reload of offline output");
+			return;
+		}
+		CHECK(loaded->get_hlod_tree().bake_rule_version == gs_hlod::kQualityBakeRuleVersion);
+		CHECK(loaded->get_splat_count() == g.size());
+		CHECK(loaded->get_sh_degree() == degree);
+		CHECK(loaded->get_sh_first_order_count() == (degree ? 3u : 0u));
+		CHECK(loaded->get_sh_high_order_count() == high_count);
+		const PackedByteArray bytes = hlod_read_file(candidate);
+		CHECK(int(world->bake_hlod_offline(limits, candidate)["error"]) == ERR_INVALID_PARAMETER);
+		CHECK(hlod_read_file(candidate) == bytes);
+		loaded.unref();
+		DirAccess::remove_absolute(candidate);
+	}
+}
+
+TEST_CASE(
+        "[GaussianSplatting][HLOD][HLODOffline] node cap stops before tree growth and expired jobs stop quality raster")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(kMaxNodeSplats + 1u, 0u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	const Ref<GaussianData> original = world->get_gaussian_data();
+	const String candidate = hlod_temp_path("offline_node_cap");
+	Dictionary limits = hlod_offline_limits(candidate + ".cancel");
+	limits["max_nodes"] = 1;
+	ERR_PRINT_OFF;
+	CHECK(int(world->bake_hlod_offline(limits, candidate)["error"]) == ERR_OUT_OF_MEMORY);
+	ERR_PRINT_ON;
+	CHECK_FALSE(world->has_hlod_tree());
+	CHECK(world->get_gaussian_data() == original);
+	CHECK_FALSE(FileAccess::exists(candidate));
+	OfflineJob job;
+	if (!job.configure(hlod_offline_limits(candidate + ".cancel")) || !job.reserve(1, 0, 0)) {
+		FAIL("tiny reservation control");
+		return;
+	}
+	job.deadline = 0;
+	OfflineJobScope scope(job);
+	if (!scope.acquired) {
+		FAIL("single offline scope");
+		return;
+	}
+	const Gaussian single = hlod_quality_gaussian();
+	const SplatSpan span = {&single, nullptr, 1, 0};
+	QualityScratch scratch;
+	QualityViewResult result;
+	CHECK(quality_compare_view(span, span, span, 0, 1.0, 0, scratch, result) == ERR_TIMEOUT);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODOffline] cancellation during staged writes preserves source and "
+          "restart")
+{
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(8, 0, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	const Ref<GaussianData> original = world->get_gaussian_data();
+	const String candidate = hlod_temp_path("offline_cancel_write");
+	const String last_good = hlod_temp_path("offline_last_good");
+	if (world->save_to_file(last_good) != OK) {
+		FAIL("save independent last-good package before cancellation");
+		return;
+	}
+	const PackedByteArray last_good_bytes = hlod_read_file(last_good);
+	String cancel_path = candidate + ".cancel";
+	struct HookScope {
+		HookScope(String *p_cancel)
+		{
+			ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata = p_cancel;
+			ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook = [](void *p_data) {
+				// The writer calls this only after actual payload bytes reached its temp file.
+				const String &path = *static_cast<String *>(p_data);
+				Ref<FileAccess> cancel = FileAccess::open(path, FileAccess::WRITE);
+				CHECK(cancel.is_valid());
+			};
+		}
+		~HookScope()
+		{
+			ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook = nullptr;
+			ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata = nullptr;
+		}
+	};
+	{
+		HookScope hook(&cancel_path);
+		CHECK(int(world->bake_hlod_offline(hlod_offline_limits(cancel_path), candidate)["error"]) == ERR_SKIP);
+	}
+	CHECK(FileAccess::exists(cancel_path));
+	CHECK_FALSE(FileAccess::exists(candidate));
+	CHECK(world->get_gaussian_data() == original);
+	CHECK_FALSE(world->has_hlod_tree());
+	CHECK(hlod_read_file(last_good) == last_good_bytes);
+	DirAccess::remove_absolute(cancel_path);
+	const String fresh = hlod_temp_path("offline_fresh_restart");
+	CHECK(int(world->bake_hlod_offline(hlod_offline_limits(fresh + ".cancel"), fresh)["error"]) == OK);
+	CHECK(FileAccess::exists(fresh));
+	CHECK(hlod_read_file(last_good) == last_good_bytes);
+	DirAccess::remove_absolute(fresh);
+	DirAccess::remove_absolute(last_good);
 }

@@ -93,6 +93,9 @@ public:
     // reorders the payload into leaf order and replaces the chunks with
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
     Error bake_hlod();
+	// Prepares a separate candidate, leaving this resource unchanged on success and failure.
+	// Process/host/disk admission and final publication belong to the offline CLI supervisor.
+	Dictionary bake_hlod_offline(const Dictionary &p_limits, const String &p_candidate_path) const;
 #ifdef TESTS_ENABLED
     // Preserves the candidate publication/error tests without exposing an
     // unbounded quality bake to scripts, imports or ordinary runtime rebakes.

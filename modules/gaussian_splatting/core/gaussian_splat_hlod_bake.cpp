@@ -1,4 +1,5 @@
 #include "gaussian_splat_hlod_bake.h"
+#include "gaussian_splat_hlod_job.h"
 #include "gaussian_splat_hlod_quality.h"
 
 #include "gs_vector_alloc.h"
@@ -244,6 +245,11 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		return fail("HLOD bake input declares SH coefficients but provides none.");
 	}
 	const uint32_t leaf_max = p_params.leaf_max_splats;
+	if (active_offline_job &&
+	    (!quality_selection || n > active_offline_job->input || leaf_max != kMaxNodeSplats ||
+	     p_params.interior.node_max_splats != kMaxNodeSplats || p_params.interior.reduction != 4.0)) {
+		return fail("Offline job requires the frozen rule-2 parameters and admitted input count.");
+	}
 	if (leaf_max == 0u || leaf_max > kMaxNodeSplats) {
 		return fail(vformat("HLOD leaf size %d is outside [1, %d].", leaf_max, kMaxNodeSplats));
 	}
@@ -252,6 +258,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	double lo[3] = { DBL_MAX, DBL_MAX, DBL_MAX };
 	double hi[3] = { -DBL_MAX, -DBL_MAX, -DBL_MAX };
 	for (uint32_t i = 0; i < n; i++) {
+		if ((i & 4095u) == 0u && offline_job_check() != OK) {
+			return fail("Offline HLOD job stopped.", offline_job_check());
+		}
 		const Gaussian &g = p_input.gaussians[i];
 		if (!finite_gaussian(g)) {
 			return fail(vformat("HLOD bake refuses splat %d: a field is not finite.", i));
@@ -293,6 +302,12 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		return false;
 	}
 	LocalVector<BuildNode> build;
+	if (active_offline_job) {
+		if (!resize_or_fail(build, active_offline_job->nodes, "gs_hlod::offline build nodes")) {
+			return false;
+		}
+		build.resize(0);
+	}
 	build.push_back(BuildNode());
 	build[0].begin = 0u;
 	build[0].end = n;
@@ -334,7 +349,13 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		c.iz = p_node.cell.iz * 2 + b[2];
 		return c;
 	};
-	auto add_child = [&](uint32_t p_parent, const GaussianSplatHlodCell &p_cell, uint32_t p_begin, uint32_t p_end, uint32_t p_flags) {
+	bool node_limit_hit = false;
+	auto add_child = [&](uint32_t p_parent, const GaussianSplatHlodCell &p_cell, uint32_t p_begin, uint32_t p_end,
+	                     uint32_t p_flags) {
+		if (active_offline_job && build.size() >= active_offline_job->nodes) {
+			node_limit_hit = true;
+			return 0u; // Valid placeholder only; the enclosing loop fails before consuming it.
+		}
 		BuildNode child;
 		child.cell = p_cell;
 		child.begin = p_begin;
@@ -348,6 +369,10 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	};
 
 	while (!stack.is_empty()) {
+		if (node_limit_hit || offline_job_check() != OK) {
+			return fail("Offline HLOD node/deadline/cancellation limit.",
+			            node_limit_hit ? ERR_OUT_OF_MEMORY : offline_job_check());
+		}
 		const uint32_t id = stack[stack.size() - 1u];
 		stack.resize(stack.size() - 1u);
 		const uint32_t begin = build[id].begin;
@@ -417,6 +442,10 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			LocalVector<Group> groups;
 			groups.push_back({ id, 0u, chunks });
 			while (!groups.is_empty()) {
+				if (node_limit_hit || offline_job_check() != OK) {
+					return fail("Offline HLOD node/deadline/cancellation limit.",
+					            node_limit_hit ? ERR_OUT_OF_MEMORY : offline_job_check());
+				}
 				const Group grp = groups[groups.size() - 1u];
 				groups.resize(groups.size() - 1u);
 				if (grp.count <= kMaxChildren) {
@@ -511,6 +540,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			group_octants++;
 		}
 		flush_group();
+	}
+	if (node_limit_hit) {
+		return fail("Offline HLOD node limit.", ERR_OUT_OF_MEMORY);
 	}
 	const uint64_t t_tree = OS::get_singleton()->get_ticks_usec();
 
@@ -634,7 +666,11 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	LocalVector<SplatSpan> child_spans;
 	uint64_t merge_usec = 0u, order_usec = 0u;
 
+	uint64_t prepared_count = n;
 	for (uint32_t node_index = node_count; node_index > 0u; node_index--) {
+		if (offline_job_check() != OK) {
+			return fail("Offline HLOD job stopped.", offline_job_check());
+		}
 		const uint32_t i = node_index - 1u;
 		GaussianSplatHlodNode &node = tree.nodes[i];
 		double center[3];
@@ -719,6 +755,11 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 				offset += cnt;
 			}
 			const double edge = tree.node_cell_edge(node);
+			// Reserve the largest possible winner BEFORE the merge or selection allocates it.
+			const uint64_t winner_bound = MIN(uint64_t(kMaxNodeSplats), (uint64_t(offset) + 3u) / 4u);
+			if (active_offline_job && winner_bound > active_offline_job->prepared - prepared_count) {
+				return fail("Offline HLOD prepared-splat limit.", ERR_OUT_OF_MEMORY);
+			}
 			const Vector3 grid_origin(real_t(-0.5 * edge), real_t(-0.5 * edge), real_t(-0.5 * edge));
 			String error;
 			Error interior_code = ERR_INVALID_DATA;
@@ -764,6 +805,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 				node.geometric_error = MAX(node.geometric_error, tree.nodes[node.first_child + c].geometric_error);
 			}
 			own = interior_payloads[i].span();
+			prepared_count += own.count;
 			for (int a = 0; a < 3; a++) {
 				rel_shift[a] = center[a];
 			}

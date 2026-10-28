@@ -1,4 +1,5 @@
 #include "gaussian_splat_hlod_quality.h"
+#include "gaussian_splat_hlod_job.h"
 #include "gs_vector_alloc.h"
 
 #include <algorithm>
@@ -54,6 +55,9 @@ Error project(const gs_hlod::SplatSpan &span, uint32_t first, const gs_hlod::Qua
 	gs_hlod::QualityProjected *dst = out.ptrw();
 	const double ray[3] = {-view.eye[0], -view.eye[1], -view.eye[2]};
 	for (uint32_t i = 0; i < span.count; ++i) {
+		if ((i & 255u) == 0u && gs_hlod::offline_job_check() != OK) {
+			return gs_hlod::offline_job_check();
+		}
 		const Gaussian &g = span.gaussians[i];
 		gs_hlod::QualityProjected p;
 		p.ordinal = i;
@@ -108,6 +112,9 @@ Error raster(const Vector<gs_hlod::QualityProjected> &projected, const gs_hlod::
 	}
 	gs_hlod::QualityPixel *dst = image.ptrw();
 	for (uint64_t i = 0; i < pixels; ++i) {
+		if ((i & 4095u) == 0u && gs_hlod::offline_job_check() != OK) {
+			return gs_hlod::offline_job_check();
+		}
 		dst[i] = gs_hlod::QualityPixel();
 	}
 	for (const gs_hlod::QualityProjected &p : projected) {
@@ -119,6 +126,9 @@ Error raster(const Vector<gs_hlod::QualityProjected> &projected, const gs_hlod::
 		const int64_t x1 = MIN(domain.x0 + int64_t(domain.width), int64_t(std::ceil(p.x + p.rx)));
 		const int64_t y1 = MIN(domain.y0 + int64_t(domain.height), int64_t(std::ceil(p.y + p.ry)));
 		for (int64_t y = y0; y < y1; ++y) {
+			if ((y & 63) == 0 && gs_hlod::offline_job_check() != OK) {
+				return gs_hlod::offline_job_check();
+			}
 			const double dy = double(y) + 0.5 - p.y;
 			for (int64_t x = x0; x < x1; ++x) {
 				const double dx = double(x) + 0.5 - p.x - p.xy_over_yy * dy;
@@ -239,10 +249,18 @@ uint64_t quality_allocation_size_max()
 QualityResourceLimits quality_resource_limits()
 {
 #ifdef TESTS_ENABLED
-	return quality_test_resource_limits;
+	QualityResourceLimits limits = quality_test_resource_limits;
 #else
-	return QualityResourceLimits();
+	QualityResourceLimits limits;
 #endif
+	if (active_offline_job) {
+		const QualityResourceLimits &job = active_offline_job->metric;
+		limits.image_payload_bytes = MIN(limits.image_payload_bytes, job.image_payload_bytes);
+		limits.scratch_peak_bytes = MIN(limits.scratch_peak_bytes, job.scratch_peak_bytes);
+		limits.node_work = MIN(limits.node_work, job.node_work);
+		limits.bake_work = MIN(limits.bake_work, job.bake_work);
+	}
+	return limits;
 }
 bool quality_charge_product(uint64_t &remaining, uint64_t a, uint64_t b)
 {
@@ -597,6 +615,9 @@ Error quality_compare(const SplatSpan &reference, const SplatSpan &merged, const
 	QualityResult candidate;
 	double merged_sum = 0, selected_sum = 0;
 	for (uint32_t view = 0; view < kQualityViewCount; ++view) {
+		if (offline_job_check() != OK) {
+			return offline_job_check();
+		}
 		const Error err = compare_view_budgeted(reference, merged, selected, first, eps, view, scratch,
 		                                        candidate.views[view], node_remaining, bake_remaining);
 		if (err != OK) {
