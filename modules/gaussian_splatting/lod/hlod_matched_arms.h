@@ -28,7 +28,13 @@ namespace gs_hlod::matched_arms {
 // Predeclared, explicit resource contract. The runtime-cut oracle's own limits
 // (gs_hlod::runtime_cut::MAX_*) are NOT changed; this is a separate opt-in contract.
 struct Admission {
-	uint64_t max_total_splats = 0; // leaves + interior payload splats of the bake
+	// Leaves and interiors are capped SEPARATELY ("8M leaves plus interiors"): an 8,000,000-leaf scan must
+	// not be refused because its interiors do not fit in the leaf budget.
+	uint64_t max_leaf_splats = 0; // original splats of the bake input
+	uint64_t max_interior_splats = 0; // interior payload splats the bake produced
+	// Optional combined cap on leaves + interiors (0 = none). Only default_contract() sets it, to mirror
+	// the runtime-cut oracle's single 65,536 limit exactly.
+	uint64_t max_total_splats = 0;
 	uint32_t max_nodes = 0;
 	// Cap on capture + arms + reference bytes (payload + SH + 1 KiB/node), checked against the actual
 	// cut before any arm is allocated. Physical-memory admission is a separate, caller-side check.
@@ -36,7 +42,12 @@ struct Admission {
 
 	// Mirrors gs_hlod::runtime_cut::MAX_INPUT_SPLATS / MAX_NODES / MAX_ALLOCATION_BYTES.
 	static Admission default_contract();
-	// 8,000,000 leaves + interiors, 262,144 nodes, 12 GiB.
+	// 8,000,000 leaves + a separate 3,000,000 interior cap, 262,144 nodes, 12 GiB. Interior bound: every
+	// interior payload is <= ceil(sum of its children's payloads / 4) (the baker's winner_bound), so per
+	// level the total shrinks 4x and sum(interiors) <= L/3 + 0.75 * nodes = 2,666,667 + 196,608 = 2,863,275
+	// for L = 8,000,000 and 262,144 nodes; 3,000,000 rounds that up. A cut is <= L, so the arms
+	// (3 * cut + L reference) are at most 32M splats = 9.2 GB at SH3 (288 B/splat); with the capture of
+	// both candidates (<= 2 * 3M * 288 = 1.7 GB) and 1 KiB/node the worst case is ~11.2 GB < 12 GiB.
 	static Admission large_contract();
 };
 
@@ -112,6 +123,8 @@ Status assemble(const BakeInput &p_input, const BakeResult &p_bake, const Candid
 
 // Existing serialization route: GaussianData payload + save_resident_uncompressed.
 Status write_arm(const ArmPayload &p_arm, const ArmMeta &p_meta, const String &p_path, String &r_reason);
+// JSON-faithful metadata equality used by verify_roundtrip (ints reload as doubles; exact otherwise).
+bool metadata_json_equal(const Variant &p_a, const Variant &p_b);
 // Reloads p_path and requires bit-exact payload, SH degree/counts, 2D and AA flags, DC tags, metadata.
 Status verify_roundtrip(const ArmPayload &p_arm, const ArmMeta &p_meta, const String &p_path, String &r_reason);
 

@@ -413,25 +413,43 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODMatchedArms] bounded admission
 	CHECK(runtime_cut::MAX_NODES == 4096u);
 	CHECK(runtime_cut::MAX_ALLOCATION_BYTES == 128u * 1024u * 1024u);
 	const Admission def = Admission::default_contract();
+	CHECK(def.max_leaf_splats == runtime_cut::MAX_INPUT_SPLATS);
 	CHECK(def.max_total_splats == runtime_cut::MAX_INPUT_SPLATS);
 	CHECK(def.max_nodes == runtime_cut::MAX_NODES);
 	CHECK(def.max_bytes == runtime_cut::MAX_ALLOCATION_BYTES);
 	const Admission large = Admission::large_contract();
-	CHECK(large.max_total_splats == 8000000u);
+	CHECK(large.max_leaf_splats == 8000000u);
+	CHECK(large.max_interior_splats == 3000000u);
+	CHECK(large.max_total_splats == 0u); // leaves and interiors are capped separately
 	CHECK(large.max_nodes == 262144u);
 	CHECK(large.max_bytes == (uint64_t(12) << 30u));
 	String reason;
-	// Default contract: refuses 65,537 and accepts 65,536 total.
+	// Default contract keeps the oracle's combined 65,536: refuses 65,537 total, accepts 2,000.
 	CHECK(admit(def, 60000u, 5537u, 100u, 12u, 0u, 0u, reason) == Status::ADMISSION_REFUSED);
 	CHECK(admit(def, 1000u, 1000u, 100u, 12u, 100u, 0u, reason) == Status::OK);
-	// The 8M contract accepts exactly 8,000,000 leaves + interiors and refuses one more.
-	CHECK(admit(large, 6000000u, 2000000u, 1000u, 12u, 0u, 0u, reason) == Status::OK);
-	CHECK(admit(large, 6000000u, 2000001u, 1000u, 12u, 0u, 0u, reason) == Status::ADMISSION_REFUSED);
+	// The 8M contract: exactly 8,000,000 leaves plus a realistic interior count is admitted. The real tree
+	// shape bound is L/3 + 0.75 * nodes = 2,863,275 for L = 8M, 262,144 nodes.
+	CHECK(admit(large, 8000000u, 2863275u, 100000u, 12u, 1000000u, uint64_t(2) * 2863275u * 288u, reason) == Status::OK);
+	CHECK(admit(large, 8000000u, 2666667u, 50000u, 12u, 0u, 0u, reason) == Status::OK);
+	// Worst case cut == all leaves, full capture, SH3 still fits the 12 GiB byte cap.
+	CHECK(admit(large, 8000000u, 3000000u, 262144u, 12u, 8000000u, uint64_t(2) * 3000000u * 288u, reason) == Status::OK);
+	// One leaf more is refused, the interior cap is a separate cap, and nodes are capped.
+	CHECK(admit(large, 8000001u, 0u, 1000u, 12u, 0u, 0u, reason) == Status::ADMISSION_REFUSED);
+	CHECK(admit(large, 8000000u, 3000001u, 1000u, 12u, 0u, 0u, reason) == Status::ADMISSION_REFUSED);
 	CHECK(admit(large, 1000u, 100u, 262145u, 12u, 0u, 0u, reason) == Status::ADMISSION_REFUSED);
-	// Bytes: 8M leaves + a 8M-splat cut at SH3 (288 B/splat) is far over 12 GiB.
-	CHECK(admit(large, 8000000u, 0u, 1000u, 12u, 8000000u, 0u, reason) == Status::OK); // 9.2 GB of arms fit alone
+	// Bytes are rechecked against the new totals: SH4 (396 B/splat) full-cut arms exceed 12 GiB.
+	CHECK(admit(large, 8000000u, 100u, 1000u, 21u, 8000000u, 2000000000u, reason) == Status::ADMISSION_REFUSED);
 	CHECK(admit(large, 8000000u, 0u, 1000u, 12u, 8000000u, uint64_t(4) << 30u, reason) == Status::ADMISSION_REFUSED);
-	CHECK(admit(large, 2000000u, 600000u, 1000u, 12u, 300000u, 1u << 28u, reason) == Status::OK);
+	// Overflow-safe: hand-built caps near 2^64 are refused, never wrapped into an accept.
+	Admission huge;
+	huge.max_leaf_splats = UINT64_MAX;
+	huge.max_interior_splats = UINT64_MAX;
+	huge.max_nodes = UINT32_MAX;
+	huge.max_bytes = UINT64_MAX;
+	CHECK(admit(huge, 1u, 1u, 1u, 12u, UINT64_MAX / 2u, 0u, reason) == Status::ADMISSION_REFUSED); // 3 * cut overflows
+	CHECK(admit(huge, UINT64_MAX / 2u, 1u, 1u, 12u, 1u, 0u, reason) == Status::ADMISSION_REFUSED); // * per-splat bytes overflows
+	CHECK(admit(huge, 1u, 1u, 1u, 12u, 1u, UINT64_MAX, reason) == Status::ADMISSION_REFUSED); // + capture overflows
+	CHECK(admit(huge, 1u, 1u, 1u, 12u, 1u, 0u, reason) == Status::OK); // control: small inputs still pass
 	// An unset contract is refused; there is no implicit "unlimited".
 	CHECK(admit(Admission(), 1u, 0u, 1u, 0u, 0u, 0u, reason) == Status::ADMISSION_REFUSED);
 
@@ -450,11 +468,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODMatchedArms] bounded admission
 	Admission tight;
 	tight.max_nodes = 4096u;
 	tight.max_bytes = uint64_t(1) << 30u;
-	tight.max_total_splats = uint64_t(bake.tree.leaf_splat_count) + bake.tree.interior_splat_count - 1u;
+	tight.max_leaf_splats = bake.tree.leaf_splat_count;
+	tight.max_interior_splats = uint64_t(bake.tree.interior_splat_count) - 1u;
 	ArmSet arms;
 	CHECK(assemble(f.input, bake, capture, cut, tight, arms, reason) == Status::ADMISSION_REFUSED);
 	CHECK(arms.sat.gaussians.is_empty());
-	tight.max_total_splats += 1u;
+	tight.max_interior_splats += 1u;
 	CHECK(assemble(f.input, bake, capture, cut, tight, arms, reason) == Status::OK);
 	Admission byte_tight = tight;
 	byte_tight.max_bytes = 4096u; // far below the arm bytes
@@ -462,6 +481,26 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODMatchedArms] bounded admission
 	Admission node_tight = tight;
 	node_tight.max_nodes = bake.tree.nodes.size() - 1u;
 	CHECK(assemble(f.input, bake, capture, cut, node_tight, arms, reason) == Status::ADMISSION_REFUSED);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODMatchedArms] metadata equality is JSON-faithful but exact for integers") {
+	using namespace TestHlodMatchedArms;
+	const int64_t big = (int64_t(1) << 53) + 1; // not representable as double
+	CHECK(metadata_json_equal(Variant(int64_t(3)), Variant(3.0)));
+	CHECK(metadata_json_equal(Variant(3.0), Variant(int64_t(3))));
+	CHECK(metadata_json_equal(Variant(int64_t(1) << 53), Variant(9007199254740992.0)));
+	CHECK_FALSE(metadata_json_equal(Variant(big), Variant(9007199254740992.0))); // 2^53+1 vs 2^53
+	CHECK_FALSE(metadata_json_equal(Variant(9007199254740992.0), Variant(big)));
+	CHECK_FALSE(metadata_json_equal(Variant(int64_t(3)), Variant(3.5)));
+	CHECK_FALSE(metadata_json_equal(Variant(int64_t(3)), Variant(Math::INF)));
+	CHECK_FALSE(metadata_json_equal(Variant(int64_t(0)), Variant(Math::NaN)));
+	CHECK_FALSE(metadata_json_equal(Variant(INT64_MAX), Variant(9223372036854775808.0))); // out of int64 range
+	CHECK(metadata_json_equal(Variant(INT64_MIN), Variant(-9223372036854775808.0)));
+	CHECK(metadata_json_equal(Variant(big), Variant(big)));
+	Dictionary a, b;
+	a["n"] = big;
+	b["n"] = 9007199254740992.0;
+	CHECK_FALSE(metadata_json_equal(a, b)); // also through nesting
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODMatchedArms] every arm round-trips natively, strictly") {

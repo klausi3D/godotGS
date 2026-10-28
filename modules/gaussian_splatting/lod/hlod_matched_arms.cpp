@@ -91,7 +91,24 @@ bool metadata_equal(const Variant &p_a, const Variant &p_b) {
 	const bool a_num = p_a.get_type() == Variant::INT || p_a.get_type() == Variant::FLOAT;
 	const bool b_num = p_b.get_type() == Variant::INT || p_b.get_type() == Variant::FLOAT;
 	if (a_num || b_num) {
-		return a_num && b_num && double(p_a) == double(p_b);
+		if (!a_num || !b_num) {
+			return false;
+		}
+		const bool a_int = p_a.get_type() == Variant::INT, b_int = p_b.get_type() == Variant::INT;
+		if (a_int && b_int) {
+			return int64_t(p_a) == int64_t(p_b);
+		}
+		if (!a_int && !b_int) {
+			return double(p_a) == double(p_b);
+		}
+		// int vs double (the JSON reload turns integers into doubles): the double must be integral, inside
+		// the int64 range and convert back to exactly that integer, so 2^53+1 never equals 2^53.
+		const int64_t integer = a_int ? int64_t(p_a) : int64_t(p_b);
+		const double real = a_int ? double(p_b) : double(p_a);
+		if (!std::isfinite(real) || real != std::floor(real) || real < -9223372036854775808.0 || real >= 9223372036854775808.0) {
+			return false;
+		}
+		return int64_t(real) == integer;
 	}
 	if (p_a.get_type() != p_b.get_type()) {
 		return false;
@@ -123,6 +140,22 @@ bool metadata_equal(const Variant &p_a, const Variant &p_b) {
 	return p_a == p_b;
 }
 
+bool checked_mul(uint64_t p_a, uint64_t p_b, uint64_t &r_out) {
+	if (p_a != 0u && p_b > UINT64_MAX / p_a) {
+		return false;
+	}
+	r_out = p_a * p_b;
+	return true;
+}
+
+bool checked_add(uint64_t p_a, uint64_t p_b, uint64_t &r_out) {
+	if (p_b > UINT64_MAX - p_a) {
+		return false;
+	}
+	r_out = p_a + p_b;
+	return true;
+}
+
 bool finite3(const Vector3 &p_v) {
 	return std::isfinite(p_v.x) && std::isfinite(p_v.y) && std::isfinite(p_v.z);
 }
@@ -131,7 +164,9 @@ bool finite3(const Vector3 &p_v) {
 
 Admission Admission::default_contract() {
 	Admission a;
-	a.max_total_splats = runtime_cut::MAX_INPUT_SPLATS;
+	a.max_leaf_splats = runtime_cut::MAX_INPUT_SPLATS;
+	a.max_interior_splats = runtime_cut::MAX_INPUT_SPLATS;
+	a.max_total_splats = runtime_cut::MAX_INPUT_SPLATS; // leaves plus interiors, as the oracle bounds them
 	a.max_nodes = runtime_cut::MAX_NODES;
 	a.max_bytes = runtime_cut::MAX_ALLOCATION_BYTES;
 	return a;
@@ -139,7 +174,8 @@ Admission Admission::default_contract() {
 
 Admission Admission::large_contract() {
 	Admission a;
-	a.max_total_splats = 8000000u;
+	a.max_leaf_splats = 8000000u;
+	a.max_interior_splats = 3000000u;
 	a.max_nodes = 262144u;
 	a.max_bytes = uint64_t(12) << 30u;
 	return a;
@@ -173,12 +209,22 @@ const char *status_name(Status p_status) {
 
 Status admit(const Admission &p_contract, uint64_t p_leaf_splats, uint64_t p_interior_splats, uint64_t p_nodes,
 		uint32_t p_sh_high_order_count, uint64_t p_cut_splats, uint64_t p_capture_bytes, String &r_reason) {
-	if (p_contract.max_total_splats == 0u || p_contract.max_nodes == 0u || p_contract.max_bytes == 0u) {
+	if (p_contract.max_leaf_splats == 0u || p_contract.max_interior_splats == 0u || p_contract.max_nodes == 0u ||
+			p_contract.max_bytes == 0u) {
 		r_reason = "Admission contract is not predeclared (a zero limit).";
 		return Status::ADMISSION_REFUSED;
 	}
-	if (p_leaf_splats > p_contract.max_total_splats || p_interior_splats > p_contract.max_total_splats - p_leaf_splats) {
-		r_reason = vformat("Leaves %d + interiors %d exceed the %d-splat contract.", p_leaf_splats, p_interior_splats,
+	if (p_leaf_splats > p_contract.max_leaf_splats) {
+		r_reason = vformat("%d leaves exceed the %d-leaf contract.", p_leaf_splats, p_contract.max_leaf_splats);
+		return Status::ADMISSION_REFUSED;
+	}
+	if (p_interior_splats > p_contract.max_interior_splats) {
+		r_reason = vformat("%d interior splats exceed the %d-interior contract.", p_interior_splats, p_contract.max_interior_splats);
+		return Status::ADMISSION_REFUSED;
+	}
+	if (p_contract.max_total_splats != 0u &&
+			(p_leaf_splats > p_contract.max_total_splats || p_interior_splats > p_contract.max_total_splats - p_leaf_splats)) {
+		r_reason = vformat("Leaves %d + interiors %d exceed the %d-splat combined contract.", p_leaf_splats, p_interior_splats,
 				p_contract.max_total_splats);
 		return Status::ADMISSION_REFUSED;
 	}
@@ -187,16 +233,22 @@ Status admit(const Admission &p_contract, uint64_t p_leaf_splats, uint64_t p_int
 		return Status::ADMISSION_REFUSED;
 	}
 	// Arms: three reduced sets of p_cut_splats plus the all-leaf reference; capture already held.
-	const uint64_t per = per_splat_bytes(p_sh_high_order_count);
-	if (p_cut_splats > p_contract.max_total_splats) {
-		r_reason = vformat("Cut of %d splats exceeds the %d-splat contract.", p_cut_splats, p_contract.max_total_splats);
+	// A cut never holds more than the leaves it covers.
+	if (p_cut_splats > p_contract.max_leaf_splats) {
+		r_reason = vformat("Cut of %d splats exceeds the %d-splat leaf contract.", p_cut_splats, p_contract.max_leaf_splats);
 		return Status::ADMISSION_REFUSED;
 	}
-	const uint64_t splats = 3u * p_cut_splats + p_leaf_splats; // each term <= 8M-class: cannot overflow
-	const uint64_t bytes = splats * per;
-	const uint64_t fixed = p_nodes * 1024u + p_capture_bytes;
-	if (bytes > UINT64_MAX - fixed || bytes + fixed > p_contract.max_bytes) {
-		r_reason = vformat("Estimated %d bytes exceed the %d-byte contract.", bytes + fixed, p_contract.max_bytes);
+	// Checked arithmetic: hand-built contracts may carry arbitrary caps.
+	const uint64_t per = per_splat_bytes(p_sh_high_order_count);
+	uint64_t splats = 0, bytes = 0, fixed = 0, total = 0;
+	if (!checked_mul(3u, p_cut_splats, splats) || !checked_add(splats, p_leaf_splats, splats) ||
+			!checked_mul(splats, per, bytes) || !checked_mul(p_nodes, 1024u, fixed) ||
+			!checked_add(fixed, p_capture_bytes, fixed) || !checked_add(bytes, fixed, total)) {
+		r_reason = "Byte estimate overflowed 64 bits; refused.";
+		return Status::ADMISSION_REFUSED;
+	}
+	if (total > p_contract.max_bytes) {
+		r_reason = vformat("Estimated %d bytes exceed the %d-byte contract.", total, p_contract.max_bytes);
 		return Status::ADMISSION_REFUSED;
 	}
 	return Status::OK;
@@ -477,6 +529,10 @@ Status assemble(const BakeInput &p_input, const BakeResult &p_bake, const Candid
 		r_arms = ArmSet(); // never leave a partial arm set behind a failure
 	}
 	return status;
+}
+
+bool metadata_json_equal(const Variant &p_a, const Variant &p_b) {
+	return metadata_equal(p_a, p_b);
 }
 
 Status write_arm(const ArmPayload &p_arm, const ArmMeta &p_meta, const String &p_path, String &r_reason) {
