@@ -24,10 +24,16 @@ const SETTINGS_PREFIX := "rendering/gaussian_splatting/"
 # Camera margin (metres) grown around the AABB for the near/far clipping proof, to
 # cover splat extent beyond the centre-point AABB.
 const CLIP_PROOF_MARGIN := 5.0
-# Renderer loss/cap counters: a typed key that must exist, be an int and be 0.
-const REQUIRED_ZERO_COUNTERS := ["raster_overflow_tiles"]
-# Counters that are recorded when present and fail the arm when nonzero.
-const OPTIONAL_ZERO_COUNTERS := ["overflow_drop_events", "raster_overflow_splats", "overflow_splats_clamped", "overflow_splats_aggregated"]
+# Live loss telemetry: renderer.get_overflow_stats() (always-on async readback of the resident
+# OverflowStats SSBO, #1137). The get_render_stats() keys raster_overflow_tiles /
+# raster_overlap_records / raster_max_splats_per_tile read 0 in every frame even at 230k visible
+# splats, so they are recorded as context only and never counted as evidence of zero loss.
+# Liveness: sampled_drop_frame_serial must be > 0 and strictly advance across the stable window;
+# a counter that does not advance proves nothing. Loss: every key below must be an int == 0.
+const LIVE_SERIAL_KEY := "sampled_drop_frame_serial"
+const LIVE_ZERO_COUNTERS := ["sampled_dropped_records", "sampled_raster_truncated_tiles", "overflow_drop_events", "raster_tile_cap_drop_events", "clamped_records", "overflow_tile_count"]
+# aggregated_records is the total of attempted tile-record inserts: it must be > 0 (populated).
+const LIVE_CONTEXT_KEYS := ["raster_tile_cap", "aggregated_records"]
 const RECORDED_STAT_KEYS := [
 	"frame_count", "visible_splats", "total_splats", "sorted_splats", "stage_sort_sorted_count",
 	"stage_metrics_valid", "stage_cull_status", "stage_sort_status", "stage_raster_status",
@@ -121,10 +127,20 @@ func _sample_stats(renderer) -> Dictionary:
 	var sample: Dictionary = {}
 	for key in RECORDED_STAT_KEYS:
 		sample[key] = stats.get(key, null)
-	for key in REQUIRED_ZERO_COUNTERS + OPTIONAL_ZERO_COUNTERS:
-		sample[key] = stats.get(key, null)
+	var live: Dictionary = renderer.get_overflow_stats()
+	for key in [LIVE_SERIAL_KEY] + LIVE_ZERO_COUNTERS + LIVE_CONTEXT_KEYS:
+		sample["live_" + key] = live.get(key, null)
 	sample["rendered_content"] = renderer.has_rendered_content()
 	return sample
+
+
+func _live_advanced(window: Array) -> bool:
+	if window.size() < 2:
+		return false
+	var first = window[0].get("live_" + LIVE_SERIAL_KEY)
+	var last = window[window.size() - 1].get("live_" + LIVE_SERIAL_KEY)
+	var inserts = window[window.size() - 1].get("live_aggregated_records")
+	return typeof(first) == TYPE_INT and typeof(last) == TYPE_INT and int(first) > 0 and int(last) > int(first) and typeof(inserts) == TYPE_INT and int(inserts) > 0
 
 
 func _stages_ok(sample: Dictionary) -> bool:
@@ -303,7 +319,9 @@ func _run() -> void:
 		window.append(sample)
 		if window.size() > STABLE_FRAMES:
 			window.pop_front()
-		if window.size() == STABLE_FRAMES:
+		# The stable window must also span an advance of the live overflow readback, so the loss
+		# counters were sampled while this exact static scene was on screen.
+		if window.size() == STABLE_FRAMES and _live_advanced(window):
 			break
 	_telemetry["frames_waited"] = frames_waited
 	if window.size() != STABLE_FRAMES:
@@ -322,16 +340,17 @@ func _run() -> void:
 	_telemetry["frames"] = frames_out
 	_telemetry["distinct_frame_hashes"] = distinct_hashes.size()
 
-	# Loss / cap counters: typed, present, zero. Absence is never a pass.
-	for key in REQUIRED_ZERO_COUNTERS:
-		for s in window:
-			if typeof(s.get(key)) != TYPE_INT:
-				_fail("required typed loss counter '%s' missing or not an int" % key)
+	# Loss counters: typed, present, ADVANCING (live) and zero. Absence is never a pass.
+	if not _live_advanced(window):
+		_fail("live overflow readback did not advance across the stable window (%s): zero-loss is unproven" % JSON.stringify(window.map(func(w): return w.get("live_" + LIVE_SERIAL_KEY))))
+		return
+	for s in window:
+		for key in LIVE_ZERO_COUNTERS:
+			if typeof(s.get("live_" + key)) != TYPE_INT:
+				_fail("required live loss counter '%s' missing or not an int" % key)
 				return
-	for key in REQUIRED_ZERO_COUNTERS + OPTIONAL_ZERO_COUNTERS:
-		for s in window:
-			if s.get(key) != null and int(s[key]) != 0:
-				_fail("loss counter %s = %s (cap/drop/overflow observed)" % [key, str(s[key])])
+			if int(s["live_" + key]) != 0:
+				_fail("loss counter %s = %d (cap/drop/overflow observed)" % [key, int(s["live_" + key])])
 				return
 	for s in window:
 		if s.get("hlod_active") != false:

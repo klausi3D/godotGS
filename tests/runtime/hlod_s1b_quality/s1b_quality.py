@@ -137,6 +137,54 @@ def decide(psnr: Dict[str, Any], margin_db: float = DECISION_MARGIN_DB) -> Dict[
     }
 
 
+LIVE_ZERO_COUNTERS = ("sampled_dropped_records", "sampled_raster_truncated_tiles", "overflow_drop_events", "raster_tile_cap_drop_events", "clamped_records", "overflow_tile_count")
+LIVE_SERIAL_KEY = "sampled_drop_frame_serial"
+
+
+def live_loss_failures(name: str, telemetry: Dict[str, Any]) -> List[str]:
+    """Zero-loss evidence from the renderer's LIVE overflow readback (get_overflow_stats).
+
+    get_render_stats()'s raster_overflow_tiles / raster_overlap_records read 0 regardless of
+    load, so they prove nothing. Evidence here needs: a positive sampled_drop_frame_serial that
+    strictly advances across the stable window, and every loss counter a present int equal to 0
+    in every frame. A counter that is absent, non-int or not advancing is a failure."""
+    frames = telemetry.get("frames")
+    if not isinstance(frames, list) or len(frames) < 2:
+        return [f"{name}: no frame samples for the live loss counters"]
+    failures: List[str] = []
+    serials = [f.get("live_" + LIVE_SERIAL_KEY) for f in frames]
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in serials) or serials[0] <= 0 or serials[-1] <= serials[0]:
+        failures.append(f"{name}: live overflow readback did not advance (serials {serials}); zero loss is unproven")
+    inserts = frames[-1].get("live_aggregated_records")
+    if isinstance(inserts, bool) or not isinstance(inserts, int) or inserts <= 0:
+        failures.append(f"{name}: live tile-record total (aggregated_records) is {inserts!r}: counters unpopulated, zero loss is unproven")
+    for key in LIVE_ZERO_COUNTERS:
+        for f in frames:
+            v = f.get("live_" + key)
+            if isinstance(v, bool) or not isinstance(v, int):
+                failures.append(f"{name}: live loss counter {key} missing or not an int ({v!r})")
+                break
+            if v != 0:
+                failures.append(f"{name}: loss observed, {key}={v}")
+                break
+    return failures
+
+
+def srgb_to_linear(image: np.ndarray) -> np.ndarray:
+    c = image.astype(np.float64) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def psnr_array(a: np.ndarray, b: np.ndarray, linear: bool) -> float:
+    """Full-resolution PSNR over all channels (peak 1.0) in sRGB-encoded or linear light.
+    Informational: the gate uses BenchmarkVisualMetrics (sRGB, downsampled to <=256 px)."""
+    if a.shape != b.shape:
+        raise HarnessError(f"shape mismatch {a.shape} vs {b.shape}")
+    x, y = (srgb_to_linear(a), srgb_to_linear(b)) if linear else (a.astype(np.float64) / 255.0, b.astype(np.float64) / 255.0)
+    mse = float(np.mean((x - y) ** 2))
+    return math.inf if mse <= 0.0 else 10.0 * math.log10(1.0 / mse)
+
+
 def far_clamp_clips_nothing(min_depth: float, max_depth: float, max_corner_distance: float, near: float, far: float) -> bool:
     return (
         all(math.isfinite(v) for v in (min_depth, max_depth, max_corner_distance, near, far))
@@ -224,6 +272,7 @@ def validate_row(
             clip.get("far", math.nan),
         ):
             failures.append(f"{name}: near/far clip proof missing or failed")
+        failures.extend(live_loss_failures(name, t))
     if failures and any(f.endswith("no telemetry (missing arm or render did not run)") for f in failures):
         return failures
     good = {n: telemetry[n] for n in names if isinstance(telemetry.get(n), dict) and telemetry[n].get("status") == "ok"}
@@ -337,19 +386,19 @@ def wait_for_idle_gpu(max_wait_s: float, util_limit: int = 30) -> None:
         time.sleep(15)
 
 
-def run_godot(godot: Path, extra: Sequence[str], timeout_s: float) -> subprocess.CompletedProcess:
-    cmd = [str(godot), "--path", str(HERE), *extra]
+def run_godot(godot: Path, extra: Sequence[str], timeout_s: float, project: Optional[Path] = None) -> subprocess.CompletedProcess:
+    cmd = [str(godot), "--path", str(project or HERE), *extra]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)
 
 
-def render_world(godot: Path, world: Path, entry: Dict[str, Any], camera: Dict[str, Any], out_dir: Path, name: str, timeout_s: float) -> Dict[str, Any]:
+def render_world(godot: Path, world: Path, entry: Dict[str, Any], camera: Dict[str, Any], out_dir: Path, name: str, timeout_s: float, settings: Optional[Dict[str, Any]] = None, project: Optional[Path] = None) -> Dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     job = {
         "world": str(world).replace("\\", "/"),
         "expected_sha256": entry["sha256"],
         "expected_splats": entry["splats"],
         "camera": camera,
-        "project_settings": PINNED_SETTINGS,
+        "project_settings": settings if settings is not None else PINNED_SETTINGS,
         "out_png": str(out_dir / f"{name}.png").replace("\\", "/"),
         "out_json": str(out_dir / f"{name}.telemetry.json").replace("\\", "/"),
     }
@@ -358,7 +407,7 @@ def render_world(godot: Path, world: Path, entry: Dict[str, Any], camera: Dict[s
     tel_path = Path(job["out_json"])
     if tel_path.exists():
         tel_path.unlink()
-    proc = run_godot(godot, ["--script", "s1b_render_arm.gd", "--", f"--job={str(job_path).replace(chr(92), '/')}"], timeout_s)
+    proc = run_godot(godot, ["--script", "s1b_render_arm.gd", "--", f"--job={str(job_path).replace(chr(92), '/')}"], timeout_s, project)
     (out_dir / f"{name}.stdout.log").write_text(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
     if tel_path.exists():
         telemetry = json.loads(tel_path.read_text())
@@ -416,7 +465,63 @@ def perturb(image: np.ndarray, shift_px: int = 3) -> np.ndarray:
     return np.roll(image, shift_px, axis=1)
 
 
-def run_row(godot: Path, export_dir: Path, views: Dict[str, Any], row_dir_name: str, out_root: Path, far_clamp: float, wait_s: float, timeout_s: float) -> Dict[str, Any]:
+def cut_decisions(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Per-interior-node decision and the baker's recorded errors, from the exporter manifest."""
+    out = []
+    for node in manifest.get("cut", []):
+        if node.get("kind") == "leaf":
+            continue
+        out.append(
+            {
+                "node": node.get("node"),
+                "decision": node.get("kind"),
+                "candidate_count": node.get("candidate_count"),
+                "error_chosen": node.get("error_chosen"),
+                "error_rejected": node.get("error_rejected"),
+            }
+        )
+    return out
+
+
+def live_loss_summary(telemetry: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not telemetry or not telemetry.get("frames"):
+        return None
+    frames = telemetry["frames"]
+    keys = [LIVE_SERIAL_KEY, *LIVE_ZERO_COUNTERS, "raster_tile_cap", "aggregated_records"]
+    return {
+        "serial_first": frames[0].get("live_" + LIVE_SERIAL_KEY),
+        "serial_last": frames[-1].get("live_" + LIVE_SERIAL_KEY),
+        **{k: frames[-1].get("live_" + k) for k in keys[1:]},
+        "visible_splats": frames[-1].get("visible_splats"),
+        "stale_render_stats_context": {
+            k: frames[-1].get(k) for k in ("raster_overflow_tiles", "raster_overlap_records", "raster_max_splats_per_tile")
+        },
+    }
+
+
+def run_loss_control(godot: Path, export_dir: Path, camera: Dict[str, Any], out_root: Path, timeout_s: float) -> Dict[str, Any]:
+    """Prove the live loss counters can move: render the full reference with the per-tile raster
+    cap forced to the 256-record minimum. It must be reported as loss (render fails closed with nonzero
+    counters). If it renders clean, the counters are unpopulated and zero-loss claims are void."""
+    world = export_dir / "reference.gsplatworld"
+    out_dir = out_root / "control_forced_cap"
+    entry = {"sha256": sha256_file(world), "splats": 0}
+    # expected splat count comes from the normal reference telemetry of the same run
+    ref_tel = json.loads((out_root / "_reference_count.json").read_text())
+    entry["splats"] = ref_tel["splats"]
+    # The sorting config is read when the project loads, not from a later set_setting, so the
+    # cap is forced through a throwaway copy of the harness project (settings_changed does not
+    # re-read it: first attempt left raster_tile_cap at 12288).
+    project = out_dir / "project"
+    project.mkdir(parents=True, exist_ok=True)
+    shutil.copy(HERE / "s1b_render_arm.gd", project / "s1b_render_arm.gd")
+    text = (HERE / "project.godot").read_text()
+    text += "\n[rendering]\n\ngaussian_splatting/gpu_sorting/max_raster_splats_per_tile=256\n"
+    (project / "project.godot").write_text(text)
+    return render_world(godot, world, entry, camera, out_dir, "reference_cap256", timeout_s, dict(PINNED_SETTINGS), project)
+
+
+def run_row(godot: Path, export_dir: Path, views: Dict[str, Any], row_dir_name: str, out_root: Path, far_clamp: float, wait_s: float, timeout_s: float, loss_control: bool = False) -> Dict[str, Any]:
     row_src = export_dir / row_dir_name
     manifest = json.loads((row_src / "manifest.json").read_text())
     row_id = manifest["id"]
@@ -460,9 +565,12 @@ def run_row(godot: Path, export_dir: Path, views: Dict[str, Any], row_dir_name: 
         "sh_degree": (telemetry.get(REFERENCE) or {}).get("sh_degree"),
         "far_clamp": far_clamp,
         "frozen_far": views["camera_rule"]["far"],
+        "_camera": camera,
         "files": {n: (manifest["files"].get(n) or {}) for n in (REFERENCE,) + ARMS},
         "drawn": {n: (telemetry[n] or {}).get("drawn") for n in (REFERENCE,) + ARMS},
         "validation_failures": failures,
+        "decisions": cut_decisions(manifest),
+        "live_loss_counters": {n: live_loss_summary(telemetry.get(n)) for n in (REFERENCE,) + ARMS},
     }
     # The three arms are expected to share sha when the choice made the same selection
     # everywhere (e.g. S1b picked SAT everywhere); recorded, not a defect.
@@ -487,6 +595,17 @@ def run_row(godot: Path, export_dir: Path, views: Dict[str, Any], row_dir_name: 
     if roi is not None:
         scores = score_set(godot, row_out, "real", reference, arm_images, roi)
         result["scores"] = {a: {"psnr": scores[a]["psnr"], "ssim": scores[a]["ssim"], "ssim_valid": scores[a]["ssim_valid"]} for a in ARMS}
+        crops = {n: crop(images[n], roi) for n in (REFERENCE,) + ARMS}
+        np_srgb = {a: psnr_array(crops[REFERENCE], crops[a], False) for a in ARMS}
+        np_lin = {a: psnr_array(crops[REFERENCE], crops[a], True) for a in ARMS}
+        result["psnr_by_color_space"] = {
+            "gate": "srgb_benchmark_visual_metrics",
+            "srgb_gate": {a: scores[a]["psnr"] for a in ARMS},
+            "srgb_numpy_fullres": np_srgb,
+            "linear_numpy_fullres": np_lin,
+            "linear_rule_informational": decide(np_lin),
+            "srgb_numpy_rule_informational": decide(np_srgb),
+        }
         result["exact_pixel_identity_vs_reference"] = {a: bool(np.array_equal(reference, arm_images[a])) for a in ARMS}
         result["changed_pixels_vs_reference"] = {a: int(changed_mask(reference, arm_images[a]).sum()) for a in ARMS}
     result["verdict"] = row_verdict([], reference, arm_images, scores)
@@ -550,7 +669,30 @@ def main() -> int:
     if not rows:
         raise HarnessError("no rows in export")
 
-    results = [run_row(args.godot, args.export_dir, views, r, args.out, args.far, args.wait_idle_s, args.render_timeout_s) for r in rows]
+    results = []
+    for index, r in enumerate(rows):
+        results.append(run_row(args.godot, args.export_dir, views, r, args.out, args.far, args.wait_idle_s, args.render_timeout_s))
+        if index == 0:
+            results[0]["loss_control_forced_cap"] = None
+            ref = results[0]["files"][REFERENCE]
+            (args.out / "_reference_count.json").write_text(json.dumps({"splats": ref.get("splats")}))
+            wait_for_idle_gpu(args.wait_idle_s)
+            tel = run_loss_control(args.godot, args.export_dir, results[0]["_camera"], args.out, args.render_timeout_s)
+            frames = tel.get("frames") or []
+            last = frames[-1] if frames else {}
+            detected = tel.get("status") == "failed" and any(
+                int(last.get("live_" + k) or 0) > 0 for k in LIVE_ZERO_COUNTERS
+            )
+            results[0]["loss_control_forced_cap"] = {
+                "setting": "gpu_sorting/max_raster_splats_per_tile=256",
+                "render_status": tel.get("status"),
+                "reason": tel.get("reason"),
+                "live_counters": live_loss_summary(tel),
+                "loss_detected": bool(detected),
+                "expected": "loss_detected true: the live counters can move",
+            }
+            if not detected:
+                raise HarnessError("forced-cap control did not register loss: live loss counters are not trustworthy")
 
     verdicts = [r["verdict"]["verdict"] for r in results]
     summary = {

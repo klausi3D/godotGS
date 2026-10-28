@@ -145,6 +145,19 @@ def good_view():
     }
 
 
+def live_frame(serial):
+    return {
+        "live_sampled_drop_frame_serial": serial,
+        "live_sampled_dropped_records": 0,
+        "live_sampled_raster_truncated_tiles": 0,
+        "live_overflow_drop_events": 0,
+        "live_raster_tile_cap_drop_events": 0,
+        "live_clamped_records": 0,
+        "live_overflow_tile_count": 0,
+        "live_aggregated_records": 123456,
+    }
+
+
 def good_telemetry(manifest, view, far=1000.0):
     def one(name):
         n = manifest["files"][name]["splats"]
@@ -167,6 +180,7 @@ def good_telemetry(manifest, view, far=1000.0):
             "project_settings": {"a": "1"},
             "engine_version": {"hash": "abc"},
             "adapter": "gpu0",
+            "frames": [live_frame(100 + 2 * i) for i in range(4)],
         }
 
     return {name: one(name) for name in ("reference",) + q.ARMS}
@@ -296,6 +310,68 @@ class ValidateRowGuards(unittest.TestCase):
         self.tel = good_telemetry(self.manifest, self.view)
         del self.tel["reference"]["clip_proof"]
         self.assertFires(self.check(), "clip proof")
+
+
+class LiveLoss(unittest.TestCase):
+    def tel(self, serials=(100, 102, 104, 106)):
+        return {"frames": [live_frame(v) for v in serials]}
+
+    def test_clean_and_advancing_passes(self):
+        self.assertEqual(q.live_loss_failures("x", self.tel()), [])
+
+    def test_non_advancing_or_unpopulated_serial_is_unproven_not_zero(self):
+        for serials in ((100, 100, 100, 100), (0, 0, 0, 0), (100, 99, 98, 97)):
+            f = q.live_loss_failures("x", self.tel(serials))
+            self.assertTrue(any("did not advance" in m for m in f), serials)
+        t = self.tel()
+        t["frames"][0]["live_sampled_drop_frame_serial"] = None
+        self.assertTrue(q.live_loss_failures("x", t))
+
+    def test_each_counter_nonzero_missing_or_wrong_type_fails(self):
+        for key in q.LIVE_ZERO_COUNTERS:
+            for bad in (1, None, "0", 0.0):
+                t = self.tel()
+                t["frames"][2]["live_" + key] = bad
+                f = q.live_loss_failures("x", t)
+                self.assertTrue(any(key in m for m in f), (key, bad, f))
+            t = self.tel()
+            del t["frames"][1]["live_" + key]
+            self.assertTrue(any(key in m for m in q.live_loss_failures("x", t)))
+
+    def test_unpopulated_tile_record_total_is_unproven(self):
+        for bad in (0, None):
+            t = self.tel()
+            t["frames"][-1]["live_aggregated_records"] = bad
+            self.assertTrue(any("unpopulated" in m for m in q.live_loss_failures("x", t)), bad)
+
+    def test_no_frames_fails(self):
+        self.assertTrue(q.live_loss_failures("x", {}))
+        self.assertTrue(q.live_loss_failures("x", {"frames": [live_frame(1)]}))
+
+    def test_validate_row_applies_it(self):
+        manifest, view = good_manifest(), good_view()
+        tel = good_telemetry(manifest, view)
+        tel["a_area"]["frames"][3]["live_sampled_dropped_records"] = 7
+        self.assertTrue(any("loss observed" in f for f in q.validate_row(manifest, view, tel, 1000.0)))
+
+
+class ColorSpace(unittest.TestCase):
+    def test_identical_is_infinite(self):
+        a = np.full((20, 20, 3), 90, np.uint8)
+        self.assertEqual(q.psnr_array(a, a.copy(), True), float("inf"))
+
+    def test_srgb_known_value(self):
+        a = np.zeros((10, 10, 3), np.uint8)
+        b = a + 51  # 0.2 error everywhere -> mse 0.04 -> 13.98 dB
+        self.assertAlmostEqual(q.psnr_array(a, b, False), 13.9794, places=3)
+
+    def test_linear_light_differs_and_is_correct(self):
+        a = np.zeros((10, 10, 3), np.uint8)
+        b = a + 255
+        self.assertAlmostEqual(q.psnr_array(a, b, True), 0.0, places=6)  # linear 1.0 error
+        c = a + 128  # sRGB 128 -> linear 0.2158
+        self.assertAlmostEqual(q.psnr_array(a, c, True), -20 * np.log10(0.21586), places=2)
+        self.assertNotAlmostEqual(q.psnr_array(a, c, True), q.psnr_array(a, c, False), places=1)
 
 
 class Clip(unittest.TestCase):
