@@ -128,7 +128,7 @@ static uint64_t vb_independent(uint32_t p_instances = 1) {
 	allocation_bytes(7, sizeof(uint32_t), ranks);
 	(void)node_alloc;
 	const uint64_t draw_capacity = std::min<uint64_t>(8, 7ull * p_instances);
-	return 400 + 1000 + 128 + 2 * draw_capacity * sizeof(DrawRecord) +
+	return 400 + 1000 + 128 + draw_capacity * (2 * sizeof(DrawRecord) + sizeof(DesiredRecord)) +
 			p_instances * (CutHistory::workspace_bytes(7) + ranks);
 }
 
@@ -559,7 +559,7 @@ TEST_CASE("[GaussianSplatting][HLOD] view set charges real allocated bytes: cut 
 	CHECK(vb(1) == vb_independent(1));
 	CHECK(vb(2) == vb_independent(2));
 	auto tree = make_tree(IDENT);
-	const uint64_t storage = 2 * 7 * sizeof(DrawRecord);
+	const uint64_t storage = 7 * (2 * sizeof(DrawRecord) + sizeof(DesiredRecord));
 	const uint64_t history = ViewSet::slot_bytes(7);
 	CHECK(history > CutHistory::workspace_bytes(7)); // Tie ranks are part of the slot.
 	// The GPU-side figure (all the first version charged) plus draw storage still leaves the history out: refused.
@@ -1242,5 +1242,102 @@ TEST_CASE("[GaussianSplatting][HLOD] the reusable snapshot releases its runtime 
 	mgr.release_hlod_snapshot_data();
 	CHECK(snap.assets[0].data.is_null());
 	CHECK(tree->get_reference_count() == 1);
+}
+
+static Vector<uint32_t> desired_of(const ViewSet &p_set, uint64_t p_view) {
+	Vector<uint32_t> out;
+	uint32_t n = 0;
+	const DesiredRecord *r = p_set.desired(p_view, n);
+	for (uint32_t i = 0; i < n && r; ++i) { out.push_back(r[i].node); }
+	return out;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] Desired(view) lists missing nodes as demand only, also while the view is loading") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree);
+	ViewSet set;
+	const ViewSpec view = perspective(1);
+	CHECK(set.admit_view(snap, view).status == ViewSet::ADMITTED);
+	snap.views.push_back(view);
+	Vector<ViewSet::ViewResult> results;
+	// Nothing resident: the root is the demand, the view is loading and publishes no draw record.
+	Vector<uint8_t> resident;
+	resident.resize(7);
+	resident.fill(0);
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	const auto *a = result_of(results, 1);
+	if (!a) { FAIL("view result missing"); return; }
+	CHECK(a->readiness == ViewSet::LOADING);
+	CHECK(a->desired_count == 1);
+	CHECK(same(desired_of(set, 1), { 0 }));
+	uint32_t drawn = 0;
+	CHECK(set.drawn(1, drawn) == nullptr);
+	// Root resident: the view is ready with the root alone, and demand is the root's whole child group.
+	resident.write[0] = 1;
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	a = result_of(results, 1);
+	CHECK(a->readiness == ViewSet::READY);
+	CHECK(same(nodes_of(set, 1), { 0 }));
+	CHECK(same(desired_of(set, 1), { 1, 2 }));
+	// One child arrives: the cut does not move (no partial replacement), only the missing one is demanded.
+	resident.write[1] = 1;
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	CHECK(same(nodes_of(set, 1), { 0 }));
+	CHECK(same(desired_of(set, 1), { 2 }));
+	// The whole group arrived: replaced, and the next group is demanded (children of 1 and 2).
+	resident.write[2] = 1;
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	CHECK(same(nodes_of(set, 1), { 1, 2 }));
+	CHECK(desired_of(set, 1).size() == 4);
+	// Everything resident: the cut is the leaves and nothing is demanded.
+	snap.assets.write[0].resident = Vector<uint8_t>();
+	run(set, snap, results);
+	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
+	CHECK(desired_of(set, 1).size() == 0);
+}
+TEST_CASE("[GaussianSplatting][HLOD] Desired(view) separates the nodes to request from the resident frontier to keep") {
+	auto tree = make_tree(IDENT);
+	tree->nodes.write[0].topology.payload_count = 100;
+	tree->nodes.write[0].topology.radius = 50.0f;
+	for (int i = 1; i < 3; ++i) { tree->nodes.write[i].topology.payload_count = 40; }
+	auto snap = snapshot(tree);
+	snap.instances.write[0].caps = caps(45, 7, 1000);
+	ViewSpec inside = perspective(1);
+	inside.camera = Vector3(0, 0, 0);
+	inside.tau_pixels = 1e9;
+	inside.caps = caps(45, 7, 1000);
+	ViewSet set;
+	CHECK(set.admit_view(snap, inside).status == ViewSet::ADMITTED);
+	snap.views.push_back(inside);
+	Vector<uint8_t> resident;
+	resident.resize(7);
+	resident.fill(1);
+	resident.write[5] = 0;
+	resident.write[6] = 0;
+	snap.assets.write[0].resident = resident;
+	Vector<ViewSet::ViewResult> results;
+	run(set, snap, results);
+	const auto *a = result_of(results, 1);
+	if (!a) { FAIL("view result missing"); return; }
+	CHECK(a->readiness == ViewSet::LOADING);
+	CHECK(a->worst_status == CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
+	uint32_t count = 0;
+	const DesiredRecord *want = set.desired(1, count);
+	if (!want || count != 5) { FAIL("expected 5 desired records, got ", count); return; }
+	Vector<uint32_t> request, keep;
+	for (uint32_t i = 0; i < count; ++i) { (want[i].keep ? keep : request).push_back(want[i].node); }
+	CHECK(same(request, { 5, 6 }));
+	keep.sort();
+	CHECK(same(keep, { 2, 3, 4 }));
+	CHECK(count == a->desired_count);
+	// Complete frontier: nothing to request or keep.
+	snap.assets.write[0].resident = Vector<uint8_t>();
+	run(set, snap, results);
+	CHECK(set.desired(1, count) == nullptr);
+	CHECK(count == 0);
 }
 }

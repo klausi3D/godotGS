@@ -58,6 +58,21 @@ public:
 	};
 	bool reserve(uint32_t p_nodes);
 	void invalidate();
+	// Desired(view) (ADR 14.1), ordered by the selector's own refinement priority (highest first): the
+	// non-resident visible children of every parent whose replacement the quality rule asked for and whose
+	// whole transition fits every cap, plus the root when it is not resident. Children of one parent are
+	// consecutive. This is demand only: a listed node is never drawable until the residency layer reports it
+	// resident, and the selector itself refines a parent only when every visible child is resident.
+	// Valid until the next select(); preallocated, so select() still never allocates.
+	uint32_t demand_count() const { return demand_size; }
+	uint32_t demand_node(uint32_t p_index) const { return demand[p_index]; }
+	// BOOTSTRAP_MISSING_RESIDENCY only: the resident part of the frontier the bootstrap had reached when it ran
+	// out of residency (nodes the quality rule wants kept, already resident). It is not a cut and is never
+	// drawn, but the residency layer must not evict it while the rest of the frontier loads: a complete group
+	// is not in demand (nothing is missing), yet discarding it would undo the work every frame.
+	// Valid until the next select(); 0 for every other status.
+	uint32_t partial_frontier_count() const { return partial_size; }
+	uint32_t partial_frontier_node(uint32_t p_index) const { return selected[p_index]; }
 	Result select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request);
 	uint32_t selected_node(uint32_t p_index) const { return selected[p_index]; }
 	uint64_t allocated_bytes() const;
@@ -70,6 +85,9 @@ private:
 	Vector<uint32_t> selected;
 	Vector<uint32_t> selected_position;
 	Vector<uint64_t> refined;
+	Vector<uint32_t> demand;
+	uint32_t demand_size = 0;
+	uint32_t partial_size = 0;
 	uint64_t epoch = 0;
 	uint32_t capacity = 0;
 };

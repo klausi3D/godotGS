@@ -919,6 +919,8 @@ public:
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
     bool is_hlod_prepared_contract_current() const;
     bool publish_hlod_bundle(bool p_relative);
+    // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
+    bool idle_hlod_streaming_bundle();
 
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,

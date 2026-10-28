@@ -1489,6 +1489,37 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	// the atlas was thinned by importance to fit the device VRAM budget; surfaced so the
 	// degradation is observable in the residency HUD / debug stats rather than silent.
     stats["hlod_active"] = resource_state.hlod_frame_active;
+    // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
+    stats["hlod_streaming"] = resource_state.hlod_streaming;
+    if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
+        const HlodNodeStreamer::Telemetry &t = resource_state.hlod_streamer->get_telemetry();
+        stats["hlod_stream_frames"] = int64_t(resource_state.hlod_stream_frames);
+        stats["hlod_stream_ready_frames"] = resource_state.hlod_stream_ready_frames;
+        stats["hlod_stream_loading_frames"] = resource_state.hlod_stream_loading_frames;
+        stats["hlod_stream_first_ready_frame"] = resource_state.hlod_stream_first_ready_frame;
+        stats["hlod_stream_nonresident_drawn"] = resource_state.hlod_stream_nonresident_drawn;
+        stats["hlod_stream_desired_nodes"] = t.desired;
+        stats["hlod_stream_resident_nodes"] = t.resident;
+        stats["hlod_stream_loading_nodes"] = t.loading;
+        stats["hlod_stream_failed_nodes"] = t.failed;
+        stats["hlod_stream_permanently_failed_nodes"] = t.permanently_failed;
+        stats["hlod_stream_drawn_nodes"] = t.drawn;
+        stats["hlod_stream_requested_this_frame"] = t.requested_this_frame;
+        stats["hlod_stream_uploaded_this_frame"] = t.uploaded_this_frame;
+        stats["hlod_stream_uploaded_bytes_this_frame"] = int64_t(t.uploaded_bytes_this_frame);
+        stats["hlod_stream_uploaded_bytes_total"] = int64_t(t.uploaded_bytes_total);
+        stats["hlod_stream_pages_capacity"] = t.pages_capacity;
+        stats["hlod_stream_pages_resident"] = t.pages_resident;
+        stats["hlod_stream_pages_in_flight"] = t.pages_in_flight;
+        stats["hlod_stream_pages_retiring"] = t.pages_retiring;
+        stats["hlod_stream_atlas_records"] = resource_state.hlod_stream_atlas_records;
+        stats["hlod_stream_late_dropped_total"] = int64_t(t.late_dropped_total);
+        stats["hlod_stream_cancelled_total"] = int64_t(t.cancelled_total);
+        stats["hlod_stream_evicted_total"] = int64_t(t.evicted_total);
+        stats["hlod_stream_failed_total"] = int64_t(t.failed_total);
+        stats["hlod_stream_skipped_groups_total"] = int64_t(t.skipped_groups_total);
+        stats["hlod_stream_stall_frames"] = t.stall_frames;
+    }
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
     stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;

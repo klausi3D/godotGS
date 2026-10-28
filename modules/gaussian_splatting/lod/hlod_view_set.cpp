@@ -147,11 +147,11 @@ bool ViewSet::view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uin
 		uint64_t p_draw_capacity, uint64_t &r_bytes) {
 	if (!caps_valid(p_caps)) { return false; }
 	uint64_t sort = 0, records = 0, draw = 0, storage = 0, sum = 0;
-	// Published plus staging draw records are both allocated up front.
+	// Published plus staging draw records and the desired list are all allocated up front.
 	if (!mul_u64(p_caps.splat_budget, p_budget.sort_bytes_per_splat, sort) ||
 			!mul_u64(uint64_t(std::ceil(p_caps.record_budget)), p_budget.record_bytes_per_record, records) ||
 			!mul_u64(p_caps.node_budget, p_budget.draw_bytes_per_node, draw) ||
-			!mul_u64(p_draw_capacity, 2 * sizeof(DrawRecord), storage) || !add_u64(sort, records, sum) ||
+			!mul_u64(p_draw_capacity, 2 * sizeof(DrawRecord) + sizeof(DesiredRecord), storage) || !add_u64(sort, records, sum) ||
 			!add_u64(sum, draw, sum) || !add_u64(sum, storage, sum) || !add_u64(sum, p_history_bytes, sum)) {
 		return false;
 	}
@@ -369,6 +369,7 @@ ViewSet::AdmitResult ViewSet::admit_view(const SelectionSnapshot &p_snapshot, co
 	build_order(p_snapshot);
 	if (!prepare_slots(view, p_snapshot) || !gs_resize_or_fail(view.drawn, draw_capacity, "HLOD view draw records") ||
 			!gs_resize_or_fail(view.staging, draw_capacity, "HLOD view draw staging") ||
+			!gs_resize_or_fail(view.desired, draw_capacity, "HLOD view desired records") ||
 			(uint32_t(result_store.size()) < uint32_t(views.size()) + 1 &&
 					!gs_resize_or_fail(result_store, views.size() + 1, "HLOD view results"))) {
 		out.status = REFUSED_RESOURCES;
@@ -408,6 +409,17 @@ const DrawRecord *ViewSet::drawn(uint64_t p_view_key, uint32_t &r_count) const {
 	return nullptr;
 }
 
+const DesiredRecord *ViewSet::desired(uint64_t p_view_key, uint32_t &r_count) const {
+	r_count = 0;
+	for (int i = 0; i < views.size(); ++i) {
+		if (views[i].view_key == p_view_key) {
+			r_count = views[i].desired_count;
+			return r_count ? views[i].desired.ptr() : nullptr;
+		}
+	}
+	return nullptr;
+}
+
 uint64_t ViewSet::drawn_origin_revision(uint64_t p_view_key) const {
 	for (int i = 0; i < views.size(); ++i) {
 		if (views[i].view_key == p_view_key) { return views[i].ready ? views[i].drawn_origin_revision : 0; }
@@ -421,7 +433,8 @@ uint64_t ViewSet::allocated_bytes() const {
 	for (int c = 0; c < rank_cache.size(); ++c) { bytes += uint64_t(rank_cache[c].rank.size()) * sizeof(uint32_t); }
 	for (int v = 0; v < views.size(); ++v) {
 		const View &view = views[v];
-		bytes += uint64_t(view.drawn.size() + view.staging.size()) * sizeof(DrawRecord);
+		bytes += uint64_t(view.drawn.size() + view.staging.size()) * sizeof(DrawRecord) +
+				uint64_t(view.desired.size()) * sizeof(DesiredRecord);
 		for (int s = 0; s < view.slots.size(); ++s) {
 			bytes += view.slots[s].history.allocated_bytes();
 		}
@@ -454,6 +467,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 		result.view_key = view.view_key;
 		result.draw_generation = view.draw_generation;
 		view.ready = false; // Re-established only by a READY outcome below.
+		view.desired_count = 0; // Demand is per selection; a view that is not selected has none.
 		if (view.origin_revision != p_snapshot.origin_revision) {
 			// The frame moved: every history and the published draw set belong to the old offsets. Drop them
 			// before anything is selected; the published set is replaced only by a complete selection below.
@@ -534,6 +548,21 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.visited_nodes += cut.visited_nodes;
 			result.estimated_records += cut.estimated_records;
 			result.budget_bound = result.budget_bound || cut.budget_bound;
+			for (uint32_t k = 0; k < slot.history.demand_count(); ++k) {
+				if (view.desired_count >= uint32_t(view.desired.size())) { result.desired_truncated = true; break; }
+				DesiredRecord &want = view.desired.write[view.desired_count++];
+				want.instance_key = inst.instance_key;
+				want.node = slot.history.demand_node(k);
+				want.keep = false;
+			}
+			for (uint32_t k = 0; k < slot.history.partial_frontier_count(); ++k) {
+				if (view.desired_count >= uint32_t(view.desired.size())) { result.desired_truncated = true; break; }
+				DesiredRecord &want = view.desired.write[view.desired_count++];
+				want.instance_key = inst.instance_key;
+				want.node = slot.history.partial_frontier_node(k);
+				want.keep = true;
+			}
+			result.desired_count = view.desired_count;
 			switch (cut.status) {
 				case CutHistory::COMPLETE:
 				case CutHistory::EMPTY:

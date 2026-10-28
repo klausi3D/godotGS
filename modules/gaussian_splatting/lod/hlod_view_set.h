@@ -140,6 +140,19 @@ struct DrawRecord {
 	Vector3 camera_offset;
 };
 
+// Desired(view), demand only (ADR 14.1): a node the quality rule wants resident that is not. It carries no
+// atlas address and never makes anything drawable; the residency layer decides what is requested and when a
+// node counts as resident-ready. Ordered by the selector's refinement priority (highest first), children of
+// one parent consecutive.
+struct DesiredRecord {
+	uint64_t instance_key = 0;
+	uint32_t node = 0; // Index into the asset's node table; valid only for this snapshot.
+	// false: a node the view wants and does not have (request it). true: a node that is already resident and is
+	// part of the target the view is building (the resident part of an incomplete bootstrap frontier): keep it,
+	// do not request it.
+	bool keep = false;
+};
+
 class ViewSet {
 public:
 	enum AdmitStatus {
@@ -180,6 +193,10 @@ public:
 		// storage), or the shared budget no longer holds; nothing was selected or published for this view.
 		// The caller must re-admit the view against the new snapshot.
 		bool reservation_exceeded = false;
+		// Number of Desired(view) records produced by this selection (see desired()), including for a LOADING
+		// view, and whether lowest-priority demand was dropped because the view's reserved storage was full.
+		uint32_t desired_count = 0;
+		bool desired_truncated = false;
 	};
 	enum SnapshotStatus {
 		SNAPSHOT_OK,
@@ -213,6 +230,10 @@ public:
 	// independent of node-array order. Count is 0 (and the pointer null) unless the view's last selection
 	// was READY, so a stale set can never be mistaken for current coverage.
 	const DrawRecord *drawn(uint64_t p_view_key, uint32_t &r_count) const;
+	// Desired(view) of the last select(): non-resident nodes the quality rule wants. Unlike drawn() it is also
+	// available while the view is LOADING (that is when it matters). Count 0 and null for an unknown view or
+	// when the view was not selected. Valid until the next select/admit/remove.
+	const DesiredRecord *desired(uint64_t p_view_key, uint32_t &r_count) const;
 	// Origin revision every record of the view's published draw set was computed against (0 when none).
 	uint64_t drawn_origin_revision(uint64_t p_view_key) const;
 
@@ -248,6 +269,8 @@ private:
 		Vector<InstanceSlot> slots;
 		Vector<DrawRecord> drawn;
 		Vector<DrawRecord> staging;
+		Vector<DesiredRecord> desired;
+		uint32_t desired_count = 0;
 		uint32_t drawn_count = 0;
 		uint64_t draw_generation = 0;
 		uint64_t origin_revision = 0; // Frame revision of the slots' histories.
