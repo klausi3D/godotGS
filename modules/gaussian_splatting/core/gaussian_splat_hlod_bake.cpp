@@ -565,6 +565,19 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	if (!resize_or_fail(tree.nodes, node_count, "gs_hlod::bake_world nodes")) {
 		return false;
 	}
+#ifdef TESTS_ENABLED
+	if (p_params.capture) {
+		p_params.capture->nodes.clear();
+		p_params.capture->captured_bytes = 0u;
+		p_params.capture->captured_nodes = 0u;
+		if (!quality_selection || p_params.capture->max_bytes == 0u) {
+			return fail("Candidate capture needs QUALITY_SELECTION and an explicit nonzero byte cap.");
+		}
+		if (!resize_or_fail(p_params.capture->nodes, node_count, "gs_hlod::bake_world capture nodes")) {
+			return false;
+		}
+	}
+#endif
 	for (uint32_t i = 0; i < node_count; i++) {
 		const BuildNode &b = build[bfs[i]];
 		GaussianSplatHlodNode &node = tree.nodes[i];
@@ -784,6 +797,28 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 					                    quality_error),
 					            quality_error);
 				}
+#ifdef TESTS_ENABLED
+				if (CandidateCapture *capture = p_params.capture) {
+					// Charge BEFORE copying: both candidates, payload plus SH, checked arithmetic.
+					const uint64_t per_splat = sizeof(Gaussian) + uint64_t(sh_count) * sizeof(Vector3);
+					const uint64_t splats = uint64_t(interior_result.payload.size()) + uint64_t(selected.size());
+					if (per_splat != 0u && splats > (UINT64_MAX - capture->captured_bytes) / per_splat) {
+						return fail("Candidate capture byte accounting overflowed.", ERR_OUT_OF_MEMORY);
+					}
+					const uint64_t charge = splats * per_splat;
+					if (capture->captured_bytes + charge > capture->max_bytes) {
+						return fail(vformat("Candidate capture exceeds its %d byte cap at node %d.", capture->max_bytes, i),
+						            ERR_OUT_OF_MEMORY);
+					}
+					CandidateCapture::Node &kept = capture->nodes[i];
+					kept.sat = interior_result.payload; // deep copy: the baker may still move the original
+					kept.area = selected;               // shares the COW buffers; the baker may move its handle
+					kept.use_merged = quality.use_merged;
+					kept.captured = true;
+					capture->captured_bytes += charge;
+					++capture->captured_nodes;
+				}
+#endif
 				chosen.use_selected = !quality.use_merged;
 				if (quality.use_merged) {
 					chosen.merged = std::move(interior_result.payload);
