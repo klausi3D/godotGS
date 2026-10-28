@@ -2,6 +2,7 @@
 
 #include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "gaussian_splat_renderer.h"
+#include "hlod_drawn_node.h"
 #include "render_debug_state_orchestrator.h"
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
@@ -925,6 +926,10 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 			instance_content_generation = _mix_sort_buffer_generation(instance_content_generation,
 					renderer->get_streaming_state().current_streaming_system->get_instance_sh_policy());
 		}
+		// The HLOD draw list holds camera-relative offsets for one origin revision; cached sort order is in that frame.
+		instance_content_generation = gs_hlod_gpu::origin_keyed_generation(instance_content_generation,
+				renderer->get_instance_pipeline_buffers().hlod_relative,
+				renderer->get_instance_pipeline_buffers().hlod_origin_revision);
 		instance_max_visible_splats = renderer->get_instance_pipeline_buffers().max_visible_splats;
 		instance_max_chunk_splats = renderer->get_instance_pipeline_buffers().max_chunk_splats;
 	}

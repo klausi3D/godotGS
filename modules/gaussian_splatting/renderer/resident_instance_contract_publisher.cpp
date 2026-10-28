@@ -2,6 +2,7 @@
 
 #include "../core/gs_vector_alloc.h"
 #include "gaussian_gpu_layout.h"
+#include "hlod_drawn_node.h"
 #include "gaussian_splat_renderer.h"
 #include "gpu_sorting_config.h"
 #include "instance_pipeline_contract.h"
@@ -1154,7 +1155,7 @@ uint64_t hlod_bundle_bytes(const GaussianSplatHlodRuntimeData &p_data, bool p_re
     const uint64_t nodes = p_data.nodes.size();
     const uint64_t records = uint64_t(p_data.leaf_count) + (p_relative ? p_data.parent_count : 0);
     return records * (p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) +
-            nodes * (sizeof(ChunkMetaGPU) + sizeof(AssetChunkIndexGPU) + sizeof(VisibleChunkRefGPU) +
+            nodes * (sizeof(ChunkMetaGPU) + sizeof(AssetChunkIndexGPU) + (p_relative ? sizeof(DrawnNodeGPU) : sizeof(VisibleChunkRefGPU)) +
                     (p_quantized ? sizeof(ChunkQuantizationGPU) : 0)) +
             sizeof(AssetMetaGPU) + sizeof(InstanceDataGPU) + sizeof(InstanceGradingGPU) +
             uint64_t(p_capacity) * (sizeof(SplatRefGPU) + (p_relative ? sizeof(uint32_t) : 0)) +
@@ -1218,6 +1219,7 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         meta.flags = gs_pack_asset_gpu_flags(p_data.mode_2d, GaussianDCEncoding(node.dc_encoding));
         for (int a = 0; a < 3; ++a) { meta.bounds_center_local[a] = node.bounds_center[a]; }
         meta.bounds_radius_local = node.topology.radius;
+        // Unread by the shaders since C2 (the per-draw camera offset places the node); kept for the layout.
         meta.node_center_x = p_relative ? node.payload_center.x : 0.0f;
         meta.node_center_y = p_relative ? node.payload_center.y : 0.0f;
         meta.node_center_z = p_relative ? node.payload_center.z : 0.0f;
@@ -1294,7 +1296,7 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
             (p_quantized && !create(b.quantization_buffer, uint64_t(node_count) * sizeof(ChunkQuantizationGPU), quantization.ptr())) ||
             !create(b.instance_buffer, sizeof(p_instance), &p_instance) ||
             !create(b.instance_grading_buffer, sizeof(p_grading), &p_grading) ||
-            !create(b.visible_chunk_buffer, uint64_t(node_count) * sizeof(VisibleChunkRefGPU)) ||
+            !create(b.visible_chunk_buffer, uint64_t(node_count) * (p_relative ? sizeof(DrawnNodeGPU) : sizeof(VisibleChunkRefGPU))) ||
             !create(b.splat_ref_buffer, uint64_t(p_capacity) * sizeof(SplatRefGPU)) ||
             (p_relative && !create(b.hlod_draw_entry_buffer, uint64_t(p_capacity) * sizeof(uint32_t))) ||
             !create(b.counter_buffer, 3 * sizeof(uint32_t)) ||
@@ -1680,9 +1682,14 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // budget is the remaining headroom and charges only what it allocates on the CPU (histories, draw records).
     snapshot.hierarchy_revision = input->source_revision;
     // The render-frame origin and its revision come from the module's origin context (the director), so a shift
-    // invalidates this view's cut in ViewSet::select(). The GPU instance buffer of this route is still the
-    // scene-frame float transform (the per-draw camera-relative offset is the shader slice, S2b/C2): a shifted
-    // origin would put the cut and the GPU in different frames, so it is refused explicitly instead.
+    // invalidates this view's cut in ViewSet::select(). The GPU consumes the per-draw camera-relative offset of each
+    // record (DrawnNodeGPU), formed in double against this origin; every frame-dependent cache of the route is keyed
+    // on the same revision (hlod_origin_revision).
+    //
+    // The fallback below stays until the end-of-stack GPU gate has captured a far-origin near-detail frame, a
+    // multi-view frame and an origin shift on a real device. The CPU side (offsets in double, record layout, keys,
+    // the GLSL camera-relative function against a double reference) is tested, but the shifted-origin GPU frame is
+    // not: this route never draws a frame it could not verify. Removing the guard is this one line.
     snapshot.origin = gs_world_frame::PreciseCoord();
     snapshot.origin_revision = 0;
     if (const GaussianSplatSceneDirector *origin_director = GaussianSplatSceneDirector::get_singleton()) {
@@ -1729,18 +1736,24 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (selected_count > uint32_t(bundle.draw_entries.size())) { return fallback("hlod_view_failed"); }
     for (uint32_t i = 0; i < selected_count; ++i) {
         const uint32_t node = outcome.records[i].node;
-        bundle.draw_entries.write[i] = VisibleChunkRefGPU{ 0u, node };
+        // The ViewSet formed camera_offset in double for snapshot.origin_revision; the instance is the one
+        // identity-placed instance with GPU id 0.
+        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(0u, node, outcome.records[i].camera_offset);
         state.hlod_selected_parents += !input->nodes[node].topology.is_leaf() ? 1u : 0u;
     }
     RenderingDevice *rd = get_device_state().rd;
     // Upload to the relative candidate only; no canonical RID is modified.
     const uint32_t counters[3] = { selected_count, 0u, 0u };
     if ((selected_count && rd->buffer_update(bundle.buffers.visible_chunk_buffer, 0,
-                selected_count * sizeof(VisibleChunkRefGPU), bundle.draw_entries.ptr()) != OK) ||
+                selected_count * sizeof(DrawnNodeGPU), bundle.draw_entries.ptr()) != OK) ||
             rd->buffer_update(bundle.buffers.counter_buffer, 0, sizeof(counters), counters) != OK) {
         return fallback("draw_list_upload_failed");
     }
     bundle.buffers.hlod_draw_count = selected_count;
+    // The uploaded offsets are valid for exactly this revision; publish_hlod_bundle() copies it into the buffers the
+    // sort and tile caches key on.
+    bundle.buffers.hlod_origin_revision = snapshot.origin_revision;
+    state.hlod_origin_revision = snapshot.origin_revision;
     state.hlod_selected_nodes = selected_count;
     state.hlod_selected_splats = outcome.view.selected_splats;
     state.hlod_estimated_records = outcome.view.estimated_records;

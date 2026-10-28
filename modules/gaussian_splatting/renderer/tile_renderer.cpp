@@ -3436,8 +3436,10 @@ void TileRenderer::_invalidate_descriptor_cache(bool p_preserve_scene_depth) {
 bool TileRenderer::_update_instance_pipeline_bindings(const RenderParams &p_params) {
     RenderParams same_content = p_params;
     same_content.hlod_content_generation = instance_pipeline_buffers.hlod_content_generation;
+    same_content.hlod_origin_revision = instance_pipeline_buffers.hlod_origin_revision;
     if (!_instance_pipeline_bindings_changed(instance_pipeline_buffers, same_content) &&
-            instance_pipeline_buffers.hlod_content_generation != p_params.hlod_content_generation) {
+            (instance_pipeline_buffers.hlod_content_generation != p_params.hlod_content_generation ||
+                    instance_pipeline_buffers.hlod_origin_revision != p_params.hlod_origin_revision)) {
         // Same storage, new draw-list contents. Invalidate descriptor/readiness generation
         // without destroying unrelated fallback textures on every HLOD frame.
 #ifdef TESTS_ENABLED
@@ -3482,6 +3484,7 @@ bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBin
             p_bindings.hlod_draw_list_buffer != p_params.hlod_draw_list_buffer ||
             p_bindings.hlod_source_generation != p_params.hlod_source_generation ||
             p_bindings.hlod_content_generation != p_params.hlod_content_generation ||
+            p_bindings.hlod_origin_revision != p_params.hlod_origin_revision ||
             p_bindings.instance_buffer != p_params.instance_buffer ||
 			p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
 			p_bindings.splat_ref_buffer != p_params.splat_ref_buffer ||
@@ -3499,6 +3502,7 @@ void TileRenderer::_assign_instance_pipeline_bindings(InstancePipelineBindings &
     r_bindings.hlod_draw_list_buffer = p_params.hlod_draw_list_buffer;
     r_bindings.hlod_source_generation = p_params.hlod_source_generation;
     r_bindings.hlod_content_generation = p_params.hlod_content_generation;
+    r_bindings.hlod_origin_revision = p_params.hlod_origin_revision;
 	r_bindings.instance_buffer = p_params.instance_buffer;
 	r_bindings.instance_grading_buffer = p_params.instance_grading_buffer;
 	r_bindings.splat_ref_buffer = p_params.splat_ref_buffer;

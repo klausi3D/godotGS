@@ -1505,6 +1505,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_gpu_byte_accounting"] = "buffer_device_superset_plus_owned_textures";
     stats["hlod_source_generation"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->get_instance_id()) : int64_t(0);
     stats["hlod_content_generation"] = int64_t(resource_state.hlod_content_serial);
+    stats["hlod_origin_revision"] = int64_t(resource_state.hlod_origin_revision);
     stats["hlod_view_epoch"] = int64_t(resource_state.hlod_view_epoch);
     // Actual post-pass bindings, not admission-success proxies. ObjectID/RID
     // bit patterns may be negative when exposed through Variant's signed int.

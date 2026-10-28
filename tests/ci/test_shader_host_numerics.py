@@ -293,5 +293,148 @@ class PayloadScreenCentreIsExact(unittest.TestCase):
                     self.assertAlmostEqual(got, want, delta=want / 32.0)
 
 
+COMPUTE_DIR = ROOT / "modules" / "gaussian_splatting" / "compute"
+CAMERA_RELATIVE = INCLUDES_DIR / "gs_camera_relative.glsl"
+INSTANCE_LAYOUT = INCLUDES_DIR / "gs_instance_layout.glsl"
+
+
+def _camera_relative_program(hlod: bool = True) -> "glsl.GlslProgram":
+    """gs_camera_relative.glsl as the GPU compiles it. The evaluator models no #include, so the instance flag
+    constants are taken verbatim from gs_instance_layout.glsl and the include line is dropped."""
+    layout = INSTANCE_LAYOUT.read_text(encoding="utf-8")
+    consts = "".join(m.group(0) + "\n" for m in re.finditer(r"^const uint GS_INSTANCE_FLAG_\w+ = [^;]+;", layout, re.M))
+    body = "".join(line + "\n" for line in CAMERA_RELATIVE.read_text(encoding="utf-8").splitlines()
+                   if not line.strip().startswith("#include"))
+    return glsl.GlslProgram(consts + body, {"GS_HLOD_RELATIVE_PAYLOAD": "1"} if hlod else None, origin=str(CAMERA_RELATIVE))
+
+
+def _f32(x: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", x))[0]
+
+
+def _quat_axis_angle(axis: tuple[float, float, float], angle: float) -> tuple[float, float, float, float]:
+    n = math.sqrt(sum(a * a for a in axis))
+    s = math.sin(angle / 2.0) / n
+    return (axis[0] * s, axis[1] * s, axis[2] * s, math.cos(angle / 2.0))
+
+
+def _rotate(q: tuple[float, float, float, float], v: tuple[float, float, float]) -> tuple[float, float, float]:
+    x, y, z, w = q
+    t = (2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0]))
+    c = (y * t[2] - z * t[1], z * t[0] - x * t[2], x * t[1] - y * t[0])
+    return (v[0] + w * t[0] + c[0], v[1] + w * t[1] + c[1], v[2] + w * t[2] + c[2])
+
+
+class HlodCameraRelativeFrame(unittest.TestCase):
+    """Package C2: the camera-relative frame of depth_compute.glsl / tile_binning.glsl, evaluated from the shader
+    source (gs_camera_relative.glsl) and compared against a float64 reference at 0, 1 km and 100 km."""
+
+    BASES = (0.0, 1000.0, 100000.0)
+
+    def _case(self, base: float):
+        q = _quat_axis_angle((0.3, 1.0, -0.2), 0.7)
+        s = 2.0
+        c = (base + 3.25, 7.5, -0.5 * base + 1.125)          # node centre in asset space (double)
+        cam = (base + 0.3, 1.0, -0.5 * base + 9.0)           # precise camera (double)
+        # Near detail: the instance is placed so the node sits a few metres from the camera.
+        rs_c = _rotate(q, tuple(s * v for v in c))
+        t = tuple(cam[i] + (2.0, -1.0, -6.0)[i] - rs_c[i] for i in range(3))  # instance translation T (double)
+        return q, s, t, c, cam
+
+    def test_matches_double_reference_at_every_offset(self) -> None:
+        program = _camera_relative_program()
+        vec3, vec4, uint = program.namespace["vec3"], program.namespace["vec4"], program.namespace["uint"]
+        fn = program.fn("gs_hlod_camera_relative_position")
+        local_points = [(0.0, 0.0, 0.0), (1.5, -2.25, 0.125), (-3.0, 4.0, 2.5), (0.001, 0.002, -0.003)]
+        for base in self.BASES:
+            q, s, t, c, cam = self._case(base)
+            rs_c = _rotate(q, tuple(s * v for v in c))
+            offset = tuple(_f32(rs_c[i] + t[i] - cam[i]) for i in range(3))  # double on the CPU, float last
+            worst_precise = worst_naive = 0.0
+            for p in local_points:
+                p32 = tuple(_f32(v) for v in p)
+                got = fn(vec3(*p32), uint(0), vec4(*q), s, vec3(*offset)).c
+                # Truth: R s (c + p) + T - camera, all in double.
+                exact = _rotate(q, tuple(s * (c[i] + p32[i]) for i in range(3)))
+                truth = tuple(exact[i] + t[i] - cam[i] for i in range(3))
+                worst_precise = max(worst_precise, max(abs(got[i] - truth[i]) for i in range(3)))
+                # Base path: absolute position rounded to float32 first, camera subtracted last.
+                absolute = tuple(_f32(exact[i] + t[i]) for i in range(3))
+                naive = tuple(absolute[i] - _f32(cam[i]) for i in range(3))
+                worst_naive = max(worst_naive, max(abs(naive[i] - truth[i]) for i in range(3)))
+            self.assertLessEqual(worst_precise, 4.0e-6, f"base {base}")
+            if base == 0.0:
+                self.assertLess(worst_naive, 1.0e-4)
+            if base >= 100000.0:
+                self.assertGreater(worst_naive, 1.0e-3, "the absolute float path must be visibly wrong here")
+
+    def test_identity_placement_is_a_plain_float_add(self) -> None:
+        program = _camera_relative_program()
+        vec3, vec4, uint = program.namespace["vec3"], program.namespace["vec4"], program.namespace["uint"]
+        flags = uint(0x2 | 0x4 | 0x8)  # rotation, scale, translation identity
+        local = (1.25, -2.5, 0.75)
+        offset = (-3.5, 0.25, -10.0)
+        got = program.fn("gs_hlod_camera_relative_position")(vec3(*local), flags, vec4(0.0, 0.0, 0.0, 1.0), 7.0, vec3(*offset)).c
+        # Identity flags skip rotation and scale entirely (a non-unit scale value must not leak in).
+        self.assertEqual(got, [_f32(local[i] + offset[i]) for i in range(3)])
+
+    def test_instance_translation_is_not_added_twice(self) -> None:
+        # T lives inside camera_offset. The function has no translation parameter at all.
+        signature = re.search(r"gs_hlod_camera_relative_position\(([^)]*)\)", CAMERA_RELATIVE.read_text(encoding="utf-8"))
+        self.assertIsNotNone(signature)
+        self.assertNotIn("translation", signature.group(1))
+
+    def test_origin_zero_matches_the_base_formulation_within_reassociation(self) -> None:
+        # Base: view = V * (R s (p + c_f) + T, 1) with V = R_v (x - cam) (translation -R_v cam).
+        # C2:   view = R_v * (R s p + (R s c + T - cam)). Same value, different association: compare in float32
+        # emulation and bound the difference by a few ulp of the largest intermediate.
+        program = _camera_relative_program()
+        vec3, vec4, uint = program.namespace["vec3"], program.namespace["vec4"], program.namespace["uint"]
+        fn = program.fn("gs_hlod_camera_relative_position")
+        q = (0.0, 0.0, 0.0, 1.0)
+        rv = _quat_axis_angle((0.2, 1.0, 0.1), 0.4)
+        cam = (2.0, 1.5, 8.0)
+        c = (3.25, 0.5, -4.0)
+        offset = tuple(_f32(c[i] - cam[i]) for i in range(3))
+        worst_rel = 0.0
+        points = [(-3.0 + 0.37 * i, 1.1 * math.sin(i), 2.0 - 0.21 * i) for i in range(40)]
+        for p in points:
+            p32 = tuple(_f32(v) for v in p)
+            new_pos = fn(vec3(*p32), uint(0x2 | 0x4 | 0x8), vec4(*q), 1.0, vec3(*offset)).c
+            new_view = _rotate(rv, tuple(_f32(v) for v in new_pos))
+            old_world = tuple(_f32(p32[i] + _f32(c[i])) for i in range(3))
+            old_view = _rotate(rv, tuple(_f32(old_world[i] - cam[i]) for i in range(3)))
+            scale = max(abs(v) for v in (*old_world, *cam, *p32, 1.0))
+            worst_rel = max(worst_rel, max(abs(new_view[i] - old_view[i]) for i in range(3)) / scale)
+        self.assertLessEqual(worst_rel, 4.0e-7)
+
+    def test_view_transform_drops_the_translation_only_for_hlod(self) -> None:
+        hlod = _camera_relative_program(True)
+        plain = _camera_relative_program(False)
+        self.assertEqual(hlod.macros["GS_POSITION_FRAME_W"], "0.0")
+        self.assertEqual(plain.macros["GS_POSITION_FRAME_W"], "1.0")
+
+    def test_consumers_are_wired_to_the_frame(self) -> None:
+        depth = (COMPUTE_DIR / "depth_compute.glsl").read_text(encoding="utf-8")
+        binning = (SHADERS_DIR / "tile_binning.glsl").read_text(encoding="utf-8")
+        for name, text in (("depth_compute", depth), ("tile_binning", binning)):
+            # The node centre in ChunkMetaGPU is no longer a shader input.
+            self.assertNotRegex(text, r"node_center_[xyz]", name)
+            # Every use of a view matrix on a position goes through the frame's w.
+            self.assertNotRegex(text, r"view_matrix\s*\*\s*vec4\([^)]*,\s*1\.0\)", name)
+            self.assertIn("gs_hlod_camera_relative_position", text, name)
+            self.assertIn("frame_anchor", text, name)
+            self.assertIn("frame_camera", text, name)
+        # The distance cull and the SH view direction measure from the frame's camera, not from the uniform.
+        self.assertNotRegex(binning, r"camera_position\.xyz\s*-\s*g\.position")
+        self.assertNotRegex(binning, r"g\.position\s*-\s*params\.camera_position")
+        self.assertNotRegex(depth, r"world_position\s*-\s*params\.camera_position_ortho")
+        # Wind phase and effector spheres take the anchor (the deformation functions are outside the evaluator's
+        # subset: ternaries, continue, pow/sin, so this part is a source check).
+        deformation = (INCLUDES_DIR / "gs_deformation.glsl").read_text(encoding="utf-8")
+        self.assertIn("(world_position + frame_anchor).xz", deformation)
+        self.assertIn("effector_sphere.xyz -= frame_anchor", deformation)
+
+
 if __name__ == "__main__":
     unittest.main()

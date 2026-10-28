@@ -1163,15 +1163,24 @@ Two simultaneous views, one perspective and one orthographic, repeated origin sh
 unload/reload at 0, 1 km and 100 km must preserve the expected relative geometry and
 deterministic ties at equal quality.
 
-Implementation status of package C (C1 landed, C2 open). C1: `core/gaussian_splat_world_frame.{h,cpp}` holds the
-precise representation (int64 lattice address plus double offset), `WorldOriginContext` (owned by the scene
-director, revision per change, explicit `OriginShiftHook`) and the double per-draw offset
-`camera_relative_offset`; runtime nodes carry a source-precision `precise_center`; `ViewSet` takes the origin and
-its revision in the `SelectionSnapshot`, drops histories and the published set on a revision change, and
-publishes the per-draw offset in each `DrawRecord`; the cull-config reuse signature includes the revision. Until
-C2 (the `DrawnNodeGPU` upload and the camera-space rewrite of `depth_compute`/`tile_binning`), the HLOD route
-refuses a shifted origin with `hlod_world_origin_shifted` because the GPU instance transform is still the
-scene-frame float transform.
+Implementation status of package C (C1 and C2 landed in code; the GPU evidence and the guard removal are open). C1:
+`core/gaussian_splat_world_frame.{h,cpp}` holds the precise representation (int64 lattice address plus double
+offset), `WorldOriginContext` (owned by the scene director, revision per change, explicit `OriginShiftHook`) and the
+double per-draw offset `camera_relative_offset`; runtime nodes carry a source-precision `precise_center`; `ViewSet`
+takes the origin and its revision in the `SelectionSnapshot`, drops histories and the published set on a revision
+change, and publishes the per-draw offset in each `DrawRecord`; the cull-config reuse signature includes the
+revision. C2: the HLOD route writes one 32 B `DrawnNodeGPU` per drawn node (`instance_id`, `chunk_id`, reserved S6
+`fade`, `camera_offset`; `renderer/gaussian_gpu_layout.h`, mirrored in `gs_instance_layout.glsl` and the layout-sync
+guard). With `GS_HLOD_RELATIVE_PAYLOAD`, `depth_compute.glsl` and `tile_binning.glsl` form
+`p_cam = R s p_node + camera_offset` (`shaders/includes/gs_camera_relative.glsl`; the instance translation is part
+of the offset and is not added again) and work in that frame: rotation-only view transform (`w = 0`), frustum
+planes of the camera-translated frustum, distance cull and SH view direction from a camera at the origin, wind phase
+and sphere effectors through a `frame_anchor` (the scene-frame camera) so they keep their scene-frame meaning. The
+node centre in `ChunkMetaGPU` is no longer read by any shader. Every frame-dependent cache of the route is keyed on
+`origin_revision` (`InstancePipelineBuffers::hlod_origin_revision`: tile binding identity, instance sort-reuse key;
+plus the existing ViewSet histories and cull signature). The `hlod_world_origin_shifted` refusal stays: no
+shifted-origin frame has been drawn on a GPU, so the guard is removed only after the end-of-stack evidence
+(far-origin near-detail captures, two simultaneous views, an origin shift on a real device).
 
 Camera contract (C1): the scene camera is a float transform, so the camera's precise position is the origin plus
 that float. A float camera 100 km from the origin is already rounded to millimetres; the origin must therefore be

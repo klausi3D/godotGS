@@ -188,6 +188,9 @@ struct InstancePipelineBuffers {
     RID hlod_draw_entry_buffer;
     uint64_t hlod_source_generation = 0;
     uint64_t hlod_content_generation = 0;
+    // Origin revision the draw list's camera offsets were formed for. The list is in that frame, so every
+    // frame-dependent cache of the HLOD route (sort reuse, tile bindings) is keyed on it.
+    uint64_t hlod_origin_revision = 0;
     uint32_t hlod_draw_count = 0;
 	RID instance_buffer;
 	// Per-instance color grading SSBO (InstanceGradingGPU rows). Parallel to instance_buffer.

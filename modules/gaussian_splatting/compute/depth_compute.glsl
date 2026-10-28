@@ -5,6 +5,7 @@
 #VERSION_DEFINES
 
 #include "../shaders/includes/gs_instance_layout.glsl"
+#include "../shaders/includes/gs_camera_relative.glsl"
 #include "../shaders/includes/gs_sort_key.glsl"
 #include "../shaders/includes/gs_deformation.glsl"
 #include "../shaders/includes/quantization_dequant.glsl"
@@ -52,8 +53,14 @@ layout(set = 0, binding = 3, std430) readonly buffer ChunkMetaBuffer {
     ChunkMetaGPU chunks[];
 } chunk_meta_buffer;
 
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+// HLOD: the CPU-written drawn set, one DrawnNodeGPU (with the per-draw camera offset) per node.
+#define GS_VISIBLE_CHUNK_STRUCT DrawnNodeGPU
+#else
+#define GS_VISIBLE_CHUNK_STRUCT VisibleChunkRefGPU
+#endif
 layout(set = 0, binding = 4, std430) readonly buffer VisibleChunkBuffer {
-    VisibleChunkRefGPU visible_chunks[];
+    GS_VISIBLE_CHUNK_STRUCT visible_chunks[];
 } visible_chunk_buffer;
 
 layout(set = 0, binding = 5, std430) writeonly buffer SplatRefBuffer {
@@ -142,7 +149,7 @@ void main() {
         return;
     }
 
-    VisibleChunkRefGPU visible_chunk = visible_chunk_buffer.visible_chunks[visible_chunk_index];
+    GS_VISIBLE_CHUNK_STRUCT visible_chunk = visible_chunk_buffer.visible_chunks[visible_chunk_index];
     ChunkMetaGPU chunk = chunk_meta_buffer.chunks[visible_chunk.chunk_id];
     if (splat_index_in_chunk >= chunk.splat_count) {
         return;
@@ -166,12 +173,17 @@ void main() {
     vec3 local_scale = gaussian.scale;
 #endif
 
-#if defined(GS_HLOD_RELATIVE_PAYLOAD)
-    local_position += vec3(chunk.node_center_x, chunk.node_center_y, chunk.node_center_z);
-#endif
     InstanceDataGPU instance = instance_buffer.instances[visible_chunk.instance_id];
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    // Camera-relative frame (gs_camera_relative.glsl): the node-relative position is rotated and
+    // scaled by the instance and offset by the per-draw value; T is already inside the offset.
+    vec3 world_position = gs_hlod_camera_relative_position(local_position, instance_flags,
+            instance.rotation, uniform_scale, visible_chunk.camera_offset.xyz);
+    vec3 frame_anchor = params.camera_position_ortho.xyz;
+    vec3 frame_camera = vec3(0.0);
+#else
     vec3 scaled_position = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u
             ? local_position
             : local_position * uniform_scale;
@@ -181,6 +193,9 @@ void main() {
     if ((instance_flags & GS_INSTANCE_FLAG_TRANSLATION_ZERO) == 0u) {
         world_position += instance.translation_scale.xyz;
     }
+    vec3 frame_anchor = vec3(0.0);
+    vec3 frame_camera = params.camera_position_ortho.xyz;
+#endif
     float instance_intensity = max(instance.params.z, 0.0);
     float instance_wind_mode = instance.params.w;
     uint stable_seed = atlas_index ^ (visible_chunk.instance_id * 0x9e3779b9u);
@@ -196,7 +211,8 @@ void main() {
             params.effector_meta,
             params.effector_spheres,
             params.effector_configs,
-            params.effector_opacity_configs);
+            params.effector_opacity_configs,
+            frame_anchor);
     world_position = deformation.position;
 
     float local_radius = max(max(abs(local_scale.x), abs(local_scale.y)), abs(local_scale.z));
@@ -213,7 +229,7 @@ void main() {
         return;
     }
 
-    vec4 view_pos = params.view_matrix * vec4(world_position, 1.0);
+    vec4 view_pos = params.view_matrix * vec4(world_position, GS_POSITION_FRAME_W);
     float depth = -view_pos.z;
 
     float screen_size = gs_compute_screen_size(depth, splat_radius);
@@ -227,7 +243,7 @@ void main() {
     }
     float max_distance_sq = params.cull_screen_distance.w;
     if (max_distance_sq > 0.0) {
-        vec3 to_camera = world_position - params.camera_position_ortho.xyz;
+        vec3 to_camera = world_position - frame_camera;
         float distance_sq = dot(to_camera, to_camera);
         if (distance_sq > max_distance_sq) {
             return;

@@ -493,6 +493,7 @@ struct TileRenderParams {
         bool hlod_relative = false;
         uint64_t hlod_source_generation = 0;
         uint64_t hlod_content_generation = 0;
+        uint64_t hlod_origin_revision = 0;
 	RID chunk_meta_buffer;
 	RID quantization_buffer;
 	RID instance_indirect_count_buffer;

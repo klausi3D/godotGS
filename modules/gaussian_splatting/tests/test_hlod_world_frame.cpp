@@ -6,6 +6,10 @@ extern "C" int test_hlod_world_frame_cpp_force_link() { return 0; }
 #include "../core/gaussian_splat_world_frame.h"
 #include "../lod/hlod_view_set.h"
 #include "../renderer/render_pipeline_stages.h"
+#include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/hlod_drawn_node.h"
+#include "../renderer/tile_renderer.h"
+#include "core/math/projection.h"
 #include "scene/3d/node_3d.h"
 #include <cmath>
 
@@ -624,6 +628,185 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO] a baked world far from the origin 
 	// origin and the integer lattice address and not from the float payload_center.
 	CHECK(any_node_checked);
 	CHECK(worst_precise <= 1.0e-9);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Package C2: the per-draw GPU record, its shader mirror, and the origin-revision keys of the HLOD route's caches.
+// ---------------------------------------------------------------------------------------------------------------
+
+// CPU mirror of gs_hlod_camera_relative_position (shaders/includes/gs_camera_relative.glsl) for a placement with a
+// rotation/scale basis; the GLSL itself is evaluated against the same reference in tests/ci/test_shader_host_numerics.py.
+static Vector3 mirror_camera_relative_position(const Basis &p_basis, const Vector3 &p_node_position, const Vector3 &p_offset) {
+	return p_basis.xform(p_node_position) + p_offset;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][C2] the per-draw GPU record is 32 B and carries the double-formed offset at 0, 1 km and 100 km") {
+	CHECK(sizeof(DrawnNodeGPU) == 32);
+	CHECK(offsetof(DrawnNodeGPU, instance_id) == 0);
+	CHECK(offsetof(DrawnNodeGPU, chunk_id) == 4);
+	CHECK(offsetof(DrawnNodeGPU, fade) == 8);
+	CHECK(offsetof(DrawnNodeGPU, camera_offset) == 16);
+	auto tree = make_tree();
+	const float x_of[7] = { 0, -2, 2, -3, -1, 1, 3 };
+	const Vector3 local_point(0.5f, -0.25f, 1.0f); // Node-relative splat position (shared payload).
+	for (const double base : OFFSETS) {
+		for (const bool origin_near_camera : { false, true }) {
+			// Origin at the world origin (precise camera needed past the float) or shifted next to the camera.
+			const PreciseCoord origin = origin_near_camera ? coord(base, 0, 0) : PreciseCoord();
+			SelectionSnapshot snap = make_snapshot(tree, base, origin, origin_near_camera ? 1 : 0);
+			ViewSpec spec = perspective_at(1, base, 10.0, origin);
+			const PreciseCoord world_camera = coord(base + 0.3, 0, 10);
+			spec.camera = offset_vec(world_camera, origin);
+			spec.camera_precise = world_camera;
+			spec.camera_precise_valid = true;
+			ViewSet set;
+			REQUIRE(set.admit_view(snap, spec).status == ViewSet::ADMITTED);
+			CHECK(select_one(set, snap, spec).readiness == ViewSet::READY);
+			uint32_t count = 0;
+			const DrawRecord *records = set.drawn(1, count);
+			REQUIRE(records != nullptr);
+			REQUIRE(count > 0);
+			double worst = 0.0, worst_naive = 0.0;
+			for (uint32_t i = 0; i < count; ++i) {
+				const DrawnNodeGPU gpu = gs_hlod_gpu::make_drawn_node(0u, records[i].node, records[i].camera_offset);
+				CHECK(gpu.instance_id == 0u);
+				CHECK(gpu.chunk_id == records[i].node);
+				CHECK(gpu.fade == 1.0f);
+				CHECK(gpu.reserved == 0u);
+				CHECK(gpu.camera_offset[3] == 0.0f);
+				// Double reference: world node centre (asset x + placement base) minus the camera, no float absolute.
+				const double node_x = double(x_of[records[i].node]);
+				const double ref[3] = { node_x - 0.3, 0.0, -10.0 };
+				for (int a = 0; a < 3; ++a) { worst = MAX(worst, std::abs(double(gpu.camera_offset[a]) - ref[a])); }
+				// Shader mirror: R s p + offset against the double truth of the splat's camera-relative position.
+				const Vector3 got = mirror_camera_relative_position(Basis(), local_point,
+						Vector3(gpu.camera_offset[0], gpu.camera_offset[1], gpu.camera_offset[2]));
+				const double truth[3] = { ref[0] + double(local_point.x), ref[1] + double(local_point.y), ref[2] + double(local_point.z) };
+				for (int a = 0; a < 3; ++a) { worst = MAX(worst, std::abs(double(got[a]) - truth[a])); }
+				// The base formulation: absolute float position first, float camera last.
+				const float abs_x = float(base + node_x + double(local_point.x));
+				worst_naive = MAX(worst_naive, std::abs(double(abs_x - float(base + 0.3)) - truth[0]));
+			}
+			CHECK(worst <= 3.0e-6);
+			if (base >= OFFSETS[2]) {
+				CHECK(worst_naive > 1.0e-3); // The absolute float path must fail where the record passes.
+			}
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][C2] a rotated and scaled placement folds R s c + T - camera into the record at 100 km") {
+	const double base = OFFSETS[2];
+	const Basis basis = Basis(Vector3(0, 1, 0), 0.7f).scaled(Vector3(2, 2, 2));
+	PrecisePlacement placement;
+	placement.basis = basis;
+	const Vector3 node_centre(3.25f, 7.5f, 1.125f); // Asset-space centre, exact in float.
+	const PreciseCoord centre = coord(node_centre.x, node_centre.y, node_centre.z);
+	// Place the instance so the node lands 2 m / -1 m / -6 m from the camera.
+	const Vector3 rs_c = basis.xform(node_centre);
+	const double cam[3] = { base + 0.3, 1.0, 9.0 };
+	placement.translation = coord(cam[0] + 2.0 - double(rs_c.x), cam[1] - 1.0 - double(rs_c.y), cam[2] - 6.0 - double(rs_c.z));
+	Vector3 offset;
+	REQUIRE(camera_relative_offset(placement, centre, coord(cam[0], cam[1], cam[2]), offset));
+	const DrawnNodeGPU gpu = gs_hlod_gpu::make_drawn_node(3u, 5u, offset);
+	const Vector3 local_point(1.5f, -2.25f, 0.125f);
+	const Vector3 got = mirror_camera_relative_position(basis, local_point, Vector3(gpu.camera_offset[0], gpu.camera_offset[1], gpu.camera_offset[2]));
+	// Truth in double: R s (c + p) + T - camera, with R s taken from the basis entries as doubles.
+	double world[3], t[3];
+	placement.translation.to_doubles(t);
+	const double in[3] = { double(node_centre.x) + double(local_point.x), double(node_centre.y) + double(local_point.y), double(node_centre.z) + double(local_point.z) };
+	for (int r = 0; r < 3; ++r) {
+		world[r] = double(basis[r][0]) * in[0] + double(basis[r][1]) * in[1] + double(basis[r][2]) * in[2] + t[r];
+	}
+	for (int a = 0; a < 3; ++a) { CHECK(std::abs(double(got[a]) - (world[a] - cam[a])) <= 4.0e-6); }
+	CHECK(gpu.instance_id == 3u);
+	CHECK(gpu.chunk_id == 5u);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][C2] the depth pass frustum planes are camera-translated and classify borderline points at 100 km") {
+	Projection projection;
+	projection.set_perspective(60.0f, 16.0f / 9.0f, 0.1f, 1000.0f);
+	const double base = OFFSETS[2];
+	const Transform3D camera_to_world(Basis(Vector3(0, 1, 0), 0.6f) * Basis(Vector3(1, 0, 0), -0.2f), Vector3(real_t(base + 0.3), 0.0f, 10.0f));
+	const Vector<Plane> relative = gs_hlod_gpu::camera_relative_frustum_planes(projection, camera_to_world);
+	const Vector<Plane> absolute = projection.get_projection_planes(camera_to_world);
+	if (relative.size() != 6 || absolute.size() != 6) {
+		FAIL("expected six frustum planes, got ", relative.size(), " and ", absolute.size());
+		return;
+	}
+	int relative_wrong = 0, absolute_wrong = 0, checked = 0;
+	for (int i = 0; i < 6; ++i) {
+		const Vector3 n = relative[i].normal;
+		// Pass-through-the-camera planes carry no camera distance: the four side planes have d == 0 (float noise only).
+		if (i == Projection::PLANE_LEFT || i == Projection::PLANE_RIGHT || i == Projection::PLANE_TOP || i == Projection::PLANE_BOTTOM) {
+			CHECK(std::abs(double(relative[i].d)) <= 1.0e-6);
+		}
+		// Two tangents of the plane.
+		const Vector3 u = n.cross(std::abs(n.y) < 0.9f ? Vector3(0, 1, 0) : Vector3(1, 0, 0)).normalized();
+		const Vector3 w = n.cross(u).normalized();
+		for (const double along : { 4.0, 20.0, 60.0 }) {
+			for (const double delta : { 0.002, -0.002 }) {
+				// Camera-relative point (double geometry), then the float values the two paths would see.
+				const double q[3] = {
+					double(n.x) * double(relative[i].d) + along * double(u.x) + 0.5 * along * double(w.x) + delta * double(n.x),
+					double(n.y) * double(relative[i].d) + along * double(u.y) + 0.5 * along * double(w.y) + delta * double(n.y),
+					double(n.z) * double(relative[i].d) + along * double(u.z) + 0.5 * along * double(w.z) + delta * double(n.z)
+				};
+				const bool outside = delta > 0.0;
+				// Relative path: float camera-relative point against the relative plane (the shader's test).
+				const Vector3 q_f = Vector3(real_t(q[0]), real_t(q[1]), real_t(q[2]));
+				const bool relative_outside = n.dot(q_f) - relative[i].d > 0.0f;
+				// Absolute path: float absolute point against the absolute plane.
+				const double cam_d[3] = { base + 0.3, 0.0, 10.0 };
+				const Vector3 p_f = Vector3(real_t(cam_d[0] + q[0]), real_t(cam_d[1] + q[1]), real_t(cam_d[2] + q[2]));
+				const bool absolute_outside = absolute[i].normal.dot(p_f) - absolute[i].d > 0.0f;
+				relative_wrong += relative_outside != outside ? 1 : 0;
+				absolute_wrong += absolute_outside != outside ? 1 : 0;
+				++checked;
+			}
+		}
+	}
+	CHECK(checked == 36);
+	CHECK(relative_wrong == 0);
+	CHECK(absolute_wrong > 0); // The pre-C2 absolute frame misclassifies 2 mm borderline points at 100 km.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][C2] tile-binding identity and the sort-reuse key follow the origin revision") {
+	// Tile renderer: same buffers, same content generation, new origin revision (a shift reuses the draw storage).
+	Vector<TileRenderer::RenderParams> sequence;
+	sequence.resize(6);
+	sequence.write[0].hlod_relative = true;
+	sequence.write[0].hlod_source_generation = 7;
+	sequence.write[0].hlod_content_generation = 10;
+	sequence.write[0].hlod_origin_revision = 0;
+	sequence.write[1] = sequence[0]; // unchanged
+	sequence.write[2] = sequence[0];
+	sequence.write[2].hlod_origin_revision = 1; // origin shifted
+	sequence.write[3] = sequence[2]; // unchanged at the new revision
+	sequence.write[4] = sequence[0]; // back to origin revision 0 content: still a different key than revision 1
+	sequence.write[4].hlod_origin_revision = 2; // revisions are monotone: a return to the old origin is revision 2
+	sequence.write[5] = sequence[4];
+	const Vector<uint64_t> trace = TileRenderer::_test_instance_pipeline_binding_generation_trace(sequence);
+	if (trace.size() != 6) { FAIL("complete identity trace missing"); return; }
+	CHECK(trace[0] == 1);
+	CHECK(trace[1] == 1);
+	CHECK(trace[2] == 2);
+	CHECK(trace[3] == 2);
+	CHECK(trace[4] == 3);
+	CHECK(trace[5] == 3);
+
+	// Sort reuse: outside the HLOD route the generation is untouched; inside it each revision is its own key.
+	const uint64_t gen = 0xABCDEF0123456789ULL;
+	CHECK(gs_hlod_gpu::origin_keyed_generation(gen, false, 5) == gen);
+	CHECK(gs_hlod_gpu::origin_keyed_generation(gen, false, 0) == gen);
+	const uint64_t r0 = gs_hlod_gpu::origin_keyed_generation(gen, true, 0);
+	const uint64_t r1 = gs_hlod_gpu::origin_keyed_generation(gen, true, 1);
+	const uint64_t r2 = gs_hlod_gpu::origin_keyed_generation(gen, true, 2);
+	CHECK(r0 == gs_hlod_gpu::origin_keyed_generation(gen, true, 0));
+	CHECK(r0 != r1);
+	CHECK(r1 != r2);
+	CHECK(r0 != r2);
+	CHECK(r0 != gen);
 }
 
 } // namespace TestHlodWorldFrame

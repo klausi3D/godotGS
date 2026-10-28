@@ -111,7 +111,8 @@ GSDeformationResult gs_apply_sphere_effectors(vec3 world_position,
         vec4 effector_configs[GS_MAX_SPHERE_EFFECTORS],
         vec4 effector_opacity_configs[GS_MAX_SPHERE_EFFECTORS],
         float time_seconds,
-        uint stable_seed) {
+        uint stable_seed,
+        vec3 frame_anchor) {
     GSDeformationResult result;
     result.position = world_position;
     result.opacity = clamp(base_opacity, 0.0, 1.0);
@@ -128,7 +129,10 @@ GSDeformationResult gs_apply_sphere_effectors(vec3 world_position,
     float opacity_modifier_product = 1.0;
 
     for (uint i = 0u; i < effector_count; i++) {
+        // Spheres are scene-frame values; `world_position` is relative to `frame_anchor`
+        // (zero outside the HLOD camera-relative route, where the subtraction is exact).
         vec4 effector_sphere = effector_spheres[i];
+        effector_sphere.xyz -= frame_anchor;
         vec4 effector_config = effector_configs[i];
         vec4 effector_opacity_config = effector_opacity_configs[i];
         if (effector_config.x <= 0.5 || effector_sphere.w <= 1e-6) {
@@ -183,12 +187,13 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
         vec4 effector_meta,
         vec4 effector_spheres[GS_MAX_SPHERE_EFFECTORS],
         vec4 effector_configs[GS_MAX_SPHERE_EFFECTORS],
-        vec4 effector_opacity_configs[GS_MAX_SPHERE_EFFECTORS]) {
+        vec4 effector_opacity_configs[GS_MAX_SPHERE_EFFECTORS],
+        vec3 frame_anchor) {
     float time_seconds = wind_time_config.x;
     bool wind_enabled = gs_is_wind_enabled_for_instance(instance_wind_mode, wind_time_config);
     if (!wind_enabled) {
         return gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed);
+                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed, frame_anchor);
     }
 
     vec3 direction = wind_dir_strength.xyz;
@@ -218,7 +223,7 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
     }
     if (direction_len <= 1e-6 || strength <= 0.0) {
         return gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed);
+                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed, frame_anchor);
     }
 
     float instance_frequency_scale = instance_wind_config.w > 0.0 ? instance_wind_config.w : 1.0;
@@ -227,7 +232,7 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
     float clamped_intensity = max(instance_intensity, 0.0);
     if (clamped_intensity <= 0.0) {
         return gs_apply_sphere_effectors(world_position, opacity, instance_effect_config, effector_meta,
-                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed);
+                effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed, frame_anchor);
     }
 
     // Reuse opacity as a rough "stiffness" signal until a dedicated attribute exists.
@@ -236,12 +241,13 @@ GSDeformationResult gs_apply_wind_deformation(vec3 world_position,
 
     uint hashed = gs_wind_hash_u32(stable_seed);
     float phase_jitter = (float(hashed & 0xFFFFu) / 65535.0) * 6.28318530718;
-    float phase = dot(world_position.xz, vec2(spatial_frequency)) + time_seconds * temporal_frequency + phase_jitter;
+    // The wind phase is a function of the scene-frame position, not of the camera-relative one.
+    float phase = dot((world_position + frame_anchor).xz, vec2(spatial_frequency)) + time_seconds * temporal_frequency + phase_jitter;
     float displacement = sin(phase) * strength * resistance * clamped_intensity;
 
     vec3 deformed = world_position + (direction / direction_len) * displacement;
     return gs_apply_sphere_effectors(deformed, opacity, instance_effect_config, effector_meta,
-            effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed);
+            effector_spheres, effector_configs, effector_opacity_configs, time_seconds, stable_seed, frame_anchor);
 }
 
 #endif // GS_DEFORMATION_GLSL

@@ -2431,6 +2431,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
         render_params.hlod_draw_list_buffer = instance_buffers.visible_chunk_buffer;
         render_params.hlod_source_generation = instance_buffers.hlod_source_generation;
         render_params.hlod_content_generation = instance_buffers.hlod_content_generation;
+        render_params.hlod_origin_revision = instance_buffers.hlod_origin_revision;
 		render_params.splat_ref_buffer = instance_buffers.splat_ref_buffer;
 		render_params.chunk_meta_buffer = instance_buffers.chunk_meta_buffer;
 		render_params.quantization_buffer = instance_buffers.quantization_required ? instance_buffers.quantization_buffer : RID();
