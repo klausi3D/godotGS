@@ -36,6 +36,7 @@ GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layou
 # Shader numerical contracts evaluated from the .glsl source on the host (#1157, #1153, #1168).
 SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
 HLOD_OFFLINE_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_hlod_offline_job.py"
+HLOD_S1B_QUALITY_TEST_SCRIPT = ROOT / "tests" / "runtime" / "hlod_s1b_quality" / "test_s1b_quality.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -945,6 +946,24 @@ def _run_hlod_offline_contract_tests() -> tuple[bool, list[str]]:
     )
     if completed is None:
         return False, output_lines + ["HLOD offline portable tests have no complete, nonempty success summary without skips."]
+    return True, output_lines
+
+
+def _run_hlod_s1b_quality_tests() -> tuple[bool, list[str]]:
+    """CPU-only S1b harness contracts (ROI, decision rule, fail-closed validation); no GPU."""
+    script = HLOD_S1B_QUALITY_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing HLOD S1b quality harness test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, "-B", str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        return False, output_lines or [f"HLOD S1b quality harness tests failed with exit code {code}."]
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["HLOD S1b quality tests have no complete, nonempty success summary without skips."]
     return True, output_lines
 
 
@@ -3662,6 +3681,11 @@ def _run_required_message_guards() -> int | None:
             _run_hlod_offline_contract_tests,
             "HLOD offline portable contract tests failed.",
             "HLOD offline portable contract tests passed (native Job Object not exercised).",
+        ),
+        (
+            _run_hlod_s1b_quality_tests,
+            "HLOD S1b quality harness tests failed.",
+            "HLOD S1b quality harness tests passed (CPU contracts only; renders not exercised).",
         ),
     )
     for runner, failure_summary, success_summary in required_guards:
