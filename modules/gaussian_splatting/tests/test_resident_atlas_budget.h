@@ -330,3 +330,25 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] device ledger limit fo
     // Never above the heap itself.
     CHECK(compute_hlod_device_ledger_limit_bytes(ResidentAtlasBudgetTests::k8GB, cap) < ResidentAtlasBudgetTests::k8GB);
 }
+
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] ledger limit literals and HLOD-owned bound refusals (#1131)") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t cap = uint64_t(512) << 20; // GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT
+    // Literals, not the formula: 8 GiB heap -> 0.60 -> 5,153,960,755; unknown heap -> the 512 MiB cap.
+    CHECK(compute_hlod_device_ledger_limit_bytes(8589934592ull, cap) == 5153960755ull);
+    CHECK(compute_hlod_device_ledger_limit_bytes(0, cap) == 536870912ull);
+    CHECK(compute_hlod_device_ledger_limit_bytes(268435455ull, cap) == 268435455ull); // 1 B under the 256 MiB floor
+    CHECK(compute_hlod_device_ledger_limit_bytes(268435456ull, cap) == 161061273ull); // at the floor: trusted, 0.60
+    // Candidate: exactly the HLOD-owned cap passes, one byte more refuses even with unlimited ledger room.
+    const uint64_t big = uint64_t(1) << 40;
+    CHECK(hlod_candidate_fits(cap, 0, big, cap));
+    CHECK_FALSE(hlod_candidate_fits(cap + 1, 0, big, cap));
+    // Ledger: device bytes + candidate exactly at the limit pass, one more refuses.
+    CHECK(hlod_candidate_fits(100, 900, 1000, cap));
+    CHECK_FALSE(hlod_candidate_fits(100, 901, 1000, cap));
+    CHECK_FALSE(hlod_candidate_fits(1001, 0, 1000, cap));
+    // Prepared bundle: owned bytes bound at cap + 1, ledger bound at limit + 1.
+    CHECK(hlod_prepared_fits(cap, 1000, 1000, cap));
+    CHECK_FALSE(hlod_prepared_fits(cap + 1, 1000, big, cap));
+    CHECK_FALSE(hlod_prepared_fits(cap, 1001, 1000, cap));
+}

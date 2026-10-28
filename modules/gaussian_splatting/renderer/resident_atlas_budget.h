@@ -79,6 +79,20 @@ inline uint64_t compute_hlod_device_ledger_limit_bytes(uint64_t device_budget_by
     return device_budget_bytes ? MIN(device_budget_bytes, hlod_owned_cap_bytes) : hlod_owned_cap_bytes;
 }
 
+// Admission of a candidate HLOD bundle: its own bytes must fit the HLOD-owned cap, and the
+// device-wide ledger plus the candidate must fit the ledger limit. Pure so the boundaries are testable.
+inline bool hlod_candidate_fits(uint64_t candidate_bytes, uint64_t device_bytes, uint64_t ledger_limit_bytes,
+        uint64_t hlod_owned_cap_bytes) {
+    return candidate_bytes <= hlod_owned_cap_bytes && candidate_bytes <= ledger_limit_bytes &&
+            device_bytes <= ledger_limit_bytes - candidate_bytes;
+}
+
+// Same for an already prepared bundle: device_bytes already includes the bundle.
+inline bool hlod_prepared_fits(uint64_t owned_bytes, uint64_t device_bytes, uint64_t ledger_limit_bytes,
+        uint64_t hlod_owned_cap_bytes) {
+    return owned_bytes <= hlod_owned_cap_bytes && device_bytes <= ledger_limit_bytes;
+}
+
 struct SubsetPlan {
     bool reduced = false;       // true when the atlas must be thinned to fit
     double keep_ratio = 1.0;    // global fraction of splats to keep (1.0 == full)

@@ -418,6 +418,18 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
     Ref<ChunkPayloadSource> source;
     uint64_t epoch;
     bool mode_2d, aa;
+    // The retained interior is charged against the runtime CPU limit here, not only at capture:
+    // the snapshot check (capture_hlod_runtime_snapshot) charges it again with everything else, but
+    // a world that can never be captured must not pin it. A tree replacement while the lock is
+    // dropped bumps render_input_epoch (set_hlod_tree, bake_hlod, set_gaussian_data), which the
+    // commit below re-checks.
+    auto interior_fits_cpu_limit = [](uint32_t p_count, uint32_t p_high_order) {
+        uint64_t gaussians, sh;
+        return gs_hlod_runtime::allocation_bytes(p_count, sizeof(Gaussian), gaussians) &&
+                gs_hlod_runtime::allocation_bytes(uint64_t(p_count) * p_high_order, sizeof(Vector3), sh) &&
+                gaussians <= GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT &&
+                sh <= GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - gaussians;
+    };
     GaussianSplatHlodTree interior_extent; // file extents only
     bool load_interior = false;
     {
@@ -434,7 +446,8 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
         // file extents, never copy the node tables; the read happens outside the lock. Counts above
         // the runtime's admission cap are not read: the runtime refuses them by name anyway.
         if (!hlod_tree.is_empty() && !hlod_tree.interior_resident && hlod_tree.interior_splat_count > 0u &&
-                uint64_t(hlod_tree.leaf_splat_count) + hlod_tree.interior_splat_count <= GaussianSplatHlodRuntimeData::MAX_PAYLOAD) {
+                uint64_t(hlod_tree.leaf_splat_count) + hlod_tree.interior_splat_count <= GaussianSplatHlodRuntimeData::MAX_PAYLOAD &&
+                interior_fits_cpu_limit(hlod_tree.interior_splat_count, hlod_tree.sh_high_order_count)) {
             interior_extent.interior_splat_count = hlod_tree.interior_splat_count;
             interior_extent.sh_high_order_count = hlod_tree.sh_high_order_count;
             interior_extent.interior_file_path = hlod_tree.interior_file_path;
