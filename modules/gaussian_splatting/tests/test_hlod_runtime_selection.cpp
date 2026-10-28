@@ -261,4 +261,25 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut budget sweep stays monotone acr
 		CHECK(distinct_depth_vectors == (wants_refinement ? 0u : 3u)); // Bootstrap transitions leaves -> {2,3,4} -> {1,2} -> root.
 	}
 }
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut keeps refinement hysteresis for a bootstrap-expanded parent") {
+	GaussianSplatHlodRuntimeData data;
+	heavy_root_tree(data);
+	for (int i = 0; i < 7; ++i) { data.nodes.write[i].topology.radius = 1.0f; }
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.camera = Vector3(0, 0, 0);
+	r.tau_pixels = 40; // Root error 44.4 lies in the (tau, 1.25 tau] hysteresis band; interiors (22.2) stay put.
+	r.splat_budget = 90; // Root payload 100 is over the cap: bootstrap expands it.
+	auto first = history.select(data, r);
+	CHECK(first.bootstrapped);
+	CHECK(first.selected_count == 2);
+	r.splat_budget = 1000; // Root now fits; only the previous-frame stamp keeps it refined.
+	auto second = history.select(data, r);
+	CHECK(second.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK_FALSE(second.bootstrapped);
+	CHECK(second.selected_count == 2);
+	history.invalidate();
+	CHECK(history.select(data, r).selected_count == 1); // Cold start in the band: no hysteresis, root stays.
+}
 }

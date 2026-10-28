@@ -176,6 +176,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			}
 			out.selected_splats = out.selected_splats - n.payload_count + child_splats;
 			out.estimated_records = next_cost;
+			refined.write[parent] = epoch; // Same hysteresis stamp as ordinary refinement.
 		}
 		// Refinement below starts from the complete frontier, not from the bootstrap heap.
 		heap_count = 0;
