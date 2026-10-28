@@ -653,20 +653,44 @@ Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, con
 	Dictionary report;
 	report["error"] = ERR_INVALID_PARAMETER;
 	gs_hlod::OfflineJob job;
-	// The first route has no arbitrary metadata/instances, compression or checkpoints.
-	// Refuse those before serialization can allocate an unaccounted JSON/blob copy.
-    if (!job.configure(p_limits) || !metadata.is_empty() || get_antialiased() || !hlod_tree.instances.is_empty() ||
-	    !hlod_tree.top_level_nodes.is_empty() || hlod_tree.nodes.size() > job.nodes ||
-	    uint64_t(get_splat_count()) + hlod_tree.interior_splat_count > job.prepared ||
-        p_candidate_path.get_extension().to_lower() != "gsplatworld" || FileAccess::exists(p_candidate_path) ||
-        DirAccess::dir_exists_absolute(p_candidate_path)) {
+	// Snapshot every source input under one render_input_mutex scope (World -> GaussianData order via the
+	// getters; the mutex is recursive) so the pre-checks and the candidate copy describe one epoch.
+	// Released before any bake, job check or file I/O.
+	// Path/file-system checks stay outside the lock (file I/O).
+	if (p_candidate_path.get_extension().to_lower() != "gsplatworld" || FileAccess::exists(p_candidate_path) ||
+			DirAccess::dir_exists_absolute(p_candidate_path)) {
 		return report;
 	}
-	const uint64_t old_interior = uint64_t(hlod_tree.interior_gaussians.get_capacity()) * sizeof(Gaussian) +
-	                              uint64_t(hlod_tree.interior_sh_high_order.get_capacity()) * sizeof(Vector3);
-	if (!job.reserve(get_splat_count(), get_sh_high_order_count(), old_interior)) {
-		report["error"] = ERR_OUT_OF_MEMORY;
-		return report;
+	Ref<GaussianSplatWorld> candidate;
+	candidate.instantiate();
+	uint32_t src_splats = 0, src_high = 0;
+	{
+		MutexLock lock(render_input_mutex);
+		src_splats = get_splat_count();
+		src_high = get_sh_high_order_count();
+		// The first route has no arbitrary metadata/instances, compression or checkpoints.
+		// Refuse those before serialization can allocate an unaccounted JSON/blob copy.
+		if (!job.configure(p_limits) || !metadata.is_empty() || get_antialiased() || !hlod_tree.instances.is_empty() ||
+				!hlod_tree.top_level_nodes.is_empty() || hlod_tree.nodes.size() > job.nodes ||
+				uint64_t(src_splats) + hlod_tree.interior_splat_count > job.prepared) {
+			return report;
+		}
+		const uint64_t old_interior = uint64_t(hlod_tree.interior_gaussians.get_capacity()) * sizeof(Gaussian) +
+				uint64_t(hlod_tree.interior_sh_high_order.get_capacity()) * sizeof(Vector3);
+		if (!job.reserve(src_splats, src_high, old_interior)) {
+			report["error"] = ERR_OUT_OF_MEMORY;
+			return report;
+		}
+		// Borrow the source owner; _bake_hlod snapshots and publishes only into candidate.
+		candidate->gaussian_data = gaussian_data;
+		candidate->chunk_payload_source = chunk_payload_source;
+		candidate->splat_count_metadata = splat_count_metadata;
+		candidate->sh_degree_metadata = sh_degree_metadata;
+		candidate->sh_first_order_count_metadata = sh_first_order_count_metadata;
+		candidate->sh_high_order_count_metadata = sh_high_order_count_metadata;
+		candidate->is_2d_metadata = is_2d_metadata;
+		candidate->antialiased_metadata = antialiased_metadata;
+		candidate->bounds = bounds;
 	}
 	report["reserved_scratch_bytes"] = int64_t(job.reserved);
 	gs_hlod::OfflineJobScope scope(job);
@@ -678,18 +702,6 @@ Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, con
 		report["error"] = job.check();
 		return report;
 	}
-	Ref<GaussianSplatWorld> candidate;
-	candidate.instantiate();
-	// Borrow the source owner; _bake_hlod snapshots and publishes only into candidate.
-	candidate->gaussian_data = gaussian_data;
-	candidate->chunk_payload_source = chunk_payload_source;
-	candidate->splat_count_metadata = splat_count_metadata;
-	candidate->sh_degree_metadata = sh_degree_metadata;
-	candidate->sh_first_order_count_metadata = sh_first_order_count_metadata;
-	candidate->sh_high_order_count_metadata = sh_high_order_count_metadata;
-	candidate->is_2d_metadata = is_2d_metadata;
-	candidate->antialiased_metadata = antialiased_metadata;
-	candidate->bounds = bounds;
 	const uint64_t started = OS::get_singleton()->get_ticks_usec();
 	Error error = candidate->_bake_hlod(true);
 	report["bake_ms"] = double(OS::get_singleton()->get_ticks_usec() - started) / 1000.0;
@@ -713,9 +725,9 @@ Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, con
 		report["validate_ms"] = double(OS::get_singleton()->get_ticks_usec() - validate_started) / 1000.0;
 		if (error == OK && (validated.is_null() || !validated->has_hlod_tree() ||
 		                    validated->get_hlod_tree().bake_rule_version != gs_hlod::kQualityBakeRuleVersion ||
-		                    validated->get_splat_count() != get_splat_count() ||
+		                    validated->get_splat_count() != src_splats ||
 		                    validated->get_sh_first_order_count() != get_sh_first_order_count() ||
-		                    validated->get_sh_high_order_count() != get_sh_high_order_count())) {
+		                    validated->get_sh_high_order_count() != src_high)) {
 			error = ERR_FILE_CORRUPT;
 		}
 		if (error == OK) {
