@@ -510,14 +510,27 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
 - **The error metric `E`.** Both candidates are rendered against the node's **reference**, the
   union of its children's payloads (what the cut shows when it refines the node), by the bake's
   own small CPU splat rasterizer (front-to-back compositing, SH evaluated per view, fixed
-  order), orthographic, with a **pixel size of `eps / tau_bake`**, where `tau_bake` is the
-  provisional `tau` (1 px until S3's A/B sets the default; a different default is a re-bake via
-  `bake_rule_version`). The view set (S1 implementer question (b)) is **22 views**: the 6 axis
+  order), orthographic. **Rule 3 (S1b selector revision, stack PR 12):** a node is drawn whenever
+  its geometric error projects to at most `tau` pixels, and `tau` is a runtime budget, so one
+  stored decision has to serve every `tau` the ADR evaluates (1, 2 and 4 px, §5.2). Each
+  candidate is therefore rendered at the pixel size **`eps / tau` for `tau` in {1, 2, 4}**
+  (rule 2 used `tau` = 1 only, which is blind to the finer pitch at which a node is shown under
+  `tau` = 4, where a sparse subset exposes holes that a coarse pixel hides). The three per-`tau`
+  errors are combined by their **geometric mean**, because the acceptance gate reports PSNR, a
+  logarithm of the error: choosing the lower geometric mean minimises the expected dB loss over
+  the budgets. Each per-`tau` error is floored at the MSE of 8-bit output rounding alone,
+  `1 / (12 * 255^2)`, since smaller errors are invisible and would send the logarithm to minus
+  infinity. The stored `error_chosen`/`error_rejected` are these geometric means, so the rule
+  version is 3 and rule-2 worlds are not comparable. The colour space is deliberately
+  **unchanged**: the splat raster output is an sRGB-encoded display-referred buffer that the
+  compositor decodes to linear and the tonemapper re-encodes, so the blended values the proxy
+  compares are already in the space the gate's sRGB PSNR measures (viewport_blit.glsl,
+  `source_decode_srgb`). The view set (S1 implementer question (b)) is **22 views**: the 6 axis
   directions, the 8 cube-corner directions (oblique), and 8 grazing directions at 10°
   elevation every 45° of azimuth, because the dominant open-world view is grazing and on flat
   content the axis views see it only edge-on or top-down. `E` is the mean over views and pixels
   of the squared difference in premultiplied RGBA, so holes and colour errors both count. The
-  lower `E` wins; within 1%, `merged` wins.
+  lower `E` wins; within 1%, `merged` wins (the tie factor is unchanged).
 - **Cost against the 2x limit (estimate).** The reference is rendered once per view and shared
   by both candidates; per node that is about `(4 + 1 + 1) x 22 ≈ 130` splat-renders per merged
   splat, or about 26 per source splat once the ~20% interior share is applied, at a few pixels

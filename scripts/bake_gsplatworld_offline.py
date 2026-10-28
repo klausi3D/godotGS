@@ -42,7 +42,7 @@ REQUIRED_LIMITS = (
 )
 FIXED_METRIC = {"image_payload_bytes": 1 << 26, "metric_scratch_peak_bytes": 1 << 28,
                 "node_work": 1 << 28, "bake_work": 1 << 34}
-QUALITY = {"bake_rule_version": 2, "views": 22, "dc_semantics": "preserve", "sh_semantics": "full",
+QUALITY = {"bake_rule_version": 3, "views": 22, "dc_semantics": "preserve", "sh_semantics": "full",
            "leaf_max_splats": 16384, "node_max_splats": 16384, "merge_grid": 64,
            "reduction": 4, "eps_growth": 1.25, "max_eps_steps": 1024, "merged_preference": 0.01}
 CONTROL_BYTES = 16 << 20  # bounded log, manifest/report, project and engine startup files
@@ -458,7 +458,7 @@ def private_phase(phase, request_path):
             require(worker_path.stat().st_size <= 1 << 20, "Worker report reservation")
             worker = json.loads(worker_path.read_text(encoding="utf-8"))
             require(worker.get("status") == "VALIDATED_CANDIDATE" and worker.get("error") == 0
-                    and worker.get("preparation", {}).get("bake_rule_version") == 2, "No strict validation receipt")
+                    and worker.get("preparation", {}).get("bake_rule_version") == 3, "No strict validation receipt")
             candidate = Path(request["candidate_path"])
             identity = file_identity(candidate)
             require(identity[2] <= limits["max_output_bytes"], "Output byte limit")
