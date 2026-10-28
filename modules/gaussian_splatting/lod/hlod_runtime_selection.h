@@ -29,6 +29,13 @@ struct CutRequest {
 	// the node index as the tie-break (the pre-existing behaviour).
 	const uint32_t *tie_rank = nullptr;
 	uint32_t tie_rank_count = 0;
+	// Page plan for the residency demand (ADR 6.6): when page_splats != 0, a node occupies ceil(payload / page)
+	// atlas pages and the demand is only issued for a transition whose pages fit page_budget together with the
+	// pages of everything that stays resident - the cut and every ancestor of it. The cut itself is still
+	// decided by the splat/node/record caps; this only keeps the streamer from being asked for runs the atlas
+	// cannot hold.
+	uint32_t page_splats = 0;
+	uint64_t page_budget = 0;
 };
 
 // One complete view history. All storage is admitted before rendering; select() never

@@ -352,3 +352,32 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] ledger limit literals 
     CHECK_FALSE(hlod_prepared_fits(cap + 1, 1000, big, cap));
     CHECK_FALSE(hlod_prepared_fits(cap, 1001, 1000, cap));
 }
+
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] streaming engages when any whole-tree limit fails and clamps instead of refusing (#1131)") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t cap = uint64_t(512) << 20; // GPU_BYTE_LIMIT
+    const uint64_t atlas_default = kResidentStagingCeilingBytes; // 2 GiB: the default atlas cap
+    const uint64_t stride = 176, page = 1024, page_bytes = stride * page;
+    // Fits everything: not streamed.
+    CHECK_FALSE(hlod_should_stream(100 << 20, atlas_default, true));
+    // Fits the atlas but the two bundles exceed the 512 MiB HLOD-owned cap: streamed (was refused).
+    CHECK(hlod_should_stream(400 << 20, atlas_default, hlod_candidate_fits(800 << 20, 0, uint64_t(1) << 40, cap)));
+    // Above the atlas cap: streamed.
+    CHECK(hlod_should_stream(atlas_default + 1, atlas_default, true));
+    // The page budget is clamped by the HLOD-owned cap (not refused) and never exceeds it with the fixed bytes.
+    const uint64_t fixed = 20 << 20, huge = uint64_t(1) << 40;
+    const uint64_t pages = hlod_stream_page_budget(atlas_default, stride, page, huge, fixed, cap, huge, 0);
+    CHECK(pages == (cap - fixed) / page_bytes);
+    CHECK(fixed + pages * page_bytes <= cap);
+    CHECK(fixed + (pages + 1) * page_bytes > cap);
+    // Clamped by the tree itself, the atlas cap and the ledger headroom, each exactly.
+    CHECK(hlod_stream_page_budget(atlas_default, stride, page, 7, fixed, cap, huge, 0) == 7);
+    CHECK(hlod_stream_page_budget(10 * page_bytes, stride, page, huge, fixed, cap, huge, 0) == 10);
+    const uint64_t ledger = fixed + 3 * page_bytes + 5; // 3 pages of headroom
+    CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, fixed, cap, ledger, 0) == 3);
+    CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, fixed, cap, ledger, page_bytes + 5) == 2);
+    // No admissible page: fixed bytes alone exceed a limit, or the ledger is already full.
+    CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, cap, cap, huge, 0) == 0);
+    CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, fixed, cap, 1000, 2000) == 0);
+    CHECK(hlod_stream_page_budget(atlas_default, 0, page, huge, fixed, cap, huge, 0) == 0);
+}

@@ -1343,6 +1343,7 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
             !rd->buffer_is_valid(sort.keys_buffer) || !rd->buffer_is_valid(sort.indices_buffer)) { return false; }
     const uint32_t relative_capacity = MIN<uint32_t>(input->leaf_count, MAX(1, get_performance_settings().max_splats));
     const bool streaming = state.hlod_streaming;
+    if (streaming && hlod_streaming_unsupported_reason(nullptr) != nullptr) { return false; } // Release; republish decides again.
     if (streaming && (state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
             state.hlod_streamer->get_residency().device_generation() != rd->get_device_instance_id() ||
             state.hlod_streamer->get_residency().world_generation() != uint64_t(input->get_instance_id()) ||
@@ -1446,6 +1447,23 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     return true;
 }
 
+const char *GaussianSplatRenderer::hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const {
+    // Conditions under which the HLOD cut can never become active; a streamed bundle would then draw nothing for
+    // ever, so these setups keep the whole-tree / legacy resident route (reason keys as in prepare_hlod_frame).
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!get_lod_enabled()) { return "lod_disabled_canonical_leaves"; }
+    if (is_shadow_instance_filter_enabled()) { return "shadow_instance_filter"; }
+    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) { return "deformation_or_instance_domain"; }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director || director->get_sphere_effector_count_for_renderer(this) != 0) { return "deformation_or_instance_domain"; }
+    if (p_instance) {
+        const bool identity = (p_instance->ids[1] & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0 && p_instance->translation_scale[0] == 0.0f &&
+                p_instance->translation_scale[1] == 0.0f && p_instance->translation_scale[2] == 0.0f && p_instance->translation_scale[3] == 1.0f;
+        if (!identity) { return "unsupported_instance_transform_domain"; }
+    }
+    return nullptr;
+}
+
 int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) {
     auto &state = get_resource_state();
     auto *director = GaussianSplatSceneDirector::get_singleton();
@@ -1500,36 +1518,53 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         const uint32_t atlas_override = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
         const uint64_t atlas_limit = ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget, atlas_override);
         const uint64_t record_stride = quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
-        // The atlas budget decides (ADR 14.1, one physical budget): a tree that fits is uploaded whole as before;
-        // a tree that does not is streamed node by node into an atlas of the budgeted size (package D) instead of
-        // being refused.
-        const bool streaming = uint64_t(input->leaf_count + input->parent_count) * record_stride > atlas_limit;
-        uint32_t stream_records = 0;
-        HlodNodeStreamer::Config stream_config;
-        if (streaming) {
-            uint64_t node_pages = 0;
-            for (int n = 0; n < input->nodes.size(); ++n) {
-                node_pages += (uint64_t(input->nodes[n].topology.payload_count) + stream_config.page_splats - 1u) / stream_config.page_splats;
-            }
-            const uint64_t pages = MIN(atlas_limit / record_stride / stream_config.page_splats, node_pages);
-            if (pages == 0 || pages * stream_config.page_splats > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT / record_stride) {
-                state.hlod_reason = "hlod_existing_atlas_limit"; return 0;
-            }
-            stream_config.atlas_pages = uint32_t(pages);
-            stream_config.quantized = quantized;
-            stream_config.position_bits = position_bits;
-            stream_config.scale_bits = scale_bits;
-            stream_records = uint32_t(pages * stream_config.page_splats);
-        }
-        const uint64_t candidate_bytes = streaming ? hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, stream_records) :
-                hlod_bundle_bytes(*input.ptr(), false, quantized, input->leaf_count) +
-                        hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity);
+        LocalVector<InstanceDataGPU> instances;
+        LocalVector<InstanceGradingGPU> grading;
+        director->build_instance_buffer_for_renderer(this, instances, false);
+        director->build_instance_grading_buffer_for_renderer(this, grading, false);
+        if (instances.size() != 1 || grading.size() != 1) { state.hlod_reason = "hlod_identity_shim_unavailable"; return 0; }
         uint64_t device_bytes = 0;
         if (
 #ifdef TESTS_ENABLED
                 test_hlod_publication_refuses(2) ||
 #endif
                 !get_hlod_owned_byte_upper_bound(device_bytes)) { state.hlod_reason = "resource_ledger_warmup_or_unavailable"; return 0; }
+        const uint64_t whole_candidate_bytes = hlod_bundle_bytes(*input.ptr(), false, quantized, input->leaf_count) +
+                hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity);
+        const uint64_t whole_atlas_bytes = uint64_t(input->leaf_count + input->parent_count) * record_stride;
+        // The tree streams whenever its whole-tree bundles cannot be admitted (atlas budget, HLOD-owned cap or
+        // the device ledger), never because a limit was raised; every limit stays as it is. A setup that can
+        // never activate the cut (LOD off, deformation, non-identity placement, shadow filter) keeps the
+        // whole-tree/legacy behaviour instead: a streamed world has no canonical copy to fall back to.
+        const bool whole_fits = whole_atlas_bytes <= atlas_limit &&
+                ResidentAtlasBudget::hlod_candidate_fits(whole_candidate_bytes, device_bytes, route_limit, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+        const bool streaming = ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits) &&
+                hlod_streaming_unsupported_reason(&instances[0]) == nullptr;
+        uint32_t stream_records = 0;
+        HlodNodeStreamer::Config stream_config;
+        uint64_t candidate_bytes = whole_candidate_bytes;
+        if (streaming) {
+            uint64_t node_pages = 0;
+            for (int n = 0; n < input->nodes.size(); ++n) {
+                node_pages += (uint64_t(input->nodes[n].topology.payload_count) + stream_config.page_splats - 1u) / stream_config.page_splats;
+            }
+            // Bytes of the relative bundle that do not scale with the atlas (everything but the atlas records).
+            const uint64_t fixed_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, 1) - record_stride;
+            const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget(atlas_limit, record_stride, stream_config.page_splats,
+                    node_pages, fixed_bytes, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, route_limit, device_bytes);
+            if (pages == 0 || pages * stream_config.page_splats > UINT32_MAX) {
+                state.hlod_reason = whole_atlas_bytes > atlas_limit ? "hlod_existing_atlas_limit" : "hlod_candidate_memory_limit";
+                return 0;
+            }
+            stream_config.atlas_pages = uint32_t(pages);
+            stream_config.quantized = quantized;
+            stream_config.position_bits = position_bits;
+            stream_config.scale_bits = scale_bits;
+            stream_records = uint32_t(pages * stream_config.page_splats);
+            candidate_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, stream_records);
+        } else if (whole_atlas_bytes > atlas_limit) {
+            state.hlod_reason = "hlod_existing_atlas_limit"; return 0;
+        }
         state.hlod_device_byte_upper_bound = device_bytes + candidate_bytes;
         if (
 #ifdef TESTS_ENABLED
@@ -1542,11 +1577,6 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             if (publish_hlod_bundle(false)) { return 1; }
             return 0;
         }
-        LocalVector<InstanceDataGPU> instances;
-        LocalVector<InstanceGradingGPU> grading;
-        director->build_instance_buffer_for_renderer(this, instances, false);
-        director->build_instance_grading_buffer_for_renderer(this, grading, false);
-        if (instances.size() != 1 || grading.size() != 1) { state.hlod_reason = "hlod_identity_shim_unavailable"; return 0; }
         HlodBundle canonical, relative;
         // A streamed world builds only the relative bundle: a canonical full-leaf copy would be the whole-world
         // materialization the streaming budget exists to avoid.
@@ -1703,6 +1733,11 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     }
     spec.focal_pixels = std::abs(double(p_context.cull_projection.columns[1][1])) * p_context.viewport_size.y * 0.5;
     spec.tau_pixels = tau;
+    if (state.hlod_streaming) {
+        // Plan the streamer's demand in atlas pages (ancestors of the cut included), not in splats.
+        spec.page_splats = HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS;
+        spec.page_budget = state.hlod_stream_atlas_records / spec.page_splats;
+    }
     spec.tile_area = double(tile->get_tile_size()) * tile->get_tile_size();
     // The drawn set can never exceed what the atlas holds (ADR 6.5: the effective budget is the minimum of the
     // configured cap and the allocated capacity). A streamed atlas is smaller than the cut cap, so a refinement
@@ -1792,7 +1827,12 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             const HlodNodeStreamer::Telemetry &t = state.hlod_streamer->get_telemetry();
             if (state.hlod_streamer->root_failed()) { return fallback("hlod_stream_root_load_failed"); }
             if (outcome.view.readiness == gs_hlod_runtime::ViewSet::LOADING) {
-                return fallback(t.stall_frames >= 60 ? "hlod_stream_not_admitted_atlas_budget" : "hlod_stream_loading");
+                if (t.stall_frames < 60) { return fallback("hlod_stream_loading"); }
+                // Stalled: say why. A failed child is a load failure (ADR 14.2), enough free pages without a
+                // contiguous run is fragmentation (compaction, D2), anything else is the budget.
+                if (t.blocked_groups_this_frame > 0) { return fallback("hlod_stream_node_load_failed"); }
+                if (t.fragmented_groups_this_frame > 0) { return fallback("hlod_stream_stalled_atlas_fragmentation"); }
+                return fallback("hlod_stream_not_admitted_atlas_budget");
             }
         }
         return fallback(outcome.fallback.reason);

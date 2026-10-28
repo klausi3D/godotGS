@@ -485,4 +485,39 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut bootstrap demands every missing
 	history.select(data, r);
 	CHECK(history.partial_frontier_count() == 0);
 }
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut plans demand in atlas pages, ancestors of the cut included") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data); // Every node holds fewer splats than a page, so each occupies exactly one page.
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	uint8_t interiors[7] = { 1, 1, 1, 0, 0, 0, 0 };
+	r.resident = interiors; r.resident_count = 7;
+	// Splats and records would admit every transition (cap 100 splats, 16 needed).
+	r.page_splats = 1024;
+	// Cut {1, 2} keeps three pages resident (root and both interiors). Each child group adds two pages.
+	r.page_budget = 5;
+	auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 }); // 3 + 2 = 5 fits, the second group (7) does not.
+	r.page_budget = 7;
+	history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
+	r.page_budget = 4; // Not even one group fits next to the ancestors.
+	history.select(data, r);
+	CHECK(demand_of(history).empty());
+	// Pages round up: 2000 splats occupy two pages, so each leaf pair costs four pages (3 + 4 = 7 > 6).
+	for (int i = 3; i < 7; ++i) { data.nodes.write[i].topology.payload_count = 2000; }
+	r.splat_budget = 100000;
+	r.page_budget = 6;
+	history.select(data, r);
+	CHECK(demand_of(history).empty());
+	r.page_budget = 7;
+	history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+	// Without a page plan the selector behaves as before.
+	r.page_splats = 0;
+	history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
+}
 }

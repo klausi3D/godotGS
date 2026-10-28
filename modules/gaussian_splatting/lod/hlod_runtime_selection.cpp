@@ -69,8 +69,9 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	}
 	demand_size = 0;
 	partial_size = 0;
-	// Each node is demanded at most once per call (a parent is expanded once, every node has one parent, the
-	// root only on the early return), so the preallocated list never overflows.
+	// A node can be listed more than once (a bootstrap expansion demands the children of a parent the refinement
+	// walk may demand again), so the list is capped at the node count and consumers (NodeResidency::request)
+	// treat duplicates as one demand.
 	auto push_demand = [&](uint32_t p_node) { if (demand_size < capacity) { demand.write[demand_size++] = p_node; } };
 	const uint64_t previous = epoch++;
 	uint32_t heap_count = 0;
@@ -120,6 +121,13 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		heap.write[heap_count++] = { p_node, tie_of(p_node), e * (was_refined ? 1.25 : 1.0) };
 		std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 	};
+	auto pages_of = [&](uint32_t p_node) -> uint64_t {
+		if (p_request.page_splats == 0) { return 0; }
+		return (uint64_t(p_data.nodes[p_node].topology.payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
+	};
+	// Pages that stay resident: the cut and all of its ancestors. Refining a node keeps it (as an ancestor) and
+	// adds its children, so the closure only grows by the children's pages.
+	uint64_t closure_pages = pages_of(0);
 	out.visited_nodes = 1;
 	if (!visible(0)) { out.status = EMPTY; return out; }
 	if (!available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
@@ -171,6 +179,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			}
 			uint32_t children[gs_hlod::kMaxChildren];
 			double child_costs[gs_hlod::kMaxChildren];
+			uint64_t child_pages = 0;
 			uint32_t visible_children = 0;
 			uint64_t child_splats = 0;
 			double child_cost = 0.0;
@@ -184,6 +193,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				if (!available(child)) { children_ready = false; missing_children[missing_count++] = child; continue; }
 				const double c = cost(child);
 				if (!std::isfinite(c)) { return fail(BOOTSTRAP_ARITHMETIC); }
+				child_pages += pages_of(child);
 				children[visible_children] = child;
 				child_costs[visible_children++] = c;
 				child_splats += p_data.nodes[child].topology.payload_count;
@@ -211,6 +221,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			}
 			out.selected_splats = out.selected_splats - n.payload_count + child_splats;
 			out.estimated_records = next_cost;
+			closure_pages += child_pages;
 			refined.write[parent] = epoch; // Same hysteresis stamp as ordinary refinement.
 		}
 		// Refinement below starts from the complete frontier, not from the bootstrap heap.
@@ -224,6 +235,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	// lower-priority group is not requested when the higher-priority one already uses the budget it needs.
 	int64_t plan_splats = 0, plan_count = 0;
 	double plan_cost = 0.0;
+	uint64_t plan_pages = 0;
 	while (heap_count != 0) {
 		std::pop_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 		const uint32_t parent = heap[--heap_count].node;
@@ -235,6 +247,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		bool complete = true;
 		uint32_t missing_children[gs_hlod::kMaxChildren];
 		uint32_t missing_count = 0;
+		uint64_t child_pages = 0;
 		if (n.child_count > gs_hlod::kMaxChildren || n.first_child > count || n.child_count > count - n.first_child) {
 			out.status = INVALID; return out;
 		}
@@ -244,6 +257,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			if (!visible(child)) { continue; }
 			if (!available(child)) { complete = false; missing_children[missing_count++] = child; }
 			children[visible_children++] = child;
+			child_pages += pages_of(child);
 			child_splats += p_data.nodes[child].topology.payload_count;
 			child_cost += cost(child);
 		}
@@ -261,8 +275,10 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const double d_cost = child_cost - cost(parent);
 			if (int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
 					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
-					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap) {
+					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap &&
+					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget)) {
 				for (uint32_t m = 0; m < missing_count; ++m) { push_demand(missing_children[m]); }
+				plan_pages += child_pages;
 				plan_splats += d_splats;
 				plan_count += d_count;
 				plan_cost += d_cost;
@@ -273,6 +289,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			out.budget_bound = true;
 			break; // ADR: first cap refusal stops the whole priority walk.
 		}
+		closure_pages += child_pages;
 		const uint32_t removed = selected_position[parent];
 		const uint32_t last = selected[--out.selected_count];
 		selected.write[removed] = last;

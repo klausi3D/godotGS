@@ -125,6 +125,7 @@ void NodeResidency::retire_run(Node &r_node) {
 	}
 	Retiring r;
 	r.alloc_key = r_node.alloc_key;
+	r.first_page = r_node.first_page;
 	r.pages = r_node.pages;
 	r.retire_frame = current_frame + cfg.retire_delay_frames;
 	retiring.push_back(r);
@@ -192,13 +193,77 @@ uint32_t NodeResidency::evict_for(uint32_t p_pages, uint32_t p_exclude_parent) {
 	return evicted;
 }
 
-NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets) {
-	RequestResult out;
-	for (uint32_t i = 0; i < p_count; ++i) {
-		if (p_demand[i] < uint32_t(nodes.size())) {
-			nodes.write[p_demand[i]].last_demand_frame = current_frame;
+uint32_t NodeResidency::evict_window(uint32_t p_pages, uint32_t p_exclude_parent) {
+	const uint32_t capacity = cfg.page_capacity;
+	if (p_pages == 0 || p_pages > capacity || evictions_this_frame >= cfg.evictions_per_frame) {
+		return 0;
+	}
+	const uint32_t FREE_PAGE = UINT32_MAX, BLOCKED_PAGE = UINT32_MAX - 1;
+	window_owner.resize(capacity);
+	for (uint32_t i = 0; i < capacity; ++i) {
+		window_owner[i] = FREE_PAGE;
+	}
+	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
+		const Node &n = nodes[i];
+		if (n.alloc_key == 0) {
+			continue;
+		}
+		const bool evictable = n.state == RESIDENT && !is_protected(i) && i != p_exclude_parent &&
+				(p_exclude_parent == UINT32_MAX || n.parent != p_exclude_parent);
+		for (uint32_t p = n.first_page; p < n.first_page + n.pages && p < capacity; ++p) {
+			window_owner[p] = evictable ? i : BLOCKED_PAGE;
 		}
 	}
+	for (uint32_t i = 0; i < retiring.size(); ++i) {
+		for (uint32_t p = retiring[i].first_page; p < retiring[i].first_page + retiring[i].pages && p < capacity; ++p) {
+			window_owner[p] = BLOCKED_PAGE;
+		}
+	}
+	uint32_t best_start = UINT32_MAX, best_cost = UINT32_MAX;
+	for (uint32_t s = 0; s + p_pages <= capacity; ++s) {
+		uint32_t cost = 0;
+		bool ok = true;
+		uint32_t previous = FREE_PAGE;
+		for (uint32_t p = s; p < s + p_pages; ++p) {
+			const uint32_t owner = window_owner[p];
+			if (owner == BLOCKED_PAGE) { ok = false; break; }
+			if (owner != FREE_PAGE && owner != previous) { cost += nodes[owner].pages; }
+			previous = owner;
+		}
+		if (ok && cost != 0 && cost < best_cost) {
+			best_cost = cost;
+			best_start = s;
+		}
+	}
+	if (best_start == UINT32_MAX) {
+		return 0;
+	}
+	uint32_t evicted = 0, previous = FREE_PAGE;
+	for (uint32_t p = best_start; p < best_start + p_pages; ++p) {
+		const uint32_t owner = window_owner[p];
+		if (owner != FREE_PAGE && owner != previous && evict(owner)) {
+			++evicted;
+		}
+		previous = owner;
+	}
+	return evicted;
+}
+
+NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets) {
+	RequestResult out;
+	// The selector can list a node twice (a bootstrap expansion and the refinement walk both reach it). One
+	// node is one demand and gets at most one run: keep the first occurrence, in priority order.
+	demand_unique.clear();
+	++dedup_pass;
+	for (uint32_t i = 0; i < p_count; ++i) {
+		if (p_demand[i] < uint32_t(nodes.size()) && nodes[p_demand[i]].demand_pass != dedup_pass) {
+			nodes.write[p_demand[i]].demand_pass = dedup_pass;
+			nodes.write[p_demand[i]].last_demand_frame = current_frame;
+			demand_unique.push_back(p_demand[i]);
+		}
+	}
+	p_demand = demand_unique.ptr();
+	p_count = demand_unique.size();
 	// Requests nobody asked for lately are cancelled, so a camera that moved on does not keep loading.
 	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
 		const Node &n = nodes[i];
@@ -227,6 +292,8 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 				++out.satisfied;
 			} else if (n.state == FAILED && (n.failures >= cfg.max_failures || current_frame < n.retry_after_frame)) {
 				blocked = true; // A child cannot arrive now, so the parent's whole transition cannot complete.
+			} else if (n.alloc_key != 0) {
+				blocked = true; // Never give a node a second run: its first one would leak.
 			} else if (need_count < 16) {
 				need[need_count++] = p_demand[k];
 				total_pages += n.pages;
@@ -246,6 +313,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			}
 		};
 		if (blocked) {
+			++out.blocked_groups;
 			continue;
 		}
 		if (need_count == 0) {
@@ -256,12 +324,21 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			out.capped = true;
 			break; // Priority order: lower-priority groups do not jump the queue.
 		}
+		// Largest runs first: they are the hardest to place, small ones fill the holes that remain.
+		for (uint32_t a = 1; a < need_count; ++a) {
+			const uint32_t v = need[a];
+			uint32_t b = a;
+			while (b > 0 && nodes[need[b - 1]].pages < nodes[v].pages) { need[b] = need[b - 1]; --b; }
+			need[b] = v;
+		}
+		uint32_t failed_pages = 0;
 		auto allocate_all = [&]() {
 			for (uint32_t k = 0; k < need_count; ++k) {
 				Node &n = nodes.write[need[k]];
 				const uint64_t key = make_alloc_key(need[k]);
 				uint32_t slot = 0;
 				if (!allocator.allocate_slot(key, n.pages, slot)) {
+					failed_pages = n.pages;
 					for (uint32_t r = 0; r < k; ++r) { // Roll back: these runs were never used.
 						release_run_now(nodes.write[need[r]]);
 					}
@@ -277,14 +354,38 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			out.evicted += evict_for(total_pages, parent);
 			placed = allocate_all();
 		}
+		// Enough pages in total but no contiguous run: evict the cheapest unprotected neighbours of a hole.
+		for (uint32_t round = 0; !placed && round < need_count && uint64_t(allocator.get_free_page_count()) + pages_retiring >= total_pages; ++round) {
+			const uint32_t freed = evict_window(failed_pages, parent);
+			if (freed == 0) { break; }
+			out.evicted += freed;
+			placed = allocate_all();
+		}
 		if (!placed) {
 			++out.skipped_groups;
 			++totals.skipped_groups_total;
+			if (uint64_t(allocator.get_free_page_count()) >= total_pages) {
+				++out.fragmented_groups;
+			} else if (uint64_t(allocator.get_free_page_count()) + pages_retiring >= total_pages) {
+				// It will fit as soon as the retiring runs are released. Until then the group still outranks
+				// every lower-priority one: its half-finished children and the pages being freed for it stay.
+				++out.pending_retire_groups;
+				want_group();
+			}
 			continue; // Skipped, not waited for: the parent keeps being drawn.
 		}
 		want_group();
 		for (uint32_t k = 0; k < need_count; ++k) {
 			Node &n = nodes.write[need[k]];
+			// An evicted node that is requested again in the same pass is no longer "evicted": clearing its GPU
+			// metadata after the new payload landed would leave a resident node that draws nothing.
+			for (uint32_t e = 0; e < evicted_log.size(); ++e) {
+				if (evicted_log[e] == need[k]) {
+					evicted_log[e] = evicted_log[evicted_log.size() - 1];
+					evicted_log.resize(evicted_log.size() - 1);
+					break;
+				}
+			}
 			n.state = LOADING;
 			n.request_generation = ++request_serial;
 			Ticket t;

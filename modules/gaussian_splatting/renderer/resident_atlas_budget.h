@@ -93,6 +93,28 @@ inline bool hlod_prepared_fits(uint64_t owned_bytes, uint64_t device_bytes, uint
     return owned_bytes <= hlod_owned_cap_bytes && device_bytes <= ledger_limit_bytes;
 }
 
+// Streaming decision for an HLOD tree (package D): stream whenever the whole-tree bundles cannot be admitted -
+// atlas budget, HLOD-owned cap or device ledger - never by raising a limit.
+inline bool hlod_should_stream(uint64_t whole_atlas_bytes, uint64_t atlas_limit_bytes, bool whole_candidate_fits) {
+    return whole_atlas_bytes > atlas_limit_bytes || !whole_candidate_fits;
+}
+
+// Pages a streamed HLOD atlas may hold. `fixed_bundle_bytes` is the relative bundle without its atlas records.
+// The result is clamped by the atlas cap, the tree itself, the HLOD-owned cap and the device ledger headroom
+// (the same limits hlod_candidate_fits applies); 0 means not even one page is admissible.
+inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t record_stride, uint32_t page_splats,
+        uint64_t total_node_pages, uint64_t fixed_bundle_bytes, uint64_t hlod_owned_cap_bytes,
+        uint64_t ledger_limit_bytes, uint64_t device_bytes) {
+    if (record_stride == 0 || page_splats == 0) { return 0; }
+    const uint64_t page_bytes = record_stride * page_splats;
+    if (fixed_bundle_bytes >= hlod_owned_cap_bytes || device_bytes > ledger_limit_bytes ||
+            ledger_limit_bytes - device_bytes <= fixed_bundle_bytes) { return 0; }
+    uint64_t pages = MIN(atlas_limit_bytes / page_bytes, total_node_pages);
+    pages = MIN(pages, (hlod_owned_cap_bytes - fixed_bundle_bytes) / page_bytes);
+    pages = MIN(pages, (ledger_limit_bytes - device_bytes - fixed_bundle_bytes) / page_bytes);
+    return pages;
+}
+
 struct SubsetPlan {
     bool reduced = false;       // true when the atlas must be thinned to fit
     double keep_ratio = 1.0;    // global fraction of splats to keep (1.0 == full)

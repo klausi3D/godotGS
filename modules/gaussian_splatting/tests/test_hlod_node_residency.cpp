@@ -2,6 +2,7 @@ extern "C" int test_hlod_node_residency_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_node_residency.h"
 #include "../lod/hlod_runtime_selection.h"
+#include "../renderer/hlod_node_streamer.h"
 #include <vector>
 
 // ADR 6.6 / 14.1 / 14.2, package D1: demand -> request -> resident-ready -> drawable, protection, cancellation
@@ -265,12 +266,12 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a late completion cannot resurre
 }
 
 // 15-node tree with one page per node, so eviction order and protection are the only things under test.
-static bool one_page_tree(Sim &r_sim, uint32_t p_pages) {
+static bool one_page_tree(Sim &r_sim, uint32_t p_pages, uint32_t p_retire = 0) {
 	r_sim.data.instantiate();
 	binary_tree(*r_sim.data.ptr(), 4, 1000, 1000);
 	Vector<Residency::NodeInfo> infos;
 	return make_node_infos(*r_sim.data.ptr(), infos) && r_sim.history.reserve(r_sim.data->nodes.size()) &&
-			r_sim.res.reset(infos, config(p_pages, 0), 1, 1);
+			r_sim.res.reset(infos, config(p_pages, p_retire), 1, 1);
 }
 static bool make_resident_at(Residency &r_res, uint32_t p_node, uint64_t p_frame) {
 	LocalVector<Residency::Ticket> t;
@@ -516,6 +517,196 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a lower-priority group cannot ev
 	CHECK(result.skipped_groups == 1); // Group 2 needs 2 pages and only 1 is reclaimable without breaking group 1.
 	CHECK(result.evicted == 0);
 	CHECK(sim.res.state(3) == Residency::RESIDENT);
+}
+
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] duplicate demand is one demand and never leaks a run") {
+	Sim sim;
+	if (!sim.init(3, 16)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1)) { FAIL("could not make root resident"); return; }
+	const uint32_t free_before = sim.res.stats().pages_free;
+	sim.res.begin_frame(2);
+	LocalVector<Residency::Ticket> tickets;
+	// The bootstrap demanded the root's children and the refinement walk demanded them again.
+	const uint32_t demand[4] = { 1, 2, 1, 2 };
+	const auto result = sim.res.request(demand, 4, tickets);
+	CHECK(result.requested == 2);
+	CHECK(tickets.size() == 2);
+	const auto stats = sim.res.stats();
+	CHECK(stats.pages_in_flight == sim.res.pages_for(1) + sim.res.pages_for(2));
+	CHECK(stats.pages_free == free_before - stats.pages_in_flight); // Nothing allocated twice.
+	// Every page comes back: cancel both, let the runs retire, and the atlas is as before.
+	for (uint32_t i = 0; i < tickets.size(); ++i) { CHECK(sim.res.cancel(tickets[i].node)); }
+	sim.res.begin_frame(20);
+	CHECK(sim.res.stats().pages_free == free_before);
+	// A second request in the same state does not re-allocate a node that already has a run.
+	sim.res.begin_frame(21);
+	tickets.clear();
+	sim.res.request(demand, 4, tickets);
+	LocalVector<Residency::Ticket> again;
+	sim.res.request(demand, 4, again);
+	CHECK(again.size() == 0);
+	CHECK(sim.res.stats().pages_free == free_before - sim.res.stats().pages_in_flight);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a node evicted and requested again in one pass is not reported as evicted") {
+	Sim sim;
+	if (!one_page_tree(sim, 6)) { FAIL("residency setup failed"); return; }
+	for (uint32_t n : { 0u, 7u, 8u, 9u, 10u }) {
+		if (!make_resident_at(sim.res, n, 5)) { FAIL("could not make node resident"); return; }
+	}
+	sim.res.begin_frame(20);
+	LocalVector<Residency::Ticket> tickets;
+	// Group 1 {13, 14} evicts leaf 7 for its second page; group 2 {7, 8} (children of 3) wants 7 back, which
+	// in turn evicts leaf 9.
+	const uint32_t demand[4] = { 13, 14, 7, 8 };
+	const auto result = sim.res.request(demand, 4, tickets);
+	CHECK(result.evicted >= 2);
+	bool has_seven = false;
+	for (uint32_t i = 0; i < tickets.size(); ++i) { has_seven = has_seven || tickets[i].node == 7; }
+	CHECK(has_seven);
+	LocalVector<uint32_t> evicted;
+	sim.res.take_evicted(evicted);
+	// The glue zeroes the GPU metadata of exactly these nodes: 7 is being loaded again and must not be among them.
+	for (uint32_t i = 0; i < evicted.size(); ++i) { CHECK(evicted[i] != 7u); }
+	CHECK(evicted.size() >= 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a group skipped only because its pages are retiring still outranks lower-priority groups") {
+	Sim sim;
+	if (!one_page_tree(sim, 4, 3)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2) || !make_resident_at(sim.res, 9, 5) || !make_resident_at(sim.res, 10, 5)) {
+		FAIL("could not make nodes resident");
+		return;
+	}
+	sim.res.begin_frame(10);
+	CHECK(sim.res.evict(9)); // One page is now retiring (3 frames), none free.
+	CHECK(sim.res.stats().pages_free == 0);
+	CHECK(sim.res.stats().pages_retiring == 1);
+	LocalVector<Residency::Ticket> tickets;
+	// Group 1 = {3, 4}: node 3 is half of it, node 4 needs the retiring page. Group 2 = {5, 6} is lower priority.
+	const uint32_t demand[4] = { 3, 4, 5, 6 };
+	const auto result = sim.res.request(demand, 4, tickets);
+	CHECK(result.requested == 0); // Nothing can be placed until the retiring page is released.
+	CHECK(result.pending_retire_groups >= 1);
+	CHECK(sim.res.state(3) == Residency::RESIDENT); // Group 2 must not take group 1's half-finished child.
+	// Once the page retires, group 1 completes first.
+	sim.res.begin_frame(13);
+	tickets.clear();
+	sim.res.request(demand, 4, tickets);
+	bool group_one = false;
+	for (uint32_t i = 0; i < tickets.size(); ++i) { group_one = group_one || tickets[i].node == 4; }
+	CHECK(group_one);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] the resident frontier kept by an incomplete bootstrap is protected, only the rest is demand") {
+	using gs_hlod_runtime::DesiredRecord;
+	using gs_hlod_runtime::DrawRecord;
+	// Splitting: drawn and kept nodes are protected, the others are demand, order preserved.
+	DesiredRecord want[3];
+	want[0].node = 13; want[0].keep = false;
+	want[1].node = 3; want[1].keep = true;
+	want[2].node = 14; want[2].keep = false;
+	DrawRecord drawn[1];
+	drawn[0].node = 9;
+	LocalVector<uint32_t> prot, dem;
+	HlodNodeStreamer::split_protection_and_demand(want, 3, drawn, 1, prot, dem);
+	if (prot.size() != 2 || dem.size() != 2) { FAIL("unexpected split sizes ", prot.size(), " ", dem.size()); return; }
+	CHECK(prot[0] == 9);
+	CHECK(prot[1] == 3);
+	CHECK(dem[0] == 13);
+	CHECK(dem[1] == 14);
+	// Through the model: 3 pages, root + kept node 3 + unprotected leaf 8 resident. The 2-page group {13, 14}
+	// cannot be paid for by evicting leaf 8 alone, and the kept node must not be the second victim.
+	Sim sim;
+	if (!one_page_tree(sim, 3)) { FAIL("residency setup failed"); return; }
+	for (uint32_t n : { 0u, 3u, 8u }) {
+		if (!make_resident_at(sim.res, n, 5)) { FAIL("could not make node resident"); return; }
+	}
+	sim.res.begin_frame(20);
+	sim.res.protect_drawn(prot.ptr(), prot.size());
+	LocalVector<Residency::Ticket> tickets;
+	sim.res.request(dem.ptr(), dem.size(), tickets);
+	CHECK(sim.res.state(3) == Residency::RESIDENT);
+	CHECK(sim.res.state(8) == Residency::RESIDENT); // Futile: nothing is evicted for a group that cannot fit.
+	CHECK(tickets.size() == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as such, and a fragmentation stall ends by evicting an unprotected neighbour") {
+	// Blocked: a child failed permanently, so the transition can never complete.
+	{
+		Sim sim;
+		if (!sim.init(3, 32)) { FAIL("residency setup failed"); return; }
+		if (!make_resident_at(sim.res, 0, 1)) { FAIL("could not make root resident"); return; }
+		LocalVector<Residency::Ticket> tickets;
+		uint64_t frame = 2;
+		for (int attempt = 0; attempt < 3; ++attempt) {
+			tickets.clear();
+			sim.res.begin_frame(frame += 100);
+			const uint32_t group[2] = { 1, 2 };
+			sim.res.request(group, 2, tickets);
+			for (uint32_t i = 0; i < tickets.size(); ++i) {
+				if (tickets[i].node == 1) { sim.res.fail_load(tickets[i]); } else { sim.res.cancel(tickets[i].node); }
+			}
+		}
+		CHECK(sim.res.stats().permanently_failed == 1);
+		sim.res.begin_frame(frame + 100);
+		tickets.clear();
+		const uint32_t group[2] = { 1, 2 };
+		const auto result = sim.res.request(group, 2, tickets);
+		CHECK(result.blocked_groups == 1);
+		CHECK(result.fragmented_groups == 0);
+		CHECK(tickets.size() == 0);
+	}
+	// Fragmented: pages 1-2 and 4 are free (3 in total, largest run 2); node 3 needs 3 contiguous pages.
+	// Node 4 sits at page 3 between the holes. (Node 3's parent is 1, so node 4 is not its sibling.)
+	auto fragmented_atlas = [](Residency &r_res) {
+		Vector<Residency::NodeInfo> infos;
+		infos.resize(5);
+		const uint32_t splats[5] = { 1000, 1000, 1500, 2500, 1000 }; // 1, 1, 2, 3, 1 pages
+		const uint32_t parents[5] = { UINT32_MAX, 0, 0, 1, 0 };
+		for (int i = 0; i < 5; ++i) {
+			infos.write[i].splat_count = splats[i];
+			infos.write[i].parent = parents[i];
+			infos.write[i].height = i == 0 ? 1 : 0;
+		}
+		if (!r_res.reset(infos, config(5, 0), 1, 1)) { return false; }
+		if (!make_resident_at(r_res, 0, 1) || !make_resident_at(r_res, 2, 2) || !make_resident_at(r_res, 4, 3)) { return false; }
+		r_res.begin_frame(10);
+		return r_res.evict(2); // Holes: pages 1-2 and page 4.
+	};
+	{
+		Residency res;
+		if (!fragmented_atlas(res)) { FAIL("fragmented atlas setup failed"); return; }
+		CHECK(res.stats().pages_free == 3);
+		CHECK(res.stats().largest_free_run == 2);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t want[1] = { 3 };
+		const auto result = res.request(want, 1, tickets);
+		// The stall ends: the unprotected neighbour is evicted and the 3 pages form one run.
+		CHECK(result.evicted == 1);
+		CHECK(result.requested == 1);
+		CHECK(res.state(4) == Residency::ABSENT);
+		CHECK(res.state(3) == Residency::LOADING);
+		CHECK(res.state(0) == Residency::RESIDENT);
+	}
+	// Same atlas, but the neighbour is protected (drawn): no window exists, nothing is evicted, and the stall
+	// is reported as fragmentation, not as a budget or a failure.
+	{
+		Residency res;
+		if (!fragmented_atlas(res)) { FAIL("fragmented atlas setup failed"); return; }
+		const uint32_t drawn[1] = { 4 };
+		res.protect_drawn(drawn, 1);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t want[1] = { 3 };
+		const auto result = res.request(want, 1, tickets);
+		CHECK(result.skipped_groups == 1);
+		CHECK(result.fragmented_groups == 1);
+		CHECK(result.blocked_groups == 0);
+		CHECK(result.evicted == 0);
+		CHECK(tickets.size() == 0);
+		CHECK(res.state(4) == Residency::RESIDENT);
+	}
 }
 
 }

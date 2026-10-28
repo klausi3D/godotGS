@@ -530,6 +530,8 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			request.record_budget = inst.caps.record_budget;
 			request.splat_budget = inst.caps.splat_budget;
 			request.node_budget = std::min<uint32_t>(inst.caps.node_budget, slot.node_count);
+			request.page_splats = spec->page_splats;
+			request.page_budget = spec->page_budget;
 			request.tie_rank = slot.tie_rank.ptr();
 			request.tie_rank_count = slot.tie_rank.size();
 			if (asset.resident.size() != 0) {

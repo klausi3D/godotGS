@@ -66,6 +66,9 @@ public:
 		uint64_t failed_total = 0;
 		uint64_t skipped_groups_total = 0;
 		uint32_t stall_frames = 0; // Consecutive frames with demand, nothing in flight and nothing placeable.
+		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
+		uint32_t blocked_groups_this_frame = 0;
+		uint32_t fragmented_groups_this_frame = 0;
 	};
 
 	~HlodNodeStreamer();
@@ -88,6 +91,13 @@ public:
 	// `p_device` must be the device the buffers belong to; a different device generation drops every payload.
 	void update(RenderingDevice *p_device, const Buffers &p_buffers, const gs_hlod_runtime::DesiredRecord *p_desired,
 			uint32_t p_desired_count, const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count);
+
+	// Splits a view's Desired records into what must be protected and what must be requested: drawn nodes and the
+	// resident "keep" part of an incomplete bootstrap frontier are protected (nothing is drawn until the frontier
+	// is complete, but evicting it would undo the work every frame); only the other records are demand.
+	static void split_protection_and_demand(const gs_hlod_runtime::DesiredRecord *p_desired, uint32_t p_desired_count,
+			const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count,
+			LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand);
 
 	const Telemetry &get_telemetry() const { return telemetry; }
 	bool root_failed() const { return residency.root_permanently_failed(); }

@@ -95,6 +95,10 @@ public:
 		uint32_t skipped_groups = 0; // Whole transitions that did not fit this frame.
 		uint32_t evicted = 0;
 		bool capped = false; // max_requests_per_frame reached: remaining demand waits.
+		// Why groups did not progress, kept apart (ADR 14.2: failed is not a budget problem):
+		uint32_t blocked_groups = 0; // A child failed (waiting for retry or permanently): the transition cannot complete.
+		uint32_t fragmented_groups = 0; // Enough pages are free in total but no contiguous run fits (compaction's job, D2).
+		uint32_t pending_retire_groups = 0; // Skipped only because the needed pages are still retiring.
 	};
 
 	// Sizes every table and the allocator. Fails (false) on an empty or inconsistent table. Resets all state;
@@ -170,10 +174,12 @@ private:
 		uint64_t last_demand_frame = 0;
 		uint64_t protected_frame = UINT64_MAX; // == current_frame while protected.
 		uint64_t retry_after_frame = 0;
+		uint64_t demand_pass = 0; // request() pass that last listed this node (duplicate demand is one demand).
 		uint32_t failures = 0;
 	};
 	struct Retiring {
 		uint64_t alloc_key = 0;
+		uint32_t first_page = 0;
 		uint32_t pages = 0;
 		uint64_t retire_frame = 0;
 	};
@@ -185,9 +191,10 @@ private:
 	LocalVector<Retiring> retiring;
 	LocalVector<uint32_t> candidates; // Eviction scratch.
 	LocalVector<uint32_t> evicted_log;
+	LocalVector<uint32_t> demand_unique; // request() scratch: the demand without duplicates, order kept.
 	uint64_t world_gen = 0, device_gen = 0;
 	uint64_t current_frame = 0;
-	uint64_t request_serial = 0, alloc_serial = 0;
+	uint64_t request_serial = 0, alloc_serial = 0, dedup_pass = 0;
 	uint32_t requests_this_frame = 0;
 	uint32_t evictions_this_frame = 0;
 	uint32_t pages_retiring = 0;
@@ -200,6 +207,12 @@ private:
 	// Evicts unprotected RESIDENT nodes (LRU, then finest level, then node index) until `p_pages` pages are
 	// free or pending retirement. Returns the number of evictions; bounded by evictions_per_frame.
 	uint32_t evict_for(uint32_t p_pages, uint32_t p_exclude_parent);
+	// Bounded answer to fragmentation (compaction itself is package D2): when enough pages are free in total but
+	// no contiguous run of `p_pages` exists, evicts the cheapest set of unprotected RESIDENT nodes whose runs,
+	// together with free pages, form one contiguous window. Windows crossing a protected, in-flight or retiring
+	// run are not considered, so protection and GPU lifetime rules still hold. Returns the number of evictions.
+	uint32_t evict_window(uint32_t p_pages, uint32_t p_exclude_parent);
+	LocalVector<uint32_t> window_owner; // evict_window() scratch: node index, FREE_PAGE or BLOCKED_PAGE per page.
 };
 
 // Builds the residency table input from the runtime data (node payload counts, parents, heights).

@@ -1519,6 +1519,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_failed_total"] = int64_t(t.failed_total);
         stats["hlod_stream_skipped_groups_total"] = int64_t(t.skipped_groups_total);
         stats["hlod_stream_stall_frames"] = t.stall_frames;
+        stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;
+        stats["hlod_stream_fragmented_groups"] = t.fragmented_groups_this_frame;
     }
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;

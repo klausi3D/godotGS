@@ -221,38 +221,42 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	}
 	telemetry.requested_this_frame = telemetry.uploaded_this_frame = telemetry.skipped_groups_this_frame = telemetry.evicted_this_frame = 0;
 	telemetry.uploaded_bytes_this_frame = 0;
-	drawn_scratch.clear();
-	for (uint32_t i = 0; i < p_drawn_count; ++i) {
-		drawn_scratch.push_back(p_drawn[i].node);
-	}
-	// The resident part of an incomplete bootstrap frontier is protected like a drawn node: it is the work the
-	// view is building toward, and nothing is drawn until it is complete.
-	for (uint32_t i = 0; i < p_desired_count; ++i) {
-		if (p_desired[i].keep) { drawn_scratch.push_back(p_desired[i].node); }
-	}
+	split_protection_and_demand(p_desired, p_desired_count, p_drawn, p_drawn_count, drawn_scratch, demand_scratch);
 	// Protection first (ADR 14.1): drawn versions and their ancestors cannot be evicted by this frame's requests.
 	residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
-	demand_scratch.clear();
-	for (uint32_t i = 0; i < p_desired_count; ++i) {
-		if (!p_desired[i].keep) { demand_scratch.push_back(p_desired[i].node); }
-	}
 	tickets_scratch.clear();
 	const NodeResidency::RequestResult requested = residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch);
+	// Metadata of nodes evicted by this request is cleared before any upload of this update: a node evicted and
+	// requested again is not in the log (NodeResidency), and a payload that lands below is never zeroed after.
+	clear_evicted(p_device, p_buffers);
 	for (uint32_t i = 0; i < tickets_scratch.size(); ++i) {
 		pending.push_back(tickets_scratch[i]);
 	}
 	telemetry.requested_this_frame = requested.requested;
 	telemetry.skipped_groups_this_frame = requested.skipped_groups;
+	telemetry.blocked_groups_this_frame = requested.blocked_groups;
+	telemetry.fragmented_groups_this_frame = requested.fragmented_groups;
 	start_jobs();
 	drain_mailbox();
 	upload_ready(p_device, p_buffers);
-	clear_evicted(p_device, p_buffers);
 	const NodeResidency::Stats stats = residency.stats();
 	const bool nothing_moving = stats.loading + stats.uploading == 0 && pending.is_empty() && ready.is_empty();
 	telemetry.stall_frames = (p_desired_count != 0 && nothing_moving && requested.requested == 0) ? telemetry.stall_frames + 1 : 0;
 	telemetry.desired = demand_scratch.size();
 	telemetry.drawn = p_drawn_count;
 	refresh_telemetry();
+}
+
+void HlodNodeStreamer::split_protection_and_demand(const gs_hlod_runtime::DesiredRecord *p_desired, uint32_t p_desired_count,
+		const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count, LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand) {
+	r_protected.clear();
+	r_demand.clear();
+	for (uint32_t i = 0; i < p_drawn_count; ++i) {
+		r_protected.push_back(p_drawn[i].node);
+	}
+	for (uint32_t i = 0; i < p_desired_count; ++i) {
+		(p_desired[i].keep ? r_protected : r_demand).push_back(p_desired[i].node);
+	}
 }
 
 void HlodNodeStreamer::refresh_telemetry() {

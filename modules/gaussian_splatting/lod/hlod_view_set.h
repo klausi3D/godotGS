@@ -106,6 +106,9 @@ struct ViewSpec {
 	double tau_pixels = 1.0;
 	double tile_area = 256.0;
 	Caps caps; // Whole-view caps; also what admission reserves.
+	// Residency page plan (see CutRequest::page_splats); 0 disables it.
+	uint32_t page_splats = 0;
+	uint64_t page_budget = 0;
 };
 
 struct ResidencyBudget {
