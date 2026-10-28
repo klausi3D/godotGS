@@ -4,9 +4,8 @@
 // ADR docs/architecture/adr-hlod-streaming.md sections 14.1, 14.2 and 6.9 (package B2).
 //
 // CPU-only contracts that sit on top of the existing S2a selector (`CutHistory`); there is no
-// second selector. Nothing here is a bound API or a registered class, and the renderer does not
-// consume it yet (see the follow-up note in the PR): the renderer still keeps its own four
-// per-buffer histories.
+// second selector. Nothing here is a bound API or a registered class. The renderer owns its
+// per-view cut state through this ViewSet (RenderFrameContextManager, package B3).
 //
 //   - NodeKey / NodeVersion: stable node identity and content identity, independent of atlas
 //     address and of node-array order.
@@ -151,6 +150,7 @@ public:
 		CutHistory::SelectStatus worst_status = CutHistory::COMPLETE; // The first non-success instance status.
 		uint32_t drawn_count = 0;
 		uint64_t selected_splats = 0;
+		uint64_t visited_nodes = 0; // Summed over the view's instances.
 		double estimated_records = 0.0;
 		bool budget_bound = false;
 		uint64_t draw_generation = 0; // Bumped only when a new complete draw set is published.

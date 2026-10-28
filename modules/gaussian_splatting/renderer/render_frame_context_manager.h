@@ -7,7 +7,7 @@
 #include "core/math/vector3.h"
 #include "servers/rendering/rendering_device.h"
 
-#include "../lod/hlod_runtime_selection.h"
+#include "../lod/hlod_view_set.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 
 #include <atomic>
@@ -24,8 +24,38 @@ public:
     uint64_t get_epoch() const { return epoch; }
 };
 
+// Lifetime identity of one render view: which RenderSceneBuffersRD, its render target and the lifetime
+// epoch of its GaussianHlodViewLifetime token (bumped by configure and free_data).
+struct HlodViewIdentity {
+	ObjectID buffers;
+	RID target;
+	uint64_t epoch = 0;
+	bool is_valid() const { return buffers.is_valid() && target.is_valid() && epoch != 0; }
+};
+
+// Canonical-route fallback for a non-success readiness or admission result. `reason == nullptr` means
+// the cut is active. The counters are per-frame increments for the existing hlod_* telemetry.
+struct HlodFallback {
+	const char *reason = nullptr;
+	uint32_t budget_bound_frames = 0;
+	uint32_t root_dropped_frames = 0;
+};
+
+struct HlodViewOutcome {
+	HlodFallback fallback; // reason == nullptr: active cut, `records` are valid until the next call.
+	gs_hlod_runtime::ViewSet::AdmitStatus admit = gs_hlod_runtime::ViewSet::REFUSED_INVALID;
+	bool admitted_now = false; // This call (re-)admitted the view.
+	gs_hlod_runtime::ViewSet::ViewResult view;
+	const gs_hlod_runtime::DrawRecord *records = nullptr;
+	uint32_t record_count = 0;
+	bool active() const { return fallback.reason == nullptr; }
+};
+
 class RenderFrameContextManager {
 public:
+	// One shared ViewSet budget slot per live render view; matches the four views the renderer keeps.
+	static constexpr uint32_t HLOD_MAX_VIEWS = 4;
+
 	struct FrameState {
 		std::atomic<uint32_t> visible_splat_count{0};
 		uint32_t frame_counter = 0;
@@ -63,27 +93,46 @@ public:
 	ViewState &get_view_state() { return view_state; }
 	const ViewState &get_view_state() const { return view_state; }
 
-    gs_hlod_runtime::CutHistory *acquire_hlod_history(RenderSceneBuffersRD *p_buffers,
-            uint64_t p_source, uint64_t p_policy, uint32_t p_node_count, uint64_t &r_epoch);
-    uint64_t hlod_history_bytes() const;
-    void clear_hlod_histories();
+	// Reads (creating on first use) the lifetime token of `p_buffers`. False when the buffers have no
+	// render target or the custom-data slot belongs to another owner.
+	static bool acquire_hlod_identity(RenderSceneBuffersRD *p_buffers, HlodViewIdentity &r_identity);
+	// ViewSet key of a view: derived from the buffers id and its lifetime epoch.
+	static uint64_t hlod_view_key(const HlodViewIdentity &p_identity);
+	// Admits (or reuses) the ViewSet view of `p_identity`, runs one selection and maps the result to
+	// either an active cut or an explicit canonical fallback. `p_source` identifies the snapshot object.
+	// `p_snapshot.views` is replaced by `p_spec` (whose view_key is overwritten with the derived key).
+	// Cut state lives only in the ViewSet; this class keeps only the lifetime bindings.
+	HlodViewOutcome select_hlod_view(const HlodViewIdentity &p_identity, uint64_t p_source,
+			gs_hlod_runtime::SelectionSnapshot &p_snapshot, gs_hlod_runtime::ViewSpec p_spec);
+	uint32_t hlod_bound_view_count() const;
+	const gs_hlod_runtime::ViewSet &get_hlod_view_set() const { return hlod_view_set; }
+	// Reusable input for select_hlod_view: the caller refills it each frame (same sizes: no allocation).
+	// Cleared with the views, so it never keeps a runtime snapshot alive.
+	gs_hlod_runtime::SelectionSnapshot &get_hlod_snapshot() { return hlod_snapshot; }
+	void clear_hlod_views();
+
+	static HlodFallback hlod_fallback_for_admission(gs_hlod_runtime::ViewSet::AdmitStatus p_status);
+	static HlodFallback hlod_fallback_for_snapshot(gs_hlod_runtime::ViewSet::SnapshotStatus p_status);
+	static HlodFallback hlod_fallback_for_view(const gs_hlod_runtime::ViewSet::ViewResult &p_result);
 
 	void reset_frame_state();
 	void reset_view_state_defaults();
 	void reset();
 
 private:
-    struct HlodViewSlot {
-        ObjectID buffers;
-        RID target;
-        uint64_t epoch = 0;
-        uint64_t source = 0;
-        uint64_t policy = 0;
-        uint64_t last_used = 0;
-        gs_hlod_runtime::CutHistory history;
-    };
-    HlodViewSlot hlod_views[4];
-    uint64_t hlod_view_clock = 0;
+	// Lifetime adapter only: which ViewSet view belongs to which buffers/target/epoch/snapshot. All cut
+	// state (histories, policy, published records) is owned by `hlod_view_set`.
+	struct HlodBinding {
+		bool used = false;
+		HlodViewIdentity identity;
+		uint64_t source = 0;
+		uint64_t last_used = 0;
+	};
+	HlodBinding hlod_bindings[HLOD_MAX_VIEWS];
+	gs_hlod_runtime::ViewSet hlod_view_set;
+	gs_hlod_runtime::SelectionSnapshot hlod_snapshot;
+	uint64_t hlod_view_clock = 0;
+	void drop_hlod_binding(HlodBinding &r_binding);
 	FrameState frame_state;
 	ViewState view_state;
 };

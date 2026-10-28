@@ -457,6 +457,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			}
 			const CutHistory::Result cut = slot.history.select(*asset.data.ptr(), request);
 			result.selected_splats += cut.selected_splats;
+			result.visited_nodes += cut.visited_nodes;
 			result.estimated_records += cut.estimated_records;
 			result.budget_bound = result.budget_bound || cut.budget_bound;
 			switch (cut.status) {
