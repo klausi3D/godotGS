@@ -93,6 +93,17 @@ public:
 	ViewState &get_view_state() { return view_state; }
 	const ViewState &get_view_state() const { return view_state; }
 
+	// Whether the buffers/epoch of an identity are still the live ones. The default asks ObjectDB and the
+	// lifetime token; tests install their own. Used only when a new view is admitted, never per frame.
+	typedef bool (*HlodLivenessCheck)(const HlodViewIdentity &p_identity);
+	static bool default_hlod_liveness(const HlodViewIdentity &p_identity);
+	void set_hlod_liveness_check(HlodLivenessCheck p_check) { hlod_liveness = p_check ? p_check : &default_hlod_liveness; }
+	// Pure part of the identity lookup: builds the identity from a token and the buffers' id/target.
+	static bool hlod_identity_from_token(const GaussianHlodViewLifetime *p_token, ObjectID p_buffers, RID p_target, HlodViewIdentity &r_identity);
+	// Drops bindings (and their reservations) whose buffers no longer resolve or whose epoch is stale.
+	uint32_t evict_stale_hlod_bindings();
+	// Releases the runtime snapshot reference held by the reusable selection input.
+	void release_hlod_snapshot_data();
 	// Reads (creating on first use) the lifetime token of `p_buffers`. False when the buffers have no
 	// render target or the custom-data slot belongs to another owner.
 	static bool acquire_hlod_identity(RenderSceneBuffersRD *p_buffers, HlodViewIdentity &r_identity);
@@ -107,7 +118,7 @@ public:
 	uint32_t hlod_bound_view_count() const;
 	const gs_hlod_runtime::ViewSet &get_hlod_view_set() const { return hlod_view_set; }
 	// Reusable input for select_hlod_view: the caller refills it each frame (same sizes: no allocation).
-	// Cleared with the views, so it never keeps a runtime snapshot alive.
+	// The runtime snapshot reference is released by release_hlod_snapshot_data() after every prepare.
 	gs_hlod_runtime::SelectionSnapshot &get_hlod_snapshot() { return hlod_snapshot; }
 	void clear_hlod_views();
 
@@ -129,6 +140,7 @@ private:
 		uint64_t last_used = 0;
 	};
 	HlodBinding hlod_bindings[HLOD_MAX_VIEWS];
+	HlodLivenessCheck hlod_liveness = &default_hlod_liveness;
 	gs_hlod_runtime::ViewSet hlod_view_set;
 	gs_hlod_runtime::SelectionSnapshot hlod_snapshot;
 	uint64_t hlod_view_clock = 0;

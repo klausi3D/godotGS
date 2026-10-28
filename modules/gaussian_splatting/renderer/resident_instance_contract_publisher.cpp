@@ -1658,6 +1658,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_view_epoch = identity.epoch;
     using gs_hlod_runtime::SelectionSnapshot;
     SelectionSnapshot &snapshot = frame_context_manager.get_hlod_snapshot();
+    struct SnapshotRelease { RenderFrameContextManager &manager; ~SnapshotRelease() { manager.release_hlod_snapshot_data(); } } snapshot_release{ frame_context_manager };
     gs_hlod_runtime::ViewSpec spec;
     const Transform3D camera_to_world = p_context.world_to_camera_transform.affine_inverse();
     spec.camera = camera_to_world.origin;

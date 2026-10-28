@@ -203,6 +203,8 @@ public:
 	static uint64_t slot_bytes(uint32_t p_nodes);
 	// Capacity (bytes) of everything this set owns: slots, draw storage, results and scratch.
 	uint64_t allocated_bytes() const;
+	// Number of node-key rank tables computed so far (O(n log n) each); admissions of unchanged content reuse one.
+	uint64_t tie_rank_builds() const { return rank_builds; }
 
 private:
 	struct InstanceSlot {
@@ -226,6 +228,15 @@ private:
 		uint64_t draw_generation = 0;
 		bool ready = false; // The last selection of this view was READY.
 	};
+	struct RankEntry {
+		uint64_t asset_key = 0;
+		uint64_t source = 0;
+		uint64_t revision = 0;
+		uint32_t node_count = 0;
+		Vector<uint32_t> rank;
+	};
+	mutable uint64_t rank_builds = 0;
+	mutable Vector<RankEntry> rank_cache; // Shared with the slots; see cached_tie_rank().
 	Vector<View> views; // Ascending view key.
 	Vector<ViewResult> result_store;
 	uint32_t result_count = 0;
@@ -234,6 +245,8 @@ private:
 	mutable Vector<uint32_t> index_scratch;
 	mutable Vector<uint64_t> key_scratch;
 
+	bool cached_tie_rank(const SnapshotAsset &p_asset, Vector<uint32_t> &r_rank) const;
+	void prune_rank_cache();
 	bool prepare_scratch(const SelectionSnapshot &p_snapshot) const;
 	bool validate_snapshot(const SelectionSnapshot &p_snapshot) const;
 	bool ledger_impl(const SelectionSnapshot &p_snapshot, Ledger &r_ledger) const;

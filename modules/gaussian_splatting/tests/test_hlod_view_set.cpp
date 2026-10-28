@@ -876,6 +876,7 @@ TEST_CASE("[GaussianSplatting][HLOD] steady-state selection allocates nothing") 
 // ---- Package B3: the renderer per-view cuts live in ViewSet, owned through RenderFrameContextManager. ----
 // CPU only: select_hlod_view() is the same entry the render path calls; the RenderSceneBuffersRD token lookup
 // (acquire_hlod_identity) is the only part that needs a live buffers object and is covered by the GPU gate.
+static bool all_live(const HlodViewIdentity &) { return true; } // Fake buffers ids: nothing resolves in ObjectDB.
 static HlodViewIdentity identity_of(uint64_t p_buffers, uint64_t p_target, uint64_t p_epoch) {
 	HlodViewIdentity id;
 	id.buffers = ObjectID(p_buffers);
@@ -888,6 +889,7 @@ TEST_CASE("[GaussianSplatting][HLOD] renderer view is admitted, reused, refused 
 	auto tree = make_tree(IDENT);
 	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
 	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
 	ViewSpec spec = perspective(0);
 	const HlodViewIdentity a = identity_of(101, 7, 5);
 
@@ -970,6 +972,7 @@ TEST_CASE("[GaussianSplatting][HLOD] renderer policy change invalidates the refi
 	auto tree = make_tree(IDENT);
 	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
 	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
 	ViewSpec spec = perspective(0);
 	const HlodViewIdentity id = identity_of(101, 7, 5);
 	auto nodes = [](const HlodViewOutcome &p_out) {
@@ -985,6 +988,7 @@ TEST_CASE("[GaussianSplatting][HLOD] renderer policy change invalidates the refi
 	CHECK_FALSE(out.admitted_now); // Invalidated in place, not by re-admission.
 	CHECK(same(nodes(out), { 1, 2 }));
 	RenderFrameContextManager cold;
+	cold.set_hlod_liveness_check(&all_live);
 	CHECK(same(nodes(cold.select_hlod_view(id, 1, snap, spec)), { 1, 2 }));
 	// Unchanged policy keeps its history.
 	out = mgr.select_hlod_view(id, 1, snap, spec);
@@ -1049,6 +1053,7 @@ TEST_CASE("[GaussianSplatting][HLOD] every non-ready view state falls back to th
 	spec.tau_pixels = 1e9;
 	spec.caps = caps(90, 7, 1000);
 	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
 	const HlodViewIdentity id = identity_of(101, 7, 5);
 	HlodViewOutcome out = mgr.select_hlod_view(id, 1, snap, spec);
 	CHECK(out.active());
@@ -1108,5 +1113,123 @@ TEST_CASE("[GaussianSplatting][HLOD] every non-ready view state falls back to th
 	CHECK(String(out.fallback.reason) == "hlod_view_budget_refused");
 	CHECK(mgr.hlod_bound_view_count() == 0);
 	CHECK(mgr.get_hlod_view_set().view_count() == 0);
+}
+
+// ---- B3 review round ----
+static Vector<uint64_t> g_live_buffers;
+static bool test_liveness(const HlodViewIdentity &p_identity) {
+	return g_live_buffers.has(uint64_t(p_identity.buffers));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] shrinking headroom keeps an affordable reservation active without re-admission") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	ViewSpec spec = perspective(0);
+	const HlodViewIdentity a = identity_of(101, 7, 5);
+	const HlodViewIdentity b = identity_of(202, 8, 5);
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).admitted_now);
+	CHECK(mgr.select_hlod_view(b, 1, snap, spec).admitted_now);
+	ViewSet::Ledger ledger;
+	REQUIRE(mgr.get_hlod_view_set().ledger(snap, ledger));
+	const uint64_t builds = mgr.get_hlod_view_set().tie_rank_builds();
+	CHECK(builds == 1); // Both views share one rank table.
+	// Headroom drops below the total of both reservations but stays above either one.
+	snap.budget.physical_bytes = ledger.total() - 1;
+	REQUIRE(snap.budget.physical_bytes >= ledger.view_bytes / 2);
+	for (int frame = 0; frame < 3; ++frame) {
+		HlodViewOutcome out = mgr.select_hlod_view(a, 1, snap, spec);
+		CHECK(out.active());
+		CHECK_FALSE(out.admitted_now);
+		CHECK(out.view.draw_generation == uint64_t(2 + frame));
+		out = mgr.select_hlod_view(b, 1, snap, spec);
+		CHECK(out.active());
+		CHECK_FALSE(out.admitted_now);
+	}
+	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds); // No rank table was rebuilt.
+	// A view that is genuinely unaffordable on its own is still withdrawn, explicitly.
+	snap.budget.physical_bytes = ledger.view_bytes / 2 - 1;
+	HlodViewOutcome out = mgr.select_hlod_view(a, 1, snap, spec);
+	CHECK_FALSE(out.active());
+	CHECK(String(out.fallback.reason) == "hlod_view_budget_refused");
+	// Re-admitting unchanged content reuses the cached rank table.
+	snap.budget.physical_bytes = 1000000;
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).admitted_now);
+	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds);
+	// New content revision builds a new table.
+	tree->source_revision = 99;
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).active());
+	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds + 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] bindings of freed buffers or stale epochs are evicted before a new view is refused") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&test_liveness);
+	g_live_buffers.clear();
+	ViewSpec spec = perspective(0);
+	for (uint64_t id = 1; id <= 4; ++id) {
+		g_live_buffers.push_back(id);
+		CHECK(mgr.select_hlod_view(identity_of(id, 10 + id, 5), 1, snap, spec).admitted_now);
+	}
+	CHECK(mgr.hlod_bound_view_count() == 4);
+	// Buffers 4 (the most recently used) were freed. The LRU rule alone would evict buffers 1 instead.
+	g_live_buffers.erase(4);
+	CHECK(mgr.select_hlod_view(identity_of(5, 15, 5), 1, snap, spec).admitted_now);
+	g_live_buffers.push_back(5);
+	CHECK(mgr.hlod_bound_view_count() == 4);
+	CHECK(mgr.get_hlod_view_set().view_count() == 4);
+	CHECK_FALSE(mgr.select_hlod_view(identity_of(1, 11, 5), 1, snap, spec).admitted_now); // Not evicted.
+	// Budget refusal case: room for exactly the live views; a freed one is released first.
+	ViewSet::Ledger ledger;
+	REQUIRE(mgr.get_hlod_view_set().ledger(snap, ledger));
+	snap.budget.physical_bytes = ledger.total();
+	g_live_buffers.erase(2);
+	g_live_buffers.push_back(6);
+	CHECK(mgr.select_hlod_view(identity_of(6, 16, 5), 1, snap, spec).admitted_now);
+	CHECK(mgr.get_hlod_view_set().view_count() == 4);
+	// A stale epoch is not live: with the check rejecting it, its reservation goes.
+	mgr.set_hlod_liveness_check(nullptr); // Default check: these buffers do not exist in ObjectDB.
+	CHECK(mgr.evict_stale_hlod_bindings() == 4);
+	CHECK(mgr.get_hlod_view_set().view_count() == 0);
+	mgr.set_hlod_liveness_check(&test_liveness);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] lifetime token epoch changes with configure and free_data and builds the view identity") {
+	Ref<GaussianHlodViewLifetime> token;
+	token.instantiate();
+	HlodViewIdentity id;
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), id));
+	Ref<RenderSceneBuffersRD> buffers;
+	buffers.instantiate();
+	token->configure(buffers.ptr());
+	REQUIRE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), id));
+	const uint64_t first = id.epoch;
+	CHECK(first != 0);
+	token->free_data();
+	HlodViewIdentity after;
+	REQUIRE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), after));
+	CHECK(after.epoch != first);
+	CHECK(RenderFrameContextManager::hlod_view_key(after) != RenderFrameContextManager::hlod_view_key(id));
+	token->configure(nullptr);
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), after));
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(nullptr, ObjectID(uint64_t(9)), RID::from_uint64(3), after));
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(), RID::from_uint64(3), after));
+	// No render target on a fresh buffers object: no identity, and no token is attached.
+	CHECK_FALSE(RenderFrameContextManager::acquire_hlod_identity(buffers.ptr(), after));
+	CHECK_FALSE(RenderFrameContextManager::acquire_hlod_identity(nullptr, after));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] the reusable snapshot releases its runtime data reference") {
+	auto tree = make_tree(IDENT);
+	RenderFrameContextManager mgr;
+	SelectionSnapshot &snap = mgr.get_hlod_snapshot();
+	snap = snapshot(tree, 0, 1000000);
+	CHECK(tree->get_reference_count() > 1);
+	mgr.release_hlod_snapshot_data();
+	CHECK(snap.assets[0].data.is_null());
+	CHECK(tree->get_reference_count() == 1);
 }
 }

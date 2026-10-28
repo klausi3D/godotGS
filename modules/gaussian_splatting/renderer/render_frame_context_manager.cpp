@@ -1,5 +1,6 @@
 #include "render_frame_context_manager.h"
 
+#include "core/object/object.h"
 #include "core/os/os.h"
 
 #include <atomic>
@@ -65,6 +66,15 @@ void GaussianHlodViewLifetime::free_data() {
     epoch = hlod_lifecycle_epoch.fetch_add(1, std::memory_order_relaxed);
 }
 
+bool RenderFrameContextManager::hlod_identity_from_token(const GaussianHlodViewLifetime *p_token, ObjectID p_buffers, RID p_target, HlodViewIdentity &r_identity) {
+	r_identity = HlodViewIdentity();
+	if (!p_token || !p_buffers.is_valid() || !p_target.is_valid() || p_token->get_epoch() == 0) { return false; }
+	r_identity.buffers = p_buffers;
+	r_identity.target = p_target;
+	r_identity.epoch = p_token->get_epoch();
+	return true;
+}
+
 bool RenderFrameContextManager::acquire_hlod_identity(RenderSceneBuffersRD *p_buffers, HlodViewIdentity &r_identity) {
 	r_identity = HlodViewIdentity();
 	if (!p_buffers || !p_buffers->get_render_target().is_valid()) {
@@ -81,10 +91,31 @@ bool RenderFrameContextManager::acquire_hlod_identity(RenderSceneBuffersRD *p_bu
 		token->configure(p_buffers); // set_custom_data does not call configure.
 		p_buffers->set_custom_data(token_name, token);
 	}
-	r_identity.buffers = p_buffers->get_instance_id();
-	r_identity.target = p_buffers->get_render_target();
-	r_identity.epoch = token->get_epoch();
-	return r_identity.is_valid();
+	return hlod_identity_from_token(token.ptr(), p_buffers->get_instance_id(), p_buffers->get_render_target(), r_identity);
+}
+
+bool RenderFrameContextManager::default_hlod_liveness(const HlodViewIdentity &p_identity) {
+	RenderSceneBuffersRD *buffers = Object::cast_to<RenderSceneBuffersRD>(ObjectDB::get_instance(p_identity.buffers));
+	if (!buffers || buffers->get_render_target() != p_identity.target) { return false; }
+	const StringName token_name = SNAME("gaussian_splat_hlod_view_lifetime");
+	if (!buffers->has_custom_data(token_name)) { return false; }
+	Ref<GaussianHlodViewLifetime> token = buffers->get_custom_data(token_name);
+	return token.is_valid() && token->get_epoch() == p_identity.epoch;
+}
+
+uint32_t RenderFrameContextManager::evict_stale_hlod_bindings() {
+	uint32_t evicted = 0;
+	for (HlodBinding &binding : hlod_bindings) {
+		if (binding.used && !hlod_liveness(binding.identity)) {
+			drop_hlod_binding(binding);
+			++evicted;
+		}
+	}
+	return evicted;
+}
+
+void RenderFrameContextManager::release_hlod_snapshot_data() {
+	for (int i = 0; i < hlod_snapshot.assets.size(); ++i) { hlod_snapshot.assets.write[i].data = Ref<GaussianSplatHlodRuntimeData>(); }
 }
 
 uint64_t RenderFrameContextManager::hlod_view_key(const HlodViewIdentity &p_identity) {
@@ -224,6 +255,8 @@ HlodViewOutcome RenderFrameContextManager::select_hlod_view(const HlodViewIdenti
 	}
 	// Admits the view into a free binding, evicting the least recently used view when all are taken.
 	auto admit = [&]() -> bool {
+		// Views of freed buffers or of a stale epoch must not hold a slot or budget against a live one.
+		evict_stale_hlod_bindings();
 		HlodBinding *slot = &hlod_bindings[0];
 		for (HlodBinding &candidate : hlod_bindings) {
 			if (!candidate.used) { slot = &candidate; break; }

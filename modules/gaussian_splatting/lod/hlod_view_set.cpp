@@ -160,6 +160,44 @@ bool ViewSet::view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uin
 	return true;
 }
 
+// Tie ranks are O(n log n) plus an allocation: keep them per asset content (key, snapshot object, revision,
+// node count) so admission and re-admission share them. Slots hold a copy-on-write reference.
+bool ViewSet::cached_tie_rank(const SnapshotAsset &p_asset, Vector<uint32_t> &r_rank) const {
+	const uint64_t source = uint64_t(p_asset.data->get_instance_id());
+	const uint64_t revision = p_asset.data->source_revision;
+	const uint32_t nodes = p_asset.data->nodes.size();
+	for (int i = 0; i < rank_cache.size(); ++i) {
+		const RankEntry &e = rank_cache[i];
+		if (e.asset_key == p_asset.asset_key && e.source == source && e.revision == revision && e.node_count == nodes) {
+			r_rank = e.rank;
+			return true;
+		}
+	}
+	RankEntry entry;
+	entry.asset_key = p_asset.asset_key;
+	entry.source = source;
+	entry.revision = revision;
+	entry.node_count = nodes;
+	if (!compute_tie_rank(*p_asset.data.ptr(), p_asset.asset_key, entry.rank)) { return false; }
+	++rank_builds;
+	r_rank = entry.rank;
+	rank_cache.push_back(entry);
+	return true;
+}
+
+// Drops cache entries no slot refers to any more (called on admission and removal, never per frame).
+void ViewSet::prune_rank_cache() {
+	for (int i = rank_cache.size() - 1; i >= 0; --i) {
+		bool used = false;
+		for (int v = 0; v < views.size() && !used; ++v) {
+			for (int k = 0; k < views[v].slots.size(); ++k) {
+				if (views[v].slots[k].tie_rank.ptr() == rank_cache[i].rank.ptr()) { used = true; break; }
+			}
+		}
+		if (!used) { rank_cache.remove_at(i); }
+	}
+}
+
 bool ViewSet::prepare_scratch(const SelectionSnapshot &p_snapshot) const {
 	const uint32_t need = std::max<uint32_t>({ uint32_t(p_snapshot.instances.size()), uint32_t(p_snapshot.assets.size()),
 			uint32_t(p_snapshot.views.size()), 1u });
@@ -277,7 +315,7 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 			}
 			if (!reused) {
 				slot.content_revision = asset.data->source_revision;
-				if (!slot.history.reserve(nodes) || !compute_tie_rank(*asset.data.ptr(), asset.asset_key, slot.tie_rank)) { return false; }
+				if (!slot.history.reserve(nodes) || !cached_tie_rank(asset, slot.tie_rank)) { return false; }
 			}
 		}
 		r_view.slots = std::move(next);
@@ -287,7 +325,7 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 		const SnapshotAsset &asset = p_snapshot.assets[p_snapshot.instances[order[i]].asset_index];
 		InstanceSlot &slot = r_view.slots.write[i];
 		if (slot.content_revision != asset.data->source_revision) {
-			if (!compute_tie_rank(*asset.data.ptr(), asset.asset_key, slot.tie_rank)) { return false; }
+			if (!cached_tie_rank(asset, slot.tie_rank)) { return false; }
 			slot.history.invalidate();
 			slot.content_revision = asset.data->source_revision;
 		}
@@ -342,6 +380,7 @@ ViewSet::AdmitResult ViewSet::admit_view(const SelectionSnapshot &p_snapshot, co
 		out.status = REFUSED_RESOURCES;
 		return out;
 	}
+	prune_rank_cache();
 	out.status = ADMITTED;
 	return out;
 }
@@ -350,6 +389,7 @@ bool ViewSet::remove_view(uint64_t p_view_key) {
 	for (int i = 0; i < views.size(); ++i) {
 		if (views[i].view_key == p_view_key) {
 			views.remove_at(i);
+			prune_rank_cache();
 			return true;
 		}
 	}
@@ -371,11 +411,12 @@ const DrawRecord *ViewSet::drawn(uint64_t p_view_key, uint32_t &r_count) const {
 uint64_t ViewSet::allocated_bytes() const {
 	uint64_t bytes = uint64_t(result_store.size()) * sizeof(ViewResult) + uint64_t(order.size()) * sizeof(uint32_t) +
 			uint64_t(index_scratch.size()) * sizeof(uint32_t) + uint64_t(key_scratch.size()) * sizeof(uint64_t);
+	for (int c = 0; c < rank_cache.size(); ++c) { bytes += uint64_t(rank_cache[c].rank.size()) * sizeof(uint32_t); }
 	for (int v = 0; v < views.size(); ++v) {
 		const View &view = views[v];
 		bytes += uint64_t(view.drawn.size() + view.staging.size()) * sizeof(DrawRecord);
 		for (int s = 0; s < view.slots.size(); ++s) {
-			bytes += view.slots[s].history.allocated_bytes() + uint64_t(view.slots[s].tie_rank.size()) * sizeof(uint32_t);
+			bytes += view.slots[s].history.allocated_bytes();
 		}
 	}
 	return bytes;
@@ -385,7 +426,10 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 	result_count = 0;
 	Ledger current;
 	if (!validate_snapshot(p_snapshot) || !ledger_impl(p_snapshot, current)) { return SNAPSHOT_INVALID; }
-	const bool over_budget = current.total() > p_snapshot.budget.physical_bytes;
+	// An admitted view keeps its reservation while the shared payload plus that reservation still fit the budget.
+	// Other views' reservations are not this view's problem: a shrinking headroom only withdraws a view that
+	// is genuinely unaffordable, instead of flapping every view whenever the total dips under it.
+	bool any_unaffordable = false;
 	Caps instance_sum;
 	const bool instance_caps_ok = sum_instance_caps(p_snapshot, instance_sum);
 	uint64_t needed_history = 0, needed_nodes = 0;
@@ -403,7 +447,11 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 		result.view_key = view.view_key;
 		result.draw_generation = view.draw_generation;
 		view.ready = false; // Re-established only by a READY outcome below.
-		if (over_budget || !instance_caps_ok || !storage_ok || !caps_valid(spec->caps) || !caps_fit(spec->caps, view.reserved) ||
+		uint64_t own_cost = 0;
+		const bool unaffordable = !add_u64(current.shared_payload_bytes, view.reserved_bytes, own_cost) ||
+				own_cost > p_snapshot.budget.physical_bytes;
+		any_unaffordable = any_unaffordable || unaffordable;
+		if (unaffordable || !instance_caps_ok || !storage_ok || !caps_valid(spec->caps) || !caps_fit(spec->caps, view.reserved) ||
 				!caps_fit(instance_sum, view.reserved) || needed_history > view.reserved_history_bytes ||
 				std::min<uint64_t>(view.reserved.node_budget, needed_nodes) > view.reserved_draw_capacity) {
 			// The snapshot needs more than was reserved (caps, a new instance or larger asset, history or draw
@@ -514,7 +562,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.draw_generation = view.draw_generation;
 		}
 	}
-	return over_budget ? SNAPSHOT_OVER_BUDGET : SNAPSHOT_OK;
+	return any_unaffordable ? SNAPSHOT_OVER_BUDGET : SNAPSHOT_OK;
 }
 
 } // namespace gs_hlod_runtime
