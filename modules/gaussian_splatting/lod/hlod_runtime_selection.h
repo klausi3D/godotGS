@@ -25,8 +25,17 @@ struct CutRequest {
 // allocates, grows, reads GPU data or scans the complete payload/node table.
 class CutHistory {
 public:
-	// Not named `Status`: X11/Xlib.h #defines Status, and this header reaches the X11 display server TU.
-	enum SelectStatus { COMPLETE, EMPTY, ROOT_DROPPED, INVALID, UNAVAILABLE };
+	// Every non-COMPLETE/EMPTY status means "no complete cut": selected_count is 0 and callers must
+	// not publish an active (empty) cut. When the root alone fails admission, a bounded bootstrap
+	// (ADR section 14.2) looks for a complete visible child frontier that fits every cap; its failure
+	// is reported as exactly one of the BOOTSTRAP_* statuses:
+	//   BOOTSTRAP_EXHAUSTED          - the configured search-work bound ran out; says nothing about feasibility.
+	//   BOOTSTRAP_ARITHMETIC         - a non-finite or overflowing cap computation was met.
+	//   BOOTSTRAP_MISSING_RESIDENCY  - expansion needed a visible child that is not resident.
+	//   BOOTSTRAP_INFEASIBLE         - the deterministic search expanded every admissible node and no
+	//                                  frontier fits (not a proof over all frontiers; see select()).
+	enum Status { COMPLETE, EMPTY, INVALID, UNAVAILABLE, BOOTSTRAP_EXHAUSTED, BOOTSTRAP_ARITHMETIC,
+		BOOTSTRAP_MISSING_RESIDENCY, BOOTSTRAP_INFEASIBLE };
 	struct Result {
 		SelectStatus status = INVALID;
 		uint32_t selected_count = 0;
@@ -34,6 +43,7 @@ public:
 		uint64_t selected_splats = 0;
 		double estimated_records = 0.0;
 		bool budget_bound = false;
+		bool bootstrapped = false; // Root failed admission and a child frontier was selected instead.
 	};
 	bool reserve(uint32_t p_nodes);
 	void invalidate();

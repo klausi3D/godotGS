@@ -1670,8 +1670,31 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
     const auto selected = history->select(*input.ptr(), request);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
-    if (selected.status == gs_hlod_runtime::CutHistory::INVALID || selected.status == gs_hlod_runtime::CutHistory::UNAVAILABLE) {
-        return fallback("cut_unavailable");
+    // Every non-success status maps to the canonical non-HLOD route. An active cut is published only
+    // for COMPLETE or EMPTY (nothing visible); a failed bootstrap never yields an active empty cut.
+    using SelectStatus = gs_hlod_runtime::CutHistory::Status;
+    switch (selected.status) {
+        case SelectStatus::COMPLETE:
+        case SelectStatus::EMPTY:
+            break;
+        case SelectStatus::INVALID:
+        case SelectStatus::UNAVAILABLE:
+            return fallback("cut_unavailable");
+        case SelectStatus::BOOTSTRAP_EXHAUSTED:
+            state.hlod_budget_bound_frames += 1u;
+            return fallback("hlod_bootstrap_search_exhausted");
+        case SelectStatus::BOOTSTRAP_ARITHMETIC:
+            return fallback("hlod_bootstrap_arithmetic_invalid");
+        case SelectStatus::BOOTSTRAP_MISSING_RESIDENCY:
+            state.hlod_budget_bound_frames += 1u;
+            return fallback("hlod_bootstrap_missing_residency");
+        case SelectStatus::BOOTSTRAP_INFEASIBLE:
+            state.hlod_budget_bound_frames += 1u;
+            state.hlod_root_dropped_frames += 1u; // Legacy counter name: no complete frontier fits the caps.
+            WARN_PRINT_ONCE("HLOD found no complete frontier within the admission caps; using the canonical route. See hlod_root_dropped_frames and hlod_reason.");
+            return fallback("hlod_bootstrap_infeasible");
+        default:
+            return fallback("cut_status_unmapped");
     }
     auto &bundle = state.hlod_relative;
     for (uint32_t i = 0; i < selected.selected_count; ++i) {
@@ -1693,13 +1716,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_estimated_records = selected.estimated_records;
     state.hlod_visited_nodes = selected.visited_nodes;
     state.hlod_budget_bound_frames += selected.budget_bound ? 1u : 0u;
-    state.hlod_root_dropped_frames += selected.status == gs_hlod_runtime::CutHistory::ROOT_DROPPED ? 1u : 0u;
-    if (selected.status == gs_hlod_runtime::CutHistory::ROOT_DROPPED) {
-        WARN_PRINT_ONCE("HLOD root exceeds an admission cap; the complete instance is omitted. See hlod_root_dropped_frames and hlod_reason.");
-    }
     if (!publish_hlod_bundle(true)) { return false; }
     state.hlod_frame_active = true;
-    state.hlod_reason = selected.status == gs_hlod_runtime::CutHistory::ROOT_DROPPED ? "root_over_budget_whole_instance_dropped" : "active";
+    state.hlod_reason = "active";
     return true;
 }
 
