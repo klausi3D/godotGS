@@ -551,7 +551,17 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.estimated_records += cut.estimated_records;
 			result.budget_bound = result.budget_bound || cut.budget_bound;
 			for (uint32_t k = 0; k < slot.history.demand_count(); ++k) {
-				if (view.desired_count >= uint32_t(view.desired.size())) { result.desired_truncated = true; break; }
+				if (view.desired_count >= uint32_t(view.desired.size())) {
+					result.desired_truncated = true;
+					// Never leave half a group: drop the copied siblings of the first node that did not fit.
+					const uint32_t parent = asset.data->nodes[slot.history.demand_node(k)].topology.parent;
+					while (view.desired_count != 0 && !view.desired[view.desired_count - 1].keep &&
+							view.desired[view.desired_count - 1].instance_key == inst.instance_key &&
+							asset.data->nodes[view.desired[view.desired_count - 1].node].topology.parent == parent) {
+						--view.desired_count;
+					}
+					break;
+				}
 				DesiredRecord &want = view.desired.write[view.desired_count++];
 				want.instance_key = inst.instance_key;
 				want.node = slot.history.demand_node(k);

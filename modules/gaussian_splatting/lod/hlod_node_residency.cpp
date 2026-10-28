@@ -354,8 +354,9 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 			out.evicted += evict_for(total_pages, parent);
 			placed = allocate_all();
 		}
-		// Enough pages in total but no contiguous run: evict the cheapest unprotected neighbours of a hole.
-		for (uint32_t round = 0; !placed && round < need_count && uint64_t(allocator.get_free_page_count()) + pages_retiring >= total_pages; ++round) {
+		// Enough pages free in total but no contiguous run: evict the cheapest unprotected neighbours of a hole.
+		// A shortfall covered by retiring pages waits, and so does a group while a window retires.
+		for (uint32_t round = 0; !placed && round < need_count && pages_retiring == 0 && uint64_t(allocator.get_free_page_count()) >= total_pages; ++round) {
 			const uint32_t freed = evict_window(failed_pages, parent);
 			if (freed == 0) { break; }
 			out.evicted += freed;

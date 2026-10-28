@@ -586,6 +586,13 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a group skipped only because its
 	LocalVector<Residency::Ticket> tickets;
 	// Group 1 = {3, 4}: node 3 is half of it, node 4 needs the retiring page. Group 2 = {5, 6} is lower priority.
 	const uint32_t demand[4] = { 3, 4, 5, 6 };
+	// Group 1 alone: its page is still retiring, so it waits. Evicting a bystander elsewhere (node 10) would
+	// not bring the page back any sooner.
+	LocalVector<Residency::Ticket> first_only;
+	const auto first = sim.res.request(demand, 2, first_only);
+	CHECK(first.requested == 0);
+	CHECK(first.evicted == 0);
+	CHECK(sim.res.state(10) == Residency::RESIDENT);
 	const auto result = sim.res.request(demand, 4, tickets);
 	CHECK(result.requested == 0); // Nothing can be placed until the retiring page is released.
 	CHECK(result.pending_retire_groups >= 1);
@@ -707,6 +714,62 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as su
 		CHECK(tickets.size() == 0);
 		CHECK(res.state(4) == Residency::RESIDENT);
 	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay a fragmentation stall evicts one window, and a retiring shortfall evicts nothing") {
+	// Cap 8, retire delay 3. Pages: p0 root, then filler/bystander pairs, so after the fillers retire the free
+	// pages are single holes (p1, p3, p5, p7) with a bystander between each: 4 pages free, no run of 2.
+	Vector<Residency::NodeInfo> infos;
+	infos.resize(11);
+	const uint32_t parents[11] = { UINT32_MAX, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 };
+	const uint32_t splats[11] = { 1000, 1000, 1500, 1500, 1000, 1000, 1000, 1000, 1000, 1000, 1000 }; // 2, 3: two pages
+	for (int i = 0; i < 11; ++i) {
+		infos.write[i].splat_count = splats[i];
+		infos.write[i].parent = parents[i];
+		infos.write[i].height = i == 0 ? 1 : 0;
+	}
+	Residency res;
+	if (!res.reset(infos, config(8, 3), 1, 1)) { FAIL("residency setup failed"); return; }
+	uint64_t frame = 1;
+	for (uint32_t n : { 0u, 7u, 4u, 8u, 5u, 9u, 6u, 10u }) {
+		if (!make_resident_at(res, n, frame++)) { FAIL("could not make node resident"); return; }
+	}
+	res.begin_frame(20);
+	for (uint32_t n : { 7u, 8u, 9u, 10u }) { CHECK(res.evict(n)); }
+	res.begin_frame(23); // The fillers retired: p1, p3, p5, p7 are free.
+	CHECK(res.stats().pages_free == 4);
+	CHECK(res.stats().largest_free_run == 1);
+	LocalVector<Residency::Ticket> tickets;
+	const uint32_t group[2] = { 2, 3 }; // 4 pages in two 2-page runs.
+	auto result = res.request(group, 2, tickets);
+	// One window is evicted (its pages retire for 3 frames, so nothing can be placed yet); the other bystanders
+	// stay resident until that window has retired.
+	CHECK(result.evicted == 1);
+	CHECK(result.requested == 0);
+	uint32_t resident_bystanders = 0;
+	for (uint32_t n : { 4u, 5u, 6u }) { resident_bystanders += res.state(n) == Residency::RESIDENT ? 1u : 0u; }
+	CHECK(resident_bystanders == 2);
+	// The next frames: the retiring window is awaited, no further bystander is evicted.
+	res.begin_frame(24);
+	result = res.request(group, 2, tickets);
+	CHECK(result.evicted == 0);
+	res.begin_frame(25);
+	result = res.request(group, 2, tickets);
+	CHECK(result.evicted == 0);
+	// Once the first window retired it holds one 2-page run, but both runs are needed (all or none): the second
+	// window is evicted now, one at a time, and the group is placed when that one has retired too.
+	res.begin_frame(26);
+	result = res.request(group, 2, tickets);
+	CHECK(result.requested == 0);
+	CHECK(result.evicted == 1);
+	res.begin_frame(27);
+	result = res.request(group, 2, tickets);
+	CHECK(result.evicted == 0);
+	res.begin_frame(29);
+	result = res.request(group, 2, tickets);
+	CHECK(result.requested == 2);
+	CHECK(result.evicted == 0);
+	CHECK(res.state(6) == Residency::RESIDENT); // The third bystander was never needed.
 }
 
 }

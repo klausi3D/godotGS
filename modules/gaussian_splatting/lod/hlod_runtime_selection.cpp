@@ -72,7 +72,13 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	// A node can be listed more than once (a bootstrap expansion demands the children of a parent the refinement
 	// walk may demand again), so the list is capped at the node count and consumers (NodeResidency::request)
 	// treat duplicates as one demand.
-	auto push_demand = [&](uint32_t p_node) { if (demand_size < capacity) { demand.write[demand_size++] = p_node; } };
+	// A group is demanded whole or not at all: a truncated group would request part of a transition that can
+	// then never complete.
+	auto push_group = [&](const uint32_t *p_nodes, uint32_t p_count) {
+		if (demand_size + p_count > capacity) { return; }
+		for (uint32_t i = 0; i < p_count; ++i) { demand.write[demand_size++] = p_nodes[i]; }
+	};
+	auto push_demand = [&](uint32_t p_node) { push_group(&p_node, 1); };
 	const uint64_t previous = epoch++;
 	uint32_t heap_count = 0;
 	auto available = [&](uint32_t p_node) { return !p_request.resident || p_request.resident[p_node] != 0; };
@@ -203,7 +209,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				// Parent stays; no partial replacement. The bootstrap needs this expansion, so every missing
 				// visible child is demanded together (a whole transition, never a subset).
 				missing_residency = true;
-				for (uint32_t m = 0; m < missing_count; ++m) { push_demand(missing_children[m]); }
+				push_group(missing_children, missing_count);
 				continue;
 			}
 			const uint32_t next_count = out.selected_count - 1 + visible_children;
@@ -277,7 +283,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
 					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap &&
 					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget)) {
-				for (uint32_t m = 0; m < missing_count; ++m) { push_demand(missing_children[m]); }
+				push_group(missing_children, missing_count);
 				plan_pages += child_pages;
 				plan_splats += d_splats;
 				plan_count += d_count;

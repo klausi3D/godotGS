@@ -1453,6 +1453,7 @@ const char *GaussianSplatRenderer::hlod_streaming_unsupported_reason(const Insta
     ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!get_lod_enabled()) { return "lod_disabled_canonical_leaves"; }
     if (is_shadow_instance_filter_enabled()) { return "shadow_instance_filter"; }
+    if (get_painterly_config().enabled) { return "unsupported_view_or_material"; } // Persistent renderer setting, known at publish.
     if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) { return "deformation_or_instance_domain"; }
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     if (!director || director->get_sphere_effector_count_for_renderer(this) != 0) { return "deformation_or_instance_domain"; }
