@@ -35,12 +35,16 @@ void CutHistory::invalidate() {
 	epoch = 0;
 }
 
-uint64_t CutHistory::allocated_bytes() const {
+uint64_t CutHistory::workspace_bytes(uint32_t p_nodes) {
 	uint64_t bytes = 0, one = 0;
-	allocation_bytes(capacity, sizeof(Candidate), one); bytes += one;
-	allocation_bytes(capacity, sizeof(uint32_t), one); bytes += one * 2;
-	allocation_bytes(capacity, sizeof(uint64_t), one); bytes += one;
+	if (!allocation_bytes(p_nodes, sizeof(Candidate), one)) { return 0; } bytes += one;
+	if (!allocation_bytes(p_nodes, sizeof(uint32_t), one)) { return 0; } bytes += one * 2;
+	if (!allocation_bytes(p_nodes, sizeof(uint64_t), one)) { return 0; } bytes += one;
 	return bytes;
+}
+
+uint64_t CutHistory::allocated_bytes() const {
+	return workspace_bytes(capacity);
 }
 
 CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request) {
@@ -51,7 +55,8 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			!std::isfinite(p_request.tau_pixels) || p_request.tau_pixels <= 0 ||
 			!std::isfinite(p_request.record_budget) || p_request.record_budget < 0 ||
 			!std::isfinite(p_request.tile_area) || p_request.tile_area <= 0 ||
-			(p_request.resident && p_request.resident_count != count)) {
+			(p_request.resident && p_request.resident_count != count) ||
+			(p_request.tie_rank && p_request.tie_rank_count != count)) {
 		return out;
 	}
 	if (epoch == UINT64_MAX) {
@@ -93,14 +98,16 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				(d * d * p_request.tile_area);
 	};
 	auto lower_priority = [](const Candidate &a, const Candidate &b) {
-		return a.priority == b.priority ? a.node > b.node : a.priority < b.priority;
+		if (a.priority != b.priority) { return a.priority < b.priority; }
+		return a.tie == b.tie ? a.node > b.node : a.tie > b.tie;
 	};
+	auto tie_of = [&](uint32_t p_node) { return p_request.tie_rank ? p_request.tie_rank[p_node] : p_node; };
 	auto enqueue = [&](uint32_t p_node) {
 		if (p_data.nodes[p_node].topology.child_count == 0) { return; }
 		const double e = error(p_node);
 		const bool was_refined = previous != 0 && refined[p_node] == previous;
 		if (!(e > 1.25 * p_request.tau_pixels || (was_refined && e > p_request.tau_pixels))) { return; }
-		heap.write[heap_count++] = { p_node, e * (was_refined ? 1.25 : 1.0) };
+		heap.write[heap_count++] = { p_node, tie_of(p_node), e * (was_refined ? 1.25 : 1.0) };
 		std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 	};
 	out.visited_nodes = 1;
@@ -136,7 +143,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		};
 		auto push_expandable = [&](uint32_t p_node, double p_cost) {
 			if (p_data.nodes[p_node].topology.child_count == 0) { return; }
-			heap.write[heap_count++] = { p_node, p_cost };
+			heap.write[heap_count++] = { p_node, tie_of(p_node), p_cost };
 			std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 		};
 		push_expandable(0, root_cost);

@@ -62,10 +62,10 @@ static ViewSpec perspective(uint64_t p_key) {
 	v.caps = caps();
 	return v;
 }
-// Box frustum x in [-4, 0]: an orthographic-style (parallel-plane) view that sees only the left half.
-// The CPU oracle measures error by distance, so this exercises the view-volume, not an orthographic
+// Box frustum x in [-4, 0]: a parallel-plane view volume that sees only the left half. The camera is still a
+// perspective point, so this is NOT an orthographic projection: the CPU oracle measures error by distance and
 // error model; that model is part of the deferred renderer wiring.
-static ViewSpec orthographic(uint64_t p_key) {
+static ViewSpec box_view(uint64_t p_key) {
 	ViewSpec v = perspective(p_key);
 	v.frustum_enabled = true;
 	v.frustum[0] = Plane(Vector3(1, 0, 0), 0);
@@ -97,8 +97,28 @@ static SelectionSnapshot snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_dat
 	s.budget.max_views = 8;
 	return s;
 }
-// 100 splats * 4 + 1000 records * 1 + 8 nodes * 16.
-static constexpr uint64_t VIEW_BYTES = 400 + 1000 + 128;
+// GPU side: 100 splats * 4 + 1000 records * 1 + 8 nodes * 16; CPU side: per instance the cut workspace and tie
+// ranks (7 nodes), plus published and staging draw records.
+static uint64_t vb(uint32_t p_instances = 1) {
+	const uint64_t history = uint64_t(p_instances) * ViewSet::slot_bytes(7);
+	const uint64_t draw_capacity = std::min<uint64_t>(8, 7ull * p_instances);
+	ResidencyBudget b;
+	b.sort_bytes_per_splat = 4;
+	b.record_bytes_per_record = 1;
+	b.draw_bytes_per_node = 16;
+	uint64_t bytes = 0;
+	if (!ViewSet::view_cost(b, caps(), history, draw_capacity, bytes)) { return 0; }
+	return bytes;
+}
+// Same charge written out from its parts, so the helper above cannot hide a missing term.
+static uint64_t vb_independent(uint32_t p_instances = 1) {
+	uint64_t ranks = 0, node_alloc = 0;
+	allocation_bytes(7, sizeof(uint32_t), ranks);
+	(void)node_alloc;
+	const uint64_t draw_capacity = std::min<uint64_t>(8, 7ull * p_instances);
+	return 400 + 1000 + 128 + 2 * draw_capacity * sizeof(DrawRecord) +
+			p_instances * (CutHistory::workspace_bytes(7) + ranks);
+}
 
 static Vector<uint32_t> nodes_of(const ViewSet &p_set, uint64_t p_view) {
 	Vector<uint32_t> out;
@@ -106,6 +126,15 @@ static Vector<uint32_t> nodes_of(const ViewSet &p_set, uint64_t p_view) {
 	const DrawRecord *r = p_set.drawn(p_view, n);
 	for (uint32_t i = 0; r && i < n; ++i) { out.push_back(r[i].node); }
 	return out;
+}
+// Copies the set's preallocated results into a caller-owned vector (test convenience; select() itself does not allocate).
+static ViewSet::SnapshotStatus run(ViewSet &p_set, const SelectionSnapshot &p_snapshot, Vector<ViewSet::ViewResult> &r_out) {
+	const ViewSet::SnapshotStatus status = p_set.select(p_snapshot);
+	uint32_t n = 0;
+	const ViewSet::ViewResult *src = p_set.results(n);
+	r_out.clear();
+	for (uint32_t i = 0; i < n; ++i) { r_out.push_back(src[i]); }
+	return status;
 }
 static const ViewSet::ViewResult *result_of(const Vector<ViewSet::ViewResult> &p_results, uint64_t p_view) {
 	for (int i = 0; i < p_results.size(); ++i) {
@@ -144,7 +173,7 @@ TEST_CASE("[GaussianSplatting][HLOD] NodeKey is stable under array reorder and a
 		CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
 		snap.views.push_back(perspective(1));
 		Vector<ViewSet::ViewResult> results;
-		CHECK(set.select(snap, results) == ViewSet::SNAPSHOT_OK);
+		CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
 		uint32_t n = 0;
 		const DrawRecord *r = set.drawn(1, n);
 		CHECK(n == 4);
@@ -186,7 +215,7 @@ TEST_CASE("[GaussianSplatting][HLOD] NodeKey is stable under array reorder and a
 	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
 	snap.views.push_back(perspective(1));
 	Vector<ViewSet::ViewResult> results;
-	set.select(snap, results);
+	run(set, snap, results);
 	uint32_t n = 0;
 	const DrawRecord *r = set.drawn(1, n);
 	if (!r || n == 0) { FAIL("no draw records"); return; }
@@ -194,20 +223,20 @@ TEST_CASE("[GaussianSplatting][HLOD] NodeKey is stable under array reorder and a
 	CHECK_FALSE(r[0].version == (NodeVersion{ 7, 1 }));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD] perspective and orthographic views get independent complete cuts under one shared budget") {
+TEST_CASE("[GaussianSplatting][HLOD] perspective and box-frustum views get independent complete cuts under one shared budget") {
 	auto tree = make_tree(IDENT);
-	auto snap = snapshot(tree, 1000, 1000 + 2 * VIEW_BYTES); // Exactly fits two views.
+	auto snap = snapshot(tree, 1000, 1000 + 2 * vb(1)); // Exactly fits two views.
 	ViewSet set;
 	const auto p = set.admit_view(snap, perspective(1));
-	const auto o = set.admit_view(snap, orthographic(2));
+	const auto o = set.admit_view(snap, box_view(2));
 	CHECK(p.status == ViewSet::ADMITTED);
 	CHECK(o.status == ViewSet::ADMITTED);
-	CHECK(p.view_bytes == VIEW_BYTES);
-	CHECK(o.charged_bytes == 1000 + VIEW_BYTES); // Payload once plus the first view.
+	CHECK(p.view_bytes == vb(1));
+	CHECK(o.charged_bytes == 1000 + vb(1)); // Payload once plus the first view.
 	snap.views.push_back(perspective(1));
-	snap.views.push_back(orthographic(2));
+	snap.views.push_back(box_view(2));
 	Vector<ViewSet::ViewResult> results;
-	CHECK(set.select(snap, results) == ViewSet::SNAPSHOT_OK);
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
 	CHECK(results.size() == 2);
 	const auto *rp = result_of(results, 1);
 	const auto *ro = result_of(results, 2);
@@ -219,26 +248,26 @@ TEST_CASE("[GaussianSplatting][HLOD] perspective and orthographic views get inde
 	ViewSet::Ledger ledger;
 	CHECK(set.ledger(snap, ledger));
 	CHECK(ledger.shared_payload_bytes == 1000);
-	CHECK(ledger.view_bytes == 2 * VIEW_BYTES);
+	CHECK(ledger.view_bytes == 2 * vb(1));
 	CHECK(ledger.total() == snap.budget.physical_bytes); // At the boundary, not over it.
 	// One byte less and the second view is refused, not squeezed in.
-	auto tight = snapshot(tree, 1000, 1000 + 2 * VIEW_BYTES - 1);
+	auto tight = snapshot(tree, 1000, 1000 + 2 * vb(1) - 1);
 	ViewSet tight_set;
 	CHECK(tight_set.admit_view(tight, perspective(1)).status == ViewSet::ADMITTED);
-	CHECK(tight_set.admit_view(tight, orthographic(2)).status == ViewSet::REFUSED_BUDGET);
+	CHECK(tight_set.admit_view(tight, box_view(2)).status == ViewSet::REFUSED_BUDGET);
 	CHECK(tight_set.view_count() == 1);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD] a third view that does not fit is refused explicitly and leaves existing cuts unchanged") {
 	auto tree = make_tree(IDENT);
-	auto snap = snapshot(tree, 1000, 1000 + 2 * VIEW_BYTES + VIEW_BYTES / 2);
+	auto snap = snapshot(tree, 1000, 1000 + 2 * vb(1) + vb(1) / 2);
 	ViewSet set;
 	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
-	CHECK(set.admit_view(snap, orthographic(2)).status == ViewSet::ADMITTED);
+	CHECK(set.admit_view(snap, box_view(2)).status == ViewSet::ADMITTED);
 	snap.views.push_back(perspective(1));
-	snap.views.push_back(orthographic(2));
+	snap.views.push_back(box_view(2));
 	Vector<ViewSet::ViewResult> before;
-	set.select(snap, before);
+	run(set, snap, before);
 	const Vector<uint32_t> cut1 = nodes_of(set, 1), cut2 = nodes_of(set, 2);
 	const auto refusal = set.admit_view(snap, perspective(3));
 	CHECK(refusal.status == ViewSet::REFUSED_BUDGET);
@@ -248,7 +277,7 @@ TEST_CASE("[GaussianSplatting][HLOD] a third view that does not fit is refused e
 	CHECK(set.drawn(3, n) == nullptr);
 	snap.views.push_back(perspective(3)); // An unadmitted view in the snapshot is ignored, not partly served.
 	Vector<ViewSet::ViewResult> after;
-	CHECK(set.select(snap, after) == ViewSet::SNAPSHOT_OK);
+	CHECK(run(set, snap, after) == ViewSet::SNAPSHOT_OK);
 	CHECK(after.size() == 2);
 	CHECK(result_of(after, 3) == nullptr);
 	CHECK(nodes_of(set, 1) == cut1);
@@ -288,10 +317,10 @@ TEST_CASE("[GaussianSplatting][HLOD] shared payload is charged once per asset, v
 	CHECK(set.ledger(snap, ledger));
 	CHECK(ledger.shared_payload_bytes == 1000); // Two instances, one payload.
 	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
-	CHECK(set.admit_view(snap, orthographic(2)).status == ViewSet::ADMITTED);
+	CHECK(set.admit_view(snap, box_view(2)).status == ViewSet::ADMITTED);
 	CHECK(set.ledger(snap, ledger));
 	CHECK(ledger.shared_payload_bytes == 1000); // Two views do not recharge it.
-	CHECK(ledger.view_bytes == 2 * VIEW_BYTES); // Views are charged from their own caps, once each.
+	CHECK(ledger.view_bytes == 2 * vb(2)); // Views are charged from their own caps and instances, once each.
 	// A distinct asset key is a distinct payload.
 	SnapshotAsset other = snap.assets[0];
 	other.asset_key = 0xB0B;
@@ -309,15 +338,15 @@ TEST_CASE("[GaussianSplatting][HLOD] instance transforms are applied to the view
 	auto tree = make_tree(IDENT);
 	auto plain = snapshot(tree);
 	ViewSet reference;
-	CHECK(reference.admit_view(plain, orthographic(1)).status == ViewSet::ADMITTED);
-	plain.views.push_back(orthographic(1));
+	CHECK(reference.admit_view(plain, box_view(1)).status == ViewSet::ADMITTED);
+	plain.views.push_back(box_view(1));
 	Vector<ViewSet::ViewResult> r0;
-	reference.select(plain, r0);
+	run(reference, plain, r0);
 	const Vector<uint32_t> expected = nodes_of(reference, 1);
 	CHECK(same(expected, { 3, 4 }));
 	// Place the instance (rotation + uniform scale 2 + translation) and move the same view with it.
 	const Transform3D placement(Basis(Vector3(0, 1, 0), 0.7).scaled(Vector3(2, 2, 2)), Vector3(40, -3, 25));
-	ViewSpec local = orthographic(1);
+	ViewSpec local = box_view(1);
 	ViewSpec world = local;
 	world.camera = placement.xform(local.camera);
 	for (int i = 0; i < 6; ++i) {
@@ -332,7 +361,7 @@ TEST_CASE("[GaussianSplatting][HLOD] instance transforms are applied to the view
 	CHECK(set.admit_view(placed, world).status == ViewSet::ADMITTED);
 	placed.views.push_back(world);
 	Vector<ViewSet::ViewResult> r1;
-	set.select(placed, r1);
+	run(set, placed, r1);
 	CHECK(same(nodes_of(set, 1), { 3, 4 })); // Scale and distance cancel: same cut as in the asset frame.
 	// The unmoved world view no longer sees the placed instance the same way: transform is not ignored.
 	ViewSet naive;
@@ -341,7 +370,7 @@ TEST_CASE("[GaussianSplatting][HLOD] instance transforms are applied to the view
 	CHECK(naive.admit_view(moved_only, local).status == ViewSet::ADMITTED);
 	moved_only.views.push_back(local);
 	Vector<ViewSet::ViewResult> r2;
-	naive.select(moved_only, r2);
+	run(naive, moved_only, r2);
 	CHECK_FALSE(same(nodes_of(naive, 1), { 3, 4 }));
 	// Non-uniform scale cannot keep error and distance consistent: refused up front.
 	auto skew = snapshot(tree);
@@ -363,20 +392,20 @@ TEST_CASE("[GaussianSplatting][HLOD] per-view publication is deterministic, orde
 	reversed.instances.write[0] = snap.instances[1];
 	reversed.instances.write[1] = snap.instances[0];
 	for (auto *s : { &snap, &reversed }) {
-		s->views.push_back(orthographic(2));
+		s->views.push_back(box_view(2));
 		s->views.push_back(perspective(1));
 	}
 	ViewSet forward, backward;
 	CHECK(forward.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
-	CHECK(forward.admit_view(snap, orthographic(2)).status == ViewSet::ADMITTED);
-	CHECK(backward.admit_view(reversed, orthographic(2)).status == ViewSet::ADMITTED); // Opposite admission order.
+	CHECK(forward.admit_view(snap, box_view(2)).status == ViewSet::ADMITTED);
+	CHECK(backward.admit_view(reversed, box_view(2)).status == ViewSet::ADMITTED); // Opposite admission order.
 	CHECK(backward.admit_view(reversed, perspective(1)).status == ViewSet::ADMITTED);
 	Vector<ViewSet::ViewResult> rf, rb;
 	uint64_t previous_records[2] = { 0, 0 };
 	Vector<DrawRecord> first_frame[2];
 	for (int frame = 0; frame < 4; ++frame) {
-		CHECK(forward.select(snap, rf) == ViewSet::SNAPSHOT_OK);
-		CHECK(backward.select(reversed, rb) == ViewSet::SNAPSHOT_OK);
+		CHECK(run(forward, snap, rf) == ViewSet::SNAPSHOT_OK);
+		CHECK(run(backward, reversed, rb) == ViewSet::SNAPSHOT_OK);
 		if (rf.size() != 2 || rb.size() != 2) { FAIL("expected two results"); return; }
 		CHECK(rf[0].view_key == 1); // Ascending view key regardless of snapshot or admission order.
 		CHECK(rf[1].view_key == 2);
@@ -424,7 +453,7 @@ TEST_CASE("[GaussianSplatting][HLOD] readiness is loading, ready, not admitted o
 	inside.caps = caps(90, 7, 1000);
 	ViewSet set;
 	CHECK(set.admit_view(snap, inside).status == ViewSet::ADMITTED);
-	ViewSpec other = orthographic(2);
+	ViewSpec other = box_view(2);
 	other.caps = caps(90, 7, 1000);
 	other.tau_pixels = 1e9;
 	snap.assets.write[0].resident = Vector<uint8_t>();
@@ -438,7 +467,7 @@ TEST_CASE("[GaussianSplatting][HLOD] readiness is loading, ready, not admitted o
 	snap.views.push_back(inside);
 	snap.views.push_back(other);
 	Vector<ViewSet::ViewResult> results;
-	set.select(snap, results);
+	run(set, snap, results);
 	const auto *a = result_of(results, 1);
 	const auto *b = result_of(results, 2);
 	if (!a || !b) { return; }
@@ -452,7 +481,7 @@ TEST_CASE("[GaussianSplatting][HLOD] readiness is loading, ready, not admitted o
 	CHECK(b->readiness == ViewSet::LOADING); // Its frontier needs interior 1 only, but the root is over the cap too.
 	// Full residency: the whole frontier is present, so the view becomes ready with exactly that frontier.
 	snap.assets.write[0].resident = Vector<uint8_t>();
-	set.select(snap, results);
+	run(set, snap, results);
 	a = result_of(results, 1);
 	CHECK(a->readiness == ViewSet::READY);
 	CHECK(same(nodes_of(set, 1), { 1, 2 }));
@@ -460,47 +489,386 @@ TEST_CASE("[GaussianSplatting][HLOD] readiness is loading, ready, not admitted o
 	// Not admitted: no complete frontier fits the splat cap (leaves hold 16). The other view still fits.
 	const Vector<uint32_t> before = nodes_of(set, 1);
 	snap.instances.write[0].caps = caps(10, 7, 1000);
-	set.select(snap, results);
+	run(set, snap, results);
 	CHECK(result_of(results, 1)->readiness == ViewSet::NOT_ADMITTED);
 	CHECK(result_of(results, 1)->worst_status == CutHistory::BOOTSTRAP_INFEASIBLE);
-	CHECK(nodes_of(set, 1) == before); // The last complete publication is kept but not reported as ready.
+	CHECK(before.size() == 2);
+	CHECK(nodes_of(set, 1).is_empty()); // A stale set is never exposed once the view is not ready.
 	CHECK(result_of(results, 1)->drawn_count == 0);
 	CHECK(result_of(results, 2)->readiness == ViewSet::READY); // Its visible frontier (2 leaves, 8 splats) fits.
 	snap.instances.write[0].caps = caps(90, 7, 1000);
 	// Failed: invalid arithmetic input.
 	snap.views.write[0].tau_pixels = std::numeric_limits<double>::quiet_NaN();
-	set.select(snap, results);
+	run(set, snap, results);
 	CHECK(result_of(results, 1)->readiness == ViewSet::FAILED);
 	// Exceeding the reservation is explicit and selects nothing.
 	snap.views.write[0].tau_pixels = 1e9;
 	snap.views.write[0].caps = caps(200, 7, 1000);
-	set.select(snap, results);
+	run(set, snap, results);
 	CHECK(result_of(results, 1)->readiness == ViewSet::NOT_ADMITTED);
 	CHECK(result_of(results, 1)->reservation_exceeded);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD] a payload that outgrows the shared budget is reported without selecting or touching admitted views") {
 	auto tree = make_tree(IDENT);
-	auto snap = snapshot(tree, 1000, 1000 + VIEW_BYTES);
+	auto snap = snapshot(tree, 1000, 1000 + vb(1));
 	ViewSet set;
 	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
 	snap.views.push_back(perspective(1));
 	Vector<ViewSet::ViewResult> results;
-	CHECK(set.select(snap, results) == ViewSet::SNAPSHOT_OK);
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
 	const Vector<uint32_t> cut = nodes_of(set, 1);
 	if (results.size() != 1) { FAIL("expected one result, got ", results.size()); return; }
 	const uint64_t generation = results[0].draw_generation;
 	snap.assets.write[0].payload_bytes = 1001; // The shared payload grew past the budget.
-	CHECK(set.select(snap, results) == ViewSet::SNAPSHOT_OVER_BUDGET);
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OVER_BUDGET);
 	if (results.size() != 1) { FAIL("expected one result, got ", results.size()); return; }
 	CHECK(results[0].readiness == ViewSet::NOT_ADMITTED);
 	CHECK(results[0].reservation_exceeded);
-	CHECK(nodes_of(set, 1) == cut);
+	CHECK(cut.size() == 4);
+	CHECK(nodes_of(set, 1).is_empty()); // Not ready: the earlier set is no longer exposed.
 	snap.assets.write[0].payload_bytes = 1000;
-	CHECK(set.select(snap, results) == ViewSet::SNAPSHOT_OK);
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
 	if (results.size() != 1) { FAIL("expected one result, got ", results.size()); return; }
 	CHECK(results[0].draw_generation == generation + 1);
 	snap.instances.write[0].asset_index = 5; // Malformed snapshot.
-	CHECK(set.select(snap, results) == ViewSet::SNAPSHOT_INVALID);
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_INVALID);
+}
+
+static Vector<NodeKey> keys_of(const ViewSet &p_set, uint64_t p_view) {
+	Vector<NodeKey> out;
+	uint32_t n = 0;
+	const DrawRecord *r = p_set.drawn(p_view, n);
+	for (uint32_t i = 0; r && i < n; ++i) { out.push_back(r[i].key); }
+	return out;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] view set charges real allocated bytes: cut workspaces and draw storage count") {
+	CHECK(vb(1) == vb_independent(1));
+	CHECK(vb(2) == vb_independent(2));
+	auto tree = make_tree(IDENT);
+	const uint64_t storage = 2 * 7 * sizeof(DrawRecord);
+	const uint64_t history = ViewSet::slot_bytes(7);
+	CHECK(history > CutHistory::workspace_bytes(7)); // Tie ranks are part of the slot.
+	// The GPU-side figure (all the first version charged) plus draw storage still leaves the history out: refused.
+	ViewSet short_set;
+	auto without_history = snapshot(tree, 1000, 1000 + 1528 + storage);
+	const auto refused = short_set.admit_view(without_history, perspective(1));
+	CHECK(refused.status == ViewSet::REFUSED_BUDGET);
+	CHECK(short_set.view_count() == 0);
+	CHECK(refused.view_bytes == 1528 + storage + history);
+	// One byte under the full charge is refused, the exact charge is admitted.
+	ViewSet under;
+	CHECK(under.admit_view(snapshot(tree, 1000, 1000 + vb(1) - 1), perspective(1)).status == ViewSet::REFUSED_BUDGET);
+	ViewSet exact;
+	CHECK(exact.admit_view(snapshot(tree, 1000, 1000 + vb(1)), perspective(1)).status == ViewSet::ADMITTED);
+	// A second instance adds its own workspace to the same view.
+	auto two = snapshot(tree, 1000, 1000 + vb(2) - 1);
+	SnapshotInstance second = two.instances[0];
+	second.instance_key = 12;
+	two.instances.write[0].caps = caps(50, 4, 500);
+	second.caps = caps(50, 4, 500);
+	two.instances.push_back(second);
+	ViewSet two_set;
+	CHECK(two_set.admit_view(two, perspective(1)).status == ViewSet::REFUSED_BUDGET);
+	two.budget.physical_bytes = 1000 + vb(2);
+	CHECK(two_set.admit_view(two, perspective(1)).status == ViewSet::ADMITTED);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] admission refuses overflow, NaN and out-of-range caps explicitly") {
+	auto tree = make_tree(IDENT);
+	const double nan = std::numeric_limits<double>::quiet_NaN();
+	// mul overflow in the view charge: splats * bytes-per-splat wraps.
+	{
+		auto snap = snapshot(tree);
+		snap.instances.write[0].caps = caps(UINT64_MAX / 2, 8, 1000);
+		ViewSpec v = perspective(1);
+		v.caps = caps(UINT64_MAX / 2, 8, 1000);
+		ViewSet set;
+		CHECK(set.admit_view(snap, v).status == ViewSet::REFUSED_BUDGET);
+		CHECK(set.view_count() == 0);
+		uint64_t out = 0;
+		ResidencyBudget b = snap.budget;
+		CHECK_FALSE(ViewSet::view_cost(b, v.caps, 0, 7, out));
+		b.record_bytes_per_record = UINT64_MAX;
+		CHECK_FALSE(ViewSet::view_cost(b, caps(), 0, 7, out)); // records * bytes overflows
+		b = snap.budget;
+		CHECK_FALSE(ViewSet::view_cost(b, caps(), UINT64_MAX, 7, out)); // add overflow
+		CHECK(ViewSet::view_cost(b, caps(), 0, 7, out));
+	}
+	// add overflow in the shared ledger: two distinct payloads that do not fit in 64 bits together.
+	{
+		auto snap = snapshot(tree);
+		snap.assets.write[0].payload_bytes = UINT64_MAX;
+		SnapshotAsset other = snap.assets[0];
+		other.asset_key = 0xB0B;
+		other.payload_bytes = 1;
+		snap.assets.push_back(other);
+		SnapshotInstance second = snap.instances[0];
+		second.instance_key = 12;
+		second.asset_index = 1;
+		snap.instances.write[0].caps = caps(50, 4, 500);
+		second.caps = caps(50, 4, 500);
+		snap.instances.push_back(second);
+		ViewSet set;
+		ViewSet::Ledger ledger;
+		CHECK_FALSE(set.ledger(snap, ledger));
+		CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::REFUSED_BUDGET);
+		CHECK(set.view_count() == 0);
+	}
+	// Instance caps whose sum overflows (splats, then nodes) never fit the view.
+	{
+		auto snap = snapshot(tree);
+		SnapshotInstance second = snap.instances[0];
+		second.instance_key = 12;
+		snap.instances.write[0].caps = caps(UINT64_MAX / 2 + 1, 4, 10);
+		second.caps = caps(UINT64_MAX / 2 + 1, 4, 10);
+		snap.instances.push_back(second);
+		ViewSpec v = perspective(1);
+		v.caps = caps(UINT64_MAX, 8, 1000);
+		ViewSet set;
+		CHECK(set.admit_view(snap, v).status == ViewSet::REFUSED_CAPS);
+		snap.instances.write[0].caps = caps(10, UINT32_MAX, 10);
+		snap.instances.write[1].caps = caps(10, UINT32_MAX, 10);
+		v.caps = caps(100, UINT32_MAX, 1000);
+		CHECK(set.admit_view(snap, v).status == ViewSet::REFUSED_CAPS);
+		CHECK(set.view_count() == 0);
+	}
+	// NaN, infinite and absurd caps are invalid, on the view and on an instance.
+	{
+		ViewSet set;
+		ViewSpec v = perspective(1);
+		v.caps.record_budget = nan;
+		CHECK(set.admit_view(snapshot(tree), v).status == ViewSet::REFUSED_INVALID);
+		v.caps.record_budget = std::numeric_limits<double>::infinity();
+		CHECK(set.admit_view(snapshot(tree), v).status == ViewSet::REFUSED_INVALID);
+		v.caps.record_budget = 1.0e19;
+		CHECK(set.admit_view(snapshot(tree), v).status == ViewSet::REFUSED_INVALID);
+		v = perspective(1);
+		v.caps.splat_budget = 0;
+		CHECK(set.admit_view(snapshot(tree), v).status == ViewSet::REFUSED_INVALID);
+		auto bad = snapshot(tree);
+		bad.instances.write[0].caps.record_budget = nan;
+		CHECK(set.admit_view(bad, perspective(1)).status == ViewSet::REFUSED_INVALID);
+		CHECK(set.view_count() == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] a view with one loading instance is loading and publishes nothing") {
+	auto tree_a = make_tree(IDENT);
+	auto tree_b = make_tree(IDENT, 9);
+	auto snap = snapshot(tree_a);
+	SnapshotAsset b;
+	b.asset_key = 0xB0B;
+	b.data = tree_b;
+	b.bake_rule_revision = 1;
+	b.payload_bytes = 500;
+	snap.assets.push_back(b);
+	SnapshotInstance inst_b = snap.instances[0];
+	inst_b.instance_key = 22;
+	inst_b.asset_index = 1;
+	snap.instances.write[0].caps = caps(50, 4, 500);
+	inst_b.caps = caps(50, 4, 500);
+	snap.instances.push_back(inst_b);
+	ViewSet set;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
+	snap.views.push_back(perspective(1));
+	// Instance A (key 11) is fully resident; instance B (key 22) has no resident root yet.
+	Vector<uint8_t> none;
+	none.resize(7);
+	none.fill(1);
+	none.write[0] = 0;
+	snap.assets.write[1].resident = none;
+	Vector<ViewSet::ViewResult> results;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::LOADING);
+	CHECK(results[0].worst_status == CutHistory::UNAVAILABLE);
+	CHECK(results[0].drawn_count == 0);
+	CHECK(results[0].draw_generation == 0);
+	uint32_t n = 99;
+	CHECK(set.drawn(1, n) == nullptr);
+	CHECK(n == 0); // A's complete cut is not exposed on its own.
+	snap.assets.write[1].resident = Vector<uint8_t>();
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::READY);
+	const DrawRecord *r = set.drawn(1, n);
+	if (!r || n != 8) { FAIL("expected both instances' leaves"); return; }
+	CHECK(r[0].instance_key == 11);
+	CHECK(r[n - 1].instance_key == 22);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] a drawn node that loses residency never stays in the published set") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree);
+	ViewSet set;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
+	snap.views.push_back(perspective(1));
+	Vector<ViewSet::ViewResult> results;
+	run(set, snap, results);
+	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
+	const uint64_t generation = results.size() == 1 ? results[0].draw_generation : 0;
+	// Steady state: leaf 5 is evicted. The new cut keeps its resident parent instead of the evicted leaf.
+	Vector<uint8_t> resident;
+	resident.resize(7);
+	resident.fill(1);
+	resident.write[5] = 0;
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::READY);
+	CHECK(results[0].draw_generation == generation + 1);
+	const Vector<uint32_t> after = nodes_of(set, 1);
+	CHECK(same(after, { 3, 4, 2 }));
+	for (int i = 0; i < after.size(); ++i) { CHECK(resident[after[i]] == 1); }
+	// The root itself is evicted: nothing complete exists, so the view is loading and exposes nothing.
+	resident.write[0] = 0;
+	snap.assets.write[0].resident = resident;
+	run(set, snap, results);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::LOADING);
+	CHECK(nodes_of(set, 1).is_empty());
+	// Residency returns: ready again with the full cut.
+	snap.assets.write[0].resident = Vector<uint8_t>();
+	run(set, snap, results);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::READY);
+	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] equal-priority ties break on the stable key, not the array index, under budget pressure") {
+	auto a = make_tree(IDENT);
+	auto b = make_tree(SWAPPED); // Same hierarchy, sibling order reversed in the array.
+	Vector<NodeKey> cuts[2];
+	int idx = 0;
+	for (const Ref<GaussianSplatHlodRuntimeData> &tree : { a, b }) {
+		auto snap = snapshot(tree);
+		snap.instances.write[0].caps = caps(10, 8, 1000); // Refining both interiors (16 splats) is refused.
+		ViewSpec v = perspective(1);
+		v.caps = caps(10, 8, 1000);
+		ViewSet set;
+		CHECK(set.admit_view(snap, v).status == ViewSet::ADMITTED);
+		snap.views.push_back(v);
+		Vector<ViewSet::ViewResult> results;
+		run(set, snap, results);
+		if (results.size() != 1) { FAIL("expected one result"); return; }
+		CHECK(results[0].readiness == ViewSet::READY);
+		CHECK(results[0].budget_bound); // The refusal really happened.
+		CHECK(results[0].selected_splats == 10);
+		cuts[idx++] = keys_of(set, 1);
+	}
+	if (cuts[0].size() != 3 || cuts[1].size() != 3) { FAIL("expected three-node cuts"); return; }
+	for (int i = 0; i < 3; ++i) { CHECK(cuts[0][i] == cuts[1][i]); }
+	// And the winner is the smaller key (semantic node 1's subtree), in both array orders.
+	NodeKey leaf3;
+	CHECK(make_node_key(*a.ptr(), 3, ASSET, leaf3));
+	CHECK(cuts[0][0] == leaf3);
+	// CutHistory with no rank keeps the pre-existing index tie-break (B1 behaviour is unchanged).
+	CutHistory history;
+	CHECK(history.reserve(7));
+	CutRequest r;
+	r.frustum_enabled = false;
+	r.camera = Vector3(0, 0, 10);
+	r.focal_pixels = 100;
+	r.tau_pixels = 1;
+	r.record_budget = 1000;
+	r.splat_budget = 10;
+	r.node_budget = 7;
+	CHECK(history.select(*b.ptr(), r).selected_count == 3);
+	// Slot 1 holds semantic node 2 in the swapped array: index order refines it (its leaves, x = +1 and +3, sit in
+	// slots 3 and 4), the opposite of the key order used above.
+	CHECK(b->nodes[history.selected_node(1)].bounds_center.x == 3.0f);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] a changed tau invalidates the refinement history") {
+	auto tree = make_tree(IDENT);
+	ViewSpec v = perspective(1);
+	auto snap = snapshot(tree);
+	ViewSet set;
+	CHECK(set.admit_view(snap, v).status == ViewSet::ADMITTED);
+	Vector<ViewSet::ViewResult> results;
+	snap.views.push_back(v);
+	run(set, snap, results); // tau 1: everything refined, interiors stamped as refined.
+	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
+	// tau 22: interior error ~26 lies in the hysteresis band (22, 27.5]. With stale stamps they would stay
+	// refined; with the stamps dropped for the new policy the cut is what a cold start gives.
+	snap.views.write[0].tau_pixels = 22;
+	run(set, snap, results);
+	ViewSet cold;
+	CHECK(cold.admit_view(snap, v).status == ViewSet::ADMITTED);
+	Vector<ViewSet::ViewResult> cold_results;
+	run(cold, snap, cold_results);
+	CHECK(same(nodes_of(cold, 1), { 1, 2 }));
+	CHECK(same(nodes_of(set, 1), { 1, 2 }));
+	// Unchanged policy keeps its history: next frame is a fixed point.
+	run(set, snap, results);
+	CHECK(same(nodes_of(set, 1), { 1, 2 }));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] a snapshot that outgrows a view's reservation is reported, not failed, until re-admitted") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree, 1000, 1000000);
+	snap.instances.write[0].caps = caps(50, 4, 500);
+	ViewSet set;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED); // View caps (100, 8, 1000) leave room.
+	snap.views.push_back(perspective(1));
+	Vector<ViewSet::ViewResult> results;
+	run(set, snap, results);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::READY);
+	SnapshotInstance second = snap.instances[0];
+	second.instance_key = 12;
+	snap.instances.push_back(second); // Within the view's caps, but its workspace and draw storage were never reserved.
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::NOT_ADMITTED);
+	CHECK(results[0].reservation_exceeded);
+	CHECK(nodes_of(set, 1).is_empty());
+	CHECK(set.remove_view(1));
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
+	run(set, snap, results);
+	if (results.size() != 1) { FAIL("expected one result"); return; }
+	CHECK(results[0].readiness == ViewSet::READY);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] steady-state selection allocates nothing") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree);
+	SnapshotInstance second = snap.instances[0];
+	second.instance_key = 5;
+	snap.instances.write[0].caps = caps(50, 4, 500);
+	second.caps = caps(50, 4, 500);
+	snap.instances.push_back(second);
+	ViewSet set;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
+	CHECK(set.admit_view(snap, box_view(2)).status == ViewSet::ADMITTED);
+	snap.views.push_back(perspective(1));
+	snap.views.push_back(box_view(2));
+	// Control: the counter below does see an ordinary Vector allocation.
+	const uint64_t control_before = Memory::get_mem_usage();
+	Vector<uint8_t> control;
+	control.resize(4096);
+	CHECK(Memory::get_mem_usage() > control_before);
+	for (int i = 0; i < 3; ++i) { set.select(snap); } // Warm-up.
+	const uint64_t bytes = set.allocated_bytes();
+	const uint64_t usage = Memory::get_mem_usage();
+	uint32_t count_before = 0;
+	const ViewSet::ViewResult *results_before = set.results(count_before);
+	for (int frame = 0; frame < 64; ++frame) {
+		// Move the camera and change tau: the work changes, the storage must not.
+		snap.views.write[0].camera = Vector3(0.01f * frame, 0, 10 + 0.02f * frame);
+		snap.views.write[1].tau_pixels = (frame & 1) ? 1.0 : 1.5;
+		CHECK(set.select(snap) == ViewSet::SNAPSHOT_OK);
+	}
+	uint32_t count_after = 0;
+	CHECK(set.results(count_after) == results_before);
+	CHECK(count_after == 2);
+	CHECK(set.allocated_bytes() == bytes);
+	CHECK(Memory::get_mem_usage() == usage);
+	// Admitting more work is allowed to allocate; that is the contrast the counter must show.
+	const uint64_t before_admit = Memory::get_mem_usage();
+	CHECK(set.admit_view(snap, perspective(3)).status == ViewSet::ADMITTED);
+	CHECK(Memory::get_mem_usage() > before_admit);
 }
 }
