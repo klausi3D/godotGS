@@ -186,10 +186,13 @@ def psnr_array(a: np.ndarray, b: np.ndarray, linear: bool) -> float:
 
 
 def far_clamp_clips_nothing(min_depth: float, max_depth: float, max_corner_distance: float, near: float, far: float) -> bool:
+    """The far clamp clips nothing: every corner of the (margin-grown) asset bounds is closer than
+    ``far`` along the view axis and in distance. Valid for interior cameras too: ``min_depth`` may be
+    <= ``near`` (camera inside the bounds); near-plane clipping is the frozen intrinsic and is
+    identical for the reference and every arm, so it is not a failure. Non-finite input fails."""
     return (
         all(math.isfinite(v) for v in (min_depth, max_depth, max_corner_distance, near, far))
         and near > 0.0
-        and min_depth > near
         and max_depth < far
         and max_corner_distance < far
     )
@@ -669,30 +672,36 @@ def main() -> int:
     if not rows:
         raise HarnessError("no rows in export")
 
-    results = []
-    for index, r in enumerate(rows):
-        results.append(run_row(args.godot, args.export_dir, views, r, args.out, args.far, args.wait_idle_s, args.render_timeout_s))
-        if index == 0:
-            results[0]["loss_control_forced_cap"] = None
-            ref = results[0]["files"][REFERENCE]
-            (args.out / "_reference_count.json").write_text(json.dumps({"splats": ref.get("splats")}))
-            wait_for_idle_gpu(args.wait_idle_s)
-            tel = run_loss_control(args.godot, args.export_dir, results[0]["_camera"], args.out, args.render_timeout_s)
-            frames = tel.get("frames") or []
-            last = frames[-1] if frames else {}
-            detected = tel.get("status") == "failed" and any(
-                int(last.get("live_" + k) or 0) > 0 for k in LIVE_ZERO_COUNTERS
-            )
-            results[0]["loss_control_forced_cap"] = {
-                "setting": "gpu_sorting/max_raster_splats_per_tile=256",
-                "render_status": tel.get("status"),
-                "reason": tel.get("reason"),
-                "live_counters": live_loss_summary(tel),
-                "loss_detected": bool(detected),
-                "expected": "loss_detected true: the live counters can move",
-            }
-            if not detected:
-                raise HarnessError("forced-cap control did not register loss: live loss counters are not trustworthy")
+    results = [run_row(args.godot, args.export_dir, views, r, args.out, args.far, args.wait_idle_s, args.render_timeout_s) for r in rows]
+
+    # Forced-cap loss control, on the row whose reference view carries the most tile records (an
+    # inside-root view can have only a few hundred, which a 256 cap cannot truncate). The control
+    # proves the live loss counters can move; the run aborts if it does not.
+    def inserts(r: Dict[str, Any]) -> int:
+        live = (r.get("live_loss_counters") or {}).get(REFERENCE) or {}
+        v = live.get("aggregated_records")
+        return v if isinstance(v, int) else -1
+
+    host = max(results, key=inserts)
+    ref = host["files"][REFERENCE]
+    (args.out / "_reference_count.json").write_text(json.dumps({"splats": ref.get("splats")}))
+    wait_for_idle_gpu(args.wait_idle_s)
+    tel = run_loss_control(args.godot, args.export_dir, host["_camera"], args.out, args.render_timeout_s)
+    frames = tel.get("frames") or []
+    last = frames[-1] if frames else {}
+    detected = tel.get("status") == "failed" and any(int(last.get("live_" + k) or 0) > 0 for k in LIVE_ZERO_COUNTERS)
+    control = {
+        "row": host["id"],
+        "setting": "gpu_sorting/max_raster_splats_per_tile=256",
+        "render_status": tel.get("status"),
+        "reason": tel.get("reason"),
+        "live_counters": live_loss_summary(tel),
+        "loss_detected": bool(detected),
+        "expected": "loss_detected true: the live counters can move",
+    }
+    (args.out / "loss_control.json").write_text(json.dumps(control, indent=2))
+    if not detected:
+        raise HarnessError(f"forced-cap control on {host['id']} did not register loss: live loss counters are not trustworthy")
 
     verdicts = [r["verdict"]["verdict"] for r in results]
     summary = {
@@ -702,6 +711,7 @@ def main() -> int:
         "export_dir": str(args.export_dir),
         "far_clamp": args.far,
         "rule": f"PSNR(S1b) >= max(PSNR(SAT), PSNR(A-area)) - {DECISION_MARGIN_DB} dB; common ROI >{ROI_DIFF_THRESHOLD_8BIT}/255 union padded {ROI_PAD_PX}px",
+        "loss_control_forced_cap": control,
         "rows": results,
         "not_run": ["baum3 (6 rows): no baked world yet", "baum2 (2 rows): no baked world yet"],
         "all_rows_pass": all(v == "PASS" for v in verdicts),

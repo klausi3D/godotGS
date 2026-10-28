@@ -305,7 +305,10 @@ class ValidateRowGuards(unittest.TestCase):
         self.tel["reference"]["clip_proof"]["max_depth"] = 1500.0
         self.assertFires(self.check(), "clip proof")
         self.tel = good_telemetry(self.manifest, self.view)
+        # min_depth below near is an interior camera: accepted (near is the frozen intrinsic).
         self.tel["reference"]["clip_proof"]["min_depth"] = 0.005
+        self.assertEqual(self.check(), [])
+        self.tel["reference"]["clip_proof"]["min_depth"] = float("nan")
         self.assertFires(self.check(), "clip proof")
         self.tel = good_telemetry(self.manifest, self.view)
         del self.tel["reference"]["clip_proof"]
@@ -375,13 +378,31 @@ class ColorSpace(unittest.TestCase):
 
 
 class Clip(unittest.TestCase):
-    def test_bounds(self):
+    def test_exterior_camera(self):
         self.assertTrue(q.far_clamp_clips_nothing(30, 60, 61, 0.01, 1000))
-        self.assertFalse(q.far_clamp_clips_nothing(0.01, 60, 61, 0.01, 1000))  # near touches
         self.assertFalse(q.far_clamp_clips_nothing(30, 1000, 61, 0.01, 1000))
         self.assertFalse(q.far_clamp_clips_nothing(30, 60, 1000, 0.01, 1000))
         self.assertFalse(q.far_clamp_clips_nothing(30, 60, float("nan"), 0.01, 1000))
         self.assertFalse(q.far_clamp_clips_nothing(30, 60, 61, 0.0, 1000))
+
+    def test_interior_camera_accepted_when_far_covers_bounds(self):
+        # Camera inside the bounds: nearest corner is behind the camera (negative depth).
+        self.assertTrue(q.far_clamp_clips_nothing(-40.0, 55.0, 80.0, 0.01, 1000))
+
+    def test_interior_camera_refused_when_far_too_small(self):
+        self.assertFalse(q.far_clamp_clips_nothing(-40.0, 55.0, 80.0, 0.01, 60.0))  # corner at 80 > far
+        self.assertFalse(q.far_clamp_clips_nothing(-40.0, 55.0, 80.0, 0.01, 80.0))  # boundary is refused
+        self.assertFalse(q.far_clamp_clips_nothing(-40.0, 1500.0, 1600.0, 0.01, 1000.0))
+
+    def test_interior_row_is_validated_end_to_end(self):
+        manifest, view = good_manifest(), good_view()
+        tel = good_telemetry(manifest, view)
+        for t in tel.values():
+            t["clip_proof"].update(min_depth=-40.0, max_depth=55.0, max_corner_distance=80.0)
+        self.assertEqual(q.validate_row(manifest, view, tel, 1000.0), [])
+        for t in tel.values():
+            t["clip_proof"]["max_corner_distance"] = 1200.0
+        self.assertTrue(any("clip proof" in f for f in q.validate_row(manifest, view, tel, 1000.0)))
 
 
 class RowVerdict(unittest.TestCase):

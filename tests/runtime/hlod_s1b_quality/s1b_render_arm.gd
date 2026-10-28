@@ -118,7 +118,13 @@ func _clip_proof(aabb: AABB, cam_pos: Vector3, forward: Vector3, near: float, fa
 		"margin_m": CLIP_PROOF_MARGIN,
 		"min_depth": min_depth, "max_depth": max_depth, "max_corner_distance": max_dist,
 		"near": near, "far": far,
-		"clips_nothing": min_depth > near and max_depth < far and max_dist < far,
+		# The proof concerns the far CLAMP (1000 instead of the frozen 1e6): every point of the grown
+		# AABB lies closer than far. The near plane is the frozen intrinsic and is not changed; a
+		# camera inside the bounds (inside-root views, required by the ADR) has min_depth <= near
+		# and clips nearby splats, identically for the reference and every arm (same camera), so
+		# that is recorded, not rejected.
+		"camera_inside_grown_bounds": grown.has_point(cam_pos),
+		"clips_nothing": near > 0.0 and max_depth < far and max_dist < far,
 	}
 
 
@@ -279,7 +285,7 @@ func _run() -> void:
 	var clip := _clip_proof(data.get_aabb(), camera.global_position, forward, camera.near, camera.far)
 	_telemetry["clip_proof"] = clip
 	if not clip["clips_nothing"]:
-		_fail("near/far planes may clip the asset: %s" % JSON.stringify(clip))
+		_fail("far plane may clip the asset: %s" % JSON.stringify(clip))
 		return
 
 	_node = GaussianSplatWorld3D.new()
