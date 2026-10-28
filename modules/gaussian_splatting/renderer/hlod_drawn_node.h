@@ -31,8 +31,9 @@ inline DrawnNodeGPU make_drawn_node(uint32_t p_instance_id, uint32_t p_chunk_id,
 }
 
 // Frustum planes for the camera-relative depth pass: the planes of the camera-translated frustum (rotation of the
-// camera, no translation). All of them pass through the origin, which is where the camera sits in that frame, so
-// no plane.d carries the camera's distance from the origin (the large number a float would round).
+// camera, no translation). The four side planes pass through the origin (d == 0), which is where the camera sits in
+// that frame; near and far keep d = +-distance (a few metres to km, never the camera's distance from the world
+// origin, which is the large number a float would round).
 inline Vector<Plane> camera_relative_frustum_planes(const Projection &p_projection, const Transform3D &p_camera_to_world) {
 	return p_projection.get_projection_planes(Transform3D(p_camera_to_world.basis, Vector3()));
 }

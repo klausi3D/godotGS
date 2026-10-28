@@ -1194,7 +1194,7 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     Vector<ChunkQuantizationGPU> quantization;
     if (!gs_resize_or_fail(metadata, node_count, "HLOD candidate metadata") ||
             !gs_resize_or_fail(indices, node_count, "HLOD candidate indices") ||
-            !gs_resize_or_fail(r_bundle.draw_entries, node_count, "HLOD candidate draw list") ||
+            !gs_resize_or_fail(r_bundle.draw_entries, p_relative ? node_count : 0, "HLOD candidate draw list") || // Canonical bundle: the GPU culler writes its list; no CPU copy (DrawnNodeGPU is 4x VisibleChunkRefGPU).
             (p_quantized ? (!gs_resize_or_fail(quantized, records, "HLOD candidate packed quantized") ||
                                    !gs_resize_or_fail(quantization, node_count, "HLOD candidate quantization")) :
                            !gs_resize_or_fail(raw, records, "HLOD candidate packed raw"))) {
@@ -1386,7 +1386,7 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
                 b.hlod_source_generation != bundle.generation || b.instance_count != 1 ||
                 b.atlas_gaussian_count != input->leaf_count + (relative ? input->parent_count : 0) ||
                 b.max_visible_splats != (relative ? relative_capacity : input->leaf_count) ||
-                b.max_visible_chunks != input->nodes.size() || bundle.draw_entries.size() != int(input->nodes.size()) ||
+                b.max_visible_chunks != input->nodes.size() || bundle.draw_entries.size() != (relative ? int(input->nodes.size()) : 0) ||
                 bundle.owned_count != uint32_t(12 + int(relative) + int(quantized)) ||
                 bundle.bytes != hlod_bundle_bytes(*input.ptr(), relative, quantized, b.max_visible_splats)) { return false; }
         for (uint32_t i = 0; i < bundle.owned_count; ++i) {

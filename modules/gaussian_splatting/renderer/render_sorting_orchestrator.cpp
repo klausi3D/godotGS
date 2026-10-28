@@ -927,6 +927,9 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 					renderer->get_streaming_state().current_streaming_system->get_instance_sh_policy());
 		}
 		// The HLOD draw list holds camera-relative offsets for one origin revision; cached sort order is in that frame.
+		// Camera motion WITHIN one revision is not part of this key: it relies on the per-frame bump of the content
+		// generation in publish_hlod_bundle() (and on reuse being skipped while a prepared HLOD snapshot is valid).
+		// The revision is the explicit key for the case where the frame itself changes.
 		instance_content_generation = gs_hlod_gpu::origin_keyed_generation(instance_content_generation,
 				renderer->get_instance_pipeline_buffers().hlod_relative,
 				renderer->get_instance_pipeline_buffers().hlod_origin_revision);

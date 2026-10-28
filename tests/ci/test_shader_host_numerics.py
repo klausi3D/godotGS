@@ -327,7 +327,11 @@ def _rotate(q: tuple[float, float, float, float], v: tuple[float, float, float])
 
 class HlodCameraRelativeFrame(unittest.TestCase):
     """Package C2: the camera-relative frame of depth_compute.glsl / tile_binning.glsl, evaluated from the shader
-    source (gs_camera_relative.glsl) and compared against a float64 reference at 0, 1 km and 100 km."""
+    source (gs_camera_relative.glsl) and compared against a float64 reference at 0, 1 km and 100 km.
+
+    Scope: glsl_host_eval does not emulate float32 arithmetic (only storage boundaries round), so these are algebra
+    checks of the frame (what the shader computes, with float32 inputs) and regex source checks of the wiring. They
+    do not measure the precision of the GPU's float operations."""
 
     BASES = (0.0, 1000.0, 100000.0)
 
@@ -386,8 +390,11 @@ class HlodCameraRelativeFrame(unittest.TestCase):
 
     def test_origin_zero_matches_the_base_formulation_within_reassociation(self) -> None:
         # Base: view = V * (R s (p + c_f) + T, 1) with V = R_v (x - cam) (translation -R_v cam).
-        # C2:   view = R_v * (R s p + (R s c + T - cam)). Same value, different association: compare in float32
-        # emulation and bound the difference by a few ulp of the largest intermediate.
+        # C2:   view = R_v * (R s p + (R s c + T - cam)). Same value, different association. NOT a float32
+        # emulation of the shader: glsl_host_eval runs every operation in Python double; only the storage values
+        # (positions, offset) and the old formulation's intermediates are rounded to float32 by this test. This is an
+        # algebra check (the two formulations agree up to the rounding the test injects), not a measurement of GPU
+        # float behaviour; that belongs to the end-of-stack GPU gate.
         program = _camera_relative_program()
         vec3, vec4, uint = program.namespace["vec3"], program.namespace["vec4"], program.namespace["uint"]
         fn = program.fn("gs_hlod_camera_relative_position")
