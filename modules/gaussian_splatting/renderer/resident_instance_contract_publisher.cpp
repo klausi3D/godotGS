@@ -254,6 +254,10 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
                         gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()));
             }
             ++p_renderer->get_resource_state().hlod_edit_blank_frames;
+            // A blanked frame never reaches the tile stage: it is not active (a stale active flag of the last frame would make
+            // it look like one) and it is not a tile-stage refusal either (hlod_mark_tile_stage_refused only counts frames
+            // that were admitted as active and then rasterized).
+            p_renderer->get_resource_state().hlod_frame_active = false;
             p_renderer->get_resource_state().hlod_reason = edit_blank_reason;
             if (r_reason) { *r_reason = edit_blank_reason; }
             // F-2: only the edited world is omitted. Other instances of the scene keep rendering through the canonical

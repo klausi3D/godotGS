@@ -1790,6 +1790,13 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] a blanked frame names its current cau
 	CHECK(Renderer::compose_hlod_edit_blank_reason("hlod_edit_replacement_loading", true) == String("hlod_edit_replacement_loading"));
 	CHECK(Renderer::compose_hlod_edit_blank_reason("hlod_idle_bundle_failed", true) == String("hlod_edit_route_unavailable:hlod_idle_bundle_failed"));
 	CHECK(Renderer::compose_hlod_edit_blank_reason("active", true) == String("hlod_edit_route_unavailable")); // Last frame's "active" is no cause.
+	// A tile-stage refusal of an earlier frame is a cause, kept by name and never overwritten; a blanked frame is not counted as one.
+	CHECK(Renderer::compose_hlod_edit_blank_reason("hlod_tile_stage_refused:history_capacity", true) == String("hlod_edit_route_unavailable:hlod_tile_stage_refused:history_capacity"));
+	GaussianRenderFacadeState::ResourceState blanked;
+	blanked.hlod_frame_active = false; // The publisher clears it on a blanked frame.
+	GaussianRenderFacadeState::hlod_mark_tile_stage_refused(blanked, "history_capacity");
+	CHECK(blanked.hlod_tile_stage_refused_frames == 0);
+	CHECK(blanked.hlod_reason.is_empty());
 	CHECK(Renderer::compose_hlod_edit_blank_reason("active", false) == String("hlod_edit_route_unavailable:hlod_runtime_cut_disabled"));
 	CHECK(Renderer::compose_hlod_edit_blank_reason("", false) == String("hlod_edit_route_unavailable:hlod_runtime_cut_disabled"));
 	// A publish attempt starts from a generic cause: a return that sets no reason keeps neither last frame's "active" nor a stale cause.
