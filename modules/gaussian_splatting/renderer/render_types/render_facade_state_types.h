@@ -69,9 +69,7 @@ struct ResourceState {
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
-    // Package E1: identity (target size, device, tile renderer) the paged route was last provisioned for; 0 = never.
-    uint64_t hlod_paged_provision_key = 0;
-    // Why the last provisioning attempt failed (empty = fine); the warmup reasons report it instead of hiding it.
+    // Package E1: why the last paged provisioning attempt failed (empty = fine); the warmup reasons report it instead of hiding it.
     String hlod_paged_provision_reason;
     HlodBundle hlod_canonical;
     HlodBundle hlod_relative;

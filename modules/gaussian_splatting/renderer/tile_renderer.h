@@ -139,7 +139,7 @@ public:
     static void get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record);
     // Why the last render() refused an HLOD-relative frame (empty when it did not refuse one).
     const String &get_last_hlod_refusal() const { return last_hlod_refusal; }
-    // Streamed HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
+    // Streamed and V4 paged HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
     // Creates the output targets for `p_viewport` and the global overlap storage for `p_overlap_records` without
     // drawing, so prepare_hlod_scratch()'s "warm on the canonical path" preconditions (and the texture ledger) hold
     // for the view about to be drawn. Idempotent; a resize reallocates exactly as a render would.

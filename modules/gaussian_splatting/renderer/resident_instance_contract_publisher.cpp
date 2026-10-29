@@ -1514,19 +1514,19 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
         state.hlod_paged_provision_reason = r_reason;
         return false;
     }
-    const uint64_t key = (uint64_t(size.x) * 73856093ull) ^ (uint64_t(size.y) * 19349663ull) ^ (rd->get_device_instance_id() * 83492791ull) ^
-            uint64_t(tile->get_instance_id()) ^ uint64_t(1);
-    if (state.hlod_paged_provision_key == key) { state.hlod_paged_provision_reason = String(); return true; }
-    // The relative route never grows the overlap storage while drawing, so seed it as a canonical warmup frame of the
-    // same world would (every leaf may be visible, 50 records each; the sorting config caps it); growth afterwards is the
-    // measured safe-point growth in prepare_hlod_frame.
-    const uint32_t overlap = uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX));
-    if (tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, overlap) != OK) {
-        r_reason = "hlod_paged_tile_provisioning_failed";
-        state.hlod_paged_provision_reason = r_reason;
-        return false;
+    // The tile grid is not provisioned here: prepare_hlod_frame's per-view provisioner (hlod_view_grid_action) sizes it for
+    // every view of a streamed or paged world, per view and per frame. Only the first overlap seed stays: the publication
+    // needs the tile ledger and overlap storage before the route's first frame. The relative route never grows the overlap
+    // storage while drawing, so seed it as a canonical warmup frame of the same world would (every leaf may be visible, 50
+    // records each; the sorting config caps it); growth afterwards is the measured safe-point growth in prepare_hlod_frame.
+    if (tile->get_allocated_overlap_capacity() == 0) {
+        const uint32_t overlap = uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX));
+        if (tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, overlap) != OK) {
+            r_reason = "hlod_paged_tile_provisioning_failed";
+            state.hlod_paged_provision_reason = r_reason;
+            return false;
+        }
     }
-    state.hlod_paged_provision_key = key;
     state.hlod_paged_provision_reason = String();
     return true;
 }
@@ -1808,11 +1808,23 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
     state.hlod_owned_byte_upper_bound = route_bytes;
-    if (state.hlod_streaming) {
-        // A streamed world never runs a canonical frame after startup, and prepare_hlod_scratch() refuses every frame
-        // whose size differs from the tile grid. Resize the grid to THIS view before admitting its scratch, per view and
-        // per frame (two views of different sizes alternate here). This runs BEFORE the route limit refusal: a smaller view
-        // must be able to shrink a grid an earlier, larger view pushed over the limit, or the route would stay refused for good.
+    // Safe point for the overlap storage: the previous frames' measured overlap demand, before this frame's passes. It runs
+    // before the per-view grid decision below, so that decision (and the seed) reads the grown capacity. It runs before the
+    // route limit refusal too, so the headroom saturates: an over-limit route grows nothing and is refused below.
+    if (tile->grow_hlod_overlap_storage(route_bytes < route_limit ? route_limit - route_bytes : 0)) {
+        if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
+        state.hlod_owned_byte_upper_bound = route_bytes;
+    }
+    // The scratch covers the atlas the frame draws from (its total_gaussians), not the tree's splat count.
+    const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
+            input->leaf_count, input->parent_count);
+    if (state.hlod_streaming || input->is_paged()) {
+        // The one tile-grid provisioner for streamed (D1) and V4 paged (E1) worlds. Neither runs a canonical frame after
+        // startup, and prepare_hlod_scratch() refuses every frame whose size differs from the tile grid. Resize the grid to
+        // THIS view before admitting its scratch, per view and per frame (two views of different sizes alternate here).
+        // provision_paged_hlod_route() keeps only the compositor scratch and the first overlap seed. This runs BEFORE the
+        // route limit refusal: a smaller view must be able to shrink a grid an earlier, larger view pushed over the limit,
+        // or the route would stay refused for good.
         const Vector2i view_size = p_context.viewport_size;
         const Vector2i grid = tile->get_provisioned_viewport();
         uint64_t live_textures = 0;
@@ -1836,14 +1848,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
     }
     if (route_bytes > route_limit) { return fallback("route_memory_limit"); }
-    // The scratch covers the atlas the frame draws from (its total_gaussians), not the tree's splat count.
-    const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
-            input->leaf_count, input->parent_count);
     const uint32_t capacity = state.hlod_relative.buffers.max_visible_splats;
     const PipelineFeatureSet *features = p_context.deps.pipeline_features;
     if (!features) { return fallback("current_pipeline_features_unavailable"); }
-    // Safe point for the overlap storage: the previous frames' measured overlap demand, before this frame's passes.
-    tile->grow_hlod_overlap_storage(route_limit - route_bytes);
     TileRenderer::RenderParams scratch_params;
     scratch_params.viewport_size = p_context.viewport_size;
     scratch_params.total_gaussians = total;
