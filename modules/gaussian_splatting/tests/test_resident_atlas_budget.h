@@ -381,3 +381,34 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] streaming engages when
     CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, fixed, cap, 1000, 2000) == 0);
     CHECK(hlod_stream_page_budget(atlas_default, 0, page, huge, fixed, cap, huge, 0) == 0);
 }
+
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] a streamed view resizes the tile grid to its own size and refuses honestly when the targets do not fit (resize-fix)") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t live = 40 << 20, huge = uint64_t(1) << 40;
+    // Same size and overlap storage present: nothing to do.
+    CHECK(hlod_view_grid_action(960, 540, 960, 540, 1000, live, live, 0) == HlodViewGridAction::KEEP);
+    // Either dimension differs (the window was resized, or another view of another size comes next): resize.
+    CHECK(hlod_view_grid_action(960, 540, 800, 450, 1000, live, live, 0) == HlodViewGridAction::RESIZE);
+    CHECK(hlod_view_grid_action(960, 540, 960, 270, 1000, live, live, 0) == HlodViewGridAction::RESIZE);
+    CHECK(hlod_view_grid_action(960, 540, 480, 540, 1000, live, live, 0) == HlodViewGridAction::RESIZE);
+    // A grid without overlap storage is provisioned even at the right size.
+    CHECK(hlod_view_grid_action(960, 540, 960, 540, 0, live, live, huge) == HlodViewGridAction::RESIZE);
+    // Growth must fit the ledger headroom exactly: headroom == growth fits, one byte less is refused.
+    const uint64_t wanted = live + (10 << 20);
+    CHECK(hlod_view_grid_action(480, 270, 960, 540, 1000, live, wanted, 10 << 20) == HlodViewGridAction::RESIZE);
+    CHECK(hlod_view_grid_action(480, 270, 960, 540, 1000, live, wanted, (10 << 20) - 1) == HlodViewGridAction::REFUSE_MEMORY);
+    // A smaller grid costs nothing extra, so it is never refused for memory even with no headroom.
+    CHECK(hlod_view_grid_action(960, 540, 480, 270, 1000, live, live, 0) == HlodViewGridAction::RESIZE);
+    // Pixel scaling: 4x the pixels is 4x the bytes (rounded up); never below the live bytes; saturating.
+    CHECK(hlod_scale_texture_bytes_for_pixels(live, 480 * 270, 960 * 540) == 4 * live);
+    CHECK(hlod_scale_texture_bytes_for_pixels(10, 3, 4) == 14); // 40 / 3 rounded up
+    CHECK(hlod_scale_texture_bytes_for_pixels(live, 960 * 540, 480 * 270) == live);
+    CHECK(hlod_scale_texture_bytes_for_pixels(live, 960 * 540, 960 * 540) == live);
+    CHECK(hlod_scale_texture_bytes_for_pixels(live, 0, 960 * 540) == live);
+    CHECK(hlod_scale_texture_bytes_for_pixels(UINT64_MAX / 2, 1, 4) == UINT64_MAX);
+    // The two-view case: the main view and a smaller second view alternate in one frame; each is decided on its own.
+    const uint64_t big_view_bytes = hlod_scale_texture_bytes_for_pixels(live, 480 * 270, 960 * 540);
+    CHECK(hlod_view_grid_action(960, 540, 480, 270, 1000, big_view_bytes, big_view_bytes, 0) == HlodViewGridAction::RESIZE);
+    CHECK(hlod_view_grid_action(480, 270, 960, 540, 1000, live, big_view_bytes, big_view_bytes - live) == HlodViewGridAction::RESIZE);
+    CHECK(hlod_view_grid_action(480, 270, 960, 540, 1000, live, big_view_bytes, big_view_bytes - live - 1) == HlodViewGridAction::REFUSE_MEMORY);
+}

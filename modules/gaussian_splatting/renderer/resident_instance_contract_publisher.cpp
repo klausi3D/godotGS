@@ -1702,6 +1702,26 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     scratch_params.request_tighter_bounds = features->enable_tighter_bounds;
     scratch_params.request_sh_amortization = features->enable_sh_amortization;
     scratch_params.sh_amortization_divisor = features->sh_amortization_divisor;
+    if (state.hlod_streaming) {
+        // A streamed world never runs a canonical frame after startup, and prepare_hlod_scratch() refuses every frame
+        // whose size differs from the tile grid. Resize the grid to THIS view before admitting its scratch, per view and
+        // per frame (two views of different sizes alternate here), and only when the ledger can hold the new targets.
+        const Vector2i view_size = p_context.viewport_size;
+        const Vector2i grid = tile->get_provisioned_viewport();
+        uint64_t live_textures = 0;
+        if (!tile->get_hlod_texture_byte_upper_bound(live_textures)) { return fallback("resource_ledger_unavailable"); }
+        const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
+        const auto action = ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, view_size.x, view_size.y, overlap_now, live_textures,
+                tile->estimate_hlod_texture_bytes_for_viewport(view_size), route_limit - route_bytes);
+        if (action == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) { return fallback("hlod_view_size_memory_limit"); }
+        if (action == ResidentAtlasBudget::HlodViewGridAction::RESIZE) {
+            // Seed the overlap storage only when no canonical warmup ever created it (every leaf may be visible, 50 records each;
+            // the sorting config caps it); otherwise the resize keeps the capacity and rebuilds the grid-sized buffers.
+            const uint32_t seed = overlap_now == 0 ? uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX)) : 0u;
+            if (tile->provision_hlod_route(view_size, RD::DATA_FORMAT_MAX, seed) != OK) { return fallback("hlod_view_provisioning_failed"); }
+            if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("hlod_view_size_memory_limit"); }
+        }
+    }
     if (!tile->prepare_hlod_scratch(scratch_params,
                 route_limit - route_bytes)) { return fallback("tile_capacity_warmup_or_memory_limit"); }
     if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("prepared_route_memory_limit"); }

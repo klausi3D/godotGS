@@ -133,6 +133,16 @@ public:
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // Streamed HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
+    // Creates the output targets for `p_viewport` and the global overlap storage for `p_overlap_records` without
+    // drawing, so prepare_hlod_scratch()'s "warm on the canonical path" preconditions (and the texture ledger) hold
+    // for the view about to be drawn. Idempotent; a resize reallocates exactly as a render would.
+    Error provision_hlod_route(const Vector2i &p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records);
+    // Size of the tile grid's viewport (what the last resize/render provisioned); (0,0) before the first one.
+    Vector2i get_provisioned_viewport() const { return grid_state.viewport_size; }
+    // Upper bound of the texture bytes a resize to `p_viewport` leaves charged to the ledger: the live bytes scaled by
+    // the pixel ratio (never below the live bytes), so a refusal can be decided before anything is reallocated.
+    uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -561,11 +571,22 @@ private:
     TileDeviceContext device_context;
     bool gpu_timestamp_capture_enabled = true;
     TileRenderTargets render_targets;
-    uint64_t hlod_texture_bytes = 0;
-    uint64_t hlod_texture_device = 0;
-    bool hlod_texture_ledger_valid = true;
+    // HLOD texture ledger: the bytes of the textures this renderer created and still owns. Each creation records its
+    // measured delta under its RID; a texture that is no longer valid on the device is subtracted when the ledger is next
+    // read (so many viewport resizes do not accumulate). Memory the device retires lazily after a free is not counted
+    // again, which can undercount for the frame or two RD keeps it. Mutable: reading reconciles.
+    struct HlodTextureEntry {
+        RenderingDevice *device = nullptr;
+        uint64_t device_id = 0;
+        uint64_t bytes = 0;
+    };
+    mutable HashMap<RID, HlodTextureEntry> hlod_texture_live;
+    mutable uint64_t hlod_texture_bytes = 0;
+    mutable uint64_t hlod_texture_device = 0;
+    mutable bool hlod_texture_ledger_valid = true;
     bool hlod_scratch_preparing = false;
     void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
+    void _reconcile_hlod_texture_ledger() const;
 
     // Cache keys for binning/raster uniform sets live in stage structs.
     // Depth buffer for post-processing compatibility (Issue #128) lives in TileRenderTargets.

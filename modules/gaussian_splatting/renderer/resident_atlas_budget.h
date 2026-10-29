@@ -245,6 +245,29 @@ inline uint32_t compact_chunk_by_importance(LocalVector<Gaussian> &r_gaussians,
     return keep;
 }
 
+// Texture bytes a tile grid of `new_px` pixels charges to the HLOD ledger when `live_bytes` are charged for `cur_px`
+// pixels now (the output, resolved, depth and normal targets scale with the pixel count). A smaller or equal grid never
+// costs more than it does now; an unknown current size (0) keeps the live bytes. Rounded up, saturating.
+inline uint64_t hlod_scale_texture_bytes_for_pixels(uint64_t live_bytes, uint64_t cur_px, uint64_t new_px) {
+    if (cur_px == 0 || new_px == 0 || new_px <= cur_px || live_bytes == 0) { return live_bytes; }
+    if (live_bytes > UINT64_MAX / new_px) { return UINT64_MAX; }
+    return (live_bytes * new_px + cur_px - 1u) / cur_px;
+}
+
+// What a streamed HLOD view must do with the tile grid before its scratch is admitted. A streamed world never runs a
+// canonical frame, so nothing else resizes the grid: a view whose size differs from the grid, or a grid without overlap
+// storage, must be provisioned for THIS view, per view and per frame. The new targets must fit the ledger headroom
+// (`wanted_texture_bytes` is what the grid would charge afterwards); otherwise the view is refused, honestly.
+enum class HlodViewGridAction { KEEP, RESIZE, REFUSE_MEMORY };
+inline HlodViewGridAction hlod_view_grid_action(int p_grid_x, int p_grid_y, int p_view_x, int p_view_y, uint32_t p_overlap_capacity,
+        uint64_t p_live_texture_bytes, uint64_t p_wanted_texture_bytes, uint64_t p_headroom_bytes) {
+    if (p_grid_x == p_view_x && p_grid_y == p_view_y && p_overlap_capacity != 0) { return HlodViewGridAction::KEEP; }
+    if (p_wanted_texture_bytes > p_live_texture_bytes && p_wanted_texture_bytes - p_live_texture_bytes > p_headroom_bytes) {
+        return HlodViewGridAction::REFUSE_MEMORY;
+    }
+    return HlodViewGridAction::RESIZE;
+}
+
 } // namespace ResidentAtlasBudget
 
 #endif // GS_RESIDENT_ATLAS_BUDGET_H

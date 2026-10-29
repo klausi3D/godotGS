@@ -379,4 +379,53 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
         CHECK(bound.atlas_gaussian_buffer == state.resident_atlas_gaussian_buffer);
     }
 }
+
+// Streamed HLOD worlds never run a canonical frame, so the tile grid must follow each view's size: provision_hlod_route
+// is what resizes it, and prepare_hlod_scratch still refuses a frame whose size differs from the grid (the old
+// behaviour, which blanked a streamed world at every window size but its startup size).
+TEST_CASE("[GaussianSplatting][HLOD][Resize][Sort][RequiresGPU] provisioning follows the view size and keeps the texture ledger at the live bytes") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GPU harness required"); return; }
+    ScopedSortDevice manager_device(rd);
+    Ref<TileRenderer> tile;
+    tile.instantiate();
+    const Vector2i small(256, 256);
+    const Vector2i large(512, 384);
+    if (tile->initialize(rd, small) != OK) { FAIL("TileRenderer init failed"); return; }
+    TileRenderer::RenderParams params;
+    params.total_gaussians = 64;
+    params.max_visible_splats = 64;
+    params.request_packed_stage_data = false;
+    params.request_tighter_bounds = false;
+    params.request_sh_amortization = false;
+    const uint64_t headroom = uint64_t(1) << 30;
+    params.viewport_size = small;
+    if (tile->provision_hlod_route(small, RD::DATA_FORMAT_MAX, 4096) != OK) { FAIL("provisioning failed"); return; }
+    CHECK(tile->get_provisioned_viewport() == small);
+    CHECK(tile->prepare_hlod_scratch(params, headroom));
+    // The grid still refuses a frame of another size: only provisioning may change it.
+    params.viewport_size = large;
+    CHECK_FALSE(tile->prepare_hlod_scratch(params, headroom));
+    uint64_t small_bytes = 0;
+    REQUIRE(tile->get_hlod_texture_byte_upper_bound(small_bytes));
+    // The estimate is an upper bound of what the larger grid really charges.
+    const uint64_t estimate = tile->estimate_hlod_texture_bytes_for_viewport(large);
+    CHECK(estimate >= small_bytes);
+    uint64_t large_bytes = 0;
+    uint64_t small_again = 0;
+    for (int i = 0; i < 40; ++i) {
+        const Vector2i size = (i % 2 == 0) ? large : small;
+        if (tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, 0) != OK) { FAIL("re-provisioning failed at ", i); return; }
+        CHECK(tile->get_provisioned_viewport() == size);
+        params.viewport_size = size;
+        CHECK(tile->prepare_hlod_scratch(params, headroom)); // every alternation is admitted, per view
+        uint64_t bytes = 0;
+        if (!tile->get_hlod_texture_byte_upper_bound(bytes)) { FAIL("ledger lost validity at ", i); return; }
+        if (i == 0) { large_bytes = bytes; }
+        if (i == 1) { small_again = bytes; }
+        if (i > 1) { CHECK(bytes == ((i % 2 == 0) ? large_bytes : small_again)); } // not one more discarded set per resize
+    }
+    CHECK(large_bytes <= estimate + (uint64_t(1) << 20));
+    CHECK(small_again <= large_bytes);
+}
 }
