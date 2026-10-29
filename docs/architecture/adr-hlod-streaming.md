@@ -1243,6 +1243,52 @@ Preparation reports peak RAM, scratch disk, bytes read/written and elapsed time;
 whole-world `GaussianData` materialization is a failure. Existing canonical imports retain
 their behavior; the optimized prepared-package workflow is explicit.
 
+#### 14.4.1 Package E1: implemented V4 slice (version 4 is free; byte layout)
+
+Status: the first slice of package E is implemented; the rest of §14.4 is not (see "Not in E1"). The version number 4
+was free (`gs_world_format::select_header` refuses it, so no v1-v3 reader can mistake a V4 file for its own). V4 is
+written only by the explicit `GaussianSplatWorld.save_hlod_paged()`; saving, importing and baking keep writing v3.
+
+All integers little endian, every offset a checked unsigned 64-bit quantity, every region 4096-byte aligned and laid out
+back to back: header page, index pages, payload records, optional metadata. Reader code: `io/gaussian_splat_world_paged.*`.
+
+| Region | Bytes | Content |
+| --- | --- | --- |
+| Header | 4096 | magic `GSPW`, version 4, flags (2D, metadata), page/index geometry constants, Gaussian struct layout version, leaf/interior/node counts, SH degree and counts, bake rule, lattice origin, bounds, region extents, declared file length, `content_generation`, SHA-256 of the whole index, SHA-256 of the metadata, SHA-256 of the header itself. All unused bytes must be zero. |
+| Index page | 65536 each | 64-byte page header (magic `GSPI`, page, first node, node count, SHA-256 of its own entries) + 255 node records of 256 bytes. The unused tail must be zero. |
+| Node record | 256 | v3 topology (cell, flags, bounds, errors, parent/child links, payload range) + footprint (f64), DC encoding, homogeneous-DC and centre-exact flags, payload record offset / stored size / page-rounded size, SHA-256 of the payload record. Reserved words must be zero. |
+| Payload record | page aligned | 64-byte header (magic `GSNP`, node, count, SH high-order count, byte sizes, `content_generation`, payload range, struct layout) + `count * 144` Gaussian bytes + `count * high_order * 12` SH bytes. Positions are node-relative exactly like the v3 gaussian section. |
+| Metadata | optional | UTF-8 JSON dictionary (same acceptance rule as v3). |
+
+Contracts implemented:
+
+- **Fail closed, distinct reasons.** Open validates the header (magic, version, digest, geometry, ranges, declared vs
+  actual length: `v4_truncated_file`, `v4_trailing_bytes`), every index page (identity, digest, zero tail), the index
+  digest, the whole topology with the same `gs_hlod_validate_tree` the v2/v3 loader runs, and the strict sequential
+  layout of the payload records. Counts and extents are range checked with overflow-safe arithmetic before anything is
+  allocated or read. A hash never replaces a semantic check: a re-sealed file with a bad parent link, a non-finite
+  position or a footprint that disagrees with its payload is refused by the semantic rule (tests re-seal on purpose).
+- **Bounded reads.** A node payload is exactly one record of at most `64 + 16384 * (144 + 12 * 21)` bytes, read by one
+  `read_node_payload()` call that opens its own handle (thread safe). The node streamer additionally caps the CPU working
+  set of reads in flight (`Config::max_inflight_read_bytes`, default 8 MiB, one read always allowed): the cap, not the
+  tree, bounds payload memory.
+- **Versioning / replacement.** Every payload record carries the header's `content_generation`; a read also checks the
+  file length. A file replaced on disk under an open package is refused (`v4_file_changed_length`,
+  `v4_content_generation_mismatch`) instead of mixing versions.
+- **Cancellation and late completion** reuse D1's tickets and generations unchanged: a read is started only for a still
+  pending ticket, a result of a cancelled, unloaded or other-device ticket is dropped at the upload gate, and
+  `shutdown()` waits for the reads in flight. A failed read fails that node (D1's FAILED/retry/permanent states), never
+  publishes a partial payload, and never affects another node.
+- **Metrics move to the index.** Footprint, DC encoding, homogeneity and the exact-reconstruction check were the reason
+  the D1 runtime snapshot scanned (and held) the whole payload. A paged snapshot takes them from the index and holds no
+  payload; each read re-derives them from the bytes and compares (`v4_payload_metrics_mismatch`).
+
+Not in E1 (deferred): lazy loading of index pages and a bounded bootstrap directory (E1 reads the whole index at open, at
+most 256 B per node, then validates it); early coarse startup; out-of-core preparation (the converter needs the resident
+world); leaf ranges; instanced trees; editor import of V4 (the importer refuses version 4, load the file directly); a
+sort/tile scratch that no longer scales with the whole tree (GPU memory is unchanged by E1); physical 100 km / 200M
+acceptance (§15.3 step 3).
+
 ### 14.5 Persistent edits in a reserved active area
 
 The first mutable scope is discrete game edits within a prepared near area, with an

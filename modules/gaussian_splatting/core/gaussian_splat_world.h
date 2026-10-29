@@ -9,6 +9,7 @@
 #include "gaussian_data.h"
 #include "gaussian_splat_hlod_tree.h"
 #include "gaussian_splat_hlod_runtime_data.h"
+#include "../io/gaussian_splat_world_paged.h"
 #include "streaming_chunk_payload_source.h"
 #include "../renderer/gaussian_splat_renderer.h"
 
@@ -35,7 +36,12 @@ private:
     // HLOD tree (ADR adr-hlod-streaming.md, slice S1a). Empty unless baked or loaded from a v2
     // file. Its leaf payload IS the gaussian payload above (same order); a new payload drops it.
     GaussianSplatHlodTree hlod_tree;
+    // Package E1: set instead of gaussian_data / chunk_payload_source when the world was loaded from a V4 paged
+    // package. The tree's node table is resident; node payloads stay in the file and are read on demand.
+    Ref<GaussianSplatHlodPagedSource> hlod_paged_source;
 
+    Error _capture_hlod_paged_snapshot(const Ref<GaussianSplatHlodPagedSource> &p_source,
+            Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const;
     void _assign_gaussian_data_locked(const Ref<GaussianData> &p_data, bool p_keep_hlod);
     Error _bake_hlod(bool p_quality_selection);
 
@@ -97,6 +103,15 @@ public:
             Vector<GaussianSplatRenderer::StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const;
     Error capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const;
     bool is_hlod_runtime_snapshot_current(const GaussianSplatHlodRuntimeData &p_snapshot) const;
+
+    // V4 paged package (ADR 14.4, package E1). A paged world has no resident payload: gaussian_data and the chunk
+    // payload source are null, the tree's node table is resident and node payloads are read from the file on demand.
+    // Installing it replaces any previous payload and tree.
+    Error set_hlod_paged_package(GaussianSplatHlodTree &&p_tree, const Ref<GaussianSplatHlodPagedSource> &p_source);
+    Ref<GaussianSplatHlodPagedSource> get_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source; }
+    bool has_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source.is_valid(); }
+    // Explicit, opt-in V4 export of a resident complete HLOD world. Never called by save(), import or bake.
+    Error save_hlod_paged(const String &p_path) const;
 
     // HLOD (slice S1a). bake_hlod() bakes the tree from a resident or file-backed payload,
     // reorders the payload into leaf order and replaces the chunks with

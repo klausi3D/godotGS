@@ -118,6 +118,8 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear"), &GaussianSplatWorld::clear);
     ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianSplatWorld::save_to_file);
     ClassDB::bind_method(D_METHOD("bake_hlod"), &GaussianSplatWorld::bake_hlod);
+    ClassDB::bind_method(D_METHOD("save_hlod_paged", "path"), &GaussianSplatWorld::save_hlod_paged);
+    ClassDB::bind_method(D_METHOD("has_hlod_paged_source"), &GaussianSplatWorld::has_hlod_paged_source);
 	ClassDB::bind_method(D_METHOD("bake_hlod_offline", "limits", "candidate_path"),
 	                     &GaussianSplatWorld::bake_hlod_offline);
 	ClassDB::bind_method(D_METHOD("has_hlod_tree"), &GaussianSplatWorld::has_hlod_tree);
@@ -216,6 +218,7 @@ void GaussianSplatWorld::_assign_gaussian_data_locked(const Ref<GaussianData> &p
             static_chunks.clear();
         }
         hlod_tree.clear();
+        hlod_paged_source.unref();
     } else if (!hlod_tree.is_empty() && p_data.is_valid()) {
         // Same payload (materialized from the file the tree was loaded with).
         hlod_tree.leaf_payload_revision = p_data->get_content_revision();
@@ -309,10 +312,13 @@ bool GaussianSplatWorld::is_payload_source_backed() const {
 }
 
 bool GaussianSplatWorld::has_renderable_payload() const {
-    return has_resident_gaussian_data() || has_chunk_payload_source();
+    return has_resident_gaussian_data() || has_chunk_payload_source() || has_hlod_paged_source();
 }
 
 String GaussianSplatWorld::get_payload_mode() const {
+    if (has_hlod_paged_source()) {
+        return "hlod_paged_v4";
+    }
     if (is_streamable_payload()) {
         return "streamable_uncompressed";
     }
@@ -326,7 +332,7 @@ String GaussianSplatWorld::get_payload_mode() const {
 }
 
 bool GaussianSplatWorld::is_streamable_payload() const {
-    return has_chunk_payload_source() && !has_resident_gaussian_data();
+    return has_hlod_paged_source() || (has_chunk_payload_source() && !has_resident_gaussian_data());
 }
 
 String GaussianSplatWorld::get_resident_only_reason() const {
@@ -536,6 +542,7 @@ void GaussianSplatWorld::clear() {
     is_2d_metadata = false;
     antialiased_metadata = false;
     hlod_tree.clear();
+    hlod_paged_source.unref();
     // Consumers must observe the completed reset, not retain their apply-time
     // payload/submission after this resource has become empty.
         ++render_input_epoch;
@@ -582,6 +589,7 @@ Error GaussianSplatWorld::copy_from(const Ref<Resource> &p_resource) {
     is_2d_metadata = other->is_2d_metadata;
     antialiased_metadata = other->antialiased_metadata;
     hlod_tree = other->hlod_tree;
+    hlod_paged_source = other->hlod_paged_source;
         ++render_input_epoch;
     }
     notify_property_list_changed();
@@ -593,6 +601,46 @@ Error GaussianSplatWorld::copy_from(const Ref<Resource> &p_resource) {
 Error GaussianSplatWorld::save_to_file(const String &p_path) const {
     ResourceFormatSaverGaussianSplatWorld saver;
     return saver.save(Ref<Resource>(const_cast<GaussianSplatWorld *>(this)), p_path, 0);
+}
+
+Error GaussianSplatWorld::set_hlod_paged_package(GaussianSplatHlodTree &&p_tree, const Ref<GaussianSplatHlodPagedSource> &p_source) {
+    ERR_FAIL_COND_V_MSG(p_source.is_null() || !p_source->is_open() || p_tree.is_empty(), ERR_INVALID_PARAMETER,
+            "GaussianSplatWorld.set_hlod_paged_package(): needs an open V4 package and its node table.");
+    {
+        MutexLock lock(render_input_mutex);
+        AABB next_bounds = bounds;
+        ERR_FAIL_COND_V_MSG(!hlod_live_bounds(p_tree, bounds, next_bounds), ERR_INVALID_DATA,
+                "GaussianSplatWorld.set_hlod_paged_package(): invalid or unrepresentable HLOD bounds; previous state retained.");
+        const GaussianSplatHlodPagedSource::Info &info = p_source->get_info();
+        // A paged world has no resident payload and no chunk lists indexing one.
+        gaussian_data.unref();
+        chunk_payload_source.unref();
+        static_chunks.clear();
+        hlod_tree = std::move(p_tree);
+        hlod_tree.leaf_payload_revision_valid = false;
+        hlod_tree.leaf_payload_revision = 0u;
+        hlod_paged_source = p_source;
+        bounds = next_bounds;
+        splat_count_metadata = info.leaf_splat_count;
+        sh_degree_metadata = info.sh_degree;
+        sh_first_order_count_metadata = info.sh_first_order;
+        sh_high_order_count_metadata = info.sh_high_order;
+        is_2d_metadata = info.is_2d;
+        antialiased_metadata = false;
+        ++render_input_epoch;
+    }
+    notify_property_list_changed();
+    emit_changed();
+    return OK;
+}
+
+Error GaussianSplatWorld::save_hlod_paged(const String &p_path) const {
+    String reason;
+    const Error err = GaussianSplatHlodPagedSource::write_package(*this, p_path, reason);
+    if (err != OK) {
+        ERR_PRINT(vformat("GaussianSplatWorld.save_hlod_paged(%s) failed: %s", p_path, reason));
+    }
+    return err;
 }
 
 void GaussianSplatWorld::set_hlod_tree(GaussianSplatHlodTree &&p_tree) {
@@ -949,6 +997,12 @@ bool GaussianSplatWorld::is_hlod_payload_current() const {
 
 bool GaussianSplatWorld::is_hlod_runtime_snapshot_current(const GaussianSplatHlodRuntimeData &p_snapshot) const {
     MutexLock world_lock(render_input_mutex);
+    if (p_snapshot.is_paged()) {
+        // The package is immutable (a replaced file fails its generation check on read), so a paged snapshot is
+        // current exactly while the world still holds the same epoch and the same open package.
+        return gaussian_data.is_null() && render_input_epoch == p_snapshot.source_epoch &&
+                hlod_paged_source == p_snapshot.paged_source && hlod_paged_source.is_valid();
+    }
     if (render_input_epoch != p_snapshot.source_epoch || gaussian_data != p_snapshot.source_data ||
             gaussian_data.is_null() || !hlod_tree.leaf_payload_revision_valid) {
         return false;
@@ -959,7 +1013,137 @@ bool GaussianSplatWorld::is_hlod_runtime_snapshot_current(const GaussianSplatHlo
             gaussian_data->animation_state_machine.is_null() && !gaussian_data->edit_state.has_runtime_modifications;
 }
 
+// Runtime geometry of one node from the tree alone (no payload): the precise cell centre, the float32 centres and the
+// enlarged runtime radius. Shared by the resident capture and the V4 paged capture, so both describe a node identically.
+// Returns a reason on failure, nullptr on success.
+static const char *hlod_fill_runtime_node_geometry(const GaussianSplatHlodTree &p_tree, const GaussianSplatHlodNode &node,
+        GaussianSplatHlodRuntimeData::Node &out) {
+    double center[3];
+    p_tree.node_cell_center(node, center);
+    if ((node.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u
+            ? !gs_world_frame::PreciseCoord::from_doubles(p_tree.origin, out.precise_center)
+            : !gs_world_frame::PreciseCoord::from_tree_cell_center(p_tree.origin, node.cell.e, node.cell.ix,
+                      node.cell.iy, node.cell.iz, out.precise_center)) {
+        return "hlod_precise_center_unrepresentable";
+    }
+    double bounds_center_shift_squared = 0.0;
+    for (int a = 0; a < 3; ++a) {
+        out.exact_cell_center[a] = center[a];
+        out.payload_center[a] = float(center[a]);
+        const double exact_bounds_center = center[a] + (double(node.aabb_min[a]) + node.aabb_max[a]) * 0.5;
+        out.bounds_center[a] = float(exact_bounds_center);
+        if (!Math::is_finite(out.payload_center[a]) || !Math::is_finite(out.bounds_center[a])) {
+            return "hlod_center_unrepresentable";
+        }
+        const double shift = exact_bounds_center - double(out.bounds_center[a]);
+        bounds_center_shift_squared += shift * shift;
+    }
+    // Moving the sphere center to float32 must never narrow coverage.
+    // Enlarge only this detached runtime bound by the center displacement,
+    // then round outwards; the baked tree and its format stay unchanged.
+    const double runtime_radius = double(node.radius) + std::sqrt(bounds_center_shift_squared);
+    out.topology.radius = std::nextafter(float(runtime_radius), std::numeric_limits<float>::infinity());
+    if (!std::isfinite(runtime_radius) || runtime_radius < 0.0 || !std::isfinite(out.topology.radius)) {
+        return "hlod_bounds_radius_unrepresentable";
+    }
+    return nullptr;
+}
+
+Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHlodPagedSource> &p_source,
+        Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const {
+    const uint64_t started = OS::get_singleton()->get_ticks_usec();
+    Ref<GaussianSplatHlodRuntimeData> next;
+    next.instantiate();
+    auto fail = [&](Error p_error, const char *p_reason) {
+        r_reason = p_reason;
+        return p_error;
+    };
+    uint64_t bytes = 0;
+    auto charge = [&](uint64_t p_count, uint64_t p_stride) {
+        uint64_t amount;
+        if (!gs_hlod_runtime::allocation_bytes(p_count, p_stride, amount) ||
+                amount > GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - bytes) {
+            return false;
+        }
+        bytes += amount;
+        return true;
+    };
+    MutexLock world_lock(render_input_mutex);
+    if (hlod_paged_source != p_source || p_source.is_null() || !p_source->is_open() || hlod_tree.nodes.is_empty() ||
+            !hlod_tree.instances.is_empty() || !hlod_tree.top_level_nodes.is_empty()) {
+        return fail(ERR_UNAVAILABLE, "hlod_requires_resident_complete_uninstanced_tree");
+    }
+    const GaussianSplatHlodPagedSource::Info &info = p_source->get_info();
+    const Vector<GaussianSplatHlodPagedSource::NodeRecord> &records = p_source->get_nodes();
+    const uint64_t total = uint64_t(info.leaf_splat_count) + info.interior_splat_count;
+    if (info.leaf_splat_count > GaussianSplatHlodRuntimeData::MAX_LEAVES || total > GaussianSplatHlodRuntimeData::MAX_PAYLOAD ||
+            hlod_tree.nodes.size() > GaussianSplatHlodRuntimeData::MAX_NODES) {
+        return fail(ERR_PARAMETER_RANGE_ERROR, "hlod_source_admission_limit");
+    }
+    if (uint32_t(hlod_tree.nodes.size()) != info.node_count || uint32_t(records.size()) != info.node_count ||
+            info.sh_high_order > 21 || info.sh_degree > 4) {
+        return fail(ERR_INVALID_DATA, "hlod_parent_extent_invalid");
+    }
+    // CPU admission of a paged snapshot: node tables only, plus the bounded on-demand working set (the streamer's
+    // default 16 jobs in flight, each holding one file record and its packed copy). No payload is charged.
+    if (!charge(hlod_tree.nodes.get_capacity(), sizeof(GaussianSplatHlodNode)) ||
+            !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
+            !charge(records.size(), sizeof(GaussianSplatHlodPagedSource::NodeRecord)) ||
+            !charge(16u, p_source->get_max_record_bytes() + uint64_t(gs_hlod::kMaxNodeSplats) * 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
+            !charge(uint64_t(GaussianSplatHlodRuntimeData::MAX_NODES) * 4, 64)) {
+        return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
+    }
+    next->source_world = Ref<Resource>(const_cast<GaussianSplatWorld *>(this));
+    next->paged_source = p_source;
+    next->source_data = Ref<GaussianData>();
+    next->source_epoch = render_input_epoch;
+    next->source_revision = info.content_generation;
+    next->leaf_count = info.leaf_splat_count;
+    next->parent_count = info.interior_splat_count;
+    next->high_order_count = info.sh_high_order;
+    next->sh_degree = info.sh_degree;
+    next->paged_sh_first_order = info.sh_first_order;
+    next->mode_2d = info.is_2d;
+    next->antialiased = false; // The world file format has no antialias flag; its payloads load as classic.
+    if (!gs_resize_or_fail(next->nodes, hlod_tree.nodes.size(), "HLOD runtime nodes")) {
+        return fail(ERR_OUT_OF_MEMORY, "hlod_parent_snapshot_failed");
+    }
+    for (int64_t i = 0; i < next->nodes.size(); ++i) {
+        GaussianSplatHlodRuntimeData::Node &out = next->nodes.write[i];
+        out.topology = hlod_tree.nodes[i];
+        if (const char *geometry_reason = hlod_fill_runtime_node_geometry(hlod_tree, hlod_tree.nodes[i], out)) {
+            return fail(ERR_INVALID_DATA, geometry_reason);
+        }
+        const gs_world_paged::NodeMetrics &metrics = records[i].metrics;
+        if (!metrics.center_exact) {
+            return fail(ERR_UNAVAILABLE, "hlod_center_reconstruction_not_exact");
+        }
+        out.footprint = metrics.footprint;
+        out.dc_encoding = metrics.dc_encoding;
+        out.homogeneous_dc = metrics.homogeneous_dc;
+        if (!metrics.homogeneous_dc) {
+            next->quantized_eligible = false;
+        }
+    }
+    next->owner_key = get_instance_id();
+    next->owned_cpu_bytes = bytes;
+    next->preparation_usec = OS::get_singleton()->get_ticks_usec() - started;
+    r_reason = String();
+    r_snapshot = next;
+    return OK;
+}
+
 Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const {
+    {
+        Ref<GaussianSplatHlodPagedSource> paged;
+        {
+            MutexLock lock(render_input_mutex);
+            paged = hlod_paged_source;
+        }
+        if (paged.is_valid()) {
+            return _capture_hlod_paged_snapshot(paged, r_snapshot, r_reason);
+        }
+    }
     const uint64_t started = OS::get_singleton()->get_ticks_usec();
     Ref<GaussianSplatHlodRuntimeData> next;
     next.instantiate();
@@ -1071,34 +1255,11 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
                     node.child_count > uint32_t(next->nodes.size()) - node.first_child) {
                 return fail(ERR_INVALID_DATA, "hlod_node_range_invalid");
             }
+            if (const char *geometry_reason = hlod_fill_runtime_node_geometry(hlod_tree, node, out)) {
+                return fail(ERR_INVALID_DATA, geometry_reason);
+            }
             double center[3];
             hlod_tree.node_cell_center(node, center);
-            if ((node.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u
-                    ? !gs_world_frame::PreciseCoord::from_doubles(hlod_tree.origin, out.precise_center)
-                    : !gs_world_frame::PreciseCoord::from_tree_cell_center(hlod_tree.origin, node.cell.e, node.cell.ix,
-                              node.cell.iy, node.cell.iz, out.precise_center)) {
-                return fail(ERR_INVALID_DATA, "hlod_precise_center_unrepresentable");
-            }
-            double bounds_center_shift_squared = 0.0;
-            for (int a = 0; a < 3; ++a) {
-                out.exact_cell_center[a] = center[a];
-                out.payload_center[a] = float(center[a]);
-                const double exact_bounds_center = center[a] + (double(node.aabb_min[a]) + node.aabb_max[a]) * 0.5;
-                out.bounds_center[a] = float(exact_bounds_center);
-                if (!Math::is_finite(out.payload_center[a]) || !Math::is_finite(out.bounds_center[a])) {
-                    return fail(ERR_INVALID_DATA, "hlod_center_unrepresentable");
-                }
-                const double shift = exact_bounds_center - double(out.bounds_center[a]);
-                bounds_center_shift_squared += shift * shift;
-            }
-            // Moving the sphere center to float32 must never narrow coverage.
-            // Enlarge only this detached runtime bound by the center displacement,
-            // then round outwards; the baked tree and its format stay unchanged.
-            const double runtime_radius = double(node.radius) + std::sqrt(bounds_center_shift_squared);
-            out.topology.radius = std::nextafter(float(runtime_radius), std::numeric_limits<float>::infinity());
-            if (!std::isfinite(runtime_radius) || runtime_radius < 0.0 || !std::isfinite(out.topology.radius)) {
-                return fail(ERR_INVALID_DATA, "hlod_bounds_radius_unrepresentable");
-            }
             for (uint32_t j = 0; j < node.payload_count; ++j) {
                 const uint64_t index = node.payload_first + j;
                 const Gaussian &g = next->gaussian(index);
