@@ -4,6 +4,7 @@
 #include "gaussian_data.h"
 #include "gaussian_splat_hlod_tree.h"
 #include "gaussian_splat_world_frame.h"
+#include "../io/gaussian_splat_world_paged.h"
 
 // Detached, same-generation input to the bounded resident runtime. Publication is by Ref;
 // after capture succeeds every payload below is immutable. The source resource is retained,
@@ -47,7 +48,14 @@ public:
 	Vector<Node> nodes;
 	Vector<Gaussian> parents;
 	Vector<Vector3> parent_sh;
+	// Package E1: a snapshot of a V4 paged world describes the nodes (topology, footprint, DC metrics) from the
+	// file's index and holds NO payload: `leaves`, `parents` and `parent_sh` stay empty and a node's splats are
+	// read on demand through `paged_source`. gaussian()/sh() are only valid when !is_paged().
+	Ref<GaussianSplatHlodPagedSource> paged_source;
+	uint32_t paged_sh_first_order = 0;
 
+	bool is_paged() const { return paged_source.is_valid(); }
+	uint32_t sh_first_order_count() const { return is_paged() ? paged_sh_first_order : leaves.get_sh_first_order_count(); }
 	bool is_current() const;
 	const Gaussian &gaussian(uint64_t p_index) const;
 	const Vector3 *sh(uint64_t p_index) const;

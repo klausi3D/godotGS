@@ -249,7 +249,33 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	const uint64_t effective_atlas_cap_bytes =
 			ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget_bytes, resident_atlas_override_mb);
 
-	const Ref<GaussianData> primary_data = p_renderer->get_scene_state().gaussian_data;
+	Ref<GaussianData> primary_data = p_renderer->get_scene_state().gaussian_data;
+	if (primary_data.is_null()) {
+		// Package E1: a V4 paged world has no canonical payload. Until its HLOD route is published (it needs the
+		// ledgers a first composited frame creates) the warmup frames run this one invisible splat instead; the HLOD
+		// route replaces it, and if the HLOD route cannot activate the world draws nothing with hlod_reason set.
+		GaussianSplatRenderer::ResourceState &warmup_state = p_renderer->get_resource_state();
+		if (warmup_state.hlod_snapshot.is_valid() && warmup_state.hlod_snapshot->is_paged()) {
+			if (warmup_state.hlod_paged_warmup_stub.is_null()) {
+				// It must survive the cull and reach the composite (a frame with no visible splat skips the composite, and the
+				// composite is what creates the compositor scratch ledger the HLOD route waits for), yet stay below one 8-bit
+				// level: just above 1/255, small, at the root's centre. It is drawn only until the HLOD route publishes.
+				Gaussian stub;
+				stub.opacity = 0.0048f;
+				stub.scale = Vector3(0.05f, 0.05f, 0.05f);
+				stub.rotation = Quaternion();
+				stub.position = warmup_state.hlod_snapshot->nodes.is_empty() ? Vector3() : warmup_state.hlod_snapshot->nodes[0].bounds_center;
+				LocalVector<Gaussian> stub_payload;
+				stub_payload.push_back(stub);
+				LocalVector<Vector3> stub_sh;
+				Ref<GaussianData> stub_data;
+				stub_data.instantiate();
+				stub_data->set_gaussian_payload(stub_payload, stub_sh, 0u, 0u, false, false);
+				warmup_state.hlod_paged_warmup_stub = stub_data;
+			}
+			primary_data = warmup_state.hlod_paged_warmup_stub;
+		}
+	}
 	const bool has_primary_data = primary_data.is_valid() && primary_data->get_count() > 0;
 
 	LocalVector<ResidentAssetDescriptor> assets;
@@ -1034,7 +1060,17 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 		p_renderer->clear_instance_pipeline_buffers();
 		return false;
 	}
-	const uint32_t required_sort_capacity = MAX<uint32_t>(1u, buffers.max_visible_splats);
+	uint32_t required_sort_capacity = MAX<uint32_t>(1u, buffers.max_visible_splats);
+	{
+		// Package E1: a paged world's warmup stub is one splat, but its HLOD route sorts up to leaf_count records and
+		// waits for the sort buffers to be that large (try_publish_hlod_resident_contract). Size them here, in the same
+		// call that publishes them, so no later resize leaves a published contract on stale handles. The sort scratch
+		// still scales with the whole tree: GPU memory, not CPU payload memory, and not changed by E1.
+		const GaussianSplatRenderer::ResourceState &paged_state = p_renderer->get_resource_state();
+		if (paged_state.hlod_snapshot.is_valid() && paged_state.hlod_snapshot->is_paged()) {
+			required_sort_capacity = MAX<uint32_t>(required_sort_capacity, paged_state.hlod_snapshot->leaf_count);
+		}
+	}
 	if (required_sort_capacity > sorting_pipeline->get_max_elements()) {
 		sorting_pipeline->rebuild_sorter(required_sort_capacity);
 	}
@@ -1539,8 +1575,15 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         // whole-tree/legacy behaviour instead: a streamed world has no canonical copy to fall back to.
         const bool whole_fits = whole_atlas_bytes <= atlas_limit &&
                 ResidentAtlasBudget::hlod_candidate_fits(whole_candidate_bytes, device_bytes, route_limit, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
-        const bool streaming = ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits) &&
-                hlod_streaming_unsupported_reason(&instances[0]) == nullptr;
+        // A paged snapshot holds no payload at all: it can only ever stream, and where streaming cannot activate
+        // there is no whole-tree or canonical copy to fall back to, so it is refused with the reason.
+        const char *streaming_unsupported = hlod_streaming_unsupported_reason(&instances[0]);
+        if (input->is_paged() && streaming_unsupported != nullptr) {
+            state.hlod_reason = streaming_unsupported;
+            return 0;
+        }
+        const bool streaming = (input->is_paged() || ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits)) &&
+                streaming_unsupported == nullptr;
         uint32_t stream_records = 0;
         HlodNodeStreamer::Config stream_config;
         uint64_t candidate_bytes = whole_candidate_bytes;

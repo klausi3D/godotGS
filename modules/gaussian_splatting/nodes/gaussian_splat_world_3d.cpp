@@ -642,6 +642,10 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     const uint64_t source_epoch = world->capture_render_input(submission.gaussian_data, submission.payload_source,
             submission.static_chunks, submission.bounds, submission.metadata);
     submission.hlod_tau_px = hlod_tau_px;
+    if (world->has_hlod_paged_source() && !gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
+        // A V4 paged world has no payload outside the HLOD runtime route; it cannot render with the cut disabled.
+        submission.hlod_reason = "hlod_paged_requires_runtime_cut";
+    }
     if (gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
         if (get_global_transform() != Transform3D()) {
             submission.hlod_reason = "hlod_world_transform_unsupported";

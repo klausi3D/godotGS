@@ -878,7 +878,9 @@ private:
 				// Using 50x provides headroom for close-up views without budget cutoff.
 				// Use effective_visible_splats (accounts for max_visible_splats from instance pipeline)
 				// to avoid undersized initial allocation when CPU readback is stale.
-				const uint32_t overlap_base_count = MAX(params.splat_count, effective_visible_splats);
+				// Package E1: a paged world's warmup atlas is one stub splat, so size as the canonical warmup frame of the
+				// same world would (all leaves potentially visible): the hint is the world's leaf count, 0 otherwise.
+				const uint32_t overlap_base_count = MAX(MAX(params.splat_count, effective_visible_splats), params.overlap_bootstrap_hint);
 				uint32_t overlap_estimate = MIN<uint64_t>(uint64_t(overlap_base_count) * 50u, UINT32_MAX);
 				if (renderer.global_sort_resources.capacity == 0 &&
 						params.total_gaussians > 0 &&

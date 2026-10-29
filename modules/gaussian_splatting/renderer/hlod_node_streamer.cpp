@@ -37,6 +37,7 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	world_generation = p_world_generation;
 	device_generation = p_device_generation;
 	mailbox.instantiate();
+	read_stats.instantiate();
 	frame = 0;
 	telemetry = Telemetry();
 	telemetry.pages_capacity = p_config.atlas_pages;
@@ -75,6 +76,7 @@ void HlodNodeStreamer::shutdown() {
 	}
 	mailbox.unref();
 	data.unref();
+	read_stats.unref();
 }
 
 void HlodNodeStreamer::run_job(void *p_userdata) {
@@ -98,7 +100,28 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			out.raw = result.raw.ptrw();
 		}
 	}
-	result.ok = sized && gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out);
+	if (!sized && d.is_paged()) {
+		job->stats->end_read(job->reserved_bytes, job->read_bytes, false); // Allocation failure: release the reservation.
+	}
+	if (sized && d.is_paged()) {
+		// Package E1: the payload is read from the V4 file now, on this worker, bounded to this one node's record.
+		// Nothing of it outlives the job: the packed copy below is all that travels to the upload.
+		Vector<Gaussian> gaussians;
+		Vector<Vector3> sh;
+		String why;
+		const Error read_error = d.paged_source->read_node_payload(job->ticket.node, gaussians, sh, why);
+		if (read_error == OK) {
+			gs_hlod_pack::PayloadView view;
+			view.gaussians = gaussians.ptr();
+			view.sh = sh.is_empty() ? nullptr : sh.ptr();
+			result.ok = gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out, &view);
+		} else {
+			result.ok = false;
+		}
+		job->stats->end_read(job->reserved_bytes, job->read_bytes, read_error == OK);
+	} else {
+		result.ok = sized && gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out);
+	}
 	{
 		MutexLock lock(job->mailbox->mutex);
 		job->mailbox->done.push_back(std::move(result));
@@ -111,11 +134,26 @@ void HlodNodeStreamer::start_jobs() {
 	WorkerThreadPool *pool = WorkerThreadPool::get_singleton();
 	uint32_t consumed = 0;
 	while (consumed < pending.size() && tasks.size() < cfg.max_jobs_in_flight && pool) {
-		const NodeResidency::Ticket ticket = pending[consumed++];
+		const NodeResidency::Ticket ticket = pending[consumed];
 		if (!residency.is_pending(ticket)) {
+			++consumed;
 			continue; // Cancelled before it started: nothing to read.
 		}
+		uint64_t read_bytes = 0;
+		uint64_t reserved = 0;
+		if (data->is_paged() && ticket.node < uint32_t(data->paged_source->get_nodes().size())) {
+			read_bytes = data->paged_source->get_nodes()[ticket.node].stored_bytes;
+			reserved = read_bytes + uint64_t(data->nodes[ticket.node].topology.payload_count) * record_stride();
+			// Reserve against the read cap; the rest stay pending (LOADING, protected) and start as reads finish.
+			if (read_stats->in_flight.load() != 0 && read_stats->in_flight_bytes.load() + reserved > cfg.max_inflight_read_bytes) {
+				break;
+			}
+			read_stats->begin_read(reserved);
+		}
+		++consumed;
 		Job *job = memnew(Job);
+		job->read_bytes = read_bytes;
+		job->reserved_bytes = reserved;
 		job->data = data;
 		job->ticket = ticket;
 		job->params.relative = true;
@@ -124,6 +162,7 @@ void HlodNodeStreamer::start_jobs() {
 		job->params.scale_bits = cfg.scale_bits;
 		job->atlas_base = ticket.first_page * cfg.page_splats;
 		job->mailbox = mailbox;
+		job->stats = read_stats;
 		tasks.push_back(pool->add_native_task(&HlodNodeStreamer::run_job, job, false, "HlodNodePack"));
 	}
 	if (consumed != 0) {
@@ -274,4 +313,17 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.evicted_total = s.evicted_total;
 	telemetry.failed_total = s.failed_total;
 	telemetry.skipped_groups_total = s.skipped_groups_total;
+	uint64_t ready_bytes = 0;
+	for (uint32_t i = 0; i < ready.size(); ++i) {
+		ready_bytes += uint64_t(ready[i].raw.size()) * sizeof(PackedGaussian) + uint64_t(ready[i].quantized.size()) * sizeof(PackedGaussianQuantized);
+	}
+	telemetry.payload_ready_bytes_peak = MAX(telemetry.payload_ready_bytes_peak, ready_bytes);
+	if (read_stats.is_valid()) {
+		telemetry.payload_reads_total = read_stats->reads.load();
+		telemetry.payload_bytes_read_total = read_stats->bytes.load();
+		telemetry.payload_read_failures_total = read_stats->failures.load();
+		telemetry.payload_reads_in_flight = read_stats->in_flight.load();
+		telemetry.payload_in_flight_bytes_peak = read_stats->in_flight_bytes_peak.load();
+		telemetry.payload_largest_read_bytes = read_stats->largest.load();
+	}
 }
