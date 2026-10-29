@@ -11,6 +11,12 @@
 // the resident mask. The atlas starts empty and every ChunkMetaGPU starts zeroed (splat_count 0), so a node
 // that is not resident-ready draws nothing even if a stale record named it.
 //
+// Package F1 (ADR 14.5, editable regions): stage_edit() takes an edited snapshot (lod/hlod_edit.*), reserves shadow
+// runs for the edited leaves, loads the replacement cut and packs the new leaf payloads on the same worker path;
+// commit_staged_edit() is the atomic publication boundary. Until it commits, nothing drawable changes: the old
+// snapshot, its resident mask and its GPU metadata keep serving a consistent old cut. A paged (V4) file is never
+// written: unedited nodes keep reading from it, edited leaves come from the in-memory overlay of the edited snapshot.
+//
 // Threading: update()/begin_frame()/shutdown() belong to the render thread. Workers only read the immutable
 // runtime snapshot and write into a mailbox they co-own; they never touch the residency model or the device.
 
@@ -90,6 +96,30 @@ public:
 		uint64_t payload_largest_read_bytes = 0;
 		// Peak bytes of packed payloads held on the CPU after their read, waiting for the per-frame upload budget.
 		uint64_t payload_ready_bytes_peak = 0;
+		// Package F1.
+		bool edit_staged = false;
+		uint32_t edit_shadow_ready = 0; // Packed replacement payloads waiting for the publication boundary.
+		uint32_t edit_shadow_total = 0;
+		uint64_t edit_revision = 0; // The revision of the snapshot currently served (0 = unedited).
+		uint64_t edits_committed_total = 0;
+		uint64_t edits_cancelled_total = 0;
+		uint64_t edits_rejected_total = 0;
+		uint64_t edit_commit_failures_total = 0;
+		uint64_t edit_payload_bytes_committed_total = 0;
+		uint32_t stale_nodes = 0;
+	};
+
+	enum EditStageResult : uint8_t {
+		EDIT_STAGED = 0,
+		EDIT_REJECTED_BUSY, // Inactive streamer, or another edit is staged.
+		EDIT_REJECTED_DATA, // Not a direct derivative of the served snapshot, or unusable on this route.
+		EDIT_REJECTED_NO_SPACE, // The shadow runs do not fit: nothing was changed.
+	};
+	enum EditCommitResult : uint8_t {
+		COMMIT_NOTHING = 0, // No edit staged, not ready yet, or no usable device this frame: nothing changed.
+		COMMIT_DONE,
+		COMMIT_UPLOAD_FAILED, // A payload upload failed before any metadata changed: the edit was cancelled, nothing changed.
+		COMMIT_UNUSABLE, // Metadata writes failed part-way: the streamer deactivated itself; the bundle must be rebuilt.
 	};
 
 	~HlodNodeStreamer();
@@ -104,6 +134,34 @@ public:
 
 	// Retires freed runs; call once per frame before the selector reads resident_mask().
 	void begin_frame();
+
+	// --- Package F1 ---
+	// The snapshot the selector must read. It changes only inside commit_staged_edit().
+	const Ref<GaussianSplatHlodRuntimeData> &get_data() const { return data; }
+	// Admits an edit whole or not at all. `p_edited` must be the direct derivative (edit revision + 1) of get_data().
+	EditStageResult stage_edit(const Ref<GaussianSplatHlodRuntimeData> &p_edited);
+	bool is_edit_staged() const { return active && residency.is_edit_staged(); }
+	bool is_edit_ready() const { return active && residency.edit_ready(); }
+	// The publication boundary. Call once per frame after begin_frame() and BEFORE the selector reads get_data() and
+	// resident_mask(): when the replacement cut is complete and ready it uploads the new leaf payloads, flips the
+	// served snapshot and drops the stale ancestors in one step, so no draw built after this call can name a stale
+	// node or an old leaf version. Frames already submitted may still present (ADR 14.5).
+	EditCommitResult commit_staged_edit(RenderingDevice *p_device, const Buffers &p_buffers);
+	// Gives the reservation back; the served snapshot and residency are exactly as before stage_edit().
+	bool cancel_staged_edit();
+#ifdef TESTS_ENABLED
+	// Test seam: the packed replacement payload of a staged leaf that is waiting for the publication boundary (raw route).
+	bool test_get_shadow_payload(uint32_t p_node, Vector<PackedGaussian> &r_raw, ChunkMetaGPU &r_meta) const {
+		for (uint32_t i = 0; i < shadow_ready.size(); ++i) {
+			if (shadow_ready[i].ticket.node == p_node) {
+				r_raw = shadow_ready[i].raw;
+				r_meta = shadow_ready[i].meta;
+				return true;
+			}
+		}
+		return false;
+	}
+#endif
 	const Vector<uint8_t> &resident_mask() const { return residency.resident_mask(); }
 	const gs_hlod_runtime::NodeResidency &get_residency() const { return residency; }
 
@@ -187,6 +245,7 @@ private:
 	void start_jobs();
 	void collect_finished_tasks(bool p_wait_all);
 	void drain_mailbox();
+	void release_staged_edit_data();
 	void upload_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void clear_evicted(RenderingDevice *p_device, const Buffers &p_buffers);
 	void refresh_telemetry();
@@ -199,9 +258,13 @@ private:
 	Ref<ReadStats> read_stats;
 	LocalVector<WorkerThreadPool::TaskID> tasks;
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> pending; // Requested, job not started.
+	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> shadow_pending; // Package F1: staged-edit tickets, job not started.
+	LocalVector<PackResult> shadow_ready; // Package F1: packed replacement payloads, uploaded at the publication boundary.
+	Ref<GaussianSplatHlodRuntimeData> staged_data; // Package F1: the edited snapshot, served after commit.
 	LocalVector<PackResult> ready; // Packed, waiting for the per-frame upload budget (still LOADING).
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> tickets_scratch;
 	LocalVector<uint32_t> demand_scratch;
+	LocalVector<uint32_t> prefetch_scratch;
 	LocalVector<uint32_t> drawn_scratch;
 	LocalVector<uint32_t> evicted_scratch;
 	uint64_t world_generation = 0;

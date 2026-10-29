@@ -44,3 +44,21 @@ const Vector3 *GaussianSplatHlodRuntimeData::sh(uint64_t p_index) const {
 	return p_index < leaf_count ? leaves.get_sh_high_order().ptr() + p_index * high_order_count :
 			parent_sh.ptr() + (p_index - leaf_count) * high_order_count;
 }
+
+const GaussianSplatHlodRuntimeData::EditedLeaf *GaussianSplatHlodRuntimeData::find_edited(uint32_t p_node) const {
+	int64_t low = 0, high = edited.size();
+	while (low < high) {
+		const int64_t mid = low + (high - low) / 2;
+		if (edited[mid].node < p_node) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return (low < edited.size() && edited[low].node == p_node) ? &edited[low] : nullptr;
+}
+
+uint64_t GaussianSplatHlodRuntimeData::node_content_revision(uint32_t p_node) const {
+	const EditedLeaf *leaf = find_edited(p_node);
+	return leaf ? ((uint64_t(1) << 63) | (leaf->revision & ~(uint64_t(1) << 63))) : source_revision;
+}

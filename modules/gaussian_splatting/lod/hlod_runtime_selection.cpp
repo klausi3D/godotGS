@@ -3,6 +3,7 @@
 #include "../core/gs_vector_alloc.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace gs_hlod_runtime {
 
@@ -82,6 +83,10 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	const uint64_t previous = epoch++;
 	uint32_t heap_count = 0;
 	auto available = [&](uint32_t p_node) { return !p_request.resident || p_request.resident[p_node] != 0; };
+	// Package F1 (ADR 14.5): an ancestor of an edited leaf is STALE. It is never selected, never a fallback and never
+	// demanded; the walk replaces it by its children whatever the quality rule or the caps say. A stale node is
+	// "available" only in the sense that it needs no residency: it is never drawn, only expanded.
+	auto stale = [&](uint32_t p_node) { return p_data.is_stale(p_node); };
 	auto visible = [&](uint32_t p_node) {
 		const auto &n = p_data.nodes[p_node];
 		if (!p_request.frustum_enabled) { return true; }
@@ -128,7 +133,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 	};
 	auto pages_of = [&](uint32_t p_node) -> uint64_t {
-		if (p_request.page_splats == 0) { return 0; }
+		if (p_request.page_splats == 0 || stale(p_node)) { return 0; } // A stale node holds no pages once the edit is committed.
 		return (uint64_t(p_data.nodes[p_node].topology.payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
 	};
 	// Pages that stay resident: the cut and all of its ancestors. Refining a node keeps it (as an ancestor) and
@@ -136,7 +141,8 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	uint64_t closure_pages = pages_of(0);
 	out.visited_nodes = 1;
 	if (!visible(0)) { out.status = EMPTY; return out; }
-	if (!available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
+	const bool root_stale = stale(0);
+	if (!root_stale && !available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
 	if (!std::isfinite(root_cost)) { return out; }
 	const double record_cap = 0.8 * p_request.record_budget; // The 80 percent admission factor.
@@ -145,13 +151,16 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	out.selected_count = 1;
 	out.selected_splats = p_data.nodes[0].topology.payload_count;
 	out.estimated_records = root_cost;
-	if (out.selected_splats > p_request.splat_budget || root_cost > record_cap) {
+	if (out.selected_splats > p_request.splat_budget || root_cost > record_cap || root_stale) {
 		// Bootstrap (ADR 14.2): expand the costliest expandable frontier node until the frontier fits
 		// every cap. The order depends only on tree, camera and residency, never on budgets, so the
 		// expansion sequence is a fixed prefix order and raising a budget only stops it earlier.
 		// Work is bounded by a visit limit and uses the preallocated heap/selection storage.
-		out.budget_bound = true;
-		out.bootstrapped = true;
+		const bool caps_exceeded = out.selected_splats > p_request.splat_budget || root_cost > record_cap;
+		out.budget_bound = caps_exceeded;
+		out.bootstrapped = caps_exceeded;
+		out.edit_forced = root_stale;
+		uint32_t stale_selected = root_stale ? 1u : 0u;
 		const uint64_t work_limit = 1 + uint64_t(p_request.node_budget) * gs_hlod::kMaxChildren;
 		bool missing_residency = false;
 		auto fail = [&](SelectStatus p_status) {
@@ -164,17 +173,27 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			return out;
 		};
 		auto fits = [&]() {
-			return out.selected_splats <= p_request.splat_budget && out.selected_count <= p_request.node_budget &&
+			return stale_selected == 0 && out.selected_splats <= p_request.splat_budget && out.selected_count <= p_request.node_budget &&
 					out.estimated_records <= record_cap;
 		};
 		auto push_expandable = [&](uint32_t p_node, double p_cost) {
 			if (p_data.nodes[p_node].topology.child_count == 0) { return; }
-			heap.write[heap_count++] = { p_node, tie_of(p_node), p_cost };
+			// A stale node outranks every quality-driven expansion: it can never stay in the cut.
+			heap.write[heap_count++] = { p_node, tie_of(p_node), stale(p_node) ? std::numeric_limits<double>::infinity() : p_cost };
 			std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 		};
 		push_expandable(0, root_cost);
 		while (!fits()) {
 			if (heap_count == 0) {
+				return fail(missing_residency ? BOOTSTRAP_MISSING_RESIDENCY : BOOTSTRAP_INFEASIBLE);
+			}
+			const bool caps_ok = out.selected_splats <= p_request.splat_budget && out.selected_count <= p_request.node_budget &&
+					out.estimated_records <= record_cap;
+			if (!caps_ok) {
+				out.budget_bound = out.bootstrapped = true; // A forced stale expansion (F1) pushed the frontier over a cap.
+			} else if (stale_selected != 0 && !stale(heap[0].node)) {
+				// Only stale nodes are left to replace and every expandable stale node was tried (stale outranks all):
+				// the rest are blocked on residency or on the node cap. Expanding unrelated nodes would only add demand.
 				return fail(missing_residency ? BOOTSTRAP_MISSING_RESIDENCY : BOOTSTRAP_INFEASIBLE);
 			}
 			std::pop_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
@@ -196,7 +215,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				const uint32_t child = n.first_child + j;
 				if (++out.visited_nodes > work_limit) { return fail(BOOTSTRAP_EXHAUSTED); }
 				if (!visible(child)) { continue; }
-				if (!available(child)) { children_ready = false; missing_children[missing_count++] = child; continue; }
+				if (!stale(child) && !available(child)) { children_ready = false; missing_children[missing_count++] = child; continue; }
 				const double c = cost(child);
 				if (!std::isfinite(c)) { return fail(BOOTSTRAP_ARITHMETIC); }
 				child_pages += pages_of(child);
@@ -220,9 +239,11 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const uint32_t last = selected[--out.selected_count];
 			selected.write[removed] = last;
 			selected_position.write[last] = removed;
+			if (stale(parent)) { --stale_selected; }
 			for (uint32_t j = 0; j < visible_children; ++j) {
 				selected.write[out.selected_count] = children[j];
 				selected_position.write[children[j]] = out.selected_count++;
+				if (stale(children[j])) { ++stale_selected; }
 				push_expandable(children[j], child_costs[j]);
 			}
 			out.selected_splats = out.selected_splats - n.payload_count + child_splats;
@@ -311,6 +332,19 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	}
 	// Stable publication order, independent of heap storage and swap-removal order.
 	std::sort(selected.ptrw(), selected.ptrw() + out.selected_count);
+	if (p_data.has_edits()) {
+		// Defence in depth: whatever path produced the cut, a stale ancestor in it is a stale coarse representation
+		// of an edited region and must never be published (ADR 14.8 stop condition).
+		for (uint32_t i = 0; i < out.selected_count; ++i) {
+			if (stale(selected[i])) {
+				out.status = INVALID;
+				out.selected_count = 0;
+				out.selected_splats = 0;
+				out.estimated_records = 0.0;
+				return out;
+			}
+		}
+	}
 	out.status = out.selected_count ? COMPLETE : EMPTY;
 	return out;
 }

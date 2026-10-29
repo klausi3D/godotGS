@@ -16,6 +16,7 @@ bool make_node_infos(const GaussianSplatHlodRuntimeData &p_data, Vector<NodeResi
 		info.splat_count = topology.payload_count;
 		info.parent = topology.parent == gs_hlod::kNoParent ? UINT32_MAX : topology.parent;
 		info.height = topology.height;
+		info.stale = p_data.is_stale(i);
 	}
 	return true;
 }
@@ -31,6 +32,11 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	allocator.clear();
 	totals = Stats();
 	pages_retiring = 0;
+	edit_staged = false;
+	staged_revision = committed_revision = 0;
+	staged_leaves.clear();
+	staged_stale.clear();
+	staged_required.clear();
 	requests_this_frame = evictions_this_frame = 0;
 	current_frame = 0;
 	request_serial = alloc_serial = 0;
@@ -56,10 +62,12 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 		n = Node();
 		n.parent = info.parent;
 		n.height = info.height;
+		n.stale = info.stale;
 		n.pages = (info.splat_count + cfg.page_splats - 1u) / cfg.page_splats;
 	}
 	nodes = std::move(next);
 	mask = std::move(next_mask);
+	committed_revision = cfg.committed_edit_revision;
 	allocator.reset(cfg.page_capacity);
 	return true;
 }
@@ -107,7 +115,12 @@ bool NodeResidency::is_protected(uint32_t p_node) const {
 	}
 	const Node &n = nodes[p_node];
 	// In-flight work is protected by construction: only RESIDENT nodes are ever evictable.
-	return n.protected_frame == current_frame || (cfg.pin_root && p_node == 0) || n.state == LOADING || n.state == UPLOADING;
+	// A stale node (package F1) is neither pinned nor protected: it is no valid fallback. A replacement child of a staged
+	// edit is held until the edit commits or is cancelled.
+	if (n.stale) {
+		return false;
+	}
+	return n.protected_frame == current_frame || (cfg.pin_root && p_node == 0) || n.state == LOADING || n.state == UPLOADING || n.edit_hold;
 }
 
 void NodeResidency::release_run_now(Node &r_node) {
@@ -290,7 +303,9 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		bool blocked = false;
 		for (uint32_t k = at; k < end; ++k) {
 			const Node &n = nodes[p_demand[k]];
-			if (n.state == LOADING || n.state == UPLOADING || n.state == RESIDENT) {
+			if (n.stale) {
+				blocked = true; // Package F1: a stale node is never loaded; the selector replaces it by its children.
+			} else if (n.state == LOADING || n.state == UPLOADING || n.state == RESIDENT) {
 				++out.satisfied;
 			} else if (n.state == FAILED && (n.failures >= cfg.max_failures || current_frame < n.retry_after_frame)) {
 				blocked = true; // A child cannot arrive now, so the parent's whole transition cannot complete.
@@ -408,7 +423,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 }
 
 bool NodeResidency::ticket_current(const Ticket &p_ticket, State p_expected) const {
-	return p_ticket.valid() && p_ticket.world_generation == world_gen && p_ticket.device_generation == device_gen &&
+	return p_ticket.valid() && !p_ticket.shadow && p_ticket.world_generation == world_gen && p_ticket.device_generation == device_gen &&
 			p_ticket.node < uint32_t(nodes.size()) && nodes[p_ticket.node].request_generation == p_ticket.request_generation &&
 			nodes[p_ticket.node].state == p_expected;
 }
@@ -535,10 +550,294 @@ NodeResidency::Stats NodeResidency::stats() const {
 				break;
 		}
 	}
+	for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
+		const Node &n = nodes[i];
+		if (n.stale) { ++s.stale_nodes; }
+		if (n.shadow_state != Node::SHADOW_NONE) {
+			s.pages_shadow += n.shadow_pages;
+			s.pages_in_flight += n.shadow_pages;
+		}
+	}
+	s.edit_staged = edit_staged;
+	s.committed_edit_revision = committed_revision;
 	s.pages_retiring = pages_retiring;
 	s.pages_free = allocator.get_free_page_count();
 	s.largest_free_run = allocator.get_largest_free_run();
 	return s;
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Package F1: staged edits (ADR 14.5).
+// ---------------------------------------------------------------------------------------------------------------------
+
+void NodeResidency::release_edit_state() {
+	for (uint32_t i = 0; i < staged_leaves.size(); ++i) {
+		Node &n = nodes.write[staged_leaves[i]];
+		if (n.shadow_key != 0) {
+			// The shadow payload is only uploaded at commit, so a staged (cancelled) run never reached the GPU.
+			allocator.release_slot(n.shadow_key);
+		}
+		n.shadow_key = 0;
+		n.shadow_first = n.shadow_pages = 0;
+		n.shadow_generation = 0;
+		n.shadow_state = Node::SHADOW_NONE;
+	}
+	for (uint32_t i = 0; i < staged_required.size(); ++i) {
+		nodes.write[staged_required[i]].edit_hold = false;
+	}
+	staged_leaves.clear();
+	staged_stale.clear();
+	staged_required.clear();
+	edit_staged = false;
+}
+
+NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const EditedLeaf *p_leaves, uint32_t p_count, LocalVector<Ticket> &r_tickets) {
+	if (nodes.is_empty() || edit_staged) {
+		++totals.edits_rejected_total;
+		return EDIT_BUSY;
+	}
+	const uint32_t node_total = nodes.size();
+	auto reject = [&](EditResult p_result) {
+		++totals.edits_rejected_total;
+		return p_result;
+	};
+	if (p_leaves == nullptr || p_count == 0 || p_revision != committed_revision + 1) {
+		return reject(EDIT_INVALID);
+	}
+	// Leaf = no node names it as a parent.
+	LocalVector<uint8_t> has_child;
+	has_child.resize(node_total);
+	for (uint32_t i = 0; i < node_total; ++i) {
+		has_child[i] = 0;
+	}
+	for (uint32_t i = 0; i < node_total; ++i) {
+		if (nodes[i].parent < node_total) {
+			has_child[nodes[i].parent] = 1;
+		}
+	}
+	LocalVector<uint8_t> edited_flag, stale_flag;
+	edited_flag.resize(node_total);
+	stale_flag.resize(node_total);
+	for (uint32_t i = 0; i < node_total; ++i) {
+		edited_flag[i] = stale_flag[i] = 0;
+	}
+	for (uint32_t i = 0; i < p_count; ++i) {
+		const uint32_t node = p_leaves[i].node;
+		if (node >= node_total || p_leaves[i].splat_count == 0 || has_child[node] || edited_flag[node] || nodes[node].stale) {
+			return reject(EDIT_INVALID);
+		}
+		edited_flag[node] = 1;
+	}
+	for (uint32_t i = 0; i < p_count; ++i) {
+		for (uint32_t up = nodes[p_leaves[i].node].parent; up < node_total && !stale_flag[up]; up = nodes[up].parent) {
+			stale_flag[up] = 1;
+		}
+	}
+	// Shadow runs: all or none.
+	uint32_t total_pages = 0;
+	LocalVector<uint32_t> pages;
+	pages.resize(p_count);
+	for (uint32_t i = 0; i < p_count; ++i) {
+		pages[i] = (p_leaves[i].splat_count + cfg.page_splats - 1u) / cfg.page_splats;
+		total_pages += pages[i];
+	}
+	LocalVector<uint64_t> keys;
+	LocalVector<uint32_t> firsts;
+	keys.resize(p_count);
+	firsts.resize(p_count);
+	auto allocate_all = [&]() {
+		for (uint32_t i = 0; i < p_count; ++i) {
+			const uint64_t key = make_alloc_key(p_leaves[i].node);
+			uint32_t slot = 0;
+			if (!allocator.allocate_slot(key, pages[i], slot)) {
+				for (uint32_t r = 0; r < i; ++r) {
+					allocator.release_slot(keys[r]);
+				}
+				return false;
+			}
+			keys[i] = key;
+			firsts[i] = slot;
+		}
+		return true;
+	};
+	bool placed = allocate_all();
+	if (!placed) {
+		evict_for(total_pages, UINT32_MAX);
+		placed = allocate_all();
+	}
+	if (!placed) {
+		return reject(EDIT_NO_SPACE);
+	}
+	// Admitted. Everything below is infallible.
+	for (uint32_t i = 0; i < p_count; ++i) {
+		Node &n = nodes.write[p_leaves[i].node];
+		n.shadow_key = keys[i];
+		n.shadow_first = firsts[i];
+		n.shadow_pages = pages[i];
+		n.shadow_generation = ++request_serial;
+		n.shadow_state = Node::SHADOW_LOADING;
+		staged_leaves.push_back(p_leaves[i].node);
+		Ticket t;
+		t.node = p_leaves[i].node;
+		t.first_page = firsts[i];
+		t.page_count = pages[i];
+		t.request_generation = n.shadow_generation;
+		t.world_generation = world_gen;
+		t.device_generation = device_gen;
+		t.shadow = true;
+		r_tickets.push_back(t);
+	}
+	// The replacement cut: every child of a stale node that is itself neither stale nor edited (those come with a
+	// shadow, or are expanded in turn). Grouped by parent, parents in node order.
+	for (uint32_t s = 0; s < node_total; ++s) {
+		if (!stale_flag[s]) { continue; }
+		staged_stale.push_back(s);
+		for (uint32_t c = s + 1; c < node_total; ++c) {
+			if (nodes[c].parent == s && !stale_flag[c] && !edited_flag[c]) {
+				staged_required.push_back(c);
+				nodes.write[c].edit_hold = true;
+			}
+		}
+	}
+	edit_staged = true;
+	staged_revision = p_revision;
+	return EDIT_OK;
+}
+
+void NodeResidency::edit_prefetch(LocalVector<uint32_t> &r_demand) const {
+	if (!edit_staged) {
+		return;
+	}
+	for (uint32_t i = 0; i < staged_required.size(); ++i) {
+		const uint32_t node = staged_required[i];
+		if (nodes[node].state != RESIDENT) {
+			r_demand.push_back(node);
+		}
+	}
+}
+
+bool NodeResidency::is_shadow_pending(const Ticket &p_ticket) const {
+	if (!edit_staged || !p_ticket.shadow || !p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen ||
+			p_ticket.node >= uint32_t(nodes.size())) {
+		return false;
+	}
+	const Node &n = nodes[p_ticket.node];
+	return n.shadow_state == Node::SHADOW_LOADING && n.shadow_generation == p_ticket.request_generation;
+}
+
+bool NodeResidency::finish_shadow(const Ticket &p_ticket, bool p_success) {
+	if (!is_shadow_pending(p_ticket)) {
+		++totals.late_dropped_total;
+		return false;
+	}
+	nodes.write[p_ticket.node].shadow_state = p_success ? Node::SHADOW_READY : Node::SHADOW_FAILED;
+	return true;
+}
+
+bool NodeResidency::edit_ready() const {
+	if (!edit_staged) {
+		return false;
+	}
+	for (uint32_t i = 0; i < staged_leaves.size(); ++i) {
+		if (nodes[staged_leaves[i]].shadow_state != Node::SHADOW_READY) {
+			return false;
+		}
+	}
+	for (uint32_t i = 0; i < staged_required.size(); ++i) {
+		if (nodes[staged_required[i]].state != RESIDENT) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool NodeResidency::edit_blocked() const {
+	if (!edit_staged) {
+		return false;
+	}
+	for (uint32_t i = 0; i < staged_leaves.size(); ++i) {
+		if (nodes[staged_leaves[i]].shadow_state == Node::SHADOW_FAILED) {
+			return true;
+		}
+	}
+	for (uint32_t i = 0; i < staged_required.size(); ++i) {
+		const Node &n = nodes[staged_required[i]];
+		if (n.state == FAILED && n.failures >= cfg.max_failures) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool NodeResidency::commit_edit() {
+	if (!edit_ready()) {
+		return false;
+	}
+	for (uint32_t i = 0; i < staged_leaves.size(); ++i) {
+		const uint32_t index = staged_leaves[i];
+		Node &n = nodes.write[index];
+		if (n.state == LOADING || n.state == UPLOADING) {
+			++totals.cancelled_total; // A load of the OLD content is in flight: its ticket dies below.
+		}
+		retire_run(n); // Uses the old page count; the old run serves already submitted frames until it retires.
+		n.alloc_key = n.shadow_key;
+		n.first_page = n.shadow_first;
+		n.pages = n.shadow_pages;
+		n.request_generation = ++request_serial; // Any ticket made for the old content is dead.
+		n.state = RESIDENT;
+		n.failures = 0;
+		n.last_drawn_frame = current_frame;
+		mask.write[index] = 1;
+		n.shadow_key = 0;
+		n.shadow_first = n.shadow_pages = 0;
+		n.shadow_generation = 0;
+		n.shadow_state = Node::SHADOW_NONE;
+		for (uint32_t e = 0; e < evicted_log.size(); ++e) { // A pending clear must not zero the new metadata.
+			if (evicted_log[e] == index) {
+				evicted_log[e] = evicted_log[evicted_log.size() - 1];
+				evicted_log.resize(evicted_log.size() - 1);
+				break;
+			}
+		}
+	}
+	for (uint32_t i = 0; i < staged_stale.size(); ++i) {
+		const uint32_t index = staged_stale[i];
+		Node &n = nodes.write[index];
+		if (n.state == LOADING || n.state == UPLOADING) {
+			++totals.cancelled_total;
+		}
+		const bool was_resident = n.state == RESIDENT;
+		n.stale = true;
+		n.state = ABSENT;
+		n.request_generation = 0;
+		n.failures = 0;
+		mask.write[index] = 0;
+		retire_run(n);
+		if (was_resident) {
+			evicted_log.push_back(index); // The glue clears its GPU metadata.
+			++totals.evicted_total;
+		}
+	}
+	committed_revision = staged_revision;
+	++totals.edits_committed_total;
+	for (uint32_t i = 0; i < staged_required.size(); ++i) {
+		nodes.write[staged_required[i]].edit_hold = false;
+	}
+	staged_leaves.clear();
+	staged_stale.clear();
+	staged_required.clear();
+	edit_staged = false;
+	return true;
+}
+
+bool NodeResidency::cancel_edit() {
+	if (!edit_staged) {
+		return false;
+	}
+	release_edit_state();
+	++totals.edits_cancelled_total;
+	return true;
 }
 
 } // namespace gs_hlod_runtime
