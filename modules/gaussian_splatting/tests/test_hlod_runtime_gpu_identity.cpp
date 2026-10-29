@@ -14,6 +14,7 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../nodes/gaussian_splat_world_3d.h"
+#include "../interfaces/output_compositor.h"
 #include "gs_test_pump.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
@@ -383,7 +384,7 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
 // Streamed HLOD worlds never run a canonical frame, so the tile grid must follow each view's size: provision_hlod_route
 // is what resizes it, and prepare_hlod_scratch still refuses a frame whose size differs from the grid (the old
 // behaviour, which blanked a streamed world at every window size but its startup size).
-TEST_CASE("[GaussianSplatting][HLOD][Resize][Sort][RequiresGPU] provisioning follows the view size and keeps the texture ledger at the live bytes") {
+TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] provisioning follows the view size and keeps the texture ledger at the live bytes") {
     RenderingDevice *rd = RenderingDevice::get_singleton();
     if (!rd) { FAIL("GPU harness required"); return; }
     ScopedSortDevice manager_device(rd);
@@ -427,5 +428,39 @@ TEST_CASE("[GaussianSplatting][HLOD][Resize][Sort][RequiresGPU] provisioning fol
     }
     CHECK(large_bytes <= estimate + (uint64_t(1) << 20));
     CHECK(small_again <= large_bytes);
+}
+
+// The compositor's destination-copy scratch is part of the same route ledger. Dragging a dock across many sizes used to add
+// every discarded scratch again until the route limit refused every frame for good.
+TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] the compositor scratch ledger follows the live textures across many sizes") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GPU harness required"); return; }
+    ScopedSortDevice manager_device(rd);
+    Ref<OutputCompositor> compositor;
+    compositor.instantiate();
+    RD::TextureFormat format;
+    format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+    format.texture_type = RD::TEXTURE_TYPE_2D;
+    format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+    uint64_t scratch_peak = 0;
+    uint64_t last = 0;
+    for (int i = 0; i < 40; ++i) {
+        const Size2i extent(128 + 16 * (i % 5), 128 + 16 * (i % 7)); // many distinct extents: the pool evicts, then re-creates
+        format.width = extent.x;
+        format.height = extent.y;
+        if (!compositor->ensure_hlod_scratch(rd, format, extent)) { FAIL("scratch creation failed"); return; }
+        if (!compositor->get_hlod_scratch_byte_upper_bound(rd, last)) { FAIL("scratch ledger unavailable at ", i); return; }
+        scratch_peak = MAX(scratch_peak, last);
+    }
+    // The pool keeps 4 textures per kind (192 x 224 x 4 B at most); 40 cumulative creations would be many times that.
+    CHECK(scratch_peak <= uint64_t(4) * 192 * 224 * 4);
+    compositor->clear_viewport_blit_resources();
+    uint64_t after_clear = 1;
+    CHECK_FALSE(compositor->get_hlod_scratch_byte_upper_bound(rd, after_clear)); // nothing live: no stale bytes, ledger re-based
+    format.width = 128;
+    format.height = 128;
+    CHECK(compositor->ensure_hlod_scratch(rd, format, Size2i(128, 128)));
+    CHECK(compositor->get_hlod_scratch_byte_upper_bound(rd, after_clear));
+    CHECK(after_clear == uint64_t(128) * 128 * 4);
 }
 }

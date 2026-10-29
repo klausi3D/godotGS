@@ -1523,6 +1523,9 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_fragmented_groups"] = t.fragmented_groups_this_frame;
     }
     stats["hlod_reason"] = resource_state.hlod_reason;
+    stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
+    stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
+    stats["hlod_owned_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
     stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;
     stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);

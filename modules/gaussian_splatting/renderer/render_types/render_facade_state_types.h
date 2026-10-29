@@ -62,6 +62,10 @@ struct HlodBundle {
 struct ResourceState {
     Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
     String hlod_reason;
+    // The reason of the last view the HLOD route refused and how many it refused. hlod_reason is the LAST view's verdict, so
+    // a refused second view is otherwise masked by the main view's "active" in the same frame.
+    String hlod_last_refusal_reason;
+    uint64_t hlod_refused_views = 0;
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
@@ -105,6 +109,8 @@ struct ResourceState {
     // Failure-only seams at the actual publisher boundaries; no success override.
     std::atomic<int> hlod_test_failure{ 0 };
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
+    // Lowers the HLOD route's device-ledger limit (0 = off) so a runtime scenario can force a memory refusal. Never raises it.
+    std::atomic<uint64_t> hlod_test_route_limit_override{ 0 };
     // Actual resident sort inputs, retained before the post-frame canonical restore.
     // Borrowed RID only; the observer validates lifetime, device and frame before readback.
     RID hlod_test_sort_count_buffer;

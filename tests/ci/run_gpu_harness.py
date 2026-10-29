@@ -131,6 +131,9 @@ BATCHES: tuple[BatchSpec, ...] = (
     # 5 keys, 10 keys) that add negligibly to the batch, so the 60 s default still holds
     # ample headroom -- no per-batch timeout override is needed.
     BatchSpec("GpuSorting", ("*Sort*][RequiresGPU]*",)),
+    # HLOD D1 resize fix: the streamed HLOD route follows each view's size (TileRenderer::provision_hlod_route) and its
+    # texture ledgers (tile and compositor) track live bytes. Own batch, so the cases are not hidden in an unrelated filter.
+    BatchSpec("HlodResize", ("*[HLOD][Resize][RequiresGPU]*",)),
     BatchSpec("MemoryStream", ("*MemoryStream*][RequiresGPU]*",)),
     # #908: this batch matched 0 cases from its introduction until T4 -- its filter
     # needs the token BEFORE `][RequiresGPU]`, and the three test_gpu_streaming.h

@@ -1666,6 +1666,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // with the reason) instead of a partial cut or a whole-world copy.
     auto fallback = [&](const char *p_reason) {
         state.hlod_reason = p_reason;
+        state.hlod_last_refusal_reason = p_reason;
+        ++state.hlod_refused_views;
         if (state.hlod_streaming) { idle_hlod_streaming_bundle(); }
         return false;
     };
@@ -1685,10 +1687,43 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
     const uint64_t device_budget = get_device_state().rd->get_device_memory_budget();
-    const uint64_t route_limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+    uint64_t route_limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+#ifdef TESTS_ENABLED
+    {
+        const uint64_t limit_override = state.hlod_test_route_limit_override.load(std::memory_order_acquire);
+        if (limit_override != 0) { route_limit = MIN(route_limit, limit_override); }
+    }
+#endif
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
     state.hlod_owned_byte_upper_bound = route_bytes;
+    if (state.hlod_streaming) {
+        // A streamed world never runs a canonical frame after startup, and prepare_hlod_scratch() refuses every frame
+        // whose size differs from the tile grid. Resize the grid to THIS view before admitting its scratch, per view and
+        // per frame (two views of different sizes alternate here). This runs BEFORE the route limit refusal: a smaller view
+        // must be able to shrink a grid an earlier, larger view pushed over the limit, or the route would stay refused for good.
+        const Vector2i view_size = p_context.viewport_size;
+        const Vector2i grid = tile->get_provisioned_viewport();
+        uint64_t live_textures = 0;
+        if (!tile->get_hlod_texture_byte_upper_bound(live_textures)) { return fallback("resource_ledger_unavailable"); }
+        const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
+        // Seed the overlap storage only when no canonical warmup ever created it (every leaf may be visible, 50 records each;
+        // the sorting config caps it); otherwise the resize keeps the capacity and rebuilds the grid-sized buffers.
+        const uint32_t seed = overlap_now == 0 ? uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX)) : 0u;
+        // The seed is priced like the measured growth path prices overlap storage: 32 B per record.
+        const uint64_t seed_bytes = uint64_t(seed) * 32u;
+        const uint64_t wanted_bytes = tile->estimate_hlod_texture_bytes_for_viewport(view_size) + seed_bytes;
+        const auto action = ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, view_size.x, view_size.y, overlap_now, live_textures,
+                wanted_bytes, route_bytes < route_limit ? route_limit - route_bytes : 0);
+        if (action == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) { return fallback("hlod_view_size_memory_limit"); }
+        if (action == ResidentAtlasBudget::HlodViewGridAction::RESIZE) {
+            if (tile->provision_hlod_route(view_size, RD::DATA_FORMAT_MAX, seed) != OK) { return fallback("hlod_view_provisioning_failed"); }
+            if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
+            state.hlod_owned_byte_upper_bound = route_bytes;
+            // Over the limit after the resize: refuse this view. The targets stay, but the next smaller view shrinks them above.
+            if (route_bytes > route_limit) { return fallback("hlod_view_size_memory_limit"); }
+        }
+    }
     if (route_bytes > route_limit) { return fallback("route_memory_limit"); }
     const uint32_t total = input->leaf_count + input->parent_count;
     const uint32_t capacity = state.hlod_relative.buffers.max_visible_splats;
@@ -1702,26 +1737,6 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     scratch_params.request_tighter_bounds = features->enable_tighter_bounds;
     scratch_params.request_sh_amortization = features->enable_sh_amortization;
     scratch_params.sh_amortization_divisor = features->sh_amortization_divisor;
-    if (state.hlod_streaming) {
-        // A streamed world never runs a canonical frame after startup, and prepare_hlod_scratch() refuses every frame
-        // whose size differs from the tile grid. Resize the grid to THIS view before admitting its scratch, per view and
-        // per frame (two views of different sizes alternate here), and only when the ledger can hold the new targets.
-        const Vector2i view_size = p_context.viewport_size;
-        const Vector2i grid = tile->get_provisioned_viewport();
-        uint64_t live_textures = 0;
-        if (!tile->get_hlod_texture_byte_upper_bound(live_textures)) { return fallback("resource_ledger_unavailable"); }
-        const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
-        const auto action = ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, view_size.x, view_size.y, overlap_now, live_textures,
-                tile->estimate_hlod_texture_bytes_for_viewport(view_size), route_limit - route_bytes);
-        if (action == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) { return fallback("hlod_view_size_memory_limit"); }
-        if (action == ResidentAtlasBudget::HlodViewGridAction::RESIZE) {
-            // Seed the overlap storage only when no canonical warmup ever created it (every leaf may be visible, 50 records each;
-            // the sorting config caps it); otherwise the resize keeps the capacity and rebuilds the grid-sized buffers.
-            const uint32_t seed = overlap_now == 0 ? uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX)) : 0u;
-            if (tile->provision_hlod_route(view_size, RD::DATA_FORMAT_MAX, seed) != OK) { return fallback("hlod_view_provisioning_failed"); }
-            if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("hlod_view_size_memory_limit"); }
-        }
-    }
     if (!tile->prepare_hlod_scratch(scratch_params,
                 route_limit - route_bytes)) { return fallback("tile_capacity_warmup_or_memory_limit"); }
     if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("prepared_route_memory_limit"); }
@@ -1914,10 +1929,10 @@ bool GaussianSplatRenderer::get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) c
     uint64_t textures = 0;
     if (!tile_renderer_state.renderer->get_hlod_texture_byte_upper_bound(textures)) { return false; }
     const OutputCompositor *compositor = subsystem_state.output_compositor.ptr();
-    if (!compositor || compositor->hlod_scratch_device == 0 || !compositor->hlod_scratch_ledger_valid ||
-            (compositor->hlod_scratch_device != 0 && compositor->hlod_scratch_device != rd->get_device_instance_id())) { return false; }
-    if (compositor->hlod_scratch_texture_bytes > UINT64_MAX - textures) { return false; }
-    textures += compositor->hlod_scratch_texture_bytes;
+    uint64_t scratch = 0;
+    if (!compositor || !compositor->get_hlod_scratch_byte_upper_bound(rd, scratch)) { return false; }
+    if (scratch > UINT64_MAX - textures) { return false; }
+    textures += scratch;
     const uint64_t buffers = rd->get_memory_usage(RD::MEMORY_BUFFERS);
     if (textures > UINT64_MAX - buffers) { return false; }
     r_bytes = buffers + textures;
@@ -1925,6 +1940,10 @@ bool GaussianSplatRenderer::get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) c
 }
 
 #ifdef TESTS_ENABLED
+void GaussianSplatRenderer::test_set_hlod_route_limit_override(int64_t p_bytes) {
+    get_resource_state().hlod_test_route_limit_override.store(p_bytes > 0 ? uint64_t(p_bytes) : 0u, std::memory_order_release);
+}
+
 void GaussianSplatRenderer::test_set_hlod_publication_failure(int p_failure) {
     ERR_FAIL_COND(p_failure < 0 || p_failure > 5);
     get_resource_state().hlod_test_failure_hits.store(0, std::memory_order_relaxed);

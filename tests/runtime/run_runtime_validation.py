@@ -220,6 +220,7 @@ GDS_TESTS: Dict[str, Path] = {
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
     "Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd",
+    "Streamed HLOD Resize Views": RUNTIME_DIR / "test_hlod_streamed_resize_views.gd",
 }
 
 # COR-S2A-009: migrated positive native main-view acceptance is mandatory in
@@ -284,6 +285,9 @@ SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
     ),
     "GDScript: Resident HLOD Main View": ScenarioFixtureContract(
         GDS_TESTS["Resident HLOD Main View"], ()
+    ),
+    "GDScript: Streamed HLOD Resize Views": ScenarioFixtureContract(
+        GDS_TESTS["Streamed HLOD Resize Views"], ()
     ),
 }
 
@@ -1450,7 +1454,7 @@ def _resolve_mode_args(mode: str) -> List[str]:
 def _build_godot_command(config: GodotRunConfig, script: Path) -> List[str]:
     command = [config.binary, *_resolve_mode_args(config.mode)]
     project_path = config.project_path
-    if script == RUNTIME_DIR / "test_hlod_resident_main_view.gd":
+    if script in (RUNTIME_DIR / "test_hlod_resident_main_view.gd", RUNTIME_DIR / "test_hlod_streamed_resize_views.gd"):
         # An editor binary with --script but no project silently starts the
         # project manager. Keep this isolated default local to the HLOD proof;
         # an explicit caller project still has precedence.
