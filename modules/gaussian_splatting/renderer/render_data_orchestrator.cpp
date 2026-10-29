@@ -748,6 +748,7 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 	if (err != OK) {
         release_hlod_resources();
         get_resource_state().hlod_snapshot.unref();
+        release_hlod_committed_edit(); // The world contract is gone: so is the edit that keeps its world and package alive.
 		set_gaussian_data(Ref<GaussianData>());
 		clear_static_chunks();
 		world_submission_contract_active = false;
@@ -831,6 +832,7 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	if (err != OK) {
         release_hlod_resources();
         get_resource_state().hlod_snapshot.unref();
+        release_hlod_committed_edit(); // The world contract is gone: so is the edit that keeps its world and package alive.
 		clear_static_chunks();
 		world_submission_contract_active = false;
 		world_submission_has_residency_hint = false;
@@ -841,6 +843,7 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	if (!has_renderable_data) {
         release_hlod_resources();
         get_resource_state().hlod_snapshot.unref();
+        release_hlod_committed_edit(); // The world contract is gone: so is the edit that keeps its world and package alive.
 		world_submission_contract_active = false;
 		world_submission_has_residency_hint = false;
 		world_submission_residency_hint = 0;

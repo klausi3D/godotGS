@@ -1432,11 +1432,11 @@ Mechanism.
   **publish attempt can rebuild it**: the world submission carries a world identity (`hlod_world_key`), and a rebuild lays
   the committed edits over a fresh capture of the same world (`rebase_edited_snapshot`, also after a V4 world was
   materialized into the resident shape by a cut toggle). The decision to draw nothing is taken **after** the publish
-  attempt, in the same frame (`_publish_resident_direct_data_contract`): a frame whose route is not the streamed HLOD route
+  attempt, in the same frame (`_publish_resident_direct_data_contract`; a publish attempt that did not publish also blanks): a frame whose route is not the streamed HLOD route
   serving the committed snapshot publishes **no** canonical copy, clears the instance-pipeline buffers (which the sort and
   shadow passes read) and says `hlod_edit_route_unavailable:<why>` (LOD off, an unsupported setting, lost exclusive
   submission `hlod_exclusive_submission_lost`, a failed or pending rebuild). An early gate before the attempt made the
-  rebuild unreachable and was removed. An edited world is also never routed to the legacy streaming backend. A streamed
+  rebuild unreachable and was removed. An edited world is also never routed to the legacy streaming backend, and always streams (a whole-tree bundle packs the unedited payload): where streaming is unsupported, or the committed edit cannot be laid over the new capture, no route is built and the reason says so. Other instances of the scene keep rendering: only the edited world's own data is omitted from the canonical publication. A streamed
   view whose replacement cut is not drawable says `hlod_edit_replacement_loading` or `hlod_edit_replacement_not_admitted`
   (`ViewResult::edit_forced`). The committed snapshot is released on a node or world change, an in-place content change and
   whenever the world contract is cleared (it keeps the world, its leaves and a V4 package alive). Whole-tree bundles refuse
