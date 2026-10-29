@@ -4026,6 +4026,17 @@ Error TileRenderer::provision_hlod_route(const Vector2i &p_viewport, RD::DataFor
     return get_allocated_overlap_capacity() != 0 && global_sort_resources.sorter.is_valid() ? OK : ERR_CANT_CREATE;
 }
 
+uint32_t TileRenderer::clamp_hlod_overlap_records(uint32_t p_records) const {
+    const uint32_t hard_cap = g_gpu_sorting_config.get_overlap_records_hard_cap();
+    return hard_cap > 0u ? MIN(p_records, hard_cap) : p_records;
+}
+
+uint64_t TileRenderer::get_hlod_overlap_bytes_per_record() const {
+    // Same rule as global_sort_key_stride_words() in tile_render_resources.cpp: 64-bit keys take two words.
+    const uint32_t key_words = _get_effective_sort_key_config().key_bits > 32 ? 2u : 1u;
+    return 2u * uint64_t(key_words + 1u) * sizeof(uint32_t);
+}
+
 uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const {
     uint64_t live = 0;
     get_hlod_texture_byte_upper_bound(live);

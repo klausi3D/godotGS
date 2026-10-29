@@ -500,6 +500,10 @@ REQUIRED_BATCHES: frozenset[str] = frozenset({
     "WorldSceneTree",
     "SceneDirectorSceneTree",
     "GpuSorting",  # #744: gates the #508 [GPUSortPipeline] overflow-sticky case (see BatchSpec note)
+    # HLOD D1 resize fix: the provisioning/ledger cases formerly rode in GpuSorting (required); moving them to their own batch
+    # must not drop the empty-batch, hollow-case and RID-leak checks. Local evidence at promotion (RTX 3090, Vulkan, functional
+    # only): 2 cases, 130 assertions, no hollow case.
+    "HlodResize",
 })
 
 # #329: the deferred-case count is DERIVED, never hardcoded.

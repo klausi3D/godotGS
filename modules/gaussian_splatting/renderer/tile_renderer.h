@@ -140,6 +140,11 @@ public:
     Error provision_hlod_route(const Vector2i &p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records);
     // Size of the tile grid's viewport (what the last resize/render provisioned); (0,0) before the first one.
     Vector2i get_provisioned_viewport() const { return grid_state.viewport_size; }
+    // What provision_hlod_route(.., p_overlap_records) really allocates for the overlap storage: the records are capped at
+    // the configured max_overlap_records (ensure_resources does the same), and each costs the sort keys (1 or 2 words,
+    // 2 with 64-bit keys) plus the values word, twice (the sorter's alternate buffers): 24 B with 64-bit keys.
+    uint32_t clamp_hlod_overlap_records(uint32_t p_records) const;
+    uint64_t get_hlod_overlap_bytes_per_record() const;
     // Upper bound of the texture bytes a resize to `p_viewport` leaves charged to the ledger: the live bytes scaled by
     // the pixel ratio (never below the live bytes), so a refusal can be decided before anything is reallocated.
     uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;

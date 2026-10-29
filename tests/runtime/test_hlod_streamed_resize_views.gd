@@ -77,6 +77,7 @@ func _frame() -> Dictionary:
 		"streaming": bool(stats.get("hlod_streaming", false)),
 		"refused_views": int(stats.get("hlod_refused_views", 0)),
 		"last_refusal": str(stats.get("hlod_last_refusal_reason", "")),
+		"has_owned": stats.has("hlod_owned_byte_upper_bound"),
 		"owned": int(stats.get("hlod_owned_byte_upper_bound", 0)),
 		"ready": int(stats.get("hlod_stream_ready_frames", 0)),
 		"lit": _lit(get_root().get_texture().get_image()),
@@ -109,6 +110,8 @@ func _all_drawn(rows: Array, label: String) -> bool:
 		return false
 	for row in rows:
 		if not _check(bool(row["streaming"]), "%s: world is not streamed" % label):
+			return false
+		if not _check(bool(row["has_owned"]) and int(row["owned"]) > 0, "%s: route bytes stat missing or zero" % label):
 			return false
 		if not _check(bool(row["active"]) and int(row["lit"]) > 0, "%s: frame not active+lit at %s (reason %s, lit %d)" % [label, row["win"], row["reason"], row["lit"]]):
 			return false
@@ -232,13 +235,19 @@ func _run() -> void:
 		if not _all_drawn(rows, "size sweep %s" % size):
 			return
 		owned_peak = max(owned_peak, int(rows[-1]["owned"]))
-	_metrics["owned_first"] = owned_first
-	_metrics["owned_peak_after_sweep"] = owned_peak
-	if not _check(owned_peak < owned_first + 64 * 1024 * 1024, "Route bytes grew across the size sweep: %d -> %d" % [owned_first, owned_peak]):
-		return
 	_set_size(MAIN)
 	rows = await _run_frames(12, 4)
 	if not _all_drawn(rows, "after the sweep"):
+		return
+	var owned_after := int(rows[-1]["owned"])
+	_metrics["owned_first"] = owned_first
+	_metrics["owned_peak_after_sweep"] = owned_peak
+	_metrics["owned_after_sweep"] = owned_after
+	# The ledgers follow LIVE bytes: back at the startup size the route holds what it held at the start (a ledger that only
+	# adds discarded textures grows by about one scratch per distinct size, several MB over this sweep).
+	if not _check(owned_peak <= owned_first + 2 * 1024 * 1024, "Route bytes grew across the size sweep: %d -> %d" % [owned_first, owned_peak]):
+		return
+	if not _check(abs(owned_after - owned_first) <= 1024 * 1024, "Route bytes at the startup size differ after the sweep: %d -> %d" % [owned_first, owned_after]):
 		return
 
 	# 3. Two views of different sizes in the same frame (the F4 repro): both draw, every frame, and none is refused.

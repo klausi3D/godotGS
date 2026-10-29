@@ -1666,8 +1666,12 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // with the reason) instead of a partial cut or a whole-world copy.
     auto fallback = [&](const char *p_reason) {
         state.hlod_reason = p_reason;
-        state.hlod_last_refusal_reason = p_reason;
-        ++state.hlod_refused_views;
+        // Only a main/camera view that the route refused counts: shadow and manual passes and a deliberate LOD-off
+        // are routine early exits, not refusals.
+        if (p_context.pass_kind == RenderPassKind::MAIN_VIEW && String(p_reason) != "lod_disabled_canonical_leaves") {
+            state.hlod_last_refusal_reason = p_reason;
+            ++state.hlod_refused_views;
+        }
         if (state.hlod_streaming) { idle_hlod_streaming_bundle(); }
         return false;
     };
@@ -1709,9 +1713,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
         // Seed the overlap storage only when no canonical warmup ever created it (every leaf may be visible, 50 records each;
         // the sorting config caps it); otherwise the resize keeps the capacity and rebuilds the grid-sized buffers.
-        const uint32_t seed = overlap_now == 0 ? uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX)) : 0u;
-        // The seed is priced like the measured growth path prices overlap storage: 32 B per record.
-        const uint64_t seed_bytes = uint64_t(seed) * 32u;
+        // It is capped at the configured max_overlap_records (as the allocation is) and priced at the real bytes per record.
+        const uint32_t seed = overlap_now == 0 ? tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))) : 0u;
+        const uint64_t seed_bytes = uint64_t(seed) * tile->get_hlod_overlap_bytes_per_record();
         const uint64_t wanted_bytes = tile->estimate_hlod_texture_bytes_for_viewport(view_size) + seed_bytes;
         const auto action = ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, view_size.x, view_size.y, overlap_now, live_textures,
                 wanted_bytes, route_bytes < route_limit ? route_limit - route_bytes : 0);
