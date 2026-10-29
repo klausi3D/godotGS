@@ -348,6 +348,14 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 	// Phase 2: quantization and metadata, last (a node becomes visible to the GPU only after its splats are queued).
 	for (uint32_t i = 0; i < shadow_ready.size(); ++i) {
 		const PackResult &r = shadow_ready[i];
+#ifdef TESTS_ENABLED
+		if (test_fail_commit_metadata) {
+			++telemetry.edit_commit_failures_total;
+			telemetry.edit_event = "commit_unusable";
+			active = false;
+			return COMMIT_UNUSABLE;
+		}
+#endif
 		const bool ok = (!cfg.quantized || p_device->buffer_update(p_buffers.quantization, r.ticket.node * sizeof(ChunkQuantizationGPU),
 											   sizeof(ChunkQuantizationGPU), &r.quant) == OK) &&
 				p_device->buffer_update(p_buffers.chunk_meta, r.ticket.node * sizeof(ChunkMetaGPU), sizeof(ChunkMetaGPU), &r.meta) == OK;

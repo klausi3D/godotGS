@@ -1452,4 +1452,238 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] a world with committed edits blanks e
 	CHECK(reason == String("hlod_edit_requires_streamed_route"));
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Second fix round: the engine cycle (publish / release / rebuild / blank), world identity and rebase.
+// ---------------------------------------------------------------------------------------------------------------------
+
+// Builds a streamer over `p_served` (no device: CPU only) and installs it, with a committed edit, in a renderer's state.
+static Ref<HlodNodeStreamer> install_streamer(GaussianSplatRenderer &r_renderer, const Ref<GaussianSplatHlodRuntimeData> &p_served,
+		const Ref<GaussianSplatHlodRuntimeData> &p_committed) {
+	HlodNodeStreamer::Config config;
+	uint32_t pages = 0;
+	for (int n = 0; n < p_served->nodes.size(); ++n) {
+		pages += (p_served->nodes[n].topology.payload_count + config.page_splats - 1u) / config.page_splats;
+	}
+	config.atlas_pages = pages + 8;
+	Ref<HlodNodeStreamer> streamer;
+	streamer.instantiate();
+	if (!streamer->init(p_served, config, 1, 1)) {
+		return Ref<HlodNodeStreamer>();
+	}
+	auto &state = r_renderer.get_resource_state();
+	state.hlod_streaming = true;
+	state.hlod_streamer = streamer;
+	state.hlod_committed_edit = p_committed;
+	state.hlod_owner_key = 5;
+	state.hlod_edit_owner_key = 5;
+	state.hlod_world_key = 6;
+	state.hlod_edit_world_key = 6;
+	return streamer;
+}
+
+// N-P1 / N-P2a: the gate is a function of the ROUTE STATE after the publish attempt: a route that serves the committed
+// snapshot draws; a route that is gone, or that was rebuilt from the unedited snapshot, blanks.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] after the publish attempt an edited world draws only through a route that serves the committed snapshot") {
+	World w;
+	if (!build_world(w, 0, false)) { return; }
+	const uint32_t leaf = pick_leaf(*w.resident.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.resident.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> edited;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.resident, 0, &edit, 1, edited, reason) == EditStatus::OK);
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	GS_NEED(renderer.is_valid());
+	auto &state = renderer->get_resource_state();
+
+	// A streamer that serves the committed edit: drawn, not blanked.
+	Ref<HlodNodeStreamer> serving = install_streamer(*renderer.ptr(), edited, edited);
+	GS_NEED(serving.is_valid());
+	CHECK(renderer->hlod_edit_committed_here());
+	CHECK(renderer->hlod_edit_served());
+	CHECK_FALSE(renderer->hlod_edit_blanks_frame(reason));
+
+	// The streamer was rebuilt from the UNEDITED snapshot (what the old early gate allowed): it is alive, but it does not
+	// serve the committed edit. That is the scenario that used to redisplay the old content: it must blank.
+	Ref<HlodNodeStreamer> unedited = install_streamer(*renderer.ptr(), w.resident, edited);
+	GS_NEED(unedited.is_valid());
+	CHECK_FALSE(renderer->hlod_edit_served());
+	CHECK(renderer->hlod_edit_blanks_frame(reason));
+	CHECK(reason.begins_with("hlod_edit_route_unavailable"));
+	// The blank reason of one frame is the stats reason of the next: it must not grow by wrapping itself every frame.
+	state.hlod_reason = reason;
+	String next_frame;
+	CHECK(renderer->hlod_edit_blanks_frame(next_frame));
+	CHECK(next_frame == reason);
+
+	// The route was released (cut toggled off, lost submission, failed rebuild): nothing alive, blank, committed edit kept
+	// so that the publish attempt can rebuild it.
+	state.hlod_streamer->shutdown();
+	CHECK(renderer->hlod_edit_blanks_frame(reason));
+	state.hlod_streamer.unref();
+	state.hlod_streaming = false;
+	CHECK(renderer->hlod_edit_blanks_frame(reason));
+	CHECK(state.hlod_committed_edit.is_valid()); // The rebuild source survives the release.
+
+	// A world without edits is never blanked.
+	state.hlod_committed_edit.unref();
+	CHECK_FALSE(renderer->hlod_edit_blanks_frame(reason));
+}
+
+// N-P2c: an edited world is never routed to the legacy streaming backend, even while its HLOD streamer is alive.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] the backend plan of an edited world is forced to the resident route") {
+	GaussianSplatRenderer::FrameBackendPlan plan;
+	plan.prefer_resident_backend = false; // The legacy streaming backend would be chosen.
+	GaussianSplatRenderer::apply_hlod_edit_backend_override(false, plan);
+	CHECK_FALSE(plan.prefer_resident_backend); // No edits: the plan is untouched.
+	GaussianSplatRenderer::apply_hlod_edit_backend_override(true, plan);
+	CHECK(plan.prefer_resident_backend);
+}
+
+// N-P2b: the committed snapshot is released on a world swap, an owner change and a contract clear.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] the committed snapshot is released on world swap, owner change and contract clear, and frees the world and its V4 package") {
+	ObjectID world_id, source_id;
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	GS_NEED(renderer.is_valid());
+	auto &state = renderer->get_resource_state();
+	{
+		World w;
+		if (!build_world(w, 0, true)) { return; }
+		const uint32_t leaf = pick_leaf(*w.paged.ptr());
+		GS_NEED(leaf != UINT32_MAX);
+		LeafEdit source;
+		GS_NEED(read_leaf(*w.paged.ptr(), leaf, source));
+		const LeafEdit edit = delete_half(source, 0);
+		Ref<GaussianSplatHlodRuntimeData> edited;
+		String reason;
+		GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, edited, reason) == EditStatus::OK);
+		world_id = w.loaded->get_instance_id();
+		source_id = w.paged->paged_source->get_instance_id();
+		state.hlod_committed_edit = edited;
+		state.hlod_owner_key = 5;
+		state.hlod_edit_owner_key = 5;
+		state.hlod_world_key = 6;
+		state.hlod_edit_world_key = 6;
+	}
+	// The test scope is gone: only the renderer's committed snapshot keeps the world and its package alive.
+	CHECK(ObjectDB::get_instance(world_id) != nullptr);
+	CHECK(ObjectDB::get_instance(source_id) != nullptr);
+	// Same node, same world: kept (a toggle or a re-submission of the same world must still find its edit).
+	renderer->reconcile_hlod_committed_edit();
+	CHECK(state.hlod_committed_edit.is_valid());
+	// The same node gets a DIFFERENT world (its owner key is unchanged): released.
+	state.hlod_world_key = 7;
+	renderer->reconcile_hlod_committed_edit();
+	CHECK(state.hlod_committed_edit.is_null());
+	CHECK(ObjectDB::get_instance(world_id) == nullptr);
+	CHECK(ObjectDB::get_instance(source_id) == nullptr);
+
+	// Another node submits the world: released as well.
+	Ref<GaussianSplatHlodRuntimeData> marker;
+	marker.instantiate();
+	marker->edit_revision = 1;
+	state.hlod_committed_edit = marker;
+	state.hlod_owner_key = 5;
+	state.hlod_edit_owner_key = 5;
+	state.hlod_world_key = 6;
+	state.hlod_edit_world_key = 6;
+	state.hlod_owner_key = 9;
+	renderer->reconcile_hlod_committed_edit();
+	CHECK(state.hlod_committed_edit.is_null());
+
+	// Freeing the node clears the world contract: the edit is released even though the keys still match.
+	state.hlod_committed_edit = marker;
+	state.hlod_owner_key = 5;
+	state.hlod_edit_owner_key = 5;
+	state.hlod_world_key = 6;
+	state.hlod_edit_world_key = 6;
+	renderer->clear_world_submission_contract();
+	CHECK(state.hlod_committed_edit.is_null());
+	CHECK(state.hlod_edit_owner_key == 0);
+}
+
+// The rebuild after a toggle: a V4 world that was materialized into the resident shape gets its committed edits back.
+TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] committed edits are rebased onto a fresh capture of the same world, and onto nothing else") {
+	World w;
+	if (!build_world(w, 0, true, 120000)) { return; }
+	const uint32_t leaf = pick_leaf(*w.paged.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.paged.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> edited;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, edited, reason) == EditStatus::OK);
+	// The cut was toggled off: the node materialized the V4 world into the resident shape, and a later capture is resident.
+	GS_NEED(w.loaded->materialize_paged_resident(reason) == OK);
+	Ref<GaussianSplatHlodRuntimeData> resident;
+	GS_NEED(w.loaded->capture_hlod_runtime_snapshot(resident, reason) == OK);
+	GS_NEED(resident.is_valid() && !resident->is_paged());
+	Ref<GaussianSplatHlodRuntimeData> rebased;
+	GS_NEED(rebase_edited_snapshot(edited, resident, rebased));
+	CHECK_FALSE(rebased->is_paged());
+	CHECK(rebased->edit_revision == 1);
+	CHECK(rebased->find_edited(leaf) != nullptr);
+	CHECK(rebased->nodes[leaf].topology.payload_count == edit.gaussians.size());
+	CHECK(rebased->is_stale(0));
+	CHECK(rebased->source_world == resident->source_world);
+	// The overlay is laid over the resident payload: the edited leaf packs the replacement, an untouched leaf packs the
+	// resident splats, bit-identical to what the paged snapshot reads from the file.
+	gs_hlod_pack::Params params;
+	params.relative = true;
+	auto pack = [&](const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, Vector<PackedGaussian> &r_out, const gs_hlod_pack::PayloadView *p_view) {
+		r_out.resize(p_data.nodes[p_node].topology.payload_count);
+		ChunkMetaGPU meta;
+		SHCompressionMetrics metrics;
+		gs_hlod_pack::Output out;
+		out.raw = r_out.ptrw();
+		out.meta = &meta;
+		out.metrics = &metrics;
+		return gs_hlod_pack::pack_node(p_data, p_node, params, 0, out, p_view);
+	};
+	Vector<PackedGaussian> a, b;
+	GS_NEED(pack(*rebased.ptr(), leaf, a, nullptr));
+	gs_hlod_pack::PayloadView view;
+	view.gaussians = edit.gaussians.ptr();
+	GS_NEED(pack(*edited.ptr(), leaf, b, &view));
+	CHECK(a.size() == b.size());
+	CHECK(memcmp(a.ptr(), b.ptr(), size_t(a.size()) * sizeof(PackedGaussian)) == 0);
+	for (uint32_t n = 0; n < uint32_t(resident->nodes.size()); ++n) {
+		if (n == leaf || resident->nodes[n].topology.child_count != 0) { continue; }
+		Vector<PackedGaussian> from_resident, from_file;
+		Vector<Gaussian> g;
+		Vector<Vector3> sh;
+		String why;
+		GS_NEED(w.paged->paged_source->read_node_payload(n, g, sh, why) == OK);
+		gs_hlod_pack::PayloadView file_view;
+		file_view.gaussians = g.ptr();
+		GS_NEED(pack(*rebased.ptr(), n, from_resident, nullptr));
+		GS_NEED(pack(*w.paged.ptr(), n, from_file, &file_view));
+		CHECK(memcmp(from_resident.ptr(), from_file.ptr(), size_t(from_file.size()) * sizeof(PackedGaussian)) == 0);
+		break;
+	}
+	// A different world with a similar tree, a snapshot that is already edited, and a different tree: refused.
+	World other;
+	if (!build_world(other, 0, false, 70000)) { return; }
+	Ref<GaussianSplatHlodRuntimeData> nothing;
+	CHECK_FALSE(rebase_edited_snapshot(edited, other.resident, nothing)); // Another world object.
+	CHECK_FALSE(rebase_edited_snapshot(edited, edited, nothing)); // The target must be unedited.
+	Ref<GaussianSplatHlodRuntimeData> shifted;
+	shifted.instantiate();
+	shifted->source_world = resident->source_world;
+	shifted->nodes = resident->nodes;
+	shifted->high_order_count = resident->high_order_count;
+	shifted->sh_degree = resident->sh_degree;
+	shifted->leaf_count = resident->leaf_count;
+	shifted->parent_count = resident->parent_count;
+	shifted->nodes.write[leaf].topology.payload_first += 1; // Same world object, but the leaf's range moved: another tree.
+	CHECK_FALSE(rebase_edited_snapshot(edited, shifted, nothing));
+	CHECK(nothing.is_null());
+}
+
 }

@@ -68,6 +68,7 @@ public:
         Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
         String hlod_reason;
         float hlod_tau_px = 0.0f;
+        uint64_t hlod_world_key = 0;
         ObjectID owner_id;
         RID scenario;
         Ref<GaussianData> gaussian_data;
@@ -739,6 +740,7 @@ private:
         Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
         String hlod_reason;
         float hlod_tau_px = 0.0f;
+        uint64_t hlod_world_key = 0;
             ObjectID owner_id;
             Ref<GaussianData> gaussian_data;
             Ref<ChunkPayloadSource> payload_source;

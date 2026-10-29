@@ -143,7 +143,7 @@
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 224,
     "sha256": "054ed29d69623233e49ae5d8640d42214bbd927bc1758ec96d545e20f5413e8a",
-    "sha256_last_changed_by": "HLOD-F1-EDIT-001: add one RequiresGPU case (WorldSceneTree batch) for the HLOD editable-region publication boundary: a committed edit flips GPU metadata and atlas runs atomically for a streamed v3 world and a paged V4 world. Existing cases, batch filters, waivers and backlog unchanged. Restacked on E1 + the D1 resize fix; count/digest re-derived on the merged tree with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
+    "sha256_last_changed_by": "HLOD-F1-EDIT-001: add one RequiresGPU case (WorldSceneTree batch) for the HLOD editable-region publication boundary (a committed edit flips GPU metadata and atlas runs atomically for a streamed v3 world and a paged V4 world, twice in sibling branches, with an infeasible-view rejection), and rename it in the fix round (the digest covers the case name). Existing cases, batch filters, waivers and backlog unchanged. Restacked on E1 + the D1 resize fix; count/digest re-derived on the merged tree with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
     "deferred_tags_any": [
       "Importer"
     ],

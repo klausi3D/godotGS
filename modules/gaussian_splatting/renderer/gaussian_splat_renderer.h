@@ -271,6 +271,7 @@ public:
         String hlod_reason;
         float hlod_tau_px = 0.0f;
         uint64_t hlod_owner_key = 0;
+        uint64_t hlod_world_key = 0; // The submitting world's identity, also when the cut is disabled and no snapshot exists.
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
         Vector<StaticChunk> static_chunks;
@@ -292,6 +293,7 @@ public:
         String hlod_reason;
         float hlod_tau_px = 0.0f;
         uint64_t hlod_owner_key = 0;
+        uint64_t hlod_world_key = 0;
         bool valid = false;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
@@ -937,6 +939,16 @@ public:
     Ref<GaussianSplatHlodRuntimeData> get_hlod_served_snapshot() const;
     // True when this world has committed edits that the current route cannot serve: every frame must then draw nothing.
     bool hlod_edit_blanks_frame(String &r_reason) const;
+    // The world of this renderer has committed edits (they apply to the world currently submitted).
+    bool hlod_edit_committed_here() const;
+    // The streamed route is alive AND serves the committed snapshot.
+    bool hlod_edit_served() const;
+    // Drops the committed snapshot when the submitted world changed (owner, world identity or in-place content), and
+    // always when the world contract is cleared: it keeps the source world, its leaves and a V4 package alive.
+    void reconcile_hlod_committed_edit();
+    void release_hlod_committed_edit();
+    // An edited world has exactly one route: the HLOD streamed one (or nothing). Never an alternate backend.
+    static void apply_hlod_edit_backend_override(bool p_committed_here, FrameBackendPlan &r_plan);
 #ifdef TESTS_ENABLED
     // GS_HLOD_EDIT_BOX="minx,miny,minz,maxx,maxy,maxz": once the view is ready, deletes the splats inside the box from the
     // leaves it touches and stages the edit (probe/CI only).

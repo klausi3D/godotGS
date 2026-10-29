@@ -85,6 +85,10 @@ struct ResourceState {
     // redisplay the old content). Cleared when a different world is prepared.
     Ref<GaussianSplatHlodRuntimeData> hlod_committed_edit;
     uint64_t hlod_edit_owner_key = 0;
+    uint64_t hlod_world_key = 0;
+    uint64_t hlod_edit_world_key = 0;
+    int hlod_edit_probe_phase = 0;
+    uint64_t hlod_edit_rebuilds = 0; // Streamer (re)builds that served a committed edit (diagnostics).
     uint64_t hlod_edit_forced_frames = 0; // Frames whose cut replaced a stale ancestor.
     uint64_t hlod_edit_blank_frames = 0; // Frames that drew nothing because the edited world could not be served.
     String hlod_edit_event;

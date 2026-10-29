@@ -169,6 +169,8 @@ public:
 	// Gives the reservation back; the served snapshot and residency are exactly as before stage_edit().
 	bool cancel_staged_edit();
 #ifdef TESTS_ENABLED
+	// Test seam: makes the metadata writes of the NEXT commit fail, which is COMMIT_UNUSABLE (the fail-closed path).
+	bool test_fail_commit_metadata = false;
 	// Test seam: the packed replacement payload of a staged leaf that is waiting for the publication boundary (raw route).
 	bool test_get_shadow_payload(uint32_t p_node, Vector<PackedGaussian> &r_raw, ChunkMetaGPU &r_meta) const {
 		for (uint32_t i = 0; i < shadow_ready.size(); ++i) {

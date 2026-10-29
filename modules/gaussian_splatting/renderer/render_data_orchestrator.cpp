@@ -675,6 +675,7 @@ GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot GaussianSplatRenderer
     snapshot.hlod_reason = get_resource_state().hlod_reason;
     snapshot.hlod_tau_px = get_resource_state().hlod_tau_px;
     snapshot.hlod_owner_key = get_resource_state().hlod_owner_key;
+    snapshot.hlod_world_key = get_resource_state().hlod_world_key;
 	snapshot.gaussian_data = get_scene_state().gaussian_data;
 	snapshot.payload_source = get_streaming_state().pending_payload_source;
 	snapshot.payload_source_splat_count = get_scene_state().payload_source_splat_count;
@@ -767,6 +768,8 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 	resource_state.hlod_reason = p_snapshot.hlod_reason;
 	resource_state.hlod_tau_px = p_snapshot.hlod_tau_px;
 	resource_state.hlod_owner_key = p_snapshot.hlod_owner_key;
+	resource_state.hlod_world_key = p_snapshot.hlod_world_key;
+	reconcile_hlod_committed_edit();
 	world_submission_contract_active = has_active_world_submission;
 	world_submission_has_residency_hint = has_residency_hint;
 	world_submission_residency_hint = has_residency_hint ? p_snapshot.desired_residency_hint : 0;
@@ -856,6 +859,8 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	resource_state.hlod_reason = p_contract.hlod_reason;
 	resource_state.hlod_tau_px = p_contract.hlod_tau_px;
 	resource_state.hlod_owner_key = p_contract.hlod_owner_key;
+	resource_state.hlod_world_key = p_contract.hlod_world_key;
+	reconcile_hlod_committed_edit();
 	world_submission_contract_active = true;
 	world_submission_has_residency_hint = p_contract.has_desired_residency_hint;
 	world_submission_residency_hint = p_contract.has_desired_residency_hint ? p_contract.desired_residency_hint : 0;
@@ -864,8 +869,10 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 
 void GaussianSplatRenderer::clear_world_submission_contract() {
     release_hlod_resources();
+    release_hlod_committed_edit(); // The edited snapshot keeps the world, its leaves and a V4 package alive.
     get_resource_state().hlod_snapshot.unref();
     get_resource_state().hlod_owner_key = 0;
+    get_resource_state().hlod_world_key = 0;
 	world_submission_contract_active = false;
 	world_submission_has_residency_hint = false;
 	world_submission_residency_hint = 0;

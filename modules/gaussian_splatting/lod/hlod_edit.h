@@ -58,6 +58,13 @@ EditStatus make_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_base,
 bool collect_edited_since(const GaussianSplatHlodRuntimeData &p_from, const GaussianSplatHlodRuntimeData &p_to,
 		LocalVector<uint32_t> &r_nodes);
 
+// Re-applies the committed edits of `p_edited` onto a freshly captured snapshot of the SAME world (`p_target`, unedited): a
+// route rebuild, a cut toggle that materialized a V4 world into the resident shape, or a re-submission. Requires the same
+// world object and the same tree (cells, links, payload ranges; an edited leaf is matched by its base range); false and
+// nothing written otherwise. The result serves the overlay on top of the target's own payload.
+bool rebase_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_edited, const Ref<GaussianSplatHlodRuntimeData> &p_target,
+		Ref<GaussianSplatHlodRuntimeData> &r_snapshot);
+
 } // namespace gs_hlod_runtime
 
 #endif

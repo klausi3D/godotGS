@@ -233,6 +233,21 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 
     String hlod_reason;
     const int hlod_result = p_renderer->try_publish_hlod_resident_contract(hlod_reason);
+    {
+        // Package F1 (ADR 14.5): decided AFTER the publish attempt, in the same frame. The attempt is what rebuilds a
+        // released streamer from the committed snapshot, so it must run; but a frame whose route does not serve the
+        // committed edits (the attempt released the route, failed, or has not rebuilt yet) must not publish the canonical
+        // copy of the unedited world: nothing is drawn, and the instance-pipeline buffers (which the shadow and sort passes
+        // read) are cleared so no pass keeps using an old atlas.
+        String edit_blank_reason;
+        if (p_renderer->hlod_edit_blanks_frame(edit_blank_reason)) {
+            ++p_renderer->get_resource_state().hlod_edit_blank_frames;
+            p_renderer->get_resource_state().hlod_reason = edit_blank_reason;
+            p_renderer->clear_instance_pipeline_buffers();
+            if (r_reason) { *r_reason = edit_blank_reason; }
+            return false;
+        }
+    }
     if (hlod_result != 0) {
         if (r_reason) { *r_reason = hlod_reason; }
         return hlod_result > 0;
@@ -1429,7 +1444,9 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     if (!is_hlod_prepared_contract_current()) {
         if (state.hlod_prepared_snapshot.is_valid()) {
             release_hlod_resources();
-            state.hlod_reason = "hlod_prepared_identity_or_readiness_changed";
+            auto *lost_director = GaussianSplatSceneDirector::get_singleton();
+            state.hlod_reason = (lost_director && !lost_director->has_exclusive_hlod_world_submission(this, state.hlod_owner_key))
+                    ? "hlod_exclusive_submission_lost" : "hlod_prepared_identity_or_readiness_changed";
         }
         return false;
     }
@@ -1608,14 +1625,28 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     const uint64_t owner_key = state.hlod_owner_key;
     // Package F1: a world with committed edits is rebuilt from its last committed snapshot, never from the unedited one.
-    if (state.hlod_edit_owner_key != owner_key) { state.hlod_committed_edit.unref(); }
+    if (state.hlod_committed_edit.is_valid() &&
+            (state.hlod_edit_owner_key != owner_key || state.hlod_edit_world_key != state.hlod_world_key ||
+                    // The same world replaced in place (reimport): its content revision moved. A paged <-> resident switch
+                    // (the world was materialized) is not a content change and keeps the edit, which then blanks.
+                    (state.hlod_committed_edit->is_paged() == input->is_paged() && state.hlod_committed_edit->source_revision != input->source_revision))) {
+        release_hlod_committed_edit();
+    }
     Ref<GaussianSplatHlodRuntimeData> served = input;
-    {
-        const Ref<GaussianSplatHlodRuntimeData> &edit = state.hlod_committed_edit;
-        if (edit.is_valid() && edit->source_world == input->source_world && edit->source_epoch == input->source_epoch &&
-                edit->source_revision == input->source_revision && edit->nodes.size() == input->nodes.size() &&
-                edit->is_paged() == input->is_paged()) {
+    if (state.hlod_committed_edit.is_valid()) {
+        const Ref<GaussianSplatHlodRuntimeData> edit = state.hlod_committed_edit;
+        if (edit->source_world == input->source_world && edit->source_revision == input->source_revision &&
+                edit->nodes.size() == input->nodes.size() && edit->is_paged() == input->is_paged()) {
             served = edit;
+        } else {
+            // A fresh capture of the same world (the cut was toggled and a V4 world was materialized into the resident
+            // shape, or the world was re-submitted): lay the committed edits over it again, never serve it unedited.
+            Ref<GaussianSplatHlodRuntimeData> rebased;
+            if (gs_hlod_runtime::rebase_edited_snapshot(edit, input, rebased)) {
+                state.hlod_committed_edit = rebased;
+                served = rebased;
+                ++state.hlod_edit_rebuilds;
+            }
         }
     }
     const uint32_t position_bits = MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX);
@@ -1623,7 +1654,9 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const bool quantize_scales = g_quantization_config.quantize_scales;
     const uint32_t sort_capacity = MAX(input->leaf_count, relative_capacity);
     SortBufferHandles existing_sort = subsystem_state.sorting_pipeline.is_valid() ? subsystem_state.sorting_pipeline->get_buffer_handles() : SortBufferHandles();
-    if (input->is_paged() && subsystem_state.sorting_pipeline.is_valid() && (!existing_sort.valid || existing_sort.capacity < sort_capacity) &&
+    // An edited world suppresses the canonical publication too (it would publish the unedited copy), so it also sizes the sorter
+    // here instead of waiting for a canonical frame that never comes.
+    if ((input->is_paged() || hlod_edit_committed_here()) && subsystem_state.sorting_pipeline.is_valid() && (!existing_sort.valid || existing_sort.capacity < sort_capacity) &&
             !state.hlod_prepared_snapshot.is_valid()) {
         // A paged world has no canonical atlas, so the canonical publication that sizes the sort buffers for every
         // other world never runs. Its need is known here (every leaf may be sorted): size the sorter from it. No
@@ -1826,6 +1859,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             state.hlod_last_refusal_reason = p_reason;
             ++state.hlod_refused_views;
         }
+        if (hlod_edit_committed_here() && !state.hlod_reason.begins_with("hlod_edit_")) {
+            state.hlod_reason = String("hlod_edit_route_unavailable:") + p_reason; // ADR 14.5.1: the reason names the cause.
+        }
         if (state.hlod_streaming) { idle_hlod_streaming_bundle(); }
         return false;
     };
@@ -2019,6 +2055,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         if (served->has_edits() && state.hlod_committed_edit != served) {
             state.hlod_committed_edit = served;
             state.hlod_edit_owner_key = state.hlod_prepared_owner_key;
+            state.hlod_edit_world_key = state.hlod_world_key;
         }
         asset.data = served;
         asset.resident = state.hlod_streamer->resident_mask();
@@ -2523,35 +2560,69 @@ bool GaussianSplatRenderer::stage_hlod_edit(const Ref<GaussianSplatHlodRuntimeDa
     return r_reason == "hlod_edit_staged";
 }
 
-bool GaussianSplatRenderer::hlod_edit_blanks_frame(String &r_reason) const {
+bool GaussianSplatRenderer::hlod_edit_committed_here() const {
     const auto &state = get_resource_state();
-    if (state.hlod_committed_edit.is_null() || state.hlod_edit_owner_key != state.hlod_owner_key) {
+    return state.hlod_committed_edit.is_valid() && state.hlod_edit_owner_key == state.hlod_owner_key &&
+            state.hlod_edit_world_key == state.hlod_world_key;
+}
+
+bool GaussianSplatRenderer::hlod_edit_served() const {
+    const auto &state = get_resource_state();
+    if (state.hlod_committed_edit.is_null() || !state.hlod_streaming || state.hlod_streamer.is_null() || !state.hlod_streamer->is_active()) {
         return false;
     }
-    if (state.hlod_streaming && state.hlod_streamer.is_valid() && state.hlod_streamer->is_active()) {
-        return false; // The streamed route serves the committed snapshot; its own fallbacks draw nothing.
+    const Ref<GaussianSplatHlodRuntimeData> &data = state.hlod_streamer->get_data();
+    return data.is_valid() && data->edit_revision == state.hlod_committed_edit->edit_revision &&
+            data->source_world == state.hlod_committed_edit->source_world;
+}
+
+void GaussianSplatRenderer::release_hlod_committed_edit() {
+    auto &state = get_resource_state();
+    state.hlod_committed_edit.unref();
+    state.hlod_edit_owner_key = 0;
+    state.hlod_edit_world_key = 0;
+}
+
+void GaussianSplatRenderer::reconcile_hlod_committed_edit() {
+    auto &state = get_resource_state();
+    if (state.hlod_committed_edit.is_valid() &&
+            (state.hlod_edit_owner_key != state.hlod_owner_key || state.hlod_edit_world_key != state.hlod_world_key)) {
+        release_hlod_committed_edit(); // A different node or a different world: the edit does not apply.
     }
+}
+
+void GaussianSplatRenderer::apply_hlod_edit_backend_override(bool p_committed_here, FrameBackendPlan &r_plan) {
+    if (p_committed_here) {
+        r_plan.prefer_resident_backend = true;
+    }
+}
+
+bool GaussianSplatRenderer::hlod_edit_blanks_frame(String &r_reason) const {
+    // True when this world has committed edits that the current route does not serve: every route that is not the streamed
+    // HLOD route serving the committed snapshot would redisplay the OLD content (or an unedited rebuild would).
+    if (!hlod_edit_committed_here() || hlod_edit_served()) {
+        return false;
+    }
+    const auto &state = get_resource_state();
     // Every other route (the resident canonical copy, a materialized V4 world) would redisplay the OLD content.
-    r_reason = state.hlod_reason.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + state.hlod_reason;
+    // The cause is the route's own reason; an hlod_edit_* reason (this one, from the last frame) is not a cause, so it is
+    // never wrapped again.
+    r_reason = state.hlod_reason.is_empty() ? String("hlod_edit_route_unavailable")
+            : (state.hlod_reason.begins_with("hlod_edit_") ? state.hlod_reason : String("hlod_edit_route_unavailable:") + state.hlod_reason);
     return true;
 }
 
 #ifdef TESTS_ENABLED
-void GaussianSplatRenderer::hlod_edit_probe_step() {
-    auto &state = get_resource_state();
-    if (state.hlod_edit_probe_done || !state.hlod_streaming || state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
-            state.hlod_streamer->is_edit_staged() || state.hlod_stream_ready_frames < 30) {
-        return;
-    }
-    const String spec = OS::get_singleton()->get_environment("GS_HLOD_EDIT_BOX");
-    if (spec.is_empty()) {
-        return;
-    }
-    state.hlod_edit_probe_done = true; // One shot: the result is reported through hlod_edit_probe_result.
-    const Vector<String> parts = spec.split(",");
+// Builds the box-deletion edit of one probe phase on the served snapshot and stages it. Leaves already edited are skipped,
+// so a second box edits other leaves. Returns the result string (a stats key value).
+static String hlod_edit_probe_stage(GaussianSplatRenderer *p_renderer, const String &p_box, bool p_fail_commit) {
+    // GS_HLOD_EDIT_MODE=recolor paints every splat of the touched leaves red instead of deleting the splats inside the box:
+    // an edit whose effect is large and unmistakable at any distance (frame classification in the probe).
+    const bool recolor = OS::get_singleton()->get_environment("GS_HLOD_EDIT_MODE") == "recolor";
+    auto &state = p_renderer->get_resource_state();
+    const Vector<String> parts = p_box.split(",");
     if (parts.size() != 6) {
-        state.hlod_edit_probe_result = "bad_box";
-        return;
+        return "bad_box";
     }
     Vector3 lo(parts[0].to_float(), parts[1].to_float(), parts[2].to_float());
     Vector3 hi(parts[3].to_float(), parts[4].to_float(), parts[5].to_float());
@@ -2579,7 +2650,19 @@ void GaussianSplatRenderer::hlod_edit_probe_step() {
                 for (uint32_t k = 0; sh && k < served->high_order_count; ++k) { all_sh.push_back(sh[k]); }
             }
         }
-        for (int64_t i = 0; i < all.size(); ++i) {
+        uint64_t inside = 0;
+        for (int64_t i = 0; recolor && i < all.size(); ++i) {
+            const Vector3 q = all[i].position;
+            inside += (q.x >= lo.x && q.x <= hi.x && q.y >= lo.y && q.y <= hi.y && q.z >= lo.z && q.z <= hi.z) ? 1u : 0u;
+        }
+        if (recolor && inside == 0) { continue; } // Only leaves that actually hold splats of the box are repainted.
+        for (int64_t i = 0; recolor && i < all.size(); ++i) {
+            Gaussian g = all[i];
+            g.sh_dc = Color(1.0f, 0.0f, 0.0f, 1.0f);
+            edit.gaussians.push_back(g);
+            for (uint32_t k = 0; k < served->high_order_count; ++k) { edit.sh.push_back(Vector3()); }
+        }
+        for (int64_t i = 0; !recolor && i < all.size(); ++i) {
             const Vector3 p = all[i].position;
             if (p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z) { continue; }
             edit.gaussians.push_back(all[i]);
@@ -2590,22 +2673,45 @@ void GaussianSplatRenderer::hlod_edit_probe_step() {
             edit.gaussians.push_back(all[0]);
             for (uint32_t k = 0; k < served->high_order_count; ++k) { edit.sh.push_back(all_sh[k]); }
         }
-        if (edit.gaussians.size() == all.size()) { continue; } // Nothing deleted here.
+        if (!recolor && edit.gaussians.size() == all.size()) { continue; } // Nothing deleted here.
         deleted += uint64_t(all.size() - edit.gaussians.size());
         edits.push_back(edit);
     }
     if (edits.is_empty()) {
-        state.hlod_edit_probe_result = "no_leaf_touched";
-        return;
+        return "no_leaf_touched";
     }
     Ref<GaussianSplatHlodRuntimeData> edited;
     String reason;
     const gs_hlod_runtime::EditStatus status = gs_hlod_runtime::make_edited_snapshot(served, served->edit_revision, edits.ptr(), edits.size(), edited, reason);
     if (status != gs_hlod_runtime::EditStatus::OK) {
-        state.hlod_edit_probe_result = "factory:" + reason;
+        return "factory:" + reason;
+    }
+    state.hlod_streamer->test_fail_commit_metadata = p_fail_commit; // Forces COMMIT_UNUSABLE for this edit only.
+    p_renderer->stage_hlod_edit(edited, reason);
+    return vformat("%s leaves=%d deleted=%d", reason, int64_t(edits.size()), int64_t(deleted));
+}
+
+void GaussianSplatRenderer::hlod_edit_probe_step() {
+    auto &state = get_resource_state();
+    if (!state.hlod_streaming || state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
+            state.hlod_streamer->is_edit_staged()) {
         return;
     }
-    stage_hlod_edit(edited, reason);
-    state.hlod_edit_probe_result = vformat("%s leaves=%d deleted=%d", reason, int64_t(edits.size()), int64_t(deleted));
+    // Phase 0: GS_HLOD_EDIT_BOX once the view has been ready for a while. Phase 1: GS_HLOD_EDIT_BOX2 (optionally with a
+    // forced COMMIT_UNUSABLE, GS_HLOD_EDIT_FAIL2=1) once the first edit is committed and the view has run 200 ready frames.
+    if (state.hlod_edit_probe_phase == 0 && state.hlod_stream_ready_frames >= 30) {
+        const String box = OS::get_singleton()->get_environment("GS_HLOD_EDIT_BOX");
+        state.hlod_edit_probe_phase = 1;
+        if (!box.is_empty()) {
+            state.hlod_edit_probe_result = hlod_edit_probe_stage(this, box, false);
+        }
+    } else if (state.hlod_edit_probe_phase == 1 && state.hlod_stream_ready_frames >= 200 &&
+            state.hlod_streamer->get_data()->edit_revision >= 1) {
+        const String box2 = OS::get_singleton()->get_environment("GS_HLOD_EDIT_BOX2");
+        state.hlod_edit_probe_phase = 2;
+        if (!box2.is_empty()) {
+            state.hlod_edit_probe_result = "phase2:" + hlod_edit_probe_stage(this, box2, OS::get_singleton()->get_environment("GS_HLOD_EDIT_FAIL2") == "1");
+        }
+    }
 }
 #endif
