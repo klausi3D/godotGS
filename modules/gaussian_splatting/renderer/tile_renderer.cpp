@@ -878,9 +878,7 @@ private:
 				// Using 50x provides headroom for close-up views without budget cutoff.
 				// Use effective_visible_splats (accounts for max_visible_splats from instance pipeline)
 				// to avoid undersized initial allocation when CPU readback is stale.
-				// Package E1: a paged world's warmup atlas is one stub splat, so size as the canonical warmup frame of the
-				// same world would (all leaves potentially visible): the hint is the world's leaf count, 0 otherwise.
-				const uint32_t overlap_base_count = MAX(MAX(params.splat_count, effective_visible_splats), params.overlap_bootstrap_hint);
+				const uint32_t overlap_base_count = MAX(params.splat_count, effective_visible_splats);
 				uint32_t overlap_estimate = MIN<uint64_t>(uint64_t(overlap_base_count) * 50u, UINT32_MAX);
 				if (renderer.global_sort_resources.capacity == 0 &&
 						params.total_gaussians > 0 &&
@@ -4046,6 +4044,23 @@ uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &
     if (current.x <= 0 || current.y <= 0 || p_viewport.x <= 0 || p_viewport.y <= 0) { return live; }
     return ResidentAtlasBudget::hlod_scale_texture_bytes_for_pixels(live, uint64_t(current.x) * uint64_t(current.y),
             uint64_t(p_viewport.x) * uint64_t(p_viewport.y));
+}
+
+bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
+    auto &overflow = async_readback.overflow_state;
+    if (!overflow.first_frame_complete || !overflow.overflow_detected) { return false; }
+    const uint64_t wanted = uint64_t(overflow.last_unclamped_total) * 3u / 2u;
+    const uint32_t needed = uint32_t(MIN<uint64_t>(wanted, UINT32_MAX));
+    if (needed <= global_sort_resources.capacity) {
+        overflow.overflow_detected = false;
+        return false;
+    }
+    // Keys and values (8 B each), tile ranges and scan scratch scale with the record count: charge 32 B per record,
+    // as a full new allocation (the old buffers stay charged until retired). Refused growth keeps the flag set.
+    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    _ensure_global_sort_resources(needed);
+    overflow.overflow_detected = false;
+    return true;
 }
 
 bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {

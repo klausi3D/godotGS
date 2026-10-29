@@ -504,10 +504,6 @@ struct TileRenderParams {
 	RID cluster_buffer;
 	RID shadow_atlas;
 	uint32_t total_gaussians = 0;
-	// Package E1: the size of the world a paged HLOD route will draw while the frame's own atlas is only the warmup stub.
-	// Used only as a floor for the overlap-storage sizing base (what a canonical warmup frame of that world would give
-	// it); it never widens an atlas bound.
-	uint32_t overlap_bootstrap_hint = 0;
 	uint32_t splat_count = 0;
 	// Maximum visible splats the GPU instance pipeline can produce.
 	// Used to size projection_buffer for GPU-indirect dispatch paths where

@@ -100,7 +100,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			out.raw = result.raw.ptrw();
 		}
 	}
-	if (!sized && d.is_paged()) {
+	if (!sized && d.is_paged() && job->counted) {
 		job->stats->end_read(job->reserved_bytes, job->read_bytes, false); // Allocation failure: release the reservation.
 	}
 	if (sized && d.is_paged()) {
@@ -118,7 +118,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		} else {
 			result.ok = false;
 		}
-		job->stats->end_read(job->reserved_bytes, job->read_bytes, read_error == OK);
+		if (job->counted) { job->stats->end_read(job->reserved_bytes, job->read_bytes, read_error == OK); }
 	} else {
 		result.ok = sized && gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out);
 	}
@@ -141,6 +141,7 @@ void HlodNodeStreamer::start_jobs() {
 		}
 		uint64_t read_bytes = 0;
 		uint64_t reserved = 0;
+		bool counted = false;
 		if (data->is_paged() && ticket.node < uint32_t(data->paged_source->get_nodes().size())) {
 			read_bytes = data->paged_source->get_nodes()[ticket.node].stored_bytes;
 			reserved = read_bytes + uint64_t(data->nodes[ticket.node].topology.payload_count) * record_stride();
@@ -149,11 +150,13 @@ void HlodNodeStreamer::start_jobs() {
 				break;
 			}
 			read_stats->begin_read(reserved);
+			counted = true;
 		}
 		++consumed;
 		Job *job = memnew(Job);
 		job->read_bytes = read_bytes;
 		job->reserved_bytes = reserved;
+		job->counted = counted;
 		job->data = data;
 		job->ticket = ticket;
 		job->params.relative = true;

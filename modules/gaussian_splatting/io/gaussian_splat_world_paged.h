@@ -115,7 +115,7 @@ public:
 		uint64_t file_bytes = 0u;
 		uint64_t index_bytes = 0u;
 		uint64_t payload_bytes = 0u;
-		uint64_t content_generation = 0u; // first 8 bytes of the index digest; stamped into every record
+		uint64_t content_generation = 0u; // first 8 bytes of SHA-256(header identity fields + every node's body digest); stamped into every record
 		uint32_t bake_rule_version = 0u;
 	};
 	struct Stats {
@@ -125,6 +125,7 @@ public:
 		uint64_t largest_read_bytes = 0u;
 	};
 
+	// Single use: a second call on an opened source is refused (ERR_ALREADY_IN_USE, v4_already_open); use a new instance.
 	// Validates the header, every index page and the whole topology (without reading any payload) and fills
 	// r_tree with the node table (interior payload NOT resident). On failure nothing is published: the returned
 	// error is OK / ERR_FILE_CORRUPT / ERR_FILE_UNRECOGNIZED / ERR_OUT_OF_MEMORY / a file error and r_reason is a

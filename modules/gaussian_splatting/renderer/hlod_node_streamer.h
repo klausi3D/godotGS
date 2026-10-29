@@ -37,9 +37,11 @@ public:
 		uint32_t scale_bits = 0;
 		uint64_t upload_bytes_per_frame = 32ull * 1024 * 1024;
 		uint32_t max_jobs_in_flight = 16;
-		// Package E1 (V4 paged source): the CPU working set of payload reads. A job is started only while the stored
-		// bytes of all reads in flight plus its own stay within this cap (one read is always allowed, so a record larger
-		// than the cap still loads, alone). It bounds the payload memory by this number, not by the tree.
+		// Package E1 (V4 paged source): the CPU working set of payload reads. A job is started only while the reserved
+		// bytes (file record + packed copy) of all reads in flight plus its own stay within this cap (one read is always
+		// allowed, so a record larger than the cap still loads, alone). It bounds the memory of reads in flight. Packed
+		// payloads waiting for the per-frame upload budget (the `ready` queue) are OUTSIDE this cap and are measured
+		// separately (payload_ready_bytes_peak).
 		uint64_t max_inflight_read_bytes = 8ull * 1024 * 1024;
 		uint32_t retire_delay_frames = 3;
 	};
@@ -178,6 +180,7 @@ private:
 		Ref<ReadStats> stats;
 		uint64_t read_bytes = 0; // The record's stored bytes (paged source only).
 		uint64_t reserved_bytes = 0; // Record + packed copy, reserved against max_inflight_read_bytes at start.
+		bool counted = false; // begin_read() was called for this job, so end_read() must be.
 	};
 
 	static void run_job(void *p_userdata);

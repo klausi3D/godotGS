@@ -69,9 +69,8 @@ struct ResourceState {
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
-    // Package E1: one invisible splat standing in for the canonical payload of a paged world, so its first frames can
-    // run the ordinary resident publication/composite that creates the tile renderer's and the compositor's ledgers.
-    Ref<GaussianData> hlod_paged_warmup_stub;
+    // Package E1: identity (target size, device, tile renderer) the paged route was last provisioned for; 0 = never.
+    uint64_t hlod_paged_provision_key = 0;
     HlodBundle hlod_canonical;
     HlodBundle hlod_relative;
     // Node streaming (package D): when the whole tree does not fit the atlas budget only the relative bundle

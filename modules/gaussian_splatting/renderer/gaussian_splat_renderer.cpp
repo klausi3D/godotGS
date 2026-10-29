@@ -2334,6 +2334,12 @@ bool GaussianSplatRenderer::_try_render_resident_frame(RenderDataRD *p_render_da
 
     // Package E1: a V4 paged HLOD world renders through the HLOD route only (its payload is in the file).
     const bool has_paged_hlod = get_resource_state().hlod_snapshot.is_valid() && get_resource_state().hlod_snapshot->is_paged();
+    if (has_paged_hlod) {
+        String provision_reason;
+        if (!provision_paged_hlod_route(p_render_buffers, provision_reason)) {
+            get_resource_state().hlod_reason = provision_reason;
+        }
+    }
     if (!has_gaussian_dataset && !has_buffer_manager_data && !has_paged_hlod) {
         // The resident contract publisher below builds the atlas from director-registered
         // InstanceRecords even when scene_state has no primary gaussian_data. Asset-backed

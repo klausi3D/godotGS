@@ -694,4 +694,230 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][Residency] the in-flight read cap 
 	streamer->shutdown();
 }
 
+static void wrf32(Vector<uint8_t> &p_f, uint64_t p_at, float p_v) { memcpy(p_f.ptrw() + p_at, &p_v, 4); }
+
+static void reseal_header_only(Vector<uint8_t> &r_f) {
+	sha(r_f.ptr(), kHeaderBytes - 32, r_f.ptrw() + kHeaderBytes - 32);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] every remaining header, index and metadata rule refuses with its own reason") {
+	Fixture fx;
+	if (!build_fixture(fx, 20000, 12, 0.0f, "rules")) { return; }
+	const Vector<uint8_t> good = read_all(fx.path);
+	GS_NEED(good.size() > int64_t(kHeaderBytes));
+	auto expect = [&](const char *p_name, const Vector<uint8_t> &p_bytes, const char *p_reason, Error p_error) {
+		CAPTURE(String(p_name));
+		const String path = temp_path("rule");
+		write_all(path, p_bytes);
+		Ref<GaussianSplatHlodPagedSource> source;
+		String reason;
+		const Error err = open_source(path, source, reason);
+		CHECK_MESSAGE(reason == String(p_reason), "got reason ", reason.utf8().get_data());
+		CHECK(err == p_error);
+		CHECK_FALSE(source->is_open());
+	};
+	Vector<uint8_t> f = good;
+	f.ptrw()[176] ^= 0x01; // the header whole-index digest; the pages themselves are intact
+	reseal_header_only(f);
+	expect("index digest", f, "v4_index_digest_mismatch", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr32(f, rd64(good, 112) + 4, 9u); // page index inside the page header (the digest covers only the entries)
+	expect("index page identity", f, "v4_index_page_identity_mismatch", ERR_FILE_CORRUPT);
+
+	f = good;
+	{
+		const uint64_t base = rd64(good, 112);
+		const uint32_t in_page = rd32(good, base + 12);
+		f.ptrw()[base + kIndexPageHeaderBytes + uint64_t(in_page) * kIndexRecordBytes + 5] = 0x7F; // outside the digested entries
+	}
+	expect("index page tail", f, "v4_index_page_tail_not_zero", ERR_FILE_CORRUPT);
+
+	f = good;
+	f.ptrw()[f.size() - 1] ^= 0x01; // last byte of the metadata
+	expect("metadata digest", f, "v4_metadata_digest_mismatch", ERR_FILE_CORRUPT);
+
+	f = good;
+	{
+		const uint64_t size = rd64(good, 152);
+		const uint64_t offset = rd64(good, 144);
+		GS_NEED(size > 4);
+		f.ptrw()[offset] = '[';
+		for (uint64_t i = 1; i + 1 < size; ++i) { f.ptrw()[offset + i] = '1'; }
+		f.ptrw()[offset + size - 1] = ']';
+		sha(f.ptr() + offset, size_t(size), f.ptrw() + 208);
+		reseal_header_only(f);
+	}
+	expect("metadata not a dictionary", f, "v4_metadata_not_a_json_dictionary", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr32(f, 8, rd32(good, 8) | 0x10u);
+	reseal_header_only(f);
+	expect("unknown flags", f, "v4_unknown_header_flags", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr32(f, 16, 8192u);
+	reseal_header_only(f);
+	expect("page geometry", f, "v4_unexpected_page_geometry", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr32(f, 60, 1u);
+	reseal_header_only(f);
+	expect("reserved header word", f, "v4_nonzero_reserved_header", ERR_FILE_CORRUPT);
+
+	f = good;
+	f.ptrw()[1000] = 1;
+	reseal_header_only(f);
+	expect("reserved header tail", f, "v4_nonzero_reserved_header", ERR_FILE_CORRUPT);
+
+	f = good;
+	wrf64(f, 64, std::numeric_limits<double>::infinity());
+	reseal_header_only(f);
+	expect("non-finite origin", f, "v4_nonfinite_header_geometry", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr32(f, 32, 0u); // no leaves
+	reseal_header_only(f);
+	expect("splat counts", f, "v4_splat_counts_inconsistent", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr64(f, 112, 2 * kPageBytes);
+	reseal_header_only(f);
+	expect("index region", f, "v4_index_region_inconsistent", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr64(f, 128, rd64(good, 128) + kPageBytes);
+	reseal_header_only(f);
+	expect("payload region", f, "v4_payload_region_inconsistent", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr64(f, 152, 0u); // flag says metadata, size says none
+	reseal_header_only(f);
+	expect("metadata region", f, "v4_metadata_region_inconsistent", ERR_FILE_CORRUPT);
+
+	f = good;
+	wr32(f, 8, rd32(good, 8) & ~2u); // metadata present in the file, flag says none
+	reseal_header_only(f);
+	expect("metadata flag cleared", f, "v4_metadata_region_inconsistent", ERR_FILE_CORRUPT);
+
+	// The strict loader refuses header world bounds that do not enclose the HLOD root, although the package is valid.
+	f = good;
+	wrf32(f, 88, 1.0e6f);
+	wrf32(f, 92, 1.0e6f);
+	wrf32(f, 96, 1.0e6f);
+	wrf32(f, 100, 0.0f);
+	wrf32(f, 104, 0.0f);
+	wrf32(f, 108, 0.0f);
+	reseal_header_only(f);
+	const String path = temp_path("bounds");
+	write_all(path, f);
+	Ref<GaussianSplatHlodPagedSource> source;
+	String reason;
+	CHECK(open_source(path, source, reason) == OK); // the reader alone accepts it
+	ERR_PRINT_OFF;
+	Error load_error = OK;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<GaussianSplatWorld> world = loader.load(path, "", &load_error);
+	ERR_PRINT_ON;
+	CHECK(world.is_null());
+	CHECK(load_error == ERR_FILE_CORRUPT);
+
+	// open() is single use.
+	Ref<GaussianSplatHlodPagedSource> again;
+	String again_reason;
+	GS_NEED(open_source(fx.path, again, again_reason) == OK);
+	GaussianSplatHlodTree tree;
+	Dictionary metadata;
+	CHECK(again->open(fx.path, tree, metadata, again_reason) == ERR_ALREADY_IN_USE);
+	CHECK(again_reason == "v4_already_open");
+	CHECK(again->is_open()); // the first open is untouched
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] a paged world can be materialized into the resident v3 shape, and fails closed") {
+	Fixture fx;
+	if (!build_fixture(fx, 20000, 12, 0.0f, "materialize")) { return; }
+	Error load_error = ERR_BUG;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<GaussianSplatWorld> loaded = loader.load(fx.path, "", &load_error);
+	GS_NEED(load_error == OK);
+	GS_NEED(loaded.is_valid() && loaded->has_hlod_paged_source());
+
+	// A damaged payload: the fallback refuses, names the node, and the world stays paged and usable.
+	{
+		Vector<uint8_t> bytes = read_all(fx.path);
+		const uint32_t victim = rd32(bytes, 40) - 1;
+		const uint64_t offset = rd64(bytes, index_record_at(bytes, victim) + 128);
+		bytes.ptrw()[offset + kPayloadRecordHeaderBytes + 9] ^= 0x04;
+		const String bad_path = temp_path("materialize_bad");
+		write_all(bad_path, bytes);
+		Ref<GaussianSplatWorld> bad = loader.load(bad_path, "", &load_error);
+		GS_NEED(load_error == OK && bad.is_valid());
+		String why;
+		ERR_PRINT_OFF;
+		CHECK(bad->materialize_paged_resident(why) != OK);
+		ERR_PRINT_ON;
+		CHECK(why.begins_with("hlod_paged_materialize_read_failed"));
+		CHECK(bad->has_hlod_paged_source());
+		CHECK(bad->get_gaussian_data().is_null());
+	}
+
+	String reason;
+	GS_NEED(loaded->materialize_paged_resident(reason) == OK);
+	CHECK_FALSE(loaded->has_hlod_paged_source());
+	GS_NEED(loaded->get_gaussian_data().is_valid());
+	CHECK(loaded->get_gaussian_data()->get_count() == 20000);
+	CHECK(loaded->get_chunk_count() == fx.world->get_chunk_count());
+	// The same resident HLOD world a v3 load produces: the resident snapshot equals the original bake's, node for node.
+	Ref<GaussianSplatHlodRuntimeData> snapshot;
+	GS_NEED(loaded->capture_hlod_runtime_snapshot(snapshot, reason) == OK);
+	CHECK_FALSE(snapshot->is_paged());
+	GS_NEED(snapshot->nodes.size() == fx.resident->nodes.size());
+	GS_NEED(snapshot->leaf_count == fx.resident->leaf_count && snapshot->parent_count == fx.resident->parent_count);
+	for (uint64_t i = 0; i < uint64_t(snapshot->leaf_count) + snapshot->parent_count; ++i) {
+		if (!same_gaussian(snapshot->gaussian(i), fx.resident->gaussian(i))) {
+			FAIL("materialized payload differs at ", i);
+			return;
+		}
+		const Vector3 *a = snapshot->sh(i);
+		const Vector3 *b = fx.resident->sh(i);
+		for (uint32_t k = 0; k < 12; ++k) {
+			if (a[k] != b[k]) {
+				FAIL("materialized SH differs at ", i);
+				return;
+			}
+		}
+	}
+	// And it saves as an ordinary v3 file.
+	ResourceFormatSaverGaussianSplatWorld saver;
+	const String v3 = temp_path("materialized_v3");
+	CHECK(saver.save(loaded, v3) == OK);
+	Ref<GaussianSplatWorld> reloaded = loader.load(v3, "", &load_error);
+	CHECK(load_error == OK);
+	CHECK((reloaded.is_valid() && !reloaded->has_hlod_paged_source() && reloaded->has_hlod_tree()));
+	// Nothing paged: a second call is a no-op.
+	CHECK(loaded->materialize_paged_resident(reason) == OK);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] installing a resident tree drops the paged source, and a tree that differs from the package is refused at capture") {
+	Fixture fx;
+	if (!build_fixture(fx, 20000, 0, 0.0f, "topology")) { return; }
+	Ref<GaussianSplatHlodPagedSource> source;
+	GaussianSplatHlodTree tree;
+	String reason;
+	GS_NEED(open_source(fx.path, source, reason, &tree) == OK);
+	GaussianSplatHlodTree altered = tree;
+	altered.nodes[1].radius += 1.0f; // still a plausible tree, no longer the package's
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	GS_NEED(world->set_hlod_paged_package(std::move(altered), source) == OK);
+	Ref<GaussianSplatHlodRuntimeData> snapshot;
+	CHECK(world->capture_hlod_runtime_snapshot(snapshot, reason) == ERR_INVALID_DATA);
+	CHECK(reason == "hlod_paged_topology_differs_from_package");
+	GS_NEED(world->set_hlod_paged_package(std::move(tree), source) == OK);
+	CHECK(world->capture_hlod_runtime_snapshot(snapshot, reason) == OK);
+	GaussianSplatHlodTree resident_tree = fx.world->get_hlod_tree();
+	world->set_hlod_tree(std::move(resident_tree));
+	CHECK_FALSE(world->has_hlod_paged_source());
+}
+
 } // namespace TestHlodPagedPackage

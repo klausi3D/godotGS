@@ -15,6 +15,7 @@
 #include "../core/gaussian_splat_scene_director.h"
 #include "../nodes/gaussian_splat_world_3d.h"
 #include "../interfaces/output_compositor.h"
+#include "../io/gaussian_splat_world_io.h"
 #include "gs_test_pump.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
@@ -462,5 +463,161 @@ TEST_CASE("[GaussianSplatting][HLOD][Resize][RequiresGPU] the compositor scratch
     CHECK(compositor->ensure_hlod_scratch(rd, format, Size2i(128, 128)));
     CHECK(compositor->get_hlod_scratch_byte_upper_bound(rd, after_clear));
     CHECK(after_clear == uint64_t(128) * 128 * 4);
+}
+
+// Package E1 (V4 paged worlds) through the actual World3D entry. This harness has no render buffers, so what is proven
+// here is what does not need a present target: a paged world draws NOTHING from a stand-in (it has no canonical
+// payload and no warmup stub), says why, and the fallback for setups the HLOD route can never serve loads the payload
+// and takes the ordinary resident route. The target-backed behavior (route published on the first frame whatever the
+// camera sees, convergence) is the probe evidence of the PR (camera facing away, then turned toward the world).
+struct PagedWorldHarness {
+    SceneTree *tree = nullptr;
+    GaussianSplatWorld3D *node = nullptr;
+    GaussianSplatManager *owned_manager = nullptr;
+    GaussianSplatSceneDirector *owned_director = nullptr;
+    Ref<GaussianSplatWorld> world;
+    ProjectSettings *ps = nullptr;
+    Variant previous[3];
+    bool existed[3] = {};
+    const String keys[3] = {
+        "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled",
+        "rendering/gaussian_splatting/streaming/route_policy",
+        "rendering/gaussian_splatting/instance_pipeline/enabled"
+    };
+    ~PagedWorldHarness() {
+        if (node) {
+            if (node->get_parent()) { node->get_parent()->remove_child(node); }
+            memdelete(node);
+            tree->process(0.0);
+        }
+        if (owned_director) { memdelete(owned_director); }
+        if (owned_manager) { memdelete(owned_manager); }
+        for (uint32_t i = 0; i < 3 && ps; ++i) {
+            if (existed[i]) { ps->set_setting(keys[i], previous[i]); } else { ps->clear(keys[i]); }
+        }
+        if (ps) { ps->emit_signal("settings_changed"); }
+    }
+    void configure(ProjectSettings *p_ps) {
+        ps = p_ps;
+        for (uint32_t i = 0; i < 3; ++i) {
+            existed[i] = ps->has_setting(keys[i]);
+            if (existed[i]) { previous[i] = ps->get_setting(keys[i]); }
+        }
+        ps->set_setting(keys[0], true);
+        ps->set_setting(keys[1], int64_t(gs::settings::GS_ROUTE_RESIDENT));
+        ps->set_setting(keys[2], true);
+        ps->emit_signal("settings_changed");
+    }
+};
+
+static bool make_paged_world(Ref<GaussianSplatWorld> &r_loaded, uint32_t p_count) {
+    Ref<GaussianData> data;
+    data.instantiate();
+    LocalVector<Gaussian> splats;
+    splats.resize(p_count);
+    for (uint32_t i = 0; i < p_count; ++i) {
+        splats[i].position = Vector3(0.125f + float(i) * 0.25f, 0.125f, -4.0f);
+        splats[i].scale = Vector3(0.125f, 0.125f, 0.125f);
+        splats[i].rotation = Quaternion();
+        splats[i].opacity = 0.75f;
+    }
+    LocalVector<Vector3> sh;
+    data->set_gaussian_payload(splats, sh, 0u, 0u, false, false);
+    Ref<GaussianSplatWorld> source;
+    source.instantiate();
+    source->set_gaussian_data(data);
+    if (source->bake_hlod() != OK) { return false; }
+    const String path = OS::get_singleton()->get_temp_path().path_join("godotgs_v4_gpu_" + itos(OS::get_singleton()->get_ticks_usec()) + ".gsplatworld");
+    if (source->save_hlod_paged(path) != OK) { return false; }
+    Error err = ERR_BUG;
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    r_loaded = loader.load(path, "", &err);
+    return err == OK && r_loaded.is_valid() && r_loaded->has_hlod_paged_source();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a paged World3D draws nothing from a stand-in and says why when no present target exists") {
+    SceneTree *tree = SceneTree::get_singleton();
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!tree || !RenderingServer::get_singleton() || !rd || !ps || !tree->get_root()) { FAIL("WorldSceneTree GPU harness required"); return; }
+    PagedWorldHarness harness;
+    harness.tree = tree;
+    harness.configure(ps);
+    ScopedSortDevice manager_device(rd);
+    if (!GaussianSplatManager::get_singleton()) { harness.owned_manager = memnew(GaussianSplatManager); }
+    if (!GaussianSplatSceneDirector::get_singleton()) { harness.owned_director = memnew(GaussianSplatSceneDirector); }
+    g_quantization_config.per_chunk_quantization = false;
+    if (!make_paged_world(harness.world, 4)) { FAIL("paged fixture failed"); return; }
+    harness.node = memnew(GaussianSplatWorld3D);
+    harness.node->set_auto_apply_on_ready(false);
+    harness.node->set_world(harness.world);
+    tree->get_root()->add_child(harness.node);
+    tree->process(0.0);
+    harness.node->apply_world();
+    Ref<GaussianSplatRenderer> renderer = harness.node->get_renderer();
+    if (renderer.is_null()) { FAIL("World3D did not obtain its shared renderer"); return; }
+    CHECK(harness.world->has_hlod_paged_source()); // the HLOD route is usable here: no fallback
+    renderer->get_view_state().manual_viewport_override = Size2i(64, 64);
+    RenderSceneDataRD scene;
+    scene.cam_transform = Transform3D();
+    scene.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+    RenderDataRD render;
+    render.scene_data = &scene;
+    for (uint32_t frame = 0; frame < 6; ++frame) {
+        tree->process(0.0);
+        renderer->render_scene_instance(&render);
+    }
+    const auto &state = renderer->get_resource_state();
+    if (state.hlod_snapshot.is_null() || !state.hlod_snapshot->is_paged()) { FAIL("paged HLOD snapshot missing"); return; }
+    CHECK(state.hlod_prepared_snapshot.is_null());
+    CHECK_FALSE(state.hlod_frame_active);
+    CHECK(state.hlod_reason == String("resource_ledger_warmup_or_unavailable"));
+    // No stand-in: no canonical contract, nothing sorted, nothing rendered.
+    CHECK_FALSE(renderer->is_instance_contract_ready());
+    CHECK_FALSE(renderer->has_rendered_content());
+    CHECK(renderer->get_sorting_state().sorted_splat_count == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a paged World3D with LOD off loads its payload and draws on the resident route") {
+    SceneTree *tree = SceneTree::get_singleton();
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!tree || !RenderingServer::get_singleton() || !rd || !ps || !tree->get_root()) { FAIL("WorldSceneTree GPU harness required"); return; }
+    PagedWorldHarness harness;
+    harness.tree = tree;
+    harness.configure(ps);
+    ScopedSortDevice manager_device(rd);
+    if (!GaussianSplatManager::get_singleton()) { harness.owned_manager = memnew(GaussianSplatManager); }
+    if (!GaussianSplatSceneDirector::get_singleton()) { harness.owned_director = memnew(GaussianSplatSceneDirector); }
+    g_quantization_config.per_chunk_quantization = false;
+    if (!make_paged_world(harness.world, 4)) { FAIL("paged fixture failed"); return; }
+    harness.node = memnew(GaussianSplatWorld3D);
+    harness.node->set_auto_apply_on_ready(false);
+    harness.node->set_lod_enabled(false); // the HLOD route can never serve this setup
+    harness.node->set_world(harness.world);
+    tree->get_root()->add_child(harness.node);
+    tree->process(0.0);
+    harness.node->apply_world();
+    Ref<GaussianSplatRenderer> renderer = harness.node->get_renderer();
+    if (renderer.is_null()) { FAIL("World3D did not obtain its shared renderer"); return; }
+    // The fallback ran at submission: the world is the resident v3 shape now.
+    CHECK_FALSE(harness.world->has_hlod_paged_source());
+    if (harness.world->get_gaussian_data().is_null()) { FAIL("fallback did not materialize the payload"); return; }
+    CHECK(harness.world->get_gaussian_data()->get_count() == 4);
+    renderer->get_view_state().manual_viewport_override = Size2i(64, 64);
+    RenderSceneDataRD scene;
+    scene.cam_transform = Transform3D();
+    scene.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+    RenderDataRD render;
+    render.scene_data = &scene;
+    const auto ready = TestGaussianSplatting::gs_pump_until([&]() {
+        tree->process(0.0);
+        renderer->render_scene_instance(&render);
+        return renderer->is_instance_contract_ready() && renderer->has_rendered_content();
+    });
+    if (!ready.ready()) { FAIL("resident fallback output not reached: ", ready.describe()); return; }
+    CHECK(renderer->get_sorting_state().sorted_splat_count == 4);
+    const auto &state = renderer->get_resource_state();
+    CHECK((state.hlod_snapshot.is_null() || !state.hlod_snapshot->is_paged()));
 }
 }
