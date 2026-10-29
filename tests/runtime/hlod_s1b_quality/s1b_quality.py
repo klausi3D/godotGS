@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 
@@ -444,11 +443,13 @@ def compute_metrics(godot: Path, pairs: List[Dict[str, str]], work: Path, timeou
 
 
 def save_png(array: np.ndarray, path: Path) -> None:
+    from PIL import Image  # render-time only; the portable unit lane has no Pillow
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(array).save(path)
 
 
 def load_png(path: Path) -> np.ndarray:
+    from PIL import Image  # render-time only; the portable unit lane has no Pillow
     with Image.open(path) as img:
         return np.asarray(img.convert("RGB")).copy()
 

@@ -552,7 +552,8 @@ which brings it into the derived set automatically.
     install nothing into it.
   - `tests/ci/requirements-test-data.txt` (numpy, compiled from
     `requirements-test-data.in`) is for the hosted `cpu-tests` job in
-    `baseline_qa.yml`, which takes its SCons from apt.
+    `baseline_qa.yml`, which takes its SCons from apt, and for the hosted
+    `agentic-pr-gate`, whose guard-only lane runs the S1b harness unit tests.
   - `docs/requirements-lock.txt` is for `docs_pages.yml`. It holds the full
     transitive docs stack, compiled from `docs/requirements.txt` and
     `docs/requirements-site.txt`.
