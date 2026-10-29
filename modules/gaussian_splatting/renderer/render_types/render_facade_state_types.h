@@ -71,6 +71,8 @@ struct ResourceState {
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
     // Package E1: identity (target size, device, tile renderer) the paged route was last provisioned for; 0 = never.
     uint64_t hlod_paged_provision_key = 0;
+    // Why the last provisioning attempt failed (empty = fine); the warmup reasons report it instead of hiding it.
+    String hlod_paged_provision_reason;
     HlodBundle hlod_canonical;
     HlodBundle hlod_relative;
     // Node streaming (package D): when the whole tree does not fit the atlas budget only the relative bundle

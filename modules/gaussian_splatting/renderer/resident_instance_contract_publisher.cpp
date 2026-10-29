@@ -1497,30 +1497,37 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
     OutputCompositor *compositor = subsystem_state.output_compositor.ptr();
     if (!rd || tile.is_null() || !compositor || !p_render_buffers) {
         r_reason = "hlod_paged_provisioning_needs_render_target";
+        state.hlod_paged_provision_reason = r_reason;
         return false;
     }
     const Size2i size = p_render_buffers->get_internal_size();
     const RID color = p_render_buffers->get_internal_texture();
     if (size.x <= 0 || size.y <= 0 || !color.is_valid()) {
         r_reason = "hlod_paged_provisioning_needs_render_target";
+        state.hlod_paged_provision_reason = r_reason;
+        return false;
+    }
+    // The compositor scratch is a pool entry that eviction, a resize or a device change can drop: keep it present (a pool
+    // hit when it is) and the ledger live.
+    if (!compositor->ensure_hlod_scratch(rd, rd->texture_get_format(color), size)) {
+        r_reason = "hlod_paged_compositor_scratch_failed";
+        state.hlod_paged_provision_reason = r_reason;
         return false;
     }
     const uint64_t key = (uint64_t(size.x) * 73856093ull) ^ (uint64_t(size.y) * 19349663ull) ^ (rd->get_device_instance_id() * 83492791ull) ^
             uint64_t(tile->get_instance_id()) ^ uint64_t(1);
-    if (state.hlod_paged_provision_key == key) { return true; }
+    if (state.hlod_paged_provision_key == key) { state.hlod_paged_provision_reason = String(); return true; }
     // The relative route never grows the overlap storage while drawing, so seed it as a canonical warmup frame of the
     // same world would (every leaf may be visible, 50 records each; the sorting config caps it); growth afterwards is the
     // measured safe-point growth in prepare_hlod_frame.
     const uint32_t overlap = uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX));
     if (tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, overlap) != OK) {
         r_reason = "hlod_paged_tile_provisioning_failed";
-        return false;
-    }
-    if (!compositor->ensure_hlod_scratch(rd, rd->texture_get_format(color), size)) {
-        r_reason = "hlod_paged_compositor_scratch_failed";
+        state.hlod_paged_provision_reason = r_reason;
         return false;
     }
     state.hlod_paged_provision_key = key;
+    state.hlod_paged_provision_reason = String();
     return true;
 }
 
@@ -1587,7 +1594,9 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             test_hlod_publication_refuses(1) ||
 #endif
             !existing_sort.valid || existing_sort.capacity < sort_capacity) {
-        state.hlod_reason = "canonical_sort_capacity_warmup";
+        state.hlod_reason = input->is_paged()
+                ? (!state.hlod_paged_provision_reason.is_empty() ? state.hlod_paged_provision_reason : String("hlod_paged_sort_allocation_failed"))
+                : String("canonical_sort_capacity_warmup");
         return 0;
     }
     const bool prepared = is_hlod_prepared_contract_current();
@@ -1607,7 +1616,11 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 #ifdef TESTS_ENABLED
                 test_hlod_publication_refuses(2) ||
 #endif
-                !get_hlod_owned_byte_upper_bound(device_bytes)) { state.hlod_reason = "resource_ledger_warmup_or_unavailable"; return 0; }
+                !get_hlod_owned_byte_upper_bound(device_bytes)) {
+            state.hlod_reason = (input->is_paged() && !state.hlod_paged_provision_reason.is_empty())
+                    ? state.hlod_paged_provision_reason : String("resource_ledger_warmup_or_unavailable");
+            return 0;
+        }
         const uint64_t whole_candidate_bytes = hlod_bundle_bytes(*input.ptr(), false, quantized, input->leaf_count) +
                 hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity);
         const uint64_t whole_atlas_bytes = uint64_t(input->leaf_count + input->parent_count) * record_stride;
