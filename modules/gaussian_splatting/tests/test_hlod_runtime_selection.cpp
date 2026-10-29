@@ -282,4 +282,65 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut keeps refinement hysteresis for
 	history.invalidate();
 	CHECK(history.select(data, r).selected_count == 1); // Cold start in the band: no hysteresis, root stays.
 }
+// A camera inside a node's bounding sphere has a near-surface distance of 0. The record estimate must stay finite there
+// (floored at a fraction of the radius), otherwise no frontier can ever be admitted and a world with no canonical route
+// (V4 paged, streamed) draws nothing for good. Camera 2 m inside the holzbank: estimate 1e17, measured demand 5.5e5.
+static void sphere_tree(GaussianSplatHlodRuntimeData &r_data) {
+	tree(r_data);
+	for (int i = 0; i < 7; ++i) {
+		auto &n = r_data.nodes.write[i];
+		n.topology.radius = 5.0f; // The camera at the node centre is inside every sphere.
+		n.footprint = 1.0;
+	}
+}
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut admits a frontier when the camera is inside every node sphere") {
+	GaussianSplatHlodRuntimeData data;
+	sphere_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.camera = Vector3(0, 0, -10);
+	r.tile_area = 256.0;
+	r.record_budget = 100000; // 80 percent = 80000 records.
+	auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.selected_count == 4); // The leaves: the quality rule refines everything at distance 0.
+	CHECK(std::isfinite(cut.estimated_records));
+	CHECK(cut.estimated_records <= 0.8 * r.record_budget);
+	// 16 payload records + 4 leaves x footprint 1 x f^2 / ((0.25 x 5)^2 x tile_area).
+	const double d = gs_hlod_runtime::kCostInsideDistanceFraction * 5.0;
+	CHECK(cut.estimated_records == doctest::Approx(16.0 + 4.0 * 1.0 * 100.0 * 100.0 / (d * d * 256.0)));
+	// The floor does not hide a genuinely over-budget view: a record budget below every node's estimate is still refused.
+	r.record_budget = 30; // 80 percent = 24 < the cheapest node (27): no frontier fits.
+	CHECK(history.select(data, r).status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
+}
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut record estimate grows monotonically towards a node and keeps the near-surface bound outside") {
+	GaussianSplatHlodRuntimeData data;
+	sphere_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.tile_area = 256.0;
+	r.tau_pixels = 1e30; // No refinement: the estimate is the root node's own cost.
+	r.record_budget = 1e30;
+	r.splat_budget = 1000000;
+	double previous = 0.0;
+	for (double dz = 40.0; dz >= 0.0; dz -= 0.5) { // From 40 m away to the centre.
+		r.camera = Vector3(0, 0, float(-10.0 + dz));
+		auto cut = history.select(data, r);
+		CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+		CHECK(std::isfinite(cut.estimated_records));
+		CHECK(cut.estimated_records >= previous);
+		previous = cut.estimated_records;
+	}
+	// Outside radius x (1 + fraction) the estimate is exactly the near-surface bound (distance to the sphere surface).
+	r.camera = Vector3(0, 0, 20);
+	auto outside = history.select(data, r);
+	const double near_surface = 30.0 - 5.0;
+	CHECK(outside.estimated_records == doctest::Approx(2.0 + 1.0 * 100.0 * 100.0 / (near_surface * near_surface * 256.0)));
+	// At the centre the floor is the only distance left.
+	r.camera = Vector3(0, 0, -10);
+	const double floor_distance = gs_hlod_runtime::kCostInsideDistanceFraction * 5.0;
+	CHECK(history.select(data, r).estimated_records == doctest::Approx(2.0 + 1.0 * 100.0 * 100.0 / (floor_distance * floor_distance * 256.0)));
+}
 }

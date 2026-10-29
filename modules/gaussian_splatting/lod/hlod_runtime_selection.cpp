@@ -79,8 +79,14 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		return double(p_data.nodes[p_node].topology.geometric_error) * p_request.focal_pixels / distance(p_node);
 	};
 	auto cost = [&](uint32_t p_node) {
-		const double d = distance(p_node);
 		const auto &n = p_data.nodes[p_node];
+		// The overlap estimate is a per-node model, not a per-splat bound: the node's splats are assumed no nearer than
+		// the near surface of its bounding sphere. A camera inside that sphere makes the near-surface distance 0 and the
+		// estimate unbounded (1e17 records at 2 m inside the holzbank, where the measured demand is 5.5e5), so no frontier
+		// could ever be admitted. Floor it at a fraction of the radius: a splat set spread over a surface of the sphere
+		// has most of its splats at least that far from a camera inside it. Outside the sphere the floor is inactive
+		// beyond radius * (1 + fraction), so the estimate stays the sound near-surface bound there.
+		const double d = MAX(distance(p_node), kCostInsideDistanceFraction * double(n.topology.radius));
 		return double(n.topology.payload_count) + n.footprint * p_request.focal_pixels * p_request.focal_pixels /
 				(d * d * p_request.tile_area);
 	};

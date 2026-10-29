@@ -6,6 +6,10 @@
 
 namespace gs_hlod_runtime {
 
+// Overlap-record estimate (ADR 6.5): the distance used for a node's footprint term is never smaller than this fraction
+// of the node's bounding radius, so a camera inside a node's sphere gets a finite estimate (see CutHistory::select()).
+constexpr double kCostInsideDistanceFraction = 0.25;
+
 struct CutRequest {
 	Vector3 camera;
 	Plane frustum[6];
