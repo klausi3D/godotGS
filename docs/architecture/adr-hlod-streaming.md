@@ -1290,6 +1290,9 @@ Contracts implemented:
   so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
   canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
   point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
+  After the first seed the tile grid has one provisioner for paged and streamed worlds: the per-view block of
+  `prepare_hlod_frame` (`hlod_view_grid_action`, from the D1 resize fix), which runs after the growth, so it reads the grown
+  overlap capacity. `provision_paged_hlod_route` keeps only the compositor scratch and that first seed.
 - **Frame scratch covers the streamed atlas.** The per-splat frame scratch (subpixel history, SH colour cache, the
   16-bit packed-stage gate) is indexed by atlas record, so its admission (`prepare_hlod_scratch`) is sized from the
   atlas the relative bundle holds (`ResidentAtlasBudget::hlod_relative_atlas_records`) and the history from the larger
