@@ -314,13 +314,12 @@ void GaussianSplatWorld3D::_set_world_resource_changed_connection(const Ref<Gaus
 void GaussianSplatWorld3D::_on_world_resource_changed() {
     // DEFERRED AND COALESCED, deliberately. Three reasons, in order of weight:
     //
-    // 1. One user-visible content write emits `changed` more than once.
-    //    GaussianSplatWorld::set_gaussian_data() (../core/gaussian_splat_world.cpp:107-121)
-    //    assigns the Ref at :108, calls set_payload_metadata() at :110 -- which
-    //    emits at :214 -- and only then fixes up `bounds` at :115-117 before
-    //    emitting again at :120. A synchronous handler would run the whole
-    //    registration twice per write, and the first of the two would read the
-    //    resource midway through its own setter.
+    // 1. Consecutive content writes in one frame (e.g. set_gaussian_data() then
+    //    set_bounds()) each emit `changed`. set_gaussian_data() itself emits once
+    //    since #1280 (it assigns the payload and its metadata under
+    //    render_input_mutex). A synchronous handler would run the whole
+    //    registration once per write, and the first run would read the resource
+    //    midway through the caller's sequence of writes.
     // 2. submit_world_submission()'s phase 2 is a blocking render-thread dispatch
     //    (../core/gaussian_splat_scene_director.cpp:2425-2430). Running it inline
     //    from inside a property setter puts a render-thread round trip at an
@@ -347,10 +346,9 @@ void GaussianSplatWorld3D::_on_world_resource_changed() {
     // all five fields; #1002) -- write a field that store_submission()
     // copies into the record (gaussian_data/payload_source/static_chunks/bounds/
     // metadata, ../core/gaussian_splat_scene_director.cpp:831-835). The seventh,
-    // set_payload_metadata (:214), writes only the resource's scalar metadata
-    // mirrors, but it is emitted only from set_gaussian_data() at :110 and
-    // materialize_resident_gaussian_data() at :279 -- both of which are
-    // record-relevant writes -- so it never fires alone. With the coalescing
+    // set_payload_metadata(), writes only the resource's scalar metadata
+    // mirrors; it can now fire on its own (set_gaussian_data() no longer calls
+    // it), so a redundant resubmit is possible. With the coalescing
     // below, the redundant emission costs one latch test.
     //
     // KNOWN GAP, not covered by this: get_metadata() hands script the resource's
