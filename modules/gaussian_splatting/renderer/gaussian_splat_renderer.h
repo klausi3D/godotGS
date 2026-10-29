@@ -967,6 +967,9 @@ public:
         SKIP_FRAME, // Draw nothing: clear the instance-pipeline buffers.
         PUBLISH_WITHOUT_EDITED_WORLD, // Other instances exist: publish them, omit only the edited world's own data.
     };
+    // The reason of a blanked frame from the CURRENT cause: an hlod_edit_* reason stays as it is, a missing or generic cause
+    // ("active" is last frame's) is replaced by the disabled cut when that is the cause.
+    static String compose_hlod_edit_blank_reason(const String &p_cause, bool p_cut_enabled);
     static HlodEditFrame decide_hlod_edit_frame(bool p_committed_here, bool p_blanks_frame, int p_hlod_result, bool p_has_other_instances);
 #ifdef TESTS_ENABLED
     // GS_HLOD_EDIT_BOX="minx,miny,minz,maxx,maxy,maxz": once the view is ready, deletes the splats inside the box from the

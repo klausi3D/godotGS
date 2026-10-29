@@ -1433,16 +1433,23 @@ Mechanism.
   the committed edits over a fresh capture of the same world (`rebase_edited_snapshot`, also after a V4 world was
   materialized into the resident shape by a cut toggle). The decision to draw nothing is taken **after** the publish
   attempt, in the same frame (`_publish_resident_direct_data_contract`; a publish attempt that did not publish also blanks): a frame whose route is not the streamed HLOD route
-  serving the committed snapshot publishes **no** canonical copy, clears the instance-pipeline buffers (which the sort and
-  shadow passes read) and says `hlod_edit_route_unavailable:<why>` (LOD off, an unsupported setting, lost exclusive
-  submission `hlod_exclusive_submission_lost`, a failed or pending rebuild). An early gate before the attempt made the
-  rebuild unreachable and was removed. An edited world is also never routed to the legacy streaming backend, and always streams (a whole-tree bundle packs the unedited payload): where streaming is unsupported, or the committed edit cannot be laid over the new capture, no route is built and the reason says so. Other instances of the scene keep rendering: only the edited world's own data is omitted from the canonical publication. A streamed
+  serving the committed snapshot publishes **no** copy of the edited world and says `hlod_edit_route_unavailable:<why>`
+  (cut off, an unsupported setting, `hlod_not_exclusive_world_submission`, a failed or pending rebuild, an idle bundle
+  that could not be published). When no other instance exists the instance-pipeline buffers (which the sort and shadow
+  passes read) are cleared and the frame is skipped. **While another instance exists, the edited world draws nothing and the
+  others keep rendering**: the canonical publication runs without the world's own data. Every blank frame states the
+  CURRENT cause (the publish attempt starts from `hlod_publish_failed`, so no earlier reason survives). An early gate before the attempt made the
+  rebuild unreachable and was removed. An edited world is also never routed to the legacy streaming backend, and always streams (a whole-tree bundle packs the unedited payload): where streaming is unsupported, or the committed edit cannot be laid over the new capture, no route is built and the reason says so (a refused rebase is deterministic: the world stays blank with
+`hlod_edit_rebase_refused` until it is re-submitted or the edit is released). Other instances of the scene keep rendering: only the edited world's own data is omitted from the canonical publication. A streamed
   view whose replacement cut is not drawable says `hlod_edit_replacement_loading` or `hlod_edit_replacement_not_admitted`
   (`ViewResult::edit_forced`). The committed snapshot is released on a node or world change, an in-place content change and
   whenever the world contract is cleared (it keeps the world, its leaves and a V4 package alive). Whole-tree bundles refuse
   edited snapshots. An edited snapshot refuses raw payload indices of an edited leaf, and `pack_node` serves an edited leaf
   from its overlay whoever calls it. Test-only hooks stage box edits for probes (`GS_HLOD_EDIT_BOX`, `_BOX2`, `_MODE`,
   `_FAIL2` forcing COMMIT_UNUSABLE).
+  Disclosed base defect: when a plain instance leaves the scene the shared renderer keeps that instance's LOD flag. It
+  affects only assets with LOD disabled and recovers on the next re-submission of the world; for an edited world it shows as
+  `hlod_edit_requires_streamed_route:lod_disabled_canonical_leaves` (explicit, not silent) until then.
   Disclosed limit: only the renderer's draw path serves the edit. Picking, bounds, AABB queries and every other CPU consumer
   of the world still read the **unedited** world data; the edit has no collision or query semantics in F1 (ADR 14.6 hooks
   are deferred). An edited V4 world whose cut is toggled off is materialized into the resident shape from the unedited file

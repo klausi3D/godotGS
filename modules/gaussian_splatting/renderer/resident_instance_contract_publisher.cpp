@@ -250,8 +250,8 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
                 edit_director != nullptr && edit_director->get_instance_count_for_renderer(p_renderer) != 0);
         if (edit_frame != GaussianSplatRenderer::HlodEditFrame::PUBLISH) {
             if (edit_blank_reason.is_empty()) {
-                const String &cause = p_renderer->get_resource_state().hlod_reason;
-                edit_blank_reason = cause.begins_with("hlod_edit_") ? cause : (cause.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + cause);
+                edit_blank_reason = GaussianSplatRenderer::compose_hlod_edit_blank_reason(p_renderer->get_resource_state().hlod_reason,
+                        gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()));
             }
             ++p_renderer->get_resource_state().hlod_edit_blank_frames;
             p_renderer->get_resource_state().hlod_reason = edit_blank_reason;
@@ -1440,13 +1440,21 @@ bool GaussianSplatRenderer::idle_hlod_streaming_bundle() {
     auto &state = get_resource_state();
     auto &bundle = state.hlod_relative;
     RenderingDevice *rd = get_device_state().rd;
+    // A failure keeps a specific cause that is already there, and otherwise names itself (it used to leave last frame's reason).
+    auto idle_failed = [&](const char *p_reason) {
+        if (state.hlod_reason.is_empty() || state.hlod_reason == "active" || state.hlod_reason == "prepared_awaiting_view_admission" ||
+                state.hlod_reason == "hlod_publish_failed") {
+            state.hlod_reason = p_reason;
+        }
+        return false;
+    };
     if (!state.hlod_streaming || !rd || !bundle.buffers.counter_buffer.is_valid() ||
             get_resource_owner(bundle.buffers.counter_buffer, nullptr) != rd) {
-        return false;
+        return idle_failed("hlod_idle_bundle_unavailable");
     }
     // Nothing is drawn: both the CPU draw count the cull stage reads and the GPU counter the sort reads are zero.
     const uint32_t zeros[3] = { 0u, 0u, 0u };
-    if (rd->buffer_update(bundle.buffers.counter_buffer, 0, sizeof(zeros), zeros) != OK) { return false; }
+    if (rd->buffer_update(bundle.buffers.counter_buffer, 0, sizeof(zeros), zeros) != OK) { return idle_failed("hlod_idle_bundle_upload_failed"); }
     bundle.buffers.hlod_draw_count = 0;
     const bool published = publish_hlod_bundle(true);
     state.hlod_active = false; // The restore after this frame idles again instead of re-binding a stale list.
@@ -1605,6 +1613,9 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
 
 int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) {
     auto &state = get_resource_state();
+    // A world with committed edits states the CURRENT cause on every blank frame: start from a generic one, so a return that
+    // sets no reason of its own never keeps last frame's cause (or last frame's "active").
+    if (hlod_edit_committed_here()) { state.hlod_reason = "hlod_publish_failed"; }
     auto *director = GaussianSplatSceneDirector::get_singleton();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
     if (state.hlod_prepared_snapshot.is_valid() && !is_hlod_prepared_contract_current()) {
@@ -2629,6 +2640,17 @@ GaussianSplatRenderer::HlodEditFrame GaussianSplatRenderer::decide_hlod_edit_fra
     return p_has_other_instances ? HlodEditFrame::PUBLISH_WITHOUT_EDITED_WORLD : HlodEditFrame::SKIP_FRAME;
 }
 
+String GaussianSplatRenderer::compose_hlod_edit_blank_reason(const String &p_cause, bool p_cut_enabled) {
+    if (p_cause.begins_with("hlod_edit_")) {
+        return p_cause;
+    }
+    String cause = p_cause;
+    if (cause.is_empty() || cause == "active") {
+        cause = p_cut_enabled ? String() : String("hlod_runtime_cut_disabled");
+    }
+    return cause.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + cause;
+}
+
 bool GaussianSplatRenderer::hlod_committed_edit_applies_to(const Ref<GaussianSplatHlodRuntimeData> &p_capture) const {
     const auto &state = get_resource_state();
     if (state.hlod_committed_edit.is_null() || p_capture.is_null() || !hlod_edit_committed_here()) {
@@ -2680,15 +2702,7 @@ bool GaussianSplatRenderer::hlod_edit_blanks_frame(String &r_reason) const {
     const auto &state = get_resource_state();
     // The cause is the route's own reason; an hlod_edit_* reason (this one, from the last frame) is not a cause, so it is
     // never wrapped again. A disabled cut has no snapshot and so no reason of its own: name it.
-    String cause = state.hlod_reason;
-    if (cause.begins_with("hlod_edit_")) {
-        r_reason = cause;
-    } else {
-        if (cause.is_empty() || cause == "active") {
-            cause = gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) ? String() : String("hlod_runtime_cut_disabled");
-        }
-        r_reason = cause.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + cause;
-    }
+    r_reason = compose_hlod_edit_blank_reason(state.hlod_reason, gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()));
     return true;
 }
 

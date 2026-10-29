@@ -1782,4 +1782,49 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] the committed edit applies to the sam
 	if (had) { ps->set_setting(key, previous); } else { ps->clear(key); }
 }
 
+
+// Round 4: every blank frame states the CURRENT cause; the F-4 override clears the legacy bootstrap.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a blanked frame names its current cause, never last frame's reason, and the override cancels the legacy bootstrap") {
+	using Renderer = GaussianSplatRenderer;
+	// The composer: an hlod_edit_* reason is kept, a generic or missing cause is replaced, a real cause is prefixed.
+	CHECK(Renderer::compose_hlod_edit_blank_reason("hlod_edit_replacement_loading", true) == String("hlod_edit_replacement_loading"));
+	CHECK(Renderer::compose_hlod_edit_blank_reason("hlod_idle_bundle_failed", true) == String("hlod_edit_route_unavailable:hlod_idle_bundle_failed"));
+	CHECK(Renderer::compose_hlod_edit_blank_reason("active", true) == String("hlod_edit_route_unavailable")); // Last frame's "active" is no cause.
+	CHECK(Renderer::compose_hlod_edit_blank_reason("active", false) == String("hlod_edit_route_unavailable:hlod_runtime_cut_disabled"));
+	CHECK(Renderer::compose_hlod_edit_blank_reason("", false) == String("hlod_edit_route_unavailable:hlod_runtime_cut_disabled"));
+	// A publish attempt starts from a generic cause: a return that sets no reason keeps neither last frame's "active" nor a stale cause.
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	GS_NEED(renderer.is_valid());
+	auto &state = renderer->get_resource_state();
+	Ref<GaussianSplatHlodRuntimeData> edited;
+	edited.instantiate();
+	edited->edit_revision = 1;
+	state.hlod_committed_edit = edited;
+	state.hlod_owner_key = state.hlod_edit_owner_key = 5;
+	state.hlod_world_key = state.hlod_edit_world_key = 6;
+	state.hlod_reason = "active";
+	String ignored;
+	CHECK(renderer->try_publish_hlod_resident_contract(ignored) == 0); // No snapshot: the route is not taken, no reason of its own.
+	CHECK(state.hlod_reason == String("hlod_publish_failed"));
+	state.hlod_reason = "hlod_edit_replacement_loading"; // A stale hlod_edit_* reason of an earlier frame.
+	CHECK(renderer->try_publish_hlod_resident_contract(ignored) == 0);
+	CHECK(state.hlod_reason == String("hlod_publish_failed"));
+	state.hlod_committed_edit.unref(); // Without an edit the reason is not touched.
+	state.hlod_reason = "active";
+	CHECK(renderer->try_publish_hlod_resident_contract(ignored) == 0);
+	CHECK(state.hlod_reason == String("active"));
+	// F-4: the override also cancels the legacy streaming bootstrap (it runs before the bootstrap is attempted).
+	Renderer::FrameBackendPlan plan;
+	plan.prefer_resident_backend = false;
+	plan.should_attempt_streaming_bootstrap = true;
+	Renderer::apply_hlod_edit_backend_override(true, plan);
+	CHECK(plan.prefer_resident_backend);
+	CHECK_FALSE(plan.should_attempt_streaming_bootstrap);
+	Renderer::FrameBackendPlan untouched;
+	untouched.should_attempt_streaming_bootstrap = true;
+	Renderer::apply_hlod_edit_backend_override(false, untouched);
+	CHECK(untouched.should_attempt_streaming_bootstrap);
+}
+
 }
