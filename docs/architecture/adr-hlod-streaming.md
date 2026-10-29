@@ -1367,6 +1367,61 @@ incomplete tails without exposing half an edit. Unload/reload resolves the commi
 before becoming ready. Checkpoint/compaction preserves identity and committed revisions;
 parent payloads are replaceable derived data and must match the recovered children.
 
+#### 14.5.1 Package F1: implemented slice (edited leaves, stale-ancestor exclusion, overlay over immutable files)
+
+F1 is the smallest slice in which an edit of a region of a baked (v3) or paged (V4) world is correctly reflected. It
+implements the render-side rule of §14.5 and leaves the durable side (journal, crash recovery, rebuild) to F2/F3.
+
+What is drawn until a rebake (the ADR rule, as implemented). The edited leaves are drawn from their **new** versions.
+Every ancestor of an edited leaf is **stale**: its baked payload no longer represents its children, so it is never
+selected, never a fallback and never demanded. The selector replaces each stale node by its children whatever the quality
+rule or the caps say; the untouched siblings along the path keep their own (valid) coarse payload. The cut is therefore the
+edited leaves at full detail plus everything else at its normal level, and it is complete or absent: a replacement child
+that is not resident, or a cap (node, splat or record budget) that cannot hold the replacement cut, produces *no* cut for
+the view (`BOOTSTRAP_MISSING_RESIDENCY` / `BOOTSTRAP_INFEASIBLE`, the views' existing loading / not-admitted readiness),
+never the stale parent. A final guard turns a stale node in a cut into `INVALID`.
+
+Mechanism.
+
+- **Edited snapshot** (`lod/hlod_edit.*`). `make_edited_snapshot(base, expected_revision, edits)` derives a new immutable
+  `GaussianSplatHlodRuntimeData` (edit revision + 1). The base snapshot, the world and a V4 file are never modified. The
+  edited leaves keep their node slot (stable `NodeKey`) and carry the replacement payload in memory (the *overlay*); every
+  other node keeps being served by the base, from RAM or on demand from the file. An edit is refused, with a distinct
+  status and no side effect, unless: the caller's expected revision is the snapshot's, the nodes are distinct leaves, each
+  leaf keeps 1..16,384 splats, every field is finite, the SH size matches, every splat's three-sigma support stays inside
+  the leaf's existing bounds (the strict payload rule of the file format, so no ancestor bound, radius or geometric error
+  changes), the leaf centre still reconstructs exactly, and the overlay fits the snapshot's CPU budget. An edit that would
+  empty a leaf, move splats out of their leaf, or split/merge leaves changes the topology and is deferred.
+- **V4 coexistence.** A paged file is immutable: edits are an overlay, never a rewrite, and `read_node_payload()` of the
+  edited leaf still returns the old file record (tested by digest). Persisting an edit into a new V4 file is F2/F3.
+- **Versioning.** `NodeVersion.content_revision` of an edited leaf is `(1 << 63) | revision`; untouched nodes keep the
+  source revision. A new edit revision invalidates every view's hysteresis like a new source revision does.
+- **Staged, atomic publication** (`NodeResidency::stage_edit / edit_prefetch / finish_shadow / commit_edit / cancel_edit`,
+  `HlodNodeStreamer::stage_edit / commit_staged_edit / cancel_staged_edit`). Admission reserves a *shadow run* for every
+  edited leaf (all or none, after the usual bounded eviction; otherwise `EDIT_NO_SPACE` with nothing changed) and holds
+  the replacement children (the non-stale children of stale nodes) against eviction. The old snapshot, mask and GPU
+  metadata keep serving one consistent old cut while the shadow payloads are packed on the ordinary worker path and the
+  replacement children load as ordinary demand. When every shadow is packed and every replacement child is resident, the
+  owner calls `commit_staged_edit()` once per frame after `begin_frame()` and before selection: payloads go to the shadow
+  runs first, then the new metadata is written, then the residency flips (edited leaf takes its shadow run, the old run
+  and the stale runs retire after the retirement delay, stale metadata is zeroed) and the served snapshot changes in the
+  same call. A draw built after the call can name neither a stale node nor an old leaf version; frames already submitted
+  may still present (§14.8). A payload upload failure before any metadata write cancels the edit and changes nothing; a
+  metadata write failure deactivates the streamer (fail closed, the bundle is rebuilt from the unchanged world).
+- **Generations (D1 rules reused).** Shadow tickets carry the world and device generation and a per-leaf edit generation.
+  Commit gives the leaf a new request generation, so a load of the old content that was in flight is dropped as a late
+  completion; cancelling an edit kills its shadow tickets. Unedited nodes keep their tickets, runs and metadata untouched:
+  a stage/commit does not reset the model.
+- **Quantized route.** A quantized bundle needs DC-homogeneous leaves; an edit that makes a leaf mixed is refused on that
+  route (the same rule the snapshot capture applies).
+
+Not in F1 (deferred): bottom-up rebuild of the stale ancestors (F2: until then the replacement cut above stays, and the
+node/splat caps must have room for it); the durable append-only stable-ID journal, crash recovery and reload (F3); edit
+admission across all admitted views and instanced trees; removing a leaf or moving splats between leaves; an
+edit/commit API on the world, the node and the renderer (the §14.6 surface needs its R3 compatibility review); wiring the
+staged commit into the render loop's per-frame order (the contract above is implemented and tested on the streamer, with
+a real-device test of the publication boundary); the 5 m region front end that turns a tool into leaf edits.
+
 ### 14.6 Public integration contracts
 
 The implementation will bind a small API only after its R3 compatibility review. These are

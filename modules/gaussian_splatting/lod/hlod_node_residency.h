@@ -19,6 +19,19 @@
 // payload was validated, completely uploaded and finish_upload() was called for the current ticket on the
 // current world and device generation; an allocated or partly uploaded run is accounted for separately.
 //
+// Package F1 (ADR 14.5, editable regions): an edit replaces the payload of leaf nodes and makes their ancestors STALE.
+//   stage_edit()    admits the whole edit or none of it: a reserved SHADOW run for every edited leaf (the old run keeps
+//                   serving the old content, which stays consistent until the flip), one ticket per leaf, and a hold on
+//                   the children of every stale node (the replacement cut the selector will draw), which therefore
+//                   cannot be evicted. Nothing drawable changes while the edit is only staged.
+//   edit_prefetch() the children of stale nodes that still need loading, as ordinary demand.
+//   finish_shadow() a packed shadow payload arrived (ticket checked against world, device and edit generation).
+//   commit_edit()   the atomic publication boundary: once every shadow is ready and every replacement child is
+//                   RESIDENT, each edited leaf takes its shadow run (the old run retires, any in-flight ticket of the
+//                   old content dies) and every stale node is dropped (mask 0, run retired, never requested again).
+//   cancel_edit()   gives the reservation back; the world is exactly as before the edit was staged.
+// One edit is staged at a time and its revision must follow the committed one (expected prior revision).
+//
 // Threading: not thread-safe; call from the thread that owns the selection state (the render thread).
 
 #include "../core/gaussian_splat_hlod_runtime_data.h"
@@ -43,6 +56,7 @@ public:
 		uint32_t splat_count = 0;
 		uint32_t parent = UINT32_MAX; // UINT32_MAX for the root.
 		uint32_t height = 0; // 0 = leaf. Larger = coarser. Used for the finest-first eviction order.
+		bool stale = false; // Package F1: ancestor of an edited leaf in an already edited snapshot.
 	};
 
 	struct Config {
@@ -58,6 +72,7 @@ public:
 		uint32_t retry_delay_frames = 8;
 		uint32_t max_failures = 3;
 		bool pin_root = true; // The root is the complete coarse fallback; it is never evicted.
+		uint64_t committed_edit_revision = 0; // Package F1: the edit revision of the snapshot this table describes.
 	};
 
 	// A request handle. Every field is checked on completion: the world generation (which world/snapshot the
@@ -70,6 +85,7 @@ public:
 		uint64_t request_generation = 0;
 		uint64_t world_generation = 0;
 		uint64_t device_generation = 0;
+		bool shadow = false; // Package F1: a payload for the edited leaf's reserved shadow run, not for the node's own run.
 		bool valid() const { return node != UINT32_MAX && request_generation != 0; }
 	};
 
@@ -92,6 +108,25 @@ public:
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
+		// Package F1.
+		bool edit_staged = false;
+		uint32_t pages_shadow = 0; // Pages reserved for staged edited leaves (also counted in pages_in_flight).
+		uint32_t stale_nodes = 0; // Nodes dropped by committed edits.
+		uint64_t edits_committed_total = 0;
+		uint64_t edits_cancelled_total = 0;
+		uint64_t edits_rejected_total = 0;
+		uint64_t committed_edit_revision = 0;
+	};
+
+	enum EditResult : uint8_t {
+		EDIT_OK = 0,
+		EDIT_BUSY, // Another edit is staged, or the residency model is not initialized.
+		EDIT_INVALID, // Wrong revision, bad node, not a leaf, empty leaf, duplicate, or a leaf that is another's ancestor.
+		EDIT_NO_SPACE, // The shadow runs do not fit (after bounded eviction): nothing was changed.
+	};
+	struct EditedLeaf {
+		uint32_t node = 0;
+		uint32_t splat_count = 0; // The replacement payload size.
 	};
 
 	struct RequestResult {
@@ -147,6 +182,25 @@ public:
 	// Evicts one RESIDENT node (never a protected one). The run retires; returns false when refused.
 	bool evict(uint32_t p_node);
 
+	// --- Package F1 ---
+	EditResult stage_edit(uint64_t p_revision, const EditedLeaf *p_leaves, uint32_t p_count, LocalVector<Ticket> &r_tickets);
+	bool is_edit_staged() const { return edit_staged; }
+	uint64_t staged_edit_revision() const { return edit_staged ? staged_revision : 0; }
+	uint64_t committed_edit_revision() const { return committed_revision; }
+	// Appends the replacement children that are not resident yet (children of one parent consecutive), as demand for
+	// request(). Empty when no edit is staged.
+	void edit_prefetch(LocalVector<uint32_t> &r_demand) const;
+	// True while the ticket is the current shadow request of its leaf and its payload has not arrived.
+	bool is_shadow_pending(const Ticket &p_ticket) const;
+	// A packed shadow payload arrived (true) or could not be built (false). False when the ticket is not current.
+	bool finish_shadow(const Ticket &p_ticket, bool p_success);
+	bool edit_ready() const;
+	// A shadow payload failed or a replacement child can never load: the edit cannot commit and should be cancelled.
+	bool edit_blocked() const;
+	bool commit_edit();
+	bool cancel_edit();
+	bool is_stale(uint32_t p_node) const { return p_node < uint32_t(nodes.size()) && nodes[p_node].stale; }
+
 	// Nodes evicted since the last call (the glue clears their GPU node metadata, so an evicted node can never
 	// be drawn from a run that is about to be reused).
 	void take_evicted(LocalVector<uint32_t> &r_nodes) {
@@ -182,6 +236,15 @@ private:
 		uint64_t retry_after_frame = 0;
 		uint64_t demand_pass = 0; // request() pass that last listed this node (duplicate demand is one demand).
 		uint32_t failures = 0;
+		// Package F1.
+		bool stale = false; // Ancestor of an edited leaf: never requested, never drawn, not protected, not pinned.
+		bool edit_hold = false; // Replacement child of a staged edit: protected until the edit commits or is cancelled.
+		enum ShadowState : uint8_t { SHADOW_NONE = 0, SHADOW_LOADING, SHADOW_READY, SHADOW_FAILED };
+		ShadowState shadow_state = SHADOW_NONE;
+		uint64_t shadow_key = 0;
+		uint32_t shadow_first = 0;
+		uint32_t shadow_pages = 0;
+		uint64_t shadow_generation = 0;
 	};
 	struct Retiring {
 		uint64_t alloc_key = 0;
@@ -205,6 +268,14 @@ private:
 	uint32_t evictions_this_frame = 0;
 	uint32_t pages_retiring = 0;
 	Stats totals;
+	// Package F1: the staged edit.
+	bool edit_staged = false;
+	uint64_t staged_revision = 0;
+	uint64_t committed_revision = 0;
+	LocalVector<uint32_t> staged_leaves;
+	LocalVector<uint32_t> staged_stale;
+	LocalVector<uint32_t> staged_required; // Replacement children, grouped by parent.
+	void release_edit_state();
 
 	uint64_t make_alloc_key(uint32_t p_node);
 	void retire_run(Node &r_node);

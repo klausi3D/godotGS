@@ -1340,4 +1340,45 @@ TEST_CASE("[GaussianSplatting][HLOD] Desired(view) separates the nodes to reques
 	CHECK(set.desired(1, count) == nullptr);
 	CHECK(count == 0);
 }
+
+TEST_CASE("[GaussianSplatting][HLOD][Edit] the view set never publishes a stale ancestor and versions an edited leaf apart from its untouched siblings (package F1)") {
+	// Leaf 3 (semantic) is edited at revision 1: its ancestors 1 and 0 are stale. A loose quality threshold would normally
+	// stop at the root; the published cut is the replacement cut {2, 3, 4} instead.
+	auto tree = make_tree(IDENT);
+	tree->edit_revision = 1;
+	tree->edit_state.resize(7);
+	tree->edit_state.fill(GaussianSplatHlodRuntimeData::EDIT_CLEAN);
+	tree->edit_state.write[3] = GaussianSplatHlodRuntimeData::EDIT_LEAF;
+	tree->edit_state.write[1] = GaussianSplatHlodRuntimeData::EDIT_STALE;
+	tree->edit_state.write[0] = GaussianSplatHlodRuntimeData::EDIT_STALE;
+	GaussianSplatHlodRuntimeData::EditedLeaf edited;
+	edited.node = 3;
+	edited.revision = 1;
+	tree->edited.push_back(edited);
+	ViewSet set;
+	auto snap = snapshot(tree);
+	ViewSpec spec = perspective(1);
+	spec.tau_pixels = 1.0e9;
+	CHECK(set.admit_view(snap, spec).status == ViewSet::ADMITTED);
+	snap.views.push_back(spec);
+	Vector<ViewSet::ViewResult> results;
+	CHECK(run(set, snap, results) == ViewSet::SNAPSHOT_OK);
+	const auto *r = result_of(results, 1);
+	if (!r) { FAIL("view result missing"); return; }
+	CHECK(r->readiness == ViewSet::READY);
+	uint32_t n = 0;
+	const DrawRecord *records = set.drawn(1, n);
+	if (!records || n != 3) { FAIL("expected the replacement cut of 3 nodes, got ", n); return; }
+	Vector<uint32_t> nodes = nodes_of(set, 1);
+	nodes.sort();
+	CHECK(same(nodes, { 2, 3, 4 }));
+	for (uint32_t i = 0; i < n; ++i) {
+		CHECK_FALSE(tree->is_stale(records[i].node));
+		if (records[i].node == 3) {
+			CHECK(records[i].version == (NodeVersion{ (uint64_t(1) << 63) | 1, 1 }));
+		} else {
+			CHECK(records[i].version == (NodeVersion{ 7, 1 }));
+		}
+	}
+}
 }

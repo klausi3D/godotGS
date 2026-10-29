@@ -54,6 +54,32 @@ public:
 	Ref<GaussianSplatHlodPagedSource> paged_source;
 	uint32_t paged_sh_first_order = 0;
 
+	// Package F1 (editable regions, ADR 14.5): an edited snapshot is a NEW immutable snapshot derived from `base` by
+	// lod/hlod_edit.*; the base, the world and a V4 package it may read are never modified. Edited leaves keep their
+	// node slot (stable NodeKey) and carry their replacement payload in memory (`edited`), in the snapshot's own leaf
+	// convention (absolute float32 positions). Every ancestor of an edited leaf is STALE: its baked payload no longer
+	// represents its children, so the selector must never draw it or use it as a fallback until a rebake (package F2)
+	// replaces it. edit_revision is 0 for an unedited snapshot and rises by exactly one per accepted edit.
+	enum EditState : uint8_t { EDIT_CLEAN = 0, EDIT_LEAF = 1, EDIT_STALE = 2 };
+	struct EditedLeaf {
+		uint32_t node = 0;
+		uint64_t revision = 0; // The edit that last replaced this leaf's payload.
+		Vector<Gaussian> gaussians; // payload_count entries, leaf convention (absolute float32 positions).
+		Vector<Vector3> sh; // payload_count * high_order_count entries (empty when there is no high-order SH).
+	};
+	uint64_t edit_revision = 0;
+	Vector<uint8_t> edit_state; // Empty (no edits) or one EditState per node.
+	Vector<EditedLeaf> edited; // Sorted by node.
+
+	bool has_edits() const { return edit_revision != 0 && !edit_state.is_empty(); }
+	EditState node_edit_state(uint32_t p_node) const { return p_node < uint32_t(edit_state.size()) ? EditState(edit_state[p_node]) : EDIT_CLEAN; }
+	bool is_stale(uint32_t p_node) const { return node_edit_state(p_node) == EDIT_STALE; }
+	// The replacement payload of an edited leaf, or null.
+	const EditedLeaf *find_edited(uint32_t p_node) const;
+	// Content identity of one node for NodeVersion: the source revision for an untouched node, a value that also
+	// carries the edit revision for an edited leaf (the high bit separates the two spaces).
+	uint64_t node_content_revision(uint32_t p_node) const;
+
 	bool is_paged() const { return paged_source.is_valid(); }
 	uint32_t sh_first_order_count() const { return is_paged() ? paged_sh_first_order : leaves.get_sh_first_order_count(); }
 	bool is_current() const;

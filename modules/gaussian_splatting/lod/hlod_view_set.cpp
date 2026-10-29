@@ -159,6 +159,12 @@ bool ViewSet::view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uin
 	return true;
 }
 
+// A new edit revision (package F1) invalidates a slot's hysteresis exactly like a new source revision does; an
+// unedited snapshot keeps its source revision unchanged.
+static uint64_t snapshot_content_key(const GaussianSplatHlodRuntimeData &p_data) {
+	return p_data.edit_revision == 0 ? p_data.source_revision : (p_data.source_revision * 0x9E3779B97F4A7C15ull) ^ (p_data.edit_revision + 0xD1B54A32D192ED03ull);
+}
+
 // Tie ranks are O(n log n) plus an allocation: keep them per asset content (key, snapshot object, revision,
 // node count) so admission and re-admission share them. Slots hold a copy-on-write reference.
 bool ViewSet::cached_tie_rank(const SnapshotAsset &p_asset, Vector<uint32_t> &r_rank) const {
@@ -313,7 +319,7 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 				}
 			}
 			if (!reused) {
-				slot.content_revision = asset.data->source_revision;
+				slot.content_revision = snapshot_content_key(*asset.data.ptr());
 				if (!slot.history.reserve(nodes) || !cached_tie_rank(asset, slot.tie_rank)) { return false; }
 			}
 		}
@@ -323,10 +329,10 @@ bool ViewSet::prepare_slots(View &r_view, const SelectionSnapshot &p_snapshot) c
 	for (int i = 0; i < count; ++i) {
 		const SnapshotAsset &asset = p_snapshot.assets[p_snapshot.instances[order[i]].asset_index];
 		InstanceSlot &slot = r_view.slots.write[i];
-		if (slot.content_revision != asset.data->source_revision) {
+		if (slot.content_revision != snapshot_content_key(*asset.data.ptr())) {
 			if (!cached_tie_rank(asset, slot.tie_rank)) { return false; }
 			slot.history.invalidate();
-			slot.content_revision = asset.data->source_revision;
+			slot.content_revision = snapshot_content_key(*asset.data.ptr());
 		}
 	}
 	return true;
@@ -583,7 +589,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 						DrawRecord &rec = view.staging.write[staged];
 						rec.instance_key = inst.instance_key;
 						rec.node = slot.history.selected_node(k);
-						rec.version = NodeVersion{ asset.data->source_revision, asset.bake_rule_revision };
+						rec.version = NodeVersion{ asset.data->node_content_revision(rec.node), asset.bake_rule_revision };
 						if (!make_node_key(*asset.data.ptr(), rec.node, asset.asset_key, rec.key) ||
 								!gs_world_frame::camera_relative_offset(inst.placement, asset.data->nodes[rec.node].precise_center,
 										camera_precise, rec.camera_offset)) {

@@ -62,6 +62,7 @@ public:
 		double estimated_records = 0.0;
 		bool budget_bound = false;
 		bool bootstrapped = false; // Root failed admission and a child frontier was selected instead.
+		bool edit_forced = false; // Package F1: stale ancestors of edited leaves were replaced by their children (ADR 14.5).
 	};
 	bool reserve(uint32_t p_nodes);
 	void invalidate();

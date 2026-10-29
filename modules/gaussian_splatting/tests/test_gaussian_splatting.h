@@ -136,6 +136,8 @@
 	static const volatile int test_hlod_paged_package_cpp_force_link_anchor = test_hlod_paged_package_cpp_force_link();
 	extern "C" int test_hlod_node_residency_cpp_force_link();
 	static const volatile int test_hlod_node_residency_cpp_force_link_anchor = test_hlod_node_residency_cpp_force_link();
+	extern "C" int test_hlod_editable_regions_cpp_force_link();
+	static const volatile int test_hlod_editable_regions_cpp_force_link_anchor = test_hlod_editable_regions_cpp_force_link();
 	extern "C" int test_hlod_view_set_cpp_force_link();
 	static const volatile int test_hlod_view_set_cpp_force_link_anchor = test_hlod_view_set_cpp_force_link();
 	extern "C" int test_hlod_world_frame_cpp_force_link();
