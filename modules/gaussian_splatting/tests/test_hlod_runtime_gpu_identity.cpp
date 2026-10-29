@@ -16,6 +16,7 @@
 #include "../nodes/gaussian_splat_world_3d.h"
 #include "../interfaces/output_compositor.h"
 #include "../io/gaussian_splat_world_io.h"
+#include "../interfaces/output_compositor.h"
 #include "gs_test_pump.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
@@ -571,7 +572,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a p
     if (state.hlod_snapshot.is_null() || !state.hlod_snapshot->is_paged()) { FAIL("paged HLOD snapshot missing"); return; }
     CHECK(state.hlod_prepared_snapshot.is_null());
     CHECK_FALSE(state.hlod_frame_active);
-    CHECK(state.hlod_reason == String("resource_ledger_warmup_or_unavailable"));
+    CHECK(state.hlod_reason == String("hlod_paged_provisioning_needs_render_target")); // not overwritten by the warmup reason
     // No stand-in: no canonical contract, nothing sorted, nothing rendered.
     CHECK_FALSE(renderer->is_instance_contract_ready());
     CHECK_FALSE(renderer->has_rendered_content());
@@ -619,5 +620,58 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a p
     CHECK(renderer->get_sorting_state().sorted_splat_count == 4);
     const auto &state = renderer->get_resource_state();
     CHECK((state.hlod_snapshot.is_null() || !state.hlod_snapshot->is_paged()));
+}
+
+// N1: the HLOD texture ledgers must track the textures still owned. Resizing a viewport many times (an editor session)
+// used to add every discarded texture again, until the route's byte limit refused every frame for good.
+TEST_CASE("[GaussianSplatting][HLOD][Ledger][World][SceneTree][RequiresGPU] repeated viewport resizes keep the texture and scratch ledgers at the live bytes") {
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    if (!rd) { FAIL("GPU harness required"); return; }
+    ScopedSortDevice manager_device(rd);
+    Ref<TileRenderer> tile;
+    tile.instantiate();
+    if (tile->initialize(rd, Vector2i(256, 256)) != OK) { FAIL("TileRenderer init failed"); return; }
+    uint64_t base = 0;
+    if (!tile->get_hlod_texture_byte_upper_bound(base) || base == 0) { FAIL("tile ledger unavailable after init"); return; }
+    uint64_t after_first_cycle = 0;
+    for (int i = 0; i < 40; ++i) {
+        const Vector2i size = (i % 2 == 0) ? Vector2i(512, 384) : Vector2i(256, 256);
+        if (tile->resize(size, RD::DATA_FORMAT_MAX) != OK) { FAIL("resize failed"); return; }
+        uint64_t bytes = 0;
+        if (!tile->get_hlod_texture_byte_upper_bound(bytes)) { FAIL("tile ledger lost validity at resize ", i); return; }
+        if (i == 1) { after_first_cycle = bytes; }
+        if (i > 1 && i % 2 == 1) {
+            // The same viewport again: exactly the same live bytes, not one more discarded set per resize.
+            CHECK(bytes == after_first_cycle);
+        }
+    }
+    CHECK(after_first_cycle <= 2 * base + (uint64_t(1) << 20));
+
+    Ref<OutputCompositor> compositor;
+    compositor.instantiate();
+    RD::TextureFormat format;
+    format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+    format.texture_type = RD::TEXTURE_TYPE_2D;
+    format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+    uint64_t scratch_peak = 0;
+    uint64_t last = 0;
+    for (int i = 0; i < 40; ++i) {
+        const Size2i extent(128 + 16 * (i % 5), 128 + 16 * (i % 7)); // many distinct extents: the pool evicts, then re-creates
+        format.width = extent.x;
+        format.height = extent.y;
+        if (!compositor->ensure_hlod_scratch(rd, format, extent)) { FAIL("scratch creation failed"); return; }
+        if (!compositor->get_hlod_scratch_byte_upper_bound(rd, last)) { FAIL("scratch ledger unavailable at ", i); return; }
+        scratch_peak = MAX(scratch_peak, last);
+    }
+    // The pool keeps 4 textures per kind (192 x 224 x 4 B at most); 40 cumulative creations would be many times that.
+    CHECK(scratch_peak <= uint64_t(4) * 192 * 224 * 4);
+    compositor->clear_viewport_blit_resources();
+    uint64_t after_clear = 1;
+    CHECK_FALSE(compositor->get_hlod_scratch_byte_upper_bound(rd, after_clear)); // nothing live: no stale bytes, ledger re-based
+    format.width = 128;
+    format.height = 128;
+    CHECK(compositor->ensure_hlod_scratch(rd, format, Size2i(128, 128)));
+    CHECK(compositor->get_hlod_scratch_byte_upper_bound(rd, after_clear));
+    CHECK(after_clear == uint64_t(128) * 128 * 4);
 }
 }

@@ -618,6 +618,11 @@ Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
     const Vector<GaussianSplatHlodPagedSource::NodeRecord> &records = source->get_nodes();
     const uint64_t total = uint64_t(info.leaf_splat_count) + info.interior_splat_count;
     uint64_t gaussian_bytes = 0, sh_bytes = 0;
+    // LocalVector indexes with uint32_t: the SH element counts must fit it too.
+    if (uint64_t(info.leaf_splat_count) * info.sh_high_order > UINT32_MAX || uint64_t(info.interior_splat_count) * info.sh_high_order > UINT32_MAX) {
+        r_reason = "hlod_paged_materialize_sh_index_range";
+        return ERR_PARAMETER_RANGE_ERROR;
+    }
     if (total > UINT32_MAX || !gs_hlod_runtime::allocation_bytes(total, sizeof(Gaussian), gaussian_bytes) ||
             !gs_hlod_runtime::allocation_bytes(total * info.sh_high_order, sizeof(Vector3), sh_bytes)) {
         r_reason = "hlod_paged_materialize_too_large";
@@ -628,7 +633,9 @@ Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
     LocalVector<Vector3> leaf_sh;
     LocalVector<Vector3> interior_sh;
     {
-        void *probe = memalloc(gaussian_bytes + sh_bytes);
+        // Peak is about twice the payload: our vectors, plus the copy GaussianData::set_gaussian_payload makes of the leaves
+        // from a const reference (the vectors are released only after it returns).
+        void *probe = memalloc(2 * (gaussian_bytes + sh_bytes));
         if (!probe) {
             r_reason = "hlod_paged_materialize_too_large";
             return ERR_OUT_OF_MEMORY;

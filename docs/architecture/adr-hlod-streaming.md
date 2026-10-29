@@ -1290,6 +1290,10 @@ Contracts implemented:
   so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
   canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
   point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
+- **Ledgers track live bytes.** The tile renderer's texture ledger and the compositor's scratch ledger record each texture
+  under its RID and subtract it when the device no longer holds it (reconciled whenever the ledger is read; an empty
+  ledger is re-based, which also clears an invalid state after a device change), so viewport resizes do not accumulate
+  toward the route's byte limit. The device retires freed memory lazily, so the ledger can undercount for a frame or two.
 - **Fallback.** Where the HLOD route can never serve the setup (runtime cut disabled, LOD off, wind/sphere effectors,
   painterly, shadow filter, non-identity transform) and the world node can see it at submission,
   `GaussianSplatWorld::materialize_paged_resident` reads every node (each validated like a streamer read), builds the
