@@ -1294,9 +1294,19 @@ Contracts implemented:
   16-bit packed-stage gate) is indexed by atlas record, so its admission (`prepare_hlod_scratch`) is sized from the
   atlas the relative bundle holds (`ResidentAtlasBudget::hlod_relative_atlas_records`) and the history from the larger
   of that and the cut capacity, as the frame does. A paged world always streams, and every node rounds up to whole
-  pages: once the atlas budget reaches the tree's node pages the atlas holds more records than the tree has splats
-  (holzbank, 287737 splats in 302 node pages: a 50 MiB override admits 290 pages = 296960 records). Sizing from the tree refused every
-  such frame and drew black while the reason still said `active`.
+  pages: once the atlas budget reaches the tree's node pages the atlas holds more records than the tree has splats.
+  Holzbank has 287737 splats in 302 node pages: with 176 B records a 50 MiB override admits 290 pages = 296960 records
+  (48 MiB stays below); with quantized 160 B records the tree is exceeded from 44 MiB on (281 pages = 287744 records).
+  Sizing from the tree refused every such frame and drew black while the reason still said `active`.
+- **The page budget reserves that scratch.** The scratch is admitted from the same device ledger headroom as the atlas
+  pages, after them. `hlod_stream_page_budget` therefore reserves it (`TileRenderer::get_hlod_scratch_reservation`:
+  projection, visibility and history floor for the cut capacity plus 9 B per atlas record), so a ledger-bound budget
+  can no longer spend the headroom the scratch admission needs and leave the world drawing nothing for good.
+- **A refused frame is not active.** The publisher marks a frame active before the tile stage runs. When the tile stage
+  refuses it (scratch or layout differs from its admission) the frame reports `hlod_tile_stage_refused:<cause>`
+  (`projection_layout`, `bounds_mode`, `sh_mode`, `sh_cache_capacity`, `history_capacity`, `visibility_capacity`,
+  `tile_render_failed`), `hlod_active` false, is not counted as a ready or first-ready streamed frame, and counts in
+  `hlod_tile_stage_refused_frames`.
 - **Ledgers track live bytes.** The tile renderer's texture ledger and the compositor's scratch ledger record each texture
   under its RID and subtract it when the device no longer holds it (reconciled whenever the ledger is read; an empty
   ledger is re-based, which also clears an invalid state after a device change), so viewport resizes do not accumulate

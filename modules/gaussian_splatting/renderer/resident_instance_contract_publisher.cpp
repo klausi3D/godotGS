@@ -1653,8 +1653,13 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             }
             // Bytes of the relative bundle that do not scale with the atlas (everything but the atlas records).
             const uint64_t fixed_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, 1) - record_stride;
+            // The frame scratch is admitted later from the same ledger headroom: reserve it here, or a ledger-bound
+            // page budget leaves the scratch admission refusing every frame.
+            uint64_t scratch_fixed = 0, scratch_per_record = 0;
+            TileRenderer::get_hlod_scratch_reservation(relative_capacity, scratch_fixed, scratch_per_record);
             const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget(atlas_limit, record_stride, stream_config.page_splats,
-                    node_pages, fixed_bytes, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, route_limit, device_bytes);
+                    node_pages, fixed_bytes, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, route_limit, device_bytes,
+                    scratch_fixed, scratch_per_record);
             if (pages == 0 || pages * stream_config.page_splats > UINT32_MAX) {
                 state.hlod_reason = whole_atlas_bytes > atlas_limit ? "hlod_existing_atlas_limit" : "hlod_candidate_memory_limit";
                 return 0;

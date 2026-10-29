@@ -537,6 +537,7 @@ private:
 		}
 		bool packed_stage_changed = (renderer.render_settings.enable_packed_stage_data != packed_stage_requested);
 		if (params.hlod_relative && packed_stage_changed) {
+			renderer.last_hlod_refusal = "projection_layout";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD projection layout differs from its admitted scratch layout.");
 			return false;
 		}
@@ -545,6 +546,7 @@ private:
 		bool tighter_bounds_requested = params.request_tighter_bounds;
 		bool tighter_bounds_changed = (renderer.render_settings.enable_tighter_bounds != tighter_bounds_requested);
 		if (params.hlod_relative && tighter_bounds_changed) {
+			renderer.last_hlod_refusal = "bounds_mode";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD bounds mode differs from its admitted scratch mode.");
 			return false;
 		}
@@ -569,6 +571,7 @@ private:
 		}
 		if (params.hlod_relative && (renderer.render_settings.enable_sh_amortization != sh_amortization_requested ||
 				renderer.render_settings.sh_amortization_divisor != sh_divisor)) {
+			renderer.last_hlod_refusal = "sh_mode";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD SH mode differs from its admitted scratch mode.");
 			return false;
 		}
@@ -577,6 +580,7 @@ private:
 			if (params.hlod_relative) {
 				if (!renderer.sh_cache_buffers.sh_color_cache.is_valid() ||
 						renderer.sh_cache_buffers.sh_color_cache_size < uint64_t(resolved_total_gaussians) * sizeof(uint32_t)) {
+					renderer.last_hlod_refusal = "sh_cache_capacity";
 					ERR_PRINT_ONCE("[TileRenderer] HLOD SH cache differs from its admitted scratch capacity.");
 					return false;
 				}
@@ -605,6 +609,7 @@ private:
 			if (!params.hlod_relative) {
 				renderer.subpixel_history_buffers.ensure_history_buffer(subpixel_history_entries);
 			} else if (renderer.subpixel_history_buffers.subpixel_history_size < uint64_t(subpixel_history_entries) * sizeof(uint32_t)) {
+				renderer.last_hlod_refusal = "history_capacity";
 				ERR_PRINT_ONCE("[TileRenderer] HLOD history exceeds its admitted scratch capacity.");
 				return false;
 			}
@@ -686,6 +691,7 @@ private:
 		if (!params.hlod_relative) {
 			renderer.subpixel_visibility_buffers.ensure_visibility_buffer(effective_visible_splats);
 		} else if (renderer.subpixel_visibility_buffers.subpixel_visibility_size < uint64_t(MAX(effective_visible_splats, 1u)) * sizeof(uint32_t)) {
+			renderer.last_hlod_refusal = "visibility_capacity";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD visibility exceeds its admitted scratch capacity.");
 			return false;
 		}
@@ -3073,6 +3079,7 @@ RID TileRenderer::render(RenderingDevice *p_rendering_device, const RenderParams
     RenderingDevice *resource_device = _get_resource_device();
     ERR_FAIL_NULL_V_MSG(resource_device, RID(), "[TileRenderer] Rendering device is required");
 
+    last_hlod_refusal = String();
     RenderFrameExecutor executor(*this, p_rendering_device, p_params, resource_device);
     return executor.run();
 }
@@ -4061,6 +4068,18 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
     _ensure_global_sort_resources(needed);
     overflow.overflow_detected = false;
     return true;
+}
+
+void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record) {
+    // Mirrors prepare_hlod_scratch(): projection at the power-of-two capacity of the cut (_compute_projection_buffer_bytes),
+    // visibility per cut splat, history max(records, cut) <= records + cut, and the SH cache 4 B per record plus the
+    // growth slack of tile_compute_sh_cache_resize_plan (max(25 %, 4096 B)) <= 5 B per record + 4096 B.
+    const uint32_t required = MAX<uint32_t>(p_visible, 1u);
+    uint64_t projection_capacity = 1u;
+    while (projection_capacity < required) { projection_capacity <<= 1u; }
+    r_fixed_bytes = projection_capacity * TileProjectionLayout::STRIDE_FULL + 2u * uint64_t(p_visible) * sizeof(uint32_t) +
+            GaussianSplatting::TILE_SH_CACHE_MIN_GROWTH_SLACK_BYTES;
+    r_bytes_per_record = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) * GaussianSplatting::TILE_SH_CACHE_GROWTH_SLACK_PERCENT / 100u;
 }
 
 bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
