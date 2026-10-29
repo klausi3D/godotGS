@@ -9,6 +9,7 @@ extern "C" int test_hlod_editable_regions_cpp_force_link() { return 0; }
 #include "../lod/hlod_runtime_selection.h"
 #include "../renderer/hlod_node_pack.h"
 #include "../renderer/hlod_node_streamer.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
 #include "core/os/os.h"
@@ -82,6 +83,14 @@ static CutRequest base_request(uint32_t p_nodes) {
 	r.record_budget = 1.0e9;
 	r.splat_budget = 1u << 30;
 	r.node_budget = p_nodes;
+	return r;
+}
+
+// A view that sees the whole world from far away: the record estimate stays within the budget.
+static CutRequest far_view(uint32_t p_nodes, double p_tau = 1.0) {
+	CutRequest r = base_request(p_nodes);
+	r.camera = Vector3(0, 0, 1000);
+	r.tau_pixels = p_tau;
 	return r;
 }
 
@@ -220,10 +229,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] an edit of the root leaf and a tree e
 // ---------------------------------------------------------------------------------------------------------------------
 // Residency: staged edits.
 // ---------------------------------------------------------------------------------------------------------------------
-static Residency::Config residency_config(uint32_t p_pages) {
+static Residency::Config residency_config(uint32_t p_pages, uint32_t p_retire = 2) {
 	Residency::Config c;
 	c.page_capacity = p_pages;
-	c.retire_delay_frames = 2;
+	c.retire_delay_frames = p_retire;
 	c.max_requests_per_frame = 64;
 	c.evictions_per_frame = 64;
 	return c;
@@ -234,11 +243,12 @@ struct EditSim {
 	Ref<GaussianSplatHlodRuntimeData> data;
 	Residency res;
 	uint64_t frame = 0;
+	uint32_t retire = 2;
 	bool init(uint32_t p_pages) {
 		data.instantiate();
 		binary_tree(*data.ptr(), 4);
 		Vector<Residency::NodeInfo> infos;
-		if (!make_node_infos(*data.ptr(), infos) || !res.reset(infos, residency_config(p_pages), 1, 1)) { return false; }
+		if (!make_node_infos(*data.ptr(), infos) || !res.reset(infos, residency_config(p_pages, retire), 1, 1)) { return false; }
 		res.begin_frame(++frame);
 		std::vector<uint32_t> all;
 		for (uint32_t i = 0; i < 15; ++i) { all.push_back(i); }
@@ -409,6 +419,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] an edit is admitted whole 
 	CHECK_FALSE(sim.res.is_edit_staged());
 	CHECK(sim.res.stats().pages_free == before.pages_free);
 	CHECK(sim.res.stats().pages_shadow == 0);
+	CHECK(sim.res.stats().evicted_total == before.evicted_total); // A refused edit evicts nothing.
 	CHECK(sim.res.stats().edits_rejected_total == 7);
 	sim.step();
 	sim.step();
@@ -799,17 +810,18 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] the node streamer packs an e
 	GS_NEED(streamer->init(w.paged, config, 1, 1));
 	streamer->begin_frame();
 	CHECK(streamer->get_data() == w.paged);
+	streamer->register_view(1, far_view(uint32_t(w.paged->nodes.size())));
 
 	// Not a derivative of the served snapshot: refused, nothing staged.
 	CHECK(streamer->stage_edit(Ref<GaussianSplatHlodRuntimeData>()) == HlodNodeStreamer::EDIT_REJECTED_DATA);
-	CHECK(streamer->stage_edit(w.paged) == HlodNodeStreamer::EDIT_REJECTED_DATA);
+	CHECK(streamer->stage_edit(w.paged) == HlodNodeStreamer::EDIT_REJECTED_LINEAGE); // Not derived from the served snapshot.
 	Ref<GaussianSplatHlodRuntimeData> skip; // Revision 2 against a served revision 0.
 	{
 		Ref<GaussianSplatHlodRuntimeData> once;
 		GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, once, reason) == EditStatus::OK);
 		GS_NEED(make_edited_snapshot(once, 1, &edit, 1, skip, reason) == EditStatus::OK);
 	}
-	CHECK(streamer->stage_edit(skip) == HlodNodeStreamer::EDIT_REJECTED_DATA);
+	CHECK(streamer->stage_edit(skip) == HlodNodeStreamer::EDIT_REJECTED_LINEAGE);
 	CHECK_FALSE(streamer->is_edit_staged());
 
 	GS_NEED(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_STAGED);
@@ -873,6 +885,23 @@ struct GpuEditRun {
 	}
 };
 
+// The first leaf whose chain of ancestors up to (excluding) the root differs from `p_other`'s first step, so an edit there
+// is in a sibling branch of an edit at `p_other`.
+static uint32_t pick_sibling_branch_leaf(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_other) {
+	auto top = [&](uint32_t n) {
+		while (p_data.nodes[n].topology.parent != 0 && p_data.nodes[n].topology.parent != gs_hlod::kNoParent) { n = p_data.nodes[n].topology.parent; }
+		return n;
+	};
+	const uint32_t other_top = top(p_other);
+	for (uint32_t i = 0; i < uint32_t(p_data.nodes.size()); ++i) {
+		if (p_data.nodes[i].topology.child_count == 0 && p_data.nodes[i].topology.payload_count > 4 && i != p_other && top(i) != other_top &&
+				p_data.find_edited(i) == nullptr) {
+			return i;
+		}
+	}
+	return UINT32_MAX;
+}
+
 static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const char *p_label) {
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (!rd) { FAIL("GPU harness RenderingDevice required"); return; }
@@ -882,7 +911,7 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 	for (uint32_t n = 0; n < node_total; ++n) {
 		pages += (p_base->nodes[n].topology.payload_count + config.page_splats - 1u) / config.page_splats;
 	}
-	config.atlas_pages = pages + 16; // Room for the shadow run and the retiring runs.
+	config.atlas_pages = pages + 24; // Room for the shadow runs and the retiring runs.
 	Ref<HlodNodeStreamer> streamer;
 	streamer.instantiate();
 	GS_NEED(streamer->init(p_base, config, 1, rd->get_device_instance_id()));
@@ -897,24 +926,41 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 	gpu.buffers.atlas = rd->storage_buffer_create(uint32_t(gpu.atlas_bytes), zero_atlas);
 	gpu.buffers.chunk_meta = rd->storage_buffer_create(uint32_t(zero_meta.size()), zero_meta);
 	GS_NEED(gpu.buffers.atlas.is_valid() && gpu.buffers.chunk_meta.is_valid());
+	streamer->register_view(1, far_view(node_total, 1.0e9));
 
-	// Everything is demanded, so the whole tree streams in (children of one parent are consecutive in BFS order).
-	LocalVector<DesiredRecord> everything;
-	for (uint32_t n = 0; n < node_total; ++n) {
-		DesiredRecord record;
-		record.node = n;
-		everything.push_back(record);
-	}
+	// Everything that is not stale is demanded, so the whole tree streams in (children of one parent are consecutive in
+	// BFS order). A stale node is never requested.
 	auto pump = [&](uint32_t p_frames, const std::function<bool()> &p_done) {
+		LocalVector<DesiredRecord> everything;
 		for (uint32_t f = 0; f < p_frames && !p_done(); ++f) {
-			streamer->begin_frame();
-			streamer->commit_staged_edit(rd, gpu.buffers);
+			everything.clear();
+			for (uint32_t n = 0; n < node_total; ++n) {
+				if (streamer->get_data()->is_stale(n)) { continue; }
+				DesiredRecord record;
+				record.node = n;
+				everything.push_back(record);
+			}
+			streamer->begin_frame(rd, &gpu.buffers); // Commits a ready staged edit before anything selects.
+			if (streamer->get_last_commit_result() == HlodNodeStreamer::COMMIT_DONE) {
+				// The publication boundary itself: the moment commit returns, before this frame's update(), no stale ancestor
+				// can be drawn (its metadata is already zero) and the served snapshot is the edited one.
+				const Vector<uint8_t> at_boundary = rd->buffer_get_data(gpu.buffers.chunk_meta);
+				const ChunkMetaGPU *boundary = reinterpret_cast<const ChunkMetaGPU *>(at_boundary.ptr());
+				for (uint32_t n = 0; n < node_total; ++n) {
+					if (streamer->get_data()->is_stale(n)) { CHECK(boundary[n].splat_count == 0); }
+				}
+			}
 			streamer->update(rd, gpu.buffers, everything.ptr(), everything.size(), nullptr, 0);
 			OS::get_singleton()->delay_usec(1000);
 		}
 	};
-	pump(2000, [&]() { return streamer->get_telemetry().resident == node_total; });
-	GS_NEED(streamer->get_telemetry().resident == node_total);
+	auto nonstale_resident = [&]() {
+		uint32_t expected = 0;
+		for (uint32_t n = 0; n < node_total; ++n) { expected += streamer->get_data()->is_stale(n) ? 0u : 1u; }
+		return streamer->get_telemetry().resident == expected;
+	};
+	pump(3000, nonstale_resident);
+	GS_NEED(nonstale_resident());
 	CHECK(streamer->get_telemetry().failed_total == 0);
 
 	const uint32_t leaf = pick_leaf(*p_base.ptr());
@@ -929,97 +975,481 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 	const Vector<uint8_t> meta_before = rd->buffer_get_data(gpu.buffers.chunk_meta);
 	const Vector<uint8_t> atlas_before = rd->buffer_get_data(gpu.buffers.atlas);
 
+	// A view whose caps cannot hold the replacement cut: refused before anything changes (ADR 14.5 reservation).
+	streamer->register_view(2, far_view(2, 1.0e9));
+	CHECK(streamer->stage_edit(edited) == HlodNodeStreamer::EDIT_REJECTED_INFEASIBLE);
+	CHECK_FALSE(streamer->is_edit_staged());
+	CHECK(streamer->get_data() == p_base);
+	CHECK(rd->buffer_get_data(gpu.buffers.chunk_meta) == meta_before);
+	streamer->register_view(2, far_view(node_total, 1.0e9)); // Same key: now every known view holds the cut.
+
 	GS_NEED(streamer->stage_edit(edited) == HlodNodeStreamer::EDIT_STAGED);
 	// Staged only: not one byte of GPU metadata changed and the served snapshot is the old one.
 	CHECK(streamer->get_data() == p_base);
 	const Vector<uint8_t> meta_staged = rd->buffer_get_data(gpu.buffers.chunk_meta);
 	CHECK(meta_staged == meta_before);
-	pump(2000, [&]() { return streamer->get_telemetry().edits_committed_total != 0; });
+	pump(3000, [&]() { return streamer->get_telemetry().edits_committed_total != 0; });
 	GS_NEED(streamer->get_telemetry().edits_committed_total == 1);
 	CHECK(streamer->get_telemetry().edit_commit_failures_total == 0);
 	CHECK(streamer->get_data() == edited);
 	CHECK_FALSE(streamer->is_edit_staged());
 
-	const Vector<uint8_t> meta_after = rd->buffer_get_data(gpu.buffers.chunk_meta);
-	const Vector<uint8_t> atlas_after = rd->buffer_get_data(gpu.buffers.atlas);
-	const ChunkMetaGPU *before = reinterpret_cast<const ChunkMetaGPU *>(meta_before.ptr());
-	const ChunkMetaGPU *after = reinterpret_cast<const ChunkMetaGPU *>(meta_after.ptr());
-	uint32_t stale_total = 0;
-	for (uint32_t n = 0; n < node_total; ++n) {
-		if (edited->is_stale(n)) {
-			// A stale ancestor can never be drawn again: its metadata is zeroed.
-			++stale_total;
-			CHECK(after[n].splat_count == 0);
-			CHECK(streamer->resident_mask()[n] == 0);
-		} else if (n == leaf) {
-			CHECK(after[n].splat_count == edit.gaussians.size());
-			CHECK(after[n].atlas_base != before[n].atlas_base); // On its new run.
-			CHECK(streamer->resident_mask()[n] == 1);
-		} else {
-			// Unedited regions are byte-identical: metadata and atlas run.
-			CHECK(memcmp(&before[n], &after[n], sizeof(ChunkMetaGPU)) == 0);
-			uint32_t first = 0, run_pages = 0;
-			if (streamer->get_residency().run(n, first, run_pages)) {
-				const uint64_t stride = streamer->record_stride();
-				const uint64_t offset = uint64_t(first) * config.page_splats * stride;
-				const uint64_t bytes = uint64_t(edited->nodes[n].topology.payload_count) * stride;
-				CHECK(memcmp(atlas_before.ptr() + offset, atlas_after.ptr() + offset, size_t(bytes)) == 0);
+	// Verifies one committed state against the base: stale metadata zero, edited leaves on their new runs holding the
+	// replacement payload, every other node byte-identical to `p_meta_ref` / `p_atlas_ref`, and the cut the selector may
+	// draw is complete, stale-free, resident and carries splats (nonresident_drawn == 0).
+	auto verify = [&](const Ref<GaussianSplatHlodRuntimeData> &p_served, const std::vector<std::pair<uint32_t, const LeafEdit *>> &p_edits,
+						  const Vector<uint8_t> &p_meta_ref, const Vector<uint8_t> &p_atlas_ref) {
+		const Vector<uint8_t> meta_after = rd->buffer_get_data(gpu.buffers.chunk_meta);
+		const Vector<uint8_t> atlas_after = rd->buffer_get_data(gpu.buffers.atlas);
+		const ChunkMetaGPU *before = reinterpret_cast<const ChunkMetaGPU *>(p_meta_ref.ptr());
+		const ChunkMetaGPU *after = reinterpret_cast<const ChunkMetaGPU *>(meta_after.ptr());
+		uint32_t stale_total = 0;
+		for (uint32_t n = 0; n < node_total; ++n) {
+			const LeafEdit *edited_leaf = nullptr;
+			for (const auto &e : p_edits) { if (e.first == n) { edited_leaf = e.second; } }
+			if (p_served->is_stale(n)) {
+				++stale_total;
+				CHECK(after[n].splat_count == 0); // A stale ancestor can never be drawn again.
+				CHECK(streamer->resident_mask()[n] == 0);
+			} else if (edited_leaf) {
+				CHECK(after[n].splat_count == edited_leaf->gaussians.size());
+				CHECK(streamer->resident_mask()[n] == 1);
+				Vector<PackedGaussian> expect;
+				expect.resize(edited_leaf->gaussians.size());
+				ChunkMetaGPU expect_meta;
+				SHCompressionMetrics metrics;
+				gs_hlod_pack::Output out;
+				out.raw = expect.ptrw();
+				out.meta = &expect_meta;
+				out.metrics = &metrics;
+				gs_hlod_pack::Params params;
+				params.relative = true;
+				gs_hlod_pack::PayloadView view;
+				view.gaussians = edited_leaf->gaussians.ptr();
+				view.sh = edited_leaf->sh.is_empty() ? nullptr : edited_leaf->sh.ptr();
+				if (gs_hlod_pack::pack_node(*p_served.ptr(), n, params, after[n].atlas_base, out, &view)) {
+					CHECK(memcmp(atlas_after.ptr() + uint64_t(after[n].atlas_base) * sizeof(PackedGaussian), expect.ptr(), size_t(expect.size()) * sizeof(PackedGaussian)) == 0);
+				}
+			} else if (before[n].splat_count != 0) {
+				// Unedited regions are byte-identical: metadata and atlas run.
+				CHECK(memcmp(&before[n], &after[n], sizeof(ChunkMetaGPU)) == 0);
+				uint32_t first = 0, run_pages = 0;
+				if (streamer->get_residency().run(n, first, run_pages)) {
+					const uint64_t stride = streamer->record_stride();
+					const uint64_t offset = uint64_t(first) * config.page_splats * stride;
+					const uint64_t bytes = uint64_t(p_served->nodes[n].topology.payload_count) * stride;
+					CHECK(memcmp(p_atlas_ref.ptr() + offset, atlas_after.ptr() + offset, size_t(bytes)) == 0);
+				}
 			}
 		}
-	}
-	CHECK(stale_total >= 1);
-	// The edited leaf's new run holds exactly the replacement payload as the shared packing path packs it.
-	Vector<PackedGaussian> expect;
-	expect.resize(edit.gaussians.size());
-	ChunkMetaGPU expect_meta;
-	SHCompressionMetrics metrics;
-	gs_hlod_pack::Output out;
-	out.raw = expect.ptrw();
-	out.meta = &expect_meta;
-	out.metrics = &metrics;
-	gs_hlod_pack::Params params;
-	params.relative = true;
-	gs_hlod_pack::PayloadView view;
-	view.gaussians = edit.gaussians.ptr();
-	view.sh = edit.sh.is_empty() ? nullptr : edit.sh.ptr();
-	GS_NEED(gs_hlod_pack::pack_node(*edited.ptr(), leaf, params, after[leaf].atlas_base, out, &view));
-	CHECK(memcmp(atlas_after.ptr() + uint64_t(after[leaf].atlas_base) * sizeof(PackedGaussian), expect.ptr(), size_t(expect.size()) * sizeof(PackedGaussian)) == 0);
+		CHECK(stale_total >= 1);
+		CutHistory history;
+		GS_NEED(history.reserve(node_total));
+		for (const double tau : { 1.0e9, 0.001 }) {
+			CutRequest request = far_view(node_total, tau);
+			request.resident = streamer->resident_mask().ptr();
+			request.resident_count = streamer->resident_mask().size();
+			history.invalidate();
+			const CutHistory::Result cut = history.select(*streamer->get_data().ptr(), request);
+			CHECK(cut.status == CutHistory::COMPLETE);
+			const std::vector<uint32_t> drawn = cut_of(history, cut);
+			CHECK(exact_cover(*p_served.ptr(), drawn));
+			uint32_t nonresident_drawn = 0;
+			for (uint32_t node : drawn) {
+				CHECK_FALSE(p_served->is_stale(node));
+				nonresident_drawn += (streamer->resident_mask()[node] == 0 || after[node].splat_count == 0) ? 1 : 0;
+			}
+			CHECK(nonresident_drawn == 0);
+			if (tau > 1.0) {
+				for (const auto &e : p_edits) {
+					CHECK(std::count(drawn.begin(), drawn.end(), e.first) == 1); // Far view: edited leaves are drawn at full detail.
+				}
+			}
+		}
+	};
+	verify(edited, { { leaf, &edit } }, meta_before, atlas_before);
 
-	// What the selector may now draw: a complete cut of the NEW snapshot over the streamer's resident mask, with no
-	// stale node, every drawn node resident and carrying splats, at a far and at a near quality threshold.
-	CutHistory history;
-	GS_NEED(history.reserve(node_total));
-	for (const double tau : { 1.0e9, 0.001 }) {
-		CutRequest request = base_request(node_total);
-		request.tau_pixels = tau;
-		request.resident = streamer->resident_mask().ptr();
-		request.resident_count = streamer->resident_mask().size();
-		history.invalidate();
-		const CutHistory::Result cut = history.select(*streamer->get_data().ptr(), request);
-		CHECK(cut.status == CutHistory::COMPLETE);
-		const std::vector<uint32_t> drawn = cut_of(history, cut);
-		CHECK(exact_cover(*edited.ptr(), drawn));
-		uint32_t nonresident_drawn = 0;
-		for (uint32_t node : drawn) {
-			CHECK_FALSE(edited->is_stale(node));
-			nonresident_drawn += (streamer->resident_mask()[node] == 0 || after[node].splat_count == 0) ? 1 : 0;
-		}
-		CHECK(nonresident_drawn == 0);
-		if (tau > 1.0) {
-			CHECK(std::count(drawn.begin(), drawn.end(), leaf) == 1); // Far view: the edited leaf is drawn at full detail.
-		}
+	// P1-1 on a device: a second edit in a SIBLING branch must commit too (it used to deadlock forever).
+	const uint32_t leaf2 = pick_sibling_branch_leaf(*edited.ptr(), leaf);
+	if (leaf2 != UINT32_MAX) {
+		const Vector<uint8_t> meta_mid = rd->buffer_get_data(gpu.buffers.chunk_meta);
+		const Vector<uint8_t> atlas_mid = rd->buffer_get_data(gpu.buffers.atlas);
+		LeafEdit source2;
+		GS_NEED(read_leaf(*edited.ptr(), leaf2, source2));
+		const LeafEdit edit2 = delete_half(source2, p_base->high_order_count);
+		Ref<GaussianSplatHlodRuntimeData> edited2;
+		GS_NEED(make_edited_snapshot(edited, 1, &edit2, 1, edited2, reason) == EditStatus::OK);
+		GS_NEED(streamer->stage_edit(edited2) == HlodNodeStreamer::EDIT_STAGED);
+		pump(3000, [&]() { return streamer->get_telemetry().edits_committed_total >= 2 || !streamer->is_edit_staged(); });
+		CHECK(streamer->get_telemetry().edits_committed_total == 2);
+		CHECK(streamer->get_data() == edited2);
+		verify(edited2, { { leaf, &edit }, { leaf2, &edit2 } }, meta_mid, atlas_mid);
+	} else {
+		FAIL("the fixture has no leaf in a sibling branch");
 	}
 	CHECK(streamer->get_telemetry().failed_total == 0);
+	CHECK(streamer->get_telemetry().edit_commit_failures_total == 0);
 	streamer->shutdown();
 	(void)p_label;
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][World][SceneTree][RequiresGPU] a committed edit flips the GPU metadata atomically for a streamed v3 world and a paged V4 world") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][World][SceneTree][RequiresGPU] a committed edit flips the GPU metadata atomically for a streamed v3 world and a paged V4 world, twice in sibling branches") {
 	if (!RenderingDevice::get_singleton() || !SceneTree::get_singleton()) { FAIL("WorldSceneTree GPU harness required"); return; }
 	World w;
-	if (!build_world(w, 3, true)) { return; }
+	if (!build_world(w, 3, true, 120000)) { return; }
 	run_gpu_edit(w.resident, "v3");
 	run_gpu_edit(w.paged, "v4");
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Fix round (review of 2a97c49d8e8..7f0031fcbc7).
+// ---------------------------------------------------------------------------------------------------------------------
+
+// P1-1: a second edit in a sibling branch used to deadlock: the committed-stale node of the first edit was required to be
+// resident, but a stale node is never requested.
+TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a second edit in a sibling branch commits after the first (stale nodes are expand-only, never required resident)") {
+	EditSim sim;
+	GS_NEED(sim.init(60));
+	LocalVector<Residency::Ticket> tickets;
+	const Residency::EditedLeaf first = { 7, 1000 }; // Path 7 -> 3 -> 1 -> 0.
+	GS_NEED(sim.res.stage_edit(1, &first, 1, tickets) == Residency::EDIT_OK);
+	GS_NEED(tickets.size() == 1);
+	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	GS_NEED(sim.res.commit_edit());
+	CHECK(sim.res.is_stale(1));
+	CHECK(sim.res.state(1) == Residency::ABSENT);
+	sim.step();
+	// Edit 2 under the other subtree: node 1 is a child of the (already stale) root and must not be required.
+	tickets.clear();
+	const Residency::EditedLeaf second = { 14, 1000 }; // Path 14 -> 6 -> 2 -> 0.
+	GS_NEED(sim.res.stage_edit(2, &second, 1, tickets) == Residency::EDIT_OK);
+	GS_NEED(tickets.size() == 1);
+	LocalVector<uint32_t> prefetch;
+	sim.res.edit_prefetch(prefetch);
+	CHECK(prefetch.size() == 0); // Everything required is resident already; node 1 is not among the demand.
+	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	CHECK(sim.res.edit_ready());
+	CHECK_FALSE(sim.res.edit_blocked());
+	GS_NEED(sim.res.commit_edit());
+	CHECK(sim.res.committed_edit_revision() == 2);
+	CHECK(sim.res.is_stale(2));
+	CHECK(sim.res.is_stale(6));
+	CHECK(sim.res.resident_mask()[7] == 1);
+	CHECK(sim.res.resident_mask()[14] == 1);
+	// A third edit is admitted: the model is not left staged.
+	sim.step();
+	tickets.clear();
+	const Residency::EditedLeaf third = { 10, 1000 };
+	CHECK(sim.res.stage_edit(3, &third, 1, tickets) == Residency::EDIT_OK);
+}
+
+// The selector side of the same scenario: after two edits in sibling branches the cut is still complete.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] two committed edits in sibling branches still give a complete cut without stale nodes") {
+	GaussianSplatHlodRuntimeData edited;
+	binary_tree(edited, 4);
+	mark_edited(edited, { 7, 14 }, 2);
+	CutHistory history;
+	GS_NEED(history.reserve(15));
+	CutRequest request = base_request(15);
+	request.tau_pixels = 1.0e9;
+	uint8_t resident[15];
+	for (int i = 0; i < 15; ++i) { resident[i] = 1; }
+	for (uint32_t stale : { 0u, 1u, 2u, 3u, 6u }) { resident[stale] = 0; }
+	request.resident = resident;
+	request.resident_count = 15;
+	const auto cut = history.select(edited, request);
+	GS_NEED(cut.status == CutHistory::COMPLETE);
+	CHECK(cut_of(history, cut) == (std::vector<uint32_t>{ 4, 5, 7, 8, 13, 14 }));
+}
+
+// P2-1: admission decides from free + reclaimable pages WITHOUT evicting; the waiting edit evicts only through
+// advance_edit(), after the frame's protection is known, and survives a retirement delay of 3.
+TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] admission never evicts; a waiting edit frees unprotected nodes at retire delay 3 and keeps the drawn cut") {
+	EditSim sim;
+	sim.retire = 3;
+	GS_NEED(sim.init(24)); // 23 pages resident, 1 free.
+	sim.step();
+	sim.step();
+	sim.step();
+	sim.step();
+	const Residency::Stats before = sim.res.stats();
+	GS_NEED(before.pages_free == 1);
+	LocalVector<Residency::Ticket> tickets;
+	const Residency::EditedLeaf leaf = { 9, 2500 }; // 3 pages: needs 2 more than are free.
+	GS_NEED(sim.res.stage_edit(1, &leaf, 1, tickets) == Residency::EDIT_OK);
+	// Admitted without touching anyone: no eviction, nothing allocated, waiting for space.
+	CHECK(tickets.size() == 0);
+	CHECK(sim.res.stats().evicted_total == before.evicted_total);
+	CHECK(sim.res.stats().pages_free == before.pages_free);
+	CHECK(sim.res.stats().edit_waiting_for_space);
+	CHECK_FALSE(sim.res.edit_ready());
+	// The frames that follow: the drawn cut {2, 3, 9, 10} (and its ancestors) is protected, so only other nodes are freed.
+	const uint32_t drawn[4] = { 2, 3, 9, 10 };
+	for (int frame = 0; frame < 24 && tickets.size() == 0; ++frame) {
+		sim.step();
+		sim.res.protect_drawn(drawn, 4);
+		sim.res.advance_edit(tickets);
+	}
+	GS_NEED(tickets.size() == 1);
+	CHECK(tickets[0].shadow);
+	CHECK(tickets[0].page_count == 3);
+	CHECK(sim.res.stats().evicted_total > before.evicted_total);
+	for (uint32_t keep : { 0u, 1u, 2u, 3u, 4u, 9u, 10u }) {
+		CHECK(sim.res.state(keep) == Residency::RESIDENT); // The drawn cut and its ancestors were never evicted.
+	}
+	CHECK_FALSE(sim.res.stats().edit_waiting_for_space);
+	// Truly infeasible: nothing is evicted and nothing changes.
+	GS_NEED(sim.res.cancel_edit());
+	sim.step();
+	sim.res.protect_drawn(drawn, 4);
+	const uint64_t evicted = sim.res.stats().evicted_total;
+	const uint32_t free_pages = sim.res.stats().pages_free;
+	const Residency::EditedLeaf huge = { 9, 1000000 };
+	LocalVector<Residency::Ticket> none;
+	CHECK(sim.res.stage_edit(1, &huge, 1, none) == Residency::EDIT_NO_SPACE);
+	CHECK(sim.res.stats().evicted_total == evicted);
+	CHECK(sim.res.stats().pages_free == free_pages);
+	CHECK_FALSE(sim.res.is_edit_staged());
+}
+
+// P3: the stale-in-cut guard is reachable only through an inconsistent edit state; build one by hand.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a stale node that the quality rule selects is refused as INVALID, never published") {
+	GaussianSplatHlodRuntimeData data;
+	binary_tree(data, 4);
+	data.edit_revision = 1;
+	data.edit_state.resize(15);
+	data.edit_state.fill(GaussianSplatHlodRuntimeData::EDIT_CLEAN);
+	data.edit_state.write[1] = GaussianSplatHlodRuntimeData::EDIT_STALE; // Inconsistent: its ancestor, the root, is not stale.
+	CutHistory history;
+	GS_NEED(history.reserve(15));
+	CutRequest request = base_request(15);
+	request.camera = Vector3(0, 0, 1000);
+	request.tau_pixels = 0.5; // Refines the root, keeps its children.
+	const auto cut = history.select(data, request);
+	CHECK(cut.status == CutHistory::INVALID);
+	CHECK(cut.selected_count == 0);
+}
+
+// ViewSet: the forced replacement is visible in the view result, with and without a complete cut.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a snapshot can only be derived from the one being served, and an edited snapshot initializes a streamer with its stale nodes") {
+	World w;
+	if (!build_world(w, 0, true)) { return; }
+	const uint32_t leaf = pick_leaf(*w.paged.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.paged.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> one, other, next_of_other;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, one, reason) == EditStatus::OK);
+	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, other, reason) == EditStatus::OK);
+	GS_NEED(make_edited_snapshot(other, 1, &edit, 1, next_of_other, reason) == EditStatus::OK);
+	CHECK(next_of_other->edit_revision == 2);
+	CHECK(next_of_other->edit_parent_id == other->get_instance_id());
+	CHECK(next_of_other->edit_parent_id != one->get_instance_id());
+
+	HlodNodeStreamer::Config config;
+	uint32_t pages = 0;
+	for (int n = 0; n < w.paged->nodes.size(); ++n) {
+		pages += (w.paged->nodes[n].topology.payload_count + config.page_splats - 1u) / config.page_splats;
+	}
+	config.atlas_pages = pages + 8;
+	Ref<HlodNodeStreamer> streamer;
+	streamer.instantiate();
+	// The streamer serves `one` (revision 1): its residency starts with the stale ancestors dropped and the committed revision.
+	GS_NEED(streamer->init(one, config, 1, 1));
+	CHECK(streamer->get_residency().committed_edit_revision() == 1);
+	CHECK(streamer->get_residency().is_stale(0));
+	CHECK_FALSE(streamer->get_residency().is_stale(leaf));
+	CHECK(streamer->get_telemetry().edit_revision == 1);
+	streamer->begin_frame();
+	CutRequest view = far_view(uint32_t(one->nodes.size()));
+	streamer->register_view(1, view);
+	// Revision 2 of ANOTHER lineage: the revision number alone is not enough.
+	CHECK(streamer->stage_edit(next_of_other) == HlodNodeStreamer::EDIT_REJECTED_LINEAGE);
+	CHECK_FALSE(streamer->is_edit_staged());
+	Ref<GaussianSplatHlodRuntimeData> next_of_one;
+	GS_NEED(make_edited_snapshot(one, 1, &edit, 1, next_of_one, reason) == EditStatus::OK);
+	CHECK(streamer->stage_edit(next_of_one) == HlodNodeStreamer::EDIT_STAGED);
+	streamer->shutdown();
+}
+
+// P1-3: the replacement cut must fit the caps of the views the streamer knows, or the edit is refused before any change.
+TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] an edit whose replacement cut does not fit a registered view is refused with nothing changed") {
+	World w;
+	if (!build_world(w, 0, true, 120000)) { return; }
+	const uint32_t leaf = pick_leaf(*w.paged.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.paged.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> next;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, next, reason) == EditStatus::OK);
+	HlodNodeStreamer::Config config;
+	uint32_t pages = 0;
+	for (int n = 0; n < w.paged->nodes.size(); ++n) {
+		pages += (w.paged->nodes[n].topology.payload_count + config.page_splats - 1u) / config.page_splats;
+	}
+	config.atlas_pages = pages + 8;
+	Ref<HlodNodeStreamer> streamer;
+	streamer.instantiate();
+	GS_NEED(streamer->init(w.paged, config, 1, 1));
+	streamer->begin_frame();
+	// No view known: feasibility cannot be shown.
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_REJECTED_NO_VIEW);
+	// A view whose node budget cannot hold the replacement cut (it needs the path's siblings plus the leaf).
+	CutRequest tiny = far_view(2, 1.0e9);
+	streamer->register_view(7, tiny);
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_REJECTED_INFEASIBLE);
+	CHECK_FALSE(streamer->is_edit_staged());
+	CHECK(streamer->get_residency().stats().pages_shadow == 0);
+	CHECK(streamer->get_telemetry().edits_rejected_infeasible_total == 1);
+	CHECK(streamer->get_data() == w.paged);
+	// A second, roomy view does not rescue the tiny one: EVERY known view must hold the cut.
+	CutRequest roomy = far_view(uint32_t(w.paged->nodes.size()), 1.0e9);
+	streamer->register_view(8, roomy);
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_REJECTED_INFEASIBLE);
+	// Replace the tiny view by a roomy one under the same key: now it fits.
+	streamer->register_view(7, roomy);
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_STAGED);
+	streamer->shutdown();
+}
+
+// Engine item 4: a staged edit that never commits is cancelled and reported instead of holding its reservation forever.
+TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] a staged edit that never commits times out, gives its pages back and says why") {
+	World w;
+	if (!build_world(w, 0, true)) { return; }
+	const uint32_t leaf = pick_leaf(*w.paged.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.paged.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> next;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, next, reason) == EditStatus::OK);
+	HlodNodeStreamer::Config config;
+	uint32_t pages = 0;
+	for (int n = 0; n < w.paged->nodes.size(); ++n) {
+		pages += (w.paged->nodes[n].topology.payload_count + config.page_splats - 1u) / config.page_splats;
+	}
+	config.atlas_pages = pages + 8;
+	config.edit_timeout_frames = 3;
+	Ref<HlodNodeStreamer> streamer;
+	streamer.instantiate();
+	GS_NEED(streamer->init(w.paged, config, 1, 1));
+	streamer->begin_frame();
+	streamer->register_view(1, far_view(uint32_t(w.paged->nodes.size())));
+	GS_NEED(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_STAGED);
+	// No device: the replacement children can never upload, so the edit can never commit.
+	for (int frame = 0; frame < 8; ++frame) {
+		streamer->begin_frame();
+		streamer->update(nullptr, HlodNodeStreamer::Buffers(), nullptr, 0, nullptr, 0);
+	}
+	CHECK_FALSE(streamer->is_edit_staged());
+	CHECK(streamer->get_telemetry().edit_timeouts_total == 1);
+	CHECK(String(streamer->get_telemetry().edit_event) == String("timeout"));
+	CHECK(streamer->get_residency().stats().pages_shadow == 0);
+	CHECK(streamer->get_data() == w.paged);
+	streamer->shutdown();
+}
+
+// P2-4: other consumers of an edited snapshot must not read the OLD splats through the base ranges.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] an edited snapshot refuses raw payload indices of an edited leaf and packs the leaf from its overlay on every path") {
+	World w;
+	if (!build_world(w, 3, false)) { return; }
+	const uint32_t leaf = pick_leaf(*w.resident.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.resident.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 3);
+	Ref<GaussianSplatHlodRuntimeData> next;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.resident, 0, &edit, 1, next, reason) == EditStatus::OK);
+	const uint64_t first = w.resident->nodes[leaf].topology.payload_first;
+	const uint32_t old_count = w.resident->nodes[leaf].topology.payload_count;
+	GS_NEED(next->nodes[leaf].topology.payload_count < old_count);
+	CHECK(next->index_in_edited_leaf(first));
+	CHECK(next->index_in_edited_leaf(first + old_count - 1));
+	CHECK_FALSE(next->index_in_edited_leaf(first + old_count));
+	ERR_PRINT_OFF;
+	const Gaussian &refused = next->gaussian(first);
+	const Vector3 *refused_sh = next->sh(first);
+	ERR_PRINT_ON;
+	CHECK(refused.sh_dc == Color()); // The placeholder, not the old splat.
+	CHECK(refused_sh == nullptr);
+	CHECK(next->gaussian(first + old_count).opacity == w.resident->gaussian(first + old_count).opacity); // Outside the leaf: served.
+	// pack_node without an explicit view packs the overlay (the whole-bundle builder and every other caller).
+	gs_hlod_pack::Params params;
+	params.relative = true;
+	const uint32_t count = next->nodes[leaf].topology.payload_count;
+	Vector<PackedGaussian> implicit_pack, explicit_pack;
+	implicit_pack.resize(count);
+	explicit_pack.resize(count);
+	ChunkMetaGPU meta_a, meta_b;
+	SHCompressionMetrics metrics;
+	gs_hlod_pack::Output out_a, out_b;
+	out_a.raw = implicit_pack.ptrw();
+	out_a.meta = &meta_a;
+	out_a.metrics = &metrics;
+	out_b.raw = explicit_pack.ptrw();
+	out_b.meta = &meta_b;
+	out_b.metrics = &metrics;
+	gs_hlod_pack::PayloadView view;
+	view.gaussians = edit.gaussians.ptr();
+	view.sh = edit.sh.ptr();
+	GS_NEED(gs_hlod_pack::pack_node(*next.ptr(), leaf, params, 0, out_a));
+	GS_NEED(gs_hlod_pack::pack_node(*next.ptr(), leaf, params, 0, out_b, &view));
+	CHECK(memcmp(implicit_pack.ptr(), explicit_pack.ptr(), size_t(count) * sizeof(PackedGaussian)) == 0);
+	CHECK(meta_a.splat_count == count);
+	// An unedited leaf is untouched by the overlay logic.
+	for (uint32_t n = 0; n < uint32_t(next->nodes.size()); ++n) {
+		if (n == leaf || next->nodes[n].topology.child_count != 0) { continue; }
+		Vector<PackedGaussian> base_pack, edited_pack;
+		const uint32_t c = next->nodes[n].topology.payload_count;
+		base_pack.resize(c);
+		edited_pack.resize(c);
+		ChunkMetaGPU ma, mb;
+		gs_hlod_pack::Output oa, ob;
+		oa.raw = base_pack.ptrw();
+		oa.meta = &ma;
+		oa.metrics = &metrics;
+		ob.raw = edited_pack.ptrw();
+		ob.meta = &mb;
+		ob.metrics = &metrics;
+		GS_NEED(gs_hlod_pack::pack_node(*w.resident.ptr(), n, params, 0, oa));
+		GS_NEED(gs_hlod_pack::pack_node(*next.ptr(), n, params, 0, ob));
+		CHECK(memcmp(base_pack.ptr(), edited_pack.ptr(), size_t(c) * sizeof(PackedGaussian)) == 0);
+		break;
+	}
+}
+
+// P1-2: once edits are committed, a route that cannot serve them draws nothing, with a reason.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a world with committed edits blanks every frame the streamed route cannot serve, and only that world") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	GS_NEED(renderer.is_valid());
+	auto &state = renderer->get_resource_state();
+	String reason;
+	CHECK_FALSE(renderer->hlod_edit_blanks_frame(reason)); // No edit: the canonical route is fine.
+	Ref<GaussianSplatHlodRuntimeData> edited;
+	edited.instantiate();
+	edited->edit_revision = 1;
+	state.hlod_committed_edit = edited;
+	state.hlod_edit_owner_key = 77;
+	state.hlod_owner_key = 77;
+	state.hlod_reason = "lod_disabled_canonical_leaves";
+	CHECK(renderer->hlod_edit_blanks_frame(reason)); // LOD off, materialized resident copy, released route: all redisplay old content.
+	CHECK(reason.begins_with("hlod_edit_route_unavailable"));
+	CHECK(reason.contains("lod_disabled_canonical_leaves"));
+	state.hlod_owner_key = 78; // A different world is prepared: the old world's edit does not blank it.
+	CHECK_FALSE(renderer->hlod_edit_blanks_frame(reason));
+	state.hlod_owner_key = 77;
+	state.hlod_committed_edit.unref();
+	CHECK_FALSE(renderer->hlod_edit_blanks_frame(reason));
+	// The internal stage hook refuses without a streamed route, with a reason, and changes nothing.
+	CHECK_FALSE(renderer->stage_hlod_edit(edited, reason));
+	CHECK(reason == String("hlod_edit_requires_streamed_route"));
 }
 
 }

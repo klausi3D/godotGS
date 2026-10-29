@@ -64,14 +64,25 @@ public:
 	struct EditedLeaf {
 		uint32_t node = 0;
 		uint64_t revision = 0; // The edit that last replaced this leaf's payload.
+		// The leaf's payload range in the BASE snapshot (the unedited world): gaussian()/sh() refuse these indices, because
+		// the base leaf array still holds the OLD splats there while the node's payload_count describes the new ones.
+		uint64_t base_first = 0;
+		uint32_t base_count = 0;
 		Vector<Gaussian> gaussians; // payload_count entries, leaf convention (absolute float32 positions).
 		Vector<Vector3> sh; // payload_count * high_order_count entries (empty when there is no high-order SH).
 	};
 	uint64_t edit_revision = 0;
+	// The object id of the snapshot this one was derived from (0 for a captured one): a staged edit must be a direct
+	// derivative of the snapshot being served, not merely carry the next revision number.
+	ObjectID edit_parent_id;
 	Vector<uint8_t> edit_state; // Empty (no edits) or one EditState per node.
 	Vector<EditedLeaf> edited; // Sorted by node.
 
 	bool has_edits() const { return edit_revision != 0 && !edit_state.is_empty(); }
+	// True when payload index `p_index` lies in the base range of an edited leaf (the accessors below refuse it).
+	bool index_in_edited_leaf(uint64_t p_index) const;
+	// Package F1 is the only consumer that may read an edited snapshot's payload: through the node (hlod_node_pack,
+	// which serves an edited leaf from its overlay) and never through a raw payload index.
 	EditState node_edit_state(uint32_t p_node) const { return p_node < uint32_t(edit_state.size()) ? EditState(edit_state[p_node]) : EDIT_CLEAN; }
 	bool is_stale(uint32_t p_node) const { return node_edit_state(p_node) == EDIT_STALE; }
 	// The replacement payload of an edited leaf, or null.

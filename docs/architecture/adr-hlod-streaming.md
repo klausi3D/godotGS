@@ -1379,7 +1379,18 @@ rule or the caps say; the untouched siblings along the path keep their own (vali
 edited leaves at full detail plus everything else at its normal level, and it is complete or absent: a replacement child
 that is not resident, or a cap (node, splat or record budget) that cannot hold the replacement cut, produces *no* cut for
 the view (`BOOTSTRAP_MISSING_RESIDENCY` / `BOOTSTRAP_INFEASIBLE`, the views' existing loading / not-admitted readiness),
-never the stale parent. A final guard turns a stale node in a cut into `INVALID`.
+never the stale parent. A final guard turns a stale node in a cut into `INVALID` (reachable only through an inconsistent
+edit state, which a test builds by hand).
+
+Where F1 narrows §14.5. §14.5 requires the *full* replacement cut to be reserved across **all admitted views** and the
+edit to be rejected before commit when that is unavailable. F1 reserves the cut for the views the streamer **knows**: the
+owner registers each view's selection request every frame (`HlodNodeStreamer::register_view`; the renderer registers its
+one main view), and `stage_edit()` runs the selector on the staged snapshot against every registered view with the
+replacement children treated as resident, rejecting the edit (`EDIT_REJECTED_INFEASIBLE`, reason
+`hlod_edit_replacement_cut_infeasible`, nothing changed) when any of them has no cut; with no registered view it
+rejects (`EDIT_REJECTED_NO_VIEW`) because feasibility cannot be shown. Views admitted later, other cameras and
+page-budget interactions are **not** reserved: such a view gets *no cut* with an `hlod_edit_replacement_*` reason, never
+a stale parent. That is a disclosed narrowing, not the ADR rule; the all-views reservation stays open for F2/G.
 
 Mechanism.
 
@@ -1396,18 +1407,35 @@ Mechanism.
   edited leaf still returns the old file record (tested by digest). Persisting an edit into a new V4 file is F2/F3.
 - **Versioning.** `NodeVersion.content_revision` of an edited leaf is `(1 << 63) | revision`; untouched nodes keep the
   source revision. A new edit revision invalidates every view's hysteresis like a new source revision does.
-- **Staged, atomic publication** (`NodeResidency::stage_edit / edit_prefetch / finish_shadow / commit_edit / cancel_edit`,
-  `HlodNodeStreamer::stage_edit / commit_staged_edit / cancel_staged_edit`). Admission reserves a *shadow run* for every
-  edited leaf (all or none, after the usual bounded eviction; otherwise `EDIT_NO_SPACE` with nothing changed) and holds
-  the replacement children (the non-stale children of stale nodes) against eviction. The old snapshot, mask and GPU
+- **Staged, atomic publication** (`NodeResidency::stage_edit / advance_edit / edit_prefetch / finish_shadow / commit_edit /
+  cancel_edit`, `HlodNodeStreamer::stage_edit / begin_frame / cancel_staged_edit`). Admission decides from free +
+  retiring + reclaimable (unprotected, unheld) pages **without evicting anything**: `EDIT_NO_SPACE` really changes
+  nothing. An admitted edit holds the replacement children (the non-stale, non-edited children of stale nodes) against
+  eviction first, then reserves a *shadow run* per edited leaf, all or none. When the runs are not free yet the edit waits;
+  `advance_edit()` (after the frame's `protect_drawn`) evicts unprotected nodes and answers fragmentation with the same
+  bounded window eviction `request()` uses, and the allocation lands once the retirement delay has passed. A stale node
+  is only ever expanded: it is never required to be resident, so edits in sibling branches compose (a second edit whose
+  path crosses the first edit's stale nodes is admitted and commits). A staged edit that has not committed after
+  `edit_timeout_frames` is cancelled and reported (`edit_event` "timeout"). The old snapshot, mask and GPU
   metadata keep serving one consistent old cut while the shadow payloads are packed on the ordinary worker path and the
   replacement children load as ordinary demand. When every shadow is packed and every replacement child is resident, the
-  owner calls `commit_staged_edit()` once per frame after `begin_frame()` and before selection: payloads go to the shadow
+  streamer commits **inside** `begin_frame(device, buffers)`, so "commit, then select" is structural and cannot be skipped
+  by a caller (the renderer selects on `get_data()` after it): payloads go to the shadow
   runs first, then the new metadata is written, then the residency flips (edited leaf takes its shadow run, the old run
   and the stale runs retire after the retirement delay, stale metadata is zeroed) and the served snapshot changes in the
   same call. A draw built after the call can name neither a stale node nor an old leaf version; frames already submitted
   may still present (§14.8). A payload upload failure before any metadata write cancels the edit and changes nothing; a
-  metadata write failure deactivates the streamer (fail closed, the bundle is rebuilt from the unchanged world).
+  metadata write failure deactivates the streamer (fail closed): the renderer releases the bundle and rebuilds it from the
+  last **committed** edited snapshot, never from the unedited world.
+- **Engine wiring** (`GaussianSplatRenderer::stage_hlod_edit`, internal, deliberately not a bound API). The streamed route
+  serves `streamer->get_data()`; the last committed snapshot is kept in the renderer state across route releases. Every
+  route that cannot serve a world with committed edits (LOD off, an unsupported setting, a materialized V4 world, a
+  released bundle) draws **nothing** with reason `hlod_edit_route_unavailable:<why>` and never an alternate backend
+  (`hlod_edit_blanks_frame`). A streamed view whose replacement cut is not drawable says `hlod_edit_replacement_loading`
+  or `hlod_edit_replacement_not_admitted` (`ViewResult::edit_forced`). Whole-tree (non-streamed) bundles refuse edited
+  snapshots. Overlay-aware access: an edited snapshot refuses raw payload indices of an edited leaf, and `pack_node`
+  serves an edited leaf from its overlay whoever calls it. A test-only environment hook (`GS_HLOD_EDIT_BOX`) stages a
+  box-deletion edit for probes.
 - **Generations (D1 rules reused).** Shadow tickets carry the world and device generation and a per-leaf edit generation.
   Commit gives the leaf a new request generation, so a load of the old content that was in flight is dropped as a late
   completion; cancelling an edit kills its shadow tickets. Unedited nodes keep their tickets, runs and metadata untouched:
@@ -1417,10 +1445,10 @@ Mechanism.
 
 Not in F1 (deferred): bottom-up rebuild of the stale ancestors (F2: until then the replacement cut above stays, and the
 node/splat caps must have room for it); the durable append-only stable-ID journal, crash recovery and reload (F3); edit
-admission across all admitted views and instanced trees; removing a leaf or moving splats between leaves; an
-edit/commit API on the world, the node and the renderer (the §14.6 surface needs its R3 compatibility review); wiring the
-staged commit into the render loop's per-frame order (the contract above is implemented and tested on the streamer, with
-a real-device test of the publication boundary); the 5 m region front end that turns a tool into leaf edits.
+admission for views the streamer does not know (all-views reservation) and for instanced trees; removing a leaf or moving
+splats between leaves; an edit/commit API on the world and the node (the §14.6 surface needs its R3 compatibility
+review; the renderer hook is internal and driven by tests and the probe only); the 5 m region front end that turns a
+tool into leaf edits.
 
 ### 14.6 Public integration contracts
 

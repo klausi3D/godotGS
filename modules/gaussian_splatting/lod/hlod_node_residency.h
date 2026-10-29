@@ -110,6 +110,7 @@ public:
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
 		// Package F1.
 		bool edit_staged = false;
+		bool edit_waiting_for_space = false; // Admitted, but the shadow runs are not allocated yet (pages retiring or to be freed).
 		uint32_t pages_shadow = 0; // Pages reserved for staged edited leaves (also counted in pages_in_flight).
 		uint32_t stale_nodes = 0; // Nodes dropped by committed edits.
 		uint64_t edits_committed_total = 0;
@@ -183,7 +184,15 @@ public:
 	bool evict(uint32_t p_node);
 
 	// --- Package F1 ---
+	// Admits the whole edit or none of it, WITHOUT evicting anything: the decision is free + retiring + reclaimable
+	// (unprotected, unheld) pages against the shadow runs. Tickets are appended when the shadow runs could be allocated
+	// at once; otherwise the edit waits for space and advance_edit() delivers them (and evicts, after the frame's
+	// protection is known). EDIT_NO_SPACE changes nothing at all.
 	EditResult stage_edit(uint64_t p_revision, const EditedLeaf *p_leaves, uint32_t p_count, LocalVector<Ticket> &r_tickets);
+	// Call after protect_drawn() for the frame: allocates the waiting shadow runs, evicting unprotected nodes when needed.
+	void advance_edit(LocalVector<Ticket> &r_tickets);
+	// Frames since the edit was staged (0 when none).
+	uint64_t staged_edit_age_frames() const { return edit_staged ? current_frame - staged_frame : 0; }
 	bool is_edit_staged() const { return edit_staged; }
 	uint64_t staged_edit_revision() const { return edit_staged ? staged_revision : 0; }
 	uint64_t committed_edit_revision() const { return committed_revision; }
@@ -273,7 +282,11 @@ private:
 	uint64_t staged_revision = 0;
 	uint64_t committed_revision = 0;
 	LocalVector<uint32_t> staged_leaves;
+	LocalVector<uint32_t> staged_splats; // Replacement payload size per staged leaf.
 	LocalVector<uint32_t> staged_stale;
+	uint64_t staged_frame = 0;
+	bool shadow_alloc_pending = false;
+	bool try_allocate_shadows(LocalVector<Ticket> &r_tickets);
 	LocalVector<uint32_t> staged_required; // Replacement children, grouped by parent.
 	void release_edit_state();
 

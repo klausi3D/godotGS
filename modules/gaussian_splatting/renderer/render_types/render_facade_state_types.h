@@ -79,6 +79,17 @@ struct ResourceState {
     bool hlod_streaming = false;
     uint32_t hlod_stream_atlas_records = 0;
     Ref<HlodNodeStreamer> hlod_streamer;
+    // Package F1: the last committed edited snapshot. It outlives the streamer and the prepared bundle: a rebuild (device
+    // loss, a failed commit, a setting change) serves it again instead of the unedited world, and a frame that cannot be
+    // served from it draws nothing with an hlod_edit_* reason (ADR 14.5: no submission after a confirmed edit may
+    // redisplay the old content). Cleared when a different world is prepared.
+    Ref<GaussianSplatHlodRuntimeData> hlod_committed_edit;
+    uint64_t hlod_edit_owner_key = 0;
+    uint64_t hlod_edit_forced_frames = 0; // Frames whose cut replaced a stale ancestor.
+    uint64_t hlod_edit_blank_frames = 0; // Frames that drew nothing because the edited world could not be served.
+    String hlod_edit_event;
+    String hlod_edit_probe_result;
+    bool hlod_edit_probe_done = false;
     uint32_t hlod_stream_ready_frames = 0;
     uint32_t hlod_stream_loading_frames = 0;
     uint32_t hlod_stream_first_ready_frame = 0;

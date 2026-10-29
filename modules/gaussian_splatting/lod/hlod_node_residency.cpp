@@ -35,8 +35,10 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	edit_staged = false;
 	staged_revision = committed_revision = 0;
 	staged_leaves.clear();
+	staged_splats.clear();
 	staged_stale.clear();
 	staged_required.clear();
+	shadow_alloc_pending = false;
 	requests_this_frame = evictions_this_frame = 0;
 	current_frame = 0;
 	request_serial = alloc_serial = 0;
@@ -559,6 +561,7 @@ NodeResidency::Stats NodeResidency::stats() const {
 		}
 	}
 	s.edit_staged = edit_staged;
+	s.edit_waiting_for_space = edit_staged && shadow_alloc_pending;
 	s.committed_edit_revision = committed_revision;
 	s.pages_retiring = pages_retiring;
 	s.pages_free = allocator.get_free_page_count();
@@ -587,8 +590,10 @@ void NodeResidency::release_edit_state() {
 		nodes.write[staged_required[i]].edit_hold = false;
 	}
 	staged_leaves.clear();
+	staged_splats.clear();
 	staged_stale.clear();
 	staged_required.clear();
+	shadow_alloc_pending = false;
 	edit_staged = false;
 }
 
@@ -634,7 +639,7 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 			stale_flag[up] = 1;
 		}
 	}
-	// Shadow runs: all or none.
+	// The pages the shadow runs need.
 	uint32_t total_pages = 0;
 	LocalVector<uint32_t> pages;
 	pages.resize(p_count);
@@ -642,44 +647,85 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 		pages[i] = (p_leaves[i].splat_count + cfg.page_splats - 1u) / cfg.page_splats;
 		total_pages += pages[i];
 	}
-	LocalVector<uint64_t> keys;
-	LocalVector<uint32_t> firsts;
-	keys.resize(p_count);
-	firsts.resize(p_count);
-	auto allocate_all = [&]() {
-		for (uint32_t i = 0; i < p_count; ++i) {
-			const uint64_t key = make_alloc_key(p_leaves[i].node);
-			uint32_t slot = 0;
-			if (!allocator.allocate_slot(key, pages[i], slot)) {
-				for (uint32_t r = 0; r < i; ++r) {
-					allocator.release_slot(keys[r]);
-				}
-				return false;
+	// Admission from free plus reclaimable pages, WITHOUT evicting: a refused edit changes nothing. The holds on the
+	// replacement children are part of the decision (a held child is not reclaimable).
+	// The replacement cut: every child of a stale node that is neither stale (a committed or newly stale node is only
+	// ever expanded, never required to be resident) nor edited (those come with a shadow). Grouped by parent.
+	LocalVector<uint32_t> required;
+	LocalVector<uint32_t> stale_list;
+	for (uint32_t s = 0; s < node_total; ++s) {
+		if (!stale_flag[s]) { continue; }
+		stale_list.push_back(s);
+		for (uint32_t c = s + 1; c < node_total; ++c) {
+			if (nodes[c].parent == s && !stale_flag[c] && !nodes[c].stale && !edited_flag[c]) {
+				required.push_back(c);
 			}
-			keys[i] = key;
-			firsts[i] = slot;
 		}
-		return true;
-	};
-	bool placed = allocate_all();
-	if (!placed) {
-		evict_for(total_pages, UINT32_MAX);
-		placed = allocate_all();
 	}
-	if (!placed) {
-		return reject(EDIT_NO_SPACE);
+	uint64_t reclaimable = uint64_t(allocator.get_free_page_count()) + pages_retiring;
+	for (uint32_t i = 0; i < node_total; ++i) {
+		bool held = false;
+		for (uint32_t r = 0; r < required.size() && !held; ++r) { held = required[r] == i; }
+		// The drawn cut and its ancestors are protected every frame, but this call may come before this frame's
+		// protect_drawn(): a node protected on the previous frame counts as protected here, so admission is not optimistic.
+		const bool recently_protected = nodes[i].protected_frame != UINT64_MAX && nodes[i].protected_frame + 1 >= current_frame;
+		if (nodes[i].state == RESIDENT && !is_protected(i) && !recently_protected && !held) {
+			reclaimable += nodes[i].pages;
+		}
 	}
-	// Admitted. Everything below is infallible.
+	if (reclaimable < total_pages) {
+		return reject(EDIT_NO_SPACE); // Nothing was evicted, held or reserved.
+	}
+	// Admitted: holds first, so nothing the edit needs can be evicted from here on.
+	for (uint32_t i = 0; i < required.size(); ++i) {
+		nodes.write[required[i]].edit_hold = true;
+	}
 	for (uint32_t i = 0; i < p_count; ++i) {
-		Node &n = nodes.write[p_leaves[i].node];
+		staged_leaves.push_back(p_leaves[i].node);
+		staged_splats.push_back(p_leaves[i].splat_count);
+	}
+	staged_stale = stale_list;
+	staged_required = required;
+	edit_staged = true;
+	staged_revision = p_revision;
+	staged_frame = current_frame;
+	shadow_alloc_pending = true;
+	try_allocate_shadows(r_tickets); // No eviction here: advance_edit() evicts, after the frame's protection is known.
+	return EDIT_OK;
+}
+
+bool NodeResidency::try_allocate_shadows(LocalVector<Ticket> &r_tickets) {
+	if (!edit_staged || !shadow_alloc_pending) {
+		return false;
+	}
+	const uint32_t count = staged_leaves.size();
+	LocalVector<uint64_t> keys;
+	LocalVector<uint32_t> firsts, pages;
+	keys.resize(count);
+	firsts.resize(count);
+	pages.resize(count);
+	for (uint32_t i = 0; i < count; ++i) {
+		pages[i] = (staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats;
+		const uint64_t key = make_alloc_key(staged_leaves[i]);
+		uint32_t slot = 0;
+		if (!allocator.allocate_slot(key, pages[i], slot)) {
+			for (uint32_t r = 0; r < i; ++r) {
+				allocator.release_slot(keys[r]);
+			}
+			return false;
+		}
+		keys[i] = key;
+		firsts[i] = slot;
+	}
+	for (uint32_t i = 0; i < count; ++i) {
+		Node &n = nodes.write[staged_leaves[i]];
 		n.shadow_key = keys[i];
 		n.shadow_first = firsts[i];
 		n.shadow_pages = pages[i];
 		n.shadow_generation = ++request_serial;
 		n.shadow_state = Node::SHADOW_LOADING;
-		staged_leaves.push_back(p_leaves[i].node);
 		Ticket t;
-		t.node = p_leaves[i].node;
+		t.node = staged_leaves[i];
 		t.first_page = firsts[i];
 		t.page_count = pages[i];
 		t.request_generation = n.shadow_generation;
@@ -688,21 +734,35 @@ NodeResidency::EditResult NodeResidency::stage_edit(uint64_t p_revision, const E
 		t.shadow = true;
 		r_tickets.push_back(t);
 	}
-	// The replacement cut: every child of a stale node that is itself neither stale nor edited (those come with a
-	// shadow, or are expanded in turn). Grouped by parent, parents in node order.
-	for (uint32_t s = 0; s < node_total; ++s) {
-		if (!stale_flag[s]) { continue; }
-		staged_stale.push_back(s);
-		for (uint32_t c = s + 1; c < node_total; ++c) {
-			if (nodes[c].parent == s && !stale_flag[c] && !edited_flag[c]) {
-				staged_required.push_back(c);
-				nodes.write[c].edit_hold = true;
-			}
+	shadow_alloc_pending = false;
+	return true;
+}
+
+void NodeResidency::advance_edit(LocalVector<Ticket> &r_tickets) {
+	if (!edit_staged || !shadow_alloc_pending) {
+		return;
+	}
+	if (try_allocate_shadows(r_tickets)) {
+		return;
+	}
+	// Not enough contiguous free pages: free unprotected nodes (the drawn set and its ancestors are protected once the
+	// caller ran protect_drawn for this frame; the replacement children are held). A freed run retires after the delay,
+	// so the allocation is retried on a later frame.
+	uint32_t total_pages = 0;
+	for (uint32_t i = 0; i < staged_splats.size(); ++i) {
+		total_pages += (staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats;
+	}
+	const uint32_t evicted = evict_for(total_pages, UINT32_MAX);
+	if (try_allocate_shadows(r_tickets)) {
+		return;
+	}
+	// Enough pages in total but no contiguous run (the retired runs are not adjacent): free the cheapest unprotected
+	// neighbours of a hole, the same bounded answer request() gives to fragmentation (compaction itself is D2).
+	if (evicted == 0 && pages_retiring == 0 && uint64_t(allocator.get_free_page_count()) >= total_pages) {
+		for (uint32_t i = 0; i < staged_splats.size(); ++i) {
+			evict_window((staged_splats[i] + cfg.page_splats - 1u) / cfg.page_splats, UINT32_MAX);
 		}
 	}
-	edit_staged = true;
-	staged_revision = p_revision;
-	return EDIT_OK;
 }
 
 void NodeResidency::edit_prefetch(LocalVector<uint32_t> &r_demand) const {
@@ -736,7 +796,7 @@ bool NodeResidency::finish_shadow(const Ticket &p_ticket, bool p_success) {
 }
 
 bool NodeResidency::edit_ready() const {
-	if (!edit_staged) {
+	if (!edit_staged || shadow_alloc_pending) {
 		return false;
 	}
 	for (uint32_t i = 0; i < staged_leaves.size(); ++i) {
@@ -825,6 +885,7 @@ bool NodeResidency::commit_edit() {
 		nodes.write[staged_required[i]].edit_hold = false;
 	}
 	staged_leaves.clear();
+	staged_splats.clear();
 	staged_stale.clear();
 	staged_required.clear();
 	edit_staged = false;

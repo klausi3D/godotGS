@@ -1366,6 +1366,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] the view set never publishes a stale 
 	const auto *r = result_of(results, 1);
 	if (!r) { FAIL("view result missing"); return; }
 	CHECK(r->readiness == ViewSet::READY);
+	CHECK(r->edit_forced); // The forced replacement is visible in the view result (P2-3).
 	uint32_t n = 0;
 	const DrawRecord *records = set.drawn(1, n);
 	if (!records || n != 3) { FAIL("expected the replacement cut of 3 nodes, got ", n); return; }

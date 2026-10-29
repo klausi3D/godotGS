@@ -4,6 +4,19 @@ namespace gs_hlod_pack {
 
 bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, const Params &p_params,
 		uint32_t p_atlas_base, const Output &p_out, const PayloadView *p_view) {
+	// Package F1: an edited leaf is always served from its overlay, whoever packs it (the base snapshot's leaf array still
+	// holds the old splats).
+	PayloadView overlay_view;
+	if (!p_view && p_node < uint32_t(p_data.nodes.size())) {
+		if (const GaussianSplatHlodRuntimeData::EditedLeaf *edited = p_data.find_edited(p_node)) {
+			if (uint64_t(edited->gaussians.size()) != p_data.nodes[p_node].topology.payload_count) {
+				return false;
+			}
+			overlay_view.gaussians = edited->gaussians.ptr();
+			overlay_view.sh = edited->sh.is_empty() ? nullptr : edited->sh.ptr();
+			p_view = &overlay_view;
+		}
+	}
 	if (p_node >= uint32_t(p_data.nodes.size()) || !p_out.meta || !p_out.metrics ||
 			(p_params.quantized ? (!p_out.quantized || !p_out.quant) : !p_out.raw) ||
 			(p_data.is_paged() && (!p_view || !p_view->gaussians || (p_data.high_order_count != 0 && !p_view->sh)))) {
