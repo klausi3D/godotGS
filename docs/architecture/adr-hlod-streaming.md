@@ -1290,6 +1290,13 @@ Contracts implemented:
   so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
   canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
   point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
+- **Frame scratch covers the streamed atlas.** The per-splat frame scratch (subpixel history, SH colour cache, the
+  16-bit packed-stage gate) is indexed by atlas record, so its admission (`prepare_hlod_scratch`) is sized from the
+  atlas the relative bundle holds (`ResidentAtlasBudget::hlod_relative_atlas_records`) and the history from the larger
+  of that and the cut capacity, as the frame does. A paged world always streams, and every node rounds up to whole
+  pages: once the atlas budget reaches the tree's node pages the atlas holds more records than the tree has splats
+  (holzbank, 287737 splats in 302 node pages: a 50 MiB override admits 290 pages = 296960 records). Sizing from the tree refused every
+  such frame and drew black while the reason still said `active`.
 - **Ledgers track live bytes.** The tile renderer's texture ledger and the compositor's scratch ledger record each texture
   under its RID and subtract it when the device no longer holds it (reconciled whenever the ledger is read; an empty
   ledger is re-based, which also clears an invalid state after a device change), so viewport resizes do not accumulate

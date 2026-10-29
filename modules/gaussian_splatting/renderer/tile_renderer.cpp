@@ -4077,7 +4077,10 @@ bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p
     const bool tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
     // Output targets and overlap storage must already be warm on the canonical
     // path. Resizes return there instead of allocating textures after admission.
-    if (total == 0 || visible == 0 || visible > total ||
+    // A streamed atlas can hold fewer records than the cut may draw splats (pages < leaves) or more (pages round up
+    // per node): the frame sizes the history by the larger of the two (_validate_and_configure_settings), so admit it so.
+    const uint32_t history_entries = MAX(total, visible);
+    if (total == 0 || visible == 0 ||
             grid_state.viewport_size != p_params.viewport_size || !render_targets.output_texture.is_valid() ||
             !render_targets.resolved_texture.is_valid() || !render_targets.normal_texture.is_valid() ||
             !render_settings.global_sort_enabled || get_allocated_overlap_capacity() == 0 ||
@@ -4088,16 +4091,17 @@ bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p
     _compute_projection_buffer_bytes(visible, projection_capacity);
     const uint64_t projection_bytes = uint64_t(projection_capacity) *
             (packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
-    const uint64_t history_bytes = uint64_t(total) * sizeof(uint32_t);
+    const uint64_t history_bytes = uint64_t(history_entries) * sizeof(uint32_t);
+    const uint64_t sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
     const uint64_t visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
     if (projection_bytes > UINT32_MAX || history_bytes > UINT32_MAX || visibility_bytes > UINT32_MAX) { return false; }
     const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
-            uint32_t(history_bytes), sh_cache_buffers.sh_color_cache_size, 0);
+            uint32_t(sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
     uint64_t extra = 0;
     if (packed_changed || projection_buffers.projection_buffer_size < projection_bytes) { extra += projection_bytes; }
     if (subpixel_history_buffers.subpixel_history_size < history_bytes) { extra += history_bytes; }
     if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { extra += visibility_bytes; }
-    if (sh && sh_cache_buffers.sh_color_cache_size < history_bytes) { extra += sh_plan.target_bytes; }
+    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) { extra += sh_plan.target_bytes; }
     // Count full new allocations: old RD buffers remain charged until actually
     // retired. The caller rechecks the actual ledger before publishing the cut.
     if (extra > p_headroom) { return false; }
@@ -4117,14 +4121,14 @@ bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p
         _invalidate_descriptor_cache();
     }
     if (projection_buffers.projection_buffer_size < projection_bytes) { _ensure_global_projection_buffer(visible); }
-    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { subpixel_history_buffers.ensure_history_buffer(total); }
+    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { subpixel_history_buffers.ensure_history_buffer(history_entries); }
     if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { subpixel_visibility_buffers.ensure_visibility_buffer(visible); }
-    if (sh && sh_cache_buffers.sh_color_cache_size < history_bytes) {
+    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) {
         sh_cache_buffers.ensure_color_cache(total);
         sh_cache_needs_full_update = true;
     }
     return projection_buffers.projection_buffer.is_valid() && projection_buffers.projection_buffer_size >= projection_bytes &&
             subpixel_history_buffers.subpixel_history_buffer.is_valid() && subpixel_history_buffers.subpixel_history_size >= history_bytes &&
             subpixel_visibility_buffers.subpixel_visibility_buffer.is_valid() && subpixel_visibility_buffers.subpixel_visibility_size >= visibility_bytes &&
-            (!sh || (sh_cache_buffers.sh_color_cache.is_valid() && sh_cache_buffers.sh_color_cache_size >= history_bytes));
+            (!sh || (sh_cache_buffers.sh_color_cache.is_valid() && sh_cache_buffers.sh_color_cache_size >= sh_bytes));
 }
