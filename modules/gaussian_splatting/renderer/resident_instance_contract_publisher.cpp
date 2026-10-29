@@ -1,3 +1,4 @@
+#include "../lod/hlod_edit.h"
 #include "resident_instance_contract_publisher.h"
 
 #include "../core/gs_vector_alloc.h"
@@ -1198,6 +1199,8 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         const GaussianSplatHlodRuntimeData &p_data, bool p_relative, bool p_quantized,
         uint32_t p_capacity, uint32_t p_position_bits, uint32_t p_scale_bits, const InstanceDataGPU &p_instance, const InstanceGradingGPU &p_grading, HlodBundle &r_bundle,
         bool p_streaming = false, uint32_t p_atlas_records = 0) {
+    // Package F1: a whole-tree bundle packs payload by base ranges; an edited snapshot is served by the streamer only.
+    if (!p_streaming && p_data.has_edits()) { return false; }
     auto &b = r_bundle.buffers;
     const uint32_t node_count = p_data.nodes.size();
     const uint32_t records = p_streaming ? p_atlas_records : p_data.leaf_count + (p_relative ? p_data.parent_count : 0);
@@ -1604,6 +1607,17 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint64_t instance_generation = director->get_instance_generation_for_renderer(this);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     const uint64_t owner_key = state.hlod_owner_key;
+    // Package F1: a world with committed edits is rebuilt from its last committed snapshot, never from the unedited one.
+    if (state.hlod_edit_owner_key != owner_key) { state.hlod_committed_edit.unref(); }
+    Ref<GaussianSplatHlodRuntimeData> served = input;
+    {
+        const Ref<GaussianSplatHlodRuntimeData> &edit = state.hlod_committed_edit;
+        if (edit.is_valid() && edit->source_world == input->source_world && edit->source_epoch == input->source_epoch &&
+                edit->source_revision == input->source_revision && edit->nodes.size() == input->nodes.size() &&
+                edit->is_paged() == input->is_paged()) {
+            served = edit;
+        }
+    }
     const uint32_t position_bits = MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX);
     const uint32_t scale_bits = MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX);
     const bool quantize_scales = g_quantization_config.quantize_scales;
@@ -1680,8 +1694,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         uint64_t candidate_bytes = whole_candidate_bytes;
         if (streaming) {
             uint64_t node_pages = 0;
-            for (int n = 0; n < input->nodes.size(); ++n) {
-                node_pages += (uint64_t(input->nodes[n].topology.payload_count) + stream_config.page_splats - 1u) / stream_config.page_splats;
+            for (int n = 0; n < served->nodes.size(); ++n) {
+                node_pages += (uint64_t(served->nodes[n].topology.payload_count) + stream_config.page_splats - 1u) / stream_config.page_splats;
             }
             // Bytes of the relative bundle that do not scale with the atlas (everything but the atlas records).
             const uint64_t fixed_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, 1) - record_stride;
@@ -1726,7 +1740,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         if (built && streaming) {
             streamer.instantiate();
             // World generation = the immutable snapshot object, device generation = the device instance.
-            if (!streamer->init(input, stream_config, uint64_t(input->get_instance_id()), rd->get_device_instance_id())) {
+            if (!streamer->init(served, stream_config, uint64_t(input->get_instance_id()), rd->get_device_instance_id())) {
                 streamer.unref();
             }
         }
@@ -1936,6 +1950,22 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     spec.caps.splat_budget = state.hlod_streaming ? MIN<uint64_t>(capacity, state.hlod_stream_atlas_records) : uint64_t(capacity);
     spec.caps.node_budget = state.hlod_relative.buffers.max_visible_chunks;
     spec.caps.record_budget = double(records);
+    if (state.hlod_streaming && state.hlod_streamer.is_valid()) {
+        // Package F1: the streamer checks a staged edit's replacement cut against the caps of the views it knows.
+        gs_hlod_runtime::CutRequest known_view;
+        known_view.camera = spec.camera;
+        for (uint32_t i = 0; i < 6; ++i) { known_view.frustum[i] = spec.frustum[i]; }
+        known_view.frustum_enabled = spec.frustum_enabled;
+        known_view.focal_pixels = spec.focal_pixels;
+        known_view.tau_pixels = spec.tau_pixels;
+        known_view.record_budget = spec.caps.record_budget;
+        known_view.tile_area = spec.tile_area;
+        known_view.splat_budget = spec.caps.splat_budget;
+        known_view.node_budget = spec.caps.node_budget;
+        known_view.page_splats = spec.page_splats;
+        known_view.page_budget = spec.page_budget;
+        state.hlod_streamer->register_view(1, known_view);
+    }
     // One asset, one identity-placed instance holding the whole view's caps. The GPU-side sort/record/draw
     // buffers and the payload are already inside the route ledger above (route_bytes), so the ViewSet
     // budget is the remaining headroom and charges only what it allocates on the CPU (histories, draw records).
@@ -1969,8 +1999,28 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     asset.bake_rule_revision = 0;
     // Whole-tree bundle: everything it holds is resident. Streamed bundle: only nodes the streamer has validated
     // and completely uploaded (resident-ready) are visible to the selector, so a cut can only name drawable nodes.
+    Ref<GaussianSplatHlodRuntimeData> served = input;
     if (state.hlod_streaming) {
-        state.hlod_streamer->begin_frame();
+        HlodNodeStreamer::Buffers frame_buffers;
+        frame_buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
+        frame_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
+        frame_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
+        // The publication boundary of a staged edit is inside begin_frame(): commit, then select, structurally.
+        state.hlod_streamer->begin_frame(get_device_state().rd, &frame_buffers);
+        if (!state.hlod_streamer->is_active()) {
+            // A failed commit part-way: the bundle cannot be trusted. Release; the rebuild serves the last COMMITTED
+            // snapshot (hlod_committed_edit), and until then the world draws nothing (hlod_edit_blanks_frame).
+            state.hlod_edit_event = "hlod_edit_commit_unusable";
+            release_hlod_resources();
+            state.hlod_reason = "hlod_edit_commit_unusable";
+            return false;
+        }
+        served = state.hlod_streamer->get_data();
+        if (served->has_edits() && state.hlod_committed_edit != served) {
+            state.hlod_committed_edit = served;
+            state.hlod_edit_owner_key = state.hlod_prepared_owner_key;
+        }
+        asset.data = served;
         asset.resident = state.hlod_streamer->resident_mask();
     } else {
         asset.resident.clear();
@@ -1996,6 +2046,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         stream_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
         state.hlod_streamer->update(get_device_state().rd, stream_buffers, desired, desired_count,
                 outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u);
+        state.hlod_edit_event = state.hlod_streamer->get_telemetry().edit_event;
+#ifdef TESTS_ENABLED
+        hlod_edit_probe_step();
+#endif
         ++state.hlod_stream_frames;
         if (outcome.active()) {
             ++state.hlod_stream_ready_frames;
@@ -2007,6 +2061,16 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // Every non-success readiness or admission result maps to the canonical non-HLOD route with an explicit
     // reason; an active cut is only ever a READY (complete) view, never an empty or partial one.
     if (!outcome.active()) {
+        if (served->has_edits() && outcome.view.edit_forced) { ++state.hlod_edit_forced_frames; }
+        if (served->has_edits() && state.hlod_streaming && !state.hlod_streamer->root_failed() &&
+                outcome.view.readiness != gs_hlod_runtime::ViewSet::FAILED && outcome.view.edit_forced) {
+            // The replacement cut of an edited world is not drawable yet: say so with a reason of its own (P2-3).
+            const HlodNodeStreamer::Telemetry &edit_t = state.hlod_streamer->get_telemetry();
+            if (outcome.view.readiness == gs_hlod_runtime::ViewSet::LOADING && edit_t.stall_frames < 60) {
+                return fallback("hlod_edit_replacement_loading");
+            }
+            return fallback("hlod_edit_replacement_not_admitted");
+        }
         state.hlod_budget_bound_frames += outcome.fallback.budget_bound_frames;
         state.hlod_root_dropped_frames += outcome.fallback.root_dropped_frames;
         if (outcome.fallback.root_dropped_frames) {
@@ -2032,6 +2096,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // Draw records are ordered by NodeKey, not by selection order. The GPU treats the list as a lookup table
     // (depth_compute stores the chunk index per splat, tile_binning reads entries[index]); no consumer depends
     // on entry order, and the splat order itself comes from an atomic append plus the depth sort.
+    if (served->has_edits() && outcome.view.edit_forced) { ++state.hlod_edit_forced_frames; } // A drawn cut that replaced a stale ancestor.
     const uint32_t selected_count = outcome.record_count;
     if (selected_count > uint32_t(bundle.draw_entries.size())) { return fallback("hlod_view_failed"); }
     if (state.hlod_streaming) {
@@ -2425,3 +2490,122 @@ Ref<Resource> GaussianSplatRenderer::test_bake_hlod_small_leaf_fixture(const Ref
     return world;
 }
 #endif // TESTS_ENABLED
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Package F1: editable regions on the streamed HLOD route (internal API; see gaussian_splat_renderer.h).
+// ---------------------------------------------------------------------------------------------------------------------
+
+Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::get_hlod_served_snapshot() const {
+    const auto &state = get_resource_state();
+    if (state.hlod_streaming && state.hlod_streamer.is_valid() && state.hlod_streamer->is_active()) {
+        return state.hlod_streamer->get_data();
+    }
+    return Ref<GaussianSplatHlodRuntimeData>();
+}
+
+bool GaussianSplatRenderer::stage_hlod_edit(const Ref<GaussianSplatHlodRuntimeData> &p_edited, String &r_reason) {
+    auto &state = get_resource_state();
+    if (!state.hlod_streaming || state.hlod_streamer.is_null() || !state.hlod_streamer->is_active()) {
+        r_reason = "hlod_edit_requires_streamed_route";
+        state.hlod_edit_event = r_reason;
+        return false;
+    }
+    switch (state.hlod_streamer->stage_edit(p_edited)) {
+        case HlodNodeStreamer::EDIT_STAGED: r_reason = "hlod_edit_staged"; break;
+        case HlodNodeStreamer::EDIT_REJECTED_BUSY: r_reason = "hlod_edit_busy"; break;
+        case HlodNodeStreamer::EDIT_REJECTED_DATA: r_reason = "hlod_edit_snapshot_mismatch"; break;
+        case HlodNodeStreamer::EDIT_REJECTED_NO_SPACE: r_reason = "hlod_edit_no_space"; break;
+        case HlodNodeStreamer::EDIT_REJECTED_INFEASIBLE: r_reason = "hlod_edit_replacement_cut_infeasible"; break;
+        case HlodNodeStreamer::EDIT_REJECTED_NO_VIEW: r_reason = "hlod_edit_no_registered_view"; break;
+        case HlodNodeStreamer::EDIT_REJECTED_LINEAGE: r_reason = "hlod_edit_lineage"; break;
+    }
+    state.hlod_edit_event = r_reason;
+    return r_reason == "hlod_edit_staged";
+}
+
+bool GaussianSplatRenderer::hlod_edit_blanks_frame(String &r_reason) const {
+    const auto &state = get_resource_state();
+    if (state.hlod_committed_edit.is_null() || state.hlod_edit_owner_key != state.hlod_owner_key) {
+        return false;
+    }
+    if (state.hlod_streaming && state.hlod_streamer.is_valid() && state.hlod_streamer->is_active()) {
+        return false; // The streamed route serves the committed snapshot; its own fallbacks draw nothing.
+    }
+    // Every other route (the resident canonical copy, a materialized V4 world) would redisplay the OLD content.
+    r_reason = state.hlod_reason.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + state.hlod_reason;
+    return true;
+}
+
+#ifdef TESTS_ENABLED
+void GaussianSplatRenderer::hlod_edit_probe_step() {
+    auto &state = get_resource_state();
+    if (state.hlod_edit_probe_done || !state.hlod_streaming || state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
+            state.hlod_streamer->is_edit_staged() || state.hlod_stream_ready_frames < 30) {
+        return;
+    }
+    const String spec = OS::get_singleton()->get_environment("GS_HLOD_EDIT_BOX");
+    if (spec.is_empty()) {
+        return;
+    }
+    state.hlod_edit_probe_done = true; // One shot: the result is reported through hlod_edit_probe_result.
+    const Vector<String> parts = spec.split(",");
+    if (parts.size() != 6) {
+        state.hlod_edit_probe_result = "bad_box";
+        return;
+    }
+    Vector3 lo(parts[0].to_float(), parts[1].to_float(), parts[2].to_float());
+    Vector3 hi(parts[3].to_float(), parts[4].to_float(), parts[5].to_float());
+    const Ref<GaussianSplatHlodRuntimeData> served = state.hlod_streamer->get_data();
+    LocalVector<gs_hlod_runtime::LeafEdit> edits;
+    uint64_t deleted = 0;
+    for (uint32_t n = 0; n < uint32_t(served->nodes.size()) && edits.size() < gs_hlod_runtime::kMaxEditedLeaves; ++n) {
+        const auto &node = served->nodes[n];
+        if (node.topology.child_count != 0 || served->find_edited(n) != nullptr) { continue; }
+        // Sphere / box overlap on the leaf's bounds.
+        const Vector3 c = node.bounds_center;
+        const Vector3 nearest = c.clamp(lo, hi);
+        if (c.distance_to(nearest) > node.topology.radius) { continue; }
+        gs_hlod_runtime::LeafEdit edit;
+        edit.node = n;
+        Vector<Gaussian> all;
+        Vector<Vector3> all_sh;
+        if (served->is_paged()) {
+            String why;
+            if (served->paged_source->read_node_payload(n, all, all_sh, why) != OK) { continue; }
+        } else {
+            for (uint32_t i = 0; i < node.topology.payload_count; ++i) {
+                all.push_back(served->gaussian(node.topology.payload_first + i));
+                const Vector3 *sh = served->sh(node.topology.payload_first + i);
+                for (uint32_t k = 0; sh && k < served->high_order_count; ++k) { all_sh.push_back(sh[k]); }
+            }
+        }
+        for (int64_t i = 0; i < all.size(); ++i) {
+            const Vector3 p = all[i].position;
+            if (p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z) { continue; }
+            edit.gaussians.push_back(all[i]);
+            for (uint32_t k = 0; k < served->high_order_count; ++k) { edit.sh.push_back(all_sh[i * served->high_order_count + k]); }
+        }
+        if (edit.gaussians.is_empty() && !all.is_empty()) {
+            // A leaf may not become empty (ADR 14.5.1): keep its first splat.
+            edit.gaussians.push_back(all[0]);
+            for (uint32_t k = 0; k < served->high_order_count; ++k) { edit.sh.push_back(all_sh[k]); }
+        }
+        if (edit.gaussians.size() == all.size()) { continue; } // Nothing deleted here.
+        deleted += uint64_t(all.size() - edit.gaussians.size());
+        edits.push_back(edit);
+    }
+    if (edits.is_empty()) {
+        state.hlod_edit_probe_result = "no_leaf_touched";
+        return;
+    }
+    Ref<GaussianSplatHlodRuntimeData> edited;
+    String reason;
+    const gs_hlod_runtime::EditStatus status = gs_hlod_runtime::make_edited_snapshot(served, served->edit_revision, edits.ptr(), edits.size(), edited, reason);
+    if (status != gs_hlod_runtime::EditStatus::OK) {
+        state.hlod_edit_probe_result = "factory:" + reason;
+        return;
+    }
+    stage_hlod_edit(edited, reason);
+    state.hlod_edit_probe_result = vformat("%s leaves=%d deleted=%d", reason, int64_t(edits.size()), int64_t(deleted));
+}
+#endif

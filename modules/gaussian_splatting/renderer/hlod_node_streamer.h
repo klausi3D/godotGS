@@ -50,6 +50,9 @@ public:
 		// separately (payload_ready_bytes_peak).
 		uint64_t max_inflight_read_bytes = 8ull * 1024 * 1024;
 		uint32_t retire_delay_frames = 3;
+		// Package F1: a staged edit that has not committed after this many frames is cancelled and reported
+		// (edit_event "timeout"), so a stuck edit cannot hold its reservation forever.
+		uint32_t edit_timeout_frames = 1800;
 	};
 	struct Buffers {
 		RID atlas;
@@ -107,13 +110,27 @@ public:
 		uint64_t edit_commit_failures_total = 0;
 		uint64_t edit_payload_bytes_committed_total = 0;
 		uint32_t stale_nodes = 0;
+		uint64_t edits_rejected_infeasible_total = 0;
+		uint64_t edit_timeouts_total = 0;
+		bool edit_waiting_for_space = false;
+		// The last edit lifecycle event, for diagnostics: "" (none), "staged", "committed", "cancelled", "timeout",
+		// "blocked", "upload_failed", "commit_unusable".
+		const char *edit_event = "";
 	};
+
+	// Package F1: a view whose caps the replacement cut must fit (ADR 14.5: the full replacement cut is reserved across the
+	// admitted views). The owner registers the request it selects with each frame; stage_edit() runs the selector on the
+	// staged snapshot against every registered view. Pointers in the request are ignored.
+	void register_view(uint64_t p_view_key, const gs_hlod_runtime::CutRequest &p_request);
 
 	enum EditStageResult : uint8_t {
 		EDIT_STAGED = 0,
 		EDIT_REJECTED_BUSY, // Inactive streamer, or another edit is staged.
 		EDIT_REJECTED_DATA, // Not a direct derivative of the served snapshot, or unusable on this route.
 		EDIT_REJECTED_NO_SPACE, // The shadow runs do not fit: nothing was changed.
+		EDIT_REJECTED_INFEASIBLE, // The replacement cut does not fit a registered view's caps: nothing was changed.
+		EDIT_REJECTED_NO_VIEW, // No view is registered, so feasibility cannot be shown: nothing was changed.
+		EDIT_REJECTED_LINEAGE, // Not derived from the served snapshot.
 	};
 	enum EditCommitResult : uint8_t {
 		COMMIT_NOTHING = 0, // No edit staged, not ready yet, or no usable device this frame: nothing changed.
@@ -132,8 +149,11 @@ public:
 	void shutdown();
 	bool is_active() const { return active; }
 
-	// Retires freed runs; call once per frame before the selector reads resident_mask().
-	void begin_frame();
+	// Retires freed runs; call once per frame before the selector reads resident_mask() or get_data(). With a device, this
+	// is also the publication boundary of a staged edit (package F1): when the replacement cut is complete and ready the
+	// edit commits HERE, so the order "commit, then select" is structural and cannot be skipped by a caller.
+	void begin_frame(RenderingDevice *p_device = nullptr, const Buffers *p_buffers = nullptr);
+	EditCommitResult get_last_commit_result() const { return last_commit_result; }
 
 	// --- Package F1 ---
 	// The snapshot the selector must read. It changes only inside commit_staged_edit().
@@ -142,10 +162,9 @@ public:
 	EditStageResult stage_edit(const Ref<GaussianSplatHlodRuntimeData> &p_edited);
 	bool is_edit_staged() const { return active && residency.is_edit_staged(); }
 	bool is_edit_ready() const { return active && residency.edit_ready(); }
-	// The publication boundary. Call once per frame after begin_frame() and BEFORE the selector reads get_data() and
-	// resident_mask(): when the replacement cut is complete and ready it uploads the new leaf payloads, flips the
-	// served snapshot and drops the stale ancestors in one step, so no draw built after this call can name a stale
-	// node or an old leaf version. Frames already submitted may still present (ADR 14.5).
+	// The publication boundary (called by begin_frame(device, buffers)): when the replacement cut is complete and ready it
+	// uploads the new leaf payloads, flips the served snapshot and drops the stale ancestors in one step, so no draw built
+	// after this can name a stale node or an old leaf version. Frames already submitted may still present (ADR 14.5).
 	EditCommitResult commit_staged_edit(RenderingDevice *p_device, const Buffers &p_buffers);
 	// Gives the reservation back; the served snapshot and residency are exactly as before stage_edit().
 	bool cancel_staged_edit();
@@ -265,6 +284,13 @@ private:
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> tickets_scratch;
 	LocalVector<uint32_t> demand_scratch;
 	LocalVector<uint32_t> prefetch_scratch;
+	struct RegisteredView {
+		uint64_t key = 0;
+		gs_hlod_runtime::CutRequest request;
+	};
+	LocalVector<RegisteredView> views;
+	EditCommitResult last_commit_result = COMMIT_NOTHING;
+	bool edit_feasible(const Ref<GaussianSplatHlodRuntimeData> &p_edited) const;
 	LocalVector<uint32_t> drawn_scratch;
 	LocalVector<uint32_t> evicted_scratch;
 	uint64_t world_generation = 0;

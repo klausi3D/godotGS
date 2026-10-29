@@ -246,6 +246,9 @@ HlodNodeStreamer::EditStageResult HlodNodeStreamer::stage_edit(const Ref<Gaussia
 	if (!active || residency.is_edit_staged()) {
 		return EDIT_REJECTED_BUSY;
 	}
+	if (p_edited.is_valid() && data.is_valid() && p_edited->edit_parent_id != data->get_instance_id()) {
+		return EDIT_REJECTED_LINEAGE; // Same revision number is not the same lineage.
+	}
 	// A direct derivative of the served snapshot: same world and content, same tree, the next edit revision.
 	if (p_edited.is_null() || data.is_null() || p_edited->source_world != data->source_world || p_edited->source_epoch != data->source_epoch ||
 			p_edited->source_revision != data->source_revision || p_edited->nodes.size() != data->nodes.size() ||
@@ -264,6 +267,15 @@ HlodNodeStreamer::EditStageResult HlodNodeStreamer::stage_edit(const Ref<Gaussia
 		leaf.splat_count = p_edited->nodes[leaf.node].topology.payload_count;
 		leaves.push_back(leaf);
 	}
+	if (views.is_empty()) {
+		telemetry.edit_event = "rejected_no_view";
+		return EDIT_REJECTED_NO_VIEW;
+	}
+	if (!edit_feasible(p_edited)) {
+		++telemetry.edits_rejected_infeasible_total;
+		telemetry.edit_event = "rejected_infeasible";
+		return EDIT_REJECTED_INFEASIBLE;
+	}
 	LocalVector<NodeResidency::Ticket> tickets;
 	const NodeResidency::EditResult result = residency.stage_edit(p_edited->edit_revision, leaves.ptr(), leaves.size(), tickets);
 	if (result != NodeResidency::EDIT_OK) {
@@ -275,7 +287,8 @@ HlodNodeStreamer::EditStageResult HlodNodeStreamer::stage_edit(const Ref<Gaussia
 	for (uint32_t i = 0; i < tickets.size(); ++i) {
 		shadow_pending.push_back(tickets[i]);
 	}
-	telemetry.edit_shadow_total = tickets.size();
+	telemetry.edit_shadow_total = leaves.size();
+	telemetry.edit_event = "staged";
 	return EDIT_STAGED;
 }
 
@@ -285,6 +298,7 @@ bool HlodNodeStreamer::cancel_staged_edit() {
 	}
 	release_staged_edit_data();
 	telemetry.edit_shadow_total = 0;
+	telemetry.edit_event = "cancelled";
 	return true;
 }
 
@@ -294,6 +308,7 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 	}
 	if (residency.edit_blocked()) {
 		cancel_staged_edit(); // A failed payload or a replacement child that can never load: give the reservation back.
+		telemetry.edit_event = "blocked";
 		return COMMIT_NOTHING;
 	}
 	if (!residency.edit_ready() || staged_data.is_null() || !p_device || p_device->get_device_instance_id() != device_generation) {
@@ -309,6 +324,7 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 		if (count == 0 || offset + uint64_t(count) * stride > atlas_capacity || count > r.ticket.page_count * cfg.page_splats) {
 			cancel_staged_edit();
 			++telemetry.edit_commit_failures_total;
+			telemetry.edit_event = "upload_failed";
 			return COMMIT_UPLOAD_FAILED;
 		}
 	}
@@ -324,6 +340,7 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 		if (p_device->buffer_update(p_buffers.atlas, uint32_t(offset), uint32_t(bytes), payload) != OK) {
 			cancel_staged_edit();
 			++telemetry.edit_commit_failures_total;
+			telemetry.edit_event = "upload_failed";
 			return COMMIT_UPLOAD_FAILED;
 		}
 		payload_bytes += bytes;
@@ -338,12 +355,14 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 			// Part of the metadata may already name the new runs while the residency model still names the old ones:
 			// the bundle cannot be trusted. Fail closed; the owner rebuilds it from the (unchanged) world.
 			++telemetry.edit_commit_failures_total;
+			telemetry.edit_event = "commit_unusable";
 			active = false;
 			return COMMIT_UNUSABLE;
 		}
 	}
 	if (!residency.commit_edit()) {
 		++telemetry.edit_commit_failures_total;
+		telemetry.edit_event = "commit_unusable";
 		active = false;
 		return COMMIT_UNUSABLE;
 	}
@@ -354,16 +373,67 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 	telemetry.edit_revision = data->edit_revision;
 	telemetry.edit_shadow_total = 0;
 	++telemetry.edits_committed_total;
+	telemetry.edit_event = "committed";
 	telemetry.edit_payload_bytes_committed_total += payload_bytes;
 	refresh_telemetry();
 	return COMMIT_DONE;
 }
 
-void HlodNodeStreamer::begin_frame() {
+void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_buffers) {
+	last_commit_result = COMMIT_NOTHING;
 	if (!active) {
 		return;
 	}
 	residency.begin_frame(++frame);
+	if (p_device && p_buffers && residency.is_edit_staged()) {
+		last_commit_result = commit_staged_edit(p_device, *p_buffers);
+	}
+}
+
+void HlodNodeStreamer::register_view(uint64_t p_view_key, const gs_hlod_runtime::CutRequest &p_request) {
+	RegisteredView view;
+	view.key = p_view_key;
+	view.request = p_request;
+	view.request.resident = nullptr;
+	view.request.resident_count = 0;
+	view.request.tie_rank = nullptr;
+	view.request.tie_rank_count = 0;
+	for (uint32_t i = 0; i < views.size(); ++i) {
+		if (views[i].key == p_view_key) {
+			views[i] = view;
+			return;
+		}
+	}
+	if (views.size() < 8) {
+		views.push_back(view);
+	}
+}
+
+// ADR 14.5: the replacement cut must be reservable before the edit is accepted. Runs the selector on the staged snapshot
+// for every registered view, treating every non-stale node as resident (residency is what staging then provides), so
+// the answer is about the caps: a node, splat or record budget that cannot hold the cut yields no cut for that view.
+bool HlodNodeStreamer::edit_feasible(const Ref<GaussianSplatHlodRuntimeData> &p_edited) const {
+	const uint32_t node_total = p_edited->nodes.size();
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(node_total)) {
+		return false;
+	}
+	Vector<uint8_t> all_resident;
+	if (!gs_resize_or_fail(all_resident, int64_t(node_total), "HLOD edit feasibility mask")) {
+		return false;
+	}
+	all_resident.fill(1);
+	for (uint32_t i = 0; i < views.size(); ++i) {
+		gs_hlod_runtime::CutRequest request = views[i].request;
+		request.resident = all_resident.ptr();
+		request.resident_count = node_total;
+		const gs_hlod_runtime::CutHistory::Result result = history.select(*p_edited.ptr(), request);
+		if (result.status != gs_hlod_runtime::CutHistory::COMPLETE && result.status != gs_hlod_runtime::CutHistory::EMPTY) {
+			return false;
+		}
+		history.invalidate();
+	}
+	return true;
 }
 
 void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_buffers) {
@@ -454,6 +524,19 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	// Protection first (ADR 14.1): drawn versions and their ancestors cannot be evicted by this frame's requests.
 	residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
 	tickets_scratch.clear();
+	if (residency.is_edit_staged()) {
+		// After the frame's protection is known: allocate (evicting if needed) the shadow runs of a waiting edit.
+		LocalVector<NodeResidency::Ticket> shadow_tickets;
+		residency.advance_edit(shadow_tickets);
+		for (uint32_t i = 0; i < shadow_tickets.size(); ++i) {
+			shadow_pending.push_back(shadow_tickets[i]);
+		}
+		if (residency.staged_edit_age_frames() > cfg.edit_timeout_frames) {
+			cancel_staged_edit();
+			++telemetry.edit_timeouts_total;
+			telemetry.edit_event = "timeout";
+		}
+	}
 	const NodeResidency::RequestResult requested = residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch);
 	// Metadata of nodes evicted by this request is cleared before any upload of this update: a node evicted and
 	// requested again is not in the log (NodeResidency), and a payload that lands below is never zeroed after.
@@ -492,6 +575,7 @@ void HlodNodeStreamer::refresh_telemetry() {
 	const NodeResidency::Stats s = residency.stats();
 	telemetry.resident = s.resident;
 	telemetry.edit_staged = s.edit_staged;
+	telemetry.edit_waiting_for_space = s.edit_waiting_for_space;
 	telemetry.edit_shadow_ready = shadow_ready.size();
 	telemetry.edits_cancelled_total = s.edits_cancelled_total;
 	telemetry.edits_rejected_total = s.edits_rejected_total;

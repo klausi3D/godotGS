@@ -30,13 +30,24 @@ bool GaussianSplatHlodRuntimeData::is_current() const {
 	return world && world->is_hlod_runtime_snapshot_current(*this);
 }
 
+bool GaussianSplatHlodRuntimeData::index_in_edited_leaf(uint64_t p_index) const {
+	for (int64_t i = 0; i < edited.size(); ++i) {
+		if (p_index >= edited[i].base_first && p_index - edited[i].base_first < edited[i].base_count) {
+			return true;
+		}
+	}
+	return false;
+}
+
 const Gaussian &GaussianSplatHlodRuntimeData::gaussian(uint64_t p_index) const {
 	static const Gaussian paged_placeholder;
+	ERR_FAIL_COND_V_MSG(index_in_edited_leaf(p_index), paged_placeholder, "The payload index lies in an edited leaf; read the node through the edit overlay.");
 	ERR_FAIL_COND_V_MSG(is_paged(), paged_placeholder, "A paged HLOD snapshot holds no resident payload; read the node through its paged source.");
 	return p_index < leaf_count ? leaves.get_gaussians()[p_index] : parents[p_index - leaf_count];
 }
 
 const Vector3 *GaussianSplatHlodRuntimeData::sh(uint64_t p_index) const {
+	ERR_FAIL_COND_V_MSG(index_in_edited_leaf(p_index), nullptr, "The payload index lies in an edited leaf; read the node through the edit overlay.");
 	ERR_FAIL_COND_V_MSG(is_paged(), nullptr, "A paged HLOD snapshot holds no resident payload; read the node through its paged source.");
 	if (high_order_count == 0) {
 		return nullptr;

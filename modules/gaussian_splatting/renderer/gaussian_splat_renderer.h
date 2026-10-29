@@ -928,6 +928,20 @@ public:
     bool publish_hlod_bundle(bool p_relative);
     // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
     bool idle_hlod_streaming_bundle();
+    // Package F1 (internal, deliberately not a bound API; the public surface needs its own R3 review): stages an edited
+    // snapshot (lod/hlod_edit.h, derived from get_hlod_served_snapshot()) on the streamed HLOD route. The edit commits
+    // inside the streamer's begin_frame() once its replacement cut is ready. False with an hlod_edit_* reason when it
+    // cannot be admitted; nothing changes then.
+    bool stage_hlod_edit(const Ref<GaussianSplatHlodRuntimeData> &p_edited, String &r_reason);
+    // The snapshot the streamed route currently serves (the committed edit, or the captured one), or null.
+    Ref<GaussianSplatHlodRuntimeData> get_hlod_served_snapshot() const;
+    // True when this world has committed edits that the current route cannot serve: every frame must then draw nothing.
+    bool hlod_edit_blanks_frame(String &r_reason) const;
+#ifdef TESTS_ENABLED
+    // GS_HLOD_EDIT_BOX="minx,miny,minz,maxx,maxy,maxz": once the view is ready, deletes the splats inside the box from the
+    // leaves it touches and stages the edit (probe/CI only).
+    void hlod_edit_probe_step();
+#endif
     const char *hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const;
 
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,

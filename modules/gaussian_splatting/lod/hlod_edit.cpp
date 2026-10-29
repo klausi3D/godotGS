@@ -146,6 +146,7 @@ EditStatus make_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_base,
 	next->paged_sh_first_order = base.paged_sh_first_order;
 	next->nodes = base.nodes;
 	next->edit_revision = revision;
+	next->edit_parent_id = p_base->get_instance_id();
 	if (!gs_resize_or_fail(next->edit_state, int64_t(node_total), "HLOD edit state")) {
 		return fail(EditStatus::OVER_CPU_BUDGET, String());
 	}
@@ -168,6 +169,9 @@ EditStatus make_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_base,
 		GaussianSplatHlodRuntimeData::EditedLeaf leaf;
 		leaf.node = edit.node;
 		leaf.revision = revision;
+		const GaussianSplatHlodRuntimeData::EditedLeaf *previous = base.find_edited(edit.node);
+		leaf.base_first = previous ? previous->base_first : base.nodes[edit.node].topology.payload_first;
+		leaf.base_count = previous ? previous->base_count : base.nodes[edit.node].topology.payload_count;
 		leaf.gaussians = edit.gaussians;
 		leaf.sh = edit.sh;
 		merged.push_back(leaf);

@@ -1535,6 +1535,24 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_payload_largest_read_bytes"] = int64_t(t.payload_largest_read_bytes);
         stats["hlod_stream_payload_ready_bytes_peak"] = int64_t(t.payload_ready_bytes_peak);
     }
+    // Package F1: editable regions.
+    stats["hlod_edit_event"] = resource_state.hlod_edit_event;
+    stats["hlod_edit_probe"] = resource_state.hlod_edit_probe_result;
+    stats["hlod_edit_forced_frames"] = int64_t(resource_state.hlod_edit_forced_frames);
+    stats["hlod_edit_blank_frames"] = int64_t(resource_state.hlod_edit_blank_frames);
+    stats["hlod_edit_committed_revision"] = resource_state.hlod_committed_edit.is_valid() ? int64_t(resource_state.hlod_committed_edit->edit_revision) : int64_t(0);
+    if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
+        const HlodNodeStreamer::Telemetry &et = resource_state.hlod_streamer->get_telemetry();
+        stats["hlod_edit_staged"] = et.edit_staged;
+        stats["hlod_edit_waiting_for_space"] = et.edit_waiting_for_space;
+        stats["hlod_edit_shadow_ready"] = et.edit_shadow_ready;
+        stats["hlod_edit_commits_total"] = int64_t(et.edits_committed_total);
+        stats["hlod_edit_rejected_total"] = int64_t(et.edits_rejected_total);
+        stats["hlod_edit_rejected_infeasible_total"] = int64_t(et.edits_rejected_infeasible_total);
+        stats["hlod_edit_timeouts_total"] = int64_t(et.edit_timeouts_total);
+        stats["hlod_edit_commit_failures_total"] = int64_t(et.edit_commit_failures_total);
+        stats["hlod_edit_stale_nodes"] = et.stale_nodes;
+    }
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
     stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
