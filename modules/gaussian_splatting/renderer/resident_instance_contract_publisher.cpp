@@ -236,6 +236,15 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
         if (r_reason) { *r_reason = hlod_reason; }
         return hlod_result > 0;
     }
+    {
+        // Package E1: a V4 paged world has no canonical payload to publish instead; the frame is skipped, with the
+        // reason the HLOD route gave (also in the stats as hlod_reason).
+        const auto &paged_state = p_renderer->get_resource_state();
+        if (paged_state.hlod_snapshot.is_valid() && paged_state.hlod_snapshot->is_paged()) {
+            if (r_reason) { *r_reason = paged_state.hlod_reason.is_empty() ? String("hlod_paged_route_unavailable") : paged_state.hlod_reason; }
+            return false;
+        }
+    }
 
 	// Resident atlas VRAM budget (#321 follow-up). A default GaussianSplatNode3D is
 	// resident-only by contract, so an over-large atlas cannot fall back to streaming and
@@ -249,33 +258,7 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	const uint64_t effective_atlas_cap_bytes =
 			ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget_bytes, resident_atlas_override_mb);
 
-	Ref<GaussianData> primary_data = p_renderer->get_scene_state().gaussian_data;
-	if (primary_data.is_null()) {
-		// Package E1: a V4 paged world has no canonical payload. Until its HLOD route is published (it needs the
-		// ledgers a first composited frame creates) the warmup frames run this one invisible splat instead; the HLOD
-		// route replaces it, and if the HLOD route cannot activate the world draws nothing with hlod_reason set.
-		GaussianSplatRenderer::ResourceState &warmup_state = p_renderer->get_resource_state();
-		if (warmup_state.hlod_snapshot.is_valid() && warmup_state.hlod_snapshot->is_paged()) {
-			if (warmup_state.hlod_paged_warmup_stub.is_null()) {
-				// It must survive the cull and reach the composite (a frame with no visible splat skips the composite, and the
-				// composite is what creates the compositor scratch ledger the HLOD route waits for), yet stay below one 8-bit
-				// level: just above 1/255, small, at the root's centre. It is drawn only until the HLOD route publishes.
-				Gaussian stub;
-				stub.opacity = 0.0048f;
-				stub.scale = Vector3(0.05f, 0.05f, 0.05f);
-				stub.rotation = Quaternion();
-				stub.position = warmup_state.hlod_snapshot->nodes.is_empty() ? Vector3() : warmup_state.hlod_snapshot->nodes[0].bounds_center;
-				LocalVector<Gaussian> stub_payload;
-				stub_payload.push_back(stub);
-				LocalVector<Vector3> stub_sh;
-				Ref<GaussianData> stub_data;
-				stub_data.instantiate();
-				stub_data->set_gaussian_payload(stub_payload, stub_sh, 0u, 0u, false, false);
-				warmup_state.hlod_paged_warmup_stub = stub_data;
-			}
-			primary_data = warmup_state.hlod_paged_warmup_stub;
-		}
-	}
+	const Ref<GaussianData> primary_data = p_renderer->get_scene_state().gaussian_data;
 	const bool has_primary_data = primary_data.is_valid() && primary_data->get_count() > 0;
 
 	LocalVector<ResidentAssetDescriptor> assets;
@@ -1060,17 +1043,7 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 		p_renderer->clear_instance_pipeline_buffers();
 		return false;
 	}
-	uint32_t required_sort_capacity = MAX<uint32_t>(1u, buffers.max_visible_splats);
-	{
-		// Package E1: a paged world's warmup stub is one splat, but its HLOD route sorts up to leaf_count records and
-		// waits for the sort buffers to be that large (try_publish_hlod_resident_contract). Size them here, in the same
-		// call that publishes them, so no later resize leaves a published contract on stale handles. The sort scratch
-		// still scales with the whole tree: GPU memory, not CPU payload memory, and not changed by E1.
-		const GaussianSplatRenderer::ResourceState &paged_state = p_renderer->get_resource_state();
-		if (paged_state.hlod_snapshot.is_valid() && paged_state.hlod_snapshot->is_paged()) {
-			required_sort_capacity = MAX<uint32_t>(required_sort_capacity, paged_state.hlod_snapshot->leaf_count);
-		}
-	}
+	const uint32_t required_sort_capacity = MAX<uint32_t>(1u, buffers.max_visible_splats);
 	if (required_sort_capacity > sorting_pipeline->get_max_elements()) {
 		sorting_pipeline->rebuild_sorter(required_sort_capacity);
 	}
@@ -1501,6 +1474,56 @@ const char *GaussianSplatRenderer::hlod_streaming_unsupported_reason(const Insta
     return nullptr;
 }
 
+// Reason keys of a V4 paged world. A paged world has no canonical copy to fall back to, so the resident keys
+// (lod_disabled_canonical_leaves, ...), which promise "the canonical leaves are drawn", would mislead. At publish time
+// the painterly refusal shares the resident key unsupported_view_or_material; per frame (p_publish false) that key keeps
+// its D1 meaning (orthographic / XR / non-main pass) and is not renamed: those frames draw nothing for that view only.
+static const char *hlod_paged_reason_key(const char *p_base, bool p_publish) {
+    const String base = p_base;
+    if (base == "lod_disabled_canonical_leaves") { return "hlod_paged_lod_disabled"; }
+    if (base == "shadow_instance_filter") { return "hlod_paged_shadow_instance_filter"; }
+    if (base == "deformation_or_instance_domain") { return "hlod_paged_deformation_or_instance_domain"; }
+    if (base == "unsupported_instance_transform_domain") { return "hlod_paged_non_identity_instance_transform"; }
+    if (p_publish && base == "unsupported_view_or_material") { return "hlod_paged_painterly_enabled"; }
+    return p_base;
+}
+
+bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_render_buffers, String &r_reason) {
+    auto &state = get_resource_state();
+    const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
+    if (input.is_null() || !input->is_paged()) { return true; }
+    RenderingDevice *rd = get_device_state().rd;
+    Ref<TileRenderer> tile = tile_renderer_state.renderer;
+    OutputCompositor *compositor = subsystem_state.output_compositor.ptr();
+    if (!rd || tile.is_null() || !compositor || !p_render_buffers) {
+        r_reason = "hlod_paged_provisioning_needs_render_target";
+        return false;
+    }
+    const Size2i size = p_render_buffers->get_internal_size();
+    const RID color = p_render_buffers->get_internal_texture();
+    if (size.x <= 0 || size.y <= 0 || !color.is_valid()) {
+        r_reason = "hlod_paged_provisioning_needs_render_target";
+        return false;
+    }
+    const uint64_t key = (uint64_t(size.x) * 73856093ull) ^ (uint64_t(size.y) * 19349663ull) ^ (rd->get_device_instance_id() * 83492791ull) ^
+            uint64_t(tile->get_instance_id()) ^ uint64_t(1);
+    if (state.hlod_paged_provision_key == key) { return true; }
+    // The relative route never grows the overlap storage while drawing, so seed it as a canonical warmup frame of the
+    // same world would (every leaf may be visible, 50 records each; the sorting config caps it); growth afterwards is the
+    // measured safe-point growth in prepare_hlod_frame.
+    const uint32_t overlap = uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX));
+    if (tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, overlap) != OK) {
+        r_reason = "hlod_paged_tile_provisioning_failed";
+        return false;
+    }
+    if (!compositor->ensure_hlod_scratch(rd, rd->texture_get_format(color), size)) {
+        r_reason = "hlod_paged_compositor_scratch_failed";
+        return false;
+    }
+    state.hlod_paged_provision_key = key;
+    return true;
+}
+
 int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) {
     auto &state = get_resource_state();
     auto *director = GaussianSplatSceneDirector::get_singleton();
@@ -1511,6 +1534,13 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     if (!gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) || input.is_null() ||
             !director || !director->has_exclusive_hlod_world_submission(this, state.hlod_owner_key)) {
         if (state.hlod_prepared_snapshot.is_valid()) { release_hlod_resources(); }
+        // Say why the route is not taken (a paged world has no other route; the others keep drawing canonically).
+        if (input.is_valid()) {
+            const bool paged = input->is_paged();
+            state.hlod_reason = !gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())
+                    ? (paged ? "hlod_paged_requires_runtime_cut" : "hlod_runtime_cut_disabled")
+                    : (paged ? "hlod_paged_not_exclusive_world_submission" : "hlod_not_exclusive_world_submission");
+        }
         return 0;
     }
     if (!input->is_current() || input->source_data != get_scene_state().gaussian_data) {
@@ -1539,7 +1569,19 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint32_t scale_bits = MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX);
     const bool quantize_scales = g_quantization_config.quantize_scales;
     const uint32_t sort_capacity = MAX(input->leaf_count, relative_capacity);
-    const SortBufferHandles existing_sort = subsystem_state.sorting_pipeline.is_valid() ? subsystem_state.sorting_pipeline->get_buffer_handles() : SortBufferHandles();
+    SortBufferHandles existing_sort = subsystem_state.sorting_pipeline.is_valid() ? subsystem_state.sorting_pipeline->get_buffer_handles() : SortBufferHandles();
+    if (input->is_paged() && subsystem_state.sorting_pipeline.is_valid() && (!existing_sort.valid || existing_sort.capacity < sort_capacity) &&
+            !state.hlod_prepared_snapshot.is_valid()) {
+        // A paged world has no canonical atlas, so the canonical publication that sizes the sort buffers for every
+        // other world never runs. Its need is known here (every leaf may be sorted): size the sorter from it. No
+        // contract is published on the old handles, so nothing goes stale. The sort scratch still scales with the whole
+        // tree: GPU memory, not CPU payload memory, and not changed by E1.
+        if (sort_capacity > subsystem_state.sorting_pipeline->get_max_elements()) {
+            subsystem_state.sorting_pipeline->rebuild_sorter(sort_capacity);
+        }
+        subsystem_state.sorting_pipeline->ensure_buffers(sort_capacity);
+        existing_sort = subsystem_state.sorting_pipeline->get_buffer_handles();
+    }
     if (
 #ifdef TESTS_ENABLED
             test_hlod_publication_refuses(1) ||
@@ -1579,7 +1621,11 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         // there is no whole-tree or canonical copy to fall back to, so it is refused with the reason.
         const char *streaming_unsupported = hlod_streaming_unsupported_reason(&instances[0]);
         if (input->is_paged() && streaming_unsupported != nullptr) {
-            state.hlod_reason = streaming_unsupported;
+            // The world node materializes the payload and uses the resident route for exactly these cases when it can
+            // see them at submission (GaussianSplatWorld::materialize_paged_resident); this is the late/dynamic case.
+            state.hlod_reason = hlod_paged_reason_key(streaming_unsupported, true);
+            WARN_PRINT_ONCE(vformat("[GaussianSplatRenderer] A V4 paged world cannot use the HLOD route (%s) and draws nothing; "
+                                    "load a resident (v3) copy or fix the setting.", state.hlod_reason));
             return 0;
         }
         const bool streaming = (input->is_paged() || ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits)) &&
@@ -1720,7 +1766,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     };
     // Public LOD-off means the current complete canonical leaf representation.
     // Keep ordinary per-splat culling and budgets; never select coarse parents.
-    if (!get_lod_enabled()) { return fallback("lod_disabled_canonical_leaves"); }
+    if (!get_lod_enabled()) { return fallback(input->is_paged() ? hlod_paged_reason_key("lod_disabled_canonical_leaves", false) : "lod_disabled_canonical_leaves"); }
     if (p_context.pass_kind != RenderPassKind::MAIN_VIEW || !p_context.render_data || !p_context.render_buffers ||
             p_context.render_buffers->get_view_count() != 1 || p_context.projection.is_orthogonal() || p_context.painterly_enabled ||
             p_context.viewport_size.x <= 0 || p_context.viewport_size.y <= 0) {
@@ -1730,7 +1776,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     if (!director || !director->has_exclusive_hlod_world_submission(this, state.hlod_owner_key) ||
             gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled ||
-            director->get_sphere_effector_count_for_renderer(this) != 0) { return fallback("deformation_or_instance_domain"); }
+            director->get_sphere_effector_count_for_renderer(this) != 0) { return fallback(input->is_paged() ? hlod_paged_reason_key("deformation_or_instance_domain", false) : "deformation_or_instance_domain"); }
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
     const uint64_t device_budget = get_device_state().rd->get_device_memory_budget();
@@ -1776,6 +1822,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     const uint32_t capacity = state.hlod_relative.buffers.max_visible_splats;
     const PipelineFeatureSet *features = p_context.deps.pipeline_features;
     if (!features) { return fallback("current_pipeline_features_unavailable"); }
+    // Safe point for the overlap storage: the previous frames' measured overlap demand, before this frame's passes.
+    tile->grow_hlod_overlap_storage(route_limit - route_bytes);
     TileRenderer::RenderParams scratch_params;
     scratch_params.viewport_size = p_context.viewport_size;
     scratch_params.total_gaussians = total;

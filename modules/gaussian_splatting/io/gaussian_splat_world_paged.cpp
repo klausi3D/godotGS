@@ -474,7 +474,10 @@ Error read_exact(const Ref<FileAccess> &p_file, uint8_t *p_dst, uint64_t p_size)
 // Reader
 
 Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlodTree &r_tree, Dictionary &r_metadata, String &r_reason) {
-	opened = false;
+	if (opened) {
+		r_reason = "v4_already_open";
+		return ERR_ALREADY_IN_USE;
+	}
 	nodes.clear();
 	Error open_error = OK;
 	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ, &open_error);
@@ -625,8 +628,11 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 			r_reason = "v4_payload_region_overflow";
 			return ERR_FILE_CORRUPT;
 		}
-		// A node's payload lies wholly in the leaf range or wholly in the interior range.
-		if (r.is_leaf ? r.topology.payload_first + r.topology.payload_count > h.leaf : r.topology.payload_first < h.leaf) {
+		// A node's payload lies wholly in the leaf range or wholly in the interior range (checked arithmetic; the tree
+		// validator already proves the tiling, this keeps the reader safe on its own).
+		uint64_t payload_end_index = 0;
+		if (!add_u64(r.topology.payload_first, r.topology.payload_count, payload_end_index) ||
+				(r.is_leaf ? payload_end_index > h.leaf : (r.topology.payload_first < h.leaf || payload_end_index > uint64_t(h.leaf) + h.interior))) {
 			r_reason = "v4_payload_range_inconsistent";
 			return ERR_FILE_CORRUPT;
 		}

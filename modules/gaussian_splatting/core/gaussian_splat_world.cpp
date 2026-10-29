@@ -603,6 +603,111 @@ Error GaussianSplatWorld::save_to_file(const String &p_path) const {
     return saver.save(Ref<Resource>(const_cast<GaussianSplatWorld *>(this)), p_path, 0);
 }
 
+Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
+    Ref<GaussianSplatHlodPagedSource> source;
+    uint64_t epoch = 0;
+    {
+        MutexLock lock(render_input_mutex);
+        source = hlod_paged_source;
+        epoch = render_input_epoch;
+    }
+    if (source.is_null()) {
+        return OK;
+    }
+    const GaussianSplatHlodPagedSource::Info &info = source->get_info();
+    const Vector<GaussianSplatHlodPagedSource::NodeRecord> &records = source->get_nodes();
+    const uint64_t total = uint64_t(info.leaf_splat_count) + info.interior_splat_count;
+    uint64_t gaussian_bytes = 0, sh_bytes = 0;
+    if (total > UINT32_MAX || !gs_hlod_runtime::allocation_bytes(total, sizeof(Gaussian), gaussian_bytes) ||
+            !gs_hlod_runtime::allocation_bytes(total * info.sh_high_order, sizeof(Vector3), sh_bytes)) {
+        r_reason = "hlod_paged_materialize_too_large";
+        return ERR_OUT_OF_MEMORY;
+    }
+    LocalVector<Gaussian> leaves;
+    LocalVector<Gaussian> interiors;
+    LocalVector<Vector3> leaf_sh;
+    LocalVector<Vector3> interior_sh;
+    {
+        void *probe = memalloc(gaussian_bytes + sh_bytes);
+        if (!probe) {
+            r_reason = "hlod_paged_materialize_too_large";
+            return ERR_OUT_OF_MEMORY;
+        }
+        memfree(probe);
+    }
+    leaves.resize(info.leaf_splat_count);
+    interiors.resize(info.interior_splat_count);
+    leaf_sh.resize(size_t(info.leaf_splat_count) * info.sh_high_order);
+    interior_sh.resize(size_t(info.interior_splat_count) * info.sh_high_order);
+    LocalVector<bool> filled;
+    filled.resize(total);
+    for (uint32_t i = 0; i < filled.size(); ++i) { filled[i] = false; } // resize() leaves trivial types uninitialized
+    for (uint32_t i = 0; i < uint32_t(records.size()); ++i) {
+        const GaussianSplatHlodNode &node = records[i].topology;
+        Vector<Gaussian> g;
+        Vector<Vector3> sh;
+        String why;
+        const Error read_error = source->read_node_payload(i, g, sh, why);
+        if (read_error != OK) {
+            r_reason = vformat("hlod_paged_materialize_read_failed: node %d: %s", i, why);
+            return read_error;
+        }
+        const bool leaf = records[i].is_leaf;
+        const uint64_t base = leaf ? node.payload_first : node.payload_first - info.leaf_splat_count;
+        LocalVector<Gaussian> &dst = leaf ? leaves : interiors;
+        LocalVector<Vector3> &dst_sh = leaf ? leaf_sh : interior_sh;
+        if (base + node.payload_count > dst.size() || uint64_t(g.size()) != node.payload_count) {
+            r_reason = "hlod_paged_materialize_range";
+            return ERR_FILE_CORRUPT;
+        }
+        for (uint32_t j = 0; j < node.payload_count; ++j) {
+            const uint64_t slot = (leaf ? 0 : info.leaf_splat_count) + base + j;
+            if (filled[slot]) {
+                r_reason = "hlod_paged_materialize_overlap";
+                return ERR_FILE_CORRUPT;
+            }
+            filled[slot] = true;
+            dst[base + j] = g[j];
+        }
+        for (int64_t k = 0; k < sh.size(); ++k) {
+            dst_sh[base * info.sh_high_order + k] = sh[k];
+        }
+    }
+    for (uint32_t i = 0; i < filled.size(); ++i) {
+        if (!filled[i]) {
+            r_reason = "hlod_paged_materialize_gap";
+            return ERR_FILE_CORRUPT;
+        }
+    }
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussian_payload(leaves, leaf_sh, info.sh_first_order, info.sh_high_order, info.is_2d, false);
+    {
+        MutexLock lock(render_input_mutex);
+        if (render_input_epoch != epoch || hlod_paged_source != source) {
+            r_reason = "hlod_paged_materialize_world_changed";
+            return ERR_BUSY;
+        }
+        _assign_gaussian_data_locked(data, true);
+        hlod_tree.interior_gaussians = std::move(interiors);
+        hlod_tree.interior_sh_high_order = std::move(interior_sh);
+        hlod_tree.interior_resident = true;
+        hlod_tree.interior_file_path = String();
+        Vector<GaussianSplatRenderer::StaticChunk> leaf_chunks;
+        if (!build_hlod_leaf_chunks(hlod_tree, leaf_chunks)) {
+            r_reason = "hlod_paged_materialize_chunks";
+            return ERR_OUT_OF_MEMORY;
+        }
+        static_chunks = leaf_chunks;
+        hlod_paged_source.unref();
+        ++render_input_epoch;
+    }
+    notify_property_list_changed();
+    emit_changed();
+    r_reason = String();
+    return OK;
+}
+
 Error GaussianSplatWorld::set_hlod_paged_package(GaussianSplatHlodTree &&p_tree, const Ref<GaussianSplatHlodPagedSource> &p_source) {
     ERR_FAIL_COND_V_MSG(p_source.is_null() || !p_source->is_open() || p_tree.is_empty(), ERR_INVALID_PARAMETER,
             "GaussianSplatWorld.set_hlod_paged_package(): needs an open V4 package and its node table.");
@@ -650,6 +755,7 @@ void GaussianSplatWorld::set_hlod_tree(GaussianSplatHlodTree &&p_tree) {
     ERR_FAIL_COND_MSG(!p_tree.is_empty() && !hlod_live_bounds(p_tree, bounds, next_bounds),
             "GaussianSplatWorld.set_hlod_tree(): invalid or unrepresentable HLOD bounds; previous state retained.");
     hlod_tree = std::move(p_tree);
+    hlod_paged_source.unref(); // A tree installed by the resident path is not the paged package's tree.
     bounds = next_bounds;
     hlod_tree.leaf_payload_revision_valid = gaussian_data.is_valid();
     hlod_tree.leaf_payload_revision = gaussian_data.is_valid() ? gaussian_data->get_content_revision() : 0u;
@@ -1113,6 +1219,13 @@ Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHl
         out.topology = hlod_tree.nodes[i];
         if (const char *geometry_reason = hlod_fill_runtime_node_geometry(hlod_tree, hlod_tree.nodes[i], out)) {
             return fail(ERR_INVALID_DATA, geometry_reason);
+        }
+        const GaussianSplatHlodNode &a = hlod_tree.nodes[i];
+        const GaussianSplatHlodNode &b = records[i].topology;
+        if (!(a.cell == b.cell) || a.payload_first != b.payload_first || a.payload_count != b.payload_count ||
+                a.parent != b.parent || a.first_child != b.first_child || a.child_count != b.child_count ||
+                a.flags != b.flags || a.radius != b.radius || a.aabb_min != b.aabb_min || a.aabb_max != b.aabb_max) {
+            return fail(ERR_INVALID_DATA, "hlod_paged_topology_differs_from_package");
         }
         const gs_world_paged::NodeMetrics &metrics = records[i].metrics;
         if (!metrics.center_exact) {

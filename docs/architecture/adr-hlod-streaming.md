@@ -1283,6 +1283,21 @@ Contracts implemented:
   the D1 runtime snapshot scanned (and held) the whole payload. A paged snapshot takes them from the index and holds no
   payload; each read re-derives them from the bytes and compares (`v4_payload_metrics_mismatch`).
 
+- **First frame, any camera.** A paged world has no canonical payload, so nothing draws while the HLOD route waits for what
+  every other world gets from its first composited canonical frame (tile output targets and overlap storage, the
+  compositor scratch ledger, the sort capacity). They are provisioned explicitly, without drawing
+  (`TileRenderer::provision_hlod_route`, `OutputCompositor::ensure_hlod_scratch`, sorter sized from the known leaf count),
+  so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
+  canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
+  point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
+- **Fallback.** Where the HLOD route can never serve the setup (runtime cut disabled, LOD off, wind/sphere effectors,
+  painterly, shadow filter, non-identity transform) and the world node can see it at submission,
+  `GaussianSplatWorld::materialize_paged_resident` reads every node (each validated like a streamer read), builds the
+  resident GaussianData and tree a v3 load produces, and the ordinary resident route takes over. That costs the memory of a
+  v3 load of the same world. Changes made after submission, orthographic/XR views and multi-instance sharing are not
+  covered: they draw nothing and say why (`hlod_paged_*` keys; the per-view key `unsupported_view_or_material` keeps its D1
+  meaning).
+
 Not in E1 (deferred): lazy loading of index pages and a bounded bootstrap directory (E1 reads the whole index at open, at
 most 256 B per node, then validates it); early coarse startup; out-of-core preparation (the converter needs the resident
 world); leaf ranges; instanced trees; editor import of V4 (the importer refuses version 4, load the file directly); a

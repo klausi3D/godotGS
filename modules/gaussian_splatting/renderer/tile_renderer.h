@@ -148,6 +148,10 @@ public:
     // Upper bound of the texture bytes a resize to `p_viewport` leaves charged to the ledger: the live bytes scaled by
     // the pixel ratio (never below the live bytes), so a refusal can be decided before anything is reallocated.
     uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;
+    // Safe point (before the frame's passes, after the previous frame's readback): grows the overlap storage when the
+    // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
+    // HLOD frames never grow it themselves. Returns true when it grew.
+    bool grow_hlod_overlap_storage(uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }

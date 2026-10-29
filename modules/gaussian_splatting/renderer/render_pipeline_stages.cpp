@@ -2340,12 +2340,6 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	render_params.splat_count = p_sorted_splat_count > 0 ? MIN(splat_count, p_sorted_splat_count) : splat_count;
 	render_params.overlap_record_count = render_params.splat_count;
 	render_params.total_gaussians = total_gaussians;
-	{
-		const auto &hlod_snapshot = renderer->get_resource_state().hlod_snapshot;
-		if (hlod_snapshot.is_valid() && hlod_snapshot->is_paged()) {
-			render_params.overlap_bootstrap_hint = hlod_snapshot->leaf_count;
-		}
-	}
 	render_params.viewport_size = Vector2i(width, height);
 	render_params.world_to_camera_transform = p_world_to_camera_transform;
 	render_params.projection = p_projection;

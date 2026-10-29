@@ -916,6 +916,10 @@ public:
     // dense asset-ID remap sidecar.
     // C++ runtime seams; deliberately not script-visible APIs.
     int try_publish_hlod_resident_contract(String &r_reason);
+    // Package E1: for a V4 paged world, creates (without drawing) what the HLOD route waits for on every other world
+    // until a canonical frame has been composited: tile output targets + overlap storage and the compositor scratch
+    // ledger. False with a reason when no render target exists yet.
+    bool provision_paged_hlod_route(RenderSceneBuffersRD *p_render_buffers, String &r_reason);
     bool prepare_hlod_frame(const RenderFrameContext &p_context);
     bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
     void release_hlod_resources();

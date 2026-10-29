@@ -108,6 +108,12 @@ public:
     // payload source are null, the tree's node table is resident and node payloads are read from the file on demand.
     // Installing it replaces any previous payload and tree.
     Error set_hlod_paged_package(GaussianSplatHlodTree &&p_tree, const Ref<GaussianSplatHlodPagedSource> &p_source);
+    // Fallback for the setups the HLOD runtime route can never serve (LOD off, painterly, effectors, non-identity
+    // placement, runtime cut disabled): reads every node of the paged package (each validated like a streamer read),
+    // concatenates the leaves into a resident GaussianData and the interiors into the tree, and turns this into the same
+    // resident HLOD world a v3 load produces; the paged source is dropped. It costs the memory of a v3 load of the same
+    // world, which is the point of V4 avoiding. Returns OK also when nothing was paged.
+    Error materialize_paged_resident(String &r_reason);
     Ref<GaussianSplatHlodPagedSource> get_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source; }
     bool has_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source.is_valid(); }
     // Explicit, opt-in V4 export of a resident complete HLOD world. Never called by save(), import or bake.

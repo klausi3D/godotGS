@@ -639,13 +639,43 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     if (submission.scenario.is_valid()) {
         last_known_scenario = submission.scenario;
     }
+    if (world->has_hlod_paged_source()) {
+        // Package E1 fallback: the HLOD runtime route is the only one a V4 paged world can use. Where that route can never
+        // serve this setup (and the node can see it now), load the payload into memory - the memory of a v3 load of the
+        // same world - and take the ordinary resident route. Per-view limits (orthographic, XR) are not a reason: the
+        // route is usable and those frames draw nothing, with a reason key.
+        const char *fallback_reason = nullptr;
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (!gs::settings::get_hlod_runtime_cut_enabled(ps)) {
+            fallback_reason = "hlod_paged_requires_runtime_cut";
+        } else if (!lod_enabled) {
+            fallback_reason = "hlod_paged_lod_disabled";
+        } else if (get_global_transform() != Transform3D()) {
+            fallback_reason = "hlod_paged_non_identity_world_transform";
+        } else if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) {
+            fallback_reason = "hlod_paged_deformation_or_instance_domain";
+        } else if (renderer.is_valid() && renderer->get_painterly_config().enabled) {
+            fallback_reason = "hlod_paged_painterly_enabled";
+        } else if (renderer.is_valid() && renderer->is_shadow_instance_filter_enabled()) {
+            fallback_reason = "hlod_paged_shadow_instance_filter";
+        } else if (renderer.is_valid() && director->get_sphere_effector_count_for_renderer(renderer.ptr()) != 0) {
+            fallback_reason = "hlod_paged_deformation_or_instance_domain";
+        }
+        if (fallback_reason) {
+            WARN_PRINT_ONCE(vformat("[GaussianSplatWorld3D] V4 paged world cannot use the HLOD route (%s); loading its payload into memory "
+                                    "and using the resident route (the memory of a v3 load).", fallback_reason));
+            String materialize_reason;
+            if (world->materialize_paged_resident(materialize_reason) != OK) {
+                ERR_PRINT(vformat("[GaussianSplatWorld3D] Paged-world fallback failed: %s", materialize_reason));
+                submission.hlod_reason = "hlod_paged_materialize_failed";
+            } else {
+                submission.hlod_reason = fallback_reason;
+            }
+        }
+    }
     const uint64_t source_epoch = world->capture_render_input(submission.gaussian_data, submission.payload_source,
             submission.static_chunks, submission.bounds, submission.metadata);
     submission.hlod_tau_px = hlod_tau_px;
-    if (world->has_hlod_paged_source() && !gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
-        // A V4 paged world has no payload outside the HLOD runtime route; it cannot render with the cut disabled.
-        submission.hlod_reason = "hlod_paged_requires_runtime_cut";
-    }
     if (gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
         if (get_global_transform() != Transform3D()) {
             submission.hlod_reason = "hlod_world_transform_unsupported";
