@@ -89,6 +89,7 @@ struct ResourceState {
     uint64_t hlod_edit_world_key = 0;
     int hlod_edit_probe_phase = 0;
     uint64_t hlod_edit_rebuilds = 0; // Streamer (re)builds that served a committed edit (diagnostics).
+    uint64_t hlod_edit_legacy_bootstrap_attempts = 0; // Must stay 0: the legacy streaming system built for an edited world.
     uint64_t hlod_edit_forced_frames = 0; // Frames whose cut replaced a stale ancestor.
     uint64_t hlod_edit_blank_frames = 0; // Frames that drew nothing because the edited world could not be served.
     String hlod_edit_event;

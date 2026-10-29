@@ -1539,6 +1539,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_edit_event"] = resource_state.hlod_edit_event;
     stats["hlod_edit_probe"] = resource_state.hlod_edit_probe_result;
     stats["hlod_edit_forced_frames"] = int64_t(resource_state.hlod_edit_forced_frames);
+    stats["hlod_edit_legacy_bootstrap_attempts"] = int64_t(resource_state.hlod_edit_legacy_bootstrap_attempts);
     stats["hlod_edit_rebuilds"] = int64_t(resource_state.hlod_edit_rebuilds);
     stats["hlod_edit_blank_frames"] = int64_t(resource_state.hlod_edit_blank_frames);
     stats["hlod_edit_committed_revision"] = resource_state.hlod_committed_edit.is_valid() ? int64_t(resource_state.hlod_committed_edit->edit_revision) : int64_t(0);

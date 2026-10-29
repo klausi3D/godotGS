@@ -2606,6 +2606,7 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
     // legacy streaming backend, which would draw the unedited data, even while the HLOD streamer is alive.
     apply_hlod_edit_backend_override(hlod_edit_committed_here(), backend_plan);
     if (backend_plan.should_attempt_streaming_bootstrap && streaming_orchestrator) {
+        if (hlod_edit_committed_here()) { ++get_resource_state().hlod_edit_legacy_bootstrap_attempts; }
         if (streaming_orchestrator->ensure_instance_streaming_system(backend_plan)) {
             backend_plan.streaming_ready = get_streaming_state().current_streaming_system.is_valid();
         }
