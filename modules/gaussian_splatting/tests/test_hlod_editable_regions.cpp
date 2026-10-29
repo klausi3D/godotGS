@@ -10,6 +10,7 @@ extern "C" int test_hlod_editable_regions_cpp_force_link() { return 0; }
 #include "../renderer/hlod_node_pack.h"
 #include "../renderer/hlod_node_streamer.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
 #include "core/os/os.h"
@@ -1684,6 +1685,101 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] committed edits are rebased 
 	shifted->nodes.write[leaf].topology.payload_first += 1; // Same world object, but the leaf's range moved: another tree.
 	CHECK_FALSE(rebase_edited_snapshot(edited, shifted, nothing));
 	CHECK(nothing.is_null());
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Third fix round: route decision (F-1), instance-preserving blanking (F-2), publish failure (F-3), in-place release.
+// ---------------------------------------------------------------------------------------------------------------------
+
+// F-1: a committed edit forces streaming (a whole-tree bundle packs the unedited payload), and an edit that cannot be served
+// builds NO route instead of a route that blanks for ever.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a committed edit forces the streamed route, and an edit that cannot be served builds no route") {
+	using Renderer = GaussianSplatRenderer;
+	String reason;
+	// No edit: the existing rule (stream only when the world is paged or does not fit).
+	CHECK(Renderer::decide_hlod_route(false, false, false, false, nullptr, reason) == Renderer::HlodRouteDecision::BUILD_WHOLE_TREE);
+	CHECK(Renderer::decide_hlod_route(false, false, false, true, nullptr, reason) == Renderer::HlodRouteDecision::BUILD_STREAMED);
+	CHECK(Renderer::decide_hlod_route(false, false, true, false, nullptr, reason) == Renderer::HlodRouteDecision::BUILD_STREAMED);
+	CHECK(Renderer::decide_hlod_route(false, false, false, true, "lod_disabled_canonical_leaves", reason) == Renderer::HlodRouteDecision::BUILD_WHOLE_TREE);
+	// A committed edit on a world that FITS as a whole tree (the V4 cut toggle once the materialized world fits): streamed.
+	CHECK(Renderer::decide_hlod_route(true, true, false, false, nullptr, reason) == Renderer::HlodRouteDecision::BUILD_STREAMED);
+	CHECK(Renderer::decide_hlod_route(true, true, true, false, nullptr, reason) == Renderer::HlodRouteDecision::BUILD_STREAMED);
+	// Streaming unsupported for this setup: refused, with the cause.
+	CHECK(Renderer::decide_hlod_route(true, true, false, false, "shadow_instance_filter", reason) == Renderer::HlodRouteDecision::REFUSE);
+	CHECK(reason == String("hlod_edit_requires_streamed_route:shadow_instance_filter"));
+	// The committed edit could not be laid over this capture (rebase refused): refused, not served unedited.
+	CHECK(Renderer::decide_hlod_route(true, false, false, true, nullptr, reason) == Renderer::HlodRouteDecision::REFUSE);
+	CHECK(reason == String("hlod_edit_rebase_refused"));
+	CHECK(Renderer::decide_hlod_route(true, false, true, true, nullptr, reason) == Renderer::HlodRouteDecision::REFUSE);
+}
+
+// F-2 / F-3: what the resident publication does with a frame of an edited world.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a frame the edited route does not serve is skipped alone, or published without the edited world when other instances exist") {
+	using Renderer = GaussianSplatRenderer;
+	using Frame = Renderer::HlodEditFrame;
+	// No committed edit: never touched, whatever the HLOD result was.
+	CHECK(Renderer::decide_hlod_edit_frame(false, false, 0, true) == Frame::PUBLISH);
+	CHECK(Renderer::decide_hlod_edit_frame(false, false, -1, false) == Frame::PUBLISH);
+	// The edited route published and serves the edit: drawn.
+	CHECK(Renderer::decide_hlod_edit_frame(true, false, 1, false) == Frame::PUBLISH);
+	CHECK(Renderer::decide_hlod_edit_frame(true, false, 1, true) == Frame::PUBLISH);
+	// The route does not serve the edit (released, rebuilt unedited): blanked.
+	CHECK(Renderer::decide_hlod_edit_frame(true, true, 1, false) == Frame::SKIP_FRAME);
+	CHECK(Renderer::decide_hlod_edit_frame(true, true, 0, false) == Frame::SKIP_FRAME);
+	// F-3: the route still serves the edit but did NOT publish this frame (idle bundle failed, sort buffers invalid): the
+	// canonical copy would be the unedited world.
+	CHECK(Renderer::decide_hlod_edit_frame(true, false, 0, false) == Frame::SKIP_FRAME);
+	CHECK(Renderer::decide_hlod_edit_frame(true, false, -1, false) == Frame::SKIP_FRAME);
+	// F-2: another instance in the scene keeps rendering; only the edited world is omitted.
+	CHECK(Renderer::decide_hlod_edit_frame(true, true, 0, true) == Frame::PUBLISH_WITHOUT_EDITED_WORLD);
+	CHECK(Renderer::decide_hlod_edit_frame(true, false, -1, true) == Frame::PUBLISH_WITHOUT_EDITED_WORLD);
+}
+
+// The in-place release rule and the cause of a disabled cut.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] the committed edit applies to the same world only unless its content changed in place, and a disabled cut names itself") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	GS_NEED(renderer.is_valid());
+	auto &state = renderer->get_resource_state();
+	Ref<GaussianSplatHlodRuntimeData> edited, same_world_same_content, reimported, materialized;
+	edited.instantiate();
+	edited->edit_revision = 1;
+	edited->source_revision = 7;
+	same_world_same_content.instantiate();
+	same_world_same_content->source_revision = 7;
+	reimported.instantiate();
+	reimported->source_revision = 8; // Same paged-ness (both resident), another content revision: replaced in place.
+	materialized.instantiate();
+	materialized->source_revision = 99; // The V4 world became resident: another paged-ness is a materialization, not a reimport.
+	state.hlod_committed_edit = edited;
+	state.hlod_owner_key = state.hlod_edit_owner_key = 5;
+	state.hlod_world_key = state.hlod_edit_world_key = 6;
+	CHECK(renderer->hlod_committed_edit_applies_to(same_world_same_content));
+	CHECK_FALSE(renderer->hlod_committed_edit_applies_to(reimported));
+	CHECK_FALSE(renderer->hlod_committed_edit_applies_to(Ref<GaussianSplatHlodRuntimeData>()));
+	state.hlod_edit_world_key = 7; // Another world.
+	CHECK_FALSE(renderer->hlod_committed_edit_applies_to(same_world_same_content));
+	state.hlod_edit_world_key = 6;
+	// A paged edit against a resident capture keeps applying (rebase), whatever the revision numbers say.
+	Ref<GaussianSplatHlodRuntimeData> paged_edit;
+	paged_edit.instantiate();
+	paged_edit->edit_revision = 1;
+	paged_edit->source_revision = 3;
+	paged_edit->paged_source.instantiate();
+	state.hlod_committed_edit = paged_edit;
+	CHECK(renderer->hlod_committed_edit_applies_to(materialized));
+	// The bare reason of a blanked frame names its cause: the disabled cut has no snapshot and so no reason of its own.
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	const String key = "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled";
+	const bool had = ps->has_setting(key);
+	const Variant previous = had ? ps->get_setting(key) : Variant();
+	ps->set_setting(key, false);
+	state.hlod_reason = "active"; // The last drawn frame's reason.
+	String reason;
+	CHECK(renderer->hlod_edit_blanks_frame(reason));
+	CHECK(reason == String("hlod_edit_route_unavailable:hlod_runtime_cut_disabled"));
+	if (had) { ps->set_setting(key, previous); } else { ps->clear(key); }
 }
 
 }

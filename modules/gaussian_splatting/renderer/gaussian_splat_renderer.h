@@ -943,12 +943,31 @@ public:
     bool hlod_edit_committed_here() const;
     // The streamed route is alive AND serves the committed snapshot.
     bool hlod_edit_served() const;
+    // Whether the committed edit still applies to a fresh capture of the submitted world: the same node and world, and not
+    // an in-place content change (same paged-ness, other source revision). A paged <-> resident switch is a materialization
+    // and keeps the edit (it is then re-applied by rebase_edited_snapshot).
+    bool hlod_committed_edit_applies_to(const Ref<GaussianSplatHlodRuntimeData> &p_capture) const;
     // Drops the committed snapshot when the submitted world changed (owner, world identity or in-place content), and
     // always when the world contract is cleared: it keeps the source world, its leaves and a V4 package alive.
     void reconcile_hlod_committed_edit();
     void release_hlod_committed_edit();
     // An edited world has exactly one route: the HLOD streamed one (or nothing). Never an alternate backend.
     static void apply_hlod_edit_backend_override(bool p_committed_here, FrameBackendPlan &r_plan);
+
+    // How the HLOD publish attempt builds a route (package F1). A committed edit is served by the streamer only: it forces
+    // streaming, and where streaming is unsupported, or the edit could not be laid over this capture, NO route is built
+    // (the reason says so; the next frame tries again). A route over the unedited data would blank for ever.
+    enum class HlodRouteDecision { BUILD_WHOLE_TREE, BUILD_STREAMED, REFUSE };
+    static HlodRouteDecision decide_hlod_route(bool p_committed_edit, bool p_served_has_edits, bool p_paged, bool p_should_stream,
+            const char *p_streaming_unsupported, String &r_reason);
+    // What the resident publication does with a frame of a world that has committed edits, after the HLOD publish attempt
+    // returned `p_hlod_result` (> 0 published, 0 not taken, < 0 failed).
+    enum class HlodEditFrame {
+        PUBLISH, // Nothing to do with edits, or the edited route published.
+        SKIP_FRAME, // Draw nothing: clear the instance-pipeline buffers.
+        PUBLISH_WITHOUT_EDITED_WORLD, // Other instances exist: publish them, omit only the edited world's own data.
+    };
+    static HlodEditFrame decide_hlod_edit_frame(bool p_committed_here, bool p_blanks_frame, int p_hlod_result, bool p_has_other_instances);
 #ifdef TESTS_ENABLED
     // GS_HLOD_EDIT_BOX="minx,miny,minz,maxx,maxy,maxz": once the view is ready, deletes the splats inside the box from the
     // leaves it touches and stages the edit (probe/CI only).

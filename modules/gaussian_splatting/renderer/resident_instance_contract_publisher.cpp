@@ -232,6 +232,7 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	}
 
     String hlod_reason;
+    bool omit_edited_world = false;
     const int hlod_result = p_renderer->try_publish_hlod_resident_contract(hlod_reason);
     {
         // Package F1 (ADR 14.5): decided AFTER the publish attempt, in the same frame. The attempt is what rebuilds a
@@ -239,16 +240,34 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
         // committed edits (the attempt released the route, failed, or has not rebuilt yet) must not publish the canonical
         // copy of the unedited world: nothing is drawn, and the instance-pipeline buffers (which the shadow and sort passes
         // read) are cleared so no pass keeps using an old atlas.
+        // F-3: a result <= 0 means the HLOD route did not publish this frame (idle failed, sort buffers invalid, not taken...), and
+        // then the canonical copy below is the UNEDITED world even where a streamer is alive: blank as well.
         String edit_blank_reason;
-        if (p_renderer->hlod_edit_blanks_frame(edit_blank_reason)) {
+        const bool committed_here = p_renderer->hlod_edit_committed_here();
+        GaussianSplatSceneDirector *edit_director = GaussianSplatSceneDirector::get_singleton();
+        const bool blanks = p_renderer->hlod_edit_blanks_frame(edit_blank_reason);
+        const GaussianSplatRenderer::HlodEditFrame edit_frame = GaussianSplatRenderer::decide_hlod_edit_frame(committed_here, blanks, hlod_result,
+                edit_director != nullptr && edit_director->get_instance_count_for_renderer(p_renderer) != 0);
+        if (edit_frame != GaussianSplatRenderer::HlodEditFrame::PUBLISH) {
+            if (edit_blank_reason.is_empty()) {
+                const String &cause = p_renderer->get_resource_state().hlod_reason;
+                edit_blank_reason = cause.begins_with("hlod_edit_") ? cause : (cause.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + cause);
+            }
             ++p_renderer->get_resource_state().hlod_edit_blank_frames;
             p_renderer->get_resource_state().hlod_reason = edit_blank_reason;
-            p_renderer->clear_instance_pipeline_buffers();
             if (r_reason) { *r_reason = edit_blank_reason; }
-            return false;
+            // F-2: only the edited world is omitted. Other instances of the scene keep rendering through the canonical
+            // publication below, which then packs without the world's own (unedited) data; with nothing else to draw the
+            // frame is skipped and the buffers cleared.
+            if (edit_frame == GaussianSplatRenderer::HlodEditFrame::SKIP_FRAME) {
+                p_renderer->clear_instance_pipeline_buffers();
+                return false;
+            }
+            omit_edited_world = true;
+            if (hlod_result != 0) { p_renderer->release_hlod_resources(); } // Never keep an unedited HLOD bundle published.
         }
     }
-    if (hlod_result != 0) {
+    if (hlod_result != 0 && !omit_edited_world) {
         if (r_reason) { *r_reason = hlod_reason; }
         return hlod_result > 0;
     }
@@ -256,7 +275,7 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
         // Package E1: a V4 paged world has no canonical payload to publish instead; the frame is skipped, with the
         // reason the HLOD route gave (also in the stats as hlod_reason).
         const auto &paged_state = p_renderer->get_resource_state();
-        if (paged_state.hlod_snapshot.is_valid() && paged_state.hlod_snapshot->is_paged()) {
+        if (!omit_edited_world && paged_state.hlod_snapshot.is_valid() && paged_state.hlod_snapshot->is_paged()) {
             if (r_reason) { *r_reason = paged_state.hlod_reason.is_empty() ? String("hlod_paged_route_unavailable") : paged_state.hlod_reason; }
             return false;
         }
@@ -274,7 +293,8 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	const uint64_t effective_atlas_cap_bytes =
 			ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget_bytes, resident_atlas_override_mb);
 
-	const Ref<GaussianData> primary_data = p_renderer->get_scene_state().gaussian_data;
+	// The edited world's own data is the UNEDITED one: omitted from the canonical atlas (F-2), the rest of the scene stays.
+	const Ref<GaussianData> primary_data = omit_edited_world ? Ref<GaussianData>() : p_renderer->get_scene_state().gaussian_data;
 	const bool has_primary_data = primary_data.is_valid() && primary_data->get_count() > 0;
 
 	LocalVector<ResidentAssetDescriptor> assets;
@@ -1625,11 +1645,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     const uint64_t owner_key = state.hlod_owner_key;
     // Package F1: a world with committed edits is rebuilt from its last committed snapshot, never from the unedited one.
-    if (state.hlod_committed_edit.is_valid() &&
-            (state.hlod_edit_owner_key != owner_key || state.hlod_edit_world_key != state.hlod_world_key ||
-                    // The same world replaced in place (reimport): its content revision moved. A paged <-> resident switch
-                    // (the world was materialized) is not a content change and keeps the edit, which then blanks.
-                    (state.hlod_committed_edit->is_paged() == input->is_paged() && state.hlod_committed_edit->source_revision != input->source_revision))) {
+    if (state.hlod_committed_edit.is_valid() && !hlod_committed_edit_applies_to(input)) {
         release_hlod_committed_edit();
     }
     Ref<GaussianSplatHlodRuntimeData> served = input;
@@ -1645,7 +1661,6 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             if (gs_hlod_runtime::rebase_edited_snapshot(edit, input, rebased)) {
                 state.hlod_committed_edit = rebased;
                 served = rebased;
-                ++state.hlod_edit_rebuilds;
             }
         }
     }
@@ -1675,7 +1690,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             !existing_sort.valid || existing_sort.capacity < sort_capacity) {
         state.hlod_reason = input->is_paged()
                 ? (!state.hlod_paged_provision_reason.is_empty() ? state.hlod_paged_provision_reason : String("hlod_paged_sort_allocation_failed"))
-                : String("canonical_sort_capacity_warmup");
+                : (hlod_edit_committed_here() ? String("hlod_edit_sort_allocation_failed") : String("canonical_sort_capacity_warmup"));
         return 0;
     }
     const bool prepared = is_hlod_prepared_contract_current();
@@ -1720,8 +1735,18 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                                     "load a resident (v3) copy or fix the setting.", state.hlod_reason));
             return 0;
         }
-        const bool streaming = (input->is_paged() || ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits)) &&
-                streaming_unsupported == nullptr;
+        // Package F1 (F-1): an edited world is served by the streamer ONLY (a whole-tree bundle packs the unedited payload and the
+        // canonical copy is the unedited world). So a committed edit forces streaming, and where streaming is unsupported, or the
+        // committed edit could not be laid over this capture (rebase refused), no route is built at all: the reason says so and
+        // the next frame tries again, instead of building a route over the unedited data that would then blank for ever.
+        String route_reason;
+        const HlodRouteDecision route = decide_hlod_route(state.hlod_committed_edit.is_valid(), served->has_edits(), input->is_paged(),
+                ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits), streaming_unsupported, route_reason);
+        if (route == HlodRouteDecision::REFUSE) {
+            state.hlod_reason = route_reason;
+            return 0;
+        }
+        const bool streaming = route == HlodRouteDecision::BUILD_STREAMED;
         uint32_t stream_records = 0;
         HlodNodeStreamer::Config stream_config;
         uint64_t candidate_bytes = whole_candidate_bytes;
@@ -1767,8 +1792,21 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         HlodBundle canonical, relative;
         // A streamed world builds only the relative bundle: a canonical full-leaf copy would be the whole-world
         // materialization the streaming budget exists to avoid.
+        // The bundles are identified by the CAPTURED snapshot (their generation is its object id, which the prepared-contract check
+        // compares), never by the edited one: an edited snapshot is a different object and the contract would never be current.
+        // Edited worlds always stream (decide_hlod_route), so the whole-tree builder never sees one; refuse loudly if it ever does.
+        if (!streaming && served->has_edits()) {
+            state.hlod_reason = "hlod_edit_requires_streamed_route";
+            return 0;
+        }
         const bool built = (streaming || hlod_build_bundle(this, rd, *input.ptr(), false, quantized, input->leaf_count, position_bits, scale_bits, instances[0], grading[0], canonical)) &&
                 hlod_build_bundle(this, rd, *input.ptr(), true, quantized, relative_capacity, position_bits, scale_bits, instances[0], grading[0], relative, streaming, stream_records);
+        if (built && streaming && served != input) {
+            // An edited leaf may be larger than every captured one (up to 16,384 splats).
+            for (int n = 0; n < served->nodes.size(); ++n) {
+                relative.buffers.max_chunk_splats = MAX(relative.buffers.max_chunk_splats, served->nodes[n].topology.payload_count);
+            }
+        }
         Ref<HlodNodeStreamer> streamer;
         if (built && streaming) {
             streamer.instantiate();
@@ -1812,6 +1850,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         state.hlod_streaming = streaming;
         state.hlod_stream_atlas_records = stream_records;
         state.hlod_streamer = streamer;
+        if (served->has_edits()) { ++state.hlod_edit_rebuilds; }
         state.hlod_prepared_snapshot = input;
         state.hlod_instance_generation = instance_generation;
         state.hlod_grading_generation = grading_generation;
@@ -2566,6 +2605,40 @@ bool GaussianSplatRenderer::hlod_edit_committed_here() const {
             state.hlod_edit_world_key == state.hlod_world_key;
 }
 
+GaussianSplatRenderer::HlodRouteDecision GaussianSplatRenderer::decide_hlod_route(bool p_committed_edit, bool p_served_has_edits, bool p_paged,
+        bool p_should_stream, const char *p_streaming_unsupported, String &r_reason) {
+    if (p_committed_edit && !p_served_has_edits) {
+        r_reason = "hlod_edit_rebase_refused";
+        return HlodRouteDecision::REFUSE;
+    }
+    if (p_served_has_edits && p_streaming_unsupported != nullptr) {
+        r_reason = String("hlod_edit_requires_streamed_route:") + p_streaming_unsupported;
+        return HlodRouteDecision::REFUSE;
+    }
+    const bool streaming = (p_paged || p_served_has_edits || p_should_stream) && p_streaming_unsupported == nullptr;
+    return streaming ? HlodRouteDecision::BUILD_STREAMED : HlodRouteDecision::BUILD_WHOLE_TREE;
+}
+
+GaussianSplatRenderer::HlodEditFrame GaussianSplatRenderer::decide_hlod_edit_frame(bool p_committed_here, bool p_blanks_frame, int p_hlod_result,
+        bool p_has_other_instances) {
+    // A result <= 0 means the HLOD route did not publish this frame (idle failed, sort buffers invalid, not taken...): the canonical
+    // copy would then be the UNEDITED world even where a streamer is alive.
+    if (!p_committed_here || (!p_blanks_frame && p_hlod_result > 0)) {
+        return HlodEditFrame::PUBLISH;
+    }
+    return p_has_other_instances ? HlodEditFrame::PUBLISH_WITHOUT_EDITED_WORLD : HlodEditFrame::SKIP_FRAME;
+}
+
+bool GaussianSplatRenderer::hlod_committed_edit_applies_to(const Ref<GaussianSplatHlodRuntimeData> &p_capture) const {
+    const auto &state = get_resource_state();
+    if (state.hlod_committed_edit.is_null() || p_capture.is_null() || !hlod_edit_committed_here()) {
+        return false;
+    }
+    // The same world replaced in place (reimport): its content revision moved. A paged <-> resident switch (the world was
+    // materialized by a cut toggle) is not a content change and keeps the edit.
+    return !(state.hlod_committed_edit->is_paged() == p_capture->is_paged() && state.hlod_committed_edit->source_revision != p_capture->source_revision);
+}
+
 bool GaussianSplatRenderer::hlod_edit_served() const {
     const auto &state = get_resource_state();
     if (state.hlod_committed_edit.is_null() || !state.hlod_streaming || state.hlod_streamer.is_null() || !state.hlod_streamer->is_active()) {
@@ -2594,6 +2667,7 @@ void GaussianSplatRenderer::reconcile_hlod_committed_edit() {
 void GaussianSplatRenderer::apply_hlod_edit_backend_override(bool p_committed_here, FrameBackendPlan &r_plan) {
     if (p_committed_here) {
         r_plan.prefer_resident_backend = true;
+        r_plan.should_attempt_streaming_bootstrap = false; // Do not even build the legacy streaming system for it (F-4).
     }
 }
 
@@ -2604,11 +2678,17 @@ bool GaussianSplatRenderer::hlod_edit_blanks_frame(String &r_reason) const {
         return false;
     }
     const auto &state = get_resource_state();
-    // Every other route (the resident canonical copy, a materialized V4 world) would redisplay the OLD content.
     // The cause is the route's own reason; an hlod_edit_* reason (this one, from the last frame) is not a cause, so it is
-    // never wrapped again.
-    r_reason = state.hlod_reason.is_empty() ? String("hlod_edit_route_unavailable")
-            : (state.hlod_reason.begins_with("hlod_edit_") ? state.hlod_reason : String("hlod_edit_route_unavailable:") + state.hlod_reason);
+    // never wrapped again. A disabled cut has no snapshot and so no reason of its own: name it.
+    String cause = state.hlod_reason;
+    if (cause.begins_with("hlod_edit_")) {
+        r_reason = cause;
+    } else {
+        if (cause.is_empty() || cause == "active") {
+            cause = gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) ? String() : String("hlod_runtime_cut_disabled");
+        }
+        r_reason = cause.is_empty() ? String("hlod_edit_route_unavailable") : String("hlod_edit_route_unavailable:") + cause;
+    }
     return true;
 }
 

@@ -2602,6 +2602,9 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
                 backend_plan.streaming_ready);
     }
 #endif
+    // Package F1: an edited world has exactly one route (the resident/HLOD one, which draws the edit or nothing): never the
+    // legacy streaming backend, which would draw the unedited data, even while the HLOD streamer is alive.
+    apply_hlod_edit_backend_override(hlod_edit_committed_here(), backend_plan);
     if (backend_plan.should_attempt_streaming_bootstrap && streaming_orchestrator) {
         if (streaming_orchestrator->ensure_instance_streaming_system(backend_plan)) {
             backend_plan.streaming_ready = get_streaming_state().current_streaming_system.is_valid();
@@ -2617,9 +2620,6 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
                         backend_plan.streaming_ready ? "YES" : "no"),
                 false);
     }
-    // Package F1: an edited world has exactly one route (the resident/HLOD one, which draws the edit or nothing): never the
-    // legacy streaming backend, which would draw the unedited data, even while the HLOD streamer is alive.
-    apply_hlod_edit_backend_override(hlod_edit_committed_here(), backend_plan);
     if (backend_plan.prefer_resident_backend) {
         String resident_attempt_reason;
         if (_try_render_resident_frame(p_render_data, view_transform, cam_projection, render_projection,
