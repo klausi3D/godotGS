@@ -1489,6 +1489,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	// the atlas was thinned by importance to fit the device VRAM budget; surfaced so the
 	// degradation is observable in the residency HUD / debug stats rather than silent.
     stats["hlod_active"] = resource_state.hlod_frame_active;
+    stats["hlod_tile_stage_refused_frames"] = int64_t(resource_state.hlod_tile_stage_refused_frames);
     stats["hlod_route_owned_bytes"] = int64_t(resource_state.hlod_owned_byte_upper_bound); // ledger + device buffers, as last admitted
     // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
     stats["hlod_streaming"] = resource_state.hlod_streaming;

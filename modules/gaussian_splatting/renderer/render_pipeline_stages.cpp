@@ -2776,6 +2776,10 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::render_base
 	};
 
 	if (fallback_err != OK || !r_output.color.is_valid()) {
+		// An admitted HLOD frame the tile stage refused drew nothing: it must not read as active or ready.
+		const Ref<TileRenderer> &hlod_tile = renderer->get_tile_renderer_state().renderer;
+		GaussianRenderFacadeState::hlod_mark_tile_stage_refused(resource_state,
+				hlod_tile.is_valid() ? hlod_tile->get_last_hlod_refusal() : String());
 		performance_state.metrics.raster_path = "failed";
 		r_output.raster_path = "failed";
 		fill_raster_io(true);

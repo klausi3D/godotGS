@@ -133,6 +133,12 @@ public:
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
+    // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
+    // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
+    static void get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record);
+    // Why the last render() refused an HLOD-relative frame (empty when it did not refuse one).
+    const String &get_last_hlod_refusal() const { return last_hlod_refusal; }
     // Streamed HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
     // Creates the output targets for `p_viewport` and the global overlap storage for `p_overlap_records` without
     // drawing, so prepare_hlod_scratch()'s "warm on the canonical path" preconditions (and the texture ledger) hold
@@ -594,6 +600,7 @@ private:
     mutable uint64_t hlod_texture_device = 0;
     mutable bool hlod_texture_ledger_valid = true;
     bool hlod_scratch_preparing = false;
+    String last_hlod_refusal;
     void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
     void _reconcile_hlod_texture_ledger() const;
 
