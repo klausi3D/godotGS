@@ -538,3 +538,28 @@ TEST_CASE("[GaussianSplatting][HLOD][Paged] a frame the tile stage refuses is no
     CHECK(s.hlod_reason == String("hlod_tile_stage_refused:sh_mode"));
     CHECK(s.hlod_stream_ready_frames == 1);
 }
+
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] the first overlap seed of a large paged tree is priced and refused before it allocates (#1131)") {
+    using namespace ResidentAtlasBudget;
+    // Both seeds (provision_paged_hlod_route and the per-view block of prepare_hlod_frame) decide with this: 50 records
+    // per leaf, clamped by the configured max_overlap_records (default 100M), 24 B per record with 64-bit keys.
+    const uint64_t per_record = 24;
+    const uint32_t hard_cap = 100000000;
+    auto seed_of = [&](uint64_t p_leaves) { return uint32_t(MIN<uint64_t>(MIN<uint64_t>(p_leaves * 50u, UINT32_MAX), hard_cap)); };
+    const uint64_t route_limit = uint64_t(2) << 30, route_bytes = uint64_t(300) << 20, textures = uint64_t(64) << 20;
+    const uint64_t headroom = route_limit - route_bytes;
+    // Millions of leaves: the clamp still leaves 100M records = 2.4 GB, more than the ~1.7 GB headroom. Refused.
+    const uint32_t big = seed_of(3000000);
+    CHECK(big == hard_cap);
+    CHECK(hlod_view_grid_action(0, 0, 960, 540, 0u, 0, textures + uint64_t(big) * per_record, headroom) == HlodViewGridAction::REFUSE_MEMORY);
+    // Holzbank (252326 leaves): 12.6M records = 303 MB. Admitted.
+    const uint32_t hb = seed_of(252326);
+    CHECK(hb == 12616300u);
+    CHECK(hlod_view_grid_action(0, 0, 960, 540, 0u, 0, textures + uint64_t(hb) * per_record, headroom) == HlodViewGridAction::RESIZE);
+    // The boundary is the headroom itself; live textures already charged are not charged again.
+    CHECK(hlod_view_grid_action(0, 0, 960, 540, 0u, 0, headroom, headroom) == HlodViewGridAction::RESIZE);
+    CHECK(hlod_view_grid_action(0, 0, 960, 540, 0u, 0, headroom + 1, headroom) == HlodViewGridAction::REFUSE_MEMORY);
+    CHECK(hlod_view_grid_action(0, 0, 960, 540, 0u, textures, headroom + textures, headroom) == HlodViewGridAction::RESIZE);
+    // No overlap storage yet is never KEEP, even when the grid already matches the view: the seed is always priced.
+    CHECK(hlod_view_grid_action(960, 540, 960, 540, 0u, textures, textures + uint64_t(big) * per_record, headroom) == HlodViewGridAction::REFUSE_MEMORY);
+}

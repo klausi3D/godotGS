@@ -16,7 +16,6 @@
 #include "../nodes/gaussian_splat_world_3d.h"
 #include "../interfaces/output_compositor.h"
 #include "../io/gaussian_splat_world_io.h"
-#include "../interfaces/output_compositor.h"
 #include "gs_test_pump.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"

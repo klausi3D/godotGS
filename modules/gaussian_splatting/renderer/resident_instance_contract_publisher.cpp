@@ -1488,6 +1488,19 @@ static const char *hlod_paged_reason_key(const char *p_base, bool p_publish) {
     return p_base;
 }
 
+// The route's device-ledger limit exactly as prepare_hlod_frame() derives it (including the test-only override).
+static uint64_t hlod_route_limit_bytes(GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd) {
+    uint64_t limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(p_rd->get_device_memory_budget(),
+            GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+#ifdef TESTS_ENABLED
+    const uint64_t limit_override = p_state.hlod_test_route_limit_override.load(std::memory_order_acquire);
+    if (limit_override != 0) { limit = MIN(limit, limit_override); }
+#else
+    (void)p_state;
+#endif
+    return limit;
+}
+
 bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_render_buffers, String &r_reason) {
     auto &state = get_resource_state();
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_snapshot;
@@ -1520,7 +1533,26 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
     // storage while drawing, so seed it as a canonical warmup frame of the same world would (every leaf may be visible, 50
     // records each; the sorting config caps it); growth afterwards is the measured safe-point growth in prepare_hlod_frame.
     if (tile->get_allocated_overlap_capacity() == 0) {
-        const uint32_t overlap = uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX));
+        // Priced exactly like prepare_hlod_frame's per-view seed (same clamp, same bytes per record, same decision): the
+        // grid for this view plus the seeded records must fit the route's ledger headroom, or nothing is allocated and the
+        // route says why. Unpriced, a tree of millions of leaves seeded GBs past the limit and was refused for good after.
+        const uint32_t overlap = tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX)));
+        uint64_t route_bytes = 0, live_textures = 0;
+        if (!get_hlod_owned_byte_upper_bound(route_bytes) || !tile->get_hlod_texture_byte_upper_bound(live_textures)) {
+            r_reason = "hlod_paged_resource_ledger_unavailable";
+            state.hlod_paged_provision_reason = r_reason;
+            return false;
+        }
+        const uint64_t route_limit = hlod_route_limit_bytes(state, rd);
+        const Vector2i grid = tile->get_provisioned_viewport();
+        const uint64_t wanted_bytes = tile->estimate_hlod_texture_bytes_for_viewport(size) +
+                uint64_t(overlap) * tile->get_hlod_overlap_bytes_per_record();
+        if (ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, size.x, size.y, 0u, live_textures, wanted_bytes,
+                    route_bytes < route_limit ? route_limit - route_bytes : 0) == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) {
+            r_reason = "hlod_paged_overlap_seed_memory_limit";
+            state.hlod_paged_provision_reason = r_reason;
+            return false;
+        }
         if (tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, overlap) != OK) {
             r_reason = "hlod_paged_tile_provisioning_failed";
             state.hlod_paged_provision_reason = r_reason;
@@ -1773,8 +1805,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // with the reason) instead of a partial cut or a whole-world copy.
     auto fallback = [&](const char *p_reason) {
         state.hlod_reason = p_reason;
-        // Only a main/camera view that the route refused counts: shadow and manual passes and a deliberate LOD-off
-        // are routine early exits, not refusals.
+        // Only a main/camera view that the route refused counts: shadow and manual passes are routine early exits, and so
+        // is a deliberate LOD-off of a world that draws its canonical leaves instead. A paged world with LOD off draws
+        // nothing (its reason is hlod_paged_lod_disabled), so it does count.
         if (p_context.pass_kind == RenderPassKind::MAIN_VIEW && String(p_reason) != "lod_disabled_canonical_leaves") {
             state.hlod_last_refusal_reason = p_reason;
             ++state.hlod_refused_views;

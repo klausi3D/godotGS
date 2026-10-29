@@ -1292,7 +1292,12 @@ Contracts implemented:
   point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
   After the first seed the tile grid has one provisioner for paged and streamed worlds: the per-view block of
   `prepare_hlod_frame` (`hlod_view_grid_action`, from the D1 resize fix), which runs after the growth, so it reads the grown
-  overlap capacity. `provision_paged_hlod_route` keeps only the compositor scratch and that first seed.
+  overlap capacity. `provision_paged_hlod_route` keeps only the compositor scratch and that first seed. The first seed is
+  priced like the per-view one (the same clamp, bytes per record and `hlod_view_grid_action` decision against the route's
+  ledger headroom) and refused before anything is allocated (`hlod_paged_overlap_seed_memory_limit`): unpriced, a tree of
+  millions of leaves would seed GBs past the limit and then be refused (`route_memory_limit`) on every frame. Because the
+  growth runs first and spends the headroom first, overlap growth outranks enlarging a view: a view that no longer fits
+  after a growth is refused (`hlod_view_size_memory_limit`) rather than the growth being held back.
 - **Frame scratch covers the streamed atlas.** The per-splat frame scratch (subpixel history, SH colour cache, the
   16-bit packed-stage gate) is indexed by atlas record, so its admission (`prepare_hlod_scratch`) is sized from the
   atlas the relative bundle holds (`ResidentAtlasBudget::hlod_relative_atlas_records`) and the history from the larger
