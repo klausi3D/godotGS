@@ -159,6 +159,7 @@ GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::Submi
 	contract.hlod_reason = p_record.hlod_reason;
 	contract.hlod_tau_px = p_record.hlod_tau_px;
 	contract.hlod_owner_key = uint64_t(p_record.owner_id);
+	contract.hlod_world_key = p_record.hlod_world_key;
 	contract.debug_label = _dict_get_string(p_record.metadata, StringName("world_path"));
 	contract.has_desired_residency_hint = p_record.has_desired_residency_hint;
 	contract.desired_residency_hint = p_record.desired_residency_hint;
@@ -869,6 +870,7 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.hlod_snapshot = p_submission.hlod_snapshot;
 	r_record.hlod_reason = p_submission.hlod_reason;
 	r_record.hlod_tau_px = p_submission.hlod_tau_px;
+	r_record.hlod_world_key = p_submission.hlod_world_key;
 	r_record.bounds = p_submission.bounds;
 	r_record.metadata = p_submission.metadata;
 	r_record.has_desired_residency_hint = p_submission.has_desired_residency_hint;
@@ -902,6 +904,7 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->hlod_snapshot = p_record.hlod_snapshot;
 	r_submission->hlod_reason = p_record.hlod_reason;
 	r_submission->hlod_tau_px = p_record.hlod_tau_px;
+	r_submission->hlod_world_key = p_record.hlod_world_key;
 	r_submission->bounds = p_record.bounds;
 	r_submission->metadata = p_record.metadata;
 	r_submission->has_desired_residency_hint = p_record.has_desired_residency_hint;

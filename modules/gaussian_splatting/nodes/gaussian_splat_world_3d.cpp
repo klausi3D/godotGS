@@ -676,6 +676,7 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     const uint64_t source_epoch = world->capture_render_input(submission.gaussian_data, submission.payload_source,
             submission.static_chunks, submission.bounds, submission.metadata);
     submission.hlod_tau_px = hlod_tau_px;
+    submission.hlod_world_key = world.is_valid() ? uint64_t(world->get_instance_id()) : 0;
     if (gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
         if (get_global_transform() != Transform3D()) {
             submission.hlod_reason = "hlod_world_transform_unsupported";

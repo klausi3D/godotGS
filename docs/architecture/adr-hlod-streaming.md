@@ -1428,14 +1428,25 @@ Mechanism.
   metadata write failure deactivates the streamer (fail closed): the renderer releases the bundle and rebuilds it from the
   last **committed** edited snapshot, never from the unedited world.
 - **Engine wiring** (`GaussianSplatRenderer::stage_hlod_edit`, internal, deliberately not a bound API). The streamed route
-  serves `streamer->get_data()`; the last committed snapshot is kept in the renderer state across route releases. Every
-  route that cannot serve a world with committed edits (LOD off, an unsupported setting, a materialized V4 world, a
-  released bundle) draws **nothing** with reason `hlod_edit_route_unavailable:<why>` and never an alternate backend
-  (`hlod_edit_blanks_frame`). A streamed view whose replacement cut is not drawable says `hlod_edit_replacement_loading`
-  or `hlod_edit_replacement_not_admitted` (`ViewResult::edit_forced`). Whole-tree (non-streamed) bundles refuse edited
-  snapshots. Overlay-aware access: an edited snapshot refuses raw payload indices of an edited leaf, and `pack_node`
-  serves an edited leaf from its overlay whoever calls it. A test-only environment hook (`GS_HLOD_EDIT_BOX`) stages a
-  box-deletion edit for probes.
+  serves `streamer->get_data()`. The last committed snapshot is kept in the renderer state across route releases, so the
+  **publish attempt can rebuild it**: the world submission carries a world identity (`hlod_world_key`), and a rebuild lays
+  the committed edits over a fresh capture of the same world (`rebase_edited_snapshot`, also after a V4 world was
+  materialized into the resident shape by a cut toggle). The decision to draw nothing is taken **after** the publish
+  attempt, in the same frame (`_publish_resident_direct_data_contract`): a frame whose route is not the streamed HLOD route
+  serving the committed snapshot publishes **no** canonical copy, clears the instance-pipeline buffers (which the sort and
+  shadow passes read) and says `hlod_edit_route_unavailable:<why>` (LOD off, an unsupported setting, lost exclusive
+  submission `hlod_exclusive_submission_lost`, a failed or pending rebuild). An early gate before the attempt made the
+  rebuild unreachable and was removed. An edited world is also never routed to the legacy streaming backend. A streamed
+  view whose replacement cut is not drawable says `hlod_edit_replacement_loading` or `hlod_edit_replacement_not_admitted`
+  (`ViewResult::edit_forced`). The committed snapshot is released on a node or world change, an in-place content change and
+  whenever the world contract is cleared (it keeps the world, its leaves and a V4 package alive). Whole-tree bundles refuse
+  edited snapshots. An edited snapshot refuses raw payload indices of an edited leaf, and `pack_node` serves an edited leaf
+  from its overlay whoever calls it. Test-only hooks stage box edits for probes (`GS_HLOD_EDIT_BOX`, `_BOX2`, `_MODE`,
+  `_FAIL2` forcing COMMIT_UNUSABLE).
+  Disclosed limit: only the renderer's draw path serves the edit. Picking, bounds, AABB queries and every other CPU consumer
+  of the world still read the **unedited** world data; the edit has no collision or query semantics in F1 (ADR 14.6 hooks
+  are deferred). An edited V4 world whose cut is toggled off is materialized into the resident shape from the unedited file
+  and is drawn only through the rebased edit, or not at all.
 - **Generations (D1 rules reused).** Shadow tickets carry the world and device generation and a per-leaf edit generation.
   Commit gives the leaf a new request generation, so a load of the old content that was in flight is dropped as a late
   completion; cancelling an edit kills its shadow tickets. Unedited nodes keep their tickets, runs and metadata untouched:

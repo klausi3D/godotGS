@@ -223,4 +223,72 @@ bool collect_edited_since(const GaussianSplatHlodRuntimeData &p_from, const Gaus
 	return !r_nodes.is_empty();
 }
 
+bool rebase_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_edited, const Ref<GaussianSplatHlodRuntimeData> &p_target,
+		Ref<GaussianSplatHlodRuntimeData> &r_snapshot) {
+	if (p_edited.is_null() || p_target.is_null() || !p_edited->has_edits() || p_target->has_edits() ||
+			p_edited->source_world != p_target->source_world || p_edited->nodes.size() != p_target->nodes.size() ||
+			p_edited->high_order_count != p_target->high_order_count || p_edited->sh_degree != p_target->sh_degree ||
+			p_edited->mode_2d != p_target->mode_2d || p_edited->leaf_count != p_target->leaf_count ||
+			p_edited->parent_count != p_target->parent_count) {
+		return false;
+	}
+	const uint32_t node_total = p_target->nodes.size();
+	// The same tree: every node has the same cell, links and payload range (an edited leaf is compared with its BASE range,
+	// which the overlay recorded), so an overlay can only land on the leaves it was made for.
+	for (uint32_t i = 0; i < node_total; ++i) {
+		const GaussianSplatHlodNode &a = p_edited->nodes[i].topology;
+		const GaussianSplatHlodNode &b = p_target->nodes[i].topology;
+		const GaussianSplatHlodRuntimeData::EditedLeaf *leaf = p_edited->find_edited(i);
+		const uint32_t base_count = leaf ? leaf->base_count : a.payload_count;
+		if (!(a.cell == b.cell) || a.parent != b.parent || a.first_child != b.first_child || a.child_count != b.child_count ||
+				a.flags != b.flags || a.payload_first != b.payload_first || base_count != b.payload_count) {
+			return false;
+		}
+	}
+	Ref<GaussianSplatHlodRuntimeData> next;
+	next.instantiate();
+	next->source_world = p_target->source_world;
+	next->source_data = p_target->source_data;
+	next->source_epoch = p_target->source_epoch;
+	next->source_revision = p_target->source_revision;
+	next->owner_key = p_target->owner_key;
+	next->owned_cpu_bytes = p_target->owned_cpu_bytes;
+	for (int64_t i = 0; i < p_edited->edited.size(); ++i) {
+		uint64_t bytes = 0;
+		if (!allocation_bytes(p_edited->edited[i].gaussians.size(), sizeof(Gaussian), bytes) ||
+				bytes > GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - next->owned_cpu_bytes) {
+			return false;
+		}
+		next->owned_cpu_bytes += bytes;
+	}
+	next->leaf_count = p_target->leaf_count;
+	next->parent_count = p_target->parent_count;
+	next->high_order_count = p_target->high_order_count;
+	next->sh_degree = p_target->sh_degree;
+	next->mode_2d = p_target->mode_2d;
+	next->antialiased = p_target->antialiased;
+	next->quantized_eligible = p_target->quantized_eligible && p_edited->quantized_eligible;
+	next->leaves = p_target->leaves;
+	next->parents = p_target->parents;
+	next->parent_sh = p_target->parent_sh;
+	next->paged_source = p_target->paged_source;
+	next->paged_sh_first_order = p_target->paged_sh_first_order;
+	next->nodes = p_target->nodes;
+	for (int64_t i = 0; i < p_edited->edited.size(); ++i) {
+		const uint32_t n = p_edited->edited[i].node;
+		GaussianSplatHlodRuntimeData::Node &node = next->nodes.write[n];
+		const GaussianSplatHlodRuntimeData::Node &src = p_edited->nodes[n];
+		node.topology.payload_count = src.topology.payload_count;
+		node.footprint = src.footprint;
+		node.dc_encoding = src.dc_encoding;
+		node.homogeneous_dc = src.homogeneous_dc;
+	}
+	next->edit_revision = p_edited->edit_revision;
+	next->edit_parent_id = p_edited->edit_parent_id;
+	next->edit_state = p_edited->edit_state;
+	next->edited = p_edited->edited;
+	r_snapshot = next;
+	return true;
+}
+
 } // namespace gs_hlod_runtime

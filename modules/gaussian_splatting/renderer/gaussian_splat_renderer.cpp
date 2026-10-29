@@ -2313,18 +2313,8 @@ bool GaussianSplatRenderer::_try_render_resident_frame(RenderDataRD *p_render_da
         *r_reason = String();
     }
 
-    // Package F1 (ADR 14.5): once edits are committed, a route that would redisplay the old content draws nothing.
-    {
-        String edit_blank_reason;
-        if (hlod_edit_blanks_frame(edit_blank_reason)) {
-            ++get_resource_state().hlod_edit_blank_frames;
-            get_resource_state().hlod_reason = edit_blank_reason;
-            if (r_reason) {
-                *r_reason = edit_blank_reason;
-            }
-            return false;
-        }
-    }
+    // Package F1 (ADR 14.5): there is NO early gate here. The publisher below decides after its HLOD publish attempt, because
+    // that attempt is what rebuilds a released streamer from the committed snapshot (an early return made it unreachable).
     const bool has_gaussian_dataset = get_scene_state().gaussian_data.is_valid();
     bool has_buffer_manager_data = get_resource_state().buffer_manager.is_valid() &&
             get_resource_state().buffer_manager_initialized;
@@ -2627,13 +2617,9 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
                         backend_plan.streaming_ready ? "YES" : "no"),
                 false);
     }
-    {
-        // Package F1: an edited world has exactly one route that can serve it (or draw nothing): never an alternate backend.
-        String edit_route_reason;
-        if (hlod_edit_blanks_frame(edit_route_reason)) {
-            backend_plan.prefer_resident_backend = true;
-        }
-    }
+    // Package F1: an edited world has exactly one route (the resident/HLOD one, which draws the edit or nothing): never the
+    // legacy streaming backend, which would draw the unedited data, even while the HLOD streamer is alive.
+    apply_hlod_edit_backend_override(hlod_edit_committed_here(), backend_plan);
     if (backend_plan.prefer_resident_backend) {
         String resident_attempt_reason;
         if (_try_render_resident_frame(p_render_data, view_transform, cam_projection, render_projection,
