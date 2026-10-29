@@ -1831,7 +1831,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
     }
     if (route_bytes > route_limit) { return fallback("route_memory_limit"); }
-    const uint32_t total = input->leaf_count + input->parent_count;
+    // The scratch covers the atlas the frame draws from (its total_gaussians), not the tree's splat count.
+    const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
+            input->leaf_count, input->parent_count);
     const uint32_t capacity = state.hlod_relative.buffers.max_visible_splats;
     const PipelineFeatureSet *features = p_context.deps.pipeline_features;
     if (!features) { return fallback("current_pipeline_features_unavailable"); }

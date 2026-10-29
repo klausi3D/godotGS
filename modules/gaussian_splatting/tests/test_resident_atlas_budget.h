@@ -412,3 +412,42 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] a streamed view resize
     CHECK(hlod_view_grid_action(480, 270, 960, 540, 1000, live, big_view_bytes, big_view_bytes - live) == HlodViewGridAction::RESIZE);
     CHECK(hlod_view_grid_action(480, 270, 960, 540, 1000, live, big_view_bytes, big_view_bytes - live - 1) == HlodViewGridAction::REFUSE_MEMORY);
 }
+
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] the HLOD scratch covers every record of a streamed atlas, which can exceed the tree (#1131)") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t stride = 176, page = 1024, page_bytes = stride * page, huge = uint64_t(1) << 40;
+    // Every node rounds up to whole pages: three nodes of 1025, 1 and 1 splats need 2 + 1 + 1 pages.
+    const uint32_t payloads[3] = { 1025, 1, 1 };
+    uint64_t node_pages = 0;
+    uint32_t splats = 0;
+    for (uint32_t p : payloads) {
+        node_pages += (p + page - 1) / page;
+        splats += p;
+    }
+    const uint32_t leaf = 1026, parent = 1;
+    REQUIRE(leaf + parent == splats);
+    // A budget that covers the tree's node pages (always streamed for a V4 paged world).
+    const uint64_t pages = hlod_stream_page_budget(64 * page_bytes, stride, page, node_pages, 0, huge, huge, 0);
+    REQUIRE(pages == node_pages);
+    const uint32_t records = uint32_t(pages * page);
+    CHECK(records > leaf + parent); // 4096 records, 1027 splats: page rounding, not a bug in the page budget
+    // The frame indexes its scratch by atlas record: admission must cover the atlas, not the tree.
+    CHECK(hlod_relative_atlas_records(true, records, leaf, parent) == records);
+    // A small streamed atlas holds fewer records than the tree; still exactly the atlas.
+    CHECK(hlod_relative_atlas_records(true, page, leaf, parent) == page);
+    // A resident (whole-tree) atlas holds every leaf and parent splat.
+    CHECK(hlod_relative_atlas_records(false, records, leaf, parent) == leaf + parent);
+
+    // Measured case (holzbank V4, 28 leaves / 14 parents, 252326 + 35411 splats, 302 node pages): 46 and 48 MiB
+    // atlas overrides stay below the tree; 50 MiB and more exceed it, and drew a black frame before the fix.
+    const uint32_t hb_leaf = 252326, hb_parent = 35411;
+    const uint64_t hb_node_pages = 302;
+    for (uint32_t mb : { 46u, 48u, 50u, 64u, 80u, 200u }) {
+        const uint64_t hb_pages = hlod_stream_page_budget(uint64_t(mb) << 20, stride, page, hb_node_pages, 0, huge, huge, 0);
+        const uint32_t hb_records = uint32_t(hb_pages * page);
+        CAPTURE(mb);
+        const bool exceeds_tree = hb_records > hb_leaf + hb_parent;
+        CHECK(exceeds_tree == (mb >= 50u));
+        CHECK(hlod_relative_atlas_records(true, hb_records, hb_leaf, hb_parent) == hb_records);
+    }
+}

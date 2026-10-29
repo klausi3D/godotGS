@@ -115,6 +115,16 @@ inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t rec
     return pages;
 }
 
+// Records the relative HLOD atlas holds. The tile frame indexes its per-splat scratch (subpixel history, SH colour
+// cache, the 16-bit packed-stage index gate) by atlas record, so HLOD scratch admission must cover exactly this.
+// A resident atlas holds the tree (leaf + parent splats). A streamed atlas holds whole pages and every node rounds
+// up to its own pages, so once the budget reaches the tree's node pages it holds MORE records than the tree has
+// splats: sizing the scratch from the tree then refuses every frame (a black frame), see ADR 14.4.1.
+inline uint32_t hlod_relative_atlas_records(bool streaming, uint32_t stream_atlas_records, uint32_t leaf_count,
+        uint32_t parent_count) {
+    return streaming ? stream_atlas_records : leaf_count + parent_count;
+}
+
 struct SubsetPlan {
     bool reduced = false;       // true when the atlas must be thinned to fit
     double keep_ratio = 1.0;    // global fraction of splats to keep (1.0 == full)
