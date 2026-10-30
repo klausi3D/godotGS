@@ -451,6 +451,15 @@ void NodeResidency::count_rejected_completion(const Ticket &p_ticket) {
 	}
 }
 
+void NodeResidency::note_cancelled_generation(uint64_t p_generation) {
+	if (cancelled_generations.size() < CANCELLED_WINDOW) {
+		cancelled_generations.push_back(p_generation);
+	} else {
+		cancelled_generations[cancelled_next] = p_generation;
+		cancelled_next = (cancelled_next + 1) % CANCELLED_WINDOW;
+	}
+}
+
 bool NodeResidency::begin_upload(const Ticket &p_ticket) {
 	if (!ticket_current(p_ticket, LOADING)) {
 		count_rejected_completion(p_ticket);
@@ -507,13 +516,7 @@ bool NodeResidency::cancel(uint32_t p_node) {
 		return false;
 	}
 	n.state = ABSENT;
-	// Remember the killed generation so its late completion is told apart from a real loss.
-	if (cancelled_generations.size() < CANCELLED_WINDOW) {
-		cancelled_generations.push_back(n.request_generation);
-	} else {
-		cancelled_generations[cancelled_next] = n.request_generation;
-		cancelled_next = (cancelled_next + 1) % CANCELLED_WINDOW;
-	}
+	note_cancelled_generation(n.request_generation); // Its late completion is told apart from a real loss.
 	n.request_generation = 0; // Kills the ticket: its late completion is dropped.
 	retire_run(n);
 	++totals.cancelled_total;
@@ -580,6 +583,9 @@ void NodeResidency::release_edit_state() {
 		if (n.shadow_key != 0) {
 			// The shadow payload is only uploaded at commit, so a staged (cancelled) run never reached the GPU.
 			allocator.release_slot(n.shadow_key);
+		}
+		if (n.shadow_state == Node::SHADOW_LOADING) {
+			note_cancelled_generation(n.shadow_generation); // The cancelled edit's payload may still arrive.
 		}
 		n.shadow_key = 0;
 		n.shadow_first = n.shadow_pages = 0;
@@ -788,7 +794,7 @@ bool NodeResidency::is_shadow_pending(const Ticket &p_ticket) const {
 
 bool NodeResidency::finish_shadow(const Ticket &p_ticket, bool p_success) {
 	if (!is_shadow_pending(p_ticket)) {
-		++totals.late_dropped_total;
+		count_rejected_completion(p_ticket);
 		return false;
 	}
 	nodes.write[p_ticket.node].shadow_state = p_success ? Node::SHADOW_READY : Node::SHADOW_FAILED;
@@ -839,6 +845,7 @@ bool NodeResidency::commit_edit() {
 		Node &n = nodes.write[index];
 		if (n.state == LOADING || n.state == UPLOADING) {
 			++totals.cancelled_total; // A load of the OLD content is in flight: its ticket dies below.
+			note_cancelled_generation(n.request_generation);
 		}
 		retire_run(n); // Uses the old page count; the old run serves already submitted frames until it retires.
 		n.alloc_key = n.shadow_key;
@@ -866,6 +873,7 @@ bool NodeResidency::commit_edit() {
 		Node &n = nodes.write[index];
 		if (n.state == LOADING || n.state == UPLOADING) {
 			++totals.cancelled_total;
+			note_cancelled_generation(n.request_generation);
 		}
 		const bool was_resident = n.state == RESIDENT;
 		n.stale = true;
