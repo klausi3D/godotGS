@@ -154,7 +154,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		out.bootstrapped = true;
 		const uint64_t work_limit = 1 + uint64_t(p_request.node_budget) * gs_hlod::kMaxChildren;
 		bool missing_residency = false;
-		auto fail = [&](Status p_status) {
+		auto fail = [&](SelectStatus p_status) {
 			// `selected` still holds the frontier reached so far (all resident); only the count is cleared.
 			partial_size = p_status == BOOTSTRAP_MISSING_RESIDENCY ? out.selected_count : 0u;
 			out.status = p_status;
