@@ -605,13 +605,10 @@ Error quality_compare_view(const SplatSpan &reference, const SplatSpan &merged, 
 	return compare_view_budgeted(reference, merged, selected, first, eps, view_index, scratch, result, node_remaining,
 	                             bake_remaining);
 }
-Error quality_compare(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected, uint32_t first,
-                      double eps, QualityScratch &scratch, QualityResult &result, uint64_t *bake_work_remaining)
+static Error compare_budgeted(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected,
+                              uint32_t first, double eps, QualityScratch &scratch, QualityResult &result,
+                              uint64_t &node_remaining, uint64_t &bake_remaining)
 {
-	const QualityResourceLimits limits = quality_resource_limits();
-	uint64_t node_remaining = limits.node_work, local_bake_remaining = limits.bake_work;
-	uint64_t &bake_remaining = bake_work_remaining ? *bake_work_remaining : local_bake_remaining;
-	bake_remaining = MIN(bake_remaining, limits.bake_work);
 	QualityResult candidate;
 	double merged_sum = 0, selected_sum = 0;
 	for (uint32_t view = 0; view < kQualityViewCount; ++view) {
@@ -627,6 +624,47 @@ Error quality_compare(const SplatSpan &reference, const SplatSpan &merged, const
 		selected_sum += candidate.views[view].selected_mse;
 	}
 	const double m = merged_sum / kQualityViewCount, s = selected_sum / kQualityViewCount;
+	candidate.merged_error = float(m);
+	candidate.selected_error = float(s);
+	if (!std::isfinite(candidate.merged_error) || !std::isfinite(candidate.selected_error)) {
+		return ERR_INVALID_DATA;
+	}
+	candidate.use_merged = quality_prefer_merged(m, s);
+	result = candidate;
+	return OK;
+}
+Error quality_compare(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected, uint32_t first,
+                      double eps, QualityScratch &scratch, QualityResult &result, uint64_t *bake_work_remaining)
+{
+	const QualityResourceLimits limits = quality_resource_limits();
+	uint64_t node_remaining = limits.node_work, local_bake_remaining = limits.bake_work;
+	uint64_t &bake_remaining = bake_work_remaining ? *bake_work_remaining : local_bake_remaining;
+	bake_remaining = MIN(bake_remaining, limits.bake_work);
+	return compare_budgeted(reference, merged, selected, first, eps, scratch, result, node_remaining, bake_remaining);
+}
+Error quality_compare_band(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected,
+                           uint32_t first, double eps, QualityScratch &scratch, QualityBandResult &result,
+                           uint64_t *bake_work_remaining)
+{
+	if (!std::isfinite(eps) || !(eps > 0)) {
+		return ERR_INVALID_DATA;
+	}
+	const QualityResourceLimits limits = quality_resource_limits();
+	uint64_t node_remaining = limits.node_work, local_bake_remaining = limits.bake_work;
+	uint64_t &bake_remaining = bake_work_remaining ? *bake_work_remaining : local_bake_remaining;
+	bake_remaining = MIN(bake_remaining, limits.bake_work);
+	QualityBandResult candidate;
+	double merged_log = 0, selected_log = 0;
+	for (uint32_t t = 0; t < kQualityTauCount; ++t) {
+		const Error err = compare_budgeted(reference, merged, selected, first, eps / kQualityTau[t], scratch,
+		                                   candidate.taus[t], node_remaining, bake_remaining);
+		if (err != OK) {
+			return err;
+		}
+		merged_log += std::log(std::max(double(candidate.taus[t].merged_error), kQualityErrorFloor));
+		selected_log += std::log(std::max(double(candidate.taus[t].selected_error), kQualityErrorFloor));
+	}
+	const double m = std::exp(merged_log / kQualityTauCount), s = std::exp(selected_log / kQualityTauCount);
 	candidate.merged_error = float(m);
 	candidate.selected_error = float(s);
 	if (!std::isfinite(candidate.merged_error) || !std::isfinite(candidate.selected_error)) {

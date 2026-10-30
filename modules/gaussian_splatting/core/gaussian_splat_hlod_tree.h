@@ -57,7 +57,11 @@ static constexpr uint32_t kMaxHeight = 128u;
 // The canonical importer/public bake remain merge-only. Quality selection has a
 // separate explicit rule identity; its introduction must not trigger re-imports.
 static constexpr uint32_t kBakeRuleVersion = 1u;
-static constexpr uint32_t kQualityBakeRuleVersion = 2u;
+// Rule 3: candidates are scored at pixel pitch eps / tau for tau in {1, 2, 4} and decided on the
+// geometric mean (gaussian_splat_hlod_quality.h). Stored error_chosen/error_rejected are those
+// floored geometric means, so rule-2 worlds (single tau = 1 errors) are not comparable and stay
+// 'old rule' for the matched-arm exporter and the offline job receipt.
+static constexpr uint32_t kQualityBakeRuleVersion = 3u;
 
 // Representation kind, low two bits of GaussianSplatHlodNode::flags (§6.3, §7).
 enum NodeKind : uint32_t {
@@ -106,7 +110,7 @@ struct GaussianSplatHlodNode {
 	float radius = 0.0f;
 	// World-space size of the merge cell (`eps`, §6.3). 0 for leaves; monotone up the tree.
 	float geometric_error = 0.0f;
-	// Rule 2 full-SH 22-view proxy errors (§6.3); leaves/legacy rule 1 use 0.
+	// Rule 2/3 full-SH 22-view proxy errors (§6.3; rule 3 = floored geometric mean over tau); leaves/legacy rule 1 use 0.
 	// MERGED wins a 1% preference, so chosen may be slightly greater than rejected.
 	float error_chosen = 0.0f;
 	float error_rejected = 0.0f;

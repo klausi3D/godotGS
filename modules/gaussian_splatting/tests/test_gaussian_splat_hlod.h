@@ -5170,7 +5170,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] actual bake publishes
 			FAIL("complete deterministic bake");
 			return;
 		}
-		CHECK(tree.bake_rule_version == 2u);
+		CHECK(tree.bake_rule_version == kQualityBakeRuleVersion);
 		for (uint32_t i = 0; i < input_count; ++i) {
 			const uint32_t src = result.leaf_source_index[i];
 			if (src >= input_count) {
@@ -5255,12 +5255,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] actual bake publishes
 			}
 			QualityScratch scratch;
 			QualityPayload selected;
-			QualityResult metric;
+			QualityBandResult metric;
 			const SplatSpan all_leaves = {result.leaf_gaussians.ptr(), result.leaf_sh_high_order.ptr(), input_count,
 			                              21u};
 			if (quality_select(tree, leaves, 0u, uint32_t(leaves.size()), all_leaves, merged.payload.size(), center,
 			                   scratch, selected) != OK ||
-			    quality_compare(reference.span(), merged.payload.span(), selected.span(), 3u, merged.geometric_error,
+			    quality_compare_band(reference.span(), merged.payload.span(), selected.span(), 3u, merged.geometric_error,
 			                    scratch, metric) != OK) {
 				FAIL("candidate stage replay");
 				return;
@@ -5327,7 +5327,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] explicit quality bake
 			FAIL("public full-SH bake");
 			return;
 		}
-		CHECK(world->get_hlod_tree().bake_rule_version == 2u);
+		CHECK(world->get_hlod_tree().bake_rule_version == kQualityBakeRuleVersion);
 		CHECK(world->get_hlod_tree().interior_splat_count > 0u);
 		const String path = hlod_temp_path("quality_sh_roundtrip");
 		ResourceFormatSaverGaussianSplatWorld saver;
@@ -5748,6 +5748,79 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] bounded metric memory
 	}
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] rule 3 scores every tau band and decides on the geometric mean")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	CHECK(kQualityTauCount == 3u);
+	CHECK(kQualityTau[0] == 1.0);
+	CHECK(kQualityTau[1] == 2.0);
+	CHECK(kQualityTau[2] == 4.0);
+	CHECK(kQualityBakeRuleVersion == 3u);
+	Gaussian a = hlod_quality_gaussian();
+	Gaussian b = hlod_quality_gaussian();
+	b.position += Vector3(1.0f, 0.5f, 0);
+	const SplatSpan one = {&a, nullptr, 1u, 0u};
+	const SplatSpan changed = {&b, nullptr, 1u, 0u};
+	QualityScratch scratch;
+	QualityBandResult band;
+	// Both candidates equal the reference: only the floor remains, and merged wins the tie.
+	if (quality_compare_band(one, one, one, 0u, 0.25, scratch, band) != OK) {
+		FAIL("zero-error band");
+		return;
+	}
+	CHECK(band.use_merged);
+	CHECK(band.merged_error == float(kQualityErrorFloor));
+	CHECK(band.selected_error == float(kQualityErrorFloor));
+	for (bool merged_wins : {false, true}) {
+		const SplatSpan reference = merged_wins ? one : changed;
+		if (quality_compare_band(reference, one, changed, 0u, 0.25, scratch, band) != OK) {
+			FAIL("band metric");
+			return;
+		}
+		double merged_log = 0, selected_log = 0;
+		for (uint32_t t = 0; t < kQualityTauCount; ++t) {
+			// Each tau is exactly the single-pitch metric at eps / tau, not a rescaled copy.
+			QualityResult single;
+			if (quality_compare(reference, one, changed, 0u, 0.25 / kQualityTau[t], scratch, single) != OK) {
+				FAIL("single tau metric");
+				return;
+			}
+			CHECK(band.taus[t].merged_error == single.merged_error);
+			CHECK(band.taus[t].selected_error == single.selected_error);
+			for (uint32_t v = 0; v < kQualityViewCount; ++v) {
+				CHECK(band.taus[t].views[v].merged_mse == single.views[v].merged_mse);
+				CHECK(band.taus[t].views[v].selected_mse == single.views[v].selected_mse);
+			}
+			merged_log += std::log(std::max(double(single.merged_error), kQualityErrorFloor));
+			selected_log += std::log(std::max(double(single.selected_error), kQualityErrorFloor));
+		}
+		CHECK(band.merged_error == float(std::exp(merged_log / 3.0)));
+		CHECK(band.selected_error == float(std::exp(selected_log / 3.0)));
+		CHECK(band.use_merged == merged_wins);
+		CHECK(band.use_merged == quality_prefer_merged(band.merged_error, band.selected_error));
+	}
+	// One node raster budget covers all taus; the bake budget is debited per complete view.
+	Gaussian transparent = hlod_quality_gaussian();
+	transparent.opacity = 0.0f;
+	const SplatSpan zero = {&transparent, nullptr, 1u, 0u};
+	const uint64_t band_work = uint64_t(kQualityTauCount) * kQualityViewCount * 15u;
+	for (bool admitted : {false, true}) {
+		QualityResourceLimits limits;
+		limits.node_work = band_work - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(limits);
+		uint64_t bake_remaining = 2u * band_work;
+		ERR_PRINT_OFF;
+		const Error error = quality_compare_band(zero, zero, zero, 0u, 1.0, scratch, band, &bake_remaining);
+		ERR_PRINT_ON;
+		CHECK(error == (admitted ? OK : ERR_PARAMETER_RANGE_ERROR));
+		if (admitted) {
+			CHECK(bake_remaining == band_work);
+		}
+	}
+	CHECK(quality_compare_band(zero, zero, zero, 0u, 0.0, scratch, band) == ERR_INVALID_DATA);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] raster budgets persist across views and baked nodes")
 {
 	using namespace TestGaussianSplatHlod;
@@ -5806,8 +5879,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] raster budgets persis
 	}
 	for (bool admitted : {false, true}) {
 		QualityResourceLimits limits;
-		limits.node_work = node_work;
-		limits.bake_work = interiors * node_work - (admitted ? 0u : 1u);
+		// The baker scores every tau of the rule-3 band under one node budget.
+		limits.node_work = uint64_t(kQualityTauCount) * node_work;
+		limits.bake_work = interiors * uint64_t(kQualityTauCount) * node_work - (admitted ? 0u : 1u);
 		HlodQualityResourceLimit scoped(limits);
 		BakeResult trial;
 		code = OK; // bake_world reports an error only on failure.

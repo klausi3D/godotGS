@@ -371,7 +371,7 @@ class PrivatePhaseTests(unittest.TestCase):
             candidate = Path(request["candidate_path"])
             candidate.write_bytes(b"candidate identity fixture")
             JOB.write_json(stage / "result.json", {"status": "VALIDATED_CANDIDATE", "error": 0,
-                "preparation": {"bake_rule_version": 2}, "candidate_sha256": JOB.sha256(candidate)})
+                "preparation": {"bake_rule_version": 3}, "candidate_sha256": JOB.sha256(candidate)})
             self.assertEqual(JOB.private_phase("verify", request_path), 0)
             verified = json.loads((stage / "verify.json").read_text())
             self.assertEqual(verified["candidate_identity"], JOB.file_identity(candidate))

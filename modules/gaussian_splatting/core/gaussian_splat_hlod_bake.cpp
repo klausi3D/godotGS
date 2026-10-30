@@ -248,7 +248,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	if (active_offline_job &&
 	    (!quality_selection || n > active_offline_job->input || leaf_max != kMaxNodeSplats ||
 	     p_params.interior.node_max_splats != kMaxNodeSplats || p_params.interior.reduction != 4.0)) {
-		return fail("Offline job requires the frozen rule-2 parameters and admitted input count.");
+		return fail("Offline job requires the frozen quality-rule parameters and admitted input count.");
 	}
 	if (leaf_max == 0u || leaf_max > kMaxNodeSplats) {
 		return fail(vformat("HLOD leaf size %d is outside [1, %d].", leaf_max, kMaxNodeSplats));
@@ -786,9 +786,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			if (quality_selection) {
 				Error quality_error = quality_select(tree, dfs_leaves, first_leaf, descendant_count, full_leaves,
 				                                     interior_result.payload.size(), center, quality_scratch, selected);
-				QualityResult quality;
+				QualityBandResult quality;
 				if (quality_error == OK) {
-					quality_error = quality_compare(children_frame.span(), interior_result.payload.span(), selected.span(),
+					quality_error = quality_compare_band(children_frame.span(), interior_result.payload.span(), selected.span(),
 					                                p_input.sh_first_order_count, interior_result.geometric_error,
 					                                quality_scratch, quality, &quality_bake_work_remaining);
 				}

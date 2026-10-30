@@ -71,7 +71,7 @@ template <typename T>
 	return true;
 }
 
-// Rule 2: deterministic orthographic CPU proxy, not the perspective GPU renderer.
+// Rules 2 and 3: deterministic orthographic CPU proxy, not the perspective GPU renderer.
 static constexpr uint32_t kQualityViewCount = 22u;
 struct QualityView {
 	double eye[3] = {};
@@ -120,6 +120,21 @@ struct QualityResult {
 	float merged_error = 0, selected_error = 0;
 	bool use_merged = true;
 };
+// Rule 3: a node is drawn whenever its geometric error projects to at most `tau` pixels, and the
+// runtime `tau` is a user budget, so one bake decision serves every `tau` the ADR evaluates (1, 2
+// and 4 px, section 5.2). Each candidate is scored once per `tau` at pixel pitch `eps / tau`, and
+// the per-`tau` errors are combined by their geometric mean: the acceptance gate reports PSNR, a
+// logarithm of the error, so the decision that minimises the expected dB loss over the budgets
+// compares the mean of log errors. `kQualityErrorFloor` is the MSE of 8-bit output rounding
+// alone; errors below it are indistinguishable on screen and must not send a logarithm to -inf.
+static constexpr uint32_t kQualityTauCount = 3u;
+static constexpr double kQualityTau[kQualityTauCount] = {1.0, 2.0, 4.0};
+static constexpr double kQualityErrorFloor = 1.0 / (255.0 * 255.0 * 12.0);
+struct QualityBandResult {
+	QualityResult taus[kQualityTauCount]; // per-`tau` 22-view results, in kQualityTau order
+	float merged_error = 0, selected_error = 0; // geometric means over `tau` (floored)
+	bool use_merged = true;
+};
 
 QualityView quality_view(uint32_t p_index);
 Error quality_color(const Gaussian &p_gaussian, const Vector3 *p_high, uint32_t p_first_count, uint32_t p_high_count,
@@ -137,6 +152,11 @@ Error quality_compare_view(const SplatSpan &p_reference, const SplatSpan &p_merg
 Error quality_compare(const SplatSpan &p_reference, const SplatSpan &p_merged, const SplatSpan &p_selected,
                       uint32_t p_first_count, double p_eps, QualityScratch &r_scratch, QualityResult &r_result,
                       uint64_t *r_bake_work_remaining = nullptr);
+// Rule-3 candidate comparison: runs quality_compare at pitch eps / tau for every kQualityTau
+// under ONE node raster budget (and the shared bake budget), then decides on the geometric means.
+Error quality_compare_band(const SplatSpan &p_reference, const SplatSpan &p_merged, const SplatSpan &p_selected,
+                           uint32_t p_first_count, double p_eps, QualityScratch &r_scratch, QualityBandResult &r_result,
+                           uint64_t *r_bake_work_remaining = nullptr);
 
 } // namespace gs_hlod
 #endif
