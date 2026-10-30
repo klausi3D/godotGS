@@ -710,6 +710,11 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 static uint64_t _compute_cull_config_signature(const GaussianSplatRenderer &p_renderer,
 		const GaussianSplatRenderer::IFrameStateView &p_state_view) {
 	uint64_t seed = HASH_MURMUR3_SEED;
+	// The render-frame origin revision (package C): a cached render computed against another origin must not be
+	// reused, whether or not a culler exists.
+	if (const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+		seed = _hash_u64(director->get_world_origin_revision(), seed);
+	}
 	const GPUCuller *gpu_culler = p_state_view.get_gpu_culler();
 	if (!gpu_culler) {
 		return _hash_u64(0ull, seed);
@@ -772,6 +777,11 @@ static float _resolve_low_pass_filter_setting(float p_default) {
 }
 
 } // namespace
+
+uint64_t RenderPipelineStages::compute_cull_config_signature(const GaussianSplatRenderer &p_renderer,
+		const GaussianSplatRenderer::IFrameStateView &p_state_view) {
+	return _compute_cull_config_signature(p_renderer, p_state_view);
+}
 
 uint64_t RenderPipelineStages::compute_raster_params_signature(const GaussianSplatRenderer &p_renderer,
 		const GaussianSplatRenderer::IFrameStateView &p_state_view, RD::DataFormat p_viewport_format) {

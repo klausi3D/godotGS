@@ -1035,6 +1035,12 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
             }
             double center[3];
             hlod_tree.node_cell_center(node, center);
+            if ((node.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u
+                    ? !gs_world_frame::PreciseCoord::from_doubles(hlod_tree.origin, out.precise_center)
+                    : !gs_world_frame::PreciseCoord::from_tree_cell_center(hlod_tree.origin, node.cell.e, node.cell.ix,
+                              node.cell.iy, node.cell.iz, out.precise_center)) {
+                return fail(ERR_INVALID_DATA, "hlod_precise_center_unrepresentable");
+            }
             double bounds_center_shift_squared = 0.0;
             for (int a = 0; a < 3; ++a) {
                 out.exact_cell_center[a] = center[a];

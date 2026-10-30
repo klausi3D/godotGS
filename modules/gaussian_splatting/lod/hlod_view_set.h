@@ -11,6 +11,10 @@
 //     address and of node-array order.
 //   - SelectionSnapshot: an immutable input (hierarchy/content revision, transforms, residency,
 //     budgets, per-view parameters). Selection only reads it.
+//   - Frame (package C, ADR 14.3): the snapshot carries the render-frame origin (precise) and its revision.
+//     Instance placements and node centres are precise; selection works in the origin-relative float frame
+//     derived from them. A different origin revision invalidates every view's cut history and published draw
+//     set before anything is selected, so old and new offsets never mix.
 //   - ViewSet: each admitted view owns its cut histories and its published draw records.
 //     One physical byte budget covers all views and instances: shared payload is charged once per
 //     asset, per-view sort/record/draw allocations are charged once per admitted view.
@@ -19,6 +23,7 @@
 //
 // Threading: not thread-safe; call from the thread that owns the selection state.
 
+#include "../core/gaussian_splat_world_frame.h"
 #include "hlod_runtime_selection.h"
 
 namespace gs_hlod_runtime {
@@ -77,7 +82,9 @@ struct SnapshotAsset {
 struct SnapshotInstance {
 	uint64_t instance_key = 0; // Stable placement identity; breaks ties and orders publication.
 	uint32_t asset_index = 0;
-	Transform3D transform; // Rigid plus uniform scale; anything else is refused.
+	// World placement (precise): rigid plus uniform scale; anything else is refused. The selection frame
+	// transform is derived from it and the snapshot origin in double.
+	gs_world_frame::PrecisePlacement placement;
 	// This instance's share of every view's caps. Admission requires the sum over instances to fit
 	// the view's caps, so a view never exceeds what was reserved for it. A shared cut across
 	// instances needs the top-level tree (ADR 6.9, slice S2b) and is deferred.
@@ -86,8 +93,14 @@ struct SnapshotInstance {
 
 struct ViewSpec {
 	uint64_t view_key = 0;
-	Vector3 camera; // World space.
-	Plane frustum[6]; // World space.
+	Vector3 camera; // Frame space: world minus the snapshot origin. Float: used for selection.
+	// Camera contract: when `camera_precise_valid` the per-draw offset uses `camera_precise` (absolute, source
+	// precision). Otherwise it is origin + `camera`, which is only as precise as the float `camera`: a float
+	// camera 100 km from the origin is already rounded to millimetres. The origin must therefore be kept near
+	// the camera; shifting the origin is what keeps a float-only camera precise (ADR 14.3).
+	gs_world_frame::PreciseCoord camera_precise;
+	bool camera_precise_valid = false;
+	Plane frustum[6]; // Frame space.
 	bool frustum_enabled = true;
 	double focal_pixels = 0.0;
 	double tau_pixels = 1.0;
@@ -106,6 +119,9 @@ struct ResidencyBudget {
 // Immutable once built: selection and admission take it by const reference and never keep it.
 struct SelectionSnapshot {
 	uint64_t hierarchy_revision = 0; // Caller-defined counter, echoed into results.
+	// Origin of the render frame and its revision (gs_world_frame::WorldOriginContext). Any change of the
+	// revision invalidates frame-dependent state in ViewSet::select().
+	gs_world_frame::PreciseCoord origin;
 	uint64_t origin_revision = 0;
 	Vector<SnapshotAsset> assets;
 	Vector<SnapshotInstance> instances;
@@ -118,6 +134,10 @@ struct DrawRecord {
 	uint32_t node = 0; // Index into the asset's node table; valid only for this snapshot.
 	NodeKey key;
 	NodeVersion version;
+	// Per-draw camera-relative offset (R s c + T - camera), computed in double from the precise placement and
+	// node centre and converted to float last. View dependent, so it lives here and never in shared payloads.
+	// Valid only for the origin revision reported by drawn_origin_revision().
+	Vector3 camera_offset;
 };
 
 class ViewSet {
@@ -154,6 +174,8 @@ public:
 		double estimated_records = 0.0;
 		bool budget_bound = false;
 		uint64_t draw_generation = 0; // Bumped only when a new complete draw set is published.
+		uint64_t origin_revision = 0; // Origin revision this selection was computed against.
+		bool origin_changed = false; // The revision differs from the previous selection: histories were invalidated.
 		// The snapshot asks for more than the view reserved at admission (caps, instances, history or draw
 		// storage), or the shared budget no longer holds; nothing was selected or published for this view.
 		// The caller must re-admit the view against the new snapshot.
@@ -191,6 +213,8 @@ public:
 	// independent of node-array order. Count is 0 (and the pointer null) unless the view's last selection
 	// was READY, so a stale set can never be mistaken for current coverage.
 	const DrawRecord *drawn(uint64_t p_view_key, uint32_t &r_count) const;
+	// Origin revision every record of the view's published draw set was computed against (0 when none).
+	uint64_t drawn_origin_revision(uint64_t p_view_key) const;
 
 	// Shared payload (once per distinct asset key) plus the reservations of the admitted views.
 	// Returns false on overflow or a malformed snapshot.
@@ -226,6 +250,8 @@ private:
 		Vector<DrawRecord> staging;
 		uint32_t drawn_count = 0;
 		uint64_t draw_generation = 0;
+		uint64_t origin_revision = 0; // Frame revision of the slots' histories.
+		uint64_t drawn_origin_revision = 0; // Frame revision of `drawn`.
 		bool ready = false; // The last selection of this view was READY.
 	};
 	struct RankEntry {

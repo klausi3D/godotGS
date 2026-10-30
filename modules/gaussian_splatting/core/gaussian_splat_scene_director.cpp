@@ -399,6 +399,37 @@ GaussianSplatSceneDirector *GaussianSplatSceneDirector::get_singleton() {
     return singleton;
 }
 
+bool GaussianSplatSceneDirector::set_world_origin(const gs_world_frame::PreciseCoord &p_origin) {
+    MutexLock lock(world_origin_mutex);
+    return world_origin.set_origin(p_origin);
+}
+
+bool GaussianSplatSceneDirector::shift_world_origin_by(const double p_delta[3]) {
+    MutexLock lock(world_origin_mutex);
+    return world_origin.shift_origin_by(p_delta);
+}
+
+void GaussianSplatSceneDirector::get_world_origin(gs_world_frame::PreciseCoord &r_origin, uint64_t &r_revision) const {
+    MutexLock lock(world_origin_mutex);
+    r_origin = world_origin.get_origin();
+    r_revision = world_origin.get_revision();
+}
+
+uint64_t GaussianSplatSceneDirector::get_world_origin_revision() const {
+    MutexLock lock(world_origin_mutex);
+    return world_origin.get_revision();
+}
+
+void GaussianSplatSceneDirector::add_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook) {
+    MutexLock lock(world_origin_mutex);
+    world_origin.add_hook(p_hook);
+}
+
+void GaussianSplatSceneDirector::remove_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook) {
+    MutexLock lock(world_origin_mutex);
+    world_origin.remove_hook(p_hook);
+}
+
 GaussianSplatSceneDirector::GaussianSplatSceneDirector() {
     if (!singleton) {
         singleton = this;
