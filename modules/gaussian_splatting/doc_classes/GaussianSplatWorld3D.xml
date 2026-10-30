@@ -62,6 +62,17 @@
 				Returns [code]true[/code] if LOD culling is enabled.
 			</description>
 		</method>
+		<method name="set_hlod_tau_px">
+			<return type="void" />
+			<param index="0" name="tau" type="float" />
+			<description>
+				Sets the experimental resident HLOD pixel threshold. Zero inherits the project threshold. Negative or nonfinite values are rejected without changing the previous value.
+			</description>
+		</method>
+		<method name="get_hlod_tau_px">
+			<return type="float" />
+			<description>Returns the HLOD threshold override, or zero to inherit.</description>
+		</method>
 		<method name="set_lod_bias">
 			<return type="void" />
 			<param index="0" name="bias" type="float" />
@@ -171,6 +182,9 @@
 		</member>
 		<member name="quality/lod_enabled" type="bool" setter="set_lod_enabled" getter="is_lod_enabled" default="true">
 			Enables level-of-detail culling.
+		</member>
+		<member name="quality/hlod_tau_px" type="float" setter="set_hlod_tau_px" getter="get_hlod_tau_px" default="0.0">
+			Pixel error threshold override for the opt-in resident HLOD cut. Zero inherits [code]rendering/gaussian_splatting/lod/hlod_tau_px[/code] (provisional default 1). The effective threshold is multiplied by [member quality/lod_bias]. Requires an identity world transform, complete resident leaves and parents, and one supported perspective main view; unsupported contexts use canonical leaves. Admission limits and diagnostics describe this bounded experimental route, not a large-world capacity guarantee.
 		</member>
 		<member name="quality/lod_bias" type="float" setter="set_lod_bias" getter="get_lod_bias" default="1.0">
 			LOD bias multiplier (0.1 to 4.0).

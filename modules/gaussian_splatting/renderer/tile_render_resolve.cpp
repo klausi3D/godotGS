@@ -296,7 +296,9 @@ void TileRenderer::TileResolveStage::ensure_resolve_resources(const Vector2i &p_
             return false;
         }
 
+        const uint64_t texture_bytes_before_1 = main_device->get_memory_usage(RD::MEMORY_TEXTURES);
         RID main_texture = main_device->texture_create(fmt, RD::TextureView());
+        owner._record_hlod_texture_allocation(main_device, texture_bytes_before_1, main_texture);
         if (!main_texture.is_valid()) {
             return false;
         }
@@ -340,7 +342,9 @@ void TileRenderer::TileResolveStage::ensure_resolve_resources(const Vector2i &p_
     bool shared_resolve = share_texture_with_main(resolve_color_format, owner.render_targets.resolved_texture, owner.render_targets.resolved_texture_external,
             shared_resolve_owner, owner.render_targets.resolved_texture_local_owner);
     if (!shared_resolve) {
+        const uint64_t texture_bytes_before_2 = device->get_memory_usage(RD::MEMORY_TEXTURES);
         owner.render_targets.resolved_texture = device->texture_create(resolve_color_format, RD::TextureView());
+        owner._record_hlod_texture_allocation(device, texture_bytes_before_2, owner.render_targets.resolved_texture);
         if (!owner.render_targets.resolved_texture.is_valid()) {
             GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate resolve color texture");
         } else {
@@ -379,7 +383,9 @@ void TileRenderer::TileResolveStage::ensure_resolve_resources(const Vector2i &p_
     bool shared_depth = share_texture_with_main(resolve_depth_format, owner.render_targets.resolved_depth_texture,
             owner.render_targets.resolved_depth_texture_external, shared_resolve_depth_owner, owner.render_targets.resolved_depth_texture_local_owner);
     if (!shared_depth) {
+        const uint64_t texture_bytes_before_3 = device->get_memory_usage(RD::MEMORY_TEXTURES);
         owner.render_targets.resolved_depth_texture = device->texture_create(resolve_depth_format, RD::TextureView());
+        owner._record_hlod_texture_allocation(device, texture_bytes_before_3, owner.render_targets.resolved_depth_texture);
         if (!owner.render_targets.resolved_depth_texture.is_valid()) {
             GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate resolve depth texture");
         } else {
@@ -771,7 +777,9 @@ bool TileRenderer::TileResolveStage::ensure_fallback_lighting_buffers(RenderingD
 
     Vector<Vector<uint8_t>> decal_layers;
     decal_layers.push_back(decal_pixel_data);
+    const uint64_t texture_bytes_before_4 = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
     fallback_decal_texture = p_device->texture_create(decal_format, RD::TextureView(), decal_layers);
+    owner._record_hlod_texture_allocation(p_device, texture_bytes_before_4, fallback_decal_texture);
     if (!fallback_decal_texture.is_valid()) {
         free_fallback_lighting_buffers(p_device);
         return false;
@@ -803,7 +811,9 @@ bool TileRenderer::TileResolveStage::ensure_fallback_lighting_buffers(RenderingD
     for (int i = 0; i < 6; ++i) {
         reflection_layers.set(i, reflection_pixel_data);
     }
+    const uint64_t texture_bytes_before_5 = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
     fallback_reflection_texture = p_device->texture_create(reflection_format, RD::TextureView(), reflection_layers);
+    owner._record_hlod_texture_allocation(p_device, texture_bytes_before_5, fallback_reflection_texture);
     if (!fallback_reflection_texture.is_valid()) {
         free_fallback_lighting_buffers(p_device);
         return false;
@@ -827,14 +837,18 @@ bool TileRenderer::TileResolveStage::ensure_fallback_lighting_buffers(RenderingD
     Vector<Vector<uint8_t>> shadow_layers;
     shadow_layers.push_back(shadow_pixel_data);
 
+    const uint64_t texture_bytes_before_6 = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
     fallback_shadow_texture = p_device->texture_create(shadow_format, RD::TextureView(), shadow_layers);
+    owner._record_hlod_texture_allocation(p_device, texture_bytes_before_6, fallback_shadow_texture);
     if (!fallback_shadow_texture.is_valid()) {
         free_fallback_lighting_buffers(p_device);
         return false;
     }
     p_device->set_resource_name(fallback_shadow_texture, "GS_TileResolve_FallbackShadowAtlas");
 
+    const uint64_t texture_bytes_before_7 = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
     fallback_directional_shadow_texture = p_device->texture_create(shadow_format, RD::TextureView(), shadow_layers);
+    owner._record_hlod_texture_allocation(p_device, texture_bytes_before_7, fallback_directional_shadow_texture);
     if (!fallback_directional_shadow_texture.is_valid()) {
         free_fallback_lighting_buffers(p_device);
         return false;

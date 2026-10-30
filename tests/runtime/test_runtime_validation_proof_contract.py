@@ -18,6 +18,7 @@ runner entry executes.
 from __future__ import annotations
 
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -2422,6 +2423,593 @@ class AdvisoryLadderEndToEndTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 1, "a forged marker must fail the run even in step 1")
         self.assertGreater(report["failed"], 0)
+
+
+class HlodMainViewRequiredWiringTests(unittest.TestCase):
+    """Required migration policy, including removal of invocation/registration.
+
+    No Godot process is launched here. Positive output-format acceptance is
+    covered by HlodMainViewCapturedProducerTests on an actual native capture.
+    """
+
+    def test_shipped_profiles_and_registry_require_the_real_scenario(self) -> None:
+        config = runtime_validation._load_scenario_config(runtime_validation.DEFAULT_SCENARIO_CONFIG)
+        runtime_validation._validate_hlod_profile_wiring(config)
+        runtime_validation._validate_scenario_fixture_contracts()
+        self.assertEqual(runtime_validation.HLOD_REQUIRED_PROFILES, ("streaming-gpu-ci", "release-ci"))
+        for profile in ("streaming-gpu-ci", "release-ci"):
+            self.assertEqual(config["profiles"][profile]["gd_tests"].count("Resident HLOD Main View"), 1)
+
+    def test_profile_wiring_deletions_fail_through_config_loader(self) -> None:
+        original = json.loads(runtime_validation.DEFAULT_SCENARIO_CONFIG.read_text(encoding="utf-8"))
+        for profile in ("streaming-gpu-ci", "release-ci"):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
+                mutated = copy.deepcopy(original)
+                mutated["profiles"][profile]["gd_tests"].remove("Resident HLOD Main View")
+                path = Path(tmp) / "runtime_scenarios.json"
+                path.write_text(json.dumps(mutated), encoding="utf-8")
+                with mock.patch.object(runtime_validation, "DEFAULT_SCENARIO_CONFIG", path):
+                    with self.assertRaisesRegex(ValueError, "must select Resident HLOD Main View"):
+                        runtime_validation._load_scenario_config(path)
+
+    def test_registry_deletion_fails_through_config_loader(self) -> None:
+        registry = dict(runtime_validation.GDS_TESTS)
+        del registry["Resident HLOD Main View"]
+        with mock.patch.object(runtime_validation, "GDS_TESTS", registry):
+            with self.assertRaisesRegex(ValueError, "registry/source"):
+                runtime_validation._load_scenario_config(runtime_validation.DEFAULT_SCENARIO_CONFIG)
+
+    def test_empty_native_output_is_required_failure_in_the_actual_gd_runner(self) -> None:
+        config = runtime_validation.GodotRunConfig("never-launched", "windows-vulkan", 30, (), True, (), None)
+        raw = _raw_result("Resident HLOD Main View", stdout="exited without evidence\n")
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, "failed")
+        self.assertIn("Required native HLOD", " ".join(results[0].reasons))
+
+    def test_no_skip_override_can_replace_hlod_positive_evidence(self) -> None:
+        result = runtime_validation._classify_result(
+            _raw_result("Resident HLOD Main View", stdout="[RUNTIME_SKIP] missing GPU\n"),
+            fail_on_skip=False, allow_skip_tests={"Resident HLOD Main View"})
+        self.assertEqual(result.status, "failed")
+
+    def test_full_required_profile_cannot_omit_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "report.json"
+            argv = [str(SCRIPT), "--profile", "streaming-gpu-ci", "--skip-cpp", "--skip-gd", "--report-path", str(report)]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(runtime_validation, "run_command", side_effect=AssertionError("must not launch")), \
+                    mock.patch.object(runtime_validation.subprocess, "run", side_effect=AssertionError("must not launch")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runtime_validation.main(), 1)
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertTrue(any(row["name"] == "Required HLOD Main View Execution" and row["status"] == "failed" for row in result["tests"]))
+
+
+class HlodMainViewProjectWiringTests(unittest.TestCase):
+    """Observe the actual runner command without launching a native process."""
+
+    def _run(self, project_path=None, scenario="Resident HLOD Main View"):
+        config = runtime_validation.GodotRunConfig("never-launched", "windows-vulkan", 30, (), True, (), project_path)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=_raw_result(scenario)) as launch:
+            results = runtime_validation.run_gd_tests(config, [], [scenario])
+        return results, launch
+
+    def test_default_project_reaches_the_actual_launch_command(self) -> None:
+        _, launch = self._run()
+        launch.assert_called_once()
+        command = launch.call_args.args[1]
+        self.assertEqual(command.count("--path"), 1)
+        project = Path(command[command.index("--path") + 1])
+        self.assertEqual(project, ROOT / "tests/runtime/hlod_main_view_project")
+        self.assertTrue((project / "project.godot").is_file())
+        self.assertEqual(Path(command[command.index("--script") + 1]), runtime_validation.GDS_TESTS["Resident HLOD Main View"])
+
+    def test_explicit_real_project_keeps_precedence_and_script_resolution(self) -> None:
+        project = ROOT / "tests/examples/godot/test_project"
+        _, launch = self._run(project)
+        command = launch.call_args.args[1]
+        self.assertEqual(command[command.index("--path") + 1], str(project))
+        self.assertEqual(Path(command[command.index("--script") + 1]), runtime_validation.GDS_TESTS["Resident HLOD Main View"])
+
+    def test_explicit_missing_project_fails_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            results, launch = self._run(Path(tmp))
+        launch.assert_not_called()
+        self.assertEqual(results[0].status, "failed")
+        self.assertIn("project.godot missing", results[0].stderr)
+
+    def test_missing_default_project_fails_config_and_launch_wiring(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(runtime_validation, "HLOD_MAIN_VIEW_PROJECT", Path(tmp)):
+            with self.assertRaisesRegex(ValueError, "native project is missing"):
+                runtime_validation._load_scenario_config(runtime_validation.DEFAULT_SCENARIO_CONFIG)
+            results, launch = self._run()
+        launch.assert_not_called()
+        self.assertEqual(results[0].status, "failed")
+
+    def test_other_scenarios_keep_their_existing_no_project_command(self) -> None:
+        _, launch = self._run(scenario="Engine Capability Sanity")
+        command = launch.call_args.args[1]
+        self.assertNotIn("--path", command)
+        self.assertEqual(Path(command[command.index("--script") + 1]),
+                         runtime_validation.GDS_TESTS["Engine Capability Sanity"].relative_to(ROOT))
+
+
+def _hlod_async_observation_contract_errors(script: str, native: str) -> list[str]:
+    """Narrow source guard only; actual GPU completion still needs a native run."""
+    errors = []
+    if "func _observe_publication(deadline: int," not in script:
+        return ["observation must consume the caller's existing deadline"]
+    observe = script.split("func _observe_publication(deadline: int,", 1)[1].split("\n\nfunc ", 1)[0]
+    dispatch = script.split("func _read_publication_on_render_thread(", 1)[1].split("\n\nfunc ", 1)[0]
+    if "const TIMEOUT_MSEC := 10_000" not in script or "while Time.get_ticks_msec() < deadline:" not in observe:
+        errors.append("original overall deadline must bound polling")
+    if "TIMEOUT_MSEC" in observe or re.search(r"deadline\s*=", observe):
+        errors.append("polling must not reset its deadline")
+    if not re.search(r"await publication_observed\s*\n\s*if Time.get_ticks_msec\(\) >= deadline:\s*\n\s*return", observe):
+        errors.append("the delivered observation must be deadline-checked before success")
+    if "await RenderingServer.frame_post_draw" not in observe:
+        errors.append("pending readbacks must keep real frames moving")
+    if "await _observe_publication(deadline)" not in script or "await _observe_publication(deadline, true)" not in script:
+        errors.append("both callers must supply the same existing deadline")
+    if re.search(r'\["engine_frame"\]\s*=', dispatch):
+        errors.append("delivery must not relabel the frozen copy frame")
+    if ('observation["engine_frame"] = copy_engine_frame' not in observe
+            or "Engine.get_frames_drawn()" in observe
+            or not re.search(r'if request_id == 0:\s*\n\s*copy_engine_frame = int\(observation.get\("copy_engine_frame", -1\)\)', observe)
+            or len(re.findall(r"^\s*copy_engine_frame\s*=", observe, re.MULTILINE)) != 1):
+        errors.append("completion must retain only the initial submission engine frame")
+    bracket = ('if Engine.get_frames_drawn() != copy_engine_frame:\n'
+               '\t\t\tobservation = {"error": "engine_frame_changed_during_publication_copy", "fatal": true}\n'
+               '\t\telse:\n\t\t\tobservation["copy_engine_frame"] = copy_engine_frame')
+    if (bracket not in dispatch
+            or 'if not foreign_device and request_id == 0 and bool(observation.get("pending", false)):' not in dispatch
+            or 'var copy_engine_frame := Engine.get_frames_drawn() if not foreign_device and request_id == 0 else -1' not in dispatch):
+        errors.append("initial copy interval must reject changing engine frame identity")
+    check = script.split("func _check_current_publication(", 1)[1].split("\n\nfunc ", 1)[0]
+    if ('int(observation.get("copy_renderer_frame", -1)) == int(observation["stats"]["frame_count"])' not in check
+            or 'int(observation.get("readback_poll_renderer_frame", -1)) >= int(observation.get("copy_renderer_frame", 0))' not in check):
+        errors.append("copy renderer frame must match frozen stats and precede its poll")
+    wait = script.split("func _wait_publication(", 1)[1].split("\n\nfunc ", 1)[0]
+    if not re.search(r'if observation.has\("error"\):\s*\n\s*if bool\(observation.get\("fatal", false\)\):\s*\n\s*_fail\([^\n]+\)\s*\n\s*return \{\}', wait):
+        errors.append("admitted readback failures must end the test before warmup retry")
+    observer = native.split("Dictionary GaussianSplatRenderer::test_observe_hlod_publication(", 1)[1].split(
+        "Dictionary GaussianSplatRenderer::test_hlod_foreign_device_publication", 1)[0]
+    code = _without_cpp_comments(observer)
+    if re.search(r"\b(?:safe_)?buffer_get_data\s*\(", code):
+        errors.append("publication observation must not synchronously read GPU buffers")
+    if not re.search(r"\bbuffer_get_data_async\s*\(", code):
+        errors.append("actual asynchronous GPU readback submission is missing")
+    if ('const uint64_t copy_renderer_frame = get_frame_state().frame_counter;' not in code
+            or 'result["copy_renderer_frame"] = int64_t(copy_renderer_frame);' not in code
+            or 'result["readback_poll_renderer_frame"] = int64_t(get_frame_state().frame_counter);' not in code
+            or 'if (get_frame_state().frame_counter != copy_renderer_frame)' not in code):
+        errors.append("native observation must freeze and check its actual renderer copy frame")
+    return errors
+
+
+class HlodAsyncObservationSourceContractTests(unittest.TestCase):
+    """Prevent the known blocking/poll-deadline regressions, not GPU certification."""
+
+    def setUp(self) -> None:
+        self.script = (ROOT / "tests/runtime/test_hlod_resident_main_view.gd").read_text(encoding="utf-8")
+        self.native = (ROOT / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+
+    def test_current_source_keeps_async_submission_and_original_deadline(self) -> None:
+        self.assertEqual(_hlod_async_observation_contract_errors(self.script, self.native), [])
+
+    def test_synchronous_regression_and_deleted_gpu_submission_are_rejected(self) -> None:
+        for replacement in ("buffer_get_data", "removed_readback_submission"):
+            with self.subTest(replacement=replacement):
+                changed = self.native.replace("buffer_get_data_async", replacement)
+                self.assertNotEqual(changed, self.native)
+                self.assertTrue(_hlod_async_observation_contract_errors(self.script, changed))
+
+    def test_late_observation_or_fresh_deadline_cannot_pass_the_guard(self) -> None:
+        mutations = (
+            self.script.replace("if Time.get_ticks_msec() >= deadline:\n\t\t\treturn", "if false:\n\t\t\treturn", 1),
+            self.script.replace("var request_id := 0", "var request_id := 0\n\tdeadline = Time.get_ticks_msec() + TIMEOUT_MSEC", 1),
+            self.script.replace("await _observe_publication(deadline)", "await _observe_publication(Time.get_ticks_msec() + TIMEOUT_MSEC)", 1),
+        )
+        for changed in mutations:
+            with self.subTest(changed=changed != self.script):
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_async_observation_contract_errors(changed, self.native))
+
+    def test_fatal_transport_failure_cannot_be_retried_as_warmup(self) -> None:
+        fatal_branch = ('\t\t\tif bool(observation.get("fatal", false)):\n'
+                        '\t\t\t\t_fail("Admitted publication readback failed: %s" % observation["error"])\n'
+                        '\t\t\t\treturn {}\n')
+        self.assertIn(fatal_branch, self.script)
+        for replacement in ("", fatal_branch.replace("return {}", "continue")):
+            changed = self.script.replace(fatal_branch, replacement, 1)
+            self.assertIn("admitted readback failures must end the test before warmup retry",
+                          _hlod_async_observation_contract_errors(changed, self.native))
+
+    def test_copy_frame_cannot_be_replaced_by_poll_or_changed_during_submission(self) -> None:
+        script_mutations = (
+            self.script.replace('observation["engine_frame"] = copy_engine_frame',
+                                'observation["engine_frame"] = Engine.get_frames_drawn()', 1),
+            self.script.replace('if request_id == 0:\n\t\t\tcopy_engine_frame =',
+                                'if request_id >= 0:\n\t\t\tcopy_engine_frame =', 1),
+            self.script.replace('if Engine.get_frames_drawn() != copy_engine_frame:', 'if false:', 1),
+            self.script.replace('int(observation.get("copy_renderer_frame", -1)) ==',
+                                'int(observation.get("copy_renderer_frame", -1)) >=', 1),
+        )
+        for changed in script_mutations:
+            with self.subTest(kind="script"):
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_async_observation_contract_errors(changed, self.native))
+        for changed in (
+            self.native.replace('result["copy_renderer_frame"] = int64_t(copy_renderer_frame);',
+                                'result["copy_renderer_frame"] = 0;', 1),
+            self.native.replace('if (get_frame_state().frame_counter != copy_renderer_frame)', 'if (false)', 1),
+        ):
+            with self.subTest(kind="native"):
+                self.assertNotEqual(changed, self.native)
+                self.assertIn("native observation must freeze and check its actual renderer copy frame",
+                              _hlod_async_observation_contract_errors(self.script, changed))
+
+    def test_poll_delivery_cannot_replace_the_original_engine_frame(self) -> None:
+        changed = self.script.replace("\t_deliver_publication_observation.call_deferred(observation)",
+            '\tobservation["engine_frame"] = Engine.get_frames_drawn()\n\t_deliver_publication_observation.call_deferred(observation)', 1)
+        self.assertNotEqual(changed, self.script)
+        self.assertIn("delivery must not relabel the frozen copy frame",
+                      _hlod_async_observation_contract_errors(changed, self.native))
+
+
+class HlodMainViewProjectManagerCaptureTests(unittest.TestCase):
+    def test_actual_project_manager_capture_is_rejected(self) -> None:
+        """The independently inspected a74 PM image is negative evidence only."""
+        path = os.environ.get("GS_HLOD_PROJECT_MANAGER_CAPTURE", "").strip()
+        if not path:
+            self.skipTest("Actual project-manager capture not requested (GS_HLOD_PROJECT_MANAGER_CAPTURE)")
+        try:
+            capture = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested project-manager capture unavailable: {exc}")
+        self.assertIsInstance(capture, dict)
+        self.assertEqual(capture.get("exit_code"), 0)
+        self.assertIsInstance(capture.get("stdout"), str)
+        self.assertIsInstance(capture.get("stderr"), str)
+        raw = _raw_result("Resident HLOD Main View", exit_code=capture["exit_code"],
+                          stdout=capture["stdout"], stderr=capture["stderr"])
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result.completion.get("marker_present"), True)
+        self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
+        self.assertEqual(result.status, "failed")
+        self.assertTrue(any("native project context" in reason for reason in result.reasons), result.reasons)
+        self.assertTrue(any("target capture requires" in reason for reason in result.reasons), result.reasons)
+
+
+class HlodMainViewPerspectiveOnlyCaptureTests(unittest.TestCase):
+    def test_actual_perspective_only_capture_cannot_replace_late_view_proof(self) -> None:
+        """Preserve the actual 64b success as evidence of the earlier scope only."""
+        path = os.environ.get("GS_HLOD_PERSPECTIVE_ONLY_CAPTURE", "").strip()
+        if not path:
+            self.skipTest("Actual perspective-only capture not requested (GS_HLOD_PERSPECTIVE_ONLY_CAPTURE)")
+        try:
+            capture = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested perspective-only capture unavailable: {exc}")
+        self.assertIsInstance(capture, dict)
+        self.assertIs(type(capture.get("exit_code")), int)
+        self.assertEqual(capture["exit_code"], 0)
+        self.assertIsInstance(capture.get("stdout"), str)
+        self.assertIsInstance(capture.get("stderr"), str)
+        raw = _raw_result("Resident HLOD Main View", exit_code=capture["exit_code"],
+                          stdout=capture["stdout"], stderr=capture["stderr"])
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result.completion.get("marker_present"), True)
+        self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
+        self.assertNotIn("orthographic_samples", result.metrics)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("Required HLOD orthographic proof needs exactly two consecutive actual samples.", result.reasons)
+        self.assertTrue(any("all five actual A-to-B" in reason for reason in result.reasons), result.reasons)
+
+
+class HlodMainViewPreTransitionCaptureTests(unittest.TestCase):
+    def test_actual_older_native_proof_cannot_replace_transition_evidence(self) -> None:
+        path = os.environ.get("GS_HLOD_PRE_TRANSITION_CAPTURE", "").strip()
+        if not path:
+            self.skipTest("Actual pre-transition capture not requested (GS_HLOD_PRE_TRANSITION_CAPTURE)")
+        try:
+            capture = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested pre-transition capture unavailable: {exc}")
+        self.assertEqual(capture["exit_code"], 0)
+        raw = _raw_result("Resident HLOD Main View", exit_code=capture["exit_code"],
+                          stdout=capture["stdout"], stderr=capture["stderr"])
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            result = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])[0]
+        self.assertEqual(result.completion.get("marker_present"), True)
+        self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(len(result.reasons), 4, result.reasons)
+        self.assertTrue(all(reason.startswith("HLOD transition ") for reason in result.reasons), result.reasons)
+
+
+class HlodMainViewCapturedProducerTests(unittest.TestCase):
+    """Replay original producer bytes, then corrupt those bytes for controls.
+
+    Set GS_HLOD_RUNTIME_CAPTURE to a JSON capture containing native exit_code,
+    stdout and stderr. Absent env means explicitly SKIPPED. An explicitly
+    requested missing/broken/nonpassing capture FAILS. This class never launches
+    Godot, and never manufactures a passing producer record.
+    """
+
+    def setUp(self) -> None:
+        capture_path = os.environ.get("GS_HLOD_RUNTIME_CAPTURE", "").strip()
+        if not capture_path:
+            self.skipTest("Native HLOD producer capture not requested (GS_HLOD_RUNTIME_CAPTURE)")
+        try:
+            capture = json.loads(Path(capture_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested native HLOD capture unavailable: {exc}")
+        self.assertIsInstance(capture, dict)
+        self.assertIs(type(capture.get("exit_code")), int)
+        self.assertIsInstance(capture.get("stdout"), str)
+        self.assertIsInstance(capture.get("stderr"), str)
+        self.capture = capture
+        self.assertEqual(capture["exit_code"], 0, "Native producer failed; cannot use it as positive evidence")
+        classified = self._replay(capture["stdout"])
+        self.assertEqual(classified.status, "passed", classified.reasons)
+
+    def _replay(self, stdout: str):
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        raw = _raw_result("Resident HLOD Main View", exit_code=self.capture["exit_code"], stdout=stdout, stderr=self.capture["stderr"])
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        return results[0]
+
+    def _mutate_metrics(self, mutate):
+        lines = self.capture["stdout"].splitlines()
+        records = [i for i, line in enumerate(lines) if line.lstrip().startswith(runtime_validation.METRICS_MARKER)]
+        self.assertEqual(len(records), 1, "Capture must retain its one original metrics record")
+        index = records[0]
+        metrics = json.loads(lines[index].lstrip()[len(runtime_validation.METRICS_MARKER):])
+        mutate(metrics)
+        lines[index] = runtime_validation.METRICS_MARKER + " " + json.dumps(metrics)
+        return "\n".join(lines) + "\n"
+
+    def test_original_native_producer_passes_through_actual_runner(self) -> None:
+        self.assertEqual(self._replay(self.capture["stdout"]).status, "passed")
+
+    def test_missing_and_duplicate_completion_are_rejected(self) -> None:
+        lines = self.capture["stdout"].splitlines()
+        markers = [line for line in lines if line.lstrip().startswith(runtime_validation.PASS_MARKER)]
+        self.assertEqual(len(markers), 1)
+        missing = "\n".join(line for line in lines if line not in markers)
+        self.assertEqual(self._replay(missing).status, "failed")
+        self.assertEqual(self._replay(self.capture["stdout"] + "\n" + markers[0]).status, "failed")
+
+    def test_actual_binding_route_and_payload_corruptions_fail(self) -> None:
+        corruptions = {
+            "hlod_active": False, "hlod_selected_nodes": 0, "hlod_selected_splats": 1,
+            "hlod_selected_parents": 1, "stage_sort_sorted_count": 0, "sorted_splats": 0,
+            "hlod_bound_relative": True, "hlod_bound_atlas_valid": False,
+            "hlod_canonical_atlas_valid": False, "hlod_bound_atlas_rid": 0,
+            "hlod_canonical_world_submission_active": True, "hlod_relative_world_submission_active": True,
+            "renderer_device_object_id": 0, "hlod_bound_source_generation": 0,
+            "stage_metrics_valid": False, "stage_cull_route_uid": "INSTANCE.CULL.GPU",
+            "cull_route_uid": "INSTANCE.CULL.GPU", "cull_route_reason": "stale_gpu_path",
+            "rendered_content": False, "stage_cull_time_ms": -1.0,
+            "hlod_cpu_prepare_timing_scope": "gpu", "culling_time_ms": -1.0,
+        }
+        for key, value in corruptions.items():
+            with self.subTest(key=key):
+                changed = self._mutate_metrics(lambda m, k=key, v=value: m["samples"][1].__setitem__(k, v))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("engine_frame", "frame_count", "hlod_content_generation"):
+            with self.subTest(stale=key):
+                changed = self._mutate_metrics(lambda m, k=key: m["samples"][1].__setitem__(k, m["samples"][0][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_missing_sample_and_missing_observations_fail(self) -> None:
+        changed = self._mutate_metrics(lambda m: m["samples"].pop())
+        self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("hlod_bound_atlas_valid", "hlod_canonical_atlas_rid", "renderer_device_object_id", "stage_cull_time_ms"):
+            changed = self._mutate_metrics(lambda m, k=key: m["samples"][1].pop(k))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_actual_project_and_image_corruptions_fail(self) -> None:
+        for key, value in (("project_file_present", False), ("editor_hint", True),
+                           ("initial_root_children", 1), ("capture_root_children", 2),
+                           ("capture_scene_is_only_root_child", False), ("project_path", ""),
+                           ("image_width", 540), ("image_height", 337),
+                           ("image_nonblack_rgb_pixels", 0), ("image_nonblack_rgb_pixels", 4096)):
+            with self.subTest(key=key, value=value):
+                changed = self._mutate_metrics(lambda m, k=key, v=value: m.__setitem__(k, v))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("project_file_present", "editor_hint", "initial_root_children",
+                    "capture_scene_is_only_root_child", "image_nonblack_rgb_pixels"):
+            changed = self._mutate_metrics(lambda m, k=key: m.pop(k))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_missing_or_replaced_orthographic_phase_fails(self) -> None:
+        for mutate in (
+            lambda m: m.pop("orthographic_samples"),
+            lambda m: m.__setitem__("orthographic_samples", []),
+            lambda m: m["orthographic_samples"].pop(),
+            lambda m: m.__setitem__("orthographic_samples", m["samples"]),
+            lambda m: m["orthographic_samples"].__setitem__(0, None),
+        ):
+            self.assertEqual(self._replay(self._mutate_metrics(mutate)).status, "failed")
+
+    def test_orthographic_binding_route_and_payload_corruptions_fail(self) -> None:
+        corruptions = {
+            "camera_projection": 0, "hlod_active": True, "hlod_reason": "resource_ledger_warmup_or_unavailable",
+            "hlod_selected_nodes": 1, "hlod_selected_splats": 2, "hlod_selected_parents": 1,
+            "hlod_bound_relative": True, "hlod_bound_atlas_valid": False, "hlod_canonical_atlas_valid": False,
+            "hlod_canonical_world_submission_active": True, "hlod_relative_world_submission_active": True,
+            "stage_metrics_valid": False, "stage_cull_route_uid": "INSTANCE.CULL.HLOD_CPU",
+            "cull_route_uid": "INSTANCE.CULL.HLOD_CPU", "sort_route_uid": "INSTANCE.SORT.CPU",
+            "stage_sort_sorted_count": 0, "sorted_splats": 0, "rendered_content": False,
+            "stage_cull_status": "failed", "stage_sort_status": "failed",
+            "stage_raster_status": "failed", "stage_composite_status": "failed",
+        }
+        identity_keys = (
+            "hlod_source_generation", "hlod_bound_source_generation", "hlod_bound_atlas_rid",
+            "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id",
+        )
+        for index in (0, 1):
+            for key, value in corruptions.items():
+                with self.subTest(sample=index, key=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key, v=value: m["orthographic_samples"][i].__setitem__(k, v))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in identity_keys:
+                with self.subTest(sample=index, identity=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key: m["orthographic_samples"][i].__setitem__(k, 0))
+                    self.assertEqual(self._replay(changed).status, "failed")
+                    changed = self._mutate_metrics(lambda m, i=index, k=key: m["orthographic_samples"][i].__setitem__(k, m["samples"][-1][k] + 1))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in (*corruptions, *identity_keys, "engine_frame", "frame_count"):
+                with self.subTest(sample=index, missing=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key: m["orthographic_samples"][i].pop(k))
+                    self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_orthographic_frames_must_follow_perspective_and_be_consecutive(self) -> None:
+        for key in ("engine_frame", "frame_count"):
+            with self.subTest(frame=key):
+                changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][0].__setitem__(k, m["samples"][-1][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+                changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][1].__setitem__(k, m["orthographic_samples"][0][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+                changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][1].__setitem__(k, m["orthographic_samples"][0][k] + 2))
+                self.assertEqual(self._replay(changed).status, "failed")
+
+
+    def test_missing_transition_phases_are_rejected(self) -> None:
+        for key in ("publication_transitions", "identity_transitions", "device_transition", "lod_policy_transition"):
+            with self.subTest(missing=key):
+                changed = self._mutate_metrics(lambda m, k=key: m.pop(k))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("publication_transitions", "identity_transitions"):
+            changed = self._mutate_metrics(lambda m, k=key: m[k].pop())
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_stale_source_and_unexercised_faults_are_rejected(self) -> None:
+        for index in range(5):
+            for key, value in (("input_current", False), ("prepared_current", True),
+                               ("prepared_source_generation", 1), ("failure_hits", 0),
+                               ("failure_mode", 0), ("source_high_order_count", 0),
+                               ("atlas_hex", ""), ("instance_hex", ""), ("grading_hex", "")):
+                with self.subTest(failure=index + 1, key=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key, v=value:
+                        m["publication_transitions"][i]["refused"].__setitem__(k, v))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in ("atlas_hex", "source_data_id", "input_source_generation", "engine_frame"):
+                changed = self._mutate_metrics(lambda m, i=index, k=key:
+                    m["publication_transitions"][i]["refused"].__setitem__(k, m["publication_transitions"][i]["before"][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+            # An old but internally self-consistent A cannot stand in for B.
+            changed = self._mutate_metrics(lambda m, i=index:
+                m["publication_transitions"][i].__setitem__("refused", m["publication_transitions"][i]["before"]))
+            self.assertEqual(self._replay(changed).status, "failed")
+            changed = self._mutate_metrics(lambda m, i=index:
+                m["publication_transitions"][i]["recovered"]["stats"].__setitem__("frame_count", m["publication_transitions"][i]["refused"]["stats"]["frame_count"]))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_identity_device_and_lod_controls_are_discriminating(self) -> None:
+        def replace_snapshot_during_instance_change(metrics):
+            row = metrics["identity_transitions"][0]
+            original = row["before"]["input_source_generation"]
+            changed = original + 1 if original != -1 else original - 1
+            row["refused"]["input_source_generation"] = changed
+            row["refused"]["gpu_sort_count"]["input_source_generation"] = changed
+            recovered = row["recovered"]
+            recovered["input_source_generation"] = changed
+            recovered["gpu_sort_count"]["input_source_generation"] = changed
+            recovered["prepared_source_generation"] = changed
+            recovered["stats"]["hlod_source_generation"] = changed
+            recovered["stats"]["hlod_bound_source_generation"] = changed
+            metrics["identity_transitions"][1]["before"] = recovered
+        # This changes both refusal and recovery coherently, so the new failure
+        # specifically requires retaining the pre-change snapshot as well.
+        changed = self._mutate_metrics(replace_snapshot_during_instance_change)
+        self.assertEqual(self._replay(changed).status, "failed")
+        for index, key in ((0, "current_instance_generation"), (1, "grading_hex"), (2, "relative_capacity")):
+            changed = self._mutate_metrics(lambda m, i=index, k=key:
+                m["identity_transitions"][i]["refused"].__setitem__(k, m["identity_transitions"][i]["before"][k]))
+            self.assertEqual(self._replay(changed).status, "failed")
+        for key, value in (("publication_succeeded", True), ("prepared_retained", True), ("foreign_device", 0)):
+            changed = self._mutate_metrics(lambda m, k=key, v=value: m["device_transition"]["foreign"].__setitem__(k, v))
+            self.assertEqual(self._replay(changed).status, "failed")
+        changed = self._mutate_metrics(lambda m: m["device_transition"]["foreign"].__setitem__("foreign_device", m["device_transition"]["foreign"]["original_device"]))
+        self.assertEqual(self._replay(changed).status, "failed")
+        for phase in ("on", "reenabled"):
+            for key, value in (("hlod_selected_parents", 0), ("hlod_selected_splats", 8)):
+                changed = self._mutate_metrics(lambda m, p=phase, k=key, v=value: m["lod_policy_transition"][p]["stats"].__setitem__(k, v))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key, value in (("hlod_active", True), ("hlod_selected_splats", 1), ("hlod_reason", "active")):
+            changed = self._mutate_metrics(lambda m, k=key, v=value: m["lod_policy_transition"]["off"]["stats"].__setitem__(k, v))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_current_gpu_count_and_full_header_are_required(self) -> None:
+        for phase in ("on", "off", "reenabled"):
+            def replace_count(metrics, phase=phase):
+                gpu = metrics["lod_policy_transition"][phase]["gpu_sort_count"]
+                count = gpu["element_count"] + 1
+                # Corrupt the complete original readback coherently: rejection
+                # must compare actual GPU coverage to selected/current leaves,
+                # not merely compare parsed fields to the same corrupted bytes.
+                values = [(count + 255) // 256, 1, 1, count, 0, count]
+                gpu["header_hex"] = b"".join(v.to_bytes(4, "little") for v in values).hex()
+                for key, value in zip(("dispatch_x", "dispatch_y", "dispatch_z", "element_count", "overflow_flag", "unclamped_total"), values):
+                    gpu[key] = value
+            with self.subTest(phase=phase, mutation="wrong_count"):
+                self.assertEqual(self._replay(self._mutate_metrics(replace_count)).status, "failed")
+            for key, value in (("header_bytes", 16), ("header_hex", ""), ("overflow_flag", 1),
+                               ("count_buffer_rid", 0), ("relative", phase == "off")):
+                with self.subTest(phase=phase, key=key):
+                    changed = self._mutate_metrics(lambda m, p=phase, k=key, v=value:
+                        m["lod_policy_transition"][p]["gpu_sort_count"].__setitem__(k, v))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in ("gpu_sort_count", "async_sort_count"):
+                changed = self._mutate_metrics(lambda m, p=phase, k=key: m["lod_policy_transition"][p].pop(k))
+                self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_gpu_count_requires_current_frame_source_and_device(self) -> None:
+        for key in ("renderer_frame", "pass_frame", "source_data_id", "input_source_generation", "device_instance_id"):
+            with self.subTest(key=key):
+                changed = self._mutate_metrics(lambda m, k=key:
+                    m["lod_policy_transition"]["off"]["gpu_sort_count"].__setitem__(k,
+                        m["lod_policy_transition"]["off"]["gpu_sort_count"][k] - 1))
+                self.assertEqual(self._replay(changed).status, "failed")
+        def stale_frame(metrics):
+            gpu = metrics["lod_policy_transition"]["off"]["gpu_sort_count"]
+            gpu["renderer_frame"] -= 1
+            gpu["pass_frame"] -= 1
+        # Both frame fields remain internally consistent but refer to an older
+        # pass, so comparison to the actual completed renderer frame is required.
+        self.assertEqual(self._replay(self._mutate_metrics(stale_frame)).status, "failed")
+
+    def test_transition_consumer_wiring_mutation_is_detected(self) -> None:
+        # Mutate actual captured bytes, then delete this check's call effect.
+        # This positive return is a consumer mutation, never a producer fixture.
+        changed = self._mutate_metrics(lambda m: m.pop("publication_transitions"))
+        self.assertEqual(self._replay(changed).status, "failed")
+        with mock.patch.object(runtime_validation, "_hlod_transition_proof_failures", return_value=[]):
+            self.assertEqual(self._replay(changed).status, "passed")
+        self.assertEqual(self._replay(changed).status, "failed")
 
 
 if __name__ == "__main__":

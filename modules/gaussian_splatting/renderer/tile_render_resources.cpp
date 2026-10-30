@@ -439,7 +439,9 @@ void TileRenderTargets::create_output_textures(const Vector2i &p_size, RD::DataF
 			return false;
 		}
 
+		const uint64_t texture_bytes_before_1 = main_device->get_memory_usage(RD::MEMORY_TEXTURES);
 		RID main_texture = main_device->texture_create(fmt, RD::TextureView());
+		owner._record_hlod_texture_allocation(main_device, texture_bytes_before_1, main_texture);
 		if (!main_texture.is_valid()) {
 			return false;
 		}
@@ -505,7 +507,9 @@ void TileRenderTargets::create_output_textures(const Vector2i &p_size, RD::DataF
 		return;
 	}
 	if (!shared_color) {
+		const uint64_t texture_bytes_before_2 = device->get_memory_usage(RD::MEMORY_TEXTURES);
 		output_texture = device->texture_create(format, RD::TextureView());
+		owner._record_hlod_texture_allocation(device, texture_bytes_before_2, output_texture);
 		if (!output_texture.is_valid()) {
 			GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate output texture");
 			owner.config_state.output_format = RD::DATA_FORMAT_MAX;
@@ -558,7 +562,9 @@ void TileRenderTargets::create_output_textures(const Vector2i &p_size, RD::DataF
 		GS_LOG_WARN_DEFAULT("[TileRenderer] Failed to share depth texture with main RenderingDevice; painterly depth unavailable");
 	}
 	if (!shared_depth) {
+		const uint64_t texture_bytes_before_3 = device->get_memory_usage(RD::MEMORY_TEXTURES);
 		depth_texture = device->texture_create(depth_format, RD::TextureView());
+		owner._record_hlod_texture_allocation(device, texture_bytes_before_3, depth_texture);
 		if (!depth_texture.is_valid()) {
 			GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate depth texture");
 			depth_texture_external = RID();
@@ -605,7 +611,9 @@ void TileRenderTargets::create_output_textures(const Vector2i &p_size, RD::DataF
 
 	normal_texture_owner.clear();
 	normal_texture_local_owner = nullptr;
+	const uint64_t texture_bytes_before_4 = device->get_memory_usage(RD::MEMORY_TEXTURES);
 	normal_texture = device->texture_create(normal_format, RD::TextureView());
+	owner._record_hlod_texture_allocation(device, texture_bytes_before_4, normal_texture);
 	if (!normal_texture.is_valid()) {
 		GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate normal texture");
 	} else {

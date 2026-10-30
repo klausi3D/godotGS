@@ -1301,6 +1301,17 @@ void RenderPipelineStages::execute_frame_entry(const RenderFrameContext &p_frame
 			? frame_context.deps.pipeline_features
 			: preplan_view.get_pipeline_features();
 
+    // Restore a complete bundle even when cull/sort/raster exits early. Unsupported
+    // passes therefore cannot leave relative payload bound for shadow/manual routes.
+    const bool previous_relative = renderer->get_resource_state().hlod_active;
+    struct HlodContractRestore {
+        GaussianSplatRenderer *owner;
+        bool relative;
+        ~HlodContractRestore() {
+            owner->publish_hlod_bundle(relative); // Revalidates the complete current identity before restoration.
+        }
+    } hlod_restore{ renderer, previous_relative };
+    renderer->prepare_hlod_frame(frame_context);
 	const InstancePipelineBuffers *instance_buffers = renderer->has_instance_pipeline_buffers()
 			? &renderer->get_instance_pipeline_buffers()
 			: nullptr;
@@ -1522,13 +1533,14 @@ struct RenderPipelineStages::CullStage {
 		const auto &buffers = renderer->get_instance_pipeline_buffers();
 		const bool instance_cull_path_requested = renderer->has_instance_pipeline_buffers() &&
 				GaussianSplatting::InstancePipelineContract::has_cull_buffers(buffers);
+		const char *cull_route = buffers.hlod_relative ? RenderRouteUID::INSTANCE_CULL_HLOD_CPU : RenderRouteUID::INSTANCE_CULL_GPU;
 		if (instance_cull_path_requested) {
 			_record_pipeline_event(renderer, "cull",
 					vformat("instance_path inst_count=%d chunk_count=%d max_vis_chunks=%d",
 							buffers.instance_count, buffers.dispatch_chunk_count, buffers.max_visible_chunks),
 					buffers.instance_count, buffers.max_visible_chunks, false,
 					GaussianSplatRenderer::RenderFallbackReason::NONE,
-					RenderRouteUID::INSTANCE_CULL_GPU);
+					cull_route);
 			GPUCuller::InstancePipelineInputs instance_inputs;
 			instance_inputs.instance_buffer = buffers.instance_buffer;
 			instance_inputs.asset_meta_buffer = buffers.asset_meta_buffer;
@@ -1567,7 +1579,28 @@ struct RenderPipelineStages::CullStage {
 		}
 
 		gpu_culler->get_config().last_cull_viewport_size = p_input.viewport_size;
-		r_output = pipeline->cull_for_view(p_input.world_to_camera_transform, p_input.projection, p_input.viewport_size);
+		if (buffers.hlod_relative) {
+			r_output.candidate_count = buffers.dispatch_chunk_count;
+			r_output.visible_count = buffers.hlod_draw_count;
+			r_output.visible_domain = GaussianSplatRenderer::IndexDomain::CHUNK_REF;
+			r_output.has_visible = r_output.visible_count != 0;
+			r_output.cull_time_ms = float(renderer->get_resource_state().hlod_cpu_prepare_usec) * 0.001f;
+			result.reason = "CPU HLOD view admission, selection and draw-list upload";
+			// The CPU cut has already uploaded its complete draw list and counter.
+			// Running the ordinary append culler here would destroy that antichain.
+			// Publish current CPU metrics instead of retaining a prior GPU summary.
+			auto &perf = renderer->get_performance_state().metrics;
+			perf.cull_route_uid = cull_route;
+			perf.cull_route_reason = "hlod_cpu_view_admission_selection_upload";
+			perf.culling_time_ms = r_output.cull_time_ms;
+			perf.culling_candidate_count = r_output.candidate_count;
+			perf.visible_after_culling = r_output.visible_count;
+			perf.culled_frustum_count = perf.culled_distance_count = perf.culled_screen_count = perf.culled_importance_count = 0;
+			perf.used_hierarchical_culling = true;
+			renderer->get_frame_state().visible_splat_count.store(r_output.visible_count, std::memory_order_release);
+		} else {
+			r_output = pipeline->cull_for_view(p_input.world_to_camera_transform, p_input.projection, p_input.viewport_size);
+		}
 		if (r_output.visible_domain == GaussianSplatRenderer::IndexDomain::UNKNOWN) {
 			r_output.visible_domain = instance_cull_path_requested
 					? GaussianSplatRenderer::IndexDomain::CHUNK_REF
@@ -1579,7 +1612,7 @@ struct RenderPipelineStages::CullStage {
 					GaussianSplatRenderer::RenderFallbackReason::NONE);
 		}
 		RenderPipelineStages::stamp_stage_result_contract(result, "cull",
-				result.status == StageResult::StageStatus::FAILED ? String(RenderRouteUID::COMMON_FAIL_SORT_FAILED) : String(RenderRouteUID::INSTANCE_CULL_GPU),
+				result.status == StageResult::StageStatus::FAILED ? String(RenderRouteUID::COMMON_FAIL_SORT_FAILED) : String(cull_route),
 				GaussianSplatRenderer::IndexDomain::UNKNOWN, r_output.visible_domain,
 				r_output.candidate_count, r_output.visible_count);
 		_record_pipeline_event(renderer, "cull",
@@ -1588,7 +1621,7 @@ struct RenderPipelineStages::CullStage {
 						GaussianRenderState::index_domain_to_string(r_output.visible_domain)),
 				r_output.candidate_count, r_output.visible_count, false,
 				GaussianSplatRenderer::RenderFallbackReason::NONE,
-				RenderRouteUID::INSTANCE_CULL_GPU);
+				cull_route);
 
 		r_output.has_visible = r_output.visible_count > 0;
 		if (!r_output.has_visible) {
@@ -1601,9 +1634,9 @@ struct RenderPipelineStages::CullStage {
 			const auto &cull_state = gpu_culler->get_state();
 			auto &io = p_input.metrics->cull_io;
 			_init_stage_io(io, p_input.frame_id, r_output.candidate_count, r_output.visible_count,
-					RID(), cull_state.gpu_visible_indices_buffer, r_output.candidate_count > 0);
+					RID(), buffers.hlod_relative ? buffers.visible_chunk_buffer : cull_state.gpu_visible_indices_buffer, r_output.candidate_count > 0);
 			const bool count_invalid = io.output_count > io.input_count;
-			const bool buffer_missing = cull_state.gpu_visible_indices_count > 0 && !io.output_buffer.is_valid();
+			const bool buffer_missing = r_output.visible_count > 0 && !io.output_buffer.is_valid();
 			StageIOValidationConfig validation;
 			validation.count_invalid = count_invalid;
 			validation.output_missing = buffer_missing;
@@ -1755,6 +1788,10 @@ struct RenderPipelineStages::SortStage {
 					instance_inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;
 					instance_inputs.visible_chunk_buffer = buffers.visible_chunk_buffer;
 					instance_inputs.splat_ref_buffer = buffers.splat_ref_buffer;
+                    instance_inputs.hlod_draw_entry_buffer = buffers.hlod_draw_entry_buffer;
+                    instance_inputs.hlod_relative = buffers.hlod_relative;
+                    instance_inputs.hlod_source_generation = buffers.hlod_source_generation;
+                    instance_inputs.hlod_content_generation = buffers.hlod_content_generation;
 					instance_inputs.sort_key_buffer = buffers.sort_key_buffer;
 					instance_inputs.sort_value_buffer = buffers.sort_value_buffer;
 					instance_inputs.counter_buffer = buffers.counter_buffer;
@@ -2379,6 +2416,11 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	if (instance_buffers_ready) {
 		render_params.instance_buffer = instance_buffers.instance_buffer;
 		render_params.instance_grading_buffer = instance_buffers.instance_grading_buffer;
+        render_params.hlod_relative = instance_buffers.hlod_relative;
+        render_params.hlod_draw_entry_buffer = instance_buffers.hlod_draw_entry_buffer;
+        render_params.hlod_draw_list_buffer = instance_buffers.visible_chunk_buffer;
+        render_params.hlod_source_generation = instance_buffers.hlod_source_generation;
+        render_params.hlod_content_generation = instance_buffers.hlod_content_generation;
 		render_params.splat_ref_buffer = instance_buffers.splat_ref_buffer;
 		render_params.chunk_meta_buffer = instance_buffers.chunk_meta_buffer;
 		render_params.quantization_buffer = instance_buffers.quantization_required ? instance_buffers.quantization_buffer : RID();
@@ -2619,6 +2661,8 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::resolve_pai
 
 bool RenderPipelineStages::RasterStage::try_reuse_cached_render(const GaussianSplatRenderer::RasterStageInput &p_input,
 		GaussianSplatRenderer::RasterStageOutput &r_output) {
+    if (renderer->get_resource_state().hlod_prepared_snapshot.is_valid()) { return false; }
+
 	GaussianSplatRenderer::FrameStateProvider fallback_provider(renderer);
 	const GaussianSplatRenderer::IFrameStateView &state_view =
 			p_input.state_view ? *p_input.state_view : fallback_provider;

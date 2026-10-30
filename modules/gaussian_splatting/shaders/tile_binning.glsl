@@ -119,10 +119,21 @@ layout(set = 0, binding = 20, std430) readonly buffer InstanceGradingBuffer {
 layout(set = 0, binding = 14, std430) readonly buffer QuantizationChunkBuffer {
     ChunkQuantization chunks[];
 } quantization_buffer;
+#endif
 
+#if defined(USE_QUANTIZED_GAUSSIANS) || defined(GS_HLOD_RELATIVE_PAYLOAD)
 layout(set = 0, binding = 18, std430) readonly buffer ChunkMetaBuffer {
     ChunkMetaGPU chunk_meta[];
 } chunk_meta_buffer;
+#endif
+
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+layout(set = 0, binding = 23, std430) readonly buffer HlodDrawEntryBuffer {
+    uint draw_entries[];
+} hlod_draw_entry_buffer;
+layout(set = 0, binding = 22, std430) readonly buffer HlodDrawListBuffer {
+    VisibleChunkRefGPU entries[];
+} hlod_draw_list_buffer;
 #endif
 
 layout(set = 0, binding = 15, std430) readonly buffer InstanceIndirectDispatch {
@@ -855,6 +866,25 @@ void main() {
     vec3 local_position = g.position;
     vec3 local_scale = g.scale;
     vec4 local_rotation = g.rotation;
+#endif
+
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    uint draw_entry = hlod_draw_entry_buffer.draw_entries[splat_ref_idx];
+    if (draw_entry >= hlod_draw_list_buffer.entries.length()) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
+    VisibleChunkRefGPU selected = hlod_draw_list_buffer.entries[draw_entry];
+    if (selected.instance_id != splat_ref.instance_id || selected.chunk_id >= chunk_meta_buffer.chunk_meta.length()) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
+    ChunkMetaGPU selected_node = chunk_meta_buffer.chunk_meta[selected.chunk_id];
+    if (gaussian_idx < selected_node.atlas_base || gaussian_idx - selected_node.atlas_base >= selected_node.splat_count) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
+    local_position += vec3(selected_node.node_center_x, selected_node.node_center_y, selected_node.node_center_z);
 #endif
 
     // Optional per-splat alpha clip. It runs before world transform/projection

@@ -8,6 +8,7 @@
 
 #include "gaussian_data.h"
 #include "gaussian_splat_hlod_tree.h"
+#include "gaussian_splat_hlod_runtime_data.h"
 #include "streaming_chunk_payload_source.h"
 #include "../renderer/gaussian_splat_renderer.h"
 
@@ -15,6 +16,9 @@ class GaussianSplatWorld : public Resource {
     GDCLASS(GaussianSplatWorld, Resource);
 
 private:
+    // Protects World-owned publication only. Simultaneous locks: World -> GaussianData.
+    mutable Mutex render_input_mutex;
+    uint64_t render_input_epoch = 1;
     Ref<GaussianData> gaussian_data;
     Ref<ChunkPayloadSource> chunk_payload_source;
     Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
@@ -32,7 +36,7 @@ private:
     // file. Its leaf payload IS the gaussian payload above (same order); a new payload drops it.
     GaussianSplatHlodTree hlod_tree;
 
-    void _assign_gaussian_data(const Ref<GaussianData> &p_data, bool p_keep_hlod);
+    void _assign_gaussian_data_locked(const Ref<GaussianData> &p_data, bool p_keep_hlod);
     Error _bake_hlod(bool p_quality_selection);
 
 protected:
@@ -46,20 +50,20 @@ public:
     String get_base_extension() const override { return "gsplatworld"; }
 
     void set_gaussian_data(const Ref<GaussianData> &p_data);
-    Ref<GaussianData> get_gaussian_data() const { return gaussian_data; }
+    Ref<GaussianData> get_gaussian_data() const { MutexLock lock(render_input_mutex); return gaussian_data; }
     bool has_resident_gaussian_data() const;
 
     void set_bounds(const AABB &p_bounds);
-    AABB get_bounds() const { return bounds; }
+    AABB get_bounds() const { MutexLock lock(render_input_mutex); return bounds; }
 
     void set_metadata(const Dictionary &p_metadata);
-    Dictionary get_metadata() const { return metadata; }
+    Dictionary get_metadata() const { MutexLock lock(render_input_mutex); return metadata; }
 
     void set_static_chunks(const Vector<GaussianSplatRenderer::StaticChunk> &p_chunks);
     const Vector<GaussianSplatRenderer::StaticChunk> &get_static_chunks() const { return static_chunks; }
 
     void set_chunk_payload_source(const Ref<ChunkPayloadSource> &p_source);
-    Ref<ChunkPayloadSource> get_chunk_payload_source() const { return chunk_payload_source; }
+    Ref<ChunkPayloadSource> get_chunk_payload_source() const { MutexLock lock(render_input_mutex); return chunk_payload_source; }
     bool has_chunk_payload_source() const;
     bool is_payload_source_backed() const;
     bool has_renderable_payload() const;
@@ -89,6 +93,11 @@ public:
 
     Error save_to_file(const String &p_path) const;
 
+    uint64_t capture_render_input(Ref<GaussianData> &r_data, Ref<ChunkPayloadSource> &r_source,
+            Vector<GaussianSplatRenderer::StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const;
+    Error capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const;
+    bool is_hlod_runtime_snapshot_current(const GaussianSplatHlodRuntimeData &p_snapshot) const;
+
     // HLOD (slice S1a). bake_hlod() bakes the tree from a resident or file-backed payload,
     // reorders the payload into leaf order and replaces the chunks with
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
@@ -106,7 +115,7 @@ public:
     static HlodBakeTestHook hlod_bake_test_hook;
     static void *hlod_bake_test_userdata;
 #endif
-    bool has_hlod_tree() const { return !hlod_tree.is_empty(); }
+    bool has_hlod_tree() const { MutexLock lock(render_input_mutex); return !hlod_tree.is_empty(); }
     // False when the resident payload was edited in place (GaussianData setters) after the tree
     // was baked or loaded: the interior payload no longer summarizes the leaves.
     bool is_hlod_payload_current() const;

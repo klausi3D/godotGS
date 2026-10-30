@@ -1363,6 +1363,9 @@ void GaussianSplatRenderer::_teardown_resources() {
         return;
     }
 
+#ifdef TESTS_ENABLED
+    _test_cancel_hlod_publication_observation();
+#endif
     _release_shared_dynamic_asset();
     get_resource_state().deletion_queue.flush_all();
 
@@ -1455,6 +1458,7 @@ void GaussianSplatRenderer::_teardown_resources() {
         get_sorting_state().gpu_sorter.unref();
     }
 
+    release_hlod_resources();
     _release_resident_contract_buffers();
 
     // Clean up GPU resources
@@ -2760,6 +2764,14 @@ void GaussianSplatRenderer::render_sorted_splats(RenderDataRD *p_render_data,
 	IFrameMutationAccess &state_mut = frame_provider;
 	frame_context.state_view = &state_view;
 	frame_context.mutation_access = &state_mut;
+    if (get_resource_state().hlod_prepared_snapshot.is_valid()) {
+        // Shared sort indices belong to the last bundle. Rebuild the complete
+        // canonical shadow/manual contract before raster; never reuse HLOD indices.
+        pipeline_stages->execute_frame_entry(frame_context, true, String(), String(),
+                RenderFallbackReason::NONE, RenderFallbackReason::NONE, false, false);
+        if (r_raster_output) { *r_raster_output = stage_metrics.raster; }
+        return;
+    }
 	const InstancePipelineBuffers *instance_buffers = has_instance_pipeline_buffers() ? &get_instance_pipeline_buffers() : nullptr;
 	RenderFramePlan frame_plan = build_frame_plan(state_view.get_scene_state(), state_view.get_streaming_state(), state_view.get_sorting_state_view(),
 			instance_buffers, get_instance_backend_policy(), state_view.get_resource_state_view(), state_view.get_subsystem_state_view(), state_view.get_pipeline_features(),

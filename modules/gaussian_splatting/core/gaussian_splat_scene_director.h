@@ -64,6 +64,9 @@ public:
     };
 
     struct WorldSubmission {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
         ObjectID owner_id;
         RID scenario;
         Ref<GaussianData> gaussian_data;
@@ -395,6 +398,7 @@ public:
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
     bool get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const;
+    bool has_exclusive_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
     bool has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     // Current hint precedence is active world > homogeneous instance submissions.
     // Conflicting instance submission hints return false with source "mixed_instance_submissions".
@@ -721,6 +725,9 @@ private:
     class SubmissionStore {
     public:
         struct WorldSubmissionRecord {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
             ObjectID owner_id;
             Ref<GaussianData> gaussian_data;
             Ref<ChunkPayloadSource> payload_source;

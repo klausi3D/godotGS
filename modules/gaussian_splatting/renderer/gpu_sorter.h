@@ -227,6 +227,9 @@ public:
     // Algorithm-specific info
     virtual String get_algorithm_name() const = 0;
     virtual uint32_t get_max_elements() const { return max_elements; }
+    // Successful live owned buffer payload allocations only; input keys/values are borrowed.
+    // false means unknown ownership/generation, never a zero-byte admission.
+    virtual bool get_allocated_buffer_bytes(uint64_t &r_bytes) const { r_bytes = 0; return false; }
     virtual bool supports_non_power_of_two() const = 0;
     // DEPRECATED: prefer algorithm-specific benchmarks via get_metrics().
     // The returned float is a unitless relative indicator (lower = fewer passes):
@@ -285,6 +288,7 @@ protected:
 public:
     BitonicSort();
     ~BitonicSort() override;
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const override;
 
     // IGPUSorter implementation
     Error initialize(RenderingDevice *p_rd, uint32_t p_max_elements) override;
@@ -404,6 +408,7 @@ protected:
 public:
     RadixSort();
     ~RadixSort() override;
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const override;
 
     Error initialize(RenderingDevice *p_rd, uint32_t p_max_elements) override;
     void shutdown() override;
@@ -495,6 +500,7 @@ protected:
 public:
     OneSweepSort();
     ~OneSweepSort() override;
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const override;
 
     Error initialize(RenderingDevice *p_rd, uint32_t p_max_elements) override;
     void shutdown() override;

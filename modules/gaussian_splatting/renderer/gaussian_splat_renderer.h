@@ -15,6 +15,7 @@
 #define GAUSSIAN_SPLAT_RENDERER_H
 
 // Scene includes not available in modules - using core Node instead
+#include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "core/math/aabb.h"
 #include "core/object/object.h"
 #include "core/object/ref_counted.h"
@@ -263,6 +264,10 @@ public:
     };
 
     struct WorldSubmissionContract {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_owner_key = 0;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
         Vector<StaticChunk> static_chunks;
@@ -280,6 +285,10 @@ public:
     };
 
     struct WorldSubmissionRuntimeStateSnapshot {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_owner_key = 0;
         bool valid = false;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
@@ -706,6 +715,31 @@ public:
     void _release_resident_contract_buffers();
 #ifdef TESTS_ENABLED
     void _test_dispatch_noop_callback(uint64_t p_request_id);
+    // Each queued Callable retains this request independently of the renderer.
+    // The box holds no renderer, device or Callable reference, so there is no cycle.
+    class HlodPublicationObservation : public RefCounted {
+        GDCLASS(HlodPublicationObservation, RefCounted);
+        static void _bind_methods() {}
+        void _fail_locked(const String &p_error);
+        static void _readback(const Vector<uint8_t> &p_bytes, const Ref<HlodPublicationObservation> &p_observation,
+                int64_t p_request_id, int p_slot, int64_t p_device_id);
+    public:
+        Mutex mutex;
+        uint64_t request_id = 0;
+        uint64_t device_id = 0;
+        uint64_t expected_bytes[4] = {};
+        uint32_t received_mask = 0;
+        bool complete = false;
+        bool failed = false;
+        bool cancelled = false;
+        Dictionary result;
+        void cancel();
+        void fail(const String &p_error);
+        static Callable make_callback(const Ref<HlodPublicationObservation> &p_observation, int p_slot);
+    };
+    Ref<HlodPublicationObservation> test_hlod_observation;
+    uint64_t test_hlod_observation_serial = 0;
+    void _test_cancel_hlod_publication_observation();
 #endif
     // p_request_id comes FIRST: see the argument-order contract on
     // IRenderThreadDispatcher::dispatch_call_on_render_thread_blocking().
@@ -877,6 +911,15 @@ public:
     const JacobianDebugConfig &get_jacobian_debug() const { return jacobian_debug; }
     // Publishes the shared atlas-shaped instance contract together with the renderer-owned
     // dense asset-ID remap sidecar.
+    // C++ runtime seams; deliberately not script-visible APIs.
+    int try_publish_hlod_resident_contract(String &r_reason);
+    bool prepare_hlod_frame(const RenderFrameContext &p_context);
+    bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
+    void release_hlod_resources();
+    void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
+    bool is_hlod_prepared_contract_current() const;
+    bool publish_hlod_bundle(bool p_relative);
+
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,
             uint64_t p_source_generation, const String &p_contract_shape = "atlas_emulation");
@@ -2034,6 +2077,11 @@ public:
 // declarations behind the same guard.
 #ifdef TESTS_ENABLED
     void test_override_rendering_device(RenderingDevice *p_device);
+    void test_set_hlod_publication_failure(int p_failure);
+    bool test_hlod_publication_refuses(int p_failure);
+    Dictionary test_observe_hlod_publication(int64_t p_request_id = 0);
+    Dictionary test_hlod_foreign_device_publication();
+    Ref<Resource> test_bake_hlod_small_leaf_fixture(const Ref<GaussianData> &p_data);
     void test_disable_gpu_culler();
     void test_disable_rasterizer();
     bool test_copy_final_output(RID p_source, RID p_destination, const Size2i &p_viewport_size);
