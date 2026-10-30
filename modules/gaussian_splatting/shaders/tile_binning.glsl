@@ -26,6 +26,7 @@
 #include "includes/tile_projection_common.glsl"
 
 #include "includes/gs_instance_layout.glsl"
+#include "includes/gs_camera_relative.glsl"
 #include "includes/gs_alpha_threshold.glsl"
 #include "includes/quantization_dequant.glsl"
 
@@ -132,7 +133,7 @@ layout(set = 0, binding = 23, std430) readonly buffer HlodDrawEntryBuffer {
     uint draw_entries[];
 } hlod_draw_entry_buffer;
 layout(set = 0, binding = 22, std430) readonly buffer HlodDrawListBuffer {
-    VisibleChunkRefGPU entries[];
+    DrawnNodeGPU entries[];
 } hlod_draw_list_buffer;
 #endif
 
@@ -533,7 +534,7 @@ vec3 project_gaussian_2d(Gaussian g, bool antialiased, out vec2 screen_pos, out 
     linear_depth = 1.0;
     // WARNING: Do NOT negate view_pos.x here - it causes "splats rotate with camera" bug.
     // The X-axis offset issue must be fixed elsewhere (likely in PLY loader or data transform).
-    vec4 view_pos = params.view_matrix * vec4(g.position, 1.0);
+    vec4 view_pos = params.view_matrix * vec4(g.position, GS_POSITION_FRAME_W);
 
     float positive_depth = -view_pos.z;
     // Apply a tolerance band on near/far to reduce popping at clip planes.
@@ -874,7 +875,7 @@ void main() {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
-    VisibleChunkRefGPU selected = hlod_draw_list_buffer.entries[draw_entry];
+    DrawnNodeGPU selected = hlod_draw_list_buffer.entries[draw_entry];
     if (selected.instance_id != splat_ref.instance_id || selected.chunk_id >= chunk_meta_buffer.chunk_meta.length()) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
@@ -884,7 +885,7 @@ void main() {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
-    local_position += vec3(selected_node.node_center_x, selected_node.node_center_y, selected_node.node_center_z);
+    vec3 hlod_camera_offset = selected.camera_offset.xyz;
 #endif
 
     // Optional per-splat alpha clip. It runs before world transform/projection
@@ -896,6 +897,13 @@ void main() {
 
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    // Camera-relative frame (gs_camera_relative.glsl); T is already inside the per-draw offset.
+    vec3 world_position = gs_hlod_camera_relative_position(local_position, instance_flags,
+            instance.rotation, uniform_scale, hlod_camera_offset);
+    vec3 frame_anchor = params.camera_position.xyz;
+    vec3 frame_camera = vec3(0.0);
+#else
     vec3 scaled_position = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u
             ? local_position
             : local_position * uniform_scale;
@@ -905,6 +913,9 @@ void main() {
     if ((instance_flags & GS_INSTANCE_FLAG_TRANSLATION_ZERO) == 0u) {
         world_position += instance.translation_scale.xyz;
     }
+    vec3 frame_anchor = vec3(0.0);
+    vec3 frame_camera = params.camera_position.xyz;
+#endif
     float instance_intensity = max(instance.params.z, 0.0);
     float instance_wind_mode = instance.params.w;
     uint stable_seed = gaussian_idx ^ (splat_ref.instance_id * 0x9e3779b9u);
@@ -920,7 +931,8 @@ void main() {
             params.effector_meta,
             params.effector_spheres,
             params.effector_configs,
-            params.effector_opacity_configs);
+            params.effector_opacity_configs,
+            frame_anchor);
     world_position = deformation.position;
     vec3 world_scale = (instance_flags & GS_INSTANCE_FLAG_SCALE_IDENTITY) != 0u
             ? local_scale
@@ -945,7 +957,7 @@ void main() {
         return;
     }
 
-    float world_dist = length(params.camera_position.xyz - g.position);
+    float world_dist = length(frame_camera - g.position);
     // Use a stable per-splat key for distance culling; global_idx is rank-based and
     // changes with camera motion as sorted order changes, which causes temporal flicker.
     uint distance_cull_key = gaussian_idx;
@@ -1337,7 +1349,7 @@ void main() {
     // #1063: the reference (Inria 3DGS computeColorFromSH, forward.cu) evaluates the basis with
     // dir = pos - campos, i.e. FROM the camera TO the splat. The basis is odd in dir for bands 1
     // and 3, so the opposite direction sign-flipped those bands against the trained coefficients.
-    vec3 view_dir = normalize(g.position - params.camera_position.xyz);
+    vec3 view_dir = normalize(g.position - frame_camera);
     vec3 view_dir_local = (instance.ids.y & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0u
             ? view_dir
             : gs_quat_rotate(instance.inv_rotation, view_dir);
@@ -1394,7 +1406,7 @@ void main() {
     }
     vec3 sh_albedo = clamp(sh_color, vec3(0.0), vec3(1.0));
 
-    vec3 view_pos_scene = (scene_data_block.data.view_matrix * vec4(g.position, 1.0)).xyz;
+    vec3 view_pos_scene = (scene_data_block.data.view_matrix * vec4(g.position, GS_POSITION_FRAME_W)).xyz;
     vec3 view_dir_scene = normalize(-view_pos_scene);
     uint normal_mode = uint(params.lighting_config.w + 0.5);
     vec3 normal_view = view_dir_scene;

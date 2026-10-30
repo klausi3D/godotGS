@@ -557,7 +557,15 @@ def _make_builtins(half_rounding: str) -> dict[str, Any]:
         u = int(u)
         return Vec([(u & 0xFFFF) / 65535.0, ((u >> 16) & 0xFFFF) / 65535.0])
 
+    def cross(a: Vec, b: Vec) -> Vec:
+        if len(a.c) != 3 or len(b.c) != 3:
+            raise GlslUnsupported("cross() needs two vec3")
+        return Vec([a.c[1] * b.c[2] - a.c[2] * b.c[1],
+                    a.c[2] * b.c[0] - a.c[0] * b.c[2],
+                    a.c[0] * b.c[1] - a.c[1] * b.c[0]])
+
     return {
+        "cross": cross,
         "float": _float,
         "int": _int,
         "uint": _uint,

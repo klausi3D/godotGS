@@ -170,7 +170,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
     instance.rotation[3] = instance.inv_rotation[3] = instance.translation_scale[3] = 1.0f;
     instance.params[0] = instance.params[1] = 1.0f;
     instance.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY | GS_INSTANCE_FLAG_TRANSLATION_ZERO;
-    const VisibleChunkRefGPU draw_list[2] = { {0, 0}, {0, 1} };
+    // Identity camera: the per-draw camera offset equals the node centre the chunk table carries.
+    const DrawnNodeGPU draw_list[2] = {
+        { 0u, 0u, 1.0f, 0u, { 16.0f, 0.0f, -3.0f, 0.0f } },
+        { 0u, 1u, 1.0f, 0u, { 16.0f, 0.0f, -7.5f, 0.0f } } };
     const uint32_t counters[3] = { 2, 0, 0 };
     buffers.atlas_gaussian_buffer = create(sizeof(splats), splats);
     buffers.instance_buffer = create(sizeof(instance), &instance);

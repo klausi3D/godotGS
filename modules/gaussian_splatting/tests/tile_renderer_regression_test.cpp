@@ -1676,7 +1676,7 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
         ChunkMetaGPU chunk = {};
         chunk.splat_count = 1;
         chunks = upload(chunk);
-        const VisibleChunkRefGPU entry = { 0u, 0u };
+        const DrawnNodeGPU entry = { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } };
         draw_list = upload(entry);
         sidecar = upload(uint32_t(0));
         if (!gaussian_buffer.is_valid() || !indices.is_valid() || !instances.is_valid() ||

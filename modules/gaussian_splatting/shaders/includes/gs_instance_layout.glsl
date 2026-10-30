@@ -83,6 +83,9 @@ struct ChunkMetaGPU {
     uint lod_level;
     uint flags;
     uint sh_limit;           // per-chunk SH band limit (optional)
+    // Node cell centre in asset space. Not read by any shader since HLOD C2: the HLOD route
+    // places a node with DrawnNodeGPU.camera_offset (computed in double on the CPU). Kept so
+    // the 64 B ChunkMetaGPU layout does not move.
     float node_center_x;
     float node_center_y;
     float node_center_z;
@@ -97,6 +100,17 @@ struct AssetChunkIndexGPU {
 struct VisibleChunkRefGPU {
     uint instance_id;
     uint chunk_id;
+};
+
+// Per-draw record of the HLOD route (replaces VisibleChunkRefGPU there; written by the CPU).
+// The first two words keep VisibleChunkRefGPU's order. camera_offset is view dependent and
+// therefore lives only here, never in the shared ChunkMetaGPU payload.
+struct DrawnNodeGPU {
+    uint instance_id;
+    uint chunk_id;
+    float fade;              // Reserved for the S6 cross-fade; written as 1.0 and not read yet
+    uint reserved;           // Zero
+    vec4 camera_offset;      // xyz = R s c + T - camera (double on the CPU, float last), w = 0
 };
 
 // Visible splat list emitted by Stage B.
@@ -119,6 +133,7 @@ const uint GS_ASSET_META_GPU_SIZE = 48u + 8u * GS_MAX_ASSET_LODS;
 const uint GS_CHUNK_META_GPU_SIZE = 64u;
 const uint GS_ASSET_CHUNK_INDEX_GPU_SIZE = 4u;
 const uint GS_VISIBLE_CHUNK_REF_GPU_SIZE = 8u;
+const uint GS_DRAWN_NODE_GPU_SIZE = 32u;
 const uint GS_SPLAT_REF_GPU_SIZE = 8u;
 const uint GS_INSTANCE_GRADING_GPU_SIZE = 32u;
 

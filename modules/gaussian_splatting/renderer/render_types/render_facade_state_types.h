@@ -55,7 +55,7 @@ struct HlodBundle {
     uint64_t bytes = 0;
     uint64_t generation = 0;
     bool quantized = false;
-    Vector<VisibleChunkRefGPU> draw_entries;
+    Vector<DrawnNodeGPU> draw_entries;
 };
 
 struct ResourceState {
@@ -66,6 +66,7 @@ struct ResourceState {
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
     HlodBundle hlod_canonical;
     HlodBundle hlod_relative;
+    uint64_t hlod_origin_revision = 0; // Revision of the last uploaded HLOD draw list (diagnostics)
     uint64_t hlod_content_serial = 0;
     uint64_t hlod_budget_bound_frames = 0;
     uint64_t hlod_root_dropped_frames = 0;

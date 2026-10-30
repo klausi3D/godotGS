@@ -6,6 +6,7 @@
 #include "../core/gs_vector_alloc.h"
 #include "../core/gs_project_settings.h"
 #include "sync_policy.h"
+#include "../renderer/hlod_drawn_node.h"
 #include "../logger/gs_logger.h"
 #include "../logger/gs_debug_trace.h"
 #include "../core/gaussian_data.h"
@@ -2584,7 +2585,11 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         frustum_plane_slack = MAX(cull_config.cull_frustum_plane_slack, 1.0f);
         enable_frustum = cull_config.frustum_culling ? 1.0f : 0.0f;
         if (cull_config.frustum_culling) {
-            frustum_planes = projection.get_projection_planes(camera_transform);
+            // HLOD camera-relative frame (gs_camera_relative.glsl): positions are relative to the camera, so the planes
+            // of the camera-translated frustum are used (all pass through the origin; no large-offset plane.d).
+            frustum_planes = inputs.hlod_relative ?
+                    gs_hlod_gpu::camera_relative_frustum_planes(projection, camera_transform) :
+                    projection.get_projection_planes(camera_transform);
         }
     }
     if (viewport_size.x <= 0 || viewport_size.y <= 0) {
