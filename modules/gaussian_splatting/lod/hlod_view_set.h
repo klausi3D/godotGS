@@ -148,7 +148,7 @@ public:
 	struct ViewResult {
 		uint64_t view_key = 0;
 		Readiness readiness = FAILED;
-		CutHistory::Status worst_status = CutHistory::COMPLETE; // The first non-success instance status.
+		CutHistory::SelectStatus worst_status = CutHistory::COMPLETE; // The first non-success instance status.
 		uint32_t drawn_count = 0;
 		uint64_t selected_splats = 0;
 		double estimated_records = 0.0;
