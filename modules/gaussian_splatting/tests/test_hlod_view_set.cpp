@@ -1003,7 +1003,7 @@ TEST_CASE("[GaussianSplatting][HLOD] every non-ready view state falls back to th
 	CHECK(RenderFrameContextManager::hlod_fallback_for_view(r).reason == nullptr);
 	struct Row {
 		ViewSet::Readiness readiness;
-		Cut::Status worst;
+		Cut::SelectStatus worst;
 		bool exceeded;
 		const char *reason;
 		uint32_t bound;
