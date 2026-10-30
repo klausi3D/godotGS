@@ -6257,10 +6257,22 @@ TEST_CASE("[GaussianSplatting][HLOD] chunk-streaming route names why HLOD is not
 	CHECK(plan.hlod_route_reason == String("hlod_route_policy_chunk_streaming"));
 
 	CHECK(String(renderer->get_render_stats().get(StringName("hlod_reason"), String("missing"))).is_empty());
-	renderer->apply_hlod_route_reason(plan);
+	// The render entry builds the plan through the wrapper, which publishes the reason.
+	const GaussianSplatRenderer::FrameBackendPlan applied = renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(applied.hlod_route_reason == String("hlod_route_policy_chunk_streaming"));
 	const Dictionary stats = renderer->get_render_stats();
 	CHECK(String(stats.get(StringName("hlod_reason"), String())) == String("hlod_route_policy_chunk_streaming"));
 	CHECK_FALSE(bool(stats.get(StringName("hlod_active"), true)));
+	// The route flips away (the cut is switched off): the stale route reason is cleared, not left behind.
+	project_settings->set_setting(cut_setting, false);
+	renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(String(renderer->get_render_stats().get(StringName("hlod_reason"), String("missing"))).is_empty());
+	// A reason the HLOD publisher wrote is never touched by a plan without a route reason.
+	renderer->get_resource_state().hlod_reason = "hlod_idle_bundle_unavailable";
+	renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(renderer->get_resource_state().hlod_reason == String("hlod_idle_bundle_unavailable"));
+	renderer->get_resource_state().hlod_reason = String();
+	project_settings->set_setting(cut_setting, true);
 
 	// No reason where HLOD was never going to run: the cut is off, or the world carries no snapshot.
 	project_settings->set_setting(cut_setting, false);

@@ -276,9 +276,12 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a cancelled request completing l
 		const Residency::Ticket t = sim.tickets[0];
 		CHECK(sim.res.cancel(t.node));
 		CHECK_FALSE(sim.res.begin_upload(t)); // The late "payload ready" of a cancelled request.
-		CHECK_FALSE(sim.res.fail_load(t)); // And a late read failure of the same request.
-		CHECK(sim.res.stats().late_dropped_cancelled_total == 2);
+		CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
 		CHECK(sim.res.stats().late_dropped_total == 0);
+		// A second delivery of the same cancelled ticket is a duplicate, not another cancel: real loss.
+		CHECK_FALSE(sim.res.fail_load(t));
+		CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
+		CHECK(sim.res.stats().late_dropped_total == 1);
 		CHECK(sim.res.stats().cancelled_total == 1);
 		CHECK(sim.res.stats().completed_total == 0);
 	}
@@ -311,6 +314,33 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a cancelled request completing l
 		CHECK(sim.res.stats().late_dropped_total == 1);
 		CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
 	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] the cancelled window is bounded: a ticket older than the window counts as real loss") {
+	Sim sim;
+	if (!sim.init(3, 16, 0)) { FAIL("residency setup failed"); return; }
+	// Request and cancel the root over and over: each cycle kills one more request generation.
+	Residency::Ticket first;
+	Residency::Ticket last;
+	const uint32_t cycles = 300; // More than the 256-entry window.
+	for (uint32_t i = 0; i < cycles; ++i) {
+		sim.res.begin_frame(i + 1);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t root[1] = { 0 };
+		sim.res.request(root, 1, tickets);
+		if (tickets.size() != 1) { FAIL("expected a root ticket in cycle ", i); return; }
+		if (i == 0) { first = tickets[0]; }
+		last = tickets[0];
+		if (!sim.res.cancel(0)) { FAIL("cancel failed in cycle ", i); return; }
+	}
+	CHECK(sim.res.stats().cancelled_total == cycles);
+	// The newest cancel is inside the window: harmless. The oldest was pushed out: counted as real loss.
+	CHECK_FALSE(sim.res.begin_upload(last));
+	CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
+	CHECK(sim.res.stats().late_dropped_total == 0);
+	CHECK_FALSE(sim.res.begin_upload(first));
+	CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
+	CHECK(sim.res.stats().late_dropped_total == 1);
 }
 
 // 15-node tree with one page per node, so eviction order and protection are the only things under test.

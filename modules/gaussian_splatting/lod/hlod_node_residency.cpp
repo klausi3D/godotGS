@@ -413,12 +413,13 @@ bool NodeResidency::ticket_current(const Ticket &p_ticket, State p_expected) con
 			nodes[p_ticket.node].state == p_expected;
 }
 
-bool NodeResidency::was_cancelled(const Ticket &p_ticket) const {
+bool NodeResidency::consume_cancelled(const Ticket &p_ticket) {
 	if (!p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen) {
 		return false;
 	}
 	for (uint32_t i = 0; i < cancelled_generations.size(); ++i) {
 		if (cancelled_generations[i] == p_ticket.request_generation) {
+			cancelled_generations[i] = 0; // Consumed: a second delivery of the same ticket is a duplicate, not a cancel.
 			return true;
 		}
 	}
@@ -426,7 +427,7 @@ bool NodeResidency::was_cancelled(const Ticket &p_ticket) const {
 }
 
 void NodeResidency::count_rejected_completion(const Ticket &p_ticket) {
-	if (was_cancelled(p_ticket)) {
+	if (consume_cancelled(p_ticket)) {
 		++totals.late_dropped_cancelled_total;
 	} else {
 		++totals.late_dropped_total;

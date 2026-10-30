@@ -957,7 +957,11 @@ public:
             const PerformanceSettings &p_performance_settings) const;
     FrameBackendPlan build_frame_backend_plan(bool p_streaming_ready) const;
     // Publishes the plan's HLOD route reason as hlod_reason (no-op when the plan has none).
+    // Sets hlod_reason from the plan, and clears a route reason this function set once the plan no longer has one.
     void apply_hlod_route_reason(const FrameBackendPlan &p_plan);
+    // build_frame_backend_plan + apply_hlod_route_reason. The render entry uses this. force_sort_for_view and
+    // tick_streaming_only still use the plain const builder, so they do not publish the reason (follow-up).
+    FrameBackendPlan build_and_apply_frame_backend_plan(bool p_streaming_ready);
     WorldSubmissionRuntimeStateSnapshot snapshot_world_submission_runtime_state() const;
     Error restore_world_submission_runtime_state(const WorldSubmissionRuntimeStateSnapshot &p_snapshot);
     Error apply_world_submission_contract(const WorldSubmissionContract &p_contract);

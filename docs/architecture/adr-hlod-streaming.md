@@ -1119,7 +1119,7 @@ an obsolete revision prevents publication; it does not free memory still referen
 or GPU work. A late completion cannot resurrect an unloaded world, overwritten node or old
 device. Rejected completions are counted in two places: `late_dropped_cancelled_total`
 (`hlod_stream_late_dropped_cancelled_total`) for the completion of a request that was already
-cancelled, which is harmless because the cancel released the node, and `late_dropped_total`
+cancelled (once per ticket; a duplicate delivery is loss), which is harmless because the cancel released the node, and `late_dropped_total`
 (`hlod_stream_late_dropped_total`) for every other rejected completion, which is real loss and
 must stay zero in a gate. Compaction changes an address only after its copy completes and all draw references
 switch coherently; stable identities, tie-breaks and wind seeds do not change.

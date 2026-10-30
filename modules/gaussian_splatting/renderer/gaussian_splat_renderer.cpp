@@ -1705,9 +1705,19 @@ GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_frame_backe
 }
 
 void GaussianSplatRenderer::apply_hlod_route_reason(const FrameBackendPlan &p_plan) {
+    static const String route_reason = "hlod_route_policy_chunk_streaming";
+    String &reason = get_resource_state().hlod_reason;
     if (!p_plan.hlod_route_reason.is_empty()) {
-        get_resource_state().hlod_reason = p_plan.hlod_route_reason;
+        reason = p_plan.hlod_route_reason;
+    } else if (reason == route_reason) {
+        reason = String(); // The route no longer is chunk-streaming: do not leave a stale reason behind.
     }
+}
+
+GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_and_apply_frame_backend_plan(bool p_streaming_ready) {
+    FrameBackendPlan plan = build_frame_backend_plan(p_streaming_ready);
+    apply_hlod_route_reason(plan);
+    return plan;
 }
 
 void GaussianSplatRenderer::initialize() {
@@ -2559,10 +2569,9 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
 
     // Update streaming system if active.
     FrameBackendPlan backend_plan =
-            build_frame_backend_plan(get_streaming_state().current_streaming_system.is_valid());
+            build_and_apply_frame_backend_plan(get_streaming_state().current_streaming_system.is_valid());
     _set_route_policy_diagnostics(backend_plan.runtime_policy.requested_route_policy,
             backend_plan.runtime_policy.requested_route_policy_source.utf8().get_data());
-    apply_hlod_route_reason(backend_plan);
     static uint64_t render_debug_count = 0;
     const auto &debug_config = get_debug_config();
     const bool trace_enabled = GaussianSplatting::debug_trace_is_enabled();

@@ -213,7 +213,9 @@ private:
 	// A completion was rejected: counted as harmless when the ticket's request was cancelled in this world and
 	// device generation, as real loss otherwise.
 	void count_rejected_completion(const Ticket &p_ticket);
-	bool was_cancelled(const Ticket &p_ticket) const;
+	// True once per cancelled ticket: the first late delivery consumes its window entry, so a duplicate delivery
+	// of the same ticket is real loss again.
+	bool consume_cancelled(const Ticket &p_ticket);
 	// Request generations killed by cancel(), newest overwriting oldest. Request generations are unique per
 	// reset(), so membership identifies the request. A ticket older than the window is counted as real loss
 	// (fail closed). Cleared by reset().
