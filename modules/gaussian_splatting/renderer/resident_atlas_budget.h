@@ -63,6 +63,36 @@ inline uint64_t compute_effective_atlas_cap_bytes(uint64_t device_budget_bytes, 
     return cap;
 }
 
+// Byte limit for the HLOD route's device-wide ledger (every RenderingDevice buffer plus the tile and
+// compositor textures, get_hlod_owned_byte_upper_bound()). The ledger includes the canonical
+// route's own sort / tile / atlas buffers (819 MB on the 252k-leaf holzbank scan), so it cannot be
+// bounded by the HLOD-owned byte cap; that cap bounds the HLOD bundle on its own. The ledger is
+// bounded by the same documented device-heap fraction as the atlas (kResidentAtlasHeadroomFraction;
+// ADR 6.5 / 14.1: budget checks use allocated bytes against one physical budget). An unknown or
+// untrusted heap size keeps the fixed hlod_owned_cap (fail closed, as before).
+inline uint64_t compute_hlod_device_ledger_limit_bytes(uint64_t device_budget_bytes, uint64_t hlod_owned_cap_bytes,
+        double headroom_fraction = kResidentAtlasHeadroomFraction,
+        uint64_t min_trusted_budget_bytes = kMinTrustedDeviceBudgetBytes) {
+    if (device_budget_bytes >= min_trusted_budget_bytes) {
+        return uint64_t(double(device_budget_bytes) * headroom_fraction);
+    }
+    return device_budget_bytes ? MIN(device_budget_bytes, hlod_owned_cap_bytes) : hlod_owned_cap_bytes;
+}
+
+// Admission of a candidate HLOD bundle: its own bytes must fit the HLOD-owned cap, and the
+// device-wide ledger plus the candidate must fit the ledger limit. Pure so the boundaries are testable.
+inline bool hlod_candidate_fits(uint64_t candidate_bytes, uint64_t device_bytes, uint64_t ledger_limit_bytes,
+        uint64_t hlod_owned_cap_bytes) {
+    return candidate_bytes <= hlod_owned_cap_bytes && candidate_bytes <= ledger_limit_bytes &&
+            device_bytes <= ledger_limit_bytes - candidate_bytes;
+}
+
+// Same for an already prepared bundle: device_bytes already includes the bundle.
+inline bool hlod_prepared_fits(uint64_t owned_bytes, uint64_t device_bytes, uint64_t ledger_limit_bytes,
+        uint64_t hlod_owned_cap_bytes) {
+    return owned_bytes <= hlod_owned_cap_bytes && device_bytes <= ledger_limit_bytes;
+}
+
 struct SubsetPlan {
     bool reduced = false;       // true when the atlas must be thinned to fit
     double keep_ratio = 1.0;    // global fraction of splats to keep (1.0 == full)
