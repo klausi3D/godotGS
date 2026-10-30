@@ -79,8 +79,16 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		return double(p_data.nodes[p_node].topology.geometric_error) * p_request.focal_pixels / distance(p_node);
 	};
 	auto cost = [&](uint32_t p_node) {
-		const double d = distance(p_node);
 		const auto &n = p_data.nodes[p_node];
+		// Admission heuristic with no guaranteed upper bound (ADR 6.5; overflow_splats_clamped stays the tripwire and the
+		// overlap storage grows to 1.5x the measured demand). The footprint term uses the distance to the near surface of
+		// the node's bounding sphere. That distance is 0 for a camera inside the sphere, which makes the estimate unbounded
+		// (1e17 records at 2 m inside the holzbank, where 5.5e5 were measured) and no frontier admissible. So the distance
+		// is floored at a fraction of the radius, modelling the splats as spread over a surface of the sphere. The floor
+		// is active wherever the centre distance is below radius * (1 + fraction): inside the sphere AND in the shell just
+		// outside it, where it lowers the estimate relative to the plain near-surface distance. It is continuous in the
+		// camera position. Beyond that shell the estimate is unchanged.
+		const double d = MAX(distance(p_node), kCostInsideDistanceFraction * double(n.topology.radius));
 		return double(n.topology.payload_count) + n.footprint * p_request.focal_pixels * p_request.focal_pixels /
 				(d * d * p_request.tile_area);
 	};
@@ -100,17 +108,90 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	if (!available(0)) { out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
 	if (!std::isfinite(root_cost)) { return out; }
-	if (p_data.nodes[0].topology.payload_count > p_request.splat_budget || root_cost > 0.8 * p_request.record_budget) {
-		out.status = ROOT_DROPPED;
-		out.budget_bound = true;
-		return out;
-	}
+	const double record_cap = 0.8 * p_request.record_budget; // The 80 percent admission factor.
 	selected.write[0] = 0;
 	selected_position.write[0] = 0;
 	out.selected_count = 1;
 	out.selected_splats = p_data.nodes[0].topology.payload_count;
 	out.estimated_records = root_cost;
-	enqueue(0);
+	if (out.selected_splats > p_request.splat_budget || root_cost > record_cap) {
+		// Bootstrap (ADR 14.2): expand the costliest expandable frontier node until the frontier fits
+		// every cap. The order depends only on tree, camera and residency, never on budgets, so the
+		// expansion sequence is a fixed prefix order and raising a budget only stops it earlier.
+		// Work is bounded by a visit limit and uses the preallocated heap/selection storage.
+		out.budget_bound = true;
+		out.bootstrapped = true;
+		const uint64_t work_limit = 1 + uint64_t(p_request.node_budget) * gs_hlod::kMaxChildren;
+		bool missing_residency = false;
+		auto fail = [&](SelectStatus p_status) {
+			out.status = p_status;
+			out.selected_count = 0;
+			out.selected_splats = 0;
+			out.estimated_records = 0.0;
+			return out;
+		};
+		auto fits = [&]() {
+			return out.selected_splats <= p_request.splat_budget && out.selected_count <= p_request.node_budget &&
+					out.estimated_records <= record_cap;
+		};
+		auto push_expandable = [&](uint32_t p_node, double p_cost) {
+			if (p_data.nodes[p_node].topology.child_count == 0) { return; }
+			heap.write[heap_count++] = { p_node, p_cost };
+			std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
+		};
+		push_expandable(0, root_cost);
+		while (!fits()) {
+			if (heap_count == 0) {
+				return fail(missing_residency ? BOOTSTRAP_MISSING_RESIDENCY : BOOTSTRAP_INFEASIBLE);
+			}
+			std::pop_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
+			const uint32_t parent = heap[--heap_count].node;
+			const auto &n = p_data.nodes[parent].topology;
+			if (n.child_count > gs_hlod::kMaxChildren || n.first_child > count || n.child_count > count - n.first_child) {
+				out.status = INVALID; out.selected_count = 0; out.selected_splats = 0; out.estimated_records = 0.0; return out;
+			}
+			uint32_t children[gs_hlod::kMaxChildren];
+			double child_costs[gs_hlod::kMaxChildren];
+			uint32_t visible_children = 0;
+			uint64_t child_splats = 0;
+			double child_cost = 0.0;
+			bool children_ready = true;
+			for (uint32_t j = 0; j < n.child_count; ++j) {
+				const uint32_t child = n.first_child + j;
+				if (++out.visited_nodes > work_limit) { return fail(BOOTSTRAP_EXHAUSTED); }
+				if (!visible(child)) { continue; }
+				if (!available(child)) { children_ready = false; break; }
+				const double c = cost(child);
+				if (!std::isfinite(c)) { return fail(BOOTSTRAP_ARITHMETIC); }
+				children[visible_children] = child;
+				child_costs[visible_children++] = c;
+				child_splats += p_data.nodes[child].topology.payload_count;
+				child_cost += c;
+			}
+			if (!children_ready) { missing_residency = true; continue; } // Parent stays; no partial replacement.
+			const uint32_t next_count = out.selected_count - 1 + visible_children;
+			if (next_count > p_request.node_budget) { continue; } // Node cap refuses this expansion only.
+			const double next_cost = MAX(0.0, out.estimated_records - cost(parent)) + child_cost;
+			if (!std::isfinite(next_cost)) { return fail(BOOTSTRAP_ARITHMETIC); }
+			const uint32_t removed = selected_position[parent];
+			const uint32_t last = selected[--out.selected_count];
+			selected.write[removed] = last;
+			selected_position.write[last] = removed;
+			for (uint32_t j = 0; j < visible_children; ++j) {
+				selected.write[out.selected_count] = children[j];
+				selected_position.write[children[j]] = out.selected_count++;
+				push_expandable(children[j], child_costs[j]);
+			}
+			out.selected_splats = out.selected_splats - n.payload_count + child_splats;
+			out.estimated_records = next_cost;
+			refined.write[parent] = epoch; // Same hysteresis stamp as ordinary refinement.
+		}
+		// Refinement below starts from the complete frontier, not from the bootstrap heap.
+		heap_count = 0;
+		for (uint32_t i = 0; i < out.selected_count; ++i) { enqueue(selected[i]); }
+	} else {
+		enqueue(0);
+	}
 	while (heap_count != 0) {
 		std::pop_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 		const uint32_t parent = heap[--heap_count].node;
@@ -137,7 +218,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		const uint32_t next_count = out.selected_count - 1 + visible_children;
 		const double next_cost = MAX(0.0, out.estimated_records - cost(parent)) + child_cost;
 		if (!std::isfinite(next_cost)) { out.status = INVALID; return out; }
-		if (next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > 0.8 * p_request.record_budget) {
+		if (next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > record_cap) {
 			out.budget_bound = true;
 			break; // ADR: first cap refusal stops the whole priority walk.
 		}
