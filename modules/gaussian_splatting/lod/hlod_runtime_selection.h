@@ -24,6 +24,11 @@ struct CutRequest {
 	// Tests exercise unavailable children through the same production selection path.
 	const uint8_t *resident = nullptr;
 	uint32_t resident_count = 0;
+	// Optional per-node tie rank (ADR 6.9, 14.1): equal-priority nodes are ordered by rank, then by index.
+	// A caller that wants array-order independence passes the rank of each node's stable key. Null keeps
+	// the node index as the tie-break (the pre-existing behaviour).
+	const uint32_t *tie_rank = nullptr;
+	uint32_t tie_rank_count = 0;
 };
 
 // One complete view history. All storage is admitted before rendering; select() never
@@ -56,9 +61,11 @@ public:
 	Result select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request);
 	uint32_t selected_node(uint32_t p_index) const { return selected[p_index]; }
 	uint64_t allocated_bytes() const;
+	// Bytes `reserve(p_nodes)` allocates (CowData-rounded); 0 if the count overflows.
+	static uint64_t workspace_bytes(uint32_t p_nodes);
 
 private:
-	struct Candidate { uint32_t node = 0; double priority = 0.0; };
+	struct Candidate { uint32_t node = 0; uint32_t tie = 0; double priority = 0.0; };
 	Vector<Candidate> heap;
 	Vector<uint32_t> selected;
 	Vector<uint32_t> selected_position;
