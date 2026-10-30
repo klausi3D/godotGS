@@ -300,6 +300,8 @@ private:
 	// True once per cancelled ticket: the first late delivery consumes its window entry, so a duplicate delivery
 	// of the same ticket is real loss again.
 	bool consume_cancelled(const Ticket &p_ticket);
+	// Records a request or shadow generation that is being killed, so its late completion is harmless.
+	void note_cancelled_generation(uint64_t p_generation);
 	// Request generations killed by cancel(), newest overwriting oldest. Request generations are unique per
 	// reset(), so membership identifies the request. A ticket older than the window is counted as real loss
 	// (fail closed). Cleared by reset().

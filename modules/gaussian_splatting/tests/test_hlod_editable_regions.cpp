@@ -376,10 +376,16 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] an edit invalidates the in
 	GS_NEED(sim.res.finish_shadow(tickets[0], true));
 	GS_NEED(sim.res.commit_edit());
 	// The old load completes late: it is dropped, counted, and cannot touch the new version.
+	// The commit cancelled that load, so its late completion is the harmless kind, not a loss.
 	const uint64_t dropped = sim.res.stats().late_dropped_total;
+	const uint64_t dropped_cancelled = sim.res.stats().late_dropped_cancelled_total;
 	CHECK_FALSE(sim.res.begin_upload(old_tickets[0]));
+	CHECK(sim.res.stats().late_dropped_cancelled_total == dropped_cancelled + 1);
+	CHECK(sim.res.stats().late_dropped_total == dropped);
+	// A second delivery of the same cancelled ticket is a duplicate: real loss.
 	CHECK_FALSE(sim.res.finish_upload(old_tickets[0], true));
-	CHECK(sim.res.stats().late_dropped_total == dropped + 2);
+	CHECK(sim.res.stats().late_dropped_cancelled_total == dropped_cancelled + 1);
+	CHECK(sim.res.stats().late_dropped_total == dropped + 1);
 	CHECK(sim.res.state(9) == Residency::RESIDENT);
 	uint32_t first = 0, pages = 0;
 	GS_NEED(sim.res.run(9, first, pages));
@@ -438,13 +444,24 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] an edit is admitted whole 
 	CHECK(sim.res.stats().pages_shadow == 0);
 	CHECK(sim.res.committed_edit_revision() == 0);
 	CHECK(sim.res.resident_mask()[0] == 1); // The world is exactly as before.
+	const uint64_t dropped_before = sim.res.stats().late_dropped_total;
+	const uint64_t dropped_cancelled_before = sim.res.stats().late_dropped_cancelled_total;
 	CHECK_FALSE(sim.res.finish_shadow(tickets[0], true)); // The cancelled edit's late payload is dropped.
+	CHECK(sim.res.stats().late_dropped_cancelled_total == dropped_cancelled_before + 1); // Harmless, not a loss.
+	CHECK(sim.res.stats().late_dropped_total == dropped_before);
 	CHECK_FALSE(sim.res.cancel_edit());
 	sim.step();
 	sim.step();
 	CHECK_FALSE(sim.res.is_protected(3)); // The hold is gone with the edit.
-	// After a cancel the same revision can be staged again.
-	CHECK(sim.res.stage_edit(1, &small, 1, tickets) == Residency::EDIT_OK);
+	// After a cancel the same revision can be staged again. stage_edit appends to the ticket list, so start empty.
+	tickets.clear();
+	GS_NEED(sim.res.stage_edit(1, &small, 1, tickets) == Residency::EDIT_OK);
+	GS_NEED(tickets.size() == 1);
+	// A wanted shadow payload completing twice is discarded as real loss: that edit was never cancelled.
+	CHECK(sim.res.finish_shadow(tickets[0], true));
+	CHECK_FALSE(sim.res.finish_shadow(tickets[0], true));
+	CHECK(sim.res.stats().late_dropped_total == dropped_before + 1);
+	CHECK(sim.res.stats().late_dropped_cancelled_total == dropped_cancelled_before + 1);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a replacement child that is not resident yet is prefetched as demand and gates the commit") {
