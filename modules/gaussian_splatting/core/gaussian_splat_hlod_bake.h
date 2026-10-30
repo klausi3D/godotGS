@@ -11,14 +11,45 @@
 
 #include "gaussian_splat_hlod_merge.h"
 #include "gaussian_splat_hlod_tree.h"
+#ifdef TESTS_ENABLED
+#include "gaussian_splat_hlod_quality.h"
+#endif
 
 namespace gs_hlod {
+
+#ifdef TESTS_ENABLED
+// Test-only, explicit opt-in candidate capture (S1b matched-arm quality exporter, ADR §9 S1b).
+// At every interior node of a QUALITY_SELECTION bake the baker builds a MERGED (SAT) candidate and
+// a SELECTED (A-area) candidate of the same count and keeps one. With a capture attached, BOTH are
+// kept here, together with the winner flag, before either is discarded. Positions are node-relative
+// (the node's cell centre), exactly as the baker holds them. The existing payload types are reused;
+// no file format is added. The capture never changes the baked tree: it only copies/shares.
+struct CandidateCapture {
+	struct Node {
+		SplatList sat;         // MERGED candidate (rule 1 `sat`), children = the baker's chosen child payloads
+		QualityPayload area;   // SELECTED candidate (A-area leaf-prefix selection), same count as `sat`
+		bool use_merged = true; // true: the SAT candidate won (S1b choice)
+		bool captured = false;
+	};
+	// REQUIRED, nonzero: byte ceiling for everything the capture retains (both candidates of all
+	// interior nodes). Exceeding it fails the bake closed; nothing is truncated or dropped.
+	uint64_t max_bytes = 0;
+	LocalVector<Node> nodes; // indexed by tree node index; filled for interior nodes only
+	uint64_t captured_bytes = 0;
+	uint32_t captured_nodes = 0;
+};
+#endif
 
 struct BakeParams {
 	enum Mode { MERGE_ONLY, QUALITY_SELECTION };
 	Mode mode = MERGE_ONLY; // Canonical imports and the public bake retain rule 1.
 	uint32_t leaf_max_splats = kMaxNodeSplats; // <= kMaxNodeSplats; tests use smaller leaves
 	InteriorBakeParams interior;
+#ifdef TESTS_ENABLED
+	// Test-only. nullptr (the default) is the production path: the capture branch is a single
+	// pointer test per interior node and the baked tree is byte-identical either way.
+	CandidateCapture *capture = nullptr;
+#endif
 };
 
 struct BakeInput {
