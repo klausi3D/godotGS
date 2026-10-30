@@ -25,9 +25,10 @@ struct CutRequest {
 // allocates, grows, reads GPU data or scans the complete payload/node table.
 class CutHistory {
 public:
-	enum Status { COMPLETE, EMPTY, ROOT_DROPPED, INVALID, UNAVAILABLE };
+	// Not named `Status`: X11/Xlib.h #defines Status, and this header reaches the X11 display server TU.
+	enum SelectStatus { COMPLETE, EMPTY, ROOT_DROPPED, INVALID, UNAVAILABLE };
 	struct Result {
-		Status status = INVALID;
+		SelectStatus status = INVALID;
 		uint32_t selected_count = 0;
 		uint32_t visited_nodes = 0;
 		uint64_t selected_splats = 0;
