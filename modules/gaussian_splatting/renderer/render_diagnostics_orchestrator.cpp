@@ -1513,7 +1513,9 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_pages_in_flight"] = t.pages_in_flight;
         stats["hlod_stream_pages_retiring"] = t.pages_retiring;
         stats["hlod_stream_atlas_records"] = resource_state.hlod_stream_atlas_records;
+        // Real loss (zero rule) and the harmless cancelled-then-late completions are kept apart.
         stats["hlod_stream_late_dropped_total"] = int64_t(t.late_dropped_total);
+        stats["hlod_stream_late_dropped_cancelled_total"] = int64_t(t.late_dropped_cancelled_total);
         stats["hlod_stream_cancelled_total"] = int64_t(t.cancelled_total);
         stats["hlod_stream_evicted_total"] = int64_t(t.evicted_total);
         stats["hlod_stream_failed_total"] = int64_t(t.failed_total);

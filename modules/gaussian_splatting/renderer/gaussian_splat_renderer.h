@@ -256,6 +256,9 @@ public:
         // True when an active gsplatworld submission owns this renderer's
         // streaming path.
         bool has_active_world_submission = false;
+        // Non-empty when the world carries an HLOD snapshot and the runtime cut is enabled but this frame's route is
+        // the chunk-streaming backend, which never runs the HLOD publisher. Surfaced as hlod_reason.
+        String hlod_route_reason;
         String resident_backend_reason = "requested_streaming_policy";
         String streaming_backend_reason = "requested_streaming_policy";
         String streaming_contract_ready_reason = "streaming_contract_published";
@@ -953,6 +956,8 @@ public:
     RuntimeFidelityPolicy build_runtime_fidelity_policy(const SceneState &p_scene_state,
             const PerformanceSettings &p_performance_settings) const;
     FrameBackendPlan build_frame_backend_plan(bool p_streaming_ready) const;
+    // Publishes the plan's HLOD route reason as hlod_reason (no-op when the plan has none).
+    void apply_hlod_route_reason(const FrameBackendPlan &p_plan);
     WorldSubmissionRuntimeStateSnapshot snapshot_world_submission_runtime_state() const;
     Error restore_world_submission_runtime_state(const WorldSubmissionRuntimeStateSnapshot &p_snapshot);
     Error apply_world_submission_contract(const WorldSubmissionContract &p_contract);

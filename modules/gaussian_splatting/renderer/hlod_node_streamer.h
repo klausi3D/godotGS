@@ -60,7 +60,8 @@ public:
 		uint32_t pages_in_flight = 0;
 		uint32_t pages_retiring = 0;
 		uint64_t uploaded_bytes_total = 0;
-		uint64_t late_dropped_total = 0;
+		uint64_t late_dropped_total = 0; // Real loss: rejected completion of a request that was not cancelled.
+		uint64_t late_dropped_cancelled_total = 0; // Harmless: completion of a request already cancelled.
 		uint64_t cancelled_total = 0;
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;

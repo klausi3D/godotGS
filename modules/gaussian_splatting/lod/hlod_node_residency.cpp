@@ -26,6 +26,8 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	retiring.clear();
 	candidates.clear();
 	evicted_log.clear();
+	cancelled_generations.clear();
+	cancelled_next = 0;
 	allocator.clear();
 	totals = Stats();
 	pages_retiring = 0;
@@ -411,9 +413,29 @@ bool NodeResidency::ticket_current(const Ticket &p_ticket, State p_expected) con
 			nodes[p_ticket.node].state == p_expected;
 }
 
+bool NodeResidency::was_cancelled(const Ticket &p_ticket) const {
+	if (!p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen) {
+		return false;
+	}
+	for (uint32_t i = 0; i < cancelled_generations.size(); ++i) {
+		if (cancelled_generations[i] == p_ticket.request_generation) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void NodeResidency::count_rejected_completion(const Ticket &p_ticket) {
+	if (was_cancelled(p_ticket)) {
+		++totals.late_dropped_cancelled_total;
+	} else {
+		++totals.late_dropped_total;
+	}
+}
+
 bool NodeResidency::begin_upload(const Ticket &p_ticket) {
 	if (!ticket_current(p_ticket, LOADING)) {
-		++totals.late_dropped_total;
+		count_rejected_completion(p_ticket);
 		return false;
 	}
 	nodes.write[p_ticket.node].state = UPLOADING;
@@ -422,7 +444,7 @@ bool NodeResidency::begin_upload(const Ticket &p_ticket) {
 
 bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 	if (!ticket_current(p_ticket, UPLOADING)) {
-		++totals.late_dropped_total;
+		count_rejected_completion(p_ticket);
 		return false;
 	}
 	Node &n = nodes.write[p_ticket.node];
@@ -445,7 +467,7 @@ bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 
 bool NodeResidency::fail_load(const Ticket &p_ticket) {
 	if (!ticket_current(p_ticket, LOADING)) {
-		++totals.late_dropped_total;
+		count_rejected_completion(p_ticket);
 		return false;
 	}
 	Node &n = nodes.write[p_ticket.node];
@@ -467,6 +489,13 @@ bool NodeResidency::cancel(uint32_t p_node) {
 		return false;
 	}
 	n.state = ABSENT;
+	// Remember the killed generation so its late completion is told apart from a real loss.
+	if (cancelled_generations.size() < CANCELLED_WINDOW) {
+		cancelled_generations.push_back(n.request_generation);
+	} else {
+		cancelled_generations[cancelled_next] = n.request_generation;
+		cancelled_next = (cancelled_next + 1) % CANCELLED_WINDOW;
+	}
 	n.request_generation = 0; // Kills the ticket: its late completion is dropped.
 	retire_run(n);
 	++totals.cancelled_total;

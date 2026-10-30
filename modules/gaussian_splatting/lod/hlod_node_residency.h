@@ -83,7 +83,12 @@ public:
 		uint64_t requested_total = 0;
 		uint64_t completed_total = 0;
 		uint64_t cancelled_total = 0;
-		uint64_t late_dropped_total = 0; // Completions rejected by a generation or state check.
+		// Real loss: a completion rejected by a generation or state check although its request was never cancelled
+		// (stale world or device generation, a duplicate or out-of-order completion). The zero rule applies here.
+		uint64_t late_dropped_total = 0;
+		// Harmless: the completion of a request that cancel() had already killed. The node was released by the
+		// cancel, so nothing was drawn wrong and nothing was lost. Never part of the zero rule.
+		uint64_t late_dropped_cancelled_total = 0;
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
@@ -127,8 +132,9 @@ public:
 	// yet (LOADING). Does not count as a dropped completion; used to skip work for cancelled requests.
 	bool is_pending(const Ticket &p_ticket) const { return ticket_current(p_ticket, LOADING); }
 	// Worker finished reading/packing a payload. True when the ticket is current and the node moved to
-	// UPLOADING; false (counted in late_dropped_total) when the world, device or request generation or the
-	// node state no longer matches. A rejected ticket never touches the node's current state.
+	// UPLOADING; false when the world, device or request generation or the node state no longer
+	// matches. The rejection counts in late_dropped_cancelled_total when the request had been cancelled, and in
+	// late_dropped_total (real loss) otherwise. A rejected ticket never touches the node's current state.
 	bool begin_upload(const Ticket &p_ticket);
 	// The upload command stream for the whole run was issued (true) or failed (false). Only a current
 	// UPLOADING ticket can make a node RESIDENT.
@@ -204,6 +210,16 @@ private:
 	void retire_run(Node &r_node);
 	void release_run_now(Node &r_node);
 	bool ticket_current(const Ticket &p_ticket, State p_expected) const;
+	// A completion was rejected: counted as harmless when the ticket's request was cancelled in this world and
+	// device generation, as real loss otherwise.
+	void count_rejected_completion(const Ticket &p_ticket);
+	bool was_cancelled(const Ticket &p_ticket) const;
+	// Request generations killed by cancel(), newest overwriting oldest. Request generations are unique per
+	// reset(), so membership identifies the request. A ticket older than the window is counted as real loss
+	// (fail closed). Cleared by reset().
+	static constexpr uint32_t CANCELLED_WINDOW = 256;
+	LocalVector<uint64_t> cancelled_generations;
+	uint32_t cancelled_next = 0;
 	// Evicts unprotected RESIDENT nodes (LRU, then finest level, then node index) until `p_pages` pages are
 	// free or pending retirement. Returns the number of evictions; bounded by evictions_per_frame.
 	uint32_t evict_for(uint32_t p_pages, uint32_t p_exclude_parent);

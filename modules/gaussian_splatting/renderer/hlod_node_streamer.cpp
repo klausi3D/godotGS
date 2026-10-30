@@ -269,6 +269,7 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.pages_in_flight = s.pages_in_flight;
 	telemetry.pages_retiring = s.pages_retiring;
 	telemetry.late_dropped_total = s.late_dropped_total;
+	telemetry.late_dropped_cancelled_total = s.late_dropped_cancelled_total;
 	telemetry.cancelled_total = s.cancelled_total;
 	telemetry.evicted_total = s.evicted_total;
 	telemetry.failed_total = s.failed_total;

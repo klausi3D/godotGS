@@ -194,7 +194,8 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] cancelling a request mid-upload 
 	CHECK_FALSE(sim.res.finish_upload(b, true));
 	CHECK(sim.res.state(b.node) == Residency::ABSENT);
 	CHECK(sim.res.resident_mask()[b.node] == 0);
-	CHECK(sim.res.stats().late_dropped_total == 1);
+	CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
+	CHECK(sim.res.stats().late_dropped_total == 0);
 	// The old cut is kept: the parent is still drawn, and nothing partial appears.
 	sim.step(false); // frame 3
 	CHECK(sim.drawn == std::vector<uint32_t>{ 0 });
@@ -263,6 +264,53 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a late completion cannot resurre
 	CHECK_FALSE(sim.res.finish_upload(new_device, true));
 	CHECK(sim.res.stats().late_dropped_total == dropped_before + 1);
 	CHECK(sim.res.stats().completed_total == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a cancelled request completing late is harmless, a wanted completion that is discarded is real loss") {
+	// Case 1: cancelled, then the worker completes late. Only the harmless counter moves.
+	{
+		Sim sim;
+		if (!sim.init(3, 16)) { FAIL("residency setup failed"); return; }
+		sim.step();
+		if (sim.tickets.size() != 1) { FAIL("expected a root ticket"); return; }
+		const Residency::Ticket t = sim.tickets[0];
+		CHECK(sim.res.cancel(t.node));
+		CHECK_FALSE(sim.res.begin_upload(t)); // The late "payload ready" of a cancelled request.
+		CHECK_FALSE(sim.res.fail_load(t)); // And a late read failure of the same request.
+		CHECK(sim.res.stats().late_dropped_cancelled_total == 2);
+		CHECK(sim.res.stats().late_dropped_total == 0);
+		CHECK(sim.res.stats().cancelled_total == 1);
+		CHECK(sim.res.stats().completed_total == 0);
+	}
+	// Case 2: the request is wanted (never cancelled) but its completion is discarded. Only the loss counter moves.
+	{
+		Sim sim;
+		if (!sim.init(3, 16)) { FAIL("residency setup failed"); return; }
+		sim.step();
+		if (sim.tickets.size() != 1) { FAIL("expected a root ticket"); return; }
+		const Residency::Ticket t = sim.tickets[0];
+		// An upload finished out of order (the node is still LOADING) is a discarded wanted completion.
+		CHECK_FALSE(sim.res.finish_upload(t, true));
+		CHECK(sim.res.stats().late_dropped_total == 1);
+		CHECK(sim.res.stats().late_dropped_cancelled_total == 0);
+		CHECK(sim.res.state(t.node) == Residency::LOADING); // Untouched: the request is still wanted.
+		// A ticket of an older world is discarded the same way, even if its node was cancelled in the new world.
+		Vector<Residency::NodeInfo> infos;
+		if (!make_node_infos(*sim.data.ptr(), infos)) { FAIL("node infos"); return; }
+		CHECK(sim.res.reset(infos, config(16), 2, 1));
+		sim.res.begin_frame(1);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t root[1] = { 0 };
+		sim.res.request(root, 1, tickets);
+		if (tickets.size() != 1) { FAIL("expected a root ticket in the new world"); return; }
+		CHECK(sim.res.cancel(0)); // Same node and same request generation as the old world's ticket.
+		CHECK_FALSE(sim.res.begin_upload(t));
+		CHECK(sim.res.stats().late_dropped_total == 1);
+		CHECK(sim.res.stats().late_dropped_cancelled_total == 0);
+		CHECK_FALSE(sim.res.begin_upload(tickets[0])); // The new world's own cancelled ticket is harmless.
+		CHECK(sim.res.stats().late_dropped_total == 1);
+		CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
+	}
 }
 
 // 15-node tree with one page per node, so eviction order and protection are the only things under test.
