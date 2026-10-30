@@ -738,6 +738,13 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQualityExport] env-driven matc
 			entry["leaf_splat_count"] = int64_t(record.leaf_splat_count);
 			entry["leaf_node_first"] = int64_t(record.leaf_node_first);
 			entry["leaf_node_count"] = int64_t(record.leaf_node_count);
+			// The baker's recorded decision for this interior node: the error of the representation
+			// it kept (chosen) and of the one it discarded (rejected), from the same bake that
+			// produced the arms. Leaves have no decision.
+			if (!record.is_leaf && record.node < bake.tree.nodes.size()) {
+				entry["error_chosen"] = double(bake.tree.nodes[record.node].error_chosen);
+				entry["error_rejected"] = double(bake.tree.nodes[record.node].error_rejected);
+			}
 			nodes.push_back(entry);
 		}
 		manifest["cut"] = nodes;
