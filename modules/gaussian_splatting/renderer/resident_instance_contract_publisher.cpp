@@ -1349,7 +1349,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = 0;
     state.hlod_instance_generation = state.hlod_grading_generation = state.hlod_prepared_owner_key = 0;
-    frame_context_manager.clear_hlod_histories();
+    frame_context_manager.clear_hlod_views();
 }
 
 bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
@@ -1647,75 +1647,89 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (records == 0) { return fallback("overlap_capacity_unavailable"); }
     const double tau = double(state.hlod_tau_px > 0 ? state.hlod_tau_px : gs::settings::get_hlod_tau_px(ps)) * get_lod_bias();
     if (!std::isfinite(tau) || tau <= 0.0) { return fallback("invalid_tau"); }
-    uint64_t tau_bits = 0;
-    static_assert(sizeof(tau_bits) == sizeof(tau), "HLOD policy hash width");
-    memcpy(&tau_bits, &tau, sizeof(tau));
-    const uint64_t policy = _mix_generation(_mix_generation(tau_bits, capacity), records);
-    auto *history = frame_context_manager.acquire_hlod_history(p_context.render_buffers, input->get_instance_id(), policy,
-            input->nodes.size(), state.hlod_view_epoch);
-    if (!history) { return fallback("complete_view_history_unavailable"); }
-    gs_hlod_runtime::CutRequest request;
-    const Transform3D camera_to_world = p_context.world_to_camera_transform.affine_inverse();
-    request.camera = camera_to_world.origin;
-    request.frustum_enabled = get_frustum_culling();
-    for (uint32_t i = 0; i < 6; ++i) {
-        request.frustum[i] = camera_to_world.xform(p_context.cull_projection.get_projection_plane(Projection::Planes(i)));
+    // The renderer no longer keeps histories of its own: gs_hlod_runtime::ViewSet owns every per-view cut,
+    // keyed by the RenderSceneBuffersRD id and lifetime epoch (RenderFrameContextManager::select_hlod_view).
+    // Policy (tau, tile area, caps) invalidation lives in ViewSet; the single-asset scope is one instance.
+    HlodViewIdentity identity;
+    if (!RenderFrameContextManager::acquire_hlod_identity(p_context.render_buffers, identity)) {
+        state.hlod_view_epoch = 0;
+        return fallback("complete_view_history_unavailable");
     }
-    request.focal_pixels = std::abs(double(p_context.cull_projection.columns[1][1])) * p_context.viewport_size.y * 0.5;
-    request.tau_pixels = tau;
-    request.record_budget = double(records);
-    request.tile_area = double(tile->get_tile_size()) * tile->get_tile_size();
-    request.splat_budget = capacity;
-    request.node_budget = state.hlod_relative.buffers.max_visible_chunks;
+    state.hlod_view_epoch = identity.epoch;
+    using gs_hlod_runtime::SelectionSnapshot;
+    SelectionSnapshot &snapshot = frame_context_manager.get_hlod_snapshot();
+    struct SnapshotRelease { RenderFrameContextManager &manager; ~SnapshotRelease() { manager.release_hlod_snapshot_data(); } } snapshot_release{ frame_context_manager };
+    gs_hlod_runtime::ViewSpec spec;
+    const Transform3D camera_to_world = p_context.world_to_camera_transform.affine_inverse();
+    spec.camera = camera_to_world.origin;
+    spec.frustum_enabled = get_frustum_culling();
+    for (uint32_t i = 0; i < 6; ++i) {
+        spec.frustum[i] = camera_to_world.xform(p_context.cull_projection.get_projection_plane(Projection::Planes(i)));
+    }
+    spec.focal_pixels = std::abs(double(p_context.cull_projection.columns[1][1])) * p_context.viewport_size.y * 0.5;
+    spec.tau_pixels = tau;
+    spec.tile_area = double(tile->get_tile_size()) * tile->get_tile_size();
+    spec.caps.splat_budget = capacity;
+    spec.caps.node_budget = state.hlod_relative.buffers.max_visible_chunks;
+    spec.caps.record_budget = double(records);
+    // One asset, one identity-placed instance holding the whole view's caps. The GPU-side sort/record/draw
+    // buffers and the payload are already inside the route ledger above (route_bytes), so the ViewSet
+    // budget is the remaining headroom and charges only what it allocates on the CPU (histories, draw records).
+    snapshot.hierarchy_revision = input->source_revision;
+    snapshot.origin_revision = 0;
+    snapshot.budget = gs_hlod_runtime::ResidencyBudget();
+    snapshot.budget.physical_bytes = route_limit - route_bytes;
+    snapshot.assets.resize(1);
+    snapshot.instances.resize(1);
+    gs_hlod_runtime::SnapshotAsset &asset = snapshot.assets.write[0];
+    asset.asset_key = state.hlod_prepared_owner_key;
+    asset.data = input;
+    asset.bake_rule_revision = 0;
+    asset.resident.clear(); // Everything the bundle holds is resident; residency streaming is package C.
+    asset.payload_bytes = 0;
+    gs_hlod_runtime::SnapshotInstance &instance = snapshot.instances.write[0];
+    instance.instance_key = 1;
+    instance.asset_index = 0;
+    instance.transform = Transform3D();
+    instance.caps = spec.caps;
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
-    const auto selected = history->select(*input.ptr(), request);
+    const HlodViewOutcome outcome = frame_context_manager.select_hlod_view(identity, input->get_instance_id(), snapshot, spec);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
-    // Every non-success status maps to the canonical non-HLOD route. An active cut is published only
-    // for COMPLETE or EMPTY (nothing visible); a failed bootstrap never yields an active empty cut.
-    using SelectStatus = gs_hlod_runtime::CutHistory::SelectStatus;
-    switch (selected.status) {
-        case SelectStatus::COMPLETE:
-        case SelectStatus::EMPTY:
-            break;
-        case SelectStatus::INVALID:
-        case SelectStatus::UNAVAILABLE:
-            return fallback("cut_unavailable");
-        case SelectStatus::BOOTSTRAP_EXHAUSTED:
-            state.hlod_budget_bound_frames += 1u;
-            return fallback("hlod_bootstrap_search_exhausted");
-        case SelectStatus::BOOTSTRAP_ARITHMETIC:
-            return fallback("hlod_bootstrap_arithmetic_invalid");
-        case SelectStatus::BOOTSTRAP_MISSING_RESIDENCY:
-            state.hlod_budget_bound_frames += 1u;
-            return fallback("hlod_bootstrap_missing_residency");
-        case SelectStatus::BOOTSTRAP_INFEASIBLE:
-            state.hlod_budget_bound_frames += 1u;
-            state.hlod_root_dropped_frames += 1u; // Legacy counter name: no complete frontier fits the caps.
+    // Every non-success readiness or admission result maps to the canonical non-HLOD route with an explicit
+    // reason; an active cut is only ever a READY (complete) view, never an empty or partial one.
+    if (!outcome.active()) {
+        state.hlod_budget_bound_frames += outcome.fallback.budget_bound_frames;
+        state.hlod_root_dropped_frames += outcome.fallback.root_dropped_frames;
+        if (outcome.fallback.root_dropped_frames) {
             WARN_PRINT_ONCE("HLOD found no complete frontier within the admission caps; using the canonical route. See hlod_root_dropped_frames and hlod_reason.");
-            return fallback("hlod_bootstrap_infeasible");
-        default:
-            return fallback("cut_status_unmapped");
+        }
+        return fallback(outcome.fallback.reason);
     }
     auto &bundle = state.hlod_relative;
-    for (uint32_t i = 0; i < selected.selected_count; ++i) {
-        const uint32_t node = history->selected_node(i);
+    // Draw records are ordered by NodeKey, not by selection order. The GPU treats the list as a lookup table
+    // (depth_compute stores the chunk index per splat, tile_binning reads entries[index]); no consumer depends
+    // on entry order, and the splat order itself comes from an atomic append plus the depth sort.
+    const uint32_t selected_count = outcome.record_count;
+    if (selected_count > uint32_t(bundle.draw_entries.size())) { return fallback("hlod_view_failed"); }
+    for (uint32_t i = 0; i < selected_count; ++i) {
+        const uint32_t node = outcome.records[i].node;
         bundle.draw_entries.write[i] = VisibleChunkRefGPU{ 0u, node };
         state.hlod_selected_parents += !input->nodes[node].topology.is_leaf() ? 1u : 0u;
     }
     RenderingDevice *rd = get_device_state().rd;
     // Upload to the relative candidate only; no canonical RID is modified.
-    const uint32_t counters[3] = { selected.selected_count, 0u, 0u };
-    if ((selected.selected_count && rd->buffer_update(bundle.buffers.visible_chunk_buffer, 0,
-                selected.selected_count * sizeof(VisibleChunkRefGPU), bundle.draw_entries.ptr()) != OK) ||
+    const uint32_t counters[3] = { selected_count, 0u, 0u };
+    if ((selected_count && rd->buffer_update(bundle.buffers.visible_chunk_buffer, 0,
+                selected_count * sizeof(VisibleChunkRefGPU), bundle.draw_entries.ptr()) != OK) ||
             rd->buffer_update(bundle.buffers.counter_buffer, 0, sizeof(counters), counters) != OK) {
         return fallback("draw_list_upload_failed");
     }
-    bundle.buffers.hlod_draw_count = selected.selected_count;
-    state.hlod_selected_nodes = selected.selected_count;
-    state.hlod_selected_splats = selected.selected_splats;
-    state.hlod_estimated_records = selected.estimated_records;
-    state.hlod_visited_nodes = selected.visited_nodes;
-    state.hlod_budget_bound_frames += selected.budget_bound ? 1u : 0u;
+    bundle.buffers.hlod_draw_count = selected_count;
+    state.hlod_selected_nodes = selected_count;
+    state.hlod_selected_splats = outcome.view.selected_splats;
+    state.hlod_estimated_records = outcome.view.estimated_records;
+    state.hlod_visited_nodes = uint32_t(std::min<uint64_t>(outcome.view.visited_nodes, UINT32_MAX));
+    state.hlod_budget_bound_frames += outcome.view.budget_bound ? 1u : 0u;
     if (!publish_hlod_bundle(true)) { return false; }
     state.hlod_frame_active = true;
     state.hlod_reason = "active";

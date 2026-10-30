@@ -1,6 +1,7 @@
 extern "C" int test_hlod_view_set_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_view_set.h"
+#include "../renderer/render_frame_context_manager.h"
 #include <limits>
 
 // ADR 14.1 / 14.2 / 6.9: stable node identity, per-view cuts and one shared residency budget. CPU only.
@@ -870,5 +871,365 @@ TEST_CASE("[GaussianSplatting][HLOD] steady-state selection allocates nothing") 
 	const uint64_t before_admit = Memory::get_mem_usage();
 	CHECK(set.admit_view(snap, perspective(3)).status == ViewSet::ADMITTED);
 	CHECK(Memory::get_mem_usage() > before_admit);
+}
+
+// ---- Package B3: the renderer per-view cuts live in ViewSet, owned through RenderFrameContextManager. ----
+// CPU only: select_hlod_view() is the same entry the render path calls; the RenderSceneBuffersRD token lookup
+// (acquire_hlod_identity) is the only part that needs a live buffers object and is covered by the GPU gate.
+static bool all_live(const HlodViewIdentity &) { return true; } // Fake buffers ids: nothing resolves in ObjectDB.
+static HlodViewIdentity identity_of(uint64_t p_buffers, uint64_t p_target, uint64_t p_epoch) {
+	HlodViewIdentity id;
+	id.buffers = ObjectID(p_buffers);
+	id.target = RID::from_uint64(p_target);
+	id.epoch = p_epoch;
+	return id;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] renderer view is admitted, reused, refused and re-admitted across buffer lifetime and epoch") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	ViewSpec spec = perspective(0);
+	const HlodViewIdentity a = identity_of(101, 7, 5);
+
+	HlodViewOutcome out = mgr.select_hlod_view(a, 1, snap, spec);
+	CHECK(out.active());
+	CHECK(out.admitted_now);
+	CHECK(out.view.draw_generation == 1);
+	CHECK(out.record_count == 4);
+	CHECK(mgr.hlod_bound_view_count() == 1);
+	CHECK(mgr.get_hlod_view_set().view_count() == 1);
+
+	// Same buffers, target, epoch and snapshot: the same view, its history and generation carry on.
+	out = mgr.select_hlod_view(a, 1, snap, spec);
+	CHECK(out.active());
+	CHECK_FALSE(out.admitted_now);
+	CHECK(out.view.draw_generation == 2);
+
+	// The buffers object was reconfigured (new lifetime epoch): the old view is dropped and a new one admitted.
+	HlodViewIdentity next_epoch = a;
+	next_epoch.epoch = 6;
+	out = mgr.select_hlod_view(next_epoch, 1, snap, spec);
+	CHECK(out.active());
+	CHECK(out.admitted_now);
+	CHECK(out.view.draw_generation == 1);
+	CHECK(mgr.hlod_bound_view_count() == 1);
+	CHECK(mgr.get_hlod_view_set().view_count() == 1); // Nothing leaked from the old epoch.
+	CHECK(RenderFrameContextManager::hlod_view_key(a) != RenderFrameContextManager::hlod_view_key(next_epoch));
+
+	// A different render target or snapshot object also starts a new view (the old slot rules).
+	HlodViewIdentity next_target = next_epoch;
+	next_target.target = RID::from_uint64(8);
+	out = mgr.select_hlod_view(next_target, 1, snap, spec);
+	CHECK(out.admitted_now);
+	out = mgr.select_hlod_view(next_target, 2, snap, spec);
+	CHECK(out.admitted_now);
+	CHECK(mgr.get_hlod_view_set().view_count() == 1);
+
+	// Refusal: a budget that cannot hold another view is explicit, leaves no half-admitted state and does
+	// not disturb the admitted view.
+	const HlodViewIdentity b = identity_of(202, 9, 5);
+	SelectionSnapshot tiny = snapshot(tree, 0, 10);
+	out = mgr.select_hlod_view(b, 1, tiny, spec);
+	CHECK_FALSE(out.active());
+	CHECK(String(out.fallback.reason) == "hlod_view_budget_refused");
+	CHECK(out.record_count == 0);
+	CHECK(out.records == nullptr);
+	CHECK(mgr.hlod_bound_view_count() == 1);
+	CHECK(mgr.get_hlod_view_set().view_count() == 1);
+	// The refused buffers is re-admitted as soon as the budget allows it.
+	out = mgr.select_hlod_view(b, 1, snap, spec);
+	CHECK(out.active());
+	CHECK(out.admitted_now);
+	CHECK(mgr.get_hlod_view_set().view_count() == 2);
+	out = mgr.select_hlod_view(next_target, 2, snap, spec);
+	CHECK_FALSE(out.admitted_now);
+
+	// Four live views at most: the fifth evicts the least recently used one, which is re-admitted on return.
+	CHECK(mgr.select_hlod_view(identity_of(303, 10, 5), 1, snap, spec).active());
+	CHECK(mgr.select_hlod_view(identity_of(404, 11, 5), 1, snap, spec).active());
+	CHECK(mgr.hlod_bound_view_count() == 4);
+	CHECK(mgr.select_hlod_view(b, 1, snap, spec).active()); // Refresh b: next_target is now the oldest.
+	CHECK(mgr.select_hlod_view(identity_of(505, 12, 5), 1, snap, spec).admitted_now);
+	CHECK(mgr.hlod_bound_view_count() == 4);
+	CHECK(mgr.get_hlod_view_set().view_count() == 4);
+	CHECK(mgr.select_hlod_view(next_target, 2, snap, spec).admitted_now); // It was evicted.
+	CHECK(mgr.get_hlod_view_set().view_count() == 4);
+
+	// An invalid identity never selects.
+	out = mgr.select_hlod_view(HlodViewIdentity(), 1, snap, spec);
+	CHECK_FALSE(out.active());
+	CHECK(String(out.fallback.reason) == "complete_view_history_unavailable");
+
+	mgr.clear_hlod_views();
+	CHECK(mgr.hlod_bound_view_count() == 0);
+	CHECK(mgr.get_hlod_view_set().view_count() == 0);
+	CHECK(mgr.get_hlod_snapshot().assets.is_empty()); // The runtime snapshot is not kept alive.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] renderer policy change invalidates the refinement history through the view set") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	ViewSpec spec = perspective(0);
+	const HlodViewIdentity id = identity_of(101, 7, 5);
+	auto nodes = [](const HlodViewOutcome &p_out) {
+		Vector<uint32_t> v;
+		for (uint32_t i = 0; i < p_out.record_count; ++i) { v.push_back(p_out.records[i].node); }
+		return v;
+	};
+	HlodViewOutcome out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK(same(nodes(out), { 3, 4, 5, 6 }));
+	// tau 22 is in the hysteresis band of the interiors: stale stamps would keep the leaves.
+	spec.tau_pixels = 22;
+	out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK_FALSE(out.admitted_now); // Invalidated in place, not by re-admission.
+	CHECK(same(nodes(out), { 1, 2 }));
+	RenderFrameContextManager cold;
+	cold.set_hlod_liveness_check(&all_live);
+	CHECK(same(nodes(cold.select_hlod_view(id, 1, snap, spec)), { 1, 2 }));
+	// Unchanged policy keeps its history.
+	out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK(same(nodes(out), { 1, 2 }));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] every non-ready view state falls back to the canonical route with an explicit reason") {
+	using Cut = CutHistory;
+	// Mapping table: nothing but READY is active, and every other state names its reason.
+	ViewSet::ViewResult r;
+	r.readiness = ViewSet::READY;
+	CHECK(RenderFrameContextManager::hlod_fallback_for_view(r).reason == nullptr);
+	struct Row {
+		ViewSet::Readiness readiness;
+		Cut::SelectStatus worst;
+		bool exceeded;
+		const char *reason;
+		uint32_t bound;
+		uint32_t dropped;
+	};
+	const Row rows[] = {
+		{ ViewSet::LOADING, Cut::BOOTSTRAP_MISSING_RESIDENCY, false, "hlod_bootstrap_missing_residency", 1, 0 },
+		{ ViewSet::LOADING, Cut::UNAVAILABLE, false, "cut_unavailable", 0, 0 },
+		{ ViewSet::NOT_ADMITTED, Cut::BOOTSTRAP_INFEASIBLE, false, "hlod_bootstrap_infeasible", 1, 1 },
+		{ ViewSet::NOT_ADMITTED, Cut::BOOTSTRAP_EXHAUSTED, false, "hlod_bootstrap_search_exhausted", 1, 0 },
+		{ ViewSet::NOT_ADMITTED, Cut::COMPLETE, true, "hlod_view_reservation_exceeded", 1, 0 },
+		{ ViewSet::NOT_ADMITTED, Cut::COMPLETE, false, "hlod_view_not_admitted", 1, 0 },
+		{ ViewSet::FAILED, Cut::BOOTSTRAP_ARITHMETIC, false, "hlod_bootstrap_arithmetic_invalid", 0, 0 },
+		{ ViewSet::FAILED, Cut::COMPLETE, false, "hlod_view_failed", 0, 0 },
+		{ ViewSet::FAILED, Cut::INVALID, false, "hlod_view_failed", 0, 0 },
+	};
+	for (const Row &row : rows) {
+		ViewSet::ViewResult v;
+		v.readiness = row.readiness;
+		v.worst_status = row.worst;
+		v.reservation_exceeded = row.exceeded;
+		const HlodFallback f = RenderFrameContextManager::hlod_fallback_for_view(v);
+		REQUIRE(f.reason != nullptr);
+		CHECK(String(f.reason) == String(row.reason));
+		CHECK(f.budget_bound_frames == row.bound);
+		CHECK(f.root_dropped_frames == row.dropped);
+	}
+	CHECK(RenderFrameContextManager::hlod_fallback_for_admission(ViewSet::ADMITTED).reason == nullptr);
+	const ViewSet::AdmitStatus refusals[] = { ViewSet::REFUSED_INVALID, ViewSet::REFUSED_DUPLICATE, ViewSet::REFUSED_VIEW_LIMIT,
+		ViewSet::REFUSED_CAPS, ViewSet::REFUSED_BUDGET, ViewSet::REFUSED_RESOURCES };
+	for (ViewSet::AdmitStatus s : refusals) {
+		CHECK(RenderFrameContextManager::hlod_fallback_for_admission(s).reason != nullptr);
+	}
+	CHECK(RenderFrameContextManager::hlod_fallback_for_snapshot(ViewSet::SNAPSHOT_OK).reason == nullptr);
+	CHECK(String(RenderFrameContextManager::hlod_fallback_for_snapshot(ViewSet::SNAPSHOT_OVER_BUDGET).reason) == "hlod_snapshot_over_budget");
+	CHECK(String(RenderFrameContextManager::hlod_fallback_for_snapshot(ViewSet::SNAPSHOT_INVALID).reason) == "hlod_snapshot_invalid");
+
+	// End to end through the renderer entry, on a heavy-root tree that needs the bootstrap frontier.
+	auto tree = make_tree(IDENT);
+	tree->nodes.write[0].topology.payload_count = 100;
+	tree->nodes.write[0].topology.radius = 50.0f;
+	for (int i = 1; i < 3; ++i) { tree->nodes.write[i].topology.payload_count = 40; }
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	snap.instances.write[0].caps = caps(90, 7, 1000);
+	ViewSpec spec = perspective(0);
+	spec.camera = Vector3(0, 0, 0);
+	spec.tau_pixels = 1e9;
+	spec.caps = caps(90, 7, 1000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	const HlodViewIdentity id = identity_of(101, 7, 5);
+	HlodViewOutcome out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK(out.active());
+	CHECK(out.record_count == 2);
+	const uint64_t generation = out.view.draw_generation;
+
+	// LOADING: a needed node loses residency. Not active, nothing published, no empty cut.
+	Vector<uint8_t> resident;
+	resident.resize(7);
+	resident.fill(1);
+	resident.write[2] = 0;
+	snap.assets.write[0].resident = resident;
+	out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK_FALSE(out.active());
+	CHECK(out.view.readiness == ViewSet::LOADING);
+	CHECK(String(out.fallback.reason) == "hlod_bootstrap_missing_residency");
+	CHECK(out.records == nullptr);
+	CHECK(out.record_count == 0);
+	snap.assets.write[0].resident = Vector<uint8_t>();
+
+	// NOT_ADMITTED: no complete frontier fits the instance splat cap.
+	snap.instances.write[0].caps = caps(10, 7, 1000);
+	out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK_FALSE(out.active());
+	CHECK(out.view.readiness == ViewSet::NOT_ADMITTED);
+	CHECK(String(out.fallback.reason) == "hlod_bootstrap_infeasible");
+	CHECK(out.fallback.root_dropped_frames == 1);
+	CHECK(out.records == nullptr);
+	snap.instances.write[0].caps = caps(90, 7, 1000);
+
+	// FAILED: invalid arithmetic input.
+	ViewSpec nan_spec = spec;
+	nan_spec.tau_pixels = std::numeric_limits<double>::quiet_NaN();
+	out = mgr.select_hlod_view(id, 1, snap, nan_spec);
+	CHECK_FALSE(out.active());
+	CHECK(out.view.readiness == ViewSet::FAILED);
+	CHECK(out.records == nullptr);
+
+	// Recovery publishes a new complete set.
+	out = mgr.select_hlod_view(id, 1, snap, spec);
+	CHECK(out.active());
+	CHECK(out.view.draw_generation > generation);
+
+	// Outgrowing the reservation is repaired by one re-admission against the current snapshot.
+	ViewSpec bigger = spec;
+	bigger.caps = caps(200, 7, 1000);
+	out = mgr.select_hlod_view(id, 1, snap, bigger);
+	CHECK(out.active());
+	CHECK(out.admitted_now);
+	// ...and when the re-admission is refused the result is the explicit refusal, never an active cut.
+	SelectionSnapshot tiny = snap;
+	tiny.budget.physical_bytes = 10;
+	ViewSpec biggest = spec;
+	biggest.caps = caps(400, 7, 1000);
+	out = mgr.select_hlod_view(id, 1, tiny, biggest);
+	CHECK_FALSE(out.active());
+	CHECK(String(out.fallback.reason) == "hlod_view_budget_refused");
+	CHECK(mgr.hlod_bound_view_count() == 0);
+	CHECK(mgr.get_hlod_view_set().view_count() == 0);
+}
+
+// ---- B3 review round ----
+static Vector<uint64_t> g_live_buffers;
+static bool test_liveness(const HlodViewIdentity &p_identity) {
+	return g_live_buffers.has(uint64_t(p_identity.buffers));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] shrinking headroom keeps an affordable reservation active without re-admission") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	ViewSpec spec = perspective(0);
+	const HlodViewIdentity a = identity_of(101, 7, 5);
+	const HlodViewIdentity b = identity_of(202, 8, 5);
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).admitted_now);
+	CHECK(mgr.select_hlod_view(b, 1, snap, spec).admitted_now);
+	ViewSet::Ledger ledger;
+	REQUIRE(mgr.get_hlod_view_set().ledger(snap, ledger));
+	const uint64_t builds = mgr.get_hlod_view_set().tie_rank_builds();
+	CHECK(builds == 1); // Both views share one rank table.
+	// Headroom drops below the total of both reservations but stays above either one.
+	snap.budget.physical_bytes = ledger.total() - 1;
+	REQUIRE(snap.budget.physical_bytes >= ledger.view_bytes / 2);
+	for (int frame = 0; frame < 3; ++frame) {
+		HlodViewOutcome out = mgr.select_hlod_view(a, 1, snap, spec);
+		CHECK(out.active());
+		CHECK_FALSE(out.admitted_now);
+		CHECK(out.view.draw_generation == uint64_t(2 + frame));
+		out = mgr.select_hlod_view(b, 1, snap, spec);
+		CHECK(out.active());
+		CHECK_FALSE(out.admitted_now);
+	}
+	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds); // No rank table was rebuilt.
+	// A view that is genuinely unaffordable on its own is still withdrawn, explicitly.
+	snap.budget.physical_bytes = ledger.view_bytes / 2 - 1;
+	HlodViewOutcome out = mgr.select_hlod_view(a, 1, snap, spec);
+	CHECK_FALSE(out.active());
+	CHECK(String(out.fallback.reason) == "hlod_view_budget_refused");
+	// Re-admitting unchanged content reuses the cached rank table.
+	snap.budget.physical_bytes = 1000000;
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).admitted_now);
+	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds);
+	// New content revision builds a new table.
+	tree->source_revision = 99;
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).active());
+	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds + 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] bindings of freed buffers or stale epochs are evicted before a new view is refused") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&test_liveness);
+	g_live_buffers.clear();
+	ViewSpec spec = perspective(0);
+	for (uint64_t id = 1; id <= 4; ++id) {
+		g_live_buffers.push_back(id);
+		CHECK(mgr.select_hlod_view(identity_of(id, 10 + id, 5), 1, snap, spec).admitted_now);
+	}
+	CHECK(mgr.hlod_bound_view_count() == 4);
+	// Buffers 4 (the most recently used) were freed. The LRU rule alone would evict buffers 1 instead.
+	g_live_buffers.erase(4);
+	CHECK(mgr.select_hlod_view(identity_of(5, 15, 5), 1, snap, spec).admitted_now);
+	g_live_buffers.push_back(5);
+	CHECK(mgr.hlod_bound_view_count() == 4);
+	CHECK(mgr.get_hlod_view_set().view_count() == 4);
+	CHECK_FALSE(mgr.select_hlod_view(identity_of(1, 11, 5), 1, snap, spec).admitted_now); // Not evicted.
+	// Budget refusal case: room for exactly the live views; a freed one is released first.
+	ViewSet::Ledger ledger;
+	REQUIRE(mgr.get_hlod_view_set().ledger(snap, ledger));
+	snap.budget.physical_bytes = ledger.total();
+	g_live_buffers.erase(2);
+	g_live_buffers.push_back(6);
+	CHECK(mgr.select_hlod_view(identity_of(6, 16, 5), 1, snap, spec).admitted_now);
+	CHECK(mgr.get_hlod_view_set().view_count() == 4);
+	// A stale epoch is not live: with the check rejecting it, its reservation goes.
+	mgr.set_hlod_liveness_check(nullptr); // Default check: these buffers do not exist in ObjectDB.
+	CHECK(mgr.evict_stale_hlod_bindings() == 4);
+	CHECK(mgr.get_hlod_view_set().view_count() == 0);
+	mgr.set_hlod_liveness_check(&test_liveness);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] lifetime token epoch changes with configure and free_data and builds the view identity") {
+	Ref<GaussianHlodViewLifetime> token;
+	token.instantiate();
+	HlodViewIdentity id;
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), id));
+	Ref<RenderSceneBuffersRD> buffers;
+	buffers.instantiate();
+	token->configure(buffers.ptr());
+	REQUIRE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), id));
+	const uint64_t first = id.epoch;
+	CHECK(first != 0);
+	token->free_data();
+	HlodViewIdentity after;
+	REQUIRE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), after));
+	CHECK(after.epoch != first);
+	CHECK(RenderFrameContextManager::hlod_view_key(after) != RenderFrameContextManager::hlod_view_key(id));
+	token->configure(nullptr);
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(uint64_t(9)), RID::from_uint64(3), after));
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(nullptr, ObjectID(uint64_t(9)), RID::from_uint64(3), after));
+	CHECK_FALSE(RenderFrameContextManager::hlod_identity_from_token(token.ptr(), ObjectID(), RID::from_uint64(3), after));
+	// No render target on a fresh buffers object: no identity, and no token is attached.
+	CHECK_FALSE(RenderFrameContextManager::acquire_hlod_identity(buffers.ptr(), after));
+	CHECK_FALSE(RenderFrameContextManager::acquire_hlod_identity(nullptr, after));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] the reusable snapshot releases its runtime data reference") {
+	auto tree = make_tree(IDENT);
+	RenderFrameContextManager mgr;
+	SelectionSnapshot &snap = mgr.get_hlod_snapshot();
+	snap = snapshot(tree, 0, 1000000);
+	CHECK(tree->get_reference_count() > 1);
+	mgr.release_hlod_snapshot_data();
+	CHECK(snap.assets[0].data.is_null());
+	CHECK(tree->get_reference_count() == 1);
 }
 }

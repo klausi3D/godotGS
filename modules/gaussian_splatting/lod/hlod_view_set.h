@@ -4,9 +4,8 @@
 // ADR docs/architecture/adr-hlod-streaming.md sections 14.1, 14.2 and 6.9 (package B2).
 //
 // CPU-only contracts that sit on top of the existing S2a selector (`CutHistory`); there is no
-// second selector. Nothing here is a bound API or a registered class, and the renderer does not
-// consume it yet (see the follow-up note in the PR): the renderer still keeps its own four
-// per-buffer histories.
+// second selector. Nothing here is a bound API or a registered class. The renderer owns its
+// per-view cut state through this ViewSet (RenderFrameContextManager, package B3).
 //
 //   - NodeKey / NodeVersion: stable node identity and content identity, independent of atlas
 //     address and of node-array order.
@@ -151,6 +150,7 @@ public:
 		CutHistory::SelectStatus worst_status = CutHistory::COMPLETE; // The first non-success instance status.
 		uint32_t drawn_count = 0;
 		uint64_t selected_splats = 0;
+		uint64_t visited_nodes = 0; // Summed over the view's instances.
 		double estimated_records = 0.0;
 		bool budget_bound = false;
 		uint64_t draw_generation = 0; // Bumped only when a new complete draw set is published.
@@ -203,6 +203,8 @@ public:
 	static uint64_t slot_bytes(uint32_t p_nodes);
 	// Capacity (bytes) of everything this set owns: slots, draw storage, results and scratch.
 	uint64_t allocated_bytes() const;
+	// Number of node-key rank tables computed so far (O(n log n) each); admissions of unchanged content reuse one.
+	uint64_t tie_rank_builds() const { return rank_builds; }
 
 private:
 	struct InstanceSlot {
@@ -226,6 +228,15 @@ private:
 		uint64_t draw_generation = 0;
 		bool ready = false; // The last selection of this view was READY.
 	};
+	struct RankEntry {
+		uint64_t asset_key = 0;
+		uint64_t source = 0;
+		uint64_t revision = 0;
+		uint32_t node_count = 0;
+		Vector<uint32_t> rank;
+	};
+	mutable uint64_t rank_builds = 0;
+	mutable Vector<RankEntry> rank_cache; // Shared with the slots; see cached_tie_rank().
 	Vector<View> views; // Ascending view key.
 	Vector<ViewResult> result_store;
 	uint32_t result_count = 0;
@@ -234,6 +245,8 @@ private:
 	mutable Vector<uint32_t> index_scratch;
 	mutable Vector<uint64_t> key_scratch;
 
+	bool cached_tie_rank(const SnapshotAsset &p_asset, Vector<uint32_t> &r_rank) const;
+	void prune_rank_cache();
 	bool prepare_scratch(const SelectionSnapshot &p_snapshot) const;
 	bool validate_snapshot(const SelectionSnapshot &p_snapshot) const;
 	bool ledger_impl(const SelectionSnapshot &p_snapshot, Ledger &r_ledger) const;
