@@ -123,7 +123,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		out.bootstrapped = true;
 		const uint64_t work_limit = 1 + uint64_t(p_request.node_budget) * gs_hlod::kMaxChildren;
 		bool missing_residency = false;
-		auto fail = [&](Status p_status) {
+		auto fail = [&](SelectStatus p_status) {
 			out.status = p_status;
 			out.selected_count = 0;
 			out.selected_splats = 0;

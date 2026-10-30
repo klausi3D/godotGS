@@ -39,7 +39,8 @@ public:
 	//   BOOTSTRAP_MISSING_RESIDENCY  - expansion needed a visible child that is not resident.
 	//   BOOTSTRAP_INFEASIBLE         - the deterministic search expanded every admissible node and no
 	//                                  frontier fits (not a proof over all frontiers; see select()).
-	enum Status { COMPLETE, EMPTY, INVALID, UNAVAILABLE, BOOTSTRAP_EXHAUSTED, BOOTSTRAP_ARITHMETIC,
+	// Not named `Status`: X11/Xlib.h #defines Status, and this header reaches the X11 display server TU.
+	enum SelectStatus { COMPLETE, EMPTY, INVALID, UNAVAILABLE, BOOTSTRAP_EXHAUSTED, BOOTSTRAP_ARITHMETIC,
 		BOOTSTRAP_MISSING_RESIDENCY, BOOTSTRAP_INFEASIBLE };
 	struct Result {
 		SelectStatus status = INVALID;

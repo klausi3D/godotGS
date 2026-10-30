@@ -1672,7 +1672,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
     // Every non-success status maps to the canonical non-HLOD route. An active cut is published only
     // for COMPLETE or EMPTY (nothing visible); a failed bootstrap never yields an active empty cut.
-    using SelectStatus = gs_hlod_runtime::CutHistory::Status;
+    using SelectStatus = gs_hlod_runtime::CutHistory::SelectStatus;
     switch (selected.status) {
         case SelectStatus::COMPLETE:
         case SelectStatus::EMPTY:
