@@ -1,0 +1,39 @@
+# Search-scope hints for ripgrep and the tools built on it (rg, the Grep/Glob
+# tools of Claude Code and OpenCode, many editors). This is NOT a git ignore:
+# everything listed here stays tracked and buildable. It only keeps default,
+# repo-wide searches from drowning in content that is never the answer for
+# work in this fork (see AGENTS.md, "Context economy").
+#
+# To search an excluded path anyway:
+#   rg --no-ignore-dot <pattern>             # ignore this file, keep .gitignore
+#   rg <pattern> thirdparty/vulkan          # explicit path works as well
+#
+# Keep the list short and justified. Each entry must be either large, generated,
+# or explicitly not a source of truth.
+
+# Upstream translations: ~60 MB of .po files; every English word matches.
+/doc/translations/
+/editor/translations/
+
+# Vendored third-party code (4.5k files). Search it by explicit path when you
+# really need a vendored header.
+/thirdparty/
+
+# Huge single-file scene (60 MB of text in 239 lines) and binary splat caches.
+/tests/examples/godot/test_project/scenes/lighting_test.tscn
+*.gsplatcache
+
+# Generated or archived reports and data dumps, not sources of truth.
+/docs/reports/
+/docs/assets/data/
+/docs/architecture/generated/
+
+# Legacy coordination memory. AGENTS.md: "Not source of truth".
+/docs/agent_memory/
+
+# Local-only material that may exist in a developer checkout (untracked).
+/exhibition/
+/HANDOFF_*.md
+/STATS.md
+/issues.json
+/.claude/worktrees/

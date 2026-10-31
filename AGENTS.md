@@ -17,19 +17,52 @@ under `modules/gaussian_splatting/`. Treat everything else as upstream Godot.
 | `.github/workflows/` | CI workflows incl. self-hosted runners. Has its own `AGENTS.md`. |
 | `.agentic/` | Machine-readable agent control plane (risk policy, ownership, task/review contracts, roles). |
 | `docs/governance/` | Canonical process docs. |
-| `docs/agent_memory/` | **Legacy. Not source of truth** (see below). |
+| `docs/agent_memory/` | **Legacy. Not source of truth.** Frozen coordination memory; active issues live in GitHub Issues. |
 | `servers/`, `scene/`, `core/`, `editor/`, `platform/`, `drivers/`, `main/` | Upstream Godot. Touch only with strong justification. |
 
-## Canonical docs — read before working
+## Canonical docs — consult when the task needs them
 
-- [Contribution standards](docs/governance/contribution-standards.md) — mandatory rules for every merged change.
-- [Build / test / CI reference](docs/reference/build-test-ci.md) — how to build and which checks to run.
+Open these on demand and read only the section you need. Do not preload them.
+
+- [Contribution standards](docs/governance/contribution-standards.md) — mandatory rules for every merged change (short; read before your first commit).
+- [Build / test / CI reference](docs/reference/build-test-ci.md) — when you build or pick checks.
 - [Agentic engineering](docs/governance/agentic-engineering.md) — roles, task contracts, risk classes, worktree isolation.
-- [Review policy](docs/governance/review-policy.md) — deterministic + independent + GPU/domain review, human disposition.
-- Module entry points: [`modules/gaussian_splatting/READING_ORDER.md`](modules/gaussian_splatting/READING_ORDER.md), [`ARCHITECTURE.md`](modules/gaussian_splatting/ARCHITECTURE.md).
+- [Review policy](docs/governance/review-policy.md) — when you review or prepare a PR for review.
+- Module entry points: [`ARCHITECTURE.md`](modules/gaussian_splatting/ARCHITECTURE.md) (subsystem map) and [`READING_ORDER.md`](modules/gaussian_splatting/READING_ORDER.md) (an onboarding map, not a checklist).
 
 When docs conflict, the two canonical pages named in `CONTRIBUTING.md`
 (contribution-standards + build-test-ci) win.
+
+## Context economy
+
+Context is the scarcest resource. Spend it on the task:
+
+- **Search, then read windows.** Many module sources and test headers are
+  1.5k–7k lines. Grep for the symbol, then read about 100–200 lines around it. Never
+  read a large file whole.
+- **Scope searches.** Search `modules/gaussian_splatting/` or `tests/` rather than the
+  whole tree. [`.ignore`](.ignore) keeps translations, `thirdparty/`, generated
+  reports and legacy memory out of default `rg` searches. To override, use
+  `rg --no-ignore-dot` or an explicit path.
+- **Keep verbose output out.** Run builds and test lanes so that only failures,
+  summaries and the tail reach you. `scripts/agentic/condense_output.py` does this
+  and keeps the full log. Search full logs instead of reading them.
+- **Delegate wide exploration and long check runs** to a subagent that returns a
+  summary, if your tool supports subagents.
+- **Do not open** `docs/agent_memory/`, `docs/reports/`, generated `*.gen.h`, or
+  `.site/` for current facts.
+
+## Compact instructions
+
+When a conversation is compacted or summarized, preserve:
+
+- the task and its scope limits
+- the worktree path, branch and base SHA
+- every modified file
+- each command run, with its exit code and outcome (pass, fail or not run)
+- open review blockers and unresolved questions
+
+Drop file contents that can be re-read and full logs that can be re-searched.
 
 ## Working rules
 
@@ -67,13 +100,6 @@ When docs conflict, the two canonical pages named in `CONTRIBUTING.md`
 Do **not** scatter `AGENTS.md` into generic upstream directories (`servers/`,
 `scene/`, `core/`, `editor/`, `platform/`). Keep the delta to upstream Godot
 small; changes there are highest risk and need maintainer (CODEOWNER) review.
-
-## Legacy memory
-
-`docs/agent_memory/COORDINATOR_MEMORY.md` and `GAUSSIAN_ISSUE_BOARD.md` are a
-legacy multi-agent coordination system. **Do not treat them as current project
-status.** Active issues live in GitHub Issues; durable rules live in the docs
-linked above. The issue board is frozen and migrates to GitHub incrementally.
 
 ## Nested instructions
 

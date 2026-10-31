@@ -1,8 +1,10 @@
 # AGENTS.md — `modules/gaussian_splatting`
 
 Refines the root [`AGENTS.md`](../../AGENTS.md) for the Gaussian Splatting module.
-Read `READING_ORDER.md` and `ARCHITECTURE.md` in this directory first; the
-lifetime/ownership rules below are mandatory and recur in CI guards.
+For orientation, use the subsystem map in `ARCHITECTURE.md` (read the section you
+need). `READING_ORDER.md` is an onboarding map: open only the entries your task
+touches, because the files it lists add up to more than 1 MB. The lifetime and
+ownership rules below are mandatory and recur in CI guards.
 
 ## Ownership and lifetime
 
