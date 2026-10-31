@@ -122,6 +122,10 @@ public:
 	// admitted views). The owner registers the request it selects with each frame; stage_edit() runs the selector on the
 	// staged snapshot against every registered view. Pointers in the request are ignored.
 	void register_view(uint64_t p_view_key, const gs_hlod_runtime::CutRequest &p_request);
+	// A view that expired (its render buffers were freed or reconfigured) no longer constrains an edit.
+	bool unregister_view(uint64_t p_view_key);
+	uint32_t registered_view_count() const { return views.size(); }
+	uint64_t registered_view_key(uint32_t p_index) const { return views[p_index].key; }
 
 	enum EditStageResult : uint8_t {
 		EDIT_STAGED = 0,

@@ -228,6 +228,13 @@ uint32_t RenderFrameContextManager::hlod_bound_view_count() const {
 	return count;
 }
 
+bool RenderFrameContextManager::is_hlod_view_live(uint64_t p_view_key) const {
+	for (const HlodBinding &binding : hlod_bindings) {
+		if (binding.used && hlod_view_key(binding.identity) == p_view_key) { return hlod_liveness(binding.identity); }
+	}
+	return false;
+}
+
 HlodViewOutcome RenderFrameContextManager::select_hlod_view(const HlodViewIdentity &p_identity, uint64_t p_source,
 		gs_hlod_runtime::SelectionSnapshot &p_snapshot, gs_hlod_runtime::ViewSpec p_spec) {
 	using ViewSet = gs_hlod_runtime::ViewSet;

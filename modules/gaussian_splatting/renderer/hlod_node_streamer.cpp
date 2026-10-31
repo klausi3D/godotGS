@@ -417,6 +417,16 @@ void HlodNodeStreamer::register_view(uint64_t p_view_key, const gs_hlod_runtime:
 	}
 }
 
+bool HlodNodeStreamer::unregister_view(uint64_t p_view_key) {
+	for (uint32_t i = 0; i < views.size(); ++i) {
+		if (views[i].key == p_view_key) {
+			views.remove_at(i);
+			return true;
+		}
+	}
+	return false;
+}
+
 // ADR 14.5: the replacement cut must be reservable before the edit is accepted. Runs the selector on the staged snapshot
 // for every registered view, treating every non-stale node as resident (residency is what staging then provides), so
 // the answer is about the caps: a node, splat or record budget that cannot hold the cut yields no cut for that view.

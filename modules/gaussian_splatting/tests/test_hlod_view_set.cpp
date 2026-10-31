@@ -1208,6 +1208,33 @@ TEST_CASE("[GaussianSplatting][HLOD] bindings of freed buffers or stale epochs a
 	mgr.set_hlod_liveness_check(&test_liveness);
 }
 
+static bool none_live(const HlodViewIdentity &) { return false; }
+
+TEST_CASE("[GaussianSplatting][HLOD] a view is live only while it is bound and its buffers still resolve") {
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	const HlodViewIdentity a = identity_of(101, 7, 5);
+	const HlodViewIdentity b = identity_of(102, 8, 5);
+	const uint64_t key_a = RenderFrameContextManager::hlod_view_key(a);
+	const uint64_t key_b = RenderFrameContextManager::hlod_view_key(b);
+	CHECK_FALSE(mgr.is_hlod_view_live(key_a)); // Never bound.
+	CHECK(mgr.select_hlod_view(a, 1, snap, perspective(0)).active());
+	CHECK(mgr.is_hlod_view_live(key_a));
+	CHECK_FALSE(mgr.is_hlod_view_live(key_b));
+	CHECK(mgr.select_hlod_view(b, 1, snap, perspective(0)).active());
+	CHECK(mgr.is_hlod_view_live(key_a));
+	CHECK(mgr.is_hlod_view_live(key_b));
+	mgr.set_hlod_liveness_check(&none_live); // Both buffers objects are gone.
+	CHECK_FALSE(mgr.is_hlod_view_live(key_a));
+	CHECK_FALSE(mgr.is_hlod_view_live(key_b));
+	mgr.set_hlod_liveness_check(&all_live);
+	CHECK(mgr.is_hlod_view_live(key_a));
+	mgr.clear_hlod_views();
+	CHECK_FALSE(mgr.is_hlod_view_live(key_a));
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] lifetime token epoch changes with configure and free_data and builds the view identity") {
 	Ref<GaussianHlodViewLifetime> token;
 	token.instantiate();
