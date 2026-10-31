@@ -54,6 +54,9 @@ public:
 				const String &p_copy_error, bool p_copy_degraded, const String &p_degradation_reason,
 				bool p_depth_test_honored, bool p_viewport_copy_success, bool p_strict_depth_contract_required);
 	static void finalize_stage_contracts(StageMetrics &r_metrics, const RenderFramePlan &p_frame_plan);
+	// Cached-render reuse key over the culling configuration and the render-frame origin revision (package C).
+	static uint64_t compute_cull_config_signature(const GaussianSplatRenderer &p_renderer,
+			const GaussianSplatRenderer::IFrameStateView &p_state_view);
 	// Cached-render reuse key over the raster inputs no other signature covers:
 	// painterly config, debug/preview toggles, pipeline features, low-pass filter,
 	// Jacobian diagnostics, interactive state, output format (#1162).

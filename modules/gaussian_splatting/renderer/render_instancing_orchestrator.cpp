@@ -8,6 +8,9 @@
 #include "render_pipeline_stages.h"
 #include "../interfaces/output_compositor.h"
 #include <cstdint>
+#ifdef TESTS_ENABLED
+#include "render_debug_state_orchestrator.h"
+#endif
 
 namespace {
 
@@ -86,6 +89,9 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 			const LocalVector<Transform3D> &p_instance_transforms) {
 	(void)p_handle;
 	ERR_FAIL_NULL_MSG(renderer, "RenderInstancingOrchestrator requires a renderer.");
+#ifdef TESTS_ENABLED
+	renderer->get_resource_state().hlod_test_sort_count_buffer = RID();
+#endif
 	ERR_FAIL_NULL_MSG(pipeline_stages, "RenderInstancingOrchestrator requires pipeline stages.");
 	GaussianSplatRenderer::FrameStateProvider root_state_provider(renderer);
 	const GaussianSplatRenderer::IFrameStateView &root_state_view = root_state_provider;
@@ -155,6 +161,9 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		bool instance_defer_commit = allow_deferred_commit && (instance_index == instance_count - 1);
 
 		GaussianSplatRenderer::StageMetrics stage_metrics{};
+#ifdef TESTS_ENABLED
+		renderer->get_resource_state().hlod_test_sort_count_buffer = RID();
+#endif
 		GaussianSplatRenderer::RenderFrameContext frame_context;
 		prepare_render_frame_context(p_render_data, instance_view_transform, p_projection, p_render_projection,
 				instance_defer_commit, frame_context);
@@ -164,6 +173,32 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		GaussianSplatRenderer::IFrameMutationAccess &frame_mutation_access = frame_provider;
 		frame_context.state_view = &frame_state_view;
 		frame_context.mutation_access = &frame_mutation_access;
+		// The nonempty resident entry executes these stages directly instead of
+		// execute_frame_entry(). Admit the cut once from this actual view context,
+		// before its plan/cull/sort borrow the selected contract. Keep the complete
+		// bundle bound through raster/composite and restore it on every exit path.
+		const bool previous_hlod_relative = renderer->get_resource_state().hlod_active;
+		struct HlodContractRestore {
+			GaussianSplatRenderer *owner;
+			bool relative;
+			~HlodContractRestore() {
+				owner->publish_hlod_bundle(relative); // Revalidates the complete current identity before restoration.
+			}
+		} hlod_restore{ renderer, previous_hlod_relative };
+		if (instance_count == 1 && instance_xform == Transform3D()) {
+			renderer->prepare_hlod_frame(frame_context);
+		} else if (renderer->get_resource_state().hlod_prepared_snapshot.is_valid()) {
+			// This increment admits only the resident identity shim. Preserve the
+			// caller's real transform/aggregation semantics on the canonical route.
+			renderer->publish_hlod_bundle(false);
+			auto &hlod_state = renderer->get_resource_state();
+			hlod_state.hlod_frame_active = false;
+			hlod_state.hlod_selected_nodes = hlod_state.hlod_selected_parents = hlod_state.hlod_visited_nodes = 0;
+			hlod_state.hlod_selected_splats = hlod_state.hlod_cpu_cut_usec = 0;
+			hlod_state.hlod_cpu_prepare_usec = 0;
+			hlod_state.hlod_estimated_records = 0.0;
+			hlod_state.hlod_reason = "unsupported_instance_transform_domain";
+		}
 		const GaussianRenderPipeline::InstancePipelineBuffers *instance_buffers = renderer->has_instance_pipeline_buffers()
 				? &renderer->get_instance_pipeline_buffers()
 				: nullptr;
@@ -244,6 +279,31 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		uint64_t before_frame_counter = frame_state_view.get_frame_state_view().frame_counter;
 
 		pipeline_stages->render_sorted_splats_with_context(frame_context);
+#ifdef TESTS_ENABLED
+		// Capture the actual successful resident route before HlodContractRestore
+		// replaces its bound buffers. CPU sort statistics can refer to an older
+		// async count sample; the test observer instead reads this GPU count RID.
+		if (instance_count == 1 && instance_xform == Transform3D() && instance_buffers &&
+				stage_metrics.sort.did_sort &&
+				stage_metrics.sort_result.status == GaussianSplatRenderer::StageResult::StageStatus::SUCCESS &&
+				stage_metrics.raster_result.status == GaussianSplatRenderer::StageResult::StageStatus::SUCCESS &&
+				stage_metrics.composite_result.status == GaussianSplatRenderer::StageResult::StageStatus::SUCCESS &&
+				frame_state_view.get_frame_state_view().frame_counter == frame_context.frame_id + 1 &&
+				stage_metrics.sort_result.route_uid == RenderRouteUID::INSTANCE_SORT_GPU) {
+			auto &test_state = renderer->get_resource_state();
+			test_state.hlod_test_sort_count_buffer = instance_buffers->instance_count_buffer;
+			test_state.hlod_test_sort_frame = frame_state_view.get_frame_state_view().frame_counter;
+			test_state.hlod_test_sort_pass_frame = frame_context.frame_id;
+			test_state.hlod_test_sort_source = renderer->get_scene_state().gaussian_data.is_valid()
+					? uint64_t(renderer->get_scene_state().gaussian_data->get_instance_id()) : 0;
+			test_state.hlod_test_sort_input_generation = test_state.hlod_snapshot.is_valid()
+					? uint64_t(test_state.hlod_snapshot->get_instance_id()) : 0;
+			test_state.hlod_test_sort_device = renderer->get_device_state().rd
+					? renderer->get_device_state().rd->get_device_instance_id() : 0;
+			test_state.hlod_test_sort_content_generation = instance_buffers->hlod_content_generation;
+			test_state.hlod_test_sort_relative = instance_buffers->hlod_relative;
+		}
+#endif
 		if (first_failed_instance_index < 0 && !stage_metrics.first_failure_stage.is_empty()) {
 			first_failed_instance_index = instance_index;
 		}

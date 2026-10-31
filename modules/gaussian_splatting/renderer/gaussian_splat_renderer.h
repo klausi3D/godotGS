@@ -15,6 +15,8 @@
 #define GAUSSIAN_SPLAT_RENDERER_H
 
 // Scene includes not available in modules - using core Node instead
+#include "../core/gaussian_splat_hlod_runtime_data.h"
+#include <functional>
 #include "core/math/aabb.h"
 #include "core/object/object.h"
 #include "core/object/ref_counted.h"
@@ -255,6 +257,9 @@ public:
         // True when an active gsplatworld submission owns this renderer's
         // streaming path.
         bool has_active_world_submission = false;
+        // Non-empty when the world carries an HLOD snapshot and the runtime cut is enabled but this frame's route is
+        // the chunk-streaming backend, which never runs the HLOD publisher. Surfaced as hlod_reason.
+        String hlod_route_reason;
         String resident_backend_reason = "requested_streaming_policy";
         String streaming_backend_reason = "requested_streaming_policy";
         String streaming_contract_ready_reason = "streaming_contract_published";
@@ -263,6 +268,11 @@ public:
     };
 
     struct WorldSubmissionContract {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_owner_key = 0;
+        uint64_t hlod_world_key = 0; // The submitting world's identity, also when the cut is disabled and no snapshot exists.
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
         Vector<StaticChunk> static_chunks;
@@ -280,6 +290,11 @@ public:
     };
 
     struct WorldSubmissionRuntimeStateSnapshot {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_owner_key = 0;
+        uint64_t hlod_world_key = 0;
         bool valid = false;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
@@ -706,6 +721,31 @@ public:
     void _release_resident_contract_buffers();
 #ifdef TESTS_ENABLED
     void _test_dispatch_noop_callback(uint64_t p_request_id);
+    // Each queued Callable retains this request independently of the renderer.
+    // The box holds no renderer, device or Callable reference, so there is no cycle.
+    class HlodPublicationObservation : public RefCounted {
+        GDCLASS(HlodPublicationObservation, RefCounted);
+        static void _bind_methods() {}
+        void _fail_locked(const String &p_error);
+        static void _readback(const Vector<uint8_t> &p_bytes, const Ref<HlodPublicationObservation> &p_observation,
+                int64_t p_request_id, int p_slot, int64_t p_device_id);
+    public:
+        Mutex mutex;
+        uint64_t request_id = 0;
+        uint64_t device_id = 0;
+        uint64_t expected_bytes[4] = {};
+        uint32_t received_mask = 0;
+        bool complete = false;
+        bool failed = false;
+        bool cancelled = false;
+        Dictionary result;
+        void cancel();
+        void fail(const String &p_error);
+        static Callable make_callback(const Ref<HlodPublicationObservation> &p_observation, int p_slot);
+    };
+    Ref<HlodPublicationObservation> test_hlod_observation;
+    uint64_t test_hlod_observation_serial = 0;
+    void _test_cancel_hlod_publication_observation();
 #endif
     // p_request_id comes FIRST: see the argument-order contract on
     // IRenderThreadDispatcher::dispatch_call_on_render_thread_blocking().
@@ -877,6 +917,79 @@ public:
     const JacobianDebugConfig &get_jacobian_debug() const { return jacobian_debug; }
     // Publishes the shared atlas-shaped instance contract together with the renderer-owned
     // dense asset-ID remap sidecar.
+    // C++ runtime seams; deliberately not script-visible APIs.
+    int try_publish_hlod_resident_contract(String &r_reason);
+    // Package E1: for a V4 paged world, creates (without drawing) what the HLOD route waits for on every other world
+    // until a canonical frame has been composited: tile output targets + overlap storage and the compositor scratch
+    // ledger. False with a reason when no render target exists yet.
+    bool provision_paged_hlod_route(RenderSceneBuffersRD *p_render_buffers, String &r_reason);
+    bool prepare_hlod_frame(const RenderFrameContext &p_context);
+    bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
+    void release_hlod_resources();
+    void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
+    bool is_hlod_prepared_contract_current() const;
+    bool publish_hlod_bundle(bool p_relative);
+    // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
+    bool idle_hlod_streaming_bundle();
+    // Package F1 (internal, deliberately not a bound API; the public surface needs its own R3 review): stages an edited
+    // snapshot (lod/hlod_edit.h, derived from get_hlod_served_snapshot()) on the streamed HLOD route. The edit commits
+    // inside the streamer's begin_frame() once its replacement cut is ready. False with an hlod_edit_* reason when it
+    // cannot be admitted; nothing changes then.
+    bool stage_hlod_edit(const Ref<GaussianSplatHlodRuntimeData> &p_edited, String &r_reason);
+    // The snapshot the streamed route currently serves (the committed edit, or the captured one), or null.
+    Ref<GaussianSplatHlodRuntimeData> get_hlod_served_snapshot() const;
+    // True when this world has committed edits that the current route cannot serve: every frame must then draw nothing.
+    bool hlod_edit_blanks_frame(String &r_reason) const;
+    // The world of this renderer has committed edits (they apply to the world currently submitted).
+    bool hlod_edit_committed_here() const;
+    // The streamed route is alive AND serves the committed snapshot.
+    bool hlod_edit_served() const;
+    // The publication boundary of a committed edit, right after the streamer's begin_frame(): returns the snapshot the
+    // streamer now serves and, when it is a newly committed edit, adopts it. The depth dispatch is sized from
+    // hlod_relative.buffers.max_chunk_splats (set from the CAPTURED snapshot at build time), so an edited leaf larger than
+    // every captured one must raise it HERE, before the new cut is published, or its extra splats get no invocation.
+    Ref<GaussianSplatHlodRuntimeData> adopt_hlod_served_snapshot();
+    // Largest node payload of `p_data`, never below `p_current` (the dispatch extent only grows).
+    static uint32_t hlod_dispatch_extent_for(uint32_t p_current, const GaussianSplatHlodRuntimeData &p_data);
+    // Package F1: registers the view under its real HLOD view key (RenderFrameContextManager::hlod_view_key), so every
+    // view the route draws constrains an edit, and retires registrations whose view is no longer live.
+    static void sync_hlod_known_view(HlodNodeStreamer &r_streamer, const std::function<bool(uint64_t)> &p_view_live,
+            const HlodViewIdentity &p_identity, const gs_hlod_runtime::CutRequest &p_request);
+    // Whether the committed edit still applies to a fresh capture of the submitted world: the same node and world, and not
+    // an in-place content change (same paged-ness, other source revision). A paged <-> resident switch is a materialization
+    // and keeps the edit (it is then re-applied by rebase_edited_snapshot).
+    bool hlod_committed_edit_applies_to(const Ref<GaussianSplatHlodRuntimeData> &p_capture) const;
+    // Drops the committed snapshot when the submitted world changed (owner, world identity or in-place content), and
+    // always when the world contract is cleared: it keeps the source world, its leaves and a V4 package alive.
+    void reconcile_hlod_committed_edit();
+    void release_hlod_committed_edit();
+    // An edited world has exactly one route: the HLOD streamed one (or nothing). Never an alternate backend.
+    static void apply_hlod_edit_backend_override(bool p_committed_here, FrameBackendPlan &r_plan);
+
+    // How the HLOD publish attempt builds a route (package F1). A committed edit is served by the streamer only: it forces
+    // streaming, and where streaming is unsupported, or the edit could not be laid over this capture, NO route is built
+    // (the reason says so; the next frame tries again). A route over the unedited data would blank for ever.
+    enum class HlodRouteDecision { BUILD_WHOLE_TREE, BUILD_STREAMED, REFUSE };
+    static HlodRouteDecision decide_hlod_route(bool p_committed_edit, bool p_served_has_edits, bool p_paged, bool p_should_stream,
+            const char *p_streaming_unsupported, String &r_reason);
+    // What the resident publication does with a frame of a world that has committed edits, after the HLOD publish attempt
+    // returned `p_hlod_result` (> 0 published, 0 not taken, < 0 failed).
+    enum class HlodEditFrame {
+        PUBLISH, // Nothing to do with edits, or the edited route published.
+        SKIP_FRAME, // Draw nothing: clear the instance-pipeline buffers.
+        PUBLISH_WITHOUT_EDITED_WORLD, // Other instances exist: publish them, omit only the edited world's own data.
+    };
+    // The reason of a blanked frame from the CURRENT cause: an hlod_edit_* reason stays as it is, a missing or generic cause
+    // ("active" is last frame's) is replaced by the disabled cut when that is the cause.
+    static String compose_hlod_edit_blank_reason(const String &p_cause, bool p_cut_enabled);
+    static HlodEditFrame decide_hlod_edit_frame(bool p_committed_here, bool p_blanks_frame, int p_hlod_result, bool p_has_other_instances);
+#ifdef TESTS_ENABLED
+    // GS_HLOD_EDIT_BOX="minx,miny,minz,maxx,maxy,maxz": once the view is ready, deletes the splats inside the box from the
+    // leaves it touches and stages the edit (probe/CI only).
+    void hlod_edit_probe_step();
+#endif
+    const char *hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const;
+
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,
             uint64_t p_source_generation, const String &p_contract_shape = "atlas_emulation");
@@ -907,6 +1020,12 @@ public:
     RuntimeFidelityPolicy build_runtime_fidelity_policy(const SceneState &p_scene_state,
             const PerformanceSettings &p_performance_settings) const;
     FrameBackendPlan build_frame_backend_plan(bool p_streaming_ready) const;
+    // Publishes the plan's HLOD route reason as hlod_reason (no-op when the plan has none).
+    // Sets hlod_reason from the plan, and clears a route reason this function set once the plan no longer has one.
+    void apply_hlod_route_reason(const FrameBackendPlan &p_plan);
+    // build_frame_backend_plan + apply_hlod_route_reason. The render entry uses this. force_sort_for_view and
+    // tick_streaming_only still use the plain const builder, so they do not publish the reason (follow-up).
+    FrameBackendPlan build_and_apply_frame_backend_plan(bool p_streaming_ready);
     WorldSubmissionRuntimeStateSnapshot snapshot_world_submission_runtime_state() const;
     Error restore_world_submission_runtime_state(const WorldSubmissionRuntimeStateSnapshot &p_snapshot);
     Error apply_world_submission_contract(const WorldSubmissionContract &p_contract);
@@ -2034,6 +2153,12 @@ public:
 // declarations behind the same guard.
 #ifdef TESTS_ENABLED
     void test_override_rendering_device(RenderingDevice *p_device);
+    void test_set_hlod_publication_failure(int p_failure);
+    void test_set_hlod_route_limit_override(int64_t p_bytes);
+    bool test_hlod_publication_refuses(int p_failure);
+    Dictionary test_observe_hlod_publication(int64_t p_request_id = 0);
+    Dictionary test_hlod_foreign_device_publication();
+    Ref<Resource> test_bake_hlod_small_leaf_fixture(const Ref<GaussianData> &p_data);
     void test_disable_gpu_culler();
     void test_disable_rasterizer();
     bool test_copy_final_output(RID p_source, RID p_destination, const Size2i &p_viewport_size);

@@ -46,6 +46,9 @@ public:
 	using HlodSnapshotTestHook = void (*)(void *, const Ref<GaussianData> &, bool);
 	static HlodSnapshotTestHook hlod_snapshot_test_hook;
 	static void *hlod_snapshot_test_userdata;
+	using OfflineWriteTestHook = void (*)(void *);
+	static OfflineWriteTestHook offline_write_test_hook;
+	static void *offline_write_test_userdata;
 #endif
 	enum PayloadSaveMode {
 		SAVE_PAYLOAD_PRESERVE = 0,
@@ -62,6 +65,8 @@ public:
 			uint32_t p_flags = 0);
 	Error save_resident_uncompressed(const Ref<Resource> &p_resource, const String &p_path,
 			uint32_t p_flags = 0);
+	// Only for the explicit offline job: uncompressed HLOD, bounded before snapshot/write.
+	Error save_offline_candidate(const Ref<Resource> &p_resource, const String &p_path, uint64_t p_max_bytes);
 	virtual void get_recognized_extensions(const Ref<Resource> &p_resource,
 			List<String> *p_extensions) const override;
 	virtual bool recognize(const Ref<Resource> &p_resource) const override;

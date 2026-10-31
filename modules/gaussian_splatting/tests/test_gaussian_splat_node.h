@@ -5736,11 +5736,15 @@ public:
 
 } // namespace
 
-// Coalescing. ONE user-visible content write emits `changed` more than once
-// (core/gaussian_splat_world.cpp: set_gaussian_data() emits at :120 and, via
-// set_payload_metadata() at :110, again at :214), and each emission would otherwise
-// re-run the whole registration -- whose phase 2 is a blocking render-thread
-// dispatch (core/gaussian_splat_scene_director.cpp:2425-2430).
+// Coalescing. Several resource writes made in one frame each emit `changed`, and each
+// emission would otherwise re-run the whole registration -- whose phase 2 is a blocking
+// render-thread dispatch (core/gaussian_splat_scene_director.cpp:2425-2430).
+//
+// Since the resident runtime (#1280) made GaussianSplatWorld::set_gaussian_data() a single
+// atomic write under render_input_mutex that emits exactly ONCE (the old extra emission
+// came from the nested set_payload_metadata() call), a lone payload write no longer
+// exercises the latch. The multiplicity is now two back-to-back writes -- payload then
+// bounds -- which is what a loader or script does when it fills a world.
 //
 // Both halves are load-bearing: the emission count proves the multiplicity is real,
 // the run count proves it collapsed. Delete the latch in
@@ -5778,8 +5782,11 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 One payload write resubmits
 
     const uint64_t runs_before = node->get_world_resource_resubmit_run_count_for_testing();
     world_res->set_gaussian_data(make_test_gaussian_data(3, 100.0f));
+    CHECK_MESSAGE(counter->count == 1,
+            "set_gaussian_data() is one atomic write and emits `changed` exactly once");
+    world_res->set_bounds(AABB(Vector3(-50, -50, -50), Vector3(100, 100, 100)));
     CHECK_MESSAGE(counter->count == 2,
-            "one set_gaussian_data() write must emit `changed` twice; if it emits once there is "
+            "payload write + bounds write must emit `changed` twice; if it emits fewer there is "
             "nothing for the coalescing latch to do and the next assertion proves nothing");
 
     MessageQueue::get_singleton()->flush();

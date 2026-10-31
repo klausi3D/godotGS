@@ -118,7 +118,10 @@
   },
   "external_status_check_policy": {
     "source": "GitHub branch protection for master checked on 2026-10-08 (first checked 2026-05-21)",
-    "branch_protection_required_status_checks": ["agentic-pr-gate", "docs-build"],
+    "branch_protection_required_status_checks": [
+      "agentic-pr-gate",
+      "docs-build"
+    ],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -138,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 214,
-    "sha256": "4b8d0b273e801cd6334d5cf46f30e158cfb684bba40a378255456334f8dcc3e1",
-    "sha256_last_changed_by": "Merge of #1200 (master d4ab7a775c6) into #1205: master's inventory (count 212, digest 9bb024eb01b8df7aad74d054a2ed6b8c8113518ffbf025ff7d69625dffd039e0, named-batch 147, deferred 2) plus #1205's two RequiresGPU cases: test_sh_encoding.h \"Partial SH prefixes render the even degree-2 colour in both GPU layouts\" ([GaussianSplatting][SceneTree][RequiresGPU], RendererSceneTree batch) and test_gpu_sorting.h \"Instance depth pass gives each instance of a shared chunk its own LOD SH limit\" ([GaussianSplatting][GPUSortPipeline][RequiresGPU], GpuSorting batch). count 212 -> 214, running_in_a_named_batch 147 -> 149, deferred 2 and unbatched_backlog 63 unchanged. Count and digest recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary. Never hand-edited.",
+    "test_count": 224,
+    "sha256": "054ed29d69623233e49ae5d8640d42214bbd927bc1758ec96d545e20f5413e8a",
+    "sha256_last_changed_by": "HLOD-F1-EDIT-001: add one RequiresGPU case (WorldSceneTree batch) for the HLOD editable-region publication boundary (a committed edit flips GPU metadata and atlas runs atomically for a streamed v3 world and a paged V4 world, twice in sibling branches, with an infeasible-view rejection), and rename it in the fix round (the digest covers the case name). Existing cases, batch filters, waivers and backlog unchanged. Restacked on E1 + the D1 resize fix; count/digest re-derived on the merged tree with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -472,8 +475,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 214,
-      "running_in_a_named_batch": 149,
+      "requires_gpu_total": 224,
+      "running_in_a_named_batch": 159,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },

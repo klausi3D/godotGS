@@ -49,6 +49,12 @@ jobs:
         # cannot be installed.
         run: python -m pip install --require-hashes -r tests/ci/requirements-automation.txt
 
+      - name: Install pinned numpy for the S1b harness unit tests
+        # The guard-only lane runs tests/runtime/hlod_s1b_quality/test_s1b_quality.py,
+        # whose metric code is array math on numpy. Same hash-locked file the
+        # hosted cpu-tests job uses; a missing numpy must fail the lane, never skip.
+        run: python -m pip install --require-hashes -r tests/ci/requirements-test-data.txt
+
       - name: Test automation validator and CI wiring
         env:
           GS_CI_BASE_REF: >-

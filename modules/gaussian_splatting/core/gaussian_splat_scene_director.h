@@ -15,6 +15,7 @@
 
 #include "gaussian_data.h"
 #include "gaussian_splat_asset.h"
+#include "gaussian_splat_world_frame.h"
 #include "streaming_chunk_payload_source.h"
 #include "thread_owned_mutex.h"
 #include "../lod/lod_config.h"
@@ -64,6 +65,10 @@ public:
     };
 
     struct WorldSubmission {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_world_key = 0;
         ObjectID owner_id;
         RID scenario;
         Ref<GaussianData> gaussian_data;
@@ -109,6 +114,16 @@ public:
     };
 
     static GaussianSplatSceneDirector *get_singleton();
+
+    // Origin of the GS render frame (ADR 14.3, package C). Owned by the module, never by a scene node: changing
+    // it moves no scene node and no stored payload; it bumps a revision that frame-dependent snapshots and caches
+    // key on. Gameplay/physics origin handling attaches through add_world_origin_hook() only. Thread-safe.
+    bool set_world_origin(const gs_world_frame::PreciseCoord &p_origin);
+    bool shift_world_origin_by(const double p_delta[3]);
+    void get_world_origin(gs_world_frame::PreciseCoord &r_origin, uint64_t &r_revision) const;
+    uint64_t get_world_origin_revision() const;
+    void add_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook);
+    void remove_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook);
 
     GaussianSplatSceneDirector();
     ~GaussianSplatSceneDirector();
@@ -395,6 +410,7 @@ public:
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
     bool get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const;
+    bool has_exclusive_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
     bool has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     // Current hint precedence is active world > homogeneous instance submissions.
     // Conflicting instance submission hints return false with source "mixed_instance_submissions".
@@ -721,6 +737,10 @@ private:
     class SubmissionStore {
     public:
         struct WorldSubmissionRecord {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_world_key = 0;
             ObjectID owner_id;
             Ref<GaussianData> gaussian_data;
             Ref<ChunkPayloadSource> payload_source;
@@ -1102,6 +1122,9 @@ public:
 
 private:
     static GaussianSplatSceneDirector *singleton;
+    // Guards `world_origin` (main thread writes, render thread reads). Hooks run under it: they must not block.
+    mutable Mutex world_origin_mutex;
+    gs_world_frame::WorldOriginContext world_origin;
 
     // #611: a plain `Mutex` cannot answer "does this thread already hold me?",
     // so the renderer-contract boundary below had no way to check the ordering

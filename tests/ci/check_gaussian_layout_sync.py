@@ -57,6 +57,9 @@ EXTRA_MIRROR_STRUCTS = (
     (HOST_LAYOUT, "ChunkMetaGPU", "ChunkMetaGPU"),
     (HOST_LAYOUT, "AssetChunkIndexGPU", "AssetChunkIndexGPU"),
     (HOST_LAYOUT, "VisibleChunkRefGPU", "VisibleChunkRefGPU"),
+    # HLOD per-draw record (package C2): replaces VisibleChunkRefGPU on the HLOD route; carries the
+    # camera-relative offset that depth_compute.glsl and tile_binning.glsl consume.
+    (HOST_LAYOUT, "DrawnNodeGPU", "DrawnNodeGPU"),
     (HOST_LAYOUT, "SplatRefGPU", "SplatRefGPU"),
     (STREAMING_QUANTIZATION_H, "ChunkQuantizationGPU", "ChunkQuantization"),
     # DebugSplatAuditEntry previously carried only a host `sizeof == 16` static_assert

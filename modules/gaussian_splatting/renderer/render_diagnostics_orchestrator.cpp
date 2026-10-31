@@ -1488,6 +1488,109 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	// Resident atlas VRAM-budget LOD clamp telemetry (#321 follow-up). `reduced` is true when
 	// the atlas was thinned by importance to fit the device VRAM budget; surfaced so the
 	// degradation is observable in the residency HUD / debug stats rather than silent.
+    stats["hlod_active"] = resource_state.hlod_frame_active;
+    stats["hlod_tile_stage_refused_frames"] = int64_t(resource_state.hlod_tile_stage_refused_frames);
+    stats["hlod_route_owned_bytes"] = int64_t(resource_state.hlod_owned_byte_upper_bound); // ledger + device buffers, as last admitted
+    // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
+    stats["hlod_streaming"] = resource_state.hlod_streaming;
+    if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
+        const HlodNodeStreamer::Telemetry &t = resource_state.hlod_streamer->get_telemetry();
+        stats["hlod_stream_frames"] = int64_t(resource_state.hlod_stream_frames);
+        stats["hlod_stream_ready_frames"] = resource_state.hlod_stream_ready_frames;
+        stats["hlod_stream_loading_frames"] = resource_state.hlod_stream_loading_frames;
+        stats["hlod_stream_first_ready_frame"] = resource_state.hlod_stream_first_ready_frame;
+        stats["hlod_stream_nonresident_drawn"] = resource_state.hlod_stream_nonresident_drawn;
+        stats["hlod_stream_desired_nodes"] = t.desired;
+        stats["hlod_stream_resident_nodes"] = t.resident;
+        stats["hlod_stream_loading_nodes"] = t.loading;
+        stats["hlod_stream_failed_nodes"] = t.failed;
+        stats["hlod_stream_permanently_failed_nodes"] = t.permanently_failed;
+        stats["hlod_stream_drawn_nodes"] = t.drawn;
+        stats["hlod_stream_requested_this_frame"] = t.requested_this_frame;
+        stats["hlod_stream_uploaded_this_frame"] = t.uploaded_this_frame;
+        stats["hlod_stream_uploaded_bytes_this_frame"] = int64_t(t.uploaded_bytes_this_frame);
+        stats["hlod_stream_uploaded_bytes_total"] = int64_t(t.uploaded_bytes_total);
+        stats["hlod_stream_pages_capacity"] = t.pages_capacity;
+        stats["hlod_stream_pages_resident"] = t.pages_resident;
+        stats["hlod_stream_pages_in_flight"] = t.pages_in_flight;
+        stats["hlod_stream_pages_retiring"] = t.pages_retiring;
+        stats["hlod_stream_atlas_records"] = resource_state.hlod_stream_atlas_records;
+        // Real loss (zero rule) and the harmless cancelled-then-late completions are kept apart.
+        stats["hlod_stream_late_dropped_total"] = int64_t(t.late_dropped_total);
+        stats["hlod_stream_late_dropped_cancelled_total"] = int64_t(t.late_dropped_cancelled_total);
+        stats["hlod_stream_cancelled_total"] = int64_t(t.cancelled_total);
+        stats["hlod_stream_evicted_total"] = int64_t(t.evicted_total);
+        stats["hlod_stream_failed_total"] = int64_t(t.failed_total);
+        stats["hlod_stream_skipped_groups_total"] = int64_t(t.skipped_groups_total);
+        stats["hlod_stream_stall_frames"] = t.stall_frames;
+        stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;
+        stats["hlod_stream_fragmented_groups"] = t.fragmented_groups_this_frame;
+        // Package E1: V4 paged package reads (0 for a resident snapshot).
+        stats["hlod_stream_paged"] = resource_state.hlod_snapshot.is_valid() && resource_state.hlod_snapshot->is_paged();
+        stats["hlod_stream_payload_reads_total"] = int64_t(t.payload_reads_total);
+        stats["hlod_stream_payload_bytes_read_total"] = int64_t(t.payload_bytes_read_total);
+        stats["hlod_stream_payload_read_failures_total"] = int64_t(t.payload_read_failures_total);
+        stats["hlod_stream_payload_reads_in_flight"] = t.payload_reads_in_flight;
+        stats["hlod_stream_payload_in_flight_bytes_peak"] = int64_t(t.payload_in_flight_bytes_peak);
+        stats["hlod_stream_payload_largest_read_bytes"] = int64_t(t.payload_largest_read_bytes);
+        stats["hlod_stream_payload_ready_bytes_peak"] = int64_t(t.payload_ready_bytes_peak);
+    }
+    // Package F1: editable regions.
+    stats["hlod_edit_event"] = resource_state.hlod_edit_event;
+    stats["hlod_edit_probe"] = resource_state.hlod_edit_probe_result;
+    stats["hlod_edit_forced_frames"] = int64_t(resource_state.hlod_edit_forced_frames);
+    stats["hlod_edit_legacy_bootstrap_attempts"] = int64_t(resource_state.hlod_edit_legacy_bootstrap_attempts);
+    stats["hlod_edit_rebuilds"] = int64_t(resource_state.hlod_edit_rebuilds);
+    stats["hlod_edit_blank_frames"] = int64_t(resource_state.hlod_edit_blank_frames);
+    stats["hlod_edit_committed_revision"] = resource_state.hlod_committed_edit.is_valid() ? int64_t(resource_state.hlod_committed_edit->edit_revision) : int64_t(0);
+    if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
+        const HlodNodeStreamer::Telemetry &et = resource_state.hlod_streamer->get_telemetry();
+        stats["hlod_edit_staged"] = et.edit_staged;
+        stats["hlod_edit_waiting_for_space"] = et.edit_waiting_for_space;
+        stats["hlod_edit_shadow_ready"] = et.edit_shadow_ready;
+        stats["hlod_edit_commits_total"] = int64_t(et.edits_committed_total);
+        stats["hlod_edit_rejected_total"] = int64_t(et.edits_rejected_total);
+        stats["hlod_edit_rejected_infeasible_total"] = int64_t(et.edits_rejected_infeasible_total);
+        stats["hlod_edit_timeouts_total"] = int64_t(et.edit_timeouts_total);
+        stats["hlod_edit_commit_failures_total"] = int64_t(et.edit_commit_failures_total);
+        stats["hlod_edit_stale_nodes"] = et.stale_nodes;
+    }
+    stats["hlod_reason"] = resource_state.hlod_reason;
+    stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
+    stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
+    stats["hlod_owned_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
+    stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
+    stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;
+    stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);
+    stats["hlod_visited_nodes"] = resource_state.hlod_visited_nodes;
+    stats["hlod_cpu_cut_usec"] = int64_t(resource_state.hlod_cpu_cut_usec);
+    stats["hlod_cpu_prepare_usec"] = int64_t(resource_state.hlod_cpu_prepare_usec);
+    stats["hlod_cpu_prepare_timing_scope"] = "cpu_view_admission_selection_draw_upload";
+    stats["hlod_preparation_usec"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->preparation_usec) : int64_t(0);
+    stats["hlod_budget_bound_frames"] = int64_t(resource_state.hlod_budget_bound_frames);
+    stats["hlod_root_dropped_frames"] = int64_t(resource_state.hlod_root_dropped_frames);
+    stats["hlod_estimated_records"] = resource_state.hlod_estimated_records;
+    stats["hlod_gpu_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
+    stats["hlod_gpu_byte_accounting"] = "buffer_device_superset_plus_owned_textures";
+    stats["hlod_source_generation"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->get_instance_id()) : int64_t(0);
+    stats["hlod_content_generation"] = int64_t(resource_state.hlod_content_serial);
+    stats["hlod_origin_revision"] = int64_t(resource_state.hlod_origin_revision);
+    stats["hlod_view_epoch"] = int64_t(resource_state.hlod_view_epoch);
+    // Actual post-pass bindings, not admission-success proxies. ObjectID/RID
+    // bit patterns may be negative when exposed through Variant's signed int.
+    const auto &hlod_bound = const_renderer->get_instance_pipeline_buffers();
+    const RID hlod_bound_atlas = hlod_bound.atlas_gaussian_buffer;
+    const RID hlod_canonical_atlas = resource_state.hlod_canonical.buffers.atlas_gaussian_buffer;
+    stats["hlod_bound_atlas_valid"] = hlod_bound_atlas.is_valid();
+    stats["hlod_canonical_atlas_valid"] = hlod_canonical_atlas.is_valid();
+    stats["hlod_bound_atlas_rid"] = int64_t(hlod_bound_atlas.get_id());
+    stats["hlod_canonical_atlas_rid"] = int64_t(hlod_canonical_atlas.get_id());
+    stats["hlod_bound_relative"] = hlod_bound.hlod_relative;
+    stats["hlod_bound_source_generation"] = int64_t(hlod_bound.hlod_source_generation);
+    stats["hlod_canonical_world_submission_active"] = resource_state.hlod_canonical.buffers.world_submission_active;
+    stats["hlod_relative_world_submission_active"] = resource_state.hlod_relative.buffers.world_submission_active;
+    stats["renderer_device_object_id"] = rendering_device ? int64_t(rendering_device->get_instance_id()) : int64_t(0);
+    stats["stage_cull_route_uid"] = debug_state.last_stage_metrics_valid ? debug_state.last_stage_metrics.cull_result.route_uid : String();
 	stats["resident_atlas_reduced"] = resource_state.resident_atlas_reduced;
 	stats["resident_atlas_source_count"] = static_cast<int64_t>(resource_state.resident_atlas_source_count);
 	stats["resident_atlas_packed_count"] = static_cast<int64_t>(resource_state.resident_atlas_gaussian_count);

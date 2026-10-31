@@ -467,10 +467,15 @@ inline bool has_cull_buffers(const GaussianSplatRenderer::InstancePipelineBuffer
 }
 
 inline bool has_sort_buffers(const GaussianSplatRenderer::InstancePipelineBuffers &p_buffers) {
+    if (p_buffers.hlod_relative && (!p_buffers.hlod_draw_entry_buffer.is_valid() ||
+            p_buffers.hlod_source_generation == 0 || p_buffers.hlod_content_generation == 0)) { return false; }
 	return first_sort_violation(p_buffers) == InvariantViolationReason::NONE;
 }
 
 inline bool has_raster_buffers(const GaussianSplatRenderer::InstancePipelineBuffers &p_buffers) {
+    if (p_buffers.hlod_relative && (!p_buffers.hlod_draw_entry_buffer.is_valid() ||
+            !p_buffers.visible_chunk_buffer.is_valid() || !p_buffers.chunk_meta_buffer.is_valid() ||
+            p_buffers.hlod_source_generation == 0 || p_buffers.hlod_content_generation == 0)) { return false; }
 	return first_raster_violation(p_buffers) == InvariantViolationReason::NONE;
 }
 

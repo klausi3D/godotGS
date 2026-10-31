@@ -2,6 +2,7 @@
 
 #include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "gaussian_splat_renderer.h"
+#include "hlod_drawn_node.h"
 #include "render_debug_state_orchestrator.h"
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
@@ -102,6 +103,10 @@ static void _set_instance_sort_inputs(const GaussianSplatRenderer::InstancePipel
 	instance_inputs.chunk_meta_buffer = p_buffers.chunk_meta_buffer;
 	instance_inputs.visible_chunk_buffer = p_buffers.visible_chunk_buffer;
 	instance_inputs.splat_ref_buffer = p_buffers.splat_ref_buffer;
+                    instance_inputs.hlod_draw_entry_buffer = p_buffers.hlod_draw_entry_buffer;
+                    instance_inputs.hlod_relative = p_buffers.hlod_relative;
+                    instance_inputs.hlod_source_generation = p_buffers.hlod_source_generation;
+                    instance_inputs.hlod_content_generation = p_buffers.hlod_content_generation;
 	instance_inputs.sort_key_buffer = p_buffers.sort_key_buffer;
 	instance_inputs.sort_value_buffer = p_buffers.sort_value_buffer;
 	instance_inputs.counter_buffer = p_buffers.counter_buffer;
@@ -921,6 +926,13 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 			instance_content_generation = _mix_sort_buffer_generation(instance_content_generation,
 					renderer->get_streaming_state().current_streaming_system->get_instance_sh_policy());
 		}
+		// The HLOD draw list holds camera-relative offsets for one origin revision; cached sort order is in that frame.
+		// Camera motion WITHIN one revision is not part of this key: it relies on the per-frame bump of the content
+		// generation in publish_hlod_bundle() (and on reuse being skipped while a prepared HLOD snapshot is valid).
+		// The revision is the explicit key for the case where the frame itself changes.
+		instance_content_generation = gs_hlod_gpu::origin_keyed_generation(instance_content_generation,
+				renderer->get_instance_pipeline_buffers().hlod_relative,
+				renderer->get_instance_pipeline_buffers().hlod_origin_revision);
 		instance_max_visible_splats = renderer->get_instance_pipeline_buffers().max_visible_splats;
 		instance_max_chunk_splats = renderer->get_instance_pipeline_buffers().max_chunk_splats;
 	}
@@ -1042,7 +1054,7 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 
 	// Instance sort-cache reuse with identical camera is exact (not approximate),
 	// so it is safe even in strict_global_sort mode.
-	if (!force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
+	if (!renderer->get_resource_state().hlod_prepared_snapshot.is_valid() && !force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
 			instance_pipeline_active && instance_max_visible_splats > 0 &&
 			instance_visible_chunk_count > 0 && instance_max_chunk_splats > 0) {
 		instance_camera_to_world = p_world_to_camera_transform.affine_inverse();
@@ -1074,6 +1086,8 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 		}
 	}
 
+	// HLOD disables reuse above, but still requires this fresh instance sort.
+	// Its CPU cut does not populate the legacy culled_indices splat domain.
 	if (!force_cpu_sort && !sorting_state.sorter_needs_rebuild &&
 			instance_pipeline_active && instance_sort_inputs_ready) {
 		if (sorting_pipeline) {

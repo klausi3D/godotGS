@@ -218,9 +218,11 @@ struct alignas(16) ChunkMetaGPU {
     uint32_t lod_level;
     uint32_t flags;
     uint32_t sh_limit;           // per-chunk SH band limit (optional)
-    uint32_t pad0;
-    uint32_t pad1;
-    uint32_t pad2;
+    // Node cell centre in asset space. Unread by every shader since HLOD C2 (DrawnNodeGPU.camera_offset places the
+    // node); kept so the 64 B layout does not move.
+    float node_center_x;
+    float node_center_y;
+    float node_center_z;
 };
 
 static_assert(alignof(ChunkMetaGPU) == 16, "ChunkMetaGPU must be 16-byte aligned");
@@ -229,7 +231,7 @@ static_assert(offsetof(ChunkMetaGPU, atlas_base) == 0, "ChunkMetaGPU.atlas_base 
 static_assert(offsetof(ChunkMetaGPU, bounds_center_local) == 16, "ChunkMetaGPU.bounds_center_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, bounds_radius_local) == 28, "ChunkMetaGPU.bounds_radius_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, asset_id) == 32, "ChunkMetaGPU.asset_id offset mismatch");
-static_assert(offsetof(ChunkMetaGPU, pad2) == 56, "ChunkMetaGPU.pad2 offset mismatch");
+static_assert(offsetof(ChunkMetaGPU, node_center_z) == 56, "ChunkMetaGPU.node_center_z offset mismatch");
 
 // Global chunk index indirection (dense).
 struct AssetChunkIndexGPU {
@@ -248,6 +250,25 @@ struct VisibleChunkRefGPU {
 static_assert(sizeof(VisibleChunkRefGPU) == 8, "VisibleChunkRefGPU must be 8 bytes");
 static_assert(offsetof(VisibleChunkRefGPU, instance_id) == 0, "VisibleChunkRefGPU.instance_id offset mismatch");
 static_assert(offsetof(VisibleChunkRefGPU, chunk_id) == 4, "VisibleChunkRefGPU.chunk_id offset mismatch");
+
+// Per-draw record of the HLOD route: replaces VisibleChunkRefGPU there and is written by the CPU. The first two
+// words keep VisibleChunkRefGPU's order. camera_offset (= R s c + T - camera, formed in double, float last) is view
+// dependent, so it lives here and never in the shared ChunkMetaGPU payload. 32 B so the S6 fade needs no relayout.
+struct alignas(16) DrawnNodeGPU {
+    uint32_t instance_id;
+    uint32_t chunk_id;
+    float fade;                  // Reserved for the S6 cross-fade; written as 1.0 and not read yet
+    uint32_t reserved;           // Zero
+    float camera_offset[4];      // xyz = camera-relative node offset, w = 0
+};
+
+static_assert(alignof(DrawnNodeGPU) == 16, "DrawnNodeGPU must be 16-byte aligned");
+static_assert(sizeof(DrawnNodeGPU) == 32, "DrawnNodeGPU must be 32 bytes");
+static_assert(offsetof(DrawnNodeGPU, instance_id) == 0, "DrawnNodeGPU.instance_id offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, chunk_id) == 4, "DrawnNodeGPU.chunk_id offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, fade) == 8, "DrawnNodeGPU.fade offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, reserved) == 12, "DrawnNodeGPU.reserved offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, camera_offset) == 16, "DrawnNodeGPU.camera_offset offset mismatch");
 
 // Visible splat list emitted by Stage B.
 struct SplatRefGPU {

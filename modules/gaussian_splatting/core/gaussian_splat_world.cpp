@@ -1,8 +1,13 @@
 #include "gaussian_splat_world.h"
 
 #include "../io/gaussian_splat_world_io.h"
+#include "../io/gs_atomic_file_writer.h"
+#include "core/io/dir_access.h"
 #include "gaussian_splat_hlod_bake.h"
+#include "gaussian_splat_hlod_job.h"
 #include "gs_vector_alloc.h"
+#include "core/os/os.h"
+#include "../renderer/gaussian_gpu_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -113,7 +118,11 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear"), &GaussianSplatWorld::clear);
     ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianSplatWorld::save_to_file);
     ClassDB::bind_method(D_METHOD("bake_hlod"), &GaussianSplatWorld::bake_hlod);
-    ClassDB::bind_method(D_METHOD("has_hlod_tree"), &GaussianSplatWorld::has_hlod_tree);
+    ClassDB::bind_method(D_METHOD("save_hlod_paged", "path"), &GaussianSplatWorld::save_hlod_paged);
+    ClassDB::bind_method(D_METHOD("has_hlod_paged_source"), &GaussianSplatWorld::has_hlod_paged_source);
+	ClassDB::bind_method(D_METHOD("bake_hlod_offline", "limits", "candidate_path"),
+	                     &GaussianSplatWorld::bake_hlod_offline);
+	ClassDB::bind_method(D_METHOD("has_hlod_tree"), &GaussianSplatWorld::has_hlod_tree);
     ClassDB::bind_method(D_METHOD("get_hlod_info"), &GaussianSplatWorld::get_hlod_info);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "gaussian_data", PROPERTY_HINT_RESOURCE_TYPE, "GaussianData"),
@@ -193,17 +202,23 @@ void GaussianSplatWorld::_get_property_list(List<PropertyInfo> *p_list) const {
 }
 
 void GaussianSplatWorld::set_gaussian_data(const Ref<GaussianData> &p_data) {
-    // A new payload invalidates the tree, whose leaves index the old one.
-    _assign_gaussian_data(p_data, false);
+    {
+        MutexLock lock(render_input_mutex);
+        _assign_gaussian_data_locked(p_data, false);
+        ++render_input_epoch;
+    }
+    notify_property_list_changed();
+    emit_changed();
 }
 
-void GaussianSplatWorld::_assign_gaussian_data(const Ref<GaussianData> &p_data, bool p_keep_hlod) {
+void GaussianSplatWorld::_assign_gaussian_data_locked(const Ref<GaussianData> &p_data, bool p_keep_hlod) {
     if (!p_keep_hlod) {
         if (!hlod_tree.is_empty()) {
             // The leaf chunks are built from the tree and index the old payload, like the tree.
             static_chunks.clear();
         }
         hlod_tree.clear();
+        hlod_paged_source.unref();
     } else if (!hlod_tree.is_empty() && p_data.is_valid()) {
         // Same payload (materialized from the file the tree was loaded with).
         hlod_tree.leaf_payload_revision = p_data->get_content_revision();
@@ -211,45 +226,59 @@ void GaussianSplatWorld::_assign_gaussian_data(const Ref<GaussianData> &p_data, 
     }
     gaussian_data = p_data;
     if (gaussian_data.is_valid()) {
-        set_payload_metadata(gaussian_data->get_count(),
-                gaussian_data->get_sh_degree(),
-                gaussian_data->get_sh_first_order_count(),
-                gaussian_data->get_sh_high_order_count(),
-                gaussian_data->get_2d_mode());
-        antialiased_metadata = gaussian_data->get_antialiased();
+        RWLockRead data_lock(gaussian_data->data_rwlock);
+        splat_count_metadata = gaussian_data->get_count();
+        sh_degree_metadata = gaussian_data->get_sh_degree();
+        sh_first_order_count_metadata = gaussian_data->get_sh_first_order_count();
+        sh_high_order_count_metadata = gaussian_data->get_sh_high_order_count();
+        is_2d_metadata = gaussian_data->get_2d_mode();
+        antialiased_metadata = gaussian_data->is_antialiased;
         if (!bounds.has_volume()) {
             bounds = gaussian_data->get_aabb();
         }
+    }
+}
+
+bool GaussianSplatWorld::has_resident_gaussian_data() const {
+    MutexLock lock(render_input_mutex);
+    return gaussian_data.is_valid() && gaussian_data->get_count() > 0;
+}
+
+void GaussianSplatWorld::set_bounds(const AABB &p_bounds) {
+    {
+        MutexLock lock(render_input_mutex);
+    AABB next_bounds = p_bounds;
+    ERR_FAIL_COND_MSG(!hlod_tree.is_empty() && !hlod_live_bounds(hlod_tree, p_bounds, next_bounds),
+            "GaussianSplatWorld.set_bounds(): invalid or unrepresentable HLOD bounds; previous bounds retained.");
+    bounds = next_bounds;
+        ++render_input_epoch;
+    }
+    emit_changed();
+}
+
+void GaussianSplatWorld::set_metadata(const Dictionary &p_metadata) {
+    {
+        MutexLock lock(render_input_mutex);
+    metadata = p_metadata.duplicate(true);
+        ++render_input_epoch;
     }
     notify_property_list_changed();
     emit_changed();
 }
 
-bool GaussianSplatWorld::has_resident_gaussian_data() const {
-    return gaussian_data.is_valid() && gaussian_data->get_count() > 0;
-}
-
-void GaussianSplatWorld::set_bounds(const AABB &p_bounds) {
-    AABB next_bounds = p_bounds;
-    ERR_FAIL_COND_MSG(!hlod_tree.is_empty() && !hlod_live_bounds(hlod_tree, p_bounds, next_bounds),
-            "GaussianSplatWorld.set_bounds(): invalid or unrepresentable HLOD bounds; previous bounds retained.");
-    bounds = next_bounds;
-    emit_changed();
-}
-
-void GaussianSplatWorld::set_metadata(const Dictionary &p_metadata) {
-    metadata = p_metadata;
-    notify_property_list_changed();
-    emit_changed();
-}
-
 void GaussianSplatWorld::set_static_chunks(const Vector<GaussianSplatRenderer::StaticChunk> &p_chunks) {
+    {
+        MutexLock lock(render_input_mutex);
     static_chunks = p_chunks;
+        ++render_input_epoch;
+    }
     notify_property_list_changed();
     emit_changed();
 }
 
 void GaussianSplatWorld::set_chunk_payload_source(const Ref<ChunkPayloadSource> &p_source) {
+    {
+        MutexLock lock(render_input_mutex);
     if (chunk_payload_source != p_source && gaussian_data.is_null() && !hlod_tree.is_empty()) {
         // Both the interior representations and leaf chunk addresses describe the old source.
         hlod_tree.clear();
@@ -267,11 +296,14 @@ void GaussianSplatWorld::set_chunk_payload_source(const Ref<ChunkPayloadSource> 
             bounds = chunk_payload_source->get_bounds();
         }
     }
+        ++render_input_epoch;
+    }
     notify_property_list_changed();
     emit_changed();
 }
 
 bool GaussianSplatWorld::has_chunk_payload_source() const {
+    MutexLock lock(render_input_mutex);
     return chunk_payload_source.is_valid() && chunk_payload_source->is_valid();
 }
 
@@ -280,10 +312,13 @@ bool GaussianSplatWorld::is_payload_source_backed() const {
 }
 
 bool GaussianSplatWorld::has_renderable_payload() const {
-    return has_resident_gaussian_data() || has_chunk_payload_source();
+    return has_resident_gaussian_data() || has_chunk_payload_source() || has_hlod_paged_source();
 }
 
 String GaussianSplatWorld::get_payload_mode() const {
+    if (has_hlod_paged_source()) {
+        return "hlod_paged_v4";
+    }
     if (is_streamable_payload()) {
         return "streamable_uncompressed";
     }
@@ -297,7 +332,7 @@ String GaussianSplatWorld::get_payload_mode() const {
 }
 
 bool GaussianSplatWorld::is_streamable_payload() const {
-    return has_chunk_payload_source() && !has_resident_gaussian_data();
+    return has_hlod_paged_source() || (has_chunk_payload_source() && !has_resident_gaussian_data());
 }
 
 String GaussianSplatWorld::get_resident_only_reason() const {
@@ -318,16 +353,21 @@ String GaussianSplatWorld::get_resident_only_reason() const {
 
 void GaussianSplatWorld::set_payload_metadata(uint32_t p_splat_count, uint32_t p_sh_degree,
         uint32_t p_sh_first_order_count, uint32_t p_sh_high_order_count, bool p_is_2d) {
+    {
+        MutexLock lock(render_input_mutex);
     splat_count_metadata = p_splat_count;
     sh_degree_metadata = p_sh_degree;
     sh_first_order_count_metadata = p_sh_first_order_count;
     sh_high_order_count_metadata = p_sh_high_order_count;
     is_2d_metadata = p_is_2d;
+        ++render_input_epoch;
+    }
     notify_property_list_changed();
     emit_changed();
 }
 
 uint32_t GaussianSplatWorld::get_splat_count() const {
+    MutexLock lock(render_input_mutex);
     if (gaussian_data.is_valid()) {
         return gaussian_data->get_count();
     }
@@ -338,6 +378,7 @@ uint32_t GaussianSplatWorld::get_splat_count() const {
 }
 
 uint32_t GaussianSplatWorld::get_sh_degree() const {
+    MutexLock lock(render_input_mutex);
     if (gaussian_data.is_valid()) {
         return gaussian_data->get_sh_degree();
     }
@@ -348,6 +389,7 @@ uint32_t GaussianSplatWorld::get_sh_degree() const {
 }
 
 uint32_t GaussianSplatWorld::get_sh_first_order_count() const {
+    MutexLock lock(render_input_mutex);
     if (gaussian_data.is_valid()) {
         return gaussian_data->get_sh_first_order_count();
     }
@@ -355,6 +397,7 @@ uint32_t GaussianSplatWorld::get_sh_first_order_count() const {
 }
 
 uint32_t GaussianSplatWorld::get_sh_high_order_count() const {
+    MutexLock lock(render_input_mutex);
     if (gaussian_data.is_valid()) {
         return gaussian_data->get_sh_high_order_count();
     }
@@ -362,6 +405,7 @@ uint32_t GaussianSplatWorld::get_sh_high_order_count() const {
 }
 
 bool GaussianSplatWorld::get_2d_mode() const {
+    MutexLock lock(render_input_mutex);
     if (gaussian_data.is_valid()) {
         return gaussian_data->get_2d_mode();
     }
@@ -369,6 +413,7 @@ bool GaussianSplatWorld::get_2d_mode() const {
 }
 
 bool GaussianSplatWorld::get_antialiased() const {
+    MutexLock lock(render_input_mutex);
     if (gaussian_data.is_valid()) {
         return gaussian_data->get_antialiased();
     }
@@ -376,36 +421,91 @@ bool GaussianSplatWorld::get_antialiased() const {
 }
 
 Error GaussianSplatWorld::materialize_resident_gaussian_data() {
-    if (gaussian_data.is_valid()) {
-        return OK;
+    Ref<ChunkPayloadSource> source;
+    uint64_t epoch;
+    bool mode_2d, aa;
+    // The retained interior is charged against the runtime CPU limit here, not only at capture:
+    // the snapshot check (capture_hlod_runtime_snapshot) charges it again with everything else, but
+    // a world that can never be captured must not pin it. A tree replacement while the lock is
+    // dropped bumps render_input_epoch (set_hlod_tree, bake_hlod, set_gaussian_data), which the
+    // commit below re-checks.
+    auto interior_fits_cpu_limit = [](uint32_t p_count, uint32_t p_high_order) {
+        uint64_t gaussians, sh;
+        return gs_hlod_runtime::allocation_bytes(p_count, sizeof(Gaussian), gaussians) &&
+                gs_hlod_runtime::allocation_bytes(uint64_t(p_count) * p_high_order, sizeof(Vector3), sh) &&
+                gaussians <= GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT &&
+                sh <= GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - gaussians;
+    };
+    GaussianSplatHlodTree interior_extent; // file extents only
+    bool load_interior = false;
+    {
+        MutexLock lock(render_input_mutex);
+        if (gaussian_data.is_valid()) {
+            return OK;
+        }
+        source = chunk_payload_source;
+        epoch = render_input_epoch;
+        mode_2d = is_2d_metadata;
+        aa = antialiased_metadata;
+        // A streamable file leaves the HLOD interiors on disk (interior_resident == false), but the
+        // resident runtime (capture_hlod_runtime_snapshot) needs them in memory. Describe only the
+        // file extents, never copy the node tables; the read happens outside the lock. Counts above
+        // the runtime's admission cap are not read: the runtime refuses them by name anyway.
+        if (!hlod_tree.is_empty() && !hlod_tree.interior_resident && hlod_tree.interior_splat_count > 0u &&
+                uint64_t(hlod_tree.leaf_splat_count) + hlod_tree.interior_splat_count <= GaussianSplatHlodRuntimeData::MAX_PAYLOAD &&
+                interior_fits_cpu_limit(hlod_tree.interior_splat_count, hlod_tree.sh_high_order_count)) {
+            interior_extent.interior_splat_count = hlod_tree.interior_splat_count;
+            interior_extent.sh_high_order_count = hlod_tree.sh_high_order_count;
+            interior_extent.interior_file_path = hlod_tree.interior_file_path;
+            interior_extent.interior_gaussian_offset = hlod_tree.interior_gaussian_offset;
+            interior_extent.interior_sh_offset = hlod_tree.interior_sh_offset;
+            load_interior = true;
+        }
     }
-    if (!has_chunk_payload_source()) {
+    if (source.is_null() || !source->is_valid()) {
         return ERR_UNCONFIGURED;
     }
-
-    LocalVector<Gaussian> gaussians;
-    LocalVector<Vector3> sh_high_order;
-    uint32_t sh_first_order = 0;
-    uint32_t sh_high_order_count = 0;
-    if (!chunk_payload_source->capture_chunk_snapshot(0, chunk_payload_source->get_count(),
-                gaussians, sh_high_order, sh_first_order, sh_high_order_count)) {
+    LocalVector<Gaussian> interior;
+    LocalVector<Vector3> interior_sh;
+    if (load_interior && interior_extent.read_interior_payload(interior, interior_sh) != OK) {
         return ERR_FILE_CANT_READ;
     }
-
+    LocalVector<Gaussian> gaussians;
+    LocalVector<Vector3> sh_high_order;
+    uint32_t sh_first_order = 0, sh_high_order_count = 0;
+    if (!source->capture_chunk_snapshot(0, source->get_count(), gaussians, sh_high_order,
+                sh_first_order, sh_high_order_count)) {
+        return ERR_FILE_CANT_READ;
+    }
     Ref<GaussianData> materialized;
     materialized.instantiate();
-    materialized->set_gaussian_payload(gaussians, sh_high_order,
-            sh_first_order, sh_high_order_count, is_2d_metadata, antialiased_metadata);
-    // Same payload, same order: a loaded tree stays valid.
-    _assign_gaussian_data(materialized, true);
+    materialized->set_gaussian_payload(gaussians, sh_high_order, sh_first_order,
+            sh_high_order_count, mode_2d, aa);
+    {
+        MutexLock lock(render_input_mutex);
+        if (render_input_epoch != epoch || chunk_payload_source != source || gaussian_data.is_valid()) {
+            return ERR_BUSY;
+        }
+        _assign_gaussian_data_locked(materialized, true);
+        if (load_interior) {
+            hlod_tree.interior_gaussians = std::move(interior);
+            hlod_tree.interior_sh_high_order = std::move(interior_sh);
+            hlod_tree.interior_resident = true;
+        }
+        ++render_input_epoch;
+    }
+    notify_property_list_changed();
+    emit_changed();
     return OK;
 }
 
 int GaussianSplatWorld::get_chunk_count() const {
+    MutexLock lock(render_input_mutex);
     return static_chunks.size();
 }
 
 PackedInt32Array GaussianSplatWorld::get_chunk_sizes() const {
+    MutexLock lock(render_input_mutex);
     PackedInt32Array sizes;
     sizes.resize(static_chunks.size());
     for (int i = 0; i < static_chunks.size(); i++) {
@@ -415,6 +515,7 @@ PackedInt32Array GaussianSplatWorld::get_chunk_sizes() const {
 }
 
 Array GaussianSplatWorld::get_chunk_aabbs() const {
+    MutexLock lock(render_input_mutex);
     Array aabbs;
     aabbs.resize(static_chunks.size());
     for (int i = 0; i < static_chunks.size(); i++) {
@@ -424,6 +525,8 @@ Array GaussianSplatWorld::get_chunk_aabbs() const {
 }
 
 void GaussianSplatWorld::clear() {
+    {
+        MutexLock lock(render_input_mutex);
     gaussian_data.unref();
     // Payload source lifetime is tied to world liveness; leaving it live
     // across clear() would retain file handles / in-memory splat data after
@@ -439,8 +542,11 @@ void GaussianSplatWorld::clear() {
     is_2d_metadata = false;
     antialiased_metadata = false;
     hlod_tree.clear();
+    hlod_paged_source.unref();
     // Consumers must observe the completed reset, not retain their apply-time
     // payload/submission after this resource has become empty.
+        ++render_input_epoch;
+    }
     emit_changed();
 }
 
@@ -466,11 +572,16 @@ Error GaussianSplatWorld::copy_from(const Ref<Resource> &p_resource) {
     // Everything the v1/v2 loaders install: payload or file source, leaf chunks, bounds,
     // metadata, payload metadata and the tree. The tree's leaf revision refers to the shared
     // GaussianData, so it stays valid.
+    {
+        // Stable object order excludes AB/BA locking when two worlds are copied concurrently.
+        const bool self_first = get_instance_id() < other->get_instance_id();
+        MutexLock first(self_first ? render_input_mutex : other->render_input_mutex);
+        MutexLock second(self_first ? other->render_input_mutex : render_input_mutex);
     gaussian_data = other->gaussian_data;
     chunk_payload_source = other->chunk_payload_source;
     static_chunks = other->static_chunks;
     bounds = other->bounds;
-    metadata = other->metadata;
+    metadata = other->metadata.duplicate(true);
     splat_count_metadata = other->splat_count_metadata;
     sh_degree_metadata = other->sh_degree_metadata;
     sh_first_order_count_metadata = other->sh_first_order_count_metadata;
@@ -478,6 +589,9 @@ Error GaussianSplatWorld::copy_from(const Ref<Resource> &p_resource) {
     is_2d_metadata = other->is_2d_metadata;
     antialiased_metadata = other->antialiased_metadata;
     hlod_tree = other->hlod_tree;
+    hlod_paged_source = other->hlod_paged_source;
+        ++render_input_epoch;
+    }
     notify_property_list_changed();
     emit_changed();
     _unblock_emit_changed();
@@ -489,14 +603,171 @@ Error GaussianSplatWorld::save_to_file(const String &p_path) const {
     return saver.save(Ref<Resource>(const_cast<GaussianSplatWorld *>(this)), p_path, 0);
 }
 
+Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
+    Ref<GaussianSplatHlodPagedSource> source;
+    uint64_t epoch = 0;
+    {
+        MutexLock lock(render_input_mutex);
+        source = hlod_paged_source;
+        epoch = render_input_epoch;
+    }
+    if (source.is_null()) {
+        return OK;
+    }
+    const GaussianSplatHlodPagedSource::Info &info = source->get_info();
+    const Vector<GaussianSplatHlodPagedSource::NodeRecord> &records = source->get_nodes();
+    const uint64_t total = uint64_t(info.leaf_splat_count) + info.interior_splat_count;
+    uint64_t gaussian_bytes = 0, sh_bytes = 0;
+    // LocalVector indexes with uint32_t: the SH element counts must fit it too.
+    if (uint64_t(info.leaf_splat_count) * info.sh_high_order > UINT32_MAX || uint64_t(info.interior_splat_count) * info.sh_high_order > UINT32_MAX) {
+        r_reason = "hlod_paged_materialize_sh_index_range";
+        return ERR_PARAMETER_RANGE_ERROR;
+    }
+    if (total > UINT32_MAX || !gs_hlod_runtime::allocation_bytes(total, sizeof(Gaussian), gaussian_bytes) ||
+            !gs_hlod_runtime::allocation_bytes(total * info.sh_high_order, sizeof(Vector3), sh_bytes)) {
+        r_reason = "hlod_paged_materialize_too_large";
+        return ERR_OUT_OF_MEMORY;
+    }
+    LocalVector<Gaussian> leaves;
+    LocalVector<Gaussian> interiors;
+    LocalVector<Vector3> leaf_sh;
+    LocalVector<Vector3> interior_sh;
+    {
+        // Peak is about twice the payload: our vectors, plus the copy GaussianData::set_gaussian_payload makes of the leaves
+        // from a const reference (the vectors are released only after it returns).
+        void *probe = memalloc(2 * (gaussian_bytes + sh_bytes));
+        if (!probe) {
+            r_reason = "hlod_paged_materialize_too_large";
+            return ERR_OUT_OF_MEMORY;
+        }
+        memfree(probe);
+    }
+    leaves.resize(info.leaf_splat_count);
+    interiors.resize(info.interior_splat_count);
+    leaf_sh.resize(size_t(info.leaf_splat_count) * info.sh_high_order);
+    interior_sh.resize(size_t(info.interior_splat_count) * info.sh_high_order);
+    LocalVector<bool> filled;
+    filled.resize(total);
+    for (uint32_t i = 0; i < filled.size(); ++i) { filled[i] = false; } // resize() leaves trivial types uninitialized
+    for (uint32_t i = 0; i < uint32_t(records.size()); ++i) {
+        const GaussianSplatHlodNode &node = records[i].topology;
+        Vector<Gaussian> g;
+        Vector<Vector3> sh;
+        String why;
+        const Error read_error = source->read_node_payload(i, g, sh, why);
+        if (read_error != OK) {
+            r_reason = vformat("hlod_paged_materialize_read_failed: node %d: %s", i, why);
+            return read_error;
+        }
+        const bool leaf = records[i].is_leaf;
+        const uint64_t base = leaf ? node.payload_first : node.payload_first - info.leaf_splat_count;
+        LocalVector<Gaussian> &dst = leaf ? leaves : interiors;
+        LocalVector<Vector3> &dst_sh = leaf ? leaf_sh : interior_sh;
+        if (base + node.payload_count > dst.size() || uint64_t(g.size()) != node.payload_count) {
+            r_reason = "hlod_paged_materialize_range";
+            return ERR_FILE_CORRUPT;
+        }
+        for (uint32_t j = 0; j < node.payload_count; ++j) {
+            const uint64_t slot = (leaf ? 0 : info.leaf_splat_count) + base + j;
+            if (filled[slot]) {
+                r_reason = "hlod_paged_materialize_overlap";
+                return ERR_FILE_CORRUPT;
+            }
+            filled[slot] = true;
+            dst[base + j] = g[j];
+        }
+        for (int64_t k = 0; k < sh.size(); ++k) {
+            dst_sh[base * info.sh_high_order + k] = sh[k];
+        }
+    }
+    for (uint32_t i = 0; i < filled.size(); ++i) {
+        if (!filled[i]) {
+            r_reason = "hlod_paged_materialize_gap";
+            return ERR_FILE_CORRUPT;
+        }
+    }
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussian_payload(leaves, leaf_sh, info.sh_first_order, info.sh_high_order, info.is_2d, false);
+    {
+        MutexLock lock(render_input_mutex);
+        if (render_input_epoch != epoch || hlod_paged_source != source) {
+            r_reason = "hlod_paged_materialize_world_changed";
+            return ERR_BUSY;
+        }
+        _assign_gaussian_data_locked(data, true);
+        hlod_tree.interior_gaussians = std::move(interiors);
+        hlod_tree.interior_sh_high_order = std::move(interior_sh);
+        hlod_tree.interior_resident = true;
+        hlod_tree.interior_file_path = String();
+        Vector<GaussianSplatRenderer::StaticChunk> leaf_chunks;
+        if (!build_hlod_leaf_chunks(hlod_tree, leaf_chunks)) {
+            r_reason = "hlod_paged_materialize_chunks";
+            return ERR_OUT_OF_MEMORY;
+        }
+        static_chunks = leaf_chunks;
+        hlod_paged_source.unref();
+        ++render_input_epoch;
+    }
+    notify_property_list_changed();
+    emit_changed();
+    r_reason = String();
+    return OK;
+}
+
+Error GaussianSplatWorld::set_hlod_paged_package(GaussianSplatHlodTree &&p_tree, const Ref<GaussianSplatHlodPagedSource> &p_source) {
+    ERR_FAIL_COND_V_MSG(p_source.is_null() || !p_source->is_open() || p_tree.is_empty(), ERR_INVALID_PARAMETER,
+            "GaussianSplatWorld.set_hlod_paged_package(): needs an open V4 package and its node table.");
+    {
+        MutexLock lock(render_input_mutex);
+        AABB next_bounds = bounds;
+        ERR_FAIL_COND_V_MSG(!hlod_live_bounds(p_tree, bounds, next_bounds), ERR_INVALID_DATA,
+                "GaussianSplatWorld.set_hlod_paged_package(): invalid or unrepresentable HLOD bounds; previous state retained.");
+        const GaussianSplatHlodPagedSource::Info &info = p_source->get_info();
+        // A paged world has no resident payload and no chunk lists indexing one.
+        gaussian_data.unref();
+        chunk_payload_source.unref();
+        static_chunks.clear();
+        hlod_tree = std::move(p_tree);
+        hlod_tree.leaf_payload_revision_valid = false;
+        hlod_tree.leaf_payload_revision = 0u;
+        hlod_paged_source = p_source;
+        bounds = next_bounds;
+        splat_count_metadata = info.leaf_splat_count;
+        sh_degree_metadata = info.sh_degree;
+        sh_first_order_count_metadata = info.sh_first_order;
+        sh_high_order_count_metadata = info.sh_high_order;
+        is_2d_metadata = info.is_2d;
+        antialiased_metadata = false;
+        ++render_input_epoch;
+    }
+    notify_property_list_changed();
+    emit_changed();
+    return OK;
+}
+
+Error GaussianSplatWorld::save_hlod_paged(const String &p_path) const {
+    String reason;
+    const Error err = GaussianSplatHlodPagedSource::write_package(*this, p_path, reason);
+    if (err != OK) {
+        ERR_PRINT(vformat("GaussianSplatWorld.save_hlod_paged(%s) failed: %s", p_path, reason));
+    }
+    return err;
+}
+
 void GaussianSplatWorld::set_hlod_tree(GaussianSplatHlodTree &&p_tree) {
+    {
+        MutexLock lock(render_input_mutex);
     AABB next_bounds = bounds;
     ERR_FAIL_COND_MSG(!p_tree.is_empty() && !hlod_live_bounds(p_tree, bounds, next_bounds),
             "GaussianSplatWorld.set_hlod_tree(): invalid or unrepresentable HLOD bounds; previous state retained.");
     hlod_tree = std::move(p_tree);
+    hlod_paged_source.unref(); // A tree installed by the resident path is not the paged package's tree.
     bounds = next_bounds;
     hlod_tree.leaf_payload_revision_valid = gaussian_data.is_valid();
     hlod_tree.leaf_payload_revision = gaussian_data.is_valid() ? gaussian_data->get_content_revision() : 0u;
+        ++render_input_epoch;
+    }
     notify_property_list_changed();
     emit_changed();
 }
@@ -561,6 +832,7 @@ bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_t
 }
 
 Dictionary GaussianSplatWorld::get_hlod_info() const {
+    MutexLock lock(render_input_mutex);
     return hlod_tree.get_info();
 }
 
@@ -572,20 +844,136 @@ static bool _probe_bake_payload(uint64_t p_gaussian_bytes, uint64_t p_sh_bytes, 
 }
 
 Error GaussianSplatWorld::bake_hlod() {
+    return _bake_hlod(false);
+}
+
+Dictionary GaussianSplatWorld::bake_hlod_offline(const Dictionary &p_limits, const String &p_candidate_path) const
+{
+	Dictionary report;
+	report["error"] = ERR_INVALID_PARAMETER;
+	gs_hlod::OfflineJob job;
+	// Snapshot every source input under one render_input_mutex scope (World -> GaussianData order via the
+	// getters; the mutex is recursive) so the pre-checks and the candidate copy describe one epoch.
+	// Released before any bake, job check or file I/O.
+	// Path/file-system checks stay outside the lock (file I/O).
+	if (p_candidate_path.get_extension().to_lower() != "gsplatworld" || FileAccess::exists(p_candidate_path) ||
+			DirAccess::dir_exists_absolute(p_candidate_path)) {
+		return report;
+	}
+	Ref<GaussianSplatWorld> candidate;
+	candidate.instantiate();
+	uint32_t src_splats = 0, src_high = 0;
+	{
+		MutexLock lock(render_input_mutex);
+		src_splats = get_splat_count();
+		src_high = get_sh_high_order_count();
+		// The first route has no arbitrary metadata/instances, compression or checkpoints.
+		// Refuse those before serialization can allocate an unaccounted JSON/blob copy.
+		if (!job.configure(p_limits) || !metadata.is_empty() || get_antialiased() || !hlod_tree.instances.is_empty() ||
+				!hlod_tree.top_level_nodes.is_empty() || hlod_tree.nodes.size() > job.nodes ||
+				uint64_t(src_splats) + hlod_tree.interior_splat_count > job.prepared) {
+			return report;
+		}
+		const uint64_t old_interior = uint64_t(hlod_tree.interior_gaussians.get_capacity()) * sizeof(Gaussian) +
+				uint64_t(hlod_tree.interior_sh_high_order.get_capacity()) * sizeof(Vector3);
+		if (!job.reserve(src_splats, src_high, old_interior)) {
+			report["error"] = ERR_OUT_OF_MEMORY;
+			return report;
+		}
+		// Borrow the source owner; _bake_hlod snapshots and publishes only into candidate.
+		candidate->gaussian_data = gaussian_data;
+		candidate->chunk_payload_source = chunk_payload_source;
+		candidate->splat_count_metadata = splat_count_metadata;
+		candidate->sh_degree_metadata = sh_degree_metadata;
+		candidate->sh_first_order_count_metadata = sh_first_order_count_metadata;
+		candidate->sh_high_order_count_metadata = sh_high_order_count_metadata;
+		candidate->is_2d_metadata = is_2d_metadata;
+		candidate->antialiased_metadata = antialiased_metadata;
+		candidate->bounds = bounds;
+	}
+	report["reserved_scratch_bytes"] = int64_t(job.reserved);
+	gs_hlod::OfflineJobScope scope(job);
+	if (!scope.acquired) {
+		report["error"] = ERR_BUSY;
+		return report;
+	}
+	if (job.check() != OK) {
+		report["error"] = job.check();
+		return report;
+	}
+	const uint64_t started = OS::get_singleton()->get_ticks_usec();
+	Error error = candidate->_bake_hlod(true);
+	report["bake_ms"] = double(OS::get_singleton()->get_ticks_usec() - started) / 1000.0;
+	if (error == OK) {
+		error = job.check();
+	}
+	if (error == OK) {
+		ResourceFormatSaverGaussianSplatWorld saver;
+		const uint64_t save_started = OS::get_singleton()->get_ticks_usec();
+		error = saver.save_offline_candidate(candidate, p_candidate_path, job.output);
+		report["save_ms"] = double(OS::get_singleton()->get_ticks_usec() - save_started) / 1000.0;
+	}
+	if (error == OK) {
+		error = job.check();
+	}
+	if (error == OK) {
+		// Direct strict loader, bypassing ResourceLoader caches/import remaps.
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		const uint64_t validate_started = OS::get_singleton()->get_ticks_usec();
+		Ref<GaussianSplatWorld> validated = loader.load_resident(p_candidate_path, &error);
+		report["validate_ms"] = double(OS::get_singleton()->get_ticks_usec() - validate_started) / 1000.0;
+		if (error == OK && (validated.is_null() || !validated->has_hlod_tree() ||
+		                    validated->get_hlod_tree().bake_rule_version != gs_hlod::kQualityBakeRuleVersion ||
+		                    validated->get_splat_count() != src_splats ||
+		                    validated->get_sh_first_order_count() != get_sh_first_order_count() ||
+		                    validated->get_sh_high_order_count() != src_high)) {
+			error = ERR_FILE_CORRUPT;
+		}
+		if (error == OK) {
+			report["hlod_info"] = validated->get_hlod_info();
+		}
+	}
+	if (error == OK) {
+		error = job.check();
+	}
+	if (error != OK) {
+		_gs_atomic_remove_temp(p_candidate_path);
+	}
+	report["error"] = error;
+	report["total_ms"] = double(OS::get_singleton()->get_ticks_usec() - started) / 1000.0;
+	report["bake_rule_version"] = gs_hlod::kQualityBakeRuleVersion;
+	return report;
+}
+
+Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
     // The 2D flag is carried through, not refused: the PLY loader sets it for any PLY with
     // nx/ny/nz (io/ply_loader.cpp, "has_normals"), which standard 3DGS exports carry, and no
     // shader reads it (GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D in gs_instance_layout.glsl
     // have no consumer), so refusing it would refuse almost every real scan.
-    const Ref<GaussianData> original_data = gaussian_data;
-    const Ref<ChunkPayloadSource> original_source = chunk_payload_source;
+    Ref<GaussianData> original_data;
+    Ref<ChunkPayloadSource> original_source;
+    uint64_t original_epoch;
+    AABB original_bounds;
+    bool original_is_2d, original_antialiased;
+    uint32_t original_high_order_count;
+    {
+        MutexLock lock(render_input_mutex);
+        original_data = gaussian_data;
+        original_source = chunk_payload_source;
+        original_epoch = render_input_epoch;
+        original_bounds = bounds;
+        original_is_2d = is_2d_metadata;
+        original_antialiased = antialiased_metadata;
+        original_high_order_count = sh_high_order_count_metadata;
+    }
     ERR_FAIL_COND_V_MSG(original_data.is_null() && (original_source.is_null() || !original_source->is_valid()),
             ERR_UNCONFIGURED, "GaussianSplatWorld.bake_hlod(): no resident or file-backed payload to bake.");
     gs_hlod::BakeResult result;
     uint32_t sh_first_order = 0;
     uint32_t sh_high_order_count = 0;
     GaussianData::ChunkSnapshotMetadata snapshot_metadata;
-    bool is_2d = is_2d_metadata;
-    bool antialiased = antialiased_metadata;
+    bool is_2d = original_is_2d;
+    bool antialiased = original_antialiased;
     {
         // Scoped so the snapshot is freed as soon as the bake has consumed it (peak memory).
         LocalVector<Gaussian> gaussians;
@@ -598,7 +986,13 @@ Error GaussianSplatWorld::bake_hlod() {
         bool snapshot_fits;
         if (original_data.is_valid()) {
             RWLockRead lock(original_data->data_rwlock);
-            snapshot_fits = _probe_bake_payload(uint64_t(original_data->get_count()) * sizeof(Gaussian),
+			ERR_FAIL_COND_V (
+			        gs_hlod::active_offline_job &&
+			                (original_data->get_count() != gs_hlod::active_offline_job->admitted_count ||
+			                 original_data->get_sh_high_order_count() != gs_hlod::active_offline_job->admitted_high),
+			        ERR_INVALID_DATA)
+				;
+			snapshot_fits = _probe_bake_payload(uint64_t(original_data->get_count()) * sizeof(Gaussian),
                     uint64_t(original_data->get_count()) * original_data->get_sh_high_order_count() * sizeof(Vector3),
                     "GaussianSplatWorld::bake_hlod snapshot_gaussians", "GaussianSplatWorld::bake_hlod snapshot_sh_high_order");
             captured = snapshot_fits && original_data->_capture_chunk_snapshot_locked(0, original_data->get_count(),
@@ -606,8 +1000,13 @@ Error GaussianSplatWorld::bake_hlod() {
             is_2d = snapshot_metadata.is_2d_mode;
             antialiased = snapshot_metadata.is_antialiased;
         } else {
-            snapshot_fits = _probe_bake_payload(uint64_t(original_source->get_count()) * sizeof(Gaussian),
-                    uint64_t(original_source->get_count()) * sh_high_order_count_metadata * sizeof(Vector3),
+			ERR_FAIL_COND_V (gs_hlod::active_offline_job &&
+			                         (original_source->get_count() != gs_hlod::active_offline_job->admitted_count ||
+			                          original_high_order_count != gs_hlod::active_offline_job->admitted_high),
+			                 ERR_INVALID_DATA)
+				;
+			snapshot_fits = _probe_bake_payload(uint64_t(original_source->get_count()) * sizeof(Gaussian),
+                    uint64_t(original_source->get_count()) * original_high_order_count * sizeof(Vector3),
                     "GaussianSplatWorld::bake_hlod snapshot_gaussians", "GaussianSplatWorld::bake_hlod snapshot_sh_high_order");
             captured = snapshot_fits && original_source->capture_chunk_snapshot(0, original_source->get_count(),
                     gaussians, sh_high_order, sh_first_order, sh_high_order_count);
@@ -624,9 +1023,11 @@ Error GaussianSplatWorld::bake_hlod() {
         gs_hlod::BakeInput input;
         input.gaussians = gaussians.ptr();
         input.count = gaussians.size();
+        input.sh_first_order_count = sh_first_order;
         input.sh_high_order_count = sh_high_order_count;
         input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
         gs_hlod::BakeParams params;
+        params.mode = p_quality_selection ? gs_hlod::BakeParams::QUALITY_SELECTION : gs_hlod::BakeParams::MERGE_ONLY;
         String error;
         Error bake_err = ERR_INVALID_DATA;
         if (!gs_hlod::bake_world(input, params, result, &error, &bake_err)) {
@@ -658,7 +1059,7 @@ Error GaussianSplatWorld::bake_hlod() {
     // The bounds become the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
     // so they must enclose the root's covariance-aware support, as the v2 saver's header does.
     AABB baked_bounds;
-    if (!hlod_live_bounds(result.tree, bounds.has_volume() ? bounds : baked->get_aabb(), baked_bounds)) {
+    if (!hlod_live_bounds(result.tree, original_bounds.has_volume() ? original_bounds : baked->get_aabb(), baked_bounds)) {
         ERR_FAIL_V_MSG(ERR_INVALID_DATA, "GaussianSplatWorld.bake_hlod(): the HLOD root bounds do not fit runtime coordinates.");
     }
     auto publish = [&]() {
@@ -676,7 +1077,9 @@ Error GaussianSplatWorld::bake_hlod() {
         hlod_tree.leaf_payload_revision_valid = true;
         static_chunks = leaf_chunks;
     };
-    ERR_FAIL_COND_V_MSG(gaussian_data != original_data || chunk_payload_source != original_source,
+    {
+        MutexLock world_lock(render_input_mutex);
+    ERR_FAIL_COND_V_MSG(render_input_epoch != original_epoch || gaussian_data != original_data || chunk_payload_source != original_source,
             ERR_INVALID_DATA, "GaussianSplatWorld.bake_hlod(): payload source changed during the bake.");
     if (original_data.is_valid()) {
         // Revalidate and publish in one read-lock interval, excluding concurrent payload/2D edits.
@@ -689,6 +1092,8 @@ Error GaussianSplatWorld::bake_hlod() {
                 "GaussianSplatWorld.bake_hlod(): payload metadata changed during the bake.");
         publish();
     }
+        ++render_input_epoch;
+    }
     // Notifications must run after the original data lock has been released.
     notify_property_list_changed();
     emit_changed();
@@ -696,8 +1101,333 @@ Error GaussianSplatWorld::bake_hlod() {
 }
 
 bool GaussianSplatWorld::is_hlod_payload_current() const {
+    MutexLock lock(render_input_mutex);
     if (hlod_tree.is_empty() || gaussian_data.is_null()) {
         return true; // no tree, or a file-backed payload (immutable on disk)
     }
     return hlod_tree.leaf_payload_revision_valid && hlod_tree.leaf_payload_revision == gaussian_data->get_content_revision();
+}
+
+bool GaussianSplatWorld::is_hlod_runtime_snapshot_current(const GaussianSplatHlodRuntimeData &p_snapshot) const {
+    MutexLock world_lock(render_input_mutex);
+    if (p_snapshot.is_paged()) {
+        // The package is immutable (a replaced file fails its generation check on read), so a paged snapshot is
+        // current exactly while the world still holds the same epoch and the same open package.
+        return gaussian_data.is_null() && render_input_epoch == p_snapshot.source_epoch &&
+                hlod_paged_source == p_snapshot.paged_source && hlod_paged_source.is_valid();
+    }
+    if (render_input_epoch != p_snapshot.source_epoch || gaussian_data != p_snapshot.source_data ||
+            gaussian_data.is_null() || !hlod_tree.leaf_payload_revision_valid) {
+        return false;
+    }
+    RWLockRead data_lock(gaussian_data->data_rwlock);
+    return gaussian_data->get_content_revision() == p_snapshot.source_revision &&
+            hlod_tree.leaf_payload_revision == p_snapshot.source_revision &&
+            gaussian_data->animation_state_machine.is_null() && !gaussian_data->edit_state.has_runtime_modifications;
+}
+
+// Runtime geometry of one node from the tree alone (no payload): the precise cell centre, the float32 centres and the
+// enlarged runtime radius. Shared by the resident capture and the V4 paged capture, so both describe a node identically.
+// Returns a reason on failure, nullptr on success.
+static const char *hlod_fill_runtime_node_geometry(const GaussianSplatHlodTree &p_tree, const GaussianSplatHlodNode &node,
+        GaussianSplatHlodRuntimeData::Node &out) {
+    double center[3];
+    p_tree.node_cell_center(node, center);
+    if ((node.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u
+            ? !gs_world_frame::PreciseCoord::from_doubles(p_tree.origin, out.precise_center)
+            : !gs_world_frame::PreciseCoord::from_tree_cell_center(p_tree.origin, node.cell.e, node.cell.ix,
+                      node.cell.iy, node.cell.iz, out.precise_center)) {
+        return "hlod_precise_center_unrepresentable";
+    }
+    double bounds_center_shift_squared = 0.0;
+    for (int a = 0; a < 3; ++a) {
+        out.exact_cell_center[a] = center[a];
+        out.payload_center[a] = float(center[a]);
+        const double exact_bounds_center = center[a] + (double(node.aabb_min[a]) + node.aabb_max[a]) * 0.5;
+        out.bounds_center[a] = float(exact_bounds_center);
+        if (!Math::is_finite(out.payload_center[a]) || !Math::is_finite(out.bounds_center[a])) {
+            return "hlod_center_unrepresentable";
+        }
+        const double shift = exact_bounds_center - double(out.bounds_center[a]);
+        bounds_center_shift_squared += shift * shift;
+    }
+    // Moving the sphere center to float32 must never narrow coverage.
+    // Enlarge only this detached runtime bound by the center displacement,
+    // then round outwards; the baked tree and its format stay unchanged.
+    const double runtime_radius = double(node.radius) + std::sqrt(bounds_center_shift_squared);
+    out.topology.radius = std::nextafter(float(runtime_radius), std::numeric_limits<float>::infinity());
+    if (!std::isfinite(runtime_radius) || runtime_radius < 0.0 || !std::isfinite(out.topology.radius)) {
+        return "hlod_bounds_radius_unrepresentable";
+    }
+    return nullptr;
+}
+
+Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHlodPagedSource> &p_source,
+        Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const {
+    const uint64_t started = OS::get_singleton()->get_ticks_usec();
+    Ref<GaussianSplatHlodRuntimeData> next;
+    next.instantiate();
+    auto fail = [&](Error p_error, const char *p_reason) {
+        r_reason = p_reason;
+        return p_error;
+    };
+    uint64_t bytes = 0;
+    auto charge = [&](uint64_t p_count, uint64_t p_stride) {
+        uint64_t amount;
+        if (!gs_hlod_runtime::allocation_bytes(p_count, p_stride, amount) ||
+                amount > GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - bytes) {
+            return false;
+        }
+        bytes += amount;
+        return true;
+    };
+    MutexLock world_lock(render_input_mutex);
+    if (hlod_paged_source != p_source || p_source.is_null() || !p_source->is_open() || hlod_tree.nodes.is_empty() ||
+            !hlod_tree.instances.is_empty() || !hlod_tree.top_level_nodes.is_empty()) {
+        return fail(ERR_UNAVAILABLE, "hlod_requires_resident_complete_uninstanced_tree");
+    }
+    const GaussianSplatHlodPagedSource::Info &info = p_source->get_info();
+    const Vector<GaussianSplatHlodPagedSource::NodeRecord> &records = p_source->get_nodes();
+    const uint64_t total = uint64_t(info.leaf_splat_count) + info.interior_splat_count;
+    if (info.leaf_splat_count > GaussianSplatHlodRuntimeData::MAX_LEAVES || total > GaussianSplatHlodRuntimeData::MAX_PAYLOAD ||
+            hlod_tree.nodes.size() > GaussianSplatHlodRuntimeData::MAX_NODES) {
+        return fail(ERR_PARAMETER_RANGE_ERROR, "hlod_source_admission_limit");
+    }
+    if (uint32_t(hlod_tree.nodes.size()) != info.node_count || uint32_t(records.size()) != info.node_count ||
+            info.sh_high_order > 21 || info.sh_degree > 4) {
+        return fail(ERR_INVALID_DATA, "hlod_parent_extent_invalid");
+    }
+    // CPU admission of a paged snapshot: node tables only, plus the bounded on-demand working set (the streamer's
+    // default 16 jobs in flight, each holding one file record and its packed copy). No payload is charged.
+    if (!charge(hlod_tree.nodes.get_capacity(), sizeof(GaussianSplatHlodNode)) ||
+            !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
+            !charge(records.size(), sizeof(GaussianSplatHlodPagedSource::NodeRecord)) ||
+            !charge(16u, p_source->get_max_record_bytes() + uint64_t(gs_hlod::kMaxNodeSplats) * 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
+            !charge(uint64_t(GaussianSplatHlodRuntimeData::MAX_NODES) * 4, 64)) {
+        return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
+    }
+    next->source_world = Ref<Resource>(const_cast<GaussianSplatWorld *>(this));
+    next->paged_source = p_source;
+    next->source_data = Ref<GaussianData>();
+    next->source_epoch = render_input_epoch;
+    next->source_revision = info.content_generation;
+    next->leaf_count = info.leaf_splat_count;
+    next->parent_count = info.interior_splat_count;
+    next->high_order_count = info.sh_high_order;
+    next->sh_degree = info.sh_degree;
+    next->paged_sh_first_order = info.sh_first_order;
+    next->mode_2d = info.is_2d;
+    next->antialiased = false; // The world file format has no antialias flag; its payloads load as classic.
+    if (!gs_resize_or_fail(next->nodes, hlod_tree.nodes.size(), "HLOD runtime nodes")) {
+        return fail(ERR_OUT_OF_MEMORY, "hlod_parent_snapshot_failed");
+    }
+    for (int64_t i = 0; i < next->nodes.size(); ++i) {
+        GaussianSplatHlodRuntimeData::Node &out = next->nodes.write[i];
+        out.topology = hlod_tree.nodes[i];
+        if (const char *geometry_reason = hlod_fill_runtime_node_geometry(hlod_tree, hlod_tree.nodes[i], out)) {
+            return fail(ERR_INVALID_DATA, geometry_reason);
+        }
+        const GaussianSplatHlodNode &a = hlod_tree.nodes[i];
+        const GaussianSplatHlodNode &b = records[i].topology;
+        if (!(a.cell == b.cell) || a.payload_first != b.payload_first || a.payload_count != b.payload_count ||
+                a.parent != b.parent || a.first_child != b.first_child || a.child_count != b.child_count ||
+                a.flags != b.flags || a.radius != b.radius || a.aabb_min != b.aabb_min || a.aabb_max != b.aabb_max) {
+            return fail(ERR_INVALID_DATA, "hlod_paged_topology_differs_from_package");
+        }
+        const gs_world_paged::NodeMetrics &metrics = records[i].metrics;
+        if (!metrics.center_exact) {
+            return fail(ERR_UNAVAILABLE, "hlod_center_reconstruction_not_exact");
+        }
+        out.footprint = metrics.footprint;
+        out.dc_encoding = metrics.dc_encoding;
+        out.homogeneous_dc = metrics.homogeneous_dc;
+        if (!metrics.homogeneous_dc) {
+            next->quantized_eligible = false;
+        }
+    }
+    next->owner_key = get_instance_id();
+    next->owned_cpu_bytes = bytes;
+    next->preparation_usec = OS::get_singleton()->get_ticks_usec() - started;
+    r_reason = String();
+    r_snapshot = next;
+    return OK;
+}
+
+Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const {
+    {
+        Ref<GaussianSplatHlodPagedSource> paged;
+        {
+            MutexLock lock(render_input_mutex);
+            paged = hlod_paged_source;
+        }
+        if (paged.is_valid()) {
+            return _capture_hlod_paged_snapshot(paged, r_snapshot, r_reason);
+        }
+    }
+    const uint64_t started = OS::get_singleton()->get_ticks_usec();
+    Ref<GaussianSplatHlodRuntimeData> next;
+    next.instantiate();
+    auto fail = [&](Error p_error, const char *p_reason) {
+        r_reason = p_reason;
+        return p_error;
+    };
+    uint64_t bytes = 0;
+    auto charge = [&](uint64_t p_count, uint64_t p_stride) {
+        uint64_t amount;
+        if (!gs_hlod_runtime::allocation_bytes(p_count, p_stride, amount) ||
+                amount > GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - bytes) {
+            return false;
+        }
+        bytes += amount;
+        return true;
+    };
+    {
+        MutexLock world_lock(render_input_mutex);
+        if (gaussian_data.is_null() || hlod_tree.nodes.is_empty() || !hlod_tree.interior_resident ||
+                !hlod_tree.instances.is_empty() || !hlod_tree.top_level_nodes.is_empty()) {
+            return fail(ERR_UNAVAILABLE, "hlod_requires_resident_complete_uninstanced_tree");
+        }
+        const uint64_t total = uint64_t(hlod_tree.leaf_splat_count) + hlod_tree.interior_splat_count;
+        if (hlod_tree.leaf_splat_count > GaussianSplatHlodRuntimeData::MAX_LEAVES ||
+                total > GaussianSplatHlodRuntimeData::MAX_PAYLOAD ||
+                hlod_tree.nodes.size() > GaussianSplatHlodRuntimeData::MAX_NODES) {
+            return fail(ERR_PARAMETER_RANGE_ERROR, "hlod_source_admission_limit");
+        }
+        Error validation_error = OK;
+        String validation_reason;
+        if (!gs_hlod_validate_tree(hlod_tree, &validation_reason, &validation_error)) {
+            r_reason = "hlod_invalid_tree: " + validation_reason;
+            return validation_error;
+        }
+        next->source_data = gaussian_data;
+        next->source_epoch = render_input_epoch;
+        next->leaf_count = hlod_tree.leaf_splat_count;
+        next->parent_count = hlod_tree.interior_splat_count;
+        next->high_order_count = hlod_tree.sh_high_order_count;
+        if (next->high_order_count > 21 || hlod_tree.interior_gaussians.size() != next->parent_count ||
+                uint64_t(hlod_tree.interior_sh_high_order.size()) != uint64_t(next->parent_count) * next->high_order_count) {
+            return fail(ERR_INVALID_DATA, "hlod_parent_extent_invalid");
+        }
+        RWLockRead data_lock(gaussian_data->data_rwlock);
+        if (gaussian_data->get_count() != next->leaf_count || gaussian_data->get_sh_high_order_count() != next->high_order_count ||
+                gaussian_data->get_sh_degree() > 4 || gaussian_data->animation_state_machine.is_valid() ||
+                gaussian_data->edit_state.has_runtime_modifications) {
+            return fail(ERR_UNAVAILABLE, "hlod_payload_layout_or_deformation_unsupported");
+        }
+        // Retained source, detached snapshots, tree/chunk tables, four complete histories and
+        // conservative simultaneous raw+quantized packing scratch. All counts are bounded above.
+        if (!charge(gaussian_data->gaussians.get_capacity(), sizeof(Gaussian)) ||
+                !charge(gaussian_data->sh_high_order_coefficients.get_capacity(), sizeof(Vector3)) ||
+                !charge(total, sizeof(Gaussian)) || !charge(total * next->high_order_count, sizeof(Vector3)) ||
+                !charge(hlod_tree.nodes.get_capacity(), sizeof(GaussianSplatHlodNode)) ||
+                !charge(hlod_tree.interior_gaussians.get_capacity(), sizeof(Gaussian)) ||
+                !charge(hlod_tree.interior_sh_high_order.get_capacity(), sizeof(Vector3)) ||
+                !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
+                !charge(static_chunks.size(), sizeof(GaussianSplatRenderer::StaticChunk)) ||
+                !charge(total, 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
+                !charge(uint64_t(GaussianSplatHlodRuntimeData::MAX_NODES) * 4, 64)) {
+            return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
+        }
+        for (const GaussianSplatRenderer::StaticChunk &chunk : static_chunks) {
+            if (!charge(chunk.indices.size(), sizeof(uint32_t))) {
+                return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_chunk_limit");
+            }
+        }
+    }
+    // Never hold World while acquiring the potentially large detached GaussianData snapshot.
+    Error capture_error = next->source_data->capture_save_snapshot(next->leaves);
+    if (capture_error != OK) {
+        return fail(capture_error, "hlod_leaf_snapshot_failed");
+    }
+    next->source_revision = next->leaves.get_content_revision();
+    next->sh_degree = next->leaves.get_sh_degree();
+    next->mode_2d = next->leaves.get_2d_mode();
+    next->antialiased = next->leaves.get_antialiased();
+    {
+        MutexLock world_lock(render_input_mutex);
+        {
+            RWLockRead data_lock(next->source_data->data_rwlock);
+            if (render_input_epoch != next->source_epoch || gaussian_data != next->source_data ||
+                    next->source_data->get_content_revision() != next->source_revision ||
+                    !hlod_tree.leaf_payload_revision_valid || hlod_tree.leaf_payload_revision != next->source_revision ||
+                    next->source_data->animation_state_machine.is_valid() || next->source_data->edit_state.has_runtime_modifications) {
+                return fail(ERR_BUSY, "hlod_source_changed_during_capture");
+            }
+        }
+        if (!gs_resize_or_fail(next->nodes, hlod_tree.nodes.size(), "HLOD runtime nodes") ||
+                !gs_resize_or_fail(next->parents, next->parent_count, "HLOD runtime parents") ||
+                !gs_resize_or_fail(next->parent_sh, uint64_t(next->parent_count) * next->high_order_count, "HLOD runtime parent SH")) {
+            return fail(ERR_OUT_OF_MEMORY, "hlod_parent_snapshot_failed");
+        }
+        for (uint32_t i = 0; i < next->parent_count; ++i) {
+            next->parents.write[i] = hlod_tree.interior_gaussians[i];
+        }
+        for (int64_t i = 0; i < next->parent_sh.size(); ++i) {
+            next->parent_sh.write[i] = hlod_tree.interior_sh_high_order[i];
+        }
+        for (int64_t i = 0; i < next->nodes.size(); ++i) {
+            GaussianSplatHlodRuntimeData::Node &out = next->nodes.write[i];
+            out.topology = hlod_tree.nodes[i];
+            const GaussianSplatHlodNode &node = out.topology;
+            const uint64_t total = uint64_t(next->leaf_count) + next->parent_count;
+            if (node.payload_first > total || node.payload_count > total - node.payload_first ||
+                    node.payload_count == 0 || node.first_child > uint32_t(next->nodes.size()) ||
+                    node.child_count > uint32_t(next->nodes.size()) - node.first_child) {
+                return fail(ERR_INVALID_DATA, "hlod_node_range_invalid");
+            }
+            if (const char *geometry_reason = hlod_fill_runtime_node_geometry(hlod_tree, node, out)) {
+                return fail(ERR_INVALID_DATA, geometry_reason);
+            }
+            double center[3];
+            hlod_tree.node_cell_center(node, center);
+            for (uint32_t j = 0; j < node.payload_count; ++j) {
+                const uint64_t index = node.payload_first + j;
+                const Gaussian &g = next->gaussian(index);
+                for (int a = 0; a < 3; ++a) {
+                    const float canonical = index < next->leaf_count ? float(g.position[a]) : float(center[a] + double(g.position[a]));
+                    const float relative = index < next->leaf_count ? float(double(g.position[a]) - center[a]) : float(g.position[a]);
+                    const float reconstructed = float(float(out.payload_center[a]) + relative);
+                    if (!Math::is_finite(canonical) || !Math::is_finite(relative) || reconstructed != canonical) {
+                        return fail(ERR_UNAVAILABLE, "hlod_center_reconstruction_not_exact");
+                    }
+                }
+                double scales[3] = { double(g.scale.x), double(g.scale.y), double(g.scale.z) };
+                for (double scale : scales) {
+                    if (!Math::is_finite(scale) || scale < 0.0) {
+                        return fail(ERR_INVALID_DATA, "hlod_footprint_scale_invalid");
+                    }
+                }
+                std::sort(scales, scales + 3);
+                out.footprint += 36.0 * scales[1] * scales[2];
+                if (!Math::is_finite(out.footprint)) {
+                    return fail(ERR_INVALID_DATA, "hlod_footprint_overflow");
+                }
+                const uint32_t dc = uint32_t(gaussian_get_dc_encoding(g.render_meta));
+                if (j == 0) {
+                    out.dc_encoding = dc;
+                } else if (dc != out.dc_encoding) {
+                    out.homogeneous_dc = false;
+                    next->quantized_eligible = false;
+                }
+            }
+        }
+    }
+    next->source_world = Ref<Resource>(const_cast<GaussianSplatWorld *>(this));
+    next->owner_key = get_instance_id();
+    next->owned_cpu_bytes = bytes;
+    next->preparation_usec = OS::get_singleton()->get_ticks_usec() - started;
+    r_reason = String();
+    r_snapshot = next;
+    return OK;
+}
+
+uint64_t GaussianSplatWorld::capture_render_input(Ref<GaussianData> &r_data, Ref<ChunkPayloadSource> &r_source,
+        Vector<GaussianSplatRenderer::StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const {
+    MutexLock lock(render_input_mutex);
+    r_data = gaussian_data;
+    r_source = chunk_payload_source;
+    r_chunks = static_chunks;
+    r_bounds = bounds;
+    r_metadata = metadata.duplicate(true);
+    return render_input_epoch;
 }
