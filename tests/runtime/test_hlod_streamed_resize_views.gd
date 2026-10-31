@@ -8,6 +8,8 @@ const GsRuntimeReport := preload("gs_runtime_report.gd")
 const SCENARIO := "Streamed HLOD Resize Views"
 const TIMEOUT_MSEC := 150_000
 const STARTUP_MSEC := 40_000
+# Test hook for the deadline discrimination proof: `-- --startup-msec=N` overrides STARTUP_MSEC.
+const STARTUP_MSEC_ARG := "--startup-msec="
 const MAIN := Vector2i(320, 180)
 const SPLATS := 120000
 
@@ -187,15 +189,28 @@ func _run() -> void:
 
 	# Startup: wait until the streamed route draws at the startup size.
 	var drawn := 0
-	var startup_deadline := Time.get_ticks_msec() + STARTUP_MSEC
+	var startup_msec := STARTUP_MSEC
+	for arg in OS.get_cmdline_user_args():
+		if str(arg).begins_with(STARTUP_MSEC_ARG):
+			startup_msec = int(str(arg).substr(STARTUP_MSEC_ARG.length()))
+	var startup_begin := Time.get_ticks_msec()
+	var startup_deadline := startup_begin + startup_msec
+	var startup_expired := false
 	while drawn < 5 and Time.get_ticks_msec() < startup_deadline:
+		_metrics["startup_last_entry_msec"] = Time.get_ticks_msec() - startup_begin
 		await RenderingServer.frame_post_draw
 		_renderer = _node.get_renderer()
 		if _renderer == null:
 			continue
 		var row: Dictionary = await _frame()
+		# The deadline must bind the pass: a sample that finished past it is not startup evidence, however
+		# early its iteration began (tests/AGENTS.md, PR #881).
+		if Time.get_ticks_msec() >= startup_deadline:
+			startup_expired = true
+			break
 		drawn = drawn + 1 if (bool(row["active"]) and int(row["lit"]) > 0) else 0
 		_metrics["startup_reason"] = row["reason"]
+	_metrics["startup_elapsed_msec"] = Time.get_ticks_msec() - startup_begin
 	if drawn < 5 and _renderer != null:
 		var diag := {}
 		for key in _renderer.get_render_stats():
@@ -207,6 +222,8 @@ func _run() -> void:
 			diag[key] = all_stats.get(key, "missing")
 		diag["rendered_content"] = _renderer.has_rendered_content()
 		diag["engine_frames"] = Engine.get_frames_drawn()
+	if not _check(not startup_expired, "Startup deadline (%d ms) expired while awaiting the readiness sample (%d lit samples counted)" % [startup_msec, drawn]):
+		return
 	if not _check(drawn >= 5, "Streamed route did not draw at the startup size (last reason %s)" % _metrics.get("startup_reason", "")):
 		return
 	var rows: Array = await _run_frames(8, 0)
