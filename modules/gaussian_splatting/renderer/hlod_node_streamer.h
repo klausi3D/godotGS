@@ -24,6 +24,8 @@
 #include "hlod_node_pack.h"
 #include "servers/rendering/rendering_device.h"
 
+#include <atomic>
+
 class HlodNodeStreamer : public RefCounted {
 public:
 	struct Config {
@@ -35,6 +37,12 @@ public:
 		uint32_t scale_bits = 0;
 		uint64_t upload_bytes_per_frame = 32ull * 1024 * 1024;
 		uint32_t max_jobs_in_flight = 16;
+		// Package E1 (V4 paged source): the CPU working set of payload reads. A job is started only while the reserved
+		// bytes (file record + packed copy) of all reads in flight plus its own stay within this cap (one read is always
+		// allowed, so a record larger than the cap still loads, alone). It bounds the memory of reads in flight. Packed
+		// payloads waiting for the per-frame upload budget (the `ready` queue) are OUTSIDE this cap and are measured
+		// separately (payload_ready_bytes_peak).
+		uint64_t max_inflight_read_bytes = 8ull * 1024 * 1024;
 		uint32_t retire_delay_frames = 3;
 	};
 	struct Buffers {
@@ -70,6 +78,18 @@ public:
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
 		uint32_t blocked_groups_this_frame = 0;
 		uint32_t fragmented_groups_this_frame = 0;
+		// Package E1 (V4 paged source only; all 0 for a resident snapshot): node payloads read from the file.
+		uint64_t payload_reads_total = 0;
+		uint64_t payload_bytes_read_total = 0;
+		uint64_t payload_read_failures_total = 0;
+		uint32_t payload_reads_in_flight = 0;
+		// Peak sum of the working sets (file record + packed copy) of reads running at the same moment: the CPU payload
+		// working set. Bounded by Config::max_inflight_read_bytes (or one record, if one alone is larger), whatever
+		// the tree size.
+		uint64_t payload_in_flight_bytes_peak = 0;
+		uint64_t payload_largest_read_bytes = 0;
+		// Peak bytes of packed payloads held on the CPU after their read, waiting for the per-frame upload budget.
+		uint64_t payload_ready_bytes_peak = 0;
 	};
 
 	~HlodNodeStreamer();
@@ -106,6 +126,38 @@ public:
 	uint64_t record_stride() const { return cfg.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian); }
 
 private:
+	// Counters the worker jobs update (atomics, co-owned like the mailbox so a late job never touches freed memory).
+	class ReadStats : public RefCounted {
+	public:
+		std::atomic<uint64_t> reads{ 0 };
+		std::atomic<uint64_t> bytes{ 0 };
+		std::atomic<uint64_t> failures{ 0 };
+		std::atomic<uint32_t> in_flight{ 0 };
+		std::atomic<uint64_t> in_flight_bytes{ 0 };
+		std::atomic<uint64_t> in_flight_bytes_peak{ 0 };
+		std::atomic<uint64_t> largest{ 0 };
+		// `p_reserved` is the job's whole CPU working set while it runs: the file record plus the packed copy.
+		void begin_read(uint64_t p_reserved) {
+			in_flight.fetch_add(1);
+			const uint64_t now = in_flight_bytes.fetch_add(p_reserved) + p_reserved;
+			uint64_t peak = in_flight_bytes_peak.load();
+			while (now > peak && !in_flight_bytes_peak.compare_exchange_weak(peak, now)) {
+			}
+		}
+		void end_read(uint64_t p_reserved, uint64_t p_file_bytes, bool p_ok) {
+			in_flight_bytes.fetch_sub(p_reserved);
+			in_flight.fetch_sub(1);
+			if (p_ok) {
+				reads.fetch_add(1);
+				bytes.fetch_add(p_file_bytes);
+				uint64_t seen = largest.load();
+				while (p_file_bytes > seen && !largest.compare_exchange_weak(seen, p_file_bytes)) {
+				}
+			} else {
+				failures.fetch_add(1);
+			}
+		}
+	};
 	struct PackResult {
 		gs_hlod_runtime::NodeResidency::Ticket ticket;
 		bool ok = false;
@@ -125,6 +177,10 @@ private:
 		gs_hlod_pack::Params params;
 		uint32_t atlas_base = 0;
 		Ref<Mailbox> mailbox;
+		Ref<ReadStats> stats;
+		uint64_t read_bytes = 0; // The record's stored bytes (paged source only).
+		uint64_t reserved_bytes = 0; // Record + packed copy, reserved against max_inflight_read_bytes at start.
+		bool counted = false; // begin_read() was called for this job, so end_read() must be.
 	};
 
 	static void run_job(void *p_userdata);
@@ -140,6 +196,7 @@ private:
 	Ref<GaussianSplatHlodRuntimeData> data;
 	gs_hlod_runtime::NodeResidency residency;
 	Ref<Mailbox> mailbox;
+	Ref<ReadStats> read_stats;
 	LocalVector<WorkerThreadPool::TaskID> tasks;
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> pending; // Requested, job not started.
 	LocalVector<PackResult> ready; // Packed, waiting for the per-frame upload budget (still LOADING).

@@ -31,9 +31,19 @@ struct Output {
 	SHCompressionMetrics *metrics = nullptr;
 };
 
-// Returns false for an out-of-range node or a missing output pointer; nothing is written then.
+// A node's splats read outside the snapshot (package E1: from a V4 paged package). `gaussians` holds exactly
+// payload_count entries in the snapshot's convention (leaf positions absolute float32, interior node-relative),
+// `sh` payload_count * high_order_count entries (null when there are none).
+struct PayloadView {
+	const Gaussian *gaussians = nullptr;
+	const Vector3 *sh = nullptr;
+};
+
+// Returns false for an out-of-range node or a missing output pointer; nothing is written then. A paged snapshot
+// (p_data.is_paged()) holds no payload, so it requires `p_view`; for a resident snapshot `p_view` may be null
+// (the snapshot's own payload is read) and, when given, replaces it.
 bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, const Params &p_params,
-		uint32_t p_atlas_base, const Output &p_out);
+		uint32_t p_atlas_base, const Output &p_out, const PayloadView *p_view = nullptr);
 
 } // namespace gs_hlod_pack
 

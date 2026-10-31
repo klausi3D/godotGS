@@ -1243,6 +1243,96 @@ Preparation reports peak RAM, scratch disk, bytes read/written and elapsed time;
 whole-world `GaussianData` materialization is a failure. Existing canonical imports retain
 their behavior; the optimized prepared-package workflow is explicit.
 
+#### 14.4.1 Package E1: implemented V4 slice (version 4 is free; byte layout)
+
+Status: the first slice of package E is implemented; the rest of §14.4 is not (see "Not in E1"). The version number 4
+was free (`gs_world_format::select_header` refuses it, so no v1-v3 reader can mistake a V4 file for its own). V4 is
+written only by the explicit `GaussianSplatWorld.save_hlod_paged()`; saving, importing and baking keep writing v3.
+
+All integers little endian, every offset a checked unsigned 64-bit quantity, every region 4096-byte aligned and laid out
+back to back: header page, index pages, payload records, optional metadata. Reader code: `io/gaussian_splat_world_paged.*`.
+
+| Region | Bytes | Content |
+| --- | --- | --- |
+| Header | 4096 | magic `GSPW`, version 4, flags (2D, metadata), page/index geometry constants, Gaussian struct layout version, leaf/interior/node counts, SH degree and counts, bake rule, lattice origin, bounds, region extents, declared file length, `content_generation`, SHA-256 of the whole index, SHA-256 of the metadata, SHA-256 of the header itself. All unused bytes must be zero. |
+| Index page | 65536 each | 64-byte page header (magic `GSPI`, page, first node, node count, SHA-256 of its own entries) + 255 node records of 256 bytes. The unused tail must be zero. |
+| Node record | 256 | v3 topology (cell, flags, bounds, errors, parent/child links, payload range) + footprint (f64), DC encoding, homogeneous-DC and centre-exact flags, payload record offset / stored size / page-rounded size, SHA-256 of the payload record. Reserved words must be zero. |
+| Payload record | page aligned | 64-byte header (magic `GSNP`, node, count, SH high-order count, byte sizes, `content_generation`, payload range, struct layout) + `count * 144` Gaussian bytes + `count * high_order * 12` SH bytes. Positions are node-relative exactly like the v3 gaussian section. |
+| Metadata | optional | UTF-8 JSON dictionary (same acceptance rule as v3). |
+
+Contracts implemented:
+
+- **Fail closed, distinct reasons.** Open validates the header (magic, version, digest, geometry, ranges, declared vs
+  actual length: `v4_truncated_file`, `v4_trailing_bytes`), every index page (identity, digest, zero tail), the index
+  digest, the whole topology with the same `gs_hlod_validate_tree` the v2/v3 loader runs, and the strict sequential
+  layout of the payload records. Counts and extents are range checked with overflow-safe arithmetic before anything is
+  allocated or read. A hash never replaces a semantic check: a re-sealed file with a bad parent link, a non-finite
+  position or a footprint that disagrees with its payload is refused by the semantic rule (tests re-seal on purpose).
+- **Bounded reads.** A node payload is exactly one record of at most `64 + 16384 * (144 + 12 * 21)` bytes, read by one
+  `read_node_payload()` call that opens its own handle (thread safe). The node streamer additionally caps the CPU working
+  set of reads in flight (`Config::max_inflight_read_bytes`, default 8 MiB, one read always allowed): the cap, not the
+  tree, bounds payload memory.
+- **Versioning / replacement.** Every payload record carries the header's `content_generation`; a read also checks the
+  file length. A file replaced on disk under an open package is refused (`v4_file_changed_length`,
+  `v4_content_generation_mismatch`) instead of mixing versions.
+- **Cancellation and late completion** reuse D1's tickets and generations unchanged: a read is started only for a still
+  pending ticket, a result of a cancelled, unloaded or other-device ticket is dropped at the upload gate, and
+  `shutdown()` waits for the reads in flight. A failed read fails that node (D1's FAILED/retry/permanent states), never
+  publishes a partial payload, and never affects another node.
+- **Metrics move to the index.** Footprint, DC encoding, homogeneity and the exact-reconstruction check were the reason
+  the D1 runtime snapshot scanned (and held) the whole payload. A paged snapshot takes them from the index and holds no
+  payload; each read re-derives them from the bytes and compares (`v4_payload_metrics_mismatch`).
+
+- **First frame, any camera.** A paged world has no canonical payload, so nothing draws while the HLOD route waits for what
+  every other world gets from its first composited canonical frame (tile output targets and overlap storage, the
+  compositor scratch ledger, the sort capacity). They are provisioned explicitly, without drawing
+  (`TileRenderer::provision_hlod_route`, `OutputCompositor::ensure_hlod_scratch`, sorter sized from the known leaf count),
+  so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
+  canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
+  point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
+  After the first seed the tile grid has one provisioner for paged and streamed worlds: the per-view block of
+  `prepare_hlod_frame` (`hlod_view_grid_action`, from the D1 resize fix), which runs after the growth, so it reads the grown
+  overlap capacity. `provision_paged_hlod_route` keeps only the compositor scratch and that first seed. The first seed is
+  priced like the per-view one (the same clamp, bytes per record and `hlod_view_grid_action` decision against the route's
+  ledger headroom) and refused before anything is allocated (`hlod_paged_overlap_seed_memory_limit`): unpriced, a tree of
+  millions of leaves would seed GBs past the limit and then be refused (`route_memory_limit`) on every frame. Because the
+  growth runs first and spends the headroom first, overlap growth outranks enlarging a view: a view that no longer fits
+  after a growth is refused (`hlod_view_size_memory_limit`) rather than the growth being held back.
+- **Frame scratch covers the streamed atlas.** The per-splat frame scratch (subpixel history, SH colour cache, the
+  16-bit packed-stage gate) is indexed by atlas record, so its admission (`prepare_hlod_scratch`) is sized from the
+  atlas the relative bundle holds (`ResidentAtlasBudget::hlod_relative_atlas_records`) and the history from the larger
+  of that and the cut capacity, as the frame does. A paged world always streams, and every node rounds up to whole
+  pages: once the atlas budget reaches the tree's node pages the atlas holds more records than the tree has splats.
+  Holzbank has 287737 splats in 302 node pages: with 176 B records a 50 MiB override admits 290 pages = 296960 records
+  (48 MiB stays below); with quantized 160 B records the tree is exceeded from 44 MiB on (281 pages = 287744 records).
+  Sizing from the tree refused every such frame and drew black while the reason still said `active`.
+- **The page budget reserves that scratch.** The scratch is admitted from the same device ledger headroom as the atlas
+  pages, after them. `hlod_stream_page_budget` therefore reserves it (`TileRenderer::get_hlod_scratch_reservation`:
+  projection, visibility and history floor for the cut capacity plus 9 B per atlas record), so a ledger-bound budget
+  can no longer spend the headroom the scratch admission needs and leave the world drawing nothing for good.
+- **A refused frame is not active.** The publisher marks a frame active before the tile stage runs. When the tile stage
+  refuses it (scratch or layout differs from its admission) the frame reports `hlod_tile_stage_refused:<cause>`
+  (`projection_layout`, `bounds_mode`, `sh_mode`, `sh_cache_capacity`, `history_capacity`, `visibility_capacity`,
+  `tile_render_failed`), `hlod_active` false, is not counted as a ready or first-ready streamed frame, and counts in
+  `hlod_tile_stage_refused_frames`.
+- **Ledgers track live bytes.** The tile renderer's texture ledger and the compositor's scratch ledger record each texture
+  under its RID and subtract it when the device no longer holds it (reconciled whenever the ledger is read; an empty
+  ledger is re-based, which also clears an invalid state after a device change), so viewport resizes do not accumulate
+  toward the route's byte limit. The device retires freed memory lazily, so the ledger can undercount for a frame or two.
+- **Fallback.** Where the HLOD route can never serve the setup (runtime cut disabled, LOD off, wind/sphere effectors,
+  painterly, shadow filter, non-identity transform) and the world node can see it at submission,
+  `GaussianSplatWorld::materialize_paged_resident` reads every node (each validated like a streamer read), builds the
+  resident GaussianData and tree a v3 load produces, and the ordinary resident route takes over. That costs the memory of a
+  v3 load of the same world. Changes made after submission, orthographic/XR views and multi-instance sharing are not
+  covered: they draw nothing and say why (`hlod_paged_*` keys; the per-view key `unsupported_view_or_material` keeps its D1
+  meaning).
+
+Not in E1 (deferred): lazy loading of index pages and a bounded bootstrap directory (E1 reads the whole index at open, at
+most 256 B per node, then validates it); early coarse startup; out-of-core preparation (the converter needs the resident
+world); leaf ranges; instanced trees; editor import of V4 (the importer refuses version 4, load the file directly); a
+sort/tile scratch that no longer scales with the whole tree (GPU memory is unchanged by E1); physical 100 km / 200M
+acceptance (§15.3 step 3).
+
 ### 14.5 Persistent edits in a reserved active area
 
 The first mutable scope is discrete game edits within a prepared near area, with an

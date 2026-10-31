@@ -885,7 +885,9 @@ bool GaussianSplatSceneDirector::SubmissionStore::record_has_renderable_payload(
 	const bool has_file_backed_payload = p_record.payload_source.is_valid() &&
 			p_record.payload_source->is_valid() &&
 			p_record.payload_source->get_count() > 0;
-	return has_resident_data || has_file_backed_payload;
+	// Package E1: a V4 paged HLOD world has neither; its runtime snapshot is the renderable payload.
+	const bool has_paged_hlod = p_record.hlod_snapshot.is_valid() && p_record.hlod_snapshot->is_paged();
+	return has_resident_data || has_file_backed_payload || has_paged_hlod;
 }
 
 void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld &p_world,

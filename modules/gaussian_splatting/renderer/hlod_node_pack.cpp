@@ -3,9 +3,10 @@
 namespace gs_hlod_pack {
 
 bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, const Params &p_params,
-		uint32_t p_atlas_base, const Output &p_out) {
+		uint32_t p_atlas_base, const Output &p_out, const PayloadView *p_view) {
 	if (p_node >= uint32_t(p_data.nodes.size()) || !p_out.meta || !p_out.metrics ||
-			(p_params.quantized ? (!p_out.quantized || !p_out.quant) : !p_out.raw)) {
+			(p_params.quantized ? (!p_out.quantized || !p_out.quant) : !p_out.raw) ||
+			(p_data.is_paged() && (!p_view || !p_view->gaussians || (p_data.high_order_count != 0 && !p_view->sh)))) {
 		return false;
 	}
 	const auto &node = p_data.nodes[p_node];
@@ -26,9 +27,20 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 	meta.node_center_x = p_params.relative ? node.payload_center.x : 0.0f;
 	meta.node_center_y = p_params.relative ? node.payload_center.y : 0.0f;
 	meta.node_center_z = p_params.relative ? node.payload_center.z : 0.0f;
-	auto local_gaussian = [&](uint32_t p_index) {
-		Gaussian g = p_data.gaussian(p_index);
-		if (p_params.relative && p_index < p_data.leaf_count) {
+	// i is the index inside the node; the snapshot index (leaf then interior order) is first + i.
+	auto source_gaussian = [&](uint32_t i) -> const Gaussian & {
+		return p_view ? p_view->gaussians[i] : p_data.gaussian(first + i);
+	};
+	auto source_sh = [&](uint32_t i) -> const Vector3 * {
+		if (p_data.high_order_count == 0) {
+			return nullptr;
+		}
+		return p_view ? p_view->sh + uint64_t(i) * p_data.high_order_count : p_data.sh(first + i);
+	};
+	const bool leaf_payload = first < p_data.leaf_count;
+	auto local_gaussian = [&](uint32_t i) {
+		Gaussian g = source_gaussian(i);
+		if (p_params.relative && leaf_payload) {
 			for (int a = 0; a < 3; ++a) {
 				g.position[a] = float(double(g.position[a]) - node.exact_cell_center[a]);
 			}
@@ -42,11 +54,11 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 		quant.position_bits = p_params.position_bits;
 		quant.scale_bits = p_params.scale_bits;
 		quant.scales_quantized = true;
-		const Gaussian first_g = local_gaussian(first);
+		const Gaussian first_g = local_gaussian(0);
 		quant.position_min = quant.position_max = first_g.position;
 		quant.scale_min = quant.scale_max = first_g.scale;
 		for (uint32_t i = 1; i < count; ++i) {
-			const Gaussian g = local_gaussian(first + i);
+			const Gaussian g = local_gaussian(i);
 			quant.position_min = quant.position_min.min(g.position);
 			quant.position_max = quant.position_max.max(g.position);
 			quant.scale_min = quant.scale_min.min(g.scale);
@@ -68,14 +80,13 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 		gpu.count = count;
 	}
 	for (uint32_t i = 0; i < count; ++i) {
-		const uint32_t index = first + i;
-		const Gaussian g = local_gaussian(index);
+		const Gaussian g = local_gaussian(i);
 		if (p_params.quantized) {
-			pack_gaussian_quantized(g, quant, uint16_t(p_node), p_out.quantized[i], *p_out.metrics, p_data.sh(index),
-					p_data.leaves.get_sh_first_order_count(), p_data.high_order_count);
+			pack_gaussian_quantized(g, quant, uint16_t(p_node), p_out.quantized[i], *p_out.metrics, source_sh(i),
+					p_data.sh_first_order_count(), p_data.high_order_count);
 		} else {
-			pack_gaussian(g, p_out.raw[i], *p_out.metrics, p_data.sh(index),
-					p_data.leaves.get_sh_first_order_count(), p_data.high_order_count);
+			pack_gaussian(g, p_out.raw[i], *p_out.metrics, source_sh(i),
+					p_data.sh_first_order_count(), p_data.high_order_count);
 		}
 	}
 	return true;

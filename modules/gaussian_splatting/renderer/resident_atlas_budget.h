@@ -102,17 +102,33 @@ inline bool hlod_should_stream(uint64_t whole_atlas_bytes, uint64_t atlas_limit_
 // Pages a streamed HLOD atlas may hold. `fixed_bundle_bytes` is the relative bundle without its atlas records.
 // The result is clamped by the atlas cap, the tree itself, the HLOD-owned cap and the device ledger headroom
 // (the same limits hlod_candidate_fits applies); 0 means not even one page is admissible.
+// The ledger headroom must also hold the frame scratch the route allocates before its first frame
+// (TileRenderer::prepare_hlod_scratch): `scratch_fixed_bytes` plus `scratch_bytes_per_record` per atlas record. A page
+// budget that left less than that would be refused by the scratch admission on every frame and draw nothing for good.
+// The scratch is device memory, not HLOD-owned bundle bytes and not atlas bytes, so only the ledger term reserves it.
 inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t record_stride, uint32_t page_splats,
         uint64_t total_node_pages, uint64_t fixed_bundle_bytes, uint64_t hlod_owned_cap_bytes,
-        uint64_t ledger_limit_bytes, uint64_t device_bytes) {
+        uint64_t ledger_limit_bytes, uint64_t device_bytes, uint64_t scratch_fixed_bytes, uint64_t scratch_bytes_per_record) {
     if (record_stride == 0 || page_splats == 0) { return 0; }
     const uint64_t page_bytes = record_stride * page_splats;
+    const uint64_t page_ledger_bytes = page_bytes + scratch_bytes_per_record * page_splats;
     if (fixed_bundle_bytes >= hlod_owned_cap_bytes || device_bytes > ledger_limit_bytes ||
-            ledger_limit_bytes - device_bytes <= fixed_bundle_bytes) { return 0; }
+            ledger_limit_bytes - device_bytes <= fixed_bundle_bytes ||
+            ledger_limit_bytes - device_bytes - fixed_bundle_bytes <= scratch_fixed_bytes) { return 0; }
     uint64_t pages = MIN(atlas_limit_bytes / page_bytes, total_node_pages);
     pages = MIN(pages, (hlod_owned_cap_bytes - fixed_bundle_bytes) / page_bytes);
-    pages = MIN(pages, (ledger_limit_bytes - device_bytes - fixed_bundle_bytes) / page_bytes);
+    pages = MIN(pages, (ledger_limit_bytes - device_bytes - fixed_bundle_bytes - scratch_fixed_bytes) / page_ledger_bytes);
     return pages;
+}
+
+// Records the relative HLOD atlas holds. The tile frame indexes its per-splat scratch (subpixel history, SH colour
+// cache, the 16-bit packed-stage index gate) by atlas record, so HLOD scratch admission must cover exactly this.
+// A resident atlas holds the tree (leaf + parent splats). A streamed atlas holds whole pages and every node rounds
+// up to its own pages, so once the budget reaches the tree's node pages it holds MORE records than the tree has
+// splats: sizing the scratch from the tree then refuses every frame (a black frame), see ADR 14.4.1.
+inline uint32_t hlod_relative_atlas_records(bool streaming, uint32_t stream_atlas_records, uint32_t leaf_count,
+        uint32_t parent_count) {
+    return streaming ? stream_atlas_records : leaf_count + parent_count;
 }
 
 struct SubsetPlan {

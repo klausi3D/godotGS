@@ -720,11 +720,13 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 	const bool has_file_backed_payload =
 			p_snapshot.payload_source.is_valid() && p_snapshot.payload_source->is_valid() &&
 			p_snapshot.payload_source->get_count() > 0;
-	const bool has_renderable_data = has_resident_data || has_file_backed_payload;
+	// Package E1: a V4 paged HLOD world carries no resident or chunk-source payload; its snapshot is the data.
+	const bool has_paged_hlod = p_snapshot.hlod_snapshot.is_valid() && p_snapshot.hlod_snapshot->is_paged();
+	const bool has_renderable_data = has_resident_data || has_file_backed_payload || has_paged_hlod;
 	const bool has_active_world_submission = p_snapshot.has_active_world_submission && has_renderable_data;
 	const bool has_residency_hint = has_active_world_submission && p_snapshot.has_desired_residency_hint;
 
-	if (p_snapshot.gaussian_data.is_valid() || has_file_backed_payload) {
+	if (p_snapshot.gaussian_data.is_valid() || has_file_backed_payload || has_paged_hlod) {
 		const auto &resource_state = get_resource_state();
 		if (!resource_state.gpu_resources_initialized && !resource_state.gpu_initialization_pending) {
 			initialize();
@@ -799,14 +801,16 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	const bool has_file_backed_payload =
 			p_contract.payload_source.is_valid() && p_contract.payload_source->is_valid() &&
 			p_contract.payload_source->get_count() > 0;
-	const bool has_renderable_data = has_resident_data || has_file_backed_payload;
+	// Package E1: a V4 paged HLOD world carries no resident or chunk-source payload; its snapshot is the data.
+	const bool has_paged_hlod = p_contract.hlod_snapshot.is_valid() && p_contract.hlod_snapshot->is_paged();
+	const bool has_renderable_data = has_resident_data || has_file_backed_payload || has_paged_hlod;
 
 	if (p_contract.gaussian_data.is_valid()) {
 		const auto &resource_state = get_resource_state();
 		if (!resource_state.gpu_resources_initialized && !resource_state.gpu_initialization_pending) {
 			initialize();
 		}
-	} else if (has_file_backed_payload) {
+	} else if (has_file_backed_payload || has_paged_hlod) {
 		const auto &resource_state = get_resource_state();
 		if (!resource_state.gpu_resources_initialized && !resource_state.gpu_initialization_pending) {
 			initialize();

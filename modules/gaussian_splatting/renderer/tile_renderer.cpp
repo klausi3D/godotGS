@@ -537,6 +537,7 @@ private:
 		}
 		bool packed_stage_changed = (renderer.render_settings.enable_packed_stage_data != packed_stage_requested);
 		if (params.hlod_relative && packed_stage_changed) {
+			renderer.last_hlod_refusal = "projection_layout";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD projection layout differs from its admitted scratch layout.");
 			return false;
 		}
@@ -545,6 +546,7 @@ private:
 		bool tighter_bounds_requested = params.request_tighter_bounds;
 		bool tighter_bounds_changed = (renderer.render_settings.enable_tighter_bounds != tighter_bounds_requested);
 		if (params.hlod_relative && tighter_bounds_changed) {
+			renderer.last_hlod_refusal = "bounds_mode";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD bounds mode differs from its admitted scratch mode.");
 			return false;
 		}
@@ -569,6 +571,7 @@ private:
 		}
 		if (params.hlod_relative && (renderer.render_settings.enable_sh_amortization != sh_amortization_requested ||
 				renderer.render_settings.sh_amortization_divisor != sh_divisor)) {
+			renderer.last_hlod_refusal = "sh_mode";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD SH mode differs from its admitted scratch mode.");
 			return false;
 		}
@@ -577,6 +580,7 @@ private:
 			if (params.hlod_relative) {
 				if (!renderer.sh_cache_buffers.sh_color_cache.is_valid() ||
 						renderer.sh_cache_buffers.sh_color_cache_size < uint64_t(resolved_total_gaussians) * sizeof(uint32_t)) {
+					renderer.last_hlod_refusal = "sh_cache_capacity";
 					ERR_PRINT_ONCE("[TileRenderer] HLOD SH cache differs from its admitted scratch capacity.");
 					return false;
 				}
@@ -605,6 +609,7 @@ private:
 			if (!params.hlod_relative) {
 				renderer.subpixel_history_buffers.ensure_history_buffer(subpixel_history_entries);
 			} else if (renderer.subpixel_history_buffers.subpixel_history_size < uint64_t(subpixel_history_entries) * sizeof(uint32_t)) {
+				renderer.last_hlod_refusal = "history_capacity";
 				ERR_PRINT_ONCE("[TileRenderer] HLOD history exceeds its admitted scratch capacity.");
 				return false;
 			}
@@ -686,6 +691,7 @@ private:
 		if (!params.hlod_relative) {
 			renderer.subpixel_visibility_buffers.ensure_visibility_buffer(effective_visible_splats);
 		} else if (renderer.subpixel_visibility_buffers.subpixel_visibility_size < uint64_t(MAX(effective_visible_splats, 1u)) * sizeof(uint32_t)) {
+			renderer.last_hlod_refusal = "visibility_capacity";
 			ERR_PRINT_ONCE("[TileRenderer] HLOD visibility exceeds its admitted scratch capacity.");
 			return false;
 		}
@@ -3073,6 +3079,7 @@ RID TileRenderer::render(RenderingDevice *p_rendering_device, const RenderParams
     RenderingDevice *resource_device = _get_resource_device();
     ERR_FAIL_NULL_V_MSG(resource_device, RID(), "[TileRenderer] Rendering device is required");
 
+    last_hlod_refusal = String();
     RenderFrameExecutor executor(*this, p_rendering_device, p_params, resource_device);
     return executor.run();
 }
@@ -4046,6 +4053,35 @@ uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &
             uint64_t(p_viewport.x) * uint64_t(p_viewport.y));
 }
 
+bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
+    auto &overflow = async_readback.overflow_state;
+    if (!overflow.first_frame_complete || !overflow.overflow_detected) { return false; }
+    const uint64_t wanted = uint64_t(overflow.last_unclamped_total) * 3u / 2u;
+    const uint32_t needed = uint32_t(MIN<uint64_t>(wanted, UINT32_MAX));
+    if (needed <= global_sort_resources.capacity) {
+        overflow.overflow_detected = false;
+        return false;
+    }
+    // Keys and values (8 B each), tile ranges and scan scratch scale with the record count: charge 32 B per record,
+    // as a full new allocation (the old buffers stay charged until retired). Refused growth keeps the flag set.
+    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    _ensure_global_sort_resources(needed);
+    overflow.overflow_detected = false;
+    return true;
+}
+
+void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record) {
+    // Mirrors prepare_hlod_scratch(): projection at the power-of-two capacity of the cut (_compute_projection_buffer_bytes),
+    // visibility per cut splat, history max(records, cut) <= records + cut, and the SH cache 4 B per record plus the
+    // growth slack of tile_compute_sh_cache_resize_plan (max(25 %, 4096 B)) <= 5 B per record + 4096 B.
+    const uint32_t required = MAX<uint32_t>(p_visible, 1u);
+    uint64_t projection_capacity = 1u;
+    while (projection_capacity < required) { projection_capacity <<= 1u; }
+    r_fixed_bytes = projection_capacity * TileProjectionLayout::STRIDE_FULL + 2u * uint64_t(p_visible) * sizeof(uint32_t) +
+            GaussianSplatting::TILE_SH_CACHE_MIN_GROWTH_SLACK_BYTES;
+    r_bytes_per_record = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) * GaussianSplatting::TILE_SH_CACHE_GROWTH_SLACK_PERCENT / 100u;
+}
+
 bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
     // Resolve the CURRENT route's layout before admission, not the last pass's
     // settings. A canonical leaf atlas can fit packed indices while the all-node
@@ -4060,7 +4096,10 @@ bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p
     const bool tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
     // Output targets and overlap storage must already be warm on the canonical
     // path. Resizes return there instead of allocating textures after admission.
-    if (total == 0 || visible == 0 || visible > total ||
+    // A streamed atlas can hold fewer records than the cut may draw splats (pages < leaves) or more (pages round up
+    // per node): the frame sizes the history by the larger of the two (_validate_and_configure_settings), so admit it so.
+    const uint32_t history_entries = MAX(total, visible);
+    if (total == 0 || visible == 0 ||
             grid_state.viewport_size != p_params.viewport_size || !render_targets.output_texture.is_valid() ||
             !render_targets.resolved_texture.is_valid() || !render_targets.normal_texture.is_valid() ||
             !render_settings.global_sort_enabled || get_allocated_overlap_capacity() == 0 ||
@@ -4071,16 +4110,17 @@ bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p
     _compute_projection_buffer_bytes(visible, projection_capacity);
     const uint64_t projection_bytes = uint64_t(projection_capacity) *
             (packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
-    const uint64_t history_bytes = uint64_t(total) * sizeof(uint32_t);
+    const uint64_t history_bytes = uint64_t(history_entries) * sizeof(uint32_t);
+    const uint64_t sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
     const uint64_t visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
     if (projection_bytes > UINT32_MAX || history_bytes > UINT32_MAX || visibility_bytes > UINT32_MAX) { return false; }
     const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
-            uint32_t(history_bytes), sh_cache_buffers.sh_color_cache_size, 0);
+            uint32_t(sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
     uint64_t extra = 0;
     if (packed_changed || projection_buffers.projection_buffer_size < projection_bytes) { extra += projection_bytes; }
     if (subpixel_history_buffers.subpixel_history_size < history_bytes) { extra += history_bytes; }
     if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { extra += visibility_bytes; }
-    if (sh && sh_cache_buffers.sh_color_cache_size < history_bytes) { extra += sh_plan.target_bytes; }
+    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) { extra += sh_plan.target_bytes; }
     // Count full new allocations: old RD buffers remain charged until actually
     // retired. The caller rechecks the actual ledger before publishing the cut.
     if (extra > p_headroom) { return false; }
@@ -4100,14 +4140,14 @@ bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p
         _invalidate_descriptor_cache();
     }
     if (projection_buffers.projection_buffer_size < projection_bytes) { _ensure_global_projection_buffer(visible); }
-    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { subpixel_history_buffers.ensure_history_buffer(total); }
+    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { subpixel_history_buffers.ensure_history_buffer(history_entries); }
     if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { subpixel_visibility_buffers.ensure_visibility_buffer(visible); }
-    if (sh && sh_cache_buffers.sh_color_cache_size < history_bytes) {
+    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) {
         sh_cache_buffers.ensure_color_cache(total);
         sh_cache_needs_full_update = true;
     }
     return projection_buffers.projection_buffer.is_valid() && projection_buffers.projection_buffer_size >= projection_bytes &&
             subpixel_history_buffers.subpixel_history_buffer.is_valid() && subpixel_history_buffers.subpixel_history_size >= history_bytes &&
             subpixel_visibility_buffers.subpixel_visibility_buffer.is_valid() && subpixel_visibility_buffers.subpixel_visibility_size >= visibility_bytes &&
-            (!sh || (sh_cache_buffers.sh_color_cache.is_valid() && sh_cache_buffers.sh_color_cache_size >= history_bytes));
+            (!sh || (sh_cache_buffers.sh_color_cache.is_valid() && sh_cache_buffers.sh_color_cache_size >= sh_bytes));
 }

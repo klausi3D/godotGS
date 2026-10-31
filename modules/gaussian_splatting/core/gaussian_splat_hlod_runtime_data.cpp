@@ -31,10 +31,13 @@ bool GaussianSplatHlodRuntimeData::is_current() const {
 }
 
 const Gaussian &GaussianSplatHlodRuntimeData::gaussian(uint64_t p_index) const {
+	static const Gaussian paged_placeholder;
+	ERR_FAIL_COND_V_MSG(is_paged(), paged_placeholder, "A paged HLOD snapshot holds no resident payload; read the node through its paged source.");
 	return p_index < leaf_count ? leaves.get_gaussians()[p_index] : parents[p_index - leaf_count];
 }
 
 const Vector3 *GaussianSplatHlodRuntimeData::sh(uint64_t p_index) const {
+	ERR_FAIL_COND_V_MSG(is_paged(), nullptr, "A paged HLOD snapshot holds no resident payload; read the node through its paged source.");
 	if (high_order_count == 0) {
 		return nullptr;
 	}

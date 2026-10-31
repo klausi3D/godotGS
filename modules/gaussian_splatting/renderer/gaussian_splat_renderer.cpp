@@ -1622,9 +1622,11 @@ GaussianSplatRenderer::RuntimeFidelityPolicy GaussianSplatRenderer::build_runtim
     policy.preserve_source_fidelity =
             _renderer_requests_conservative_full_fidelity_runtime(this, p_scene_state.active_asset);
 
+	// A V4 paged HLOD world has neither resident data nor a chunk source; its leaf count is the real count.
+	const bool paged_hlod = get_resource_state().hlod_snapshot.is_valid() && get_resource_state().hlod_snapshot->is_paged();
 	const uint32_t real_count = p_scene_state.gaussian_data.is_valid()
 			? uint32_t(MAX(0, p_scene_state.gaussian_data->get_count()))
-			: p_scene_state.payload_source_splat_count;
+			: (paged_hlod ? get_resource_state().hlod_snapshot->leaf_count : p_scene_state.payload_source_splat_count);
 	if (real_count == 0) {
 		policy.runtime_budget_splats = 0;
 		return policy;
@@ -2330,7 +2332,15 @@ bool GaussianSplatRenderer::_try_render_resident_frame(RenderDataRD *p_render_da
     }
 #endif
 
-    if (!has_gaussian_dataset && !has_buffer_manager_data) {
+    // Package E1: a V4 paged HLOD world renders through the HLOD route only (its payload is in the file).
+    const bool has_paged_hlod = get_resource_state().hlod_snapshot.is_valid() && get_resource_state().hlod_snapshot->is_paged();
+    if (has_paged_hlod) {
+        String provision_reason;
+        if (!provision_paged_hlod_route(p_render_buffers, provision_reason)) {
+            get_resource_state().hlod_reason = provision_reason;
+        }
+    }
+    if (!has_gaussian_dataset && !has_buffer_manager_data && !has_paged_hlod) {
         // The resident contract publisher below builds the atlas from director-registered
         // InstanceRecords even when scene_state has no primary gaussian_data. Asset-backed
         // GaussianSplatNode3D scenes hit this path: they register their asset with the director

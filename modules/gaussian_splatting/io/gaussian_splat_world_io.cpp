@@ -1,5 +1,6 @@
 #include "gaussian_splat_world_io.h"
 #include "gaussian_splat_world_format.h"
+#include "gaussian_splat_world_paged.h"
 
 #include "../core/gs_vector_alloc.h"
 
@@ -743,71 +744,10 @@ static bool _allocation_probe(uint64_t p_bytes) {
 
 static bool _validate_hlod_payload(const GaussianSplatHlodTree &p_tree, const GaussianSplatHlodNode &p_node,
 		const Gaussian *p_gaussians, const Vector3 *p_sh, String &r_reason) {
+	// One implementation for the v2/v3 loader and the V4 paged reader (io/gaussian_splat_world_paged.cpp).
 	double center[3];
 	p_tree.node_cell_center(p_node, center);
-	for (uint32_t i = 0; i < p_node.payload_count; i++) {
-		const Gaussian &g = p_gaussians[i];
-		const real_t fields[] = { g.position.x, g.position.y, g.position.z, g.opacity, g.scale.x, g.scale.y, g.scale.z,
-			g.area, g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w, g.sh_dc.r, g.sh_dc.g, g.sh_dc.b, g.sh_dc.a,
-			g.normal.x, g.normal.y, g.normal.z, g.stroke_age, g.brush_axes.x, g.brush_axes.y };
-		for (real_t field : fields) {
-			if (!Math::is_finite(field)) {
-				r_reason = "non-finite Gaussian field in HLOD payload";
-				return false;
-			}
-		}
-		for (const Vector3 &v : g.sh_1) {
-			if (!Math::is_finite(v.x) || !Math::is_finite(v.y) || !Math::is_finite(v.z)) {
-				r_reason = "non-finite first-order SH in HLOD payload";
-				return false;
-			}
-		}
-		for (uint32_t k = 0; k < p_tree.sh_high_order_count; k++) {
-			const Vector3 &v = p_sh[uint64_t(i) * p_tree.sh_high_order_count + k];
-			if (!Math::is_finite(v.x) || !Math::is_finite(v.y) || !Math::is_finite(v.z)) {
-				r_reason = "non-finite high-order SH in HLOD payload";
-				return false;
-			}
-		}
-		double cov[6];
-		gs_hlod::splat_covariance(g, cov);
-		double distance_squared = 0.0;
-		double tolerance_squared = 0.0;
-		const int diagonal[] = { 0, 3, 5 };
-		for (int a = 0; a < 3; a++) {
-			const double position = g.position[a];
-			const double absolute = center[a] + position;
-			if (!Math::is_finite(absolute) || std::abs(absolute) > std::numeric_limits<real_t>::max()) {
-				r_reason = "HLOD payload position overflows runtime coordinates";
-				return false;
-			}
-			// Leaf serialization rounds (absolute_position - cell_center) to real_t.
-			// Permit only that half-ULP plus double arithmetic rounding, not a world-scale epsilon.
-			const real_t lower = std::nextafter(g.position[a], real_t(-INFINITY));
-			const real_t upper = std::nextafter(g.position[a], real_t(INFINITY));
-			const double spacing = MAX(Math::is_finite(lower) ? position - double(lower) : 0.0,
-					Math::is_finite(upper) ? double(upper) - position : 0.0);
-			const double tolerance = 0.5 * spacing +
-					4.0 * std::numeric_limits<double>::epsilon() * (std::abs(center[a]) + std::abs(position) +
-							std::abs(double(p_node.aabb_min[a])) + std::abs(double(p_node.aabb_max[a])));
-			const double half_extent = 3.0 * std::sqrt(MAX(cov[diagonal[a]], 0.0));
-			if (!Math::is_finite(half_extent) || position - half_extent < double(p_node.aabb_min[a]) - tolerance ||
-					position + half_extent > double(p_node.aabb_max[a]) + tolerance) {
-				r_reason = "HLOD node AABB does not contain its payload's three-sigma support";
-				return false;
-			}
-			const double mid = 0.5 * (double(p_node.aabb_min[a]) + double(p_node.aabb_max[a]));
-			const double delta = position - mid;
-			distance_squared += delta * delta;
-			tolerance_squared += tolerance * tolerance;
-		}
-		const double support_radius = 3.0 * MAX(std::abs(double(g.scale.x)), MAX(std::abs(double(g.scale.y)), std::abs(double(g.scale.z))));
-		if (std::sqrt(distance_squared) + support_radius > double(p_node.radius) + std::sqrt(tolerance_squared)) {
-			r_reason = "HLOD node sphere does not contain its payload's three-sigma support";
-			return false;
-		}
-	}
-	return true;
+	return gs_world_paged::validate_node_payload(center, p_tree.sh_high_order_count, p_node, p_gaussians, p_sh, r_reason);
 }
 
 // The header world AABB becomes the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
@@ -1446,6 +1386,53 @@ bool gs_hlod_bounds_enclosing_root(const GaussianSplatHlodTree &p_tree, const AA
 	return _hlod_header_bounds(p_tree, p_world_bounds, r_bounds);
 }
 
+// V4 paged package (ADR 14.4, package E1): opens and fully validates the header, every index page and the topology,
+// reads NO node payload and installs a world whose payload stays in the file. Fails closed with a distinct reason.
+static Ref<Resource> _load_gsplatworld_paged(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
+	auto refuse = [&](const String &p_why, Error p_err) {
+		if (r_error) {
+			*r_error = p_err;
+		}
+		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load V4 paged package %s: %s", p_path, p_why));
+		return Ref<Resource>();
+	};
+	Ref<GaussianSplatHlodPagedSource> source;
+	source.instantiate();
+	GaussianSplatHlodTree tree;
+	Dictionary file_metadata;
+	String reason;
+	const Error open_error = source->open(p_path, tree, file_metadata, reason);
+	if (open_error != OK) {
+		return refuse(reason, open_error);
+	}
+	// Validation comes first, so a damaged or foreign file reports its own error even to a resident load.
+	if (p_force_resident) {
+		return refuse("a paged package has no resident form (its payload is read on demand)", ERR_UNAVAILABLE);
+	}
+	if (r_progress) {
+		*r_progress = 0.5f;
+	}
+	const GaussianSplatHlodPagedSource::Info &info = source->get_info();
+	// A finite but too-small or disjoint header AABB would let engine frustum culling hide valid splats.
+	if (!_hlod_bounds_enclose_root(tree, info.bounds.position, info.bounds.size)) {
+		return refuse("header world bounds are invalid or do not enclose the HLOD root", ERR_FILE_CORRUPT);
+	}
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_bounds(info.bounds);
+	world->set_metadata(file_metadata);
+	if (world->set_hlod_paged_package(std::move(tree), source) != OK || !world->has_hlod_paged_source()) {
+		return refuse("HLOD bounds cannot be published in runtime coordinates", ERR_FILE_CORRUPT);
+	}
+	if (r_error) {
+		*r_error = OK;
+	}
+	if (r_progress) {
+		*r_progress = 1.0f;
+	}
+	return world;
+}
+
 static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
 	if (r_progress) {
 		*r_progress = 0.0f;
@@ -1476,6 +1463,11 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t version = file->get_32();
+	if (version == gs_world_paged::kVersion) {
+		// V4 is a distinct, opt-in identity with its own strict reader; v1-v3 below are untouched.
+		file.unref();
+		return _load_gsplatworld_paged(p_path, r_error, r_progress, p_force_resident);
+	}
 	const uint32_t flags = file->get_32();
 	gs_world_format::HeaderLayout header;
 	const Error header_error = gs_world_format::select_header(version, flags, file_len, header);

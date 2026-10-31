@@ -69,6 +69,8 @@ struct ResourceState {
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
+    // Package E1: why the last paged provisioning attempt failed (empty = fine); the warmup reasons report it instead of hiding it.
+    String hlod_paged_provision_reason;
     HlodBundle hlod_canonical;
     HlodBundle hlod_relative;
     // Node streaming (package D): when the whole tree does not fit the atlas budget only the relative bundle
@@ -97,6 +99,7 @@ struct ResourceState {
     double hlod_estimated_records = 0.0;
     bool hlod_active = false;
     bool hlod_frame_active = false;
+    uint64_t hlod_tile_stage_refused_frames = 0; // Admitted as active, then refused by the tile stage (drew nothing).
     uint64_t hlod_owned_byte_upper_bound = 0;
     uint64_t hlod_retired_bytes = 0;
     uint64_t hlod_instance_generation = 0;
@@ -197,6 +200,21 @@ struct ResourceState {
 	uint32_t resident_atlas_source_count = 0;
 	float resident_atlas_keep_ratio = 1.0f;
 };
+
+// The publisher marks a frame active before the tile stage runs. When the tile stage then refuses it (its admitted
+// scratch or layout does not match the frame) nothing is drawn: the frame is not active, its reason names the refusal,
+// and it is not a ready (or first-ready) streamed frame. No-op for a frame that was not active.
+inline void hlod_mark_tile_stage_refused(ResourceState &r_state, const String &p_cause) {
+    if (!r_state.hlod_frame_active) { return; }
+    r_state.hlod_frame_active = false;
+    r_state.hlod_reason = String("hlod_tile_stage_refused:") + (p_cause.is_empty() ? String("tile_render_failed") : p_cause);
+    ++r_state.hlod_tile_stage_refused_frames;
+    if (r_state.hlod_streaming && r_state.hlod_stream_ready_frames > 0) {
+        // An active streamed frame was counted ready in this same frame (prepare_hlod_frame).
+        --r_state.hlod_stream_ready_frames;
+        if (uint64_t(r_state.hlod_stream_first_ready_frame) == r_state.hlod_stream_frames) { r_state.hlod_stream_first_ready_frame = 0; }
+    }
+}
 
 struct TestDataState {
 	LocalVector<Vector3> positions;

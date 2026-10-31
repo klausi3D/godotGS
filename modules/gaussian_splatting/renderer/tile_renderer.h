@@ -133,7 +133,13 @@ public:
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
-    // Streamed HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
+    // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
+    // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
+    // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
+    static void get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record);
+    // Why the last render() refused an HLOD-relative frame (empty when it did not refuse one).
+    const String &get_last_hlod_refusal() const { return last_hlod_refusal; }
+    // Streamed and V4 paged HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
     // Creates the output targets for `p_viewport` and the global overlap storage for `p_overlap_records` without
     // drawing, so prepare_hlod_scratch()'s "warm on the canonical path" preconditions (and the texture ledger) hold
     // for the view about to be drawn. Idempotent; a resize reallocates exactly as a render would.
@@ -148,6 +154,10 @@ public:
     // Upper bound of the texture bytes a resize to `p_viewport` leaves charged to the ledger: the live bytes scaled by
     // the pixel ratio (never below the live bytes), so a refusal can be decided before anything is reallocated.
     uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;
+    // Safe point (before the frame's passes, after the previous frame's readback): grows the overlap storage when the
+    // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
+    // HLOD frames never grow it themselves. Returns true when it grew.
+    bool grow_hlod_overlap_storage(uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -590,6 +600,7 @@ private:
     mutable uint64_t hlod_texture_device = 0;
     mutable bool hlod_texture_ledger_valid = true;
     bool hlod_scratch_preparing = false;
+    String last_hlod_refusal;
     void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
     void _reconcile_hlod_texture_ledger() const;
 

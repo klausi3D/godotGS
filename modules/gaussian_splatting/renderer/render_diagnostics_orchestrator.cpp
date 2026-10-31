@@ -1489,6 +1489,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	// the atlas was thinned by importance to fit the device VRAM budget; surfaced so the
 	// degradation is observable in the residency HUD / debug stats rather than silent.
     stats["hlod_active"] = resource_state.hlod_frame_active;
+    stats["hlod_tile_stage_refused_frames"] = int64_t(resource_state.hlod_tile_stage_refused_frames);
+    stats["hlod_route_owned_bytes"] = int64_t(resource_state.hlod_owned_byte_upper_bound); // ledger + device buffers, as last admitted
     // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
     stats["hlod_streaming"] = resource_state.hlod_streaming;
     if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
@@ -1523,6 +1525,15 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_stall_frames"] = t.stall_frames;
         stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;
         stats["hlod_stream_fragmented_groups"] = t.fragmented_groups_this_frame;
+        // Package E1: V4 paged package reads (0 for a resident snapshot).
+        stats["hlod_stream_paged"] = resource_state.hlod_snapshot.is_valid() && resource_state.hlod_snapshot->is_paged();
+        stats["hlod_stream_payload_reads_total"] = int64_t(t.payload_reads_total);
+        stats["hlod_stream_payload_bytes_read_total"] = int64_t(t.payload_bytes_read_total);
+        stats["hlod_stream_payload_read_failures_total"] = int64_t(t.payload_read_failures_total);
+        stats["hlod_stream_payload_reads_in_flight"] = t.payload_reads_in_flight;
+        stats["hlod_stream_payload_in_flight_bytes_peak"] = int64_t(t.payload_in_flight_bytes_peak);
+        stats["hlod_stream_payload_largest_read_bytes"] = int64_t(t.payload_largest_read_bytes);
+        stats["hlod_stream_payload_ready_bytes_peak"] = int64_t(t.payload_ready_bytes_peak);
     }
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
