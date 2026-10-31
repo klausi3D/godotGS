@@ -1,6 +1,7 @@
 #include "tile_renderer.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "resident_atlas_budget.h"
 
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
@@ -3975,12 +3976,74 @@ void TileRenderer::_record_hlod_texture_allocation(RenderingDevice *p_device, ui
     }
     hlod_texture_device = device_id;
     hlod_texture_bytes += after - p_before;
+    if (p_created.is_valid() && after > p_before) {
+        HlodTextureEntry entry;
+        entry.device = p_device;
+        entry.device_id = device_id;
+        entry.bytes = after - p_before;
+        hlod_texture_live.insert(p_created, entry);
+    }
+}
+
+void TileRenderer::_reconcile_hlod_texture_ledger() const {
+    RenderingDevice *active = get_active_device();
+    const uint64_t active_id = active ? active->get_device_instance_id() : 0;
+    LocalVector<RID> dead;
+    for (const KeyValue<RID, HlodTextureEntry> &kv : hlod_texture_live) {
+        // An entry on another (or a destroyed) device is gone with that device; never dereference its pointer.
+        if (kv.value.device_id != active_id || kv.value.device != active || !active->texture_is_valid(kv.key)) {
+            dead.push_back(kv.key);
+        }
+    }
+    for (const RID &rid : dead) {
+        const HlodTextureEntry *entry = hlod_texture_live.getptr(rid);
+        if (entry) { hlod_texture_bytes -= MIN(hlod_texture_bytes, entry->bytes); }
+        hlod_texture_live.erase(rid);
+    }
+    if (hlod_texture_live.is_empty()) {
+        // Nothing live is accounted: re-base (also clears an invalid state left by a device change or inconsistent counters).
+        hlod_texture_bytes = 0;
+        hlod_texture_ledger_valid = active_id != 0;
+        hlod_texture_device = active_id;
+    }
 }
 
 bool TileRenderer::get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const {
+    _reconcile_hlod_texture_ledger();
     r_bytes = hlod_texture_bytes;
     return hlod_texture_ledger_valid && get_active_device() &&
             hlod_texture_device == get_active_device()->get_device_instance_id();
+}
+
+Error TileRenderer::provision_hlod_route(const Vector2i &p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records) {
+    if (!_get_resource_device()) { return ERR_UNCONFIGURED; }
+    render_settings.global_sort_enabled = true; // Every render() sets this; the HLOD route requires it before its first one.
+    const Error resized = resize(p_viewport, p_format);
+    if (resized != OK) { return resized; }
+    // Always (not only on growth): the tile-count / tile-range buffers are sized by the tile grid, which a resize just
+    // changed, and the relative HLOD frames never re-run this themselves (the canonical path does, every frame).
+    _ensure_global_sort_resources(MAX(global_sort_resources.capacity, p_overlap_records));
+    return get_allocated_overlap_capacity() != 0 && global_sort_resources.sorter.is_valid() ? OK : ERR_CANT_CREATE;
+}
+
+uint32_t TileRenderer::clamp_hlod_overlap_records(uint32_t p_records) const {
+    const uint32_t hard_cap = g_gpu_sorting_config.get_overlap_records_hard_cap();
+    return hard_cap > 0u ? MIN(p_records, hard_cap) : p_records;
+}
+
+uint64_t TileRenderer::get_hlod_overlap_bytes_per_record() const {
+    // Same rule as global_sort_key_stride_words() in tile_render_resources.cpp: 64-bit keys take two words.
+    const uint32_t key_words = _get_effective_sort_key_config().key_bits > 32 ? 2u : 1u;
+    return 2u * uint64_t(key_words + 1u) * sizeof(uint32_t);
+}
+
+uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const {
+    uint64_t live = 0;
+    get_hlod_texture_byte_upper_bound(live);
+    const Vector2i current = grid_state.viewport_size;
+    if (current.x <= 0 || current.y <= 0 || p_viewport.x <= 0 || p_viewport.y <= 0) { return live; }
+    return ResidentAtlasBudget::hlod_scale_texture_bytes_for_pixels(live, uint64_t(current.x) * uint64_t(current.y),
+            uint64_t(p_viewport.x) * uint64_t(p_viewport.y));
 }
 
 bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {

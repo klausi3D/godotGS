@@ -36,7 +36,8 @@
         "Data Flow Recent Window",
         "Pipeline Trace Freshness",
         "Monitor Lifecycle Hardening",
-        "Resident HLOD Main View"
+        "Resident HLOD Main View",
+        "Streamed HLOD Resize Views"
       ],
       "godot_args": [],
       "fail_on_skip": true,
@@ -72,7 +73,8 @@
         "GPU Streaming Stress",
         "World Streaming Gate",
         "Streaming Residency API",
-        "Resident HLOD Main View"
+        "Resident HLOD Main View",
+        "Streamed HLOD Resize Views"
       ],
       "godot_args": [],
       "gd_timeout": 420,

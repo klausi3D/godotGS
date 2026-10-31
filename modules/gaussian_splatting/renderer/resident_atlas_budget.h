@@ -93,6 +93,28 @@ inline bool hlod_prepared_fits(uint64_t owned_bytes, uint64_t device_bytes, uint
     return owned_bytes <= hlod_owned_cap_bytes && device_bytes <= ledger_limit_bytes;
 }
 
+// Streaming decision for an HLOD tree (package D): stream whenever the whole-tree bundles cannot be admitted -
+// atlas budget, HLOD-owned cap or device ledger - never by raising a limit.
+inline bool hlod_should_stream(uint64_t whole_atlas_bytes, uint64_t atlas_limit_bytes, bool whole_candidate_fits) {
+    return whole_atlas_bytes > atlas_limit_bytes || !whole_candidate_fits;
+}
+
+// Pages a streamed HLOD atlas may hold. `fixed_bundle_bytes` is the relative bundle without its atlas records.
+// The result is clamped by the atlas cap, the tree itself, the HLOD-owned cap and the device ledger headroom
+// (the same limits hlod_candidate_fits applies); 0 means not even one page is admissible.
+inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t record_stride, uint32_t page_splats,
+        uint64_t total_node_pages, uint64_t fixed_bundle_bytes, uint64_t hlod_owned_cap_bytes,
+        uint64_t ledger_limit_bytes, uint64_t device_bytes) {
+    if (record_stride == 0 || page_splats == 0) { return 0; }
+    const uint64_t page_bytes = record_stride * page_splats;
+    if (fixed_bundle_bytes >= hlod_owned_cap_bytes || device_bytes > ledger_limit_bytes ||
+            ledger_limit_bytes - device_bytes <= fixed_bundle_bytes) { return 0; }
+    uint64_t pages = MIN(atlas_limit_bytes / page_bytes, total_node_pages);
+    pages = MIN(pages, (hlod_owned_cap_bytes - fixed_bundle_bytes) / page_bytes);
+    pages = MIN(pages, (ledger_limit_bytes - device_bytes - fixed_bundle_bytes) / page_bytes);
+    return pages;
+}
+
 struct SubsetPlan {
     bool reduced = false;       // true when the atlas must be thinned to fit
     double keep_ratio = 1.0;    // global fraction of splats to keep (1.0 == full)
@@ -221,6 +243,29 @@ inline uint32_t compact_chunk_by_importance(LocalVector<Gaussian> &r_gaussians,
     }
     r_remaining_budget -= keep;
     return keep;
+}
+
+// Texture bytes a tile grid of `new_px` pixels charges to the HLOD ledger when `live_bytes` are charged for `cur_px`
+// pixels now (the output, resolved, depth and normal targets scale with the pixel count). A smaller or equal grid never
+// costs more than it does now; an unknown current size (0) keeps the live bytes. Rounded up, saturating.
+inline uint64_t hlod_scale_texture_bytes_for_pixels(uint64_t live_bytes, uint64_t cur_px, uint64_t new_px) {
+    if (cur_px == 0 || new_px == 0 || new_px <= cur_px || live_bytes == 0) { return live_bytes; }
+    if (live_bytes > UINT64_MAX / new_px) { return UINT64_MAX; }
+    return (live_bytes * new_px + cur_px - 1u) / cur_px;
+}
+
+// What a streamed HLOD view must do with the tile grid before its scratch is admitted. A streamed world never runs a
+// canonical frame, so nothing else resizes the grid: a view whose size differs from the grid, or a grid without overlap
+// storage, must be provisioned for THIS view, per view and per frame. The new targets must fit the ledger headroom
+// (`wanted_texture_bytes` is what the grid would charge afterwards); otherwise the view is refused, honestly.
+enum class HlodViewGridAction { KEEP, RESIZE, REFUSE_MEMORY };
+inline HlodViewGridAction hlod_view_grid_action(int p_grid_x, int p_grid_y, int p_view_x, int p_view_y, uint32_t p_overlap_capacity,
+        uint64_t p_live_texture_bytes, uint64_t p_wanted_texture_bytes, uint64_t p_headroom_bytes) {
+    if (p_grid_x == p_view_x && p_grid_y == p_view_y && p_overlap_capacity != 0) { return HlodViewGridAction::KEEP; }
+    if (p_wanted_texture_bytes > p_live_texture_bytes && p_wanted_texture_bytes - p_live_texture_bytes > p_headroom_bytes) {
+        return HlodViewGridAction::REFUSE_MEMORY;
+    }
+    return HlodViewGridAction::RESIZE;
 }
 
 } // namespace ResidentAtlasBudget

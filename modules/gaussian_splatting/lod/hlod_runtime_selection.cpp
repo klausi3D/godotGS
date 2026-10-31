@@ -14,7 +14,9 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	Vector<Candidate> new_heap;
 	Vector<uint32_t> new_selected, new_positions;
 	Vector<uint64_t> new_refined;
-	if (!gs_resize_or_fail(new_heap, p_nodes, "HLOD cut heap") ||
+	Vector<uint32_t> new_demand;
+	if (!gs_resize_or_fail(new_demand, p_nodes, "HLOD cut demand") ||
+			!gs_resize_or_fail(new_heap, p_nodes, "HLOD cut heap") ||
 			!gs_resize_or_fail(new_selected, p_nodes, "HLOD cut selection") ||
 			!gs_resize_or_fail(new_positions, p_nodes, "HLOD cut positions") ||
 			!gs_resize_or_fail(new_refined, p_nodes, "HLOD cut history")) {
@@ -25,12 +27,15 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	selected = std::move(new_selected);
 	selected_position = std::move(new_positions);
 	refined = std::move(new_refined);
+	demand = std::move(new_demand);
+	demand_size = 0;
 	capacity = p_nodes;
 	epoch = 0;
 	return true;
 }
 
 void CutHistory::invalidate() {
+	demand_size = 0;
 	refined.fill(0);
 	epoch = 0;
 }
@@ -38,7 +43,7 @@ void CutHistory::invalidate() {
 uint64_t CutHistory::workspace_bytes(uint32_t p_nodes) {
 	uint64_t bytes = 0, one = 0;
 	if (!allocation_bytes(p_nodes, sizeof(Candidate), one)) { return 0; } bytes += one;
-	if (!allocation_bytes(p_nodes, sizeof(uint32_t), one)) { return 0; } bytes += one * 2;
+	if (!allocation_bytes(p_nodes, sizeof(uint32_t), one)) { return 0; } bytes += one * 3; // selection, positions and demand
 	if (!allocation_bytes(p_nodes, sizeof(uint64_t), one)) { return 0; } bytes += one;
 	return bytes;
 }
@@ -62,6 +67,18 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	if (epoch == UINT64_MAX) {
 		invalidate();
 	}
+	demand_size = 0;
+	partial_size = 0;
+	// A node can be listed more than once (a bootstrap expansion demands the children of a parent the refinement
+	// walk may demand again), so the list is capped at the node count and consumers (NodeResidency::request)
+	// treat duplicates as one demand.
+	// A group is demanded whole or not at all: a truncated group would request part of a transition that can
+	// then never complete.
+	auto push_group = [&](const uint32_t *p_nodes, uint32_t p_count) {
+		if (demand_size + p_count > capacity) { return; }
+		for (uint32_t i = 0; i < p_count; ++i) { demand.write[demand_size++] = p_nodes[i]; }
+	};
+	auto push_demand = [&](uint32_t p_node) { push_group(&p_node, 1); };
 	const uint64_t previous = epoch++;
 	uint32_t heap_count = 0;
 	auto available = [&](uint32_t p_node) { return !p_request.resident || p_request.resident[p_node] != 0; };
@@ -110,9 +127,16 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		heap.write[heap_count++] = { p_node, tie_of(p_node), e * (was_refined ? 1.25 : 1.0) };
 		std::push_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 	};
+	auto pages_of = [&](uint32_t p_node) -> uint64_t {
+		if (p_request.page_splats == 0) { return 0; }
+		return (uint64_t(p_data.nodes[p_node].topology.payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
+	};
+	// Pages that stay resident: the cut and all of its ancestors. Refining a node keeps it (as an ancestor) and
+	// adds its children, so the closure only grows by the children's pages.
+	uint64_t closure_pages = pages_of(0);
 	out.visited_nodes = 1;
 	if (!visible(0)) { out.status = EMPTY; return out; }
-	if (!available(0)) { out.status = UNAVAILABLE; return out; }
+	if (!available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
 	if (!std::isfinite(root_cost)) { return out; }
 	const double record_cap = 0.8 * p_request.record_budget; // The 80 percent admission factor.
@@ -131,6 +155,8 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		const uint64_t work_limit = 1 + uint64_t(p_request.node_budget) * gs_hlod::kMaxChildren;
 		bool missing_residency = false;
 		auto fail = [&](SelectStatus p_status) {
+			// `selected` still holds the frontier reached so far (all resident); only the count is cleared.
+			partial_size = p_status == BOOTSTRAP_MISSING_RESIDENCY ? out.selected_count : 0u;
 			out.status = p_status;
 			out.selected_count = 0;
 			out.selected_splats = 0;
@@ -159,23 +185,33 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			}
 			uint32_t children[gs_hlod::kMaxChildren];
 			double child_costs[gs_hlod::kMaxChildren];
+			uint64_t child_pages = 0;
 			uint32_t visible_children = 0;
 			uint64_t child_splats = 0;
 			double child_cost = 0.0;
 			bool children_ready = true;
+			uint32_t missing_children[gs_hlod::kMaxChildren];
+			uint32_t missing_count = 0;
 			for (uint32_t j = 0; j < n.child_count; ++j) {
 				const uint32_t child = n.first_child + j;
 				if (++out.visited_nodes > work_limit) { return fail(BOOTSTRAP_EXHAUSTED); }
 				if (!visible(child)) { continue; }
-				if (!available(child)) { children_ready = false; break; }
+				if (!available(child)) { children_ready = false; missing_children[missing_count++] = child; continue; }
 				const double c = cost(child);
 				if (!std::isfinite(c)) { return fail(BOOTSTRAP_ARITHMETIC); }
+				child_pages += pages_of(child);
 				children[visible_children] = child;
 				child_costs[visible_children++] = c;
 				child_splats += p_data.nodes[child].topology.payload_count;
 				child_cost += c;
 			}
-			if (!children_ready) { missing_residency = true; continue; } // Parent stays; no partial replacement.
+			if (!children_ready) {
+				// Parent stays; no partial replacement. The bootstrap needs this expansion, so every missing
+				// visible child is demanded together (a whole transition, never a subset).
+				missing_residency = true;
+				push_group(missing_children, missing_count);
+				continue;
+			}
 			const uint32_t next_count = out.selected_count - 1 + visible_children;
 			if (next_count > p_request.node_budget) { continue; } // Node cap refuses this expansion only.
 			const double next_cost = MAX(0.0, out.estimated_records - cost(parent)) + child_cost;
@@ -191,6 +227,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			}
 			out.selected_splats = out.selected_splats - n.payload_count + child_splats;
 			out.estimated_records = next_cost;
+			closure_pages += child_pages;
 			refined.write[parent] = epoch; // Same hysteresis stamp as ordinary refinement.
 		}
 		// Refinement below starts from the complete frontier, not from the bootstrap heap.
@@ -199,6 +236,12 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	} else {
 		enqueue(0);
 	}
+	// Plan = the actual selection plus the transitions demanded so far (as if their children were resident).
+	// The cut itself never includes a virtual transition; the plan only decides what is worth asking for, so a
+	// lower-priority group is not requested when the higher-priority one already uses the budget it needs.
+	int64_t plan_splats = 0, plan_count = 0;
+	double plan_cost = 0.0;
+	uint64_t plan_pages = 0;
 	while (heap_count != 0) {
 		std::pop_heap(heap.ptrw(), heap.ptrw() + heap_count, lower_priority);
 		const uint32_t parent = heap[--heap_count].node;
@@ -208,6 +251,9 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		uint64_t child_splats = 0;
 		double child_cost = 0;
 		bool complete = true;
+		uint32_t missing_children[gs_hlod::kMaxChildren];
+		uint32_t missing_count = 0;
+		uint64_t child_pages = 0;
 		if (n.child_count > gs_hlod::kMaxChildren || n.first_child > count || n.child_count > count - n.first_child) {
 			out.status = INVALID; return out;
 		}
@@ -215,20 +261,41 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const uint32_t child = n.first_child + j;
 			++out.visited_nodes;
 			if (!visible(child)) { continue; }
-			if (!available(child)) { complete = false; break; }
+			if (!available(child)) { complete = false; missing_children[missing_count++] = child; }
 			children[visible_children++] = child;
+			child_pages += pages_of(child);
 			child_splats += p_data.nodes[child].topology.payload_count;
 			child_cost += cost(child);
 		}
-		if (!complete) { continue; }
 		const uint64_t next_splats = out.selected_splats - n.payload_count + child_splats;
 		const uint32_t next_count = out.selected_count - 1 + visible_children;
 		const double next_cost = MAX(0.0, out.estimated_records - cost(parent)) + child_cost;
 		if (!std::isfinite(next_cost)) { out.status = INVALID; return out; }
+		if (!complete) {
+			// Residency miss: the parent stays and the walk continues (unchanged). The whole transition is
+			// demanded only when it would fit every cap together with the transitions already demanded, so no
+			// bandwidth goes to children whose replacement the budget would refuse once the higher-priority
+			// ones are resident (the walk stops at the first refusal).
+			const int64_t d_splats = int64_t(child_splats) - int64_t(n.payload_count);
+			const int64_t d_count = int64_t(visible_children) - 1;
+			const double d_cost = child_cost - cost(parent);
+			if (int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
+					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
+					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap &&
+					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget)) {
+				push_group(missing_children, missing_count);
+				plan_pages += child_pages;
+				plan_splats += d_splats;
+				plan_count += d_count;
+				plan_cost += d_cost;
+			}
+			continue;
+		}
 		if (next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > record_cap) {
 			out.budget_bound = true;
 			break; // ADR: first cap refusal stops the whole priority walk.
 		}
+		closure_pages += child_pages;
 		const uint32_t removed = selected_position[parent];
 		const uint32_t last = selected[--out.selected_count];
 		selected.write[removed] = last;

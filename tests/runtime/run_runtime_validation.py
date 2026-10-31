@@ -220,11 +220,13 @@ GDS_TESTS: Dict[str, Path] = {
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
     "Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd",
+    "Streamed HLOD Resize Views": RUNTIME_DIR / "test_hlod_streamed_resize_views.gd",
 }
 
 # COR-S2A-009: migrated positive native main-view acceptance is mandatory in
 # these existing GPU lanes. This does not flip the legacy completion ladder.
 HLOD_MAIN_VIEW_SCENARIO = "Resident HLOD Main View"
+HLOD_RESIZE_VIEWS_SCENARIO = "Streamed HLOD Resize Views"
 HLOD_REQUIRED_PROFILES = ("streaming-gpu-ci", "release-ci")
 HLOD_MAIN_VIEW_PROJECT = RUNTIME_DIR / "hlod_main_view_project"
 
@@ -284,6 +286,9 @@ SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
     ),
     "GDScript: Resident HLOD Main View": ScenarioFixtureContract(
         GDS_TESTS["Resident HLOD Main View"], ()
+    ),
+    "GDScript: Streamed HLOD Resize Views": ScenarioFixtureContract(
+        GDS_TESTS["Streamed HLOD Resize Views"], ()
     ),
 }
 
@@ -1450,7 +1455,7 @@ def _resolve_mode_args(mode: str) -> List[str]:
 def _build_godot_command(config: GodotRunConfig, script: Path) -> List[str]:
     command = [config.binary, *_resolve_mode_args(config.mode)]
     project_path = config.project_path
-    if script == RUNTIME_DIR / "test_hlod_resident_main_view.gd":
+    if script in (RUNTIME_DIR / "test_hlod_resident_main_view.gd", RUNTIME_DIR / "test_hlod_streamed_resize_views.gd"):
         # An editor binary with --script but no project silently starts the
         # project manager. Keep this isolated default local to the HLOD proof;
         # an explicit caller project still has precedence.
@@ -1696,21 +1701,26 @@ def _floor_governed_fixture_consumers(
 
 
 def _validate_hlod_profile_wiring(config: Dict[str, object]) -> None:
-    source = RUNTIME_DIR / "test_hlod_resident_main_view.gd"
-    if GDS_TESTS.get(HLOD_MAIN_VIEW_SCENARIO) != source or not source.is_file():
-        raise ValueError("Required Resident HLOD Main View registry/source is missing.")
-    if not (HLOD_MAIN_VIEW_PROJECT / "project.godot").is_file():
-        raise ValueError("Required Resident HLOD Main View native project is missing.")
-    contract = SCENARIO_FIXTURE_CONTRACTS.get(f"GDScript: {HLOD_MAIN_VIEW_SCENARIO}")
-    if contract is None or contract.source != source or contract.fixtures != ():
-        raise ValueError("Required HLOD scenario must declare its in-memory fixture producer.")
-    profiles = config.get("profiles", {})
-    for name in HLOD_REQUIRED_PROFILES:
-        profile = profiles.get(name, {}) if isinstance(profiles, dict) else {}
-        if profile.get("gd_tests", []).count(HLOD_MAIN_VIEW_SCENARIO) != 1:
-            raise ValueError(f"Required {name} must select Resident HLOD Main View exactly once.")
-        if profile.get("fail_on_skip") is not True or profile.get("gd_mode") not in ("windows-vulkan", "non-headless"):
-            raise ValueError(f"Required {name} must execute native HLOD without skips.")
+    # Every required native HLOD scenario: registry entry, source, in-memory fixture declaration and exactly one selection
+    # in each required GPU profile, so none can be silently dropped.
+    for scenario, source_name in (
+            (HLOD_MAIN_VIEW_SCENARIO, "test_hlod_resident_main_view.gd"),
+            (HLOD_RESIZE_VIEWS_SCENARIO, "test_hlod_streamed_resize_views.gd")):
+        source = RUNTIME_DIR / source_name
+        if GDS_TESTS.get(scenario) != source or not source.is_file():
+            raise ValueError(f"Required {scenario} registry/source is missing.")
+        if not (HLOD_MAIN_VIEW_PROJECT / "project.godot").is_file():
+            raise ValueError(f"Required {scenario} native project is missing.")
+        contract = SCENARIO_FIXTURE_CONTRACTS.get(f"GDScript: {scenario}")
+        if contract is None or contract.source != source or contract.fixtures != ():
+            raise ValueError(f"Required HLOD scenario {scenario} must declare its in-memory fixture producer.")
+        profiles = config.get("profiles", {})
+        for name in HLOD_REQUIRED_PROFILES:
+            profile = profiles.get(name, {}) if isinstance(profiles, dict) else {}
+            if profile.get("gd_tests", []).count(scenario) != 1:
+                raise ValueError(f"Required {name} must select {scenario} exactly once.")
+            if profile.get("fail_on_skip") is not True or profile.get("gd_mode") not in ("windows-vulkan", "non-headless"):
+                raise ValueError(f"Required {name} must execute native HLOD without skips.")
 
 
 def _load_scenario_config(path: Path) -> Dict[str, object]:

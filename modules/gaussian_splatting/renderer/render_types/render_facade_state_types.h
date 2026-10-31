@@ -7,6 +7,7 @@
 #define GAUSSIAN_RENDER_FACADE_STATE_TYPES_H
 
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
+#include "../hlod_node_streamer.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "core/object/object.h"
@@ -61,11 +62,26 @@ struct HlodBundle {
 struct ResourceState {
     Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
     String hlod_reason;
+    // The reason of the last view the HLOD route refused and how many it refused. hlod_reason is the LAST view's verdict, so
+    // a refused second view is otherwise masked by the main view's "active" in the same frame.
+    String hlod_last_refusal_reason;
+    uint64_t hlod_refused_views = 0;
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
     HlodBundle hlod_canonical;
     HlodBundle hlod_relative;
+    // Node streaming (package D): when the whole tree does not fit the atlas budget only the relative bundle
+    // exists (no canonical full-leaf copy), its atlas holds `hlod_stream_atlas_records` splats, and the
+    // streamer decides which nodes are resident. Empty/false for the whole-tree bundle.
+    bool hlod_streaming = false;
+    uint32_t hlod_stream_atlas_records = 0;
+    Ref<HlodNodeStreamer> hlod_streamer;
+    uint32_t hlod_stream_ready_frames = 0;
+    uint32_t hlod_stream_loading_frames = 0;
+    uint32_t hlod_stream_first_ready_frame = 0;
+    uint64_t hlod_stream_frames = 0;
+    uint32_t hlod_stream_nonresident_drawn = 0; // Must stay 0: a drawn node that is not resident-ready.
     uint64_t hlod_origin_revision = 0; // Revision of the last uploaded HLOD draw list (diagnostics)
     uint64_t hlod_content_serial = 0;
     uint64_t hlod_budget_bound_frames = 0;
@@ -93,6 +109,8 @@ struct ResourceState {
     // Failure-only seams at the actual publisher boundaries; no success override.
     std::atomic<int> hlod_test_failure{ 0 };
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
+    // Lowers the HLOD route's device-ledger limit (0 = off) so a runtime scenario can force a memory refusal. Never raises it.
+    std::atomic<uint64_t> hlod_test_route_limit_override{ 0 };
     // Actual resident sort inputs, retained before the post-frame canonical restore.
     // Borrowed RID only; the observer validates lifetime, device and frame before readback.
     RID hlod_test_sort_count_buffer;

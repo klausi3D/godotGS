@@ -256,6 +256,9 @@ public:
         // True when an active gsplatworld submission owns this renderer's
         // streaming path.
         bool has_active_world_submission = false;
+        // Non-empty when the world carries an HLOD snapshot and the runtime cut is enabled but this frame's route is
+        // the chunk-streaming backend, which never runs the HLOD publisher. Surfaced as hlod_reason.
+        String hlod_route_reason;
         String resident_backend_reason = "requested_streaming_policy";
         String streaming_backend_reason = "requested_streaming_policy";
         String streaming_contract_ready_reason = "streaming_contract_published";
@@ -919,6 +922,9 @@ public:
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
     bool is_hlod_prepared_contract_current() const;
     bool publish_hlod_bundle(bool p_relative);
+    // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
+    bool idle_hlod_streaming_bundle();
+    const char *hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const;
 
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,
@@ -950,6 +956,12 @@ public:
     RuntimeFidelityPolicy build_runtime_fidelity_policy(const SceneState &p_scene_state,
             const PerformanceSettings &p_performance_settings) const;
     FrameBackendPlan build_frame_backend_plan(bool p_streaming_ready) const;
+    // Publishes the plan's HLOD route reason as hlod_reason (no-op when the plan has none).
+    // Sets hlod_reason from the plan, and clears a route reason this function set once the plan no longer has one.
+    void apply_hlod_route_reason(const FrameBackendPlan &p_plan);
+    // build_frame_backend_plan + apply_hlod_route_reason. The render entry uses this. force_sort_for_view and
+    // tick_streaming_only still use the plain const builder, so they do not publish the reason (follow-up).
+    FrameBackendPlan build_and_apply_frame_backend_plan(bool p_streaming_ready);
     WorldSubmissionRuntimeStateSnapshot snapshot_world_submission_runtime_state() const;
     Error restore_world_submission_runtime_state(const WorldSubmissionRuntimeStateSnapshot &p_snapshot);
     Error apply_world_submission_contract(const WorldSubmissionContract &p_contract);
@@ -2078,6 +2090,7 @@ public:
 #ifdef TESTS_ENABLED
     void test_override_rendering_device(RenderingDevice *p_device);
     void test_set_hlod_publication_failure(int p_failure);
+    void test_set_hlod_route_limit_override(int64_t p_bytes);
     bool test_hlod_publication_refuses(int p_failure);
     Dictionary test_observe_hlod_publication(int64_t p_request_id = 0);
     Dictionary test_hlod_foreign_device_publication();

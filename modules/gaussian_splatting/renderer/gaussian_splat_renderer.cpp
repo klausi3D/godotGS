@@ -1695,6 +1695,28 @@ GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_frame_backe
             plan.should_attempt_streaming_bootstrap = false;
         }
     }
+    // The HLOD cut only runs on the resident route. A world that carries a snapshot but takes the chunk-streaming
+    // route (route_policy=streaming) never reaches it: say so instead of reporting hlod_active=false with no reason.
+    if (!plan.prefer_resident_backend && plan.streaming_requested && get_resource_state().hlod_snapshot.is_valid() &&
+            gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
+        plan.hlod_route_reason = "hlod_route_policy_chunk_streaming";
+    }
+    return plan;
+}
+
+void GaussianSplatRenderer::apply_hlod_route_reason(const FrameBackendPlan &p_plan) {
+    static const String route_reason = "hlod_route_policy_chunk_streaming";
+    String &reason = get_resource_state().hlod_reason;
+    if (!p_plan.hlod_route_reason.is_empty()) {
+        reason = p_plan.hlod_route_reason;
+    } else if (reason == route_reason) {
+        reason = String(); // The route no longer is chunk-streaming: do not leave a stale reason behind.
+    }
+}
+
+GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_and_apply_frame_backend_plan(bool p_streaming_ready) {
+    FrameBackendPlan plan = build_frame_backend_plan(p_streaming_ready);
+    apply_hlod_route_reason(plan);
     return plan;
 }
 
@@ -2547,7 +2569,7 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
 
     // Update streaming system if active.
     FrameBackendPlan backend_plan =
-            build_frame_backend_plan(get_streaming_state().current_streaming_system.is_valid());
+            build_and_apply_frame_backend_plan(get_streaming_state().current_streaming_system.is_valid());
     _set_route_policy_diagnostics(backend_plan.runtime_policy.requested_route_policy,
             backend_plan.runtime_policy.requested_route_policy_source.utf8().get_data());
     static uint64_t render_debug_count = 0;

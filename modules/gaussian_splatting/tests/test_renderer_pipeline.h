@@ -20,6 +20,7 @@
 #include "../core/effective_config_snapshot.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_streaming.h"
@@ -6224,6 +6225,71 @@ TEST_CASE("[GaussianSplatting] file-backed payload forces streaming backend even
 	CHECK(bool(stats.get(StringName("payload_streamable"), false)));
 	CHECK(bool(stats.get(StringName("payload_source_active"), false)));
 	CHECK_FALSE(bool(stats.get(StringName("resident_payload_active"), true)));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] chunk-streaming route names why HLOD is not engaged") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings == nullptr) {
+		FAIL("ProjectSettings singleton required");
+		return;
+	}
+
+	ScopedGaussianManagerPipeline manager_guard;
+	const String route_policy_setting = "rendering/gaussian_splatting/streaming/route_policy";
+	const String cut_setting = "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled";
+	ScopedProjectSetting route_guard(project_settings, route_policy_setting);
+	ScopedProjectSetting cut_guard(project_settings, cut_setting);
+	project_settings->set_setting(route_policy_setting, int64_t(gs::settings::GS_ROUTE_STREAMING));
+	project_settings->set_setting(cut_setting, true);
+
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	if (renderer.is_null()) { FAIL("renderer instantiate failed"); return; }
+	// A file-backed payload keeps the streaming backend (no resident override), as a streamed world does.
+	renderer->get_scene_state().payload_source_splat_count = 32;
+	Ref<GaussianSplatHlodRuntimeData> snapshot;
+	snapshot.instantiate();
+	renderer->get_resource_state().hlod_snapshot = snapshot;
+
+	const GaussianSplatRenderer::FrameBackendPlan plan = renderer->build_frame_backend_plan(false);
+	REQUIRE(plan.streaming_requested);
+	REQUIRE_FALSE(plan.prefer_resident_backend);
+	CHECK(plan.hlod_route_reason == String("hlod_route_policy_chunk_streaming"));
+
+	CHECK(String(renderer->get_render_stats().get(StringName("hlod_reason"), String("missing"))).is_empty());
+	// The render entry builds the plan through the wrapper, which publishes the reason.
+	const GaussianSplatRenderer::FrameBackendPlan applied = renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(applied.hlod_route_reason == String("hlod_route_policy_chunk_streaming"));
+	const Dictionary stats = renderer->get_render_stats();
+	CHECK(String(stats.get(StringName("hlod_reason"), String())) == String("hlod_route_policy_chunk_streaming"));
+	CHECK_FALSE(bool(stats.get(StringName("hlod_active"), true)));
+	// The route flips away (the cut is switched off): the stale route reason is cleared, not left behind.
+	project_settings->set_setting(cut_setting, false);
+	renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(String(renderer->get_render_stats().get(StringName("hlod_reason"), String("missing"))).is_empty());
+	// A reason the HLOD publisher wrote is never touched by a plan without a route reason.
+	renderer->get_resource_state().hlod_reason = "hlod_idle_bundle_unavailable";
+	renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(renderer->get_resource_state().hlod_reason == String("hlod_idle_bundle_unavailable"));
+	renderer->get_resource_state().hlod_reason = String();
+	project_settings->set_setting(cut_setting, true);
+
+	// No reason where HLOD was never going to run: the cut is off, or the world carries no snapshot.
+	project_settings->set_setting(cut_setting, false);
+	CHECK(renderer->build_frame_backend_plan(false).hlod_route_reason.is_empty());
+	project_settings->set_setting(cut_setting, true);
+	renderer->get_resource_state().hlod_snapshot.unref();
+	CHECK(renderer->build_frame_backend_plan(false).hlod_route_reason.is_empty());
+	// The resident route is not the chunk-streaming route: no streaming reason.
+	// (A fresh renderer: the route policy is cached per renderer.)
+	project_settings->set_setting(route_policy_setting, int64_t(gs::settings::GS_ROUTE_RESIDENT));
+	Ref<GaussianSplatRenderer> resident_renderer;
+	resident_renderer.instantiate();
+	if (resident_renderer.is_null()) { FAIL("renderer instantiate failed"); return; }
+	resident_renderer->get_resource_state().hlod_snapshot = snapshot;
+	const GaussianSplatRenderer::FrameBackendPlan resident_plan = resident_renderer->build_frame_backend_plan(false);
+	CHECK(resident_plan.prefer_resident_backend);
+	CHECK(resident_plan.hlod_route_reason.is_empty());
 }
 
 TEST_CASE("[GaussianSplatting] get_streaming_route_policy defaults to STREAMING when unset") {

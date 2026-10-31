@@ -2439,18 +2439,20 @@ class HlodMainViewRequiredWiringTests(unittest.TestCase):
         self.assertEqual(runtime_validation.HLOD_REQUIRED_PROFILES, ("streaming-gpu-ci", "release-ci"))
         for profile in ("streaming-gpu-ci", "release-ci"):
             self.assertEqual(config["profiles"][profile]["gd_tests"].count("Resident HLOD Main View"), 1)
+            self.assertEqual(config["profiles"][profile]["gd_tests"].count("Streamed HLOD Resize Views"), 1)
 
     def test_profile_wiring_deletions_fail_through_config_loader(self) -> None:
         original = json.loads(runtime_validation.DEFAULT_SCENARIO_CONFIG.read_text(encoding="utf-8"))
-        for profile in ("streaming-gpu-ci", "release-ci"):
-            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
-                mutated = copy.deepcopy(original)
-                mutated["profiles"][profile]["gd_tests"].remove("Resident HLOD Main View")
-                path = Path(tmp) / "runtime_scenarios.json"
-                path.write_text(json.dumps(mutated), encoding="utf-8")
-                with mock.patch.object(runtime_validation, "DEFAULT_SCENARIO_CONFIG", path):
-                    with self.assertRaisesRegex(ValueError, "must select Resident HLOD Main View"):
-                        runtime_validation._load_scenario_config(path)
+        for scenario in ("Resident HLOD Main View", "Streamed HLOD Resize Views"):
+            for profile in ("streaming-gpu-ci", "release-ci"):
+                with self.subTest(profile=profile, scenario=scenario), tempfile.TemporaryDirectory() as tmp:
+                    mutated = copy.deepcopy(original)
+                    mutated["profiles"][profile]["gd_tests"].remove(scenario)
+                    path = Path(tmp) / "runtime_scenarios.json"
+                    path.write_text(json.dumps(mutated), encoding="utf-8")
+                    with mock.patch.object(runtime_validation, "DEFAULT_SCENARIO_CONFIG", path):
+                        with self.assertRaisesRegex(ValueError, "must select " + scenario):
+                            runtime_validation._load_scenario_config(path)
 
     def test_registry_deletion_fails_through_config_loader(self) -> None:
         registry = dict(runtime_validation.GDS_TESTS)

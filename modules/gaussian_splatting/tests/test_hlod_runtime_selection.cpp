@@ -2,7 +2,9 @@ extern "C" int test_hlod_runtime_selection_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_runtime_selection.h"
 #include "../core/gs_vector_alloc.h"
+#include <algorithm>
 #include <limits>
+#include <vector>
 
 namespace TestHlodRuntimeSelection {
 static void tree(GaussianSplatHlodRuntimeData &r_data) {
@@ -372,5 +374,150 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut record floor follows each node'
 	CHECK(coarse.status == gs_hlod_runtime::CutHistory::COMPLETE);
 	CHECK(coarse.selected_count == 2);
 	CHECK(coarse.estimated_records == doctest::Approx(82.125));
+}
+
+static std::vector<uint32_t> demand_of(const gs_hlod_runtime::CutHistory &p_history) {
+	std::vector<uint32_t> out;
+	for (uint32_t i = 0; i < p_history.demand_count(); ++i) { out.push_back(p_history.demand_node(i)); }
+	return out;
+}
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut reports Desired demand for missing nodes, as whole child groups only when the transition fits") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	const uint64_t bytes = history.allocated_bytes();
+	auto r = request();
+	// Root not resident: the root is the demand, nothing is selected.
+	uint8_t none[7] = { 0, 0, 0, 0, 0, 0, 0 };
+	r.resident = none; r.resident_count = 7;
+	auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::UNAVAILABLE);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 0 });
+	// Root only: the whole child group is demanded, parent stays selected.
+	uint8_t root[7] = { 1, 0, 0, 0, 0, 0, 0 };
+	r.resident = root;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.selected_count == 1);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 1, 2 });
+	// One child resident: only the missing child is demanded and the cut still does not move.
+	uint8_t half[7] = { 1, 1, 0, 0, 0, 0, 0 };
+	r.resident = half;
+	cut = history.select(data, r);
+	CHECK(cut.selected_count == 1);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 2 });
+	// Demand is bounded by the budget: the children (4 splats) would be refused under a 3 splat cap, so no
+	// bandwidth is spent on them.
+	r.resident = root;
+	r.splat_budget = 3;
+	cut = history.select(data, r);
+	CHECK(cut.selected_count == 1);
+	CHECK(demand_of(history).empty());
+	r.splat_budget = 100;
+	// Everything resident: nothing to ask for, and a later call clears the previous call's demand.
+	r.resident = nullptr;
+	cut = history.select(data, r);
+	CHECK(cut.selected_count == 4);
+	CHECK(demand_of(history).empty());
+	// The demand list is preallocated: selecting never grows the workspace.
+	CHECK(history.allocated_bytes() == bytes);
+}
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut demand is planned against the budget together with the higher-priority demand") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	uint8_t interiors[7] = { 1, 1, 1, 0, 0, 0, 0 };
+	r.resident = interiors; r.resident_count = 7;
+	// Cut {1, 2} = 4 splats. Refining node 1 adds 6 (10, fits a 10 splat cap); refining node 2 as well would
+	// reach 16. Once node 1's children are resident the walk stops at node 2, so asking for node 2's children
+	// now would only spend bandwidth and atlas pages on content the budget will refuse.
+	r.splat_budget = 10;
+	auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.selected_count == 2);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+	// With room for both transitions, both groups are demanded in priority order.
+	r.splat_budget = 16;
+	cut = history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
+}
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut bootstrap demands every missing child of the expansion it needs") {
+	GaussianSplatHlodRuntimeData data;
+	heavy_root_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.camera = Vector3(0, 0, 0);
+	r.tau_pixels = 1e9;
+	r.splat_budget = 90;
+	uint8_t root[7] = { 1, 0, 0, 1, 1, 1, 1 };
+	r.resident = root; r.resident_count = 7;
+	auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
+	CHECK(cut.selected_count == 0);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 1, 2 });
+	uint8_t frontier[7] = { 1, 1, 1, 1, 1, 1, 1 };
+	r.resident = frontier;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(demand_of(history).empty());
+	CHECK(history.partial_frontier_count() == 0);
+	// A frontier that needs a second expansion: 45 splats fits neither the root (100), {1, 2} (80) nor {2, 3, 4}
+	// (48), so node 1 is expanded into {3, 4} and node 2's children {5, 6} are missing. The reached frontier {2, 3, 4} is
+	// resident work the residency layer must keep while {5, 6} load; it is reported apart from the demand.
+	r.splat_budget = 45;
+	uint8_t partial[7] = { 1, 1, 1, 1, 1, 0, 0 };
+	r.resident = partial;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
+	CHECK(cut.selected_count == 0);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 5, 6 });
+	std::vector<uint32_t> kept;
+	for (uint32_t i = 0; i < history.partial_frontier_count(); ++i) { kept.push_back(history.partial_frontier_node(i)); }
+	std::sort(kept.begin(), kept.end());
+	CHECK(kept == std::vector<uint32_t>{ 2, 3, 4 });
+	// Every other status clears it.
+	r.resident = frontier;
+	r.splat_budget = 90;
+	history.select(data, r);
+	CHECK(history.partial_frontier_count() == 0);
+}
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut plans demand in atlas pages, ancestors of the cut included") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data); // Every node holds fewer splats than a page, so each occupies exactly one page.
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	uint8_t interiors[7] = { 1, 1, 1, 0, 0, 0, 0 };
+	r.resident = interiors; r.resident_count = 7;
+	// Splats and records would admit every transition (cap 100 splats, 16 needed).
+	r.page_splats = 1024;
+	// Cut {1, 2} keeps three pages resident (root and both interiors). Each child group adds two pages.
+	r.page_budget = 5;
+	auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 }); // 3 + 2 = 5 fits, the second group (7) does not.
+	r.page_budget = 7;
+	history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
+	r.page_budget = 4; // Not even one group fits next to the ancestors.
+	history.select(data, r);
+	CHECK(demand_of(history).empty());
+	// Pages round up: 2000 splats occupy two pages, so each leaf pair costs four pages (3 + 4 = 7 > 6).
+	for (int i = 3; i < 7; ++i) { data.nodes.write[i].topology.payload_count = 2000; }
+	r.splat_budget = 100000;
+	r.page_budget = 6;
+	history.select(data, r);
+	CHECK(demand_of(history).empty());
+	r.page_budget = 7;
+	history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+	// Without a page plan the selector behaves as before.
+	r.page_splats = 0;
+	history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
 }
 }
