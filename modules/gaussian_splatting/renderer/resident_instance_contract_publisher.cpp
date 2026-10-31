@@ -1818,9 +1818,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 hlod_build_bundle(this, rd, *input.ptr(), true, quantized, relative_capacity, position_bits, scale_bits, instances[0], grading[0], relative, streaming, stream_records);
         if (built && streaming && served != input) {
             // An edited leaf may be larger than every captured one (up to 16,384 splats).
-            for (int n = 0; n < served->nodes.size(); ++n) {
-                relative.buffers.max_chunk_splats = MAX(relative.buffers.max_chunk_splats, served->nodes[n].topology.payload_count);
-            }
+            relative.buffers.max_chunk_splats = hlod_dispatch_extent_for(relative.buffers.max_chunk_splats, *served.ptr());
         }
         Ref<HlodNodeStreamer> streamer;
         if (built && streaming) {
@@ -2054,7 +2052,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         known_view.node_budget = spec.caps.node_budget;
         known_view.page_splats = spec.page_splats;
         known_view.page_budget = spec.page_budget;
-        state.hlod_streamer->register_view(1, known_view);
+        // Keyed by the view's real HLOD identity: a constant key made the second viewport overwrite the first.
+        GaussianSplatRenderer::sync_hlod_known_view(*state.hlod_streamer.ptr(),
+                [this](uint64_t p_key) { return frame_context_manager.is_hlod_view_live(p_key); }, identity, known_view);
     }
     // One asset, one identity-placed instance holding the whole view's caps. The GPU-side sort/record/draw
     // buffers and the payload are already inside the route ledger above (route_bytes), so the ViewSet
@@ -2105,12 +2105,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             state.hlod_reason = "hlod_edit_commit_unusable";
             return false;
         }
-        served = state.hlod_streamer->get_data();
-        if (served->has_edits() && state.hlod_committed_edit != served) {
-            state.hlod_committed_edit = served;
-            state.hlod_edit_owner_key = state.hlod_prepared_owner_key;
-            state.hlod_edit_world_key = state.hlod_world_key;
-        }
+        served = adopt_hlod_served_snapshot();
         asset.data = served;
         asset.resident = state.hlod_streamer->resident_mask();
     } else {
@@ -2663,6 +2658,38 @@ bool GaussianSplatRenderer::hlod_committed_edit_applies_to(const Ref<GaussianSpl
     // The same world replaced in place (reimport): its content revision moved. A paged <-> resident switch (the world was
     // materialized by a cut toggle) is not a content change and keeps the edit.
     return !(state.hlod_committed_edit->is_paged() == p_capture->is_paged() && state.hlod_committed_edit->source_revision != p_capture->source_revision);
+}
+
+uint32_t GaussianSplatRenderer::hlod_dispatch_extent_for(uint32_t p_current, const GaussianSplatHlodRuntimeData &p_data) {
+    uint32_t extent = p_current;
+    for (int n = 0; n < p_data.nodes.size(); ++n) {
+        extent = MAX(extent, p_data.nodes[n].topology.payload_count);
+    }
+    return extent;
+}
+
+Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::adopt_hlod_served_snapshot() {
+    auto &state = get_resource_state();
+    Ref<GaussianSplatHlodRuntimeData> served = state.hlod_streamer->get_data();
+    if (served->has_edits() && state.hlod_committed_edit != served) {
+        state.hlod_committed_edit = served;
+        state.hlod_edit_owner_key = state.hlod_prepared_owner_key;
+        state.hlod_edit_world_key = state.hlod_world_key;
+        // An edited leaf may be larger than every captured one (up to 16,384 splats). The rebuild path raises the extent
+        // for an edited snapshot; the live commit must do the same before the new cut is published.
+        state.hlod_relative.buffers.max_chunk_splats = hlod_dispatch_extent_for(state.hlod_relative.buffers.max_chunk_splats, *served.ptr());
+    }
+    return served;
+}
+
+void GaussianSplatRenderer::sync_hlod_known_view(HlodNodeStreamer &r_streamer, const std::function<bool(uint64_t)> &p_view_live,
+        const HlodViewIdentity &p_identity, const gs_hlod_runtime::CutRequest &p_request) {
+    const uint64_t key = RenderFrameContextManager::hlod_view_key(p_identity);
+    for (uint32_t i = r_streamer.registered_view_count(); i-- > 0;) {
+        const uint64_t other = r_streamer.registered_view_key(i);
+        if (other != key && !p_view_live(other)) { r_streamer.unregister_view(other); }
+    }
+    r_streamer.register_view(key, p_request);
 }
 
 bool GaussianSplatRenderer::hlod_edit_served() const {

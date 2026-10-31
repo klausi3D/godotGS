@@ -16,6 +16,7 @@
 
 // Scene includes not available in modules - using core Node instead
 #include "../core/gaussian_splat_hlod_runtime_data.h"
+#include <functional>
 #include "core/math/aabb.h"
 #include "core/object/object.h"
 #include "core/object/ref_counted.h"
@@ -943,6 +944,17 @@ public:
     bool hlod_edit_committed_here() const;
     // The streamed route is alive AND serves the committed snapshot.
     bool hlod_edit_served() const;
+    // The publication boundary of a committed edit, right after the streamer's begin_frame(): returns the snapshot the
+    // streamer now serves and, when it is a newly committed edit, adopts it. The depth dispatch is sized from
+    // hlod_relative.buffers.max_chunk_splats (set from the CAPTURED snapshot at build time), so an edited leaf larger than
+    // every captured one must raise it HERE, before the new cut is published, or its extra splats get no invocation.
+    Ref<GaussianSplatHlodRuntimeData> adopt_hlod_served_snapshot();
+    // Largest node payload of `p_data`, never below `p_current` (the dispatch extent only grows).
+    static uint32_t hlod_dispatch_extent_for(uint32_t p_current, const GaussianSplatHlodRuntimeData &p_data);
+    // Package F1: registers the view under its real HLOD view key (RenderFrameContextManager::hlod_view_key), so every
+    // view the route draws constrains an edit, and retires registrations whose view is no longer live.
+    static void sync_hlod_known_view(HlodNodeStreamer &r_streamer, const std::function<bool(uint64_t)> &p_view_live,
+            const HlodViewIdentity &p_identity, const gs_hlod_runtime::CutRequest &p_request);
     // Whether the committed edit still applies to a fresh capture of the submitted world: the same node and world, and not
     // an in-place content change (same paged-ness, other source revision). A paged <-> resident switch is a materialization
     // and keeps the edit (it is then re-applied by rebase_edited_snapshot).

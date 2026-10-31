@@ -1851,4 +1851,130 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit] a blanked frame names its current cau
 	CHECK(untouched.should_attempt_streaming_bootstrap);
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Codex review of the stack (#1293): the live commit boundary and the known-view registry.
+// ---------------------------------------------------------------------------------------------------------------------
+
+// P1: the depth dispatch is sized from hlod_relative.buffers.max_chunk_splats, set from the CAPTURED snapshot. An edit that
+// grows a leaf past every captured payload must raise it at the live commit boundary (adopt_hlod_served_snapshot), before
+// the new cut is published, or the extra splats get no shader invocation and vanish while the cut still reports active.
+TEST_CASE("[GaussianSplatting][HLOD][Edit] a committed edit that grows a leaf past every captured payload raises the dispatch extent at the live commit boundary") {
+	World w;
+	if (!build_world(w, 0, false, 20000)) { return; }
+	const uint32_t captured_max = GaussianSplatRenderer::hlod_dispatch_extent_for(0, *w.resident.ptr());
+	GS_NEED(captured_max > 4);
+	const uint32_t leaf = pick_leaf(*w.resident.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.resident.ptr(), leaf, source));
+	// Grow the leaf to captured_max + 64 splats by repeating its own splats (positions stay inside the leaf bounds).
+	LeafEdit grown;
+	grown.node = leaf;
+	while (uint32_t(grown.gaussians.size()) < captured_max + 64u) {
+		grown.gaussians.push_back(source.gaussians[grown.gaussians.size() % source.gaussians.size()]);
+	}
+	Ref<GaussianSplatHlodRuntimeData> edited;
+	String reason;
+	const EditStatus grown_status = make_edited_snapshot(w.resident, 0, &grown, 1, edited, reason);
+	const CharString grown_reason = reason.utf8();
+	if (grown_status != EditStatus::OK) { FAIL("grown edit refused: ", grown_reason.get_data(), " captured_max ", captured_max); return; }
+	GS_NEED(GaussianSplatRenderer::hlod_dispatch_extent_for(0, *edited.ptr()) == captured_max + 64u);
+
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	GS_NEED(renderer.is_valid());
+	auto &state = renderer->get_resource_state();
+	// The streamer serves the edited snapshot (the commit just happened inside begin_frame); no edit is adopted yet, and the
+	// bundle still carries the extent of the captured snapshot.
+	Ref<HlodNodeStreamer> streamer = install_streamer(*renderer.ptr(), edited, Ref<GaussianSplatHlodRuntimeData>());
+	GS_NEED(streamer.is_valid());
+	state.hlod_relative.buffers.max_chunk_splats = captured_max;
+
+	const Ref<GaussianSplatHlodRuntimeData> served = renderer->adopt_hlod_served_snapshot();
+	CHECK(served == edited);
+	CHECK(state.hlod_committed_edit == edited);
+	CHECK(state.hlod_relative.buffers.max_chunk_splats == captured_max + 64u);
+	// Adopting again changes nothing, and the extent never shrinks (a later, smaller edit keeps the larger dispatch).
+	renderer->adopt_hlod_served_snapshot();
+	CHECK(state.hlod_relative.buffers.max_chunk_splats == captured_max + 64u);
+	CHECK(GaussianSplatRenderer::hlod_dispatch_extent_for(captured_max + 64u, *w.resident.ptr()) == captured_max + 64u);
+
+	// An edit that does not grow any leaf leaves the extent alone.
+	const LeafEdit smaller = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> shrunk;
+	GS_NEED(make_edited_snapshot(w.resident, 0, &smaller, 1, shrunk, reason) == EditStatus::OK);
+	Ref<HlodNodeStreamer> second = install_streamer(*renderer.ptr(), shrunk, Ref<GaussianSplatHlodRuntimeData>());
+	GS_NEED(second.is_valid());
+	state.hlod_relative.buffers.max_chunk_splats = captured_max;
+	renderer->adopt_hlod_served_snapshot();
+	CHECK(state.hlod_committed_edit == shrunk);
+	CHECK(state.hlod_relative.buffers.max_chunk_splats == captured_max);
+}
+
+static HlodViewIdentity known_view_identity(uint64_t p_buffers, uint64_t p_target, uint64_t p_epoch) {
+	HlodViewIdentity id;
+	id.buffers = ObjectID(p_buffers);
+	id.target = RID::from_uint64(p_target);
+	id.epoch = p_epoch;
+	return id;
+}
+
+// P2: every view the route draws constrains an edit. A constant registration key made the second viewport overwrite the
+// first, so an edit that fit only the last view was accepted and blanked the other; a view that expired must stop
+// constraining edits.
+TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] each view registers under its own identity, so an edit that fits only one of two views is refused, and an expired view stops constraining") {
+	World w;
+	if (!build_world(w, 0, true, 120000)) { return; }
+	const uint32_t leaf = pick_leaf(*w.paged.ptr());
+	GS_NEED(leaf != UINT32_MAX);
+	LeafEdit source;
+	GS_NEED(read_leaf(*w.paged.ptr(), leaf, source));
+	const LeafEdit edit = delete_half(source, 0);
+	Ref<GaussianSplatHlodRuntimeData> next;
+	String reason;
+	GS_NEED(make_edited_snapshot(w.paged, 0, &edit, 1, next, reason) == EditStatus::OK);
+	HlodNodeStreamer::Config config;
+	uint32_t pages = 0;
+	for (int n = 0; n < w.paged->nodes.size(); ++n) {
+		pages += (w.paged->nodes[n].topology.payload_count + config.page_splats - 1u) / config.page_splats;
+	}
+	config.atlas_pages = pages + 8;
+	Ref<HlodNodeStreamer> streamer;
+	streamer.instantiate();
+	GS_NEED(streamer->init(w.paged, config, 1, 1));
+	streamer->begin_frame();
+
+	const HlodViewIdentity small_view = known_view_identity(101, 7, 5);
+	const HlodViewIdentity large_view = known_view_identity(102, 8, 5);
+	const uint64_t small_key = RenderFrameContextManager::hlod_view_key(small_view);
+	const uint64_t large_key = RenderFrameContextManager::hlod_view_key(large_view);
+	GS_NEED(small_key != large_key);
+	std::vector<uint64_t> live = { small_key, large_key };
+	const std::function<bool(uint64_t)> is_live = [&live](uint64_t p_key) { return std::count(live.begin(), live.end(), p_key) != 0; };
+
+	// The tiny view cannot hold the replacement cut; the roomy one can. They register in this order, as the frames of two
+	// viewports do.
+	const CutRequest tiny = far_view(2, 1.0e9);
+	const CutRequest roomy = far_view(uint32_t(w.paged->nodes.size()), 1.0e9);
+	GaussianSplatRenderer::sync_hlod_known_view(*streamer.ptr(), is_live, small_view, tiny);
+	GaussianSplatRenderer::sync_hlod_known_view(*streamer.ptr(), is_live, large_view, roomy);
+	CHECK(streamer->registered_view_count() == 2);
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_REJECTED_INFEASIBLE);
+	CHECK_FALSE(streamer->is_edit_staged());
+	CHECK(streamer->get_data() == w.paged);
+	// A view that re-registers replaces its own request, not another's.
+	GaussianSplatRenderer::sync_hlod_known_view(*streamer.ptr(), is_live, large_view, roomy);
+	CHECK(streamer->registered_view_count() == 2);
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_REJECTED_INFEASIBLE);
+
+	// The tiny view expires (its buffers were freed): the next registration of the surviving view retires it, and the edit
+	// is judged against the views that are still drawn.
+	live = { large_key };
+	GaussianSplatRenderer::sync_hlod_known_view(*streamer.ptr(), is_live, large_view, roomy);
+	CHECK(streamer->registered_view_count() == 1);
+	CHECK(streamer->registered_view_key(0) == large_key);
+	CHECK(streamer->stage_edit(next) == HlodNodeStreamer::EDIT_STAGED);
+	streamer->shutdown();
+}
+
 }
