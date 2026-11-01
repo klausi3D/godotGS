@@ -119,6 +119,10 @@ public:
 	// Whether the view with this ViewSet key is still bound AND its buffers/epoch are still the live ones. False for an
 	// unknown key. Used to retire per-view registrations kept elsewhere (the node streamer's known views).
 	bool is_hlod_view_live(uint64_t p_view_key) const;
+#ifdef TESTS_ENABLED
+	// Binds a view without admitting it to the ViewSet (tests of the callers of is_hlod_view_live).
+	bool test_bind_hlod_view(const HlodViewIdentity &p_identity);
+#endif
 	const gs_hlod_runtime::ViewSet &get_hlod_view_set() const { return hlod_view_set; }
 	// Reusable input for select_hlod_view: the caller refills it each frame (same sizes: no allocation).
 	// The runtime snapshot reference is released by release_hlod_snapshot_data() after every prepare.

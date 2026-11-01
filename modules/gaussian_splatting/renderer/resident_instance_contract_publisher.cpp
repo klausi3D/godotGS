@@ -2053,8 +2053,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         known_view.page_splats = spec.page_splats;
         known_view.page_budget = spec.page_budget;
         // Keyed by the view's real HLOD identity: a constant key made the second viewport overwrite the first.
-        GaussianSplatRenderer::sync_hlod_known_view(*state.hlod_streamer.ptr(),
-                [this](uint64_t p_key) { return frame_context_manager.is_hlod_view_live(p_key); }, identity, known_view);
+        register_hlod_known_view(identity, known_view);
     }
     // One asset, one identity-placed instance holding the whole view's caps. The GPU-side sort/record/draw
     // buffers and the payload are already inside the route ledger above (route_bytes), so the ViewSet
@@ -2091,13 +2090,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // and completely uploaded (resident-ready) are visible to the selector, so a cut can only name drawable nodes.
     Ref<GaussianSplatHlodRuntimeData> served = input;
     if (state.hlod_streaming) {
-        HlodNodeStreamer::Buffers frame_buffers;
-        frame_buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
-        frame_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
-        frame_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
-        // The publication boundary of a staged edit is inside begin_frame(): commit, then select, structurally.
-        state.hlod_streamer->begin_frame(get_device_state().rd, &frame_buffers);
-        if (!state.hlod_streamer->is_active()) {
+        // The publication boundary of a staged edit: commit, adopt, then select, structurally (one function, tested).
+        served = hlod_stream_commit_boundary();
+        if (served.is_null()) {
             // A failed commit part-way: the bundle cannot be trusted. Release; the rebuild serves the last COMMITTED
             // snapshot (hlod_committed_edit), and until then the world draws nothing (hlod_edit_blanks_frame).
             state.hlod_edit_event = "hlod_edit_commit_unusable";
@@ -2105,7 +2100,6 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             state.hlod_reason = "hlod_edit_commit_unusable";
             return false;
         }
-        served = adopt_hlod_served_snapshot();
         asset.data = served;
         asset.resident = state.hlod_streamer->resident_mask();
     } else {
@@ -2680,6 +2674,27 @@ Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::adopt_hlod_served_snaps
         state.hlod_relative.buffers.max_chunk_splats = hlod_dispatch_extent_for(state.hlod_relative.buffers.max_chunk_splats, *served.ptr());
     }
     return served;
+}
+
+Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::hlod_stream_commit_boundary() {
+    auto &state = get_resource_state();
+    HlodNodeStreamer::Buffers frame_buffers;
+    frame_buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
+    frame_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
+    frame_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
+    // The publication boundary of a staged edit is inside begin_frame(): commit first.
+    state.hlod_streamer->begin_frame(get_device_state().rd, &frame_buffers);
+    if (!state.hlod_streamer->is_active()) {
+        return Ref<GaussianSplatHlodRuntimeData>(); // A failed commit part-way: the caller releases the bundle.
+    }
+    return adopt_hlod_served_snapshot();
+}
+
+void GaussianSplatRenderer::register_hlod_known_view(const HlodViewIdentity &p_identity, const gs_hlod_runtime::CutRequest &p_request) {
+    auto &state = get_resource_state();
+    if (state.hlod_streamer.is_null()) { return; }
+    sync_hlod_known_view(*state.hlod_streamer.ptr(),
+            [this](uint64_t p_key) { return frame_context_manager.is_hlod_view_live(p_key); }, p_identity, p_request);
 }
 
 void GaussianSplatRenderer::sync_hlod_known_view(HlodNodeStreamer &r_streamer, const std::function<bool(uint64_t)> &p_view_live,

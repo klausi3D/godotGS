@@ -949,6 +949,15 @@ public:
     // hlod_relative.buffers.max_chunk_splats (set from the CAPTURED snapshot at build time), so an edited leaf larger than
     // every captured one must raise it HERE, before the new cut is published, or its extra splats get no invocation.
     Ref<GaussianSplatHlodRuntimeData> adopt_hlod_served_snapshot();
+    // The commit boundary of the streamed frame, exactly as prepare_hlod_frame runs it: the streamer's begin_frame() (which
+    // commits a ready staged edit), then adopt_hlod_served_snapshot(). Null when the streamer is no longer active (the
+    // caller releases the bundle).
+    Ref<GaussianSplatHlodRuntimeData> hlod_stream_commit_boundary();
+    // Registers this frame's view with the streamer, judging expiry by THIS renderer's view bindings.
+    void register_hlod_known_view(const HlodViewIdentity &p_identity, const gs_hlod_runtime::CutRequest &p_request);
+#ifdef TESTS_ENABLED
+    RenderFrameContextManager &test_get_frame_context_manager() { return frame_context_manager; }
+#endif
     // Largest node payload of `p_data`, never below `p_current` (the dispatch extent only grows).
     static uint32_t hlod_dispatch_extent_for(uint32_t p_current, const GaussianSplatHlodRuntimeData &p_data);
     // Package F1: registers the view under its real HLOD view key (RenderFrameContextManager::hlod_view_key), so every
