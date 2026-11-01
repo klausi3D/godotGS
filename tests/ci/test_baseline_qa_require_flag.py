@@ -274,6 +274,23 @@ class ResolveQaRanTest(unittest.TestCase):
         self.assertTrue(run_baseline_qa.resolve_qa_ran(category=None, categories=None, quick=False))
 
 
+def qa_lane_command(text):
+    """The full `run_baseline_qa.py --categories qa` command of a bash `run:` block.
+
+    A bash command can continue over lines with a trailing backslash, so the
+    command is the logical line: continuation lines are joined BEFORE matching.
+    Matching only the physical line that names `qa` let
+    `--update-qa-baseline` ride in on the next line unseen.
+    """
+    joined = re.sub(r"\\[ \t]*\r?\n[ \t]*", " ", text)
+    match = re.search(
+        r"^[ \t]*python3?[ \t]+tests/ci/run_baseline_qa\.py[ \t]+[^\n]*?--categories[ \t]+qa(?:[ \t][^\n]*)?$",
+        joined,
+        re.MULTILINE,
+    )
+    return match.group(0) if match else None
+
+
 def _extract_baseline_qa_invocations(workflows_dir: Path | None = None):
     """Every run_baseline_qa.py invocation in .github/workflows, with the
     category selector each one passes.
@@ -461,13 +478,8 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
         # (`python tests/ci/run_baseline_qa.py --categories qa ... --godot "$GODOT_BINARY"`),
         # so the argv block is that line. The flags must be on the line that
         # selects `qa`, or they are not part of the invocation.
-        qa_step = re.search(
-            r'^[ \t]*python3?[ \t]+tests/ci/run_baseline_qa\.py[ \t]+[^\n]*?--categories[ \t]+qa(?:[ \t][^\n]*)?$',
-            text,
-            re.MULTILINE,
-        )
-        self.assertIsNotNone(qa_step, "Could not locate the qa lane's argv block in baseline_qa.yml.")
-        block = qa_step.group(0)
+        block = qa_lane_command(text)
+        self.assertIsNotNone(block, "Could not locate the qa lane's argv block in baseline_qa.yml.")
         self.assertIn("--qa-require-capture", block, "The qa lane must require real capture.")
         self.assertIn("--require-qa-baseline", block, "The qa lane must require a committed baseline.")
         self.assertNotIn(
@@ -503,6 +515,52 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
             "Documented QA commands that can certify or rewrite the baseline "
             "must require real capture:\n  " + "\n  ".join(missing),
         )
+
+
+class QaLaneContinuationBypassTest(unittest.TestCase):
+    """`--update-qa-baseline` on a backslash-continued line must be seen (review P2-1)."""
+
+    BYPASS = (
+        "      run: |\n"
+        "        python tests/ci/run_baseline_qa.py --categories qa --qa-require-capture \\\n"
+        "          --require-qa-baseline \\\n"
+        "          --update-qa-baseline --godot \"$GODOT_BINARY\"\n"
+    )
+    CLEAN = (
+        "      run: |\n"
+        "        python tests/ci/run_baseline_qa.py --categories qa --qa-require-capture \\\n"
+        "          --require-qa-baseline --godot \"$GODOT_BINARY\"\n"
+    )
+
+    def test_a_flag_on_a_continuation_line_is_part_of_the_command(self):
+        block = qa_lane_command(self.BYPASS)
+        self.assertIsNotNone(block)
+        self.assertIn("--update-qa-baseline", block)
+
+    def test_flags_split_over_continuation_lines_are_still_found(self):
+        block = qa_lane_command(self.CLEAN)
+        self.assertIn("--qa-require-capture", block)
+        self.assertIn("--require-qa-baseline", block)
+        self.assertNotIn("--update-qa-baseline", block)
+
+    def test_the_old_first_line_only_match_would_have_missed_the_bypass(self):
+        # Mutant: the physical-line regex this guard used before the fix.
+        old = re.search(
+            r"^[ \t]*python3?[ \t]+tests/ci/run_baseline_qa\.py[ \t]+[^\n]*?--categories[ \t]+qa(?:[ \t][^\n]*)?$",
+            self.BYPASS,
+            re.MULTILINE,
+        )
+        self.assertNotIn("--update-qa-baseline", old.group(0))
+        self.assertNotIn("--require-qa-baseline", old.group(0))
+        # ...and the fixed helper does not.
+        self.assertIn("--update-qa-baseline", qa_lane_command(self.BYPASS))
+
+    def test_the_shipped_workflow_still_passes_the_fixed_helper(self):
+        text = (ROOT / ".github" / "workflows" / "baseline_qa.yml").read_text(encoding="utf-8")
+        block = qa_lane_command(text)
+        self.assertIsNotNone(block)
+        self.assertNotIn("--update-qa-baseline", block)
+
 
 
 class QaInventoryAndEvidenceContractTest(unittest.TestCase):
