@@ -12,13 +12,14 @@ jobs:
         shell: bash
         run: |
           set +e
-          uname -a; cat /etc/os-release | head -3; id; whoami; nproc; free -g; df -h / /home /tmp . 2>&1
-          for t in python python3 pwsh scons g++ gcc clang ninja pkg-config glslangValidator glslc vulkaninfo nvidia-smi xvfb-run Xvfb git sudo dotnet node unzip zip curl wget cmake ccache mold lld; do printf "%s: " $t; command -v $t || echo MISSING; done
-          python3 --version; python3 -c "import venv,ensurepip;print('venv ok')"; g++ --version | head -1
-          sudo -n true && echo SUDO_OK || echo SUDO_NO
-          echo DISPLAY=$DISPLAY XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
-          ls /usr/share/vulkan/icd.d /etc/vulkan/icd.d 2>&1; ls /usr/share/vulkan/implicit_layer.d /etc/vulkan/implicit_layer.d 2>&1
-          nvidia-smi 2>&1 | head -20
-          vulkaninfo --summary 2>&1 | head -30
-          pkg-config --exists x11 xcursor xinerama xi xrandr alsa libpulse libudev vulkan && echo DEVLIBS_OK || (for p in x11 xcursor xinerama xi xrandr alsa libpulse libudev vulkan gl glu wayland-client xkbcommon dbus-1 fontconfig; do pkg-config --exists $p && echo "have $p" || echo "MISSING $p"; done)
-          ls ~ ; ls /opt 2>&1; echo $HOME; ls -la $RUNNER_TEMP/.. | head; 
+          pkg-config --exists zlib && echo zlib_ok || echo zlib_MISSING
+          ls /var/lib/apt/lists | head -3
+          D=$RUNNER_TEMP/dl; mkdir -p $D; cd $D
+          apt-get download glslang-tools 2>&1 | tail -3
+          ls -la
+          dpkg-deb -x glslang-tools*.deb x && ls x/usr/bin && ldd x/usr/bin/glslangValidator | head
+          apt-cache policy glslang-tools | head -4
+          ls /usr/lib/x86_64-linux-gnu | grep -E "libX11|libXcursor|libXi\.|libXrandr|libXinerama|libxkbcommon|libvulkan|libGL|libasound|libpulse|libudev|libdbus|libfontconfig" 
+          python3 -m venv $RUNNER_TEMP/v && $RUNNER_TEMP/v/bin/python -c "print('venv works')"
+          ls ~/ -la | head; echo HOME=$HOME; ps -eo pid,comm | grep -i -E "runner|Xorg|Xvfb|godot" | head
+          cat /proc/sys/kernel/yama/ptrace_scope 2>&1; ls /dev/dri /dev/nvidia* 2>&1 | head
