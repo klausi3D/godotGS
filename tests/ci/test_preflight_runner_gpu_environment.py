@@ -2079,6 +2079,17 @@ _LINUX_CLEAN_TEXT = (
 
 
 class LinuxLoaderFormat(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.object(preflight, "_is_windows", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_wider_linux_anchor_does_not_apply_under_the_windows_policy(self) -> None:
+        # The Windows gate keeps its reviewed provenance anchor: Linux-shaped
+        # lines must not influence a Windows verdict.
+        with mock.patch.object(preflight, "_is_windows", return_value=True):
+            self.assertEqual(preflight.parse_layer_report(_LINUX_CONTROL_TEXT), {})
+
     def test_the_linux_insert_line_is_parsed(self) -> None:
         layers = preflight.parse_layer_report(_LINUX_CONTROL_TEXT)
         self.assertEqual(list(layers), ["VK_LAYER_MESA_device_select"])

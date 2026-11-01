@@ -248,14 +248,22 @@ _LOADER_DEBUG_MARKER = "[Vulkan Loader]"
 
 #: Linux loader 1.3.x prefixes its debug lines with the message type instead:
 #: `INFO | LAYER:      Insert instance layer "VK_LAYER_X" (libVkLayer_x.so)`, and
-#: continuation lines with a bare `LAYER:` / `INFO:` / `DRIVER:`. The anchor is the
-#: same idea as the Windows marker -- text without it is not a loader report.
-_LOADER_DEBUG_ANCHOR = (
+#: continuation lines with a bare `LAYER:` / `INFO:` / `DRIVER:`.
+#:
+#: This wider anchor is applied ONLY when the preflight runs on a non-Windows
+#: host (see `_is_windows()`): the Windows gate keeps exactly the `[Vulkan
+#: Loader]` provenance anchor it was reviewed with, so layer-shaped text that
+#: merely starts with `LAYER:` cannot influence the Windows verdict. On Linux the
+#: anchor is the same idea as the Windows marker -- text without it is not a
+#: loader report (an unprefixed line is still ignored; see the spoof test).
+_LOADER_DEBUG_ANCHOR_LINUX = (
     r"(?:\[Vulkan Loader\]"
     r"|(?:INFO|WARNING|ERROR|DEBUG|PERF)[ \t]*\|[ \t]*[A-Z]+:"
     r"|(?:LAYER|INFO|DRIVER|WARNING|ERROR|DEBUG|PERF):)"
 )
-_LOADER_DEBUG_LINE = re.compile(rf"^{_LOADER_DEBUG_ANCHOR}", re.MULTILINE)
+_LOADER_DEBUG_ANCHOR_WINDOWS = re.escape(_LOADER_DEBUG_MARKER)
+_LOADER_DEBUG_LINE = re.compile(rf"^{_LOADER_DEBUG_ANCHOR_WINDOWS}", re.MULTILINE)
+_LOADER_DEBUG_LINE_LINUX = re.compile(rf"^{_LOADER_DEBUG_ANCHOR_LINUX}", re.MULTILINE)
 
 #: The loader's own debug messages, one per layer it inserts into a chain.
 #: `Insert instance layer "VK_LAYER_X" (C:\\path\\to.dll)` and the device-chain
@@ -267,7 +275,14 @@ _LOADER_DEBUG_LINE = re.compile(rf"^{_LOADER_DEBUG_ANCHOR}", re.MULTILINE)
 #: `C:\\Program Files (x86` under a non-greedy `[^)]*`, which would name the
 #: offending layer's module wrongly in the very message a maintainer acts on.
 _LAYER_LINE = re.compile(
-    rf'^{_LOADER_DEBUG_ANCHOR}[^\r\n]*?'
+    rf'^{_LOADER_DEBUG_ANCHOR_WINDOWS}[^\r\n]*?'
+    r'(?P<chain>Insert instance layer|Inserted device layer)\s+"(?P<name>[^"]+)"'
+    r'(?:\s*\((?P<module>.*)\))?\s*$',
+    re.MULTILINE,
+)
+
+_LAYER_LINE_LINUX = re.compile(
+    rf'^{_LOADER_DEBUG_ANCHOR_LINUX}[^\r\n]*?'
     r'(?P<chain>Insert instance layer|Inserted device layer)\s+"(?P<name>[^"]+)"'
     r'(?:\s*\((?P<module>.*)\))?\s*$',
     re.MULTILINE,
@@ -352,7 +367,8 @@ def parse_ignored_env_vars(text: str) -> Tuple[str, ...]:
 def parse_layer_report(text: str) -> Dict[str, LayerRecord]:
     """Layer name -> modules/chains, from the loader's `VK_LOADER_DEBUG=layer` output."""
     collected: Dict[str, Tuple[List[str], List[str]]] = {}
-    for match in _LAYER_LINE.finditer(text):
+    layer_line = _LAYER_LINE if _is_windows() else _LAYER_LINE_LINUX
+    for match in layer_line.finditer(text):
         name = match.group("name")
         module = (match.group("module") or "").strip()
         chain = "instance" if match.group("chain").startswith("Insert instance") else "device"
@@ -386,7 +402,8 @@ def run_probe(probe: str, strip_disable: bool) -> ProbeResult:
         )
 
     text = (completed.stdout or "") + (completed.stderr or "")
-    debug_lines = len(_LOADER_DEBUG_LINE.findall(text))
+    debug_pattern = _LOADER_DEBUG_LINE if _is_windows() else _LOADER_DEBUG_LINE_LINUX
+    debug_lines = len(debug_pattern.findall(text))
     if completed.returncode != 0:
         return ProbeResult(
             False,

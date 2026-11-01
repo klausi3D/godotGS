@@ -613,11 +613,24 @@ def self_hosted_jobs(
     }
 
 
+#: `vars.<NAME> == 'true' && <strict guard>`: the strict form with one repository
+#: variable ANDed in front. A conjunction can only narrow what the strict form
+#: admits, so it cannot let fork code onto the runner; it is used to keep a job
+#: for a runner that may not exist (export_smoke_windows) from queueing forever.
+#: Anything else ANDed or ORed in is NOT accepted.
+VARIABLE_GATED_STRICT_GUARD = re.compile(
+    r"^vars\.[A-Z][A-Z0-9_]* == 'true' && " + re.escape(STRICT_NO_PULL_REQUEST_GUARD) + r"$"
+)
+
+
 def classify_guard(raw_if: Optional[str]) -> Optional[str]:
     """"standard" / "strict" for an accepted guard, else None (a failure)."""
     if raw_if is None:
         return None
-    return ACCEPTED_GUARDS.get(_normalize_guard(raw_if))
+    normalized = _normalize_guard(raw_if)
+    if VARIABLE_GATED_STRICT_GUARD.match(normalized):
+        return ACCEPTED_GUARDS[STRICT_NO_PULL_REQUEST_GUARD]
+    return ACCEPTED_GUARDS.get(normalized)
 
 
 def readme_trust_section() -> str:
@@ -905,6 +918,32 @@ class RunnerTrustTests(unittest.TestCase):
                     f"release_builds.yml self-hosted job(s) use the {form!r} guard form, but "
                     "the README bullet does not show that form.",
                 )
+
+
+class VariableGatedStrictGuardTests(unittest.TestCase):
+    """`vars.X == 'true' && <strict guard>` is accepted; anything that could widen it is not."""
+
+    STRICT = "github.event_name != 'pull_request'"
+
+    def test_the_variable_gated_strict_form_classifies_as_strict(self) -> None:
+        self.assertEqual(
+            classify_guard(f"vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' && {self.STRICT}"), "strict"
+        )
+        self.assertEqual(
+            classify_guard(f"${{{{ vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' && {self.STRICT} }}}}"), "strict"
+        )
+
+    def test_forms_that_could_admit_more_are_rejected(self) -> None:
+        for label, expression in (
+            ("or-ed variable", f"vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' || {self.STRICT}"),
+            ("variable before standard guard", "vars.X == 'true' && " + STANDARD_FORK_GUARD),
+            ("negated variable", f"vars.X != 'true' && {self.STRICT}"),
+            ("extra conjunct", f"vars.X == 'true' && github.actor == 'me' && {self.STRICT}"),
+            ("lowercase variable", f"vars.x == 'true' && {self.STRICT}"),
+            ("variable only", "vars.X == 'true'"),
+        ):
+            with self.subTest(case=label):
+                self.assertIsNone(classify_guard(expression))
 
 
 class RunnerLabelClassificationTests(unittest.TestCase):

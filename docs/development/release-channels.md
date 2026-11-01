@@ -38,11 +38,11 @@ Each successful publish includes:
 - Linux SHA-256 checksum file
 - `BUILD-INFO.txt` metadata (channel, commit, binary name, generation timestamp)
 
-When `build_windows` succeeds for the same run, the publish also includes (the Linux export smoke, `export_smoke_linux`, gates every publish; no lane executes the Windows exe — `export_smoke_windows` is not run until a Windows GPU runner exists):
+When `build_windows` succeeds for the same run, the publish also includes (the Linux export smoke, `export_smoke_linux`, gates every publish; no lane executes the Windows exe — `export_smoke_windows` is skipped unless the repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is set to `true`, which should only be done once a Windows GPU runner exists; it is in no `needs:` list and gates nothing). The gates do wait for `build_windows_export_template` and require its success whenever `build_windows` succeeded, because they attest the Windows template zip:
 
 - Windows editor zip (`godotgs-windows-x86_64-<tag-or-sha>.zip`). It is optimized on every channel (`optimize=speed_trace`, no `dev_build`) since #994.
 - Windows SHA-256 checksum file
-- Windows export template zip (`godotgs-export-template-windows-x86_64-<tag-or-sha>.zip`) and its SHA-256 checksum file. This is the `target=template_release` build from the same run; it is built and packaged but not executed (the executed template is the Linux one).
+- Windows export template zip (`godotgs-export-template-windows-x86_64-<tag-or-sha>.zip`) and its SHA-256 checksum file. This is the `target=template_release` build from the same run; it is built and packaged but not executed. The Linux template that `export_smoke_linux` executes is not itself a published asset; only the Windows template zip is attached.
 
 The Linux editor tarball stays `dev_build=yes` (`-O0`) on the nightly channel.
 

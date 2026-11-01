@@ -59,7 +59,7 @@ check_tools() {
   local -a missing=()
   local py
   if py="$(resolve_python311)"; then
-    echo "ok       python 3.11: $py ($("$py" --version 2>&1))"
+    echo "ok       python (>= 3.11): $py ($("$py" --version 2>&1))"
   else
     missing+=("Python >= 3.11 (none of 'uv python find 3.11', 'python3.11' or a python3 >= 3.11 resolved)")
   fi

@@ -529,6 +529,7 @@ def publish_context(
     channel: str,
     smoke: str,
     build_windows: str = "success",
+    build_windows_export_template: str = "success",
     build_linux: str = "success",
     finite_math_guard: str = "success",
     release_candidate_gate: str = "success",
@@ -540,7 +541,7 @@ def publish_context(
             "release_metadata": {"outputs": {"channel": channel, "publish": publish}},
             "build_linux": {"result": build_linux},
             "build_windows": {"result": build_windows},
-            "build_windows_export_template": {"result": "success"},
+            "build_windows_export_template": {"result": build_windows_export_template},
             "finite_math_guard": {"result": finite_math_guard},
             "release_candidate_gate": {"result": release_candidate_gate},
             SMOKE_JOB: {"result": smoke},
@@ -748,6 +749,219 @@ class PublicationConditionTests(unittest.TestCase):
                                 build_windows=windows
                             ),
                         )
+
+
+class WindowsTemplateWaitTests(unittest.TestCase):
+    """The gates attest the Windows template, so they must require its job (review P2-A)."""
+
+    GATED_JOBS = ("publish_release", "release_candidate_gate")
+
+    def setUp(self) -> None:
+        self.jobs = parse_jobs()
+
+    def _allows(self, job: str, **kwargs) -> bool:
+        return evaluate(str(self.jobs[job]["if"]), publish_context(**kwargs))
+
+    def test_both_gates_wait_for_the_template_job(self) -> None:
+        for job in self.GATED_JOBS:
+            with self.subTest(job=job):
+                self.assertIn("build_windows_export_template", self.jobs[job]["needs"])
+
+    def test_a_windows_payload_requires_its_template_build_to_have_succeeded(self) -> None:
+        for job in self.GATED_JOBS:
+            for channel in PUBLISHING_CHANNELS:
+                for template in ("failure", "cancelled", "skipped"):
+                    with self.subTest(job=job, channel=channel, template=template):
+                        self.assertFalse(
+                            self._allows(
+                                job,
+                                channel=channel,
+                                smoke="success",
+                                build_windows="success",
+                                build_windows_export_template=template,
+                            ),
+                            f"{job} proceeds with build_windows green and the template build {template}: "
+                            "the download of the template artifact would fail (or race).",
+                        )
+
+    def test_no_windows_payload_means_the_template_job_is_irrelevant(self) -> None:
+        # The Linux-only nightly tolerance: build_windows did not succeed, no
+        # Windows bytes ship, whatever the template job did.
+        for job in self.GATED_JOBS:
+            for windows in ("failure", "skipped", "cancelled"):
+                for template in JOB_RESULTS:
+                    with self.subTest(job=job, build_windows=windows, template=template):
+                        self.assertTrue(
+                            self._allows(
+                                job,
+                                channel="nightly",
+                                smoke="success",
+                                build_windows=windows,
+                                build_windows_export_template=template,
+                            )
+                        )
+
+    def test_the_healthy_case_still_publishes(self) -> None:
+        for job in self.GATED_JOBS:
+            for channel in PUBLISHING_CHANNELS:
+                with self.subTest(job=job, channel=channel):
+                    self.assertTrue(self._allows(job, channel=channel, smoke="success"))
+
+
+# --------------------------------------------------------------------------
+# Artifact downloads must be ordered after their producer (review P2-A)
+# --------------------------------------------------------------------------
+
+ARTIFACT_NAME = re.compile(r"^\s+name:\s*(\S.*?)\s*$")
+EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
+
+
+def _normalise_artifact_name(raw: str) -> str:
+    """`godotgs-windows-${{ a }}-${{ b }}` -> `godotgs-windows-*-*` so producer and consumer compare."""
+    return EXPRESSION.sub("*", raw.strip().strip("\"'"))
+
+
+def artifact_edges(lines: List[str]) -> List[Tuple[str, str, str]]:
+    """`(consumer job, producer job, artifact)` for every download-artifact step.
+
+    Producers are the jobs holding an upload-artifact step of the same normalised
+    name. A download whose name no job uploads is an edge to nothing and is reported
+    with producer `""` so it cannot be silently ignored.
+    """
+    uploads: Dict[str, Set[str]] = {}
+    downloads: List[Tuple[str, str]] = []
+    current_job = ""
+    pending: Optional[str] = None
+    in_jobs = False
+    for line in lines:
+        if line.startswith("jobs:"):
+            in_jobs = True
+            continue
+        if not in_jobs:
+            continue
+        job_match = JOB_KEY.match(line)
+        if job_match:
+            current_job = job_match.group(1)
+            pending = None
+            continue
+        stripped = line.strip()
+        if "uses: actions/upload-artifact@" in stripped:
+            pending = "upload"
+            continue
+        if "uses: actions/download-artifact@" in stripped:
+            pending = "download"
+            continue
+        if pending:
+            name_match = ARTIFACT_NAME.match(line)
+            if name_match and not stripped.startswith("- name:"):
+                artifact = _normalise_artifact_name(name_match.group(1))
+                if pending == "upload":
+                    uploads.setdefault(artifact, set()).add(current_job)
+                else:
+                    downloads.append((current_job, artifact))
+                pending = None
+    edges: List[Tuple[str, str, str]] = []
+    for consumer, artifact in downloads:
+        producers = uploads.get(artifact) or {""}
+        for producer in sorted(producers):
+            edges.append((consumer, producer, artifact))
+    return edges
+
+
+def unordered_downloads(lines: List[str]) -> List[str]:
+    """Download edges whose producer is not in the consumer's transitive `needs:` closure."""
+    jobs = parse_jobs(lines)
+    problems: List[str] = []
+    for consumer, producer, artifact in artifact_edges(lines):
+        if not producer:
+            problems.append(f"{consumer} downloads {artifact!r}, which no job uploads")
+            continue
+        if producer == consumer:
+            continue
+        if producer not in needs_closure(jobs, consumer):
+            problems.append(
+                f"{consumer} downloads {artifact!r} from {producer}, which is not in {consumer}'s "
+                "transitive `needs:` closure, so the download can race the upload or run after the "
+                "producer failed"
+            )
+    return problems
+
+
+class ArtifactDownloadsAreOrderedTests(unittest.TestCase):
+    def test_every_download_is_ordered_after_its_producer(self) -> None:
+        self.assertEqual(unordered_downloads(_workflow_lines()), [])
+
+    def test_the_derivation_is_not_vacuous(self) -> None:
+        edges = artifact_edges(_workflow_lines())
+        pairs = {(consumer, producer) for consumer, producer, _ in edges}
+        for expected in (
+            ("release_candidate_gate", "build_windows_export_template"),
+            ("publish_release", "build_windows_export_template"),
+            ("export_smoke_linux", "build_linux_export_template"),
+        ):
+            self.assertIn(expected, pairs)
+
+    def test_it_would_have_caught_the_p2_a_bug(self) -> None:
+        # Mutant: the round-1 state of the workflow, in which the gates no longer
+        # listed build_windows_export_template under `needs:` after export_smoke_windows
+        # (the only edge to it) was removed. The closure-based tests did not notice
+        # because nothing in a `needs:` closure mentions artifact downloads.
+        lines = _workflow_lines()
+        mutated: List[str] = []
+        in_gate = None
+        for line in lines:
+            job_match = JOB_KEY.match(line)
+            if job_match:
+                in_gate = job_match.group(1)
+            if in_gate in ("release_candidate_gate", "publish_release") and line.strip() == "- build_windows_export_template":
+                continue
+            mutated.append(line)
+        self.assertNotEqual(len(mutated), len(lines), "the mutant removed nothing; the test is vacuous")
+        problems = unordered_downloads(mutated)
+        self.assertTrue(problems, "a gate downloading the Windows template without waiting for its build went unnoticed")
+        self.assertTrue(any("build_windows_export_template" in problem for problem in problems))
+
+    def test_a_download_of_an_unproduced_artifact_is_reported(self) -> None:
+        lines = [
+            "jobs:",
+            "  a:",
+            "    runs-on: ubuntu-latest",
+            "    steps:",
+            "      - uses: actions/download-artifact@x",
+            "        with:",
+            "          name: nobody-uploads-this-${{ github.run_number }}",
+            "          path: p",
+        ]
+        self.assertEqual(len(unordered_downloads(lines)), 1)
+
+
+class WindowsSmokeVariableGateTests(unittest.TestCase):
+    """`export_smoke_windows` is skipped unless GODOTGS_WINDOWS_GPU_RUNNER is 'true' (review P2-B)."""
+
+    def setUp(self) -> None:
+        self.jobs = parse_jobs()
+
+    def test_the_job_is_gated_on_the_variable_and_still_skips_pull_requests(self) -> None:
+        condition = str(self.jobs[WINDOWS_SMOKE_JOB]["if"])
+        self.assertIn("vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true'", condition)
+        self.assertIn("github.event_name != 'pull_request'", condition)
+
+    def test_it_is_outside_every_gate(self) -> None:
+        # The skipped-check trap (job-level `if:` -> skipped -> satisfies a required
+        # check) does not apply because nothing depends on it or reads its result.
+        closure = publication_closure(self.jobs)
+        self.assertNotIn(WINDOWS_SMOKE_JOB, closure)
+        for job, data in self.jobs.items():
+            with self.subTest(job=job):
+                self.assertNotIn(WINDOWS_SMOKE_JOB, data["needs"])
+                self.assertNotIn(WINDOWS_SMOKE_JOB, referenced_needs(data["if"]))
+
+    def test_the_variable_is_documented(self) -> None:
+        readme = (ROOT / ".github" / "workflows" / "README.md").read_text(encoding="utf-8")
+        channels = (ROOT / "docs" / "development" / "release-channels.md").read_text(encoding="utf-8")
+        for name, text in (("README.md", readme), ("release-channels.md", channels)):
+            with self.subTest(doc=name):
+                self.assertIn("GODOTGS_WINDOWS_GPU_RUNNER", text)
 
 
 class WindowsReleaseAssetSetTests(unittest.TestCase):
@@ -1031,11 +1245,11 @@ class GatingDocumentationTests(unittest.TestCase):
         self.assertIn("build_linux_export_template", self.closure)
         self.assertIn("build_linux_export_template", needs_closure(self.jobs, SMOKE_JOB))
 
-    def test_the_windows_template_job_is_outside_it(self) -> None:
-        # The other half of the distinction: if this ever fails, the README's
-        # "artifact only" sentence about the Windows template job needs the same
-        # correction (and the Windows smoke has silently become a gate).
-        self.assertNotIn("build_windows_export_template", self.closure)
+    def test_the_windows_template_job_is_inside_the_closure_but_the_windows_smoke_is_not(self) -> None:
+        # The release gates download, attest and `--require` the Windows export
+        # template, so they must wait for -- and require -- the job that builds it
+        # (review P2-A). The Windows exe smoke stays OUTSIDE: it gates nothing.
+        self.assertIn("build_windows_export_template", self.closure)
         self.assertNotIn(WINDOWS_SMOKE_JOB, self.closure)
 
     def test_no_gating_job_is_documented_as_ungated(self) -> None:
@@ -1053,7 +1267,7 @@ class GatingDocumentationTests(unittest.TestCase):
     def test_the_claim_scan_is_not_vacuous(self) -> None:
         # A scan that stopped matching would make the check above pass over an
         # empty dict, which is how this class of gap survives. Some job IS
-        # legitimately documented as ungated (the Windows template job today); if
+        # legitimately documented as ungated (the Windows smoke job today); if
         # that is no longer true, the phrase set has gone blind or the text has
         # changed, and either way this check needs a human.
         self.assertTrue(

@@ -161,8 +161,9 @@ The `export_smoke_linux` job in `release_builds.yml` runs this
 (`--target linux`) against the Linux template built by the same run, on the
 self-hosted Linux GPU runner (real Xorg at `DISPLAY=:0`), on
 `push`/tag/schedule/dispatch; it is the gating smoke. `export_smoke_windows` (the
-same script with `--target windows`) is kept for a Windows GPU runner, is not run
-until one exists, and gates nothing. It downloads the two published archives rather
+same script with `--target windows`) is kept for a Windows GPU runner, is skipped
+unless the repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `true`, and gates nothing.
+The Linux template it executes is not itself a published asset. It downloads the two published archives rather
 than reading a local `bin/`, so what it exercises is the bytes a user gets.
 
 Two flags matter there and are worth repeating, because getting either wrong

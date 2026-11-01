@@ -834,14 +834,16 @@ jobs:
 
   build_windows_export_template:
     name: Build Windows Export Template (release)
-    # Issue #825: companion to build_linux_export_template, but NOT its mirror
-    # image. Its template is uploaded as an artifact ONLY and is deliberately not
-    # wired into `release_candidate_gate` or `publish_release`: the only lane that
-    # executes it, `export_smoke_windows`, needs a Windows GPU runner that does
-    # not exist and gates nothing, so this job's failure cannot stop a publish. The
-    # Windows template zip still ships with the Windows editor zip (#994), built but
-    # not executed. See .github/workflows/README.md, "Release Builds", and the
-    # derived check in tests/ci/test_release_publication_gating.py.
+    # Issue #825: companion to build_linux_export_template. This template ships with
+    # the Windows editor zip (#994) and is downloaded, attested and `--require`d by
+    # `release_candidate_gate` and `publish_release` whenever `build_windows`
+    # succeeded, so both list this job under `needs:` and require its success in that
+    # case: it is INSIDE the publication closure, and its failure blocks the publish
+    # of a Windows payload. It is built and attested but NOT executed by any gating
+    # lane: the only lane that would, `export_smoke_windows`, needs a Windows GPU
+    # runner and is skipped unless the repository variable GODOTGS_WINDOWS_GPU_RUNNER
+    # is 'true'. See .github/workflows/README.md, "Release Builds", and the derived
+    # checks in tests/ci/test_release_publication_gating.py.
     # GitHub-hosted: the self-hosted Windows runner was removed and this job
     # needs no GPU (it compiles and packages), so the release keeps shipping
     # the Windows template (#593).
@@ -1223,6 +1225,10 @@ jobs:
 
   export_smoke_windows:
     name: Export Smoke (Windows, GS template)
+    # `export_smoke_windows` is deliberately not wired into `release_candidate_gate` or
+    # `publish_release`: it is in no `needs:` list and no `if:` reads its result, so it
+    # blocks nothing whether it runs or is skipped (tests/ci/test_release_publication_gating.py).
+    #
     # Issue #825, milestone 1. The first lane that RUNS what the template job
     # builds. `build_windows_export_template` has been uploading an artifact
     # that nothing ever executed and that expires after 14 days, so a green
@@ -1246,7 +1252,12 @@ jobs:
     # Never run a self-hosted Windows job on untrusted PR code. Same strict form
     # as build_windows and build_windows_export_template; see
     # .github/workflows/README.md.
-    if: github.event_name != 'pull_request'
+    # Skipped unless the repository variable GODOTGS_WINDOWS_GPU_RUNNER is 'true'. Without a
+    # registered Windows GPU runner a job targeting those labels would sit queued for
+    # about 24 h, and with `cancel-in-progress: false` every later release run would wait
+    # behind it. This job gates nothing (it is in no `needs:`), so a skip cannot satisfy a
+    # required check by accident; the contract stays intact for the day a runner exists.
+    if: vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' && github.event_name != 'pull_request'
     # 120 like every other job in this workflow. The old 90 did not cover this
     # job's own worst case: even with the negative control reusing the import
     # (above), a slow-but-valid run is 30 min import + 30 min export + 5 min game
@@ -1461,6 +1472,7 @@ jobs:
       - release_metadata
       - build_linux
       - build_windows
+      - build_windows_export_template
       - finite_math_guard
       - export_smoke_linux
     # Runs whenever a publish is requested so `publish_release` can hard-depend
@@ -1487,34 +1499,37 @@ jobs:
     # to stop. Asserting it here means a failed guard makes this gate `skipped`,
     # which in turn fails `publish_release`'s `result == 'success'` check.
     #
-    # EXPORT SMOKE (#825, milestone 1 PR 2): `export_smoke_windows` is wired the
-    # same way, for the same reason and in the same two halves -- the `needs:`
-    # entry above makes this gate WAIT for it (job ordering comes only from
-    # `needs:`), and the assertion below makes a failure BLOCK. As a sibling job
-    # it did neither: publication could start while the smoke test was still
-    # running, or proceed after it had failed, so "the first lane that runs what
-    # we ship" was a decorative red X rather than a gate.
+    # EXPORT SMOKE (#825): `export_smoke_linux` is wired the same way, for the same
+    # reason and in the same two halves -- the `needs:` entry above makes this gate
+    # WAIT for it (job ordering comes only from `needs:`), and the assertion below
+    # makes a failure BLOCK. It executes the Linux template, which is built by
+    # `build_linux_export_template` and therefore sits inside this gate's `needs:`
+    # closure through it. The Linux template is NOT itself a published asset: it is
+    # the executed stand-in for the template pipeline; only the Windows template is
+    # attached to releases.
     #
-    # CHANNEL POLICY -- keyed to the PAYLOAD rather than to the channel name,
-    # which is why one expression serves both:
+    # WINDOWS TEMPLATE (#994): this gate downloads, attests and `--require`s the
+    # Windows export template whenever `build_windows` succeeded, so it must WAIT for
+    # `build_windows_export_template` (its own `needs:` entry) and must REQUIRE its
+    # success in that case (the second clause below). Without the edge the gate can
+    # run before the template build finishes, or after it failed, and die with
+    # "artifact not found" -- which would block the Linux release too. When
+    # `build_windows` did not succeed no Windows bytes ship and the template job is
+    # irrelevant (the documented Linux-only nightly tolerance). The Windows exe is
+    # NOT executed by any gating lane: `export_smoke_windows` needs a Windows GPU
+    # runner that does not exist and is outside every `needs:`.
     #
-    #   * Stable: required, no exception. A stable release is both-platform by
-    #     construction (see the step below), so a Windows archive always ships
-    #     and must always have been executed.
-    #   * Nightly: required WHENEVER a Windows payload is published, i.e.
-    #     whenever `build_windows` succeeded. The documented Linux-only nightly
-    #     tolerance exists for a Windows runner outage; in that case
-    #     `build_windows` is not `success`, `export_smoke_windows` is skipped
-    #     along with it, no Windows bytes ship, and the nightly cadence
-    #     continues. What the tolerance must NOT cover is `build_windows` green
-    #     with the smoke test failed, skipped or cancelled -- a template-build
-    #     failure, or the GPU pool being busy -- because there a Windows archive
-    #     nobody ran would ship. `!= 'success'` rather than `== 'failure'` is
-    #     deliberate: `skipped` and `cancelled` are not passes.
+    # tests/ci/test_release_publication_gating.py also derives, from the
+    # download-artifact steps themselves, that every job a gate downloads from is in
+    # that gate's transitive `needs:` closure.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
       needs.finite_math_guard.result == 'success' &&
+      (
+        needs.build_windows.result != 'success' ||
+        needs.build_windows_export_template.result == 'success'
+      ) &&
       needs.export_smoke_linux.result == 'success'
     env:
       # Repo-relative path to the public-alpha candidate evidence bundle and its
@@ -1577,12 +1592,13 @@ jobs:
 
       # #994: the Windows export template ships with the Windows editor. It is
       # keyed on the SAME condition as the editor payload above. Whenever
-      # build_windows succeeded, this job's `if:` has already required
-      # export_smoke_windows == success, which needs build_windows_export_template
-      # and has executed exactly this artifact. So this download cannot race a
-      # template build and never attaches a template nobody ran. Downloading it
-      # into release-payload is what puts it under the attestation that
-      # publish_release re-verifies.
+      # build_windows succeeded, this job's `needs:` waits for
+      # build_windows_export_template and its `if:` requires that job to have
+      # succeeded, so this download cannot race the template build or run after it
+      # failed. The template is BUILT AND ATTESTED here but not executed by any
+      # gating lane (export_smoke_windows is skipped unless a Windows GPU runner is
+      # configured). Downloading it into release-payload is what puts it under the
+      # attestation that publish_release re-verifies.
       - name: Download Windows export template payload built by this run
         if: needs.build_windows.result == 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -1775,6 +1791,7 @@ jobs:
       - release_metadata
       - build_linux
       - build_windows
+      - build_windows_export_template
       - finite_math_guard
       - release_candidate_gate
       - export_smoke_linux
@@ -1802,33 +1819,31 @@ jobs:
     # even if the gate's own conditions are later relaxed. Neither side was
     # dropped.
     #
-    # EXPORT SMOKE (#825, milestone 1 PR 2). This job is the release SIDE
-    # EFFECT: once it runs, the bytes are attached to a public release and the
-    # tag is moved. `export_smoke_windows` -- the only lane that has ever
-    # executed what those bytes are -- was a sibling job, listed in neither
-    # `needs:` nor this condition, so GitHub was free to publish while it was
-    # still running and equally free to publish after it had failed. Both halves
-    # are required to fix that and neither is sufficient alone: the `needs:`
-    # entry is what makes publication WAIT (job ordering comes only from
-    # `needs:`), and the assertion below is what makes a failure BLOCK, because
-    # under `always()` a `needs:` entry on its own gates nothing -- the same
-    # lesson recorded for `finite_math_guard` two paragraphs up.
+    # EXPORT SMOKE (#825). This job is the release SIDE EFFECT: once it runs, the
+    # bytes are attached to a public release and the tag is moved. `export_smoke_linux`
+    # -- the lane that executes the template pipeline -- is listed under `needs:`
+    # (what makes publication WAIT; job ordering comes only from `needs:`) and its
+    # result is asserted below (what makes a failure BLOCK, because under `always()` a
+    # `needs:` entry on its own gates nothing -- the same lesson recorded for
+    # `finite_math_guard` two paragraphs up). The condition is the identical clause
+    # `release_candidate_gate` carries, for the identical reason the fast-math guard
+    # is asserted in both places.
     #
-    # The condition is the identical clause `release_candidate_gate` carries,
-    # for the identical reason the fast-math guard is asserted in both places:
-    # the gate-side copy puts the smoke test inside the publication dependency
-    # graph, this copy keeps it blocking even if the gate's own conditions are
-    # later relaxed. Its channel policy is documented on the gate: stable always
-    # requires it; nightly requires it whenever a Windows payload is actually
-    # published (`build_windows` green), and tolerates its absence only in the
-    # Windows-outage case the Linux-only nightly tolerance already covers, where
-    # no Windows bytes ship at all.
+    # WINDOWS TEMPLATE (#994): this job downloads and `--require`s the Windows export
+    # template whenever `build_windows` succeeded, so it lists
+    # `build_windows_export_template` under `needs:` and requires its success in that
+    # case (second clause below), exactly like the gate. Dropping the edge made the
+    # download race the template build.
     if: |
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
       needs.build_linux.result == 'success' &&
       needs.finite_math_guard.result == 'success' &&
       needs.release_candidate_gate.result == 'success' &&
+      (
+        needs.build_windows.result != 'success' ||
+        needs.build_windows_export_template.result == 'success'
+      ) &&
       needs.export_smoke_linux.result == 'success'
     steps:
       - name: Checkout repository
