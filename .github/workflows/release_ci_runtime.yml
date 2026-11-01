@@ -53,7 +53,9 @@ jobs:
       # Loader-side filter. Honoured only in a NON-elevated process; the Linux
       # runner is not elevated, so on Linux this alone strips implicit layers.
       VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
+      # driver's layers are not implicit, and force-enabling them would put layers
+      # into the chain that no run outside CI has (measured: the preflight failed).
       # Each layer's own opt-out, declared in its own manifest under
       # `disable_environment`. Mirrored in
       # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.

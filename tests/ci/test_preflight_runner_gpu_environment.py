@@ -1068,15 +1068,26 @@ class GpuJobEnvironmentContract(unittest.TestCase):
                     "overlay + graphics hook, and any newly installed one) inject into every "
                     "GPU process this job starts (#875).",
                 )
-                self.assertEqual(
-                    env.get(preflight.LOADER_LAYERS_ENABLE_VAR),
-                    preflight.LOADER_LAYERS_ENABLE_VALUE,
-                    f"{workflow}: job {job!r} must re-enable the GPU driver's own implicit "
-                    f"layers with {preflight.LOADER_LAYERS_ENABLE_VAR}="
-                    f"{preflight.LOADER_LAYERS_ENABLE_VALUE!r}. `~implicit~` alone removes "
-                    "those too, which changes the driver stack rather than only removing "
-                    "third-party instrumentation.",
-                )
+                if any(re.search(r"runs-on:.*\bLinux\b", line, re.IGNORECASE) for line in lines):
+                    # Linux: the driver's layers are not implicit, so re-enabling
+                    # them would ADD layers to the chain (measured on the runner).
+                    self.assertNotIn(
+                        preflight.LOADER_LAYERS_ENABLE_VAR,
+                        env,
+                        f"{workflow}: Linux GPU job {job!r} must not export "
+                        f"{preflight.LOADER_LAYERS_ENABLE_VAR}: it force-enables the NVIDIA "
+                        "layers onto a chain the driver does not put them on by itself.",
+                    )
+                else:
+                    self.assertEqual(
+                        env.get(preflight.LOADER_LAYERS_ENABLE_VAR),
+                        preflight.LOADER_LAYERS_ENABLE_VALUE,
+                        f"{workflow}: job {job!r} must re-enable the GPU driver's own implicit "
+                        f"layers with {preflight.LOADER_LAYERS_ENABLE_VAR}="
+                        f"{preflight.LOADER_LAYERS_ENABLE_VALUE!r}. `~implicit~` alone removes "
+                        "those too, which changes the driver stack rather than only removing "
+                        "third-party instrumentation.",
+                    )
 
     def test_every_gpu_job_sets_the_per_layer_disable_variables(self) -> None:
         """The half that actually works on this runner (#878).
