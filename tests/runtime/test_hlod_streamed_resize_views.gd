@@ -8,7 +8,7 @@ const GsRuntimeReport := preload("gs_runtime_report.gd")
 const SCENARIO := "Streamed HLOD Resize Views"
 const TIMEOUT_MSEC := 150_000
 const STARTUP_MSEC := 40_000
-# Test hook for the deadline discrimination proof: `-- --startup-msec=N` overrides STARTUP_MSEC.
+# Test hook for the deadline discrimination proof: `-- --startup-msec=N` can only tighten STARTUP_MSEC.
 const STARTUP_MSEC_ARG := "--startup-msec="
 const MAIN := Vector2i(320, 180)
 const SPLATS := 120000
@@ -192,7 +192,8 @@ func _run() -> void:
 	var startup_msec := STARTUP_MSEC
 	for arg in OS.get_cmdline_user_args():
 		if str(arg).begins_with(STARTUP_MSEC_ARG):
-			startup_msec = int(str(arg).substr(STARTUP_MSEC_ARG.length()))
+			# Tighten-only: the hook can never loosen the default deadline.
+			startup_msec = mini(int(str(arg).substr(STARTUP_MSEC_ARG.length())), STARTUP_MSEC)
 	var startup_begin := Time.get_ticks_msec()
 	var startup_deadline := startup_begin + startup_msec
 	var startup_expired := false
