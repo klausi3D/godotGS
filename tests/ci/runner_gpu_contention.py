@@ -258,7 +258,21 @@ ENV_RECORD_DIR = "GS_CI_GPU_CONTENTION_DIR"
 #: Process image names that mark the boundary of "the job" when walking our own
 #: ancestry. Everything below one of these is ours; the walk never goes above it,
 #: so it cannot climb to `services.exe` and declare the whole machine ours.
-RUNNER_PROCESS_NAMES = ("runner.worker.exe", "runner.listener.exe")
+RUNNER_PROCESS_NAMES = (
+    "runner.worker.exe",
+    "runner.listener.exe",
+    # Linux: the runner's native hosts have no extension (`comm` is the name).
+    "runner.worker",
+    "runner.listener",
+)
+
+#: Display servers (lowercased process names). On the Linux GPU runner the
+#: headless Xorg that serves `DISPLAY=:0` presents every window the job renders,
+#: so its GPU share is the job's own load by construction, not contention. This
+#: is deliberately a name list and not a path rule: the Xorg service is started
+#: by systemd outside the job's workspace and ancestry, and `pmon` attributes the
+#: presentation work to it. Windows has no equivalent entry (DWM is not listed).
+DISPLAY_SERVER_PROCESS_NAMES = ("xorg", "xorg.bin", "xwayland")
 
 #: Environment variables naming a directory whose contents are ours. A GPU
 #: process launched from inside the job's workspace is the job's, whether or not
@@ -462,6 +476,110 @@ def run_sample_script() -> Tuple[Optional[Dict[str, object]], Optional[str]]:
     return payload, None
 
 
+def _probe_uses_powershell() -> bool:
+    """Windows measures through PowerShell counters; everything else through /proc + nvidia-smi."""
+    return os.name == "nt"
+
+
+def read_linux_process_table() -> Dict[str, Dict[str, object]]:
+    """`{pid: {ppid, name, path}}` from /proc. `path` is empty when /proc/<pid>/exe is unreadable."""
+    table: Dict[str, Dict[str, object]] = {}
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = Path(entry.path, "stat").read_text(encoding="utf-8", errors="replace")
+            # `comm` sits in parentheses and may itself contain spaces or parentheses.
+            comm = stat[stat.index("(") + 1 : stat.rindex(")")]
+            ppid = int(stat[stat.rindex(")") + 2 :].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue  # exited between listing and reading
+        try:
+            path = os.readlink(os.path.join(entry.path, "exe"))
+        except OSError:
+            path = ""
+        table[entry.name] = {"ppid": ppid, "name": comm, "path": path}
+    return table
+
+
+def parse_nvidia_smi_pmon(text: str) -> Tuple[Dict[str, float], bool]:
+    """`(sm% by pid, saw the header)` from `nvidia-smi pmon -s u`.
+
+    Idle processes print `-` for every column, which is 0 here. The header check
+    keeps an unrecognised output format from being read as an idle GPU.
+    """
+    by_pid: Dict[str, float] = {}
+    saw_header = False
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            saw_header = saw_header or "gpu" in line.lower()
+            continue
+        fields = line.split()
+        if len(fields) < 4 or not fields[1].isdigit():
+            continue
+        try:
+            sm = float(fields[3]) if fields[3] != "-" else 0.0
+        except ValueError:
+            sm = 0.0
+        if sm > 0:
+            by_pid[fields[1]] = by_pid.get(fields[1], 0.0) + sm
+    return by_pid, saw_header
+
+
+def run_linux_sample() -> Tuple[Optional[Dict[str, object]], Optional[str]]:
+    """The Linux counterpart of :func:`run_sample_script`; same payload shape."""
+    import shutil  # noqa: PLC0415 -- only needed on the measurement path
+
+    smi = shutil.which("nvidia-smi")
+    if not smi:
+        return None, "could not run nvidia-smi: not on PATH"
+    try:
+        completed = subprocess.run(
+            [smi, "pmon", "-c", "1", "-s", "u"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=_PS_TIMEOUT_SEC,
+        )
+    except OSError as exc:
+        return None, f"could not run nvidia-smi pmon: {exc}"
+    except subprocess.TimeoutExpired:
+        return None, f"the GPU occupancy probe did not finish in {_PS_TIMEOUT_SEC}s"
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").strip().replace(chr(10), " ")[:400]
+        return None, f"the GPU occupancy probe exited {completed.returncode}: {stderr}"
+    text = (completed.stdout or "").strip()
+    if not text:
+        return None, "the GPU occupancy probe exited 0 but printed nothing"
+    by_pid, saw_header = parse_nvidia_smi_pmon(text)
+    counter_error = None
+    if not saw_header:
+        counter_error = "nvidia-smi pmon printed no recognisable header, so its output cannot be read as an idle GPU"
+    try:
+        processes = read_linux_process_table()
+        process_error = None
+    except OSError as exc:
+        processes, process_error = {}, str(exc)
+    return {
+        "counter_error": counter_error,
+        "process_error": process_error,
+        "valid_counter_samples": 1 if saw_header else 0,
+        "invalid_counter_samples": 0,
+        "gpu_percent_by_pid": by_pid,
+        "processes": processes,
+    }, None
+
+
+def read_probe() -> Tuple[Optional[Dict[str, object]], Optional[str]]:
+    """One occupancy reading from whichever backend this host has."""
+    if _probe_uses_powershell():
+        return run_sample_script()
+    return run_linux_sample()
+
+
 def query_nvidia_smi() -> Tuple[Tuple[str, ...], Optional[str]]:
     """The driver's aggregate view. Never gates on its own; always recorded."""
     import shutil  # noqa: PLC0415 -- only needed on the measurement path
@@ -634,7 +752,7 @@ def classify(
         entry = processes.get(pid, {})
         name = str(entry.get("name") or "")
         path = str(entry.get("path") or "")
-        ours = pid in ours_pids
+        ours = pid in ours_pids or name.lower() in DISPLAY_SERVER_PROCESS_NAMES
         if not ours and path:
             normalised = normalise_image_path(path)
             ours = any(path_is_under(normalised, root) for root in roots)
@@ -650,7 +768,7 @@ def take_sample(
     threshold = FOREIGN_GPU_BUSY_PERCENT if busy_percent is None else busy_percent
     now = time.time()
     gpu_rows, smi_error = query_nvidia_smi()
-    payload, error = run_sample_script()
+    payload, error = read_probe()
     if payload is None:
         return Sample(now, (), (), gpu_rows, error)
 
@@ -1474,7 +1592,7 @@ def phase_preflight(args: argparse.Namespace) -> int:
         f"{IDLE_SAMPLES_REQUIRED} consecutive clean samples release the wait"
     )
 
-    bootstrap, _bootstrap_error = run_sample_script()
+    bootstrap, _bootstrap_error = read_probe()
     processes: Dict[int, Dict[str, object]] = {}
     if bootstrap:
         for key, entry in (bootstrap.get("processes") or {}).items():

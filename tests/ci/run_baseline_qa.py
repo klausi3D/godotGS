@@ -52,9 +52,23 @@ CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
 # makes the behaviour depend on duplicate-option precedence that nothing here
 # asserts. A factory keeps the single shared definition master introduced while
 # guaranteeing every command carries exactly ONE render-thread pair.
+def gpu_display_driver() -> str:
+    """The display driver that gives a RenderingDevice on THIS host.
+
+    Windows: the `windows` driver (works even on the service-mode runner).
+    Linux: `x11`, against the real Xorg of the GPU (`DISPLAY=:0` on the Linux GPU
+    runner). Xvfb is not an option: it has no NVIDIA Vulkan.
+    """
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "x11"
+
+
 def gpu_display_args(render_thread: str = "safe") -> tuple[str, ...]:
-    """GPU display args. Headless cannot create a RenderingDevice, so the
-    Windows driver is required even on service-mode runners."""
+    """GPU display args. Headless cannot create a RenderingDevice, so a real
+    display driver is required (`windows` on Windows, `x11` on Linux)."""
     if render_thread not in ("safe", "separate"):
         raise ValueError(
             f"unsupported --render-thread {render_thread!r}; Godot accepts "
@@ -62,7 +76,7 @@ def gpu_display_args(render_thread: str = "safe") -> tuple[str, ...]:
         )
     return (
         "--display-driver",
-        "windows",
+        gpu_display_driver(),
         "--rendering-driver",
         "vulkan",
         "--render-thread",

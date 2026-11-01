@@ -917,7 +917,7 @@ class RunnerLabelClassificationTests(unittest.TestCase):
 
     def test_the_derived_vocabulary_is_real_and_not_degenerate(self) -> None:
         labels = persistent_runner_labels()
-        self.assertIn("godotgs", labels, "the persistent runner's custom label was not derived")
+        self.assertIn("d3d12", labels, "the persistent runner's custom label was not derived")
         self.assertNotIn(SELF_HOSTED_LABEL, labels, "`self-hosted` must not be in the custom set")
         self.assertNotIn("ubuntu-latest", labels, "a GitHub-hosted image leaked into the vocabulary")
 
@@ -1197,7 +1197,7 @@ class RunnerLabelPolicyTests(unittest.TestCase):
 
     def test_the_real_readme_declares_a_policy_that_covers_the_real_workflows(self) -> None:
         policy = runner_label_policy()
-        self.assertIn("godotgs", policy.persistent)
+        self.assertIn("rtx3080", policy.persistent)
         self.assertNotIn(SELF_HOSTED_LABEL, policy.persistent)
         self.assertIn("ubuntu-latest", policy.github_hosted)
         self.assertFalse(
@@ -1219,12 +1219,12 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         # reaches the persistent runner without ever writing `self-hosted`.
         policy = runner_label_policy()
         self.assertEqual(
-            classify_runner(["Windows", "X64", "godotgs"], "sneaky", policy), "self-hosted"
+            classify_runner(["Windows", "X64", "rtx3080"], "sneaky", policy), "self-hosted"
         )
         lines = [
             "jobs:",
             "  sneaky:",
-            "    runs-on: [Windows, X64, godotgs]",
+            "    runs-on: [Windows, X64, rtx3080]",
             "  hosted:",
             "    runs-on: ubuntu-latest",
         ]
@@ -1290,7 +1290,7 @@ class RunnerLabelPolicyTests(unittest.TestCase):
 
     def test_the_readme_policy_bullets_are_parsed_not_guessed(self) -> None:
         persistent, hosted = declared_runner_labels()
-        self.assertIn("godotgs", persistent)
+        self.assertIn("rtx3080", persistent)
         self.assertIn("ubuntu-latest", hosted)
         self.assertNotIn("ubuntu-latest", persistent)
 
@@ -1381,11 +1381,11 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         # The strictness is only credible if the shipped README already meets it.
         section = readme_trust_section()
         self.assertIn(
-            "godotgs", _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
+            "rtx3080", _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
         )
         self.assertEqual(
             _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER),
-            {"ubuntu-latest"},
+            {"ubuntu-latest", "windows-latest"},
         )
 
 

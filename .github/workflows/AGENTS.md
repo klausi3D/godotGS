@@ -9,7 +9,7 @@ workflow inventory and the runner trust policy.
 
 - **Least privilege.** Every workflow sets explicit `permissions:`; default to
   `contents: read` and add scopes only as needed.
-- **No untrusted code on persistent self-hosted runners.** Self-hosted Windows/GPU
+- **No untrusted code on persistent self-hosted runners.** Self-hosted (Linux GPU runner)
   jobs must carry the fork guard
   `github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository`
   so fork PRs are skipped. This is the required standard; the agentic-foundation

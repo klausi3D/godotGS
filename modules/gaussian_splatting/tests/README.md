@@ -368,7 +368,7 @@ The tests are designed to run in CI/CD pipelines:
 - Deterministic results (fixed random seeds)
 - Clear pass/fail status codes
 
-The `.github/workflows/baseline_qa.yml` workflow runs a `gpu-harness` job after the `gpu-tests` job on the self-hosted Windows runner, both gated against fork-PR code via `head.repo.full_name == github.repository`. The `gpu-harness` job invokes `tests/ci/run_gpu_harness.py` and currently blocks the gate on the `CompositorHazard` batch (incident #256 regression).
+The `.github/workflows/baseline_qa.yml` workflow runs a `gpu-harness` job after the `gpu-tests` job on the self-hosted Linux GPU runner, both gated against fork-PR code via `head.repo.full_name == github.repository`. The `gpu-harness` job invokes `tests/ci/run_gpu_harness.py` and currently blocks the gate on the `CompositorHazard` batch (incident #256 regression).
 
 ## Test Coverage Goals
 

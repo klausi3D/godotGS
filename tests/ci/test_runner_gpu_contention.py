@@ -1017,7 +1017,7 @@ class PostflightReadsTheMonitoredWindow(unittest.TestCase):
 
 class SampleParsing(unittest.TestCase):
     def _take(self, payload, smi=(("0 %,"), None)):
-        with mock.patch.object(contention, "run_sample_script", return_value=(payload, None)):
+        with mock.patch.object(contention, "read_probe", return_value=(payload, None)):
             with mock.patch.object(contention, "query_nvidia_smi", return_value=smi):
                 return contention.take_sample(job_root_pid=200, busy_percent=15.0)
 
@@ -1757,7 +1757,7 @@ class UnresolvedWritersOutliveTheirSession(unittest.TestCase):
                     mock.patch.object(contention, name, **kw)
                 )
                 patch("stop_orphaned_sampler", return_value=([], None))
-                patch("run_sample_script", return_value=({"processes": {}}, None))
+                patch("read_probe", return_value=({"processes": {}}, None))
                 patch("wait_for_free_gpu", return_value=(True, [_sample(at=1.0)], []))
                 patch("spawn_sampler", return_value=(SAMPLER_PID, None))
                 patch("await_sampler_ready", return_value=(2.0, None))
@@ -2049,7 +2049,7 @@ class PreflightOrderAndReadiness(unittest.TestCase):
                 mock.patch.object(contention, name, **kw)
             )
             patch("stop_orphaned_sampler", side_effect=stop_orphan)
-            patch("run_sample_script", return_value=({"processes": {}}, None))
+            patch("read_probe", return_value=({"processes": {}}, None))
             patch(
                 "wait_for_free_gpu",
                 return_value=(True, [_sample(at=self.T0)], []),
@@ -2147,6 +2147,107 @@ class PreflightOrderAndReadiness(unittest.TestCase):
         # record that survives the preflight.
         self.assertEqual(session["sampler_pid"], SAMPLER_PID)
         self.assertEqual(session["monitored_from"], self.T0 + 3.0)
+
+
+# --------------------------------------------------------------------------
+# Linux GPU runner (gpu-linux-3080): /proc + `nvidia-smi pmon` backend
+# --------------------------------------------------------------------------
+
+_PMON_BUSY = (
+    "# gpu         pid   type     sm    mem    enc    dec    jpg    ofa    command \n"
+    "# Idx           #    C/G      %      %      %      %      %      %    name \n"
+    "    0      19850     G      -      -      -      -      -      -    Xorg           \n"
+    "    0       4242     C     47     12      -      -      -      -    Godot_v4.7-stab\n"
+)
+_PMON_IDLE = (
+    "# gpu         pid   type     sm    mem    enc    dec    jpg    ofa    command \n"
+    "# Idx           #    C/G      %      %      %      %      %      %    name \n"
+    "    0      19850     G      -      -      -      -      -      -    Xorg           \n"
+)
+
+
+class LinuxProbeBackend(unittest.TestCase):
+    def test_pmon_rows_become_a_per_pid_share_and_idle_rows_are_zero(self) -> None:
+        by_pid, saw_header = contention.parse_nvidia_smi_pmon(_PMON_BUSY)
+        self.assertTrue(saw_header)
+        self.assertEqual(by_pid, {"4242": 47.0})
+
+    def test_output_without_the_header_is_not_read_as_an_idle_gpu(self) -> None:
+        by_pid, saw_header = contention.parse_nvidia_smi_pmon("something unrelated\n")
+        self.assertEqual(by_pid, {})
+        self.assertFalse(saw_header)
+
+    def _run(self, stdout: str, returncode: int = 0):
+        with mock.patch("shutil.which", return_value="nvidia-smi"):
+            with mock.patch.object(
+                contention.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=returncode, stdout=stdout, stderr="boom"),
+            ):
+                with mock.patch.object(
+                    contention,
+                    "read_linux_process_table",
+                    return_value={"4242": {"ppid": 1, "name": "Godot_v4.7-stab", "path": "/opt/x/godot"}},
+                ):
+                    return contention.run_linux_sample()
+
+    def test_a_busy_reading_carries_the_attribution_payload(self) -> None:
+        payload, error = self._run(_PMON_BUSY)
+        self.assertIsNone(error)
+        self.assertIsNone(payload["counter_error"])
+        self.assertEqual(payload["gpu_percent_by_pid"], {"4242": 47.0})
+        self.assertIn("4242", payload["processes"])
+
+    def test_a_headerless_reading_is_a_counter_error_not_an_idle_sample(self) -> None:
+        payload, error = self._run("garbage\n")
+        self.assertIsNone(error)
+        self.assertTrue(payload["counter_error"])
+
+    def test_nvidia_smi_failing_is_an_error(self) -> None:
+        payload, error = self._run("", returncode=9)
+        self.assertIsNone(payload)
+        self.assertIn("exited 9", error)
+
+    def test_silent_nvidia_smi_is_an_error(self) -> None:
+        payload, error = self._run("   \n")
+        self.assertIsNone(payload)
+        self.assertIn("printed nothing", error)
+
+    def test_a_missing_nvidia_smi_is_an_error(self) -> None:
+        with mock.patch("shutil.which", return_value=None):
+            payload, error = contention.run_linux_sample()
+        self.assertIsNone(payload)
+        self.assertIn("nvidia-smi", error)
+
+    def test_read_probe_dispatches_on_the_platform(self) -> None:
+        with mock.patch.object(contention, "run_sample_script", return_value=({"w": 1}, None)):
+            with mock.patch.object(contention, "run_linux_sample", return_value=({"l": 1}, None)):
+                with mock.patch.object(contention, "_probe_uses_powershell", return_value=True):
+                    self.assertEqual(contention.read_probe()[0], {"w": 1})
+                with mock.patch.object(contention, "_probe_uses_powershell", return_value=False):
+                    self.assertEqual(contention.read_probe()[0], {"l": 1})
+
+    def test_the_process_table_reads_ppid_and_survives_parentheses_in_comm(self) -> None:
+        if not os.path.isdir("/proc/self"):
+            self.skipTest("no /proc on this host")
+        table = contention.read_linux_process_table()
+        mine = table.get(str(os.getpid()))
+        self.assertIsNotNone(mine)
+        self.assertEqual(mine["ppid"], os.getppid())
+
+    def test_the_headless_xorg_serving_our_windows_is_not_a_contender(self) -> None:
+        processes = {
+            19850: {"ppid": 1, "name": "Xorg", "path": ""},
+            4242: {"ppid": 1, "name": "Godot_v4.7-stab", "path": "/home/other/godot"},
+        }
+        loads = contention.classify({19850: 60.0, 4242: 60.0}, processes, set(), ())
+        ours = {load.pid: load.ours for load in loads}
+        self.assertTrue(ours[19850], "the display server is the job's own presentation load")
+        self.assertFalse(ours[4242], "a foreign Godot is still contention")
+
+    def test_the_runner_process_names_include_the_linux_hosts(self) -> None:
+        self.assertIn("runner.worker", contention.RUNNER_PROCESS_NAMES)
+        self.assertIn("runner.listener", contention.RUNNER_PROCESS_NAMES)
 
 
 if __name__ == "__main__":

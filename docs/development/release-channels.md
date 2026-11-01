@@ -9,7 +9,7 @@ Define how executable builds are distributed from this repository and what guara
 - Public GitHub releases are currently nightlies first.
 - The stable `v*` publish path exists in automation, but it is not the default public install track.
 - The release workflow guarantees a Linux editor tarball when publish succeeds.
-- Windows editor zips are included only when the self-hosted Windows build lane succeeds for that run.
+- Windows editor zips are included only when the Windows build lane (GitHub-hosted `windows-latest`) succeeds for that run.
 - Preferred evaluation path: use the latest Linux nightly, or the latest Windows nightly when that release includes the Windows zip. macOS still requires building from source.
 
 ## Channels

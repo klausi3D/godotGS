@@ -600,22 +600,19 @@ jobs:
 
   build_windows:
     name: Build Windows Editor + Contributor Artifact
-    runs-on: [self-hosted, Windows, X64, godotgs]
+    # GitHub-hosted: the self-hosted Windows runner was removed (the only
+    # self-hosted runner is the Linux RTX 3080 box), and this job needs no GPU --
+    # it only compiles and packages, so the release keeps shipping Windows (#593).
+    runs-on: windows-latest
     needs: release_metadata
-    # Never run self-hosted Windows job on untrusted PR code. PR artifact
-    # validation is handled by the Linux job on GitHub-hosted runners.
+    # Skips pull requests. PR artifact validation is handled by the Linux job on
+    # GitHub-hosted runners; this long Windows build is kept off the PR path.
     if: github.event_name != 'pull_request'
     timeout-minutes: 120
     defaults:
       run:
         working-directory: repo
     steps:
-      - name: Configure Git safe.directory for self-hosted workspace
-        shell: pwsh
-        working-directory: ${{ github.workspace }}
-        run: |
-          git config --global --add safe.directory '*'
-
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -650,6 +647,15 @@ jobs:
           python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
           if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
           "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Restore SCons build cache (editor)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: C:/godotgs-scons-cache-editor-release
+          key: release-scons-windows-editor-${{ hashFiles('SConstruct', 'methods.py') }}-${{ github.sha }}
+          restore-keys: |
+            release-scons-windows-editor-${{ hashFiles('SConstruct', 'methods.py') }}-
+            release-scons-windows-editor-
 
       - name: Build module-enabled Windows editor (optimized)
         shell: pwsh
@@ -830,28 +836,21 @@ jobs:
     # the smoke lane started consuming this artifact, without this job being
     # edited. See .github/workflows/README.md, "Release Builds", and the derived
     # check in tests/ci/test_release_publication_gating.py.
-    runs-on: [self-hosted, Windows, X64, godotgs]
+    # GitHub-hosted: the self-hosted Windows runner was removed and this job
+    # needs no GPU (it compiles and packages), so the release keeps shipping
+    # the Windows template (#593).
+    runs-on: windows-latest
     needs: release_metadata
-    # Never run a self-hosted Windows job on untrusted PR code. This is the
-    # STRICTER of the two accepted forms (see .github/workflows/README.md,
-    # "Runner Trust Boundary"): it skips every pull request, not just fork ones,
-    # matching `build_windows` above. Narrower than the repository-standard fork
-    # guard, never wider. The cost -- Windows-only packaging is not exercised by
-    # a PR -- is stated and bounded in that README bullet, and the whole
-    # arrangement is enforced by tests/ci/test_release_builds_runner_trust.py,
-    # which fails if a self-hosted job here is undocumented or unguarded.
+    # Skips every pull request, matching `build_windows` above (the long Windows
+    # build is kept off the PR path; it is GitHub-hosted now, so this is a cost
+    # decision and no longer a trust-boundary one -- see .github/workflows/README.md,
+    # "Runner Trust Boundary").
     if: github.event_name != 'pull_request'
     timeout-minutes: 120
     defaults:
       run:
         working-directory: repo
     steps:
-      - name: Configure Git safe.directory for self-hosted workspace
-        shell: pwsh
-        working-directory: ${{ github.workspace }}
-        run: |
-          git config --global --add safe.directory '*'
-
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -886,6 +885,15 @@ jobs:
           python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
           if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
           "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Restore SCons build cache (template)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: C:/godotgs-scons-cache-template
+          key: release-scons-windows-template-${{ hashFiles('SConstruct', 'methods.py') }}-${{ github.sha }}
+          restore-keys: |
+            release-scons-windows-template-${{ hashFiles('SConstruct', 'methods.py') }}-
+            release-scons-windows-template-
 
       - name: Build Windows export template (release)
         shell: pwsh
@@ -1013,12 +1021,15 @@ jobs:
     # live RenderingDevice, visible splats, four pipeline stage statuses and
     # non-background pixel samples).
     #
-    # The `gpu` label is required and is the one difference from the two build
-    # jobs above. They run on [self-hosted, Windows, X64, godotgs]; the probe
-    # needs a real RenderingDevice and a real window read-back, so this job has
-    # to land on the GPU-labelled pool that baseline_qa.yml and
-    # release_ci_runtime.yml use.
-    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    # This is the ONE job left that needs Windows AND a GPU: the probe needs a
+    # real RenderingDevice and a real window read-back from the exported Windows
+    # binary, which neither GitHub-hosted Windows (no GPU) nor the Linux RTX 3080
+    # runner (cannot run a Windows exe) can provide. The two build jobs above run
+    # on GitHub-hosted windows-latest. This job therefore waits for a self-hosted
+    # Windows GPU workstation registered with the labels below; until one is, it
+    # queues, which is the honest state -- and, because the release gates list it
+    # under `needs:`, no stable publish or nightly release proceeds without it.
+    runs-on: [self-hosted, Windows, X64, gpu, d3d12]
     needs: [release_metadata, build_windows, build_windows_export_template]
     # Never run a self-hosted Windows job on untrusted PR code. Same strict form
     # as build_windows and build_windows_export_template; see
@@ -1053,6 +1064,9 @@ jobs:
       DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
       # VK_LAYER_OW_OVERLAY
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (a Linux layer; set everywhere so every GPU job
+      # exports the full LAYER_DISABLE_ENV set, as the guard requires)
+      NODEVICE_SELECT: '1'
     defaults:
       run:
         working-directory: repo

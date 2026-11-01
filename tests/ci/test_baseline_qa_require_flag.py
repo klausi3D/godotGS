@@ -457,13 +457,17 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
         """
         workflow = ROOT / ".github" / "workflows" / "baseline_qa.yml"
         text = workflow.read_text(encoding="utf-8")
+        # The Linux GPU runner invokes the script as one bash command line
+        # (`python tests/ci/run_baseline_qa.py --categories qa ... --godot "$GODOT_BINARY"`),
+        # so the argv block is that line. The flags must be on the line that
+        # selects `qa`, or they are not part of the invocation.
         qa_step = re.search(
-            r'"--categories",\s*"qa"(.*?)python tests/ci/run_baseline_qa\.py',
+            r'^[ \t]*python3?[ \t]+tests/ci/run_baseline_qa\.py[ \t]+[^\n]*?--categories[ \t]+qa(?:[ \t][^\n]*)?$',
             text,
-            re.DOTALL,
+            re.MULTILINE,
         )
         self.assertIsNotNone(qa_step, "Could not locate the qa lane's argv block in baseline_qa.yml.")
-        block = qa_step.group(1)
+        block = qa_step.group(0)
         self.assertIn("--qa-require-capture", block, "The qa lane must require real capture.")
         self.assertIn("--require-qa-baseline", block, "The qa lane must require a committed baseline.")
         self.assertNotIn(

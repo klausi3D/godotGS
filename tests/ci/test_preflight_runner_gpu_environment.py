@@ -1437,6 +1437,36 @@ class LoaderReportParsing(unittest.TestCase):
         )
 
 
+_WINDOWS_POLICY_PATCH = mock.patch.object(preflight, "_is_windows", return_value=True)
+
+
+def setUpModule() -> None:
+    # The pre-existing gate scenarios are Windows-shaped recordings; they must
+    # keep asserting the Windows policy whichever host runs them (this file also
+    # runs on ubuntu-latest in agentic-pr-gate). The Linux scenarios below patch
+    # the policy back to Linux explicitly.
+    _WINDOWS_POLICY_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _WINDOWS_POLICY_PATCH.stop()
+
+
+_WINDOWS_POLICY_PATCH = mock.patch.object(preflight, "_is_windows", return_value=True)
+
+
+def setUpModule() -> None:
+    # The pre-existing gate scenarios are Windows-shaped recordings; they must
+    # keep asserting the Windows policy whichever host runs them (this file also
+    # runs on ubuntu-latest in agentic-pr-gate). The Linux scenarios below patch
+    # the policy back to Linux explicitly.
+    _WINDOWS_POLICY_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _WINDOWS_POLICY_PATCH.stop()
+
+
 class VulkanLayerGate(unittest.TestCase):
     def _run(self, control: str, effective: str, returncode: int = 0):
         calls = {"n": 0}
@@ -2024,6 +2054,99 @@ class GpuOccupancyRecordsFailure(unittest.TestCase):
         # It is a record, not a gate: a failed query must still not fail the run.
         _lines, record = self._record(9)
         self.assertEqual(record["status"], "error")
+
+
+# --------------------------------------------------------------------------
+# Linux GPU runner (gpu-linux-3080)
+# --------------------------------------------------------------------------
+
+#: Recorded from the runner's own loader (Vulkan Loader 1.3.275, Ubuntu 24.04)
+#: via `VK_LOADER_DEBUG=layer,info vulkaninfo --summary`: the Linux format has no
+#: `[Vulkan Loader]` marker and puts the message type in front instead.
+_LINUX_CONTROL_TEXT = (
+    "INFO:              Vulkan Loader Version 1.3.275\n"
+    "LAYER:             Searching for implicit layer manifest files\n"
+    "LAYER:                Found the following files:\n"
+    "LAYER:                   /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json\n"
+    'INFO | LAYER:      Insert instance layer "VK_LAYER_MESA_device_select" (libVkLayer_MESA_device_select.so)\n'
+    "LAYER:                            Disable Env Var:  NODEVICE_SELECT\n"
+)
+_LINUX_CLEAN_TEXT = (
+    "INFO:              Vulkan Loader Version 1.3.275\n"
+    "LAYER:             Searching for implicit layer manifest files\n"
+)
+
+
+class LinuxLoaderFormat(unittest.TestCase):
+    def test_the_linux_insert_line_is_parsed(self) -> None:
+        layers = preflight.parse_layer_report(_LINUX_CONTROL_TEXT)
+        self.assertEqual(list(layers), ["VK_LAYER_MESA_device_select"])
+        self.assertEqual(layers["VK_LAYER_MESA_device_select"].chains, ("instance",))
+        self.assertEqual(
+            layers["VK_LAYER_MESA_device_select"].modules,
+            ("libVkLayer_MESA_device_select.so",),
+        )
+
+    def test_unprefixed_text_still_cannot_spoof_a_linux_layer(self) -> None:
+        spoof = 'Insert instance layer "VK_LAYER_EVIL" (evil.so)\n'
+        self.assertEqual(preflight.parse_layer_report(spoof), {})
+
+    def test_linux_debug_lines_count_as_loader_output(self) -> None:
+        def fake_run(command, **kwargs):
+            return _probe(_LINUX_CLEAN_TEXT)
+
+        with mock.patch.object(preflight.subprocess, "run", side_effect=fake_run):
+            result = preflight.run_probe("fake-probe", strip_disable=False)
+        self.assertTrue(result.ok, result.error)
+        self.assertGreater(result.loader_debug_lines, 0)
+
+
+class LinuxVulkanLayerGate(unittest.TestCase):
+    """On Linux the driver registers no implicit layers: the effective chain must be empty."""
+
+    def _run(self, control: str, effective: str):
+        def fake_run(command, **kwargs):
+            env = kwargs.get("env") or {}
+            stripped = preflight.LOADER_LAYERS_DISABLE_VAR not in env
+            return _probe(control if stripped else effective)
+
+        with mock.patch.object(preflight, "_is_windows", return_value=False):
+            with mock.patch.object(preflight, "resolve_probe", return_value="fake-probe"):
+                with mock.patch.dict(
+                    preflight.os.environ,
+                    {preflight.LOADER_LAYERS_DISABLE_VAR: preflight.LOADER_LAYERS_DISABLE_VALUE},
+                ):
+                    with mock.patch.object(preflight.subprocess, "run", side_effect=fake_run):
+                        return preflight.check_vulkan_layers()
+
+    def test_the_mesa_layer_stripped_by_its_opt_out_passes(self) -> None:
+        ok, lines, _record = self._run(_LINUX_CONTROL_TEXT, _LINUX_CLEAN_TEXT)
+        self.assertTrue(ok, "\n".join(lines))
+        self.assertIn("VK_LAYER_MESA_device_select", "\n".join(lines))
+
+    def test_a_layer_that_survives_the_disable_fails_and_is_named(self) -> None:
+        ok, lines, _record = self._run(_LINUX_CONTROL_TEXT, _LINUX_CONTROL_TEXT)
+        self.assertFalse(ok)
+        self.assertIn("VK_LAYER_MESA_device_select", "\n".join(lines))
+
+    def test_an_empty_control_still_fails_rather_than_passing_vacuously(self) -> None:
+        ok, lines, _record = self._run(_LINUX_CLEAN_TEXT, _LINUX_CLEAN_TEXT)
+        self.assertFalse(ok)
+        self.assertIn("cannot discriminate", "\n".join(lines))
+
+    def test_the_mesa_opt_out_is_part_of_the_declared_disable_set(self) -> None:
+        self.assertIn(
+            ("VK_LAYER_MESA_device_select", "NODEVICE_SELECT", "1"),
+            preflight.LAYER_DISABLE_ENV,
+        )
+
+    def test_linux_expects_no_driver_layers_and_windows_still_does(self) -> None:
+        with mock.patch.object(preflight, "_is_windows", return_value=False):
+            self.assertEqual(preflight.expected_layers(), ())
+            self.assertEqual(preflight.required_control_chains(), ("instance",))
+        with mock.patch.object(preflight, "_is_windows", return_value=True):
+            self.assertEqual(preflight.expected_layers(), preflight.EXPECTED_LAYERS)
+            self.assertEqual(preflight.required_control_chains(), ("device", "instance"))
 
 
 if __name__ == "__main__":
