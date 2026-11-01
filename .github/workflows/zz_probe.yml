@@ -1,0 +1,24 @@
+name: zz-probe
+on:
+  push:
+    branches: [chore/ci-linux-gpu-runner]
+    paths: ['.github/workflows/zz_probe.yml']
+jobs:
+  probe:
+    runs-on: [self-hosted, Linux, X64, gpu]
+    timeout-minutes: 10
+    steps:
+      - name: probe
+        shell: bash
+        run: |
+          set +e
+          uname -a; cat /etc/os-release | head -3; id; whoami; nproc; free -g; df -h / /home /tmp . 2>&1
+          for t in python python3 pwsh scons g++ gcc clang ninja pkg-config glslangValidator glslc vulkaninfo nvidia-smi xvfb-run Xvfb git sudo dotnet node unzip zip curl wget cmake ccache mold lld; do printf "%s: " $t; command -v $t || echo MISSING; done
+          python3 --version; python3 -c "import venv,ensurepip;print('venv ok')"; g++ --version | head -1
+          sudo -n true && echo SUDO_OK || echo SUDO_NO
+          echo DISPLAY=$DISPLAY XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+          ls /usr/share/vulkan/icd.d /etc/vulkan/icd.d 2>&1; ls /usr/share/vulkan/implicit_layer.d /etc/vulkan/implicit_layer.d 2>&1
+          nvidia-smi 2>&1 | head -20
+          vulkaninfo --summary 2>&1 | head -30
+          pkg-config --exists x11 xcursor xinerama xi xrandr alsa libpulse libudev vulkan && echo DEVLIBS_OK || (for p in x11 xcursor xinerama xi xrandr alsa libpulse libudev vulkan gl glu wayland-client xkbcommon dbus-1 fontconfig; do pkg-config --exists $p && echo "have $p" || echo "MISSING $p"; done)
+          ls ~ ; ls /opt 2>&1; echo $HOME; ls -la $RUNNER_TEMP/.. | head; 
