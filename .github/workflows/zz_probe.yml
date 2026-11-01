@@ -6,14 +6,25 @@ on:
 jobs:
   probe:
     runs-on: [self-hosted, Linux, X64, gpu]
-    timeout-minutes: 10
+    timeout-minutes: 150
     steps:
-      - name: probe
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: build without dev libs (probe)
+        shell: bash
+        run: |
+          set -e
+          python3 -m venv $RUNNER_TEMP/v
+          $RUNNER_TEMP/v/bin/python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
+          mkdir -p /opt/actions-runner/godotgs-scons-cache
+          free -g
+          time $RUNNER_TEMP/v/bin/python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes module_gaussian_splatting_enabled=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16 2>&1 | tail -60
+          ls -la bin
+      - name: run godot on :0
         shell: bash
         run: |
           set +e
-          env | grep -E "^(VK_|__GLX)"
-          VK_LOADER_DEBUG=layer,info timeout 60 vulkaninfo --summary > /tmp/vi.txt 2>&1
-          grep -iE "insert|elevated|will be ignored|disable" /tmp/vi.txt | head -30
-          echo ---- ; NODEVICE_SELECT=1 VK_LOADER_DEBUG=layer,info timeout 60 vulkaninfo --summary 2>&1 | grep -iE "insert|elevated" | head
-          echo ---- ; VK_LOADER_DEBUG=all timeout 60 vulkaninfo --summary 2>&1 | grep -iE "device_select|optimus|NV_present" | head -10
+          B=$(ls bin/godot.linuxbsd.editor.dev.x86_64)
+          echo DISPLAY=$DISPLAY
+          timeout 120 $B --display-driver x11 --rendering-driver vulkan --render-thread safe --path tests/examples/godot/test_project --quit-after 30 2>&1 | head -40; echo rc=$?
