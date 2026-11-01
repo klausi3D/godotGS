@@ -964,6 +964,67 @@ class WindowsSmokeVariableGateTests(unittest.TestCase):
                 self.assertIn("GODOTGS_WINDOWS_GPU_RUNNER", text)
 
 
+class StableNeedsBothPlatformsTests(unittest.TestCase):
+    """#593: no Linux-only stable release, enforced in the `if:` and by the gate step."""
+
+    GATED_JOBS = ("publish_release", "release_candidate_gate")
+
+    def setUp(self) -> None:
+        self.jobs = parse_jobs()
+
+    def _allows(self, job: str, **kwargs) -> bool:
+        return evaluate(str(self.jobs[job]["if"]), publish_context(**kwargs))
+
+    def test_a_stable_release_without_a_green_windows_build_is_blocked(self) -> None:
+        for job in self.GATED_JOBS:
+            for windows in ("failure", "skipped", "cancelled"):
+                with self.subTest(job=job, build_windows=windows):
+                    self.assertFalse(
+                        self._allows(job, channel="stable", smoke="success", build_windows=windows),
+                        f"{job} lets a Linux-only stable release through (build_windows={windows}).",
+                    )
+
+    def test_a_stable_release_with_both_platforms_still_publishes(self) -> None:
+        for job in self.GATED_JOBS:
+            with self.subTest(job=job):
+                self.assertTrue(self._allows(job, channel="stable", smoke="success", build_windows="success"))
+
+    def test_the_nightly_keeps_its_linux_only_tolerance(self) -> None:
+        for job in self.GATED_JOBS:
+            with self.subTest(job=job):
+                self.assertTrue(self._allows(job, channel="nightly", smoke="success", build_windows="failure"))
+
+    def test_the_gate_step_exists_and_fails_a_stable_release_without_windows(self) -> None:
+        text = "\n".join(_workflow_lines())
+        step = text.index("- name: Require both platform builds for a stable release")
+        block = text[step : step + 1400]
+        self.assertIn("needs.release_metadata.outputs.channel == 'stable'", block)
+        self.assertIn("needs.build_linux.result", block)
+        self.assertIn("needs.build_windows.result", block)
+        self.assertIn('exit 1', block)
+        self.assertIn("must ship both platforms", block)
+
+    def test_dropping_the_if_clause_is_detected(self) -> None:
+        # Mutant: the round-2 condition (no stable/Windows conjunct). The truth table
+        # above must flag it, otherwise the test proves nothing.
+        for job in self.GATED_JOBS:
+            condition = str(self.jobs[job]["if"])
+            marker = "needs.release_metadata.outputs.channel != 'stable' ||"
+            self.assertIn(marker, condition)
+            start = condition.index(marker)
+            open_paren = condition.rindex("(", 0, start)
+            close_paren = condition.index(")", start)
+            mutant = condition[:open_paren] + "'a' == 'a'" + condition[close_paren + 1 :]
+            with self.subTest(job=job):
+                self.assertTrue(
+                    evaluate(mutant, publish_context(channel="stable", smoke="success", build_windows="failure")),
+                    "the mutant should wrongly allow a Linux-only stable release",
+                )
+                self.assertFalse(
+                    evaluate(condition, publish_context(channel="stable", smoke="success", build_windows="failure"))
+                )
+
+
 class WindowsReleaseAssetSetTests(unittest.TestCase):
     """What a Windows release ships: the optimized editor AND its export template (#994).
 

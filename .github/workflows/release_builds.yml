@@ -1519,6 +1519,12 @@ jobs:
     # NOT executed by any gating lane: `export_smoke_windows` needs a Windows GPU
     # runner that does not exist and is outside every `needs:`.
     #
+    # BOTH PLATFORMS (#593): a stable release must ship Windows as well as Linux. The
+    # step "Require both platform builds for a stable release" below enforces it, and
+    # so does the `channel != 'stable' || build_windows == 'success'` clause here (and
+    # on publish_release), so the rule is pinned by a truth-table test and not only by
+    # a step nobody evaluates.
+    #
     # tests/ci/test_release_publication_gating.py also derives, from the
     # download-artifact steps themselves, that every job a gate downloads from is in
     # that gate's transitive `needs:` closure.
@@ -1529,6 +1535,10 @@ jobs:
       (
         needs.build_windows.result != 'success' ||
         needs.build_windows_export_template.result == 'success'
+      ) &&
+      (
+        needs.release_metadata.outputs.channel != 'stable' ||
+        needs.build_windows.result == 'success'
       ) &&
       needs.export_smoke_linux.result == 'success'
     env:
@@ -1843,6 +1853,10 @@ jobs:
       (
         needs.build_windows.result != 'success' ||
         needs.build_windows_export_template.result == 'success'
+      ) &&
+      (
+        needs.release_metadata.outputs.channel != 'stable' ||
+        needs.build_windows.result == 'success'
       ) &&
       needs.export_smoke_linux.result == 'success'
     steps:
