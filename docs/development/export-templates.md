@@ -157,16 +157,19 @@ ran over the fixture" check all still have to pass.
 
 ### In CI
 
-The `export_smoke_windows` job in `release_builds.yml` runs this against the
-Windows template built by the same run, on the self-hosted GPU runner, on
-`push`/tag/schedule/dispatch. It downloads the two published archives rather
+The `export_smoke_linux` job in `release_builds.yml` runs this
+(`--target linux`) against the Linux template built by the same run, on the
+self-hosted Linux GPU runner (real Xorg at `DISPLAY=:0`), on
+`push`/tag/schedule/dispatch; it is the gating smoke. `export_smoke_windows` (the
+same script with `--target windows`) is kept for a Windows GPU runner, is not run
+until one exists, and gates nothing. It downloads the two published archives rather
 than reading a local `bin/`, so what it exercises is the bytes a user gets.
 
 Two flags matter there and are worth repeating, because getting either wrong
 turns the lane into a check that cannot fail:
 
 - **`--require-binaries` is always passed.** Without it `_skip()` returns exit 0,
-  so a missing binary, a failed artifact download or a non-Windows host reports
+  so a missing binary, a failed artifact download or a host that does not match `--target` reports
   the lane green. That is the "skip encoded as pass" shape this lane exists to
   retire.
 - **`--allow-blank-viewport` is never passed.** The GPU pool reads back real

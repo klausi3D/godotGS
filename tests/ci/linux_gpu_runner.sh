@@ -120,10 +120,11 @@ check_tools() {
     else
       missing+=("an X server answering on DISPLAY=$DISPLAY (systemd unit xorg-headless)")
     fi
-  elif [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; then
-    echo "ok       X socket present for $DISPLAY"
+  elif [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ] && pgrep -f "[X]org ${DISPLAY}( |\$)" >/dev/null 2>&1; then
+    # A socket file alone survives a dead server; require a live Xorg serving it.
+    echo "ok       X socket present and an Xorg process serves $DISPLAY"
   else
-    missing+=("an X server socket for DISPLAY=$DISPLAY (systemd unit xorg-headless)")
+    missing+=("a live Xorg serving DISPLAY=$DISPLAY (socket present AND process alive; systemd unit xorg-headless)")
   fi
 
   if [ "${#missing[@]}" -gt 0 ]; then
