@@ -984,5 +984,62 @@ class NegativeControlFlagTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
+
+class ExportTargetTests(unittest.TestCase):
+    """The Linux export smoke asserts what the Windows one does; only names differ."""
+
+    def test_both_targets_exist_and_name_distinct_binaries(self) -> None:
+        self.assertEqual(sorted(smoke.TARGETS), ["linux", "windows"])
+        names = {target.exported_name for target in smoke.TARGETS.values()}
+        self.assertEqual(len(names), 2)
+        self.assertEqual(smoke.TARGETS["linux"].export_template_name, "linux_release.x86_64")
+        self.assertEqual(smoke.TARGETS["windows"].export_template_name, "windows_release_x86_64.exe")
+
+    def test_each_target_has_a_preset_template_with_the_placeholders(self) -> None:
+        for key, target in smoke.TARGETS.items():
+            with self.subTest(target=key):
+                text = target.preset_template.read_text(encoding="utf-8")
+                self.assertIn("@PRESET_NAME@", text)
+                self.assertIn("@CUSTOM_TEMPLATE_RELEASE@", text)
+                self.assertIn("custom_template/release=", text)
+
+    def test_the_linux_preset_targets_the_linux_exporter(self) -> None:
+        text = smoke.TARGETS["linux"].preset_template.read_text(encoding="utf-8")
+        self.assertIn('platform="Linux"', text)
+        self.assertNotIn('platform="Windows Desktop"', text)
+        self.assertIn('binary_format/architecture="x86_64"', text)
+
+    def test_the_two_presets_agree_on_the_assertion_relevant_settings(self) -> None:
+        # The smoke is only the same smoke if what is exported is the same: the
+        # whole project, script text mode, a separate pck.
+        def keys(target):
+            text = target.preset_template.read_text(encoding="utf-8")
+            wanted = ("export_filter=", "script_export_mode=", "binary_format/embed_pck=")
+            return sorted(line for line in text.splitlines() if line.startswith(wanted))
+
+        self.assertEqual(keys(smoke.TARGETS["linux"]), keys(smoke.TARGETS["windows"]))
+
+    def test_a_linux_missing_template_refusal_is_recognised_for_the_linux_target_only(self) -> None:
+        output = (
+            'Cannot export project with preset "Export Smoke" due to configuration errors:\n'
+            "No export template found at the expected path:\n"
+            "/home/runner/.local/share/godot/export_templates/4.5/linux_release.x86_64\n"
+        )
+        self.assertEqual(smoke.missing_template_rejection_evidence(output), [])
+        evidence = smoke.missing_template_rejection_evidence(
+            output, (smoke.TARGETS["linux"].export_template_name,)
+        )
+        self.assertIn("linux_release.x86_64", evidence)
+        outcome, _detail = smoke.negative_control_outcome(
+            1, None, output, extra_markers=(smoke.TARGETS["linux"].export_template_name,)
+        )
+        self.assertEqual(outcome, "export_rejected")
+
+    def test_a_host_mismatch_is_a_skip_or_a_failure_never_a_pass_with_require(self) -> None:
+        other = "windows" if smoke.platform.system() == "Linux" else "linux"
+        code = smoke.main(["--target", other, "--require-binaries"])
+        self.assertEqual(code, smoke.EXIT_FAIL)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

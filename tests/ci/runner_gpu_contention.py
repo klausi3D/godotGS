@@ -272,7 +272,28 @@ RUNNER_PROCESS_NAMES = (
 #: is deliberately a name list and not a path rule: the Xorg service is started
 #: by systemd outside the job's workspace and ancestry, and `pmon` attributes the
 #: presentation work to it. Windows has no equivalent entry (DWM is not listed).
+#:
+#: Only the display server that SERVES THIS JOB'S DISPLAY is exempt, not any
+#: process with one of these names: its command line (read from /proc, which is
+#: world-readable even for root's Xorg) must carry the job's `$DISPLAY` value as a
+#: whole argument (`/usr/lib/xorg/Xorg :0 ...`). A second Xorg or Xwayland on
+#: another display, or one whose command line cannot be read, stays a contender.
+#: Residual, stated: /proc gives no way to prove that the process holding
+#: `DISPLAY=:0` is the *same* systemd service the runner was provisioned with, so
+#: a hostile local user who started their own Xorg on :0 first would be exempt.
+#: On the dedicated runner VM there is no such user.
 DISPLAY_SERVER_PROCESS_NAMES = ("xorg", "xorg.bin", "xwayland")
+
+
+def serves_job_display(name: str, entry: Dict[str, object]) -> bool:
+    """Is this process the display server serving the display this job renders on?"""
+    if name.lower() not in DISPLAY_SERVER_PROCESS_NAMES:
+        return False
+    display = os.environ.get("DISPLAY") or ""
+    if not display:
+        return False
+    cmdline = str(entry.get("cmdline") or "")
+    return display in cmdline.split()
 
 #: Environment variables naming a directory whose contents are ours. A GPU
 #: process launched from inside the job's workspace is the job's, whether or not
@@ -498,7 +519,17 @@ def read_linux_process_table() -> Dict[str, Dict[str, object]]:
             path = os.readlink(os.path.join(entry.path, "exe"))
         except OSError:
             path = ""
-        table[entry.name] = {"ppid": ppid, "name": comm, "path": path}
+        record: Dict[str, object] = {"ppid": ppid, "name": comm, "path": path}
+        if comm.lower() in DISPLAY_SERVER_PROCESS_NAMES:
+            # Only display servers need their argv (see serves_job_display).
+            try:
+                raw = Path(entry.path, "cmdline").read_bytes()
+                record["cmdline"] = " ".join(
+                    part.decode("utf-8", "replace") for part in raw.split(b"\0") if part
+                )
+            except OSError:
+                pass
+        table[entry.name] = record
     return table
 
 
@@ -752,7 +783,7 @@ def classify(
         entry = processes.get(pid, {})
         name = str(entry.get("name") or "")
         path = str(entry.get("path") or "")
-        ours = pid in ours_pids or name.lower() in DISPLAY_SERVER_PROCESS_NAMES
+        ours = pid in ours_pids or serves_job_display(name, entry)
         if not ours and path:
             normalised = normalise_image_path(path)
             ours = any(path_is_under(normalised, root) for root in roots)

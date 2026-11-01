@@ -103,6 +103,7 @@ BUILD_MARKER = "python -m SCons"
 GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     # Runs the exported binary (a live RenderingDevice and a window read-back).
     ("release_builds.yml", "export_smoke_windows"): "tests/runtime/run_export_smoke.py",
+    ("release_builds.yml", "export_smoke_linux"): "tests/runtime/run_export_smoke.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step
@@ -587,7 +588,7 @@ def _anchor_command(script: str) -> re.Pattern[str]:
     return re.compile(
         rf"^[ 	]*(?:&[ 	]*)?{_PYTHON_COMMAND}[ 	]+"
         rf"[\"']?{re.escape(script)}[\"']?"
-        rf"(?:[ 	]+{_SAFE_COMMAND_TOKEN})*(?:[ 	]+`)?[ 	]*$",
+        rf"(?:[ 	]+{_SAFE_COMMAND_TOKEN})*(?:[ 	]+(?:`|\\))?[ 	]*$",
         re.IGNORECASE,
     )
 
@@ -722,28 +723,32 @@ class GatedImageSetCoversWhatCIExecutesTests(unittest.TestCase):
     the two must stay in step, and a hand-copied name is how they would not.
     """
 
-    #: The line in run_export_smoke.py that names the exported binary.
-    EXPORTED_BINARY_RE = re.compile(r'exported\s*=\s*output_dir\s*/\s*"([^"]+)"')
+    #: The lines in run_export_smoke.py that name the exported binaries (one per target).
+    EXPORTED_BINARY_RE = re.compile(r'exported_name="([^"]+)"')
 
-    def _exported_binary_name(self) -> str:
+    def _exported_binary_names(self) -> List[str]:
         source = (ROOT / "tests" / "runtime" / "run_export_smoke.py").read_text(encoding="utf-8")
         matches = self.EXPORTED_BINARY_RE.findall(source)
-        self.assertEqual(
+        self.assertGreaterEqual(
             len(matches),
-            1,
-            "could not read a single exported-binary name out of run_export_smoke.py; "
+            2,
+            "could not read the per-target exported-binary names out of run_export_smoke.py; "
             f"found {matches}. This guard cannot check what it cannot find.",
         )
-        return matches[0]
+        return matches
+
+    def _exported_binary_name(self) -> str:
+        return self._exported_binary_names()[0]
 
     def test_the_exported_game_is_a_gated_image(self) -> None:
-        name = self._exported_binary_name()
-        self.assertTrue(
-            preflight._is_ci_image(name),
-            f"the export smoke lane launches {name!r} on the GPU pool, but the IFEO "
-            "gate does not treat it as an image CI executes: page heap on that name "
-            "would be recorded and passed",
-        )
+        for name in self._exported_binary_names():
+            with self.subTest(image=name):
+                self.assertTrue(
+                    preflight._is_ci_image(name),
+                    f"the export smoke lane launches {name!r} on the GPU pool, but the IFEO "
+                    "gate does not treat it as an image CI executes: page heap on that name "
+                    "would be recorded and passed",
+                )
 
     def test_the_engine_is_still_a_gated_image(self) -> None:
         """Discrimination: widening the set must not have replaced what it covered."""
@@ -1446,21 +1451,6 @@ class LoaderReportParsing(unittest.TestCase):
             {},
             "unprefixed stdout/stderr text impersonated Vulkan loader chain evidence",
         )
-
-
-_WINDOWS_POLICY_PATCH = mock.patch.object(preflight, "_is_windows", return_value=True)
-
-
-def setUpModule() -> None:
-    # The pre-existing gate scenarios are Windows-shaped recordings; they must
-    # keep asserting the Windows policy whichever host runs them (this file also
-    # runs on ubuntu-latest in agentic-pr-gate). The Linux scenarios below patch
-    # the policy back to Linux explicitly.
-    _WINDOWS_POLICY_PATCH.start()
-
-
-def tearDownModule() -> None:
-    _WINDOWS_POLICY_PATCH.stop()
 
 
 _WINDOWS_POLICY_PATCH = mock.patch.object(preflight, "_is_windows", return_value=True)

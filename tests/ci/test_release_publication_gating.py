@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Nothing publishes a release artifact that no lane has executed (#825).
 
-`export_smoke_windows` is the first and only lane that RUNS what
-`build_windows_export_template` builds and what `publish_release` ships. It was
+`export_smoke_linux` is the lane that RUNS what `build_linux_export_template`
+builds and what `publish_release` ships. (It replaced `export_smoke_windows`,
+which needs a Windows GPU runner that no longer exists; the Windows smoke is kept
+but gates nothing -- see WindowsSmokeIsNotAGateTests.) It was
 added as a sibling job: `publish_release` listed it under neither `needs:` nor
 its `if:`, so GitHub was free to attach the assets and move the tag while the
 smoke test was still running, and equally free to do so after it had failed. The
@@ -20,7 +22,7 @@ Two halves, and neither is sufficient alone
 
 So this guard checks both, and checks them by EVALUATING the real `if:`
 expression over a truth table rather than by grepping for a substring. A
-grep-shaped guard passes on `needs.export_smoke_windows.result != 'success'`,
+grep-shaped guard passes on `needs.export_smoke_linux.result != 'success'`,
 on a clause `||`-ed with something always true, and on a clause parenthesised
 into irrelevance. The question a gate guard has to answer is "for which states
 of the world does publication happen", and only evaluation answers it.
@@ -45,7 +47,10 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "release_builds.yml"
 
-SMOKE_JOB = "export_smoke_windows"
+SMOKE_JOB = "export_smoke_linux"
+#: The Windows exe smoke. Kept (its contract is not deleted) but it needs a Windows GPU
+#: runner that does not exist, so it must gate NOTHING: outside every `needs:` closure.
+WINDOWS_SMOKE_JOB = "export_smoke_windows"
 PUBLISHING_CHANNELS = ("stable", "nightly")
 # Job results GitHub can report. `skipped` and `cancelled` are the two that a
 # `== 'failure'` check would wave through, which is why the workflow spells its
@@ -652,45 +657,52 @@ class PublicationConditionTests(unittest.TestCase):
                         f"{job} still runs with {SMOKE_JOB}={smoke} on a stable release.",
                     )
 
-    def test_a_stable_release_has_no_windows_outage_tolerance(self) -> None:
-        # The nightly escape hatch must not leak into the stable path.
+    def test_a_stable_release_has_no_outage_tolerance(self) -> None:
+        # No escape hatch may leak into the stable path, whatever the Windows
+        # build did.
         for job in self.GATED_JOBS:
             for smoke in ("skipped", "failure"):
-                with self.subTest(job=job, smoke=smoke):
-                    self.assertFalse(
-                        self._allows(
-                            job, channel="stable", smoke=smoke, build_windows="failure"
+                for windows in JOB_RESULTS:
+                    with self.subTest(job=job, smoke=smoke, build_windows=windows):
+                        self.assertFalse(
+                            self._allows(
+                                job, channel="stable", smoke=smoke, build_windows=windows
+                            )
                         )
-                    )
 
-    def test_a_nightly_that_ships_windows_bytes_requires_the_smoke_test(self) -> None:
-        # build_windows green => a Windows archive is attached => it must have
-        # been executed. This is the case a blanket nightly tolerance would miss:
-        # the template build failing, or the GPU pool being busy, skips the smoke
-        # test while the Windows editor archive still ships.
+    def test_a_nightly_requires_the_linux_smoke_test_whatever_windows_did(self) -> None:
+        # The Linux payload ships on every publishing channel, so the lane that
+        # executes it is required on every one, and there is NO tolerance: a
+        # failed, skipped or cancelled smoke test blocks a nightly too.
         for job in self.GATED_JOBS:
             for smoke in ("failure", "skipped", "cancelled"):
-                with self.subTest(job=job, smoke=smoke):
-                    self.assertFalse(
-                        self._allows(
-                            job, channel="nightly", smoke=smoke, build_windows="success"
-                        ),
-                        f"{job} publishes a nightly Windows archive with {SMOKE_JOB}={smoke}.",
-                    )
+                for windows in JOB_RESULTS:
+                    with self.subTest(job=job, smoke=smoke, build_windows=windows):
+                        self.assertFalse(
+                            self._allows(
+                                job, channel="nightly", smoke=smoke, build_windows=windows
+                            ),
+                            f"{job} publishes a nightly with {SMOKE_JOB}={smoke}.",
+                        )
 
-    def test_a_nightly_windows_outage_still_publishes_linux_only(self) -> None:
-        # The documented tolerance, kept intact: no Windows payload, nothing
-        # unexecuted ships, the cadence continues.
+    def test_a_windows_outage_does_not_block_a_linux_only_nightly(self) -> None:
+        # The Windows build/template are no longer part of the gate: with the
+        # Linux smoke green, a Windows outage still lets the Linux nightly out.
         for job in self.GATED_JOBS:
             for windows in ("failure", "skipped", "cancelled"):
                 with self.subTest(job=job, build_windows=windows):
                     self.assertTrue(
                         self._allows(
-                            job, channel="nightly", smoke="skipped", build_windows=windows
-                        ),
-                        f"{job} blocks a Linux-only nightly, which the documented tolerance "
-                        "allows when no Windows bytes are published.",
+                            job, channel="nightly", smoke="success", build_windows=windows
+                        )
                     )
+
+    def test_the_windows_smoke_result_cannot_change_the_verdict(self) -> None:
+        # export_smoke_windows is outside the gate: no `if:` may read it.
+        for job in self.GATED_JOBS:
+            with self.subTest(job=job):
+                self.assertNotIn(WINDOWS_SMOKE_JOB, referenced_needs(self.jobs[job]["if"]))
+                self.assertNotIn(WINDOWS_SMOKE_JOB, self.jobs[job]["needs"])
 
     def test_the_existing_fast_math_assertion_is_still_load_bearing(self) -> None:
         # #590/#612/#620. Pinned here because the same "listed under needs: but
@@ -902,12 +914,7 @@ class ExpressionEvaluatorTests(unittest.TestCase):
     def test_a_dropped_clause_is_detectable(self) -> None:
         # The mutation this guard has to catch: remove the smoke assertion and
         # the condition must start allowing a failed smoke test through.
-        with_clause = (
-            "always() && "
-            f"(needs.{SMOKE_JOB}.result == 'success' || "
-            "(needs.release_metadata.outputs.channel != 'stable' && "
-            "needs.build_windows.result != 'success'))"
-        )
+        with_clause = f"always() && needs.{SMOKE_JOB}.result == 'success'"
         without_clause = "always()"
         self.assertFalse(evaluate(with_clause, self.CONTEXT))
         self.assertTrue(evaluate(without_clause, self.CONTEXT))
@@ -967,6 +974,27 @@ class ParserFailClosedTests(unittest.TestCase):
         )
 
 
+class WindowsSmokeIsNotAGateTests(unittest.TestCase):
+    """`export_smoke_windows` is kept, routed to a Windows GPU runner, and blocks nothing."""
+
+    def setUp(self) -> None:
+        self.jobs = parse_jobs()
+        self.text = "\n".join(_workflow_lines())
+
+    def test_the_job_and_its_contract_still_exist(self) -> None:
+        self.assertIn(WINDOWS_SMOKE_JOB, self.jobs)
+        self.assertIn("name: Export Smoke (Windows, GS template)", self.text)
+        self.assertIn("--expect-stock-template-failure", self.text)
+
+    def test_it_waits_for_a_windows_gpu_runner_that_may_not_exist(self) -> None:
+        self.assertIn("runs-on: [self-hosted, Windows, X64, gpu, d3d12]", self.text)
+
+    def test_no_job_depends_on_it(self) -> None:
+        for job, data in self.jobs.items():
+            with self.subTest(job=job):
+                self.assertNotIn(WINDOWS_SMOKE_JOB, data["needs"])
+
+
 class GatingDocumentationTests(unittest.TestCase):
     """Documentation must not describe a gating job as ungated (#825 round 3).
 
@@ -997,18 +1025,18 @@ class GatingDocumentationTests(unittest.TestCase):
         self.closure = publication_closure(self.jobs)
         self.claims = documented_ungated_claims(self.jobs)
 
-    def test_the_windows_template_job_is_inside_the_publication_closure(self) -> None:
-        # The fact the documentation got wrong, asserted directly so the reason
-        # this class exists cannot quietly stop being true.
-        self.assertIn("build_windows_export_template", self.closure)
-        self.assertIn(
-            "build_windows_export_template", needs_closure(self.jobs, SMOKE_JOB)
-        )
+    def test_the_linux_template_job_is_inside_the_publication_closure(self) -> None:
+        # The fact the documentation got wrong once, asserted directly so the
+        # reason this class exists cannot quietly stop being true.
+        self.assertIn("build_linux_export_template", self.closure)
+        self.assertIn("build_linux_export_template", needs_closure(self.jobs, SMOKE_JOB))
 
-    def test_the_linux_template_job_is_still_outside_it(self) -> None:
+    def test_the_windows_template_job_is_outside_it(self) -> None:
         # The other half of the distinction: if this ever fails, the README's
-        # "artifact only" sentence about the Linux job needs the same correction.
-        self.assertNotIn("build_linux_export_template", self.closure)
+        # "artifact only" sentence about the Windows template job needs the same
+        # correction (and the Windows smoke has silently become a gate).
+        self.assertNotIn("build_windows_export_template", self.closure)
+        self.assertNotIn(WINDOWS_SMOKE_JOB, self.closure)
 
     def test_no_gating_job_is_documented_as_ungated(self) -> None:
         for job in sorted(self.closure):
@@ -1025,7 +1053,7 @@ class GatingDocumentationTests(unittest.TestCase):
     def test_the_claim_scan_is_not_vacuous(self) -> None:
         # A scan that stopped matching would make the check above pass over an
         # empty dict, which is how this class of gap survives. Some job IS
-        # legitimately documented as ungated (the Linux template job today); if
+        # legitimately documented as ungated (the Windows template job today); if
         # that is no longer true, the phrase set has gone blind or the text has
         # changed, and either way this check needs a human.
         self.assertTrue(
@@ -1041,11 +1069,11 @@ class GatingDocumentationTests(unittest.TestCase):
         # backwards would fail the healthy tree, and a guard that fails on the
         # healthy tree gets relaxed.
         claims = claimed_ungated(
-            "`build_linux_export_template` is deliberately not wired into "
+            "`build_windows_export_template` is deliberately not wired into "
             "`release_candidate_gate` or `publish_release`.",
             sorted(self.jobs),
         )
-        self.assertEqual(claims, {"build_linux_export_template"})
+        self.assertEqual(claims, {"build_windows_export_template"})
 
     def test_a_job_block_comment_attributes_the_claim_to_its_owner(self) -> None:
         lines = [

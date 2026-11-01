@@ -31,6 +31,9 @@ on:
       # change to it must not skip the workflow whose GPU job runs it.
       - "tests/ci/preflight_runner_gpu_environment.py"
       - "tests/ci/runner_gpu_contention.py"
+      # Executed by export_smoke_linux (toolchain check): a change to it must not
+      # skip the workflow whose GPU job runs it.
+      - "tests/ci/linux_gpu_runner.sh"
       # The hash-locked SCons both Windows build jobs install (GAP-403); a pin
       # change must build here, not wait for the nightly.
       - "tests/ci/requirements-scons.txt"
@@ -67,6 +70,7 @@ on:
       # runs the smoke test on whatever a push skipped. What is actually
       # deferred is the export/packaging interaction on those files (#825).
       - "tests/runtime/export_smoke_preset.cfg.in"
+      - "tests/runtime/export_smoke_preset_linux.cfg.in"
       - "tests/runtime/prepare_synthetic_assets.py"
       - "tests/examples/godot/test_project/project.godot"
       - "tests/examples/godot/test_project/tests/export_smoke_probe.gd"
@@ -96,10 +100,14 @@ on:
       # change to it must not skip the workflow whose GPU job runs it.
       - "tests/ci/preflight_runner_gpu_environment.py"
       - "tests/ci/runner_gpu_contention.py"
+      # Executed by export_smoke_linux (toolchain check): a change to it must not
+      # skip the workflow whose GPU job runs it.
+      - "tests/ci/linux_gpu_runner.sh"
       - "tests/ci/requirements-scons.txt"
       - "tests/runtime/run_export_smoke.py"
       - "tests/runtime/run_runtime_validation.py"
       - "tests/runtime/export_smoke_preset.cfg.in"
+      - "tests/runtime/export_smoke_preset_linux.cfg.in"
       - "tests/runtime/prepare_synthetic_assets.py"
       - "tests/examples/godot/test_project/project.godot"
       - "tests/examples/godot/test_project/tests/export_smoke_probe.gd"
@@ -358,13 +366,13 @@ jobs:
     name: Build Linux Export Template (release)
     # Issue #825: this fork publishes no export templates, so a user who
     # downloads it gets an editor and no way to export a game. This job builds
-    # the Linux release template and uploads it as an artifact. It is
-    # deliberately NOT wired into `release_candidate_gate` or `publish_release`
-    # -- template distribution must not become a dependency of the release gate.
-    # This applies to the LINUX job only: no lane executes this artifact, so
-    # nothing lists it under `needs:`. Its Windows counterpart below is not in
-    # the same position any more -- `export_smoke_windows` runs that template,
-    # which makes it transitively gating. Do not copy this note onto it.
+    # the Linux release template and uploads it as an artifact. It is TRANSITIVELY
+    # GATING: `export_smoke_linux` lists it under `needs:` and executes exactly
+    # this artifact, and `release_candidate_gate` and `publish_release` both list
+    # and assert that job. So if this job fails, the smoke test is skipped, and a
+    # skipped smoke test blocks every publish. Its Windows counterpart below is
+    # NOT in the same position any more: nothing executes that template on a
+    # gating lane. Do not copy this note onto it.
     runs-on: ubuntu-latest
     timeout-minutes: 120
     needs: release_metadata
@@ -629,8 +637,9 @@ jobs:
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
-      # GAP-403: this runner is the maintainer's workstation, so nothing is
-      # installed into its global interpreter. SCons goes into a per-job venv
+      # GAP-403: a per-job venv, never the runner's global interpreter (a
+      # GitHub-hosted runner is discarded, but the hash-locked install is kept
+      # identical to the self-hosted jobs). SCons goes into a per-job venv
       # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
       # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
       # every later step), so each later `python`, including `python -m SCons`,
@@ -652,9 +661,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: C:/godotgs-scons-cache-editor-release
-          key: release-scons-windows-editor-${{ hashFiles('SConstruct', 'methods.py') }}-${{ github.sha }}
+          key: release-scons-windows-editor-${{ hashFiles('repo/SConstruct', 'repo/methods.py') }}-${{ github.sha }}
           restore-keys: |
-            release-scons-windows-editor-${{ hashFiles('SConstruct', 'methods.py') }}-
+            release-scons-windows-editor-${{ hashFiles('repo/SConstruct', 'repo/methods.py') }}-
             release-scons-windows-editor-
 
       - name: Build module-enabled Windows editor (optimized)
@@ -825,17 +834,14 @@ jobs:
 
   build_windows_export_template:
     name: Build Windows Export Template (release)
-    # Issue #825: companion to build_linux_export_template, but NO LONGER its
-    # mirror image. That job's template is a build product nothing consumes;
-    # this one's is downloaded and executed by `export_smoke_windows` below,
-    # which `release_candidate_gate` and `publish_release` both list under
-    # `needs:` and both assert. This job is therefore TRANSITIVELY GATING: if it
-    # fails, the smoke test is skipped, and a skipped smoke test blocks every
-    # stable publish and every nightly whose `build_windows` succeeded. The note
-    # that used to sit here said the opposite; it stopped being true the moment
-    # the smoke lane started consuming this artifact, without this job being
-    # edited. See .github/workflows/README.md, "Release Builds", and the derived
-    # check in tests/ci/test_release_publication_gating.py.
+    # Issue #825: companion to build_linux_export_template, but NOT its mirror
+    # image. Its template is uploaded as an artifact ONLY and is deliberately not
+    # wired into `release_candidate_gate` or `publish_release`: the only lane that
+    # executes it, `export_smoke_windows`, needs a Windows GPU runner that does
+    # not exist and gates nothing, so this job's failure cannot stop a publish. The
+    # Windows template zip still ships with the Windows editor zip (#994), built but
+    # not executed. See .github/workflows/README.md, "Release Builds", and the
+    # derived check in tests/ci/test_release_publication_gating.py.
     # GitHub-hosted: the self-hosted Windows runner was removed and this job
     # needs no GPU (it compiles and packages), so the release keeps shipping
     # the Windows template (#593).
@@ -867,8 +873,9 @@ jobs:
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
-      # GAP-403: this runner is the maintainer's workstation, so nothing is
-      # installed into its global interpreter. SCons goes into a per-job venv
+      # GAP-403: a per-job venv, never the runner's global interpreter (a
+      # GitHub-hosted runner is discarded, but the hash-locked install is kept
+      # identical to the self-hosted jobs). SCons goes into a per-job venv
       # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
       # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
       # every later step), so each later `python`, including `python -m SCons`,
@@ -890,9 +897,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: C:/godotgs-scons-cache-template
-          key: release-scons-windows-template-${{ hashFiles('SConstruct', 'methods.py') }}-${{ github.sha }}
+          key: release-scons-windows-template-${{ hashFiles('repo/SConstruct', 'repo/methods.py') }}-${{ github.sha }}
           restore-keys: |
-            release-scons-windows-template-${{ hashFiles('SConstruct', 'methods.py') }}-
+            release-scons-windows-template-${{ hashFiles('repo/SConstruct', 'repo/methods.py') }}-
             release-scons-windows-template-
 
       - name: Build Windows export template (release)
@@ -1009,6 +1016,211 @@ jobs:
             repo/${{ steps.package.outputs.info }}
           retention-days: 14
 
+  export_smoke_linux:
+    name: Export Smoke (Linux, GS template)
+    # The blocking export smoke of the release gates (user decision 2026-11-01).
+    # The self-hosted Windows GPU runner is gone and the only self-hosted runner is
+    # the Linux RTX 3080 box, which cannot execute a Windows exe. This job therefore
+    # does for Linux exactly what `export_smoke_windows` did for Windows: it exports
+    # tests/examples/godot/test_project against the Linux release template built by
+    # THIS run, launches the exported binary on the GPU (real Xorg at DISPLAY=:0,
+    # Vulkan) and runs the same probe (export_smoke_probe.gd: ClassDB lookup, a live
+    # RenderingDevice, visible splats, four pipeline stage statuses and
+    # non-background pixel samples), plus the same negative control. Both
+    # invocations are `tests/runtime/run_export_smoke.py --target linux`.
+    #
+    # What this does NOT cover is stated plainly: the Windows editor zip and the
+    # Windows export template zip are still built (GitHub-hosted windows-latest) and
+    # still shipped, but no lane executes the Windows exe any more -- see
+    # `export_smoke_windows` below, which is kept but gates nothing.
+    runs-on: [self-hosted, Linux, X64, gpu]
+    needs: [release_metadata, build_linux, build_linux_export_template]
+    # Never run self-hosted code on untrusted PR code. Strict form, matching the
+    # other release lanes: it skips every pull request. The Linux builds it consumes
+    # do run on pull requests (GitHub-hosted); the smoke itself is exercised on
+    # push/tag/schedule/dispatch.
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 120
+    # #875 -- see the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md. VK_LOADER_LAYERS_ENABLE is deliberately not set
+    # on Linux (it would force-enable the NVIDIA layers onto the chain).
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Clear the smoke staging directories from any previous run
+        working-directory: ${{ github.workspace }}
+        run: |
+          # The self-hosted workspace persists between runs and actions/checkout
+          # only cleans `repo/`. A leftover binary from a previous run would make
+          # the resolution below ambiguous -- or, worse, unambiguous and wrong.
+          for stale in smoke-input smoke-stage; do
+            if [ -e "$stale" ]; then
+              rm -rf -- "$stale"
+              echo "removed stale $stale"
+            fi
+          done
+
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      # This runner has no sudo, so no job installs system packages. This step
+      # fails closed and names exactly what is missing.
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      # #875 -- this job runs a real GPU workload (it launches the exported game and
+      # reads its window back). It never relaxes a result: a contended run is void,
+      # not passed.
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      # Must precede every GPU step: it decides whether anything measured
+      # afterwards is a measurement of the renderer (#875).
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      - name: Download Linux editor built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: godotgs-linux-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: smoke-input/editor
+
+      - name: Download Linux export template built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: godotgs-export-template-linux-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: smoke-input/template
+
+      - name: Unpack the published archives
+        id: unpack
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+
+          # Unpack the ARCHIVES, not a local bin/ directory: these are the exact
+          # bytes a user downloads and the exact bytes publish_release attaches.
+          expand_one() {
+            local source_dir="$1" destination="$2"
+            local -a archives=()
+            mapfile -t archives < <(find "$source_dir" -type f -name '*.tar.xz' | sort)
+            if [ "${#archives[@]}" -ne 1 ]; then
+              find "$source_dir" -type f -print
+              echo "::error::Expected exactly one .tar.xz under $source_dir, found ${#archives[@]}."
+              exit 1
+            fi
+            mkdir -p "$destination"
+            tar -xJf "${archives[0]}" -C "$destination"
+          }
+
+          resolve_one() {
+            local directory="$1" pattern="$2"
+            local -a matched=()
+            mapfile -t matched < <(find "$directory" -type f -name "$pattern" | sort)
+            if [ "${#matched[@]}" -ne 1 ]; then
+              find "$directory" -type f -print
+              echo "::error::Expected exactly one match for '$pattern' under $directory, found ${#matched[@]}."
+              exit 1
+            fi
+            realpath "${matched[0]}"
+          }
+
+          expand_one smoke-input/editor smoke-stage/editor
+          expand_one smoke-input/template smoke-stage/template
+
+          # The template archive stages Godot's EXPORT-TEMPLATE name
+          # (linux_release.x86_64), not the SConstruct output name -- the two name
+          # spaces differ deliberately, see the header of tests/ci/resolve_export_template.py.
+          editor_binary="$(resolve_one smoke-stage/editor 'godot.linuxbsd.editor*.x86_64')"
+          template_binary="$(resolve_one smoke-stage/template 'linux_release.x86_64')"
+          chmod +x "$editor_binary" "$template_binary"
+          echo "editor   = $editor_binary"
+          echo "template = $template_binary"
+          echo "editor=$editor_binary" >> "$GITHUB_OUTPUT"
+          echo "template=$template_binary" >> "$GITHUB_OUTPUT"
+
+      - name: Export smoke test against the template built by this run
+        run: |
+          # --require-binaries is load-bearing and is the single most important
+          # flag in this job. Without it `_skip()` returns EXIT_PASS, so a
+          # missing binary, a failed download or a wrong-platform host would report
+          # this lane GREEN -- the "skip encoded as pass" defect this lane
+          # exists to retire.
+          #
+          # --allow-blank-viewport is deliberately NOT passed. The GPU pool
+          # demonstrably reads back real pixels (tests/ci/baselines/qa_results.json
+          # records a measured centre colour). If it stops doing so, that is a
+          # finding to file, not a flag to add here.
+          python3 tests/runtime/run_export_smoke.py \
+            --target linux \
+            --editor-binary "${{ steps.unpack.outputs.editor }}" \
+            --template "${{ steps.unpack.outputs.template }}" \
+            --require-binaries || {
+            rc=$?
+            echo "::error::Export smoke test failed (exit $rc). Read the [EXPORT_SMOKE_METRICS] line above before treating this as a wiring problem: probe exit 2 = the gaussian_splatting module is missing from the exported binary, 3 = no RenderingDevice on this runner, 4 = the window read back blank, 1 = a pipeline stage failed, or the render evidence was complete but arrived only after the proof deadline (the metrics line carries deadline_exceeded and proof_seconds)."
+            exit 1
+          }
+
+      - name: Negative control -- an empty custom_template/release must not pass
+        run: |
+          # The discrimination test. Without it the step above proves only that
+          # one configuration worked once, and a smoke test that cannot fail is
+          # the shape of defect this repository keeps finding. This run writes
+          # the same preset with custom_template/release="" -- the #825
+          # misconfiguration verbatim -- and requires the run NOT to end in a
+          # working GS export.
+          #
+          # Passing requires a POSITIVE finding, not merely "the export did not
+          # succeed": either a refusal whose own diagnostics name an
+          # unresolvable export template (with the binary's absence verified on
+          # disk), or a produced binary the byte-scan identifies as stock. A
+          # timeout, a crash or an unrelated resource error is
+          # `unrelated_failure` and is red -- a control that passes whenever
+          # anything goes wrong establishes nothing.
+          #
+          # --skip-import: the positive invocation above just imported this exact
+          # project, and the import cache is unaffected by what this run changes
+          # (only the PRESET differs).
+          python3 tests/runtime/run_export_smoke.py \
+            --target linux \
+            --editor-binary "${{ steps.unpack.outputs.editor }}" \
+            --template "${{ steps.unpack.outputs.template }}" \
+            --require-binaries \
+            --skip-import \
+            --expect-stock-template-failure || {
+            rc=$?
+            echo "::error::Negative control failed (exit $rc). Read the [EXPORT_SMOKE_METRICS] outcome field: 'undetected' = an export whose preset named no custom template still produced a GS-enabled binary, so the smoke test above cannot discriminate; 'unrelated_failure' = the export did not succeed but nothing showed the empty custom_template/release was detected (timeout, crash, unrelated error, or a failed export that left a binary), so the control proved nothing either way."
+            exit 1
+          }
+
+      # #875 -- must run even when the job failed: an export smoke failure is exactly
+      # the result whose attribution this decides. Exits 75 (not 1) when the run is
+      # void, so it cannot be read as a test failure.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+
   export_smoke_windows:
     name: Export Smoke (Windows, GS template)
     # Issue #825, milestone 1. The first lane that RUNS what the template job
@@ -1075,7 +1287,7 @@ jobs:
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          git config --global --add safe.directory '*'
+          if (-not (git config --global --get-all safe.directory | Where-Object { $_ -eq '*' })) { git config --global --add safe.directory '*' }
 
       - name: Clear the smoke staging directories from any previous run
         shell: pwsh
@@ -1250,7 +1462,7 @@ jobs:
       - build_linux
       - build_windows
       - finite_math_guard
-      - export_smoke_windows
+      - export_smoke_linux
     # Runs whenever a publish is requested so `publish_release` can hard-depend
     # on this job's success (fail-closed wiring for #593). This job is the single
     # authority for "is a stable/candidate release allowed to publish":
@@ -1303,13 +1515,7 @@ jobs:
       always() &&
       needs.release_metadata.outputs.publish == 'true' &&
       needs.finite_math_guard.result == 'success' &&
-      (
-        needs.export_smoke_windows.result == 'success' ||
-        (
-          needs.release_metadata.outputs.channel != 'stable' &&
-          needs.build_windows.result != 'success'
-        )
-      )
+      needs.export_smoke_linux.result == 'success'
     env:
       # Repo-relative path to the public-alpha candidate evidence bundle and its
       # issue snapshot. These are produced by the public-alpha evidence pipeline
@@ -1571,7 +1777,7 @@ jobs:
       - build_windows
       - finite_math_guard
       - release_candidate_gate
-      - export_smoke_windows
+      - export_smoke_linux
     # A stable release cannot publish unless `release_candidate_gate` succeeded:
     # that gate enforces both-platform builds AND `--mode candidate` validation
     # for the stable/tag path, and fails closed when the evidence bundle is
@@ -1623,13 +1829,7 @@ jobs:
       needs.build_linux.result == 'success' &&
       needs.finite_math_guard.result == 'success' &&
       needs.release_candidate_gate.result == 'success' &&
-      (
-        needs.export_smoke_windows.result == 'success' ||
-        (
-          needs.release_metadata.outputs.channel != 'stable' &&
-          needs.build_windows.result != 'success'
-        )
-      )
+      needs.export_smoke_linux.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

@@ -2235,15 +2235,44 @@ class LinuxProbeBackend(unittest.TestCase):
         self.assertIsNotNone(mine)
         self.assertEqual(mine["ppid"], os.getppid())
 
-    def test_the_headless_xorg_serving_our_windows_is_not_a_contender(self) -> None:
+    def test_the_xorg_serving_our_display_is_not_a_contender(self) -> None:
         processes = {
-            19850: {"ppid": 1, "name": "Xorg", "path": ""},
+            19850: {"ppid": 1, "name": "Xorg", "path": "", "cmdline": "/usr/lib/xorg/Xorg :0 -config /etc/X11/xorg.conf"},
             4242: {"ppid": 1, "name": "Godot_v4.7-stab", "path": "/home/other/godot"},
         }
-        loads = contention.classify({19850: 60.0, 4242: 60.0}, processes, set(), ())
+        with mock.patch.dict(os.environ, {"DISPLAY": ":0"}):
+            loads = contention.classify({19850: 60.0, 4242: 60.0}, processes, set(), ())
         ours = {load.pid: load.ours for load in loads}
         self.assertTrue(ours[19850], "the display server is the job's own presentation load")
         self.assertFalse(ours[4242], "a foreign Godot is still contention")
+
+    def test_an_xorg_on_another_display_or_with_an_unreadable_argv_is_a_contender(self) -> None:
+        for label, entry, display in (
+            ("other display", {"ppid": 1, "name": "Xorg", "path": "", "cmdline": "/usr/lib/xorg/Xorg :1"}, ":0"),
+            ("argv unreadable", {"ppid": 1, "name": "Xorg", "path": ""}, ":0"),
+            ("no DISPLAY in the job", {"ppid": 1, "name": "Xorg", "path": "", "cmdline": "Xorg :0"}, ""),
+            ("substring is not an argument", {"ppid": 1, "name": "Xorg", "path": "", "cmdline": "Xorg :01"}, ":0"),
+        ):
+            with self.subTest(case=label):
+                env = {"DISPLAY": display} if display else {}
+                with mock.patch.dict(os.environ, env, clear=False):
+                    if not display:
+                        os.environ.pop("DISPLAY", None)
+                    loads = contention.classify({7: 60.0}, {7: entry}, set(), ())
+                self.assertFalse(loads[0].ours, label)
+
+    def test_a_foreign_non_display_process_with_load_trips_take_sample(self) -> None:
+        payload = {
+            "counter_error": None,
+            "process_error": None,
+            "gpu_percent_by_pid": {"4242": 47.0},
+            "processes": {"4242": {"ppid": 1, "name": "godot", "path": "/tmp/foreign/godot"}},
+        }
+        with mock.patch.object(contention, "read_probe", return_value=(payload, None)):
+            with mock.patch.object(contention, "query_nvidia_smi", return_value=((), None)):
+                sample = contention.take_sample(job_root_pid=os.getpid())
+        self.assertTrue(sample.busy)
+        self.assertEqual([load.pid for load in sample.contenders], [4242])
 
     def test_the_runner_process_names_include_the_linux_hosts(self) -> None:
         self.assertIn("runner.worker", contention.RUNNER_PROCESS_NAMES)

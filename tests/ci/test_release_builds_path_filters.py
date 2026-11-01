@@ -111,6 +111,8 @@ RELEASE_HELPER_SCRIPTS = (
     # self-hosted GPU pool must run (#875/#918). A change to the preflight must
     # not skip the workflow whose GPU job depends on it.
     "tests/ci/preflight_runner_gpu_environment.py",
+    # Executed by export_smoke_linux (fail-closed toolchain check on the Linux GPU runner).
+    "tests/ci/linux_gpu_runner.sh",
 )
 
 # --- The smoke test's DATA dependencies --------------------------------------
