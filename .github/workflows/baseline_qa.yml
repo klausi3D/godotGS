@@ -939,7 +939,11 @@ jobs:
 
     - name: Build module-enabled Godot editor
       run: |
-        scons platform=linuxbsd target=editor dev_build=yes tests=yes cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+        # ccflags="-march=x86-64" is PINNED. ubuntu-latest is Ubuntu 26.04,
+        # whose gcc 15 defaults to -march=x86-64-v3 (defines __AVX2__). That
+        # makes embree's isa.h select avx2:: symbols whose SIMD8 sources the
+        # raycast module does not build -> undefined reference at link.
+        scons platform=linuxbsd target=editor dev_build=yes tests=yes ccflags="-march=x86-64" cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
 
     - name: Resolve module-enabled Godot binary
       id: godot_binary
