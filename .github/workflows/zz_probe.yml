@@ -8,15 +8,17 @@ jobs:
     runs-on: [self-hosted, Linux, X64, gpu]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
       - name: probe
         shell: bash
         run: |
           set +e
-          python3 tests/ci/preflight_runner_gpu_environment.py; echo "preflight rc=$?"
-          python3 tests/ci/runner_gpu_contention.py preflight; echo "contention rc=$?"
-          vulkaninfo --summary > /tmp/vi.txt 2>&1; echo "vulkaninfo rc=$?"; grep -E "deviceName|deviceType|driverName" /tmp/vi.txt
-          VK_LOADER_DEBUG=layer,info vulkaninfo --summary 2>&1 | grep -i "layer" | head -20
-          nvidia-smi pmon -c 1 -s u; echo "pmon rc=$?"
-          nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv
-          which xvfb-run; ls /usr/lib/x86_64-linux-gnu | grep -E "libXext|libXrender|libXfixes|libxcb\.|libwayland|libdecor|libxkbcommon|libfreetype|libfontconfig"
+          env | grep -E "^(DISPLAY|VK_|__GLX|XDG|HOME|PATH)=" 
+          VK_LOADER_DEBUG=layer,info timeout 60 vulkaninfo --summary > /tmp/vi.txt 2>&1; echo "rc=$?"
+          grep -iE "layer|loader" /tmp/vi.txt | head -25
+          grep -E "deviceName|deviceType|driverName" /tmp/vi.txt
+          timeout 20 nvidia-smi pmon -c 1 -s u; echo "pmon rc=$?"
+          command -v uv python3.11 pwsh; uv python find 3.11 2>&1 | head -2
+          ls /usr/lib/x86_64-linux-gnu | grep -cE "libXext|libxkbcommon"
+          for p in x11 xcursor xinerama xi xrandr gl glu alsa libpulse libudev vulkan; do pkg-config --exists $p && echo "have $p" || echo "MISSING $p"; done
+          command -v scons glslangValidator glslc
+          xdpyinfo -display :0 2>&1 | head -5
