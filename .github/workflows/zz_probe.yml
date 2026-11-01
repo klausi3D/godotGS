@@ -12,13 +12,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          env | grep -E "^(DISPLAY|VK_|__GLX|XDG|HOME|PATH)=" 
-          VK_LOADER_DEBUG=layer,info timeout 60 vulkaninfo --summary > /tmp/vi.txt 2>&1; echo "rc=$?"
-          grep -iE "layer|loader" /tmp/vi.txt | head -25
-          grep -E "deviceName|deviceType|driverName" /tmp/vi.txt
-          timeout 20 nvidia-smi pmon -c 1 -s u; echo "pmon rc=$?"
-          command -v uv python3.11 pwsh; uv python find 3.11 2>&1 | head -2
-          ls /usr/lib/x86_64-linux-gnu | grep -cE "libXext|libxkbcommon"
-          for p in x11 xcursor xinerama xi xrandr gl glu alsa libpulse libudev vulkan; do pkg-config --exists $p && echo "have $p" || echo "MISSING $p"; done
-          command -v scons glslangValidator glslc
-          xdpyinfo -display :0 2>&1 | head -5
+          env | grep -E "^(VK_|__GLX)"
+          VK_LOADER_DEBUG=layer,info timeout 60 vulkaninfo --summary > /tmp/vi.txt 2>&1
+          grep -iE "insert|elevated|will be ignored|disable" /tmp/vi.txt | head -30
+          echo ---- ; NODEVICE_SELECT=1 VK_LOADER_DEBUG=layer,info timeout 60 vulkaninfo --summary 2>&1 | grep -iE "insert|elevated" | head
+          echo ---- ; VK_LOADER_DEBUG=all timeout 60 vulkaninfo --summary 2>&1 | grep -iE "device_select|optimus|NV_present" | head -10
