@@ -298,10 +298,17 @@ jobs:
           # (SConstruct:736-740) and ships SSE4.2. `auto` declines today, so this
           # is a NO-OP -- pinned so a future change to `auto` cannot silently
           # raise the CPU floor of an artifact a user downloads.
+          #
+          # ccflags="-march=x86-64" is PINNED for the same reason. ubuntu-latest
+          # is Ubuntu 26.04, whose gcc 15 defaults to -march=x86-64-v3 (defines
+          # __AVX2__). That raised the whole engine's CPU floor and made
+          # embree's isa.h select avx2:: symbols whose SIMD8 sources the raycast
+          # module does not build -> undefined reference at link. Same pin on
+          # the template and fast-math jobs below.
           if [[ "${{ needs.release_metadata.outputs.channel }}" == "stable" ]]; then
-            scons platform=linuxbsd target=editor gs_avx2=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+            scons platform=linuxbsd target=editor gs_avx2=no ccflags="-march=x86-64" cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
           else
-            scons platform=linuxbsd target=editor dev_build=yes tests=yes gs_avx2=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+            scons platform=linuxbsd target=editor dev_build=yes tests=yes gs_avx2=no ccflags="-march=x86-64" cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
           fi
 
       - name: Resolve built binary
@@ -427,7 +434,7 @@ jobs:
           # set dev_build=yes on non-stable channels; copying that would publish
           # an -O0 template that nobody can ship a game with.
           scons platform=linuxbsd target=template_release arch=x86_64 gs_native_arch=no \
-            cache_path=.scons_cache_template cache_limit=10 -j"$(nproc)"
+            ccflags="-march=x86-64" cache_path=.scons_cache_template cache_limit=10 -j"$(nproc)"
 
       - name: Resolve export template binary
         id: template_bin
@@ -561,7 +568,7 @@ jobs:
           # artifacts we publish; a guard that compiles a different instruction
           # set than the shipping build is not evidence about the shipping build.
           scons platform=linuxbsd target=editor tests=yes optimize=speed \
-            gs_native_arch=no gs_avx2=no cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+            gs_native_arch=no gs_avx2=no ccflags="-march=x86-64" cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
 
       - name: Resolve built binary
         id: binary
