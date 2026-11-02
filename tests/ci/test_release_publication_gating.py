@@ -1025,6 +1025,36 @@ class StableNeedsBothPlatformsTests(unittest.TestCase):
                 )
 
 
+class HostedBuildsRunOnTheRunnersGlibcTests(unittest.TestCase):
+    """Binaries built on a hosted image and executed on the self-hosted runner must match its OS.
+
+    `export_smoke_linux` runs the Linux editor and exports with the Linux template built by
+    hosted jobs. On `ubuntu-latest` (26.04, glibc 2.43) those binaries cannot start on the
+    Ubuntu 24.04 runner (glibc 2.39): `GLIBC_2.43 not found`, exit 1, before any render
+    (run 41445832044). The producers are derived from the artifact edges, not listed.
+    """
+
+    RUNNER_OS_IMAGE = "ubuntu-24.04"
+
+    def _runs_on(self, job: str) -> str:
+        current = ""
+        for line in _workflow_lines():
+            match = JOB_KEY.match(line)
+            if match:
+                current = match.group(1)
+                continue
+            if current == job and line.startswith("    runs-on:"):
+                return line.split(":", 1)[1].strip()
+        raise AssertionError(f"no runs-on found for {job}")
+
+    def test_every_producer_for_the_self_hosted_smoke_is_pinned_to_the_runner_os(self) -> None:
+        producers = {producer for consumer, producer, _ in artifact_edges(_workflow_lines()) if consumer == SMOKE_JOB}
+        self.assertEqual(producers, {"build_linux", "build_linux_export_template"})
+        for job in sorted(producers):
+            with self.subTest(job=job):
+                self.assertEqual(self._runs_on(job), self.RUNNER_OS_IMAGE)
+
+
 class WindowsReleaseAssetSetTests(unittest.TestCase):
     """What a Windows release ships: the optimized editor AND its export template (#994).
 

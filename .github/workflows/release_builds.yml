@@ -243,7 +243,14 @@ jobs:
 
   build_linux:
     name: Build Linux Editor + Contributor Artifact
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04, NOT ubuntu-latest: this job's binary is EXECUTED on the self-hosted
+    # Linux GPU runner (Ubuntu 24.04, glibc 2.39) by export_smoke_linux. ubuntu-latest is 26.04
+    # (glibc 2.43), and a binary built there dies on the runner with
+    # "libm.so.6: version `GLIBC_2.43' not found" before it renders anything (run 41445832044).
+    # Building on the oldest supported image also lowers the glibc floor of the shipped binary.
+    # tests/ci/test_release_publication_gating.py fails if a job whose artifact export_smoke_linux
+    # downloads is not pinned to the runner's OS.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     needs: release_metadata
     steps:
@@ -380,7 +387,14 @@ jobs:
     # skipped smoke test blocks every publish. Its Windows counterpart below is
     # NOT in the same position any more: nothing executes that template on a
     # gating lane. Do not copy this note onto it.
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04, NOT ubuntu-latest: this job's binary is EXECUTED on the self-hosted
+    # Linux GPU runner (Ubuntu 24.04, glibc 2.39) by export_smoke_linux. ubuntu-latest is 26.04
+    # (glibc 2.43), and a binary built there dies on the runner with
+    # "libm.so.6: version `GLIBC_2.43' not found" before it renders anything (run 41445832044).
+    # Building on the oldest supported image also lowers the glibc floor of the shipped binary.
+    # tests/ci/test_release_publication_gating.py fails if a job whose artifact export_smoke_linux
+    # downloads is not pinned to the runner's OS.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     needs: release_metadata
     steps:

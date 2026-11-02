@@ -217,7 +217,7 @@ about the runner inventory, not something that can be read out of the workflow
 text. It is therefore **declared here** and reviewed by a maintainer:
 
 - Persistent self-hosted runner labels: `self-hosted`, `Linux`, `Windows`, `X64`, `gpu`, `rtx3080`, `d3d12`
-- GitHub-hosted runner labels: `ubuntu-latest`, `windows-latest`
+- GitHub-hosted runner labels: `ubuntu-latest`, `ubuntu-24.04`, `windows-latest`
 
 Those two bullets are parsed, so their **form is load-bearing**. Each must open
 with its clause (`- <clause>:`) and then contain a comma-separated list of

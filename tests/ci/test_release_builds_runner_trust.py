@@ -1424,7 +1424,7 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER),
-            {"ubuntu-latest", "windows-latest"},
+            {"ubuntu-latest", "ubuntu-24.04", "windows-latest"},
         )
 
 
