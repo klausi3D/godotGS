@@ -533,14 +533,58 @@ def read_linux_process_table() -> Dict[str, Dict[str, object]]:
     return table
 
 
-def parse_nvidia_smi_pmon(text: str) -> Tuple[Dict[str, float], bool]:
-    """`(sm% by pid, saw the header)` from `nvidia-smi pmon -s u`.
+class PmonReading(NamedTuple):
+    """What one `nvidia-smi pmon -c 1 -s u` printout actually established."""
 
-    Idle processes print `-` for every column, which is 0 here. The header check
-    keeps an unrecognised output format from being read as an idle GPU.
+    #: SM% by pid, only for rows with a numeric share above zero.
+    by_pid: Dict[str, float]
+    saw_header: bool
+    #: Rows that carried a usable measurement: a numeric pid with a numeric or `-`
+    #: SM column, or the explicit "no process on this GPU" row (pid `-`).
+    measured_rows: int
+    #: Lines that could not be read. A single one makes the whole sample invalid.
+    malformed: Tuple[str, ...]
+
+    @property
+    def valid(self) -> bool:
+        """A sample counts only when the header was seen, every row parsed, and at least one measured."""
+        return self.saw_header and not self.malformed and self.measured_rows > 0
+
+    def problem(self) -> Optional[str]:
+        if not self.saw_header:
+            return "nvidia-smi pmon printed no recognisable header, so its output cannot be read as an idle GPU"
+        if self.malformed:
+            return (
+                f"nvidia-smi pmon printed {len(self.malformed)} row(s) this parser could not read "
+                f"(first: {self.malformed[0]!r}); an unreadable row is not an idle GPU"
+            )
+        if self.measured_rows == 0:
+            return (
+                "nvidia-smi pmon printed a header but no measurement row (neither a process row nor the "
+                "explicit no-process `-` row), so nothing was measured"
+            )
+        return None
+
+
+def parse_nvidia_smi_pmon(text: str) -> PmonReading:
+    """Parse `nvidia-smi pmon -s u`, failing closed.
+
+    Columns: `gpu pid type sm mem enc dec jpg ofa command`. What the driver prints,
+    measured on the runner: a process that did no work in the interval has `-` in
+    every utilisation column (that IS the idle reading, so it is 0), and a GPU with
+    no process at all prints one row whose pid is `-`. Anything else is not
+    understood and must not be read as idle:
+
+    * a row whose pid is neither a number nor `-`, or that is too short;
+    * a row with a pid whose SM column is neither a number nor `-` (it used to
+      become 0 silently, i.e. a busy process reported as idle).
+
+    Header-only output (no measurement row) is not a measurement either.
     """
     by_pid: Dict[str, float] = {}
     saw_header = False
+    measured = 0
+    malformed: List[str] = []
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
@@ -549,15 +593,28 @@ def parse_nvidia_smi_pmon(text: str) -> Tuple[Dict[str, float], bool]:
             saw_header = saw_header or "gpu" in line.lower()
             continue
         fields = line.split()
-        if len(fields) < 4 or not fields[1].isdigit():
+        if len(fields) < 4 or not fields[0].isdigit():
+            malformed.append(line[:120])
+            continue
+        pid, sm_text = fields[1], fields[3]
+        if pid == "-":
+            measured += 1  # the explicit "no process on this GPU" row
+            continue
+        if not pid.isdigit():
+            malformed.append(line[:120])
+            continue
+        if sm_text == "-":
+            measured += 1
             continue
         try:
-            sm = float(fields[3]) if fields[3] != "-" else 0.0
+            sm = float(sm_text)
         except ValueError:
-            sm = 0.0
+            malformed.append(line[:120])
+            continue
+        measured += 1
         if sm > 0:
-            by_pid[fields[1]] = by_pid.get(fields[1], 0.0) + sm
-    return by_pid, saw_header
+            by_pid[pid] = by_pid.get(pid, 0.0) + sm
+    return PmonReading(by_pid, saw_header, measured, tuple(malformed))
 
 
 def run_linux_sample() -> Tuple[Optional[Dict[str, object]], Optional[str]]:
@@ -585,10 +642,9 @@ def run_linux_sample() -> Tuple[Optional[Dict[str, object]], Optional[str]]:
     text = (completed.stdout or "").strip()
     if not text:
         return None, "the GPU occupancy probe exited 0 but printed nothing"
-    by_pid, saw_header = parse_nvidia_smi_pmon(text)
-    counter_error = None
-    if not saw_header:
-        counter_error = "nvidia-smi pmon printed no recognisable header, so its output cannot be read as an idle GPU"
+    reading = parse_nvidia_smi_pmon(text)
+    by_pid, saw_header = reading.by_pid, reading.valid
+    counter_error = reading.problem()
     try:
         processes = read_linux_process_table()
         process_error = None
@@ -597,7 +653,7 @@ def run_linux_sample() -> Tuple[Optional[Dict[str, object]], Optional[str]]:
     return {
         "counter_error": counter_error,
         "process_error": process_error,
-        "valid_counter_samples": 1 if saw_header else 0,
+        "valid_counter_samples": 1 if reading.valid else 0,
         "invalid_counter_samples": 0,
         "gpu_percent_by_pid": by_pid,
         "processes": processes,

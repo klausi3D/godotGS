@@ -263,7 +263,8 @@
     "documented_non_enforced_rules": [
       "manual workflow inputs must not bypass public-alpha readiness",
       "path filters must not downgrade public-alpha readiness",
-      "open-world proof must be blocking rather than advisory"
+      "open-world proof must be blocking rather than advisory",
+      "the shipped Windows archives are executed by a gating lane (user-approved exception 2026-11-01: export_smoke_windows is skipped unless GODOTGS_WINDOWS_GPU_RUNNER is true; retirement path in docs/governance/review-policy.md)"
     ],
     "workflow_enforced_rules": [
       {
