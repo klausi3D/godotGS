@@ -1,4 +1,32 @@
 var searchData=
 [
-  ['unsortedcompositereason_0',['UnsortedCompositeReason',['../namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73',1,'GaussianSplatting']]]
+  ['scopemode_0',['ScopeMode',['../classSphereEffector3D.html#a91be2453bf9f6f6033462cb56dc506fd',1,'SphereEffector3D']]],
+  ['section_1',['Section',['../classGaussianSplatPerformanceOverlay.html#a943a758579aee181395ac67a1657523f',1,'GaussianSplatPerformanceOverlay']]],
+  ['selectionop_2',['SelectionOp',['../interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4',1,'interactive_state_interfaces.h']]],
+  ['selectstatus_3',['SelectStatus',['../classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044',1,'gs_hlod_runtime::CutHistory']]],
+  ['severity_4',['Severity',['../classRenderingError.html#a26195ebe324bdb8bd6483632c8068380',1,'RenderingError']]],
+  ['shadergroup_5',['ShaderGroup',['../classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7',1,'GPUCuller']]],
+  ['shadingstyle_6',['ShadingStyle',['../classPainterlyMaterial.html#aecea4ba2da39b6bb6f953956726ffc54',1,'PainterlyMaterial']]],
+  ['shadowrenderfailurereason_7',['ShadowRenderFailureReason',['../classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808',1,'GaussianSplatRenderer']]],
+  ['shbandlevel_8',['SHBandLevel',['../sh__config_8h.html#a9894bd26324be7adc91699b2e59f140d',1,'sh_config.h']]],
+  ['snapshotstatus_9',['SnapshotStatus',['../classgs__hlod__runtime_1_1ViewSet.html#ac7b4dfa219c9c81c3c3228f0a1685cfa',1,'gs_hlod_runtime::ViewSet']]],
+  ['sortcompletionmode_10',['SortCompletionMode',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7b',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sortfallbackaction_11',['SortFallbackAction',['../namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6',1,'GaussianSplatting']]],
+  ['sortfallbackscenario_12',['SortFallbackScenario',['../namespaceGaussianSplatting.html#a4da9145f34a054fc10a9369700af7ba4',1,'GaussianSplatting']]],
+  ['sortingalgorithm_13',['SortingAlgorithm',['../classGPUSorterFactory.html#aa23c2094b3a98a635805f251aaf06afe',1,'GPUSorterFactory']]],
+  ['sortoperationerrorcode_14',['SortOperationErrorCode',['../gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ec',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sortpreflighterror_15',['SortPreflightError',['../gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1',1,'gpu_sorter.h']]],
+  ['sortrendererfallbackpolicy_16',['SortRendererFallbackPolicy',['../gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sphereeffectorscopemode_17',['SphereEffectorScopeMode',['../classGaussianSplatSceneDirector.html#ad72f38c3102960d3202cdff722349a94',1,'GaussianSplatSceneDirector']]],
+  ['splatattribute_18',['SplatAttribute',['../namespacespz.html#a96226cbb1e742a06bd39b9ca66f5aaf0',1,'spz']]],
+  ['spzextensiontype_19',['SpzExtensionType',['../namespacespz.html#aa034a7cf825dfb26806700d4186637e8',1,'spz']]],
+  ['stageerrorcode_20',['StageErrorCode',['../namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66',1,'GaussianSplatting::ComputeInfrastructure']]],
+  ['stagestatus_21',['StageStatus',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946',1,'GaussianRenderPipeline::StageResult']]],
+  ['state_22',['State',['../classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28',1,'gs_hlod_runtime::NodeResidency::State'],['../structGaussianRenderFrame_1_1ErrorRecoveryStateMachine.html#a5ff0e41bfcc6cf3b8a10dde67ec303ac',1,'GaussianRenderFrame::ErrorRecoveryStateMachine::State'],['../classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28',1,'NodeResidency::State']]],
+  ['streamingreadinessstate_23',['StreamingReadinessState',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97f',1,'render_streaming_orchestrator.cpp']]],
+  ['streaminguploadcompletionmode_24',['StreamingUploadCompletionMode',['../namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701e',1,'GaussianStreamingTypes']]],
+  ['streaminguploadlifecyclestate_25',['StreamingUploadLifecycleState',['../namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94f',1,'GaussianStreamingTypes']]],
+  ['stylepreset_26',['StylePreset',['../classPainterlyMaterial.html#a16d60e38368200c91d13eed76502a2f7',1,'PainterlyMaterial']]],
+  ['subgroupprefixmode_27',['SubgroupPrefixMode',['../structGPUSortingConfig.html#abe79287de1d3073e1a23585da1959b1e',1,'GPUSortingConfig']]],
+  ['submissionresidencyhint_28',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]]
 ];

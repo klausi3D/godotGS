@@ -8,6 +8,8 @@ var lod__config_8h =
     [ "LOD_CONFIG_DEBUG_VISUALIZATION_PATH", "lod__config_8h.html#a01a7e93a048367ac37d570ec1555a790", null ],
     [ "LOD_CONFIG_DIAGNOSTIC_LOGGING_PATH", "lod__config_8h.html#aedc36535a86406be45587ed80ef65e98", null ],
     [ "LOD_CONFIG_ENABLED_PATH", "lod__config_8h.html#a4605320e8481d12923019e2e60b6a687", null ],
+    [ "LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH", "lod__config_8h.html#a0179e7097dbaae1a0b5ee28c343b70c4", null ],
+    [ "LOD_CONFIG_HLOD_TAU_PATH", "lod__config_8h.html#a270751b842c5ce8bad877acca75983b9", null ],
     [ "LOD_CONFIG_MAX_DISTANCE_PATH", "lod__config_8h.html#a5267e731b1e2a184e49141f0fd879857", null ],
     [ "LOD_CONFIG_MIN_SCREEN_SIZE_PIXELS_PATH", "lod__config_8h.html#a232523f4cbc2af63c69da0ebd103f632", null ],
     [ "LOD_CONFIG_NUM_LEVELS_PATH", "lod__config_8h.html#a64c89640b3924e4bcf483ad76ee5f52d", null ],

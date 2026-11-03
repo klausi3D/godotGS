@@ -1,10 +1,26 @@
 var searchData=
 [
   ['edge_0',['EDGE',['../painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aa6563b7570ee4add31ffc4e94fa86b6fb',1,'painterly_renderer_interfaces.h']]],
-  ['element_5fcount_5fexceeds_5fcapacity_1',['ELEMENT_COUNT_EXCEEDS_CAPACITY',['../gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a',1,'ELEMENT_COUNT_EXCEEDS_CAPACITY:&#160;gpu_sorting_pipeline_interfaces.h'],['../gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1aeb0b89b81dc9525c531e5cb6fc70d67a',1,'ELEMENT_COUNT_EXCEEDS_CAPACITY:&#160;gpu_sorter.h']]],
-  ['end_5fof_5ffile_2',['END_OF_FILE',['../namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a581953f6b20ad7f993b64b1dc632032e',1,'GaussianSplatting']]],
-  ['error_3',['ERROR',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480edabb1ca97ec761fc37101737ba0aa2e7c5',1,'gs_logger']]],
-  ['evictednonvisible_4',['EvictedNonVisible',['../classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cba58d80537223505b2b0bc6ae84644e653',1,'StreamingEvictionController']]],
-  ['evictedvisible_5',['EvictedVisible',['../classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cba6832ca450c2ae1cf68e425056034c2d7',1,'StreamingEvictionController']]],
-  ['evictthenload_6',['EvictThenLoad',['../classResidencyBudgetController.html#ae668726538d3e1c418ad6fbae5cde8e7ab300a8d093ef8520752863422aedf158',1,'ResidencyBudgetController']]]
+  ['edit_5fbusy_1',['EDIT_BUSY',['../classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a56615e199371b1a55667245bcdd6ebe3',1,'gs_hlod_runtime::NodeResidency::EDIT_BUSY'],['../classNodeResidency.html#a915a85c338d9c9482401941ce7c33635a56615e199371b1a55667245bcdd6ebe3',1,'NodeResidency::EDIT_BUSY']]],
+  ['edit_5fclean_2',['EDIT_CLEAN',['../classGaussianSplatHlodRuntimeData.html#af528ecb9e0cab9d2d80c4228921670aea3477c843125c6a87571719166e8ecf9d',1,'GaussianSplatHlodRuntimeData']]],
+  ['edit_5finvalid_3',['EDIT_INVALID',['../classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a79b9c86769a8f6dcd2f4397c6c22c572',1,'gs_hlod_runtime::NodeResidency::EDIT_INVALID'],['../classNodeResidency.html#a915a85c338d9c9482401941ce7c33635a79b9c86769a8f6dcd2f4397c6c22c572',1,'NodeResidency::EDIT_INVALID']]],
+  ['edit_5fleaf_4',['EDIT_LEAF',['../classGaussianSplatHlodRuntimeData.html#af528ecb9e0cab9d2d80c4228921670aea8000221ef3844ee2146c9b0b908c1401',1,'GaussianSplatHlodRuntimeData']]],
+  ['edit_5fno_5fspace_5',['EDIT_NO_SPACE',['../classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a5953a88be876701d5396417bc01d08d8',1,'gs_hlod_runtime::NodeResidency::EDIT_NO_SPACE'],['../classNodeResidency.html#a915a85c338d9c9482401941ce7c33635a5953a88be876701d5396417bc01d08d8',1,'NodeResidency::EDIT_NO_SPACE']]],
+  ['edit_5fok_6',['EDIT_OK',['../classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a4cd40aea09ed5e79d6d1a0ea262d8124',1,'gs_hlod_runtime::NodeResidency::EDIT_OK'],['../classNodeResidency.html#a915a85c338d9c9482401941ce7c33635a4cd40aea09ed5e79d6d1a0ea262d8124',1,'NodeResidency::EDIT_OK']]],
+  ['edit_5frejected_5fbusy_7',['EDIT_REJECTED_BUSY',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577caf2b695a8be2e8990446bd04264323b69',1,'HlodNodeStreamer']]],
+  ['edit_5frejected_5fdata_8',['EDIT_REJECTED_DATA',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577cae4679d8b45ff0acc2dc18c3132216d4b',1,'HlodNodeStreamer']]],
+  ['edit_5frejected_5finfeasible_9',['EDIT_REJECTED_INFEASIBLE',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577ca45dd9c9462ebebf805afbe655b9610ff',1,'HlodNodeStreamer']]],
+  ['edit_5frejected_5flineage_10',['EDIT_REJECTED_LINEAGE',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577cafcec2bf74287adbb0ee06c2b18d8139a',1,'HlodNodeStreamer']]],
+  ['edit_5frejected_5fno_5fspace_11',['EDIT_REJECTED_NO_SPACE',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577ca3d8e8f3cfd99bf63b3d74ba7693569ad',1,'HlodNodeStreamer']]],
+  ['edit_5frejected_5fno_5fview_12',['EDIT_REJECTED_NO_VIEW',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577cab309a454865339c13b1d109ba7cba32d',1,'HlodNodeStreamer']]],
+  ['edit_5fstaged_13',['EDIT_STAGED',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577ca2c3ea838e0b878bafd4a1b804765cb35',1,'HlodNodeStreamer']]],
+  ['edit_5fstale_14',['EDIT_STALE',['../classGaussianSplatHlodRuntimeData.html#af528ecb9e0cab9d2d80c4228921670aeae60a8d8e7b7e563050243ce6d2feb095',1,'GaussianSplatHlodRuntimeData']]],
+  ['element_5fcount_5fexceeds_5fcapacity_15',['ELEMENT_COUNT_EXCEEDS_CAPACITY',['../gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a',1,'ELEMENT_COUNT_EXCEEDS_CAPACITY:&#160;gpu_sorting_pipeline_interfaces.h'],['../gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1aeb0b89b81dc9525c531e5cb6fc70d67a',1,'ELEMENT_COUNT_EXCEEDS_CAPACITY:&#160;gpu_sorter.h']]],
+  ['empty_16',['EMPTY',['../classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044acdd14239d90c5135289e09c68a0e045b',1,'gs_hlod_runtime::CutHistory']]],
+  ['empty_5fleaf_17',['EMPTY_LEAF',['../namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9eaa6abc7a2bc50ee022a581ec0662d59b6',1,'gs_hlod_runtime']]],
+  ['end_5fof_5ffile_18',['END_OF_FILE',['../namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a581953f6b20ad7f993b64b1dc632032e',1,'GaussianSplatting']]],
+  ['error_19',['ERROR',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480edabb1ca97ec761fc37101737ba0aa2e7c5',1,'gs_logger']]],
+  ['evictednonvisible_20',['EvictedNonVisible',['../classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cba58d80537223505b2b0bc6ae84644e653',1,'StreamingEvictionController']]],
+  ['evictedvisible_21',['EvictedVisible',['../classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cba6832ca450c2ae1cf68e425056034c2d7',1,'StreamingEvictionController']]],
+  ['evictthenload_22',['EvictThenLoad',['../classResidencyBudgetController.html#ae668726538d3e1c418ad6fbae5cde8e7ab300a8d093ef8520752863422aedf158',1,'ResidencyBudgetController']]]
 ];

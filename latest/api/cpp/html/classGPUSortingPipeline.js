@@ -10,6 +10,7 @@ var classGPUSortingPipeline =
     [ "ensure_depth_resources", "classGPUSortingPipeline.html#a33fa8b8253c3c9e9721923e02ece1e29", null ],
     [ "ensure_sort_buffers", "classGPUSortingPipeline.html#ad53fcf5ca89212da8040e2b47c96bb2d", null ],
     [ "get_algorithm_name", "classGPUSortingPipeline.html#aca71b7b81fffbcad74b4311663ef47bf", null ],
+    [ "get_allocated_buffer_bytes", "classGPUSortingPipeline.html#a9ddc3f61ed3c93a894ee7d7a3984403e", null ],
     [ "get_buffer_handles", "classGPUSortingPipeline.html#a262aa19d3c7ef628124bbbc980421a8b", null ],
     [ "get_current_timeline_value", "classGPUSortingPipeline.html#a4ced6f259ab6a3ed6a0ec4fa4fc967a3", null ],
     [ "get_depth_compute_pipeline", "classGPUSortingPipeline.html#a0e8e684c999d724dced4ab071e20171e", null ],

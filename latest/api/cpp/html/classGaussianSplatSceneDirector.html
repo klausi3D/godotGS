@@ -130,6 +130,12 @@ Public Types</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
+<tr class="memitem:a162c3e5409620a89bd6bc480ac78462c" id="r_a162c3e5409620a89bd6bc480ac78462c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a162c3e5409620a89bd6bc480ac78462c">set_world_origin</a> (const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;p_origin)</td></tr>
+<tr class="memitem:a1bf90d637d2d994389daf54ae6719169" id="r_a1bf90d637d2d994389daf54ae6719169"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1bf90d637d2d994389daf54ae6719169">shift_world_origin_by</a> (const double p_delta[3])</td></tr>
+<tr class="memitem:af4c37dba8c837438f1bc8d86c1b3ce0a" id="r_af4c37dba8c837438f1bc8d86c1b3ce0a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af4c37dba8c837438f1bc8d86c1b3ce0a">get_world_origin</a> (<a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;r_origin, uint64_t &amp;r_revision) const</td></tr>
+<tr class="memitem:a2e9b74259fba3d4f1fd424f088d12586" id="r_a2e9b74259fba3d4f1fd424f088d12586"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2e9b74259fba3d4f1fd424f088d12586">get_world_origin_revision</a> () const</td></tr>
+<tr class="memitem:a4b4e7a8b2d39d3069d32091f1c749734" id="r_a4b4e7a8b2d39d3069d32091f1c749734"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4b4e7a8b2d39d3069d32091f1c749734">add_world_origin_hook</a> (<a class="el" href="classgs__world__frame_1_1OriginShiftHook.html">gs_world_frame::OriginShiftHook</a> *p_hook)</td></tr>
+<tr class="memitem:a0023b9b67986e1c984ddb9ead91eb2c3" id="r_a0023b9b67986e1c984ddb9ead91eb2c3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0023b9b67986e1c984ddb9ead91eb2c3">remove_world_origin_hook</a> (<a class="el" href="classgs__world__frame_1_1OriginShiftHook.html">gs_world_frame::OriginShiftHook</a> *p_hook)</td></tr>
 <tr class="memitem:a6ceb276d98f0eff5bc8ae33c53465945" id="r_a6ceb276d98f0eff5bc8ae33c53465945"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6ceb276d98f0eff5bc8ae33c53465945">GaussianSplatSceneDirector</a> ()</td></tr>
 <tr class="memitem:a43e4feec64de8e9131d47da3f2456dcf" id="r_a43e4feec64de8e9131d47da3f2456dcf"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a43e4feec64de8e9131d47da3f2456dcf">~GaussianSplatSceneDirector</a> ()</td></tr>
 <tr class="memitem:abdb30e54199af0c0072a586045921dff" id="r_abdb30e54199af0c0072a586045921dff"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abdb30e54199af0c0072a586045921dff">register_instance</a> (ObjectID p_node_id, const Ref&lt; <a class="el" href="classGaussianSplatAsset.html">GaussianSplatAsset</a> &gt; &amp;p_asset, const Transform3D &amp;p_transform, float p_opacity, float p_lod_bias, uint32_t p_flags, bool p_casts_shadow=false, float p_wind_intensity=1.0f, uint32_t p_wind_mode=<a class="el" href="#a6646213ef04729e49d868908ce2433f3aa68a00477b0ae08ef44570b2ce01b187">INSTANCE_WIND_INHERIT</a>, const Vector3 &amp;p_wind_direction=Vector3(), float p_wind_frequency=1.0f, bool p_visible=true, bool p_has_desired_residency_hint=false, int32_t p_desired_residency_hint=<a class="el" href="#a83acb3ba5b077629fb3ae92b42537dc3aae53012a0357a2c94c7930fcbc4080b5">SUBMISSION_RESIDENCY_HINT_RESIDENT</a>, float p_effect_position_scale=1.0f, float p_effect_opacity_scale=1.0f)</td></tr>
@@ -171,6 +177,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4b7090929d5e91ba7af2d6dcb3fb3d48" id="r_a4b7090929d5e91ba7af2d6dcb3fb3d48"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4b7090929d5e91ba7af2d6dcb3fb3d48">has_shared_world_for_scenario</a> (const RID &amp;p_scenario) const</td></tr>
 <tr class="memitem:afa3edd948b4f484ab58bcccf7033853b" id="r_afa3edd948b4f484ab58bcccf7033853b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afa3edd948b4f484ab58bcccf7033853b">get_world_submission</a> (ObjectID p_owner_id, <a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a> *r_submission) const</td></tr>
 <tr class="memitem:a4f8530c78df1fcdefe8dd0a8881e6eaa" id="r_a4f8530c78df1fcdefe8dd0a8881e6eaa"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f8530c78df1fcdefe8dd0a8881e6eaa">get_world_submission_for_scenario</a> (const RID &amp;p_scenario, <a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a> *r_submission) const</td></tr>
+<tr class="memitem:a09cdee72438b4c538574365587377afd" id="r_a09cdee72438b4c538574365587377afd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a09cdee72438b4c538574365587377afd">has_exclusive_hlod_world_submission</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, uint64_t p_owner) const</td></tr>
 <tr class="memitem:abd7e4d162e826052ce91a74e33c150f7" id="r_abd7e4d162e826052ce91a74e33c150f7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7e4d162e826052ce91a74e33c150f7">has_world_submission_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer) const</td></tr>
 <tr class="memitem:a4f80683e3fa4efb9d6bbfd03a7057eb0" id="r_a4f80683e3fa4efb9d6bbfd03a7057eb0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f80683e3fa4efb9d6bbfd03a7057eb0">get_submission_residency_hint_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, int32_t *r_hint, String *r_source=nullptr) const</td></tr>
 <tr class="memitem:adc529618765e4ee5f2878722dafe6881" id="r_adc529618765e4ee5f2878722dafe6881"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatSceneDirector_1_1SubmissionCounts.html">SubmissionCounts</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc529618765e4ee5f2878722dafe6881">get_submission_counts</a> () const</td></tr>
@@ -318,6 +325,23 @@ Static Protected Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel static">static</span><span class="mlabel protected">protected</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4b4e7a8b2d39d3069d32091f1c749734" name="a4b4e7a8b2d39d3069d32091f1c749734"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4b4e7a8b2d39d3069d32091f1c749734">&#9670;&#160;</a></span>add_world_origin_hook()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatSceneDirector::add_world_origin_hook </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classgs__world__frame_1_1OriginShiftHook.html">gs_world_frame::OriginShiftHook</a> *</td>          <td class="paramname"><span class="paramname"><em>p_hook</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -790,6 +814,44 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="af4c37dba8c837438f1bc8d86c1b3ce0a" name="af4c37dba8c837438f1bc8d86c1b3ce0a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af4c37dba8c837438f1bc8d86c1b3ce0a">&#9670;&#160;</a></span>get_world_origin()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatSceneDirector::get_world_origin </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_origin</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_revision</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2e9b74259fba3d4f1fd424f088d12586" name="a2e9b74259fba3d4f1fd424f088d12586"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2e9b74259fba3d4f1fd424f088d12586">&#9670;&#160;</a></span>get_world_origin_revision()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatSceneDirector::get_world_origin_revision </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="afa3edd948b4f484ab58bcccf7033853b" name="afa3edd948b4f484ab58bcccf7033853b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#afa3edd948b4f484ab58bcccf7033853b">&#9670;&#160;</a></span>get_world_submission()</h2>
 
@@ -826,6 +888,27 @@ Static Protected Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype"><a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a> *</td>          <td class="paramname"><span class="paramname"><em>r_submission</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a09cdee72438b4c538574365587377afd" name="a09cdee72438b4c538574365587377afd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a09cdee72438b4c538574365587377afd">&#9670;&#160;</a></span>has_exclusive_hlod_world_submission()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatSceneDirector::has_exclusive_hlod_world_submission </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *</td>          <td class="paramname"><span class="paramname"><em>p_renderer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_owner</em></span>&#160;) const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1210,6 +1293,23 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a0023b9b67986e1c984ddb9ead91eb2c3" name="a0023b9b67986e1c984ddb9ead91eb2c3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0023b9b67986e1c984ddb9ead91eb2c3">&#9670;&#160;</a></span>remove_world_origin_hook()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatSceneDirector::remove_world_origin_hook </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classgs__world__frame_1_1OriginShiftHook.html">gs_world_frame::OriginShiftHook</a> *</td>          <td class="paramname"><span class="paramname"><em>p_hook</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a721f04ba8b16c77dc4af18baa0625f29" name="a721f04ba8b16c77dc4af18baa0625f29"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a721f04ba8b16c77dc4af18baa0625f29">&#9670;&#160;</a></span>reset_renderer_contract_lock_violation_count()</h2>
 
@@ -1256,6 +1356,40 @@ Static Protected Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel static">static</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a162c3e5409620a89bd6bc480ac78462c" name="a162c3e5409620a89bd6bc480ac78462c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a162c3e5409620a89bd6bc480ac78462c">&#9670;&#160;</a></span>set_world_origin()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatSceneDirector::set_world_origin </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_origin</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1bf90d637d2d994389daf54ae6719169" name="a1bf90d637d2d994389daf54ae6719169"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1bf90d637d2d994389daf54ae6719169">&#9670;&#160;</a></span>shift_world_origin_by()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatSceneDirector::shift_world_origin_by </td>
+          <td>(</td>
+          <td class="paramtype">const double</td>          <td class="paramname"><span class="paramname"><em>p_delta</em></span>[3]</td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

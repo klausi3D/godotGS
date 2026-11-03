@@ -170,6 +170,16 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ab53ead3ac6cceca9e6f1de11c6cf3014" id="r_ab53ead3ac6cceca9e6f1de11c6cf3014"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab53ead3ac6cceca9e6f1de11c6cf3014">get_tile_binning_pipeline</a> () const</td></tr>
 <tr class="memitem:a97430ad958e2b0146248ff5fd1f6d296" id="r_a97430ad958e2b0146248ff5fd1f6d296"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a97430ad958e2b0146248ff5fd1f6d296">get_tile_raster_pipeline</a> () const</td></tr>
 <tr class="memitem:a42f7b3c472e4d03985cbbe9a97da2b64" id="r_a42f7b3c472e4d03985cbbe9a97da2b64"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a42f7b3c472e4d03985cbbe9a97da2b64">get_shader_defines_hash</a> () const</td></tr>
+<tr class="memitem:aa48ad9b03ee61099811c4e2d251d422c" id="r_aa48ad9b03ee61099811c4e2d251d422c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa48ad9b03ee61099811c4e2d251d422c">get_hlod_texture_byte_upper_bound</a> (uint64_t &amp;r_bytes) const</td></tr>
+<tr class="memitem:a7a221c996307414aba44ab5b79518748" id="r_a7a221c996307414aba44ab5b79518748"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7a221c996307414aba44ab5b79518748">get_allocated_overlap_capacity</a> () const</td></tr>
+<tr class="memitem:a6c56141486974d3a3d3c15a1530a78aa" id="r_a6c56141486974d3a3d3c15a1530a78aa"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6c56141486974d3a3d3c15a1530a78aa">prepare_hlod_scratch</a> (const <a class="el" href="#a62d67b57014413cde1e553ffaebb9b8b">RenderParams</a> &amp;p_params, uint64_t p_headroom)</td></tr>
+<tr class="memitem:a400995cf18b374a2473e835c133ff954" id="r_a400995cf18b374a2473e835c133ff954"><td class="memItemLeft" align="right" valign="top">const String &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a400995cf18b374a2473e835c133ff954">get_last_hlod_refusal</a> () const</td></tr>
+<tr class="memitem:accb123f11a4469b2d206f31801f6f82f" id="r_accb123f11a4469b2d206f31801f6f82f"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#accb123f11a4469b2d206f31801f6f82f">provision_hlod_route</a> (const Vector2i &amp;p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records)</td></tr>
+<tr class="memitem:a4ebe24531d9af973b38209433eaaf16f" id="r_a4ebe24531d9af973b38209433eaaf16f"><td class="memItemLeft" align="right" valign="top">Vector2i&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4ebe24531d9af973b38209433eaaf16f">get_provisioned_viewport</a> () const</td></tr>
+<tr class="memitem:ad096a0fd3dcd714bd214c8509bcbb133" id="r_ad096a0fd3dcd714bd214c8509bcbb133"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad096a0fd3dcd714bd214c8509bcbb133">clamp_hlod_overlap_records</a> (uint32_t p_records) const</td></tr>
+<tr class="memitem:a4423da28a8be2a9947c0e862d2640209" id="r_a4423da28a8be2a9947c0e862d2640209"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4423da28a8be2a9947c0e862d2640209">get_hlod_overlap_bytes_per_record</a> () const</td></tr>
+<tr class="memitem:a98b6e68c73eaae9deab42e2ef6dbf180" id="r_a98b6e68c73eaae9deab42e2ef6dbf180"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a98b6e68c73eaae9deab42e2ef6dbf180">estimate_hlod_texture_bytes_for_viewport</a> (const Vector2i &amp;p_viewport) const</td></tr>
+<tr class="memitem:a0bfc49ff07d9ba50e2bf839403b3fcb3" id="r_a0bfc49ff07d9ba50e2bf839403b3fcb3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0bfc49ff07d9ba50e2bf839403b3fcb3">grow_hlod_overlap_storage</a> (uint64_t p_headroom)</td></tr>
 <tr class="memitem:a6136e9f15e454651d1038dc5debcd1cc" id="r_a6136e9f15e454651d1038dc5debcd1cc"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6136e9f15e454651d1038dc5debcd1cc">get_tile_size</a> () const</td></tr>
 <tr class="memitem:a3d7f7a7783808097bc1a091c923be3bf" id="r_a3d7f7a7783808097bc1a091c923be3bf"><td class="memItemLeft" align="right" valign="top">Vector2i&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3d7f7a7783808097bc1a091c923be3bf">get_tile_grid_size</a> () const</td></tr>
 <tr class="memitem:ab95daf1a1d2e83cca28e45d24fe962c0" id="r_ab95daf1a1d2e83cca28e45d24fe962c0"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab95daf1a1d2e83cca28e45d24fe962c0">get_tile_splat_capacity</a> () const</td></tr>
@@ -265,6 +275,7 @@ Public Member Functions</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:af16d7e5aaa23a563b4daf91554c0da09" id="r_af16d7e5aaa23a563b4daf91554c0da09"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af16d7e5aaa23a563b4daf91554c0da09">output_format_supports_storage</a> (RD::DataFormat p_format)</td></tr>
+<tr class="memitem:ad8408f89f61944be120c9c5626962be9" id="r_ad8408f89f61944be120c9c5626962be9"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad8408f89f61944be120c9c5626962be9">get_hlod_scratch_reservation</a> (uint32_t p_visible, uint64_t &amp;r_fixed_bytes, uint64_t &amp;r_bytes_per_record)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
@@ -766,6 +777,23 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="ad096a0fd3dcd714bd214c8509bcbb133" name="ad096a0fd3dcd714bd214c8509bcbb133"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad096a0fd3dcd714bd214c8509bcbb133">&#9670;&#160;</a></span>clamp_hlod_overlap_records()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t TileRenderer::clamp_hlod_overlap_records </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_records</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="aa62d5a616884da32ff42c4867cc17dcb" name="aa62d5a616884da32ff42c4867cc17dcb"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aa62d5a616884da32ff42c4867cc17dcb">&#9670;&#160;</a></span>cleanup()</h2>
 
@@ -828,6 +856,23 @@ Friends</h2></td></tr>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a98b6e68c73eaae9deab42e2ef6dbf180" name="a98b6e68c73eaae9deab42e2ef6dbf180"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a98b6e68c73eaae9deab42e2ef6dbf180">&#9670;&#160;</a></span>estimate_hlod_texture_bytes_for_viewport()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport </td>
+          <td>(</td>
+          <td class="paramtype">const Vector2i &amp;</td>          <td class="paramname"><span class="paramname"><em>p_viewport</em></span></td><td>)</td>
+          <td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -912,6 +957,31 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">int TileRenderer::get_aggregated_count </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7a221c996307414aba44ab5b79518748" name="a7a221c996307414aba44ab5b79518748"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7a221c996307414aba44ab5b79518748">&#9670;&#160;</a></span>get_allocated_overlap_capacity()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t TileRenderer::get_allocated_overlap_capacity </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -1302,6 +1372,74 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a4423da28a8be2a9947c0e862d2640209" name="a4423da28a8be2a9947c0e862d2640209"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4423da28a8be2a9947c0e862d2640209">&#9670;&#160;</a></span>get_hlod_overlap_bytes_per_record()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_hlod_overlap_bytes_per_record </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad8408f89f61944be120c9c5626962be9" name="ad8408f89f61944be120c9c5626962be9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad8408f89f61944be120c9c5626962be9">&#9670;&#160;</a></span>get_hlod_scratch_reservation()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void TileRenderer::get_hlod_scratch_reservation </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_visible</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_fixed_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes_per_record</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa48ad9b03ee61099811c4e2d251d422c" name="aa48ad9b03ee61099811c4e2d251d422c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa48ad9b03ee61099811c4e2d251d422c">&#9670;&#160;</a></span>get_hlod_texture_byte_upper_bound()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool TileRenderer::get_hlod_texture_byte_upper_bound </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ad2481bfaabd885b6f59ed661705fa014" name="ad2481bfaabd885b6f59ed661705fa014"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ad2481bfaabd885b6f59ed661705fa014">&#9670;&#160;</a></span>get_index_mismatch_count()</h2>
 
@@ -1513,6 +1651,31 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">float TileRenderer::get_last_gpu_resolve_time_ms </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a400995cf18b374a2473e835c133ff954" name="a400995cf18b374a2473e835c133ff954"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a400995cf18b374a2473e835c133ff954">&#9670;&#160;</a></span>get_last_hlod_refusal()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const String &amp; TileRenderer::get_last_hlod_refusal </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -1841,6 +2004,31 @@ Friends</h2></td></tr>
           <td> const</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4ebe24531d9af973b38209433eaaf16f" name="a4ebe24531d9af973b38209433eaaf16f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4ebe24531d9af973b38209433eaaf16f">&#9670;&#160;</a></span>get_provisioned_viewport()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Vector2i TileRenderer::get_provisioned_viewport </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -2546,6 +2734,23 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a0bfc49ff07d9ba50e2bf839403b3fcb3" name="a0bfc49ff07d9ba50e2bf839403b3fcb3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0bfc49ff07d9ba50e2bf839403b3fcb3">&#9670;&#160;</a></span>grow_hlod_overlap_storage()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool TileRenderer::grow_hlod_overlap_storage </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_headroom</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a70f6f84f8aee08d15617e1b8c078e4bb" name="a70f6f84f8aee08d15617e1b8c078e4bb"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a70f6f84f8aee08d15617e1b8c078e4bb">&#9670;&#160;</a></span>has_depth_output()</h2>
 
@@ -3063,6 +3268,53 @@ Friends</h2></td></tr>
 <span class="mlabels"><span class="mlabel static">static</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6c56141486974d3a3d3c15a1530a78aa" name="a6c56141486974d3a3d3c15a1530a78aa"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6c56141486974d3a3d3c15a1530a78aa">&#9670;&#160;</a></span>prepare_hlod_scratch()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool TileRenderer::prepare_hlod_scratch </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="#a62d67b57014413cde1e553ffaebb9b8b">RenderParams</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_params</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_headroom</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="accb123f11a4469b2d206f31801f6f82f" name="accb123f11a4469b2d206f31801f6f82f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#accb123f11a4469b2d206f31801f6f82f">&#9670;&#160;</a></span>provision_hlod_route()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error TileRenderer::provision_hlod_route </td>
+          <td>(</td>
+          <td class="paramtype">const Vector2i &amp;</td>          <td class="paramname"><span class="paramname"><em>p_viewport</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RD::DataFormat</td>          <td class="paramname"><span class="paramname"><em>p_format</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_overlap_records</em></span>&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

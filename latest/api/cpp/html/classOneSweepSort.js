@@ -3,6 +3,7 @@ var classOneSweepSort =
     [ "OneSweepSort", "classOneSweepSort.html#a7cd8c3acab094104320040671425c372", null ],
     [ "~OneSweepSort", "classOneSweepSort.html#a9cf2f4448b298f1f820caadc1eb54b66", null ],
     [ "get_algorithm_name", "classOneSweepSort.html#ae0f7b88253bd3d45c74743080f79a981", null ],
+    [ "get_allocated_buffer_bytes", "classOneSweepSort.html#aec0d584f250e1389809c37e8015e5705", null ],
     [ "get_theoretical_complexity", "classOneSweepSort.html#a23f7d54db854e8a2aa280d4a37991b32", null ],
     [ "initialize", "classOneSweepSort.html#a071516b954df54b7e11481ef7ebdaa99", null ],
     [ "is_ready", "classOneSweepSort.html#a1f4ab48f7656f4a8bf1566c9513e1e8f", null ],

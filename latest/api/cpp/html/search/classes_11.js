@@ -1,9 +1,20 @@
 var searchData=
 [
-  ['qualitytierconfig_0',['QualityTierConfig',['../structQualityTierConfig.html',1,'']]],
-  ['quantizationchunk_1',['QuantizationChunk',['../structFloat16Utils_1_1QuantizationChunk.html',1,'Float16Utils']]],
-  ['quantizationchunkgpu_2',['QuantizationChunkGPU',['../structQuantizationChunkGPU.html',1,'']]],
-  ['quantizationconfig_3',['QuantizationConfig',['../structQuantizationConfig.html',1,'']]],
-  ['queryresult_4',['QueryResult',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult.html',1,'GaussianSplatting::HierarchicalSplatStructure']]],
-  ['queuepressuresnapshot_5',['QueuePressureSnapshot',['../structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html',1,'StreamingTelemetryAdapter']]]
+  ['qualitybandresult_0',['QualityBandResult',['../structgs__hlod_1_1QualityBandResult.html',1,'gs_hlod']]],
+  ['qualityleafshare_1',['QualityLeafShare',['../structgs__hlod_1_1QualityLeafShare.html',1,'gs_hlod']]],
+  ['qualityorder_2',['QualityOrder',['../structgs__hlod_1_1QualityOrder.html',1,'gs_hlod']]],
+  ['qualitypayload_3',['QualityPayload',['../structgs__hlod_1_1QualityPayload.html',1,'gs_hlod']]],
+  ['qualitypixel_4',['QualityPixel',['../structgs__hlod_1_1QualityPixel.html',1,'gs_hlod']]],
+  ['qualityprojected_5',['QualityProjected',['../structgs__hlod_1_1QualityProjected.html',1,'gs_hlod']]],
+  ['qualityresourcelimits_6',['QualityResourceLimits',['../structgs__hlod_1_1QualityResourceLimits.html',1,'gs_hlod']]],
+  ['qualityresult_7',['QualityResult',['../structgs__hlod_1_1QualityResult.html',1,'gs_hlod']]],
+  ['qualityscratch_8',['QualityScratch',['../structgs__hlod_1_1QualityScratch.html',1,'gs_hlod']]],
+  ['qualitytierconfig_9',['QualityTierConfig',['../structQualityTierConfig.html',1,'']]],
+  ['qualityview_10',['QualityView',['../structgs__hlod_1_1QualityView.html',1,'gs_hlod']]],
+  ['qualityviewresult_11',['QualityViewResult',['../structgs__hlod_1_1QualityViewResult.html',1,'gs_hlod']]],
+  ['quantizationchunk_12',['QuantizationChunk',['../structFloat16Utils_1_1QuantizationChunk.html',1,'Float16Utils']]],
+  ['quantizationchunkgpu_13',['QuantizationChunkGPU',['../structQuantizationChunkGPU.html',1,'']]],
+  ['quantizationconfig_14',['QuantizationConfig',['../structQuantizationConfig.html',1,'']]],
+  ['queryresult_15',['QueryResult',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult.html',1,'GaussianSplatting::HierarchicalSplatStructure']]],
+  ['queuepressuresnapshot_16',['QueuePressureSnapshot',['../structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html',1,'StreamingTelemetryAdapter']]]
 ];

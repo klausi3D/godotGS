@@ -5,7 +5,14 @@ digraph "GaussianRenderFacadeState::ResourceState"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   Node1 [id="Node000001",label="GaussianRenderFacadeState\l::ResourceState",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip=" "];
-  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
+  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_canonical</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_relative</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node2 [id="Node000002",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
+  Node2 [id="Node000002",label="GaussianRenderFacadeState\l::HlodBundle",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1HlodBundle.html",tooltip=" "];
+  Node3 -> Node2 [id="edge2_Node000002_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">buffers</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node3 [id="Node000003",label="GaussianRenderPipeline\l::InstancePipelineBuffers",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1InstancePipelineBuffers.html",tooltip=" "];
+  Node4 -> Node1 [id="edge3_Node000001_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node4 [id="Node000004",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
 }

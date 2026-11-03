@@ -17,7 +17,10 @@ var searchData=
   ['dependencies_14',['Dependencies',['../structRenderConfigOrchestrator_1_1Dependencies.html',1,'RenderConfigOrchestrator::Dependencies'],['../structRenderDataOrchestrator_1_1Dependencies.html',1,'RenderDataOrchestrator::Dependencies'],['../structRenderDebugStateOrchestrator_1_1Dependencies.html',1,'RenderDebugStateOrchestrator::Dependencies'],['../structRenderDiagnosticsOrchestrator_1_1Dependencies.html',1,'RenderDiagnosticsOrchestrator::Dependencies'],['../structRenderInstancingOrchestrator_1_1Dependencies.html',1,'RenderInstancingOrchestrator::Dependencies'],['../structRenderOutputOrchestrator_1_1Dependencies.html',1,'RenderOutputOrchestrator::Dependencies'],['../structRenderQualityOrchestrator_1_1Dependencies.html',1,'RenderQualityOrchestrator::Dependencies'],['../structRenderResourceOrchestrator_1_1Dependencies.html',1,'RenderResourceOrchestrator::Dependencies'],['../structRenderSortingOrchestrator_1_1Dependencies.html',1,'RenderSortingOrchestrator::Dependencies']]],
   ['dependencynode_15',['DependencyNode',['../structDependencyNode.html',1,'']]],
   ['dependencystats_16',['DependencyStats',['../structAssetDependencyManager_1_1DependencyStats.html',1,'AssetDependencyManager']]],
-  ['devicecontext_17',['DeviceContext',['../structDeviceContext.html',1,'']]],
-  ['devicestate_18',['DeviceState',['../structGaussianRenderFacadeState_1_1DeviceState.html',1,'GaussianRenderFacadeState']]],
-  ['diagnosticsstate_19',['DiagnosticsState',['../structGaussianRenderFrame_1_1DiagnosticsState.html',1,'GaussianRenderFrame::DiagnosticsState'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html',1,'GaussianStreamingTypes::DiagnosticsState']]]
+  ['desiredrecord_17',['DesiredRecord',['../structgs__hlod__runtime_1_1DesiredRecord.html',1,'gs_hlod_runtime']]],
+  ['devicecontext_18',['DeviceContext',['../structDeviceContext.html',1,'']]],
+  ['devicestate_19',['DeviceState',['../structGaussianRenderFacadeState_1_1DeviceState.html',1,'GaussianRenderFacadeState']]],
+  ['diagnosticsstate_20',['DiagnosticsState',['../structGaussianRenderFrame_1_1DiagnosticsState.html',1,'GaussianRenderFrame::DiagnosticsState'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html',1,'GaussianStreamingTypes::DiagnosticsState']]],
+  ['drawnnodegpu_21',['DrawnNodeGPU',['../structDrawnNodeGPU.html',1,'']]],
+  ['drawrecord_22',['DrawRecord',['../structgs__hlod__runtime_1_1DrawRecord.html',1,'gs_hlod_runtime']]]
 ];

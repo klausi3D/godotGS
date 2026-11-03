@@ -96,6 +96,12 @@ $(function(){initNavTree('structGaussianRenderPipeline_1_1InstancePipelineBuffer
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
+<tr class="memitem:a42f1ff81eb853f27a7306e6b46d61bb5" id="r_a42f1ff81eb853f27a7306e6b46d61bb5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a42f1ff81eb853f27a7306e6b46d61bb5">hlod_relative</a> = false</td></tr>
+<tr class="memitem:a1c48e70a66ed7da34e8d3506e195a0f8" id="r_a1c48e70a66ed7da34e8d3506e195a0f8"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c48e70a66ed7da34e8d3506e195a0f8">hlod_draw_entry_buffer</a></td></tr>
+<tr class="memitem:af880002e6663d0c9ffaac8619ee9b809" id="r_af880002e6663d0c9ffaac8619ee9b809"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af880002e6663d0c9ffaac8619ee9b809">hlod_source_generation</a> = 0</td></tr>
+<tr class="memitem:a7d1e352a6ca8364abfef93ad2df27780" id="r_a7d1e352a6ca8364abfef93ad2df27780"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7d1e352a6ca8364abfef93ad2df27780">hlod_content_generation</a> = 0</td></tr>
+<tr class="memitem:ae717da0b62e6a2f50abcd7746a340af6" id="r_ae717da0b62e6a2f50abcd7746a340af6"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae717da0b62e6a2f50abcd7746a340af6">hlod_origin_revision</a> = 0</td></tr>
+<tr class="memitem:a619feb710f17dee05484cd141162eb30" id="r_a619feb710f17dee05484cd141162eb30"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a619feb710f17dee05484cd141162eb30">hlod_draw_count</a> = 0</td></tr>
 <tr class="memitem:a3e0892cf12fb6132fb074e8a1db49f69" id="r_a3e0892cf12fb6132fb074e8a1db49f69"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3e0892cf12fb6132fb074e8a1db49f69">instance_buffer</a></td></tr>
 <tr class="memitem:a71955265d463f32b747682de5600474e" id="r_a71955265d463f32b747682de5600474e"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a71955265d463f32b747682de5600474e">instance_grading_buffer</a></td></tr>
 <tr class="memitem:a5daa2e6cb2800197c5b52231c072a95f" id="r_a5daa2e6cb2800197c5b52231c072a95f"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5daa2e6cb2800197c5b52231c072a95f">asset_meta_buffer</a></td></tr>
@@ -227,6 +233,90 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianRenderPipeline::InstancePipelineBuffers::dispatch_chunk_count = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7d1e352a6ca8364abfef93ad2df27780" name="a7d1e352a6ca8364abfef93ad2df27780"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7d1e352a6ca8364abfef93ad2df27780">&#9670;&#160;</a></span>hlod_content_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderPipeline::InstancePipelineBuffers::hlod_content_generation = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a619feb710f17dee05484cd141162eb30" name="a619feb710f17dee05484cd141162eb30"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a619feb710f17dee05484cd141162eb30">&#9670;&#160;</a></span>hlod_draw_count</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianRenderPipeline::InstancePipelineBuffers::hlod_draw_count = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1c48e70a66ed7da34e8d3506e195a0f8" name="a1c48e70a66ed7da34e8d3506e195a0f8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1c48e70a66ed7da34e8d3506e195a0f8">&#9670;&#160;</a></span>hlod_draw_entry_buffer</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">RID GaussianRenderPipeline::InstancePipelineBuffers::hlod_draw_entry_buffer</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae717da0b62e6a2f50abcd7746a340af6" name="ae717da0b62e6a2f50abcd7746a340af6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae717da0b62e6a2f50abcd7746a340af6">&#9670;&#160;</a></span>hlod_origin_revision</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderPipeline::InstancePipelineBuffers::hlod_origin_revision = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a42f1ff81eb853f27a7306e6b46d61bb5" name="a42f1ff81eb853f27a7306e6b46d61bb5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a42f1ff81eb853f27a7306e6b46d61bb5">&#9670;&#160;</a></span>hlod_relative</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianRenderPipeline::InstancePipelineBuffers::hlod_relative = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af880002e6663d0c9ffaac8619ee9b809" name="af880002e6663d0c9ffaac8619ee9b809"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af880002e6663d0c9ffaac8619ee9b809">&#9670;&#160;</a></span>hlod_source_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderPipeline::InstancePipelineBuffers::hlod_source_generation = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

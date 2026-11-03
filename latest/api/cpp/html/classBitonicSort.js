@@ -3,6 +3,7 @@ var classBitonicSort =
     [ "BitonicSort", "classBitonicSort.html#aebfaa8b0bc3367019ad7aff0ee283306", null ],
     [ "~BitonicSort", "classBitonicSort.html#a963e59c5efb3e7571e18f4adae43c193", null ],
     [ "get_algorithm_name", "classBitonicSort.html#a5c486bc59dd49d1d5bfed7a92c4a2bd3", null ],
+    [ "get_allocated_buffer_bytes", "classBitonicSort.html#ade0bb3f05c4d744e3e5a9e8dd8682571", null ],
     [ "get_theoretical_complexity", "classBitonicSort.html#ad23c353e628720f9d669c512255c321e", null ],
     [ "initialize", "classBitonicSort.html#ad935cbf0dd6f548f2e8426ba582560ef", null ],
     [ "is_ready", "classBitonicSort.html#a7814d8fae2f47d155f2d15c8d03e4d3b", null ],

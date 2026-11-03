@@ -56,6 +56,13 @@ var namespaces_dup =
       [ "settle_outstanding_submit", "namespacegs__device__utils.html#a0790a6bd67a8deb285f07b44110b5256", null ]
     ] ],
     [ "gs_hlod", "namespacegs__hlod.html", "namespacegs__hlod" ],
+    [ "gs_hlod_gpu", "namespacegs__hlod__gpu.html", [
+      [ "camera_relative_frustum_planes", "namespacegs__hlod__gpu.html#aa224d5f42528ec9b16271a83fb74c2bf", null ],
+      [ "make_drawn_node", "namespacegs__hlod__gpu.html#aaa6b33cb5d408580a7ecb17e379506ae", null ],
+      [ "origin_keyed_generation", "namespacegs__hlod__gpu.html#a3117c1829bbd39792f87b6e1d1433d96", null ]
+    ] ],
+    [ "gs_hlod_pack", "namespacegs__hlod__pack.html", "namespacegs__hlod__pack" ],
+    [ "gs_hlod_runtime", "namespacegs__hlod__runtime.html", "namespacegs__hlod__runtime" ],
     [ "gs_layout_hint", "namespacegs__layout__hint.html", "namespacegs__layout__hint" ],
     [ "gs_logger", "namespacegs__logger.html", "namespacegs__logger" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
@@ -72,6 +79,9 @@ var namespaces_dup =
     ] ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", "namespacegs__tier__cap" ],
     [ "gs_world_format", "namespacegs__world__format.html", "namespacegs__world__format" ],
+    [ "gs_world_frame", "namespacegs__world__frame.html", "namespacegs__world__frame" ],
+    [ "gs_world_paged", "namespacegs__world__paged.html", "namespacegs__world__paged" ],
+    [ "QualitySH", "namespaceQualitySH.html", null ],
     [ "RenderingErrorCodes", "namespaceRenderingErrorCodes.html", [
       [ "command_buffer_synchronization_failed", "namespaceRenderingErrorCodes.html#a003f42775d3f6f37a81c8217cce029d9", null ],
       [ "compute_buffer_prepare_failed", "namespaceRenderingErrorCodes.html#a6b62149717dfad1543da0e764e4ff4f0", null ],

@@ -6,8 +6,10 @@ var searchData=
   ['layouthintfailurestate_3',['LayoutHintFailureState',['../structgs__layout__hint_1_1LayoutHintFailureState.html',1,'gs_layout_hint']]],
   ['layouthintindexrange_4',['LayoutHintIndexRange',['../structgs__layout__hint_1_1LayoutHintIndexRange.html',1,'gs_layout_hint']]],
   ['layouthintvalidationfailure_5',['LayoutHintValidationFailure',['../structgs__layout__hint_1_1LayoutHintValidationFailure.html',1,'gs_layout_hint']]],
-  ['lodblendconfig_6',['LODBlendConfig',['../structLODBlendConfig.html',1,'']]],
-  ['lodconfig_7',['LODConfig',['../structLODConfig.html',1,'']]],
-  ['loddebugstats_8',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
-  ['lodstats_9',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]]
+  ['leafedit_6',['LeafEdit',['../structgs__hlod__runtime_1_1LeafEdit.html',1,'gs_hlod_runtime']]],
+  ['ledger_7',['Ledger',['../structgs__hlod__runtime_1_1ViewSet_1_1Ledger.html',1,'gs_hlod_runtime::ViewSet']]],
+  ['lodblendconfig_8',['LODBlendConfig',['../structLODBlendConfig.html',1,'']]],
+  ['lodconfig_9',['LODConfig',['../structLODConfig.html',1,'']]],
+  ['loddebugstats_10',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
+  ['lodstats_11',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]]
 ];

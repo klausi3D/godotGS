@@ -10,6 +10,7 @@ var classResourceFormatSaverGaussianSplatWorld =
     [ "recognize", "classResourceFormatSaverGaussianSplatWorld.html#a9b5b6d91ebf2e50a77b871d19449e211", null ],
     [ "recognize_path", "classResourceFormatSaverGaussianSplatWorld.html#ae00d123ceff300ec0d857f12f62e7516", null ],
     [ "save", "classResourceFormatSaverGaussianSplatWorld.html#accec3ac6c0c9889af46937895f905b99", null ],
+    [ "save_offline_candidate", "classResourceFormatSaverGaussianSplatWorld.html#afc588ec989ef612521b78d4067d87af4", null ],
     [ "save_resident_compressed", "classResourceFormatSaverGaussianSplatWorld.html#a9f61abfed9c729b1d9a21c321e083aba", null ],
     [ "save_resident_uncompressed", "classResourceFormatSaverGaussianSplatWorld.html#ab147ea69897ef52aee0c46cbaffbb844", null ],
     [ "save_with_payload_mode", "classResourceFormatSaverGaussianSplatWorld.html#adf7f4b403356b3c4ff7702ea519e49b0", null ]

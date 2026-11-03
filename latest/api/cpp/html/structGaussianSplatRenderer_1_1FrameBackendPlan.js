@@ -1,6 +1,7 @@
 var structGaussianSplatRenderer_1_1FrameBackendPlan =
 [
     [ "has_active_world_submission", "structGaussianSplatRenderer_1_1FrameBackendPlan.html#aa0916eb7229dc3f69f0453dd8f21a039", null ],
+    [ "hlod_route_reason", "structGaussianSplatRenderer_1_1FrameBackendPlan.html#a92ff67b55c997c6c3355968908ed9a37", null ],
     [ "prefer_resident_backend", "structGaussianSplatRenderer_1_1FrameBackendPlan.html#a1ac4d745e2f67ba4dab197f921e6109b", null ],
     [ "resident_backend_reason", "structGaussianSplatRenderer_1_1FrameBackendPlan.html#aee6198432d8f892a3db48256d9eeec5f", null ],
     [ "runtime_policy", "structGaussianSplatRenderer_1_1FrameBackendPlan.html#a418528507e64438bb8d2ff22a32b3a96", null ],

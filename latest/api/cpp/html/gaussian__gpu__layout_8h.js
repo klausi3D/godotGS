@@ -9,6 +9,7 @@ var gaussian__gpu__layout_8h =
     [ "ChunkMetaGPU", "structChunkMetaGPU.html", "structChunkMetaGPU" ],
     [ "AssetChunkIndexGPU", "structAssetChunkIndexGPU.html", "structAssetChunkIndexGPU" ],
     [ "VisibleChunkRefGPU", "structVisibleChunkRefGPU.html", "structVisibleChunkRefGPU" ],
+    [ "DrawnNodeGPU", "structDrawnNodeGPU.html", "structDrawnNodeGPU" ],
     [ "SplatRefGPU", "structSplatRefGPU.html", "structSplatRefGPU" ],
     [ "QuantizationChunkGPU", "structQuantizationChunkGPU.html", "structQuantizationChunkGPU" ],
     [ "PackedSphericalHarmonics", "structPackedSphericalHarmonics.html", "structPackedSphericalHarmonics" ],

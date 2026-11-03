@@ -3,6 +3,7 @@ var classIGPUSorter =
     [ "~IGPUSorter", "classIGPUSorter.html#acd458cb9e76b9f790e7845d2ef9d5c60", null ],
     [ "end_cpu_record_timing", "classIGPUSorter.html#ad58b74393fcd2bab44fc433deafb38ed", null ],
     [ "get_algorithm_name", "classIGPUSorter.html#ac79b005668594092391d425f9cad2ea5", null ],
+    [ "get_allocated_buffer_bytes", "classIGPUSorter.html#a9dd8f1a4bd5616bf9f8d14ba44f0f2a6", null ],
     [ "get_last_preflight_error", "classIGPUSorter.html#a6a61808848c04e9b4dcd590bce376222", null ],
     [ "get_last_sort_gpu_timestamp", "classIGPUSorter.html#a42b56aaaba4873b67119319c87718f91", null ],
     [ "get_last_sort_time_ms", "classIGPUSorter.html#a61dee97adf8a1a66df37c335ea4b7f38", null ],

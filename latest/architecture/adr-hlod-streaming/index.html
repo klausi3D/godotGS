@@ -4662,6 +4662,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="14.4 V4 paged packages and bounded preparation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1441-package-e1-implemented-v4-slice-version-4-is-free-byte-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14.4.1 Package E1: implemented V4 slice (version 4 is free; byte layout)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -4672,6 +4689,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="14.5 Persistent edits in a reserved active area">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1451-package-f1-implemented-slice-edited-leaves-stale-ancestor-exclusion-overlay-over-immutable-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14.5.1 Package F1: implemented slice (edited leaves, stale-ancestor exclusion, overlay over immutable files)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -5497,6 +5531,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="14.4 V4 paged packages and bounded preparation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1441-package-e1-implemented-v4-slice-version-4-is-free-byte-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14.4.1 Package E1: implemented V4 slice (version 4 is free; byte layout)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -5507,6 +5558,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="14.5 Persistent edits in a reserved active area">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1451-package-f1-implemented-slice-edited-leaves-stale-ancestor-exclusion-overlay-over-immutable-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14.5.1 Package F1: implemented slice (edited leaves, stale-ancestor exclusion, overlay over immutable files)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -6554,14 +6622,27 @@ independent review of <code>7fa337d4a41</code> (13 findings); §13 maps each fin
 <li><strong>The error metric <code>E</code>.</strong> Both candidates are rendered against the node's <strong>reference</strong>, the
   union of its children's payloads (what the cut shows when it refines the node), by the bake's
   own small CPU splat rasterizer (front-to-back compositing, SH evaluated per view, fixed
-  order), orthographic, with a <strong>pixel size of <code>eps / tau_bake</code></strong>, where <code>tau_bake</code> is the
-  provisional <code>tau</code> (1 px until S3's A/B sets the default; a different default is a re-bake via
-  <code>bake_rule_version</code>). The view set (S1 implementer question (b)) is <strong>22 views</strong>: the 6 axis
+  order), orthographic. <strong>Rule 3 (S1b selector revision, stack PR 12):</strong> a node is drawn whenever
+  its geometric error projects to at most <code>tau</code> pixels, and <code>tau</code> is a runtime budget, so one
+  stored decision has to serve every <code>tau</code> the ADR evaluates (1, 2 and 4 px, §5.2). Each
+  candidate is therefore rendered at the pixel size <strong><code>eps / tau</code> for <code>tau</code> in {1, 2, 4}</strong>
+  (rule 2 used <code>tau</code> = 1 only, which is blind to the finer pitch at which a node is shown under
+  <code>tau</code> = 4, where a sparse subset exposes holes that a coarse pixel hides). The three per-<code>tau</code>
+  errors are combined by their <strong>geometric mean</strong>, because the acceptance gate reports PSNR, a
+  logarithm of the error: choosing the lower geometric mean minimises the expected dB loss over
+  the budgets. Each per-<code>tau</code> error is floored at the MSE of 8-bit output rounding alone,
+  <code>1 / (12 * 255^2)</code>, since smaller errors are invisible and would send the logarithm to minus
+  infinity. The stored <code>error_chosen</code>/<code>error_rejected</code> are these geometric means, so the rule
+  version is 3 and rule-2 worlds are not comparable. The colour space is deliberately
+  <strong>unchanged</strong>: the splat raster output is an sRGB-encoded display-referred buffer that the
+  compositor decodes to linear and the tonemapper re-encodes, so the blended values the proxy
+  compares are already in the space the gate's sRGB PSNR measures (viewport_blit.glsl,
+  <code>source_decode_srgb</code>). The view set (S1 implementer question (b)) is <strong>22 views</strong>: the 6 axis
   directions, the 8 cube-corner directions (oblique), and 8 grazing directions at 10°
   elevation every 45° of azimuth, because the dominant open-world view is grazing and on flat
   content the axis views see it only edge-on or top-down. <code>E</code> is the mean over views and pixels
   of the squared difference in premultiplied RGBA, so holes and colour errors both count. The
-  lower <code>E</code> wins; within 1%, <code>merged</code> wins.</li>
+  lower <code>E</code> wins; within 1%, <code>merged</code> wins (the tie factor is unchanged).</li>
 <li><strong>Cost against the 2x limit (estimate).</strong> The reference is rendered once per view and shared
   by both candidates; per node that is about <code>(4 + 1 + 1) x 22 ≈ 130</code> splat-renders per merged
   splat, or about 26 per source splat once the ~20% interior share is applied, at a few pixels
@@ -6640,7 +6721,7 @@ or a <strong>declared residual</strong> with an always-on counter that test 1 as
 <tr>
 <td>Global overlap records</td>
 <td><code>max_overlap_records</code>, tile binning (overflow ADR Channel A, #54)</td>
-<td><strong>Admission estimate.</strong> Each node bakes a footprint <code>F = sum (6 sigma_a)(6 sigma_b)</code> (m²); the cut keeps <code>sum (count + F f_px² / (d² x tile_area))</code> ≤ 80% of the effective record budget. This is an admission estimate without a guaranteed upper bound, so <code>overflow_splats_clamped</code> stays the tripwire.</td>
+<td><strong>Admission estimate.</strong> Each node bakes a footprint <code>F = sum (6 sigma_a)(6 sigma_b)</code> (m²); the cut keeps <code>sum (count + F f_px² / (d² x tile_area))</code> ≤ 80% of the effective record budget. The distance <code>d</code> is the distance to the near surface of the node's bounding sphere, floored at 0.25 x the sphere radius. The floor is active whenever the camera is closer than 1.25 x the radius to the node centre: inside the sphere and in the shell just outside it, where it lowers the estimate against the plain near-surface distance (holzbank z = 6.5: 916,997 to 592,368 records, against 458,641 measured). It is continuous in the camera position and does not change the estimate beyond the shell. Without it a camera inside a sphere gets an unbounded estimate and no frontier is ever admitted (1e17 records at 2 m inside the holzbank bench against 5.5e5 measured). This is an admission estimate without a guaranteed upper bound, so <code>overflow_splats_clamped</code> stays the tripwire.</td>
 </tr>
 <tr>
 <td>Per-tile raster records</td>
@@ -7325,7 +7406,11 @@ publication additionally checks the device generation and upload completion. Reu
 streamer's existing generation, upload-sequence and retirement boundaries. Cancellation or
 an obsolete revision prevents publication; it does not free memory still referenced by I/O
 or GPU work. A late completion cannot resurrect an unloaded world, overwritten node or old
-device. Compaction changes an address only after its copy completes and all draw references
+device. Rejected completions are counted in two places: <code>late_dropped_cancelled_total</code>
+(<code>hlod_stream_late_dropped_cancelled_total</code>) for the completion of a request that was already
+cancelled (once per ticket; a duplicate delivery is loss), which is harmless because the cancel released the node, and <code>late_dropped_total</code>
+(<code>hlod_stream_late_dropped_total</code>) for every other rejected completion, which is real loss and
+must stay zero in a gate. Compaction changes an address only after its copy completes and all draw references
 switch coherently; stable identities, tie-breaks and wind seeds do not change.</p>
 <h3 id="142-complete-initial-frontier-and-readiness">14.2 Complete initial frontier and readiness<a class="headerlink" href="#142-complete-initial-frontier-and-readiness" title="Permanent link">¶</a></h3>
 <p>Before refinement, find a complete frontier for the admitted visible domain. Payload-less
@@ -7374,6 +7459,29 @@ Stored node-local payloads and stable edit identities do not change on an origin
 Two simultaneous views, one perspective and one orthographic, repeated origin shifts and
 unload/reload at 0, 1 km and 100 km must preserve the expected relative geometry and
 deterministic ties at equal quality.</p>
+<p>Implementation status of package C (C1 and C2 landed in code; the GPU evidence and the guard removal are open). C1:
+<code>core/gaussian_splat_world_frame.{h,cpp}</code> holds the precise representation (int64 lattice address plus double
+offset), <code>WorldOriginContext</code> (owned by the scene director, revision per change, explicit <code>OriginShiftHook</code>) and the
+double per-draw offset <code>camera_relative_offset</code>; runtime nodes carry a source-precision <code>precise_center</code>; <code>ViewSet</code>
+takes the origin and its revision in the <code>SelectionSnapshot</code>, drops histories and the published set on a revision
+change, and publishes the per-draw offset in each <code>DrawRecord</code>; the cull-config reuse signature includes the
+revision. C2: the HLOD route writes one 32 B <code>DrawnNodeGPU</code> per drawn node (<code>instance_id</code>, <code>chunk_id</code>, reserved S6
+<code>fade</code>, <code>camera_offset</code>; <code>renderer/gaussian_gpu_layout.h</code>, mirrored in <code>gs_instance_layout.glsl</code> and the layout-sync
+guard). With <code>GS_HLOD_RELATIVE_PAYLOAD</code>, <code>depth_compute.glsl</code> and <code>tile_binning.glsl</code> form
+<code>p_cam = R s p_node + camera_offset</code> (<code>shaders/includes/gs_camera_relative.glsl</code>; the instance translation is part
+of the offset and is not added again) and work in that frame: rotation-only view transform (<code>w = 0</code>), frustum
+planes of the camera-translated frustum, distance cull and SH view direction from a camera at the origin, wind phase
+and sphere effectors through a <code>frame_anchor</code> (the scene-frame camera) so they keep their scene-frame meaning. The
+node centre in <code>ChunkMetaGPU</code> is no longer read by any shader. Every frame-dependent cache of the route is keyed on
+<code>origin_revision</code> (<code>InstancePipelineBuffers::hlod_origin_revision</code>: tile binding identity, instance sort-reuse key;
+plus the existing ViewSet histories and cull signature). The <code>hlod_world_origin_shifted</code> refusal stays: no
+shifted-origin frame has been drawn on a GPU, so the guard is removed only after the end-of-stack evidence
+(far-origin near-detail captures, two simultaneous views, an origin shift on a real device).</p>
+<p>Camera contract (C1): the scene camera is a float transform, so the camera's precise position is the origin plus
+that float. A float camera 100 km from the origin is already rounded to millimetres; the origin must therefore be
+kept near the camera, and shifting the origin is what keeps the camera precise. <code>ViewSpec::camera_precise</code> carries
+an absolute camera when a source with more precision exists. "Source precision" here means the node cell centre
+(tree origin plus integer lattice address); splat positions are float at the source.</p>
 <h3 id="144-v4-paged-packages-and-bounded-preparation">14.4 V4 paged packages and bounded preparation<a class="headerlink" href="#144-v4-paged-packages-and-bounded-preparation" title="Permanent link">¶</a></h3>
 <p>The approved new package design is <strong>V4</strong>, with a paged hierarchy/index, a bounded bootstrap
 directory and independently verifiable node payloads. Its implementation task must confirm
@@ -7407,6 +7515,123 @@ runtime edit rebakes retain their existing contracts.
 Preparation reports peak RAM, scratch disk, bytes read/written and elapsed time; a hidden
 whole-world <code>GaussianData</code> materialization is a failure. Existing canonical imports retain
 their behavior; the optimized prepared-package workflow is explicit.</p>
+<h4 id="1441-package-e1-implemented-v4-slice-version-4-is-free-byte-layout">14.4.1 Package E1: implemented V4 slice (version 4 is free; byte layout)<a class="headerlink" href="#1441-package-e1-implemented-v4-slice-version-4-is-free-byte-layout" title="Permanent link">¶</a></h4>
+<p>Status: the first slice of package E is implemented; the rest of §14.4 is not (see "Not in E1"). The version number 4
+was free (<code>gs_world_format::select_header</code> refuses it, so no v1-v3 reader can mistake a V4 file for its own). V4 is
+written only by the explicit <code>GaussianSplatWorld.save_hlod_paged()</code>; saving, importing and baking keep writing v3.</p>
+<p>All integers little endian, every offset a checked unsigned 64-bit quantity, every region 4096-byte aligned and laid out
+back to back: header page, index pages, payload records, optional metadata. Reader code: <code>io/gaussian_splat_world_paged.*</code>.</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Bytes</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Header</td>
+<td>4096</td>
+<td>magic <code>GSPW</code>, version 4, flags (2D, metadata), page/index geometry constants, Gaussian struct layout version, leaf/interior/node counts, SH degree and counts, bake rule, lattice origin, bounds, region extents, declared file length, <code>content_generation</code>, SHA-256 of the whole index, SHA-256 of the metadata, SHA-256 of the header itself. All unused bytes must be zero.</td>
+</tr>
+<tr>
+<td>Index page</td>
+<td>65536 each</td>
+<td>64-byte page header (magic <code>GSPI</code>, page, first node, node count, SHA-256 of its own entries) + 255 node records of 256 bytes. The unused tail must be zero.</td>
+</tr>
+<tr>
+<td>Node record</td>
+<td>256</td>
+<td>v3 topology (cell, flags, bounds, errors, parent/child links, payload range) + footprint (f64), DC encoding, homogeneous-DC and centre-exact flags, payload record offset / stored size / page-rounded size, SHA-256 of the payload record. Reserved words must be zero.</td>
+</tr>
+<tr>
+<td>Payload record</td>
+<td>page aligned</td>
+<td>64-byte header (magic <code>GSNP</code>, node, count, SH high-order count, byte sizes, <code>content_generation</code>, payload range, struct layout) + <code>count * 144</code> Gaussian bytes + <code>count * high_order * 12</code> SH bytes. Positions are node-relative exactly like the v3 gaussian section.</td>
+</tr>
+<tr>
+<td>Metadata</td>
+<td>optional</td>
+<td>UTF-8 JSON dictionary (same acceptance rule as v3).</td>
+</tr>
+</tbody>
+</table></div>
+<p>Contracts implemented:</p>
+<ul>
+<li><strong>Fail closed, distinct reasons.</strong> Open validates the header (magic, version, digest, geometry, ranges, declared vs
+  actual length: <code>v4_truncated_file</code>, <code>v4_trailing_bytes</code>), every index page (identity, digest, zero tail), the index
+  digest, the whole topology with the same <code>gs_hlod_validate_tree</code> the v2/v3 loader runs, and the strict sequential
+  layout of the payload records. Counts and extents are range checked with overflow-safe arithmetic before anything is
+  allocated or read. A hash never replaces a semantic check: a re-sealed file with a bad parent link, a non-finite
+  position or a footprint that disagrees with its payload is refused by the semantic rule (tests re-seal on purpose).</li>
+<li><strong>Bounded reads.</strong> A node payload is exactly one record of at most <code>64 + 16384 * (144 + 12 * 21)</code> bytes, read by one
+  <code>read_node_payload()</code> call that opens its own handle (thread safe). The node streamer additionally caps the CPU working
+  set of reads in flight (<code>Config::max_inflight_read_bytes</code>, default 8 MiB, one read always allowed): the cap, not the
+  tree, bounds payload memory.</li>
+<li><strong>Versioning / replacement.</strong> Every payload record carries the header's <code>content_generation</code>; a read also checks the
+  file length. A file replaced on disk under an open package is refused (<code>v4_file_changed_length</code>,
+  <code>v4_content_generation_mismatch</code>) instead of mixing versions.</li>
+<li><strong>Cancellation and late completion</strong> reuse D1's tickets and generations unchanged: a read is started only for a still
+  pending ticket, a result of a cancelled, unloaded or other-device ticket is dropped at the upload gate, and
+  <code>shutdown()</code> waits for the reads in flight. A failed read fails that node (D1's FAILED/retry/permanent states), never
+  publishes a partial payload, and never affects another node.</li>
+<li>
+<p><strong>Metrics move to the index.</strong> Footprint, DC encoding, homogeneity and the exact-reconstruction check were the reason
+  the D1 runtime snapshot scanned (and held) the whole payload. A paged snapshot takes them from the index and holds no
+  payload; each read re-derives them from the bytes and compares (<code>v4_payload_metrics_mismatch</code>).</p>
+</li>
+<li>
+<p><strong>First frame, any camera.</strong> A paged world has no canonical payload, so nothing draws while the HLOD route waits for what
+  every other world gets from its first composited canonical frame (tile output targets and overlap storage, the
+  compositor scratch ledger, the sort capacity). They are provisioned explicitly, without drawing
+  (<code>TileRenderer::provision_hlod_route</code>, <code>OutputCompositor::ensure_hlod_scratch</code>, sorter sized from the known leaf count),
+  so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
+  canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
+  point before a frame when measured demand exceeded it (<code>grow_hlod_overlap_storage</code>, within the ledger headroom).
+  After the first seed the tile grid has one provisioner for paged and streamed worlds: the per-view block of
+  <code>prepare_hlod_frame</code> (<code>hlod_view_grid_action</code>, from the D1 resize fix), which runs after the growth, so it reads the grown
+  overlap capacity. <code>provision_paged_hlod_route</code> keeps only the compositor scratch and that first seed. The first seed is
+  priced like the per-view one (the same clamp, bytes per record and <code>hlod_view_grid_action</code> decision against the route's
+  ledger headroom) and refused before anything is allocated (<code>hlod_paged_overlap_seed_memory_limit</code>): unpriced, a tree of
+  millions of leaves would seed GBs past the limit and then be refused (<code>route_memory_limit</code>) on every frame. Because the
+  growth runs first and spends the headroom first, overlap growth outranks enlarging a view: a view that no longer fits
+  after a growth is refused (<code>hlod_view_size_memory_limit</code>) rather than the growth being held back.</p>
+</li>
+<li><strong>Frame scratch covers the streamed atlas.</strong> The per-splat frame scratch (subpixel history, SH colour cache, the
+  16-bit packed-stage gate) is indexed by atlas record, so its admission (<code>prepare_hlod_scratch</code>) is sized from the
+  atlas the relative bundle holds (<code>ResidentAtlasBudget::hlod_relative_atlas_records</code>) and the history from the larger
+  of that and the cut capacity, as the frame does. A paged world always streams, and every node rounds up to whole
+  pages: once the atlas budget reaches the tree's node pages the atlas holds more records than the tree has splats.
+  Holzbank has 287737 splats in 302 node pages: with 176 B records a 50 MiB override admits 290 pages = 296960 records
+  (48 MiB stays below); with quantized 160 B records the tree is exceeded from 44 MiB on (281 pages = 287744 records).
+  Sizing from the tree refused every such frame and drew black while the reason still said <code>active</code>.</li>
+<li><strong>The page budget reserves that scratch.</strong> The scratch is admitted from the same device ledger headroom as the atlas
+  pages, after them. <code>hlod_stream_page_budget</code> therefore reserves it (<code>TileRenderer::get_hlod_scratch_reservation</code>:
+  projection, visibility and history floor for the cut capacity plus 9 B per atlas record), so a ledger-bound budget
+  can no longer spend the headroom the scratch admission needs and leave the world drawing nothing for good.</li>
+<li><strong>A refused frame is not active.</strong> The publisher marks a frame active before the tile stage runs. When the tile stage
+  refuses it (scratch or layout differs from its admission) the frame reports <code>hlod_tile_stage_refused:&lt;cause&gt;</code>
+  (<code>projection_layout</code>, <code>bounds_mode</code>, <code>sh_mode</code>, <code>sh_cache_capacity</code>, <code>history_capacity</code>, <code>visibility_capacity</code>,
+  <code>tile_render_failed</code>), <code>hlod_active</code> false, is not counted as a ready or first-ready streamed frame, and counts in
+  <code>hlod_tile_stage_refused_frames</code>.</li>
+<li><strong>Ledgers track live bytes.</strong> The tile renderer's texture ledger and the compositor's scratch ledger record each texture
+  under its RID and subtract it when the device no longer holds it (reconciled whenever the ledger is read; an empty
+  ledger is re-based, which also clears an invalid state after a device change), so viewport resizes do not accumulate
+  toward the route's byte limit. The device retires freed memory lazily, so the ledger can undercount for a frame or two.</li>
+<li><strong>Fallback.</strong> Where the HLOD route can never serve the setup (runtime cut disabled, LOD off, wind/sphere effectors,
+  painterly, shadow filter, non-identity transform) and the world node can see it at submission,
+  <code>GaussianSplatWorld::materialize_paged_resident</code> reads every node (each validated like a streamer read), builds the
+  resident GaussianData and tree a v3 load produces, and the ordinary resident route takes over. That costs the memory of a
+  v3 load of the same world. Changes made after submission, orthographic/XR views and multi-instance sharing are not
+  covered: they draw nothing and say why (<code>hlod_paged_*</code> keys; the per-view key <code>unsupported_view_or_material</code> keeps its D1
+  meaning).</li>
+</ul>
+<p>Not in E1 (deferred): lazy loading of index pages and a bounded bootstrap directory (E1 reads the whole index at open, at
+most 256 B per node, then validates it); early coarse startup; out-of-core preparation (the converter needs the resident
+world); leaf ranges; instanced trees; editor import of V4 (the importer refuses version 4, load the file directly); a
+sort/tile scratch that no longer scales with the whole tree (GPU memory is unchanged by E1); physical 100 km / 200M
+acceptance (§15.3 step 3).</p>
 <h3 id="145-persistent-edits-in-a-reserved-active-area">14.5 Persistent edits in a reserved active area<a class="headerlink" href="#145-persistent-edits-in-a-reserved-active-area" title="Permanent link">¶</a></h3>
 <p>The first mutable scope is discrete game edits within a prepared near area, with an
 individual tool or small explosion affecting a region of <strong>at most 5 m radius</strong>. Larger
@@ -7436,6 +7661,102 @@ publication; crash recovery replays complete commits idempotently and ignores/re
 incomplete tails without exposing half an edit. Unload/reload resolves the committed versions
 before becoming ready. Checkpoint/compaction preserves identity and committed revisions;
 parent payloads are replaceable derived data and must match the recovered children.</p>
+<h4 id="1451-package-f1-implemented-slice-edited-leaves-stale-ancestor-exclusion-overlay-over-immutable-files">14.5.1 Package F1: implemented slice (edited leaves, stale-ancestor exclusion, overlay over immutable files)<a class="headerlink" href="#1451-package-f1-implemented-slice-edited-leaves-stale-ancestor-exclusion-overlay-over-immutable-files" title="Permanent link">¶</a></h4>
+<p>F1 is the smallest slice in which an edit of a region of a baked (v3) or paged (V4) world is correctly reflected. It
+implements the render-side rule of §14.5 and leaves the durable side (journal, crash recovery, rebuild) to F2/F3.</p>
+<p>What is drawn until a rebake (the ADR rule, as implemented). The edited leaves are drawn from their <strong>new</strong> versions.
+Every ancestor of an edited leaf is <strong>stale</strong>: its baked payload no longer represents its children, so it is never
+selected, never a fallback and never demanded. The selector replaces each stale node by its children whatever the quality
+rule or the caps say; the untouched siblings along the path keep their own (valid) coarse payload. The cut is therefore the
+edited leaves at full detail plus everything else at its normal level, and it is complete or absent: a replacement child
+that is not resident, or a cap (node, splat or record budget) that cannot hold the replacement cut, produces <em>no</em> cut for
+the view (<code>BOOTSTRAP_MISSING_RESIDENCY</code> / <code>BOOTSTRAP_INFEASIBLE</code>, the views' existing loading / not-admitted readiness),
+never the stale parent. A final guard turns a stale node in a cut into <code>INVALID</code> (reachable only through an inconsistent
+edit state, which a test builds by hand).</p>
+<p>Where F1 narrows §14.5. §14.5 requires the <em>full</em> replacement cut to be reserved across <strong>all admitted views</strong> and the
+edit to be rejected before commit when that is unavailable. F1 reserves the cut for the views the streamer <strong>knows</strong>: the
+owner registers each view's selection request every frame (<code>HlodNodeStreamer::register_view</code>; the renderer registers its
+one main view), and <code>stage_edit()</code> runs the selector on the staged snapshot against every registered view with the
+replacement children treated as resident, rejecting the edit (<code>EDIT_REJECTED_INFEASIBLE</code>, reason
+<code>hlod_edit_replacement_cut_infeasible</code>, nothing changed) when any of them has no cut; with no registered view it
+rejects (<code>EDIT_REJECTED_NO_VIEW</code>) because feasibility cannot be shown. Views admitted later, other cameras and
+page-budget interactions are <strong>not</strong> reserved: such a view gets <em>no cut</em> with an <code>hlod_edit_replacement_*</code> reason, never
+a stale parent. That is a disclosed narrowing, not the ADR rule; the all-views reservation stays open for F2/G.</p>
+<p>Mechanism.</p>
+<ul>
+<li><strong>Edited snapshot</strong> (<code>lod/hlod_edit.*</code>). <code>make_edited_snapshot(base, expected_revision, edits)</code> derives a new immutable
+  <code>GaussianSplatHlodRuntimeData</code> (edit revision + 1). The base snapshot, the world and a V4 file are never modified. The
+  edited leaves keep their node slot (stable <code>NodeKey</code>) and carry the replacement payload in memory (the <em>overlay</em>); every
+  other node keeps being served by the base, from RAM or on demand from the file. An edit is refused, with a distinct
+  status and no side effect, unless: the caller's expected revision is the snapshot's, the nodes are distinct leaves, each
+  leaf keeps 1..16,384 splats, every field is finite, the SH size matches, every splat's three-sigma support stays inside
+  the leaf's existing bounds (the strict payload rule of the file format, so no ancestor bound, radius or geometric error
+  changes), the leaf centre still reconstructs exactly, and the overlay fits the snapshot's CPU budget. An edit that would
+  empty a leaf, move splats out of their leaf, or split/merge leaves changes the topology and is deferred.</li>
+<li><strong>V4 coexistence.</strong> A paged file is immutable: edits are an overlay, never a rewrite, and <code>read_node_payload()</code> of the
+  edited leaf still returns the old file record (tested by digest). Persisting an edit into a new V4 file is F2/F3.</li>
+<li><strong>Versioning.</strong> <code>NodeVersion.content_revision</code> of an edited leaf is <code>(1 &lt;&lt; 63) | revision</code>; untouched nodes keep the
+  source revision. A new edit revision invalidates every view's hysteresis like a new source revision does.</li>
+<li><strong>Staged, atomic publication</strong> (<code>NodeResidency::stage_edit / advance_edit / edit_prefetch / finish_shadow / commit_edit /
+  cancel_edit</code>, <code>HlodNodeStreamer::stage_edit / begin_frame / cancel_staged_edit</code>). Admission decides from free +
+  retiring + reclaimable (unprotected, unheld) pages <strong>without evicting anything</strong>: <code>EDIT_NO_SPACE</code> really changes
+  nothing. An admitted edit holds the replacement children (the non-stale, non-edited children of stale nodes) against
+  eviction first, then reserves a <em>shadow run</em> per edited leaf, all or none. When the runs are not free yet the edit waits;
+  <code>advance_edit()</code> (after the frame's <code>protect_drawn</code>) evicts unprotected nodes and answers fragmentation with the same
+  bounded window eviction <code>request()</code> uses, and the allocation lands once the retirement delay has passed. A stale node
+  is only ever expanded: it is never required to be resident, so edits in sibling branches compose (a second edit whose
+  path crosses the first edit's stale nodes is admitted and commits). A staged edit that has not committed after
+  <code>edit_timeout_frames</code> is cancelled and reported (<code>edit_event</code> "timeout"). The old snapshot, mask and GPU
+  metadata keep serving one consistent old cut while the shadow payloads are packed on the ordinary worker path and the
+  replacement children load as ordinary demand. When every shadow is packed and every replacement child is resident, the
+  streamer commits <strong>inside</strong> <code>begin_frame(device, buffers)</code>, so "commit, then select" is structural and cannot be skipped
+  by a caller (the renderer selects on <code>get_data()</code> after it): payloads go to the shadow
+  runs first, then the new metadata is written, then the residency flips (edited leaf takes its shadow run, the old run
+  and the stale runs retire after the retirement delay, stale metadata is zeroed) and the served snapshot changes in the
+  same call. A draw built after the call can name neither a stale node nor an old leaf version; frames already submitted
+  may still present (§14.8). A payload upload failure before any metadata write cancels the edit and changes nothing; a
+  metadata write failure deactivates the streamer (fail closed): the renderer releases the bundle and rebuilds it from the
+  last <strong>committed</strong> edited snapshot, never from the unedited world.</li>
+<li><strong>Engine wiring</strong> (<code>GaussianSplatRenderer::stage_hlod_edit</code>, internal, deliberately not a bound API). The streamed route
+  serves <code>streamer-&gt;get_data()</code>. The last committed snapshot is kept in the renderer state across route releases, so the
+  <strong>publish attempt can rebuild it</strong>: the world submission carries a world identity (<code>hlod_world_key</code>), and a rebuild lays
+  the committed edits over a fresh capture of the same world (<code>rebase_edited_snapshot</code>, also after a V4 world was
+  materialized into the resident shape by a cut toggle). The decision to draw nothing is taken <strong>after</strong> the publish
+  attempt, in the same frame (<code>_publish_resident_direct_data_contract</code>; a publish attempt that did not publish also blanks): a frame whose route is not the streamed HLOD route
+  serving the committed snapshot publishes <strong>no</strong> copy of the edited world and says <code>hlod_edit_route_unavailable:&lt;why&gt;</code>
+  (cut off, an unsupported setting, <code>hlod_not_exclusive_world_submission</code>, a failed or pending rebuild, an idle bundle
+  that could not be published). When no other instance exists the instance-pipeline buffers (which the sort and shadow
+  passes read) are cleared and the frame is skipped. <strong>While another instance exists, the edited world draws nothing and the
+  others keep rendering</strong>: the canonical publication runs without the world's own data. Every blank frame states the
+  CURRENT cause (the publish attempt starts from <code>hlod_publish_failed</code>, so no earlier reason survives). An early gate before the attempt made the
+  rebuild unreachable and was removed. An edited world is also never routed to the legacy streaming backend, and always streams (a whole-tree bundle packs the unedited payload): where streaming is unsupported, or the committed edit cannot be laid over the new capture, no route is built and the reason says so (a refused rebase is deterministic: the world stays blank with
+<code>hlod_edit_rebase_refused</code> until it is re-submitted or the edit is released). Other instances of the scene keep rendering: only the edited world's own data is omitted from the canonical publication. A streamed
+  view whose replacement cut is not drawable says <code>hlod_edit_replacement_loading</code> or <code>hlod_edit_replacement_not_admitted</code>
+  (<code>ViewResult::edit_forced</code>). The committed snapshot is released on a node or world change, an in-place content change and
+  whenever the world contract is cleared (it keeps the world, its leaves and a V4 package alive). Whole-tree bundles refuse
+  edited snapshots. An edited snapshot refuses raw payload indices of an edited leaf, and <code>pack_node</code> serves an edited leaf
+  from its overlay whoever calls it. Test-only hooks stage box edits for probes (<code>GS_HLOD_EDIT_BOX</code>, <code>_BOX2</code>, <code>_MODE</code>,
+  <code>_FAIL2</code> forcing COMMIT_UNUSABLE).
+  Disclosed base defect: when a plain instance leaves the scene the shared renderer keeps that instance's LOD flag. It
+  affects only assets with LOD disabled and recovers on the next re-submission of the world; for an edited world it shows as
+  <code>hlod_edit_requires_streamed_route:lod_disabled_canonical_leaves</code> (explicit, not silent) until then.
+  Disclosed limit: only the renderer's draw path serves the edit. Picking, bounds, AABB queries and every other CPU consumer
+  of the world still read the <strong>unedited</strong> world data; the edit has no collision or query semantics in F1 (ADR 14.6 hooks
+  are deferred). An edited V4 world whose cut is toggled off is materialized into the resident shape from the unedited file
+  and is drawn only through the rebased edit, or not at all.</li>
+<li><strong>Generations (D1 rules reused).</strong> Shadow tickets carry the world and device generation and a per-leaf edit generation.
+  Commit gives the leaf a new request generation, so a load of the old content that was in flight is dropped as a late
+  completion; cancelling an edit kills its shadow tickets. Unedited nodes keep their tickets, runs and metadata untouched:
+  a stage/commit does not reset the model.</li>
+<li><strong>Quantized route.</strong> A quantized bundle needs DC-homogeneous leaves; an edit that makes a leaf mixed is refused on that
+  route (the same rule the snapshot capture applies).</li>
+</ul>
+<p>Not in F1 (deferred): bottom-up rebuild of the stale ancestors (F2: until then the replacement cut above stays, and the
+node/splat caps must have room for it); the durable append-only stable-ID journal, crash recovery and reload (F3); edit
+admission for views the streamer does not know (all-views reservation) and for instanced trees; removing a leaf or moving
+splats between leaves; an edit/commit API on the world and the node (the §14.6 surface needs its R3 compatibility
+review; the renderer hook is internal and driven by tests and the probe only); the 5 m region front end that turns a
+tool into leaf edits.</p>
 <h3 id="146-public-integration-contracts">14.6 Public integration contracts<a class="headerlink" href="#146-public-integration-contracts" title="Permanent link">¶</a></h3>
 <p>The implementation will bind a small API only after its R3 compatibility review. These are
 required operations/results, not currently available method names:</p>
@@ -7689,7 +8010,7 @@ migration and provides no new runtime or performance claim.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-10-25
+    Source updated: 2026-11-03
   </span>
 
     

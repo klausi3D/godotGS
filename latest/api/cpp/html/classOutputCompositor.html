@@ -117,6 +117,8 @@ Public Types</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
+<tr class="memitem:ab9f9ac315e8cb3767af6255d4d32d6f3" id="r_ab9f9ac315e8cb3767af6255d4d32d6f3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab9f9ac315e8cb3767af6255d4d32d6f3">ensure_hlod_scratch</a> (RenderingDevice *p_device, const RD::TextureFormat &amp;p_destination_format, const Size2i &amp;p_extent)</td></tr>
+<tr class="memitem:a810eb718cafd2502505861df16ec638c" id="r_a810eb718cafd2502505861df16ec638c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a810eb718cafd2502505861df16ec638c">get_hlod_scratch_byte_upper_bound</a> (RenderingDevice *p_device, uint64_t &amp;r_bytes) const</td></tr>
 <tr class="memitem:a8588c840dff2ab5e0116a852e0300e54" id="r_a8588c840dff2ab5e0116a852e0300e54"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8588c840dff2ab5e0116a852e0300e54">OutputCompositor</a> ()</td></tr>
 <tr class="memitem:acea1013ed2521e301d2eaf34fddfb02c" id="r_acea1013ed2521e301d2eaf34fddfb02c"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acea1013ed2521e301d2eaf34fddfb02c">~OutputCompositor</a> ()</td></tr>
 <tr class="memitem:abdddfdc780c297f478e7c43d81b15ce9" id="r_abdddfdc780c297f478e7c43d81b15ce9"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abdddfdc780c297f478e7c43d81b15ce9">initialize</a> (RenderingDevice *p_device) override</td></tr>
@@ -425,6 +427,32 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="ab9f9ac315e8cb3767af6255d4d32d6f3" name="ab9f9ac315e8cb3767af6255d4d32d6f3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab9f9ac315e8cb3767af6255d4d32d6f3">&#9670;&#160;</a></span>ensure_hlod_scratch()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool OutputCompositor::ensure_hlod_scratch </td>
+          <td>(</td>
+          <td class="paramtype">RenderingDevice *</td>          <td class="paramname"><span class="paramname"><em>p_device</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const RD::TextureFormat &amp;</td>          <td class="paramname"><span class="paramname"><em>p_destination_format</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Size2i &amp;</td>          <td class="paramname"><span class="paramname"><em>p_extent</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a6897bea4fecfd96f1971af0650fbcac2" name="a6897bea4fecfd96f1971af0650fbcac2"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6897bea4fecfd96f1971af0650fbcac2">&#9670;&#160;</a></span>get_blit_variant_count()</h2>
 
@@ -657,6 +685,27 @@ Friends</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Implements <a class="el" href="classIOutputCompositor.html#a3aa54db4ccd7416fb2647c70dc98f131">IOutputCompositor</a>.</p>
+
+</div>
+</div>
+<a id="a810eb718cafd2502505861df16ec638c" name="a810eb718cafd2502505861df16ec638c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a810eb718cafd2502505861df16ec638c">&#9670;&#160;</a></span>get_hlod_scratch_byte_upper_bound()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool OutputCompositor::get_hlod_scratch_byte_upper_bound </td>
+          <td>(</td>
+          <td class="paramtype">RenderingDevice *</td>          <td class="paramname"><span class="paramname"><em>p_device</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>

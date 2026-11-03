@@ -13,4 +13,6 @@ digraph "gaussian_importance.h"
   Node4 [id="Node000004",label="resident_atlas_budget.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$resident__atlas__budget_8h.html",tooltip=" "];
   Node4 -> Node5 [id="edge4_Node000004_Node000005",dir="back",color="steelblue1",style="solid",tooltip=" "];
   Node5 [id="Node000005",label="resident_instance_contract\l_publisher.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$resident__instance__contract__publisher_8cpp.html",tooltip=" "];
+  Node4 -> Node6 [id="edge5_Node000004_Node000006",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node6 [id="Node000006",label="tile_renderer.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$tile__renderer_8cpp.html",tooltip=" "];
 }

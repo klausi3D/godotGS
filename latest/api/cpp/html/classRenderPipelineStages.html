@@ -143,6 +143,7 @@ Static Public Member Functions</h2></td></tr>
 <tr class="memitem:a1e99e7605781fe3582a391c73f6bcb98" id="r_a1e99e7605781fe3582a391c73f6bcb98"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#a08c85511a03810b9b9c3cc5033074758">StageMetrics</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e99e7605781fe3582a391c73f6bcb98">make_route_skip_metrics</a> (const String &amp;p_route_uid, const String &amp;p_selected_backend, const String &amp;p_cull_reason, const String &amp;p_sort_reason, <a class="el" href="namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27">GaussianSplatRenderer::RenderFallbackReason</a> p_fallback_reason)</td></tr>
 <tr class="memitem:a4f92b432f92fd2628d0b893bbdddfa95" id="r_a4f92b432f92fd2628d0b893bbdddfa95"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#a7f9136d4b734f62ee5d618e9af8bb5cd">StageResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f92b432f92fd2628d0b893bbdddfa95">make_composite_copy_result</a> (bool p_copy_attempted, bool p_copy_success, const String &amp;p_copy_error, bool p_copy_degraded, const String &amp;p_degradation_reason, bool p_depth_test_honored, bool p_viewport_copy_success, bool p_strict_depth_contract_required)</td></tr>
 <tr class="memitem:a6ebc0d1311b1d476bd1909270290e289" id="r_a6ebc0d1311b1d476bd1909270290e289"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6ebc0d1311b1d476bd1909270290e289">finalize_stage_contracts</a> (<a class="el" href="#a08c85511a03810b9b9c3cc5033074758">StageMetrics</a> &amp;r_metrics, const <a class="el" href="#a62f30749c7a057a9352274854ac6d39f">RenderFramePlan</a> &amp;p_frame_plan)</td></tr>
+<tr class="memitem:ad42411265c6b3523dcfc220ed96b1e5c" id="r_ad42411265c6b3523dcfc220ed96b1e5c"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad42411265c6b3523dcfc220ed96b1e5c">compute_cull_config_signature</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> &amp;p_renderer, const <a class="el" href="classGaussianSplatRenderer_1_1IFrameStateView.html">GaussianSplatRenderer::IFrameStateView</a> &amp;p_state_view)</td></tr>
 <tr class="memitem:a63723bd4b6d7c38f228466a12bf28e9a" id="r_a63723bd4b6d7c38f228466a12bf28e9a"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a63723bd4b6d7c38f228466a12bf28e9a">compute_raster_params_signature</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> &amp;p_renderer, const <a class="el" href="classGaussianSplatRenderer_1_1IFrameStateView.html">GaussianSplatRenderer::IFrameStateView</a> &amp;p_state_view, RD::DataFormat p_viewport_format)</td></tr>
 <tr class="memitem:a126f5900850dffb0d5438afc7424923b" id="r_a126f5900850dffb0d5438afc7424923b"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a126f5900850dffb0d5438afc7424923b">resolve_raster_sort_input</a> (const <a class="el" href="#af66cc619e2035784ff0f7798f3db214f">RenderFrameContext</a> &amp;p_context, <a class="el" href="structGaussianSplatRenderer_1_1RasterStageInput.html">GaussianSplatRenderer::RasterStageInput</a> &amp;r_input)</td></tr>
 <tr class="memitem:a7faa6b10e31bc08536aabb2da05ecc6c" id="r_a7faa6b10e31bc08536aabb2da05ecc6c"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#a3b42d765891b688950b698c1b53573a5">RenderRouteDecision</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7faa6b10e31bc08536aabb2da05ecc6c">build_route_decision</a> (<a class="el" href="namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57">InstanceBackendPolicy</a> p_instance_backend_policy, const <a class="el" href="#adbf38f5d127c8015c442496c57ead40e">DataSourcePlan</a> &amp;p_data_source, bool p_has_render_data, const String &amp;p_no_data_reason)</td></tr>
@@ -640,6 +641,35 @@ Static Public Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_no_data_reason</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad42411265c6b3523dcfc220ed96b1e5c" name="ad42411265c6b3523dcfc220ed96b1e5c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad42411265c6b3523dcfc220ed96b1e5c">&#9670;&#160;</a></span>compute_cull_config_signature()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t RenderPipelineStages::compute_cull_config_signature </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_renderer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer_1_1IFrameStateView.html">GaussianSplatRenderer::IFrameStateView</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_state_view</em></span>&#160;)</td>
         </tr>
       </table>
   </td>

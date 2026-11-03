@@ -107,6 +107,10 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a55c13014b793544c09415943cad1e71a" id="r_a55c13014b793544c09415943cad1e71a"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a55c13014b793544c09415943cad1e71a">chunk_meta_buffer</a></td></tr>
 <tr class="memitem:a0bb61b7c9124e62cb616e9f53b5cb257" id="r_a0bb61b7c9124e62cb616e9f53b5cb257"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0bb61b7c9124e62cb616e9f53b5cb257">visible_chunk_buffer</a></td></tr>
 <tr class="memitem:aef856798318d52906479e9557fa37869" id="r_aef856798318d52906479e9557fa37869"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aef856798318d52906479e9557fa37869">splat_ref_buffer</a></td></tr>
+<tr class="memitem:a9875ec51b2d1ce4a21a501ae993cad99" id="r_a9875ec51b2d1ce4a21a501ae993cad99"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9875ec51b2d1ce4a21a501ae993cad99">hlod_draw_entry_buffer</a></td></tr>
+<tr class="memitem:acaed9a7e318a0027ebcc66a22f51eff0" id="r_acaed9a7e318a0027ebcc66a22f51eff0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acaed9a7e318a0027ebcc66a22f51eff0">hlod_relative</a> = false</td></tr>
+<tr class="memitem:a6a1836411d0bb5bc763e30ffb8fcdfad" id="r_a6a1836411d0bb5bc763e30ffb8fcdfad"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6a1836411d0bb5bc763e30ffb8fcdfad">hlod_source_generation</a> = 0</td></tr>
+<tr class="memitem:a97969fd1be7b7f7674dfab55c9230d16" id="r_a97969fd1be7b7f7674dfab55c9230d16"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a97969fd1be7b7f7674dfab55c9230d16">hlod_content_generation</a> = 0</td></tr>
 <tr class="memitem:a35fe5341eb8c499979ebef840063f963" id="r_a35fe5341eb8c499979ebef840063f963"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a35fe5341eb8c499979ebef840063f963">sort_key_buffer</a></td></tr>
 <tr class="memitem:a3ed430bc7e79576259855531b9b83724" id="r_a3ed430bc7e79576259855531b9b83724"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ed430bc7e79576259855531b9b83724">sort_value_buffer</a></td></tr>
 <tr class="memitem:a86c6ea6e4ee47ae7d82840e849eba558" id="r_a86c6ea6e4ee47ae7d82840e849eba558"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a86c6ea6e4ee47ae7d82840e849eba558">counter_buffer</a></td></tr>
@@ -187,6 +191,62 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">RenderingDevice* GPUSortingPipeline::InstancePipelineInputs::device = nullptr</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a97969fd1be7b7f7674dfab55c9230d16" name="a97969fd1be7b7f7674dfab55c9230d16"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a97969fd1be7b7f7674dfab55c9230d16">&#9670;&#160;</a></span>hlod_content_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GPUSortingPipeline::InstancePipelineInputs::hlod_content_generation = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9875ec51b2d1ce4a21a501ae993cad99" name="a9875ec51b2d1ce4a21a501ae993cad99"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9875ec51b2d1ce4a21a501ae993cad99">&#9670;&#160;</a></span>hlod_draw_entry_buffer</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">RID GPUSortingPipeline::InstancePipelineInputs::hlod_draw_entry_buffer</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acaed9a7e318a0027ebcc66a22f51eff0" name="acaed9a7e318a0027ebcc66a22f51eff0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acaed9a7e318a0027ebcc66a22f51eff0">&#9670;&#160;</a></span>hlod_relative</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GPUSortingPipeline::InstancePipelineInputs::hlod_relative = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6a1836411d0bb5bc763e30ffb8fcdfad" name="a6a1836411d0bb5bc763e30ffb8fcdfad"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6a1836411d0bb5bc763e30ffb8fcdfad">&#9670;&#160;</a></span>hlod_source_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GPUSortingPipeline::InstancePipelineInputs::hlod_source_generation = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

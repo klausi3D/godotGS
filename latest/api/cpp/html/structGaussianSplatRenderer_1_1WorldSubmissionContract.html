@@ -101,6 +101,11 @@ Collaboration diagram for GaussianSplatRenderer::WorldSubmissionContract:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
+<tr class="memitem:a37caf6b84fbc1e422d65ab0066ddc54f" id="r_a37caf6b84fbc1e422d65ab0066ddc54f"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a37caf6b84fbc1e422d65ab0066ddc54f">hlod_snapshot</a></td></tr>
+<tr class="memitem:ae3cc64a06bf56c274b09b35833337c8e" id="r_ae3cc64a06bf56c274b09b35833337c8e"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae3cc64a06bf56c274b09b35833337c8e">hlod_reason</a></td></tr>
+<tr class="memitem:aede3ab1300844ac9c10fae537f99cb8c" id="r_aede3ab1300844ac9c10fae537f99cb8c"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aede3ab1300844ac9c10fae537f99cb8c">hlod_tau_px</a> = 0.0f</td></tr>
+<tr class="memitem:abee8614027a421d0265a35459ce8f88c" id="r_abee8614027a421d0265a35459ce8f88c"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abee8614027a421d0265a35459ce8f88c">hlod_owner_key</a> = 0</td></tr>
+<tr class="memitem:aaee364953bc75c5e468056c0b8713f05" id="r_aaee364953bc75c5e468056c0b8713f05"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaee364953bc75c5e468056c0b8713f05">hlod_world_key</a> = 0</td></tr>
 <tr class="memitem:a22c76a1d8c24ba238b3b80835d66f74a" id="r_a22c76a1d8c24ba238b3b80835d66f74a"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianData.html">GaussianData</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a22c76a1d8c24ba238b3b80835d66f74a">gaussian_data</a></td></tr>
 <tr class="memitem:a0620d0b4f4ba968a137c5beeb2181d77" id="r_a0620d0b4f4ba968a137c5beeb2181d77"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classChunkPayloadSource.html">ChunkPayloadSource</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0620d0b4f4ba968a137c5beeb2181d77">payload_source</a></td></tr>
 <tr class="memitem:a75ab88589c0f710121b356933ce20e7d" id="r_a75ab88589c0f710121b356933ce20e7d"><td class="memItemLeft" align="right" valign="top">Vector&lt; <a class="el" href="classGaussianSplatRenderer.html#a4fe913b621c42458abe46319b239caf6">StaticChunk</a><a class="el" href="structStaticChunk.html">StaticChunk</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a75ab88589c0f710121b356933ce20e7d">static_chunks</a></td></tr>
@@ -195,6 +200,76 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool GaussianSplatRenderer::WorldSubmissionContract::has_desired_residency_hint = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abee8614027a421d0265a35459ce8f88c" name="abee8614027a421d0265a35459ce8f88c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abee8614027a421d0265a35459ce8f88c">&#9670;&#160;</a></span>hlod_owner_key</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatRenderer::WorldSubmissionContract::hlod_owner_key = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae3cc64a06bf56c274b09b35833337c8e" name="ae3cc64a06bf56c274b09b35833337c8e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae3cc64a06bf56c274b09b35833337c8e">&#9670;&#160;</a></span>hlod_reason</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">String GaussianSplatRenderer::WorldSubmissionContract::hlod_reason</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a37caf6b84fbc1e422d65ab0066ddc54f" name="a37caf6b84fbc1e422d65ab0066ddc54f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a37caf6b84fbc1e422d65ab0066ddc54f">&#9670;&#160;</a></span>hlod_snapshot</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Ref&lt;<a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a>&gt; GaussianSplatRenderer::WorldSubmissionContract::hlod_snapshot</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aede3ab1300844ac9c10fae537f99cb8c" name="aede3ab1300844ac9c10fae537f99cb8c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aede3ab1300844ac9c10fae537f99cb8c">&#9670;&#160;</a></span>hlod_tau_px</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">float GaussianSplatRenderer::WorldSubmissionContract::hlod_tau_px = 0.0f</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaee364953bc75c5e468056c0b8713f05" name="aaee364953bc75c5e468056c0b8713f05"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaee364953bc75c5e468056c0b8713f05">&#9670;&#160;</a></span>hlod_world_key</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatRenderer::WorldSubmissionContract::hlod_world_key = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

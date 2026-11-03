@@ -10,6 +10,7 @@ var classRadixSort =
     [ "_validate_sort_preflight", "classRadixSort.html#aade6a027bdf2cedd12c53e977cbe4438", null ],
     [ "create_variant", "classRadixSort.html#a560eff6b4dd241c9ad6d20d27f01323d", null ],
     [ "get_algorithm_name", "classRadixSort.html#a29ead6bc7812254b6315caf5b578a575", null ],
+    [ "get_allocated_buffer_bytes", "classRadixSort.html#a933e24728c7fbb950a8ff08970c01f0e", null ],
     [ "get_last_preflight_error", "classRadixSort.html#a4cd09a798abd62a488b91a8a59a89df8", null ],
     [ "get_last_sort_gpu_timestamp", "classRadixSort.html#a86f9ba764f1aa31950ea3ac1cdd1c21b", null ],
     [ "get_theoretical_complexity", "classRadixSort.html#a4dfb8ca864da53d4c153c61850f59cc5", null ],

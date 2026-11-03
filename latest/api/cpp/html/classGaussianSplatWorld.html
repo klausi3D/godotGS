@@ -138,7 +138,16 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:acbc5efe173e7d3dadca6cf2137856569" id="r_acbc5efe173e7d3dadca6cf2137856569"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acbc5efe173e7d3dadca6cf2137856569">clear</a> ()</td></tr>
 <tr class="memitem:a6e9fe19e2518e3d32dd4d3d85bb86d31" id="r_a6e9fe19e2518e3d32dd4d3d85bb86d31"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6e9fe19e2518e3d32dd4d3d85bb86d31">copy_from</a> (const Ref&lt; Resource &gt; &amp;p_resource) override</td></tr>
 <tr class="memitem:a9cc51385fb9217b377821e9a1310ad19" id="r_a9cc51385fb9217b377821e9a1310ad19"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9cc51385fb9217b377821e9a1310ad19">save_to_file</a> (const String &amp;p_path) const</td></tr>
+<tr class="memitem:ad0863506899c5af9ea5b37c1f88861f2" id="r_ad0863506899c5af9ea5b37c1f88861f2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad0863506899c5af9ea5b37c1f88861f2">capture_render_input</a> (Ref&lt; <a class="el" href="classGaussianData.html">GaussianData</a> &gt; &amp;r_data, Ref&lt; <a class="el" href="classChunkPayloadSource.html">ChunkPayloadSource</a> &gt; &amp;r_source, Vector&lt; <a class="el" href="classGaussianSplatRenderer.html#a4fe913b621c42458abe46319b239caf6">GaussianSplatRenderer::StaticChunk</a> &gt; &amp;r_chunks, AABB &amp;r_bounds, Dictionary &amp;r_metadata) const</td></tr>
+<tr class="memitem:abd2ad5c3ef475d9c4ec20e591422f1cc" id="r_abd2ad5c3ef475d9c4ec20e591422f1cc"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd2ad5c3ef475d9c4ec20e591422f1cc">capture_hlod_runtime_snapshot</a> (Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;r_snapshot, String &amp;r_reason) const</td></tr>
+<tr class="memitem:af87fed95c4dcb267ee585aa8da67e79b" id="r_af87fed95c4dcb267ee585aa8da67e79b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af87fed95c4dcb267ee585aa8da67e79b">is_hlod_runtime_snapshot_current</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_snapshot) const</td></tr>
+<tr class="memitem:ac47400cde30f5446cc70b074fe1713c8" id="r_ac47400cde30f5446cc70b074fe1713c8"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac47400cde30f5446cc70b074fe1713c8">set_hlod_paged_package</a> (<a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;&amp;p_tree, const Ref&lt; <a class="el" href="classGaussianSplatHlodPagedSource.html">GaussianSplatHlodPagedSource</a> &gt; &amp;p_source)</td></tr>
+<tr class="memitem:a514213b2ec6a280bb27b7238cf2f3f8c" id="r_a514213b2ec6a280bb27b7238cf2f3f8c"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a514213b2ec6a280bb27b7238cf2f3f8c">materialize_paged_resident</a> (String &amp;r_reason)</td></tr>
+<tr class="memitem:ade74f9b86d6b95d07d58b04642d693a9" id="r_ade74f9b86d6b95d07d58b04642d693a9"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodPagedSource.html">GaussianSplatHlodPagedSource</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade74f9b86d6b95d07d58b04642d693a9">get_hlod_paged_source</a> () const</td></tr>
+<tr class="memitem:af46cf2e34472ae17cf4a8b033e965ce3" id="r_af46cf2e34472ae17cf4a8b033e965ce3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af46cf2e34472ae17cf4a8b033e965ce3">has_hlod_paged_source</a> () const</td></tr>
+<tr class="memitem:a2795918e0c737e867ef1fea812f60702" id="r_a2795918e0c737e867ef1fea812f60702"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2795918e0c737e867ef1fea812f60702">save_hlod_paged</a> (const String &amp;p_path) const</td></tr>
 <tr class="memitem:a759414d234b410db3dfa189842b9a230" id="r_a759414d234b410db3dfa189842b9a230"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a759414d234b410db3dfa189842b9a230">bake_hlod</a> ()</td></tr>
+<tr class="memitem:a36ef3a9a8284c034f63d1e1f47d64340" id="r_a36ef3a9a8284c034f63d1e1f47d64340"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a36ef3a9a8284c034f63d1e1f47d64340">bake_hlod_offline</a> (const Dictionary &amp;p_limits, const String &amp;p_candidate_path) const</td></tr>
 <tr class="memitem:a0c02d079673915d694bf2d07d540441c" id="r_a0c02d079673915d694bf2d07d540441c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c02d079673915d694bf2d07d540441c">has_hlod_tree</a> () const</td></tr>
 <tr class="memitem:a3faceaf0d02afdfcd47b5d7ef81ec3ea" id="r_a3faceaf0d02afdfcd47b5d7ef81ec3ea"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3faceaf0d02afdfcd47b5d7ef81ec3ea">is_hlod_payload_current</a> () const</td></tr>
 <tr class="memitem:a2bd34f1de92459008712a972ef2bd987" id="r_a2bd34f1de92459008712a972ef2bd987"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2bd34f1de92459008712a972ef2bd987">get_hlod_info</a> () const</td></tr>
@@ -255,6 +264,27 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a36ef3a9a8284c034f63d1e1f47d64340" name="a36ef3a9a8284c034f63d1e1f47d64340"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a36ef3a9a8284c034f63d1e1f47d64340">&#9670;&#160;</a></span>bake_hlod_offline()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Dictionary GaussianSplatWorld::bake_hlod_offline </td>
+          <td>(</td>
+          <td class="paramtype">const Dictionary &amp;</td>          <td class="paramname"><span class="paramname"><em>p_limits</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_candidate_path</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a95e194b73fdac09d3b2635a642dd5dd9" name="a95e194b73fdac09d3b2635a642dd5dd9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a95e194b73fdac09d3b2635a642dd5dd9">&#9670;&#160;</a></span>build_hlod_leaf_chunks()</h2>
 
@@ -280,6 +310,63 @@ Static Protected Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel static">static</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abd2ad5c3ef475d9c4ec20e591422f1cc" name="abd2ad5c3ef475d9c4ec20e591422f1cc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abd2ad5c3ef475d9c4ec20e591422f1cc">&#9670;&#160;</a></span>capture_hlod_runtime_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianSplatWorld::capture_hlod_runtime_snapshot </td>
+          <td>(</td>
+          <td class="paramtype">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_snapshot</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad0863506899c5af9ea5b37c1f88861f2" name="ad0863506899c5af9ea5b37c1f88861f2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad0863506899c5af9ea5b37c1f88861f2">&#9670;&#160;</a></span>capture_render_input()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatWorld::capture_render_input </td>
+          <td>(</td>
+          <td class="paramtype">Ref&lt; <a class="el" href="classGaussianData.html">GaussianData</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_data</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Ref&lt; <a class="el" href="classChunkPayloadSource.html">ChunkPayloadSource</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_source</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Vector&lt; <a class="el" href="classGaussianSplatRenderer.html#a4fe913b621c42458abe46319b239caf6">GaussianSplatRenderer::StaticChunk</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_chunks</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">AABB &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bounds</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Dictionary &amp;</td>          <td class="paramname"><span class="paramname"><em>r_metadata</em></span>&#160;) const</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -528,6 +615,31 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="ade74f9b86d6b95d07d58b04642d693a9" name="ade74f9b86d6b95d07d58b04642d693a9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ade74f9b86d6b95d07d58b04642d693a9">&#9670;&#160;</a></span>get_hlod_paged_source()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Ref&lt; <a class="el" href="classGaussianSplatHlodPagedSource.html">GaussianSplatHlodPagedSource</a> &gt; GaussianSplatWorld::get_hlod_paged_source </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a52fe5502e8d5755f5ae7ade3369369c9" name="a52fe5502e8d5755f5ae7ade3369369c9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a52fe5502e8d5755f5ae7ade3369369c9">&#9670;&#160;</a></span>get_hlod_tree()</h2>
 
@@ -722,6 +834,31 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="af46cf2e34472ae17cf4a8b033e965ce3" name="af46cf2e34472ae17cf4a8b033e965ce3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af46cf2e34472ae17cf4a8b033e965ce3">&#9670;&#160;</a></span>has_hlod_paged_source()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatWorld::has_hlod_paged_source </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a0c02d079673915d694bf2d07d540441c" name="a0c02d079673915d694bf2d07d540441c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a0c02d079673915d694bf2d07d540441c">&#9670;&#160;</a></span>has_hlod_tree()</h2>
 
@@ -798,6 +935,23 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="af87fed95c4dcb267ee585aa8da67e79b" name="af87fed95c4dcb267ee585aa8da67e79b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af87fed95c4dcb267ee585aa8da67e79b">&#9670;&#160;</a></span>is_hlod_runtime_snapshot_current()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatWorld::is_hlod_runtime_snapshot_current </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_snapshot</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="abcf79e7c3418af25ec59f27f43d1652b" name="abcf79e7c3418af25ec59f27f43d1652b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#abcf79e7c3418af25ec59f27f43d1652b">&#9670;&#160;</a></span>is_payload_source_backed()</h2>
 
@@ -832,6 +986,23 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a514213b2ec6a280bb27b7238cf2f3f8c" name="a514213b2ec6a280bb27b7238cf2f3f8c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a514213b2ec6a280bb27b7238cf2f3f8c">&#9670;&#160;</a></span>materialize_paged_resident()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianSplatWorld::materialize_paged_resident </td>
+          <td>(</td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ab4889db3ba743afcc2c5e353f23ad906" name="ab4889db3ba743afcc2c5e353f23ad906"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ab4889db3ba743afcc2c5e353f23ad906">&#9670;&#160;</a></span>materialize_resident_gaussian_data()</h2>
 
@@ -843,6 +1014,23 @@ Static Protected Member Functions</h2></td></tr>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2795918e0c737e867ef1fea812f60702" name="a2795918e0c737e867ef1fea812f60702"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2795918e0c737e867ef1fea812f60702">&#9670;&#160;</a></span>save_hlod_paged()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianSplatWorld::save_hlod_paged </td>
+          <td>(</td>
+          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_path</em></span></td><td>)</td>
+          <td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -911,6 +1099,27 @@ Static Protected Member Functions</h2></td></tr>
           <td>(</td>
           <td class="paramtype">const Ref&lt; <a class="el" href="classGaussianData.html">GaussianData</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_data</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac47400cde30f5446cc70b074fe1713c8" name="ac47400cde30f5446cc70b074fe1713c8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac47400cde30f5446cc70b074fe1713c8">&#9670;&#160;</a></span>set_hlod_paged_package()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianSplatWorld::set_hlod_paged_package </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;&amp;</td>          <td class="paramname"><span class="paramname"><em>p_tree</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Ref&lt; <a class="el" href="classGaussianSplatHlodPagedSource.html">GaussianSplatHlodPagedSource</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_source</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

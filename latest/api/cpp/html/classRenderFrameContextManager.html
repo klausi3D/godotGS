@@ -99,6 +99,10 @@ Classes</h2></td></tr>
 <tr class="memitem:FrameState" id="r_FrameState"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structRenderFrameContextManager_1_1FrameState.html">FrameState</a></td></tr>
 <tr class="memitem:ViewState" id="r_ViewState"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structRenderFrameContextManager_1_1ViewState.html">ViewState</a></td></tr>
 </table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-types" class="groupheader"><a id="pub-types" name="pub-types"></a>
+Public Types</h2></td></tr>
+<tr class="memitem:a4feae9f88fc37e7115bde8af9842f06f" id="r_a4feae9f88fc37e7115bde8af9842f06f"><td class="memItemLeft" align="right" valign="top">typedef bool(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4feae9f88fc37e7115bde8af9842f06f">HlodLivenessCheck</a>) (const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;p_identity)</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a88d1124f8927c8be3a582fd2871ea131" id="r_a88d1124f8927c8be3a582fd2871ea131"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a88d1124f8927c8be3a582fd2871ea131">RenderFrameContextManager</a> ()</td></tr>
@@ -106,6 +110,15 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a9bed74c793cbe99dd23dd86964c46634" id="r_a9bed74c793cbe99dd23dd86964c46634"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structRenderFrameContextManager_1_1FrameState.html">FrameState</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9bed74c793cbe99dd23dd86964c46634">get_frame_state</a> () const</td></tr>
 <tr class="memitem:a686eeb298afe433deeadce4435a4b88d" id="r_a686eeb298afe433deeadce4435a4b88d"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structRenderFrameContextManager_1_1ViewState.html">ViewState</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a686eeb298afe433deeadce4435a4b88d">get_view_state</a> ()</td></tr>
 <tr class="memitem:a7f2692473ef689694129d6cff9de9623" id="r_a7f2692473ef689694129d6cff9de9623"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structRenderFrameContextManager_1_1ViewState.html">ViewState</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f2692473ef689694129d6cff9de9623">get_view_state</a> () const</td></tr>
+<tr class="memitem:a30f52098b23bcb5327c23d87e5351b7e" id="r_a30f52098b23bcb5327c23d87e5351b7e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a30f52098b23bcb5327c23d87e5351b7e">set_hlod_liveness_check</a> (<a class="el" href="#a4feae9f88fc37e7115bde8af9842f06f">HlodLivenessCheck</a> p_check)</td></tr>
+<tr class="memitem:a9e683dfa57f248777819202d681146c1" id="r_a9e683dfa57f248777819202d681146c1"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e683dfa57f248777819202d681146c1">evict_stale_hlod_bindings</a> ()</td></tr>
+<tr class="memitem:a30265631d1245c5652b910d6bd1dee81" id="r_a30265631d1245c5652b910d6bd1dee81"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a30265631d1245c5652b910d6bd1dee81">release_hlod_snapshot_data</a> ()</td></tr>
+<tr class="memitem:aee8cbde2671a26d870c85003d011c66b" id="r_aee8cbde2671a26d870c85003d011c66b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structHlodViewOutcome.html">HlodViewOutcome</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aee8cbde2671a26d870c85003d011c66b">select_hlod_view</a> (const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;p_identity, uint64_t p_source, <a class="el" href="structgs__hlod__runtime_1_1SelectionSnapshot.html">gs_hlod_runtime::SelectionSnapshot</a> &amp;p_snapshot, <a class="el" href="structgs__hlod__runtime_1_1ViewSpec.html">gs_hlod_runtime::ViewSpec</a> p_spec)</td></tr>
+<tr class="memitem:a14f4e135b964ff19a1c61485a382dad8" id="r_a14f4e135b964ff19a1c61485a382dad8"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a14f4e135b964ff19a1c61485a382dad8">hlod_bound_view_count</a> () const</td></tr>
+<tr class="memitem:a666c2d4e9b436df430ad4825590b5c89" id="r_a666c2d4e9b436df430ad4825590b5c89"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a666c2d4e9b436df430ad4825590b5c89">is_hlod_view_live</a> (uint64_t p_view_key) const</td></tr>
+<tr class="memitem:a245974f4f12ce8b537dc3463785b1b78" id="r_a245974f4f12ce8b537dc3463785b1b78"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="classgs__hlod__runtime_1_1ViewSet.html">gs_hlod_runtime::ViewSet</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a245974f4f12ce8b537dc3463785b1b78">get_hlod_view_set</a> () const</td></tr>
+<tr class="memitem:a641a8395a84f7fa28c0b8a1fdb57ec84" id="r_a641a8395a84f7fa28c0b8a1fdb57ec84"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__hlod__runtime_1_1SelectionSnapshot.html">gs_hlod_runtime::SelectionSnapshot</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a641a8395a84f7fa28c0b8a1fdb57ec84">get_hlod_snapshot</a> ()</td></tr>
+<tr class="memitem:a123d475081604067bd74cd6a2113246f" id="r_a123d475081604067bd74cd6a2113246f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a123d475081604067bd74cd6a2113246f">clear_hlod_views</a> ()</td></tr>
 <tr class="memitem:ae4011e0a6dc69bfb8ce62caec9acf119" id="r_ae4011e0a6dc69bfb8ce62caec9acf119"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae4011e0a6dc69bfb8ce62caec9acf119">reset_frame_state</a> ()</td></tr>
 <tr class="memitem:ae7f9ae257e3c4423c44edd10b3f0a2c4" id="r_ae7f9ae257e3c4423c44edd10b3f0a2c4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae7f9ae257e3c4423c44edd10b3f0a2c4">reset_view_state_defaults</a> ()</td></tr>
 <tr class="memitem:abee5a4a40471a1e5916919c1ff45264e" id="r_abee5a4a40471a1e5916919c1ff45264e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abee5a4a40471a1e5916919c1ff45264e">reset</a> ()</td></tr>
@@ -113,7 +126,33 @@ Public Member Functions</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:ac62ab190b88014beb36fdc93becc722a" id="r_ac62ab190b88014beb36fdc93becc722a"><td class="memItemLeft" align="right" valign="top">static double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac62ab190b88014beb36fdc93becc722a">sample_render_animation_time_seconds</a> ()</td></tr>
+<tr class="memitem:ad3a2c87f8c5742ac8425f2de25ca363a" id="r_ad3a2c87f8c5742ac8425f2de25ca363a"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad3a2c87f8c5742ac8425f2de25ca363a">default_hlod_liveness</a> (const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;p_identity)</td></tr>
+<tr class="memitem:ab72719d28618d88b1ffc9d339a3ec71b" id="r_ab72719d28618d88b1ffc9d339a3ec71b"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab72719d28618d88b1ffc9d339a3ec71b">hlod_identity_from_token</a> (const <a class="el" href="classGaussianHlodViewLifetime.html">GaussianHlodViewLifetime</a> *p_token, ObjectID p_buffers, RID p_target, <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;r_identity)</td></tr>
+<tr class="memitem:a660eb9d591e8e264df7f89a45d37cb60" id="r_a660eb9d591e8e264df7f89a45d37cb60"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a660eb9d591e8e264df7f89a45d37cb60">acquire_hlod_identity</a> (RenderSceneBuffersRD *p_buffers, <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;r_identity)</td></tr>
+<tr class="memitem:a57f88360b465bc7dba03efa70b67b83e" id="r_a57f88360b465bc7dba03efa70b67b83e"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a57f88360b465bc7dba03efa70b67b83e">hlod_view_key</a> (const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;p_identity)</td></tr>
+<tr class="memitem:a09fd5c75daaf46ec64f5c8572542dadd" id="r_a09fd5c75daaf46ec64f5c8572542dadd"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="structHlodFallback.html">HlodFallback</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a09fd5c75daaf46ec64f5c8572542dadd">hlod_fallback_for_admission</a> (<a class="el" href="classgs__hlod__runtime_1_1ViewSet.html#ae51e02df8528f573f88859ba3e5bd9e5">gs_hlod_runtime::ViewSet::AdmitStatus</a> p_status)</td></tr>
+<tr class="memitem:a0b79d3109773b9d123fff3abd11b5fc9" id="r_a0b79d3109773b9d123fff3abd11b5fc9"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="structHlodFallback.html">HlodFallback</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0b79d3109773b9d123fff3abd11b5fc9">hlod_fallback_for_snapshot</a> (<a class="el" href="classgs__hlod__runtime_1_1ViewSet.html#ac7b4dfa219c9c81c3c3228f0a1685cfa">gs_hlod_runtime::ViewSet::SnapshotStatus</a> p_status)</td></tr>
+<tr class="memitem:acff7ff2e3416bb38ac1aa69f8cd3ad8d" id="r_acff7ff2e3416bb38ac1aa69f8cd3ad8d"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="structHlodFallback.html">HlodFallback</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acff7ff2e3416bb38ac1aa69f8cd3ad8d">hlod_fallback_for_view</a> (const <a class="el" href="structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html">gs_hlod_runtime::ViewSet::ViewResult</a> &amp;p_result)</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
+Static Public Attributes</h2></td></tr>
+<tr class="memitem:a9e40ec47b7ff623247ed371e280a3df3" id="r_a9e40ec47b7ff623247ed371e280a3df3"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e40ec47b7ff623247ed371e280a3df3">HLOD_MAX_VIEWS</a> = 4</td></tr>
 </table>
+<a name="doc-typedef-members" id="doc-typedef-members"></a><h2 id="header-doc-typedef-members" class="groupheader">Member Typedef Documentation</h2>
+<a id="a4feae9f88fc37e7115bde8af9842f06f" name="a4feae9f88fc37e7115bde8af9842f06f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4feae9f88fc37e7115bde8af9842f06f">&#9670;&#160;</a></span>HlodLivenessCheck</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">typedef bool(* RenderFrameContextManager::HlodLivenessCheck) (const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;p_identity)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-constructors" id="doc-constructors"></a><h2 id="header-doc-constructors" class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="a88d1124f8927c8be3a582fd2871ea131" name="a88d1124f8927c8be3a582fd2871ea131"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a88d1124f8927c8be3a582fd2871ea131">&#9670;&#160;</a></span>RenderFrameContextManager()</h2>
@@ -133,6 +172,94 @@ Static Public Member Functions</h2></td></tr>
 </div>
 </div>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="a660eb9d591e8e264df7f89a45d37cb60" name="a660eb9d591e8e264df7f89a45d37cb60"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a660eb9d591e8e264df7f89a45d37cb60">&#9670;&#160;</a></span>acquire_hlod_identity()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool RenderFrameContextManager::acquire_hlod_identity </td>
+          <td>(</td>
+          <td class="paramtype">RenderSceneBuffersRD *</td>          <td class="paramname"><span class="paramname"><em>p_buffers</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_identity</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a123d475081604067bd74cd6a2113246f" name="a123d475081604067bd74cd6a2113246f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a123d475081604067bd74cd6a2113246f">&#9670;&#160;</a></span>clear_hlod_views()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void RenderFrameContextManager::clear_hlod_views </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad3a2c87f8c5742ac8425f2de25ca363a" name="ad3a2c87f8c5742ac8425f2de25ca363a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad3a2c87f8c5742ac8425f2de25ca363a">&#9670;&#160;</a></span>default_hlod_liveness()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool RenderFrameContextManager::default_hlod_liveness </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_identity</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9e683dfa57f248777819202d681146c1" name="a9e683dfa57f248777819202d681146c1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9e683dfa57f248777819202d681146c1">&#9670;&#160;</a></span>evict_stale_hlod_bindings()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t RenderFrameContextManager::evict_stale_hlod_bindings </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a26dc190983741f92d2be6c324fdb88a3" name="a26dc190983741f92d2be6c324fdb88a3"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a26dc190983741f92d2be6c324fdb88a3">&#9670;&#160;</a></span>get_frame_state() <span class="overload">[1/2]</span></h2>
 
@@ -169,6 +296,56 @@ Static Public Member Functions</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">const <a class="el" href="structRenderFrameContextManager_1_1FrameState.html">FrameState</a> &amp; RenderFrameContextManager::get_frame_state </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a641a8395a84f7fa28c0b8a1fdb57ec84" name="a641a8395a84f7fa28c0b8a1fdb57ec84"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a641a8395a84f7fa28c0b8a1fdb57ec84">&#9670;&#160;</a></span>get_hlod_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__hlod__runtime_1_1SelectionSnapshot.html">gs_hlod_runtime::SelectionSnapshot</a> &amp; RenderFrameContextManager::get_hlod_snapshot </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a245974f4f12ce8b537dc3463785b1b78" name="a245974f4f12ce8b537dc3463785b1b78"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a245974f4f12ce8b537dc3463785b1b78">&#9670;&#160;</a></span>get_hlod_view_set()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const <a class="el" href="classgs__hlod__runtime_1_1ViewSet.html">gs_hlod_runtime::ViewSet</a> &amp; RenderFrameContextManager::get_hlod_view_set </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -229,6 +406,196 @@ Static Public Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a14f4e135b964ff19a1c61485a382dad8" name="a14f4e135b964ff19a1c61485a382dad8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a14f4e135b964ff19a1c61485a382dad8">&#9670;&#160;</a></span>hlod_bound_view_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t RenderFrameContextManager::hlod_bound_view_count </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a09fd5c75daaf46ec64f5c8572542dadd" name="a09fd5c75daaf46ec64f5c8572542dadd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a09fd5c75daaf46ec64f5c8572542dadd">&#9670;&#160;</a></span>hlod_fallback_for_admission()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structHlodFallback.html">HlodFallback</a> RenderFrameContextManager::hlod_fallback_for_admission </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classgs__hlod__runtime_1_1ViewSet.html#ae51e02df8528f573f88859ba3e5bd9e5">gs_hlod_runtime::ViewSet::AdmitStatus</a></td>          <td class="paramname"><span class="paramname"><em>p_status</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0b79d3109773b9d123fff3abd11b5fc9" name="a0b79d3109773b9d123fff3abd11b5fc9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0b79d3109773b9d123fff3abd11b5fc9">&#9670;&#160;</a></span>hlod_fallback_for_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structHlodFallback.html">HlodFallback</a> RenderFrameContextManager::hlod_fallback_for_snapshot </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classgs__hlod__runtime_1_1ViewSet.html#ac7b4dfa219c9c81c3c3228f0a1685cfa">gs_hlod_runtime::ViewSet::SnapshotStatus</a></td>          <td class="paramname"><span class="paramname"><em>p_status</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acff7ff2e3416bb38ac1aa69f8cd3ad8d" name="acff7ff2e3416bb38ac1aa69f8cd3ad8d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acff7ff2e3416bb38ac1aa69f8cd3ad8d">&#9670;&#160;</a></span>hlod_fallback_for_view()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structHlodFallback.html">HlodFallback</a> RenderFrameContextManager::hlod_fallback_for_view </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html">gs_hlod_runtime::ViewSet::ViewResult</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_result</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab72719d28618d88b1ffc9d339a3ec71b" name="ab72719d28618d88b1ffc9d339a3ec71b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab72719d28618d88b1ffc9d339a3ec71b">&#9670;&#160;</a></span>hlod_identity_from_token()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool RenderFrameContextManager::hlod_identity_from_token </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianHlodViewLifetime.html">GaussianHlodViewLifetime</a> *</td>          <td class="paramname"><span class="paramname"><em>p_token</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">ObjectID</td>          <td class="paramname"><span class="paramname"><em>p_buffers</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RID</td>          <td class="paramname"><span class="paramname"><em>p_target</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_identity</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a57f88360b465bc7dba03efa70b67b83e" name="a57f88360b465bc7dba03efa70b67b83e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a57f88360b465bc7dba03efa70b67b83e">&#9670;&#160;</a></span>hlod_view_key()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t RenderFrameContextManager::hlod_view_key </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_identity</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a666c2d4e9b436df430ad4825590b5c89" name="a666c2d4e9b436df430ad4825590b5c89"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a666c2d4e9b436df430ad4825590b5c89">&#9670;&#160;</a></span>is_hlod_view_live()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool RenderFrameContextManager::is_hlod_view_live </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_view_key</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a30265631d1245c5652b910d6bd1dee81" name="a30265631d1245c5652b910d6bd1dee81"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a30265631d1245c5652b910d6bd1dee81">&#9670;&#160;</a></span>release_hlod_snapshot_data()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void RenderFrameContextManager::release_hlod_snapshot_data </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -303,6 +670,85 @@ Static Public Member Functions</h2></td></tr>
   </td>
   <td class="mlabels-right">
 <span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aee8cbde2671a26d870c85003d011c66b" name="aee8cbde2671a26d870c85003d011c66b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aee8cbde2671a26d870c85003d011c66b">&#9670;&#160;</a></span>select_hlod_view()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structHlodViewOutcome.html">HlodViewOutcome</a> RenderFrameContextManager::select_hlod_view </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structHlodViewIdentity.html">HlodViewIdentity</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_identity</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_source</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod__runtime_1_1SelectionSnapshot.html">gs_hlod_runtime::SelectionSnapshot</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_snapshot</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod__runtime_1_1ViewSpec.html">gs_hlod_runtime::ViewSpec</a></td>          <td class="paramname"><span class="paramname"><em>p_spec</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a30f52098b23bcb5327c23d87e5351b7e" name="a30f52098b23bcb5327c23d87e5351b7e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a30f52098b23bcb5327c23d87e5351b7e">&#9670;&#160;</a></span>set_hlod_liveness_check()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void RenderFrameContextManager::set_hlod_liveness_check </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="#a4feae9f88fc37e7115bde8af9842f06f">HlodLivenessCheck</a></td>          <td class="paramname"><span class="paramname"><em>p_check</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="a9e40ec47b7ff623247ed371e280a3df3" name="a9e40ec47b7ff623247ed371e280a3df3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9e40ec47b7ff623247ed371e280a3df3">&#9670;&#160;</a></span>HLOD_MAX_VIEWS</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t RenderFrameContextManager::HLOD_MAX_VIEWS = 4</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">

@@ -108,6 +108,7 @@ Collaboration diagram for OneSweepSort:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a7cd8c3acab094104320040671425c372" id="r_a7cd8c3acab094104320040671425c372"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7cd8c3acab094104320040671425c372">OneSweepSort</a> ()</td></tr>
 <tr class="memitem:a9cf2f4448b298f1f820caadc1eb54b66" id="r_a9cf2f4448b298f1f820caadc1eb54b66"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9cf2f4448b298f1f820caadc1eb54b66">~OneSweepSort</a> () override</td></tr>
+<tr class="memitem:aec0d584f250e1389809c37e8015e5705" id="r_aec0d584f250e1389809c37e8015e5705"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec0d584f250e1389809c37e8015e5705">get_allocated_buffer_bytes</a> (uint64_t &amp;r_bytes) const override</td></tr>
 <tr class="memitem:a071516b954df54b7e11481ef7ebdaa99" id="r_a071516b954df54b7e11481ef7ebdaa99"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a071516b954df54b7e11481ef7ebdaa99">initialize</a> (RenderingDevice *p_rd, uint32_t p_max_elements) override</td></tr>
 <tr class="memitem:a2693fe3baf8dc63a6a8ed27d3650bd97" id="r_a2693fe3baf8dc63a6a8ed27d3650bd97"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2693fe3baf8dc63a6a8ed27d3650bd97">shutdown</a> () override</td></tr>
 <tr class="memitem:ac76115f168914347c170d882b2369a19" id="r_ac76115f168914347c170d882b2369a19"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac76115f168914347c170d882b2369a19">sort</a> (RID keys_buffer, RID values_buffer, uint32_t count) override</td></tr>
@@ -251,6 +252,33 @@ Additional Inherited Members</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Implements <a class="el" href="classIGPUSorter.html#ac79b005668594092391d425f9cad2ea5">IGPUSorter</a>.</p>
+
+</div>
+</div>
+<a id="aec0d584f250e1389809c37e8015e5705" name="aec0d584f250e1389809c37e8015e5705"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aec0d584f250e1389809c37e8015e5705">&#9670;&#160;</a></span>get_allocated_buffer_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool OneSweepSort::get_allocated_buffer_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Reimplemented from <a class="el" href="classIGPUSorter.html#a9dd8f1a4bd5616bf9f8d14ba44f0f2a6">IGPUSorter</a>.</p>
 
 </div>
 </div>

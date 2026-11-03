@@ -94,7 +94,9 @@ $(function(){initNavTree('render__facade__state__types_8h.html','',''); });
 
 <p>Remaining <a class="el" href="classGaussianSplatRenderer.html" title="GPU rendering backend for Gaussian Splatting.">GaussianSplatRenderer</a> facade state carrier types.  
 <a href="#details">More...</a></p>
-<div class="textblock"><code>#include &quot;core/math/color.h&quot;</code><br />
+<div class="textblock"><code>#include &quot;<a class="el" href="gaussian__splat__hlod__runtime__data_8h_source.html">../../core/gaussian_splat_hlod_runtime_data.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="hlod__node__streamer_8h_source.html">../hlod_node_streamer.h</a>&quot;</code><br />
+<code>#include &quot;core/math/color.h&quot;</code><br />
 <code>#include &quot;core/math/vector3.h&quot;</code><br />
 <code>#include &quot;core/object/object.h&quot;</code><br />
 <code>#include &quot;core/object/ref_counted.h&quot;</code><br />
@@ -102,6 +104,7 @@ $(function(){initNavTree('render__facade__state__types_8h.html','',''); });
 <code>#include &quot;core/templates/rid.h&quot;</code><br />
 <code>#include &quot;servers/rendering/renderer_rd/pipeline_cache_rd.h&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__gpu__layout_8h_source.html">../gaussian_gpu_layout.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="render__pipeline__io__types_8h_source.html">render_pipeline_io_types.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gpu__buffer__manager_8h_source.html">../gpu_buffer_manager.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gpu__performance__monitor_8h_source.html">../gpu_performance_monitor.h</a>&quot;</code><br />
 <code>#include &lt;atomic&gt;</code><br />
@@ -123,6 +126,7 @@ This graph shows which files directly or indirectly include this file:</div>
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
 <tr class="memitem:GaussianRenderFacadeState_3A_3ADeviceState" id="r_GaussianRenderFacadeState_3A_3ADeviceState"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianRenderFacadeState_1_1DeviceState.html">GaussianRenderFacadeState::DeviceState</a></td></tr>
+<tr class="memitem:GaussianRenderFacadeState_3A_3AHlodBundle" id="r_GaussianRenderFacadeState_3A_3AHlodBundle"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianRenderFacadeState_1_1HlodBundle.html">GaussianRenderFacadeState::HlodBundle</a></td></tr>
 <tr class="memitem:GaussianRenderFacadeState_3A_3AResourceState" id="r_GaussianRenderFacadeState_3A_3AResourceState"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianRenderFacadeState_1_1ResourceState.html">GaussianRenderFacadeState::ResourceState</a></td></tr>
 <tr class="memitem:GaussianRenderFacadeState_3A_3ATestDataState" id="r_GaussianRenderFacadeState_3A_3ATestDataState"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianRenderFacadeState_1_1TestDataState.html">GaussianRenderFacadeState::TestDataState</a></td></tr>
 <tr class="memitem:GaussianRenderFacadeState_3A_3ATileRendererState" id="r_GaussianRenderFacadeState_3A_3ATileRendererState"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianRenderFacadeState_1_1TileRendererState.html">GaussianRenderFacadeState::TileRendererState</a></td></tr>
@@ -132,6 +136,10 @@ Classes</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-namespaces" class="groupheader"><a id="namespaces" name="namespaces"></a>
 Namespaces</h2></td></tr>
 <tr class="memitem:GaussianRenderFacadeState" id="r_GaussianRenderFacadeState"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespaceGaussianRenderFacadeState.html">GaussianRenderFacadeState</a></td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:aa8b0a25cbbf13eaed8838b1c97b8b964" id="r_aa8b0a25cbbf13eaed8838b1c97b8b964"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespaceGaussianRenderFacadeState.html#aa8b0a25cbbf13eaed8838b1c97b8b964">GaussianRenderFacadeState::hlod_mark_tile_stage_refused</a> (<a class="el" href="structGaussianRenderFacadeState_1_1ResourceState.html">ResourceState</a> &amp;r_state, const String &amp;p_cause)</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Remaining <a class="el" href="classGaussianSplatRenderer.html" title="GPU rendering backend for Gaussian Splatting.">GaussianSplatRenderer</a> facade state carrier types. </p>

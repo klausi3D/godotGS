@@ -1,14 +1,16 @@
 var searchData=
 [
-  ['main_5fview_0',['MAIN_VIEW',['../classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79a9f90fa1bbf9b14c38ecd8c7fd5ae04b1',1,'GaussianSplatRenderer']]],
-  ['metadata_1',['METADATA',['../namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8a9c0818e0622aadfcb2e59cfe5299b4',1,'GaussianSplatting']]],
-  ['metadata_5fmodified_2',['METADATA_MODIFIED',['../namespaceGaussianSplatting.html#ade1f4f101348e3b6b76f059d68c5aa85a192cd196018afeb65764a9e322d7dac7',1,'GaussianSplatting']]],
-  ['missing_5fatlas_5finputs_3',['MISSING_ATLAS_INPUTS',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa41ce0e270b979c404680573fb0c181a9',1,'render_streaming_orchestrator.cpp']]],
-  ['missing_5fcull_5finputs_4',['MISSING_CULL_INPUTS',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa19be6e5fc561d7d0feb82c83f2033d2f',1,'render_streaming_orchestrator.cpp']]],
-  ['missing_5fraster_5finputs_5',['MISSING_RASTER_INPUTS',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa54c24b3d004412ab62f3bdc51eb1bee4',1,'render_streaming_orchestrator.cpp']]],
-  ['missing_5fsort_5finputs_6',['MISSING_SORT_INPUTS',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa6a8430109dc743504ca3b458f0a1c98a',1,'render_streaming_orchestrator.cpp']]],
-  ['missing_5fstreaming_5fsystem_7',['MISSING_STREAMING_SYSTEM',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa5fa4ac6be91ff18797f3344be2808205',1,'render_streaming_orchestrator.cpp']]],
-  ['mode_5f2d_8',['MODE_2D',['../classGaussianSplatRenderer.html#a91cb3531ac5079da25fb4c11d1376472a829d8d71800fd317cb7b0f4d60144de1',1,'GaussianSplatRenderer']]],
-  ['mode_5f3d_9',['MODE_3D',['../classGaussianSplatRenderer.html#a91cb3531ac5079da25fb4c11d1376472a3b17b5c3aa29216fefdc1030f249180c',1,'GaussianSplatRenderer']]],
-  ['mode_5fhybrid_10',['MODE_HYBRID',['../classGaussianSplatRenderer.html#a91cb3531ac5079da25fb4c11d1376472a4dfcb0041dceb6deac85bf7aa42171c7',1,'GaussianSplatRenderer']]]
+  ['lbd_0',['LBD',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a277b6ab4bb66dfe581cb4fce658317b3',1,'spz']]],
+  ['lbu_1',['LBU',['../namespacespz.html#a19b51669532d1278d8601657d1097df6aa6778a757ccb0afc3f8845f2af08e4af',1,'spz']]],
+  ['ldb_2',['LDB',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a9630d206d80399f359e9ba03ce049143',1,'spz']]],
+  ['ldf_3',['LDF',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a414554565796e21d5df09cee492fd4e0',1,'spz']]],
+  ['leaf_5ftoo_5flarge_4',['LEAF_TOO_LARGE',['../namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9ea65d2b5da5faf663c1f8384473ce49965',1,'gs_hlod_runtime']]],
+  ['lfd_5',['LFD',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a954e5385154a68e932f1261df141df5e',1,'spz']]],
+  ['lfu_6',['LFU',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a96a74b4240085d5b2a73287deef3a5fa',1,'spz']]],
+  ['linear_7',['LINEAR',['../namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aaaac544aacc3615aada24897a215f5046',1,'GaussianSplatting']]],
+  ['loaddirect_8',['LoadDirect',['../classResidencyBudgetController.html#ae668726538d3e1c418ad6fbae5cde8e7a6ceea1655533846d8b745c4328135f09',1,'ResidencyBudgetController']]],
+  ['loading_9',['LOADING',['../classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28acc4170137c1d43dbfbbf373dc265d100',1,'gs_hlod_runtime::NodeResidency::LOADING'],['../classgs__hlod__runtime_1_1ViewSet.html#a06d5685034fdcb3ae0ca9d9de819ba5fa1e76318ec268bea66c980e7cdbcbb15d',1,'gs_hlod_runtime::ViewSet::LOADING'],['../classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28acc4170137c1d43dbfbbf373dc265d100',1,'NodeResidency::LOADING']]],
+  ['lub_10',['LUB',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a6b7678d7653d110d7c0a9b8c72c2dd4b',1,'spz']]],
+  ['luf_11',['LUF',['../namespacespz.html#a19b51669532d1278d8601657d1097df6ad84ae51df70f21738b169a4a0d26fb8f',1,'spz']]],
+  ['lz4_12',['LZ4',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70aca0c64c0de8f56bc573828ea6d764594',1,'GaussianSplatting']]]
 ];

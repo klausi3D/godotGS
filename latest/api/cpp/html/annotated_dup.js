@@ -20,6 +20,7 @@ var annotated_dup =
     ] ],
     [ "GaussianRenderFacadeState", "namespaceGaussianRenderFacadeState.html", [
       [ "DeviceState", "structGaussianRenderFacadeState_1_1DeviceState.html", "structGaussianRenderFacadeState_1_1DeviceState" ],
+      [ "HlodBundle", "structGaussianRenderFacadeState_1_1HlodBundle.html", "structGaussianRenderFacadeState_1_1HlodBundle" ],
       [ "ResourceState", "structGaussianRenderFacadeState_1_1ResourceState.html", "structGaussianRenderFacadeState_1_1ResourceState" ],
       [ "TestDataState", "structGaussianRenderFacadeState_1_1TestDataState.html", "structGaussianRenderFacadeState_1_1TestDataState" ],
       [ "TileRendererState", "structGaussianRenderFacadeState_1_1TileRendererState.html", "structGaussianRenderFacadeState_1_1TileRendererState" ],
@@ -170,6 +171,8 @@ var annotated_dup =
       [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
       [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
       [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],
+      [ "OfflineJob", "structgs__hlod_1_1OfflineJob.html", "structgs__hlod_1_1OfflineJob" ],
+      [ "OfflineJobScope", "structgs__hlod_1_1OfflineJobScope.html", "structgs__hlod_1_1OfflineJobScope" ],
       [ "SplatSpan", "structgs__hlod_1_1SplatSpan.html", "structgs__hlod_1_1SplatSpan" ],
       [ "SplatList", "structgs__hlod_1_1SplatList.html", "structgs__hlod_1_1SplatList" ],
       [ "CellMergeMoments", "structgs__hlod_1_1CellMergeMoments.html", "structgs__hlod_1_1CellMergeMoments" ],
@@ -177,7 +180,40 @@ var annotated_dup =
       [ "MergeScratch", "structgs__hlod_1_1MergeScratch.html", "structgs__hlod_1_1MergeScratch" ],
       [ "InteriorBakeParams", "structgs__hlod_1_1InteriorBakeParams.html", "structgs__hlod_1_1InteriorBakeParams" ],
       [ "InteriorBakeScratch", "structgs__hlod_1_1InteriorBakeScratch.html", "structgs__hlod_1_1InteriorBakeScratch" ],
-      [ "InteriorBakeResult", "structgs__hlod_1_1InteriorBakeResult.html", "structgs__hlod_1_1InteriorBakeResult" ]
+      [ "InteriorBakeResult", "structgs__hlod_1_1InteriorBakeResult.html", "structgs__hlod_1_1InteriorBakeResult" ],
+      [ "QualityResourceLimits", "structgs__hlod_1_1QualityResourceLimits.html", "structgs__hlod_1_1QualityResourceLimits" ],
+      [ "QualityView", "structgs__hlod_1_1QualityView.html", "structgs__hlod_1_1QualityView" ],
+      [ "QualityPixel", "structgs__hlod_1_1QualityPixel.html", "structgs__hlod_1_1QualityPixel" ],
+      [ "QualityProjected", "structgs__hlod_1_1QualityProjected.html", "structgs__hlod_1_1QualityProjected" ],
+      [ "QualityLeafShare", "structgs__hlod_1_1QualityLeafShare.html", "structgs__hlod_1_1QualityLeafShare" ],
+      [ "QualityOrder", "structgs__hlod_1_1QualityOrder.html", "structgs__hlod_1_1QualityOrder" ],
+      [ "QualityPayload", "structgs__hlod_1_1QualityPayload.html", "structgs__hlod_1_1QualityPayload" ],
+      [ "QualityScratch", "structgs__hlod_1_1QualityScratch.html", "structgs__hlod_1_1QualityScratch" ],
+      [ "QualityViewResult", "structgs__hlod_1_1QualityViewResult.html", "structgs__hlod_1_1QualityViewResult" ],
+      [ "QualityResult", "structgs__hlod_1_1QualityResult.html", "structgs__hlod_1_1QualityResult" ],
+      [ "QualityBandResult", "structgs__hlod_1_1QualityBandResult.html", "structgs__hlod_1_1QualityBandResult" ]
+    ] ],
+    [ "gs_hlod_pack", "namespacegs__hlod__pack.html", [
+      [ "Params", "structgs__hlod__pack_1_1Params.html", "structgs__hlod__pack_1_1Params" ],
+      [ "Output", "structgs__hlod__pack_1_1Output.html", "structgs__hlod__pack_1_1Output" ],
+      [ "PayloadView", "structgs__hlod__pack_1_1PayloadView.html", "structgs__hlod__pack_1_1PayloadView" ]
+    ] ],
+    [ "gs_hlod_runtime", "namespacegs__hlod__runtime.html", [
+      [ "LeafEdit", "structgs__hlod__runtime_1_1LeafEdit.html", "structgs__hlod__runtime_1_1LeafEdit" ],
+      [ "NodeResidency", "classgs__hlod__runtime_1_1NodeResidency.html", "classgs__hlod__runtime_1_1NodeResidency" ],
+      [ "CutRequest", "structgs__hlod__runtime_1_1CutRequest.html", "structgs__hlod__runtime_1_1CutRequest" ],
+      [ "CutHistory", "classgs__hlod__runtime_1_1CutHistory.html", "classgs__hlod__runtime_1_1CutHistory" ],
+      [ "NodeKey", "structgs__hlod__runtime_1_1NodeKey.html", "structgs__hlod__runtime_1_1NodeKey" ],
+      [ "NodeVersion", "structgs__hlod__runtime_1_1NodeVersion.html", "structgs__hlod__runtime_1_1NodeVersion" ],
+      [ "Caps", "structgs__hlod__runtime_1_1Caps.html", "structgs__hlod__runtime_1_1Caps" ],
+      [ "SnapshotAsset", "structgs__hlod__runtime_1_1SnapshotAsset.html", "structgs__hlod__runtime_1_1SnapshotAsset" ],
+      [ "SnapshotInstance", "structgs__hlod__runtime_1_1SnapshotInstance.html", "structgs__hlod__runtime_1_1SnapshotInstance" ],
+      [ "ViewSpec", "structgs__hlod__runtime_1_1ViewSpec.html", "structgs__hlod__runtime_1_1ViewSpec" ],
+      [ "ResidencyBudget", "structgs__hlod__runtime_1_1ResidencyBudget.html", "structgs__hlod__runtime_1_1ResidencyBudget" ],
+      [ "SelectionSnapshot", "structgs__hlod__runtime_1_1SelectionSnapshot.html", "structgs__hlod__runtime_1_1SelectionSnapshot" ],
+      [ "DrawRecord", "structgs__hlod__runtime_1_1DrawRecord.html", "structgs__hlod__runtime_1_1DrawRecord" ],
+      [ "DesiredRecord", "structgs__hlod__runtime_1_1DesiredRecord.html", "structgs__hlod__runtime_1_1DesiredRecord" ],
+      [ "ViewSet", "classgs__hlod__runtime_1_1ViewSet.html", "classgs__hlod__runtime_1_1ViewSet" ]
     ] ],
     [ "gs_layout_hint", "namespacegs__layout__hint.html", [
       [ "LayoutHintValidationFailure", "structgs__layout__hint_1_1LayoutHintValidationFailure.html", "structgs__layout__hint_1_1LayoutHintValidationFailure" ],
@@ -193,6 +229,15 @@ var annotated_dup =
     ] ],
     [ "gs_world_format", "namespacegs__world__format.html", [
       [ "HeaderLayout", "structgs__world__format_1_1HeaderLayout.html", "structgs__world__format_1_1HeaderLayout" ]
+    ] ],
+    [ "gs_world_frame", "namespacegs__world__frame.html", [
+      [ "PreciseCoord", "structgs__world__frame_1_1PreciseCoord.html", "structgs__world__frame_1_1PreciseCoord" ],
+      [ "PrecisePlacement", "structgs__world__frame_1_1PrecisePlacement.html", "structgs__world__frame_1_1PrecisePlacement" ],
+      [ "OriginShiftHook", "classgs__world__frame_1_1OriginShiftHook.html", "classgs__world__frame_1_1OriginShiftHook" ],
+      [ "WorldOriginContext", "classgs__world__frame_1_1WorldOriginContext.html", "classgs__world__frame_1_1WorldOriginContext" ]
+    ] ],
+    [ "gs_world_paged", "namespacegs__world__paged.html", [
+      [ "NodeMetrics", "structgs__world__paged_1_1NodeMetrics.html", "structgs__world__paged_1_1NodeMetrics" ]
     ] ],
     [ "ResidentAtlasBudget", "namespaceResidentAtlasBudget.html", [
       [ "SubsetPlan", "structResidentAtlasBudget_1_1SubsetPlan.html", "structResidentAtlasBudget_1_1SubsetPlan" ]
@@ -249,6 +294,7 @@ var annotated_dup =
     [ "DebugOverlaySystem", "classDebugOverlaySystem.html", "classDebugOverlaySystem" ],
     [ "DependencyNode", "structDependencyNode.html", "structDependencyNode" ],
     [ "DeviceContext", "structDeviceContext.html", "structDeviceContext" ],
+    [ "DrawnNodeGPU", "structDrawnNodeGPU.html", "structDrawnNodeGPU" ],
     [ "FramebufferCopyParams", "structFramebufferCopyParams.html", "structFramebufferCopyParams" ],
     [ "FrameCompletionTracker", "classFrameCompletionTracker.html", "classFrameCompletionTracker" ],
     [ "FrustumCullParamsGPU", "structFrustumCullParamsGPU.html", "structFrustumCullParamsGPU" ],
@@ -257,6 +303,7 @@ var annotated_dup =
     [ "GaussianCloudData", "structGaussianCloudData.html", "structGaussianCloudData" ],
     [ "GaussianData", "classGaussianData.html", "classGaussianData" ],
     [ "GaussianDataLoadResult", "structGaussianDataLoadResult.html", "structGaussianDataLoadResult" ],
+    [ "GaussianHlodViewLifetime", "classGaussianHlodViewLifetime.html", "classGaussianHlodViewLifetime" ],
     [ "GaussianImportPresetDefinition", "structGaussianImportPresetDefinition.html", "structGaussianImportPresetDefinition" ],
     [ "GaussianMemoryStream", "classGaussianMemoryStream.html", "classGaussianMemoryStream" ],
     [ "GaussianRenderingDiagnostics", "classGaussianRenderingDiagnostics.html", "classGaussianRenderingDiagnostics" ],
@@ -269,6 +316,8 @@ var annotated_dup =
     [ "GaussianSplatHlodCell", "structGaussianSplatHlodCell.html", "structGaussianSplatHlodCell" ],
     [ "GaussianSplatHlodInstance", "structGaussianSplatHlodInstance.html", "structGaussianSplatHlodInstance" ],
     [ "GaussianSplatHlodNode", "structGaussianSplatHlodNode.html", "structGaussianSplatHlodNode" ],
+    [ "GaussianSplatHlodPagedSource", "classGaussianSplatHlodPagedSource.html", "classGaussianSplatHlodPagedSource" ],
+    [ "GaussianSplatHlodRuntimeData", "classGaussianSplatHlodRuntimeData.html", "classGaussianSplatHlodRuntimeData" ],
     [ "GaussianSplatHlodTree", "structGaussianSplatHlodTree.html", "structGaussianSplatHlodTree" ],
     [ "GaussianSplatManager", "classGaussianSplatManager.html", "classGaussianSplatManager" ],
     [ "GaussianSplatMergeResult", "structGaussianSplatMergeResult.html", "structGaussianSplatMergeResult" ],
@@ -301,6 +350,10 @@ var annotated_dup =
     [ "GSStartupTrace", "classGSStartupTrace.html", "classGSStartupTrace" ],
     [ "GSStartupTraceScope", "classGSStartupTraceScope.html", "classGSStartupTraceScope" ],
     [ "GSStartupTraceSnapshot", "structGSStartupTraceSnapshot.html", "structGSStartupTraceSnapshot" ],
+    [ "HlodFallback", "structHlodFallback.html", "structHlodFallback" ],
+    [ "HlodNodeStreamer", "classHlodNodeStreamer.html", "classHlodNodeStreamer" ],
+    [ "HlodViewIdentity", "structHlodViewIdentity.html", "structHlodViewIdentity" ],
+    [ "HlodViewOutcome", "structHlodViewOutcome.html", "structHlodViewOutcome" ],
     [ "ICuller", "classICuller.html", "classICuller" ],
     [ "IDebugOverlaySystem", "classIDebugOverlaySystem.html", "classIDebugOverlaySystem" ],
     [ "IGaussianLoader", "classIGaussianLoader.html", "classIGaussianLoader" ],
@@ -336,6 +389,7 @@ var annotated_dup =
     [ "LODBlendConfig", "structLODBlendConfig.html", "structLODBlendConfig" ],
     [ "LODConfig", "structLODConfig.html", "structLODConfig" ],
     [ "LODDebugStats", "structLODDebugStats.html", "structLODDebugStats" ],
+    [ "NodeResidency", "classNodeResidency.html", "classNodeResidency" ],
     [ "OneSweepSort", "classOneSweepSort.html", "classOneSweepSort" ],
     [ "OutputCompositor", "classOutputCompositor.html", "classOutputCompositor" ],
     [ "OutputCopyParams", "structOutputCopyParams.html", "structOutputCopyParams" ],

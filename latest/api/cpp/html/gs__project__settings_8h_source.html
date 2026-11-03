@@ -383,16 +383,35 @@ $(function(){initNavTree('gs__project__settings_8h_source.html','',''); });
 <div class="line"><a id="l00391" name="l00391"></a><span class="lineno">  391</span>    <span class="keywordflow">return</span> settings;</div>
 <div class="line"><a id="l00392" name="l00392"></a><span class="lineno">  392</span>}</div>
 <div class="line"><a id="l00393" name="l00393"></a><span class="lineno">  393</span> </div>
-<div class="line"><a id="l00394" name="l00394"></a><span class="lineno">  394</span>} <span class="comment">// namespace settings</span></div>
+<div class="foldopen" id="foldopen00394" data-start="{" data-end="}">
+<div class="line"><a id="l00394" name="l00394"></a><span class="lineno"><a class="line" href="namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2">  394</a></span><span class="keyword">inline</span> <span class="keywordtype">bool</span> <a class="code hl_function" href="namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2">get_hlod_runtime_cut_enabled</a>(ProjectSettings *p_ps) {</div>
+<div class="line"><a id="l00395" name="l00395"></a><span class="lineno">  395</span>    <span class="keywordflow">return</span> get_bool(p_ps, <span class="stringliteral">&quot;rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled&quot;</span>, <span class="keyword">false</span>);</div>
+<div class="line"><a id="l00396" name="l00396"></a><span class="lineno">  396</span>}</div>
 </div>
-<div class="line"><a id="l00395" name="l00395"></a><span class="lineno">  395</span>} <span class="comment">// namespace gs</span></div>
+<div class="line"><a id="l00397" name="l00397"></a><span class="lineno">  397</span> </div>
+<div class="foldopen" id="foldopen00398" data-start="{" data-end="}">
+<div class="line"><a id="l00398" name="l00398"></a><span class="lineno"><a class="line" href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">  398</a></span><span class="keyword">inline</span> <span class="keywordtype">float</span> <a class="code hl_function" href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">get_hlod_tau_px</a>(ProjectSettings *p_ps) {</div>
+<div class="line"><a id="l00399" name="l00399"></a><span class="lineno">  399</span>    <span class="keyword">const</span> <span class="keywordtype">float</span> tau = get_float(p_ps, <span class="stringliteral">&quot;rendering/gaussian_splatting/lod/hlod_tau_px&quot;</span>, 1.0f);</div>
+<div class="line"><a id="l00400" name="l00400"></a><span class="lineno">  400</span>    <span class="keywordflow">if</span> (!Math::is_finite(tau) || tau &lt;= 0.0f) {</div>
+<div class="line"><a id="l00401" name="l00401"></a><span class="lineno">  401</span>        WARN_PRINT_ONCE(<span class="stringliteral">&quot;Invalid HLOD pixel threshold; using the documented 1px default.&quot;</span>);</div>
+<div class="line"><a id="l00402" name="l00402"></a><span class="lineno">  402</span>        <span class="keywordflow">return</span> 1.0f;</div>
+<div class="line"><a id="l00403" name="l00403"></a><span class="lineno">  403</span>    }</div>
+<div class="line"><a id="l00404" name="l00404"></a><span class="lineno">  404</span>    <span class="keywordflow">return</span> tau;</div>
+<div class="line"><a id="l00405" name="l00405"></a><span class="lineno">  405</span>}</div>
 </div>
-<div class="line"><a id="l00396" name="l00396"></a><span class="lineno">  396</span> </div>
-<div class="line"><a id="l00397" name="l00397"></a><span class="lineno">  397</span><span class="preprocessor">#endif </span><span class="comment">// GS_PROJECT_SETTINGS_H</span></div>
+<div class="line"><a id="l00406" name="l00406"></a><span class="lineno">  406</span> </div>
+<div class="line"><a id="l00407" name="l00407"></a><span class="lineno">  407</span>} <span class="comment">// namespace settings</span></div>
+</div>
+<div class="line"><a id="l00408" name="l00408"></a><span class="lineno">  408</span>} <span class="comment">// namespace gs</span></div>
+</div>
+<div class="line"><a id="l00409" name="l00409"></a><span class="lineno">  409</span> </div>
+<div class="line"><a id="l00410" name="l00410"></a><span class="lineno">  410</span><span class="preprocessor">#endif </span><span class="comment">// GS_PROJECT_SETTINGS_H</span></div>
 <div class="ttc" id="anamespacegs_1_1settings_html"><div class="ttname"><a href="namespacegs_1_1settings.html">gs::settings</a></div><div class="ttdef"><b>Definition</b> gs_project_settings.h:42</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_aa27837ccd5814217365e11a518ac303e"><div class="ttname"><a href="namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303e">gs::settings::GSStreamingRoutePolicy</a></div><div class="ttdeci">GSStreamingRoutePolicy</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:209</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_aa27837ccd5814217365e11a518ac303ea47f0b30e8efe0c1a29c1ece5abd0f07f"><div class="ttname"><a href="namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303ea47f0b30e8efe0c1a29c1ece5abd0f07f">gs::settings::GS_ROUTE_STREAMING</a></div><div class="ttdeci">@ GS_ROUTE_STREAMING</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:211</div></div>
 <div class="ttc" id="anamespacegs_1_1settings_html_aa27837ccd5814217365e11a518ac303eabf314684d6b75e1f14d6de1328bbf999"><div class="ttname"><a href="namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303eabf314684d6b75e1f14d6de1328bbf999">gs::settings::GS_ROUTE_RESIDENT</a></div><div class="ttdeci">@ GS_ROUTE_RESIDENT</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:210</div></div>
+<div class="ttc" id="anamespacegs_1_1settings_html_ab80a8a2f092f535a0e426647d13b93f2"><div class="ttname"><a href="namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2">gs::settings::get_hlod_runtime_cut_enabled</a></div><div class="ttdeci">bool get_hlod_runtime_cut_enabled(ProjectSettings *p_ps)</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:394</div></div>
+<div class="ttc" id="anamespacegs_1_1settings_html_ab92300a72b06e29f307ccf3df62781d0"><div class="ttname"><a href="namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0">gs::settings::get_hlod_tau_px</a></div><div class="ttdeci">float get_hlod_tau_px(ProjectSettings *p_ps)</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:398</div></div>
 <div class="ttc" id="anamespacegs_html"><div class="ttname"><a href="namespacegs.html">gs</a></div><div class="ttdef"><b>Definition</b> gs_project_settings.h:24</div></div>
 <div class="ttc" id="astructgs_1_1settings_1_1GSLightingSettings_html"><div class="ttname"><a href="structgs_1_1settings_1_1GSLightingSettings.html">gs::settings::GSLightingSettings</a></div><div class="ttdoc">The six rendering/gaussian_splatting/lighting/* settings.</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:297</div></div>
 <div class="ttc" id="astructgs_1_1settings_1_1GSLightingSettings_html_a259178712cb20c67e52bee2d0e021a0b"><div class="ttname"><a href="structgs_1_1settings_1_1GSLightingSettings.html#a259178712cb20c67e52bee2d0e021a0b">gs::settings::GSLightingSettings::shadow_receiver_bias_scale</a></div><div class="ttdeci">float shadow_receiver_bias_scale</div><div class="ttdef"><b>Definition</b> gs_project_settings.h:301</div></div>

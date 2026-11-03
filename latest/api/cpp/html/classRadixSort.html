@@ -108,6 +108,7 @@ Collaboration diagram for RadixSort:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a92fec8f9bb15493736ca119f92fbaea9" id="r_a92fec8f9bb15493736ca119f92fbaea9"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a92fec8f9bb15493736ca119f92fbaea9">RadixSort</a> ()</td></tr>
 <tr class="memitem:a39bb0a2b79c12c80271de030705be3f9" id="r_a39bb0a2b79c12c80271de030705be3f9"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a39bb0a2b79c12c80271de030705be3f9">~RadixSort</a> () override</td></tr>
+<tr class="memitem:a933e24728c7fbb950a8ff08970c01f0e" id="r_a933e24728c7fbb950a8ff08970c01f0e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a933e24728c7fbb950a8ff08970c01f0e">get_allocated_buffer_bytes</a> (uint64_t &amp;r_bytes) const override</td></tr>
 <tr class="memitem:a9bddd72d2588f3aadbd9225888e74274" id="r_a9bddd72d2588f3aadbd9225888e74274"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9bddd72d2588f3aadbd9225888e74274">initialize</a> (RenderingDevice *p_rd, uint32_t p_max_elements) override</td></tr>
 <tr class="memitem:a7af932e814782d4f3933bd942d5df4be" id="r_a7af932e814782d4f3933bd942d5df4be"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7af932e814782d4f3933bd942d5df4be">shutdown</a> () override</td></tr>
 <tr class="memitem:ac9547a7c58cd9fca89e5b7323231d78d" id="r_ac9547a7c58cd9fca89e5b7323231d78d"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac9547a7c58cd9fca89e5b7323231d78d">sort</a> (RID keys_buffer, RID values_buffer, uint32_t count) override</td></tr>
@@ -530,6 +531,33 @@ Additional Inherited Members</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Implements <a class="el" href="classIGPUSorter.html#ac79b005668594092391d425f9cad2ea5">IGPUSorter</a>.</p>
+
+</div>
+</div>
+<a id="a933e24728c7fbb950a8ff08970c01f0e" name="a933e24728c7fbb950a8ff08970c01f0e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a933e24728c7fbb950a8ff08970c01f0e">&#9670;&#160;</a></span>get_allocated_buffer_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool RadixSort::get_allocated_buffer_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Reimplemented from <a class="el" href="classIGPUSorter.html#a9dd8f1a4bd5616bf9f8d14ba44f0f2a6">IGPUSorter</a>.</p>
 
 </div>
 </div>
