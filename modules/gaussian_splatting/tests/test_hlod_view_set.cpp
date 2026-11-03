@@ -1174,6 +1174,34 @@ TEST_CASE("[GaussianSplatting][HLOD] shrinking headroom keeps an affordable rese
 	CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds + 1);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] content revisions under admitted views do not accumulate superseded rank tables") {
+	// Successive edits (each a new content revision) commit while the same views stay admitted: no admission or
+	// removal runs, so only select() can drop the table each revision supersedes.
+	auto tree = make_tree(IDENT);
+	SelectionSnapshot snap = snapshot(tree, 0, 1000000);
+	RenderFrameContextManager mgr;
+	mgr.set_hlod_liveness_check(&all_live);
+	ViewSpec spec = perspective(0);
+	const HlodViewIdentity a = identity_of(101, 7, 5);
+	const HlodViewIdentity b = identity_of(202, 8, 5);
+	CHECK(mgr.select_hlod_view(a, 1, snap, spec).admitted_now);
+	CHECK(mgr.select_hlod_view(b, 1, snap, spec).admitted_now);
+	const uint64_t builds = mgr.get_hlod_view_set().tie_rank_builds();
+	const uint64_t steady_bytes = mgr.get_hlod_view_set().allocated_bytes();
+	for (int revision = 0; revision < 8; ++revision) {
+		tree->source_revision = 1000 + revision;
+		HlodViewOutcome out = mgr.select_hlod_view(a, 1, snap, spec);
+		CHECK(out.active());
+		CHECK_FALSE(out.admitted_now);
+		out = mgr.select_hlod_view(b, 1, snap, spec);
+		CHECK(out.active());
+		CHECK_FALSE(out.admitted_now);
+		// One new table per revision, shared by both views; the superseded one is gone.
+		CHECK(mgr.get_hlod_view_set().tie_rank_builds() == builds + 1 + revision);
+		CHECK(mgr.get_hlod_view_set().allocated_bytes() == steady_bytes);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] bindings of freed buffers or stale epochs are evicted before a new view is refused") {
 	auto tree = make_tree(IDENT);
 	SelectionSnapshot snap = snapshot(tree, 0, 1000000);

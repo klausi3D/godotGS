@@ -168,6 +168,9 @@ static uint64_t snapshot_content_key(const GaussianSplatHlodRuntimeData &p_data)
 // Tie ranks are O(n log n) plus an allocation: keep them per asset content (key, snapshot object, revision,
 // node count) so admission and re-admission share them. Slots hold a copy-on-write reference.
 bool ViewSet::cached_tie_rank(const SnapshotAsset &p_asset, Vector<uint32_t> &r_rank) const {
+	// Every call (re)assigns a slot's ranks, so the table that slot held may now be unreferenced, even on a hit
+	// (a second view adopting a table another view already built). Steady-state frames never get here.
+	rank_cache_dirty = true;
 	const uint64_t source = uint64_t(p_asset.data->get_instance_id());
 	const uint64_t revision = p_asset.data->source_revision;
 	const uint32_t nodes = p_asset.data->nodes.size();
@@ -190,8 +193,11 @@ bool ViewSet::cached_tie_rank(const SnapshotAsset &p_asset, Vector<uint32_t> &r_
 	return true;
 }
 
-// Drops cache entries no slot refers to any more (called on admission and removal, never per frame).
+// Drops cache entries no slot refers to any more. Called on admission and removal, and by select() only in a frame
+// that added a table (a content or edit revision replaced a slot's ranks): never in a steady-state frame. Without
+// the select() call, edits committed under admitted views kept every superseded table until the next admission.
 void ViewSet::prune_rank_cache() {
+	rank_cache_dirty = false;
 	for (int i = rank_cache.size() - 1; i >= 0; --i) {
 		bool used = false;
 		for (int v = 0; v < views.size() && !used; ++v) {
@@ -642,6 +648,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.draw_generation = view.draw_generation;
 		}
 	}
+	if (rank_cache_dirty) { prune_rank_cache(); }
 	return any_unaffordable ? SNAPSHOT_OVER_BUDGET : SNAPSHOT_OK;
 }
 

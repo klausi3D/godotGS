@@ -290,6 +290,8 @@ private:
 	};
 	mutable uint64_t rank_builds = 0;
 	mutable Vector<RankEntry> rank_cache; // Shared with the slots; see cached_tie_rank().
+	// Set whenever a slot's ranks are (re)assigned, which can orphan the table it held; select() then prunes once.
+	mutable bool rank_cache_dirty = false;
 	Vector<View> views; // Ascending view key.
 	Vector<ViewResult> result_store;
 	uint32_t result_count = 0;
