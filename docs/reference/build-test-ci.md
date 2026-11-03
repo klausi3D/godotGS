@@ -225,7 +225,7 @@ The executable harness for it is `tests/examples/godot/test_project/tests/test_r
 python tests/ci/run_baseline_qa.py --godot <module-built-binary> --category renderer
 ```
 
-It is launched with `--display-driver windows --rendering-driver vulkan --render-thread separate --path tests/examples/godot/test_project`, and the script lives *inside* that project (`res://tests/test_render_thread_dispatch.gd`).
+It is launched with `--display-driver <windows|x11> --rendering-driver vulkan --render-thread separate --path tests/examples/godot/test_project`, and the script lives *inside* that project (`res://tests/test_render_thread_dispatch.gd`).
 
 **The `--path` is load-bearing, not cosmetic.** `--render-thread separate` is what makes the script run *off* the render thread, which the characterization asserts as a precondition — but an editor build that finds no project falls back to the project manager (`main/main.cpp:2031-2034`), and `if (editor || project_manager) { separate_thread_render = 0; }` (`main/main.cpp:2760-2763`) then downgrades the mode silently: no warning, no non-zero exit, `RenderingServer.is_on_render_thread()` simply returns `true` on the main thread. Measured on the GPU runner with one binary and identical flags, differing only in whether a project was loaded: without `--path`, `on_render_thread=true`; with it, `false`. A test that requests `separate` must therefore also declare a `project_path`, which `test_baseline_qa_require_flag.py` asserts for every such entry rather than for this one by name.
 
@@ -240,7 +240,18 @@ The GDScript bindings it drives (`test_dispatch_call_on_render_thread_blocking_*
 - [Baseline QA workflow (gpu-tests + gpu-harness visual gate)](../../.github/workflows/baseline_qa.yml)
 - [Renderer release gate contract](renderer-release-gates.md)
 
-Fork-PR safety gate: the `gpu-tests` and `gpu-harness` jobs in `baseline_qa.yml` both guard on `github.event.pull_request.head.repo.full_name == github.repository`, so untrusted fork-PR code never executes on the self-hosted Windows GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate.
+Fork-PR safety gate: the `gpu-tests` and `gpu-harness` jobs in `baseline_qa.yml` both guard on `github.event.pull_request.head.repo.full_name == github.repository`, so untrusted fork-PR code never executes on the self-hosted GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate.
+
+### Self-hosted Linux GPU runner
+
+The only self-hosted runner is `gpu-linux-3080` (labels `self-hosted, X64, gpu, Linux, rtx3080`; Ubuntu 24.04, RTX 3080 with 10 GB of VRAM, 24 GB RAM). Every self-hosted GPU/guard/shader job runs there; the Windows editor and export-template builds run on GitHub-hosted `windows-latest`; the one job that needs Windows *and* a GPU (`export_smoke_windows`) waits for a Windows GPU workstation labelled `self-hosted, Windows, X64, gpu, d3d12`.
+
+- **Display and driver.** Godot renders on the real Xorg of the NVIDIA GPU (`DISPLAY=:0`, `--display-driver x11 --rendering-driver vulkan`). Do not use Xvfb: it has no NVIDIA Vulkan. The runner `.env` pins `VK_ICD_FILENAMES` to the NVIDIA ICD; jobs must not override it.
+- **No sudo.** Jobs never install system packages. `bash tests/ci/linux_gpu_runner.sh check-tools` fails closed and lists what is missing (Python 3.11 via `uv`, else `python3.11`, else a `python3` >= 3.11 — the hash-locked requirements were compiled for 3.11 and 3.12.3 is accepted because it was observed to build and pass on the runner; `glslangValidator`/`glslc`, an NVIDIA Vulkan device, `DISPLAY`; `pwsh` only for the production-evidence collector).
+- **Build.** `python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes ... cache_path=/opt/actions-runner/godotgs-scons-cache -j16`. The editor builds against the headers bundled in `thirdparty/linuxbsd_headers` (`use_sowrap=yes`, the default), so no `-dev` packages are needed. `-j16` rather than `nproc` (32) because the machine has 24 GB of RAM. The binary is `bin/godot.linuxbsd.editor.dev.x86_64`.
+- **Runtime mode.** `run_runtime_validation.py --gd-mode gpu-vulkan` resolves to the host's GPU driver (`windows` on Windows, `x11` on Linux); `windows-vulkan` remains for explicitly Windows-only callers.
+- **Reporting.** Step summaries and the harness provenance record come from `tests/ci/ci_reports.py` (stdlib only).
+- **Baselines.** The visual baselines, the QA scene baseline and any absolute perf budget were recorded on a Windows RTX 3090. A failure on the 3080 that is only about absolute numbers or pixels is a re-baselining decision for the maintainer, not a reason to loosen a threshold.
 
 Required status checks on `master`: two, both GitHub-hosted. They are the
 `agentic-pr-gate` job in `.github/workflows/agentic_pr_gate.yml` and the

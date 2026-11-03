@@ -45,7 +45,7 @@ on:
   workflow_dispatch:
     inputs:
       run_gpu_lane:
-        description: "Run self-hosted Windows GPU evidence lane"
+        description: "Run self-hosted GPU evidence lane"
         required: false
         default: false
         type: boolean
@@ -92,7 +92,7 @@ env:
 jobs:
   guards:
     name: Guards (Render Path + Static Safety)
-    # Never run self-hosted Windows on untrusted fork PR code. Same-repo
+    # Never run self-hosted code on untrusted fork PR code. Same-repo
     # branches (maintainer PRs) still trigger the gate; fork PRs are skipped.
     # Mirrors the guard already used in baseline_qa.yml / release_builds.yml and
     # protects the persistent runner's scons cache, credential store, and Actions
@@ -100,17 +100,20 @@ jobs:
     # `methods.py`, or any `SCsub` checked out from a fork. (merge_group is
     # maintainer-gated — see the README runner trust boundary.)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
-    runs-on: [self-hosted, Windows, X64, godotgs]
+    # The only self-hosted runner is the Linux RTX 3080 box. No `gpu` label: this
+    # job renders nothing and builds nothing, so it is not part of the GPU pool
+    # that the contention/environment preflights guard.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     defaults:
       run:
         working-directory: repo
+        shell: bash
     steps:
       - name: Configure Git safe.directory for self-hosted workspace
-        shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          git config --global --add safe.directory '*'
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,9 +124,17 @@ jobs:
           set-safe-directory: false
 
       - name: Verify Python on runner
-        shell: pwsh
         run: |
-          python --version
+          python3 --version
+
+      # GAP-403: the guard phase runs the S1b quality harness unit tests, which
+      # import numpy. Nothing is installed into the runner's global interpreter
+      # (and it has no sudo), so numpy goes into a per-job venv from the
+      # hash-locked tests/ci/requirements-test-data.txt; its bin/ is prepended
+      # to PATH through GITHUB_PATH, so `python3` below is the venv interpreter.
+      # A missing numpy fails this step instead of the guard lane.
+      - name: Install guard dependencies (numpy)
+        run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
 
       - name: Run guard checks
         # GS_CI_BASE_REF is the review base the shrink-only ratchets in
@@ -137,9 +148,8 @@ jobs:
             ${{ github.event_name == 'merge_group'
                 && github.event.merge_group.base_sha
                 || github.event.pull_request.base.sha }}
-        shell: pwsh
         run: |
-          python tests/ci/run_module_tests.py --guard-only
+          python3 tests/ci/run_module_tests.py --guard-only
 
   gpu-evidence-requirement:
     name: GPU Evidence Requirement
@@ -243,30 +253,32 @@ jobs:
     name: Module Build + Runtime Harness (Windows Self-Hosted)
     # Same fork-PR guard as the guards job above: never build/run untrusted
     # fork PR code (SConstruct, methods.py, tests/ci/*.py, SCsub) on the
-    # persistent self-hosted Windows + GPU runner. `needs: guards` already
+    # persistent self-hosted GPU runner. `needs: guards` already
     # cascades the skip, but the explicit guard keeps each job self-describing.
+    # The job NAME above still says "Windows Self-Hosted" on purpose: it is a
+    # status-check context and renaming it is a separate decision. The only
+    # self-hosted runner is now the Linux RTX 3080 box.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
-    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    runs-on: [self-hosted, Linux, X64, gpu]
     needs:
       - guards
       - gpu-evidence-requirement
     timeout-minutes: 120
-    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
-    # processes. Rationale and the measured loader behaviour: the "Self-hosted
-    # GPU runner environment" section of .github/workflows/README.md. Setting
-    # these proves nothing on its own, which is why the preflight step below
-    # reads back the chain the loader actually built.
+    # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
+    # of this job's GPU processes. Rationale and the measured loader behaviour:
+    # the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md. Setting these proves nothing on its own, which
+    # is why the preflight step below reads back the chain the loader actually
+    # built.
     env:
-      # Loader-side filter. Honoured only in a NON-elevated process: this
-      # runner's service is registered as LocalSystem, and the loader discards
-      # its own filter variables when elevated (measured -- run 31603970211).
-      # Kept because they are the only mechanism covering a layer nobody has
-      # enumerated, and because they do work on a non-elevated runner.
+      # Loader-side filter. Honoured only in a NON-elevated process; the Linux
+      # runner is not elevated, so on Linux this alone strips implicit layers.
       VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
-      # What actually strips the layers here: each layer's own opt-out, declared
-      # in its own manifest under `disable_environment`. The loader reads these
-      # unprivileged, so they survive the elevated job. Mirrored in
+      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
+      # driver's layers are not implicit, and force-enabling them would put layers
+      # into the chain that no run outside CI has (measured: the preflight failed).
+      # Each layer's own opt-out, declared in its own manifest under
+      # `disable_environment`. Mirrored in
       # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
       # VK_LAYER_OBS_HOOK
       DISABLE_VULKAN_OBS_CAPTURE: '1'
@@ -274,15 +286,17 @@ jobs:
       DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
       # VK_LAYER_OW_OVERLAY
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
     defaults:
       run:
         working-directory: repo
+        shell: bash
     steps:
       - name: Configure Git safe.directory for self-hosted workspace
-        shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          git config --global --add safe.directory '*'
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -293,79 +307,64 @@ jobs:
           set-safe-directory: false
 
       - name: Verify Python on runner
-        shell: pwsh
         run: |
-          python --version
+          python3 --version
+
+      # This runner has no sudo, so no job installs system packages. This step
+      # fails closed and names exactly what is missing. PowerShell 7 is only
+      # required when the evidence collector (a .ps1) will run.
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools ${{ needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && '--need-pwsh' || '' }}
 
       # Must precede the build and every GPU step: it decides whether anything
       # measured afterwards is a measurement of the renderer (#875).
-      # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
-      # GPU work lands on it while CI runs and turns wall-clock budgets into
-      # failures that read like renderer regressions (#867, #881). This waits for
-      # the GPU to be free, then leaves a background sampler running so the
-      # postflight below can say whether contention began mid-job. It never
-      # relaxes a budget: a contended run is void, not passed.
+      # #875 -- unrelated GPU work landing on the box while CI runs turns
+      # wall-clock budgets into failures that read like renderer regressions
+      # (#867, #881). This waits for the GPU to be free, then leaves a background
+      # sampler running so the postflight below can say whether contention began
+      # mid-job. It never relaxes a budget: a contended run is void, not passed.
       - name: Preflight - GPU contention, wait for a free runner (#875)
-        shell: pwsh
-        run: python tests/ci/runner_gpu_contention.py preflight
+        run: python3 tests/ci/runner_gpu_contention.py preflight
 
       - name: Preflight - runner GPU environment (#875)
-        shell: pwsh
-        run: python tests/ci/preflight_runner_gpu_environment.py
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
 
-      - name: Set up MSVC build env
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # GAP-403: this runner is the maintainer's workstation, so nothing is
-      # installed into its global interpreter. SCons goes into a per-job venv
-      # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
-      # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
-      # every later step), so each later `python`, including `python -m SCons`,
-      # runs in the venv. The only other third-party import is numpy, used by
-      # the S1b quality harness tests that run_module_tests.py runs; it comes
-      # from the hash-locked tests/ci/requirements-test-data.txt into the same
-      # venv, so a missing numpy fails this step instead of the test lane.
+      # GAP-403: nothing is installed into the runner's global interpreter.
+      # SCons goes into a per-job venv from the version-and-hash-locked
+      # tests/ci/requirements-scons.txt, and the venv's bin/ is prepended to PATH
+      # (via GITHUB_PATH, for every later step), so each later `python`,
+      # including `python -m SCons`, runs in the venv. The only other third-party
+      # import is numpy, used by the S1b quality harness tests that
+      # run_module_tests.py runs; `--with-test-data` installs it from the
+      # hash-locked tests/ci/requirements-test-data.txt into the same venv, so a
+      # missing numpy fails this step instead of the test lane.
       - name: Install SCons
-        shell: pwsh
-        run: |
-          $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
-          python -m venv --clear $venv
-          if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
-          $env:PATH = "$venv\Scripts;$env:PATH"
-          if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
-          python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
-          if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
-          python -m pip install --require-hashes -r tests/ci/requirements-test-data.txt
-          if ($LASTEXITCODE -ne 0) { throw "numpy install failed with exit code $LASTEXITCODE" }
-          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
 
+      # -j16, not nproc (32): the box has 24 GB of RAM.
       - name: Build Godot editor with tests
-        shell: pwsh
         run: |
-          python -m SCons platform=windows target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=C:/godotgs-scons-cache cache_limit=50 -j12
+          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
 
       - name: Resolve Godot binary
         id: godot_bin
-        shell: pwsh
         run: |
-          $candidates = @(
-            "bin\\godot.windows.editor.dev.x86_64.console.exe",
-            "bin\\godot.windows.editor.dev.x86_64.exe",
-            "bin\\godot.windows.editor.x86_64.console.exe",
-            "bin\\godot.windows.editor.x86_64.exe"
-          )
-          $resolved = $null
-          foreach ($candidate in $candidates) {
-            if (Test-Path -LiteralPath $candidate) {
-              $resolved = (Resolve-Path -LiteralPath $candidate).Path
+          resolved=""
+          for candidate in \
+            bin/godot.linuxbsd.editor.dev.x86_64 \
+            bin/godot.linuxbsd.editor.x86_64; do
+            if [ -x "$candidate" ]; then
+              resolved="$(realpath "$candidate")"
               break
-            }
-          }
-          if (-not $resolved) {
-            throw "Could not find built Godot binary in expected bin\ paths."
-          }
-          Write-Host "Resolved Godot binary: $resolved"
-          "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            fi
+          done
+          if [ -z "$resolved" ]; then
+            echo "::error::Could not find built Godot binary in expected bin/ paths."
+            ls -la bin || true
+            exit 1
+          fi
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
 
       - name: Run Gaussian pipeline smoke tests
         env:
@@ -378,7 +377,6 @@ jobs:
             ${{ github.event_name == 'merge_group'
                 && github.event.merge_group.base_sha
                 || github.event.pull_request.base.sha }}
-        shell: pwsh
         run: |
           python tests/ci/run_baseline_qa.py --category pipeline --godot "${{ steps.godot_bin.outputs.path }}"
 
@@ -392,9 +390,8 @@ jobs:
             ${{ github.event_name == 'merge_group'
                 && github.event.merge_group.base_sha
                 || github.event.pull_request.base.sha }}
-        shell: pwsh
         run: |
-          python tests/ci/run_module_tests.py --godot-binary "$env:GODOT_BINARY"
+          python tests/ci/run_module_tests.py --godot-binary "$GODOT_BINARY"
 
       # T3 (#891, ADR section 4.6): the two invocations below write DISTINCT
       # report paths. They used to share the default
@@ -406,26 +403,24 @@ jobs:
       - name: Run runtime validation harness (headless structural gate)
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-        shell: pwsh
         run: |
-          python tests/runtime/run_runtime_validation.py `
-            --godot-binary "$env:GODOT_BINARY" `
-            --profile headless-ci `
-            --gd-mode headless `
-            --skip-cpp `
-            --fail-on-skip `
+          python tests/runtime/run_runtime_validation.py \
+            --godot-binary "$GODOT_BINARY" \
+            --profile headless-ci \
+            --gd-mode headless \
+            --skip-cpp \
+            --fail-on-skip \
             --report-path tests/runtime/runtime_validation_report_headless_ci.json
 
-      - name: Run streaming GPU runtime gate (canonical blocking profile, windows-vulkan)
+      - name: Run streaming GPU runtime gate (canonical blocking profile, gpu-vulkan)
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-        shell: pwsh
         run: |
-          python tests/runtime/run_runtime_validation.py `
-            --godot-binary "$env:GODOT_BINARY" `
-            --profile streaming-gpu-ci `
-            --skip-cpp `
-            --fail-on-skip `
+          python tests/runtime/run_runtime_validation.py \
+            --godot-binary "$GODOT_BINARY" \
+            --profile streaming-gpu-ci \
+            --skip-cpp \
+            --fail-on-skip \
             --report-path tests/runtime/runtime_validation_report_streaming_gpu_ci.json
 
       - name: Upload runtime validation reports
@@ -440,6 +435,9 @@ jobs:
             repo/tests/runtime/runtime_validation_report_headless_ci.json
             repo/tests/runtime/runtime_validation_report_streaming_gpu_ci.json
 
+      # The collector is PowerShell (tests/ci/collect_production_evidence.ps1) and
+      # is OS-aware: it picks the `x11` display driver and the linuxbsd binary names
+      # here. PowerShell 7 on the Linux runner is checked by the toolchain step.
       - name: Collect production evidence
         id: evidence
         if: ${{ always() && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.godot_bin.outcome == 'success' }}
@@ -448,17 +446,17 @@ jobs:
           RUNTIME_LOOPS: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_loops || '3' }}
         run: |
           $runtimeLoops = [int]$env:RUNTIME_LOOPS
-          .\tests\ci\collect_production_evidence.ps1 `
+          ./tests/ci/collect_production_evidence.ps1 `
             -Root $PWD `
             -GodotBinary "${{ steps.godot_bin.outputs.path }}" `
-            -OutputRoot (Join-Path $PWD "artifacts\evidence") `
+            -OutputRoot (Join-Path $PWD "artifacts/evidence") `
             -RuntimeLoops $runtimeLoops
           # #1164: the script exits non-zero when any recorded sub-command did
           # not pass. Capture it before anything else runs, publish the evidence
           # directory so the upload step still ships the logs, then fail.
           $evidenceExit = $LASTEXITCODE
 
-          $latest = Get-ChildItem (Join-Path $PWD "artifacts\evidence") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          $latest = Get-ChildItem (Join-Path $PWD "artifacts/evidence") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $latest) {
             throw "Evidence directory not found after run."
           }
@@ -535,29 +533,26 @@ jobs:
       # the run is void, so it cannot be read as a test failure.
       - name: Postflight - GPU contention verdict (#875)
         if: always()
-        shell: pwsh
-        run: python tests/ci/runner_gpu_contention.py postflight
+        run: python3 tests/ci/runner_gpu_contention.py postflight
 
 
   openworld-proof-evidence:
     name: Open-World Proof Evidence (non-blocking)
     if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
     continue-on-error: true
-    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    runs-on: [self-hosted, Linux, X64, gpu]
     timeout-minutes: 120
     # #875 -- see the module-validation job above and the "Self-hosted GPU
     # runner environment" section of .github/workflows/README.md.
     env:
-      # Loader-side filter. Honoured only in a NON-elevated process: this
-      # runner's service is registered as LocalSystem, and the loader discards
-      # its own filter variables when elevated (measured -- run 31603970211).
-      # Kept because they are the only mechanism covering a layer nobody has
-      # enumerated, and because they do work on a non-elevated runner.
+      # Loader-side filter. Honoured only in a NON-elevated process; the Linux
+      # runner is not elevated, so on Linux this alone strips implicit layers.
       VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
-      # What actually strips the layers here: each layer's own opt-out, declared
-      # in its own manifest under `disable_environment`. The loader reads these
-      # unprivileged, so they survive the elevated job. Mirrored in
+      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
+      # driver's layers are not implicit, and force-enabling them would put layers
+      # into the chain that no run outside CI has (measured: the preflight failed).
+      # Each layer's own opt-out, declared in its own manifest under
+      # `disable_environment`. Mirrored in
       # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
       # VK_LAYER_OBS_HOOK
       DISABLE_VULKAN_OBS_CAPTURE: '1'
@@ -565,15 +560,17 @@ jobs:
       DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
       # VK_LAYER_OW_OVERLAY
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
     defaults:
       run:
         working-directory: repo
+        shell: bash
     steps:
       - name: Configure Git safe.directory for self-hosted workspace
-        shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          git config --global --add safe.directory '*'
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -584,75 +581,56 @@ jobs:
           set-safe-directory: false
 
       - name: Verify Python on runner
-        shell: pwsh
         run: |
-          python --version
+          python3 --version
+
+      # This runner has no sudo, so no job installs system packages. This step
+      # fails closed and names exactly what is missing.
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
 
       # Must precede the build and every GPU step: it decides whether anything
       # measured afterwards is a measurement of the renderer (#875).
-      # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
-      # GPU work lands on it while CI runs and turns wall-clock budgets into
-      # failures that read like renderer regressions (#867, #881). This waits for
-      # the GPU to be free, then leaves a background sampler running so the
-      # postflight below can say whether contention began mid-job. It never
-      # relaxes a budget: a contended run is void, not passed.
+      # #875 -- unrelated GPU work landing on the box while CI runs turns
+      # wall-clock budgets into failures that read like renderer regressions
+      # (#867, #881). This waits for the GPU to be free, then leaves a background
+      # sampler running so the postflight below can say whether contention began
+      # mid-job. It never relaxes a budget: a contended run is void, not passed.
       - name: Preflight - GPU contention, wait for a free runner (#875)
-        shell: pwsh
-        run: python tests/ci/runner_gpu_contention.py preflight
+        run: python3 tests/ci/runner_gpu_contention.py preflight
 
       - name: Preflight - runner GPU environment (#875)
-        shell: pwsh
-        run: python tests/ci/preflight_runner_gpu_environment.py
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
 
-      - name: Set up MSVC build env
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # GAP-403: this runner is the maintainer's workstation, so nothing is
-      # installed into its global interpreter. SCons goes into a per-job venv
-      # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
-      # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
-      # every later step), so each later `python`, including `python -m SCons`,
-      # runs in the venv. No repository script this job runs imports a
-      # third-party module, so SCons is the whole toolchain.
+      # GAP-403: per-job venv from the hash-locked file, never the runner's
+      # global interpreter. See the module-validation job above.
       - name: Install SCons
-        shell: pwsh
-        run: |
-          $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
-          python -m venv --clear $venv
-          if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
-          $env:PATH = "$venv\Scripts;$env:PATH"
-          if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
-          python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
-          if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
-          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: bash tests/ci/linux_gpu_runner.sh venv
 
+      # -j16, not nproc (32): the box has 24 GB of RAM.
       - name: Build Godot editor with tests
-        shell: pwsh
         run: |
-          python -m SCons platform=windows target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=C:/godotgs-scons-cache cache_limit=50 -j12
+          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
 
       - name: Resolve Godot binary
         id: godot_bin
-        shell: pwsh
         run: |
-          $candidates = @(
-            "bin\\godot.windows.editor.dev.x86_64.console.exe",
-            "bin\\godot.windows.editor.dev.x86_64.exe",
-            "bin\\godot.windows.editor.x86_64.console.exe",
-            "bin\\godot.windows.editor.x86_64.exe"
-          )
-          $resolved = $null
-          foreach ($candidate in $candidates) {
-            if (Test-Path -LiteralPath $candidate) {
-              $resolved = (Resolve-Path -LiteralPath $candidate).Path
+          resolved=""
+          for candidate in \
+            bin/godot.linuxbsd.editor.dev.x86_64 \
+            bin/godot.linuxbsd.editor.x86_64; do
+            if [ -x "$candidate" ]; then
+              resolved="$(realpath "$candidate")"
               break
-            }
-          }
-          if (-not $resolved) {
-            throw "Could not find built Godot binary in expected bin\ paths."
-          }
-          Write-Host "Resolved Godot binary: $resolved"
-          "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            fi
+          done
+          if [ -z "$resolved" ]; then
+            echo "::error::Could not find built Godot binary in expected bin/ paths."
+            ls -la bin || true
+            exit 1
+          fi
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
 
       # #790: this step used to omit --godot-binary, so it regenerated the
       # lightweight Python-fallback corpus -- test_splats.ply at 1024 splats
@@ -664,11 +642,10 @@ jobs:
       # means the generators are broken, not that the fixtures are small.
       - name: Prepare canonical synthetic assets
         id: prepare_synthetic_assets
-        shell: pwsh
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         run: |
-          python tests/runtime/prepare_synthetic_assets.py --quiet --godot-binary "$env:GODOT_BINARY"
+          python tests/runtime/prepare_synthetic_assets.py --quiet --godot-binary "$GODOT_BINARY"
 
       # #790: `continue-on-error: true` used to sit on this step. The fixture
       # floor guard in run_benchmark.py preflight is fail-closed and was failing
@@ -691,55 +668,52 @@ jobs:
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true) }}
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-        shell: pwsh
         run: |
-          $outputDir = Join-Path $PWD "tests\output\benchmark_evidence\openworld-proof-dev"
-          python tests/runtime/run_benchmark.py `
-            --godot-binary "$env:GODOT_BINARY" `
-            --project-path tests/examples/godot/test_project `
-            --profile performance `
-            --lane open_world_corridor_proof `
-            --lane city_flyover `
-            --require-asset-variant cpp_rich `
-            --no-dashboard `
-            --output-dir $outputDir
+          python tests/runtime/run_benchmark.py \
+            --godot-binary "$GODOT_BINARY" \
+            --project-path tests/examples/godot/test_project \
+            --profile performance \
+            --lane open_world_corridor_proof \
+            --lane city_flyover \
+            --require-asset-variant cpp_rich \
+            --no-dashboard \
+            --output-dir "$PWD/tests/output/benchmark_evidence/openworld-proof-dev"
 
       - name: Summarize openworld-proof-dev evidence
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true)) }}
         env:
           SURFACE_OUTCOME: ${{ steps.openworld_proof_dev.outcome }}
-        shell: pwsh
         run: |
-          $surfaceName = "openworld-proof-dev"
-          $outputDir = Join-Path $PWD "tests\output\benchmark_evidence\openworld-proof-dev"
-          $summaryPath = Join-Path $outputDir "benchmark_suite_summary.md"
-          $stepSummary = $env:GITHUB_STEP_SUMMARY
-          Add-Content -LiteralPath $stepSummary -Value ""
-          Add-Content -LiteralPath $stepSummary -Value "## $surfaceName (non-blocking evidence)"
-          Add-Content -LiteralPath $stepSummary -Value ""
+          surface_name="openworld-proof-dev"
+          summary_path="tests/output/benchmark_evidence/openworld-proof-dev/benchmark_suite_summary.md"
           # #1045: three outcomes must not share an encoding. This job carries
           # continue-on-error, so a failure here never reaches the RUN conclusion --
           # the 2026-09-21 nightly failed and `gh run list` showed green. Until the
           # blocking question on #1045 is decided, the least this surface can do is
           # say which of the three states it is in, in words, at the top.
-          $verdict = switch ($env:SURFACE_OUTCOME) {
-            "success"   { "RAN AND PASSED" }
-            "failure"   { "RAN AND FAILED - this is NOT 'nothing to report'" }
-            "cancelled" { "CANCELLED - no evidence was produced" }
-            "skipped"   { "DID NOT RUN - no evidence was produced, and that is not a pass" }
-            default     { "UNKNOWN OUTCOME '$env:SURFACE_OUTCOME' - treat as no evidence" }
-          }
-          Add-Content -LiteralPath $stepSummary -Value "- **Status: $verdict** (raw outcome: ``$env:SURFACE_OUTCOME``)"
-          Add-Content -LiteralPath $stepSummary -Value "- Lane under test: ``open_world_corridor_proof`` (the only lane that drives a chunked GaussianSplatWorld3D)"
-          Add-Content -LiteralPath $stepSummary -Value ""
-          if (Test-Path -LiteralPath $summaryPath) {
-            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $stepSummary
-          } else {
-            # #790: "not produced" was the only thing this surface ever said, and
-            # it read as "nothing to report" rather than "the fixture contract
-            # refused to publish numbers". Name the outcome, and where to look.
-            Add-Content -LiteralPath $stepSummary -Value "- **No benchmark summary was produced.** The run above ended ``$env:SURFACE_OUTCOME``; if it failed, the benchmark-suite preflight refused to publish numbers (missing, undersized or unrecognized fixture) - read that step's log for the per-lane reason."
-          }
+          case "$SURFACE_OUTCOME" in
+            success)   verdict="RAN AND PASSED" ;;
+            failure)   verdict="RAN AND FAILED - this is NOT 'nothing to report'" ;;
+            cancelled) verdict="CANCELLED - no evidence was produced" ;;
+            skipped)   verdict="DID NOT RUN - no evidence was produced, and that is not a pass" ;;
+            *)         verdict="UNKNOWN OUTCOME '$SURFACE_OUTCOME' - treat as no evidence" ;;
+          esac
+          {
+            echo ""
+            echo "## $surface_name (non-blocking evidence)"
+            echo ""
+            echo "- **Status: $verdict** (raw outcome: \`$SURFACE_OUTCOME\`)"
+            echo "- Lane under test: \`open_world_corridor_proof\` (the only lane that drives a chunked GaussianSplatWorld3D)"
+            echo ""
+            if [ -f "$summary_path" ]; then
+              cat "$summary_path"
+            else
+              # #790: "not produced" was the only thing this surface ever said, and
+              # it read as "nothing to report" rather than "the fixture contract
+              # refused to publish numbers". Name the outcome, and where to look.
+              echo "- **No benchmark summary was produced.** The run above ended \`$SURFACE_OUTCOME\`; if it failed, the benchmark-suite preflight refused to publish numbers (missing, undersized or unrecognized fixture) - read that step's log for the per-lane reason."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload openworld-proof-dev evidence artifact
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true)) }}
@@ -764,38 +738,35 @@ jobs:
         if: ${{ !cancelled() && steps.prepare_synthetic_assets.outcome == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true)) }}
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-        shell: pwsh
         run: |
-          $outputDir = Join-Path $PWD "tests\output\benchmark_evidence\openworld-proof-weekly"
-          python tests/runtime/run_benchmark.py `
-            --godot-binary "$env:GODOT_BINARY" `
-            --project-path tests/examples/godot/test_project `
-            --profile performance `
-            --lane long_soak `
-            --require-asset-variant cpp_rich `
-            --no-dashboard `
-            --output-dir $outputDir
+          python tests/runtime/run_benchmark.py \
+            --godot-binary "$GODOT_BINARY" \
+            --project-path tests/examples/godot/test_project \
+            --profile performance \
+            --lane long_soak \
+            --require-asset-variant cpp_rich \
+            --no-dashboard \
+            --output-dir "$PWD/tests/output/benchmark_evidence/openworld-proof-weekly"
 
       - name: Summarize openworld-proof-weekly evidence
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true)) }}
         env:
           SURFACE_OUTCOME: ${{ steps.openworld_proof_weekly.outcome }}
-        shell: pwsh
         run: |
-          $surfaceName = "openworld-proof-weekly"
-          $outputDir = Join-Path $PWD "tests\output\benchmark_evidence\openworld-proof-weekly"
-          $summaryPath = Join-Path $outputDir "benchmark_suite_summary.md"
-          $stepSummary = $env:GITHUB_STEP_SUMMARY
-          Add-Content -LiteralPath $stepSummary -Value ""
-          Add-Content -LiteralPath $stepSummary -Value "## $surfaceName (non-blocking evidence)"
-          Add-Content -LiteralPath $stepSummary -Value ""
-          Add-Content -LiteralPath $stepSummary -Value "- Benchmark run outcome: ``$env:SURFACE_OUTCOME``"
-          Add-Content -LiteralPath $stepSummary -Value ""
-          if (Test-Path -LiteralPath $summaryPath) {
-            Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $stepSummary
-          } else {
-            Add-Content -LiteralPath $stepSummary -Value "- **No benchmark summary was produced.** The run above ended ``$env:SURFACE_OUTCOME``; if it failed, the benchmark-suite preflight refused to publish numbers (missing, undersized or unrecognized fixture) - read that step's log for the per-lane reason."
-          }
+          surface_name="openworld-proof-weekly"
+          summary_path="tests/output/benchmark_evidence/openworld-proof-weekly/benchmark_suite_summary.md"
+          {
+            echo ""
+            echo "## $surface_name (non-blocking evidence)"
+            echo ""
+            echo "- Benchmark run outcome: \`$SURFACE_OUTCOME\`"
+            echo ""
+            if [ -f "$summary_path" ]; then
+              cat "$summary_path"
+            else
+              echo "- **No benchmark summary was produced.** The run above ended \`$SURFACE_OUTCOME\`; if it failed, the benchmark-suite preflight refused to publish numbers (missing, undersized or unrecognized fixture) - read that step's log for the per-lane reason."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload openworld-proof-weekly evidence artifact
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true)) }}
@@ -809,6 +780,4 @@ jobs:
       # the run is void, so it cannot be read as a test failure.
       - name: Postflight - GPU contention verdict (#875)
         if: always()
-        shell: pwsh
-        run: python tests/ci/runner_gpu_contention.py postflight
-
+        run: python3 tests/ci/runner_gpu_contention.py postflight

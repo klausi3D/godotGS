@@ -132,7 +132,7 @@ BACKLOG_FINGERPRINT = "f4998c2e91696c4a0ae11ab4f444f04d6f905f967d477b6684224fe66
 #   #329 (closed 2026-07-22, still cited by the Importer waiver until #1165),
 #   #643 (closed 2026-07-25 by PR #776; its waiver is retired by #1165).
 WAIVER_ISSUES_VERIFIED_OPEN = frozenset({910, 917})
-WAIVER_ISSUES_VERIFIED_OPEN_UTC = "2026-10-04T00:00:00Z"
+WAIVER_ISSUES_VERIFIED_OPEN_UTC = "2026-11-01T00:00:00Z"
 # The allowlist only answers "was this open when a human last looked". Bound how
 # stale that answer may get; same horizon as the quarantine manifest's guard.
 WAIVER_ISSUE_VERIFICATION_MAX_AGE_DAYS = 180
@@ -799,7 +799,10 @@ class GpuHarnessWaiverLivenessTests(unittest.TestCase):
         self.assertEqual(waiver_liveness_problems(later, self.NOW), [])
 
     def test_stale_allowlist_verification_is_rejected(self):
-        verified = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        # Anchor on the pinned constant, not a copy of its date, so renewing the
+        # verification does not silently turn this into a vacuous check.
+        verified = _parse_utc_strict(WAIVER_ISSUES_VERIFIED_OPEN_UTC)
+        self.assertIsNotNone(verified)
         just_inside = verified + timedelta(days=WAIVER_ISSUE_VERIFICATION_MAX_AGE_DAYS)
         too_late = just_inside + timedelta(seconds=1)
         self.assertEqual(waiver_liveness_problems(self._waiver(expires_utc="2099-01-01T00:00:00Z"), just_inside), [])

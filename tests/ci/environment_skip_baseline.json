@@ -26,9 +26,9 @@
     "GaussianSplatting [Editor]": {
       "allowed": 1,
       "owner": "gaussian-splatting-module",
-      "reason": "test_gaussian_importer.h:3170 skips when EditorNode is unavailable; the --headless --test runner supplies no editor runtime. MEASURED at 1 marker on the built dev binary (2026-08-03). Environment-conditional: the case executes under an editor runtime. Retire by giving the case a lane that provides EditorNode, or by converting the precondition (GS-595-B).",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/595",
-      "expires_utc": "2026-11-01T00:00:00+00:00"
+      "reason": "test_gaussian_importer.h:3170 skips when EditorNode is unavailable; the --headless --test runner supplies no editor runtime. MEASURED at 1 marker on the built dev binary (2026-08-03). Environment-conditional: the case executes under an editor runtime. Retire by giving the case a lane that provides EditorNode, or by converting the precondition (GS-595-B). Renewed on its 2026-11-01 expiry to 2026-12-31: the residual is unchanged and #595 is closed, so it is now tracked by #1298.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/1298",
+      "expires_utc": "2026-12-31T00:00:00+00:00"
     }
   },
   "rename_ledger": [],

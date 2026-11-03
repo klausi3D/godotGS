@@ -383,7 +383,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--gd-mode",
-        choices=("headless", "non-headless", "windows-vulkan"),
+        choices=("headless", "non-headless", "windows-vulkan", "gpu-vulkan"),
         default=None,
         help=(
             "Override the profile-selected Godot runtime mode. "
@@ -1431,6 +1431,18 @@ def _resolve_mode_args(mode: str) -> List[str]:
         return ["--headless"]
     if mode == "windows-vulkan":
         return ["--render-thread", "safe", "--display-driver", "windows", "--rendering-driver", "vulkan"]
+    if mode == "gpu-vulkan":
+        # The GPU render path of THIS host: `windows` driver on Windows, `x11` on
+        # Linux (the Linux GPU runner renders on the real Xorg of the NVIDIA GPU,
+        # DISPLAY=:0). Unlike "non-headless" an unknown host is an error, not a
+        # silent fall-back to no driver flags, because a GPU profile that does not
+        # get an explicit Vulkan driver has no RenderingDevice to prove anything.
+        import platform as _platform
+        system = _platform.system()
+        driver = {"Windows": "windows", "Linux": "x11", "Darwin": "macos"}.get(system)
+        if driver is None:
+            raise ValueError(f"gd_mode 'gpu-vulkan' has no display driver for host platform {system!r}")
+        return ["--render-thread", "safe", "--display-driver", driver, "--rendering-driver", "vulkan"]
     if mode == "non-headless":
         # Resolve "non-headless" per host platform so the default release-ci
         # profile stays portable across Windows/Linux/macOS while still picking
@@ -1719,7 +1731,10 @@ def _validate_hlod_profile_wiring(config: Dict[str, object]) -> None:
             profile = profiles.get(name, {}) if isinstance(profiles, dict) else {}
             if profile.get("gd_tests", []).count(scenario) != 1:
                 raise ValueError(f"Required {name} must select {scenario} exactly once.")
-            if profile.get("fail_on_skip") is not True or profile.get("gd_mode") not in ("windows-vulkan", "non-headless"):
+            # Any rendering mode, never headless: "gpu-vulkan" is the host-resolved GPU mode the Linux runner uses
+            # (master #1297 moved streaming-gpu-ci to it); "windows-vulkan" stays valid for a Windows host.
+            if profile.get("fail_on_skip") is not True or profile.get("gd_mode") not in (
+                    "gpu-vulkan", "windows-vulkan", "non-headless"):
                 raise ValueError(f"Required {name} must execute native HLOD without skips.")
 
 
@@ -1771,7 +1786,7 @@ def _load_scenario_config(path: Path) -> Dict[str, object]:
             raise ValueError(f"Profile '{profile_name}' field 'requires_renderer_proof' must be a boolean.")
         if "gd_mode" in profile_config:
             gd_mode = profile_config["gd_mode"]
-            valid_modes = {"headless", "non-headless", "windows-vulkan"}
+            valid_modes = {"headless", "non-headless", "windows-vulkan", "gpu-vulkan"}
             if not isinstance(gd_mode, str) or gd_mode not in valid_modes:
                 raise ValueError(
                     f"Profile '{profile_name}' field 'gd_mode' must be one of: {', '.join(sorted(valid_modes))}."

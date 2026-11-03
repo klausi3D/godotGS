@@ -896,7 +896,8 @@ def _run_batch(
     #
     # Threaded reader pattern (not selectors): Python's selectors module
     # supports only sockets on Windows (WSAStartup error otherwise), and
-    # this supervisor must run on the self-hosted Windows runner. A
+    # this supervisor must run on Windows hosts too (developer machines and
+    # a future Windows GPU runner), not only on the Linux GPU runner. A
     # dedicated reader thread per pipe is the portable approach.
     import threading
 
