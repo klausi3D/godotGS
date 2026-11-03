@@ -1,5 +1,6 @@
 var searchData=
 [
-  ['vk_5fpipeline_5fstage_5fcompute_5fshader_5fbit_0',['vk_pipeline_stage_compute_shader_bit',['../gpu__sorter_8cpp.html#a812ff155ff6749521d47f16d89e4b068',1,'VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT:&#160;gpu_sorter.cpp'],['../tile__renderer_8cpp.html#a812ff155ff6749521d47f16d89e4b068',1,'VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT:&#160;tile_renderer.cpp']]],
-  ['vk_5fpipeline_5fstage_5ffragment_5fshader_5fbit_1',['VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT',['../tile__renderer_8cpp.html#a5d51733aa80bcc1a681a3156d1f3ad5e',1,'tile_renderer.cpp']]]
+  ['tile_5frender_5fadaptive_5fcontroller_5fh_0',['TILE_RENDER_ADAPTIVE_CONTROLLER_H',['../tile__renderer_8h.html#abeac3254c13cb9f485f41fe1d990e4c0',1,'tile_renderer.h']]],
+  ['tile_5frender_5fasync_5freadback_5fh_1',['TILE_RENDER_ASYNC_READBACK_H',['../tile__renderer_8h.html#a524b9993a83027768d46aec4959509d1',1,'tile_renderer.h']]],
+  ['tile_5frender_5fstages_5fh_2',['TILE_RENDER_STAGES_H',['../tile__renderer_8h.html#a2cbc363aa7607b0fa23eae380d55ae38',1,'tile_renderer.h']]]
 ];

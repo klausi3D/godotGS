@@ -1,17 +1,6 @@
 var NAVTREEINDEX3 =
 {
-"classGaussianSplatManager.html#afa644a794e6a8551cfb3f15648b742d1":[1,0,76,23],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html":[1,0,76,0],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a1420339a8a4a155a3933a2abe3a16382":[1,0,76,0,6],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a1c1e79f8f5bcf635534303bb3604f3a6":[1,0,76,0,2],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a2aa80052bad06da46c641f34fe582491":[1,0,76,0,1],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a6791d2808ed47973fe7cfb069871651e":[1,0,76,0,4],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a7100ef5b70f59f1ce7e1fae3f3f078da":[1,0,76,0,8],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a734423b3be39a03824c1454b71bba406":[1,0,76,0,7],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#a8578269e6c5ce242c232b4d2c128813d":[1,0,76,0,9],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#aa98f1606a26507e7daca4c32c1fa25ce":[1,0,76,0,5],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#ac2dae0d00da2a716897c50439fc0f19f":[1,0,76,0,0],
-"classGaussianSplatManager_1_1ScopedSubmissionLock.html#ae40185337a6897c1ede7e1774f4fd848":[1,0,76,0,3],
+"classGaussianSplatManager_1_1ScopedSubmissionLock.html#ae40185337a6897c1ede7e1774f4fd848":[1,0,76,1,3],
 "classGaussianSplatNode3D.html":[1,0,79],
 "classGaussianSplatNode3D.html#a003cd5a334d5103a448475b40644dec8":[1,0,79,101],
 "classGaussianSplatNode3D.html#a013fb829d4bae4b57709909d44da9b65":[1,0,79,27],
@@ -249,5 +238,16 @@ var NAVTREEINDEX3 =
 "classGaussianSplatPerformanceOverlay.html#a9bae77e09122e8a7db7ef7ab1fbec6ca":[1,0,86,11],
 "classGaussianSplatPerformanceOverlay.html#aae94255bacb672adb4cb2152c20ba4bb":[1,0,86,16],
 "classGaussianSplatPerformanceOverlay.html#ab200c834efc544ece4c36dae48485751":[1,0,86,26],
-"classGaussianSplatPerformanceOverlay.html#ab373ccb8ccb93838710a1445b85c6403":[1,0,86,14]
+"classGaussianSplatPerformanceOverlay.html#ab373ccb8ccb93838710a1445b85c6403":[1,0,86,14],
+"classGaussianSplatPerformanceOverlay.html#ab84cb656be2fbd405035765adc337aff":[1,0,86,7],
+"classGaussianSplatPerformanceOverlay.html#ab9bb8263480913b615b066fb0674be77":[1,0,86,18],
+"classGaussianSplatPerformanceOverlay.html#ad11dc633d4f0e8f059ec0394a098c6b9":[1,0,86,4],
+"classGaussianSplatPerformanceOverlay.html#ad2ce9f3c1a2eeb192ce7394f450157fb":[1,0,86,19],
+"classGaussianSplatPerformanceOverlay.html#ad8ff8422517a69934d95c1bbb969b1ca":[1,0,86,23],
+"classGaussianSplatPerformanceOverlay.html#ae34f3f40d958174cd85d2ca9cc45f0ab":[1,0,86,15],
+"classGaussianSplatPerformanceOverlay.html#aeba262871f6e33e6af39499eefafc110":[1,0,86,24],
+"classGaussianSplatPerformanceOverlay.html#af48c3c68bfeeffeb0ba29594700ec69e":[1,0,86,5],
+"classGaussianSplatRenderer.html":[1,0,87],
+"classGaussianSplatRenderer.html#a01001729dc5311cb24e0a5c512c7eb96":[1,0,87,163],
+"classGaussianSplatRenderer.html#a015a9c21e22de090913b98c7e8b14bf6":[1,0,87,445]
 };

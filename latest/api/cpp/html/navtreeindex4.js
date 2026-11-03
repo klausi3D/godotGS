@@ -1,16 +1,5 @@
 var NAVTREEINDEX4 =
 {
-"classGaussianSplatPerformanceOverlay.html#ab84cb656be2fbd405035765adc337aff":[1,0,86,7],
-"classGaussianSplatPerformanceOverlay.html#ab9bb8263480913b615b066fb0674be77":[1,0,86,18],
-"classGaussianSplatPerformanceOverlay.html#ad11dc633d4f0e8f059ec0394a098c6b9":[1,0,86,4],
-"classGaussianSplatPerformanceOverlay.html#ad2ce9f3c1a2eeb192ce7394f450157fb":[1,0,86,19],
-"classGaussianSplatPerformanceOverlay.html#ad8ff8422517a69934d95c1bbb969b1ca":[1,0,86,23],
-"classGaussianSplatPerformanceOverlay.html#ae34f3f40d958174cd85d2ca9cc45f0ab":[1,0,86,15],
-"classGaussianSplatPerformanceOverlay.html#aeba262871f6e33e6af39499eefafc110":[1,0,86,24],
-"classGaussianSplatPerformanceOverlay.html#af48c3c68bfeeffeb0ba29594700ec69e":[1,0,86,5],
-"classGaussianSplatRenderer.html":[1,0,87],
-"classGaussianSplatRenderer.html#a01001729dc5311cb24e0a5c512c7eb96":[1,0,87,163],
-"classGaussianSplatRenderer.html#a015a9c21e22de090913b98c7e8b14bf6":[1,0,87,445],
 "classGaussianSplatRenderer.html#a01e965ecf50f0fc4878665d5e14425a2":[1,0,87,479],
 "classGaussianSplatRenderer.html#a02bd1af43bc25c674e24bc602f12d201":[1,0,87,120],
 "classGaussianSplatRenderer.html#a02d9029a88272cad26df6b347daeb9ef":[1,0,87,254],
@@ -249,5 +238,16 @@ var NAVTREEINDEX4 =
 "classGaussianSplatRenderer.html#a792d2d40b60ecae6d4cca63821266a11":[1,0,87,150],
 "classGaussianSplatRenderer.html#a79fc07f729795038321d1361fa872adc":[1,0,87,374],
 "classGaussianSplatRenderer.html#a7a6642c14fac9f297b054dd9e91648f1":[1,0,87,381],
-"classGaussianSplatRenderer.html#a7a9ab067ce2b5f87407a493144f601f4":[1,0,87,362]
+"classGaussianSplatRenderer.html#a7a9ab067ce2b5f87407a493144f601f4":[1,0,87,362],
+"classGaussianSplatRenderer.html#a7c3f996716d66cf34a96bfbcdb285221":[1,0,87,319],
+"classGaussianSplatRenderer.html#a7d03bdbce08d1624a5441bc575b7b0fb":[1,0,87,294],
+"classGaussianSplatRenderer.html#a7d20d139fe2adc4601bfe229454918f9":[1,0,87,412],
+"classGaussianSplatRenderer.html#a7d6e5b027ac490359ebfb8d0e65fc429":[1,0,87,400],
+"classGaussianSplatRenderer.html#a7d7b4e321c4bf90b1e8809ddcd9f4ca6":[1,0,87,420],
+"classGaussianSplatRenderer.html#a7e28468ac692b04b44c640bee234d19d":[1,0,87,179],
+"classGaussianSplatRenderer.html#a7f7587fb1edce941e9ee9c879687c70f":[1,0,87,463],
+"classGaussianSplatRenderer.html#a801ae6adf39543249a2030e377db80c5":[1,0,87,43],
+"classGaussianSplatRenderer.html#a80f207e71e3fa442bad497bf0678ca2b":[1,0,87,278],
+"classGaussianSplatRenderer.html#a81119d7ca7d201567155b8a5e0f4dc04":[1,0,87,390],
+"classGaussianSplatRenderer.html#a818d477c32d153fa78fcf15402bfd345":[1,0,87,382]
 };

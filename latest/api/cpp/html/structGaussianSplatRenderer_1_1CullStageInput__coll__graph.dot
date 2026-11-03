@@ -6,18 +6,31 @@ digraph "GaussianSplatRenderer::CullStageInput"
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
   Node1 [id="Node000001",label="GaussianSplatRenderer\l::CullStageInput",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip=" "];
-  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" metrics",fontcolor="grey" ];
+  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">metrics</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node2 [id="Node000002",label="GaussianRenderPipeline\l::StageMetrics",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1StageMetrics.html",tooltip=" "];
-  Node3 -> Node2 [id="edge2_Node000002_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" cull",fontcolor="grey" ];
+  Node3 -> Node2 [id="edge2_Node000002_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">cull</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node3 [id="Node000003",label="GaussianRenderState\l::CullStageOutput",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderState_1_1CullStageOutput.html",tooltip=" "];
-  Node4 -> Node2 [id="edge3_Node000002_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" composite_result\ncull_result\nraster_result\nsort_result",fontcolor="grey" ];
+  Node4 -> Node2 [id="edge3_Node000002_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">composite_result</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">cull_result</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">raster_result</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sort_result</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node4 [id="Node000004",label="GaussianRenderPipeline\l::StageResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1StageResult.html",tooltip=" "];
-  Node5 -> Node2 [id="edge4_Node000002_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" sort",fontcolor="grey" ];
+  Node5 -> Node2 [id="edge4_Node000002_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sort</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node5 [id="Node000005",label="GaussianRenderPipeline\l::SortStageOutput",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1SortStageOutput.html",tooltip=" "];
-  Node6 -> Node2 [id="edge5_Node000002_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" raster",fontcolor="grey" ];
+  Node6 -> Node2 [id="edge5_Node000002_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">raster</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node6 [id="Node000006",label="GaussianRenderPipeline\l::RasterStageOutput",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1RasterStageOutput.html",tooltip=" "];
-  Node7 -> Node2 [id="edge6_Node000002_Node000007",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" composite_io\ncull_io\nraster_io\nsort_io",fontcolor="grey" ];
+  Node7 -> Node2 [id="edge6_Node000002_Node000007",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">composite_io</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">cull_io</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">raster_io</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sort_io</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node7 [id="Node000007",label="GaussianRenderPipeline\l::StageIO",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1StageIO.html",tooltip=" "];
-  Node8 -> Node1 [id="edge7_Node000001_Node000008",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=" state_view",fontcolor="grey" ];
+  Node8 -> Node1 [id="edge7_Node000001_Node000008",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">state_view</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
   Node8 [id="Node000008",label="GaussianSplatRenderer\l::IFrameStateView",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGaussianSplatRenderer_1_1IFrameStateView.html",tooltip=" "];
 }

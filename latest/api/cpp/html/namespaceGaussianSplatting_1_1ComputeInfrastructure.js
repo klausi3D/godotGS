@@ -1,12 +1,12 @@
 var namespaceGaussianSplatting_1_1ComputeInfrastructure =
 [
+    [ "StageResult", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult" ],
     [ "CapabilityGatePolicy", "structGaussianSplatting_1_1ComputeInfrastructure_1_1CapabilityGatePolicy.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1CapabilityGatePolicy" ],
     [ "FallbackDecision", "structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision" ],
-    [ "StageResult", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult" ],
-    [ "StageValidationHarness", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness" ],
+    [ "UniformBindingContract", "structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract" ],
     [ "StageValidationInput", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput" ],
     [ "StageValidationRecord", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord" ],
-    [ "UniformBindingContract", "structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract" ],
+    [ "StageValidationHarness", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness" ],
     [ "StageErrorCode", "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66", [
       [ "OK", "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66ae0aa021e21dddbd6d8cecec71e9cf564", null ],
       [ "DEVICE_UNAVAILABLE", "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66ae05dbc8cfe9626ae56e78bde5ba196a6", null ],

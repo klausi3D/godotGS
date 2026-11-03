@@ -1,10 +1,10 @@
 var classRenderPipelineStages =
 [
-    [ "CompositeStage", "structRenderPipelineStages_1_1CompositeStage.html", "structRenderPipelineStages_1_1CompositeStage" ],
     [ "CullStage", "structRenderPipelineStages_1_1CullStage.html", "structRenderPipelineStages_1_1CullStage" ],
-    [ "RasterCompositeStage", "structRenderPipelineStages_1_1RasterCompositeStage.html", "structRenderPipelineStages_1_1RasterCompositeStage" ],
-    [ "RasterStage", "structRenderPipelineStages_1_1RasterStage.html", "structRenderPipelineStages_1_1RasterStage" ],
     [ "SortStage", "structRenderPipelineStages_1_1SortStage.html", "structRenderPipelineStages_1_1SortStage" ],
+    [ "RasterStage", "structRenderPipelineStages_1_1RasterStage.html", "structRenderPipelineStages_1_1RasterStage" ],
+    [ "CompositeStage", "structRenderPipelineStages_1_1CompositeStage.html", "structRenderPipelineStages_1_1CompositeStage" ],
+    [ "RasterCompositeStage", "structRenderPipelineStages_1_1RasterCompositeStage.html", "structRenderPipelineStages_1_1RasterCompositeStage" ],
     [ "DataSourcePlan", "classRenderPipelineStages.html#adbf38f5d127c8015c442496c57ead40e", null ],
     [ "InstanceBackendPolicy", "classRenderPipelineStages.html#a2afb21ac0e78c740823c1c4473af27e2", null ],
     [ "InstancePipelineBuffers", "classRenderPipelineStages.html#ae05c8376f879a7e53f4cfe6d920815e7", null ],

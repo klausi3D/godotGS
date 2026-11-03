@@ -24,7 +24,7 @@ var searchData=
   ['window_5fmax_5finterval_5fus_21',['window_max_interval_us',['../structGaussianSplatPerformanceOverlay_1_1FrameClock.html#af33ae6014c83579feeebc1aeb04cdb8e',1,'GaussianSplatPerformanceOverlay::FrameClock']]],
   ['window_5fstart_5fframes_22',['window_start_frames',['../structGaussianSplatPerformanceOverlay_1_1FrameClock.html#a8f75f34a9143274d43034d77f770cb9d',1,'GaussianSplatPerformanceOverlay::FrameClock']]],
   ['window_5fstart_5fus_23',['window_start_us',['../structGaussianSplatPerformanceOverlay_1_1FrameClock.html#ac21a7a95b1a7c6420a82177d86875842',1,'GaussianSplatPerformanceOverlay::FrameClock']]],
-  ['workgroup_5fcount_24',['workgroup_count',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html#a7ad0db83795e6771c4c0f678facb7c76',1,'TilePrefixScanStage::PrefixDispatchContext']]],
+  ['workgroup_5fcount_24',['workgroup_count',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html#a7ad0db83795e6771c4c0f678facb7c76',1,'TilePrefixScanStage::PrefixDispatchContext::workgroup_count'],['../structTileRenderer_1_1TilePrefixScanStage_1_1PrefixDispatchContext.html#a23df07676f4c48beb5bd845a8c249298',1,'TileRenderer::TilePrefixScanStage::PrefixDispatchContext::workgroup_count']]],
   ['workgroup_5fcount_5fx_25',['workgroup_count_x',['../structComputeCapabilityProbe.html#a283b5e68ded4b3afe9e656700381a05d',1,'ComputeCapabilityProbe']]],
   ['workgroup_5finvocations_26',['workgroup_invocations',['../structComputeCapabilityProbe.html#ac8de9c8bd99b4e4c592fe593b58a7636',1,'ComputeCapabilityProbe']]],
   ['workgroup_5fsize_27',['workgroup_size',['../structGPUSortingConfig.html#ab17e20d86eb65760260554d4498d2d54',1,'GPUSortingConfig']]],

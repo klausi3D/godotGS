@@ -1,7 +1,7 @@
 var classRenderDiagnosticsOrchestrator =
 [
-    [ "Dependencies", "structRenderDiagnosticsOrchestrator_1_1Dependencies.html", "structRenderDiagnosticsOrchestrator_1_1Dependencies" ],
     [ "RuntimePorts", "structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html", "structRenderDiagnosticsOrchestrator_1_1RuntimePorts" ],
+    [ "Dependencies", "structRenderDiagnosticsOrchestrator_1_1Dependencies.html", "structRenderDiagnosticsOrchestrator_1_1Dependencies" ],
     [ "BuildDeviceCapabilityReportFn", "classRenderDiagnosticsOrchestrator.html#a830cc25813b4fb630dd64dd33cc91874", null ],
     [ "RenderDiagnosticsOrchestrator", "classRenderDiagnosticsOrchestrator.html#a73c0ea43e49e150ad20473ab6c279654", null ],
     [ "build_render_stats", "classRenderDiagnosticsOrchestrator.html#ad50689296f8ae80de75667fd832fddd5", null ],

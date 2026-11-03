@@ -1,9 +1,9 @@
 var classGaussianSplatting_1_1HierarchicalSplatStructure =
 [
-    [ "BuildParams", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams" ],
+    [ "SplatInfo", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo" ],
     [ "OctreeNode", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode" ],
     [ "QueryResult", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult" ],
-    [ "SplatInfo", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo" ],
+    [ "BuildParams", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams" ],
     [ "TreeStats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats" ],
     [ "HierarchicalSplatStructure", "classGaussianSplatting_1_1HierarchicalSplatStructure.html#af0124dec948037d56bfc6c6225105892", null ],
     [ "~HierarchicalSplatStructure", "classGaussianSplatting_1_1HierarchicalSplatStructure.html#a24ec492f308a51cb1504dbaed0d311a3", null ],

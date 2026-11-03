@@ -65,7 +65,8 @@ var searchData=
   ['gs_5frenderer_5fdebug_5fsetter_5fimpl_62',['GS_RENDERER_DEBUG_SETTER_IMPL',['../debug__overlay__macros_8h.html#ad90c8ba2ae9e3c48752f3e5f18dfcbf3',1,'debug_overlay_macros.h']]],
   ['gs_5fsafe_5ffree_63',['GS_SAFE_FREE',['../gpu__debug__utils_8h.html#a4d79b14a4948827433cfa03ab0c52e7f',1,'gpu_debug_utils.h']]],
   ['gs_5fsafe_5ffree_5fif_5fvalid_64',['GS_SAFE_FREE_IF_VALID',['../gpu__debug__utils_8h.html#a5b698cb33bed25b8f761ec6d5849cb73',1,'gpu_debug_utils.h']]],
-  ['gs_5fstartup_5fscope_65',['GS_STARTUP_SCOPE',['../startup__trace_8h.html#a3c3eb4388de46dae704b84ff0edda5f0',1,'startup_trace.h']]],
-  ['gs_5fstartup_5fscope_5fconcat_66',['GS_STARTUP_SCOPE_CONCAT',['../startup__trace_8h.html#a38ca49ea50cdda2367f47c41a1412bd8',1,'startup_trace.h']]],
-  ['gs_5fstartup_5fscope_5fconcat_5finner_67',['GS_STARTUP_SCOPE_CONCAT_INNER',['../startup__trace_8h.html#aa31dea123b37a8b05a8c59edd4e58bb0',1,'startup_trace.h']]]
+  ['gs_5fsplat_5fref_5fencoding_5fglsl_65',['GS_SPLAT_REF_ENCODING_GLSL',['../splat__ref__encoding_8h.html#aac3beb997cfb28446ada332d14002112',1,'splat_ref_encoding.h']]],
+  ['gs_5fstartup_5fscope_66',['GS_STARTUP_SCOPE',['../startup__trace_8h.html#a3c3eb4388de46dae704b84ff0edda5f0',1,'startup_trace.h']]],
+  ['gs_5fstartup_5fscope_5fconcat_67',['GS_STARTUP_SCOPE_CONCAT',['../startup__trace_8h.html#a38ca49ea50cdda2367f47c41a1412bd8',1,'startup_trace.h']]],
+  ['gs_5fstartup_5fscope_5fconcat_5finner_68',['GS_STARTUP_SCOPE_CONCAT_INNER',['../startup__trace_8h.html#aa31dea123b37a8b05a8c59edd4e58bb0',1,'startup_trace.h']]]
 ];

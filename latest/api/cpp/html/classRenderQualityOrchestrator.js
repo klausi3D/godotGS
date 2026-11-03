@@ -1,7 +1,7 @@
 var classRenderQualityOrchestrator =
 [
-    [ "Dependencies", "structRenderQualityOrchestrator_1_1Dependencies.html", "structRenderQualityOrchestrator_1_1Dependencies" ],
     [ "RuntimePorts", "structRenderQualityOrchestrator_1_1RuntimePorts.html", "structRenderQualityOrchestrator_1_1RuntimePorts" ],
+    [ "Dependencies", "structRenderQualityOrchestrator_1_1Dependencies.html", "structRenderQualityOrchestrator_1_1Dependencies" ],
     [ "RenderQualityOrchestrator", "classRenderQualityOrchestrator.html#ab1b9269396deea2aba3305b64f360e5e", null ],
     [ "cull_for_view", "classRenderQualityOrchestrator.html#a8df672e11d861ccc6e4704e671a80cb6", null ],
     [ "get_async_upload_enabled", "classRenderQualityOrchestrator.html#afc571134455697b51c9f790813c1818b", null ],

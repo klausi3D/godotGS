@@ -1,8 +1,8 @@
 var namespaceGaussianRenderDebug =
 [
-    [ "DebugConfig", "structGaussianRenderDebug_1_1DebugConfig.html", "structGaussianRenderDebug_1_1DebugConfig" ],
+    [ "SplatAuditSummary", "structGaussianRenderDebug_1_1SplatAuditSummary.html", "structGaussianRenderDebug_1_1SplatAuditSummary" ],
     [ "DebugConfigBase", "structGaussianRenderDebug_1_1DebugConfigBase.html", "structGaussianRenderDebug_1_1DebugConfigBase" ],
-    [ "DebugState", "structGaussianRenderDebug_1_1DebugState.html", "structGaussianRenderDebug_1_1DebugState" ],
+    [ "DebugConfig", "structGaussianRenderDebug_1_1DebugConfig.html", "structGaussianRenderDebug_1_1DebugConfig" ],
     [ "JacobianDebugConfig", "structGaussianRenderDebug_1_1JacobianDebugConfig.html", "structGaussianRenderDebug_1_1JacobianDebugConfig" ],
-    [ "SplatAuditSummary", "structGaussianRenderDebug_1_1SplatAuditSummary.html", "structGaussianRenderDebug_1_1SplatAuditSummary" ]
+    [ "DebugState", "structGaussianRenderDebug_1_1DebugState.html", "structGaussianRenderDebug_1_1DebugState" ]
 ];

@@ -1,7 +1,7 @@
 var classStreamingVisibilityController =
 [
-    [ "CameraVelocityTracker", "structStreamingVisibilityController_1_1CameraVelocityTracker.html", "structStreamingVisibilityController_1_1CameraVelocityTracker" ],
     [ "ChunkCullingStats", "structStreamingVisibilityController_1_1ChunkCullingStats.html", "structStreamingVisibilityController_1_1ChunkCullingStats" ],
+    [ "CameraVelocityTracker", "structStreamingVisibilityController_1_1CameraVelocityTracker.html", "structStreamingVisibilityController_1_1CameraVelocityTracker" ],
     [ "ZeroVisibleRecoveryState", "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html", "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState" ],
     [ "ZeroVisibleRecoveryMode", "classStreamingVisibilityController.html#aabd7df95102825eff5057879c2926d88", [
       [ "STARTUP_ONLY", "classStreamingVisibilityController.html#aabd7df95102825eff5057879c2926d88a77f418e09b62b70b45b1effd2ae72cf9", null ],

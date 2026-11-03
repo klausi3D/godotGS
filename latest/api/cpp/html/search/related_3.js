@@ -18,5 +18,5 @@ var searchData=
   ['gaussiansplatting_3a_3atilesubpixelvisibilitybuffers_15',['TileSubpixelVisibilityBuffers',['../classTileRenderer.html#aad40527c851552ab6de2519fc22b77d5',1,'TileRenderer']]],
   ['gaussiansplatting_3a_3atileuniformbuffers_16',['TileUniformBuffers',['../classTileRenderer.html#a3b7e5e1e19674110498cc09dc4d3a71f',1,'TileRenderer']]],
   ['gaussiansplatworld_17',['GaussianSplatWorld',['../classGaussianData.html#ac3eace805130e4ae95e48246e1c902d7',1,'GaussianData']]],
-  ['gaussianstreamingsystem_18',['gaussianstreamingsystem',['../classStreamingGlobalAtlasRegistry.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingGlobalAtlasRegistry::GaussianStreamingSystem'],['../classStreamingVisibilityController.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingVisibilityController::GaussianStreamingSystem']]]
+  ['gaussianstreamingsystem_18',['GaussianStreamingSystem',['../classStreamingGlobalAtlasRegistry.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingGlobalAtlasRegistry::GaussianStreamingSystem()'],['../classStreamingVisibilityController.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingVisibilityController::GaussianStreamingSystem()']]]
 ];

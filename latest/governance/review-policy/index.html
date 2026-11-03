@@ -4788,7 +4788,19 @@ spots</strong>. Each finding has a severity:</p>
   boundary must be documented and human-approved. Recorded relaxation: Production
   Gates readiness enforcement (#1164) enforces <code>897_907_ready</code>, <code>900_ready</code> and
   <code>815_ready</code>; <code>943_ready</code>, <code>871_ready</code> and <code>902_ready</code> are reported, not enforced,
-  until #1241 (maintainer decision 2026-10-13; the report-only set may only shrink).</li>
+  until #1241 (maintainer decision 2026-10-13; the report-only set may only shrink).
+  Recorded relaxation (user decision 2026-11-01, owner: repository owner @klausi3D): the shipped
+  <strong>Windows archives are not executed by any gating lane</strong>. The Windows editor zip and the
+  Windows export template zip are built on GitHub-hosted <code>windows-latest</code> and attested, and
+  <code>release_candidate_gate</code> / <code>publish_release</code> wait for and require both builds, but the only
+  lane that runs the Windows exe, <code>export_smoke_windows</code>, needs a Windows GPU runner that no
+  longer exists. It is <strong>skipped unless the repository variable <code>GODOTGS_WINDOWS_GPU_RUNNER</code>
+  is <code>true</code></strong> and is in no <code>needs:</code> list and no gate <code>if:</code>. The gating export smoke is
+  <code>export_smoke_linux</code> (the Linux template, executed on the RTX 3080 runner). Retirement path:
+  register a Windows GPU runner labelled <code>self-hosted, Windows, X64, gpu, d3d12</code>, set
+  <code>GODOTGS_WINDOWS_GPU_RUNNER=true</code>, then add <code>export_smoke_windows</code> to the <code>needs:</code> and <code>if:</code> of
+  both gates in the same change and remove this exception; the Windows contract (same script,
+  <code>--target windows</code>, same negative control) is kept intact for that day.</li>
 </ul>
 <h2 id="repository-enforcement">Repository enforcement<a class="headerlink" href="#repository-enforcement" title="Permanent link">¶</a></h2>
 <p>The branch-protection and required-check settings that back this policy are listed
@@ -4829,7 +4841,7 @@ backstop cannot be triggered.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-10-14
+    Source updated: 2026-11-03
   </span>
 
     

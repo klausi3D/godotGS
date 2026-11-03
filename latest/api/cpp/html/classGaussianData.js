@@ -1,7 +1,7 @@
 var classGaussianData =
 [
-    [ "ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", "structGaussianData_1_1ChunkSnapshotMetadata" ],
     [ "SaveSnapshot", "classGaussianData_1_1SaveSnapshot.html", "classGaussianData_1_1SaveSnapshot" ],
+    [ "ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", "structGaussianData_1_1ChunkSnapshotMetadata" ],
     [ "GaussianData", "classGaussianData.html#ac8420d56586c93ffba97a98ff458bafb", null ],
     [ "~GaussianData", "classGaussianData.html#ab06af58eeeb7980227ee2639d6aabc11", null ],
     [ "all_render_fields_finite", "classGaussianData.html#a69b1c0bb4dfec56fb8c7bc9ee6163689", null ],

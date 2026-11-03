@@ -1,10 +1,10 @@
 var classGPUCuller =
 [
     [ "CullingConfig", "structGPUCuller_1_1CullingConfig.html", "structGPUCuller_1_1CullingConfig" ],
-    [ "CullingInputs", "structGPUCuller_1_1CullingInputs.html", "structGPUCuller_1_1CullingInputs" ],
     [ "CullingState", "structGPUCuller_1_1CullingState.html", "structGPUCuller_1_1CullingState" ],
-    [ "CullingSummary", "structGPUCuller_1_1CullingSummary.html", "structGPUCuller_1_1CullingSummary" ],
+    [ "CullingInputs", "structGPUCuller_1_1CullingInputs.html", "structGPUCuller_1_1CullingInputs" ],
     [ "InstancePipelineInputs", "structGPUCuller_1_1InstancePipelineInputs.html", "structGPUCuller_1_1InstancePipelineInputs" ],
+    [ "CullingSummary", "structGPUCuller_1_1CullingSummary.html", "structGPUCuller_1_1CullingSummary" ],
     [ "ShaderGroup", "classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7", [
       [ "SHADER_GROUP_STANDARD", "classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7affb4a552d679d5f9f0a4b1a3440928de", null ],
       [ "SHADER_GROUP_SUBGROUPS", "classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7ad5a375015dc4aa07be728a826ea2ac24", null ]

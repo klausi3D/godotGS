@@ -1,8 +1,8 @@
 var classGPUSorterFactory =
 [
-    [ "AutoThresholds", "structGPUSorterFactory_1_1AutoThresholds.html", "structGPUSorterFactory_1_1AutoThresholds" ],
-    [ "PolicyDecision", "structGPUSorterFactory_1_1PolicyDecision.html", "structGPUSorterFactory_1_1PolicyDecision" ],
     [ "PolicyProbe", "structGPUSorterFactory_1_1PolicyProbe.html", "structGPUSorterFactory_1_1PolicyProbe" ],
+    [ "PolicyDecision", "structGPUSorterFactory_1_1PolicyDecision.html", "structGPUSorterFactory_1_1PolicyDecision" ],
+    [ "AutoThresholds", "structGPUSorterFactory_1_1AutoThresholds.html", "structGPUSorterFactory_1_1AutoThresholds" ],
     [ "SortingAlgorithm", "classGPUSorterFactory.html#aa23c2094b3a98a635805f251aaf06afe", [
       [ "ALGORITHM_RADIX", "classGPUSorterFactory.html#aa23c2094b3a98a635805f251aaf06afeaa235fdf2eecf9c202cb9f689e4cc9e70", null ],
       [ "ALGORITHM_AUTO", "classGPUSorterFactory.html#aa23c2094b3a98a635805f251aaf06afeafbd7947a78618fe269779c637c9d8e79", null ],

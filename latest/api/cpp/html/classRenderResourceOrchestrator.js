@@ -1,7 +1,7 @@
 var classRenderResourceOrchestrator =
 [
-    [ "Dependencies", "structRenderResourceOrchestrator_1_1Dependencies.html", "structRenderResourceOrchestrator_1_1Dependencies" ],
     [ "RuntimePorts", "structRenderResourceOrchestrator_1_1RuntimePorts.html", "structRenderResourceOrchestrator_1_1RuntimePorts" ],
+    [ "Dependencies", "structRenderResourceOrchestrator_1_1Dependencies.html", "structRenderResourceOrchestrator_1_1Dependencies" ],
     [ "RenderResourceOrchestrator", "classRenderResourceOrchestrator.html#adbc35bf3367fbf2cb208ebc859bdecce", null ],
     [ "create_gpu_resources_safe", "classRenderResourceOrchestrator.html#a4f5fa2ab08601133095da3767189d240", null ],
     [ "get_pipeline_state", "classRenderResourceOrchestrator.html#a9ef682dbe8403e20c4e2eaafc884b98c", null ],

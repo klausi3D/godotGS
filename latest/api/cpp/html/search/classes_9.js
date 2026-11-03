@@ -18,7 +18,7 @@ var searchData=
   ['instancedepthparamsgpu_15',['InstanceDepthParamsGPU',['../structInstanceDepthParamsGPU.html',1,'']]],
   ['instancegradinggpu_16',['InstanceGradingGPU',['../structInstanceGradingGPU.html',1,'']]],
   ['instancepipelinebuffers_17',['InstancePipelineBuffers',['../structGaussianRenderPipeline_1_1InstancePipelineBuffers.html',1,'GaussianRenderPipeline']]],
-  ['instancepipelineinputs_18',['instancepipelineinputs',['../structGPUCuller_1_1InstancePipelineInputs.html',1,'GPUCuller::InstancePipelineInputs'],['../structGPUSortingPipeline_1_1InstancePipelineInputs.html',1,'GPUSortingPipeline::InstancePipelineInputs']]],
+  ['instancepipelineinputs_18',['InstancePipelineInputs',['../structGPUCuller_1_1InstancePipelineInputs.html',1,'GPUCuller::InstancePipelineInputs'],['../structGPUSortingPipeline_1_1InstancePipelineInputs.html',1,'GPUSortingPipeline::InstancePipelineInputs']]],
   ['instancereadinessresult_19',['InstanceReadinessResult',['../structRenderInstancingOrchestrator_1_1InstanceReadinessResult.html',1,'RenderInstancingOrchestrator']]],
   ['instancesubmission_20',['InstanceSubmission',['../structGaussianSplatSceneDirector_1_1InstanceSubmission.html',1,'GaussianSplatSceneDirector']]],
   ['interactivestateconfig_21',['InteractiveStateConfig',['../structGaussianRenderConfig_1_1InteractiveStateConfig.html',1,'GaussianRenderConfig']]],

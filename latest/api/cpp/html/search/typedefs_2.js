@@ -6,5 +6,5 @@ var searchData=
   ['crossdeviceoperation_3',['CrossDeviceOperation',['../classGaussianSplatRenderer.html#a068e6a84ea12417322db380b09d8a039',1,'GaussianSplatRenderer']]],
   ['cullforviewfn_4',['CullForViewFn',['../classRenderSortingOrchestrator.html#acfad13e864e1819838c7446650f07999',1,'RenderSortingOrchestrator']]],
   ['cullingconfig_5',['CullingConfig',['../classGaussianSplatRenderer.html#a2c8b2d1ddde91e9c9d320f6f816346d1',1,'GaussianSplatRenderer']]],
-  ['cullstageoutput_6',['cullstageoutput',['../classGaussianSplatRenderer.html#a75a4ce0ccc972c8edf6b7282d76b29f8',1,'GaussianSplatRenderer::CullStageOutput'],['../namespaceGaussianRenderPipeline.html#a6fc426667f0e0628d2fdaf76e37e98b1',1,'GaussianRenderPipeline::CullStageOutput']]]
+  ['cullstageoutput_6',['CullStageOutput',['../classGaussianSplatRenderer.html#a75a4ce0ccc972c8edf6b7282d76b29f8',1,'GaussianSplatRenderer::CullStageOutput'],['../namespaceGaussianRenderPipeline.html#a5e3ab2bdd55d8a6d36f8b76b4ec9d3f3',1,'GaussianRenderPipeline::CullStageOutput']]]
 ];

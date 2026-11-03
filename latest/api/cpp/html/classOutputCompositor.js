@@ -2,8 +2,8 @@ var classOutputCompositor =
 [
     [ "CachedFramebuffer", "structOutputCompositor_1_1CachedFramebuffer.html", "structOutputCompositor_1_1CachedFramebuffer" ],
     [ "FramebufferValidationCacheEntry", "structOutputCompositor_1_1FramebufferValidationCacheEntry.html", "structOutputCompositor_1_1FramebufferValidationCacheEntry" ],
-    [ "LastCompositeStats", "structOutputCompositor_1_1LastCompositeStats.html", "structOutputCompositor_1_1LastCompositeStats" ],
     [ "OutputCacheState", "structOutputCompositor_1_1OutputCacheState.html", "structOutputCompositor_1_1OutputCacheState" ],
+    [ "LastCompositeStats", "structOutputCompositor_1_1LastCompositeStats.html", "structOutputCompositor_1_1LastCompositeStats" ],
     [ "TextureFormatCallback", "classOutputCompositor.html#a10001f34d7acd9378aa35f636420f53a", null ],
     [ "OutputCompositor", "classOutputCompositor.html#a8588c840dff2ab5e0116a852e0300e54", null ],
     [ "~OutputCompositor", "classOutputCompositor.html#acea1013ed2521e301d2eaf34fddfb02c", null ],

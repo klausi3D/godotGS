@@ -1,10 +1,10 @@
 var namespaceGaussianRenderState =
 [
-    [ "CullStageOutput", "structGaussianRenderState_1_1CullStageOutput.html", "structGaussianRenderState_1_1CullStageOutput" ],
     [ "SceneState", "structGaussianRenderState_1_1SceneState.html", "structGaussianRenderState_1_1SceneState" ],
-    [ "SortingState", "structGaussianRenderState_1_1SortingState.html", "structGaussianRenderState_1_1SortingState" ],
+    [ "CullStageOutput", "structGaussianRenderState_1_1CullStageOutput.html", "structGaussianRenderState_1_1CullStageOutput" ],
     [ "SortStageSummary", "structGaussianRenderState_1_1SortStageSummary.html", "structGaussianRenderState_1_1SortStageSummary" ],
     [ "StreamingState", "structGaussianRenderState_1_1StreamingState.html", "structGaussianRenderState_1_1StreamingState" ],
+    [ "SortingState", "structGaussianRenderState_1_1SortingState.html", "structGaussianRenderState_1_1SortingState" ],
     [ "IndexDomain", "namespaceGaussianRenderState.html#ad57abd2c957c18ec4a26fa4e3a8525f8", [
       [ "UNKNOWN", "namespaceGaussianRenderState.html#ad57abd2c957c18ec4a26fa4e3a8525f8a696b031073e74bf2cb98e5ef201d4aa3", null ],
       [ "CHUNK_REF", "namespaceGaussianRenderState.html#ad57abd2c957c18ec4a26fa4e3a8525f8ac3abe2d624ac2d94e566153de21487b8", null ],

@@ -2,7 +2,7 @@ var searchData=
 [
   ['testdatastate_0',['TestDataState',['../structGaussianRenderFacadeState_1_1TestDataState.html',1,'GaussianRenderFacadeState']]],
   ['textureinfo_1',['TextureInfo',['../structPainterlyPassGraph_1_1TextureInfo.html',1,'PainterlyPassGraph']]],
-  ['texturetraceentry_2',['texturetraceentry',['../structRenderDeviceManager_1_1TextureTraceEntry.html',1,'RenderDeviceManager::TextureTraceEntry'],['../structGaussianRenderFrame_1_1TextureTraceEntry.html',1,'GaussianRenderFrame::TextureTraceEntry']]],
+  ['texturetraceentry_2',['TextureTraceEntry',['../structGaussianRenderFrame_1_1TextureTraceEntry.html',1,'GaussianRenderFrame::TextureTraceEntry'],['../structRenderDeviceManager_1_1TextureTraceEntry.html',1,'RenderDeviceManager::TextureTraceEntry']]],
   ['threadownedmutex_3',['ThreadOwnedMutex',['../classGaussianSplatting_1_1ThreadOwnedMutex.html',1,'GaussianSplatting']]],
   ['threadownedmutexlock_4',['ThreadOwnedMutexLock',['../classGaussianSplatting_1_1ThreadOwnedMutexLock.html',1,'GaussianSplatting']]],
   ['tileadaptivecontroller_5',['TileAdaptiveController',['../structTileAdaptiveController.html',1,'']]],

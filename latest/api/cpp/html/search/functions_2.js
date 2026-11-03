@@ -1,7 +1,7 @@
 var searchData=
 [
   ['bake_5fallocation_5fprobe_0',['bake_allocation_probe',['../namespacegs__hlod.html#a8dd5ac5934d531f32a78e6aac240a9a2',1,'gs_hlod']]],
-  ['bake_5fcolor_5fgrading_1',['bake_color_grading',['../classGaussianSplatNode3D.html#ab735c41b1c164c9fa58f24d41ad00c9b',1,'GaussianSplatNode3D::bake_color_grading()'],['../classGaussianData.html#ab92acfa907ddeb24f3590f6dc4917c72',1,'GaussianData::bake_color_grading()']]],
+  ['bake_5fcolor_5fgrading_1',['bake_color_grading',['../classGaussianData.html#ab92acfa907ddeb24f3590f6dc4917c72',1,'GaussianData::bake_color_grading()'],['../classGaussianSplatNode3D.html#ab735c41b1c164c9fa58f24d41ad00c9b',1,'GaussianSplatNode3D::bake_color_grading()']]],
   ['bake_5fcolor_5fgrading_5fsnapshot_2',['bake_color_grading_snapshot',['../classGaussianSplatNode3D.html#a324163be57fc91f5e925a5104f532a9b',1,'GaussianSplatNode3D']]],
   ['bake_5fhlod_3',['bake_hlod',['../classGaussianSplatWorld.html#a759414d234b410db3dfa189842b9a230',1,'GaussianSplatWorld']]],
   ['bake_5finterior_5fnode_4',['bake_interior_node',['../namespacegs__hlod.html#a7667c2c7c4ebdd4681228ae25dc890cc',1,'gs_hlod']]],

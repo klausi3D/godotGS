@@ -12,7 +12,7 @@ var searchData=
   ['rasterstageinput_9',['RasterStageInput',['../structGaussianSplatRenderer_1_1RasterStageInput.html',1,'GaussianSplatRenderer']]],
   ['rasterstageoutput_10',['RasterStageOutput',['../structGaussianRenderPipeline_1_1RasterStageOutput.html',1,'GaussianRenderPipeline']]],
   ['rasterstats_11',['RasterStats',['../structRasterStats.html',1,'']]],
-  ['rasteruniformsets_12',['RasterUniformSets',['../structTileRasterizerStage_1_1RasterUniformSets.html',1,'TileRasterizerStage']]],
+  ['rasteruniformsets_12',['RasterUniformSets',['../structTileRasterizerStage_1_1RasterUniformSets.html',1,'TileRasterizerStage::RasterUniformSets'],['../structTileRenderer_1_1TileRasterizerStage_1_1RasterUniformSets.html',1,'TileRenderer::TileRasterizerStage::RasterUniformSets']]],
   ['readbackpolicy_13',['ReadbackPolicy',['../structgs__sort__policy_1_1ReadbackPolicy.html',1,'gs_sort_policy']]],
   ['readbackrequest_14',['ReadbackRequest',['../structBatchedAsyncReadback_1_1ReadbackRequest.html',1,'BatchedAsyncReadback']]],
   ['renderconfig_15',['RenderConfig',['../structGaussianRenderConfig_1_1RenderConfig.html',1,'GaussianRenderConfig']]],
@@ -45,7 +45,7 @@ var searchData=
   ['reportinputs_42',['ReportInputs',['../structGaussianSplatPerformanceOverlay_1_1ReportInputs.html',1,'GaussianSplatPerformanceOverlay']]],
   ['requestedchunkstate_43',['RequestedChunkState',['../structGaussianStreamingTypes_1_1RequestedChunkState.html',1,'GaussianStreamingTypes']]],
   ['residencybudgetcontroller_44',['ResidencyBudgetController',['../classResidencyBudgetController.html',1,'']]],
-  ['resolvepushconstants_45',['ResolvePushConstants',['../structTileResolveStage_1_1ResolvePushConstants.html',1,'TileResolveStage']]],
+  ['resolvepushconstants_45',['ResolvePushConstants',['../structTileRenderer_1_1TileResolveStage_1_1ResolvePushConstants.html',1,'TileRenderer::TileResolveStage::ResolvePushConstants'],['../structTileResolveStage_1_1ResolvePushConstants.html',1,'TileResolveStage::ResolvePushConstants']]],
   ['resourceformatloadergaussiansplat_46',['ResourceFormatLoaderGaussianSplat',['../classResourceFormatLoaderGaussianSplat.html',1,'']]],
   ['resourceformatloadergaussiansplatworld_47',['ResourceFormatLoaderGaussianSplatWorld',['../classResourceFormatLoaderGaussianSplatWorld.html',1,'']]],
   ['resourceformatloaderimportedgaussiansplatworld_48',['ResourceFormatLoaderImportedGaussianSplatWorld',['../classResourceFormatLoaderImportedGaussianSplatWorld.html',1,'']]],
@@ -55,5 +55,5 @@ var searchData=
   ['rotation_52',['Rotation',['../structGaussianSHRotation_1_1Rotation.html',1,'GaussianSHRotation']]],
   ['runtimeerrorstatistics_53',['RuntimeErrorStatistics',['../structGaussianRenderFrame_1_1RuntimeErrorStatistics.html',1,'GaussianRenderFrame']]],
   ['runtimefidelitypolicy_54',['RuntimeFidelityPolicy',['../structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html',1,'GaussianSplatRenderer']]],
-  ['runtimeports_55',['runtimeports',['../structRenderDataOrchestrator_1_1RuntimePorts.html',1,'RenderDataOrchestrator::RuntimePorts'],['../structRenderDebugStateOrchestrator_1_1RuntimePorts.html',1,'RenderDebugStateOrchestrator::RuntimePorts'],['../structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html',1,'RenderDiagnosticsOrchestrator::RuntimePorts'],['../structRenderOutputOrchestrator_1_1RuntimePorts.html',1,'RenderOutputOrchestrator::RuntimePorts'],['../structRenderQualityOrchestrator_1_1RuntimePorts.html',1,'RenderQualityOrchestrator::RuntimePorts'],['../structRenderResourceOrchestrator_1_1RuntimePorts.html',1,'RenderResourceOrchestrator::RuntimePorts'],['../structRenderStreamingOrchestratorDependencies_1_1RuntimePorts.html',1,'RenderStreamingOrchestratorDependencies::RuntimePorts']]]
+  ['runtimeports_55',['RuntimePorts',['../structRenderDataOrchestrator_1_1RuntimePorts.html',1,'RenderDataOrchestrator::RuntimePorts'],['../structRenderDebugStateOrchestrator_1_1RuntimePorts.html',1,'RenderDebugStateOrchestrator::RuntimePorts'],['../structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html',1,'RenderDiagnosticsOrchestrator::RuntimePorts'],['../structRenderOutputOrchestrator_1_1RuntimePorts.html',1,'RenderOutputOrchestrator::RuntimePorts'],['../structRenderQualityOrchestrator_1_1RuntimePorts.html',1,'RenderQualityOrchestrator::RuntimePorts'],['../structRenderResourceOrchestrator_1_1RuntimePorts.html',1,'RenderResourceOrchestrator::RuntimePorts'],['../structRenderStreamingOrchestratorDependencies_1_1RuntimePorts.html',1,'RenderStreamingOrchestratorDependencies::RuntimePorts']]]
 ];

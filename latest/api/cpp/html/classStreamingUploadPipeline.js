@@ -1,13 +1,13 @@
 var classStreamingUploadPipeline =
 [
-    [ "PackJob", "structStreamingUploadPipeline_1_1PackJob.html", "structStreamingUploadPipeline_1_1PackJob" ],
     [ "PackSnapshotScratch", "structStreamingUploadPipeline_1_1PackSnapshotScratch.html", "structStreamingUploadPipeline_1_1PackSnapshotScratch" ],
-    [ "PackTelemetry", "structStreamingUploadPipeline_1_1PackTelemetry.html", "structStreamingUploadPipeline_1_1PackTelemetry" ],
-    [ "PackThreadContext", "structStreamingUploadPipeline_1_1PackThreadContext.html", "structStreamingUploadPipeline_1_1PackThreadContext" ],
-    [ "PendingChunkUpload", "structStreamingUploadPipeline_1_1PendingChunkUpload.html", "structStreamingUploadPipeline_1_1PendingChunkUpload" ],
-    [ "UploadBudgetState", "structStreamingUploadPipeline_1_1UploadBudgetState.html", "structStreamingUploadPipeline_1_1UploadBudgetState" ],
     [ "UploadCoalescingCandidate", "structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html", "structStreamingUploadPipeline_1_1UploadCoalescingCandidate" ],
     [ "UploadCoalescingPlan", "structStreamingUploadPipeline_1_1UploadCoalescingPlan.html", "structStreamingUploadPipeline_1_1UploadCoalescingPlan" ],
+    [ "PackJob", "structStreamingUploadPipeline_1_1PackJob.html", "structStreamingUploadPipeline_1_1PackJob" ],
+    [ "PendingChunkUpload", "structStreamingUploadPipeline_1_1PendingChunkUpload.html", "structStreamingUploadPipeline_1_1PendingChunkUpload" ],
+    [ "PackThreadContext", "structStreamingUploadPipeline_1_1PackThreadContext.html", "structStreamingUploadPipeline_1_1PackThreadContext" ],
+    [ "PackTelemetry", "structStreamingUploadPipeline_1_1PackTelemetry.html", "structStreamingUploadPipeline_1_1PackTelemetry" ],
+    [ "UploadBudgetState", "structStreamingUploadPipeline_1_1UploadBudgetState.html", "structStreamingUploadPipeline_1_1UploadBudgetState" ],
     [ "cancel_asset_jobs", "classStreamingUploadPipeline.html#a92c360e217cd2c13763998e8cc57318e", null ],
     [ "cancel_chunk_jobs", "classStreamingUploadPipeline.html#a855532fbe7c049eac4b9627a4312a303", null ],
     [ "clear_pending_uploads", "classStreamingUploadPipeline.html#a823010cda18586dbb2cd613cb150f10c", null ],

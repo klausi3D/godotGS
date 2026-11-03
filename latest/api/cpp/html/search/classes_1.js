@@ -1,7 +1,7 @@
 var searchData=
 [
   ['adaptiveoverlapbudgetruntimestate_0',['AdaptiveOverlapBudgetRuntimeState',['../structTileRenderer_1_1AdaptiveOverlapBudgetRuntimeState.html',1,'TileRenderer']]],
-  ['adaptivestate_1',['AdaptiveState',['../structTileAdaptiveController_1_1AdaptiveState.html',1,'TileAdaptiveController']]],
+  ['adaptivestate_1',['AdaptiveState',['../structTileAdaptiveController_1_1AdaptiveState.html',1,'TileAdaptiveController::AdaptiveState'],['../structTileRenderer_1_1TileAdaptiveController_1_1AdaptiveState.html',1,'TileRenderer::TileAdaptiveController::AdaptiveState']]],
   ['admissioncontext_2',['AdmissionContext',['../structResidencyBudgetController_1_1AdmissionContext.html',1,'ResidencyBudgetController']]],
   ['admissionframebudget_3',['AdmissionFrameBudget',['../structResidencyBudgetController_1_1AdmissionFrameBudget.html',1,'ResidencyBudgetController']]],
   ['admissiongate_4',['AdmissionGate',['../structResidencyBudgetController_1_1AdmissionGate.html',1,'ResidencyBudgetController']]],
@@ -19,9 +19,9 @@ var searchData=
   ['assetmetagpu_16',['AssetMetaGPU',['../structAssetMetaGPU.html',1,'']]],
   ['assetreference_17',['AssetReference',['../structGaussianSplatting_1_1AssetReference.html',1,'GaussianSplatting']]],
   ['assetregistrystate_18',['AssetRegistryState',['../structGaussianStreamingTypes_1_1AssetRegistryState.html',1,'GaussianStreamingTypes']]],
-  ['asyncoverflowstate_19',['AsyncOverflowState',['../structTileAsyncReadback_1_1AsyncOverflowState.html',1,'TileAsyncReadback']]],
-  ['asyncreadbackstate_20',['AsyncReadbackState',['../structTileRendererDebugStats_1_1AsyncReadbackState.html',1,'TileRendererDebugStats']]],
-  ['asynctilecountsstate_21',['AsyncTileCountsState',['../structTileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileAsyncReadback']]],
+  ['asyncoverflowstate_19',['AsyncOverflowState',['../structTileAsyncReadback_1_1AsyncOverflowState.html',1,'TileAsyncReadback::AsyncOverflowState'],['../structTileRenderer_1_1TileAsyncReadback_1_1AsyncOverflowState.html',1,'TileRenderer::TileAsyncReadback::AsyncOverflowState']]],
+  ['asyncreadbackstate_20',['AsyncReadbackState',['../structTileRenderer_1_1TileRendererDebugStats_1_1AsyncReadbackState.html',1,'TileRenderer::TileRendererDebugStats::AsyncReadbackState'],['../structTileRendererDebugStats_1_1AsyncReadbackState.html',1,'TileRendererDebugStats::AsyncReadbackState']]],
+  ['asynctilecountsstate_21',['AsyncTileCountsState',['../structTileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileAsyncReadback::AsyncTileCountsState'],['../structTileRenderer_1_1TileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileRenderer::TileAsyncReadback::AsyncTileCountsState']]],
   ['atlasassetstate_22',['AtlasAssetState',['../structGaussianStreamingTypes_1_1AtlasAssetState.html',1,'GaussianStreamingTypes']]],
   ['attachmentvalidationinfo_23',['AttachmentValidationInfo',['../structAttachmentValidationInfo.html',1,'']]],
   ['autothresholds_24',['AutoThresholds',['../structGPUSorterFactory_1_1AutoThresholds.html',1,'GPUSorterFactory']]],

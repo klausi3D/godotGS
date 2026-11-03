@@ -1,9 +1,9 @@
 var namespacegs__layout__hint =
 [
+    [ "LayoutHintValidationFailure", "structgs__layout__hint_1_1LayoutHintValidationFailure.html", "structgs__layout__hint_1_1LayoutHintValidationFailure" ],
     [ "LayoutHintFailureCounters", "structgs__layout__hint_1_1LayoutHintFailureCounters.html", "structgs__layout__hint_1_1LayoutHintFailureCounters" ],
     [ "LayoutHintFailureState", "structgs__layout__hint_1_1LayoutHintFailureState.html", "structgs__layout__hint_1_1LayoutHintFailureState" ],
     [ "LayoutHintIndexRange", "structgs__layout__hint_1_1LayoutHintIndexRange.html", "structgs__layout__hint_1_1LayoutHintIndexRange" ],
-    [ "LayoutHintValidationFailure", "structgs__layout__hint_1_1LayoutHintValidationFailure.html", "structgs__layout__hint_1_1LayoutHintValidationFailure" ],
     [ "LayoutHintFailureCategory", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561", [
       [ "INPUT", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561aa84cc046d48610b05c21fd3670d0c829", null ],
       [ "NON_CONTIGUOUS", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561aa939c419a2120100f14a2cbce647be5a", null ],

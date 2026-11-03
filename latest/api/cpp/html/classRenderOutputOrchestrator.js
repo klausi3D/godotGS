@@ -1,7 +1,7 @@
 var classRenderOutputOrchestrator =
 [
-    [ "Dependencies", "structRenderOutputOrchestrator_1_1Dependencies.html", "structRenderOutputOrchestrator_1_1Dependencies" ],
     [ "RuntimePorts", "structRenderOutputOrchestrator_1_1RuntimePorts.html", "structRenderOutputOrchestrator_1_1RuntimePorts" ],
+    [ "Dependencies", "structRenderOutputOrchestrator_1_1Dependencies.html", "structRenderOutputOrchestrator_1_1Dependencies" ],
     [ "RenderOutputOrchestrator", "classRenderOutputOrchestrator.html#aba2e34691300c04cc40b4e899817fdbd", null ],
     [ "commit_to_render_buffers", "classRenderOutputOrchestrator.html#ad8742a7d79095ce8fa735dea4ab2b5f1", null ],
     [ "copy_final_texture_to_target", "classRenderOutputOrchestrator.html#a4cf7c12d1f29be0bfb09024c8d183ee7", null ],

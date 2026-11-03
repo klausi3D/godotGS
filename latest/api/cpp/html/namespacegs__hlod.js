@@ -1,16 +1,16 @@
 var namespacegs__hlod =
 [
-    [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
     [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
+    [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
     [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],
+    [ "SplatSpan", "structgs__hlod_1_1SplatSpan.html", "structgs__hlod_1_1SplatSpan" ],
+    [ "SplatList", "structgs__hlod_1_1SplatList.html", "structgs__hlod_1_1SplatList" ],
     [ "CellMergeMoments", "structgs__hlod_1_1CellMergeMoments.html", "structgs__hlod_1_1CellMergeMoments" ],
-    [ "InteriorBakeParams", "structgs__hlod_1_1InteriorBakeParams.html", "structgs__hlod_1_1InteriorBakeParams" ],
-    [ "InteriorBakeResult", "structgs__hlod_1_1InteriorBakeResult.html", "structgs__hlod_1_1InteriorBakeResult" ],
-    [ "InteriorBakeScratch", "structgs__hlod_1_1InteriorBakeScratch.html", "structgs__hlod_1_1InteriorBakeScratch" ],
     [ "MergeCellEntry", "structgs__hlod_1_1MergeCellEntry.html", "structgs__hlod_1_1MergeCellEntry" ],
     [ "MergeScratch", "structgs__hlod_1_1MergeScratch.html", "structgs__hlod_1_1MergeScratch" ],
-    [ "SplatList", "structgs__hlod_1_1SplatList.html", "structgs__hlod_1_1SplatList" ],
-    [ "SplatSpan", "structgs__hlod_1_1SplatSpan.html", "structgs__hlod_1_1SplatSpan" ],
+    [ "InteriorBakeParams", "structgs__hlod_1_1InteriorBakeParams.html", "structgs__hlod_1_1InteriorBakeParams" ],
+    [ "InteriorBakeScratch", "structgs__hlod_1_1InteriorBakeScratch.html", "structgs__hlod_1_1InteriorBakeScratch" ],
+    [ "InteriorBakeResult", "structgs__hlod_1_1InteriorBakeResult.html", "structgs__hlod_1_1InteriorBakeResult" ],
     [ "NodeKind", "namespacegs__hlod.html#a61d31a5975aafd0c45fedcf727c40262", [
       [ "NODE_KIND_LEAF", "namespacegs__hlod.html#a61d31a5975aafd0c45fedcf727c40262a912c715c1ec2b11d2871875888e0f953", null ],
       [ "NODE_KIND_MERGED", "namespacegs__hlod.html#a61d31a5975aafd0c45fedcf727c40262acc847f4339abea58a05ec2a329316b24", null ],

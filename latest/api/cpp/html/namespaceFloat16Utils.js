@@ -1,7 +1,7 @@
 var namespaceFloat16Utils =
 [
-    [ "Float16ConversionStats", "structFloat16Utils_1_1Float16ConversionStats.html", "structFloat16Utils_1_1Float16ConversionStats" ],
     [ "QuantizationChunk", "structFloat16Utils_1_1QuantizationChunk.html", "structFloat16Utils_1_1QuantizationChunk" ],
+    [ "Float16ConversionStats", "structFloat16Utils_1_1Float16ConversionStats.html", "structFloat16Utils_1_1Float16ConversionStats" ],
     [ "compute_quantization_chunks", "namespaceFloat16Utils.html#ad74af289a4b62d599a589458b924fa54", null ],
     [ "convert_float32_to_float16_batch", "namespaceFloat16Utils.html#a5b897818faa0b17c580be0dccf1a3e48", null ],
     [ "decode_position_quantized", "namespaceFloat16Utils.html#a8c6c453065791f7d3e1bb76d199d547a", null ],

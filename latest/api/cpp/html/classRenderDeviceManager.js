@@ -1,7 +1,7 @@
 var classRenderDeviceManager =
 [
-    [ "CrossDeviceOperation", "structRenderDeviceManager_1_1CrossDeviceOperation.html", "structRenderDeviceManager_1_1CrossDeviceOperation" ],
     [ "TextureTraceEntry", "structRenderDeviceManager_1_1TextureTraceEntry.html", "structRenderDeviceManager_1_1TextureTraceEntry" ],
+    [ "CrossDeviceOperation", "structRenderDeviceManager_1_1CrossDeviceOperation.html", "structRenderDeviceManager_1_1CrossDeviceOperation" ],
     [ "RenderDeviceManager", "classRenderDeviceManager.html#a2caf42455222deab3377173ee03dcd3a", null ],
     [ "~RenderDeviceManager", "classRenderDeviceManager.html#a353d3056c4bdb9e4d6837b58ac865258", null ],
     [ "acquire_rendering_device", "classRenderDeviceManager.html#a4a80d0c0e278ad0b66a0e8d1c6a190e3", null ],

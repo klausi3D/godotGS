@@ -5,7 +5,7 @@ var searchData=
   ['gaussianatlasallocator_2',['GaussianAtlasAllocator',['../classGaussianAtlasAllocator.html',1,'']]],
   ['gaussiancloud_3',['GaussianCloud',['../structspz_1_1GaussianCloud.html',1,'spz']]],
   ['gaussianclouddata_4',['GaussianCloudData',['../structGaussianCloudData.html',1,'']]],
-  ['gaussiandata_5',['gaussiandata',['../classGaussianData.html',1,'GaussianData'],['../structGaussianSplatting_1_1GaussianData.html',1,'GaussianSplatting::GaussianData']]],
+  ['gaussiandata_5',['GaussianData',['../classGaussianData.html',1,'GaussianData'],['../structGaussianSplatting_1_1GaussianData.html',1,'GaussianSplatting::GaussianData']]],
   ['gaussiandataloadresult_6',['GaussianDataLoadResult',['../structGaussianDataLoadResult.html',1,'']]],
   ['gaussianimportpresetdefinition_7',['GaussianImportPresetDefinition',['../structGaussianImportPresetDefinition.html',1,'']]],
   ['gaussianincrementalsaver_8',['GaussianIncrementalSaver',['../classGaussianSplatting_1_1GaussianIncrementalSaver.html',1,'GaussianSplatting']]],

@@ -1,7 +1,7 @@
 var classGaussianMemoryStream =
 [
-    [ "MemoryPool", "structGaussianMemoryStream_1_1MemoryPool.html", "structGaussianMemoryStream_1_1MemoryPool" ],
     [ "StreamBuffer", "structGaussianMemoryStream_1_1StreamBuffer.html", "structGaussianMemoryStream_1_1StreamBuffer" ],
+    [ "MemoryPool", "structGaussianMemoryStream_1_1MemoryPool.html", "structGaussianMemoryStream_1_1MemoryPool" ],
     [ "BufferState", "classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162", [
       [ "BUFFER_FREE", "classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a984940fa64ab3666bb7b62aa2d5477c3", null ],
       [ "BUFFER_UPLOADING", "classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a81171ebea12043f0b13dbd560ea9450c", null ],

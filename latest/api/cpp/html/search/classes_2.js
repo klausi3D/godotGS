@@ -4,7 +4,7 @@ var searchData=
   ['bakeparams_1',['BakeParams',['../structgs__hlod_1_1BakeParams.html',1,'gs_hlod']]],
   ['bakeresult_2',['BakeResult',['../structgs__hlod_1_1BakeResult.html',1,'gs_hlod']]],
   ['batchedasyncreadback_3',['BatchedAsyncReadback',['../classBatchedAsyncReadback.html',1,'']]],
-  ['binninguniformsets_4',['BinningUniformSets',['../structTileBinningStage_1_1BinningUniformSets.html',1,'TileBinningStage']]],
+  ['binninguniformsets_4',['BinningUniformSets',['../structTileBinningStage_1_1BinningUniformSets.html',1,'TileBinningStage::BinningUniformSets'],['../structTileRenderer_1_1TileBinningStage_1_1BinningUniformSets.html',1,'TileRenderer::TileBinningStage::BinningUniformSets']]],
   ['bitonicsort_5',['BitonicSort',['../classBitonicSort.html',1,'']]],
   ['block_6',['Block',['../structGaussianMemoryStream_1_1MemoryPool_1_1Block.html',1,'GaussianMemoryStream::MemoryPool']]],
   ['budgetstate_7',['BudgetState',['../structGaussianStreamingTypes_1_1BudgetState.html',1,'GaussianStreamingTypes']]],

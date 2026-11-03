@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['quat4f_0',['Quat4f',['../namespacespz.html#a90f8a3ba1904dadf7a142c7f86e67b91',1,'spz']]]
+  ['quat4f_0',['Quat4f',['../namespacespz.html#a0ae5b0efdbe3a6f9d8d652bbb824c780',1,'spz']]]
 ];

@@ -1,7 +1,7 @@
 var classGaussianSplatManager =
 [
-    [ "ScopedSubmissionLock", "classGaussianSplatManager_1_1ScopedSubmissionLock.html", "classGaussianSplatManager_1_1ScopedSubmissionLock" ],
     [ "SharedDynamicAssetHandle", "structGaussianSplatManager_1_1SharedDynamicAssetHandle.html", "structGaussianSplatManager_1_1SharedDynamicAssetHandle" ],
+    [ "ScopedSubmissionLock", "classGaussianSplatManager_1_1ScopedSubmissionLock.html", "classGaussianSplatManager_1_1ScopedSubmissionLock" ],
     [ "GaussianSplatManager", "classGaussianSplatManager.html#ad719fe8dbea7b5cc51855edff5311bf7", null ],
     [ "~GaussianSplatManager", "classGaussianSplatManager.html#a0d82d1b40c6573fcea93dc97b7e24cbf", null ],
     [ "_recalculate_totals_unlocked", "classGaussianSplatManager.html#ab1734ff2e8edb4663e010087994b170b", null ],

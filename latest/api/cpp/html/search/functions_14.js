@@ -1,7 +1,7 @@
 var searchData=
 [
   ['unhandled_5fkey_5finput_0',['unhandled_key_input',['../classGaussianSplatPerformanceOverlay.html#ab200c834efc544ece4c36dae48485751',1,'GaussianSplatPerformanceOverlay']]],
-  ['uninitialize_5fgaussian_5fsplatting_5fmodule_1',['uninitialize_gaussian_splatting_module',['../register__types_8h.html#a21549b99aac0bc832f5df5c261857a60',1,'uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level):&#160;register_types.cpp'],['../register__types_8cpp.html#a21549b99aac0bc832f5df5c261857a60',1,'uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level):&#160;register_types.cpp']]],
+  ['uninitialize_5fgaussian_5fsplatting_5fmodule_1',['uninitialize_gaussian_splatting_module',['../register__types_8cpp.html#a21549b99aac0bc832f5df5c261857a60',1,'uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level):&#160;register_types.cpp'],['../register__types_8h.html#a21549b99aac0bc832f5df5c261857a60',1,'uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level):&#160;register_types.cpp']]],
   ['unlock_2',['unlock',['../classGaussianSplatting_1_1ThreadOwnedMutex.html#a72fbb1d4b49b11163bf31936d10daece',1,'GaussianSplatting::ThreadOwnedMutex']]],
   ['unpack_3',['unpack',['../structspz_1_1PackedGaussian.html#aad56dca61850d917596f78b5ff9f7a75',1,'spz::PackedGaussian::unpack()'],['../structspz_1_1PackedGaussians.html#a686e59ea4b1244dccf0e513b460aab94',1,'spz::PackedGaussians::unpack()']]],
   ['unpack_5fhalf2_4',['unpack_half2',['../namespaceFloat16Utils.html#a5d3905fa0a00fa4f7890f062567343c8',1,'Float16Utils']]],
@@ -47,7 +47,7 @@ var searchData=
   ['update_5fgpu_5fbuffer_44',['update_gpu_buffer',['../classGaussianData.html#a5b346238fa0d39ba60380f35f2aecd33',1,'GaussianData']]],
   ['update_5fgpu_5fbuffers_5fwith_5freal_5fdata_45',['update_gpu_buffers_with_real_data',['../classRenderDataOrchestrator.html#ac36f530d09602af241e52b3f258aaf2a',1,'RenderDataOrchestrator']]],
   ['update_5fgpu_5fpass_5fmetrics_5ffrom_5ftile_5frenderer_46',['update_gpu_pass_metrics_from_tile_renderer',['../classGaussianSplatRenderer.html#a6b81a022023bd84d9a3e9e3ab11274a7',1,'GaussianSplatRenderer::update_gpu_pass_metrics_from_tile_renderer()'],['../classRenderResourceOrchestrator.html#ae9a4d5899efcb4630c5ef2739b63cb8d',1,'RenderResourceOrchestrator::update_gpu_pass_metrics_from_tile_renderer()']]],
-  ['update_5fgpu_5fstate_47',['update_gpu_state',['../classInteractiveStateManager.html#a925d5cefeac96390bf0254de7188b1fa',1,'InteractiveStateManager::update_gpu_state()'],['../classIInteractiveStateManager.html#aadfa17d0aff947b044ec1e9087ca0f3b',1,'IInteractiveStateManager::update_gpu_state()']]],
+  ['update_5fgpu_5fstate_47',['update_gpu_state',['../classIInteractiveStateManager.html#aadfa17d0aff947b044ec1e9087ca0f3b',1,'IInteractiveStateManager::update_gpu_state()'],['../classInteractiveStateManager.html#a925d5cefeac96390bf0254de7188b1fa',1,'InteractiveStateManager::update_gpu_state()']]],
   ['update_5finstance_5fbuffer_48',['update_instance_buffer',['../classGaussianSplatRenderer.html#a6b36bd0af8c431e211f882b63415b5fe',1,'GaussianSplatRenderer']]],
   ['update_5finstance_5fcolor_5fgrading_49',['update_instance_color_grading',['../classGaussianSplatSceneDirector.html#a1f05a3129894ed6d496a80ce8c6b70b3',1,'GaussianSplatSceneDirector']]],
   ['update_5finstance_5fgrading_5fbuffer_50',['update_instance_grading_buffer',['../classGaussianSplatRenderer.html#a31d856ec0a912cf13e4b7da56f142b35',1,'GaussianSplatRenderer']]],
@@ -79,7 +79,7 @@ var searchData=
   ['update_5ftile_5fdensity_5fcache_76',['update_tile_density_cache',['../classDebugOverlaySystem.html#a16040b93376150bb40e8c838c412f769',1,'DebugOverlaySystem']]],
   ['update_5ftile_5frenderer_5foutput_5ftracking_77',['update_tile_renderer_output_tracking',['../classGaussianSplatRenderer.html#ab941bfd63f797a6eddef652e67d8acde',1,'GaussianSplatRenderer::update_tile_renderer_output_tracking()'],['../classRenderDeviceOrchestrator.html#afa031985501c8e7ace240f6db4e8718b',1,'RenderDeviceOrchestrator::update_tile_renderer_output_tracking()']]],
   ['update_5fview_78',['update_view',['../classStreamingPipeline.html#a49eece1be38d6990b8f5f8f2b405c69e',1,'StreamingPipeline']]],
-  ['update_5fvisible_5frange_79',['update_visible_range',['../classStreamingPipeline.html#ad17fa8a58f4e3b8690352a9555b7affb',1,'StreamingPipeline::update_visible_range()'],['../classGaussianMemoryStream.html#abc6cf5b9fe8f5b5eb4a7ba0775d271e5',1,'GaussianMemoryStream::update_visible_range()']]],
+  ['update_5fvisible_5frange_79',['update_visible_range',['../classGaussianMemoryStream.html#abc6cf5b9fe8f5b5eb4a7ba0775d271e5',1,'GaussianMemoryStream::update_visible_range()'],['../classStreamingPipeline.html#ad17fa8a58f4e3b8690352a9555b7affb',1,'StreamingPipeline::update_visible_range()']]],
   ['upload_5fasset_5fto_5frenderer_80',['upload_asset_to_renderer',['../classGaussianSplatNodeRendererHelper.html#a8a100d7de31490269bc79670474c45b1',1,'GaussianSplatNodeRendererHelper']]],
   ['upload_5fgaussian_5fdata_81',['upload_gaussian_data',['../classGPUBufferManager.html#a3f3a5e4901c94f1c9d390bb9f4bf3916',1,'GPUBufferManager']]],
   ['usesfloat16_82',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]]

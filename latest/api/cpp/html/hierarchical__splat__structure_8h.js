@@ -8,5 +8,5 @@ var hierarchical__splat__structure_8h =
     [ "GaussianSplatting::HierarchicalSplatStructure::QueryResult::LODStats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats" ],
     [ "GaussianSplatting::HierarchicalSplatStructure::BuildParams", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams" ],
     [ "GaussianSplatting::HierarchicalSplatStructure::TreeStats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats" ],
-    [ "Frustum", "hierarchical__splat__structure_8h.html#ae2afc1ec9ba493780a85e3688df919e0", null ]
+    [ "GaussianSplatting::Frustum", "namespaceGaussianSplatting.html#aa4b5852cf559fa16780ec95b99409b66", null ]
 ];

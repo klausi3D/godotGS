@@ -1,8 +1,8 @@
 var classStagedFileChunkPayloadSource =
 [
     [ "PooledFile", "structStagedFileChunkPayloadSource_1_1PooledFile.html", "structStagedFileChunkPayloadSource_1_1PooledFile" ],
-    [ "PooledFileLease", "classStagedFileChunkPayloadSource_1_1PooledFileLease.html", "classStagedFileChunkPayloadSource_1_1PooledFileLease" ],
     [ "PositionFrame", "structStagedFileChunkPayloadSource_1_1PositionFrame.html", "structStagedFileChunkPayloadSource_1_1PositionFrame" ],
+    [ "PooledFileLease", "classStagedFileChunkPayloadSource_1_1PooledFileLease.html", "classStagedFileChunkPayloadSource_1_1PooledFileLease" ],
     [ "ScopedReaderSuspend", "classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend.html", "classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend" ],
     [ "StagedFileChunkPayloadSource", "classStagedFileChunkPayloadSource.html#acf575483ba95ccdde36fc68c11899952", null ],
     [ "~StagedFileChunkPayloadSource", "classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc", null ],

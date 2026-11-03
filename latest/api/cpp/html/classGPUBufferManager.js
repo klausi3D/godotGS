@@ -1,8 +1,8 @@
 var classGPUBufferManager =
 [
     [ "BufferHandle", "structGPUBufferManager_1_1BufferHandle.html", "structGPUBufferManager_1_1BufferHandle" ],
-    [ "DeferredDeletionQueue", "classGPUBufferManager_1_1DeferredDeletionQueue.html", "classGPUBufferManager_1_1DeferredDeletionQueue" ],
     [ "SortKey", "structGPUBufferManager_1_1SortKey.html", "structGPUBufferManager_1_1SortKey" ],
+    [ "DeferredDeletionQueue", "classGPUBufferManager_1_1DeferredDeletionQueue.html", "classGPUBufferManager_1_1DeferredDeletionQueue" ],
     [ "GPUBufferManager", "classGPUBufferManager.html#a63f32cef41c87156b7a5426554d944ca", null ],
     [ "~GPUBufferManager", "classGPUBufferManager.html#aa2aece710d2e3c1c6799fd4a76cc4ba4", null ],
     [ "begin_frame", "classGPUBufferManager.html#af70780fd47f3b95ee0fb901626aeea87", null ],

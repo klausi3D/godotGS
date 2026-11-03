@@ -2,8 +2,8 @@ var classRenderInstancingOrchestrator =
 [
     [ "Dependencies", "structRenderInstancingOrchestrator_1_1Dependencies.html", "structRenderInstancingOrchestrator_1_1Dependencies" ],
     [ "InstanceReadinessResult", "structRenderInstancingOrchestrator_1_1InstanceReadinessResult.html", "structRenderInstancingOrchestrator_1_1InstanceReadinessResult" ],
-    [ "PrepareRenderFrameContextFn", "classRenderInstancingOrchestrator.html#a6f9fe747af385b605df2fc1b1f6a3b0e", null ],
-    [ "RenderSortedSplatsFn", "classRenderInstancingOrchestrator.html#a480c40c81a258de9063b6924c9bb698f", null ],
+    [ "PrepareRenderFrameContextFn", "classRenderInstancingOrchestrator.html#a808a0aa827be973491c9352848857849", null ],
+    [ "RenderSortedSplatsFn", "classRenderInstancingOrchestrator.html#aa9c6a34c2184f2f16162fb33f1c57b0f", null ],
     [ "InstanceReadinessFailureMode", "classRenderInstancingOrchestrator.html#a9cc42da5d96899d9a22412b5ae3e4df5", [
       [ "NONE", "classRenderInstancingOrchestrator.html#a9cc42da5d96899d9a22412b5ae3e4df5ab50339a10e1de285ac99d4c3990b8693", null ],
       [ "INSTANCE_BACKEND_CONTRACT_UNAVAILABLE", "classRenderInstancingOrchestrator.html#a9cc42da5d96899d9a22412b5ae3e4df5a5ded1e557c47d0b1449da7f2a048a2ac", null ],

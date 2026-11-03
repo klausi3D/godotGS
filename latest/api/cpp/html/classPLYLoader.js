@@ -1,7 +1,7 @@
 var classPLYLoader =
 [
-    [ "PLYHeader", "structPLYLoader_1_1PLYHeader.html", "structPLYLoader_1_1PLYHeader" ],
     [ "PLYProperty", "structPLYLoader_1_1PLYProperty.html", "structPLYLoader_1_1PLYProperty" ],
+    [ "PLYHeader", "structPLYLoader_1_1PLYHeader.html", "structPLYLoader_1_1PLYHeader" ],
     [ "PLYLoader", "classPLYLoader.html#ab0bec8e3869c3c7b32eea0e212f0b89f", null ],
     [ "~PLYLoader", "classPLYLoader.html#ac0bf6a480d7709e8185c479434688ea7", null ],
     [ "get_gaussian_data", "classPLYLoader.html#a712d099ff6a5575b8760005c8c45e34e", null ],
