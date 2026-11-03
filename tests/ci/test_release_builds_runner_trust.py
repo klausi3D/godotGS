@@ -613,11 +613,24 @@ def self_hosted_jobs(
     }
 
 
+#: `vars.<NAME> == 'true' && <strict guard>`: the strict form with one repository
+#: variable ANDed in front. A conjunction can only narrow what the strict form
+#: admits, so it cannot let fork code onto the runner; it is used to keep a job
+#: for a runner that may not exist (export_smoke_windows) from queueing forever.
+#: Anything else ANDed or ORed in is NOT accepted.
+VARIABLE_GATED_STRICT_GUARD = re.compile(
+    r"^vars\.[A-Z][A-Z0-9_]* == 'true' && " + re.escape(STRICT_NO_PULL_REQUEST_GUARD) + r"$"
+)
+
+
 def classify_guard(raw_if: Optional[str]) -> Optional[str]:
     """"standard" / "strict" for an accepted guard, else None (a failure)."""
     if raw_if is None:
         return None
-    return ACCEPTED_GUARDS.get(_normalize_guard(raw_if))
+    normalized = _normalize_guard(raw_if)
+    if VARIABLE_GATED_STRICT_GUARD.match(normalized):
+        return ACCEPTED_GUARDS[STRICT_NO_PULL_REQUEST_GUARD]
+    return ACCEPTED_GUARDS.get(normalized)
 
 
 def readme_trust_section() -> str:
@@ -907,6 +920,32 @@ class RunnerTrustTests(unittest.TestCase):
                 )
 
 
+class VariableGatedStrictGuardTests(unittest.TestCase):
+    """`vars.X == 'true' && <strict guard>` is accepted; anything that could widen it is not."""
+
+    STRICT = "github.event_name != 'pull_request'"
+
+    def test_the_variable_gated_strict_form_classifies_as_strict(self) -> None:
+        self.assertEqual(
+            classify_guard(f"vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' && {self.STRICT}"), "strict"
+        )
+        self.assertEqual(
+            classify_guard(f"${{{{ vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' && {self.STRICT} }}}}"), "strict"
+        )
+
+    def test_forms_that_could_admit_more_are_rejected(self) -> None:
+        for label, expression in (
+            ("or-ed variable", f"vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' || {self.STRICT}"),
+            ("variable before standard guard", "vars.X == 'true' && " + STANDARD_FORK_GUARD),
+            ("negated variable", f"vars.X != 'true' && {self.STRICT}"),
+            ("extra conjunct", f"vars.X == 'true' && github.actor == 'me' && {self.STRICT}"),
+            ("lowercase variable", f"vars.x == 'true' && {self.STRICT}"),
+            ("variable only", "vars.X == 'true'"),
+        ):
+            with self.subTest(case=label):
+                self.assertIsNone(classify_guard(expression))
+
+
 class RunnerLabelClassificationTests(unittest.TestCase):
     """Routing is by label set, so `self-hosted` being optional must not be a hole."""
 
@@ -917,7 +956,7 @@ class RunnerLabelClassificationTests(unittest.TestCase):
 
     def test_the_derived_vocabulary_is_real_and_not_degenerate(self) -> None:
         labels = persistent_runner_labels()
-        self.assertIn("godotgs", labels, "the persistent runner's custom label was not derived")
+        self.assertIn("d3d12", labels, "the persistent runner's custom label was not derived")
         self.assertNotIn(SELF_HOSTED_LABEL, labels, "`self-hosted` must not be in the custom set")
         self.assertNotIn("ubuntu-latest", labels, "a GitHub-hosted image leaked into the vocabulary")
 
@@ -1197,7 +1236,7 @@ class RunnerLabelPolicyTests(unittest.TestCase):
 
     def test_the_real_readme_declares_a_policy_that_covers_the_real_workflows(self) -> None:
         policy = runner_label_policy()
-        self.assertIn("godotgs", policy.persistent)
+        self.assertIn("rtx3080", policy.persistent)
         self.assertNotIn(SELF_HOSTED_LABEL, policy.persistent)
         self.assertIn("ubuntu-latest", policy.github_hosted)
         self.assertFalse(
@@ -1219,12 +1258,12 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         # reaches the persistent runner without ever writing `self-hosted`.
         policy = runner_label_policy()
         self.assertEqual(
-            classify_runner(["Windows", "X64", "godotgs"], "sneaky", policy), "self-hosted"
+            classify_runner(["Windows", "X64", "rtx3080"], "sneaky", policy), "self-hosted"
         )
         lines = [
             "jobs:",
             "  sneaky:",
-            "    runs-on: [Windows, X64, godotgs]",
+            "    runs-on: [Windows, X64, rtx3080]",
             "  hosted:",
             "    runs-on: ubuntu-latest",
         ]
@@ -1290,7 +1329,7 @@ class RunnerLabelPolicyTests(unittest.TestCase):
 
     def test_the_readme_policy_bullets_are_parsed_not_guessed(self) -> None:
         persistent, hosted = declared_runner_labels()
-        self.assertIn("godotgs", persistent)
+        self.assertIn("rtx3080", persistent)
         self.assertIn("ubuntu-latest", hosted)
         self.assertNotIn("ubuntu-latest", persistent)
 
@@ -1381,11 +1420,11 @@ class RunnerLabelPolicyTests(unittest.TestCase):
         # The strictness is only credible if the shipped README already meets it.
         section = readme_trust_section()
         self.assertIn(
-            "godotgs", _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
+            "rtx3080", _declared_labels_from_section(section, README_PERSISTENT_LABELS_MARKER)
         )
         self.assertEqual(
             _declared_labels_from_section(section, README_GITHUB_HOSTED_LABELS_MARKER),
-            {"ubuntu-latest"},
+            {"ubuntu-latest", "ubuntu-24.04", "windows-latest"},
         )
 
 

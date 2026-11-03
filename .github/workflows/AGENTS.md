@@ -9,7 +9,7 @@ workflow inventory and the runner trust policy.
 
 - **Least privilege.** Every workflow sets explicit `permissions:`; default to
   `contents: read` and add scopes only as needed.
-- **No untrusted code on persistent self-hosted runners.** Self-hosted Windows/GPU
+- **No untrusted code on persistent self-hosted runners.** Self-hosted (Linux GPU runner)
   jobs must carry the fork guard
   `github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository`
   so fork PRs are skipped. This is the required standard; the agentic-foundation
@@ -32,7 +32,10 @@ workflow inventory and the runner trust policy.
   `docs/governance/github-settings.md`). If you rename either job, update branch
   protection in the same change, or every merge blocks on a check that never reports.
 - Do not weaken or remove an existing guard, runtime gate, or release gate to make
-  a PR pass.
+  a PR pass. Recorded exception (user decision 2026-11-01): the shipped Windows archives
+  are not executed by a gating lane; `export_smoke_windows` is skipped unless the repository
+  variable `GODOTGS_WINDOWS_GPU_RUNNER` is `true`. Details, owner and retirement path:
+  `docs/governance/review-policy.md`.
 
 ## Process rules
 

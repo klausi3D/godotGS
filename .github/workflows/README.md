@@ -10,11 +10,11 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | --- | --- | --- | --- |
 | Baseline QA Automation | `baseline_qa.yml` | Runs baseline QA, the blocking QA-scene visual gate, the golden-image GPU harness, and optional compiled-module QA. | Builds the Linux editor once and reuses that artifact for push-only compiled QA. The `gpu-tests` job runs the `qa` scene category on the real display with `--qa-require-capture --require-qa-baseline` (#522) — headless cannot create a RenderingDevice, so the scenes would capture nothing and the category would degrade to a skip. That step is compare-only and never rewrites its own baseline. |
 | Docs Pages (Versioned) | `docs_pages.yml` | Checks the docs on every PR (`docs-build`) and builds and deploys MkDocs docs with mike versioning to `gh-pages` (`deploy`). | `docs-build` runs on every `pull_request` (no path filter), `merge_group`, push and dispatch on `ubuntu-latest` with `contents: read`, never deploys, and has no job-level `if:`. It regenerates the docs artifacts, fails if a committed generator output is stale (`git diff --exit-code`), stages, checks the media budget and runs `mkdocs build --strict`; `scripts/docs/release_acceptance.py` runs report-only (`continue-on-error`). `docs-build` **is** a required status check on `master` (see [Required Checks](#required-checks)). `deploy` (`contents: write`) runs only on push/dispatch: it publishes `latest` from `master/main` and versioned docs from `v*` tags, and does not depend on `docs-build`. Only `latest` publishes the Doxygen C++ API; for a `v*` tag, `scripts/docs/redirect_cpp_api_to_latest.py` replaces the staged `api/cpp` tree with a redirect page to latest's copy before the build. |
-| Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
+| Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Linux build for the validation workflows (self-hosted Linux GPU runner). `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
-| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. Whenever a Windows editor zip ships, the Windows export template zip ships with it: `release_candidate_gate` attests it and `publish_release` re-verifies it with `--require` (#994). The Windows editor is optimized (no `dev_build`) on every channel. The Linux nightly editor stays `dev_build=yes`. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **no longer symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` uploads its template as an **artifact only**: no job lists it under `needs:`, so it still gates nothing and its failure cannot stop a publish. `build_windows_export_template` is now **transitively gating**: `export_smoke_windows` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Windows template build skips the smoke test, and a skipped smoke test blocks **every stable/tag publish**, and blocks a **nightly** whenever `build_windows` itself succeeded — the nightly's Windows-outage tolerance only covers the case where `build_windows` did not succeed and no Windows bytes ship at all. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_windows`, which is why a red Windows template build presents as a *skipped* smoke test rather than as a failed one. Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The `export_smoke_windows` job runs `tests/runtime/run_export_smoke.py` against the Windows template built by the same run — it exports the test project and launches the exported binary on the GPU runner, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is blocking on the lanes it runs on (`push`/tag/schedule/dispatch), and it is the evidence that the template can actually ship a game. It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). A stable release always requires it; a nightly requires it whenever a Windows payload is actually published, and tolerates its absence only in the Windows-outage case where `build_windows` did not succeed and no Windows bytes ship. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
+| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. Whenever a Windows editor zip ships, the Windows export template zip ships with it: `release_candidate_gate` attests it and `publish_release` re-verifies it with `--require` (#994). The Windows editor is optimized (no `dev_build`) on every channel. The Linux nightly editor stays `dev_build=yes`. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **not symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` is **transitively gating**: `export_smoke_linux` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Linux template build (or Linux editor build) skips the smoke test, and a skipped smoke test blocks **every stable/tag publish and every nightly**. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_linux`, which is why a red Linux template build presents as a *skipped* smoke test rather than as a failed one. `build_windows_export_template` (GitHub-hosted `windows-latest`) is **inside the publication closure**: `release_candidate_gate` and `publish_release` list it under `needs:` and require its success whenever `build_windows` succeeded, because they download, attest and `--require` the Windows template zip (#994); without that edge the gate could run before the template build finished and die with "artifact not found", blocking Linux too. It is built and attested but not executed. The Linux template that `export_smoke_linux` executes is not itself a published asset (only the Windows template zip is attached to releases). Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The blocking export smoke is `export_smoke_linux`: it runs `tests/runtime/run_export_smoke.py --target linux` against the Linux template built by the same run on the self-hosted Linux GPU runner (RTX 3080, real Xorg at `DISPLAY=:0`) — it exports the test project and launches the exported binary, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). It is required on every publishing channel with no outage tolerance: the Linux payload ships on every channel. **The Windows exe is no longer executed by any gating lane.** `export_smoke_windows` (the same script, `--target windows`) is kept, routed to `[self-hosted, Windows, X64, gpu, d3d12]`, and is **skipped unless the repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `true`** (there is no Windows GPU runner today; without the variable a job targeting those labels would queue for about 24 h and, with `cancel-in-progress: false`, hold every later release run behind it). It is deliberately not wired into `release_candidate_gate` or `publish_release`: it is in no `needs:` list and no `if:`, so it blocks nothing whether it runs or is skipped, and the Windows editor and template zips ship built (on `windows-latest`) but unexecuted. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
-| Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
+| Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Linux GPU runner (RTX 3080). **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode gpu-vulkan --skip-cpp` (`gpu-vulkan` resolves to the `x11` display driver on Linux, against the runner's real Xorg at `DISPLAY=:0`). |
 
 ## Required Checks
 
@@ -192,7 +192,7 @@ details.
 
 ## Runner Trust Boundary (fork PRs)
 
-The self-hosted Windows/GPU runners are persistent and must never execute
+The self-hosted runners are persistent and must never execute
 untrusted code from a **fork pull request**. The self-hosted jobs carry a fork guard
 so fork PRs are skipped on those runners, while same-repo (maintainer) PRs, `push`,
 and `workflow_dispatch` still run:
@@ -205,7 +205,7 @@ if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.re
 - `gaussian_production_gates.yml` — `guards`, `module-validation` (form above), and `openworld-proof-evidence`, which carries a *narrower* guard: `if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && ...)`, so it never runs on a pull request at all, fork or same-repo.
 - `gaussian_shader_validation.yml` — `shader-validation` (form above).
 - `release_ci_runtime.yml` — `runtime-release-ci` (form above). This workflow has no `pull_request` trigger (schedule + `workflow_dispatch` only), so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted job fail-closed if a `pull_request` trigger is ever added.
-- `release_builds.yml` — self-hosted jobs `build_windows` (strict), `build_windows_export_template` (strict), `export_smoke_windows` (strict). The tag after each job is the guard form that job actually carries, and `tests/ci/test_release_builds_runner_trust.py` compares it against the workflow **per job**, so this line cannot go on claiming a form one of them has stopped using. **strict** = `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); **standard** = the repository-standard fork guard in the code block above, under which trusted same-repo PRs still run. All three Windows release lanes therefore run on `push`/tag/schedule/dispatch only. `export_smoke_windows` is the only one of the three that additionally carries the `gpu` label: it exports the test project against the template built by the same run and then *launches* the exported binary, and `export_smoke_probe.gd` requires a live RenderingDevice and a real window read-back, so a non-GPU runner could not produce the evidence the job exists for. The deviation is *narrower* than the standard form, never wider — it cannot admit fork code — but it does cost pull-request coverage, and that cost is accepted deliberately rather than overlooked: Windows-only packaging steps (PowerShell staging, zip, checksum) are first exercised after the branch reaches `master`, or on the nightly/dispatch run. Two things bound the exposure. The Windows-specific *naming* logic — the part that actually broke (#825, the `.console.exe` wrapper name) — lives in `tests/ci/resolve_export_template.py` and is unit-covered on every PR by `tests/ci/test_resolve_export_template.py`; and `build_linux_export_template` is GitHub-hosted, runs on pull requests, and drives the same resolver and the same package/checksum/upload shape. Moving these jobs to the standard guard would place a multi-hour template build on the single shared self-hosted runner ahead of the GPU gates on every same-repo PR, so it is a maintainer trade-off rather than a default. Kept in sync with the workflow by `tests/ci/test_release_builds_runner_trust.py`, which derives the self-hosted job set from `release_builds.yml` — by label routing, so a job that reaches the persistent runner through its custom labels alone (`runs-on: [Windows, X64, godotgs]`, no `self-hosted` label) is caught too — and fails if a job here is undocumented, documented but nonexistent, carrying neither accepted guard form, or carrying a different form than the tag above claims.
+- `release_builds.yml` — self-hosted jobs `export_smoke_linux` (strict), `export_smoke_windows` (strict). The tag after each job is the guard form it actually carries, and `tests/ci/test_release_builds_runner_trust.py` compares it against the workflow **per job**, so this line cannot go on claiming a form a job has stopped using. **strict** = `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); **standard** = the repository-standard fork guard in the code block above, under which trusted same-repo PRs still run. `export_smoke_linux` is the blocking export smoke of the release gates: it exports the test project against the Linux release template built by the same run and then *launches* the exported binary on the RTX 3080 (real Xorg at `DISPLAY=:0`), and `export_smoke_probe.gd` requires a live RenderingDevice and a real window read-back. `export_smoke_windows` is the Windows counterpart and needs Windows *and* a GPU, which neither a GitHub-hosted Windows runner (no GPU) nor the Linux runner (cannot run a Windows exe) provides; it routes to `[self-hosted, Windows, X64, gpu, d3d12]` and is **skipped unless the repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `true`** (set it once such a runner is registered; without it the job would queue for about 24 h and hold later release runs behind it). It is deliberately outside every `needs:` list and every publication `if:`, so it blocks nothing either way. Its contract (same script, `--target windows`, same negative control) is kept intact rather than deleted. `build_windows` and `build_windows_export_template` run on GitHub-hosted `windows-latest`, so they are outside this trust boundary (they still skip every pull request, as a cost decision). **The consequence is stated plainly:** the Windows editor zip and the Windows export template zip still ship, but no lane executes the Windows exe; only the Linux template is executed before publication. The `export_smoke_windows` guard is the strict form with the repository variable ANDed in front (`vars.GODOTGS_WINDOWS_GPU_RUNNER == 'true' && github.event_name != 'pull_request'`); a conjunction can only narrow what the strict form admits. The deviation from the standard guard is *narrower*, never wider — it cannot admit fork code — but it does cost pull-request coverage, which is accepted deliberately: the Windows-specific *naming* logic that actually broke (#825, the `.console.exe` wrapper name) lives in `tests/ci/resolve_export_template.py` and is unit-covered on every PR by `tests/ci/test_resolve_export_template.py`, and `build_linux_export_template` is GitHub-hosted, runs on pull requests, and drives the same resolver and package/checksum/upload shape. Kept in sync with the workflow by `tests/ci/test_release_builds_runner_trust.py`, which derives the self-hosted job set from `release_builds.yml` — by label routing, so a job that reaches the persistent runner through its custom labels alone (no `self-hosted` label) is caught too — and fails if a job here is undocumented, documented but nonexistent, carrying neither accepted guard form, or carrying a different form than the tag above claims.
 
 ### Runner label policy
 
@@ -216,8 +216,8 @@ which labels reach the persistent runner and which do not — and that is a fact
 about the runner inventory, not something that can be read out of the workflow
 text. It is therefore **declared here** and reviewed by a maintainer:
 
-- Persistent self-hosted runner labels: `self-hosted`, `Windows`, `X64`, `godotgs`, `gpu`
-- GitHub-hosted runner labels: `ubuntu-latest`
+- Persistent self-hosted runner labels: `self-hosted`, `Linux`, `Windows`, `X64`, `gpu`, `rtx3080`, `d3d12`
+- GitHub-hosted runner labels: `ubuntu-latest`, `ubuntu-24.04`, `windows-latest`
 
 Those two bullets are parsed, so their **form is load-bearing**. Each must open
 with its clause (`- <clause>:`) and then contain a comma-separated list of
@@ -275,11 +275,33 @@ maintainer (see the project governance docs under `docs/governance/`).
 
 ## Self-hosted GPU runner environment
 
-The persistent GPU runner is also the maintainer's workstation. That is an
-accepted arrangement, but it means the machine carries developer and consumer
-software whose settings silently change what every GPU gate measures. Two such
-settings have already produced misleading results (#874, #875), so they are now
-**controlled per job and verified at runtime** rather than left invisible.
+The only self-hosted runner is `gpu-linux-3080`, a dedicated Linux machine with
+an RTX 3080 (the earlier Windows runner was the maintainer's workstation, which
+is where the findings below were measured, on Windows and an RTX 3090). The
+mechanisms in this section were written for that Windows machine and still
+hold: the environment is **controlled per job and verified at runtime** rather
+than assumed. Linux differences:
+
+- Godot renders on the real Xorg of the NVIDIA GPU (`DISPLAY=:0`,
+  `--display-driver x11`); the runner `.env` pins `VK_ICD_FILENAMES` to the NVIDIA
+  ICD, and Xvfb is not used (no NVIDIA Vulkan).
+- The Linux Vulkan loader (1.3.x) prints `INFO | LAYER: Insert instance layer ...`
+  without the `[Vulkan Loader]` marker; the preflight parses both formats. The
+  NVIDIA Linux driver inserts no implicit layers by default, so the effective
+  chain must be **empty**, and the one implicit layer the distro registers
+  (`VK_LAYER_MESA_device_select`) is stripped by its own opt-out
+  `NODEVICE_SELECT=1`. The control run must still show a layer, which is what
+  keeps an empty effective chain from being a parser that matches nothing.
+- There is no page heap / IFEO on Linux; gate 2 reports N/A.
+- Contention is measured from `nvidia-smi pmon` (per-pid SM share) joined
+  against `/proc` for the image path. The headless Xorg that presents the job's
+  windows is counted as the job's own load.
+- Builds use `-j16`, not `nproc`: the machine has 24 GB of RAM.
+
+The Windows text that follows is kept because the `d3d12` Windows workstation
+(`export_smoke_windows`) runs the same preflights.
+
+The settings below have already produced misleading results (#874, #875).
 
 ### Third-party Vulkan implicit layers
 
@@ -479,7 +501,9 @@ already measured — clean `frame_p95_to_avg_ratio ≈ 1.15` on the streaming la
 Whether wall-clock budgets belong in correctness lanes at all is #523/#778 and a
 much larger change.
 
-Busy is decided from two independent sources: the Windows
+On Linux the per-process source is `nvidia-smi pmon -c 1 -s u` (per-pid SM
+share) joined against `/proc` for the image path; the rest of this paragraph
+describes the Windows backend. Busy is decided from two independent sources: the Windows
 `\GPU Engine(*)\Utilization Percentage` counters, whose instance names carry the
 owning pid, joined against `Win32_Process` for the image path (this is what makes
 a failure *actionable* — it names the process); and `nvidia-smi` as the driver's
@@ -512,14 +536,17 @@ set fails both guards rather than passing. At
 the time of writing that set is `gpu-tests` and `gpu-harness`
 (`baseline_qa.yml`), `module-validation` and `openworld-proof-evidence`
 (`gaussian_production_gates.yml`), and `runtime-release-ci`
-(`release_ci_runtime.yml`).
+(`release_ci_runtime.yml`), all on the Linux RTX 3080 runner, plus
+`export_smoke_linux` (`release_builds.yml`), also on the Linux runner, plus
+`export_smoke_windows` (`release_builds.yml`), which is skipped unless
+`GODOTGS_WINDOWS_GPU_RUNNER` is `true` and a Windows GPU workstation labelled `d3d12` exists.
 
 The self-hosted jobs *without* the `gpu` label — `guards`
-(`gaussian_production_gates.yml`), `shader-validation`
-(`gaussian_shader_validation.yml`), `build_windows` and
-`build_windows_export_template` (`release_builds.yml`) — run on the same
-physical machine but do not create a Vulkan device, so they are deliberately out
-of scope. If one of them grows a GPU step it must also gain the `gpu` label,
+(`gaussian_production_gates.yml`) and `shader-validation`
+(`gaussian_shader_validation.yml`) — run on the Linux GPU runner (they match its
+`self-hosted, Linux, X64` labels) but do not create a Vulkan device, so they are
+deliberately out of scope. (`build_windows` and `build_windows_export_template`
+are GitHub-hosted now.) If one of them grows a GPU step it must also gain the `gpu` label,
 which brings it into the derived set automatically.
 
 ## Scheduled Triggers
@@ -529,7 +556,7 @@ which brings it into the derived set automatically.
 | `baseline_qa.yml` | `30 3 * * *` | Runs in update mode and publishes the `gpu-harness-recaptured-baselines` artifact (recaptured PNGs + provenance); opens a recapture PR when `BASELINE_UPDATE_PAT` is provisioned. |
 | `gaussian_production_gates.yml` | `30 3 * * 1` | Runs two non-blocking benchmark evidence surfaces in the `openworld-proof-evidence` job: `openworld-proof-dev` (`open_world_corridor_proof` + `city_flyover`, performance profile) and `openworld-proof-weekly`. A `workflow_dispatch` run executes each surface only when its own input (`run_openworld_proof_dev` / `run_openworld_proof_weekly`) is set. |
 | `release_builds.yml` | `30 2 * * *` | Builds and publishes the nightly prerelease, then prunes older nightly releases and tags. |
-| `release_ci_runtime.yml` | `0 6 * * *` | Runs the non-blocking `release-ci` runtime evidence lane on the self-hosted Windows GPU runner and uploads the runtime validation report. |
+| `release_ci_runtime.yml` | `0 6 * * *` | Runs the non-blocking `release-ci` runtime evidence lane on the self-hosted Linux GPU runner and uploads the runtime validation report. |
 
 ## Dependencies
 
@@ -540,16 +567,16 @@ which brings it into the derived set automatically.
   `--require-hashes` against a version-and-hash-locked file (GAP-403). Each
   lock records its pip-tools regeneration command in its header.
   - `tests/ci/requirements-scons.txt` (SCons 4.10.1, compiled from
-    `requirements-scons.in`) is for the self-hosted Windows build jobs in
-    `baseline_qa.yml`, `gaussian_production_gates.yml`, `release_builds.yml` and
-    `release_ci_runtime.yml`. Because that runner is the maintainer's
-    workstation, those jobs never install into its global Python. Each job
-    creates a venv under `$RUNNER_TEMP`, installs the lock there, and prepends
-    the venv's `Scripts` directory to `GITHUB_PATH`, so every later `python`,
-    `python -m SCons` included, runs in the venv. The self-hosted jobs with no
-    install step (`guards`, `export_smoke_windows`, and the job in
-    `gaussian_shader_validation.yml`) still use the global interpreter but
-    install nothing into it.
+    `requirements-scons.in`) is for the build jobs in `baseline_qa.yml`, `gaussian_production_gates.yml`,
+    `release_builds.yml` (the GitHub-hosted Windows builds) and
+    `release_ci_runtime.yml`. On the self-hosted Linux runner those jobs never
+    install into its global Python: `tests/ci/linux_gpu_runner.sh venv` creates a
+    venv under `$RUNNER_TEMP`, installs the lock there, and prepends the venv's
+    `bin` directory to `GITHUB_PATH`, so every later `python`, `python -m SCons`
+    included, runs in the venv. The self-hosted jobs with no install step
+    (`guards`, `export_smoke_windows`, and the job in
+    `gaussian_shader_validation.yml`) use the global interpreter but install
+    nothing into it.
   - `tests/ci/requirements-test-data.txt` (numpy, compiled from
     `requirements-test-data.in`) is for the hosted `cpu-tests` job in
     `baseline_qa.yml`, which takes its SCons from apt.
@@ -558,10 +585,10 @@ which brings it into the derived set automatically.
     `docs/requirements-site.txt`.
   - The hosted Linux jobs in `release_builds.yml` take their SCons from apt and
     install nothing from PyPI.
-- Self-hosted Windows runner attached to this repository with labels `self-hosted`, `Windows`, `X64`, `godotgs`
-- Optional GPU evidence label `gpu` for the Windows evidence lane
+- Self-hosted Linux GPU runner `gpu-linux-3080` (labels `self-hosted`, `Linux`, `X64`, `gpu`, `rtx3080`): Ubuntu 24.04, NVIDIA driver with Vulkan, a real Xorg at `DISPLAY=:0`, no sudo. Jobs never install system packages; `tests/ci/linux_gpu_runner.sh check-tools` fails closed and names what is missing
+- Optional Windows GPU workstation with labels `self-hosted`, `Windows`, `X64`, `gpu`, `d3d12`, for `export_smoke_windows` only
 - Vulkan-capable environment for render-path lanes
-- `xvfb` for Linux non-headless rendering checks
+- `xvfb` is used by the hosted Linux CPU lane only; the self-hosted GPU jobs render on the real Xorg (Xvfb has no NVIDIA Vulkan)
 
 ## Archived Workflows
 

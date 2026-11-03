@@ -49,24 +49,27 @@ concurrency:
 jobs:
   shader-validation:
     name: Runtime Shader Matrix + Contracts
-    # Never run self-hosted Windows on untrusted fork PR code. Same-repo branches
+    # Never run self-hosted code on untrusted fork PR code. Same-repo branches
     # (maintainer PRs), push, and workflow_dispatch still run; fork PRs are skipped.
     # Mirrors the guard used in gaussian_production_gates.yml and protects the
     # persistent runner from arbitrary checked-out repo code (compile_shaders.py and
     # anything under modules/.../shaders). (merge_group is maintainer-gated — see the
     # runner trust boundary in .github/workflows/README.md.)
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, Windows, X64, godotgs]
+    # The only self-hosted runner is the Linux RTX 3080 box. No `gpu` label: the
+    # shader matrix is compiled on the CPU (glslc/glslangValidator), so this job
+    # is not part of the GPU pool that the contention/environment preflights guard.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 20
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     defaults:
       run:
-        shell: pwsh
+        shell: bash
 
     steps:
       - name: Configure Git safe.directory for self-hosted workspace
-        run: git config --global --add safe.directory '*'
+        run: git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,46 +80,50 @@ jobs:
 
       - name: Verify local Python availability
         run: |
-          $python = Get-Command python -ErrorAction SilentlyContinue
-          if (-not $python) {
-            throw "python executable was not found on the self-hosted runner."
-          }
-          python --version
+          if ! command -v python3 >/dev/null 2>&1; then
+            echo "::error::python3 executable was not found on the self-hosted runner."
+            exit 1
+          fi
+          python3 --version
 
+      # This runner has no sudo, so no job installs system packages: a missing
+      # compiler fails closed here and names the package to install.
       - name: Verify shader compiler availability
         run: |
-          $glslc = Get-Command glslc -ErrorAction SilentlyContinue
-          $validator = Get-Command glslangValidator -ErrorAction SilentlyContinue
-          if (-not $glslc -and -not $validator) {
-            throw "No shader compiler found on the self-hosted runner. Install glslc or glslangValidator and retry."
-          }
-          if ($glslc) {
+          have_glslc=0
+          have_validator=0
+          command -v glslc >/dev/null 2>&1 && have_glslc=1
+          command -v glslangValidator >/dev/null 2>&1 && have_validator=1
+          if [ "$have_glslc" = 0 ] && [ "$have_validator" = 0 ]; then
+            echo "::error::No shader compiler found on the self-hosted runner. Install glslc or glslangValidator (package glslang-tools) and retry."
+            exit 1
+          fi
+          if [ "$have_glslc" = 1 ]; then
             glslc --version
-          }
-          if ($validator) {
+          fi
+          if [ "$have_validator" = 1 ]; then
             glslangValidator --version
-          }
+          fi
 
       - name: Run shader matrix validation
         run: |
-          $outDir = Join-Path $env:RUNNER_TEMP "gaussian_shader_validation"
-          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-          $scriptCandidates = @(
-            "repo/modules/gaussian_splatting/shaders/compile_shaders.py"
-          )
-          $scriptPath = $scriptCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $scriptPath) {
-            throw "compile_shaders.py not found in expected locations: $($scriptCandidates -join ', ')"
-          }
-          python $scriptPath `
-            --output-dir (Join-Path $outDir "spv") `
-            --summary-json (Join-Path $outDir "summary.json")
+          out_dir="$RUNNER_TEMP/gaussian_shader_validation"
+          mkdir -p "$out_dir"
+          script_path="repo/modules/gaussian_splatting/shaders/compile_shaders.py"
+          if [ ! -f "$script_path" ]; then
+            echo "::error::compile_shaders.py not found in expected locations: $script_path"
+            exit 1
+          fi
+          python3 "$script_path" \
+            --output-dir "$out_dir/spv" \
+            --summary-json "$out_dir/summary.json"
 
       - name: Print validation summary
         if: always()
+        env:
+          OUT_DIR: ${{ runner.temp }}/gaussian_shader_validation
         run: |
-          $env:OUT_DIR = Join-Path $env:RUNNER_TEMP "gaussian_shader_validation"
-          $script = @'
+          python3 - <<'PY'
           import json
           import os
           from pathlib import Path
@@ -134,8 +141,7 @@ jobs:
           print(f"compile_attempts={len(compile_results)}")
           print(f"compile_failures={len(failures)}")
           print(f"issues={','.join(summary.get('issues', []))}")
-          '@
-          $script | python -
+          PY
 
       - name: Upload shader validation artifacts
         if: always()
