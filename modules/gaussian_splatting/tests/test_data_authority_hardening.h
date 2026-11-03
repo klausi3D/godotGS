@@ -1671,7 +1671,7 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A refused materialization leaves a
 // logging was off, stretching one 65536-splat chunk pack from tens of milliseconds to ~1 s on
 // the Linux GPU runner and starving the 250k streaming tier. The number of reads must not
 // scale with the splat count.
-TEST_CASE("[GaussianSplatting][DataAuthority] Packing N splats reads the data-log setting O(1) times, not O(N) (#1300)") {
+TEST_CASE("[GaussianSplatting][DataAuthority] Packing N splats calls the packer's data-log wrapper O(1) times, not O(N) (#1300)") {
     constexpr uint32_t SPLAT_COUNT = 4096;
     LocalVector<Gaussian> splats;
     for (uint32_t i = 0; i < SPLAT_COUNT; i++) {
@@ -1698,6 +1698,34 @@ TEST_CASE("[GaussianSplatting][DataAuthority] Packing N splats reads the data-lo
     CHECK_MESSAGE(probes == 0u,
             "Packing ", SPLAT_COUNT, " splats made ", probes,
             " ProjectSettings reads of the data-log setting; the per-splat debug trace must not consult it per splat.");
+}
+
+// #1300: the packers' debug-trace latch must stay shut once exhausted. The old `static int`
+// counter wrapped negative after 2^31 splats and re-opened `++n <= 5` for another 2^31 splats,
+// each paying two ProjectSettings reads in debug_trace_record_pack_*().
+TEST_CASE("[GaussianSplatting][DataAuthority] The pack debug-trace latch never re-enters once exhausted (#1300)") {
+    LocalVector<Gaussian> splats;
+    for (uint32_t i = 0; i < 64; i++) {
+        splats.push_back(gs1175_make_splat(Vector3(float(i), 0.0f, 1.0f), 0.5f));
+    }
+    // 0x80000000 is where the old signed counter sat after wrapping; UINT32_MAX is the extreme.
+    for (uint32_t forced : { 0x80000000u, 0xFFFFFFFFu, 5u }) {
+        gs_set_pack_trace_counters_for_test(forced, forced);
+        const uint64_t before = gs_get_pack_trace_slots_taken();
+        Vector<PackedGaussian> packed;
+        SHCompressionMetrics metrics;
+        REQUIRE(pack_gaussians_range(splats, 0, splats.size(), packed, metrics));
+        CHECK_MESSAGE(gs_get_pack_trace_slots_taken() == before,
+                "With the latch counters forced to ", forced, " packing must not take a debug-trace slot.");
+    }
+    // Control: a fresh latch lets exactly 5 splat samples + 1 range sample through, then closes.
+    gs_set_pack_trace_counters_for_test(0u, 0u);
+    const uint64_t fresh_before = gs_get_pack_trace_slots_taken();
+    Vector<PackedGaussian> packed;
+    SHCompressionMetrics metrics;
+    REQUIRE(pack_gaussians_range(splats, 0, splats.size(), packed, metrics));
+    CHECK(gs_get_pack_trace_slots_taken() - fresh_before == 6u);
+    gs_set_pack_trace_counters_for_test(0xFFFFFFFFu, 0xFFFFFFFFu);
 }
 
 } // namespace TestGaussianSplatting

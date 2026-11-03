@@ -97,8 +97,15 @@ uint64_t gs_get_non_finite_pack_rejection_count();
 
 // #1300: process-wide count of ProjectSettings reads made by the per-splat debug trace in the
 // non-quantized packer. It must stay O(1), not O(splats): the trace runs on the streaming pack
-// workers, and each read takes engine-wide locks. Exposed for the regression test.
+// workers, and each read takes engine-wide locks. Test-only (absent from release builds); it counts
+// calls of the packer's own wrapper, not arbitrary ProjectSettings reads.
+#ifdef TESTS_ENABLED
 uint64_t gs_get_pack_data_log_probe_count();
+// #1300: number of debug-trace samples the packers' one-shot latch has let through, and a seam to
+// force the latch counters (e.g. to the state the old signed counter wrapped to).
+uint64_t gs_get_pack_trace_slots_taken();
+void gs_set_pack_trace_counters_for_test(uint32_t p_sh_counter, uint32_t p_range_counter);
+#endif
 
 // ============================================================================
 // Instance Pipeline GPU Layout (std430)

@@ -18,12 +18,39 @@
 #include <cstring>
 
 namespace {
-// #1300: counts ProjectSettings reads made by the per-splat debug trace in _pack_gaussian_finite().
+#ifdef TESTS_ENABLED
+// #1300: counts calls of the _is_data_log_enabled() wrapper below (the per-splat debug trace in
+// _pack_gaussian_finite()). It does NOT see a direct gs::settings:: or ProjectSettings read.
 static std::atomic<uint64_t> g_pack_data_log_probe_count{ 0 };
+// #1300: counts debug-trace samples let through by _take_pack_trace_slot().
+static std::atomic<uint64_t> g_pack_trace_slots_taken{ 0 };
+#endif
 static bool _is_data_log_enabled() {
+#ifdef TESTS_ENABLED
     g_pack_data_log_probe_count.fetch_add(1, std::memory_order_relaxed);
+#endif
     return gs::settings::is_data_log_enabled();
 }
+
+// #1300: one-shot debug-trace latch shared by every pack worker. It saturates at p_limit and never
+// re-enters: the old `static int` counter was a data race, and after 2^31 splats it wrapped
+// negative so `++n <= 5` was true again for the next 2^31 splats, each paying two
+// ProjectSettings reads in debug_trace_record_pack_*().
+static bool _take_pack_trace_slot(std::atomic<uint32_t> &r_counter, uint32_t p_limit) {
+    uint32_t current = r_counter.load(std::memory_order_relaxed);
+    while (current < p_limit) {
+        if (r_counter.compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {
+#ifdef TESTS_ENABLED
+            g_pack_trace_slots_taken.fetch_add(1, std::memory_order_relaxed);
+#endif
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::atomic<uint32_t> g_pack_sh_trace_counter{ 0 };
+static std::atomic<uint32_t> g_pack_range_trace_counter{ 0 };
 
 // #1175: the GPU boundary's non-finite gate. Every upload route -- the resident
 // atlas publisher, GPUBufferManager, GPUMemoryStream, the streaming upload
@@ -163,9 +190,20 @@ void PackedSphericalHarmonics::clear() {
     }
 }
 
+#ifdef TESTS_ENABLED
 uint64_t gs_get_pack_data_log_probe_count() {
     return g_pack_data_log_probe_count.load(std::memory_order_relaxed);
 }
+
+uint64_t gs_get_pack_trace_slots_taken() {
+    return g_pack_trace_slots_taken.load(std::memory_order_relaxed);
+}
+
+void gs_set_pack_trace_counters_for_test(uint32_t p_sh_counter, uint32_t p_range_counter) {
+    g_pack_sh_trace_counter.store(p_sh_counter, std::memory_order_relaxed);
+    g_pack_range_trace_counter.store(p_range_counter, std::memory_order_relaxed);
+}
+#endif
 
 uint64_t gs_get_non_finite_pack_rejection_count() {
     return g_non_finite_pack_rejections.load(std::memory_order_relaxed);
@@ -202,8 +240,7 @@ static void _pack_gaussian_finite(const Gaussian &src,
     dst.rotation[2] = src.rotation.z;
     dst.rotation[3] = src.rotation.w;
     // Sample a few SH DC values for debug trace (avoids per-gaussian logging).
-    static int pack_debug_count = 0;
-    if (++pack_debug_count <= 5) {
+    if (_take_pack_trace_slot(g_pack_sh_trace_counter, 5)) {
         GaussianSplatting::debug_trace_record_pack_sh(src.sh_dc, src.opacity);
     }
 
@@ -518,8 +555,7 @@ bool pack_gaussians_range(const LocalVector<Gaussian> &src,
         uint32_t first_order_count,
         uint32_t higher_order_count,
         uint32_t coefficient_limit) {
-    static int pack_range_call_count = 0;
-    if (++pack_range_call_count <= 3) {
+    if (_take_pack_trace_slot(g_pack_range_trace_counter, 3)) {
         if (src.size() > 0 && start < src.size()) {
             const Gaussian &g0 = src[start];
             GaussianSplatting::debug_trace_record_pack_range(count, start, src.size(), g0.sh_dc, g0.opacity);
