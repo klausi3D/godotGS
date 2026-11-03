@@ -500,6 +500,40 @@ RID OutputCompositor::_ensure_viewport_blit_sampler(RenderingDevice *p_device) {
     return sampler;
 }
 
+void OutputCompositor::_reconcile_hlod_scratch_ledger(RenderingDevice *p_current) const {
+    const uint64_t current_id = p_current ? p_current->get_device_instance_id() : 0;
+    LocalVector<RID> dead;
+    for (const KeyValue<RID, HlodScratchEntry> &kv : hlod_scratch_live) {
+        if (kv.value.device_id != current_id || kv.value.device != p_current || !p_current->texture_is_valid(kv.key)) {
+            dead.push_back(kv.key);
+        }
+    }
+    for (const RID &rid : dead) {
+        const HlodScratchEntry *entry = hlod_scratch_live.getptr(rid);
+        if (entry) { hlod_scratch_texture_bytes -= MIN(hlod_scratch_texture_bytes, entry->bytes); }
+        hlod_scratch_live.erase(rid);
+    }
+    if (hlod_scratch_live.is_empty()) {
+        // Nothing live is accounted: re-base, so a device change or inconsistent counters do not poison the ledger forever.
+        hlod_scratch_texture_bytes = 0;
+        hlod_scratch_ledger_valid = true;
+        hlod_scratch_device = 0;
+    }
+}
+
+bool OutputCompositor::get_hlod_scratch_byte_upper_bound(RenderingDevice *p_device, uint64_t &r_bytes) const {
+    if (!p_device) { return false; }
+    _reconcile_hlod_scratch_ledger(p_device);
+    if (hlod_scratch_live.is_empty() || !hlod_scratch_ledger_valid || hlod_scratch_device != p_device->get_device_instance_id()) { return false; }
+    r_bytes = hlod_scratch_texture_bytes;
+    return true;
+}
+
+bool OutputCompositor::ensure_hlod_scratch(RenderingDevice *p_device, const RD::TextureFormat &p_destination_format, const Size2i &p_extent) {
+    if (!p_device || p_extent.x <= 0 || p_extent.y <= 0) { return false; }
+    return _ensure_viewport_blit_scratch(p_device, p_destination_format, p_extent, nullptr).is_valid();
+}
+
 RID OutputCompositor::_ensure_viewport_blit_scratch(RenderingDevice *p_device, const RD::TextureFormat &p_format,
         const Size2i &p_extent, bool *r_reused) {
     if (r_reused) {
@@ -584,7 +618,25 @@ RID OutputCompositor::_ensure_viewport_blit_scratch(RenderingDevice *p_device, c
     // list so texture_create() applies its default-shareable handling.
     scratch_format.shareable_formats.clear();
 
+    const uint64_t before_bytes = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
     RID texture = p_device->texture_create(scratch_format, RD::TextureView());
+    const uint64_t after_bytes = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
+    const uint64_t device_id = p_device->get_device_instance_id();
+    if ((hlod_scratch_device != 0 && hlod_scratch_device != device_id) || after_bytes < before_bytes ||
+            (texture.is_valid() && after_bytes == before_bytes) ||
+            after_bytes - before_bytes > UINT64_MAX - hlod_scratch_texture_bytes) {
+        hlod_scratch_ledger_valid = false;
+    } else {
+        hlod_scratch_device = device_id;
+        hlod_scratch_texture_bytes += after_bytes - before_bytes;
+        if (texture.is_valid()) {
+            HlodScratchEntry entry;
+            entry.device = p_device;
+            entry.device_id = device_id;
+            entry.bytes = after_bytes - before_bytes;
+            hlod_scratch_live.insert(texture, entry);
+        }
+    }
     if (!texture.is_valid()) {
         GS_LOG_WARN_DEFAULT("[OutputCompositor] Failed to create viewport blit scratch texture");
         return RID();

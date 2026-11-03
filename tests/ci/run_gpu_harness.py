@@ -131,6 +131,9 @@ BATCHES: tuple[BatchSpec, ...] = (
     # 5 keys, 10 keys) that add negligibly to the batch, so the 60 s default still holds
     # ample headroom -- no per-batch timeout override is needed.
     BatchSpec("GpuSorting", ("*Sort*][RequiresGPU]*",)),
+    # HLOD D1 resize fix: the streamed HLOD route follows each view's size (TileRenderer::provision_hlod_route) and its
+    # texture ledgers (tile and compositor) track live bytes. Own batch, so the cases are not hidden in an unrelated filter.
+    BatchSpec("HlodResize", ("*[HLOD][Resize][RequiresGPU]*",)),
     BatchSpec("MemoryStream", ("*MemoryStream*][RequiresGPU]*",)),
     # #908: this batch matched 0 cases from its introduction until T4 -- its filter
     # needs the token BEFORE `][RequiresGPU]`, and the three test_gpu_streaming.h
@@ -497,6 +500,10 @@ REQUIRED_BATCHES: frozenset[str] = frozenset({
     "WorldSceneTree",
     "SceneDirectorSceneTree",
     "GpuSorting",  # #744: gates the #508 [GPUSortPipeline] overflow-sticky case (see BatchSpec note)
+    # HLOD D1 resize fix: the provisioning/ledger cases formerly rode in GpuSorting (required); moving them to their own batch
+    # must not drop the empty-batch, hollow-case and RID-leak checks. Local evidence at promotion (RTX 3090, Vulkan, functional
+    # only): 2 cases, 130 assertions, no hollow case.
+    "HlodResize",
 })
 
 # #329: the deferred-case count is DERIVED, never hardcoded.

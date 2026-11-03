@@ -8,7 +8,7 @@
 # what is missing, so the person who administers the machine can install it once.
 #
 #   tests/ci/linux_gpu_runner.sh check-tools [--need-glslang] [--need-pwsh]
-#   tests/ci/linux_gpu_runner.sh venv
+#   tests/ci/linux_gpu_runner.sh venv [--with-test-data]
 #
 # `check-tools` (all findings are printed before the exit status is decided):
 #   * Python 3.11 resolvable (`uv python find 3.11`, else `python3.11`, else a
@@ -26,6 +26,9 @@
 # `venv` creates a per-job virtualenv from the version-and-hash-locked
 # tests/ci/requirements-scons.txt and prepends its bin/ to PATH for every later
 # step through GITHUB_PATH, so a later `python -m SCons` runs inside it (GAP-403).
+# `--with-test-data` also installs the hash-locked tests/ci/requirements-test-data.txt
+# (numpy) into the same venv, for jobs that run tests/ci/run_module_tests.py: its
+# required guard phase runs the S1b quality harness unit tests, which import numpy.
 set -uo pipefail
 
 REQUIRED_PKG_CONFIG=(x11 xcursor xinerama xi xrandr gl glu alsa libpulse libudev vulkan)
@@ -146,6 +149,13 @@ check_tools() {
 }
 
 make_venv() {
+  local with_test_data=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --with-test-data) with_test_data=1 ;;
+      *) echo "venv: unknown argument $arg" >&2; return 2 ;;
+    esac
+  done
   local py
   py="$(resolve_python311)" || { echo "::error::Python 3.11 not found (uv python find 3.11 / python3.11)"; return 1; }
   : "${RUNNER_TEMP:?RUNNER_TEMP is not set; this runs inside a GitHub Actions job}"
@@ -159,6 +169,12 @@ make_venv() {
   fi
   python -m pip install --require-hashes -r tests/ci/requirements-scons.txt \
     || { echo "::error::pip install failed"; return 1; }
+  if [ "$with_test_data" = 1 ]; then
+    python -m pip install --require-hashes -r tests/ci/requirements-test-data.txt \
+      || { echo "::error::numpy install (requirements-test-data.txt) failed"; return 1; }
+    python -c 'import numpy; print("numpy", numpy.__version__)' \
+      || { echo "::error::numpy is not importable from the venv"; return 1; }
+  fi
   if [ -n "${GITHUB_PATH:-}" ]; then
     echo "$venv/bin" >> "$GITHUB_PATH"
   fi
@@ -171,5 +187,5 @@ shift || true
 case "$cmd" in
   check-tools) check_tools "$@" ;;
   venv) make_venv "$@" ;;
-  *) echo "usage: $0 {check-tools [--need-glslang] [--need-pwsh] | venv}" >&2; exit 2 ;;
+  *) echo "usage: $0 {check-tools [--need-glslang] [--need-pwsh] | venv [--with-test-data]}" >&2; exit 2 ;;
 esac

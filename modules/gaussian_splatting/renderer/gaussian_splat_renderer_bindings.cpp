@@ -3,6 +3,9 @@
 // Keeping bindings separate from logic improves code organization.
 
 #include "gaussian_splat_renderer.h"
+#ifdef TESTS_ENABLED
+#include "../resources/color_grading_resource.h"
+#endif
 
 void GaussianSplatRenderer::_bind_methods() {
     // Initialization
@@ -281,6 +284,12 @@ void GaussianSplatRenderer::_bind_methods() {
     BIND_ENUM_CONSTANT(DEBUG_PREVIEW_RUNTIME_MODIFICATIONS);
 
 #ifdef TESTS_ENABLED
+    ClassDB::bind_method(D_METHOD("test_set_hlod_publication_failure", "failure"), &GaussianSplatRenderer::test_set_hlod_publication_failure);
+    ClassDB::bind_method(D_METHOD("test_set_hlod_route_limit_override", "bytes"), &GaussianSplatRenderer::test_set_hlod_route_limit_override);
+    ClassDB::bind_method(D_METHOD("test_observe_hlod_publication", "request_id"), &GaussianSplatRenderer::test_observe_hlod_publication, DEFVAL(0));
+    ClassDB::bind_method(D_METHOD("test_hlod_foreign_device_publication"), &GaussianSplatRenderer::test_hlod_foreign_device_publication);
+    ClassDB::bind_method(D_METHOD("test_set_hlod_grading", "grading"), &GaussianSplatRenderer::set_color_grading);
+    ClassDB::bind_method(D_METHOD("test_bake_hlod_small_leaf_fixture", "data"), &GaussianSplatRenderer::test_bake_hlod_small_leaf_fixture);
     // #104: expose the render-thread dispatch characterization hooks to GDScript so the
     // executable harness (tests/ci/test_render_thread_dispatch.gd) can drive them under a
     // LIVE RenderingServer + render loop, which the C++ [RequiresGPU] doctests cannot reach

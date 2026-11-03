@@ -574,12 +574,16 @@ which brings it into the derived set automatically.
     venv under `$RUNNER_TEMP`, installs the lock there, and prepends the venv's
     `bin` directory to `GITHUB_PATH`, so every later `python`, `python -m SCons`
     included, runs in the venv. The self-hosted jobs with no install step
-    (`guards`, `export_smoke_windows`, and the job in
-    `gaussian_shader_validation.yml`) use the global interpreter but install
-    nothing into it.
+    (`export_smoke_windows` and the job in `gaussian_shader_validation.yml`)
+    use the global interpreter but install nothing into it.
   - `tests/ci/requirements-test-data.txt` (numpy, compiled from
     `requirements-test-data.in`) is for the hosted `cpu-tests` job in
-    `baseline_qa.yml`, which takes its SCons from apt.
+    `baseline_qa.yml`, which takes its SCons from apt, for the hosted
+    `agentic-pr-gate`, whose guard-only lane runs the S1b harness unit tests,
+    and for the two self-hosted jobs in `gaussian_production_gates.yml` that run
+    `tests/ci/run_module_tests.py` (`guards` and `module-validation`): there
+    `tests/ci/linux_gpu_runner.sh venv --with-test-data` installs it into the
+    same per-job venv as SCons.
   - `docs/requirements-lock.txt` is for `docs_pages.yml`. It holds the full
     transitive docs stack, compiled from `docs/requirements.txt` and
     `docs/requirements-site.txt`.

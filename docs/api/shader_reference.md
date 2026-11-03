@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `189` documented functions, `21` undocumented functions, `75` documented uniform fields, `113` undocumented uniform fields.
+Coverage summary: `190` documented functions, `21` undocumented functions, `75` documented uniform fields, `115` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -326,6 +326,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>misc</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
       <td>x: sigma multiplier override, y: gaussian count, z,w: unused</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_camera_relative.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_camera_relative.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_cr_quat_rotate(vec4 q, vec3 v)</code></pre></td>
+      <td>Rotate `v` by the unit quaternion `q` (x, y, z, w). Same arithmetic as quat_rotate in depth_compute.glsl and gs_quat_rotate in tile_binning.glsl.</td>
     </tr>
   </tbody>
 </table>

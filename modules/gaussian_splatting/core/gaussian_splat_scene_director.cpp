@@ -155,6 +155,11 @@ GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::Submi
 	contract.gaussian_data = p_record.gaussian_data;
 	contract.payload_source = p_record.payload_source;
 	contract.static_chunks = p_record.static_chunks;
+	contract.hlod_snapshot = p_record.hlod_snapshot;
+	contract.hlod_reason = p_record.hlod_reason;
+	contract.hlod_tau_px = p_record.hlod_tau_px;
+	contract.hlod_owner_key = uint64_t(p_record.owner_id);
+	contract.hlod_world_key = p_record.hlod_world_key;
 	contract.debug_label = _dict_get_string(p_record.metadata, StringName("world_path"));
 	contract.has_desired_residency_hint = p_record.has_desired_residency_hint;
 	contract.desired_residency_hint = p_record.desired_residency_hint;
@@ -393,6 +398,37 @@ void GaussianSplatSceneDirector::DeferredRendererWork::flush() {
 
 GaussianSplatSceneDirector *GaussianSplatSceneDirector::get_singleton() {
     return singleton;
+}
+
+bool GaussianSplatSceneDirector::set_world_origin(const gs_world_frame::PreciseCoord &p_origin) {
+    MutexLock lock(world_origin_mutex);
+    return world_origin.set_origin(p_origin);
+}
+
+bool GaussianSplatSceneDirector::shift_world_origin_by(const double p_delta[3]) {
+    MutexLock lock(world_origin_mutex);
+    return world_origin.shift_origin_by(p_delta);
+}
+
+void GaussianSplatSceneDirector::get_world_origin(gs_world_frame::PreciseCoord &r_origin, uint64_t &r_revision) const {
+    MutexLock lock(world_origin_mutex);
+    r_origin = world_origin.get_origin();
+    r_revision = world_origin.get_revision();
+}
+
+uint64_t GaussianSplatSceneDirector::get_world_origin_revision() const {
+    MutexLock lock(world_origin_mutex);
+    return world_origin.get_revision();
+}
+
+void GaussianSplatSceneDirector::add_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook) {
+    MutexLock lock(world_origin_mutex);
+    world_origin.add_hook(p_hook);
+}
+
+void GaussianSplatSceneDirector::remove_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook) {
+    MutexLock lock(world_origin_mutex);
+    world_origin.remove_hook(p_hook);
 }
 
 GaussianSplatSceneDirector::GaussianSplatSceneDirector() {
@@ -831,6 +867,10 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.gaussian_data = p_submission.gaussian_data;
 	r_record.payload_source = p_submission.payload_source;
 	r_record.static_chunks = p_submission.static_chunks;
+	r_record.hlod_snapshot = p_submission.hlod_snapshot;
+	r_record.hlod_reason = p_submission.hlod_reason;
+	r_record.hlod_tau_px = p_submission.hlod_tau_px;
+	r_record.hlod_world_key = p_submission.hlod_world_key;
 	r_record.bounds = p_submission.bounds;
 	r_record.metadata = p_submission.metadata;
 	r_record.has_desired_residency_hint = p_submission.has_desired_residency_hint;
@@ -847,7 +887,9 @@ bool GaussianSplatSceneDirector::SubmissionStore::record_has_renderable_payload(
 	const bool has_file_backed_payload = p_record.payload_source.is_valid() &&
 			p_record.payload_source->is_valid() &&
 			p_record.payload_source->get_count() > 0;
-	return has_resident_data || has_file_backed_payload;
+	// Package E1: a V4 paged HLOD world has neither; its runtime snapshot is the renderable payload.
+	const bool has_paged_hlod = p_record.hlod_snapshot.is_valid() && p_record.hlod_snapshot->is_paged();
+	return has_resident_data || has_file_backed_payload || has_paged_hlod;
 }
 
 void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld &p_world,
@@ -859,6 +901,10 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->gaussian_data = p_record.gaussian_data;
 	r_submission->payload_source = p_record.payload_source;
 	r_submission->static_chunks = p_record.static_chunks;
+	r_submission->hlod_snapshot = p_record.hlod_snapshot;
+	r_submission->hlod_reason = p_record.hlod_reason;
+	r_submission->hlod_tau_px = p_record.hlod_tau_px;
+	r_submission->hlod_world_key = p_record.hlod_world_key;
 	r_submission->bounds = p_record.bounds;
 	r_submission->metadata = p_record.metadata;
 	r_submission->has_desired_residency_hint = p_record.has_desired_residency_hint;
@@ -2993,4 +3039,12 @@ Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::get_shared_renderer(World
 		return Ref<GaussianSplatRenderer>();
 	}
 	return world->renderer_owner.ref();
+}
+
+
+bool GaussianSplatSceneDirector::has_exclusive_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = _find_world_for_renderer(p_renderer);
+	return world && world->instance_store.is_empty() && world->submission_store.is_active() &&
+			uint64_t(world->submission_store.get_record().owner_id) == p_owner;
 }

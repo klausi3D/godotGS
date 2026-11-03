@@ -833,6 +833,18 @@
       "test_coverage": "inventory_only"
     },
     {
+      "effective_state": "gs::settings::get_hlod_runtime_cut_enabled",
+      "key": "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled",
+      "notes": "Experimental bounded resident HLOD cut; defaults off. Requires a complete resident hierarchy and supported single main view. Other contexts retain canonical leaves.",
+      "test_coverage": "inventory_only"
+    },
+    {
+      "effective_state": "gs::settings::get_hlod_tau_px",
+      "key": "rendering/gaussian_splatting/lod/hlod_tau_px",
+      "notes": "Positive pixel error threshold for the opt-in resident HLOD cut; provisional default 1. Invalid values use 1 with a warning. World overrides use 0 to inherit, then multiply by world LOD bias.",
+      "test_coverage": "inventory_only"
+    },
+    {
       "effective_state": "LODConfig/GPUCuller.hysteresis_zone",
       "key": "rendering/gaussian_splatting/lod/hysteresis_zone",
       "test_coverage": "inventory_only"

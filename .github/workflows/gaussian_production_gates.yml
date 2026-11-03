@@ -127,6 +127,15 @@ jobs:
         run: |
           python3 --version
 
+      # GAP-403: the guard phase runs the S1b quality harness unit tests, which
+      # import numpy. Nothing is installed into the runner's global interpreter
+      # (and it has no sudo), so numpy goes into a per-job venv from the
+      # hash-locked tests/ci/requirements-test-data.txt; its bin/ is prepended
+      # to PATH through GITHUB_PATH, so `python3` below is the venv interpreter.
+      # A missing numpy fails this step instead of the guard lane.
+      - name: Install guard dependencies (numpy)
+        run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
+
       - name: Run guard checks
         # GS_CI_BASE_REF is the review base the shrink-only ratchets in
         # tests/ci/check_environment_skip_marker.py compare against (#595). The
@@ -324,9 +333,13 @@ jobs:
       # SCons goes into a per-job venv from the version-and-hash-locked
       # tests/ci/requirements-scons.txt, and the venv's bin/ is prepended to PATH
       # (via GITHUB_PATH, for every later step), so each later `python`,
-      # including `python -m SCons`, runs in the venv.
+      # including `python -m SCons`, runs in the venv. The only other third-party
+      # import is numpy, used by the S1b quality harness tests that
+      # run_module_tests.py runs; `--with-test-data` installs it from the
+      # hash-locked tests/ci/requirements-test-data.txt into the same venv, so a
+      # missing numpy fails this step instead of the test lane.
       - name: Install SCons
-        run: bash tests/ci/linux_gpu_runner.sh venv
+        run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
 
       # -j16, not nproc (32): the box has 24 GB of RAM.
       - name: Build Godot editor with tests

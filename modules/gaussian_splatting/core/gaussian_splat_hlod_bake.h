@@ -1,8 +1,8 @@
 #ifndef GAUSSIAN_SPLAT_HLOD_BAKE_H
 #define GAUSSIAN_SPLAT_HLOD_BAKE_H
 
-// HLOD bake (ADR docs/architecture/adr-hlod-streaming.md §6.1-§6.3, slice S1a): builds the
-// world-aligned octree over a world's splats, merges interior nodes bottom-up and lays the payload
+// HLOD bake (ADR docs/architecture/adr-hlod-streaming.md §6.1-§6.3, slices S1a/S1b): builds the
+// world-aligned octree over a world's splats, chooses merged/selected interior nodes bottom-up and lays the payload
 // out node-contiguous and importance-ordered. Pure CPU, host-testable; no Resource or GPU state.
 //
 // The lattice is the world frame's (origin O = (0, 0, 0) for a world without one, see
@@ -11,12 +11,45 @@
 
 #include "gaussian_splat_hlod_merge.h"
 #include "gaussian_splat_hlod_tree.h"
+#ifdef TESTS_ENABLED
+#include "gaussian_splat_hlod_quality.h"
+#endif
 
 namespace gs_hlod {
 
+#ifdef TESTS_ENABLED
+// Test-only, explicit opt-in candidate capture (S1b matched-arm quality exporter, ADR §9 S1b).
+// At every interior node of a QUALITY_SELECTION bake the baker builds a MERGED (SAT) candidate and
+// a SELECTED (A-area) candidate of the same count and keeps one. With a capture attached, BOTH are
+// kept here, together with the winner flag, before either is discarded. Positions are node-relative
+// (the node's cell centre), exactly as the baker holds them. The existing payload types are reused;
+// no file format is added. The capture never changes the baked tree: it only copies/shares.
+struct CandidateCapture {
+	struct Node {
+		SplatList sat;         // MERGED candidate (rule 1 `sat`), children = the baker's chosen child payloads
+		QualityPayload area;   // SELECTED candidate (A-area leaf-prefix selection), same count as `sat`
+		bool use_merged = true; // true: the SAT candidate won (S1b choice)
+		bool captured = false;
+	};
+	// REQUIRED, nonzero: byte ceiling for everything the capture retains (both candidates of all
+	// interior nodes). Exceeding it fails the bake closed; nothing is truncated or dropped.
+	uint64_t max_bytes = 0;
+	LocalVector<Node> nodes; // indexed by tree node index; filled for interior nodes only
+	uint64_t captured_bytes = 0;
+	uint32_t captured_nodes = 0;
+};
+#endif
+
 struct BakeParams {
+	enum Mode { MERGE_ONLY, QUALITY_SELECTION };
+	Mode mode = MERGE_ONLY; // Canonical imports and the public bake retain rule 1.
 	uint32_t leaf_max_splats = kMaxNodeSplats; // <= kMaxNodeSplats; tests use smaller leaves
 	InteriorBakeParams interior;
+#ifdef TESTS_ENABLED
+	// Test-only. nullptr (the default) is the production path: the capture branch is a single
+	// pointer test per interior node and the baked tree is byte-identical either way.
+	CandidateCapture *capture = nullptr;
+#endif
 };
 
 struct BakeInput {
@@ -49,9 +82,9 @@ bool choose_root_cell(const double p_origin[3], const double p_min[3], const dou
 // fields (position, scale, rotation, opacity, SH), a leaf size outside [1, 16384], a payload
 // that would not fit the 32-bit index space, or a splat-count-sized allocation that cannot be
 // served. r_code, when given, receives ERR_OUT_OF_MEMORY for the last and ERR_INVALID_DATA
-// otherwise. The interior merge's per-node allocations are probed too (the bound comment in
-// gaussian_splat_hlod_merge.h); the node-count-sized build stacks and the <= kMaxChildren child
-// spans are not.
+// otherwise (numeric image-domain range failures retain their typed error). The interior merge's per-node allocations
+// are probed too (the bound comment in gaussian_splat_hlod_merge.h); the node-count-sized build stacks and the <=
+// kMaxChildren child spans are not.
 bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error,
 		Error *r_code = nullptr);
 

@@ -3777,3 +3777,42 @@ bool GPUSorterFactory::probe_supports_indirect(SortingAlgorithm algorithm, Rende
 SorterCapabilities GPUSorterFactory::probe_capabilities(SortingAlgorithm algorithm) {
     return _probe_algorithm(algorithm, nullptr).capabilities;
 }
+
+
+bool BitonicSort::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0; // Bitonic owns no storage/uniform buffers; parameters use push constants.
+    return !resource_device || (_device_is_active(resource_device) &&
+            resource_device->get_device_instance_id() == resource_device_generation);
+}
+
+bool RadixSort::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0;
+    const RID ids[] = { histogram_buffer, wg_prefix_buffer, bin_counts_buffer, bin_prefix_buffer,
+        temp_keys_buffer, temp_values_buffer, indirect_count_buffer, indirect_dispatch_args_buffer };
+    const uint64_t sizes[] = { uint64_t(histogram_stride) * max_num_passes * 4u,
+        uint64_t(histogram_stride) * max_num_passes * 4u, uint64_t(max_num_passes) * max_radix_size * 4u,
+        uint64_t(max_num_passes) * max_radix_size * 4u, uint64_t(max_elements) * key_stride_bytes,
+        uint64_t(max_elements) * 4u, GaussianSplatting::kIndirectDispatchHeaderSize, GaussianSplatting::kIndirectDispatchHeaderSize };
+    for (uint32_t i = 0; i < 8; ++i) {
+        if (!ids[i].is_valid()) { continue; }
+        if (!_device_is_active(resource_device) || resource_device->get_device_instance_id() != resource_device_generation ||
+                !resource_device->buffer_is_valid(ids[i]) || sizes[i] == 0) { r_bytes = 0; return false; }
+        r_bytes += sizes[i];
+    }
+    return true;
+}
+
+bool OneSweepSort::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0;
+    const uint64_t groups = (uint64_t(max_elements) + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+    const RID ids[] = { global_histogram_buffer, digit_histogram_buffer, chained_scan_buffer, temp_keys_buffer, temp_values_buffer };
+    const uint64_t sizes[] = { uint64_t(RADIX_SIZE) * 4u, groups * RADIX_SIZE * 4u, groups * RADIX_SIZE * 4u,
+        uint64_t(max_elements) * sizeof(float), uint64_t(max_elements) * sizeof(uint32_t) };
+    for (uint32_t i = 0; i < 5; ++i) {
+        if (!ids[i].is_valid()) { continue; }
+        if (!_device_is_active(resource_device) || resource_device->get_device_instance_id() != resource_device_generation ||
+                !resource_device->buffer_is_valid(ids[i]) || sizes[i] == 0) { r_bytes = 0; return false; }
+        r_bytes += sizes[i];
+    }
+    return true;
+}

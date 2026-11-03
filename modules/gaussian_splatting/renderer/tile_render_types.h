@@ -488,6 +488,12 @@ struct TileRenderParams {
 	// SplatRefGPU.instance_id). Bound at set=0, binding=20 in tile_binning.glsl.
 	RID instance_grading_buffer;
 	RID splat_ref_buffer;
+        RID hlod_draw_entry_buffer;
+        RID hlod_draw_list_buffer;
+        bool hlod_relative = false;
+        uint64_t hlod_source_generation = 0;
+        uint64_t hlod_content_generation = 0;
+        uint64_t hlod_origin_revision = 0;
 	RID chunk_meta_buffer;
 	RID quantization_buffer;
 	RID instance_indirect_count_buffer;

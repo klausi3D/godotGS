@@ -86,6 +86,7 @@ private:
     // Renderer parity settings (matches the core controls on GaussianSplatNode3D).
     bool lod_enabled = true;
     float lod_bias = 1.0f;
+    float hlod_tau_px = 0.0f;
     float max_render_distance = 1000.0f;
     int max_splat_count = 1000000;
     bool use_frustum_culling = true;
@@ -142,6 +143,8 @@ public:
     void set_lod_enabled(bool p_enabled);
     bool is_lod_enabled() const { return lod_enabled; }
 
+    void set_hlod_tau_px(float p_tau);
+    float get_hlod_tau_px() const { return hlod_tau_px; }
     void set_lod_bias(float p_bias);
     float get_lod_bias() const { return lod_bias; }
 

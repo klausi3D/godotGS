@@ -27,6 +27,8 @@
 
 // Project settings paths for LOD configuration
 #define LOD_CONFIG_SECTION "rendering/gaussian_splatting/lod/"
+#define LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH LOD_CONFIG_SECTION "hlod_runtime_cut_enabled"
+#define LOD_CONFIG_HLOD_TAU_PATH LOD_CONFIG_SECTION "hlod_tau_px"
 #define LOD_CONFIG_ENABLED_PATH LOD_CONFIG_SECTION "enabled"
 #define LOD_CONFIG_NUM_LEVELS_PATH LOD_CONFIG_SECTION "num_levels"
 #define LOD_CONFIG_MAX_DISTANCE_PATH LOD_CONFIG_SECTION "max_distance"

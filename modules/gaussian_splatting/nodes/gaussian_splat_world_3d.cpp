@@ -34,6 +34,8 @@ void GaussianSplatWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_cast_shadow"), &GaussianSplatWorld3D::is_cast_shadow);
     ClassDB::bind_method(D_METHOD("set_lod_enabled", "enabled"), &GaussianSplatWorld3D::set_lod_enabled);
     ClassDB::bind_method(D_METHOD("is_lod_enabled"), &GaussianSplatWorld3D::is_lod_enabled);
+    ClassDB::bind_method(D_METHOD("set_hlod_tau_px", "tau"), &GaussianSplatWorld3D::set_hlod_tau_px);
+    ClassDB::bind_method(D_METHOD("get_hlod_tau_px"), &GaussianSplatWorld3D::get_hlod_tau_px);
     ClassDB::bind_method(D_METHOD("set_lod_bias", "bias"), &GaussianSplatWorld3D::set_lod_bias);
     ClassDB::bind_method(D_METHOD("get_lod_bias"), &GaussianSplatWorld3D::get_lod_bias);
     ClassDB::bind_method(D_METHOD("set_max_render_distance", "distance"), &GaussianSplatWorld3D::set_max_render_distance);
@@ -56,6 +58,8 @@ void GaussianSplatWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cast_shadow"), "set_cast_shadow", "is_cast_shadow");
 
     ADD_GROUP("Quality", "quality/");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/hlod_tau_px", PROPERTY_HINT_RANGE, "0,100,0.01,or_greater"),
+            "set_hlod_tau_px", "get_hlod_tau_px");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "quality/lod_enabled"), "set_lod_enabled", "is_lod_enabled");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "quality/lod_bias", PROPERTY_HINT_RANGE, GS_LOD_BIAS_HINT_RANGE),
             "set_lod_bias", "get_lod_bias");
@@ -310,13 +314,12 @@ void GaussianSplatWorld3D::_set_world_resource_changed_connection(const Ref<Gaus
 void GaussianSplatWorld3D::_on_world_resource_changed() {
     // DEFERRED AND COALESCED, deliberately. Three reasons, in order of weight:
     //
-    // 1. One user-visible content write emits `changed` more than once.
-    //    GaussianSplatWorld::set_gaussian_data() (../core/gaussian_splat_world.cpp:107-121)
-    //    assigns the Ref at :108, calls set_payload_metadata() at :110 -- which
-    //    emits at :214 -- and only then fixes up `bounds` at :115-117 before
-    //    emitting again at :120. A synchronous handler would run the whole
-    //    registration twice per write, and the first of the two would read the
-    //    resource midway through its own setter.
+    // 1. Consecutive content writes in one frame (e.g. set_gaussian_data() then
+    //    set_bounds()) each emit `changed`. set_gaussian_data() itself emits once
+    //    since #1280 (it assigns the payload and its metadata under
+    //    render_input_mutex). A synchronous handler would run the whole
+    //    registration once per write, and the first run would read the resource
+    //    midway through the caller's sequence of writes.
     // 2. submit_world_submission()'s phase 2 is a blocking render-thread dispatch
     //    (../core/gaussian_splat_scene_director.cpp:2425-2430). Running it inline
     //    from inside a property setter puts a render-thread round trip at an
@@ -343,10 +346,9 @@ void GaussianSplatWorld3D::_on_world_resource_changed() {
     // all five fields; #1002) -- write a field that store_submission()
     // copies into the record (gaussian_data/payload_source/static_chunks/bounds/
     // metadata, ../core/gaussian_splat_scene_director.cpp:831-835). The seventh,
-    // set_payload_metadata (:214), writes only the resource's scalar metadata
-    // mirrors, but it is emitted only from set_gaussian_data() at :110 and
-    // materialize_resident_gaussian_data() at :279 -- both of which are
-    // record-relevant writes -- so it never fires alone. With the coalescing
+    // set_payload_metadata(), writes only the resource's scalar metadata
+    // mirrors; it can now fire on its own (set_gaussian_data() no longer calls
+    // it), so a redundant resubmit is possible. With the coalescing
     // below, the redundant emission costs one latch test.
     //
     // KNOWN GAP, not covered by this: get_metadata() hands script the resource's
@@ -637,14 +639,56 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     if (submission.scenario.is_valid()) {
         last_known_scenario = submission.scenario;
     }
-    submission.gaussian_data = world->get_gaussian_data();
-    submission.payload_source = world->get_chunk_payload_source();
-    submission.static_chunks = world->get_static_chunks();
-    submission.bounds = world->get_bounds();
-    if (!submission.bounds.has_volume() && submission.gaussian_data.is_valid()) {
-        submission.bounds = submission.gaussian_data->get_aabb();
+    if (world->has_hlod_paged_source()) {
+        // Package E1 fallback: the HLOD runtime route is the only one a V4 paged world can use. Where that route can never
+        // serve this setup (and the node can see it now), load the payload into memory - the memory of a v3 load of the
+        // same world - and take the ordinary resident route. Per-view limits (orthographic, XR) are not a reason: the
+        // route is usable and those frames draw nothing, with a reason key.
+        const char *fallback_reason = nullptr;
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (!gs::settings::get_hlod_runtime_cut_enabled(ps)) {
+            fallback_reason = "hlod_paged_requires_runtime_cut";
+        } else if (!lod_enabled) {
+            fallback_reason = "hlod_paged_lod_disabled";
+        } else if (get_global_transform() != Transform3D()) {
+            fallback_reason = "hlod_paged_non_identity_world_transform";
+        } else if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps, true).enabled) {
+            fallback_reason = "hlod_paged_deformation_or_instance_domain";
+        } else if (renderer.is_valid() && renderer->get_painterly_config().enabled) {
+            fallback_reason = "hlod_paged_painterly_enabled";
+        } else if (renderer.is_valid() && renderer->is_shadow_instance_filter_enabled()) {
+            fallback_reason = "hlod_paged_shadow_instance_filter";
+        } else if (renderer.is_valid() && director->get_sphere_effector_count_for_renderer(renderer.ptr()) != 0) {
+            fallback_reason = "hlod_paged_deformation_or_instance_domain";
+        }
+        if (fallback_reason) {
+            WARN_PRINT_ONCE(vformat("[GaussianSplatWorld3D] V4 paged world cannot use the HLOD route (%s); loading its payload into memory "
+                                    "and using the resident route (the memory of a v3 load).", fallback_reason));
+            String materialize_reason;
+            if (world->materialize_paged_resident(materialize_reason) != OK) {
+                ERR_PRINT(vformat("[GaussianSplatWorld3D] Paged-world fallback failed: %s", materialize_reason));
+                submission.hlod_reason = "hlod_paged_materialize_failed";
+            } else {
+                submission.hlod_reason = fallback_reason;
+            }
+        }
     }
-    submission.metadata = world->get_metadata();
+    const uint64_t source_epoch = world->capture_render_input(submission.gaussian_data, submission.payload_source,
+            submission.static_chunks, submission.bounds, submission.metadata);
+    submission.hlod_tau_px = hlod_tau_px;
+    submission.hlod_world_key = world.is_valid() ? uint64_t(world->get_instance_id()) : 0;
+    if (gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
+        if (get_global_transform() != Transform3D()) {
+            submission.hlod_reason = "hlod_world_transform_unsupported";
+        } else {
+            const Error snapshot_error = world->capture_hlod_runtime_snapshot(submission.hlod_snapshot, submission.hlod_reason);
+            if (snapshot_error == OK && (submission.hlod_snapshot->source_epoch != source_epoch ||
+                    submission.hlod_snapshot->source_data != submission.gaussian_data)) {
+                submission.hlod_snapshot.unref();
+                submission.hlod_reason = "hlod_submission_generation_changed";
+            }
+        }
+    }
     const String world_path = world->get_path();
     if (!world_path.is_empty()) {
         submission.metadata[StringName("world_path")] = world_path;
@@ -823,4 +867,13 @@ void GaussianSplatWorld3D::_set_instance_base(const RID &p_base) {
     if (log_enabled) {
         GS_LOG_RENDERER_DEBUG("[GSWORLD-DBG] instance_set_base called successfully");
     }
+}
+
+void GaussianSplatWorld3D::set_hlod_tau_px(float p_tau) {
+    ERR_FAIL_COND_MSG(!Math::is_finite(p_tau) || p_tau < 0.0f, "HLOD pixel threshold must be finite and nonnegative.");
+    if (hlod_tau_px == p_tau) {
+        return;
+    }
+    hlod_tau_px = p_tau;
+    _resubmit_world_submission_if_registered();
 }

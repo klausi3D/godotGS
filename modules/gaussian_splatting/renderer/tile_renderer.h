@@ -129,6 +129,35 @@ public:
     RID get_tile_raster_pipeline() const { return shader_resources.tile_raster_pipeline; }
     uint64_t get_shader_defines_hash() const { return shader_resources.shader_defines_hash; }
 
+    // Physical texture-allocation deltas, retained conservatively through deferred release.
+    bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
+    uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
+    bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
+    // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
+    // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
+    static void get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record);
+    // Why the last render() refused an HLOD-relative frame (empty when it did not refuse one).
+    const String &get_last_hlod_refusal() const { return last_hlod_refusal; }
+    // Streamed and V4 paged HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
+    // Creates the output targets for `p_viewport` and the global overlap storage for `p_overlap_records` without
+    // drawing, so prepare_hlod_scratch()'s "warm on the canonical path" preconditions (and the texture ledger) hold
+    // for the view about to be drawn. Idempotent; a resize reallocates exactly as a render would.
+    Error provision_hlod_route(const Vector2i &p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records);
+    // Size of the tile grid's viewport (what the last resize/render provisioned); (0,0) before the first one.
+    Vector2i get_provisioned_viewport() const { return grid_state.viewport_size; }
+    // What provision_hlod_route(.., p_overlap_records) really allocates for the overlap storage: the records are capped at
+    // the configured max_overlap_records (ensure_resources does the same), and each costs the sort keys (1 or 2 words,
+    // 2 with 64-bit keys) plus the values word, twice (the sorter's alternate buffers): 24 B with 64-bit keys.
+    uint32_t clamp_hlod_overlap_records(uint32_t p_records) const;
+    uint64_t get_hlod_overlap_bytes_per_record() const;
+    // Upper bound of the texture bytes a resize to `p_viewport` leaves charged to the ledger: the live bytes scaled by
+    // the pixel ratio (never below the live bytes), so a refusal can be decided before anything is reallocated.
+    uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;
+    // Safe point (before the frame's passes, after the previous frame's readback): grows the overlap storage when the
+    // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
+    // HLOD frames never grow it themselves. Returns true when it grew.
+    bool grow_hlod_overlap_storage(uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -297,6 +326,19 @@ public:
     const TilePerformanceMetrics &_test_raster_metrics() const { return perf_metrics; }
     static Vector<uint64_t> _test_instance_pipeline_binding_generation_trace(
             const Vector<RenderParams> &p_params_sequence);
+    struct TestDescriptorCacheSnapshot {
+        uint64_t generation;
+        RID binning_params;
+        RID fragment_params;
+        RID compute_params;
+        RID depth_fallback;
+        RID depth_sampler;
+    };
+    TestDescriptorCacheSnapshot _test_descriptor_cache_snapshot() const {
+        return { descriptor_generation, binning_stage.cached_binning_param_uniform_set,
+            raster_stage.cached_raster_param_uniform_set, raster_stage.cached_raster_compute_param_uniform_set,
+            raster_stage.scene_depth_fallback_texture, raster_stage.scene_depth_sampler };
+    }
 
     // Codex PR #419 round-2 Finding 2: aggregate non-byte RID-leak coverage for
     // the tile_shader_recompile lifetime scenario (#298 regression). The forced
@@ -437,7 +479,7 @@ private:
 	RenderingDevice *_get_resource_device() const;
 	RenderingDevice *_get_submission_device();
 	RenderingDevice *_acquire_submission_device();
-	void _invalidate_descriptor_cache();
+	void _invalidate_descriptor_cache(bool p_preserve_scene_depth = false);
 	// Free the compiled tile shaders/pipelines before clearing their RIDs. Forced
 	// recompiles (config/debug toggles) must not abandon the previous GPU objects;
 	// a bare shader_resources.reset_state() would null the RIDs and leak them.
@@ -524,6 +566,12 @@ private:
         RID instance_buffer;
         RID instance_grading_buffer;
         RID splat_ref_buffer;
+        RID hlod_draw_entry_buffer;
+        RID hlod_draw_list_buffer;
+        bool hlod_relative = false;
+        uint64_t hlod_source_generation = 0;
+        uint64_t hlod_content_generation = 0;
+        uint64_t hlod_origin_revision = 0;
         RID chunk_meta_buffer;
         RID quantization_buffer;
         RID indirect_count_buffer;
@@ -538,6 +586,23 @@ private:
     TileDeviceContext device_context;
     bool gpu_timestamp_capture_enabled = true;
     TileRenderTargets render_targets;
+    // HLOD texture ledger: the bytes of the textures this renderer created and still owns. Each creation records its
+    // measured delta under its RID; a texture that is no longer valid on the device is subtracted when the ledger is next
+    // read (so many viewport resizes do not accumulate). Memory the device retires lazily after a free is not counted
+    // again, which can undercount for the frame or two RD keeps it. Mutable: reading reconciles.
+    struct HlodTextureEntry {
+        RenderingDevice *device = nullptr;
+        uint64_t device_id = 0;
+        uint64_t bytes = 0;
+    };
+    mutable HashMap<RID, HlodTextureEntry> hlod_texture_live;
+    mutable uint64_t hlod_texture_bytes = 0;
+    mutable uint64_t hlod_texture_device = 0;
+    mutable bool hlod_texture_ledger_valid = true;
+    bool hlod_scratch_preparing = false;
+    String last_hlod_refusal;
+    void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
+    void _reconcile_hlod_texture_ledger() const;
 
     // Cache keys for binning/raster uniform sets live in stage structs.
     // Depth buffer for post-processing compatibility (Issue #128) lives in TileRenderTargets.
