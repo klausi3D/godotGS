@@ -1665,4 +1665,39 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A refused materialization leaves a
     }
 }
 
+// #1300: the non-quantized packer runs once per splat on the streaming pack workers. Its
+// "first gaussian" debug trace used to evaluate the data-logging project setting (several
+// ProjectSettings/StringName lookups, each behind an engine-wide lock) for EVERY splat while
+// logging was off, stretching one 65536-splat chunk pack from tens of milliseconds to ~1 s on
+// the Linux GPU runner and starving the 250k streaming tier. The number of reads must not
+// scale with the splat count.
+TEST_CASE("[GaussianSplatting][DataAuthority] Packing N splats reads the data-log setting O(1) times, not O(N) (#1300)") {
+    constexpr uint32_t SPLAT_COUNT = 4096;
+    LocalVector<Gaussian> splats;
+    for (uint32_t i = 0; i < SPLAT_COUNT; i++) {
+        splats.push_back(gs1175_make_splat(Vector3(float(i), 0.0f, 1.0f), 0.5f));
+    }
+
+    // Warm-up: the first pack may legitimately resolve the setting once.
+    {
+        Vector<PackedGaussian> warm;
+        SHCompressionMetrics warm_metrics;
+        REQUIRE(pack_gaussians_range(splats, 0, 8, warm, warm_metrics));
+    }
+
+    const uint64_t before = gs_get_pack_data_log_probe_count();
+    Vector<PackedGaussian> packed;
+    SHCompressionMetrics metrics;
+    REQUIRE(pack_gaussians_range(splats, 0, SPLAT_COUNT, packed, metrics));
+    const uint64_t probes = gs_get_pack_data_log_probe_count() - before;
+
+    if (packed.size() != int(SPLAT_COUNT)) {
+        FAIL("pack_gaussians_range must emit one record per splat, got ", packed.size());
+        return;
+    }
+    CHECK_MESSAGE(probes == 0u,
+            "Packing ", SPLAT_COUNT, " splats made ", probes,
+            " ProjectSettings reads of the data-log setting; the per-splat debug trace must not consult it per splat.");
+}
+
 } // namespace TestGaussianSplatting

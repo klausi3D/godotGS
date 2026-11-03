@@ -95,6 +95,11 @@ struct SHCompressionMetrics {
 // (the sum of every SHCompressionMetrics::non_finite_rejected ever produced).
 uint64_t gs_get_non_finite_pack_rejection_count();
 
+// #1300: process-wide count of ProjectSettings reads made by the per-splat debug trace in the
+// non-quantized packer. It must stay O(1), not O(splats): the trace runs on the streaming pack
+// workers, and each read takes engine-wide locks. Exposed for the regression test.
+uint64_t gs_get_pack_data_log_probe_count();
+
 // ============================================================================
 // Instance Pipeline GPU Layout (std430)
 // ============================================================================

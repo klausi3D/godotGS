@@ -18,7 +18,12 @@
 #include <cstring>
 
 namespace {
-static bool _is_data_log_enabled() { return gs::settings::is_data_log_enabled(); }
+// #1300: counts ProjectSettings reads made by the per-splat debug trace in _pack_gaussian_finite().
+static std::atomic<uint64_t> g_pack_data_log_probe_count{ 0 };
+static bool _is_data_log_enabled() {
+    g_pack_data_log_probe_count.fetch_add(1, std::memory_order_relaxed);
+    return gs::settings::is_data_log_enabled();
+}
 
 // #1175: the GPU boundary's non-finite gate. Every upload route -- the resident
 // atlas publisher, GPUBufferManager, GPUMemoryStream, the streaming upload
@@ -158,6 +163,10 @@ void PackedSphericalHarmonics::clear() {
     }
 }
 
+uint64_t gs_get_pack_data_log_probe_count() {
+    return g_pack_data_log_probe_count.load(std::memory_order_relaxed);
+}
+
 uint64_t gs_get_non_finite_pack_rejection_count() {
     return g_non_finite_pack_rejections.load(std::memory_order_relaxed);
 }
@@ -217,8 +226,16 @@ static void _pack_gaussian_finite(const Gaussian &src,
 
 
     // DEBUG: Log first gaussian packing.
-    static bool logged_once = false;
-    if (_is_data_log_enabled() && !logged_once) {
+    //
+    // #1300: this runs once per splat on the streaming pack workers. _is_data_log_enabled() is
+    // several ProjectSettings/StringName lookups (each takes an engine-wide lock), and
+    // `logged_once` stays false whenever data logging is off, so the old
+    // `_is_data_log_enabled() && !logged_once` paid them for EVERY splat (2x), serialising the
+    // workers against the main thread and stretching one 65536-splat chunk pack to ~1 s on the
+    // Linux GPU runner. The "first gaussian" trace is a one-shot, so resolve the setting once.
+    static const bool log_first_gaussian = _is_data_log_enabled();
+    static std::atomic<bool> logged_once{ false };
+    if (log_first_gaussian && !logged_once.load(std::memory_order_relaxed)) {
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] First gaussian: first_order_count=%d, stored_first=%d, stored_high=%d, encoded_total=%d",
             first_order_count, stored_first, stored_high, encoded_total));
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] First gaussian: src.sh_1[0] = (%f, %f, %f)",
@@ -232,9 +249,8 @@ static void _pack_gaussian_finite(const Gaussian &src,
             gaussian_get_dc_encoding(src.render_meta),
             GS_SH_ENCODING_SNORM10_SPLAT_SCALE);
 
-    if (_is_data_log_enabled() && !logged_once) {
+    if (log_first_gaussian && !logged_once.exchange(true, std::memory_order_relaxed)) {
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] sh_metadata = 0x%08X", dst.sh_metadata));
-        logged_once = true;
     }
 
     metrics.raw_bytes += sizeof(Color);
