@@ -39,6 +39,15 @@ Usage
         --editor-binary bin/godot.windows.editor.x86_64.exe \
         --template bin/godot.windows.template_release.x86_64.exe
 
+    python tests/runtime/run_export_smoke.py --target linux \
+        --editor-binary bin/godot.linuxbsd.editor.dev.x86_64 \
+        --template bin/godot.linuxbsd.template_release.x86_64
+
+`--target` defaults to the host platform. The `linux` target runs on the
+self-hosted Linux GPU runner (RTX 3080, real Xorg at `DISPLAY=:0`) and asserts
+exactly what the `windows` target asserts; only the preset platform, the exported
+file name and the export-template name differ (see `TARGETS`).
+
 Both paths are auto-discovered from `bin/` and can also be supplied via the
 `GODOT_EDITOR_BINARY` / `GODOT_EXPORT_TEMPLATE` environment variables. When a
 prerequisite is missing the run reports `[EXPORT_SMOKE_SKIP]` and exits 0
@@ -79,6 +88,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = ROOT / "tests" / "runtime"
 PROJECT_DIR = ROOT / "tests" / "examples" / "godot" / "test_project"
 PRESET_TEMPLATE = RUNTIME_DIR / "export_smoke_preset.cfg.in"
+PRESET_TEMPLATE_LINUX = RUNTIME_DIR / "export_smoke_preset_linux.cfg.in"
 PRESET_NAME = "Export Smoke"
 PRESET_BACKUP_NAME = "export_presets.cfg.smoke-backup"
 PROBE_RES_PATH = "res://tests/export_smoke_probe.gd"
@@ -171,6 +181,70 @@ sys.path.insert(0, str(RUNTIME_DIR))
 from run_runtime_validation import _resolve_mode_args  # noqa: E402
 
 
+class ExportTarget:
+    """What differs between the Windows and the Linux export smoke -- and nothing else.
+
+    The assertions (module present, live RenderingDevice, visible splats, four
+    pipeline stages, non-background pixels, the negative control) are shared; a
+    target only names the platform-specific strings.
+    """
+
+    def __init__(
+        self,
+        *,
+        key: str,
+        host_system: str,
+        preset_template: Path,
+        exported_name: str,
+        export_template_name: str,
+        editor_candidates: Sequence[str],
+        template_candidates: Sequence[str],
+    ) -> None:
+        self.key = key
+        self.host_system = host_system
+        self.preset_template = preset_template
+        # The file the exporter writes. Named after the PRESET, not the engine, so
+        # IFEO/process-name gates must cover it (tests/ci/preflight_runner_gpu_environment.py).
+        self.exported_name = exported_name
+        # What Godot's exporter looks up (`get_template_file_name()`); appears in
+        # the "No export template found at the expected path" diagnostic.
+        self.export_template_name = export_template_name
+        self.editor_candidates = tuple(editor_candidates)
+        self.template_candidates = tuple(template_candidates)
+
+
+TARGETS = {
+    "windows": ExportTarget(
+        key="windows",
+        host_system="Windows",
+        preset_template=PRESET_TEMPLATE,
+        exported_name="gs_export_smoke.exe",
+        export_template_name="windows_release_x86_64.exe",
+        editor_candidates=(
+            "godot.windows.editor.x86_64.exe",
+            "godot.windows.editor*.x86_64.exe",
+        ),
+        template_candidates=(
+            "godot.windows.template_release.x86_64.exe",
+            "godot.windows.template_release*.x86_64.exe",
+        ),
+    ),
+    "linux": ExportTarget(
+        key="linux",
+        host_system="Linux",
+        preset_template=PRESET_TEMPLATE_LINUX,
+        exported_name="gs_export_smoke.x86_64",
+        export_template_name="linux_release.x86_64",
+        editor_candidates=("godot.linuxbsd.editor*.x86_64",),
+        template_candidates=("godot.linuxbsd.template_release*.x86_64",),
+    ),
+}
+
+
+def default_target_key() -> str:
+    return "linux" if platform.system() == "Linux" else "windows"
+
+
 def _skip(reason: str, require: bool) -> int:
     if require:
         print(f"{FAIL_MARKER} {reason} (--require-binaries was passed)")
@@ -194,7 +268,7 @@ def _discover(candidates: Sequence[str]) -> Optional[Path]:
     return None
 
 
-def _resolve_editor(explicit: Optional[str]) -> Optional[Path]:
+def _resolve_editor(explicit: Optional[str], target: Optional[ExportTarget] = None) -> Optional[Path]:
     raw = explicit or os.environ.get("GODOT_EDITOR_BINARY") or os.environ.get("GODOT_BINARY")
     if raw:
         # Resolve against the CALLER's cwd, at the moment we validate it. The
@@ -203,29 +277,19 @@ def _resolve_editor(explicit: Optional[str]) -> Optional[Path]:
         # valid and then not found. Same shape as --output-dir.
         candidate = Path(raw).resolve()
         return candidate if candidate.is_file() else None
-    return _discover(
-        (
-            "godot.windows.editor.x86_64.exe",
-            "godot.windows.editor*.x86_64.exe",
-            "godot.linuxbsd.editor*.x86_64",
-        )
-    )
+    chosen = target or TARGETS["windows"]
+    return _discover(chosen.editor_candidates)
 
 
-def _resolve_template(explicit: Optional[str]) -> Optional[Path]:
+def _resolve_template(explicit: Optional[str], target: Optional[ExportTarget] = None) -> Optional[Path]:
     raw = explicit or os.environ.get("GODOT_EXPORT_TEMPLATE")
     if raw:
         # Absolute for the same reason as the editor: validated in the caller's
         # cwd, embedded into the preset and used from another one.
         candidate = Path(raw).resolve()
         return candidate if candidate.is_file() else None
-    return _discover(
-        (
-            "godot.windows.template_release.x86_64.exe",
-            "godot.windows.template_release*.x86_64.exe",
-            "godot.linuxbsd.template_release*.x86_64",
-        )
-    )
+    chosen = target or TARGETS["windows"]
+    return _discover(chosen.template_candidates)
 
 
 class CommandResult(subprocess.CompletedProcess):
@@ -376,6 +440,7 @@ def _write_preset(
     template_binary: Path,
     backup_path: Path,
     custom_template_release: Optional[str] = None,
+    preset_template: Optional[Path] = None,
 ) -> Path:
     """Write the generated preset, first moving any pre-existing one aside.
 
@@ -405,7 +470,7 @@ def _write_preset(
         # Godot stores/reads this as an absolute path with forward slashes.
         custom_template_release = template_binary.resolve().as_posix()
 
-    preset_text = PRESET_TEMPLATE.read_text(encoding="utf-8")
+    preset_text = (preset_template or PRESET_TEMPLATE).read_text(encoding="utf-8")
     preset_text = preset_text.replace("@PRESET_NAME@", PRESET_NAME)
     preset_text = preset_text.replace("@CUSTOM_TEMPLATE_RELEASE@", custom_template_release)
     target.write_text(preset_text, encoding="utf-8")
@@ -465,7 +530,9 @@ NEGATIVE_CONTROL_PASSING_OUTCOMES = ("export_rejected", "stock_template_detected
 TEMPLATE_COPY_FAILURE_MARKER = "Failed to copy export template."
 
 
-def missing_template_rejection_evidence(export_output: str) -> List[str]:
+def missing_template_rejection_evidence(
+    export_output: str, extra_markers: Sequence[str] = ()
+) -> List[str]:
     """The markers proving the editor refused because it could not resolve a template.
 
     Empty means "not proven", which is the only thing this control is entitled to
@@ -482,7 +549,9 @@ def missing_template_rejection_evidence(export_output: str) -> List[str]:
     text = export_output or ""
     if EXPORT_REJECTION_MARKER not in text or EXPORT_REJECTION_REASON_MARKER not in text:
         return []
-    template_markers = [marker for marker in MISSING_TEMPLATE_MARKERS if marker in text]
+    template_markers = [
+        marker for marker in (*MISSING_TEMPLATE_MARKERS, *extra_markers) if marker in text
+    ]
     if not template_markers:
         return []
     return [EXPORT_REJECTION_MARKER, *template_markers]
@@ -494,6 +563,7 @@ def negative_control_outcome(
     export_output: str,
     *,
     timed_out: bool = False,
+    extra_markers: Sequence[str] = (),
 ) -> tuple[str, str]:
     """Classify a `--expect-stock-template-failure` run. Returns (outcome, detail).
 
@@ -577,7 +647,7 @@ def negative_control_outcome(
             "nor a produced artifact, so there is nothing to scan and nothing was established",
         )
 
-    evidence = missing_template_rejection_evidence(export_output)
+    evidence = missing_template_rejection_evidence(export_output, extra_markers)
     if not evidence and TEMPLATE_COPY_FAILURE_MARKER in (export_output or ""):
         # The export died preparing the template, with no path named and no
         # refusal prefix. On this control's preset that is the signature of an
@@ -604,7 +674,7 @@ def negative_control_outcome(
             "unrelated_failure",
             f"the export failed (exit {export_returncode}) and {binary_state}, but its output "
             f"carries no missing-template rejection: expected {EXPORT_REJECTION_MARKER!r} together "
-            f"with one of {list(MISSING_TEMPLATE_MARKERS)}. A timeout, a crash or an unrelated "
+            f"with one of {[*MISSING_TEMPLATE_MARKERS, *extra_markers]}. A timeout, a crash or an unrelated "
             "resource error fails exactly like this and would prove nothing about the empty "
             "custom_template/release",
         )
@@ -623,9 +693,10 @@ def _negative_control_verdict(
     export_output: str,
     *,
     timed_out: bool = False,
+    extra_markers: Sequence[str] = (),
 ) -> int:
     outcome, detail = negative_control_outcome(
-        export_returncode, exported, export_output, timed_out=timed_out
+        export_returncode, exported, export_output, timed_out=timed_out, extra_markers=extra_markers
     )
     print(
         f"{METRICS_MARKER} "
@@ -636,7 +707,7 @@ def _negative_control_verdict(
                 "export_returncode": export_returncode,
                 "timed_out": bool(timed_out),
                 "binary_present": bool(exported is not None and exported.is_file()),
-                "rejection_evidence": missing_template_rejection_evidence(export_output),
+                "rejection_evidence": missing_template_rejection_evidence(export_output, extra_markers),
             },
             sort_keys=True,
         )
@@ -693,6 +764,12 @@ def probe_outcome_is_downgradable_blank_viewport(
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--target",
+        choices=sorted(TARGETS),
+        default=None,
+        help="Export platform to smoke-test (default: the host platform).",
+    )
     parser.add_argument("--editor-binary", default=None, help="Godot editor binary used to import and export.")
     parser.add_argument("--template", default=None, help="target=template_release binary to export against.")
     parser.add_argument("--output-dir", default=None, help="Directory for the exported game (default: a temp dir).")
@@ -746,17 +823,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if platform.system() != "Windows":
+    target = TARGETS[args.target or default_target_key()]
+    if platform.system() != target.host_system:
         return _skip(
-            "Export smoke test currently covers the Windows Desktop preset only; "
-            f"host is {platform.system()}.",
+            f"Export smoke target {target.key!r} runs on a {target.host_system} host only "
+            f"(the exported binary is launched here); host is {platform.system()}.",
             args.require_binaries,
         )
 
-    editor = _resolve_editor(args.editor_binary)
+    editor = _resolve_editor(args.editor_binary, target)
     if editor is None:
         return _skip("No Godot editor binary found (set --editor-binary or GODOT_EDITOR_BINARY).", args.require_binaries)
-    template = _resolve_template(args.template)
+    template = _resolve_template(args.template, target)
     if template is None:
         return _skip(
             "No target=template_release binary found (set --template or GODOT_EXPORT_TEMPLATE).",
@@ -772,6 +850,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if refusal is not None:
         return _fail(refusal)
 
+    print(f"[export-smoke] target   = {target.key}")
     print(f"[export-smoke] editor   = {editor}")
     print(f"[export-smoke] template = {template}")
     if args.expect_stock_template_failure:
@@ -816,7 +895,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         else Path(tempfile.mkdtemp(prefix="gs-export-smoke-")).resolve()
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    exported = output_dir / "gs_export_smoke.exe"
+    exported = output_dir / target.exported_name
     preset_backup = PROJECT_DIR / PRESET_BACKUP_NAME
     preset_path: Optional[Path] = None
 
@@ -836,6 +915,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             template,
             preset_backup,
             custom_template_release="" if args.expect_stock_template_failure else None,
+            preset_template=target.preset_template,
         )
         exported_result = _run(
             [
@@ -864,6 +944,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 exported,
                 exported_result.combined_output,
                 timed_out=exported_result.timed_out,
+                extra_markers=(target.export_template_name,),
             )
 
         if exported_result.returncode != 0 or not exported.is_file():
@@ -887,7 +968,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               "running it now for the ClassDB + render proof.")
 
         run_result = _run(
-            [str(exported), *_resolve_mode_args("windows-vulkan"), "--script", PROBE_RES_PATH],
+            [str(exported), *_resolve_mode_args("gpu-vulkan"), "--script", PROBE_RES_PATH],
             cwd=output_dir,
             timeout=args.run_timeout,
             label="run exported game",

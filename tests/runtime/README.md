@@ -73,7 +73,7 @@ you intentionally need a different execution surface:
 ```bash
 python3 tests/runtime/run_runtime_validation.py \
   --profile streaming-gpu-ci \
-  --gd-mode windows-vulkan
+  --gd-mode gpu-vulkan
 ```
 
 Override profile selection with explicit tests:
@@ -134,13 +134,13 @@ headless structural gate in GitHub Actions) execute:
 
 The release-ready runtime profile `release-ci` runs as a **nightly evidence lane**, not
 as a required PR gate. `.github/workflows/release_ci_runtime.yml` (triggers: `schedule`
-nightly + `workflow_dispatch`) executes it on the self-hosted Windows GPU runner:
+nightly + `workflow_dispatch`) executes it on the self-hosted Linux GPU runner:
 
-- `--profile release-ci --gd-mode windows-vulkan --skip-cpp --fail-on-skip`
+- `--profile release-ci --gd-mode gpu-vulkan --skip-cpp --fail-on-skip`
 
-`--skip-cpp` mirrors the other self-hosted GPU jobs: the C++ harness compile path uses
-`g++`, which is not provisioned on the MSVC runner, so the lane exercises the GDScript
-runtime suite plus the required renderer proof. This is an evidence lane; baseline QA CI
+`--skip-cpp` mirrors the other self-hosted GPU jobs (the check set is unchanged from the
+Windows-runner era), so the lane exercises the GDScript runtime suite plus the required
+renderer proof. This is an evidence lane; baseline QA CI
 does **not** run `release-ci`.
 
 `release-ci` and `node-asset-gpu-ci` require at least one runtime test to emit

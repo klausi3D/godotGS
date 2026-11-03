@@ -89,7 +89,7 @@ The canonical regression is `tests/test_output_compositor_composite_hazard.h` â€
 
 ### CI Integration
 
-The `.github/workflows/baseline_qa.yml` workflow runs a new `gpu-harness` job after `gpu-tests` on the self-hosted Windows runner. Both jobs are gated against fork-PR code via `head.repo.full_name == github.repository`. The path filter is rendering-aware and covers `modules/gaussian_splatting/`, `servers/rendering/`, `drivers/vulkan/`, `drivers/d3d12/`, `core/`, `platform/`, `thirdparty/doctest/`, `SConstruct`, `methods.py`, the visual baselines, and the workflow itself.
+The `.github/workflows/baseline_qa.yml` workflow runs a new `gpu-harness` job after `gpu-tests` on the self-hosted Linux GPU runner. Both jobs are gated against fork-PR code via `head.repo.full_name == github.repository`. The path filter is rendering-aware and covers `modules/gaussian_splatting/`, `servers/rendering/`, `drivers/vulkan/`, `drivers/d3d12/`, `core/`, `platform/`, `thirdparty/doctest/`, `SConstruct`, `methods.py`, the visual baselines, and the workflow itself.
 
 Visual baselines live in `tests/visual_baselines/`. Compare-mode is the default for PRs/pushes. The recapture-PR flow (nightly schedule or `workflow_dispatch baseline_mode=update`) writes regenerated baselines plus a `.provenance.json` audit via the SHA-pinned `peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c`; update-mode requires `BASELINE_UPDATE_PAT`.
 
