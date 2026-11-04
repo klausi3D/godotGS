@@ -1024,7 +1024,7 @@ The settle condition is defined in §7.3.
 | G8 | Bad-category frames after ready | 0 | 0 | both | correctness |
 | G9 | Read, retirement, generation, invariant and decode (`gsq_*`) counters | 0 | 0 | both | correctness |
 | G10 | Overflow drops at checkpoints | 0 | 0 | both | correctness |
-| G10h | `overflowed_splats` while moving | 0 | 0 | HLOD | correctness |
+| G10h | While moving, both (a) `overflowed_splats` (renderer overflow) and (b) `hlod_cut_visible_cap_bound_frames` (frames where the selector stopped at the cut cap **and** the visible cap was the minimum term of min(drawn, visible cap, pool records)). The selector enforces that min (`lod/hlod_runtime_selection.cpp:154-160`), so a working selector never overflows the renderer even when the cap binds. (a) alone therefore cannot show that the visible cap never constrained selection; (b) is the binding signal, published by BV-16c. | 0 / 0 | 0 / 0 | HLOD | correctness |
 | G11 | Flat: PSNR / SSIM vs T-ref U | ≥ 40 dB / ≥ 0.98 | same | flat | statistical |
 | G11h | HLOD coverage: no reference-covered pixel uncovered; no node drawn with its ancestor outside a fade pair; **static-frame flicker oracle = 0** at a binding budget, with `hlod_budget_bound_frames` > 0. **BV-21b depends on BV-25 (#1240)** | 0/0/0 | same | HLOD | correctness |
 | G11q | HLOD per-band PSNR / SSIM vs the slab reference ≥ a **pre-registered absolute floor per band, minus the measured slab noise floor** | frozen in BV-26a | same | HLOD | statistical |
@@ -1137,12 +1137,14 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
 | C-shift / C-flip | T0 variant, tile +1 m / Y-flip | `G12 FAIL beacon_position` / `beacon_code` |
 | C-read | T0 copy with a corrupted GSQ page | `G9 FAIL gsq_digest_mismatch` (read_errors > 0) |
 | C-decode | T0 copy with valid digest but inverted ranges | `G9 FAIL gsq_range_invalid` |
-| C-cap | visible cap 100k | `G10 FAIL overflow_at_checkpoint` + `G10h FAIL overflowed_splats` |
+| C-cap (flat) | visible cap 100k | `G10 FAIL overflow_at_checkpoint` |
+| C-cap-h (HLOD) | visible cap 100k, below the frozen drawn budget | `G10h FAIL visible_cap_bound`. This proves signal (b). The selector caps the cut at 100k, so no renderer overflow is expected. |
 | C-revisit | C7 rendered at P0 + 1 m | `G13 FAIL revisit_psnr` |
 | C-settings | effective cap changed at runtime | `V7 INVALID settings_drifted` |
 | C-warm | fadvise skipped | `V10 INVALID cache_warm` |
 | C-codec-D | degraded codec arm | `Q-codec FAIL` (correctness) |
 | C-thrash | BV-08a doctest at two frame rates | detector fires |
+| G10h signal (a), renderer overflow on the HLOD arm | the renderer's capacity is forced below an **already-selected** cut, with no change to the selector's budget | release-build doctest mutation proof, as in the next row: `overflowed_splats` increments and the verdict module reports `G10h FAIL overflowed_splats` |
 | G7, G8, G9 (retire/generation/invariant), G3, G2a | not forcible live without hooks in shipping code | **release-build doctest mutation proofs** (`dev_build=no tests=yes`): each counter is shown to increment under its injected fault, and the verdict module is shown to FAIL on a captured report with that counter non-zero. The PR records it. |
 
 ---
@@ -1312,7 +1314,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | ★BV-15 | `NodeResidency` with no per-frame O(N); scaling test | R2 | — | 3–5 |
 | ★BV-16a | Paged admission without splat caps; node bound from the ledger | R3 | 00b | 2–3 |
 | BV-16b | Sort capacity from the cut; `materialize_paged_resident` refusal above the resident limit; multi-view refusal | R3 | 16a | 2–3 |
-| ★BV-16c | **`drawn_budget_splats` setting**: settings manifest, cut cap = min(drawn, visible, pool records), scratch sized from it, boundary tests | R3 (settings + cut) | 16a | 2–3 |
+| ★BV-16c | **`drawn_budget_splats` setting**: settings manifest, cut cap = min(drawn, visible, pool records), scratch sized from it, the binding-term counter `hlod_cut_visible_cap_bound_frames` (G10h b), boundary tests | R3 (settings + cut) | 16a | 2–3 |
 | ★BV-17 | Streamed pool = streaming budget within the ledger: replaces 512 MiB **and the 2 GiB staging ceiling** for the streamed page budget only; whole-bundle route unchanged; boundary tests at 2 GiB / 2 GiB + 1 page | R3 | 11, 16a | 2–3 |
 | ★BV-18a | Writer `PAGED_V4` spill (compressed, with metrics) + BFS assembly with progressive deletion | R3 | C3 | 3 |
 | ★BV-18b | W13 metrics recompute, kept V4 refusals, identity at ≤ 1M leaves | R3 | 18a | 2 |
