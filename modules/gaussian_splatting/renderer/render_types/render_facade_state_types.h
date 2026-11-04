@@ -135,6 +135,9 @@ struct ResourceState {
     uint32_t hlod_relative_capacity = 0;
     uint32_t hlod_canonical_capacity = 0;
     uint64_t hlod_remap_asset_generation = 0;
+    // The world contract's view splat cap and the clamped max_splats it came with (get_hlod_view_splat_cap).
+    int hlod_view_splat_cap = 0;
+    int hlod_view_splat_cap_clamped = 0;
     uint64_t hlod_bundle_builds = 0; // Prepared bundle (re)builds (cumulative).
     uint64_t hlod_instance_row_reuploads = 0; // Row-only re-uploads of a prepared bundle (cumulative; a moving node).
     // Per main view (the last one prepared): the draw records each producer wrote and the budget rule's outcome.

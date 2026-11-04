@@ -212,6 +212,9 @@ GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::Submi
 	if (effective_max_splats <= 0) {
 		effective_max_splats = data_count > 0 ? int(data_count) : baseline_max_splats;
 	}
+	// The view's cap before the clamp (PR1b): the clamp bounds what the WORLD can draw, but node instances drawn on the
+	// world's HLOD route reserve from the view's cap, not from the world's own splat count.
+	contract.view_max_splats = MAX(1, requested_max_splats > 0 ? requested_max_splats : baseline_max_splats);
 	if (data_count > 0) {
 		effective_max_splats = MIN(effective_max_splats, int(data_count));
 	}
@@ -3144,6 +3147,16 @@ bool GaussianSplatSceneDirector::_world_has_hlod_submission(const SharedWorld *p
 bool GaussianSplatSceneDirector::test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	return _world_has_hlod_submission(world_registry.find(p_scenario), p_owner);
+}
+
+GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::test_build_world_contract(const WorldSubmission &p_submission,
+		int p_renderer_max_splats) {
+	SubmissionStore::WorldSubmissionRecord record;
+	SubmissionStore::store_submission(record, p_submission);
+	GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot state;
+	state.valid = true;
+	state.max_splats = p_renderer_max_splats;
+	return SubmissionStore::build_contract(state, record);
 }
 
 void GaussianSplatSceneDirector::test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,

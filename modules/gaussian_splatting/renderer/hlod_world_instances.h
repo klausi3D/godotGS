@@ -174,14 +174,28 @@ inline double world_floor_records(double p_cap) {
 inline double object_share_records(double p_cap) {
 	return MAX(0.0, p_cap - world_floor_records(p_cap));
 }
+// The objects' share of the overlap records: at most C_view - F (C_view = the configured record cap, or the storage when
+// none is configured), and never more than the allocated storage holds beyond the world's need (capped at its floor),
+// so the world keeps min(world need, storage / 2) and is not degraded at all when the storage holds both.
+inline double object_share_records(double p_view_cap, double p_storage, double p_world_need) {
+	const double view = MAX(p_view_cap, p_storage);
+	return MAX(0.0, MIN(object_share_records(view), p_storage - MIN(p_world_need, world_floor_records(p_storage))));
+}
 
-// Splat-ref capacity of the relative bundle: the world's PR1a capacity min(leaf_count, S), plus what the rows can be
-// admitted to (at most the object share of S), never above S = max(1, max_splats). For an empty region it is PR1a's.
-inline uint32_t relative_capacity(uint32_t p_leaf_count, int p_max_splats, const InstanceRegion &p_region) {
-	const uint64_t s = uint64_t(MAX(1, p_max_splats));
-	const uint64_t world = MIN(uint64_t(p_leaf_count), s);
-	const uint64_t objects = MIN(p_region.row_splats, object_share_splats(s));
-	return uint32_t(MIN(world + objects, s));
+// Two caps (PR1b): S = max(1, max_splats) bounds what the WORLD can draw (the world contract clamps it to the world's
+// data count), C = the view's performance cap the objects reserve from (C >= S; renderer get_hlod_view_splat_cap).
+// The world's need W = min(leaf_count, S) is PR1a's world cap.
+inline uint64_t world_need_splats(uint32_t p_leaf_count, int p_max_splats) {
+	return MIN(uint64_t(p_leaf_count), uint64_t(MAX(1, p_max_splats)));
+}
+
+// Splat-ref capacity of the relative bundle: the world's need W plus what the rows can be admitted to (at most the
+// object share of C), never above max(C, W). For an empty region it is PR1a's min(leaf_count, S).
+inline uint32_t relative_capacity(uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, const InstanceRegion &p_region) {
+	const uint64_t world = world_need_splats(p_leaf_count, p_max_splats);
+	const uint64_t view = MAX(MAX(p_view_cap, uint64_t(1)), world);
+	const uint64_t objects = MIN(p_region.row_splats, object_share_splats(view));
+	return uint32_t(MIN(MIN(world + objects, view), uint64_t(UINT32_MAX)));
 }
 // The canonical (GPU-culled whole-tree) bundle holds every leaf and every row's whole asset. UINT32_MAX when it would
 // not fit a 32-bit count.
@@ -250,12 +264,16 @@ inline void admit_objects(const ObjectDemand *p_demands, uint32_t p_count, const
 			[&](uint32_t a, uint32_t b) { return p_demands[a].row < p_demands[b].row; });
 }
 
-// The world cut's caps after the objects reserved theirs: min(leaf_count, S) - reserve for splats (a streamed atlas caps it
-// further), the record capacity minus the objects' estimate. Both stay >= the floor F, because the admission never
-// reserves more than the object share. Without objects these are the PR1a caps exactly.
-inline void world_view_caps(uint32_t p_leaf_count, uint64_t p_splat_cap, bool p_streaming, uint64_t p_stream_records, double p_records,
-		const Admission &p_admission, uint64_t &r_splat_budget, double &r_record_budget) {
-	const uint64_t world = MIN(MIN(uint64_t(p_leaf_count), p_splat_cap), p_splat_cap - MIN(p_admission.splats, p_splat_cap));
+// The world cut's caps after the objects reserved theirs (ADR 4.5): splats min(W, C - R), where W = min(leaf_count, S) is
+// the world's need and C the view cap (a streamed atlas caps it further); records: the overlap storage minus the objects'
+// estimate (the storage is grown to hold both, see TileRenderer::ensure_hlod_overlap_capacity). The admission never
+// reserves more than the object share C - F, so the world keeps min(W, F) at least; when W + R <= C nothing is taken
+// from the world at all. Without objects these are the PR1a caps exactly.
+inline void world_view_caps(uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, bool p_streaming, uint64_t p_stream_records,
+		double p_records, const Admission &p_admission, uint64_t &r_splat_budget, double &r_record_budget) {
+	const uint64_t need = world_need_splats(p_leaf_count, p_max_splats);
+	const uint64_t view = MAX(MAX(p_view_cap, uint64_t(1)), need);
+	const uint64_t world = MIN(need, view - MIN(p_admission.splats, view));
 	r_splat_budget = p_streaming ? MIN(world, p_stream_records) : world;
 	r_record_budget = p_records - p_admission.records;
 }

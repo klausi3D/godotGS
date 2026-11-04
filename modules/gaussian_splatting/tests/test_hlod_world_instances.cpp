@@ -306,7 +306,10 @@ TEST_CASE("[GaussianSplatting][HLOD] the world-plus-instances ledger charges eac
 	}
 	for (uint32_t leaf : { 1u, 20000u, 6000000u }) {
 		for (int max_splats : { 0, 1, 15000, 5000000 }) {
-			CHECK(relative_capacity(leaf, max_splats, InstanceRegion()) == MIN<uint32_t>(leaf, uint32_t(MAX(1, max_splats))));
+			// Whatever the view cap C (it is only the objects' pool), an empty region gives PR1a's capacity.
+			for (uint64_t view : { uint64_t(0), uint64_t(1), uint64_t(20000), uint64_t(50000000) }) {
+				CHECK(relative_capacity(leaf, max_splats, view, InstanceRegion()) == MIN<uint32_t>(leaf, uint32_t(MAX(1, max_splats))));
+			}
 			CHECK(canonical_capacity(leaf, InstanceRegion()) == leaf);
 		}
 	}
@@ -371,9 +374,11 @@ TEST_CASE("[GaussianSplatting][HLOD] the world-plus-instances ledger charges eac
 	}
 	// Capacities: the relative bundle holds the world's PR1a capacity plus what the rows can be admitted to (at most the
 	// object share), never more than S; the canonical bundle every leaf and every row's asset.
-	CHECK(relative_capacity(20000u, 5000000, region) == 20000u + 15100u);
-	CHECK(relative_capacity(20000u, 30000, region) == 30000u);
-	CHECK(relative_capacity(4000u, 30000, region) == 4000u + 15000u); // object share of 30000 is 15000
+	CHECK(relative_capacity(20000u, 5000000, 5000000u, region) == 20000u + 15100u);
+	CHECK(relative_capacity(20000u, 30000, 30000u, region) == 30000u);
+	CHECK(relative_capacity(4000u, 30000, 30000u, region) == 4000u + 15000u); // object share of 30000 is 15000
+	// A world clamped to its own data count (S = 20000 = leaf count) in a view of C = 1,000,000: room for every row.
+	CHECK(relative_capacity(20000u, 20000, 1000000u, region) == 20000u + 15100u);
 	CHECK(canonical_capacity(20000u, region) == 35100u);
 	// Capacity refusals: a draw list that does not fit a 32-bit buffer.
 	CHECK(String(rows_refusal(rows, uint64_t(1u) << 30, region)) == "hlod_bundle_rows_exceed_capacity");
@@ -496,7 +501,7 @@ TEST_CASE("[GaussianSplatting][HLOD] the budget rule admits objects in importanc
 			for (bool streaming : { false, true }) {
 				uint64_t splats = 0;
 				double records = 0.0;
-				world_view_caps(leaf, cap, streaming, 700u, 1.0e5, Admission(), splats, records);
+				world_view_caps(leaf, int(cap), cap, streaming, 700u, 1.0e5, Admission(), splats, records);
 				const uint64_t pr1a = streaming ? MIN<uint64_t>(MIN<uint64_t>(leaf, cap), 700u) : MIN<uint64_t>(leaf, cap);
 				CHECK(splats == pr1a);
 				CHECK(records == 1.0e5);
@@ -510,13 +515,97 @@ TEST_CASE("[GaussianSplatting][HLOD] the budget rule admits objects in importanc
 				admit_objects(greedy.ptr(), greedy.size(), s, taken);
 				CHECK(taken.splats <= object_share_splats(cap));
 				CHECK(taken.records <= object_share_records(1.0e5));
-				world_view_caps(leaf, cap, streaming, 700u, 1.0e5, taken, splats, records);
+				world_view_caps(leaf, int(cap), cap, streaming, 700u, 1.0e5, taken, splats, records);
 				CHECK(splats >= MIN<uint64_t>(MIN<uint64_t>(leaf, streaming ? 700u : leaf), world_floor_splats(cap)));
 				CHECK(records >= world_floor_records(1.0e5));
 				CHECK(taken.refused.size() > 0u); // 40 objects of more than cap/7 each never all fit half the cap.
 			}
 		}
 	}
+}
+
+// Coordinator follow-up 1 (ADR 4.5): the objects reserve from the VIEW cap C, not from the world's own splat count. A
+// resident world's contract clamps max_splats to its data count; that bounds what the world draws, it is not the pool.
+TEST_CASE("[GaussianSplatting][HLOD] world plus objects that fit under the view cap leave the world cut exactly as without objects") {
+	const uint32_t leaf = 25600u;
+	const int world_max_splats = 25600; // Clamped to the world's data count.
+	const uint64_t view_cap = 1000000u; // The view's performance cap (pre-clamp).
+	uint64_t alone = 0, with_objects = 0;
+	double alone_records = 0.0, with_records = 0.0;
+	world_view_caps(leaf, world_max_splats, view_cap, false, 0u, 2.0e5, Admission(), alone, alone_records);
+	CHECK(alone == 25600u);
+	LocalVector<ObjectDemand> objects;
+	for (uint32_t i = 0; i < 8; ++i) { objects.push_back(demand(100 + i, i + 1, 1500, 8000.0, double(8 - i))); }
+	ObjectShare share;
+	share.splats = object_share_splats(view_cap);
+	share.nodes = 8u;
+	// The overlap storage was grown from the world's 2e5 to 2e5 + 64000 for the objects (ensure_hlod_overlap_capacity).
+	share.records = object_share_records(double(UINT32_MAX), 2.64e5, 2.0e5);
+	Admission admission;
+	admit_objects(objects.ptr(), objects.size(), share, admission);
+	CHECK(admission.admitted.size() == 8u);
+	CHECK(admission.refused.size() == 0u);
+	world_view_caps(leaf, world_max_splats, view_cap, false, 0u, 2.64e5, admission, with_objects, with_records);
+	CHECK(with_objects == alone); // Nothing degraded: W + R <= C.
+	CHECK(with_records == doctest::Approx(alone_records));
+	// The bundle holds the total: world need plus every admitted object.
+	InstanceRegion region;
+	region.row_splats = 8u * 1500u;
+	CHECK(relative_capacity(leaf, world_max_splats, view_cap, region) == 25600u + 12000u);
+	// Control: with the clamped S as the objects' pool (the PR1b-draft behaviour) the objects came out of the world.
+	uint64_t clamped_pool = 0;
+	double ignored = 0.0;
+	world_view_caps(leaf, world_max_splats, uint64_t(world_max_splats), false, 0u, 2.64e5, admission, clamped_pool, ignored);
+	CHECK(clamped_pool == 25600u - 12000u);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] world plus objects over the view cap: the world keeps the floor and objects are refused in order") {
+	const uint32_t leaf = 25600u;
+	const uint64_t view_cap = 9010u; // max_splat_count lowered for the view; the world needs 25600.
+	LocalVector<ObjectDemand> objects;
+	for (uint32_t i = 0; i < 8; ++i) { objects.push_back(demand(200 + i, i + 1, 1500, 10.0, double(8 - i))); }
+	ObjectShare share;
+	share.splats = object_share_splats(view_cap); // 4505
+	share.nodes = 8u;
+	share.records = 1.0e9;
+	Admission admission;
+	admit_objects(objects.ptr(), objects.size(), share, admission);
+	GS_NEED(admission.admitted.size() == 3u);
+	GS_NEED(admission.refused.size() == 5u);
+	for (uint32_t i = 0; i < 3; ++i) { CHECK(objects[admission.admitted[i]].instance_key == 200u + i); } // Most important first.
+	for (uint32_t i = 0; i < 5; ++i) { CHECK(objects[admission.refused[i]].instance_key == 203u + i); }
+	uint64_t world = 0;
+	double records = 0.0;
+	world_view_caps(leaf, int(view_cap), view_cap, false, 0u, 1.0e6, admission, world, records);
+	CHECK(world == view_cap - 4500u);
+	CHECK(world >= world_floor_splats(view_cap));
+	// The record share never hands the objects what the storage holds for the world's floor.
+	CHECK(object_share_records(1.0e9, 1.0e5, 1.0e5) == doctest::Approx(5.0e4));
+	CHECK(object_share_records(1.0e9, 1.6e5, 1.0e5) == doctest::Approx(8.0e4)); // The world keeps min(need, storage / 2).
+	CHECK(object_share_records(2.0e5, 1.0e6, 1.0e5) == doctest::Approx(5.0e5)); // The view cap is at least the storage.
+	CHECK(object_share_records(3.0e6, 1.0e6, 9.0e5) == doctest::Approx(5.0e5)); // A big world need keeps half.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector] a resident world's contract clamps max_splats to its data count but keeps the view cap") {
+	GaussianSplatSceneDirector::WorldSubmission submission;
+	submission.gaussian_data = world_data(16);
+	submission.desired_renderer_overrides[StringName("max_splats")] = int64_t(500000);
+	GaussianSplatRenderer::WorldSubmissionContract contract = GaussianSplatSceneDirector::test_build_world_contract(submission, 1000000);
+	CHECK(contract.max_splats == 16); // What the world can draw.
+	CHECK(contract.view_max_splats == 500000); // The pool the node instances reserve from.
+	// No override: the renderer's baseline is the view cap.
+	GaussianSplatSceneDirector::WorldSubmission plain;
+	plain.gaussian_data = world_data(16);
+	contract = GaussianSplatSceneDirector::test_build_world_contract(plain, 300000);
+	CHECK(contract.max_splats == 16);
+	CHECK(contract.view_max_splats == 300000);
+	// A world larger than the cap: both are the cap.
+	GaussianSplatSceneDirector::WorldSubmission big;
+	big.gaussian_data = world_data(64);
+	big.desired_renderer_overrides[StringName("max_splats")] = int64_t(40);
+	contract = GaussianSplatSceneDirector::test_build_world_contract(big, 1000000);
+	CHECK(contract.max_splats == 40);
+	CHECK(contract.view_max_splats == 40);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD] an object's view demand: outside the frustum it reserves nothing; inside it is priced like a world node") {

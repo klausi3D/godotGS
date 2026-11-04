@@ -412,6 +412,10 @@ public:
     bool test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const;
     void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+    // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
+    // max_splats is `p_renderer_max_splats` (the clamp to the data count and the pre-clamp view cap, PR1b).
+    static GaussianSplatRenderer::WorldSubmissionContract test_build_world_contract(const WorldSubmission &p_submission,
+            int p_renderer_max_splats);
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
     bool get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const;

@@ -1597,7 +1597,7 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
     // PR1b: capacities include the packed node assets (an empty region gives PR1a's min(leaf_count, max_splats) and
     // leaf_count exactly); a max_splats change that moves them rebuilds.
     const gs_hlod_bundle::InstanceRegion &region = state.hlod_instance_region;
-    const uint32_t relative_capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, region);
+    const uint32_t relative_capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, get_hlod_view_splat_cap(), region);
     const uint32_t canonical_capacity = gs_hlod_bundle::canonical_capacity(input->leaf_count, region);
     if (relative_capacity != state.hlod_relative_capacity || canonical_capacity != state.hlod_canonical_capacity) { return false; }
     const SortBufferHandles sort = subsystem_state.sorting_pipeline->get_buffer_handles();
@@ -1784,6 +1784,15 @@ bool GaussianSplatRenderer::refresh_hlod_instance_rows() {
     return true;
 }
 
+uint32_t GaussianSplatRenderer::get_hlod_view_splat_cap() const {
+    const int max_splats = MAX(1, get_performance_settings().max_splats);
+    const auto &state = get_resource_state();
+    if (state.hlod_view_splat_cap > 0 && max_splats == state.hlod_view_splat_cap_clamped) {
+        return uint32_t(MAX(max_splats, state.hlod_view_splat_cap));
+    }
+    return uint32_t(max_splats);
+}
+
 String GaussianSplatRenderer::get_hlod_instance_refusal(uint64_t p_instance_key) {
     auto &state = get_resource_state();
     MutexLock lock(state.hlod_instance_refusal_mutex);
@@ -1968,7 +1977,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         }
     }
     const gs_hlod_bundle::InstanceRegion &region = reuse_prepared_rows ? state.hlod_instance_region : instance_payload.region;
-    const uint32_t relative_capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, region);
+    const uint32_t relative_capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, get_hlod_view_splat_cap(), region);
     const uint32_t canonical_capacity = gs_hlod_bundle::canonical_capacity(input->leaf_count, region);
     if (canonical_capacity == UINT32_MAX) {
         state.hlod_reason = "hlod_instance_region_exceeds_capacity";
@@ -2322,6 +2331,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // the route's headroom; clamped like the seed), because it otherwise only grows on a measured overflow and a world cut
     // pinned coarse by the objects' reserve never overflows. A refused growth leaves the split below to decide.
     LocalVector<gs_hlod_bundle::ObjectDemand> demands;
+    // The world's own record need: the storage it had before any growth for objects, or its seed rule if larger.
+    double world_record_need = double(tile->get_allocated_overlap_capacity());
     {
         const gs_hlod_bundle::Rows &rows = state.hlod_instance_row_data;
         const gs_hlod_bundle::InstanceRegion &region = state.hlod_instance_region;
@@ -2359,7 +2370,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             if (std::isfinite(demand.records)) { demand_records += demand.records; }
         }
         if (!demands.is_empty()) {
-            const uint64_t world_seed = MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX);
+            const uint64_t world_seed = MAX<uint64_t>(tile->get_allocated_overlap_capacity(),
+                    tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))));
+            world_record_need = double(world_seed);
             const uint64_t wanted = MIN<uint64_t>(world_seed + uint64_t(std::ceil(MIN(demand_records, double(UINT32_MAX)))), UINT32_MAX);
             if (tile->ensure_hlod_overlap_capacity(uint32_t(wanted), route_bytes < route_limit ? route_limit - route_bytes : 0)) {
                 if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
@@ -2454,13 +2467,15 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // configured cap and the allocated capacity). A streamed atlas is smaller than the cut cap, so a refinement
     // that could not be resident is refused by the selector instead of being requested and evicted again.
     //
-    // PR1b, the budget rule (ADR 4.5; renderer/hlod_world_instances.h). The view's performance caps are the splat cap S
-    // (max_splats) and the overlap-record capacity. The world keeps the floor F of each; the visible objects reserve their
+    // PR1b, the budget rule (ADR 4.5; renderer/hlod_world_instances.h). The view's performance caps are the view splat cap
+    // C_view and the overlap-record cap. The world keeps the floor F of each; the visible objects reserve their
     // need from the rest FIRST, in a deterministic order (screen importance, ties by the stable instance key), and an
     // object that does not fit is refused whole, with a reason and a counter, never drawn partially. The world cut then
     // gets the caps minus the reserve, never less than F. The draw list holds the world's nodes plus every row's chunks,
     // so it never refuses an object. Without node instances the caps are exactly what they were.
-    const uint64_t splat_cap = uint64_t(MAX(1, get_performance_settings().max_splats));
+    // C_view: the view's performance cap the objects reserve from (not the world's own data-count-clamped max_splats).
+    const uint64_t splat_cap = MAX<uint64_t>(get_hlod_view_splat_cap(),
+            gs_hlod_bundle::world_need_splats(input->leaf_count, get_performance_settings().max_splats));
     const uint32_t world_nodes = input->nodes.size();
     gs_hlod_bundle::Admission admission;
     {
@@ -2468,7 +2483,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         gs_hlod_bundle::ObjectShare share;
         share.splats = gs_hlod_bundle::object_share_splats(splat_cap);
         share.nodes = region.row_chunks;
-        share.records = gs_hlod_bundle::object_share_records(double(records));
+        share.records = gs_hlod_bundle::object_share_records(double(tile->clamp_hlod_overlap_records(UINT32_MAX)), double(records),
+                world_record_need);
         gs_hlod_bundle::admit_objects(demands.ptr(), demands.size(), share, admission);
     }
     state.hlod_instance_visible_objects = demands.size();
@@ -2488,7 +2504,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         state.hlod_instance_refused_keys.clear();
         for (uint32_t index : admission.refused) { state.hlod_instance_refused_keys.push_back(demands[index].instance_key); }
     }
-    gs_hlod_bundle::world_view_caps(input->leaf_count, splat_cap, state.hlod_streaming, state.hlod_stream_atlas_records, double(records),
+    gs_hlod_bundle::world_view_caps(input->leaf_count, get_performance_settings().max_splats, splat_cap, state.hlod_streaming, state.hlod_stream_atlas_records, double(records),
             admission, spec.caps.splat_budget, spec.caps.record_budget);
     spec.caps.node_budget = world_nodes;
     if (state.hlod_streaming && state.hlod_streamer.is_valid()) {

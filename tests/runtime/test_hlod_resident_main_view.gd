@@ -585,6 +585,10 @@ func _run() -> void:
 			return
 		if not _check(Time.get_ticks_msec() < deadline, "Proof completed after its deadline"):
 			return
+		# PR1b: the world and 8 moving node instances in one frame (own wall-clock bound, WI_TIMEOUT_MSEC per mode).
+		var world_instances_proved := await _run_world_plus_instances_proof()
+		if not world_instances_proved:
+			return
 		_metrics["hlod_main_view_proof_status"] = "passed"
 		_emit_metrics()
 		_report.emit_pass()
@@ -592,3 +596,284 @@ func _run() -> void:
 		quit(0)
 		return
 	_fail("No two consecutive admitted main-view frames within deadline; last reason: %s" % _metrics.get("last_hlod_reason", "renderer unavailable"))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# PR1b (docs/architecture/adr-one-route-many-producers.md): the world and 8 moving GaussianSplatNode3D instances draw in
+# one frame, one draw list and one depth sort, on a V4 paged world and on a whole-tree resident world. Fail-closed: every
+# stat it reads must exist (a missing key is a failure), every frame is checked, and the first failure ends the scenario.
+# A red wall at z = -10; instances 0-3 in front (z = -7), 4-7 behind (z = -13), then swapped. A front instance's centre
+# pixel shows its own colour, a behind instance's centre pixel the wall's red: both verdicts flip on the swap. Moving
+# nodes take the row re-upload path with 0 bundle rebuilds. A budget phase (the view's splat cap lowered) refuses whole
+# objects with the counters moving, while the world keeps drawing.
+const WI_WALL_Z := -10.0
+const WI_FRONT_Z := -7.0
+const WI_BEHIND_Z := -13.0
+const WI_FRAMES := 60
+const WI_INSTANCE_SPLATS := 1500
+const WI_TIMEOUT_MSEC := 150_000
+const WI_SIZE := Vector2i(256, 256)
+const WI_COLORS := [Color(0, 1, 0), Color(0, 0.3, 1), Color(0, 1, 1), Color(0.1, 0.6, 1),
+		Color(0, 1, 0.5), Color(0.2, 0.9, 0.2), Color(0.2, 0.2, 1), Color(0, 0.8, 0.8)]
+const WI_FRAME_KEYS := ["hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records", "sort_dispatches_frame",
+		"sort_dispatch_frame", "frame_count", "hlod_instance_refused_objects", "hlod_instance_admitted_objects",
+		"hlod_instance_visible_objects", "hlod_bundle_builds", "hlod_instance_row_reuploads", "hlod_selected_splats",
+		"hlod_instance_reserve_splats", "hlod_instance_reserve_refusal_frames", "hlod_last_refusal_reason"]
+
+
+func _wi_dc(c: Color) -> PackedFloat32Array:
+	var k := 0.28209479177387814
+	return PackedFloat32Array([(c.r - 0.5) / k, (c.g - 0.5) / k, (c.b - 0.5) / k])
+
+
+func _wi_wall(paged: bool) -> GaussianSplatWorld:
+	var n := 160
+	var data := GaussianData.new()
+	data.resize(n * n)
+	var pos := PackedVector3Array()
+	var sc := PackedVector3Array()
+	var rot: Array[Quaternion] = []
+	var op := PackedFloat32Array()
+	var sh := PackedFloat32Array()
+	var red := _wi_dc(Color(1, 0, 0))
+	for iy in range(n):
+		for ix in range(n):
+			pos.append(Vector3(-4.0 + 8.0 * (ix + 0.5) / n, -4.0 + 8.0 * (iy + 0.5) / n, WI_WALL_Z))
+			sc.append(Vector3(0.06, 0.06, 0.02))
+			rot.append(Quaternion())
+			op.append(0.97)
+			sh.append_array(red)
+	data.set_positions(pos)
+	data.set_scales(sc)
+	data.set_rotations(rot)
+	data.set_opacities(op)
+	data.set_spherical_harmonics(sh)
+	var w := GaussianSplatWorld.new()
+	w.gaussian_data = data
+	if w.bake_hlod() != OK or not w.has_hlod_tree():
+		return null
+	if not paged:
+		return w
+	var path := "user://hlod_world_instances_%d_%d.gsplatworld" % [OS.get_process_id(), Time.get_ticks_usec()]
+	if w.save_hlod_paged(path) != OK:
+		return null
+	var loaded: GaussianSplatWorld = ResourceLoader.load(path, "GaussianSplatWorld", ResourceLoader.CACHE_MODE_IGNORE)
+	return loaded if loaded != null and loaded.has_hlod_paged_source() else null
+
+
+func _wi_ball(c: Color, p_seed: int) -> GaussianSplatAsset:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = p_seed
+	var a := GaussianSplatAsset.new()
+	a.set_splat_count(WI_INSTANCE_SPLATS)
+	var p := PackedFloat32Array()
+	var s := PackedFloat32Array()
+	var r := PackedFloat32Array()
+	var dc := PackedFloat32Array()
+	var o := PackedFloat32Array()
+	var d := _wi_dc(c)
+	for i in range(WI_INSTANCE_SPLATS):
+		var v := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
+		if v.length() > 1.0:
+			v = v.normalized()
+		v *= 0.35
+		p.append_array(PackedFloat32Array([v.x, v.y, v.z]))
+		s.append_array(PackedFloat32Array([0.09, 0.09, 0.09]))
+		r.append_array(PackedFloat32Array([0.0, 0.0, 0.0, 1.0]))
+		dc.append_array(d)
+		o.append(6.0)
+	a.set_positions(p)
+	a.set_scales(s)
+	a.set_rotations(r)
+	a.set_sh_dc_coefficients(dc)
+	a.set_opacity_logits(o)
+	return a
+
+
+func _wi_classify(c: Color) -> String:
+	if c.r > 0.45 and c.g < 0.3 and c.b < 0.3:
+		return "wall"
+	if c.r < 0.35 and max(c.g, c.b) > 0.35:
+		return "instance"
+	if c.r < 0.08 and c.g < 0.08 and c.b < 0.08:
+		return "background"
+	return "other"
+
+
+func _wi_stats(renderer: GaussianSplatRenderer, what: String) -> Dictionary:
+	var stats := renderer.get_render_stats()
+	for key in WI_FRAME_KEYS:
+		if not _check(stats.has(key), "%s: missing renderer field %s" % [what, key]):
+			return {}
+	return stats
+
+
+func _wi_place(nodes: Array, base: Array, t: float, swapped: bool) -> void:
+	for i in range(nodes.size()):
+		var front := (i < 4) != swapped
+		var bp: Vector3 = base[i]
+		nodes[i].position = Vector3(bp.x + 0.25 * sin(t * 2.0 + i), bp.y + 0.15 * cos(t * 1.7 + i), WI_FRONT_Z if front else WI_BEHIND_Z)
+
+
+func _wi_run_mode(mode: String) -> bool:
+	var deadline := Time.get_ticks_msec() + WI_TIMEOUT_MSEC
+	var world := _wi_wall(mode == "paged")
+	if not _check(world != null, "%s: wall world bake/load failed" % mode):
+		return false
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var camera := Camera3D.new()
+	camera.fov = 60.0
+	camera.near = 0.1
+	camera.far = 100.0
+	scene.add_child(camera)
+	camera.make_current()
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = world
+	world_node.set_hlod_tau_px(0.5)
+	scene.add_child(world_node)
+	world_node.apply_world()
+	var nodes: Array = []
+	var base: Array = []
+	var xs := [-2.6, -0.9, 0.9, 2.6]
+	for i in range(8):
+		var n := GaussianSplatNode3D.new()
+		n.set_splat_asset(_wi_ball(WI_COLORS[i], 100 + i))
+		var bp := Vector3(xs[i % 4], 1.4 if i < 4 else -1.4, WI_FRONT_Z if i < 4 else WI_BEHIND_Z)
+		n.position = bp
+		base.append(bp)
+		scene.add_child(n)
+		nodes.append(n)
+	# Warm-up: pump frames (wall clock bound) until the route is active with both producers drawing.
+	var renderer: GaussianSplatRenderer = null
+	var stable := 0
+	var last := {}
+	while Time.get_ticks_msec() < deadline and stable < 10:
+		await RenderingServer.frame_post_draw
+		renderer = world_node.get_renderer()
+		if renderer == null:
+			continue
+		last = renderer.get_render_stats()
+		if str(last.get("hlod_reason", "")) == "active" and int(last.get("hlod_world_draw_records", 0)) > 0 and int(last.get("hlod_instance_draw_records", 0)) > 0:
+			stable += 1
+		else:
+			stable = 0
+	if not _check(stable >= 10, "%s: world + instances never became active together (reason=%s, world_records=%s, instance_records=%s)" % [mode, last.get("hlod_reason", "MISSING"), last.get("hlod_world_draw_records", "MISSING"), last.get("hlod_instance_draw_records", "MISSING")]):
+		return false
+	var start := _wi_stats(renderer, mode)
+	if start.is_empty():
+		return false
+	var builds_before := int(start["hlod_bundle_builds"])
+	var reuploads_before := int(start["hlod_instance_row_reuploads"])
+	var summary := {"mode": mode, "start": start}
+	# Phases A (0-3 in front) and B (swapped): transform-only motion every frame.
+	for phase in ["A", "B"]:
+		var swapped: bool = phase == "B"
+		var t := 0.0
+		for f in range(WI_FRAMES):
+			t += 1.0 / 60.0
+			_wi_place(nodes, base, t, swapped)
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			if not _check(Time.get_ticks_msec() < deadline, "%s: proof exceeded its deadline" % mode):
+				return false
+			var what := "%s %s frame %d" % [mode, phase, f]
+			var st := _wi_stats(renderer, what)
+			if st.is_empty():
+				return false
+			if not _check(str(st["hlod_reason"]) == "active", "%s: hlod_reason=%s" % [what, st["hlod_reason"]]):
+				return false
+			if not _check(int(st["hlod_world_draw_records"]) > 0 and int(st["hlod_instance_draw_records"]) == 8, "%s: world=%s instance=%s draw records" % [what, st["hlod_world_draw_records"], st["hlod_instance_draw_records"]]):
+				return false
+			if not _check(int(st["hlod_instance_admitted_objects"]) == 8 and int(st["hlod_instance_refused_objects"]) == 0, "%s: admitted=%s refused=%s" % [what, st["hlod_instance_admitted_objects"], st["hlod_instance_refused_objects"]]):
+				return false
+			if not _check(int(st["sort_dispatches_frame"]) == 1 and int(st["sort_dispatch_frame"]) == int(st["frame_count"]) - 1, "%s: %s sorts in frame %s (frame_count %s)" % [what, st["sort_dispatches_frame"], st["sort_dispatch_frame"], st["frame_count"]]):
+				return false
+			for key in st:
+				var v := str(st[key])
+				if not _check(not ("not_exclusive" in v or "not_exclusive" in str(key) or "identity_shim" in v), "%s: %s=%s" % [what, key, v]):
+					return false
+			if not _check(int(st["hlod_bundle_builds"]) == builds_before, "%s: moving nodes rebuilt the bundle (%d -> %s)" % [what, builds_before, st["hlod_bundle_builds"]]):
+				return false
+			var img := get_root().get_texture().get_image()
+			if not _check(img != null and img.get_size() == WI_SIZE, "%s: viewport capture missing" % what):
+				return false
+			for i in range(8):
+				var front := (i < 4) != swapped
+				var px := camera.unproject_position(nodes[i].global_position)
+				var c := img.get_pixelv(Vector2i(int(px.x), int(px.y)))
+				var cls := _wi_classify(c)
+				if not _check(cls == ("instance" if front else "wall"), "%s: node %d (%s) pixel %s is %s %s" % [what, i, "front" if front else "behind", px, cls, c]):
+					return false
+			if not _check(_wi_classify(img.get_pixel(3, 3)) == "background", "%s: background control is %s" % [what, img.get_pixel(3, 3)]):
+				return false
+			if not _check(_wi_classify(img.get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2)) == "wall", "%s: wall control is %s" % [what, img.get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2)]):
+				return false
+		var path := "user://hlod_world_instances_%s_%s_%d.png" % [mode, phase, OS.get_process_id()]
+		if not _check(get_root().get_texture().get_image().save_png(path) == OK, "%s: cannot preserve the %s capture" % [mode, phase]):
+			return false
+		summary["image_" + phase] = ProjectSettings.globalize_path(path)
+	var moved := _wi_stats(renderer, mode)
+	if moved.is_empty():
+		return false
+	if not _check(int(moved["hlod_instance_row_reuploads"]) >= reuploads_before + 2 * WI_FRAMES, "%s: moving nodes did not take the row re-upload path (%d -> %s)" % [mode, reuploads_before, moved["hlod_instance_row_reuploads"]]):
+		return false
+	summary["after_motion"] = moved
+	# Budget phase: the view's splat cap lowered so half of it holds 3 of the 8 objects. The rest are refused whole, the
+	# counters move, the world keeps drawing within the caps minus the reserve.
+	var cap := WI_INSTANCE_SPLATS * 6 + 10
+	var refusal_frames_before := int(moved["hlod_instance_reserve_refusal_frames"])
+	for n in nodes:
+		n.set("quality/preset", 3) # Custom: otherwise the preset re-derives max_splat_count.
+		n.set_max_splat_count(cap)
+	world_node.set_max_splat_count(cap)
+	var refused_seen := 0
+	var budget := {}
+	while Time.get_ticks_msec() < deadline and refused_seen < 20:
+		_wi_place(nodes, base, 0.0, false)
+		await RenderingServer.frame_post_draw
+		var st := renderer.get_render_stats()
+		if str(st.get("hlod_reason", "")) == "active" and int(st.get("hlod_instance_refused_objects", 0)) > 0:
+			refused_seen += 1
+			budget = st
+	if not _check(refused_seen >= 20 and not budget.is_empty(), "%s: the budget phase never refused an object" % mode):
+		return false
+	for key in WI_FRAME_KEYS:
+		if not _check(budget.has(key), "%s budget: missing renderer field %s" % [mode, key]):
+			return false
+	if not _check(int(budget["hlod_instance_admitted_objects"]) == 3 and int(budget["hlod_instance_refused_objects"]) == 5 and int(budget["hlod_instance_draw_records"]) == 3, "%s budget: admitted=%s refused=%s instance records=%s (expected 3/5/3)" % [mode, budget["hlod_instance_admitted_objects"], budget["hlod_instance_refused_objects"], budget["hlod_instance_draw_records"]]):
+		return false
+	if not _check(int(budget["hlod_instance_reserve_refusal_frames"]) >= refusal_frames_before + 20, "%s budget: refusal-frame counter did not count" % mode):
+		return false
+	if not _check(int(budget["hlod_world_draw_records"]) > 0 and int(budget["hlod_selected_splats"]) > 0, "%s budget: the world stopped drawing" % mode):
+		return false
+	if not _check(int(budget["hlod_instance_reserve_splats"]) <= cap / 2 and int(budget["hlod_selected_splats"]) <= cap - int(budget["hlod_instance_reserve_splats"]), "%s budget: reserve %s / world %s exceed the caps" % [mode, budget["hlod_instance_reserve_splats"], budget["hlod_selected_splats"]]):
+		return false
+	if not _check(int(budget["sort_dispatches_frame"]) == 1, "%s budget: %s sorts" % [mode, budget["sort_dispatches_frame"]]):
+		return false
+	summary["budget"] = budget
+	_metrics["world_instances_" + mode] = summary
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	return true
+
+
+func _run_world_plus_instances_proof() -> bool:
+	# The earlier proof's scene is done: replace it (its renderer and route are released with it).
+	if _scene != null:
+		_scene.queue_free()
+	_scene = null
+	_node = null
+	_renderer = null
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	get_root().size = WI_SIZE
+	for mode in ["paged", "whole"]:
+		var proved := await _wi_run_mode(mode)
+		if not proved:
+			return false
+	return true
