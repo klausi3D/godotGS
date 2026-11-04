@@ -1648,3 +1648,20 @@ result. Improve the implementation within the frozen contract or request a new d
 do not raise limits during a batch. Rollback disables the opt-in preparation route and
 retains canonical sources and previously validated packages. This disposition needs no file
 migration and provides no new runtime or performance claim.
+
+## 16. Package G at scale
+
+The decisions for Package G at scale are recorded in the
+[worlds-beyond-VRAM ADR](adr-beyond-vram-worlds.md) (2026-11-04, proposed). It decides:
+
+- **D-3, the caps policy:** how the pilot caps (512 MiB GPU, the 2 GiB staging ceiling on the
+  streamed pool, the paged leaf and payload caps, the node bound, sort sizing and the
+  `materialize_paged_resident` fallback) are replaced for the paged route, each still refused
+  at its bound; the resident route keeps its caps.
+- **The tiled bake:** an out-of-core V4 write by spill-and-assemble in canonical BFS order,
+  keeping every V4 writer refusal (its D-7), with byte identity proven at ≤ 1M leaves.
+- **Residency Steps A–C:** one residency system grown from `NodeResidency` (its D-1).
+- **D-4, the frame model:** the drawn-splat budget that the frame targets gate, frozen by a
+  pre-registered rule before any HLOD-arm data exists.
+
+This section changes nothing else in this record.
