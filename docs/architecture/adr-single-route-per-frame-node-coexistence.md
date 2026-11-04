@@ -5,6 +5,10 @@
   routing) is accepted as the target direction and deferred** — it needs its own ADR and
   its own evidence. **Option 3 (hard-reject the combination) is rejected**; §5.3 records
   why, including the cost it would impose on scenes that already exist.
+- **Status update (2026-11-04):** **Option 2 is now adopted** as the direction, via
+  [One route, many demand producers](adr-one-route-many-producers.md) (maintainer decisions
+  2026-11-04). That ADR is the design record §5.2 asks for; it waives the §5.2(3) "#855 first"
+  ordering for the HLOD route only, and keeps #855 as a parallel fix for the chunk route.
 - **Risk class:** this document is R0 (`docs/**`). The Option 1 implementation it specifies
   lands in `modules/gaussian_splatting/nodes/**` and `modules/gaussian_splatting/tests/**`,
   which `.agentic/policy.json` classifies as **R1** — no ADR is *required* there, so this
