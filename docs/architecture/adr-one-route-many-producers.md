@@ -343,10 +343,13 @@ lane are **R3** (gate machinery and workflow) and land as their own PR; this sec
     fork code never runs on the persistent self-hosted runner (`docs/governance/review-policy.md:59-66`,
     the same guard as `.github/workflows/release_ci_runtime.yml:43`). A fork PR is validated only
     after a maintainer moves it to a same-repository branch.
-  - **The required status job** runs on a hosted runner and has **no job-level `if:`**, so it is
-    always reported (a skipped job would satisfy a required check). It `needs:` the execution job
-    with `if: always()` at step level and is fail-closed. It passes only if the execution job
-    **ran and succeeded** on this head. If the execution job is skipped, as for a fork PR, the status
+  - **The required status job** runs on a hosted runner. It `needs:` the execution job and has
+    the job-level condition **`if: ${{ always() }}`** and no other. A job with `needs:` is skipped
+    when its dependency is skipped or fails, unless its job-level condition overrides that, and a
+    skipped job would satisfy a required check. A step-level `if: always()` cannot start a skipped
+    job. `always()` is the only job-level condition allowed here, because it can never skip the
+    job. Inside the job, a step reads `needs.<execution job>.result` and is fail-closed. It passes
+    only if that result is `success` on this head. If the execution job is skipped, as for a fork PR, the status
     fails with the reason `gs_combined_requires_trusted_branch`. If it is cancelled or fails, the
     status fails too.
 - Optimized build with tests enabled.
