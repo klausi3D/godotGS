@@ -1,0 +1,183 @@
+name: GS-COMBINED-1 Gate
+
+# GS-COMBINED-1 hard gate: the game scene (a streamed world, 32 movable splat objects,
+# a pick target, an animated mesh character, one directional and four omni lights with
+# shadows) in one frame. Spec: docs/architecture/adr-one-route-many-producers.md section 9.
+#
+# Two jobs, so that the runner trust boundary and a required status both hold (ADR 9.1):
+#   - `gs-combined-1-gpu` builds and runs the gate on the persistent self-hosted GPU
+#     runner. It carries the per-job fork guard: fork PR code never runs there.
+#   - `gs-combined-1` is the status. It runs on a GitHub-hosted runner, `needs:` the GPU
+#     job, and has `if: ${{ always() }}` as its ONLY job-level condition: a job with
+#     `needs:` is skipped when its dependency is skipped or fails unless its own
+#     condition overrides that, and a skipped job satisfies a required check. Its step
+#     passes only if the GPU job's result is `success` on this head; a skipped GPU job
+#     (a fork PR) fails with `gs_combined_requires_trusted_branch`.
+# tests/ci/test_release_builds_runner_trust.py enforces both shapes.
+#
+# Status (2026-11-04): REPORTED, NOT REQUIRED. The gate is red until every assertion is
+# live (picking, splat shadow casters, per-source counters, frame-coherent timing, ...);
+# tests/runtime/gs_combined_1_expectations.json lists each blocked assertion with its
+# issue. Making `gs-combined-1` a required check is the maintainer's decision, once the
+# expectations file blocks nothing (docs/governance/review-policy.md).
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    # 07:30 UTC, after release_ci_runtime (06:00), so the single runner is not contended.
+    - cron: "30 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gs-combined-1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  gs-combined-1-gpu:
+    name: GS-COMBINED-1 GPU execution (self-hosted Linux GPU)
+    # Never build/run untrusted fork PR code on the persistent self-hosted GPU runner.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64, gpu]
+    timeout-minutes: 150
+    # #875: keep third-party Vulkan implicit layers out of this job's GPU processes.
+    # Same block as release_ci_runtime.yml; the preflight below reads the chain back.
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      - name: Install SCons
+        run: bash tests/ci/linux_gpu_runner.sh venv
+
+      # ADR 9.1: optimized build with tests enabled (not the dev_build=yes -O0 build of
+      # the other GPU lanes), so the P family measures the renderer, not the build.
+      - name: Build Godot editor (optimized, with tests)
+        run: |
+          python -m SCons platform=linuxbsd target=editor optimize=speed_trace tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        run: |
+          candidate=bin/godot.linuxbsd.editor.x86_64
+          if [ ! -x "$candidate" ]; then
+            echo "::error::Optimized editor binary $candidate was not built."
+            ls -la bin || true
+            exit 1
+          fi
+          resolved="$(realpath "$candidate")"
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Run GS-COMBINED-1 (variants A and B)
+        env:
+          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
+          # Declared by the step that built the binary; the harness cannot detect it.
+          GS_COMBINED_1_BUILD_OPTIMIZED: '1'
+        run: |
+          python tests/runtime/run_runtime_validation.py \
+            --godot-binary "$GODOT_BINARY" \
+            --profile gs-combined-1 \
+            --gd-mode gpu-vulkan \
+            --skip-cpp \
+            --fail-on-skip
+
+      - name: Write the per-assertion verdict to the job summary
+        if: ${{ always() && steps.godot_bin.outcome == 'success' }}
+        run: |
+          {
+            echo "## GS-COMBINED-1"
+            for variant in A B; do
+              echo "### Variant ${variant}"
+              if [ -f "tests/runtime/build/gs_combined_1/${variant}/verdict.md" ]; then
+                cat "tests/runtime/build/gs_combined_1/${variant}/verdict.md"
+              else
+                echo "No verdict: the record for variant ${variant} was not produced."
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload GS-COMBINED-1 records, verdicts and screenshots
+        if: ${{ always() && steps.godot_bin.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gs-combined-1-evidence
+          path: |
+            repo/tests/runtime/build/gs_combined_1/
+            repo/tests/runtime/runtime_validation_report.json
+          if-no-files-found: warn
+
+      # #875: a contended run is void, not passed. Exits 75 when void.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+
+  gs-combined-1:
+    name: GS-COMBINED-1
+    needs: gs-combined-1-gpu
+    # The ONLY job-level condition allowed here: always() can never skip this job, so the
+    # status always reports a terminal result (a skipped job would satisfy a required check).
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail closed on the GPU execution result
+        env:
+          GPU_RESULT: ${{ needs.gs-combined-1-gpu.result }}
+        run: |
+          echo "gs-combined-1-gpu result: ${GPU_RESULT}"
+          case "${GPU_RESULT}" in
+            success)
+              echo "GS-COMBINED-1 met on this head."
+              ;;
+            skipped)
+              echo "::error::gs_combined_requires_trusted_branch: the GPU execution job did not run (fork pull request). A maintainer must move the change to a same-repository branch."
+              exit 1
+              ;;
+            *)
+              echo "::error::GS-COMBINED-1 not met: the GPU execution job ended '${GPU_RESULT}'. Its job summary lists every assertion's state."
+              exit 1
+              ;;
+          esac
