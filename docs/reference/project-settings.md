@@ -870,7 +870,7 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled</code></pre></td>
-      <td><pre><code>false</code></pre></td>
+      <td><pre><code>true</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp</code></pre></td>
     </tr>
     <tr>

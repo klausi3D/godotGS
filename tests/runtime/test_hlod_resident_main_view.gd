@@ -613,6 +613,8 @@ const WI_FRAMES := 60
 const WI_INSTANCE_SPLATS := 1500
 const WI_TIMEOUT_MSEC := 150_000
 const WI_SIZE := Vector2i(256, 256)
+const WI_CUT_KEY := "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled"
+const WI_ROUTE_KEY := "rendering/gaussian_splatting/streaming/route_policy"
 const WI_COLORS := [Color(0, 1, 0), Color(0, 0.3, 1), Color(0, 1, 1), Color(0.1, 0.6, 1),
 		Color(0, 1, 0.5), Color(0.2, 0.9, 0.2), Color(0.2, 0.2, 1), Color(0, 0.8, 0.8)]
 const WI_FRAME_KEYS := ["hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records", "sort_dispatches_frame",
@@ -717,7 +719,7 @@ func _wi_place(nodes: Array, base: Array, t: float, swapped: bool) -> void:
 
 func _wi_run_mode(mode: String) -> bool:
 	var deadline := Time.get_ticks_msec() + WI_TIMEOUT_MSEC
-	var world := _wi_wall(mode == "paged")
+	var world := _wi_wall(mode.ends_with("paged"))
 	if not _check(world != null, "%s: wall world bake/load failed" % mode):
 		return false
 	var scene := Node3D.new()
@@ -764,6 +766,9 @@ func _wi_run_mode(mode: String) -> bool:
 		return false
 	var start := _wi_stats(renderer, mode)
 	if start.is_empty():
+		return false
+	# The automatic modes run under the default route_policy (streaming) and must still be on the HLOD route.
+	if mode.begins_with("auto") and not _check(str(start.get("requested_route_policy", "MISSING")) == "streaming", "%s: route_policy is not its default streaming (%s)" % [mode, start.get("requested_route_policy", "MISSING")]):
 		return false
 	var builds_before := int(start["hlod_bundle_builds"])
 	var reuploads_before := int(start["hlod_instance_row_reuploads"])
@@ -873,6 +878,20 @@ func _run_world_plus_instances_proof() -> bool:
 	await RenderingServer.frame_post_draw
 	get_root().size = WI_SIZE
 	for mode in ["paged", "whole"]:
+		var proved := await _wi_run_mode(mode)
+		if not proved:
+			return false
+	# The automatic route (ADR one-route-many-producers §4.7): the same proof with no routing flag set. The cut and
+	# route_policy go back to their registered defaults (route_policy's is streaming); the sort-device and quantization
+	# pins of _run() stay, as for every mode. A V4 paged package loaded from its file, and a whole-tree resident world,
+	# take the HLOD route with their 8 moving nodes. On a binary whose default is the chunk route without HLOD the
+	# route never becomes active and the mode fails.
+	for key in [WI_CUT_KEY, WI_ROUTE_KEY]:
+		ProjectSettings.set_setting(key, ProjectSettings.property_get_revert(key))
+	ProjectSettings.emit_signal("settings_changed")
+	_metrics["auto_route_defaults"] = {"hlod_runtime_cut_enabled": ProjectSettings.get_setting(WI_CUT_KEY),
+			"route_policy": ProjectSettings.get_setting(WI_ROUTE_KEY)}
+	for mode in ["auto_paged", "auto_whole"]:
 		var proved := await _wi_run_mode(mode)
 		if not proved:
 			return false

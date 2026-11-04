@@ -3,6 +3,7 @@
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gs_project_settings.h"
 #include "../core/quality_tier_config.h"
+#include "../lod/hlod_auto_route.h"
 #include "../logger/gs_logger.h"
 
 #include "core/config/project_settings.h"
@@ -619,6 +620,31 @@ void GaussianSplatWorld3D::_apply_world_internal() {
     }
 }
 
+const char *GaussianSplatWorld3D::_hlod_auto_route_refusal() const {
+    // The same domains as GaussianSplatRenderer::hlod_streaming_unsupported_reason() and the paged fallback below. The
+    // renderer-held ones are only known once this node has its renderer; later changes are the publisher's (per frame).
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!lod_enabled) {
+        return "lod_disabled";
+    }
+    if (gs::settings::get_wind_settings(ps).enabled || gs::settings::get_sphere_effector_settings(ps).enabled) {
+        return "deformation_or_instance_domain";
+    }
+    if (renderer.is_valid()) {
+        if (renderer->get_painterly_config().enabled) {
+            return "painterly_enabled";
+        }
+        if (renderer->is_shadow_instance_filter_enabled()) {
+            return "shadow_instance_filter";
+        }
+        const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+        if (director && director->get_sphere_effector_count_for_renderer(renderer.ptr()) != 0) {
+            return "deformation_or_instance_domain";
+        }
+    }
+    return nullptr;
+}
+
 void GaussianSplatWorld3D::_register_shared_renderer() {
     if (!is_inside_tree()) {
         return;
@@ -677,31 +703,54 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
             submission.static_chunks, submission.bounds, submission.metadata);
     submission.hlod_tau_px = hlod_tau_px;
     submission.hlod_world_key = world.is_valid() ? uint64_t(world->get_instance_id()) : 0;
-    if (gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
-        if (get_global_transform() != Transform3D()) {
-            submission.hlod_reason = "hlod_world_transform_unsupported";
-        } else {
-            const Error snapshot_error = world->capture_hlod_runtime_snapshot(submission.hlod_snapshot, submission.hlod_reason);
-            if (snapshot_error == OK && (submission.hlod_snapshot->source_epoch != source_epoch ||
-                    submission.hlod_snapshot->source_data != submission.gaussian_data)) {
-                submission.hlod_snapshot.unref();
-                submission.hlod_reason = "hlod_submission_generation_changed";
-            }
+    // The automatic HLOD route (lod/hlod_auto_route.h, ADR one-route-many-producers 4.7): a world that can carry an HLOD
+    // snapshot takes the HLOD route with its node instances, whatever route_policy says; the cut setting is the opt-out.
+    ProjectSettings *route_ps = ProjectSettings::get_singleton();
+    const bool route_policy_streaming = gs::settings::get_streaming_route_policy(route_ps) == gs::settings::GS_ROUTE_STREAMING;
+    gs_hlod_auto_route::WorldInputs route_inputs;
+    route_inputs.cut_enabled = gs::settings::get_hlod_runtime_cut_enabled(route_ps);
+    route_inputs.has_hlod_tree = world->has_hlod_tree();
+    route_inputs.resident_payload = world->has_resident_gaussian_data();
+    route_inputs.paged = world->has_hlod_paged_source();
+    route_inputs.identity_transform = get_global_transform() == Transform3D();
+    route_inputs.route_policy_streaming = route_policy_streaming;
+    route_inputs.domain_refusal = _hlod_auto_route_refusal();
+    const gs_hlod_auto_route::WorldPlan route_plan = gs_hlod_auto_route::plan_world(route_inputs);
+    if (submission.hlod_reason.is_empty()) {
+        submission.hlod_reason = route_plan.reason; // A paged fallback above keeps its own, more specific reason.
+    }
+    if (route_plan.capture_snapshot) {
+        const Error snapshot_error = world->capture_hlod_runtime_snapshot(submission.hlod_snapshot, submission.hlod_reason);
+        if (snapshot_error == OK && (submission.hlod_snapshot->source_epoch != source_epoch ||
+                submission.hlod_snapshot->source_data != submission.gaussian_data)) {
+            submission.hlod_snapshot.unref();
+            submission.hlod_reason = "hlod_submission_generation_changed";
         }
+        if (snapshot_error != OK) {
+            submission.hlod_snapshot.unref();
+        }
+    }
+    // A world the automatic route concerns but that does not take it says so once per cause (the paged fallback above
+    // printed its own warning). The reason is also the render stat hlod_reason.
+    if (submission.hlod_snapshot.is_null() && !submission.hlod_reason.is_empty() && !submission.hlod_reason.begins_with("hlod_paged_") &&
+            submission.hlod_reason != hlod_auto_route_warned_reason) {
+        hlod_auto_route_warned_reason = submission.hlod_reason;
+        WARN_PRINT(vformat("[GaussianSplatWorld3D] '%s' has an HLOD tree but does not take the HLOD route (%s); it draws on the %s route. "
+                           "Set rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled = false to silence this.",
+                String(get_path()), submission.hlod_reason, route_policy_streaming ? "chunk-streaming" : "resident"));
     }
     const String world_path = world->get_path();
     if (!world_path.is_empty()) {
         submission.metadata[StringName("world_path")] = world_path;
     }
-    // World submissions carry a residency hint that defers to the active
-    // route policy.  When the policy is STREAMING the hint lets the renderer
-    // bootstrap the streaming system; when it is RESIDENT the hint preserves
-    // the fully-materialized resident path.
+    // World submissions carry a residency hint. A captured HLOD snapshot takes the HLOD route, which runs on the
+    // resident backend; every other world defers to the active route policy. When the policy is STREAMING the hint
+    // lets the renderer bootstrap the streaming system; when it is RESIDENT the hint preserves the fully-materialized
+    // resident path.
     submission.has_desired_residency_hint = true;
-    const int route_policy = gs::settings::get_streaming_route_policy(ProjectSettings::get_singleton());
-    submission.desired_residency_hint = (route_policy == gs::settings::GS_ROUTE_STREAMING)
-            ? GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING
-            : GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT;
+    submission.desired_residency_hint = gs_hlod_auto_route::residency_hint_resident(route_policy_streaming, submission.hlod_snapshot.is_valid())
+            ? GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT
+            : GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING;
     submission.desired_renderer_overrides = _build_desired_renderer_overrides();
     if (!director->submit_world_submission(submission)) {
         if (_is_world_debug_enabled()) {

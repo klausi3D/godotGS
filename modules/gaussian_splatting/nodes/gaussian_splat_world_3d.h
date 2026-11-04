@@ -46,6 +46,8 @@ private:
     // a re-entry after reparenting (exit+enter), where the prior submission
     // must be restored unconditionally -- see issue #517.
     bool was_world_submission_active = false;
+    // The last reason the automatic HLOD route was not taken that this node warned about (one warning per cause).
+    String hlod_auto_route_warned_reason;
 
     // #862 coalescing latch. True from the moment a `changed` emission from the
     // assigned GaussianSplatWorld has queued a deferred resubmit until that
@@ -95,6 +97,9 @@ private:
 
     void _ensure_renderer();
     Dictionary _build_desired_renderer_overrides() const;
+    // A setup of this world the HLOD route never serves, as far as it is known at submission (nullptr if none); the
+    // domain_refusal input of gs_hlod_auto_route::plan_world().
+    const char *_hlod_auto_route_refusal() const;
     // Returns true when this node held a live director submission and the
     // re-registration was therefore run. It does NOT report whether the director
     // accepted the resubmission -- _register_shared_renderer() can still lose

@@ -30,6 +30,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Behaviour change: a world with an HLOD tree takes the HLOD route automatically** (ADR
+  `docs/architecture/adr-one-route-many-producers.md` §4.7, decision 5).
+  - A `GaussianSplatWorld3D` whose world carries an HLOD tree now draws on the HLOD route together with its
+    `GaussianSplatNode3D` instances, with no project setting changed. The tree is a resident one from
+    `GaussianSplatWorld.bake_hlod()` or a V4 paged package.
+  - `rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled` now defaults to `true` (it was `false`). Set it to
+    `false` to opt out: the routing is then exactly as before, and a V4 paged package loads its payload into memory.
+  - `rendering/gaussian_splatting/streaming/route_policy` keeps its default (streaming). It still picks the backend of
+    every world that does not take the HLOD route, but it no longer keeps a world with an HLOD tree on the
+    chunk-streaming route. It cannot be the opt-out: a value equal to its default cannot be told from an unset one.
+  - Worlds without an HLOD tree are unchanged.
+  - Some setups the HLOD route cannot serve: LOD off, wind or sphere effectors, painterly, the shadow instance filter,
+    a moved (non-identity) world, or a tree the runtime does not admit. If the world node sees the setup when it
+    submits the world, the world keeps the route `route_policy` gives it (chunk streaming by default). It reports the
+    cause in the render stat `hlod_reason` (`hlod_auto_route_unavailable:<cause>`, `hlod_world_transform_unsupported`
+    or the admission reason) and prints a warning. A V4 paged package loads its payload into memory instead, as
+    before. Under `route_policy = resident`, the HLOD route draws the canonical leaves for LOD off, effectors, painterly
+    and the shadow filter, as it did with the setting enabled before.
+  - Known gap (follow-up F5): a streamed or paged HLOD world draws no world splats in orthographic, multi-view (XR)
+    and painterly views. A warning names the opt-out.
+  - Memory: an HLOD world now holds its runtime snapshot on the CPU and its HLOD bundles on the GPU, in place of the
+    chunk streamer's atlas.
 - Benchmark scenes unified under single-process orchestrator
 - Streaming path uses shared `gs::settings` helpers (ISSUE-018)
 - Removed friend-only access in streaming orchestrator (ISSUE-019)

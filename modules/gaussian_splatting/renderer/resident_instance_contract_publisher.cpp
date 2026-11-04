@@ -2280,6 +2280,14 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
         // ADR 4.4: an idle streamed world still draws the objects of this view (world records = 0).
         if (state.hlod_streaming) {
+            // A streamed or paged world has no canonical copy, so a main view the route does not serve (orthographic,
+            // multi-view/XR, painterly) shows no world splats. The automatic route (lod/hlod_auto_route.h) makes this
+            // reachable without a setting; say it once, with the opt-out. Lifting these views is follow-up F5.
+            if (p_context.pass_kind == RenderPassKind::MAIN_VIEW && std::strcmp(p_reason, "unsupported_view_or_material") == 0) {
+                WARN_PRINT_ONCE("[GaussianSplatRenderer] A streamed or paged HLOD world draws no world splats in an orthographic, "
+                                "multi-view (XR) or painterly view: the HLOD route does not serve these views yet. Set "
+                                "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled = false to draw the world on the canonical route.");
+            }
             const bool with_instances = instance_draws_ready && !state.hlod_instance_draws.is_empty();
             if (idle_hlod_streaming_bundle(with_instances, instance_draws_origin_revision) && with_instances &&
                     p_context.pass_kind == RenderPassKind::MAIN_VIEW) {
