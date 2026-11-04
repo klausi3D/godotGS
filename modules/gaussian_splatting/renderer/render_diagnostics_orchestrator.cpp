@@ -1574,6 +1574,23 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_instance_view_frame"] = int64_t(resource_state.hlod_instance_view_frame);
     stats["hlod_bundle_builds"] = int64_t(resource_state.hlod_bundle_builds);
     stats["hlod_instance_row_reuploads"] = int64_t(resource_state.hlod_instance_row_reuploads);
+    // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h), per renderer frame shadow_caster_frame (the
+    // shadow passes of a frame run before its main view, so a fresh value is frame_count - 1). shadow_casters_rastered:
+    // splats submitted to the light-view raster draws of that frame, summed over its cast passes (one per cascade); a CPU
+    // count of what was drawn, not a GPU fragment count. Refused passes (other light types, no active HLOD view) count
+    // in shadow_caster_passes_refused with shadow_caster_last_refusal.
+    {
+        const gs_shadow_caster::FrameStats &sc = resource_state.hlod_shadow_caster_stats;
+        stats["shadow_caster_frame"] = sc.frame == UINT64_MAX ? int64_t(-1) : int64_t(sc.frame);
+        stats["shadow_casters_rastered"] = int64_t(sc.casters);
+        stats["shadow_caster_instance_slots"] = int64_t(sc.instance_slots);
+        stats["shadow_caster_passes_cast"] = int64_t(sc.passes_cast);
+        stats["shadow_caster_passes_refused"] = int64_t(sc.passes_refused);
+        stats["shadow_caster_last_refusal"] = String(gs_shadow_caster::refusal_reason(sc.last_refusal));
+        stats["shadow_caster_total_passes_cast"] = int64_t(sc.total_passes_cast);
+        stats["shadow_caster_total_passes_refused"] = int64_t(sc.total_passes_refused);
+        stats["shadow_caster_source"] = "hlod_main_view_draw_list";
+    }
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
     stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);

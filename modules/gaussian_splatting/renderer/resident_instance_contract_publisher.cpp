@@ -1562,6 +1562,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_selected_splats = 0;
     state.hlod_instance_generation = state.hlod_instance_asset_generation = state.hlod_grading_generation = state.hlod_prepared_owner_key = 0;
     state.hlod_instance_rows = 0;
+    state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord(); // The buffers it names are gone.
     state.hlod_instance_region = gs_hlod_bundle::InstanceRegion();
     state.hlod_instance_row_data = gs_hlod_bundle::Rows();
     state.hlod_instance_row_keys.clear();
@@ -2251,6 +2252,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         state.hlod_instance_reserve_splats = 0;
         state.hlod_instance_reserve_records = 0.0;
         state.hlod_instance_view_frame = get_frame_state().frame_counter;
+        // Shadow casters draw only a list an ACTIVE main view uploaded; an idle or refused view rewrites or abandons it.
+        state.hlod_shadow_caster_record = gs_shadow_caster::FrameRecord();
         MutexLock refusal_lock(state.hlod_instance_refusal_mutex);
         state.hlod_instance_refused_keys.clear();
     }
@@ -2713,6 +2716,30 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (!publish_hlod_bundle(true)) { return false; }
     state.hlod_frame_active = true;
     state.hlod_reason = "active";
+    if (p_context.pass_kind == RenderPassKind::MAIN_VIEW) {
+        // The next frame's shadow passes draw exactly this list (renderer/hlod_shadow_caster_plan.h): its offsets were
+        // formed against spec.camera, its objects are the admitted ones.
+        gs_shadow_caster::FrameRecord &caster = state.hlod_shadow_caster_record;
+        caster = gs_shadow_caster::FrameRecord();
+        caster.draw_count = draw_count;
+        caster.world_records = selected_count;
+        caster.instance_records = instance_records;
+        caster.max_chunk_splats = bundle.buffers.max_chunk_splats;
+        caster.quantized = g_quantization_config.per_chunk_quantization;
+        for (uint32_t i = 0; i < selected_count; ++i) {
+            caster.world_splats += input->nodes[outcome.records[i].node].topology.payload_count;
+        }
+        LocalVector<uint64_t> caster_keys;
+        director->collect_hlod_shadow_caster_keys_for_renderer(this, caster_keys);
+        gs_shadow_caster::build_row_casts(state.hlod_instance_row_keys, caster_keys, caster.row_casts);
+        caster.instance_splats = gs_shadow_caster::admitted_instance_splats(state.hlod_instance_region, demands.ptr(),
+                demands.size(), admission, caster.row_casts);
+        caster.camera = spec.camera;
+        caster.origin_revision = snapshot.origin_revision;
+        caster.renderer_frame = get_frame_state().frame_counter;
+        caster.bundle_builds = state.hlod_bundle_builds;
+        caster.valid = true;
+    }
     return true;
 }
 

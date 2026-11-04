@@ -1838,6 +1838,21 @@ void GaussianSplatSceneDirector::build_hlod_instance_rows_for_renderer(const Gau
 	_build_hlod_instance_rows_locked(_find_world_for_renderer(p_renderer), renderer_default, r_rows, r_grading, r_asset_ids, r_instance_keys);
 }
 
+void GaussianSplatSceneDirector::collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer,
+		LocalVector<uint64_t> &r_keys) const {
+	r_keys.clear();
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = _find_world_for_renderer(p_renderer);
+	if (!world) {
+		return;
+	}
+	for (const InstanceRecord &record : world->instance_store.records()) {
+		if (record.visible && record.casts_shadow) {
+			r_keys.push_back(uint64_t(record.node_id));
+		}
+	}
+}
+
 void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
 		LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
 		LocalVector<uint64_t> &r_instance_keys) {

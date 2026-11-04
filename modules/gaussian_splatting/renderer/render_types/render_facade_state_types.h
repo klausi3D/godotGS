@@ -9,6 +9,7 @@
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
 #include "../hlod_node_streamer.h"
 #include "../hlod_world_instances.h"
+#include "../hlod_shadow_caster_plan.h"
 #include "core/os/mutex.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
@@ -151,6 +152,11 @@ struct ResourceState {
     double hlod_instance_reserve_records = 0.0;
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
+    // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The record names the draw list the last
+    // active main view uploaded (invalidated at the start of every main-view preparation and on release); the shadow
+    // passes of the next frame draw it. Render thread only.
+    gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
+    gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
     Mutex hlod_instance_refusal_mutex;

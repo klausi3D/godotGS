@@ -428,6 +428,9 @@ public:
     // (the node's ObjectID; 0 for the world). Empty when there is no renderable world submission. Unlike
     // build_instance_buffer_for_renderer (unchanged: the canonical routes keep their behaviour until follow-up F1),
     // a node never removes the world row.
+    // Splat shadow casters (#1095): the stable keys (node ObjectIDs) of this renderer's world's node instances that are
+    // visible and cast shadows. The HLOD shadow pass casts exactly the drawn rows among them (row 0, the world, aside).
+    void collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<uint64_t> &r_keys) const;
     void build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
     // The node's HLOD-route admission state in the last main view its renderer prepared: empty when it was drawn (or

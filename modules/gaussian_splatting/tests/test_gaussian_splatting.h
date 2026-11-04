@@ -146,6 +146,8 @@
 	static const volatile int test_hlod_bundle_rows_cpp_force_link_anchor = test_hlod_bundle_rows_cpp_force_link();
 	extern "C" int test_hlod_world_instances_cpp_force_link();
 	static const volatile int test_hlod_world_instances_cpp_force_link_anchor = test_hlod_world_instances_cpp_force_link();
+	extern "C" int test_hlod_shadow_casters_cpp_force_link();
+	static const volatile int test_hlod_shadow_casters_cpp_force_link_anchor = test_hlod_shadow_casters_cpp_force_link();
 	extern "C" int test_integration_cpp_force_link();
 	static const volatile int test_integration_cpp_force_link_anchor = test_integration_cpp_force_link();
 	extern "C" int test_lod_system_cpp_force_link();

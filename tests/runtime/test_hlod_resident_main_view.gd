@@ -589,6 +589,10 @@ func _run() -> void:
 		var world_instances_proved := await _run_world_plus_instances_proof()
 		if not world_instances_proved:
 			return
+		# Splat shadow casters (#1095, #1163): the same route casts into Godot's directional shadow map (own wall-clock bound).
+		var shadow_casters_proved := await _run_shadow_caster_proof()
+		if not shadow_casters_proved:
+			return
 		_metrics["hlod_main_view_proof_status"] = "passed"
 		_emit_metrics()
 		_report.emit_pass()
@@ -876,4 +880,290 @@ func _run_world_plus_instances_proof() -> bool:
 		var proved := await _wi_run_mode(mode)
 		if not proved:
 			return false
+	return true
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The HLOD route's world and a moving node
+# instance cast into Godot's directional shadow map, and a mesh floor receives it. A world slab and a node ball hang
+# 2.5 m above a white PlaneMesh under a slanted DirectionalLight3D (shadows on). Phases, every frame checked:
+#   control  - cast_shadow off on the world and the node: no caster pass runs for the frame, the floor ROIs are lit;
+#   cast     - both cast: each ROI under a blocker is darker than its control by SC_MAX_RATIO or more, a lit reference ROI
+#              is unchanged, shadow_casters_rastered > 0 in this very frame (shadow_caster_frame == frame_count - 1);
+#   row_off  - only the node's cast_shadow off: its shadow is gone, the world's stays, exactly its splats fewer are drawn.
+# The ROIs are where the light ray through each blocker's centre meets the floor; the camera sees them past the blockers.
+const SC_TIMEOUT_MSEC := 120_000
+const SC_FRAMES := 30
+const SC_HEIGHT := 2.5
+const SC_LIGHT_DIR := Vector3(0.6, -1.0, 0.0)
+const SC_SLAB_CENTER := Vector3(-2.0, SC_HEIGHT, 0.0)
+const SC_BALL_CENTER := Vector3(2.5, SC_HEIGHT, 0.0)
+const SC_REFERENCE := Vector3(0.0, 0.0, 3.0)
+const SC_MAX_RATIO := 0.6 # GS-COMBINED-1 S1-S4: receiver ROI luminance ratio <= 0.6.
+const SC_GONE_RATIO := 0.9 # A shadow that is gone leaves its ROI within 10 % of the control.
+const SC_ROI_HALF := 2 # 5 x 5 pixels.
+const SC_STAT_KEYS := ["frame_count", "hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records",
+		"shadow_caster_frame", "shadow_casters_rastered", "shadow_caster_passes_cast", "shadow_caster_passes_refused",
+		"shadow_caster_last_refusal", "shadow_caster_source"]
+
+
+func _sc_slab() -> GaussianSplatWorld:
+	var n := 64
+	var data := GaussianData.new()
+	data.resize(n * n)
+	var pos := PackedVector3Array()
+	var sc := PackedVector3Array()
+	var rot: Array[Quaternion] = []
+	var op := PackedFloat32Array()
+	var sh := PackedFloat32Array()
+	var grey := _wi_dc(Color(0.6, 0.6, 0.6))
+	for iz in range(n):
+		for ix in range(n):
+			pos.append(SC_SLAB_CENTER + Vector3(-0.8 + 1.6 * (ix + 0.5) / n, 0.0, -0.8 + 1.6 * (iz + 0.5) / n))
+			sc.append(Vector3(0.03, 0.01, 0.03))
+			rot.append(Quaternion())
+			op.append(0.97)
+			sh.append_array(grey)
+	data.set_positions(pos)
+	data.set_scales(sc)
+	data.set_rotations(rot)
+	data.set_opacities(op)
+	data.set_spherical_harmonics(sh)
+	var w := GaussianSplatWorld.new()
+	w.gaussian_data = data
+	if w.bake_hlod() != OK or not w.has_hlod_tree():
+		return null
+	return w
+
+
+func _sc_floor_point(center: Vector3) -> Vector3:
+	var d := SC_LIGHT_DIR.normalized()
+	return center + d * (center.y / -d.y)
+
+
+func _sc_roi(img: Image, px: Vector2) -> float:
+	var sum := 0.0
+	var count := 0
+	for dy in range(-SC_ROI_HALF, SC_ROI_HALF + 1):
+		for dx in range(-SC_ROI_HALF, SC_ROI_HALF + 1):
+			var p := Vector2i(int(px.x) + dx, int(px.y) + dy)
+			if p.x < 0 or p.y < 0 or p.x >= img.get_width() or p.y >= img.get_height():
+				return -1.0
+			sum += img.get_pixelv(p).get_luminance()
+			count += 1
+	return sum / count
+
+
+func _sc_stats(renderer: GaussianSplatRenderer, what: String) -> Dictionary:
+	var stats := renderer.get_render_stats()
+	for key in SC_STAT_KEYS:
+		if not _check(stats.has(key), "%s: missing renderer field %s" % [what, key]):
+			return {}
+	return stats
+
+
+func _sc_sample(camera: Camera3D, what: String) -> Dictionary:
+	var img := get_root().get_texture().get_image()
+	if not _check(img != null and img.get_size() == WI_SIZE, "%s: viewport capture missing" % what):
+		return {}
+	var points := {"slab": _sc_floor_point(SC_SLAB_CENTER), "ball": _sc_floor_point(SC_BALL_CENTER), "reference": SC_REFERENCE}
+	var out := {"image": img}
+	for key in points:
+		var lum := _sc_roi(img, camera.unproject_position(points[key]))
+		if not _check(lum >= 0.0, "%s: %s ROI outside the target" % [what, key]):
+			return {}
+		out[key] = lum
+	return out
+
+
+func _sc_mean(samples: Array, key: String) -> float:
+	var sum := 0.0
+	for s in samples:
+		sum += float(s[key])
+	return sum / max(samples.size(), 1)
+
+
+func _sc_save(img: Image, phase: String, summary: Dictionary) -> bool:
+	var path := "user://hlod_shadow_casters_%s_%d.png" % [phase, OS.get_process_id()]
+	if not _check(img.save_png(path) == OK, "shadow casters: cannot preserve the %s capture" % phase):
+		return false
+	summary["image_" + phase] = ProjectSettings.globalize_path(path)
+	return true
+
+
+func _sc_route_active(st: Dictionary, what: String) -> bool:
+	return _check(str(st["hlod_reason"]) == "active" and int(st["hlod_world_draw_records"]) > 0 and int(st["hlod_instance_draw_records"]) > 0,
+			"%s: route not active with both producers (%s)" % [what, st["hlod_reason"]])
+
+
+func _run_shadow_caster_proof() -> bool:
+	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
+	var world := _sc_slab()
+	if not _check(world != null, "shadow casters: slab world bake failed"):
+		return false
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color.BLACK
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color.WHITE
+	env.ambient_light_energy = 0.08
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	scene.add_child(world_env)
+	var camera := Camera3D.new()
+	camera.fov = 60.0
+	camera.near = 0.1
+	camera.far = 100.0
+	scene.add_child(camera)
+	camera.look_at_from_position(Vector3(0.0, 10.0, 10.0), Vector3.ZERO, Vector3.UP)
+	camera.make_current()
+	var light := DirectionalLight3D.new()
+	light.shadow_enabled = true
+	light.light_energy = 0.5 # Keeps the lit floor below saturation, so a global darkening would show in the reference.
+	light.directional_shadow_max_distance = 40.0
+	scene.add_child(light)
+	light.look_at_from_position(Vector3(0.0, 10.0, 0.0), Vector3(0.0, 10.0, 0.0) + SC_LIGHT_DIR.normalized(), Vector3.FORWARD)
+	var floor_mesh := PlaneMesh.new()
+	floor_mesh.size = Vector2(24.0, 24.0)
+	var floor_material := StandardMaterial3D.new()
+	floor_material.albedo_color = Color.WHITE
+	floor_material.roughness = 1.0
+	floor_mesh.material = floor_material
+	var floor_node := MeshInstance3D.new()
+	floor_node.mesh = floor_mesh
+	floor_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	scene.add_child(floor_node)
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = world
+	world_node.set_hlod_tau_px(0.5)
+	world_node.set_cast_shadow(false)
+	scene.add_child(world_node)
+	world_node.apply_world()
+	var ball := GaussianSplatNode3D.new()
+	ball.set_splat_asset(_wi_ball(Color(0.2, 0.8, 0.2), 7))
+	ball.set_cast_shadow(false)
+	ball.position = SC_BALL_CENTER
+	scene.add_child(ball)
+	var summary := {}
+	# Warm-up (wall clock bound): the route active with both producers drawing.
+	var renderer: GaussianSplatRenderer = null
+	var stable := 0
+	var last := {}
+	while Time.get_ticks_msec() < deadline and stable < 10:
+		await RenderingServer.frame_post_draw
+		renderer = world_node.get_renderer()
+		if renderer == null:
+			continue
+		last = renderer.get_render_stats()
+		if str(last.get("hlod_reason", "")) == "active" and int(last.get("hlod_world_draw_records", 0)) > 0 and int(last.get("hlod_instance_draw_records", 0)) > 0:
+			stable += 1
+		else:
+			stable = 0
+	if not _check(stable >= 10, "shadow casters: world + instance never became active together (reason=%s)" % last.get("hlod_reason", "MISSING")):
+		return false
+	# Control: nothing casts. The node moves every frame (row re-upload path) in every phase.
+	var control: Array = []
+	for f in range(SC_FRAMES):
+		ball.position = SC_BALL_CENTER + Vector3(0.0, 0.0, 0.02 * sin(f * 0.3))
+		await RenderingServer.frame_post_draw
+		var what := "shadow casters control frame %d" % f
+		if not _check(Time.get_ticks_msec() < deadline, "%s: deadline" % what):
+			return false
+		var sample := _sc_sample(camera, what)
+		if sample.is_empty():
+			return false
+		var st := renderer.get_render_stats()
+		if not _sc_route_active(st, what):
+			return false
+		# Absent on a binary without casters; there nothing can have cast either.
+		if f >= 5 and st.has("shadow_caster_frame") and not _check(int(st["shadow_caster_frame"]) < int(st["frame_count"]) - 1, "%s: a caster pass ran although nothing casts" % what):
+			return false
+		control.append(sample)
+	if not _sc_save(control[-1]["image"], "control", summary):
+		return false
+	var control_slab := _sc_mean(control, "slab")
+	var control_ball := _sc_mean(control, "ball")
+	var control_reference := _sc_mean(control, "reference")
+	summary["control"] = {"slab": control_slab, "ball": control_ball, "reference": control_reference}
+	if not _check(control_slab > 0.1 and control_ball > 0.1 and control_reference > 0.1 and control_reference < 0.95, "shadow casters: the control floor is unlit or saturated (%s)" % summary["control"]):
+		return false
+	world_node.set_cast_shadow(true)
+	ball.set_cast_shadow(true)
+	var phases := {}
+	for phase in ["cast", "row_off"]:
+		if phase == "row_off":
+			ball.set_cast_shadow(false)
+		# Pump (wall clock bound) until the new caster set is in effect; the frames below are each checked.
+		var settle_frames := 0
+		while Time.get_ticks_msec() < deadline and settle_frames < 10:
+			await RenderingServer.frame_post_draw
+			settle_frames += 1
+		var samples: Array = []
+		var casters_min := -1
+		var casters_max := 0
+		for f in range(SC_FRAMES):
+			ball.position = SC_BALL_CENTER + Vector3(0.0, 0.0, 0.02 * sin(f * 0.3))
+			await RenderingServer.frame_post_draw
+			var what := "shadow casters %s frame %d" % [phase, f]
+			if not _check(Time.get_ticks_msec() < deadline, "%s: deadline" % what):
+				return false
+			# Pixels first: the receiver darkening is the property; the counters below name the pass that produced it.
+			var sample := _sc_sample(camera, what)
+			if sample.is_empty():
+				return false
+			var slab_ratio := float(sample["slab"]) / control_slab
+			var ball_ratio := float(sample["ball"]) / control_ball
+			var reference_ratio := float(sample["reference"]) / control_reference
+			sample["slab_ratio"] = slab_ratio
+			sample["ball_ratio"] = ball_ratio
+			sample["reference_ratio"] = reference_ratio
+			summary["last_" + phase + "_ratios"] = {"slab": slab_ratio, "ball": ball_ratio, "reference": reference_ratio}
+			if f == 0 and not _sc_save(sample["image"], phase + "_first", summary):
+				return false
+			if not _check(slab_ratio <= SC_MAX_RATIO, "%s: the world slab casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, slab_ratio, SC_MAX_RATIO]):
+				return false
+			if phase == "cast":
+				if not _check(ball_ratio <= SC_MAX_RATIO, "%s: the node instance casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, ball_ratio, SC_MAX_RATIO]):
+					return false
+			elif not _check(ball_ratio >= SC_GONE_RATIO, "%s: the node with cast_shadow off still casts (ROI ratio %.3f < %.2f)" % [what, ball_ratio, SC_GONE_RATIO]):
+				return false
+			if not _check(abs(reference_ratio - 1.0) <= 1.0 - SC_GONE_RATIO, "%s: the lit reference ROI changed (ratio %.3f): the darkening is not a local shadow" % [what, reference_ratio]):
+				return false
+			var st := _sc_stats(renderer, what)
+			if st.is_empty():
+				return false
+			if not _sc_route_active(st, what):
+				return false
+			if not _check(int(st["shadow_caster_frame"]) == int(st["frame_count"]) - 1, "%s: no caster pass in this frame (shadow_caster_frame %s, frame_count %s)" % [what, st["shadow_caster_frame"], st["frame_count"]]):
+				return false
+			if not _check(int(st["shadow_casters_rastered"]) > 0 and int(st["shadow_caster_passes_cast"]) > 0, "%s: shadow_casters_rastered=%s passes=%s (last refusal %s)" % [what, st["shadow_casters_rastered"], st["shadow_caster_passes_cast"], st["shadow_caster_last_refusal"]]):
+				return false
+			if not _check(str(st["shadow_caster_source"]) == "hlod_main_view_draw_list", "%s: caster source %s" % [what, st["shadow_caster_source"]]):
+				return false
+			var casters := int(st["shadow_casters_rastered"]) / int(st["shadow_caster_passes_cast"])
+			casters_min = casters if casters_min < 0 else min(casters_min, casters)
+			casters_max = max(casters_max, casters)
+			sample.erase("image")
+			sample["stats"] = st
+			samples.append(sample)
+		if not _sc_save(get_root().get_texture().get_image(), phase, summary):
+			return false
+		phases[phase] = {"casters_per_pass_min": casters_min, "casters_per_pass_max": casters_max,
+				"slab_ratio_mean": _sc_mean(samples, "slab_ratio"), "ball_ratio_mean": _sc_mean(samples, "ball_ratio"),
+				"reference_ratio_mean": _sc_mean(samples, "reference_ratio"), "last_stats": samples[-1]["stats"]}
+	summary["phases"] = phases
+	_metrics["shadow_casters"] = summary
+	# The node's row left the caster set: exactly its splats fewer per pass, and the same count every frame of a phase.
+	if not _check(int(phases["cast"]["casters_per_pass_min"]) == int(phases["cast"]["casters_per_pass_max"]) and int(phases["row_off"]["casters_per_pass_min"]) == int(phases["row_off"]["casters_per_pass_max"]), "shadow casters: the caster count per pass varied within a phase (%s)" % phases):
+		return false
+	if not _check(int(phases["row_off"]["casters_per_pass_max"]) + WI_INSTANCE_SPLATS == int(phases["cast"]["casters_per_pass_min"]), "shadow casters: row off cast %s per pass, cast %s (expected %d fewer)" % [phases["row_off"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"], WI_INSTANCE_SPLATS]):
+		return false
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
 	return true
