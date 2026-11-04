@@ -13,7 +13,7 @@
         <link rel="prev" href="../adr-hlod-streaming/">
       
       
-        <link rel="next" href="../adr-import-importance-pruning/">
+        <link rel="next" href="../adr-one-route-many-producers/">
       
       
         
@@ -3793,6 +3793,8 @@
       
         
       
+        
+      
     
     
     
@@ -4383,6 +4385,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-one-route-many-producers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    One Route, Many Demand Producers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -5015,7 +5045,9 @@ The corridor lane has never produced a result: every reachable scheduled run of
 <ul>
 <li>Real-scan beyond-VRAM content. It waits on #1294 and on tiled ingest.</li>
 <li>Package F (editable regions).</li>
-<li>Instanced or multi-package worlds.</li>
+<li>Multi-package worlds (several world packages per scenario). Node instances are <strong>not</strong> a
+  non-goal: they coexist with the world in the same frame per
+  <a href="../adr-one-route-many-producers/">One route, many demand producers</a>.</li>
 <li>Retrained or neural compression (not decodable per page at streaming rates; see the
   compression survey in "External prior art").</li>
 <li>Any change to S1b rules or to the #1290 waiver. <strong>The HLOD bake rule stays unchanged.</strong></li>
@@ -5040,8 +5072,11 @@ The corridor lane has never produced a result: every reachable scheduled run of
 <li>an HLOD node is a run of ≤ 16 pages;</li>
 <li>a legacy chunk is a degenerate leaf node, a run of ≤ 64 pages.</li>
 </ul>
-<p>Selectors are separate <strong>demand producers</strong>: the HLOD <code>ViewSet</code> cut and legacy chunk
-visibility.</p>
+<p>Selectors are separate <strong>demand producers</strong>: the HLOD <code>ViewSet</code> cut, legacy chunk
+visibility and the movable node instances (rows 1..N of one draw list, per
+<a href="../adr-one-route-many-producers/">One route, many demand producers</a>); light views and extra
+camera views follow. The producer interface takes several producers per frame from the start, so
+Steps A and B do not harden around one producer.</p>
 <p><strong>The seed is <code>lod/hlod_node_residency</code>.</strong> It already has whole-group admission, tickets with
 generations, retirement delay, protection, and eviction outside the closure → LRU → finest
 first (<code>lod/hlod_node_residency.h:45-320</code> ✓). It does not yet scale: <code>request()</code> scans every
@@ -5216,7 +5251,7 @@ bound and bound+1, and carries an explicit maintainer disposition in an R3 PR.</
 </tr>
 <tr>
 <td>A second HLOD view (multi-view)</td>
-<td><strong>Refused with <code>hlod_multiview_budget_undefined</code></strong> until per-view sub-budgets and a deterministic Desired merge exist (P6). The drawn budget is a <strong>per-frame total</strong>.</td>
+<td><strong>Refused with <code>hlod_multiview_budget_undefined</code></strong> until per-view sub-budgets and a deterministic Desired merge exist (P6). This refusal is an interim only, and it keeps its typed reason; light views for splat shadow casters are not deferred (see P6). The drawn budget is a <strong>per-frame total</strong>.</td>
 <td>The benchmark has one view. This prevents closure starvation.</td>
 </tr>
 </tbody>
@@ -5571,7 +5606,8 @@ needs a re-bake; that is stated, not hidden.</p>
 <h3 id="d-11-one-device-vram-ledger-owner">D-11 One device VRAM ledger owner<a class="headerlink" href="#d-11-one-device-vram-ledger-owner" title="Permanent link">¶</a></h3>
 <p><code>renderer/device_vram_ledger</code> apportions memory to the pool, the sort and overlap buffers (from
 the drawn budget or the visible cap), the per-view buffers, the HLOD scratch (by pool records),
-and the engine and driver reserves.</p>
+and the engine and driver reserves. It also owns the resident object atlas, the instance region
+of the HLOD bundle and the shadow-caster scratch, so the world and the objects share one ledger.</p>
 <ul>
 <li>The GS-owned share stays at 0.60 × device.</li>
 <li>It is enforced on the HLOD route and report-only on the chunk route until Step C.</li>
@@ -5745,13 +5781,16 @@ and proven, not assumed.</p>
    Decode/pack workers  : GSQ decode (per-worker ZSTD_DCtx) → PackedGaussian 176 B → bounded ready queue
    ResidencyManager     : seed NodeResidency; ledger ◄ DeviceVramLedger; SegmentedPagePool (K=1 until Step C)
                           state lists + intrusive LRU per protection class; tickets/generations; retire queue
-   Demand producers     : HLOD ViewSet/CutHistory (one view) | legacy chunk visibility (until Step C)
+   Demand producers     : HLOD ViewSet/CutHistory | node instances (rows 1..N) | legacy chunk visibility (until Step C)
+                          → one draw list, one sort, one ledger per view
    Draw list            : DrawnNodeGPU {instance_id, chunk_id, fade, reserved, camera_offset[4]} 32 B
                           (renderer/gaussian_gpu_layout.h:269-278; segment id goes in `reserved` at Step C)
    Renderer             : depth/projection → COUNT/EMIT → overlap sort → raster; scratch sized from the drawn budget
    Telemetry            : release atomics + per-frame-serial GPU timings → binary frame trace (file)
 </code></pre></div>
-<p>The <code>DrawnNodeGPU</code> layout was re-read at <code>renderer/gaussian_gpu_layout.h:269-278</code> ✓.</p>
+<p>The <code>DrawnNodeGPU</code> layout was re-read at <code>renderer/gaussian_gpu_layout.h:269-278</code> ✓. Its
+<code>instance_id</code> carries real instance rows (world = 0, node instances = 1..N), not only the
+identity world.</p>
 <h3 id="32-interfaces">3.2 Interfaces<a class="headerlink" href="#32-interfaces" title="Permanent link">¶</a></h3>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
@@ -5822,7 +5861,7 @@ and proven, not assumed.</p>
 </tr>
 <tr>
 <td>I-4</td>
-<td>Complete-or-nothing publication. The first READY frame is the root or the bootstrap frontier.</td>
+<td>Complete-or-nothing publication. The first READY frame is the root or the bootstrap frontier. It holds <strong>per producer</strong>: a producer that is not ready never blanks another (a loading world still draws the objects, and a refused object producer never blanks the world).</td>
 </tr>
 <tr>
 <td>I-5</td>
@@ -5846,7 +5885,7 @@ and proven, not assumed.</p>
 </tr>
 <tr>
 <td>I-10</td>
-<td>Deterministic ties by <code>(instance_key, NodeKey)</code>.</td>
+<td>Deterministic ties by <code>(instance_key, NodeKey)</code>. Tested with ≥ 2 producers (world + node instances).</td>
 </tr>
 <tr>
 <td><strong>I-11</strong></td>
@@ -7775,7 +7814,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.</p>
 </tr>
 <tr>
 <td><strong>M3</strong></td>
-<td><strong>First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080</strong></td>
+<td><strong>First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080</strong>, also run in GS-COMBINED-1 variant B once that gate exists</td>
 <td></td>
 <td></td>
 <td></td>
@@ -7866,7 +7905,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.</p>
 </tr>
 <tr>
 <td><strong>M4</strong></td>
-<td><strong>Met only if P1 is hard and passing on the 3080 (A) and the 3090 (AB), on the HLOD arm.</strong> Otherwise "not met", with the numbers.</td>
+<td><strong>Met only if P1 is hard and passing on the 3080 (A) and the 3090 (AB), on the HLOD arm</strong>, with the same run also passing in GS-COMBINED-1 variant B (<a href="../adr-one-route-many-producers/">One route, many demand producers</a> §9) once that gate exists. A world-only pass is reported but does not meet M4. Otherwise "not met", with the numbers.</td>
 <td></td>
 <td></td>
 <td></td>
@@ -7954,7 +7993,9 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.</p>
 <li>Compact GSQ-GPU layout.</li>
 <li>Importer GSQ output (§12 item 5).</li>
 <li>Issue: decorative importer compression flags.</li>
-<li>Multi-view sub-budgets.</li>
+<li>Multi-view sub-budgets for extra camera views. The light-view sub-budget that real splat
+  shadow casters need is <strong>not</strong> deferred here: it is scheduled with the caster work before M3
+  (<a href="../adr-one-route-many-producers/">One route, many demand producers</a>, decision 6).</li>
 <li>Lazy index pages.</li>
 <li>
 <h1 id="1302">1302.<a class="headerlink" href="#1302" title="Permanent link">¶</a></h1>
@@ -8261,6 +8302,14 @@ with the compact layout in P6, cold-cache semantics (D-14), and the regulator fi
 <li><strong>Importer.</strong> Accepted by default: GSQ output is opt-in first. It becomes the default only
    once the codec quality gate is hard and passing on real scans.</li>
 </ol>
+<p><strong>Note (2026-11-04).</strong> The maintainer decided that the world, static and movable objects,
+interactive objects, lights and shadows must work in the same frame, and accepted
+<a href="../adr-one-route-many-producers/">One route, many demand producers</a>. This record was amended
+to match, with minimal edits in eight places: the §1.3 non-goal (node instances removed from it;
+multi-package worlds stay out of scope), the D-1 producer set, the §3.1 producer line and
+<code>DrawnNodeGPU.instance_id</code>, the D-11 ledger scope, the multi-view refusal (D-3, as an interim) together
+with the P6 light-view sub-budget, invariant I-4 (per producer), invariant I-10 (tested with
+≥ 2 producers), and M3/M4, which are also run in GS-COMBINED-1 variant B. <strong>No threshold or gate in §8 changed.</strong></p>
 <hr>
 <h2 id="review-history">Review history<a class="headerlink" href="#review-history" title="Permanent link">¶</a></h2>
 <p>This design went through two independent reviews before it was recorded here: a technical
@@ -8562,13 +8611,13 @@ benchmark density, system-zstd linking, and template binaries loading absolute-p
         
         
           
-          <a href="../adr-import-importance-pruning/" class="md-footer__link md-footer__link--next" aria-label="Next: Import Importance Pruning">
+          <a href="../adr-one-route-many-producers/" class="md-footer__link md-footer__link--next" aria-label="Next: One Route, Many Demand Producers">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Import Importance Pruning
+                One Route, Many Demand Producers
               </div>
             </div>
             <div class="md-footer__button md-icon">
