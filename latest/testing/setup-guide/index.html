@@ -3919,6 +3919,8 @@
       
         
       
+        
+      
     
     
     
@@ -4315,6 +4317,34 @@
     
   
     Hierarchical LOD for Streamed Worlds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-beyond-vram-worlds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worlds Beyond VRAM
   
 
     
@@ -4802,7 +4832,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/44836e1d6a5bf5754111ba5819ed47e2b5dd6b66/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/44836e1d6a5bf5754111ba5819ed47e2b5dd6b66/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/992cb8eb733373ead4d5ab934f841e5a4968cb62/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/992cb8eb733373ead4d5ab934f841e5a4968cb62/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
@@ -4847,7 +4877,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Refresh QA baseline snapshot from current run</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --update-qa-baseline</code></td>
-<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/44836e1d6a5bf5754111ba5819ed47e2b5dd6b66/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
+<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/992cb8eb733373ead4d5ab934f841e5a4968cb62/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
 </tr>
 <tr>
 <td>Run renderer/static guards without Godot tests</td>
