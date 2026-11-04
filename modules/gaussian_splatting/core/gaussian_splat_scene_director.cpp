@@ -879,6 +879,7 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.has_desired_residency_hint = p_submission.has_desired_residency_hint;
 	r_record.desired_residency_hint = p_submission.desired_residency_hint;
 	r_record.desired_renderer_overrides = p_submission.desired_renderer_overrides;
+	r_record.hlod_demotion_callback = p_submission.hlod_demotion_callback;
 	r_record.renderer_restore_state = GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
 	r_record.active = true;
 }
@@ -913,6 +914,7 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->has_desired_residency_hint = p_record.has_desired_residency_hint;
 	r_submission->desired_residency_hint = p_record.desired_residency_hint;
 	r_submission->desired_renderer_overrides = p_record.desired_renderer_overrides;
+	r_submission->hlod_demotion_callback = p_record.hlod_demotion_callback;
 }
 
 void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld &p_world,
@@ -3134,6 +3136,26 @@ Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::get_shared_renderer(World
 bool GaussianSplatSceneDirector::has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	return _world_has_hlod_submission(_find_world_for_renderer(p_renderer), p_owner);
+}
+
+bool GaussianSplatSceneDirector::request_hlod_auto_route_demotion(const GaussianSplatRenderer *p_renderer, uint64_t p_owner,
+		const String &p_cause) {
+	Callable callback;
+	{
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+		const SharedWorld *world = _find_world_for_renderer(p_renderer);
+		if (!_world_has_hlod_submission(world, p_owner)) {
+			return false;
+		}
+		callback = world->submission_store.get_record().hlod_demotion_callback;
+	}
+	if (!callback.is_valid()) {
+		return false;
+	}
+	// Deferred: the request comes from the render thread, and the node resubmits on the main thread (a callable_mp
+	// to a freed node is dropped by the queue).
+	callback.call_deferred(p_cause);
+	return true;
 }
 
 bool GaussianSplatSceneDirector::_world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner) {

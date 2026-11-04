@@ -895,4 +895,91 @@ func _run_world_plus_instances_proof() -> bool:
 		var proved := await _wi_run_mode(mode)
 		if not proved:
 			return false
+	return await _wi_run_ortho_demotion()
+
+
+# Sticky demotion (lod/hlod_auto_route.h): a paged world has no canonical copy, so an orthographic main view, which the
+# HLOD route does not serve, would draw no world splats. The automatic route demotes the world to the route it has
+# without it (the paged payload loaded into memory, then route_policy's chunk route): the wall draws in the orthographic
+# view, with the reason and the counter, and stays demoted when the view is perspective again. No nodes: on the
+# canonical routes the world row is dropped when nodes exist (follow-up F1), on master as here.
+func _wi_run_ortho_demotion() -> bool:
+	var deadline := Time.get_ticks_msec() + WI_TIMEOUT_MSEC
+	var world := _wi_wall(true)
+	if not _check(world != null, "ortho: paged wall load failed"):
+		return false
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var camera := Camera3D.new()
+	camera.fov = 60.0
+	camera.near = 0.1
+	camera.far = 100.0
+	scene.add_child(camera)
+	camera.make_current()
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = world
+	world_node.set_hlod_tau_px(0.5)
+	scene.add_child(world_node)
+	world_node.apply_world()
+	var renderer: GaussianSplatRenderer = null
+	var st := {}
+	var stable := 0
+	while Time.get_ticks_msec() < deadline and stable < 5:
+		await RenderingServer.frame_post_draw
+		renderer = world_node.get_renderer()
+		if renderer == null:
+			continue
+		st = renderer.get_render_stats()
+		stable = stable + 1 if str(st.get("hlod_reason", "")) == "active" and int(st.get("hlod_world_draw_records", 0)) > 0 else 0
+	if not _check(stable >= 5, "ortho: the paged world never became active in perspective (reason=%s)" % st.get("hlod_reason", "MISSING")):
+		return false
+	for key in ["hlod_auto_route_demotions", "hlod_auto_route_demotion_cause", "sorted_splats"]:
+		if not _check(st.has(key), "ortho: missing renderer field %s" % key):
+			return false
+	var demotions_before := int(st["hlod_auto_route_demotions"])
+	var summary := {"perspective": st.duplicate()}
+	camera.set_orthogonal(12.0, 0.1, 100.0)
+	var drawn := 0
+	var last := {}
+	var cls_center := ""
+	var cls_corner := ""
+	while Time.get_ticks_msec() < deadline and drawn < 10:
+		await RenderingServer.frame_post_draw
+		renderer = world_node.get_renderer()
+		if renderer == null:
+			drawn = 0
+			continue
+		last = renderer.get_render_stats()
+		var img := get_root().get_texture().get_image()
+		cls_center = _wi_classify(img.get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2))
+		cls_corner = _wi_classify(img.get_pixel(3, 3))
+		var demoted: bool = str(last.get("hlod_reason", "")) == "hlod_auto_route_demoted:unsupported_view_or_material" \
+				and int(last.get("hlod_auto_route_demotions", -1)) == demotions_before + 1 \
+				and str(last.get("hlod_auto_route_demotion_cause", "")) == "unsupported_view_or_material"
+		drawn = drawn + 1 if demoted and int(last.get("sorted_splats", 0)) > 0 and cls_center == "wall" and cls_corner == "background" else 0
+	if not _check(drawn >= 10, "ortho: the demoted world never drew in the orthographic view (reason=%s demotions=%s->%s sorted=%s centre=%s corner=%s)" % [last.get("hlod_reason", "MISSING"), demotions_before, last.get("hlod_auto_route_demotions", "MISSING"), last.get("sorted_splats", "MISSING"), cls_center, cls_corner]):
+		return false
+	if not _check(not world.has_hlod_paged_source() and world.has_resident_gaussian_data(), "ortho: the demoted paged world did not load its payload"):
+		return false
+	var path := "user://hlod_world_instances_ortho_demoted_%d.png" % OS.get_process_id()
+	if not _check(get_root().get_texture().get_image().save_png(path) == OK, "ortho: cannot preserve the capture"):
+		return false
+	summary["ortho_demoted"] = last.duplicate()
+	summary["image_ortho"] = ProjectSettings.globalize_path(path)
+	# Sticky: perspective again, the world stays demoted (no re-promotion without apply_world()), still drawing.
+	camera.set_perspective(60.0, 0.1, 100.0)
+	for f in range(30):
+		await RenderingServer.frame_post_draw
+	var after := renderer.get_render_stats()
+	if not _check(str(after.get("hlod_reason", "")).begins_with("hlod_auto_route_demoted:") and int(after.get("hlod_auto_route_demotions", -1)) == demotions_before + 1 \
+			and _wi_classify(get_root().get_texture().get_image().get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2)) == "wall", "ortho: the demotion did not stick (reason=%s demotions=%s)" % [after.get("hlod_reason", "MISSING"), after.get("hlod_auto_route_demotions", "MISSING")]):
+		return false
+	summary["perspective_after"] = after.duplicate()
+	_metrics["world_ortho_demotion"] = summary
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
 	return true

@@ -4,6 +4,7 @@
 #include "../core/gs_project_settings.h"
 #include "../core/quality_tier_config.h"
 #include "../lod/hlod_auto_route.h"
+#include "../renderer/quantization_config.h"
 #include "../logger/gs_logger.h"
 
 #include "core/config/project_settings.h"
@@ -439,6 +440,8 @@ void GaussianSplatWorld3D::set_opacity(float p_opacity) {
 }
 
 void GaussianSplatWorld3D::apply_world() {
+    // Applying the world again is what re-promotes a demoted world to the automatic HLOD route.
+    hlod_auto_route_demoted_cause = String();
     _ensure_renderer();
     _apply_world_internal();
 }
@@ -645,6 +648,23 @@ const char *GaussianSplatWorld3D::_hlod_auto_route_refusal() const {
     return nullptr;
 }
 
+bool GaussianSplatWorld3D::_mark_hlod_auto_route_demoted(const String &p_cause) {
+    if (!hlod_auto_route_demoted_cause.is_empty() || p_cause.is_empty() || !is_inside_tree() || world.is_null()) {
+        return false;
+    }
+    hlod_auto_route_demoted_cause = p_cause;
+    WARN_PRINT(vformat("[GaussianSplatWorld3D] '%s' leaves the HLOD route (%s): the route cannot serve this view or setup. It now draws "
+                       "on the route it has without the automatic HLOD route (a V4 paged world loads its payload into memory) until "
+                       "apply_world() runs again.", String(get_path()), p_cause));
+    return true;
+}
+
+void GaussianSplatWorld3D::_on_hlod_auto_route_demoted(const String &p_cause) {
+    if (_mark_hlod_auto_route_demoted(p_cause)) {
+        _resubmit_world_submission_if_registered();
+    }
+}
+
 void GaussianSplatWorld3D::_register_shared_renderer() {
     if (!is_inside_tree()) {
         return;
@@ -670,9 +690,12 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
         // serve this setup (and the node can see it now), load the payload into memory - the memory of a v3 load of the
         // same world - and take the ordinary resident route. Per-view limits (orthographic, XR) are not a reason: the
         // route is usable and those frames draw nothing, with a reason key.
-        const char *fallback_reason = nullptr;
+        String fallback_reason;
         ProjectSettings *ps = ProjectSettings::get_singleton();
-        if (!gs::settings::get_hlod_runtime_cut_enabled(ps)) {
+        const bool demoted = !hlod_auto_route_demoted_cause.is_empty();
+        if (demoted) {
+            fallback_reason = String(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX) + hlod_auto_route_demoted_cause;
+        } else if (!gs::settings::get_hlod_runtime_cut_enabled(ps)) {
             fallback_reason = "hlod_paged_requires_runtime_cut";
         } else if (!lod_enabled) {
             fallback_reason = "hlod_paged_lod_disabled";
@@ -687,9 +710,11 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
         } else if (renderer.is_valid() && director->get_sphere_effector_count_for_renderer(renderer.ptr()) != 0) {
             fallback_reason = "hlod_paged_deformation_or_instance_domain";
         }
-        if (fallback_reason) {
+        if (!fallback_reason.is_empty()) {
+            if (!demoted) { // A demotion printed its own warning.
             WARN_PRINT_ONCE(vformat("[GaussianSplatWorld3D] V4 paged world cannot use the HLOD route (%s); loading its payload into memory "
                                     "and using the resident route (the memory of a v3 load).", fallback_reason));
+            }
             String materialize_reason;
             if (world->materialize_paged_resident(materialize_reason) != OK) {
                 ERR_PRINT(vformat("[GaussianSplatWorld3D] Paged-world fallback failed: %s", materialize_reason));
@@ -715,9 +740,12 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
     route_inputs.identity_transform = get_global_transform() == Transform3D();
     route_inputs.route_policy_streaming = route_policy_streaming;
     route_inputs.domain_refusal = _hlod_auto_route_refusal();
+    route_inputs.demoted = !hlod_auto_route_demoted_cause.is_empty();
     const gs_hlod_auto_route::WorldPlan route_plan = gs_hlod_auto_route::plan_world(route_inputs);
     if (submission.hlod_reason.is_empty()) {
-        submission.hlod_reason = route_plan.reason; // A paged fallback above keeps its own, more specific reason.
+        submission.hlod_reason = route_inputs.demoted
+                ? String(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX) + hlod_auto_route_demoted_cause
+                : route_plan.reason; // A paged fallback above keeps its own, more specific reason.
     }
     if (route_plan.capture_snapshot) {
         const Error snapshot_error = world->capture_hlod_runtime_snapshot(submission.hlod_snapshot, submission.hlod_reason);
@@ -729,10 +757,20 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
         if (snapshot_error != OK) {
             submission.hlod_snapshot.unref();
         }
+        // The quantized route refuses a tree with mixed DC encodings (hlod_quantized_mixed_dc_node), and a paged world has
+        // no other payload: known now, so demote now instead of drawing nothing first. The demotion resubmits.
+        if (submission.hlod_snapshot.is_valid() && g_quantization_config.per_chunk_quantization && !submission.hlod_snapshot->quantized_eligible) {
+            submission.hlod_snapshot.unref();
+            if (_mark_hlod_auto_route_demoted("quantized_mixed_dc_node")) {
+                _register_shared_renderer();
+                return;
+            }
+        }
     }
     // A world the automatic route concerns but that does not take it says so once per cause (the paged fallback above
     // printed its own warning). The reason is also the render stat hlod_reason.
     if (submission.hlod_snapshot.is_null() && !submission.hlod_reason.is_empty() && !submission.hlod_reason.begins_with("hlod_paged_") &&
+            !submission.hlod_reason.begins_with(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX) &&
             submission.hlod_reason != hlod_auto_route_warned_reason) {
         hlod_auto_route_warned_reason = submission.hlod_reason;
         WARN_PRINT(vformat("[GaussianSplatWorld3D] '%s' has an HLOD tree but does not take the HLOD route (%s); it draws on the %s route. "
@@ -752,6 +790,9 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
             ? GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT
             : GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING;
     submission.desired_renderer_overrides = _build_desired_renderer_overrides();
+    if (submission.hlod_snapshot.is_valid()) {
+        submission.hlod_demotion_callback = callable_mp(this, &GaussianSplatWorld3D::_on_hlod_auto_route_demoted);
+    }
     if (!director->submit_world_submission(submission)) {
         if (_is_world_debug_enabled()) {
             GS_LOG_RENDERER_DEBUG(vformat("[GSWORLD-DBG] Skipping apply_world: scenario %d ownership is held by another world",

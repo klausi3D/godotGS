@@ -79,6 +79,9 @@ public:
         bool has_desired_residency_hint = false;
         int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
         Dictionary desired_renderer_overrides;
+        // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
+        // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted.
+        Callable hlod_demotion_callback;
     };
 
     struct SubmissionCounts {
@@ -422,6 +425,9 @@ public:
     // The HLOD route's world: an active world submission owned by `p_owner` (ADR one-route-many-producers, PR1b). Node
     // instances no longer make it exclusive: they join the route as rows 1..N (build_hlod_instance_rows_for_renderer).
     bool has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
+    // The automatic HLOD route's sticky demotion: queues the active world submission's demotion callback (deferred, main
+    // thread) when p_owner still owns it. Any thread; the callback is called outside world_mutex. True when queued.
+    bool request_hlod_auto_route_demotion(const GaussianSplatRenderer *p_renderer, uint64_t p_owner, const String &p_cause);
     // The HLOD route's rows: row 0 is the world's identity row (asset 0), then one row per visible node instance with
     // asset data, in instance-store order, built exactly as build_instance_buffer_for_renderer builds a node row.
     // `r_asset_ids` and `r_instance_keys` are parallel: each row's 64-bit asset id and the stable key of its instance
@@ -773,6 +779,7 @@ private:
             bool has_desired_residency_hint = false;
             int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
             Dictionary desired_renderer_overrides;
+            Callable hlod_demotion_callback;
             GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
             bool active = false;
         };

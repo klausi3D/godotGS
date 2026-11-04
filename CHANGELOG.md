@@ -33,8 +33,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Behaviour change: a world with an HLOD tree takes the HLOD route automatically** (ADR
   `docs/architecture/adr-one-route-many-producers.md` §4.7, decision 5).
   - A `GaussianSplatWorld3D` whose world carries an HLOD tree now draws on the HLOD route together with its
-    `GaussianSplatNode3D` instances, with no project setting changed. The tree is a resident one from
-    `GaussianSplatWorld.bake_hlod()` or a V4 paged package.
+    `GaussianSplatNode3D` instances, with no project setting changed. The tree is one over a resident payload (from
+    `GaussianSplatWorld.bake_hlod()` or a resident load) or a V4 paged package.
+  - **Imported `.gsplatworld` worlds keep their route until the importer writes resident or V4 paged packages
+    (follow-up, R3).** The world importer writes a file-backed (streamable) payload, and the runtime cut needs a
+    resident payload or a V4 package, so an imported world is not changed by this entry.
   - `rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled` now defaults to `true` (it was `false`). Set it to
     `false` to opt out: the routing is then exactly as before, and a V4 paged package loads its payload into memory.
   - `rendering/gaussian_splatting/streaming/route_policy` keeps its default (streaming). It still picks the backend of
@@ -48,8 +51,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     or the admission reason) and prints a warning. A V4 paged package loads its payload into memory instead, as
     before. Under `route_policy = resident`, the HLOD route draws the canonical leaves for LOD off, effectors, painterly
     and the shadow filter, as it did with the setting enabled before.
-  - Known gap (follow-up F5): a streamed or paged HLOD world draws no world splats in orthographic, multi-view (XR)
-    and painterly views. A warning names the opt-out.
+  - Sticky demotion: some refusals only appear once the world is on the HLOD route, for example an orthographic,
+    multi-view (XR) or painterly view. Others are a domain that starts later (painterly, the shadow instance filter,
+    effector nodes, wind), or quantization over a tree with mixed DC encodings. If the world has no copy that serves
+    the frame (a streamed or V4 paged world, or one too large for its whole tree), the first such refusal demotes it to
+    the route it has without the automatic route: `route_policy`'s backend, and a V4 paged world loads its payload into
+    memory. The world reports `hlod_auto_route_demoted:<cause>` in `hlod_reason`, the renderer stat
+    `hlod_auto_route_demotions` counts the demotions, and the world node warns once. The world stays demoted until
+    `apply_world()` runs again; re-promotion on the fly is a follow-up. Quantization over a mixed-DC tree is known
+    when the world is submitted and demotes it right away. The frame that detects a refusal still draws only the
+    objects; the world draws from the next frames on.
   - Memory: an HLOD world now holds its runtime snapshot on the CPU and its HLOD bundles on the GPU, in place of the
     chunk streamer's atlas.
 - Benchmark scenes unified under single-process orchestrator

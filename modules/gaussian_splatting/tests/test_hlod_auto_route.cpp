@@ -9,6 +9,7 @@ extern "C" int test_hlod_auto_route_cpp_force_link() { return 0; }
 #include "../lod/hlod_auto_route.h"
 #include "../lod/lod_config.h"
 #include "../nodes/gaussian_splat_world_3d.h"
+#include "../renderer/quantization_config.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/resource_saver.h"
@@ -133,7 +134,7 @@ static Ref<GaussianSplatAsset> node_asset() {
 	return asset;
 }
 
-static Ref<GaussianData> wall_data(uint32_t p_count) {
+static Ref<GaussianData> wall_data(uint32_t p_count, bool p_mixed_dc = false) {
 	Ref<GaussianData> data;
 	data.instantiate();
 	LocalVector<Gaussian> splats;
@@ -143,6 +144,11 @@ static Ref<GaussianData> wall_data(uint32_t p_count) {
 		splats[i].scale = Vector3(0.125f, 0.125f, 0.125f);
 		splats[i].rotation = Quaternion();
 		splats[i].opacity = 0.75f;
+		if (p_mixed_dc) {
+			// Alternating DC encodings in one node: the quantized route refuses the tree (hlod_quantized_mixed_dc_node).
+			splats[i].render_meta = gaussian_set_dc_encoding(splats[i].render_meta,
+					(i % 2u) == 0u ? GAUSSIAN_DC_ENCODING_LEGACY_BIAS : GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+		}
 	}
 	LocalVector<Vector3> sh;
 	data->set_gaussian_payload(splats, sh, 0u, 0u, false, false);
@@ -155,10 +161,10 @@ enum class Tree { NONE, RESIDENT, PAGED, FILE_BACKED };
 // ResourceSaver::save() writes (without / with the baked tree), loaded as ResourceLoader does (file-backed payload).
 // RESIDENT: the same file with its baked tree loaded through load_resident(), the world importer's own path. PAGED: a
 // V4 package (save_hlod_paged). r_path is the file, removed by the caller.
-static Ref<GaussianSplatWorld> load_world(Tree p_tree, String &r_path) {
+static Ref<GaussianSplatWorld> load_world(Tree p_tree, String &r_path, bool p_mixed_dc = false) {
 	Ref<GaussianSplatWorld> source;
 	source.instantiate();
-	source->set_gaussian_data(wall_data(4));
+	source->set_gaussian_data(wall_data(4, p_mixed_dc));
 	const bool tree = p_tree != Tree::NONE;
 	if (tree && source->bake_hlod() != OK) { return Ref<GaussianSplatWorld>(); }
 	r_path = OS::get_singleton()->get_temp_path().path_join(vformat("godotgs_auto_route_%d_%d.gsplatworld", int(p_tree), int64_t(OS::get_singleton()->get_ticks_usec())));
@@ -182,6 +188,9 @@ struct RouteCase {
 	bool route_policy_resident = false; // false: route_policy left at its default (streaming)
 	bool lod_disabled = false; // a domain the HLOD route never serves
 	bool moved = false; // a non-identity world transform
+	bool mixed_dc = false; // the tree's node mixes DC encodings
+	bool quantized = false; // per-chunk quantization on (g_quantization_config) while the world submits
+	String demote_cause; // non-empty: then call the submission's demotion callback with it, as the renderer's request does
 };
 
 struct RouteResult {
@@ -195,6 +204,8 @@ struct RouteResult {
 	bool snapshot_paged = false;
 	bool still_paged = false;
 	int world_count = 0;
+	bool had_demotion_callback = false; // the first submission carried the node's demotion callback
+	bool before_had_snapshot = false; // the first submission (before demote_cause) carried a snapshot
 };
 
 static RouteResult run_case(const RouteCase &p_case) {
@@ -212,7 +223,9 @@ static RouteResult run_case(const RouteCase &p_case) {
 	ps->set_setting(CUT_KEY, p_case.opt_out ? Variant(false) : ps->property_get_revert(CUT_KEY));
 	ps->set_setting(ROUTE_KEY, p_case.route_policy_resident ? Variant(int64_t(gs::settings::GS_ROUTE_RESIDENT)) : ps->property_get_revert(ROUTE_KEY));
 	String path;
-	Ref<GaussianSplatWorld> world = load_world(p_case.tree, path);
+	const bool previous_quantized = g_quantization_config.per_chunk_quantization;
+	g_quantization_config.per_chunk_quantization = p_case.quantized;
+	Ref<GaussianSplatWorld> world = load_world(p_case.tree, path, p_case.mixed_dc);
 	LocalVector<Node3D *> nodes;
 	GaussianSplatWorld3D *world_node = nullptr;
 	if (world.is_null()) {
@@ -236,8 +249,22 @@ static RouteResult run_case(const RouteCase &p_case) {
 		root->add_child(world_node);
 		tree->process(0.0);
 		world_node->apply_world();
-		if (!director->get_world_submission(world_node->get_instance_id(), &result.submission)) {
-			result.failure = "the world submitted nothing";
+		bool submitted = director->get_world_submission(world_node->get_instance_id(), &result.submission);
+		result.had_demotion_callback = submitted && result.submission.hlod_demotion_callback.is_valid();
+		result.before_had_snapshot = submitted && result.submission.hlod_snapshot.is_valid();
+		if (submitted && !p_case.demote_cause.is_empty()) {
+			if (!result.had_demotion_callback) {
+				result.failure = "the submission carries no demotion callback";
+				submitted = false;
+			} else {
+				// The main-thread half of the renderer's request (the director queues exactly this call).
+				result.submission.hlod_demotion_callback.call(p_case.demote_cause);
+				result.submission = GaussianSplatSceneDirector::WorldSubmission();
+				submitted = director->get_world_submission(world_node->get_instance_id(), &result.submission);
+			}
+		}
+		if (!submitted) {
+			if (result.failure.is_empty()) { result.failure = "the world submitted nothing"; }
 		} else {
 			result.ok = true;
 			result.hlod_world_submission = director->test_has_hlod_world_submission_for_scenario(root->get_world_3d()->get_scenario(),
@@ -257,12 +284,14 @@ static RouteResult run_case(const RouteCase &p_case) {
 	}
 	tree->process(0.0);
 	if (owns_director) { memdelete(director); }
+	g_quantization_config.per_chunk_quantization = previous_quantized;
 	if (had_cut) { ps->set_setting(CUT_KEY, prev_cut); } else { ps->clear(CUT_KEY); }
 	if (had_route) { ps->set_setting(ROUTE_KEY, prev_route); } else { ps->clear(ROUTE_KEY); }
 	result.has_snapshot = result.submission.hlod_snapshot.is_valid();
 	result.snapshot_paged = result.has_snapshot && result.submission.hlod_snapshot->is_paged();
 	result.submission.hlod_snapshot.unref();
 	result.submission.payload_source.unref();
+	result.submission.hlod_demotion_callback = Callable();
 	world.unref();
 	if (!path.is_empty()) { DirAccess::remove_absolute(path); }
 	return result;
@@ -297,6 +326,7 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: 
 					CHECK_MESSAGE(s.desired_residency_hint == RESIDENT, what);
 					CHECK_MESSAGE(r.hlod_world_submission, what);
 					CHECK_MESSAGE(r.still_paged == (tree == Tree::PAGED), what);
+					CHECK_MESSAGE(r.had_demotion_callback, what); // the renderer can demote it
 				} else if (tree == Tree::RESIDENT) {
 					// The opt-out: the routing from before, exactly (no snapshot, no reason, route_policy's hint).
 					CHECK_MESSAGE(!r.has_snapshot, what);
@@ -376,6 +406,153 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: 
 		if (!r.ok) { FAIL("moved: ", r.failure); return; }
 		CHECK_FALSE(r.has_snapshot);
 		CHECK(r.submission.hlod_reason == String("hlod_world_transform_unsupported"));
+		CHECK(r.submission.desired_residency_hint == STREAMING);
+	}
+}
+
+} // namespace TestHlodAutoRoute
+
+namespace TestHlodAutoRoute {
+
+TEST_CASE("[GaussianSplatting][HLOD] automatic route: the demotion state machine - which refusals demote, once per snapshot") {
+	using gs_hlod_auto_route::DemotionLatch;
+	using gs_hlod_auto_route::RefusalInputs;
+	using gs_hlod_auto_route::RefusalStage;
+	using gs_hlod_auto_route::demotion_cause;
+	auto cause = [](RefusalStage p_stage, const char *p_reason, bool p_main, bool p_no_copy, bool p_edit) -> String {
+		RefusalInputs in;
+		in.stage = p_stage;
+		in.reason = p_reason;
+		in.main_view = p_main;
+		in.no_canonical_copy = p_no_copy;
+		in.committed_edit = p_edit;
+		const char *c = demotion_cause(in);
+		return c ? String(c) : String();
+	};
+	const RefusalStage F = RefusalStage::FRAME, P = RefusalStage::PUBLISH;
+	// Per frame, on a streamed or paged world (no canonical copy), in the main view: the view domains and late domains.
+	CHECK(cause(F, "unsupported_view_or_material", true, true, false) == "unsupported_view_or_material");
+	CHECK(cause(F, "deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");
+	CHECK(cause(F, "hlod_paged_deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");
+	CHECK(cause(F, "lod_disabled_canonical_leaves", true, true, false) == "lod_disabled");
+	CHECK(cause(F, "hlod_paged_lod_disabled", true, true, false) == "lod_disabled");
+	// Never: a whole-tree world (its canonical copy draws the frame), a shadow or manual pass, an edited world, a transient
+	// or budget refusal, no reason.
+	CHECK(cause(F, "unsupported_view_or_material", true, false, false).is_empty());
+	CHECK(cause(F, "unsupported_view_or_material", false, true, false).is_empty());
+	CHECK(cause(F, "unsupported_view_or_material", true, true, true).is_empty());
+	for (const char *transient : { "tile_device_unavailable", "resource_ledger_unavailable", "hlod_world_submission_lost",
+				 "hlod_paged_world_submission_lost", "hlod_instance_rows_inconsistent", "active" }) {
+		CHECK_MESSAGE(cause(F, transient, true, true, false).is_empty(), transient);
+		CHECK_MESSAGE(cause(P, transient, true, true, false).is_empty(), transient);
+	}
+	CHECK(cause(F, nullptr, true, true, false).is_empty());
+	// At publish, a paged world or one too large for its whole tree, in a setup that cannot stream.
+	CHECK(cause(P, "lod_disabled_canonical_leaves", true, true, false) == "lod_disabled");
+	CHECK(cause(P, "shadow_instance_filter", true, true, false) == "shadow_instance_filter");
+	CHECK(cause(P, "unsupported_view_or_material", true, true, false) == "painterly_enabled");
+	CHECK(cause(P, "deformation_or_instance_domain", true, true, false) == "deformation_or_instance_domain");
+	CHECK(cause(P, "unsupported_instance_transform_domain", true, true, false) == "unsupported_instance_transform_domain");
+	CHECK(cause(P, "shadow_instance_filter", true, false, false).is_empty()); // a whole tree that fits builds and draws
+	CHECK(cause(P, "shadow_instance_filter", true, true, true).is_empty());
+	// Quantization over a mixed-DC tree demotes at publish whatever the copy (the copy is the resident one); never per frame.
+	CHECK(cause(P, "hlod_quantized_mixed_dc_node", true, false, false) == "quantized_mixed_dc_node");
+	CHECK(cause(P, "hlod_quantized_mixed_dc_node", true, true, false) == "quantized_mixed_dc_node");
+	CHECK(cause(P, "hlod_quantized_mixed_dc_node", true, true, true).is_empty());
+	CHECK(cause(F, "hlod_quantized_mixed_dc_node", true, true, false).is_empty());
+	// The latch: the first demoting refusal asks, later frames do not; a new snapshot re-arms it.
+	DemotionLatch latch;
+	CHECK_FALSE(latch.request(nullptr));
+	CHECK_FALSE(latch.requested);
+	CHECK(latch.request("unsupported_view_or_material"));
+	CHECK(latch.requested);
+	CHECK(latch.cause == String("unsupported_view_or_material"));
+	CHECK_FALSE(latch.request("lod_disabled"));
+	CHECK(latch.cause == String("unsupported_view_or_material"));
+	latch.rearm();
+	CHECK_FALSE(latch.requested);
+	CHECK(latch.cause.is_empty());
+	CHECK(latch.request("quantized_mixed_dc_node"));
+	// A demoted world plans no snapshot and no reason of its own (the node states hlod_auto_route_demoted:<cause>).
+	WorldInputs in;
+	in.has_hlod_tree = true;
+	in.resident_payload = true;
+	in.demoted = true;
+	for (bool paged : { false, true }) {
+		in.paged = paged;
+		const WorldPlan plan = plan_world(in);
+		CHECK_FALSE(plan.capture_snapshot);
+		CHECK(plan.reason.is_empty());
+	}
+	in.cut_enabled = false; // The opt-out stays the opt-out.
+	CHECK_FALSE(plan_world(in).capture_snapshot);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: a demoted world resubmits on the route it has without the automatic route and stays there") {
+	const int32_t RESIDENT = GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT;
+	const int32_t STREAMING = GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING;
+	for (Tree tree : { Tree::RESIDENT, Tree::PAGED }) {
+		for (bool resident_policy : { false, true }) {
+			// The renderer's request after an orthographic main view refused a streamed or paged world.
+			RouteCase c;
+			c.tree = tree;
+			c.nodes = 2;
+			c.route_policy_resident = resident_policy;
+			c.demote_cause = "unsupported_view_or_material";
+			const RouteResult r = run_case(c);
+			const String what = vformat("tree=%d resident_policy=%d", int(tree), resident_policy);
+			if (!r.ok) { FAIL(what, ": ", r.failure); return; }
+			CHECK_MESSAGE(r.before_had_snapshot, what);
+			CHECK_MESSAGE(!r.has_snapshot, what);
+			CHECK_MESSAGE(r.submission.hlod_reason == String("hlod_auto_route_demoted:unsupported_view_or_material"), what);
+			CHECK_MESSAGE(!r.submission.hlod_demotion_callback.is_valid(), what); // nothing left to demote
+			// master's route: route_policy's backend; a paged world loaded its payload into memory.
+			CHECK_MESSAGE(r.submission.desired_residency_hint == (resident_policy ? RESIDENT : STREAMING), what);
+			CHECK_MESSAGE(!r.still_paged, what);
+			CHECK_MESSAGE(r.world_count > 0, what);
+		}
+	}
+	{
+		// Quantization over a mixed-DC tree is known at submission: a paged package is loaded into memory right away
+		// (master's route), never submitted to a route that would draw nothing.
+		RouteCase c;
+		c.tree = Tree::PAGED;
+		c.mixed_dc = true;
+		c.quantized = true;
+		const RouteResult r = run_case(c);
+		if (!r.ok) { FAIL("paged mixed dc: ", r.failure); return; }
+		CHECK_FALSE(r.has_snapshot);
+		CHECK(r.submission.hlod_reason == String("hlod_auto_route_demoted:quantized_mixed_dc_node"));
+		CHECK(r.submission.desired_residency_hint == STREAMING);
+		CHECK_FALSE(r.still_paged);
+		CHECK(r.world_count > 0);
+	}
+	{
+		// The same tree without quantization takes the route; a uniform tree with quantization takes it too.
+		RouteCase c;
+		c.tree = Tree::PAGED;
+		c.mixed_dc = true;
+		const RouteResult r = run_case(c);
+		if (!r.ok) { FAIL("paged mixed dc unquantized: ", r.failure); return; }
+		CHECK(r.has_snapshot);
+		CHECK(r.had_demotion_callback);
+		RouteCase q;
+		q.tree = Tree::PAGED;
+		q.quantized = true;
+		const RouteResult rq = run_case(q);
+		if (!rq.ok) { FAIL("paged uniform quantized: ", rq.failure); return; }
+		CHECK(rq.has_snapshot);
+	}
+	{
+		// A resident world with a mixed-DC tree under quantization: demoted at submission as well.
+		RouteCase c;
+		c.tree = Tree::RESIDENT;
+		c.mixed_dc = true;
+		c.quantized = true;
+		const RouteResult r = run_case(c);
+		if (!r.ok) { FAIL("resident mixed dc: ", r.failure); return; }
+		CHECK_FALSE(r.has_snapshot);
+		CHECK(r.submission.hlod_reason == String("hlod_auto_route_demoted:quantized_mixed_dc_node"));
 		CHECK(r.submission.desired_residency_hint == STREAMING);
 	}
 }

@@ -864,6 +864,9 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	}
 
 	ResourceState &resource_state = get_resource_state();
+	if (resource_state.hlod_snapshot != p_contract.hlod_snapshot && p_contract.hlod_snapshot.is_valid()) {
+		resource_state.hlod_auto_route_demotion.rearm(); // A new snapshot on the route: a later refusal may demote it again.
+	}
 	resource_state.hlod_snapshot = p_contract.hlod_snapshot;
 	resource_state.hlod_reason = p_contract.hlod_reason;
 	resource_state.hlod_tau_px = p_contract.hlod_tau_px;

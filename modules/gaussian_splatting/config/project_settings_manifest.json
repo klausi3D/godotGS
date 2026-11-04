@@ -835,7 +835,7 @@
     {
       "effective_state": "gs::settings::get_hlod_runtime_cut_enabled",
       "key": "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled",
-      "notes": "HLOD runtime cut; defaults on since the automatic HLOD route (docs/architecture/adr-one-route-many-producers.md 4.7): a GaussianSplatWorld3D whose world carries an HLOD tree (a resident complete tree or a V4 paged package) takes the HLOD route with its node instances, whatever streaming/route_policy says. false is the explicit opt-out and restores the routing from before exactly: no snapshot, route_policy decides the backend, a V4 paged world loads its payload into memory. Worlds without an HLOD tree are unaffected either way. Routing matrix: tests/test_hlod_auto_route.cpp.",
+      "notes": "HLOD runtime cut; defaults on since the automatic HLOD route (docs/architecture/adr-one-route-many-producers.md 4.7): a GaussianSplatWorld3D whose world carries an HLOD tree (a resident complete tree or a V4 paged package) takes the HLOD route with its node instances, whatever streaming/route_policy says. false is the explicit opt-out and restores the routing from before exactly: no snapshot, route_policy decides the backend, a V4 paged world loads its payload into memory. Worlds without an HLOD tree, and imported .gsplatworld worlds (file-backed payload), are unaffected either way. A world the route cannot serve after submission (an orthographic/XR/painterly view, a late domain or quantization over a mixed-DC tree, with no canonical copy) is demoted once to its previous route (hlod_auto_route_demoted:<cause>) until apply_world(). Routing matrix and demotion: tests/test_hlod_auto_route.cpp.",
       "test_coverage": "covered"
     },
     {
