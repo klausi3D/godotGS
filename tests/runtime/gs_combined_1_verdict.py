@@ -75,9 +75,11 @@ B1_LEDGER_TOLERANCE = 0.02
 P_TIMING_COMPLETE_MIN = 0.99
 P_MAX_FRAMES_BEHIND = 3
 # Not fixed by the ADR (it names the reference, not a tolerance): the share of
-# reference-mask pixels whose rendered visibility must agree. Declared here,
-# in one place, as a question for the maintainer.
+# reference-mask pixels whose rendered visibility must agree. Pre-registered by the
+# maintainer on 2026-11-05 ("ADR §9 left it unspecified") and recorded in the
+# expectations file; load_expectations() refuses a file that disagrees.
 C_AGREEMENT_MIN = 0.95
+PREREGISTERED_THRESHOLDS = {"C_AGREEMENT_MIN": (C_AGREEMENT_MIN, ("C1", "C2", "C3"))}
 # GR-15 frame targets (ADR section 8). Report-only until the BV calibration.
 GR15_TARGETS_MS = {
     "rtx3080": {"p95": 25.0, "p99": 33.3},
@@ -719,6 +721,17 @@ def load_expectations(data: Any) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """variant -> assertion -> {issue, reason, expected_failures}. Malformed raises."""
     if not isinstance(data, dict) or data.get("schema") != EXPECTATIONS_SCHEMA:
         raise RecordError("expectations: wrong or missing schema")
+    registered = data.get("preregistered_thresholds")
+    if not isinstance(registered, dict) or set(registered) != set(PREREGISTERED_THRESHOLDS):
+        raise RecordError("expectations: preregistered_thresholds must name exactly "
+                          f"{sorted(PREREGISTERED_THRESHOLDS)}")
+    for name, (value, assertions) in PREREGISTERED_THRESHOLDS.items():
+        entry = registered[name]
+        if not isinstance(entry, dict) or entry.get("value") != value \
+                or entry.get("assertions") != list(assertions) \
+                or not entry.get("preregistered") or not entry.get("reason"):
+            raise RecordError(f"expectations: pre-registered threshold {name} must be {value} for "
+                              f"{list(assertions)} with its date and reason; it is frozen")
     blocked = data.get("blocked")
     if not isinstance(blocked, dict) or set(blocked) != set(VARIANTS):
         raise RecordError("expectations: 'blocked' must name exactly the variants A and B")
@@ -743,6 +756,23 @@ def load_expectations(data: Any) -> Dict[str, Dict[str, Dict[str, Any]]]:
                 raise RecordError(f"expectations: {variant}.{aid} needs a non-empty expected_failures list")
             out[variant][aid] = {"issue": issue, "reason": reason, "expected_failures": list(expected),
                                  "followup": entry.get("followup")}
+    return out
+
+
+def load_notes(data: Any) -> Dict[str, Dict[str, str]]:
+    """variant -> assertion -> note. Informational only: a note never changes a state."""
+    notes = data.get("notes", {}) if isinstance(data, dict) else {}
+    if not isinstance(notes, dict) or not set(notes) <= set(VARIANTS):
+        raise RecordError("expectations: 'notes' must map variants A/B")
+    out: Dict[str, Dict[str, str]] = {}
+    for variant, entries in notes.items():
+        if not isinstance(entries, dict):
+            raise RecordError(f"expectations: notes.{variant} must map assertion ids")
+        out[variant] = {}
+        for aid, entry in entries.items():
+            if aid not in ASSERTION_IDS or not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
+                raise RecordError(f"expectations: notes.{variant}.{aid} needs a known id and a reason")
+            out[variant][aid] = entry["reason"]
     return out
 
 
@@ -785,10 +815,12 @@ def classify(results: Dict[str, Dict[str, Any]], blocked: Dict[str, Dict[str, An
 
 
 def verdict(record: Dict[str, Any], expectations: Dict[str, Dict[str, Dict[str, Any]]],
-            log_text: Optional[str]) -> Dict[str, Any]:
+            log_text: Optional[str], notes: Optional[Dict[str, Dict[str, str]]] = None) -> Dict[str, Any]:
     variant = record.get("variant") if isinstance(record, dict) else None
     blocked = expectations.get(variant, {}) if variant in VARIANTS else {}
     rows = classify(evaluate_assertions(record, log_text), blocked)
+    for aid, note in ((notes or {}).get(variant) or {}).items():
+        rows[aid]["note"] = note
     counts = {state: sum(1 for r in rows.values() if r["state"] == state) for state in STATES}
     # P1/P2 are report-only for their GR-15 thresholds ("report:" codes, shown
     # but not gating) and hard for timing validity, like P3.
@@ -927,6 +959,8 @@ def markdown_table(verdicts: Sequence[Dict[str, Any]]) -> str:
             if row["state"] in ("live-fail", "blocked"):
                 shown = row.get("unexplained_codes") or row["codes"]
                 cell += ": " + ", ".join(shown[:3])
+            if row.get("note") and row["state"] != "live-pass":
+                cell += f" [{row['note'].split(':')[0]}]"
             cells.append(cell)
         lines.append(f"| {aid} | " + " | ".join(cells) + " |")
     for v in verdicts:
@@ -945,12 +979,14 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--controls", action="store_true")
     args = parser.parse_args(argv)
-    expectations = load_expectations(json.loads(args.expectations.read_text(encoding="utf-8")))
+    raw_expectations = json.loads(args.expectations.read_text(encoding="utf-8"))
+    expectations = load_expectations(raw_expectations)
+    notes = load_notes(raw_expectations)
     verdicts = []
     for index, path in enumerate(args.record):
         record = json.loads(path.read_text(encoding="utf-8"))
         log_text = args.log[index].read_text(encoding="utf-8", errors="replace") if index < len(args.log) else None
-        result = verdict(record, expectations, log_text)
+        result = verdict(record, expectations, log_text, notes)
         if args.controls:
             result["controls"] = run_controls(record, log_text)
         verdicts.append(result)

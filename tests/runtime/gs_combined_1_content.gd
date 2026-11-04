@@ -120,8 +120,9 @@ class WorldBuilder:
 	func add(p: Vector3, s: Vector3, c: Color, o: float, rest: PackedFloat32Array) -> void:
 		# V4 paged save (save_hlod_paged) requires every leaf centre to round-trip exactly
 		# through float(cell centre) + float(position - centre); arbitrary decimals fail
-		# with hlod_center_reconstruction_not_exact. A 1/256 m dyadic grid is exact in
-		# float across this 1 km extent (500 * 256 < 2^24).
+		# with hlod_center_reconstruction_not_exact (#1314: V4 paged save rejects non-exact
+		# centres). A 1/256 m dyadic grid is exact in float across this 1 km extent
+		# (500 * 256 < 2^24). Remove the snap once #1314 is fixed.
 		pos.append((p * 256.0).round() / 256.0)
 		sc.append(s)
 		rot.append(Quaternion())

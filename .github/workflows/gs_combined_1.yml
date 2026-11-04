@@ -15,13 +15,32 @@ name: GS-COMBINED-1 Gate
 #     (a fork PR) fails with `gs_combined_requires_trusted_branch`.
 # tests/ci/test_release_builds_runner_trust.py enforces both shapes.
 #
-# Status (2026-11-04): REPORTED, NOT REQUIRED. The gate is red until every assertion is
+# Status (2026-11-04): REPORTED, NOT REQUIRED (and path-filtered on pull_request, see `on:`). The gate is red until every assertion is
 # live (picking, splat shadow casters, per-source counters, frame-coherent timing, ...);
 # tests/runtime/gs_combined_1_expectations.json lists each blocked assertion with its
 # issue. Making `gs-combined-1` a required check is the maintainer's decision, once the
 # expectations file blocks nothing (docs/governance/review-policy.md).
 on:
+  # Runner cost (maintainer decision 2026-11-05): on pull_request the gate runs only when
+  # a path it exercises changes. push to master and the schedule stay unfiltered.
+  # A workflow-level path filter skips the WHOLE workflow -- the hosted status job too --
+  # so a filtered PR gets no `gs-combined-1` status at all. That is acceptable only while
+  # the check is not required (.github/workflows/AGENTS.md: a required gate must always
+  # report a terminal status). Before `gs-combined-1` is made required, replace this
+  # filter with in-job change detection: a job that always runs and reports.
   pull_request:
+    paths:
+      - 'modules/gaussian_splatting/renderer/**'
+      - 'modules/gaussian_splatting/shaders/**'
+      - 'modules/gaussian_splatting/lod/**'
+      - 'modules/gaussian_splatting/core/**'
+      - 'modules/gaussian_splatting/io/**'
+      - 'modules/gaussian_splatting/nodes/**'
+      - 'tests/runtime/gs_combined_1*'
+      - 'tests/runtime/gs_combined_1*/**'
+      - 'tests/runtime/test_gs_combined_1*'
+      - 'tests/runtime/run_runtime_validation.py'
+      - '.github/workflows/gs_combined_1.yml'
   push:
     branches: [master]
   schedule:

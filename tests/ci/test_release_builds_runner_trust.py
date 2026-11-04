@@ -1744,6 +1744,57 @@ def gs_combined_gate_violations(
     return problems
 
 
+GS_COMBINED_PR_PATHS_REQUIRED = (
+    ".github/workflows/gs_combined_1.yml",
+    "tests/runtime/run_runtime_validation.py",
+    "tests/runtime/gs_combined_1*",
+)
+GS_COMBINED_FILTER_NOTE = "in-job change detection"
+
+
+def gs_combined_trigger_violations(lines: List[str]) -> List[str]:
+    """The path filter (maintainer decision 2026-11-05) applies to pull_request only.
+
+    A workflow-level filter skips the status job too, so it must never reach the
+    trusted triggers, the gate's own files must stay inside it, and the README must say
+    it has to become in-job change detection before the check is required.
+    """
+    problems: List[str] = []
+    block: List[str] = []
+    in_on = False
+    for line in lines:
+        if line.rstrip() == "on:":
+            in_on = True
+            continue
+        if in_on and line.strip() and not line.startswith(" "):
+            break
+        if in_on:
+            block.append(line)
+    events: Dict[str, List[str]] = {}
+    current: Optional[str] = None
+    for line in block:
+        match = re.match(r"^  ([a-z_]+):", line)
+        if match:
+            current = match.group(1)
+            events[current] = []
+        elif current is not None:
+            events[current].append(line)
+    for event in ("pull_request", "push", "schedule", "workflow_dispatch"):
+        if event not in events:
+            problems.append(f"trigger {event!r} is missing")
+    for event, body in events.items():
+        text = "\n".join(body)
+        if event != "pull_request" and ("paths" in text or "paths-ignore" in text):
+            problems.append(f"trigger {event!r} must stay unfiltered")
+    pr_text = "\n".join(events.get("pull_request", []))
+    if "paths-ignore" in pr_text:
+        problems.append("pull_request must use an explicit `paths:` list, not paths-ignore")
+    for needle in GS_COMBINED_PR_PATHS_REQUIRED:
+        if f"'{needle}'" not in pr_text:
+            problems.append(f"pull_request paths must include {needle!r}")
+    return problems
+
+
 class GsCombinedGateShapeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.lines = GS_COMBINED_WORKFLOW.read_text(encoding="utf-8").splitlines()
@@ -1756,6 +1807,27 @@ class GsCombinedGateShapeTests(unittest.TestCase):
 
     def test_the_workflow_has_the_two_job_shape(self) -> None:
         self.assertEqual(gs_combined_gate_violations(self.lines, self.policy), [])
+
+    def test_the_trigger_shape(self) -> None:
+        self.assertEqual(gs_combined_trigger_violations(self.lines), [])
+
+    def test_trigger_mutations_are_caught(self) -> None:
+        mutations = {
+            "push filtered": ("  push:\n    branches: [master]\n", "  push:\n    branches: [master]\n    paths: ['docs/**']\n"),
+            "gate files dropped from the filter": ("      - 'tests/runtime/gs_combined_1*'\n", ""),
+            "workflow file dropped from the filter": ("      - '.github/workflows/gs_combined_1.yml'\n", ""),
+            "schedule removed": ("  schedule:\n", "  schedule_off:\n"),
+        }
+        for label, (old, new) in mutations.items():
+            with self.subTest(mutation=label):
+                self.assertNotEqual(gs_combined_trigger_violations(self._mutated(old, new)), [], label)
+
+    def test_the_readme_requires_change_detection_before_required(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        rows = [line for line in text.splitlines() if line.startswith("| GS-COMBINED-1 Gate |")]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("path-filtered", rows[0])
+        self.assertIn(GS_COMBINED_FILTER_NOTE, rows[0])
 
     def test_the_readme_names_the_execution_job(self) -> None:
         section = readme_trust_section()

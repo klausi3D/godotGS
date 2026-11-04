@@ -1260,11 +1260,12 @@ def _classify_gs_combined_1(result: TestResult) -> TestResult:
         return result
     try:
         module = _load_gs_combined_1_verdict_module()
-        expectations = module.load_expectations(
-            json.loads(GS_COMBINED_1_EXPECTATIONS.read_text(encoding="utf-8")))
+        raw_expectations = json.loads(GS_COMBINED_1_EXPECTATIONS.read_text(encoding="utf-8"))
+        expectations = module.load_expectations(raw_expectations)
+        notes = module.load_notes(raw_expectations)
         record = json.loads(Path(record_path).read_text(encoding="utf-8"))
         log_text = result.stdout + "\n" + result.stderr
-        verdict = module.verdict(record, expectations, log_text)
+        verdict = module.verdict(record, expectations, log_text, notes)
         verdict["controls"] = module.run_controls(record, log_text)
     except Exception as exc:  # malformed record or expectations: a failure, never a skip
         result.status = "failed"

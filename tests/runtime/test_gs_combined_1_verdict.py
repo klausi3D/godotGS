@@ -128,6 +128,8 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(V.S_RATIO_MAX, 0.6)
         self.assertEqual(V.B1_LEDGER_TOLERANCE, 0.02)
         self.assertEqual(V.P_TIMING_COMPLETE_MIN, 0.99)
+        # Pre-registered 2026-11-05 (ADR §9 left it unspecified); frozen.
+        self.assertEqual(V.C_AGREEMENT_MIN, 0.95)
         self.assertEqual(V.GR15_TARGETS_MS["rtx3080"], {"p95": 25.0, "p99": 33.3})
         self.assertEqual(V.GR15_TARGETS_MS["rtx3090"], {"p95": 16.7, "p99": 20.0})
 
@@ -485,7 +487,11 @@ class ClassificationTests(unittest.TestCase):
 
 class ExpectationsLoaderTests(unittest.TestCase):
     def _good(self):
-        return {"schema": V.EXPECTATIONS_SCHEMA, "blocked": {"A": {}, "B": {
+        return {"schema": V.EXPECTATIONS_SCHEMA,
+                "preregistered_thresholds": {"C_AGREEMENT_MIN": {
+                    "value": 0.95, "assertions": ["C1", "C2", "C3"], "preregistered": "2026-11-05",
+                    "reason": "ADR §9 left it unspecified"}},
+                "blocked": {"A": {}, "B": {
             "A6": {"issue": "#788", "reason": "pick is a stub", "expected_failures": ["missing:pick_api"]}}}}
 
     def test_good(self):
@@ -501,6 +507,12 @@ class ExpectationsLoaderTests(unittest.TestCase):
             lambda d: d["blocked"]["B"]["A6"].__setitem__("reason", " "),
             lambda d: d["blocked"]["B"]["A6"].__setitem__("expected_failures", []),
             lambda d: d["blocked"]["B"]["A6"].pop("expected_failures"),
+            lambda d: d.pop("preregistered_thresholds"),
+            lambda d: d["preregistered_thresholds"]["C_AGREEMENT_MIN"].__setitem__("value", 0.9),
+            lambda d: d["preregistered_thresholds"]["C_AGREEMENT_MIN"].__setitem__("assertions", ["C1"]),
+            lambda d: d["preregistered_thresholds"]["C_AGREEMENT_MIN"].pop("preregistered"),
+            lambda d: d["preregistered_thresholds"]["C_AGREEMENT_MIN"].pop("reason"),
+            lambda d: d["preregistered_thresholds"].__setitem__("OTHER", {}),
         ]
         for index, mutate in enumerate(mutations):
             with self.subTest(case=index):
@@ -509,9 +521,22 @@ class ExpectationsLoaderTests(unittest.TestCase):
                 with self.assertRaises(V.RecordError):
                     V.load_expectations(data)
 
+    def test_notes_never_change_a_state(self):
+        record = _all_frames(passing_record(), lambda f: f["a5_tracers"].__setitem__("errors_px", [0.9]))
+        with_note = V.verdict(record, NO_BLOCKS, CLEAN_LOG, {"B": {"A5": "needs triage"}})
+        without = V.verdict(record, NO_BLOCKS, CLEAN_LOG)
+        self.assertEqual(with_note["assertions"]["A5"]["state"], without["assertions"]["A5"]["state"])
+        self.assertEqual(with_note["assertions"]["A5"]["note"], "needs triage")
+        self.assertEqual(with_note["gate_met"], without["gate_met"])
+        with self.assertRaises(V.RecordError):
+            V.load_notes({"notes": {"B": {"Z9": {"reason": "x"}}}})
+        with self.assertRaises(V.RecordError):
+            V.load_notes({"notes": {"B": {"A5": {"reason": " "}}}})
+
     def test_the_repository_expectations_file_loads(self):
         data = json.loads(EXPECTATIONS_PATH.read_text(encoding="utf-8"))
         loaded = V.load_expectations(data)
+        V.load_notes(data)
         self.assertEqual(set(loaded), {"A", "B"})
         # Blocked is never green: every assertion the file blocks must be listed with an issue.
         for variant in loaded.values():
