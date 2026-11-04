@@ -8,6 +8,8 @@
 
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
 #include "../hlod_node_streamer.h"
+#include "../hlod_world_instances.h"
+#include "core/os/mutex.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "core/object/object.h"
@@ -123,6 +125,33 @@ struct ResourceState {
     uint64_t hlod_instance_generation = 0;
     uint64_t hlod_instance_asset_generation = 0;
     uint32_t hlod_instance_rows = 0; // Instance (and grading) rows of both prepared bundles; row 0 is the world.
+    // PR1b (world + node instances in one frame, renderer/hlod_world_instances.h). Render-thread state of the prepared
+    // bundles: the packed node assets (instance region), the rows as last uploaded (CPU copy: the per-view instance draw
+    // records take their T from it) with each row's stable instance key, and the splat-ref capacities the bundles were
+    // built for.
+    gs_hlod_bundle::InstanceRegion hlod_instance_region;
+    gs_hlod_bundle::Rows hlod_instance_row_data;
+    LocalVector<uint64_t> hlod_instance_row_keys;
+    uint32_t hlod_relative_capacity = 0;
+    uint32_t hlod_canonical_capacity = 0;
+    uint64_t hlod_remap_asset_generation = 0;
+    uint64_t hlod_bundle_builds = 0; // Prepared bundle (re)builds (cumulative).
+    uint64_t hlod_instance_row_reuploads = 0; // Row-only re-uploads of a prepared bundle (cumulative; a moving node).
+    // Per main view (the last one prepared): the draw records each producer wrote and the budget rule's outcome.
+    uint32_t hlod_world_draw_records = 0;
+    uint32_t hlod_instance_draw_records = 0;
+    uint32_t hlod_instance_visible_objects = 0;
+    uint32_t hlod_instance_admitted_objects = 0;
+    uint32_t hlod_instance_refused_objects = 0; // Refused this view: hlod_instance_reserve_exceeds_object_share.
+    uint64_t hlod_instance_reserve_refusal_frames = 0; // Main views that refused at least one object (cumulative).
+    uint64_t hlod_instance_reserve_splats = 0;
+    double hlod_instance_reserve_records = 0.0;
+    uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
+    LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
+    // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
+    // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
+    Mutex hlod_instance_refusal_mutex;
+    LocalVector<uint64_t> hlod_instance_refused_keys;
     uint64_t hlod_grading_generation = 0;
     uint64_t hlod_prepared_owner_key = 0;
     uint32_t hlod_position_bits = 0;

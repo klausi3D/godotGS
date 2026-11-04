@@ -158,6 +158,11 @@ public:
     // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
     // HLOD frames never grow it themselves. Returns true when it grew.
     bool grow_hlod_overlap_storage(uint64_t p_headroom);
+    // Same safe point (PR1b): grows the overlap storage to `p_records` (clamped like the seed) when it holds fewer, if the
+    // full new allocation fits `p_headroom` (32 B per record, as grow_hlod_overlap_storage charges). The HLOD route uses it
+    // so the node instances' record reserve is held next to the world's, instead of being taken out of a storage that only
+    // grows on a measured overflow (a world cut pinned coarse by the reserve never overflows). Returns true when it grew.
+    bool ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }

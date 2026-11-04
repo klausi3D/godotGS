@@ -4070,6 +4070,14 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
     return true;
 }
 
+bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom) {
+    const uint32_t needed = clamp_hlod_overlap_records(p_records);
+    if (needed <= global_sort_resources.capacity) { return false; }
+    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    _ensure_global_sort_resources(needed);
+    return true;
+}
+
 void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record) {
     // Mirrors prepare_hlod_scratch(): projection at the power-of-two capacity of the cut (_compute_projection_buffer_bytes),
     // visibility per cut splat, history max(records, cut) <= records + cut, and the SH cache 4 B per record plus the

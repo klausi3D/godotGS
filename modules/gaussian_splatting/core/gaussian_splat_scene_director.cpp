@@ -1717,6 +1717,184 @@ void GaussianSplatSceneDirector::build_instance_buffer(LocalVector<InstanceDataG
 	}
 }
 
+void GaussianSplatSceneDirector::_fill_world_identity_row(const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry) {
+	InstanceDataGPU &entry = r_entry;
+	entry = InstanceDataGPU{};
+	entry.rotation[3] = 1.0f;
+	entry.inv_rotation[3] = 1.0f;
+	entry.translation_scale[3] = 1.0f;
+	entry.params[0] = 1.0f; // opacity
+	entry.params[1] = 1.0f; // lod_bias
+	entry.params[2] = 1.0f; // wind_intensity
+	entry.params[3] = 0.0f; // wind_mode
+	entry.ids[0] = 0u; // primary asset id
+	entry.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY |
+			GS_INSTANCE_FLAG_SCALE_IDENTITY |
+			GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+	// No node states the training mode here: use the project default (#1173).
+	if (gs::settings::get_antialiasing_compensation_default(ProjectSettings::get_singleton())) {
+		entry.ids[1] |= GS_INSTANCE_FLAG_ANTIALIASED;
+	}
+	entry.lod[0] = 0;
+	entry.lod[1] = 0;
+	entry.wind_params[0] = 0.0f;
+	entry.wind_params[1] = 0.0f;
+	entry.wind_params[2] = 0.0f;
+	entry.wind_params[3] = 1.0f;
+	entry.effect_params[0] = 1.0f;
+	entry.effect_params[1] = 1.0f;
+	// Encode the scene-effector mask so world-submitted content isn't
+	// filtered out by the shader's `effector_meta.w > 0.5` gate.
+	// World-submission renders have no node-side filter state, so
+	// default to "accept every WORLD-scope effector" — matches what
+	// a world-scope effector is meant to do (affect everything in
+	// this renderer's scenario).
+	uint32_t world_scope_mask = 0u;
+	for (uint32_t i = 0; i < p_payload.size(); ++i) {
+		if (p_payload[i].scope_mode == SPHERE_EFFECTOR_SCOPE_WORLD) {
+			world_scope_mask |= (1u << i);
+		}
+	}
+	entry.effect_params[2] = _encode_u32_as_float_bits(world_scope_mask);
+	entry.effect_params[3] = float(p_payload.size());
+}
+
+void GaussianSplatSceneDirector::_fill_instance_row(const InstanceRecord &p_record, const LocalVector<SphereEffectorSelection> &p_payload,
+		InstanceDataGPU &r_entry) {
+	const InstanceRecord &record = p_record;
+	InstanceDataGPU &entry = r_entry;
+	entry = InstanceDataGPU{};
+
+	const Basis &basis = record.transform.basis;
+	const Vector3 scale = basis.get_scale();
+	const float sx = Math::abs(scale.x);
+	const float sy = Math::abs(scale.y);
+	const float sz = Math::abs(scale.z);
+	const float uniform_scale = MAX(sx, MAX(sy, sz));
+
+	Quaternion rotation = basis.get_rotation_quaternion().normalized();
+	Quaternion inv_rotation = rotation.inverse();
+
+	entry.rotation[0] = rotation.x;
+	entry.rotation[1] = rotation.y;
+	entry.rotation[2] = rotation.z;
+	entry.rotation[3] = rotation.w;
+
+	entry.inv_rotation[0] = inv_rotation.x;
+	entry.inv_rotation[1] = inv_rotation.y;
+	entry.inv_rotation[2] = inv_rotation.z;
+	entry.inv_rotation[3] = inv_rotation.w;
+
+	entry.translation_scale[0] = record.transform.origin.x;
+	entry.translation_scale[1] = record.transform.origin.y;
+	entry.translation_scale[2] = record.transform.origin.z;
+	entry.translation_scale[3] = uniform_scale;
+
+	entry.params[0] = record.opacity;
+	entry.params[1] = record.lod_bias;
+	entry.params[2] = record.wind_intensity;
+	entry.params[3] = float(record.wind_mode);
+
+	// GPU tag is only 32 bits; it carries a TRANSIENT truncated asset id that
+	// update_instance_buffer() overwrites with the resolved dense slot. The
+	// collision-free 64-bit submission identity is published in parallel via
+	// r_submission_asset_ids below (and lives authoritatively in asset_records).
+	entry.ids[0] = static_cast<uint32_t>(record.asset_id);
+	uint32_t flags = record.flags;
+	if (rotation.is_equal_approx(Quaternion())) {
+		flags |= GS_INSTANCE_FLAG_ROTATION_IDENTITY;
+	}
+	if (Math::is_equal_approx(uniform_scale, 1.0f)) {
+		flags |= GS_INSTANCE_FLAG_SCALE_IDENTITY;
+	}
+	if (record.transform.origin.is_zero_approx()) {
+		flags |= GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+	}
+	entry.ids[1] = flags;
+
+	entry.lod[0] = record.last_lod;
+	entry.lod[1] = 0;
+	entry.wind_params[0] = record.wind_direction.x;
+	entry.wind_params[1] = record.wind_direction.y;
+	entry.wind_params[2] = record.wind_direction.z;
+	entry.wind_params[3] = record.wind_frequency;
+	entry.effect_params[0] = record.effect_position_scale;
+	entry.effect_params[1] = record.effect_opacity_scale;
+	entry.effect_params[2] = _encode_u32_as_float_bits(_build_scene_effector_mask_for_record(record, p_payload));
+	entry.effect_params[3] = float(p_payload.size());
+}
+
+void GaussianSplatSceneDirector::build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer,
+		LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
+		LocalVector<uint64_t> &r_instance_keys) const {
+	Ref<ColorGradingResource> renderer_default;
+	if (p_renderer) {
+		renderer_default = const_cast<GaussianSplatRenderer *>(p_renderer)->get_color_grading();
+	}
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	_build_hlod_instance_rows_locked(_find_world_for_renderer(p_renderer), renderer_default, r_rows, r_grading, r_asset_ids, r_instance_keys);
+}
+
+void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
+		LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
+		LocalVector<uint64_t> &r_instance_keys) {
+	r_rows.clear();
+	r_grading.clear();
+	r_asset_ids.clear();
+	r_instance_keys.clear();
+	const SharedWorld *world = p_world;
+	if (!world || !world->submission_store.is_active() ||
+			!SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
+		return;
+	}
+	const Ref<ColorGradingResource> &renderer_default = p_renderer_default;
+	LocalVector<SphereEffectorSelection> scene_payload;
+	_build_sorted_sphere_effector_payload(*world, scene_payload);
+	r_rows.reserve(world->instance_store.instance_count() + 1);
+	// Row 0: the world, exactly the row build_instance_buffer_for_renderer emits for a world without node instances.
+	InstanceDataGPU world_row = {};
+	_fill_world_identity_row(scene_payload, world_row);
+	r_rows.push_back(world_row);
+	InstanceGradingGPU world_grading = {};
+	fill_instance_grading_entry(renderer_default, world_grading);
+	r_grading.push_back(world_grading);
+	r_asset_ids.push_back(0ULL);
+	r_instance_keys.push_back(0ULL);
+	// Rows 1..N: the visible node instances with data, with the same skip rule and the same row and grading content as
+	// build_instance_buffer_for_renderer / build_instance_grading_buffer_for_renderer (no shadow-caster filter: the HLOD
+	// route refuses the shadow instance filter domain).
+	for (const InstanceRecord &record : world->instance_store.records()) {
+		if (!record.visible) {
+			continue;
+		}
+		const AssetRecord *asset_record = world->instance_store.find_asset(record.asset_id);
+		if (!asset_record || asset_record->data.is_null()) {
+			continue;
+		}
+		InstanceDataGPU entry = {};
+		_fill_instance_row(record, scene_payload, entry);
+		r_rows.push_back(entry);
+		InstanceGradingGPU grading = {};
+		fill_instance_grading_entry(record.color_grading.is_valid() ? record.color_grading : renderer_default, grading);
+		r_grading.push_back(grading);
+		r_asset_ids.push_back(record.asset_id);
+		r_instance_keys.push_back(uint64_t(record.node_id));
+	}
+}
+
+String GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node(ObjectID p_node_id) const {
+	Ref<GaussianSplatRenderer> renderer;
+	{
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+		const SharedWorld *world = const_cast<GaussianSplatSceneDirector *>(this)->_find_world_for_instance(p_node_id);
+		if (!world) {
+			return String();
+		}
+		renderer = world->renderer_owner.ref();
+	}
+	return renderer.is_valid() ? renderer->get_hlod_instance_refusal(uint64_t(p_node_id)) : String();
+}
+
 void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<InstanceDataGPU> &out, bool p_shadow_casters_only,
 		LocalVector<uint64_t> *r_submission_asset_ids) const {
@@ -1745,43 +1923,7 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 		if (world->submission_store.is_active() &&
 				SubmissionStore::record_has_renderable_payload(world->submission_store.get_record())) {
 			InstanceDataGPU entry = {};
-			entry.rotation[3] = 1.0f;
-			entry.inv_rotation[3] = 1.0f;
-			entry.translation_scale[3] = 1.0f;
-			entry.params[0] = 1.0f; // opacity
-			entry.params[1] = 1.0f; // lod_bias
-			entry.params[2] = 1.0f; // wind_intensity
-			entry.params[3] = 0.0f; // wind_mode
-			entry.ids[0] = 0u; // primary asset id
-			entry.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY |
-					GS_INSTANCE_FLAG_SCALE_IDENTITY |
-					GS_INSTANCE_FLAG_TRANSLATION_ZERO;
-			// No node states the training mode here: use the project default (#1173).
-			if (gs::settings::get_antialiasing_compensation_default(ProjectSettings::get_singleton())) {
-				entry.ids[1] |= GS_INSTANCE_FLAG_ANTIALIASED;
-			}
-			entry.lod[0] = 0;
-			entry.lod[1] = 0;
-			entry.wind_params[0] = 0.0f;
-			entry.wind_params[1] = 0.0f;
-			entry.wind_params[2] = 0.0f;
-			entry.wind_params[3] = 1.0f;
-			entry.effect_params[0] = 1.0f;
-			entry.effect_params[1] = 1.0f;
-			// Encode the scene-effector mask so world-submitted content isn't
-			// filtered out by the shader's `effector_meta.w > 0.5` gate.
-			// World-submission renders have no node-side filter state, so
-			// default to "accept every WORLD-scope effector" — matches what
-			// a world-scope effector is meant to do (affect everything in
-			// this renderer's scenario).
-			uint32_t world_scope_mask = 0u;
-			for (uint32_t i = 0; i < scene_payload.size(); ++i) {
-				if (scene_payload[i].scope_mode == SPHERE_EFFECTOR_SCOPE_WORLD) {
-					world_scope_mask |= (1u << i);
-				}
-			}
-			entry.effect_params[2] = _encode_u32_as_float_bits(world_scope_mask);
-			entry.effect_params[3] = float(scene_payload.size());
+			_fill_world_identity_row(scene_payload, entry);
 			out.push_back(entry);
 			if (r_submission_asset_ids) {
 				// Primary/world-submission asset id is 0 (kPrimary*AssetId).
@@ -1819,64 +1961,8 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 			continue;
 		}
 		InstanceDataGPU entry = {};
-
-		const Basis &basis = record.transform.basis;
-		const Vector3 scale = basis.get_scale();
-		const float sx = Math::abs(scale.x);
-		const float sy = Math::abs(scale.y);
-		const float sz = Math::abs(scale.z);
-		const float uniform_scale = MAX(sx, MAX(sy, sz));
-
-		Quaternion rotation = basis.get_rotation_quaternion().normalized();
-		Quaternion inv_rotation = rotation.inverse();
-
-		entry.rotation[0] = rotation.x;
-		entry.rotation[1] = rotation.y;
-		entry.rotation[2] = rotation.z;
-		entry.rotation[3] = rotation.w;
-
-		entry.inv_rotation[0] = inv_rotation.x;
-		entry.inv_rotation[1] = inv_rotation.y;
-		entry.inv_rotation[2] = inv_rotation.z;
-		entry.inv_rotation[3] = inv_rotation.w;
-
-		entry.translation_scale[0] = record.transform.origin.x;
-		entry.translation_scale[1] = record.transform.origin.y;
-		entry.translation_scale[2] = record.transform.origin.z;
-		entry.translation_scale[3] = uniform_scale;
-
-		entry.params[0] = record.opacity;
-		entry.params[1] = record.lod_bias;
-		entry.params[2] = record.wind_intensity;
-		entry.params[3] = float(record.wind_mode);
-
-		// GPU tag is only 32 bits; it carries a TRANSIENT truncated asset id that
-		// update_instance_buffer() overwrites with the resolved dense slot. The
-		// collision-free 64-bit submission identity is published in parallel via
-		// r_submission_asset_ids below (and lives authoritatively in asset_records).
-		entry.ids[0] = static_cast<uint32_t>(record.asset_id);
-		uint32_t flags = record.flags;
-		if (rotation.is_equal_approx(Quaternion())) {
-			flags |= GS_INSTANCE_FLAG_ROTATION_IDENTITY;
-		}
-		if (Math::is_equal_approx(uniform_scale, 1.0f)) {
-			flags |= GS_INSTANCE_FLAG_SCALE_IDENTITY;
-		}
-		if (record.transform.origin.is_zero_approx()) {
-			flags |= GS_INSTANCE_FLAG_TRANSLATION_ZERO;
-		}
-		entry.ids[1] = flags;
-
-		entry.lod[0] = record.last_lod;
-		entry.lod[1] = 0;
-		entry.wind_params[0] = record.wind_direction.x;
-		entry.wind_params[1] = record.wind_direction.y;
-		entry.wind_params[2] = record.wind_direction.z;
-		entry.wind_params[3] = record.wind_frequency;
-		entry.effect_params[0] = record.effect_position_scale;
-		entry.effect_params[1] = record.effect_opacity_scale;
-		entry.effect_params[2] = _encode_u32_as_float_bits(_build_scene_effector_mask_for_record(record, scene_payload));
-		entry.effect_params[3] = float(scene_payload.size());
+		_fill_instance_row(record, scene_payload, entry);
+		const uint32_t flags = entry.ids[1];
 
 		out.push_back(entry);
 		if (r_submission_asset_ids) {
@@ -3042,9 +3128,28 @@ Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::get_shared_renderer(World
 }
 
 
-bool GaussianSplatSceneDirector::has_exclusive_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const {
+bool GaussianSplatSceneDirector::has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
-	const SharedWorld *world = _find_world_for_renderer(p_renderer);
-	return world && world->instance_store.is_empty() && world->submission_store.is_active() &&
-			uint64_t(world->submission_store.get_record().owner_id) == p_owner;
+	return _world_has_hlod_submission(_find_world_for_renderer(p_renderer), p_owner);
 }
+
+bool GaussianSplatSceneDirector::_world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner) {
+	// PR1b: no instance_store.is_empty() term. Node instances are rows 1..N of the same bundle (one draw list, one sort,
+	// one byte ledger); they no longer take the world off the HLOD route.
+	return p_world && p_world->submission_store.is_active() &&
+			uint64_t(p_world->submission_store.get_record().owner_id) == p_owner;
+}
+
+#ifdef TESTS_ENABLED
+bool GaussianSplatSceneDirector::test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	return _world_has_hlod_submission(world_registry.find(p_scenario), p_owner);
+}
+
+void GaussianSplatSceneDirector::test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
+		LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	_build_hlod_instance_rows_locked(world_registry.find(p_scenario), Ref<ColorGradingResource>(), r_rows, r_grading, r_asset_ids,
+			r_instance_keys);
+}
+#endif

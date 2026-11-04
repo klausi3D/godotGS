@@ -2819,6 +2819,11 @@ void GaussianSplatNode3D::_unregister_instance_in_director() {
     }
 }
 
+String GaussianSplatNode3D::get_hlod_instance_refusal_reason() const {
+    const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    return director ? director->get_hlod_instance_refusal_for_node(get_instance_id()) : String();
+}
+
 void GaussianSplatNode3D::_update_instance_transform_in_director() {
     if (!is_inside_tree() || !is_inside_world()) {
         return;

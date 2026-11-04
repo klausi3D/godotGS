@@ -425,6 +425,9 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 
 	r_metrics["frame_count"] = static_cast<int64_t>(frame_state.frame_counter);
 	r_metrics["sorted_splats"] = static_cast<int64_t>(sorting_state.sorted_splat_count);
+	// Depth sorts executed in renderer frame sort_dispatch_frame (-1: none yet). The frame just drawn is frame_count - 1.
+	r_metrics["sort_dispatch_frame"] = sorting_state.sort_dispatch_frame == UINT64_MAX ? int64_t(-1) : static_cast<int64_t>(sorting_state.sort_dispatch_frame);
+	r_metrics["sort_dispatches_frame"] = static_cast<int64_t>(sorting_state.sort_dispatches_frame);
 	r_metrics["instance_sort_buffer_republishes"] = static_cast<int64_t>(sorting_state.instance_sort_buffer_republishes);
 	r_metrics["render_time_ms"] = frame_state.render_time_ms;
 	r_metrics["sort_time_ms"] = frame_state.sort_time_ms;
@@ -1555,6 +1558,22 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_edit_commit_failures_total"] = int64_t(et.edit_commit_failures_total);
         stats["hlod_edit_stale_nodes"] = et.stale_nodes;
     }
+    // PR1b: world + node instances on the HLOD route (one draw list, one sort, one ledger). Draw records per producer and
+    // the budget rule's outcome of the last main view (renderer frame hlod_instance_view_frame).
+    stats["hlod_instance_rows"] = int64_t(resource_state.hlod_instance_rows);
+    stats["hlod_instance_assets"] = int64_t(resource_state.hlod_instance_region.assets.size());
+    stats["hlod_instance_region_records"] = int64_t(resource_state.hlod_instance_region.records);
+    stats["hlod_world_draw_records"] = int64_t(resource_state.hlod_world_draw_records);
+    stats["hlod_instance_draw_records"] = int64_t(resource_state.hlod_instance_draw_records);
+    stats["hlod_instance_visible_objects"] = int64_t(resource_state.hlod_instance_visible_objects);
+    stats["hlod_instance_admitted_objects"] = int64_t(resource_state.hlod_instance_admitted_objects);
+    stats["hlod_instance_refused_objects"] = int64_t(resource_state.hlod_instance_refused_objects);
+    stats["hlod_instance_reserve_refusal_frames"] = int64_t(resource_state.hlod_instance_reserve_refusal_frames);
+    stats["hlod_instance_reserve_splats"] = int64_t(resource_state.hlod_instance_reserve_splats);
+    stats["hlod_instance_reserve_records"] = resource_state.hlod_instance_reserve_records;
+    stats["hlod_instance_view_frame"] = int64_t(resource_state.hlod_instance_view_frame);
+    stats["hlod_bundle_builds"] = int64_t(resource_state.hlod_bundle_builds);
+    stats["hlod_instance_row_reuploads"] = int64_t(resource_state.hlod_instance_row_reuploads);
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
     stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);

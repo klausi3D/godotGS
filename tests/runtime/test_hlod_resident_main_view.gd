@@ -385,9 +385,13 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 	for change in ["instance", "grading", "capacity"]:
 		_renderer.test_set_hlod_publication_failure(4)
 		if change == "instance":
-			# The world shim is identity even when world opacity changes. Exercise
-			# the actual director generation by adding/removing a real instance,
-			# then recover the exclusive world before another frame is rendered.
+			# The world row is identity even when world opacity changes. Exercise
+			# the actual director generation by adding/removing a real instance.
+			# Since PR1b a node instance no longer takes the world off the HLOD
+			# route (it is a row of the same bundle); adding one still changes the
+			# asset set, which is what forces this rebuild (and so the armed
+			# failure). The node is gone again before another frame is rendered,
+			# so the recovered route is the world alone.
 			var asset := GaussianSplatAsset.new()
 			asset.set_splat_count(1)
 			asset.set_positions(PackedFloat32Array([0.125, 0.125, -4.0]))
