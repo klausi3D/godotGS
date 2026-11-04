@@ -3,6 +3,7 @@
 
 #include "../core/gs_vector_alloc.h"
 #include "gaussian_gpu_layout.h"
+#include "hlod_bundle_rows.h"
 #include "hlod_drawn_node.h"
 #include "hlod_node_pack.h"
 #include "gaussian_splat_renderer.h"
@@ -1202,17 +1203,12 @@ namespace {
 using HlodBundle = GaussianRenderFacadeState::HlodBundle;
 
 // `p_atlas_records` != 0 sizes the atlas for a streamed bundle (node streaming, package D): the atlas holds that
-// many splat records, not the whole tree. 0 keeps the whole-tree layout.
+// many splat records, not the whole tree. 0 keeps the whole-tree layout. `p_rows` instance rows (row 0 is the world);
+// the ledger itself is gs_hlod_bundle::bundle_bytes (CPU-tested; p_rows == 1 is the single-row ledger exactly).
 uint64_t hlod_bundle_bytes(const GaussianSplatHlodRuntimeData &p_data, bool p_relative, bool p_quantized, uint32_t p_capacity,
-        uint32_t p_atlas_records = 0) {
-    const uint64_t nodes = p_data.nodes.size();
+        uint32_t p_rows, uint32_t p_atlas_records = 0) {
     const uint64_t records = p_atlas_records ? uint64_t(p_atlas_records) : uint64_t(p_data.leaf_count) + (p_relative ? p_data.parent_count : 0);
-    return records * (p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) +
-            nodes * (sizeof(ChunkMetaGPU) + sizeof(AssetChunkIndexGPU) + (p_relative ? sizeof(DrawnNodeGPU) : sizeof(VisibleChunkRefGPU)) +
-                    (p_quantized ? sizeof(ChunkQuantizationGPU) : 0)) +
-            sizeof(AssetMetaGPU) + sizeof(InstanceDataGPU) + sizeof(InstanceGradingGPU) +
-            uint64_t(p_capacity) * (sizeof(SplatRefGPU) + (p_relative ? sizeof(uint32_t) : 0)) +
-            6 * sizeof(uint32_t) + 2 * sizeof(GaussianSplatting::IndirectDispatchLayout);
+    return gs_hlod_bundle::bundle_bytes(p_data.nodes.size(), records, p_relative, p_quantized, p_capacity, p_rows);
 }
 
 bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd, HlodBundle &r_bundle,
@@ -1236,10 +1232,16 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
 
 bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
         const GaussianSplatHlodRuntimeData &p_data, bool p_relative, bool p_quantized,
-        uint32_t p_capacity, uint32_t p_position_bits, uint32_t p_scale_bits, const InstanceDataGPU &p_instance, const InstanceGradingGPU &p_grading, HlodBundle &r_bundle,
+        uint32_t p_capacity, uint32_t p_position_bits, uint32_t p_scale_bits, const gs_hlod_bundle::Rows &p_rows, HlodBundle &r_bundle,
         bool p_streaming = false, uint32_t p_atlas_records = 0) {
     // Package F1: a whole-tree bundle packs payload by base ranges; an edited snapshot is served by the streamer only.
     if (!p_streaming && p_data.has_edits()) { return false; }
+    // Instance rows: row 0 is the world; every row names a packed asset (today only the world is packed).
+    if (gs_hlod_bundle::rows_refusal(p_rows, uint64_t(p_data.nodes.size())) != nullptr) { return false; }
+    const uint32_t row_count = p_rows.count();
+    LocalVector<InstanceDataGPU> packed_rows;
+    gs_hlod_bundle::pack_instance_rows(p_rows, packed_rows);
+    const uint32_t visible_chunks = uint32_t(gs_hlod_bundle::visible_chunk_capacity(p_data.nodes.size(), p_relative, row_count));
     auto &b = r_bundle.buffers;
     const uint32_t node_count = p_data.nodes.size();
     const uint32_t records = p_streaming ? p_atlas_records : p_data.leaf_count + (p_relative ? p_data.parent_count : 0);
@@ -1301,9 +1303,9 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
             !create(b.asset_chunk_index_buffer, uint64_t(node_count) * sizeof(AssetChunkIndexGPU), indices.ptr()) ||
             !create(b.chunk_meta_buffer, uint64_t(node_count) * sizeof(ChunkMetaGPU), metadata.ptr()) ||
             (p_quantized && !create(b.quantization_buffer, uint64_t(node_count) * sizeof(ChunkQuantizationGPU), quantization.ptr())) ||
-            !create(b.instance_buffer, sizeof(p_instance), &p_instance) ||
-            !create(b.instance_grading_buffer, sizeof(p_grading), &p_grading) ||
-            !create(b.visible_chunk_buffer, uint64_t(node_count) * (p_relative ? sizeof(DrawnNodeGPU) : sizeof(VisibleChunkRefGPU))) ||
+            !create(b.instance_buffer, uint64_t(row_count) * sizeof(InstanceDataGPU), packed_rows.ptr()) ||
+            !create(b.instance_grading_buffer, uint64_t(row_count) * sizeof(InstanceGradingGPU), p_rows.grading.ptr()) ||
+            !create(b.visible_chunk_buffer, uint64_t(visible_chunks) * (p_relative ? sizeof(DrawnNodeGPU) : sizeof(VisibleChunkRefGPU))) ||
             !create(b.splat_ref_buffer, uint64_t(p_capacity) * sizeof(SplatRefGPU)) ||
             (p_relative && !create(b.hlod_draw_entry_buffer, uint64_t(p_capacity) * sizeof(uint32_t))) ||
             !create(b.counter_buffer, 3 * sizeof(uint32_t)) ||
@@ -1314,9 +1316,9 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     }
     b.quantization_required = p_quantized;
     b.atlas_gaussian_count = records;
-    b.instance_count = 1;
+    b.instance_count = row_count;
     b.dispatch_chunk_count = chunk_count;
-    b.max_visible_chunks = node_count;
+    b.max_visible_chunks = visible_chunks;
     b.max_visible_splats = p_capacity;
     // Both bundles belong to the resident route. Preserve its per-splat
     // frustum/size/distance culling; the streamed-world exception is separate.
@@ -1327,7 +1329,7 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     r_bundle.generation = p_data.get_instance_id();
     r_bundle.device_id = p_rd->get_device_instance_id();
     r_bundle.quantized = p_quantized;
-    return r_bundle.bytes == hlod_bundle_bytes(p_data, p_relative, p_quantized, p_capacity, p_streaming ? p_atlas_records : 0);
+    return r_bundle.bytes == hlod_bundle_bytes(p_data, p_relative, p_quantized, p_capacity, row_count, p_streaming ? p_atlas_records : 0);
 }
 }
 
@@ -1365,7 +1367,8 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = 0;
-    state.hlod_instance_generation = state.hlod_grading_generation = state.hlod_prepared_owner_key = 0;
+    state.hlod_instance_generation = state.hlod_instance_asset_generation = state.hlod_grading_generation = state.hlod_prepared_owner_key = 0;
+    state.hlod_instance_rows = 0;
     frame_context_manager.clear_hlod_views();
 }
 
@@ -1379,7 +1382,9 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
             !gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) ||
             !director->has_exclusive_hlod_world_submission(this, state.hlod_owner_key) ||
             state.hlod_prepared_owner_key != state.hlod_owner_key || is_shadow_instance_filter_enabled() ||
-            state.hlod_instance_generation != director->get_instance_generation_for_renderer(this) ||
+            // The asset set keys the bundle; a row-only change is re-uploaded in place by publish_hlod_bundle().
+            state.hlod_instance_rows == 0 ||
+            state.hlod_instance_asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
             state.hlod_grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
             subsystem_state.sorting_pipeline.is_null() || subsystem_state.sorting_pipeline->get_sort_resource_device() != rd) {
         return false;
@@ -1405,12 +1410,14 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
         const auto &b = bundle.buffers;
         if (bundle.generation != uint64_t(input->get_instance_id()) || bundle.device_id != rd->get_device_instance_id() ||
                 bundle.quantized != quantized || b.quantization_required != quantized || b.hlod_relative != relative ||
-                b.hlod_source_generation != bundle.generation || b.instance_count != 1 ||
+                b.hlod_source_generation != bundle.generation || b.instance_count != state.hlod_instance_rows ||
                 b.atlas_gaussian_count != (streaming ? state.hlod_stream_atlas_records : input->leaf_count + (relative ? input->parent_count : 0)) ||
                 b.max_visible_splats != (relative ? relative_capacity : input->leaf_count) ||
-                b.max_visible_chunks != input->nodes.size() || bundle.draw_entries.size() != (relative ? int(input->nodes.size()) : 0) ||
+                uint64_t(b.max_visible_chunks) != gs_hlod_bundle::visible_chunk_capacity(input->nodes.size(), relative, state.hlod_instance_rows) ||
+                bundle.draw_entries.size() != (relative ? int(input->nodes.size()) : 0) ||
                 bundle.owned_count != uint32_t(12 + int(relative) + int(quantized)) ||
-                bundle.bytes != hlod_bundle_bytes(*input.ptr(), relative, quantized, b.max_visible_splats, streaming ? state.hlod_stream_atlas_records : 0)) { return false; }
+                bundle.bytes != hlod_bundle_bytes(*input.ptr(), relative, quantized, b.max_visible_splats, state.hlod_instance_rows,
+                        streaming ? state.hlod_stream_atlas_records : 0)) { return false; }
         for (uint32_t i = 0; i < bundle.owned_count; ++i) {
             if (!bundle.owned[i].is_valid() || get_resource_owner(bundle.owned[i], nullptr) != rd ||
                     !rd->buffer_is_valid(bundle.owned[i])) { return false; }
@@ -1482,9 +1489,18 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
         }
         return false;
     }
+    // Row content moved without the asset set (a transform, parameter or grading edit): re-upload the rows in place.
+    // A single-row world never gets here with a moved row generation (every bump it can see also moves the asset or the
+    // grading-default generation, which the contract check above refuses).
+    if (!refresh_hlod_instance_rows()) {
+        release_hlod_resources();
+        state.hlod_reason = "hlod_instance_rows_refresh_failed";
+        return false;
+    }
     if (!instance_asset_remap.valid || instance_asset_remap.generation != bundle.generation) {
+        // Every asset the bundle packs, at its dense id (today the world only).
         instance_asset_remap.asset_to_dense_id.clear();
-        instance_asset_remap.asset_to_dense_id.insert(0, 0);
+        instance_asset_remap.asset_to_dense_id.insert(gs_hlod_bundle::WORLD_ASSET_ID, gs_hlod_bundle::WORLD_DENSE_ID);
         instance_asset_remap.generation = bundle.generation;
         instance_asset_remap.valid = true;
     }
@@ -1505,6 +1521,39 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     instance_pipeline_buffers_valid = true;
     state.hlod_active = p_relative;
     state.instance_pipeline_content_generation = bundle.buffers.hlod_content_generation;
+    return true;
+}
+
+bool GaussianSplatRenderer::refresh_hlod_instance_rows() {
+    auto &state = get_resource_state();
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    RenderingDevice *rd = get_device_state().rd;
+    if (!director || !rd) { return false; }
+    const uint64_t row_generation = director->get_instance_generation_for_renderer(this);
+    if (row_generation == state.hlod_instance_generation) { return true; }
+    gs_hlod_bundle::Rows rows;
+    director->build_instance_buffer_for_renderer(this, rows.instances, false, &rows.asset_ids);
+    director->build_instance_grading_buffer_for_renderer(this, rows.grading, false);
+    const uint64_t asset_generation = director->get_instance_asset_generation_for_renderer(this);
+    if (gs_hlod_bundle::prepared_rows_action(state.hlod_instance_asset_generation, asset_generation, state.hlod_instance_generation,
+                row_generation, state.hlod_instance_rows, rows.count()) != gs_hlod_bundle::PreparedRows::REUPLOAD ||
+            state.hlod_prepared_snapshot.is_null() ||
+            gs_hlod_bundle::rows_refusal(rows, uint64_t(state.hlod_prepared_snapshot->nodes.size())) != nullptr) {
+        return false;
+    }
+    LocalVector<InstanceDataGPU> packed;
+    gs_hlod_bundle::pack_instance_rows(rows, packed);
+    for (bool relative : { false, true }) {
+        if (state.hlod_streaming && !relative) { continue; } // A streamed world has no canonical bundle.
+        const auto &b = (relative ? state.hlod_relative : state.hlod_canonical).buffers;
+        if (b.instance_count != rows.count() ||
+                rd->buffer_update(b.instance_buffer, 0, rows.count() * sizeof(InstanceDataGPU), packed.ptr()) != OK ||
+                rd->buffer_update(b.instance_grading_buffer, 0, rows.count() * sizeof(InstanceGradingGPU), rows.grading.ptr()) != OK) {
+            return false;
+        }
+    }
+    // The generation read BEFORE the rows were built: a bump in between is re-uploaded next time, never skipped.
+    state.hlod_instance_generation = row_generation;
     return true;
 }
 
@@ -1657,6 +1706,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint32_t relative_capacity = MIN<uint32_t>(input->leaf_count,
             MAX(1, get_performance_settings().max_splats));
     const uint64_t instance_generation = director->get_instance_generation_for_renderer(this);
+    const uint64_t instance_asset_generation = director->get_instance_asset_generation_for_renderer(this);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     const uint64_t owner_key = state.hlod_owner_key;
     // Package F1: a world with committed edits is rebuilt from its last committed snapshot, never from the unedited one.
@@ -1715,11 +1765,14 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         const uint32_t atlas_override = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
         const uint64_t atlas_limit = ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget, atlas_override);
         const uint64_t record_stride = quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
-        LocalVector<InstanceDataGPU> instances;
-        LocalVector<InstanceGradingGPU> grading;
-        director->build_instance_buffer_for_renderer(this, instances, false);
-        director->build_instance_grading_buffer_for_renderer(this, grading, false);
-        if (instances.size() != 1 || grading.size() != 1) { state.hlod_reason = "hlod_identity_shim_unavailable"; return 0; }
+        // The bundle's instance rows (row 0 is the world). The route still serves exactly the world's one identity row
+        // (an exclusive world submission, checked above): exclusivity and this single-row refusal are unchanged here.
+        gs_hlod_bundle::Rows rows;
+        director->build_instance_buffer_for_renderer(this, rows.instances, false, &rows.asset_ids);
+        director->build_instance_grading_buffer_for_renderer(this, rows.grading, false);
+        if (rows.instances.size() != 1 || rows.grading.size() != 1) { state.hlod_reason = "hlod_identity_shim_unavailable"; return 0; }
+        if (const char *rows_reason = gs_hlod_bundle::rows_refusal(rows, uint64_t(input->nodes.size()))) { state.hlod_reason = rows_reason; return 0; }
+        const uint32_t row_count = rows.count();
         uint64_t device_bytes = 0;
         if (
 #ifdef TESTS_ENABLED
@@ -1730,8 +1783,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                     ? state.hlod_paged_provision_reason : String("resource_ledger_warmup_or_unavailable");
             return 0;
         }
-        const uint64_t whole_candidate_bytes = hlod_bundle_bytes(*input.ptr(), false, quantized, input->leaf_count) +
-                hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity);
+        const uint64_t whole_candidate_bytes = hlod_bundle_bytes(*input.ptr(), false, quantized, input->leaf_count, row_count) +
+                hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, row_count);
         const uint64_t whole_atlas_bytes = uint64_t(input->leaf_count + input->parent_count) * record_stride;
         // The tree streams whenever its whole-tree bundles cannot be admitted (atlas budget, HLOD-owned cap or
         // the device ledger), never because a limit was raised; every limit stays as it is. A setup that can
@@ -1741,7 +1794,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 ResidentAtlasBudget::hlod_candidate_fits(whole_candidate_bytes, device_bytes, route_limit, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
         // A paged snapshot holds no payload at all: it can only ever stream, and where streaming cannot activate
         // there is no whole-tree or canonical copy to fall back to, so it is refused with the reason.
-        const char *streaming_unsupported = hlod_streaming_unsupported_reason(&instances[0]);
+        const char *streaming_unsupported = hlod_streaming_unsupported_reason(&rows.instances[gs_hlod_bundle::WORLD_ROW]);
         if (input->is_paged() && streaming_unsupported != nullptr) {
             // The world node materializes the payload and uses the resident route for exactly these cases when it can
             // see them at submission (GaussianSplatWorld::materialize_paged_resident); this is the late/dynamic case.
@@ -1771,7 +1824,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 node_pages += (uint64_t(served->nodes[n].topology.payload_count) + stream_config.page_splats - 1u) / stream_config.page_splats;
             }
             // Bytes of the relative bundle that do not scale with the atlas (everything but the atlas records).
-            const uint64_t fixed_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, 1) - record_stride;
+            const uint64_t fixed_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, row_count, 1) - record_stride;
             // The frame scratch is admitted later from the same ledger headroom: reserve it here, or a ledger-bound
             // page budget leaves the scratch admission refusing every frame.
             uint64_t scratch_fixed = 0, scratch_per_record = 0;
@@ -1788,7 +1841,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             stream_config.position_bits = position_bits;
             stream_config.scale_bits = scale_bits;
             stream_records = uint32_t(pages * stream_config.page_splats);
-            candidate_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, stream_records);
+            candidate_bytes = hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity, row_count, stream_records);
         } else if (whole_atlas_bytes > atlas_limit) {
             state.hlod_reason = "hlod_existing_atlas_limit"; return 0;
         }
@@ -1814,8 +1867,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             state.hlod_reason = "hlod_edit_requires_streamed_route";
             return 0;
         }
-        const bool built = (streaming || hlod_build_bundle(this, rd, *input.ptr(), false, quantized, input->leaf_count, position_bits, scale_bits, instances[0], grading[0], canonical)) &&
-                hlod_build_bundle(this, rd, *input.ptr(), true, quantized, relative_capacity, position_bits, scale_bits, instances[0], grading[0], relative, streaming, stream_records);
+        const bool built = (streaming || hlod_build_bundle(this, rd, *input.ptr(), false, quantized, input->leaf_count, position_bits, scale_bits, rows, canonical)) &&
+                hlod_build_bundle(this, rd, *input.ptr(), true, quantized, relative_capacity, position_bits, scale_bits, rows, relative, streaming, stream_records);
         if (built && streaming && served != input) {
             // An edited leaf may be larger than every captured one (up to 16,384 splats).
             relative.buffers.max_chunk_splats = hlod_dispatch_extent_for(relative.buffers.max_chunk_splats, *served.ptr());
@@ -1846,6 +1899,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 input != state.hlod_snapshot || input->source_data != get_scene_state().gaussian_data ||
                 rd != get_device_state().rd || subsystem_state.sorting_pipeline->get_sort_resource_device() != rd ||
                 instance_generation != director->get_instance_generation_for_renderer(this) ||
+                instance_asset_generation != director->get_instance_asset_generation_for_renderer(this) ||
                 grading_generation != state.instance_grading_defaults_generation.load(std::memory_order_relaxed) ||
                 quantized != g_quantization_config.per_chunk_quantization || owner_key != state.hlod_owner_key ||
                 (quantized && (position_bits != MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX) ||
@@ -1866,6 +1920,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         if (served->has_edits()) { ++state.hlod_edit_rebuilds; }
         state.hlod_prepared_snapshot = input;
         state.hlod_instance_generation = instance_generation;
+        state.hlod_instance_asset_generation = instance_asset_generation;
+        state.hlod_instance_rows = row_count;
         state.hlod_grading_generation = grading_generation;
         state.hlod_prepared_owner_key = owner_key;
         state.hlod_position_bits = position_bits;
@@ -2191,9 +2247,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     }
     for (uint32_t i = 0; i < selected_count; ++i) {
         const uint32_t node = outcome.records[i].node;
-        // The ViewSet formed camera_offset in double for snapshot.origin_revision; the instance is the one
-        // identity-placed instance with GPU id 0.
-        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(0u, node, outcome.records[i].camera_offset);
+        // The ViewSet formed camera_offset in double for snapshot.origin_revision; every world record names the
+        // world's row (row 0, identity-placed).
+        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(gs_hlod_bundle::WORLD_ROW, node, outcome.records[i].camera_offset);
         state.hlod_selected_parents += !input->nodes[node].topology.is_leaf() ? 1u : 0u;
     }
     RenderingDevice *rd = get_device_state().rd;
