@@ -923,8 +923,16 @@ frozen in the thresholds file.**
 
 ### 7.3 Passes
 
-1. **Controls first** (§8.5). Each asserts a specific `(gate, verdict, reason)`. A control
-   ending INVALID makes the run INVALID.
+1. **Controls first** (§8.5). Each asserts a specific expected `(gate, verdict, reason)`
+   tuple. The run is INVALID only when a control's observed tuple **differs** from its
+   expected tuple. That covers:
+   - a wrong verdict or a wrong reason;
+   - an unexpected INVALID;
+   - a control harness failure or crash.
+
+   A control whose expected tuple is itself INVALID (C-off, C-blind, C-settings, C-warm)
+   **passes** when it ends with exactly that INVALID and reason. It proves the validity
+   check fires.
 2. **Pass A, paced, cold, then warm.** Wall-clock movement. A frame trace in a file with
    `rows_written == frames_rendered`. Runs for the HLOD arm (from M3) and the flat arm (chunk
    route on plain GSQ).
@@ -1078,8 +1086,24 @@ An edit in the work-reducing direction is permitted only when G11q and Q-codec a
 passing at the new value**, and a `waiver` line (maintainer, date, reason, evidence URL) is
 present.
 
-The **tightening rule** min(old, calibrated p95 × 1.15) applies only to the non-user
-statistical gates (G5, G6, G6t, G14, G15, G11, G13, G11q, Q-codec). **P1 values are the
+The **tightening rule** applies only to the non-user statistical gates (G5, G6, G6t, G14,
+G15, G11, G13, G11q, Q-codec). It is **operator-aware**, keyed on each gate's frozen `op`, and
+it can only move a threshold in the stricter direction:
+
+- **Upper-bound gates** (`op` is `≤`: G5, G6, G6t, G14, G15):
+  new = min(old, calibrated p95 × 1.15). The value never rises.
+- **Lower-bound gates** (`op` is `≥`: G11, G13, G11q, and every Q-codec row, including the
+  negative ΔPSNR/ΔSSIM floors): new = max(old, calibrated p5 − m). Here m ≥ 0 is a
+  per-gate absolute margin in the gate's own unit (dB, SSIM). m is pre-registered in the
+  thresholds file before calibration, and it is frozen like every other guarded field. The
+  value never falls. A multiplicative margin is never applied to a floor, because on a
+  negative delta it loosens. Example: −0.20 dB × 1.15 = −0.23 dB.
+- **Proposals in the wrong direction:** if a calibrated proposal would move a threshold
+  looser (min/max leaves `old`), it is recorded in the calibration record and not applied.
+  The no-loosening guard rejects any thresholds diff in which an `≤` value rises or a `≥`
+  value falls. This holds whatever produced the diff.
+
+**P1 values are the
 maintainer's targets and are never auto-tightened.**
 
 **The guard, not the risk class, is the control**: the class itself is not a failure condition
