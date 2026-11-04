@@ -336,8 +336,19 @@ lane are **R3** (gate machinery and workflow) and land as their own PR; this sec
 
 ### 9.1 Lane
 
-- Always-run GPU job on PR, push and schedule, on the 3080 runner. A **required** status check with
-  **no job-level `if:`** (a skipped job satisfies a required check).
+- It runs on PR, push and schedule, split into **two jobs** so that the required status and the
+  runner trust boundary both hold:
+  - **The trusted GPU execution job** runs on the 3080 runner and carries the per-job fork guard
+    (`github.event_name != 'pull_request' || head.repo.full_name == github.repository`). Untrusted
+    fork code never runs on the persistent self-hosted runner (`docs/governance/review-policy.md:59-66`,
+    the same guard as `.github/workflows/release_ci_runtime.yml:43`). A fork PR is validated only
+    after a maintainer moves it to a same-repository branch.
+  - **The required status job** runs on a hosted runner and has **no job-level `if:`**, so it is
+    always reported (a skipped job would satisfy a required check). It `needs:` the execution job
+    with `if: always()` at step level and is fail-closed. It passes only if the execution job
+    **ran and succeeded** on this head. If the execution job is skipped, as for a fork PR, the status
+    fails with the reason `gs_combined_requires_trusted_branch`. If it is cancelled or fails, the
+    status fails too.
 - Optimized build with tests enabled.
 - **Variant A:** a chunk-streamed plain world. **Variant B:** the same content as a V4 paged HLOD world.
   Both run on every trigger, pilot scale first.
@@ -374,7 +385,7 @@ executes nothing fails.
 | L1–L3 | Lights | Each light's ROI luminance follows its intensity ramp (Pearson r ≥ 0.95); `lights_dropped == 0` |
 | S1–S4 | Shadows | `shadow_casters_rastered[light] > 0` for every shadowed light every frame; receiver ROI luminance ratio ≤ 0.6 in the three setups; `NO_CASTER_RASTERED == 0` |
 | B1 | Budget | Ledger sum equals the device allocation within 2 %, stays within budget; `silent_truncation_frames == 0` |
-| T1 | Stability | A 120-frame static-camera segment with TAA off: 0 frames differ from its first frame |
+| T1 | Stability | A 120-frame **frozen-scene** segment with TAA off. Every time-dependent input is frozen for the segment: the camera, object transforms and scripted paths, character animation, light intensities and positions, wind and effectors, and the scene time handed to shaders. Pass: 0 frames differ from the segment's first frame. The harness asserts that the inputs really were frozen (their per-frame digests are equal); a segment whose inputs changed is INVALID, not a pass |
 | P1–P3 | Performance | Frame-coherent p95/p99 against GR-15. Report-only until the BV calibration, but with a **hard** validity check that timing is complete for ≥ 99 % of frames |
 | V1 | Multi-view (variant job) | Split screen: A1–A4 per half |
 
