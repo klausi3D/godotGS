@@ -209,10 +209,17 @@ loading never blanks the objects, and BV ADR I-4 (complete-or-nothing) holds **p
     on the CPU before selection.
   - The world cut gets `caps − R` (never less than `F`) through `spec.caps`; the `ViewSet` honours it
     or returns `NOT_ADMITTED` with its existing reason.
-  - If `R > caps − F`, the object producer is **refused for that view** with the distinct reason
-    `hlod_instance_reserve_exceeds_object_share` and the counter
-    `hlod_instance_reserve_refusal_frames`. The world keeps drawing. No subset of objects is admitted
-    silently: partial admission needs stated per-object priorities (F3).
+  - If `R > caps − F`, objects are admitted **in a deterministic order** until the object share is
+    used up. The order is screen-space importance; ties are broken by the node's stable instance id,
+    so the same view always admits the same objects and no flicker can result (#1131).
+    - Each object that is not admitted is refused **explicitly**, as a whole object, never as a partial
+      draw. Its reason is `hlod_instance_reserve_exceeds_object_share`.
+    - Refusals are counted by `hlod_instance_refused_objects` (per frame) and
+      `hlod_instance_reserve_refusal_frames`.
+    - The node can query its own refusal state, so gameplay code can react.
+    - The world keeps its floor `F` and keeps drawing.
+    - Objects are never dropped as a group just because one of them does not fit: objects come first
+      (decision 3). Stated per-object priorities that override the importance order are F3.
   - The sort capacity is `max(leaf_count, capacity)` (`:1685`) plus the instance capacity.
 - **The value of `F`** is set and justified in PR1b. Exposing it as a project setting is a settings
   change and is R3 (F3); PR1b may ship it as a named constant.
