@@ -51,6 +51,10 @@ private:
     // Sticky demotion (lod/hlod_auto_route.h): non-empty once the automatic HLOD route demoted this world; it then keeps
     // the route it had without the automatic route until apply_world() runs again. Main thread.
     String hlod_auto_route_demoted_cause;
+    // Bumped by every submission this node makes; the demotion callback is bound to the value of the submission that
+    // carries it, so a request queued for an older submission (set_world()/apply_world() ran before it was delivered)
+    // is dropped instead of demoting its replacement. Main thread.
+    uint64_t hlod_auto_route_submission_generation = 0;
 
     // #862 coalescing latch. True from the moment a `changed` emission from the
     // assigned GaussianSplatWorld has queued a deferred resubmit until that
@@ -103,9 +107,9 @@ private:
     // A setup of this world the HLOD route never serves, as far as it is known at submission (nullptr if none); the
     // domain_refusal input of gs_hlod_auto_route::plan_world().
     const char *_hlod_auto_route_refusal() const;
-    // The renderer's demotion request, delivered deferred on the main thread through the director (callable_mp: never
-    // bound). Also used at submission for a refusal the node can see itself.
-    void _on_hlod_auto_route_demoted(const String &p_cause);
+    // The renderer's demotion request, delivered deferred on the main thread through the director (callable_mp bound to
+    // the submission generation). Dropped unless p_generation is the current submission's.
+    void _on_hlod_auto_route_demoted(const String &p_cause, uint64_t p_generation);
     // Records the demotion and warns once; false when already demoted or not applicable.
     bool _mark_hlod_auto_route_demoted(const String &p_cause);
     // Returns true when this node held a live director submission and the

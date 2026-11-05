@@ -1810,7 +1810,9 @@ bool GaussianSplatRenderer::request_hlod_auto_route_demotion(const gs_hlod_auto_
     // One request per submitted snapshot, also when nothing could be queued (no node callback): never every frame.
     state.hlod_auto_route_demotion.request(cause);
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
-    if (!director || !director->request_hlod_auto_route_demotion(this, state.hlod_owner_key, String(cause))) { return false; }
+    if (!director || !director->request_hlod_auto_route_demotion(this, state.hlod_owner_key, state.hlod_snapshot, String(cause))) {
+        return false;
+    }
     ++state.hlod_auto_route_demotions;
     state.hlod_reason = String(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX) + cause;
     return true;

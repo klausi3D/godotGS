@@ -13,6 +13,8 @@ extern "C" int test_hlod_auto_route_cpp_force_link() { return 0; }
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/resource_saver.h"
+#include "core/object/message_queue.h"
+#include "core/object/ref_counted.h"
 #include "core/os/os.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/scene_tree.h"
@@ -555,6 +557,138 @@ TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: 
 		CHECK(r.submission.hlod_reason == String("hlod_auto_route_demoted:quantized_mixed_dc_node"));
 		CHECK(r.submission.desired_residency_hint == STREAMING);
 	}
+}
+
+} // namespace TestHlodAutoRoute
+
+namespace TestHlodAutoRoute {
+
+TEST_CASE("[GaussianSplatting][HLOD] automatic route: installing a replacement snapshot re-arms the demotion latch, before the held one is overwritten") {
+	using gs_hlod_auto_route::DemotionLatch;
+	using gs_hlod_auto_route::install_snapshot;
+	Ref<RefCounted> first;
+	first.instantiate();
+	Ref<RefCounted> replacement;
+	replacement.instantiate();
+	Ref<RefCounted> held;
+	DemotionLatch latch;
+	CHECK(install_snapshot(held, first, latch));
+	CHECK(held == first);
+	CHECK(latch.request("unsupported_view_or_material"));
+	// The same snapshot again (a same-input resubmission): still requested, never every frame.
+	CHECK_FALSE(install_snapshot(held, first, latch));
+	CHECK(latch.requested);
+	// A replacement world on the same renderer (no demoted resubmission between): re-armed, a later refusal asks again.
+	CHECK(install_snapshot(held, replacement, latch));
+	CHECK(held == replacement);
+	CHECK_FALSE(latch.requested);
+	CHECK(latch.request("unsupported_view_or_material"));
+	// The demoted world resubmits without a snapshot: the latch and its cause stay (the render stat reports it).
+	CHECK(install_snapshot(held, Ref<RefCounted>(), latch));
+	CHECK(held.is_null());
+	CHECK(latch.requested);
+	CHECK(latch.cause == String("unsupported_view_or_material"));
+	// apply_world() again: a new snapshot re-arms it.
+	CHECK(install_snapshot(held, first, latch));
+	CHECK_FALSE(latch.requested);
+	CHECK(latch.cause.is_empty());
+}
+
+// A demotion request belongs to the submission whose snapshot was refused. Codex P2 on #1309: a request queued from the
+// render thread and delivered after set_world()/apply_world() demoted the newly applied submission instead (a supported
+// replacement world moved off the HLOD route for good, a paged one loaded into memory). Two halves: the director queues
+// only for the record's own snapshot, and the node drops a call bound to an older submission generation.
+TEST_CASE("[GaussianSplatting][HLOD][SceneDirector][SceneTree] automatic route: a demotion request for a replaced submission is dropped") {
+	SceneTree *tree = SceneTree::get_singleton();
+	Window *root = tree ? tree->get_root() : nullptr;
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (!root || !ps || root->get_world_3d().is_null()) { FAIL("SceneTree root with a World3D required"); return; }
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = director == nullptr;
+	if (owns_director) { director = memnew(GaussianSplatSceneDirector); }
+	const bool had_cut = ps->has_setting(CUT_KEY), had_route = ps->has_setting(ROUTE_KEY);
+	const Variant prev_cut = had_cut ? ps->get_setting(CUT_KEY) : Variant(), prev_route = had_route ? ps->get_setting(ROUTE_KEY) : Variant();
+	ps->set_setting(CUT_KEY, ps->property_get_revert(CUT_KEY));
+	ps->set_setting(ROUTE_KEY, ps->property_get_revert(ROUTE_KEY));
+	const String CAUSE = "unsupported_view_or_material";
+	const String DEMOTED = String("hlod_auto_route_demoted:") + CAUSE;
+	const RID scenario = root->get_world_3d()->get_scenario();
+	for (Tree kind : { Tree::RESIDENT, Tree::PAGED }) {
+		const String what = vformat("tree=%d", int(kind));
+		String path, replacement_path;
+		Ref<GaussianSplatWorld> world = load_world(kind, path);
+		Ref<GaussianSplatWorld> replacement = load_world(kind, replacement_path);
+		GaussianSplatWorld3D *world_node = nullptr;
+		if (world.is_null() || replacement.is_null()) {
+			FAIL(what, ": world fixture save/load failed");
+		} else {
+			world_node = memnew(GaussianSplatWorld3D);
+			world_node->set_auto_apply_on_ready(false);
+			world_node->set_world(world);
+			root->add_child(world_node);
+			tree->process(0.0);
+			world_node->apply_world();
+			const uint64_t owner = uint64_t(world_node->get_instance_id());
+			auto submitted = [&](GaussianSplatSceneDirector::WorldSubmission &r_s) {
+				r_s = GaussianSplatSceneDirector::WorldSubmission();
+				return director->get_world_submission(world_node->get_instance_id(), &r_s);
+			};
+			GaussianSplatSceneDirector::WorldSubmission first;
+			if (!submitted(first) || first.hlod_snapshot.is_null() || !first.hlod_demotion_callback.is_valid()) {
+				FAIL(what, ": the world did not take the HLOD route (reason ", first.hlod_reason, ")");
+			} else {
+				// 1. The exact race: the renderer's request is queued for the current snapshot, then apply_world() runs
+				//    before the deferred call is delivered. The replacement submission keeps its snapshot.
+				CHECK_MESSAGE(director->test_request_hlod_auto_route_demotion_for_scenario(scenario, owner, first.hlod_snapshot, CAUSE), what);
+				world_node->apply_world();
+				MessageQueue::get_singleton()->flush();
+				GaussianSplatSceneDirector::WorldSubmission second;
+				CHECK_MESSAGE(submitted(second), what);
+				CHECK_MESSAGE(second.hlod_snapshot.is_valid(), String(what + ": a request queued before apply_world() demoted its replacement"));
+				CHECK_MESSAGE(second.hlod_reason != DEMOTED, what);
+				CHECK_MESSAGE(second.hlod_snapshot != first.hlod_snapshot, what);
+				if (kind == Tree::PAGED) {
+					CHECK_MESSAGE(world->has_hlod_paged_source(), String(what + ": a stale request loaded the paged world into memory"));
+				}
+				// 2. The renderer still holds the replaced snapshot (the new contract has not reached it): the director
+				//    queues nothing for the new submission.
+				CHECK_FALSE_MESSAGE(director->test_request_hlod_auto_route_demotion_for_scenario(scenario, owner, first.hlod_snapshot, CAUSE), what);
+				CHECK_FALSE_MESSAGE(director->test_request_hlod_auto_route_demotion_for_scenario(scenario, owner, Ref<GaussianSplatHlodRuntimeData>(), CAUSE), what);
+				// 3. The previous submission's callback, called directly, is dropped as well.
+				first.hlod_demotion_callback.call(CAUSE);
+				GaussianSplatSceneDirector::WorldSubmission after_stale;
+				CHECK_MESSAGE((submitted(after_stale) && after_stale.hlod_snapshot.is_valid() && after_stale.hlod_reason != DEMOTED), what);
+				// 4. A replacement world (set_world()) with a request of the old world in flight: the same.
+				CHECK_MESSAGE(director->test_request_hlod_auto_route_demotion_for_scenario(scenario, owner, after_stale.hlod_snapshot, CAUSE), what);
+				world_node->set_world(replacement);
+				MessageQueue::get_singleton()->flush();
+				GaussianSplatSceneDirector::WorldSubmission replaced;
+				CHECK_MESSAGE((submitted(replaced) && replaced.hlod_snapshot.is_valid() && replaced.hlod_reason != DEMOTED), String(what + ": a request of the old world demoted the replacement"));
+				if (kind == Tree::PAGED) {
+					CHECK_MESSAGE(replacement->has_hlod_paged_source(), String(what + ": a stale request loaded the replacement paged world into memory"));
+				}
+				// 5. A request for the current submission still demotes it (discrimination: the drop is not a blanket no).
+				CHECK_MESSAGE(director->test_request_hlod_auto_route_demotion_for_scenario(scenario, owner, replaced.hlod_snapshot, CAUSE), what);
+				MessageQueue::get_singleton()->flush();
+				GaussianSplatSceneDirector::WorldSubmission demoted;
+				CHECK_MESSAGE((submitted(demoted) && demoted.hlod_snapshot.is_null() && demoted.hlod_reason == DEMOTED), String(what + ": a current request did not demote"));
+				first = second = after_stale = replaced = demoted = GaussianSplatSceneDirector::WorldSubmission();
+			}
+		}
+		if (world_node) {
+			root->remove_child(world_node);
+			memdelete(world_node);
+		}
+		tree->process(0.0);
+		MessageQueue::get_singleton()->flush();
+		world.unref();
+		replacement.unref();
+		if (!path.is_empty()) { DirAccess::remove_absolute(path); }
+		if (!replacement_path.is_empty()) { DirAccess::remove_absolute(replacement_path); }
+	}
+	if (owns_director) { memdelete(director); }
+	if (had_cut) { ps->set_setting(CUT_KEY, prev_cut); } else { ps->clear(CUT_KEY); }
+	if (had_route) { ps->set_setting(ROUTE_KEY, prev_route); } else { ps->clear(ROUTE_KEY); }
 }
 
 } // namespace TestHlodAutoRoute

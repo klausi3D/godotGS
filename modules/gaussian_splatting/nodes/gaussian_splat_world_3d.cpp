@@ -659,7 +659,11 @@ bool GaussianSplatWorld3D::_mark_hlod_auto_route_demoted(const String &p_cause) 
     return true;
 }
 
-void GaussianSplatWorld3D::_on_hlod_auto_route_demoted(const String &p_cause) {
+void GaussianSplatWorld3D::_on_hlod_auto_route_demoted(const String &p_cause, uint64_t p_generation) {
+    // A request for an older submission: the snapshot it refused is gone, and the current one was not refused.
+    if (p_generation != hlod_auto_route_submission_generation) {
+        return;
+    }
     if (_mark_hlod_auto_route_demoted(p_cause)) {
         _resubmit_world_submission_if_registered();
     }
@@ -790,8 +794,12 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
             ? GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_RESIDENT
             : GaussianSplatSceneDirector::SUBMISSION_RESIDENCY_HINT_STREAMING;
     submission.desired_renderer_overrides = _build_desired_renderer_overrides();
+    // Every submission is a new generation, with or without a snapshot: a request still in flight for the previous one
+    // is stale from here on.
+    ++hlod_auto_route_submission_generation;
     if (submission.hlod_snapshot.is_valid()) {
-        submission.hlod_demotion_callback = callable_mp(this, &GaussianSplatWorld3D::_on_hlod_auto_route_demoted);
+        submission.hlod_demotion_callback = callable_mp(this, &GaussianSplatWorld3D::_on_hlod_auto_route_demoted)
+                .bind(hlod_auto_route_submission_generation);
     }
     if (!director->submit_world_submission(submission)) {
         if (_is_world_debug_enabled()) {

@@ -86,7 +86,9 @@ inline bool residency_hint_resident(bool p_route_policy_streaming, bool p_snapsh
 // streamed or paged world), or where that copy is a resident one the atlas budget thins (a world too large for its whole
 // tree), the world would draw less than without the automatic route. Such a refusal demotes the world: the renderer asks
 // once, the node resubmits it without a snapshot (a paged world loads its payload into memory), and it stays on that
-// route until it is applied again. Re-promotion is a follow-up.
+// route until it is applied again. Re-promotion is a follow-up. A request belongs to the snapshot that was refused: the
+// director queues it only while that snapshot is still the world's submitted one, and the node accepts it only for the
+// submission generation the callback was bound to, so a set_world()/apply_world() in between makes it stale.
 enum class RefusalStage {
 	FRAME, // a per-view refusal in prepare_hlod_frame()
 	PUBLISH, // a refusal while the bundle is published (try_publish_hlod_resident_contract())
@@ -135,7 +137,7 @@ inline const char *demotion_cause(const RefusalInputs &p_in) {
 }
 
 // One demotion request per submitted snapshot: the first refusal asks, later frames do not ask again. A new snapshot
-// (the world applied again) re-arms it.
+// (the world applied again, or replaced) re-arms it (install_snapshot()).
 struct DemotionLatch {
 	bool requested = false;
 	String cause;
@@ -152,5 +154,19 @@ struct DemotionLatch {
 		cause = String();
 	}
 };
+
+// The renderer installs a submitted snapshot into r_held. The comparison with the held snapshot is the only way to see a
+// replacement, so it runs here, before r_held is overwritten: a different, valid snapshot re-arms the latch (a demoted
+// world resubmits without one, which keeps the latch and its cause). Returns whether the snapshot changed. Templated on
+// the reference type so that the order is a CPU doctest.
+template <typename TSnapshotRef>
+inline bool install_snapshot(TSnapshotRef &r_held, const TSnapshotRef &p_next, DemotionLatch &r_latch) {
+	const bool changed = r_held != p_next;
+	if (changed && p_next.is_valid()) {
+		r_latch.rearm();
+	}
+	r_held = p_next;
+	return changed;
+}
 
 } // namespace gs_hlod_auto_route

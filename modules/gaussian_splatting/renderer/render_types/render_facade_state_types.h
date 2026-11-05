@@ -70,7 +70,8 @@ struct ResourceState {
     String hlod_last_refusal_reason;
     uint64_t hlod_refused_views = 0;
     // The automatic route's sticky demotion (lod/hlod_auto_route.h): one request per submitted snapshot (re-armed when a
-    // new snapshot is applied), and the total of requests this renderer queued. Render thread.
+    // new snapshot is installed, gs_hlod_auto_route::install_snapshot()), and the total of requests this renderer queued.
+    // Render thread.
     gs_hlod_auto_route::DemotionLatch hlod_auto_route_demotion;
     uint64_t hlod_auto_route_demotions = 0;
     float hlod_tau_px = 0.0f;
