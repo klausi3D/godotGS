@@ -35,6 +35,9 @@ public:
 		uint32_t slot_stride = 0; // max_chunk_splats
 		uint32_t instance_slots = 0; // draw_count * slot_stride
 		bool pancake = true;
+		// The renderer-wide opacity multiplier (render_config.opacity_multiplier: GaussianSplatWorld3D.opacity via the
+		// world's "opacity_multiplier" override), the same value tile_binning.glsl multiplies into every splat of every row.
+		float opacity_multiplier = 1.0f;
 		const LocalVector<uint32_t> *row_casts = nullptr; // Per bundle row, uploaded into the caster-owned buffer.
 	};
 

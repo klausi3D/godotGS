@@ -936,7 +936,10 @@ func _run_world_plus_instances_proof() -> bool:
 #   world_off - only the world's cast_shadow off (the node casts, so the shared renderer still gets a shadow pass): the
 #              world's shadow is gone, the node's stays, exactly the node's splats are drawn (Codex P2 on #1316);
 #   faded    - both cast, the node faded to opacity SC_FADED_OPACITY (peak alpha below the caster threshold, as drawn): its
-#              shadow is gone, the world's stays (Codex P2 on #1316: the caster ignored the instance opacity).
+#              shadow is gone, the world's stays (Codex P2 on #1316: the caster ignored the instance opacity);
+#   world_faded - both cast, the node back at opacity 1, the world node faded to SC_FADED_OPACITY: its opacity is the
+#              renderer-wide opacity_multiplier the colour raster applies to EVERY row (tile_binning.glsl), so both
+#              shadows are gone while both rows stay in the caster set.
 # The ROIs are where the light ray through each blocker's centre meets the floor; the camera sees them past the blockers.
 const SC_TIMEOUT_MSEC := 120_000
 const SC_FRAMES := 30
@@ -952,7 +955,8 @@ const SC_ROI_HALF := 2 # 5 x 5 pixels.
 # caster threshold (renderer/hlod_shadow_caster_plan.h kAlphaThreshold) for every splat.
 const SC_FADED_OPACITY := 0.1
 # Per phase: [world casts, node casts] as the floor must show it.
-const SC_PHASES := {"cast": [true, true], "row_off": [true, false], "world_off": [false, true], "faded": [true, false]}
+const SC_PHASES := {"cast": [true, true], "row_off": [true, false], "world_off": [false, true], "faded": [true, false],
+		"world_faded": [false, false]}
 const SC_STAT_KEYS := ["frame_count", "hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records",
 		"shadow_caster_frame", "shadow_casters_rastered", "shadow_caster_passes_cast", "shadow_caster_passes_refused",
 		"shadow_caster_last_refusal", "shadow_caster_source"]
@@ -1161,6 +1165,11 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 			world_node.set_cast_shadow(true)
 			ball.set_cast_shadow(true)
 			ball.set_opacity(SC_FADED_OPACITY)
+		elif phase == "world_faded":
+			world_node.set_cast_shadow(true)
+			ball.set_cast_shadow(true)
+			ball.set_opacity(1.0)
+			world_node.set_opacity(SC_FADED_OPACITY)
 		var slab_casts: bool = SC_PHASES[phase][0]
 		var ball_casts: bool = SC_PHASES[phase][1]
 		# Pump (wall clock bound) until the new caster set is in effect; the frames below are each checked.
@@ -1193,7 +1202,7 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 			if slab_casts:
 				if not _check(slab_ratio <= SC_MAX_RATIO, "%s: the world slab casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, slab_ratio, SC_MAX_RATIO]):
 					return false
-			elif not _check(slab_ratio >= SC_GONE_RATIO, "%s: the world with cast_shadow off still casts (ROI ratio %.3f < %.2f)" % [what, slab_ratio, SC_GONE_RATIO]):
+			elif not _check(slab_ratio >= SC_GONE_RATIO, "%s: the world with cast_shadow off or faded below the threshold still casts (ROI ratio %.3f < %.2f)" % [what, slab_ratio, SC_GONE_RATIO]):
 				return false
 			if ball_casts:
 				if not _check(ball_ratio <= SC_MAX_RATIO, "%s: the node instance casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, ball_ratio, SC_MAX_RATIO]):
@@ -1236,6 +1245,9 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 			return false
 	# The world left the caster set: only the node's splats are counted, although the world's records are still drawn.
 	if not _check(int(phases["world_off"]["casters_per_pass_max"]) == WI_INSTANCE_SPLATS, "shadow casters (" + mode + "): world off cast %s per pass (expected the node's %d)" % [phases["world_off"]["casters_per_pass_max"], WI_INSTANCE_SPLATS]):
+		return false
+	# The faded world's rows are still in the caster set: the missing shadows are the multiplier, not the mask.
+	if not _check(int(phases["world_faded"]["casters_per_pass_max"]) == int(phases["cast"]["casters_per_pass_min"]), "shadow casters (" + mode + "): world faded cast %s per pass, cast %s (a row left the caster set)" % [phases["world_faded"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"]]):
 		return false
 	# The faded node's row is still in the caster set (it casts and is drawn): its missing shadow is the opacity, not the mask.
 	if not _check(int(phases["faded"]["casters_per_pass_max"]) == int(phases["cast"]["casters_per_pass_min"]), "shadow casters (" + mode + "): faded cast %s per pass, cast %s (the faded node's row left the caster set)" % [phases["faded"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"]]):

@@ -5,7 +5,10 @@
 #include "../core/gs_vector_alloc.h"
 #include "../shaders/gs_shadow_caster.glsl.gen.h"
 
+#include "core/math/math_funcs.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+
+#include <cstring>
 
 namespace {
 
@@ -13,7 +16,7 @@ namespace {
 struct ShadowCasterPushConstant {
 	float light_from_frame[16]; // Column-major mat4.
 	float viewport[4]; // xy = atlas rect size, z = alpha threshold, w = low-pass dilation (texels^2).
-	uint32_t counts[4]; // x = draw records, y = slot stride, z = pancake, w = 0.
+	uint32_t counts[4]; // x = draw records, y = slot stride, z = pancake, w = opacity multiplier (float bits).
 };
 static_assert(sizeof(ShadowCasterPushConstant) == 96, "ShadowCasterPushConstant must match gs_shadow_caster.glsl Params");
 static_assert(sizeof(ShadowCasterPushConstant) % 16 == 0, "Push constants are reflected in 16-byte units");
@@ -204,7 +207,10 @@ bool GsSplatShadowCaster::draw(RenderingDevice *p_device, RID p_shadow_framebuff
 	push.counts[0] = p_inputs.draw_count;
 	push.counts[1] = p_inputs.slot_stride;
 	push.counts[2] = p_inputs.pancake ? 1u : 0u;
-	push.counts[3] = 0u;
+	// The layout stays 96 bytes: the multiplier rides in the spare uint as float bits (uintBitsToFloat in the shader).
+	// A non-finite value casts nothing rather than everything.
+	const float opacity_multiplier = Math::is_finite(p_inputs.opacity_multiplier) ? MAX(p_inputs.opacity_multiplier, 0.0f) : 0.0f;
+	memcpy(&push.counts[3], &opacity_multiplier, sizeof(float));
 
 	RD::DrawListID draw_list = p_device->draw_list_begin(p_shadow_framebuffer, RD::DRAW_DEFAULT_ALL, VectorView<Color>(), 0.0f, 0,
 			Rect2(p_atlas_rect));

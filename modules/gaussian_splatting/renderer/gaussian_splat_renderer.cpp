@@ -2059,6 +2059,9 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         // The hook does not name the light, so its pancake size is unknown here; casters in front of a cascade's near
         // plane are always clamped (Godot's default directional pancake is on). Never rejected.
         inputs.pancake = true;
+        // The colour path scales every splat of every row by the renderer-wide multiplier (render_pipeline_stages.cpp
+        // render_params.opacity_multiplier -> tile_binning.glsl); the caster applies the same current value.
+        inputs.opacity_multiplier = get_render_config().opacity_multiplier;
         inputs.row_casts = &record.row_casts;
         const Projection light_from_frame = gs_shadow_caster::frame_relative_shadow_clip(p_light_projection,
                 p_light_transform, p_flip_y, record.camera);

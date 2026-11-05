@@ -206,7 +206,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>counts</code></pre></td>
       <td><pre><code>uvec4</code></pre></td>
-      <td>x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = 0</td>
+      <td>x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = opacity multiplier (float bits)</td>
     </tr>
   </tbody>
 </table>

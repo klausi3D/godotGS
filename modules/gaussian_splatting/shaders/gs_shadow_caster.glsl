@@ -52,7 +52,7 @@ layout(set = 0, binding = 4, std430) readonly buffer RowCastBuffer {
 layout(push_constant, std430) uniform Params {
     mat4 light_from_frame;  // Godot directional shadow clip transform of a camera-relative position
     vec4 viewport;          // xy = atlas rect size in texels, z = alpha threshold, w = low-pass dilation (texels^2)
-    uvec4 counts;           // x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = 0
+    uvec4 counts;           // x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = opacity multiplier (float bits)
 } params;
 
 layout(location = 0) out vec2 v_sigma_uv; // Fragment position in units of sigma along the ellipse's eigen axes.
@@ -119,11 +119,14 @@ void main() {
         return;
     }
 
-    // The row's instance opacity (params.x: the node's opacity, _fill_instance_row; 1 for the world) scales the stored
-    // opacity exactly as the colour raster scales it (tile_binning.glsl, clamped to [0, 1] there too), before both the
-    // threshold test and the support radius: a faded node casts what it shows.
+    // The row's instance opacity (params.x: the node's opacity, _fill_instance_row; 1 for the world) and the renderer-wide
+    // opacity multiplier (the world node's opacity, applied by the colour raster to every row) scale the stored opacity
+    // exactly as tile_binning.glsl scales it (clamped to [0, 1] there too), before both the threshold test and the
+    // support radius: a faded node or world casts what it shows.
     InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
-    float opacity = clamp(atlas_gaussian_buffer.gaussians[atlas_index].opacity * instance.params.x, 0.0, 1.0);
+    float opacity_multiplier = uintBitsToFloat(params.counts.w);
+    float opacity = clamp(atlas_gaussian_buffer.gaussians[atlas_index].opacity * instance.params.x * opacity_multiplier,
+            0.0, 1.0);
     float threshold = params.viewport.z;
     // A splat whose peak alpha is below the threshold occludes nowhere.
     if (!(opacity >= threshold) || threshold <= 0.0) {
