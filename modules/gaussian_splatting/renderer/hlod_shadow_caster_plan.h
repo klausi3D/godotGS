@@ -18,6 +18,7 @@
 #include "hlod_world_instances.h"
 
 #include "core/math/projection.h"
+#include "core/math/rect2.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector3.h"
 
@@ -157,19 +158,46 @@ inline PassPlan plan_pass(const FrameRecord &p_record, bool p_orthographic_light
 	return plan;
 }
 
-// Godot's shadow-pass clip transform for a directional cascade (render_forward_clustered.cpp _render_shadow_pass ->
-// _render_shadow_append with p_flip_y = false, so scene_data.flip_y = true; RenderSceneDataRD::update_ubo applies
-// set_depth_correction(flip_y)): clip = correction * light_projection * light_transform^-1 * world.
-inline Projection godot_directional_shadow_clip(const Projection &p_light_projection, const Transform3D &p_light_transform) {
+// Godot's shadow-pass clip transform (render_forward_clustered.cpp): _render_shadow_pass hands _render_shadow_append
+// flip_y = true for a directional pass, _render_shadow_append sets scene_data.flip_y = !p_flip_y, and
+// RenderSceneDataRD::update_ubo applies set_depth_correction(scene_data.flip_y). So mesh casters of a directional
+// cascade use correction(false): clip = correction(!p_flip_y) * light_projection * light_transform^-1 * world.
+// The GS hook passes the same p_flip_y (true for directional). The receivers sample with
+// rectm * bias * correction(false, true, false) * camera * modelview (light_storage.cpp), which this matches texel for
+// texel. A correction(true) here mirrored every cascade about its light-space centre line (#1095 slice 1 review).
+inline Projection godot_shadow_clip(const Projection &p_light_projection, const Transform3D &p_light_transform, bool p_flip_y) {
 	Projection correction;
-	correction.set_depth_correction(true);
+	correction.set_depth_correction(!p_flip_y);
 	return correction * p_light_projection * Projection(p_light_transform.affine_inverse());
 }
 
 // The same transform for positions relative to the frame camera C (world = p + C), as the HLOD draw list stores them.
 inline Projection frame_relative_shadow_clip(const Projection &p_light_projection, const Transform3D &p_light_transform,
-		const Vector3 &p_frame_camera) {
-	return godot_directional_shadow_clip(p_light_projection, p_light_transform) * Projection(Transform3D(Basis(), p_frame_camera));
+		bool p_flip_y, const Vector3 &p_frame_camera) {
+	return godot_shadow_clip(p_light_projection, p_light_transform, p_flip_y) * Projection(Transform3D(Basis(), p_frame_camera));
+}
+
+// Where Godot's directional receivers sample a world point: atlas-normalised uv and depth of the shadow matrix of
+// light_storage.cpp (rectm * bias * correction(false, true, false) * camera * light_transform^-1), for a cascade rect
+// in normalised atlas coordinates. Used by the CPU tests to check the caster against the receiver.
+inline Vector3 godot_directional_receiver_sample(const Projection &p_light_projection, const Transform3D &p_light_transform,
+		const Rect2 &p_atlas_rect_normalized, const Vector3 &p_world) {
+	Projection correction;
+	correction.set_depth_correction(false, true, false);
+	Projection bias;
+	bias.set_light_bias();
+	Projection rectm;
+	rectm.set_light_atlas_rect(p_atlas_rect_normalized);
+	const Projection shadow = rectm * bias * correction * p_light_projection * Projection(p_light_transform.affine_inverse());
+	return shadow.xform(p_world);
+}
+
+// Where the caster writes a clip-space point: the draw list's viewport is the cascade rect (RenderingDevice
+// draw_list_begin region), framebuffer row 0 at ndc y = -1, so uv = rect.pos + (ndc.xy * 0.5 + 0.5) * rect.size.
+inline Vector3 caster_atlas_sample(const Projection &p_clip, const Rect2 &p_atlas_rect_normalized, const Vector3 &p_point) {
+	const Vector3 ndc = p_clip.xform(p_point);
+	return Vector3(p_atlas_rect_normalized.position.x + (ndc.x * 0.5f + 0.5f) * p_atlas_rect_normalized.size.x,
+			p_atlas_rect_normalized.position.y + (ndc.y * 0.5f + 0.5f) * p_atlas_rect_normalized.size.y, ndc.z);
 }
 
 // Pancake: casters in front of the cascade's near plane are clamped, never clipped (Godot's mesh casters do the same).

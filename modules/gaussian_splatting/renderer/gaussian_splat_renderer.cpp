@@ -2027,7 +2027,7 @@ bool GaussianSplatRenderer::_is_hlod_shadow_route_owner() const {
 }
 
 bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_light_projection,
-        const Transform3D &p_light_transform, const Rect2i &p_atlas_rect, RID p_shadow_framebuffer,
+        const Transform3D &p_light_transform, const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y,
         ShadowRenderResult &r_result) {
     auto &state = get_resource_state();
     const gs_shadow_caster::FrameRecord &record = state.hlod_shadow_caster_record;
@@ -2059,7 +2059,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         inputs.pancake = true;
         inputs.row_casts = &record.row_casts;
         const Projection light_from_frame = gs_shadow_caster::frame_relative_shadow_clip(p_light_projection,
-                p_light_transform, record.camera);
+                p_light_transform, p_flip_y, record.camera);
         String error;
         if (!splat_shadow_caster->draw(main_device, p_shadow_framebuffer, p_atlas_rect, light_from_frame, inputs, error)) {
             WARN_PRINT_ONCE(vformat("[GS Shadow] HLOD splat caster pass not drawn: %s", error));
@@ -2107,7 +2107,8 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
     if (_is_hlod_shadow_route_owner()) {
         // HLOD route (#1095, #1163): real casters from the main view's draw list, or an explicit refusal. Never the
         // color pipeline: a light view there would refuse the route and could release or idle the HLOD bundle.
-        return _render_hlod_shadow_casters(p_light_projection, p_light_transform, p_atlas_rect, p_shadow_framebuffer, result);
+        return _render_hlod_shadow_casters(p_light_projection, p_light_transform, p_atlas_rect, p_shadow_framebuffer, p_flip_y,
+                result);
     }
 
     if (!_ensure_shadow_output_compositor(rd)) {

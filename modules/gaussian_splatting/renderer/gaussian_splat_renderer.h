@@ -862,7 +862,7 @@ public:
     // enters the color pipeline for a light view: the pass draws the last active main view's draw list or refuses.
     bool _is_hlod_shadow_route_owner() const;
     bool _render_hlod_shadow_casters(const Projection &p_light_projection, const Transform3D &p_light_transform,
-            const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, ShadowRenderResult &r_result);
+            const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, ShadowRenderResult &r_result);
     std::unique_ptr<class GsSplatShadowCaster> splat_shadow_caster;
     static const char *_shadow_failure_reason_label(ShadowRenderFailureReason p_reason);
 

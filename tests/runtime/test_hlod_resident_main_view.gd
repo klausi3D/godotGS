@@ -593,6 +593,9 @@ func _run() -> void:
 		var shadow_casters_proved := await _run_shadow_caster_proof()
 		if not shadow_casters_proved:
 			return
+		var shadow_receivers_proved := await _run_shadow_receiver_proof()
+		if not shadow_receivers_proved:
+			return
 		_metrics["hlod_main_view_proof_status"] = "passed"
 		_emit_metrics()
 		_report.emit_pass()
@@ -1166,4 +1169,405 @@ func _run_shadow_caster_proof() -> bool:
 	scene.queue_free()
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
+	return true
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Shadow receivers (#1095 slice 1 review). Casters: a node ball above a wavy splat slab (the splat receiver), three node
+# balls spread in depth over the mesh floor and a 12 m node rod whose floor shadow crosses cascade splits (the mesh
+# receiver, at least two cascades). Every changed pixel between a no-caster control and the cast frame is attributed:
+#   - each shadow blob (connected component of the thresholded control - cast difference) must lie, pixel for pixel,
+#     inside the light-swept footprint of exactly one caster (traced back along the light to the caster's height);
+#     the slab's own floor shadow is allowed but not counted; anything else (duplicates, misplaced copies,
+#     self-shadow blotches on the slab) fails;
+#   - every counted caster has exactly one blob (blob count == caster count);
+#   - the rod's blob is one component across the cascade splits and its per-row width changes smoothly;
+#   - a shadowed splat keeps its ambient term (not pure black).
+const SR_SIZE := Vector2i(512, 512)
+const SR_FRAMES := 12
+const SR_DIFF := 0.08 # Luminance drop that counts as shadow.
+const SR_MIN_BLOB := 12 # Pixels; smaller components are noise and still fail if unattributable (see below).
+const SR_MARGIN := 0.25 # Metres around a caster footprint (soft edge, PCF, splat falloff).
+const SR_SLAB_CENTER := Vector3(-3.5, 1.5, -2.0)
+const SR_SLAB_HALF := 2.0
+const SR_SLAB_N := 160
+const SR_BALL_R := 0.45 # _wi_ball: radius 0.35 + splat sigma.
+
+
+func _sr_slab() -> GaussianSplatWorld:
+	var data := GaussianData.new()
+	data.resize(SR_SLAB_N * SR_SLAB_N)
+	var pos := PackedVector3Array()
+	var sc := PackedVector3Array()
+	var rot: Array[Quaternion] = []
+	var op := PackedFloat32Array()
+	var sh := PackedFloat32Array()
+	var tan_col := _wi_dc(Color(0.8, 0.72, 0.6))
+	var step := 2.0 * SR_SLAB_HALF / SR_SLAB_N
+	for iz in range(SR_SLAB_N):
+		for ix in range(SR_SLAB_N):
+			var x := -SR_SLAB_HALF + step * (ix + 0.5)
+			var z := -SR_SLAB_HALF + step * (iz + 0.5)
+			# A wavy sheet (slopes up to ~0.3): the receiver case that exposed billboard self-shadowing.
+			pos.append(SR_SLAB_CENTER + Vector3(x, 0.1 * sin(x * 3.2) * cos(z * 3.2), z))
+			sc.append(Vector3(step * 0.96, 0.01, step * 0.96))
+			rot.append(Quaternion())
+			op.append(0.9)
+			sh.append_array(tan_col)
+	data.set_positions(pos)
+	data.set_scales(sc)
+	data.set_rotations(rot)
+	data.set_opacities(op)
+	data.set_spherical_harmonics(sh)
+	var w := GaussianSplatWorld.new()
+	w.gaussian_data = data
+	if w.bake_hlod() != OK or not w.has_hlod_tree():
+		return null
+	return w
+
+
+func _sr_rod(length: float) -> GaussianSplatAsset:
+	var count := 1200
+	var a := GaussianSplatAsset.new()
+	a.set_splat_count(count)
+	var p := PackedFloat32Array()
+	var s := PackedFloat32Array()
+	var r := PackedFloat32Array()
+	var dc := PackedFloat32Array()
+	var o := PackedFloat32Array()
+	var d := _wi_dc(Color(0.9, 0.3, 0.9))
+	for i in range(count):
+		var t := -0.5 * length + length * (i + 0.5) / count
+		p.append_array(PackedFloat32Array([0.0, 0.0, t]))
+		s.append_array(PackedFloat32Array([0.12, 0.12, 0.12]))
+		r.append_array(PackedFloat32Array([0.0, 0.0, 0.0, 1.0]))
+		dc.append_array(d)
+		o.append(6.0)
+	a.set_positions(p)
+	a.set_scales(s)
+	a.set_rotations(r)
+	a.set_sh_dc_coefficients(dc)
+	a.set_opacity_logits(o)
+	return a
+
+
+# A caster: a horizontal segment [a, b] at height a.y with footprint radius r (a ball is a = b).
+func _sr_caster(name: String, a: Vector3, b: Vector3, r: float, counted: bool, rect: bool = false) -> Dictionary:
+	return {"name": name, "a": a, "b": b, "r": r, "counted": counted, "rect": rect}
+
+
+func _sr_seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
+	var ab := b - a
+	var t := 0.0 if ab.length_squared() < 1e-9 else clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+# Which receiver a pixel sees: the slab (plane y = slab height inside its rect) or the floor (y = 0). Pixels near the
+# slab edge are "edge" (excluded), as are pixels whose camera ray passes a caster.
+func _sr_receiver(camera: Camera3D, px: Vector2, casters: Array) -> Dictionary:
+	var o := camera.project_ray_origin(px)
+	var n := camera.project_ray_normal(px)
+	for c in casters:
+		if c["rect"]:
+			continue
+		# Ray-to-caster distance by sampling the ray around the caster's depth: closest approach to the segment.
+		var mid: Vector3 = (c["a"] + c["b"]) * 0.5
+		var t0 := (mid - o).dot(n)
+		var best := INF
+		for k in range(-12, 13):
+			var tt := t0 + k * 0.5
+			if tt > 0.0:
+				best = min(best, _sr_seg_dist(o + n * tt, c["a"], c["b"]))
+		if best < float(c["r"]) + 0.2:
+			return {"kind": "caster"}
+	if absf(n.y) < 1e-6:
+		return {"kind": "none"}
+	var ts := (SR_SLAB_CENTER.y - o.y) / n.y
+	if ts > 0.0:
+		var ps := o + n * ts
+		var dx := absf(ps.x - SR_SLAB_CENTER.x)
+		var dz := absf(ps.z - SR_SLAB_CENTER.z)
+		if dx <= SR_SLAB_HALF + 0.2 and dz <= SR_SLAB_HALF + 0.2:
+			if dx >= SR_SLAB_HALF - 0.25 or dz >= SR_SLAB_HALF - 0.25:
+				return {"kind": "edge"}
+			return {"kind": "slab", "p": ps}
+	var tf := -o.y / n.y
+	if tf <= 0.0:
+		return {"kind": "none"}
+	return {"kind": "floor", "p": o + n * tf}
+
+
+# Index of the caster whose light-swept footprint contains receiver point p, or -1.
+func _sr_owner(p: Vector3, casters: Array) -> int:
+	var d := SC_LIGHT_DIR.normalized()
+	for i in range(casters.size()):
+		var c: Dictionary = casters[i]
+		var ca: Vector3 = c["a"]
+		var h: float = ca.y
+		if h <= p.y + 0.05:
+			continue
+		var q := p - d * ((p.y - h) / d.y) # Back along the light, up to the caster's height.
+		if c["rect"]:
+			if absf(q.x - SR_SLAB_CENTER.x) <= SR_SLAB_HALF + SR_MARGIN and absf(q.z - SR_SLAB_CENTER.z) <= SR_SLAB_HALF + SR_MARGIN:
+				return i
+		elif _sr_seg_dist(q, c["a"], c["b"]) <= float(c["r"]) + SR_MARGIN:
+			return i
+	return -1
+
+
+func _sr_components(mask: PackedByteArray, w: int, h: int) -> Array:
+	var label := PackedInt32Array()
+	label.resize(w * h)
+	label.fill(-1)
+	var comps: Array = []
+	for start in range(w * h):
+		if mask[start] == 0 or label[start] >= 0:
+			continue
+		var pixels := PackedInt32Array()
+		var stack := PackedInt32Array([start])
+		label[start] = comps.size()
+		while not stack.is_empty():
+			var i: int = stack[stack.size() - 1]
+			stack.resize(stack.size() - 1)
+			pixels.append(i)
+			var x := i % w
+			var y := i / w
+			for nb in [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]:
+				if nb[0] < 0 or nb[1] < 0 or nb[0] >= w or nb[1] >= h:
+					continue
+				var j: int = nb[1] * w + nb[0]
+				if mask[j] != 0 and label[j] < 0:
+					label[j] = comps.size()
+					stack.append(j)
+		comps.append(pixels)
+	return comps
+
+
+func _sr_analyse(camera: Camera3D, control: Image, cast: Image, casters: Array, what: String, summary: Dictionary) -> bool:
+	var w := cast.get_width()
+	var h := cast.get_height()
+	var mask := PackedByteArray()
+	mask.resize(w * h)
+	var recv := []
+	recv.resize(w * h)
+	var slab_shadow_lum := []
+	# Classify only the pixels that got darker (the analysis cost is per shadow pixel, not per pixel).
+	for y in range(h):
+		for x in range(w):
+			var drop := control.get_pixel(x, y).get_luminance() - cast.get_pixel(x, y).get_luminance()
+			if drop < SR_DIFF:
+				continue
+			var i := y * w + x
+			var r := _sr_receiver(camera, Vector2(x + 0.5, y + 0.5), casters)
+			if r["kind"] != "slab" and r["kind"] != "floor":
+				continue
+			recv[i] = r
+			mask[i] = 1
+			if r["kind"] == "slab":
+				slab_shadow_lum.append(cast.get_pixel(x, y).get_luminance())
+	var comps := _sr_components(mask, w, h)
+	var per_caster := []
+	per_caster.resize(casters.size())
+	per_caster.fill(0)
+	var blobs := []
+	for comp in comps:
+		var owners := {}
+		var unowned := 0
+		var receivers := {}
+		var first: int = comp[0]
+		var sample_px := Vector2i(first % w, first / w)
+		for i in comp:
+			var r: Dictionary = recv[i]
+			receivers[r["kind"]] = true
+			var o := _sr_owner(r["p"], casters)
+			if o < 0:
+				unowned += 1
+			else:
+				owners[o] = int(owners.get(o, 0)) + 1
+		var blob := {"pixels": comp.size(), "unowned": unowned, "owners": owners.keys().map(func(k): return casters[k]["name"]),
+				"receivers": receivers.keys(), "at": sample_px}
+		blobs.append(blob)
+		# No shadow where no caster is above: every shadow pixel lies in some caster's footprint.
+		if not _check(unowned == 0, "%s: shadow blob of %d px at %s on %s has %d px under no caster (duplicate, misplaced copy or self-shadow)" % [what, comp.size(), sample_px, receivers.keys(), unowned]):
+			summary["blobs"] = blobs
+			return false
+		if not _check(owners.size() == 1, "%s: one shadow blob at %s spans casters %s" % [what, sample_px, blob["owners"]]):
+			summary["blobs"] = blobs
+			return false
+		if comp.size() >= SR_MIN_BLOB:
+			per_caster[owners.keys()[0]] += 1
+	summary["blobs"] = blobs
+	for i in range(casters.size()):
+		var c: Dictionary = casters[i]
+		if c["counted"] and not _check(per_caster[i] == 1, "%s: caster %s has %d shadow blobs (expected exactly 1)" % [what, c["name"], per_caster[i]]):
+			return false
+	# A shadowed splat keeps ambient: never pure black.
+	if not _check(slab_shadow_lum.size() >= SR_MIN_BLOB, "%s: no shadow measured on the splat receiver" % what):
+		return false
+	var darkest: float = slab_shadow_lum.min()
+	summary["slab_shadow_min_luminance"] = darkest
+	if not _check(darkest > 0.02, "%s: a shadowed splat is pure black (luminance %.3f): the ambient term was removed" % [what, darkest]):
+		return false
+	# Cascade seams: the rod's shadow is one component (checked above) and its width per image row changes smoothly.
+	var rod_index := -1
+	for i in range(casters.size()):
+		if casters[i]["name"] == "rod":
+			rod_index = i
+	var widths := {}
+	for comp in comps:
+		if comp.size() < SR_MIN_BLOB or _sr_owner(recv[comp[0]]["p"], casters) != rod_index:
+			continue
+		for i in comp:
+			var y: int = int(i) / w
+			widths[y] = int(widths.get(y, 0)) + 1
+	var rows := widths.keys()
+	rows.sort()
+	if not _check(rows.size() >= 20, "%s: the rod's shadow covers only %d rows" % [what, rows.size()]):
+		return false
+	var worst := 0
+	# The rod's two ends taper (round splat caps): the seam check runs on the profile without 3 rows at each end.
+	for k in range(4, rows.size() - 3):
+		if int(rows[k]) != int(rows[k - 1]) + 1:
+			_check(false, "%s: the rod's shadow is broken between rows %d and %d (cascade seam)" % [what, rows[k - 1], rows[k]])
+			return false
+		var a: int = int(widths[rows[k - 1]])
+		var b: int = int(widths[rows[k]])
+		worst = max(worst, absi(a - b))
+		if not _check(absi(a - b) <= max(3, int(0.35 * max(a, b))), "%s: the rod's shadow width jumps %d -> %d px at row %d (cascade seam discontinuity)" % [what, a, b, rows[k]]):
+			return false
+	summary["rod_rows"] = rows.size()
+	summary["rod_max_row_width_step"] = worst
+	return true
+
+
+func _run_shadow_receiver_proof() -> bool:
+	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
+	get_root().size = SR_SIZE
+	var world := _sr_slab()
+	if not _check(world != null, "shadow receivers: slab world bake failed"):
+		return false
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color.BLACK
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color.WHITE
+	env.ambient_light_energy = 0.15
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	scene.add_child(world_env)
+	var camera := Camera3D.new()
+	camera.fov = 70.0
+	camera.near = 0.1
+	camera.far = 100.0
+	scene.add_child(camera)
+	camera.look_at_from_position(Vector3(0.0, 8.0, 9.0), Vector3(0.5, 0.0, -4.0), Vector3.UP)
+	camera.make_current()
+	var light := DirectionalLight3D.new()
+	light.shadow_enabled = true
+	light.light_energy = 0.5
+	light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	light.directional_shadow_max_distance = 40.0
+	light.directional_shadow_split_1 = 0.25
+	light.directional_shadow_split_2 = 0.4
+	light.directional_shadow_split_3 = 0.6
+	scene.add_child(light)
+	light.look_at_from_position(Vector3(0.0, 10.0, 0.0), Vector3(0.0, 10.0, 0.0) + SC_LIGHT_DIR.normalized(), Vector3.FORWARD)
+	var floor_mesh := PlaneMesh.new()
+	floor_mesh.size = Vector2(80.0, 80.0)
+	var floor_material := StandardMaterial3D.new()
+	floor_material.albedo_color = Color.WHITE
+	floor_material.roughness = 1.0
+	floor_mesh.material = floor_material
+	var floor_node := MeshInstance3D.new()
+	floor_node.mesh = floor_mesh
+	floor_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	scene.add_child(floor_node)
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = world
+	world_node.set_hlod_tau_px(0.5)
+	world_node.set_cast_shadow(false)
+	scene.add_child(world_node)
+	world_node.apply_world()
+	# Casters (node instances) and their footprints. The slab's own floor shadow is allowed, not counted.
+	var casters := [_sr_caster("slab", SR_SLAB_CENTER, SR_SLAB_CENTER, 0.0, false, true)]
+	var nodes: Array = []
+	var ball_spots := [["ball_on_slab", SR_SLAB_CENTER + Vector3(-0.4, 1.1, 0.0)], ["ball_near", Vector3(1.5, 1.2, 2.5)],
+			["ball_mid", Vector3(2.5, 1.2, -6.0)], ["ball_far", Vector3(3.5, 1.2, -14.0)]]
+	for spot in ball_spots:
+		var b := GaussianSplatNode3D.new()
+		b.set_splat_asset(_wi_ball(Color(0.2, 0.8, 0.2), 31 + nodes.size()))
+		b.set_cast_shadow(false)
+		b.position = spot[1]
+		scene.add_child(b)
+		nodes.append(b)
+		casters.append(_sr_caster(spot[0], spot[1], spot[1], SR_BALL_R, true))
+	var rod := GaussianSplatNode3D.new()
+	# On the left, so the camera sees its floor shadow (the light travels +x): from ~15 m to ~25 m away, across the
+	# 16 m and 24 m cascade splits.
+	rod.set_splat_asset(_sr_rod(12.0))
+	rod.set_cast_shadow(false)
+	var rod_center := Vector3(-8.5, 1.5, -7.0)
+	rod.position = rod_center
+	scene.add_child(rod)
+	nodes.append(rod)
+	casters.append(_sr_caster("rod", rod_center + Vector3(0, 0, -6.0), rod_center + Vector3(0, 0, 6.0), 0.3, true))
+	# Warm-up: route active with both producers.
+	var renderer: GaussianSplatRenderer = null
+	var stable := 0
+	var last := {}
+	while Time.get_ticks_msec() < deadline and stable < 10:
+		await RenderingServer.frame_post_draw
+		renderer = world_node.get_renderer()
+		if renderer == null:
+			continue
+		last = renderer.get_render_stats()
+		if str(last.get("hlod_reason", "")) == "active" and int(last.get("hlod_world_draw_records", 0)) > 0 and int(last.get("hlod_instance_draw_records", 0)) > 0:
+			stable += 1
+		else:
+			stable = 0
+	if not _check(stable >= 10, "shadow receivers: world + instances never became active together (reason=%s)" % last.get("hlod_reason", "MISSING")):
+		return false
+	var summary := {}
+	for f in range(SR_FRAMES):
+		await RenderingServer.frame_post_draw
+	var control := get_root().get_texture().get_image()
+	if not _check(control != null and control.get_size() == SR_SIZE and _sc_save(control, "receivers_control", summary), "shadow receivers: control capture missing"):
+		return false
+	world_node.set_cast_shadow(true)
+	for n in nodes:
+		n.set_cast_shadow(true)
+	var settle := 0
+	while Time.get_ticks_msec() < deadline and settle < 20:
+		await RenderingServer.frame_post_draw
+		settle += 1
+	var checked := 0
+	for f in range(3):
+		await RenderingServer.frame_post_draw
+		var what := "shadow receivers frame %d" % f
+		if not _check(Time.get_ticks_msec() < deadline, "%s: deadline" % what):
+			return false
+		var st := _sc_stats(renderer, what)
+		if st.is_empty() or not _sc_route_active(st, what):
+			return false
+		if not _check(int(st["shadow_caster_frame"]) == int(st["frame_count"]) - 1 and int(st["shadow_casters_rastered"]) > 0 and int(st["shadow_caster_passes_cast"]) >= 2, "%s: caster pass missing (frame %s/%s, rastered %s, passes %s)" % [what, st["shadow_caster_frame"], st["frame_count"], st["shadow_casters_rastered"], st["shadow_caster_passes_cast"]]):
+			return false
+		var cast := get_root().get_texture().get_image()
+		if f == 0 and not _sc_save(cast, "receivers_cast", summary):
+			return false
+		if not _sr_analyse(camera, control, cast, casters, what, summary):
+			_metrics["shadow_receivers"] = summary
+			return false
+		checked += 1
+	_metrics["shadow_receivers"] = summary
+	if not _check(checked == 3, "shadow receivers: %d of 3 frames analysed" % checked):
+		return false
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	get_root().size = WI_SIZE
 	return true

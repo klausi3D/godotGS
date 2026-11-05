@@ -194,31 +194,53 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-frame accounting sums th
 	CHECK(stats.last_refusal == Refusal::NO_ACTIVE_HLOD_VIEW);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the camera-relative clip transform is Godot's directional shadow transform") {
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster writes every cascade texel where Godot's receivers sample it") {
 	// A cascade like Godot builds it: orthographic, light looking down at a slant, origin near the camera.
 	Projection ortho;
 	ortho.set_orthogonal(-8.0f, 8.0f, -8.0f, 8.0f, 0.0f, 60.0f);
 	Transform3D light;
 	light.basis = Basis::from_euler(Vector3(Math::deg_to_rad(-60.0f), Math::deg_to_rad(20.0f), 0.0f));
 	light.origin = Vector3(3.0f, 30.0f, 5.0f);
-	const Projection world_clip = godot_directional_shadow_clip(ortho, light);
-	// Reverse-Z with depth correction: the near plane maps to depth 1, the far plane to 0.
 	const Vector3 forward = -light.basis.get_column(2);
-	const Vector3 near_point = light.origin + forward * 0.0f;
-	const Vector3 far_point = light.origin + forward * 60.0f;
-	CHECK(world_clip.xform(near_point).z == doctest::Approx(1.0f).epsilon(1e-4));
-	CHECK(world_clip.xform(far_point).z == doctest::Approx(0.0f).epsilon(1e-4));
-	// Depth correction flips y (flip_y = true for Godot's directional shadow passes).
-	Projection uncorrected = ortho * Projection(light.affine_inverse());
-	const Vector3 up_point = light.origin + forward * 10.0f + light.basis.get_column(1) * 2.0f;
-	CHECK(world_clip.xform(up_point).y == doctest::Approx(-uncorrected.xform(up_point).y).epsilon(1e-4));
+	const Vector3 right = light.basis.get_column(0);
+	const Vector3 up = light.basis.get_column(1);
+	// The four PSSM4 rects of a directional atlas (normalised), as _render_shadow_pass lays them out.
+	const Rect2 rects[] = { Rect2(0.0f, 0.0f, 0.5f, 0.5f), Rect2(0.5f, 0.0f, 0.5f, 0.5f), Rect2(0.0f, 0.5f, 0.5f, 0.5f),
+		Rect2(0.5f, 0.5f, 0.5f, 0.5f) };
+	// Points off the cascade's centre line in both light-space axes: a mirrored axis cannot coincide by accident.
+	const Vector3 points[] = { light.origin + forward * 10.0f + right * 5.0f + up * 6.0f,
+		light.origin + forward * 25.0f - right * 7.0f + up * 2.5f, light.origin + forward * 50.0f + right * 1.0f - up * 6.5f };
+	// The hook's flip_y for a directional pass is true, exactly what _render_shadow_pass hands Godot's mesh casters.
+	const Projection clip = godot_shadow_clip(ortho, light, true);
+	const Projection mirrored = godot_shadow_clip(ortho, light, false); // The pre-review convention: must NOT match.
+	int mirrored_mismatches = 0;
+	for (const Rect2 &rect : rects) {
+		for (const Vector3 &p : points) {
+			const Vector3 receiver = godot_directional_receiver_sample(ortho, light, rect, p);
+			const Vector3 caster = caster_atlas_sample(clip, rect, p);
+			CHECK(std::fabs(caster.x - receiver.x) <= 1e-5f);
+			CHECK(std::fabs(caster.y - receiver.y) <= 1e-5f);
+			CHECK(std::fabs(caster.z - receiver.z) <= 1e-5f);
+			// The caster stays inside its own rect: no cascade writes into another's.
+			CHECK(caster.x >= rect.position.x - 1e-6f);
+			CHECK(caster.x <= rect.position.x + rect.size.x + 1e-6f);
+			CHECK(caster.y >= rect.position.y - 1e-6f);
+			CHECK(caster.y <= rect.position.y + rect.size.y + 1e-6f);
+			const Vector3 wrong = caster_atlas_sample(mirrored, rect, p);
+			mirrored_mismatches += std::fabs(wrong.y - receiver.y) > 1e-3f ? 1 : 0;
+		}
+	}
+	CHECK(mirrored_mismatches == 4 * 3);
+	// Reverse-Z: the near plane maps to depth 1, the far plane to 0.
+	CHECK(clip.xform(light.origin).z == doctest::Approx(1.0f).epsilon(1e-4));
+	CHECK(clip.xform(light.origin + forward * 60.0f).z == doctest::Approx(0.0f).epsilon(1e-4));
 	// A camera-relative position p (world = p + C) lands where the world position does, near and far from the origin.
 	const Vector3 cameras[] = { Vector3(0, 0, 0), Vector3(1.5f, 2.0f, -3.0f), Vector3(1000.0f, 40.0f, -2000.0f) };
 	for (const Vector3 &camera : cameras) {
 		Transform3D moved = light;
 		moved.origin += camera; // Cascades follow the camera.
-		const Projection relative_clip = frame_relative_shadow_clip(ortho, moved, camera);
-		const Projection moved_world_clip = godot_directional_shadow_clip(ortho, moved);
+		const Projection relative_clip = frame_relative_shadow_clip(ortho, moved, true, camera);
+		const Projection moved_world_clip = godot_shadow_clip(ortho, moved, true);
 		const Vector3 samples[] = { Vector3(0, 0, 0), Vector3(2.0f, -1.0f, 4.0f), Vector3(-5.0f, 0.5f, -7.0f) };
 		for (const Vector3 &p : samples) {
 			const Vector3 a = relative_clip.xform(p);
