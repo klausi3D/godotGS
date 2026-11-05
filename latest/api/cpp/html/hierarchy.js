@@ -506,6 +506,7 @@ var hierarchy =
     [ "GaussianRenderFacadeState::ResourceState", "structGaussianRenderFacadeState_1_1ResourceState.html", null ],
     [ "gs_hlod_runtime::CutHistory::Result", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html", null ],
     [ "GaussianSHRotation::Rotation", "structGaussianSHRotation_1_1Rotation.html", null ],
+    [ "gs_hlod_bundle::Rows", "structgs__hlod__bundle_1_1Rows.html", null ],
     [ "GaussianRenderFrame::RuntimeErrorStatistics", "structGaussianRenderFrame_1_1RuntimeErrorStatistics.html", null ],
     [ "GaussianSplatRenderer::RuntimeFidelityPolicy", "structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html", null ],
     [ "RenderDataOrchestrator::RuntimePorts", "structRenderDataOrchestrator_1_1RuntimePorts.html", null ],

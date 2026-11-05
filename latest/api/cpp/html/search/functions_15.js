@@ -25,6 +25,7 @@ var searchData=
   ['verify_5ftexture_5fdevice_5fownership_22',['verify_texture_device_ownership',['../classResourceOwnerMismatchContract.html#a75a775bc84fc248022b0a363957fab54',1,'ResourceOwnerMismatchContract']]],
   ['view_5fcost_23',['view_cost',['../classgs__hlod__runtime_1_1ViewSet.html#a9685fce806abb03efeedbef9f0e23ed8',1,'gs_hlod_runtime::ViewSet']]],
   ['view_5fcount_24',['view_count',['../classgs__hlod__runtime_1_1ViewSet.html#ad54974aad4ba4e1da994e9b84e4ee180',1,'gs_hlod_runtime::ViewSet']]],
-  ['visible_5fscan_5fhad_5fcapacity_25',['visible_scan_had_capacity',['../classStreamingQueuePressureController.html#a5f2da5bc4d832bc100366b751284a423',1,'StreamingQueuePressureController']]],
-  ['vrambudgetregulator_26',['VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e',1,'VRAMBudgetRegulator']]]
+  ['visible_5fchunk_5fcapacity_25',['visible_chunk_capacity',['../namespacegs__hlod__bundle.html#a782ff555991399b5f13b051316db12a6',1,'gs_hlod_bundle']]],
+  ['visible_5fscan_5fhad_5fcapacity_26',['visible_scan_had_capacity',['../classStreamingQueuePressureController.html#a5f2da5bc4d832bc100366b751284a423',1,'StreamingQueuePressureController']]],
+  ['vrambudgetregulator_27',['VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e',1,'VRAMBudgetRegulator']]]
 ];

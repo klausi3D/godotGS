@@ -170,11 +170,12 @@ var searchData=
   ['builddevicecapabilityreportfn_167',['BuildDeviceCapabilityReportFn',['../classRenderDiagnosticsOrchestrator.html#a830cc25813b4fb630dd64dd33cc91874',1,'RenderDiagnosticsOrchestrator']]],
   ['buildparams_168',['BuildParams',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html',1,'GaussianSplatting::HierarchicalSplatStructure']]],
   ['built_5ffor_5fchunk_5fcount_169',['built_for_chunk_count',['../structChunkSpatialGrid.html#a5f86be01e4e11010f5912ab5ac825cfe',1,'ChunkSpatialGrid']]],
-  ['bypass_5fj_5fcol2_5fclamp_170',['bypass_j_col2_clamp',['../structGaussianRenderDebug_1_1JacobianDebugConfig.html#a860abea9dfdfed23cae5d1c118ff7be8',1,'GaussianRenderDebug::JacobianDebugConfig']]],
-  ['bypass_5fradius_5fdepth_5ffloor_171',['bypass_radius_depth_floor',['../structGaussianRenderDebug_1_1JacobianDebugConfig.html#aeb806c2c78e3003fe5ac93d3a2ae4bc6',1,'GaussianRenderDebug::JacobianDebugConfig']]],
-  ['bytes_172',['bytes',['../structGaussianRenderFacadeState_1_1HlodBundle.html#ae6ce7160373edea23fa942482c6fc43e',1,'GaussianRenderFacadeState::HlodBundle']]],
-  ['bytes_5fread_173',['bytes_read',['../classStagedFileChunkPayloadSource.html#a596f163164b0fe8d1b965686f6c15100',1,'StagedFileChunkPayloadSource::bytes_read'],['../structGaussianSplatHlodPagedSource_1_1Stats.html#a9644f34dd373ed44ab202b0feee79c3b',1,'GaussianSplatHlodPagedSource::Stats::bytes_read']]],
-  ['bytes_5frequested_174',['bytes_requested',['../classStagedFileChunkPayloadSource.html#ab5ef15273c169ddec02f3d481430cf4b',1,'StagedFileChunkPayloadSource']]],
-  ['bytes_5fuploaded_175',['bytes_uploaded',['../structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c',1,'StreamingUploadPipeline::UploadCoalescingCandidate::bytes_uploaded'],['../structStreamingUploadPipeline_1_1PendingChunkUpload.html#aba8725072f3c2896d2d0856390a6b976',1,'StreamingUploadPipeline::PendingChunkUpload::bytes_uploaded']]],
-  ['bytesperelement_176',['bytesPerElement',['../structspz_1_1PlyExtraElement.html#a96b0da2be6fa86f264316c0df6f5647d',1,'spz::PlyExtraElement']]]
+  ['bundle_5fbytes_170',['bundle_bytes',['../namespacegs__hlod__bundle.html#a9ecd045189c49de7045e04f9f2f4bb9d',1,'gs_hlod_bundle']]],
+  ['bypass_5fj_5fcol2_5fclamp_171',['bypass_j_col2_clamp',['../structGaussianRenderDebug_1_1JacobianDebugConfig.html#a860abea9dfdfed23cae5d1c118ff7be8',1,'GaussianRenderDebug::JacobianDebugConfig']]],
+  ['bypass_5fradius_5fdepth_5ffloor_172',['bypass_radius_depth_floor',['../structGaussianRenderDebug_1_1JacobianDebugConfig.html#aeb806c2c78e3003fe5ac93d3a2ae4bc6',1,'GaussianRenderDebug::JacobianDebugConfig']]],
+  ['bytes_173',['bytes',['../structGaussianRenderFacadeState_1_1HlodBundle.html#ae6ce7160373edea23fa942482c6fc43e',1,'GaussianRenderFacadeState::HlodBundle']]],
+  ['bytes_5fread_174',['bytes_read',['../classStagedFileChunkPayloadSource.html#a596f163164b0fe8d1b965686f6c15100',1,'StagedFileChunkPayloadSource::bytes_read'],['../structGaussianSplatHlodPagedSource_1_1Stats.html#a9644f34dd373ed44ab202b0feee79c3b',1,'GaussianSplatHlodPagedSource::Stats::bytes_read']]],
+  ['bytes_5frequested_175',['bytes_requested',['../classStagedFileChunkPayloadSource.html#ab5ef15273c169ddec02f3d481430cf4b',1,'StagedFileChunkPayloadSource']]],
+  ['bytes_5fuploaded_176',['bytes_uploaded',['../structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c',1,'StreamingUploadPipeline::UploadCoalescingCandidate::bytes_uploaded'],['../structStreamingUploadPipeline_1_1PendingChunkUpload.html#aba8725072f3c2896d2d0856390a6b976',1,'StreamingUploadPipeline::PendingChunkUpload::bytes_uploaded']]],
+  ['bytesperelement_177',['bytesPerElement',['../structspz_1_1PlyExtraElement.html#a96b0da2be6fa86f264316c0df6f5647d',1,'spz::PlyExtraElement']]]
 ];

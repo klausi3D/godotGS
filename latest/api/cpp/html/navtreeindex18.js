@@ -1,5 +1,6 @@
 var NAVTREEINDEX18 =
 {
+"gaussian__import__settings__dialog_8h_source.html":[2,0,0,0,4,11],
 "gaussian__importance_8h.html":[2,0,0,0,3,9],
 "gaussian__importance_8h_source.html":[2,0,0,0,3,9],
 "gaussian__inspector__plugins_8cpp.html":[2,0,0,0,4,12],
@@ -248,6 +249,5 @@ var NAVTREEINDEX18 =
 "gs__atomic__file__writer_8h.html#a818a3736f95555a62743cecd097bd551":[2,0,0,0,6,10,1],
 "gs__atomic__file__writer_8h.html#a8e261faf95a0f1ed7ad3b10dca89e9f9":[2,0,0,0,6,10,4],
 "gs__atomic__file__writer_8h.html#acf1356909b23bab0b6e4c3db5fb85caf":[2,0,0,0,6,10,2],
-"gs__atomic__file__writer_8h.html#aed869a97e9e2e37de65d95bbdc7987f5":[2,0,0,0,6,10,3],
-"gs__atomic__file__writer_8h_source.html":[2,0,0,0,6,10]
+"gs__atomic__file__writer_8h.html#aed869a97e9e2e37de65d95bbdc7987f5":[2,0,0,0,6,10,3]
 };

@@ -90,6 +90,7 @@ var searchData=
   ['gpu_5fvisible_5findices_5fbuffer_87',['gpu_visible_indices_buffer',['../structGPUCuller_1_1CullingState.html#a10eeb3da672a0604d4e5d68f988eb1eb',1,'GPUCuller::CullingState']]],
   ['gpu_5fvisible_5findices_5fcount_88',['gpu_visible_indices_count',['../structGPUCuller_1_1CullingState.html#a4bd73a9aa9d93ab2751e8e269b048da5',1,'GPUCuller::CullingState']]],
   ['gpu_5fvisible_5findices_5fdevice_89',['gpu_visible_indices_device',['../structGPUCuller_1_1CullingState.html#abb08a68bc3be14e5acb8b0c9f0ddbb34',1,'GPUCuller::CullingState']]],
-  ['growth_5fslack_5fpercent_90',['growth_slack_percent',['../structGaussianSplatting_1_1TileBufferShrinkPolicy.html#ab84b84bf6a5963756a872f756413341d',1,'GaussianSplatting::TileBufferShrinkPolicy']]],
-  ['gs_5fsplat_5fref_5fatlas_5findex_5fmask_91',['GS_SPLAT_REF_ATLAS_INDEX_MASK',['../namespacegs__splat__ref.html#abfcf275ee63142e2c2e2ba7b74af5357',1,'gs_splat_ref']]]
+  ['grading_90',['grading',['../structgs__hlod__bundle_1_1Rows.html#ab9639e115dec2ecc9efc6c24f7112020',1,'gs_hlod_bundle::Rows']]],
+  ['growth_5fslack_5fpercent_91',['growth_slack_percent',['../structGaussianSplatting_1_1TileBufferShrinkPolicy.html#ab84b84bf6a5963756a872f756413341d',1,'GaussianSplatting::TileBufferShrinkPolicy']]],
+  ['gs_5fsplat_5fref_5fatlas_5findex_5fmask_92',['GS_SPLAT_REF_ATLAS_INDEX_MASK',['../namespacegs__splat__ref.html#abfcf275ee63142e2c2e2ba7b74af5357',1,'gs_splat_ref']]]
 ];

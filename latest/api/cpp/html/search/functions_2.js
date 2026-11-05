@@ -45,5 +45,6 @@ var searchData=
   ['build_5froute_5fdecision_42',['build_route_decision',['../classRenderPipelineStages.html#a7faa6b10e31bc08536aabb2da05ecc6c',1,'RenderPipelineStages']]],
   ['build_5fruntime_5ffidelity_5fpolicy_43',['build_runtime_fidelity_policy',['../classGaussianSplatRenderer.html#a10c732cc4f854c526214256d0f98ca68',1,'GaussianSplatRenderer']]],
   ['build_5fsphere_5feffector_5fpayload_5ffor_5frenderer_44',['build_sphere_effector_payload_for_renderer',['../classGaussianSplatSceneDirector.html#addfc6f16fb986248aad64cc4cc6615a1',1,'GaussianSplatSceneDirector']]],
-  ['build_5fvisible_5findices_45',['build_visible_indices',['../classGaussianStreamingSystem.html#af95795ec107514677dd123e039d23ce9',1,'GaussianStreamingSystem']]]
+  ['build_5fvisible_5findices_45',['build_visible_indices',['../classGaussianStreamingSystem.html#af95795ec107514677dd123e039d23ce9',1,'GaussianStreamingSystem']]],
+  ['bundle_5fbytes_46',['bundle_bytes',['../namespacegs__hlod__bundle.html#a9ecd045189c49de7045e04f9f2f4bb9d',1,'gs_hlod_bundle']]]
 ];

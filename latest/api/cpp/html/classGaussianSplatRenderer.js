@@ -383,6 +383,7 @@ var classGaussianSplatRenderer =
     [ "reconcile_hlod_committed_edit", "classGaussianSplatRenderer.html#adc1d9fedb70ea3614971a6ba002c905e", null ],
     [ "record_sort_sample", "classGaussianSplatRenderer.html#a03c119e4d3d4be3771baad7b9e2a5137", null ],
     [ "refresh_gpu_sorter", "classGaussianSplatRenderer.html#a3318b7bc81f6d08018c9bc2eab1ea879", null ],
+    [ "refresh_hlod_instance_rows", "classGaussianSplatRenderer.html#a2a30b00b24eb2b39183cf999c64bc0b4", null ],
     [ "refresh_streaming_load_distance_limit", "classGaussianSplatRenderer.html#ac9f6826254d50a495b7b9e42a1db0e0d", null ],
     [ "register_hlod_known_view", "classGaussianSplatRenderer.html#a1ed8e91d7fbb9ada431a1cb7ed21fa91", null ],
     [ "release_hlod_bundle", "classGaussianSplatRenderer.html#a04ee6be0d3da557ef107ef51ca6ed945", null ],

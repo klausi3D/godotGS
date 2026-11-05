@@ -56,6 +56,7 @@ var namespaces_dup =
       [ "settle_outstanding_submit", "namespacegs__device__utils.html#a0790a6bd67a8deb285f07b44110b5256", null ]
     ] ],
     [ "gs_hlod", "namespacegs__hlod.html", "namespacegs__hlod" ],
+    [ "gs_hlod_bundle", "namespacegs__hlod__bundle.html", "namespacegs__hlod__bundle" ],
     [ "gs_hlod_gpu", "namespacegs__hlod__gpu.html", [
       [ "camera_relative_frustum_planes", "namespacegs__hlod__gpu.html#aa224d5f42528ec9b16271a83fb74c2bf", null ],
       [ "make_drawn_node", "namespacegs__hlod__gpu.html#aaa6b33cb5d408580a7ecb17e379506ae", null ],
