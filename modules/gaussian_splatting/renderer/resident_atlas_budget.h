@@ -293,13 +293,39 @@ inline uint64_t hlod_scale_texture_bytes_for_pixels(uint64_t live_bytes, uint64_
 // storage, must be provisioned for THIS view, per view and per frame. The new targets must fit the ledger headroom
 // (`wanted_texture_bytes` is what the grid would charge afterwards); otherwise the view is refused, honestly.
 enum class HlodViewGridAction { KEEP, RESIZE, REFUSE_MEMORY };
+// The bytes a view's grid provisioning still has to charge against the ledger headroom: 0 when the grid is kept.
+inline uint64_t hlod_view_grid_outstanding_bytes(int p_grid_x, int p_grid_y, int p_view_x, int p_view_y, uint32_t p_overlap_capacity,
+        uint64_t p_live_texture_bytes, uint64_t p_wanted_texture_bytes) {
+    if (p_grid_x == p_view_x && p_grid_y == p_view_y && p_overlap_capacity != 0) { return 0; }
+    return p_wanted_texture_bytes > p_live_texture_bytes ? p_wanted_texture_bytes - p_live_texture_bytes : 0;
+}
 inline HlodViewGridAction hlod_view_grid_action(int p_grid_x, int p_grid_y, int p_view_x, int p_view_y, uint32_t p_overlap_capacity,
         uint64_t p_live_texture_bytes, uint64_t p_wanted_texture_bytes, uint64_t p_headroom_bytes) {
     if (p_grid_x == p_view_x && p_grid_y == p_view_y && p_overlap_capacity != 0) { return HlodViewGridAction::KEEP; }
-    if (p_wanted_texture_bytes > p_live_texture_bytes && p_wanted_texture_bytes - p_live_texture_bytes > p_headroom_bytes) {
+    if (hlod_view_grid_outstanding_bytes(p_grid_x, p_grid_y, p_view_x, p_view_y, p_overlap_capacity, p_live_texture_bytes,
+                p_wanted_texture_bytes) > p_headroom_bytes) {
         return HlodViewGridAction::REFUSE_MEMORY;
     }
     return HlodViewGridAction::RESIZE;
+}
+
+// The ledger order of an HLOD frame (GaussianSplatRenderer::prepare_hlod_frame). Every step allocates from the same
+// headroom, route_limit - route_bytes. The world's MANDATORY allocations are owed first: the per-view tile grid
+// (hlod_view_grid_outstanding_bytes), the frame scratch (TileRenderer::get_hlod_scratch_outstanding_bytes) and the
+// ViewSet reservation of the views (CPU histories and draw records charged against the same headroom). Without them
+// the world draws nothing, and nothing that refuses them shrinks again, so a frame refused there stays refused.
+// OPTIONAL growth (the overlap storage after a measured overflow, and for the objects' estimate) only improves a frame
+// that draws anyway: it may spend only what is left once the outstanding mandatory bytes are set aside, and a refused
+// optional growth never blocks the world. Saturating: an unprovable sum leaves nothing for optional growth.
+inline uint64_t hlod_mandatory_outstanding_bytes(uint64_t p_grid_bytes, uint64_t p_scratch_bytes, uint64_t p_view_bytes) {
+    if (p_scratch_bytes > UINT64_MAX - p_grid_bytes) { return UINT64_MAX; }
+    const uint64_t sum = p_grid_bytes + p_scratch_bytes;
+    return p_view_bytes > UINT64_MAX - sum ? UINT64_MAX : sum + p_view_bytes;
+}
+inline uint64_t hlod_optional_growth_headroom(uint64_t p_route_limit, uint64_t p_route_bytes, uint64_t p_mandatory_outstanding_bytes) {
+    if (p_route_bytes >= p_route_limit) { return 0; }
+    const uint64_t headroom = p_route_limit - p_route_bytes;
+    return headroom > p_mandatory_outstanding_bytes ? headroom - p_mandatory_outstanding_bytes : 0;
 }
 
 } // namespace ResidentAtlasBudget

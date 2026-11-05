@@ -133,6 +133,10 @@ public:
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already
+    // allocated for these params; UINT64_MAX when the params can never be admitted). Same plan as the admission itself,
+    // so the HLOD route can reserve the outstanding scratch before any optional growth spends the headroom.
+    uint64_t get_hlod_scratch_outstanding_bytes(const RenderParams &p_params);
     // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
     // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
     // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
@@ -409,6 +413,14 @@ private:
     void _update_splat_audit_buffer(const RenderParams &p_params);
     uint32_t _get_projection_stride() const;
     uint64_t _compute_projection_buffer_bytes(uint32_t p_visible_count, uint32_t &r_capacity);
+    // The HLOD scratch admission plan shared by prepare_hlod_scratch() and get_hlod_scratch_outstanding_bytes().
+    struct HlodScratchPlan {
+        bool packed = false, sh = false, packed_changed = false, sh_changed = false, tighter_changed = false;
+        uint32_t divisor = 1u, history_entries = 0u;
+        uint64_t projection_bytes = 0, history_bytes = 0, sh_bytes = 0, visibility_bytes = 0;
+        uint64_t extra = 0; // Full new allocations the admission charges against its headroom.
+    };
+    bool _plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan);
     void _destroy_output_textures();
 	    uint64_t _dispatch_tile_binning(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RID p_lighting_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync);

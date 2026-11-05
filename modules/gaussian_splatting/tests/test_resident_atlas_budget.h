@@ -535,6 +535,89 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] a ledger-bound 
     CHECK(hlod_stream_page_budget_with_instances(huge, UINT64_MAX / 2, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 0);
 }
 
+// Codex P1 on #1308 (4th round of one class): every step of prepare_hlod_frame() allocates from route_limit - route_bytes.
+// An optional overlap growth (measured overflow, the objects' estimate) that ran on the full headroom could spend the
+// bytes the page budget reserved for the frame scratch (or the view grid, or the ViewSet's view charge), and every
+// frame was then refused with tile_capacity_warmup_or_memory_limit: nothing shrinks again, so the world stayed blank.
+// The order is: mandatory world allocations are set aside first, optional growth gets only the rest.
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] optional overlap growth never spends the world's mandatory frame allocations") {
+    using namespace ResidentAtlasBudget;
+    struct Frame {
+        bool grew = false;
+        bool scratch_admitted = false;
+        bool view_affordable = false;
+    };
+    // prepare_hlod_frame()'s sequence: optional growth (if it fits what it may spend), grid, scratch, then the ViewSet's
+    // per-frame affordability check against what is left.
+    auto frame = [](uint64_t p_limit, uint64_t p_route, uint64_t p_grid, uint64_t p_scratch, uint64_t p_views, uint64_t p_growth) {
+        Frame f;
+        const uint64_t mandatory = hlod_mandatory_outstanding_bytes(p_grid, p_scratch, p_views);
+        if (p_growth <= hlod_optional_growth_headroom(p_limit, p_route, mandatory)) {
+            p_route += p_growth;
+            f.grew = true;
+        }
+        if (p_route > p_limit || p_limit - p_route < p_grid) { return f; }
+        p_route += p_grid;
+        if (p_limit - p_route < p_scratch) { return f; }
+        p_route += p_scratch;
+        f.scratch_admitted = true;
+        f.view_affordable = p_limit - p_route >= p_views;
+        return f;
+    };
+    const uint64_t route = uint64_t(900) << 20, scratch = uint64_t(40) << 20, views = uint64_t(3) << 20, growth = uint64_t(64) << 20;
+    // A ledger-bound streamed bundle on its first frame: the page budget left exactly the scratch + view charge, plus half
+    // of what the objects' growth would cost. The full headroom would admit the growth; the world must win.
+    {
+        const uint64_t limit = route + scratch + views + growth / 2;
+        const Frame f = frame(limit, route, 0, scratch, views, growth);
+        CHECK_FALSE(f.grew); // Refused, and the refusal blocks nothing:
+        CHECK(f.scratch_admitted);
+        CHECK(f.view_affordable);
+    }
+    // The same with a grid still to provision for this view (a streamed view of another size).
+    {
+        const uint64_t grid = uint64_t(12) << 20;
+        const uint64_t limit = route + grid + scratch + views + growth - 1;
+        const Frame f = frame(limit, route, grid, scratch, views, growth);
+        CHECK_FALSE(f.grew);
+        CHECK(f.scratch_admitted);
+        CHECK(f.view_affordable);
+    }
+    // Room for both: the growth happens and the world still gets everything it needs.
+    {
+        const uint64_t limit = route + scratch + views + growth;
+        const Frame f = frame(limit, route, 0, scratch, views, growth);
+        CHECK(f.grew);
+        CHECK(f.scratch_admitted);
+        CHECK(f.view_affordable);
+    }
+    // Once the scratch exists (steady state), only the views' charge is held back from optional growth.
+    CHECK(hlod_optional_growth_headroom(route + views + growth, route, hlod_mandatory_outstanding_bytes(0, 0, views)) == growth);
+    // Over the limit, or nothing beyond the mandatory bytes: no optional growth at all.
+    CHECK(hlod_optional_growth_headroom(route, route + 1, 0) == 0);
+    CHECK(hlod_optional_growth_headroom(route + scratch, route, scratch) == 0);
+    CHECK(hlod_optional_growth_headroom(route + scratch, route, scratch + 1) == 0);
+    // An unprovable sum (an inadmissible scratch plan is UINT64_MAX) leaves nothing for optional growth.
+    CHECK(hlod_mandatory_outstanding_bytes(1, UINT64_MAX, 0) == UINT64_MAX);
+    CHECK(hlod_mandatory_outstanding_bytes(0, 1, UINT64_MAX) == UINT64_MAX);
+    CHECK(hlod_optional_growth_headroom(UINT64_MAX, 0, hlod_mandatory_outstanding_bytes(5, UINT64_MAX, 5)) == 0);
+    // The grid's outstanding bytes are what hlod_view_grid_action() admits against the headroom: one rule.
+    for (int view_x : { 64, 128, 256 }) {
+        for (uint32_t overlap : { 0u, 1000u }) {
+            const uint64_t live = 4096, wanted = uint64_t(view_x) * 64;
+            const uint64_t outstanding = hlod_view_grid_outstanding_bytes(128, 128, view_x, view_x, overlap, live, wanted);
+            const bool keep = view_x == 128 && overlap != 0;
+            CHECK(outstanding == (keep ? 0u : (wanted > live ? wanted - live : 0u)));
+            if (!keep) {
+                CHECK(hlod_view_grid_action(128, 128, view_x, view_x, overlap, live, wanted, outstanding) == HlodViewGridAction::RESIZE);
+                if (outstanding > 0) {
+                    CHECK(hlod_view_grid_action(128, 128, view_x, view_x, overlap, live, wanted, outstanding - 1) == HlodViewGridAction::REFUSE_MEMORY);
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Paged] a frame the tile stage refuses is not active, names the refusal and is not ready (#1131)") {
     GaussianRenderFacadeState::ResourceState s;
     s.hlod_streaming = true;
