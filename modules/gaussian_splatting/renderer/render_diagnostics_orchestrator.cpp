@@ -1596,6 +1596,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
     stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
+    stats["hlod_auto_route_demotions"] = int64_t(resource_state.hlod_auto_route_demotions);
+    stats["hlod_auto_route_demotion_cause"] = resource_state.hlod_auto_route_demotion.cause;
     stats["hlod_owned_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
     stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;

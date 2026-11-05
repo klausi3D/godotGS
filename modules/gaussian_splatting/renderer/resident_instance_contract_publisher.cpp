@@ -1806,6 +1806,22 @@ String GaussianSplatRenderer::get_hlod_instance_refusal(uint64_t p_instance_key)
     return String();
 }
 
+bool GaussianSplatRenderer::request_hlod_auto_route_demotion(const gs_hlod_auto_route::RefusalInputs &p_refusal) {
+    auto &state = get_resource_state();
+    if (state.hlod_auto_route_demotion.requested) { return false; }
+    const char *cause = gs_hlod_auto_route::demotion_cause(p_refusal);
+    if (cause == nullptr) { return false; }
+    // One request per submitted snapshot, also when nothing could be queued (no node callback): never every frame.
+    state.hlod_auto_route_demotion.request(cause);
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director || !director->request_hlod_auto_route_demotion(this, state.hlod_owner_key, state.hlod_snapshot, String(cause))) {
+        return false;
+    }
+    ++state.hlod_auto_route_demotions;
+    state.hlod_reason = String(gs_hlod_auto_route::AUTO_ROUTE_DEMOTED_PREFIX) + cause;
+    return true;
+}
+
 const char *GaussianSplatRenderer::hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const {
     // Conditions under which the HLOD cut can never become active; a streamed bundle would then draw nothing for
     // ever, so these setups keep the whole-tree / legacy resident route (reason keys as in prepare_hlod_frame).
@@ -1964,6 +1980,12 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     }
     if (quantized && !input->quantized_eligible) {
         state.hlod_reason = "hlod_quantized_mixed_dc_node";
+        // A quantization switched on after the submission (the world node demotes at submission otherwise).
+        gs_hlod_auto_route::RefusalInputs refusal;
+        refusal.stage = gs_hlod_auto_route::RefusalStage::PUBLISH;
+        refusal.reason = "hlod_quantized_mixed_dc_node";
+        refusal.committed_edit = state.hlod_committed_edit.is_valid();
+        request_hlod_auto_route_demotion(refusal);
         release_hlod_resources();
         return 0;
     }
@@ -2094,13 +2116,35 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         // A paged snapshot holds no payload at all: it can only ever stream, and where streaming cannot activate
         // there is no whole-tree or canonical copy to fall back to, so it is refused with the reason.
         const char *streaming_unsupported = hlod_streaming_unsupported_reason(&rows.instances[gs_hlod_bundle::WORLD_ROW]);
+        const bool should_stream = ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits);
         if (input->is_paged() && streaming_unsupported != nullptr) {
             // The world node materializes the payload and uses the resident route for exactly these cases when it can
-            // see them at submission (GaussianSplatWorld::materialize_paged_resident); this is the late/dynamic case.
+            // see them at submission (GaussianSplatWorld::materialize_paged_resident); this is the late/dynamic case, and
+            // the automatic route demotes the world to that same load (lod/hlod_auto_route.h).
             state.hlod_reason = hlod_paged_reason_key(streaming_unsupported, true);
-            WARN_PRINT_ONCE(vformat("[GaussianSplatRenderer] A V4 paged world cannot use the HLOD route (%s) and draws nothing; "
-                                    "load a resident (v3) copy or fix the setting.", state.hlod_reason));
+            gs_hlod_auto_route::RefusalInputs refusal;
+            refusal.stage = gs_hlod_auto_route::RefusalStage::PUBLISH;
+            refusal.reason = streaming_unsupported;
+            refusal.no_canonical_copy = true;
+            refusal.committed_edit = state.hlod_committed_edit.is_valid();
+            if (!request_hlod_auto_route_demotion(refusal)) {
+                WARN_PRINT_ONCE(vformat("[GaussianSplatRenderer] A V4 paged world cannot use the HLOD route (%s) and draws nothing; "
+                                        "load a resident (v3) copy or fix the setting.", state.hlod_reason));
+            }
             return 0;
+        }
+        if (streaming_unsupported != nullptr && should_stream) {
+            // A world too large for its whole tree, in a setup that cannot stream: the whole-tree build below is refused by
+            // its own limits and the canonical copy is the thinned resident one, where the route it had without the
+            // automatic route streams it whole. Demote it (an edited world never is: decide_hlod_route refuses it).
+            gs_hlod_auto_route::RefusalInputs refusal;
+            refusal.stage = gs_hlod_auto_route::RefusalStage::PUBLISH;
+            refusal.reason = streaming_unsupported;
+            refusal.no_canonical_copy = true;
+            refusal.committed_edit = state.hlod_committed_edit.is_valid();
+            if (request_hlod_auto_route_demotion(refusal)) {
+                return 0;
+            }
         }
         // Package F1 (F-1): an edited world is served by the streamer ONLY (a whole-tree bundle packs the unedited payload and the
         // canonical copy is the unedited world). So a committed edit forces streaming, and where streaming is unsupported, or the
@@ -2108,7 +2152,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         // the next frame tries again, instead of building a route over the unedited data that would then blank for ever.
         String route_reason;
         const HlodRouteDecision route = decide_hlod_route(state.hlod_committed_edit.is_valid(), served->has_edits(), input->is_paged(),
-                ResidentAtlasBudget::hlod_should_stream(whole_atlas_bytes, atlas_limit, whole_fits), streaming_unsupported, route_reason);
+                should_stream, streaming_unsupported, route_reason);
         if (route == HlodRouteDecision::REFUSE) {
             state.hlod_reason = route_reason;
             return 0;
@@ -2314,6 +2358,17 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
         // ADR 4.4: an idle streamed world still draws the objects of this view (world records = 0).
         if (state.hlod_streaming) {
+            // A streamed or paged world has no canonical copy, so a main view the route does not serve (orthographic,
+            // multi-view/XR, painterly) or a domain that started after the submission would show no world splats. The
+            // automatic route demotes the world to the route it had without it (lod/hlod_auto_route.h); this frame still
+            // draws only the objects. Lifting these views on the route itself is follow-up F5.
+            gs_hlod_auto_route::RefusalInputs refusal;
+            refusal.stage = gs_hlod_auto_route::RefusalStage::FRAME;
+            refusal.reason = p_reason;
+            refusal.main_view = p_context.pass_kind == RenderPassKind::MAIN_VIEW;
+            refusal.no_canonical_copy = true;
+            refusal.committed_edit = state.hlod_committed_edit.is_valid();
+            request_hlod_auto_route_demotion(refusal);
             const bool with_instances = instance_draws_ready && !state.hlod_instance_draws.is_empty();
             if (idle_hlod_streaming_bundle(with_instances, instance_draws_origin_revision) && with_instances &&
                     p_context.pass_kind == RenderPassKind::MAIN_VIEW) {

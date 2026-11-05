@@ -1711,7 +1711,9 @@ GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_frame_backe
         }
     }
     // The HLOD cut only runs on the resident route. A world that carries a snapshot but takes the chunk-streaming
-    // route (route_policy=streaming) never reaches it: say so instead of reporting hlod_active=false with no reason.
+    // route never reaches it: say so instead of reporting hlod_active=false with no reason. Since the automatic route
+    // a world submission with a snapshot asks for the resident backend itself (lod/hlod_auto_route.h), so this is the
+    // case of a backend the plan forces to streaming (a file-backed payload) or a submission hint not yet observed.
     if (!plan.prefer_resident_backend && plan.streaming_requested && get_resource_state().hlod_snapshot.is_valid() &&
             gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
         plan.hlod_route_reason = "hlod_route_policy_chunk_streaming";
