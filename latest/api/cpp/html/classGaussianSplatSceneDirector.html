@@ -178,6 +178,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:afa3edd948b4f484ab58bcccf7033853b" id="r_afa3edd948b4f484ab58bcccf7033853b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afa3edd948b4f484ab58bcccf7033853b">get_world_submission</a> (ObjectID p_owner_id, <a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a> *r_submission) const</td></tr>
 <tr class="memitem:a4f8530c78df1fcdefe8dd0a8881e6eaa" id="r_a4f8530c78df1fcdefe8dd0a8881e6eaa"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f8530c78df1fcdefe8dd0a8881e6eaa">get_world_submission_for_scenario</a> (const RID &amp;p_scenario, <a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a> *r_submission) const</td></tr>
 <tr class="memitem:abbfc402e3617303c6c9008818c0ee0b2" id="r_abbfc402e3617303c6c9008818c0ee0b2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abbfc402e3617303c6c9008818c0ee0b2">has_hlod_world_submission</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, uint64_t p_owner) const</td></tr>
+<tr class="memitem:a3574afbefc62843c290317011ffc3ed2" id="r_a3574afbefc62843c290317011ffc3ed2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3574afbefc62843c290317011ffc3ed2">request_hlod_auto_route_demotion</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, uint64_t p_owner, const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_refused_snapshot, const String &amp;p_cause)</td></tr>
 <tr class="memitem:a546e1349e92792a1cbc6e4e7fa5c5486" id="r_a546e1349e92792a1cbc6e4e7fa5c5486"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a546e1349e92792a1cbc6e4e7fa5c5486">build_hlod_instance_rows_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;r_rows, LocalVector&lt; <a class="el" href="structInstanceGradingGPU.html">InstanceGradingGPU</a> &gt; &amp;r_grading, LocalVector&lt; uint64_t &gt; &amp;r_asset_ids, LocalVector&lt; uint64_t &gt; &amp;r_instance_keys) const</td></tr>
 <tr class="memitem:a269970737bade9539745b40b29d85389" id="r_a269970737bade9539745b40b29d85389"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a269970737bade9539745b40b29d85389">get_hlod_instance_refusal_for_node</a> (ObjectID p_node_id) const</td></tr>
 <tr class="memitem:abd7e4d162e826052ce91a74e33c150f7" id="r_abd7e4d162e826052ce91a74e33c150f7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7e4d162e826052ce91a74e33c150f7">has_world_submission_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer) const</td></tr>
@@ -1359,6 +1360,37 @@ Static Protected Member Functions</h2></td></tr>
           <td>(</td>
           <td class="paramtype"><a class="el" href="classgs__world__frame_1_1OriginShiftHook.html">gs_world_frame::OriginShiftHook</a> *</td>          <td class="paramname"><span class="paramname"><em>p_hook</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3574afbefc62843c290317011ffc3ed2" name="a3574afbefc62843c290317011ffc3ed2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3574afbefc62843c290317011ffc3ed2">&#9670;&#160;</a></span>request_hlod_auto_route_demotion()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatSceneDirector::request_hlod_auto_route_demotion </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *</td>          <td class="paramname"><span class="paramname"><em>p_renderer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_owner</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_refused_snapshot</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_cause</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

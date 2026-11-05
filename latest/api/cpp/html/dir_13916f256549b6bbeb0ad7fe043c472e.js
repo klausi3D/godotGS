@@ -2,6 +2,7 @@ var dir_13916f256549b6bbeb0ad7fe043c472e =
 [
     [ "hierarchical_splat_structure.cpp", "hierarchical__splat__structure_8cpp.html", null ],
     [ "hierarchical_splat_structure.h", "hierarchical__splat__structure_8h.html", "hierarchical__splat__structure_8h" ],
+    [ "hlod_auto_route.h", "hlod__auto__route_8h.html", "hlod__auto__route_8h" ],
     [ "hlod_edit.cpp", "hlod__edit_8cpp.html", "hlod__edit_8cpp" ],
     [ "hlod_edit.h", "hlod__edit_8h.html", "hlod__edit_8h" ],
     [ "hlod_matched_arms.cpp", "hlod__matched__arms_8cpp.html", null ],

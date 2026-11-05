@@ -6,6 +6,8 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "gpu_initialization_pending", "structGaussianRenderFacadeState_1_1ResourceState.html#a9e50dbb44e89f2c68fcada08a720df1c", null ],
     [ "gpu_resources_initialized", "structGaussianRenderFacadeState_1_1ResourceState.html#a055836c6ad351e5de79e09d1476094d1", null ],
     [ "hlod_active", "structGaussianRenderFacadeState_1_1ResourceState.html#a78999eb4c4a80035cc08736eab36712d", null ],
+    [ "hlod_auto_route_demotion", "structGaussianRenderFacadeState_1_1ResourceState.html#a72358d010a8ccdb945f4ebfedb8a3794", null ],
+    [ "hlod_auto_route_demotions", "structGaussianRenderFacadeState_1_1ResourceState.html#a577b154d73d872b3f072130c90019e1f", null ],
     [ "hlod_budget_bound_frames", "structGaussianRenderFacadeState_1_1ResourceState.html#aaa5f917051905b3aa167f7aca30c4a7c", null ],
     [ "hlod_bundle_builds", "structGaussianRenderFacadeState_1_1ResourceState.html#a8800619a987eb14a5fa340f38246eca4", null ],
     [ "hlod_canonical", "structGaussianRenderFacadeState_1_1ResourceState.html#a538d0287376f57a19d8d22049de6eacd", null ],

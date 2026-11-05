@@ -1,5 +1,17 @@
 var NAVTREEINDEX23 =
 {
+"quantization__config_8cpp.html#adb92671a7c697b1763e2bddca9010c2d":[2,0,0,0,12,38,1],
+"quantization__config_8h.html":[2,0,0,0,12,39],
+"quantization__config_8h.html#a8c11460d07de14a065bf834f2469116b":[2,0,0,0,12,39,1],
+"quantization__config_8h.html#ab52158f920a57bafe1a68c252f6e492b":[2,0,0,0,12,39,3],
+"quantization__config_8h.html#adb92671a7c697b1763e2bddca9010c2d":[2,0,0,0,12,39,2],
+"quantization__config_8h_source.html":[2,0,0,0,12,39],
+"rasterizer__interfaces_8h.html":[2,0,0,0,5,25],
+"rasterizer__interfaces_8h_source.html":[2,0,0,0,5,25],
+"register__types_8cpp.html":[2,0,0,0,15],
+"register__types_8cpp.html#a21549b99aac0bc832f5df5c261857a60":[2,0,0,0,15,1],
+"register__types_8cpp.html#a5c3368235dc93c1e40e169c0ec3fe553":[2,0,0,0,15,0],
+"register__types_8h.html":[2,0,0,0,16],
 "register__types_8h.html#a21549b99aac0bc832f5df5c261857a60":[2,0,0,0,16,1],
 "register__types_8h.html#a5c3368235dc93c1e40e169c0ec3fe553":[2,0,0,0,16,0],
 "register__types_8h_source.html":[2,0,0,0,16],
@@ -237,17 +249,5 @@ var NAVTREEINDEX23 =
 "streaming__quantization_8cpp.html":[2,0,0,0,3,72],
 "streaming__quantization_8h.html":[2,0,0,0,3,73],
 "streaming__quantization_8h_source.html":[2,0,0,0,3,73],
-"streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,74],
-"streaming__queue__pressure__controller_8h.html":[2,0,0,0,3,75],
-"streaming__queue__pressure__controller_8h_source.html":[2,0,0,0,3,75],
-"streaming__runtime__state_8h.html":[2,0,0,0,3,76],
-"streaming__runtime__state_8h_source.html":[2,0,0,0,3,76],
-"streaming__telemetry__adapter_8cpp.html":[2,0,0,0,3,77],
-"streaming__telemetry__adapter_8h.html":[2,0,0,0,3,78],
-"streaming__telemetry__adapter_8h_source.html":[2,0,0,0,3,78],
-"streaming__tier__cap__policy_8h.html":[2,0,0,0,3,79],
-"streaming__tier__cap__policy_8h_source.html":[2,0,0,0,3,79],
-"streaming__upload__pipeline_8cpp.html":[2,0,0,0,3,80],
-"streaming__upload__pipeline_8h.html":[2,0,0,0,3,81],
-"streaming__upload__pipeline_8h_source.html":[2,0,0,0,3,81]
+"streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,74]
 };

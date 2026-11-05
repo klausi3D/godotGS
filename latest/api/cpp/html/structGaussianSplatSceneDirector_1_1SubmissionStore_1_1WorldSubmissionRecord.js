@@ -6,6 +6,7 @@ var structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord
     [ "desired_residency_hint", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a491715530b724b35d1edb8f9e7f900e8", null ],
     [ "gaussian_data", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a673634cd89358e0ac45a0903d7571870", null ],
     [ "has_desired_residency_hint", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a94def9561e3f8e770393b2253a70b5a9", null ],
+    [ "hlod_demotion_callback", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a95e58be08307a958ed1837ce53139fac", null ],
     [ "hlod_reason", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a7fef4f84899ae742524445bf65ace480", null ],
     [ "hlod_snapshot", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a8090b77610a30aa907424a2919a3c03c", null ],
     [ "hlod_tau_px", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a2a3c43fd434f70c17bddb9c06b53cc35", null ],

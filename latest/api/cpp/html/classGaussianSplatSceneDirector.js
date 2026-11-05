@@ -59,6 +59,7 @@ var classGaussianSplatSceneDirector =
     [ "release_all_worlds", "classGaussianSplatSceneDirector.html#a557bbb32e424f3789ec688ec11a3f85a", null ],
     [ "release_world_submission", "classGaussianSplatSceneDirector.html#a31357804607e3e0a4dd27dfdd629c745", null ],
     [ "remove_world_origin_hook", "classGaussianSplatSceneDirector.html#a0023b9b67986e1c984ddb9ead91eb2c3", null ],
+    [ "request_hlod_auto_route_demotion", "classGaussianSplatSceneDirector.html#a3574afbefc62843c290317011ffc3ed2", null ],
     [ "set_world_origin", "classGaussianSplatSceneDirector.html#a162c3e5409620a89bd6bc480ac78462c", null ],
     [ "shift_world_origin_by", "classGaussianSplatSceneDirector.html#a1bf90d637d2d994389daf54ae6719169", null ],
     [ "submit_world_submission", "classGaussianSplatSceneDirector.html#ab94dbca3a5b1a21ac98fc4dae5d30ed7", null ],

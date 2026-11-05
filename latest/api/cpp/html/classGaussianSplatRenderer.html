@@ -796,6 +796,7 @@ Internal State Access</h2></td></tr>
 <tr class="memitem:adc1d9fedb70ea3614971a6ba002c905e" id="r_adc1d9fedb70ea3614971a6ba002c905e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc1d9fedb70ea3614971a6ba002c905e">reconcile_hlod_committed_edit</a> ()</td></tr>
 <tr class="memitem:a4721146d7d7aad42b319e13cb97814d8" id="r_a4721146d7d7aad42b319e13cb97814d8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4721146d7d7aad42b319e13cb97814d8">release_hlod_committed_edit</a> ()</td></tr>
 <tr class="memitem:a8aab70c47cdf1e92d0802bae6622ba48" id="r_a8aab70c47cdf1e92d0802bae6622ba48"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8aab70c47cdf1e92d0802bae6622ba48">hlod_streaming_unsupported_reason</a> (const <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> *p_instance) const</td></tr>
+<tr class="memitem:a1ece320cf854e2ca47b607c10615c767" id="r_a1ece320cf854e2ca47b607c10615c767"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1ece320cf854e2ca47b607c10615c767">request_hlod_auto_route_demotion</a> (const <a class="el" href="structgs__hlod__auto__route_1_1RefusalInputs.html">gs_hlod_auto_route::RefusalInputs</a> &amp;p_refusal)</td></tr>
 <tr class="memitem:ac5ea8855c16187dc15c6502113172128" id="r_ac5ea8855c16187dc15c6502113172128"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac5ea8855c16187dc15c6502113172128">publish_instance_pipeline_contract</a> (const <a class="el" href="#a63e992c84a5ac8a74405a07b90fb4ab2">InstancePipelineBuffers</a> &amp;p_buffers, const <a class="el" href="#a850e05e36aa427ee0147488a340b1da9">PublishedInstanceAssetRemap</a> &amp;p_remap, <a class="el" href="namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57">InstanceBackendPolicy</a> p_backend_policy, uint64_t p_source_generation, const String &amp;p_contract_shape=&quot;atlas_emulation&quot;)</td></tr>
 <tr class="memitem:ada7edd6e75566f1672d6c89231d689aa" id="r_ada7edd6e75566f1672d6c89231d689aa"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ada7edd6e75566f1672d6c89231d689aa">set_instance_pipeline_buffers</a> (const <a class="el" href="#a63e992c84a5ac8a74405a07b90fb4ab2">InstancePipelineBuffers</a> &amp;p_buffers)</td></tr>
 <tr class="memitem:ab10c8da57dee52f746a49b4e26c322f9" id="r_ab10c8da57dee52f746a49b4e26c322f9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab10c8da57dee52f746a49b4e26c322f9">clear_instance_pipeline_buffers</a> ()</td></tr>
@@ -8925,6 +8926,23 @@ Usage</h2>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype"><a class="el" href="#ae54af27b94801611f42f281b28c052ec">RasterStageOutput</a> *</td>          <td class="paramname"><span class="paramname"><em>r_raster_output</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1ece320cf854e2ca47b607c10615c767" name="a1ece320cf854e2ca47b607c10615c767"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1ece320cf854e2ca47b607c10615c767">&#9670;&#160;</a></span>request_hlod_auto_route_demotion()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatRenderer::request_hlod_auto_route_demotion </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__auto__route_1_1RefusalInputs.html">gs_hlod_auto_route::RefusalInputs</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_refusal</em></span></td><td>)</td>
+          <td></td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -106,6 +106,7 @@ var hierarchy =
     [ "ResourceOwnerMismatchContract::Decision", "structResourceOwnerMismatchContract_1_1Decision.html", null ],
     [ "GPUBufferManager::DeferredDeletionQueue", "classGPUBufferManager_1_1DeferredDeletionQueue.html", null ],
     [ "GaussianSplatSceneDirector::DeferredRendererWork", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html", null ],
+    [ "gs_hlod_auto_route::DemotionLatch", "structgs__hlod__auto__route_1_1DemotionLatch.html", null ],
     [ "RenderConfigOrchestrator::Dependencies", "structRenderConfigOrchestrator_1_1Dependencies.html", null ],
     [ "RenderDataOrchestrator::Dependencies", "structRenderDataOrchestrator_1_1Dependencies.html", null ],
     [ "RenderDebugStateOrchestrator::Dependencies", "structRenderDebugStateOrchestrator_1_1Dependencies.html", null ],
@@ -454,6 +455,7 @@ var hierarchy =
       [ "TileRenderer", "classTileRenderer.html", null ],
       [ "VRAMBudgetRegulator", "classVRAMBudgetRegulator.html", null ]
     ] ],
+    [ "gs_hlod_auto_route::RefusalInputs", "structgs__hlod__auto__route_1_1RefusalInputs.html", null ],
     [ "RenderBufferCustomDataRD", null, [
       [ "GaussianHlodViewLifetime", "classGaussianHlodViewLifetime.html", null ]
     ] ],
@@ -695,7 +697,9 @@ var hierarchy =
     [ "VRAMBudgetConfig", "structVRAMBudgetConfig.html", null ],
     [ "VRAMDebugStats", "structVRAMDebugStats.html", null ],
     [ "GaussianSplatPerformanceOverlay::FrameClock::Window", "structGaussianSplatPerformanceOverlay_1_1FrameClock_1_1Window.html", null ],
+    [ "gs_hlod_auto_route::WorldInputs", "structgs__hlod__auto__route_1_1WorldInputs.html", null ],
     [ "gs_world_frame::WorldOriginContext", "classgs__world__frame_1_1WorldOriginContext.html", null ],
+    [ "gs_hlod_auto_route::WorldPlan", "structgs__hlod__auto__route_1_1WorldPlan.html", null ],
     [ "GaussianSplatSceneDirector::WorldSubmission", "structGaussianSplatSceneDirector_1_1WorldSubmission.html", null ],
     [ "GaussianSplatRenderer::WorldSubmissionContract", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html", null ],
     [ "GaussianSplatSceneDirector::SubmissionStore::WorldSubmissionRecord", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html", null ],

@@ -972,7 +972,7 @@ var searchData=
   ['sqrt1_5f2_969',['sqrt1_2',['../namespacespz.html#af9d044eb63f05e27e9cc2b15626af2f8',1,'spz']]],
   ['squarednorm_970',['squaredNorm',['../namespacespz.html#a6247540e7504a09a9dc6c85d3fe36c7e',1,'spz']]],
   ['stability_971',['stability',['../structGaussianSplatting_1_1PainterlyMetadata.html#a3bb7cf6b59fa4fc77c63e12882547bc1',1,'GaussianSplatting::PainterlyMetadata']]],
-  ['stage_972',['stage',['../structGaussianRenderPipeline_1_1PipelineEvent.html#abb8427642d331967900aac693ea37d14',1,'GaussianRenderPipeline::PipelineEvent']]],
+  ['stage_972',['stage',['../structgs__hlod__auto__route_1_1RefusalInputs.html#a0f75a60d6e502f7545d9249f0e29c3d5',1,'gs_hlod_auto_route::RefusalInputs::stage'],['../structGaussianRenderPipeline_1_1PipelineEvent.html#abb8427642d331967900aac693ea37d14',1,'GaussianRenderPipeline::PipelineEvent::stage']]],
   ['stage_5fcull_5ftime_5fms_973',['stage_cull_time_ms',['../structGaussianSplatRenderer_1_1MonitorStreamingSnapshot.html#a12b94dd1317585895cb4d518476d7e47',1,'GaussianSplatRenderer::MonitorStreamingSnapshot']]],
   ['stage_5fedit_974',['stage_edit',['../classgs__hlod__runtime_1_1NodeResidency.html#a1baa884286603b8f050c553cecd72b32',1,'gs_hlod_runtime::NodeResidency::stage_edit()'],['../classHlodNodeStreamer.html#a69a21e557d321680b681bd1586bff120',1,'HlodNodeStreamer::stage_edit()'],['../classNodeResidency.html#a1baa884286603b8f050c553cecd72b32',1,'NodeResidency::stage_edit()']]],
   ['stage_5ferror_5fcode_5fname_975',['stage_error_code_name',['../namespaceGaussianSplatting_1_1ComputeInfrastructure.html#ab69c2bdf4111bc0616e63505a6de1fca',1,'GaussianSplatting::ComputeInfrastructure']]],

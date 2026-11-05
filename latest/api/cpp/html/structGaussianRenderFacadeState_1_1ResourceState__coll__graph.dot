@@ -6,23 +6,26 @@ digraph "GaussianRenderFacadeState::ResourceState"
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
   Node1 [id="Node000001",label="GaussianRenderFacadeState\l::ResourceState",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip=" "];
-  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_canonical</TD></TR>
+  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_auto_route_demotion</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node2 [id="Node000002",label="gs_hlod_auto_route\l::DemotionLatch",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__auto__route_1_1DemotionLatch.html",tooltip=" "];
+  Node3 -> Node1 [id="edge2_Node000001_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_canonical</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_relative</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node2 [id="Node000002",label="GaussianRenderFacadeState\l::HlodBundle",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1HlodBundle.html",tooltip=" "];
-  Node3 -> Node2 [id="edge2_Node000002_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">buffers</TD></TR>
+  Node3 [id="Node000003",label="GaussianRenderFacadeState\l::HlodBundle",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1HlodBundle.html",tooltip=" "];
+  Node4 -> Node3 [id="edge3_Node000003_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">buffers</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node3 [id="Node000003",label="GaussianRenderPipeline\l::InstancePipelineBuffers",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1InstancePipelineBuffers.html",tooltip=" "];
-  Node4 -> Node1 [id="edge3_Node000001_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_instance_region</TD></TR>
+  Node4 [id="Node000004",label="GaussianRenderPipeline\l::InstancePipelineBuffers",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1InstancePipelineBuffers.html",tooltip=" "];
+  Node5 -> Node1 [id="edge4_Node000001_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_instance_region</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node4 [id="Node000004",label="gs_hlod_bundle::Instance\lRegion",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__bundle_1_1InstanceRegion.html",tooltip=" "];
-  Node5 -> Node1 [id="edge4_Node000001_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_instance_row_data</TD></TR>
+  Node5 [id="Node000005",label="gs_hlod_bundle::Instance\lRegion",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__bundle_1_1InstanceRegion.html",tooltip=" "];
+  Node6 -> Node1 [id="edge5_Node000001_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_instance_row_data</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node5 [id="Node000005",label="gs_hlod_bundle::Rows",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__bundle_1_1Rows.html",tooltip=" "];
-  Node6 -> Node1 [id="edge5_Node000001_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_overlap_world_need</TD></TR>
+  Node6 [id="Node000006",label="gs_hlod_bundle::Rows",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__bundle_1_1Rows.html",tooltip=" "];
+  Node7 -> Node1 [id="edge6_Node000001_Node000007",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_overlap_world_need</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node6 [id="Node000006",label="gs_hlod_bundle::OverlapWorldNeed",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__bundle_1_1OverlapWorldNeed.html",tooltip=" "];
-  Node7 -> Node1 [id="edge6_Node000001_Node000007",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
+  Node7 [id="Node000007",label="gs_hlod_bundle::OverlapWorldNeed",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod__bundle_1_1OverlapWorldNeed.html",tooltip=" "];
+  Node8 -> Node1 [id="edge7_Node000001_Node000008",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">deletion_queue</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node7 [id="Node000007",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
+  Node8 [id="Node000008",label="GPUBufferManager::Deferred\lDeletionQueue",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUBufferManager_1_1DeferredDeletionQueue.html",tooltip=" "];
 }

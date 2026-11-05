@@ -5,6 +5,7 @@ var structGaussianSplatSceneDirector_1_1WorldSubmission =
     [ "desired_residency_hint", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a0c9bdf1571b29484e33b30588ed82c26", null ],
     [ "gaussian_data", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a6837331220e998cda93c556d5164106e", null ],
     [ "has_desired_residency_hint", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a411e00c0ffb4b859107e238b210ac596", null ],
+    [ "hlod_demotion_callback", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a40d0d5eb7a9d2274d87f07129b357a68", null ],
     [ "hlod_reason", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a71584aa4613818dab9eb5ac54eba60e9", null ],
     [ "hlod_snapshot", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a084c09e562cd6b2609d6ea1b45eccca8", null ],
     [ "hlod_tau_px", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#abb31b36169d088168d735cda96973e26", null ],
