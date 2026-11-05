@@ -121,6 +121,24 @@ inline uint64_t hlod_stream_page_budget(uint64_t atlas_limit_bytes, uint64_t rec
     return pages;
 }
 
+// PR1b: the page budget of a streamed world whose relative atlas also holds the node instances' region at its tail
+// (`instance_records` atlas records). The region's atlas bytes come off the atlas limit (`fixed_bundle_bytes` already
+// holds them for the HLOD-owned cap and the ledger), and its frame scratch is reserved next to the fixed scratch:
+// prepare_hlod_scratch() sizes the subpixel history and the SH cache from world records + instance records, so a budget
+// that reserved per-record scratch for the world's pages only would leave every frame refused once the region is large.
+inline uint64_t hlod_stream_page_budget_with_instances(uint64_t atlas_limit_bytes, uint64_t instance_records, uint64_t record_stride,
+        uint32_t page_splats, uint64_t total_node_pages, uint64_t fixed_bundle_bytes, uint64_t hlod_owned_cap_bytes,
+        uint64_t ledger_limit_bytes, uint64_t device_bytes, uint64_t scratch_fixed_bytes, uint64_t scratch_bytes_per_record) {
+    if (record_stride != 0 && instance_records > UINT64_MAX / record_stride) { return 0; }
+    if (scratch_bytes_per_record != 0 && instance_records > UINT64_MAX / scratch_bytes_per_record) { return 0; }
+    const uint64_t instance_atlas_bytes = instance_records * record_stride;
+    const uint64_t instance_scratch_bytes = instance_records * scratch_bytes_per_record;
+    if (instance_scratch_bytes > UINT64_MAX - scratch_fixed_bytes) { return 0; }
+    return hlod_stream_page_budget(atlas_limit_bytes > instance_atlas_bytes ? atlas_limit_bytes - instance_atlas_bytes : 0u, record_stride,
+            page_splats, total_node_pages, fixed_bundle_bytes, hlod_owned_cap_bytes, ledger_limit_bytes, device_bytes,
+            scratch_fixed_bytes + instance_scratch_bytes, scratch_bytes_per_record);
+}
+
 // Records the relative HLOD atlas holds. The tile frame indexes its per-splat scratch (subpixel history, SH colour
 // cache, the 16-bit packed-stage index gate) by atlas record, so HLOD scratch admission must cover exactly this.
 // A resident atlas holds the tree (leaf + parent splats). A streamed atlas holds whole pages and every node rounds

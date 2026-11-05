@@ -2112,7 +2112,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             // page budget leaves the scratch admission refusing every frame.
             uint64_t scratch_fixed = 0, scratch_per_record = 0;
             TileRenderer::get_hlod_scratch_reservation(relative_capacity, scratch_fixed, scratch_per_record);
-            const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget(atlas_limit > instance_atlas_bytes ? atlas_limit - instance_atlas_bytes : 0u,
+            // PR1b: the instance region's records get their frame scratch too (prepare_hlod_scratch sizes it from world + region).
+            const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(atlas_limit, region.records,
                     record_stride, stream_config.page_splats,
                     node_pages, fixed_bytes, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, route_limit, device_bytes,
                     scratch_fixed, scratch_per_record);

@@ -496,6 +496,45 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] a ledger-bound 
     CHECK(hlod_stream_page_budget(10 * page_bytes, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 10);
 }
 
+// Codex P1 on #1308: prepare_hlod_frame() admits the frame scratch for world pages + the instance region's records
+// (total_gaussians = stream records + region.records). A ledger-bound page budget that reserved per-record scratch for
+// the world's pages only left the scratch admission refusing every frame once the region was large, and the prepared
+// bundle kept that page count, so it never recovered.
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] a ledger-bound page budget reserves the instance region's frame scratch too") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t stride = 176, page = 1024, page_bytes = stride * page, huge = uint64_t(1) << 40;
+    uint64_t scratch_fixed = 0, scratch_per_record = 0;
+    TileRenderer::get_hlod_scratch_reservation(252326u, scratch_fixed, scratch_per_record);
+    const uint64_t fixed_bundle = uint64_t(20) << 20, device = uint64_t(100) << 20;
+    const uint64_t page_ledger = page_bytes + page * scratch_per_record;
+    for (uint64_t instance_records : { uint64_t(0), uint64_t(12000), uint64_t(1) << 20, uint64_t(5) << 20 }) {
+        // A ledger one byte short of 11 world pages with their scratch, plus the region's scratch.
+        const uint64_t ledger = device + fixed_bundle + scratch_fixed + instance_records * scratch_per_record + 11 * page_ledger - 1;
+        const uint64_t pages = hlod_stream_page_budget_with_instances(huge, instance_records, stride, page, huge, fixed_bundle, huge,
+                ledger, device, scratch_fixed, scratch_per_record);
+        CHECK(pages == 10);
+        // What prepare_hlod_scratch() then admits from the remaining headroom: the fixed scratch plus the per-record
+        // scratch of every atlas record, world pages and instance region alike.
+        const uint64_t after_bundle = device + fixed_bundle + pages * page_bytes;
+        const uint64_t frame_scratch = scratch_fixed + (pages * page + instance_records) * scratch_per_record;
+        CHECK(ledger >= after_bundle);
+        CHECK(ledger - after_bundle >= frame_scratch);
+    }
+    // Without instances it is the world-only budget exactly.
+    for (uint64_t ledger : { device + fixed_bundle + scratch_fixed + 3 * page_ledger, device + fixed_bundle + scratch_fixed + 77 * page_ledger + 5 }) {
+        CHECK(hlod_stream_page_budget_with_instances(huge, 0, stride, page, huge, fixed_bundle, huge, ledger, device, scratch_fixed, scratch_per_record) ==
+                hlod_stream_page_budget(huge, stride, page, huge, fixed_bundle, huge, ledger, device, scratch_fixed, scratch_per_record));
+    }
+    // The region's atlas bytes come off an atlas-bound budget (they sit at the atlas tail).
+    CHECK(hlod_stream_page_budget_with_instances(10 * page_bytes, 2 * page, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 8);
+    // A region whose scratch alone exhausts the headroom admits no page (refused with a reason), never a page count the
+    // scratch admission would refuse on every frame.
+    CHECK(hlod_stream_page_budget_with_instances(huge, uint64_t(1) << 20, stride, page, huge, fixed_bundle, huge,
+                  device + fixed_bundle + scratch_fixed + (uint64_t(1) << 20) * scratch_per_record, device, scratch_fixed, scratch_per_record) == 0);
+    // Overflowing products refuse instead of wrapping.
+    CHECK(hlod_stream_page_budget_with_instances(huge, UINT64_MAX / 2, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 0);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Paged] a frame the tile stage refuses is not active, names the refusal and is not ready (#1131)") {
     GaussianRenderFacadeState::ResourceState s;
     s.hlod_streaming = true;
