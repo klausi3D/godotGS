@@ -4070,6 +4070,14 @@ bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
     return true;
 }
 
+bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom) {
+    const uint32_t needed = clamp_hlod_overlap_records(p_records);
+    if (needed <= global_sort_resources.capacity) { return false; }
+    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    _ensure_global_sort_resources(needed);
+    return true;
+}
+
 void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record) {
     // Mirrors prepare_hlod_scratch(): projection at the power-of-two capacity of the cut (_compute_projection_buffer_bytes),
     // visibility per cut splat, history max(records, cut) <= records + cut, and the SH cache 4 B per record plus the
@@ -4082,48 +4090,73 @@ void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_
     r_bytes_per_record = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) * GaussianSplatting::TILE_SH_CACHE_GROWTH_SLACK_PERCENT / 100u;
 }
 
-bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
+bool TileRenderer::_plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan) {
     // Resolve the CURRENT route's layout before admission, not the last pass's
     // settings. A canonical leaf atlas can fit packed indices while the all-node
     // HLOD atlas exceeds UINT16_MAX; toggling SH also changes required storage.
+    r_plan = HlodScratchPlan();
     const uint32_t total = p_params.total_gaussians;
     const uint32_t visible = p_params.max_visible_splats;
-    const bool packed = p_params.request_packed_stage_data && total <= UINT16_MAX;
-    const bool sh = p_params.request_sh_amortization && p_params.sh_amortization_divisor > 1u && total > 0;
-    const uint32_t divisor = sh ? p_params.sh_amortization_divisor : 1u;
-    const bool packed_changed = render_settings.enable_packed_stage_data != packed;
-    const bool sh_changed = render_settings.enable_sh_amortization != sh;
-    const bool tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
-    // Output targets and overlap storage must already be warm on the canonical
-    // path. Resizes return there instead of allocating textures after admission.
+    if (total == 0 || visible == 0) { return false; }
+    r_plan.packed = p_params.request_packed_stage_data && total <= UINT16_MAX;
+    r_plan.sh = p_params.request_sh_amortization && p_params.sh_amortization_divisor > 1u && total > 0;
+    r_plan.divisor = r_plan.sh ? p_params.sh_amortization_divisor : 1u;
+    r_plan.packed_changed = render_settings.enable_packed_stage_data != r_plan.packed;
+    r_plan.sh_changed = render_settings.enable_sh_amortization != r_plan.sh;
+    r_plan.tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
     // A streamed atlas can hold fewer records than the cut may draw splats (pages < leaves) or more (pages round up
     // per node): the frame sizes the history by the larger of the two (_validate_and_configure_settings), so admit it so.
-    const uint32_t history_entries = MAX(total, visible);
-    if (total == 0 || visible == 0 ||
+    r_plan.history_entries = MAX(total, visible);
+    uint32_t projection_capacity = 0;
+    _compute_projection_buffer_bytes(visible, projection_capacity);
+    r_plan.projection_bytes = uint64_t(projection_capacity) *
+            (r_plan.packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
+    r_plan.history_bytes = uint64_t(r_plan.history_entries) * sizeof(uint32_t);
+    r_plan.sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
+    r_plan.visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
+    if (r_plan.projection_bytes > UINT32_MAX || r_plan.history_bytes > UINT32_MAX || r_plan.visibility_bytes > UINT32_MAX) { return false; }
+    const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
+            uint32_t(r_plan.sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
+    // Count full new allocations: old RD buffers remain charged until actually retired.
+    if (r_plan.packed_changed || projection_buffers.projection_buffer_size < r_plan.projection_bytes) { r_plan.extra += r_plan.projection_bytes; }
+    if (subpixel_history_buffers.subpixel_history_size < r_plan.history_bytes) { r_plan.extra += r_plan.history_bytes; }
+    if (subpixel_visibility_buffers.subpixel_visibility_size < r_plan.visibility_bytes) { r_plan.extra += r_plan.visibility_bytes; }
+    if (r_plan.sh && sh_cache_buffers.sh_color_cache_size < r_plan.sh_bytes) { r_plan.extra += sh_plan.target_bytes; }
+    return true;
+}
+
+uint64_t TileRenderer::get_hlod_scratch_outstanding_bytes(const RenderParams &p_params) {
+    HlodScratchPlan plan;
+    return _plan_hlod_scratch(p_params, plan) ? plan.extra : UINT64_MAX;
+}
+
+bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
+    HlodScratchPlan plan;
+    const bool planned = _plan_hlod_scratch(p_params, plan);
+    const uint32_t total = p_params.total_gaussians;
+    const uint32_t visible = p_params.max_visible_splats;
+    const bool packed = plan.packed;
+    const bool sh = plan.sh;
+    const uint32_t divisor = plan.divisor;
+    const bool packed_changed = plan.packed_changed;
+    const bool sh_changed = plan.sh_changed;
+    const bool tighter_changed = plan.tighter_changed;
+    const uint32_t history_entries = plan.history_entries;
+    // Output targets and overlap storage must already be warm on the canonical
+    // path. Resizes return there instead of allocating textures after admission.
+    if (!planned ||
             grid_state.viewport_size != p_params.viewport_size || !render_targets.output_texture.is_valid() ||
             !render_targets.resolved_texture.is_valid() || !render_targets.normal_texture.is_valid() ||
             !render_settings.global_sort_enabled || get_allocated_overlap_capacity() == 0 ||
             !global_sort_resources.sorter.is_valid()) { return false; }
     uint64_t sorter_bytes = 0;
     if (!global_sort_resources.sorter->get_allocated_buffer_bytes(sorter_bytes)) { return false; }
-    uint32_t projection_capacity = 0;
-    _compute_projection_buffer_bytes(visible, projection_capacity);
-    const uint64_t projection_bytes = uint64_t(projection_capacity) *
-            (packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
-    const uint64_t history_bytes = uint64_t(history_entries) * sizeof(uint32_t);
-    const uint64_t sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
-    const uint64_t visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
-    if (projection_bytes > UINT32_MAX || history_bytes > UINT32_MAX || visibility_bytes > UINT32_MAX) { return false; }
-    const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
-            uint32_t(sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
-    uint64_t extra = 0;
-    if (packed_changed || projection_buffers.projection_buffer_size < projection_bytes) { extra += projection_bytes; }
-    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { extra += history_bytes; }
-    if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { extra += visibility_bytes; }
-    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) { extra += sh_plan.target_bytes; }
-    // Count full new allocations: old RD buffers remain charged until actually
-    // retired. The caller rechecks the actual ledger before publishing the cut.
-    if (extra > p_headroom) { return false; }
+    const uint64_t projection_bytes = plan.projection_bytes;
+    const uint64_t history_bytes = plan.history_bytes;
+    const uint64_t sh_bytes = plan.sh_bytes;
+    const uint64_t visibility_bytes = plan.visibility_bytes;
+    // The caller rechecks the actual ledger before publishing the cut.
+    if (plan.extra > p_headroom) { return false; }
     struct ScratchPreparationGuard {
         bool &active;
         explicit ScratchPreparationGuard(bool &p_active) : active(p_active) { active = true; }

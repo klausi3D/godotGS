@@ -691,6 +691,8 @@ GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot GaussianSplatRenderer
 	snapshot.async_upload_enabled = get_async_upload_enabled();
 	snapshot.opacity_multiplier = get_opacity_multiplier();
 	snapshot.max_splats = get_max_splats();
+	snapshot.view_max_splats = get_resource_state().hlod_view_splat_cap_clamped == snapshot.max_splats
+			? get_resource_state().hlod_view_splat_cap : 0;
 	snapshot.streaming_overrides = get_streaming_config_overrides();
 	snapshot.has_active_world_submission = world_submission_contract_active;
 	snapshot.has_desired_residency_hint = world_submission_has_residency_hint;
@@ -715,6 +717,8 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 	set_opacity_multiplier(p_snapshot.opacity_multiplier);
 	set_streaming_config_overrides(p_snapshot.streaming_overrides);
 	set_max_splats(MAX(1, p_snapshot.max_splats));
+	get_resource_state().hlod_view_splat_cap = p_snapshot.view_max_splats;
+	get_resource_state().hlod_view_splat_cap_clamped = p_snapshot.view_max_splats > 0 ? MAX(1, p_snapshot.max_splats) : 0;
 
 	const bool has_resident_data =
 			p_snapshot.gaussian_data.is_valid() && p_snapshot.gaussian_data->get_count() > 0;
@@ -799,6 +803,8 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	set_opacity_multiplier(p_contract.opacity_multiplier);
 	set_streaming_config_overrides(p_contract.streaming_overrides);
 	set_max_splats(MAX(1, p_contract.max_splats));
+	get_resource_state().hlod_view_splat_cap = p_contract.view_max_splats;
+	get_resource_state().hlod_view_splat_cap_clamped = p_contract.view_max_splats > 0 ? MAX(1, p_contract.max_splats) : 0;
 
 	const bool has_resident_data =
 			p_contract.gaussian_data.is_valid() && p_contract.gaussian_data->get_count() > 0;
@@ -876,6 +882,7 @@ void GaussianSplatRenderer::clear_world_submission_contract() {
     get_resource_state().hlod_snapshot.unref();
     get_resource_state().hlod_owner_key = 0;
     get_resource_state().hlod_world_key = 0;
+    get_resource_state().hlod_view_splat_cap = get_resource_state().hlod_view_splat_cap_clamped = 0;
 	world_submission_contract_active = false;
 	world_submission_has_residency_hint = false;
 	world_submission_residency_hint = 0;

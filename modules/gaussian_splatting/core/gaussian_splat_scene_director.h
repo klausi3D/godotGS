@@ -407,10 +407,33 @@ public:
     // exercised in a headless [SceneDirector] doctest without a RenderingDevice.
     uint64_t test_instance_generation_for_scenario(const RID &p_scenario) const;
     uint64_t test_instance_asset_generation_for_scenario(const RID &p_scenario) const;
+    // Test-only: has_hlod_world_submission / build_hlod_instance_rows_for_renderer for the world of a scenario (same
+    // code, located by scenario; rows use a null renderer-default grading). No RenderingDevice needed.
+    bool test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const;
+    void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
+            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+    // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
+    // max_splats is `p_renderer_max_splats` (the clamp to the data count and the pre-clamp view cap, PR1b).
+    static GaussianSplatRenderer::WorldSubmissionContract test_build_world_contract(const WorldSubmission &p_submission,
+            int p_renderer_max_splats);
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
     bool get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const;
-    bool has_exclusive_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
+    // The HLOD route's world: an active world submission owned by `p_owner` (ADR one-route-many-producers, PR1b). Node
+    // instances no longer make it exclusive: they join the route as rows 1..N (build_hlod_instance_rows_for_renderer).
+    bool has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
+    // The HLOD route's rows: row 0 is the world's identity row (asset 0), then one row per visible node instance with
+    // asset data, in instance-store order, built exactly as build_instance_buffer_for_renderer builds a node row.
+    // `r_asset_ids` and `r_instance_keys` are parallel: each row's 64-bit asset id and the stable key of its instance
+    // (the node's ObjectID; 0 for the world). Empty when there is no renderable world submission. Unlike
+    // build_instance_buffer_for_renderer (unchanged: the canonical routes keep their behaviour until follow-up F1),
+    // a node never removes the world row.
+    void build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<InstanceDataGPU> &r_rows,
+            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+    // The node's HLOD-route admission state in the last main view its renderer prepared: empty when it was drawn (or
+    // not visible in that view), otherwise the refusal reason (hlod_instance_reserve_exceeds_object_share). Internal,
+    // not a bound API (a bound query is a public-surface change).
+    String get_hlod_instance_refusal_for_node(ObjectID p_node_id) const;
     bool has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     // Current hint precedence is active world > homogeneous instance submissions.
     // Conflicting instance submission hints return false with source "mixed_instance_submissions".
@@ -1250,6 +1273,15 @@ private:
     // cache fresh via update_instance_scene_effector_filter().
     static uint32_t _build_scene_effector_mask_for_record(const InstanceRecord &p_record,
             const LocalVector<SphereEffectorSelection> &p_payload);
+    // The two row shapes shared by build_instance_buffer_for_renderer and build_hlod_instance_rows_for_renderer.
+    static bool _world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner);
+    // world_mutex held by the caller.
+    static void _build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
+            LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
+            LocalVector<uint64_t> &r_instance_keys);
+    static void _fill_world_identity_row(const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry);
+    static void _fill_instance_row(const InstanceRecord &p_record, const LocalVector<SphereEffectorSelection> &p_payload,
+            InstanceDataGPU &r_entry);
 
 	// Single source of truth for the SharedWorld::asset_records key. The key is
 	// the FULL 64-bit ObjectID; it must never be truncated to 32 bits or two

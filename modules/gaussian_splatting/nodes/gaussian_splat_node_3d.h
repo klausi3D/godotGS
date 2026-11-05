@@ -508,6 +508,12 @@ public:
     void set_splat_asset(const Ref<GaussianSplatAsset> &p_asset);
     Ref<GaussianSplatAsset> get_splat_asset() const { return splat_asset; }
     String get_asset_origin_label() const;
+    /**
+     * @brief This node's admission on the HLOD route in the last main view: empty when it was drawn (or was not
+     * visible), otherwise the refusal reason ("hlod_instance_reserve_exceeds_object_share": its reserve did not fit
+     * the objects' share of the view caps; it was not drawn at all). Internal C++ query, deliberately not bound.
+     */
+    String get_hlod_instance_refusal_reason() const;
 
     /** @brief Forces a reload of the current bound asset from its source path. */
     void reload_asset();

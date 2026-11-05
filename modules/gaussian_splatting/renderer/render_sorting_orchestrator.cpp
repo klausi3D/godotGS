@@ -829,6 +829,24 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 		}
 	};
 	bool sort_executed = false;
+	// PR1b: the depth sorts this renderer executed in one renderer frame (stats sort_dispatches_frame/sort_dispatch_frame).
+	// On the HLOD route one sort holds the world and the node instances, so a main view with both must count exactly one.
+	// Counted on every exit path, once per executed sort.
+	struct SortDispatchCounter {
+		GaussianRenderState::SortingState &sorting;
+		const bool &executed;
+		uint64_t frame;
+		~SortDispatchCounter() {
+			if (!executed) {
+				return;
+			}
+			if (sorting.sort_dispatch_frame != frame) {
+				sorting.sort_dispatch_frame = frame;
+				sorting.sort_dispatches_frame = 0;
+			}
+			++sorting.sort_dispatches_frame;
+		}
+	} sort_dispatch_counter{ sorting_state, sort_executed, uint64_t(frame_state_view.frame_counter) };
 	auto build_summary = [&]() {
 		GaussianRenderState::SortStageSummary summary;
 		summary.sorted_count = sorting_state.sorted_splat_count;

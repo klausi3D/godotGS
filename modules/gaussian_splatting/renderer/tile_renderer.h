@@ -133,6 +133,10 @@ public:
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already
+    // allocated for these params; UINT64_MAX when the params can never be admitted). Same plan as the admission itself,
+    // so the HLOD route can reserve the outstanding scratch before any optional growth spends the headroom.
+    uint64_t get_hlod_scratch_outstanding_bytes(const RenderParams &p_params);
     // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
     // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
     // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
@@ -158,6 +162,11 @@ public:
     // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
     // HLOD frames never grow it themselves. Returns true when it grew.
     bool grow_hlod_overlap_storage(uint64_t p_headroom);
+    // Same safe point (PR1b): grows the overlap storage to `p_records` (clamped like the seed) when it holds fewer, if the
+    // full new allocation fits `p_headroom` (32 B per record, as grow_hlod_overlap_storage charges). The HLOD route uses it
+    // so the node instances' record reserve is held next to the world's, instead of being taken out of a storage that only
+    // grows on a measured overflow (a world cut pinned coarse by the reserve never overflows). Returns true when it grew.
+    bool ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -404,6 +413,14 @@ private:
     void _update_splat_audit_buffer(const RenderParams &p_params);
     uint32_t _get_projection_stride() const;
     uint64_t _compute_projection_buffer_bytes(uint32_t p_visible_count, uint32_t &r_capacity);
+    // The HLOD scratch admission plan shared by prepare_hlod_scratch() and get_hlod_scratch_outstanding_bytes().
+    struct HlodScratchPlan {
+        bool packed = false, sh = false, packed_changed = false, sh_changed = false, tighter_changed = false;
+        uint32_t divisor = 1u, history_entries = 0u;
+        uint64_t projection_bytes = 0, history_bytes = 0, sh_bytes = 0, visibility_bytes = 0;
+        uint64_t extra = 0; // Full new allocations the admission charges against its headroom.
+    };
+    bool _plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan);
     void _destroy_output_textures();
 	    uint64_t _dispatch_tile_binning(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RID p_lighting_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync);

@@ -286,6 +286,9 @@ public:
         bool async_upload_enabled = true;
         float opacity_multiplier = 1.0f;
         int max_splats = 1000000;
+        // The view's splat cap BEFORE max_splats is clamped to the world's data count (0: not known). max_splats bounds what
+        // the world can draw; this is the pool the HLOD route's node instances reserve from (PR1b, ADR 4.5).
+        int view_max_splats = 0;
         GaussianStreamingSystem::ConfigOverrides streaming_overrides;
     };
 
@@ -309,6 +312,7 @@ public:
         bool async_upload_enabled = true;
         float opacity_multiplier = 1.0f;
         int max_splats = 1000000;
+        int view_max_splats = 0; // See WorldSubmissionContract::view_max_splats.
         GaussianStreamingSystem::ConfigOverrides streaming_overrides;
         bool has_active_world_submission = false;
         bool has_desired_residency_hint = false;
@@ -933,7 +937,15 @@ public:
     // (gs_hlod_bundle::PreparedRows::REUPLOAD). False when the rows can no longer be served in place (the caller releases).
     bool refresh_hlod_instance_rows();
     // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
-    bool idle_hlod_streaming_bundle();
+    // PR1b (ADR 4.4): with `p_with_instances` the view's instance records (resource state hlod_instance_draws, offsets
+    // for `p_origin_revision`) are still drawn: a loading world never hides the objects.
+    bool idle_hlod_streaming_bundle(bool p_with_instances = false, uint64_t p_origin_revision = 0);
+    // PR1b: the refusal reason of the instance with this key (the node's ObjectID) in the last main view the HLOD route
+    // prepared, or empty when it was not refused. Safe from any thread (guarded by hlod_instance_refusal_mutex).
+    String get_hlod_instance_refusal(uint64_t p_instance_key);
+    // PR1b: the view's splat cap C_view the node instances reserve from: the world contract's pre-clamp cap while
+    // max_splats still holds the contract's clamped value, otherwise max_splats itself (an explicit set_max_splats wins).
+    uint32_t get_hlod_view_splat_cap() const;
     // Package F1 (internal, deliberately not a bound API; the public surface needs its own R3 review): stages an edited
     // snapshot (lod/hlod_edit.h, derived from get_hlod_served_snapshot()) on the streamed HLOD route. The edit commits
     // inside the streamer's begin_frame() once its replacement cut is ready. False with an hlod_edit_* reason when it

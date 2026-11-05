@@ -161,6 +161,14 @@ static bool _renderer_requests_conservative_full_fidelity_runtime(const Gaussian
             return true;
         }
     }
+    // PR1b (ADR one-route-many-producers): a world on the HLOD route draws the node instances as rows of its own bundle,
+    // so their assets are not an unknown active source that calls for the conservative full-fidelity fallback below.
+    // That fallback disables LOD renderer-wide, which is what switches the HLOD cut off (lod_disabled_canonical_leaves):
+    // one node would take a whole-tree or streamed world off the route. An explicit full-fidelity request (above) still wins.
+    if (p_renderer->get_resource_state().hlod_snapshot.is_valid() &&
+            gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
+        return false;
+    }
     if (p_active_asset.is_null()) {
         return true;
     }

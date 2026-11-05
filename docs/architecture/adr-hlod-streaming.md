@@ -1434,7 +1434,8 @@ Mechanism.
   materialized into the resident shape by a cut toggle). The decision to draw nothing is taken **after** the publish
   attempt, in the same frame (`_publish_resident_direct_data_contract`; a publish attempt that did not publish also blanks): a frame whose route is not the streamed HLOD route
   serving the committed snapshot publishes **no** copy of the edited world and says `hlod_edit_route_unavailable:<why>`
-  (cut off, an unsupported setting, `hlod_not_exclusive_world_submission`, a failed or pending rebuild, an idle bundle
+  (cut off, an unsupported setting, `hlod_world_submission_inactive` (until PR1b of the one-route ADR:
+  `hlod_not_exclusive_world_submission`, which node instances no longer cause), a failed or pending rebuild, an idle bundle
   that could not be published). When no other instance exists the instance-pipeline buffers (which the sort and shadow
   passes read) are cleared and the frame is skipped. **While another instance exists, the edited world draws nothing and the
   others keep rendering**: the canonical publication runs without the world's own data. Every blank frame states the
