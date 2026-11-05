@@ -22,6 +22,7 @@
 #include "core/math/transform_3d.h"
 #include "core/math/vector3.h"
 
+#include <cmath>
 #include <cstdint>
 
 namespace gs_shadow_caster {
@@ -219,6 +220,28 @@ inline Vector3 caster_atlas_sample(const Projection &p_clip, const Rect2 &p_atla
 // Pancake: casters in front of the cascade's near plane are clamped, never clipped (Godot's mesh casters do the same).
 inline float pancake_depth(float p_ndc_z) {
 	return p_ndc_z >= kPancakeDepth ? kPancakeDepth : p_ndc_z;
+}
+
+// Eigenvalues of the dilated 2D footprint covariance [[a + w, b], [b, c + w]] (a, b, c without the low-pass w), in
+// float32 exactly as gs_shadow_caster.glsl computes them. The minor one is det / major, never mid - disc: for an
+// elongated splat mid - disc cancels catastrophically (a = 26214400, c ~ 0.3 gave 1e-8 instead of 0.3) and the quad
+// collapses to no fragments. det adds w's contribution separately from the cancelling a * c - b * b, and the dilated
+// covariance's minor eigenvalue is >= w by construction, so w is an exact floor.
+struct FootprintEigen {
+	float major = 0.0f;
+	float minor = 0.0f;
+};
+
+inline FootprintEigen footprint_eigenvalues(float p_a, float p_b, float p_c, float p_low_pass) {
+	const float a = p_a + p_low_pass;
+	const float c = p_c + p_low_pass;
+	const float mid = 0.5f * (a + c);
+	const float disc = std::sqrt(std::fmax(mid * mid - (a * c - p_b * p_b), 0.0f));
+	FootprintEigen e;
+	e.major = mid + disc;
+	const float det = std::fmax(p_a * p_c - p_b * p_b, 0.0f) + p_low_pass * (p_a + p_c) + p_low_pass * p_low_pass;
+	e.minor = e.major > 0.0f ? std::fmax(det / e.major, std::fmax(p_low_pass, 1e-8f)) : 0.0f;
+	return e;
 }
 
 // Per-renderer-frame caster accounting (stats shadow_caster_*). Shadow passes of a frame run before its main view, at

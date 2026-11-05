@@ -352,4 +352,46 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] casters in front of a cascad
 	CHECK(kAlphaThreshold < 1.0f);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] an elongated splat keeps its low-pass minor axis in float32") {
+	// The review case: scales (10, 1e-5) at 512 texels per unit, axis-aligned. Exact minor eigenvalue = c + w ~ 0.300026.
+	const float texels = 512.0f;
+	const float a = 100.0f * texels * texels; // 26214400
+	const float c = 1e-10f * texels * texels;
+	const FootprintEigen e = footprint_eigenvalues(a, 0.0f, c, kLowPassTexels2);
+	CHECK(e.major == doctest::Approx(a + kLowPassTexels2).epsilon(1e-6));
+	CHECK(e.minor == doctest::Approx(c + kLowPassTexels2).epsilon(1e-4));
+	// The previous mid - disc form loses it: discriminates the fix.
+	const float aw = a + kLowPassTexels2;
+	const float cw = c + kLowPassTexels2;
+	const float mid = 0.5f * (aw + cw);
+	const float disc = std::sqrt(std::fmax(mid * mid - aw * cw, 0.0f));
+	CHECK(std::fmax(mid - disc, 1e-8f) < 0.1f * kLowPassTexels2);
+
+	// Rotated by 30 degrees: the same Gaussian, now with b != 0. The minor axis still never drops below the low-pass.
+	const float major_raw = a;
+	const float minor_raw = c;
+	const float cs = std::cos(0.5235988f);
+	const float sn = std::sin(0.5235988f);
+	const float ra = major_raw * cs * cs + minor_raw * sn * sn;
+	const float rb = (major_raw - minor_raw) * cs * sn;
+	const float rc = major_raw * sn * sn + minor_raw * cs * cs;
+	const FootprintEigen r = footprint_eigenvalues(ra, rb, rc, kLowPassTexels2);
+	CHECK(r.major == doctest::Approx(a + kLowPassTexels2).epsilon(1e-5));
+	// Rotated, a * c - b * b itself cancels in float32 (the input is ill-conditioned), so only the floor is exact.
+	CHECK(r.minor >= kLowPassTexels2);
+	CHECK(std::isfinite(r.minor));
+	CHECK(r.minor <= r.major);
+
+	// A round splat: both eigenvalues are the same closed form.
+	const FootprintEigen round = footprint_eigenvalues(4.0f, 0.0f, 4.0f, kLowPassTexels2);
+	CHECK(round.major == doctest::Approx(4.0f + kLowPassTexels2));
+	CHECK(round.minor == doctest::Approx(4.0f + kLowPassTexels2));
+	// A general well-conditioned case matches the textbook roots.
+	const FootprintEigen g = footprint_eigenvalues(5.0f, 2.0f, 3.0f, 0.0f);
+	const float gm = 4.0f;
+	const float gd = std::sqrt(1.0f + 4.0f);
+	CHECK(g.major == doctest::Approx(gm + gd));
+	CHECK(g.minor == doctest::Approx(gm - gd));
+}
+
 } // namespace TestHlodShadowCasters

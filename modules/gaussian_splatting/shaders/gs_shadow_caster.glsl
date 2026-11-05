@@ -169,13 +169,20 @@ void main() {
     vec3 jy = vec3(params.light_from_frame[0][1], params.light_from_frame[1][1], params.light_from_frame[2][1]) * half_size.y;
     vec3 cjx = cov3 * jx;
     vec3 cjy = cov3 * jy;
-    float a = dot(jx, cjx) + params.viewport.w;
+    // Mirrors gs_shadow_caster::footprint_eigenvalues (renderer/hlod_shadow_caster_plan.h): the minor eigenvalue is
+    // det / major with the low-pass term added outside the cancelling a * c - b * b; mid - disc loses it in float32
+    // for elongated splats and collapses their quads.
+    float low_pass = params.viewport.w;
+    float a_raw = dot(jx, cjx);
     float b = dot(jx, cjy);
-    float c = dot(jy, cjy) + params.viewport.w;
+    float c_raw = dot(jy, cjy);
+    float a = a_raw + low_pass;
+    float c = c_raw + low_pass;
     float mid = 0.5 * (a + c);
     float disc = sqrt(max(mid * mid - (a * c - b * b), 0.0));
     float lambda0 = mid + disc;
-    float lambda1 = max(mid - disc, 1e-8);
+    float det = max(a_raw * c_raw - b * b, 0.0) + low_pass * (a_raw + c_raw) + low_pass * low_pass;
+    float lambda1 = lambda0 > 0.0 ? max(det / lambda0, max(low_pass, 1e-8)) : 1e-8;
     if (!(lambda0 > 0.0) || isinf(lambda0)) {
         gs_caster_reject();
         return;
