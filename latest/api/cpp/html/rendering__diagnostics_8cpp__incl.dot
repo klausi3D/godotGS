@@ -176,7 +176,7 @@ digraph "rendering_diagnostics.cpp"
   Node16 -> Node128 [id="edge122_Node000016_Node000128",color="steelblue1",style="solid",tooltip=" "];
   Node128 [id="Node000128",label="../interfaces/culler\l_interfaces.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$culler__interfaces_8h.html",tooltip=" "];
   Node128 -> Node32 [id="edge123_Node000128_Node000032",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node144 [id="edge124_Node000001_Node000144",color="steelblue1",style="solid",tooltip=" "];
-  Node144 [id="Node000144",label="../logger/gs_logger.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$gs__logger_8h.html",tooltip=" "];
-  Node144 -> Node52 [id="edge125_Node000144_Node000052",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node149 [id="edge124_Node000001_Node000149",color="steelblue1",style="solid",tooltip=" "];
+  Node149 [id="Node000149",label="../logger/gs_logger.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$gs__logger_8h.html",tooltip=" "];
+  Node149 -> Node52 [id="edge125_Node000149_Node000052",color="steelblue1",style="solid",tooltip=" "];
 }

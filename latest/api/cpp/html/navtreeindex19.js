@@ -1,5 +1,12 @@
 var NAVTREEINDEX19 =
 {
+"gs__atomic__file__writer_8cpp.html#aed869a97e9e2e37de65d95bbdc7987f5":[2,0,0,0,6,9,2],
+"gs__atomic__file__writer_8h.html":[2,0,0,0,6,10],
+"gs__atomic__file__writer_8h.html#a4544608ea6ee79d77c6d9510b28a00f5":[2,0,0,0,6,10,5],
+"gs__atomic__file__writer_8h.html#a818a3736f95555a62743cecd097bd551":[2,0,0,0,6,10,1],
+"gs__atomic__file__writer_8h.html#a8e261faf95a0f1ed7ad3b10dca89e9f9":[2,0,0,0,6,10,4],
+"gs__atomic__file__writer_8h.html#acf1356909b23bab0b6e4c3db5fb85caf":[2,0,0,0,6,10,2],
+"gs__atomic__file__writer_8h.html#aed869a97e9e2e37de65d95bbdc7987f5":[2,0,0,0,6,10,3],
 "gs__atomic__file__writer_8h_source.html":[2,0,0,0,6,10],
 "gs__debug__trace_8cpp.html":[2,0,0,0,8,0],
 "gs__debug__trace_8h.html":[2,0,0,0,8,1],
@@ -92,6 +99,8 @@ var NAVTREEINDEX19 =
 "hlod__view__set_8cpp.html":[2,0,0,0,7,12],
 "hlod__view__set_8h.html":[2,0,0,0,7,13],
 "hlod__view__set_8h_source.html":[2,0,0,0,7,13],
+"hlod__world__instances_8h.html":[2,0,0,0,12,31],
+"hlod__world__instances_8h_source.html":[2,0,0,0,12,31],
 "i__gaussian__loader_8cpp.html":[2,0,0,0,6,11],
 "i__gaussian__loader_8h.html":[2,0,0,0,6,12],
 "i__gaussian__loader_8h_source.html":[2,0,0,0,6,12],
@@ -99,8 +108,8 @@ var NAVTREEINDEX19 =
 "incremental__saver_8h.html":[2,0,0,0,11,4],
 "incremental__saver_8h_source.html":[2,0,0,0,11,4],
 "index.html":[],
-"instance__pipeline__contract_8h.html":[2,0,0,0,12,31],
-"instance__pipeline__contract_8h_source.html":[2,0,0,0,12,31],
+"instance__pipeline__contract_8h.html":[2,0,0,0,12,32],
+"instance__pipeline__contract_8h_source.html":[2,0,0,0,12,32],
 "interactive__state__interfaces_8h.html":[2,0,0,0,5,12],
 "interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ff":[2,0,0,0,5,12,5],
 "interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffa055c1a591abb0e8cd86dc969727bcc0b":[2,0,0,0,5,12,5,3],
@@ -240,14 +249,5 @@ var NAVTREEINDEX19 =
 "namespaceGaussianSplatting.html":[0,0,12],
 "namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73":[0,0,12,83],
 "namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a4cc58d806c6b6a9cd0c890f5104c1b45":[0,0,12,83,2],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a720b556cb0eb235fd8bbc3a3d28bc7aa":[0,0,12,83,3],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73ab50339a10e1de285ac99d4c3990b8693":[0,0,12,83,0],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73aed5137c562c73ba7dcee203d32c421c6":[0,0,12,83,4],
-"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73af0c1640c1b7a985c2f3863b8c0fc9438":[0,0,12,83,1],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fe":[0,0,12,70],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea05f06463532933fff1375106025a4357":[0,0,12,70,2],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea1292719256e4e16cdec3bd0442de3287":[0,0,12,70,1],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea30de1b99ca5457e514fbca676c577e7c":[0,0,12,70,0],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005feab6145be5aad8b22f7accfdf46a8b0ee6":[0,0,12,70,3],
-"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005feaca4f30aa2a1aa665ef0e47a27611ac27":[0,0,12,70,4]
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73a720b556cb0eb235fd8bbc3a3d28bc7aa":[0,0,12,83,3]
 };

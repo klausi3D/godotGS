@@ -95,6 +95,12 @@ $(function(){initNavTree('namespacegs__hlod__bundle.html','',''); });
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
 <tr class="memitem:Rows" id="r_Rows"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a></td></tr>
+<tr class="memitem:InstanceAsset" id="r_InstanceAsset"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1InstanceAsset.html">InstanceAsset</a></td></tr>
+<tr class="memitem:InstanceRegion" id="r_InstanceRegion"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a></td></tr>
+<tr class="memitem:OverlapWorldNeed" id="r_OverlapWorldNeed"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1OverlapWorldNeed.html">OverlapWorldNeed</a></td></tr>
+<tr class="memitem:ObjectDemand" id="r_ObjectDemand"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a></td></tr>
+<tr class="memitem:ObjectShare" id="r_ObjectShare"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1ObjectShare.html">ObjectShare</a></td></tr>
+<tr class="memitem:Admission" id="r_Admission"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-enum-members" class="groupheader"><a id="enum-members" name="enum-members"></a>
 Enumerations</h2></td></tr>
@@ -111,12 +117,38 @@ Functions</h2></td></tr>
 <tr class="memitem:a4e841ec1dae151d4e89b6a8394f18635" id="r_a4e841ec1dae151d4e89b6a8394f18635"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4e841ec1dae151d4e89b6a8394f18635">pack_instance_rows</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;r_packed)</td></tr>
 <tr class="memitem:a9ecd045189c49de7045e04f9f2f4bb9d" id="r_a9ecd045189c49de7045e04f9f2f4bb9d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ecd045189c49de7045e04f9f2f4bb9d">bundle_bytes</a> (uint64_t p_node_count, uint64_t p_records, bool p_relative, bool p_quantized, uint32_t p_capacity, uint32_t p_rows)</td></tr>
 <tr class="memitem:a40fc17a3d3c3e96b93d1dc87fc4a4dfc" id="r_a40fc17a3d3c3e96b93d1dc87fc4a4dfc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#af66c1700ac5f6460060b8b0b095067aa">PreparedRows</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a40fc17a3d3c3e96b93d1dc87fc4a4dfc">prepared_rows_action</a> (uint64_t p_prepared_asset_generation, uint64_t p_asset_generation, uint64_t p_prepared_row_generation, uint64_t p_row_generation, uint32_t p_prepared_rows, uint32_t p_row_count)</td></tr>
+<tr class="memitem:a3b584f5a796f2a4fe8de8d645f053a13" id="r_a3b584f5a796f2a4fe8de8d645f053a13"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3b584f5a796f2a4fe8de8d645f053a13">dense_id_for_asset</a> (uint64_t p_asset_id, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:a84ea7cd0bbb53ca7859883b6ba584688" id="r_a84ea7cd0bbb53ca7859883b6ba584688"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a84ea7cd0bbb53ca7859883b6ba584688">tally_rows</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;r_region)</td></tr>
+<tr class="memitem:a461196fc677f4afb6399acc8052ef838" id="r_a461196fc677f4afb6399acc8052ef838"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a461196fc677f4afb6399acc8052ef838">visible_chunk_capacity</a> (uint64_t p_node_count, bool p_relative, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:a7667be2d4b50290bc4ab701ec5885ed7" id="r_a7667be2d4b50290bc4ab701ec5885ed7"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7667be2d4b50290bc4ab701ec5885ed7">rows_refusal</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, uint64_t p_node_count, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:a516dfc9247839f48e871303ca79883ad" id="r_a516dfc9247839f48e871303ca79883ad"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a516dfc9247839f48e871303ca79883ad">pack_instance_rows</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region, LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;r_packed)</td></tr>
+<tr class="memitem:a851658f14e579b533b96e30e59fbca30" id="r_a851658f14e579b533b96e30e59fbca30"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a851658f14e579b533b96e30e59fbca30">bundle_bytes</a> (uint64_t p_node_count, uint64_t p_records, bool p_relative, bool p_quantized, uint32_t p_capacity, uint32_t p_rows, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:a73e1a358a0b3d8534bec90592ed9f75f" id="r_a73e1a358a0b3d8534bec90592ed9f75f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a73e1a358a0b3d8534bec90592ed9f75f">world_floor_splats</a> (uint64_t p_cap)</td></tr>
+<tr class="memitem:aa075be9e358bd778e8257cea779900a9" id="r_aa075be9e358bd778e8257cea779900a9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa075be9e358bd778e8257cea779900a9">object_share_splats</a> (uint64_t p_cap)</td></tr>
+<tr class="memitem:aebeacd0f06c3d498d8f69784d754b6cd" id="r_aebeacd0f06c3d498d8f69784d754b6cd"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aebeacd0f06c3d498d8f69784d754b6cd">world_floor_records</a> (double p_cap)</td></tr>
+<tr class="memitem:ae1e3300ff5045890136755c3b4799836" id="r_ae1e3300ff5045890136755c3b4799836"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae1e3300ff5045890136755c3b4799836">object_share_records</a> (double p_cap)</td></tr>
+<tr class="memitem:ac324b1e2985b776fa4f570d51fdc7ecf" id="r_ac324b1e2985b776fa4f570d51fdc7ecf"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac324b1e2985b776fa4f570d51fdc7ecf">object_share_records</a> (double p_view_cap, double p_storage, double p_world_need)</td></tr>
+<tr class="memitem:a3c7ddbe7677d51ed0ea4539eea095427" id="r_a3c7ddbe7677d51ed0ea4539eea095427"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c7ddbe7677d51ed0ea4539eea095427">world_overlap_need</a> (const <a class="el" href="structgs__hlod__bundle_1_1OverlapWorldNeed.html">OverlapWorldNeed</a> &amp;p_tracked, uint64_t p_storage, uint64_t p_seed)</td></tr>
+<tr class="memitem:af49a448e746707c3fdafd1783bd1b188" id="r_af49a448e746707c3fdafd1783bd1b188"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af49a448e746707c3fdafd1783bd1b188">world_plus_objects_overlap_records</a> (uint64_t p_world_need, double p_object_records)</td></tr>
+<tr class="memitem:ace189ac73a478e95713b25c5a32b927f" id="r_ace189ac73a478e95713b25c5a32b927f"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace189ac73a478e95713b25c5a32b927f">world_plus_objects_overlap_growth</a> (uint64_t p_world_need, double p_object_records)</td></tr>
+<tr class="memitem:ac48033ad04b30efd84fd3d3c483f34b2" id="r_ac48033ad04b30efd84fd3d3c483f34b2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac48033ad04b30efd84fd3d3c483f34b2">world_need_splats</a> (uint32_t p_leaf_count, int p_max_splats)</td></tr>
+<tr class="memitem:a32f5ff18d83edeb33e2824e722921222" id="r_a32f5ff18d83edeb33e2824e722921222"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a32f5ff18d83edeb33e2824e722921222">relative_capacity</a> (uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:a0c5e43a8feeb1cd73cbfc7a708bb438c" id="r_a0c5e43a8feeb1cd73cbfc7a708bb438c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c5e43a8feeb1cd73cbfc7a708bb438c">canonical_capacity</a> (uint32_t p_leaf_count, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:ad92628d7c9d827f39f255edf27f3328b" id="r_ad92628d7c9d827f39f255edf27f3328b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad92628d7c9d827f39f255edf27f3328b">admits_before</a> (const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;p_a, const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;p_b)</td></tr>
+<tr class="memitem:a050885f762c72dc642f28e6d3e032984" id="r_a050885f762c72dc642f28e6d3e032984"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a050885f762c72dc642f28e6d3e032984">admit_objects</a> (const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> *p_demands, uint32_t p_count, const <a class="el" href="structgs__hlod__bundle_1_1ObjectShare.html">ObjectShare</a> &amp;p_share, <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;r_admission)</td></tr>
+<tr class="memitem:ae72f22de6f4e32708849f9e6f4aa7879" id="r_ae72f22de6f4e32708849f9e6f4aa7879"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae72f22de6f4e32708849f9e6f4aa7879">world_view_caps</a> (uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, bool p_streaming, uint64_t p_stream_records, double p_records, const <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;p_admission, uint64_t &amp;r_splat_budget, double &amp;r_record_budget)</td></tr>
+<tr class="memitem:ad8eb870d00a05a79395ff7456515b8e0" id="r_ad8eb870d00a05a79395ff7456515b8e0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad8eb870d00a05a79395ff7456515b8e0">object_view_demand</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceAsset.html">InstanceAsset</a> &amp;p_asset, const Vector3 &amp;p_world_center, float p_uniform_scale, const Plane *p_frustum, bool p_frustum_enabled, const Vector3 &amp;p_camera, double p_focal_pixels, double p_tile_area, double &amp;r_importance, double &amp;r_records)</td></tr>
+<tr class="memitem:ad739b0403060b68c090f07981bdd0b2c" id="r_ad739b0403060b68c090f07981bdd0b2c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad739b0403060b68c090f07981bdd0b2c">append_instance_draws</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region, uint32_t p_world_nodes, uint32_t p_row, uint32_t p_asset_index, const Vector3 &amp;p_camera_offset, LocalVector&lt; <a class="el" href="structDrawnNodeGPU.html">DrawnNodeGPU</a> &gt; &amp;r_draws)</td></tr>
+<tr class="memitem:a16414fbf154011e40982799ac0ee909e" id="r_a16414fbf154011e40982799ac0ee909e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a16414fbf154011e40982799ac0ee909e">instance_camera_offset</a> (const Vector3 &amp;p_translation, const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;p_origin, const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;p_camera, Vector3 &amp;r_offset)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
 <tr class="memitem:a76c3e141a0274fdda01a26926fd6c51c" id="r_a76c3e141a0274fdda01a26926fd6c51c"><td class="memItemLeft" align="right" valign="top">constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a76c3e141a0274fdda01a26926fd6c51c">WORLD_ASSET_ID</a> = 0u</td></tr>
 <tr class="memitem:ab696adeaf274924c8f0a36bc6ef65bf6" id="r_ab696adeaf274924c8f0a36bc6ef65bf6"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab696adeaf274924c8f0a36bc6ef65bf6">WORLD_DENSE_ID</a> = 0u</td></tr>
 <tr class="memitem:a187a747eac9af29232e87adee362f679" id="r_a187a747eac9af29232e87adee362f679"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a187a747eac9af29232e87adee362f679">WORLD_ROW</a> = 0u</td></tr>
+<tr class="memitem:ace143557f0a0682c639d8d69cbe0c48e" id="r_ace143557f0a0682c639d8d69cbe0c48e"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace143557f0a0682c639d8d69cbe0c48e">WORLD_FLOOR_NUMERATOR</a> = 1</td></tr>
+<tr class="memitem:a5d07f490c6e2af20a636add3b5f612a6" id="r_a5d07f490c6e2af20a636add3b5f612a6"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5d07f490c6e2af20a636add3b5f612a6">WORLD_FLOOR_DENOMINATOR</a> = 2</td></tr>
+<tr class="memitem:ad92285d4724b46921d5f4c82b4303eca" id="r_ad92285d4724b46921d5f4c82b4303eca"><td class="memItemLeft" align="right" valign="top">constexpr const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad92285d4724b46921d5f4c82b4303eca">INSTANCE_REFUSAL_REASON</a> = &quot;hlod_instance_reserve_exceeds_object_share&quot;</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Enumeration Type Documentation</h2>
 <a id="af66c1700ac5f6460060b8b0b095067aa" name="af66c1700ac5f6460060b8b0b095067aa"></a>
@@ -147,8 +179,125 @@ Variables</h2></td></tr>
 </div>
 </div>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
+<a id="a050885f762c72dc642f28e6d3e032984" name="a050885f762c72dc642f28e6d3e032984"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a050885f762c72dc642f28e6d3e032984">&#9670;&#160;</a></span>admit_objects()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_bundle::admit_objects </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> *</td>          <td class="paramname"><span class="paramname"><em>p_demands</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1ObjectShare.html">ObjectShare</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_share</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_admission</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad92628d7c9d827f39f255edf27f3328b" name="ad92628d7c9d827f39f255edf27f3328b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad92628d7c9d827f39f255edf27f3328b">&#9670;&#160;</a></span>admits_before()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_bundle::admits_before </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_a</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_b</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad739b0403060b68c090f07981bdd0b2c" name="ad739b0403060b68c090f07981bdd0b2c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad739b0403060b68c090f07981bdd0b2c">&#9670;&#160;</a></span>append_instance_draws()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_bundle::append_instance_draws </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_world_nodes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_row</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_asset_index</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Vector3 &amp;</td>          <td class="paramname"><span class="paramname"><em>p_camera_offset</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structDrawnNodeGPU.html">DrawnNodeGPU</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_draws</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a9ecd045189c49de7045e04f9f2f4bb9d" name="a9ecd045189c49de7045e04f9f2f4bb9d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9ecd045189c49de7045e04f9f2f4bb9d">&#9670;&#160;</a></span>bundle_bytes()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a9ecd045189c49de7045e04f9f2f4bb9d">&#9670;&#160;</a></span>bundle_bytes() <span class="overload">[1/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -196,8 +345,91 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a851658f14e579b533b96e30e59fbca30" name="a851658f14e579b533b96e30e59fbca30"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a851658f14e579b533b96e30e59fbca30">&#9670;&#160;</a></span>bundle_bytes() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::bundle_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_node_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_relative</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_quantized</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_capacity</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0c5e43a8feeb1cd73cbfc7a708bb438c" name="a0c5e43a8feeb1cd73cbfc7a708bb438c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0c5e43a8feeb1cd73cbfc7a708bb438c">&#9670;&#160;</a></span>canonical_capacity()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::canonical_capacity </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_leaf_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ac12c9dcf8bad844866d0e79a1277306b" name="ac12c9dcf8bad844866d0e79a1277306b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac12c9dcf8bad844866d0e79a1277306b">&#9670;&#160;</a></span>dense_id_for_asset()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#ac12c9dcf8bad844866d0e79a1277306b">&#9670;&#160;</a></span>dense_id_for_asset() <span class="overload">[1/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -221,8 +453,263 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a3b584f5a796f2a4fe8de8d645f053a13" name="a3b584f5a796f2a4fe8de8d645f053a13"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3b584f5a796f2a4fe8de8d645f053a13">&#9670;&#160;</a></span>dense_id_for_asset() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::dense_id_for_asset </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_asset_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a16414fbf154011e40982799ac0ee909e" name="a16414fbf154011e40982799ac0ee909e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a16414fbf154011e40982799ac0ee909e">&#9670;&#160;</a></span>instance_camera_offset()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_bundle::instance_camera_offset </td>
+          <td>(</td>
+          <td class="paramtype">const Vector3 &amp;</td>          <td class="paramname"><span class="paramname"><em>p_translation</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_origin</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_camera</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Vector3 &amp;</td>          <td class="paramname"><span class="paramname"><em>r_offset</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae1e3300ff5045890136755c3b4799836" name="ae1e3300ff5045890136755c3b4799836"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae1e3300ff5045890136755c3b4799836">&#9670;&#160;</a></span>object_share_records() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">double gs_hlod_bundle::object_share_records </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac324b1e2985b776fa4f570d51fdc7ecf" name="ac324b1e2985b776fa4f570d51fdc7ecf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac324b1e2985b776fa4f570d51fdc7ecf">&#9670;&#160;</a></span>object_share_records() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">double gs_hlod_bundle::object_share_records </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_view_cap</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_storage</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_world_need</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa075be9e358bd778e8257cea779900a9" name="aa075be9e358bd778e8257cea779900a9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa075be9e358bd778e8257cea779900a9">&#9670;&#160;</a></span>object_share_splats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::object_share_splats </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad8eb870d00a05a79395ff7456515b8e0" name="ad8eb870d00a05a79395ff7456515b8e0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad8eb870d00a05a79395ff7456515b8e0">&#9670;&#160;</a></span>object_view_demand()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_bundle::object_view_demand </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceAsset.html">InstanceAsset</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_asset</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Vector3 &amp;</td>          <td class="paramname"><span class="paramname"><em>p_world_center</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em>p_uniform_scale</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Plane *</td>          <td class="paramname"><span class="paramname"><em>p_frustum</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_frustum_enabled</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Vector3 &amp;</td>          <td class="paramname"><span class="paramname"><em>p_camera</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_focal_pixels</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_tile_area</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double &amp;</td>          <td class="paramname"><span class="paramname"><em>r_importance</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double &amp;</td>          <td class="paramname"><span class="paramname"><em>r_records</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a516dfc9247839f48e871303ca79883ad" name="a516dfc9247839f48e871303ca79883ad"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a516dfc9247839f48e871303ca79883ad">&#9670;&#160;</a></span>pack_instance_rows() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_bundle::pack_instance_rows </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_packed</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a4e841ec1dae151d4e89b6a8394f18635" name="a4e841ec1dae151d4e89b6a8394f18635"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4e841ec1dae151d4e89b6a8394f18635">&#9670;&#160;</a></span>pack_instance_rows()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a4e841ec1dae151d4e89b6a8394f18635">&#9670;&#160;</a></span>pack_instance_rows() <span class="overload">[2/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -299,8 +786,47 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a32f5ff18d83edeb33e2824e722921222" name="a32f5ff18d83edeb33e2824e722921222"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a32f5ff18d83edeb33e2824e722921222">&#9670;&#160;</a></span>relative_capacity()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::relative_capacity </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_leaf_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_max_splats</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_view_cap</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ab7e774d2969508c17424a72706b0b557" name="ab7e774d2969508c17424a72706b0b557"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab7e774d2969508c17424a72706b0b557">&#9670;&#160;</a></span>rows_refusal()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#ab7e774d2969508c17424a72706b0b557">&#9670;&#160;</a></span>rows_refusal() <span class="overload">[1/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -328,8 +854,105 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a7667be2d4b50290bc4ab701ec5885ed7" name="a7667be2d4b50290bc4ab701ec5885ed7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7667be2d4b50290bc4ab701ec5885ed7">&#9670;&#160;</a></span>rows_refusal() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char * gs_hlod_bundle::rows_refusal </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_node_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a84ea7cd0bbb53ca7859883b6ba584688" name="a84ea7cd0bbb53ca7859883b6ba584688"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a84ea7cd0bbb53ca7859883b6ba584688">&#9670;&#160;</a></span>tally_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_bundle::tally_rows </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a461196fc677f4afb6399acc8052ef838" name="a461196fc677f4afb6399acc8052ef838"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a461196fc677f4afb6399acc8052ef838">&#9670;&#160;</a></span>visible_chunk_capacity() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::visible_chunk_capacity </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_node_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_relative</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a782ff555991399b5f13b051316db12a6" name="a782ff555991399b5f13b051316db12a6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a782ff555991399b5f13b051316db12a6">&#9670;&#160;</a></span>visible_chunk_capacity()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a782ff555991399b5f13b051316db12a6">&#9670;&#160;</a></span>visible_chunk_capacity() <span class="overload">[2/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -362,7 +985,264 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="aebeacd0f06c3d498d8f69784d754b6cd" name="aebeacd0f06c3d498d8f69784d754b6cd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aebeacd0f06c3d498d8f69784d754b6cd">&#9670;&#160;</a></span>world_floor_records()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">double gs_hlod_bundle::world_floor_records </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a73e1a358a0b3d8534bec90592ed9f75f" name="a73e1a358a0b3d8534bec90592ed9f75f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a73e1a358a0b3d8534bec90592ed9f75f">&#9670;&#160;</a></span>world_floor_splats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::world_floor_splats </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_cap</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac48033ad04b30efd84fd3d3c483f34b2" name="ac48033ad04b30efd84fd3d3c483f34b2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac48033ad04b30efd84fd3d3c483f34b2">&#9670;&#160;</a></span>world_need_splats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::world_need_splats </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_leaf_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_max_splats</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3c7ddbe7677d51ed0ea4539eea095427" name="a3c7ddbe7677d51ed0ea4539eea095427"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3c7ddbe7677d51ed0ea4539eea095427">&#9670;&#160;</a></span>world_overlap_need()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::world_overlap_need </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1OverlapWorldNeed.html">OverlapWorldNeed</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_tracked</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_storage</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_seed</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ace189ac73a478e95713b25c5a32b927f" name="ace189ac73a478e95713b25c5a32b927f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ace189ac73a478e95713b25c5a32b927f">&#9670;&#160;</a></span>world_plus_objects_overlap_growth()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::world_plus_objects_overlap_growth </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_world_need</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_object_records</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af49a448e746707c3fdafd1783bd1b188" name="af49a448e746707c3fdafd1783bd1b188"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af49a448e746707c3fdafd1783bd1b188">&#9670;&#160;</a></span>world_plus_objects_overlap_records()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::world_plus_objects_overlap_records </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_world_need</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_object_records</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae72f22de6f4e32708849f9e6f4aa7879" name="ae72f22de6f4e32708849f9e6f4aa7879"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae72f22de6f4e32708849f9e6f4aa7879">&#9670;&#160;</a></span>world_view_caps()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void gs_hlod_bundle::world_view_caps </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_leaf_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_max_splats</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_view_cap</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_streaming</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_stream_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_admission</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_splat_budget</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double &amp;</td>          <td class="paramname"><span class="paramname"><em>r_record_budget</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-var-members" id="doc-var-members"></a><h2 id="header-doc-var-members" class="groupheader">Variable Documentation</h2>
+<a id="ad92285d4724b46921d5f4c82b4303eca" name="ad92285d4724b46921d5f4c82b4303eca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad92285d4724b46921d5f4c82b4303eca">&#9670;&#160;</a></span>INSTANCE_REFUSAL_REASON</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* gs_hlod_bundle::INSTANCE_REFUSAL_REASON = &quot;hlod_instance_reserve_exceeds_object_share&quot;</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a76c3e141a0274fdda01a26926fd6c51c" name="a76c3e141a0274fdda01a26926fd6c51c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a76c3e141a0274fdda01a26926fd6c51c">&#9670;&#160;</a></span>WORLD_ASSET_ID</h2>
 
@@ -396,6 +1276,50 @@ Variables</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_hlod_bundle::WORLD_DENSE_ID = 0u</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5d07f490c6e2af20a636add3b5f612a6" name="a5d07f490c6e2af20a636add3b5f612a6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5d07f490c6e2af20a636add3b5f612a6">&#9670;&#160;</a></span>WORLD_FLOOR_DENOMINATOR</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::WORLD_FLOOR_DENOMINATOR = 2</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ace143557f0a0682c639d8d69cbe0c48e" name="ace143557f0a0682c639d8d69cbe0c48e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ace143557f0a0682c639d8d69cbe0c48e">&#9670;&#160;</a></span>WORLD_FLOOR_NUMERATOR</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::WORLD_FLOOR_NUMERATOR = 1</td>
         </tr>
       </table>
   </td>

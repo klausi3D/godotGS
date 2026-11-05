@@ -145,7 +145,7 @@ var searchData=
   ['demand_5fnode_142',['demand_node',['../classgs__hlod__runtime_1_1CutHistory.html#aa39c00838d5d720381c27a80f01e4350',1,'gs_hlod_runtime::CutHistory']]],
   ['denormals_5fencountered_143',['denormals_encountered',['../structFloat16Utils_1_1Float16ConversionStats.html#a437f8d56ea0ca0432a82f9a02488045b',1,'Float16Utils::Float16ConversionStats']]],
   ['dense_5fid_144',['dense_id',['../structGaussianStreamingTypes_1_1AtlasAssetState.html#a36a50c30d7398bef89afb195bbfde498',1,'GaussianStreamingTypes::AtlasAssetState']]],
-  ['dense_5fid_5ffor_5fasset_145',['dense_id_for_asset',['../namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b',1,'gs_hlod_bundle']]],
+  ['dense_5fid_5ffor_5fasset_145',['dense_id_for_asset',['../namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b',1,'gs_hlod_bundle::dense_id_for_asset(uint64_t p_asset_id)'],['../namespacegs__hlod__bundle.html#a3b584f5a796f2a4fe8de8d645f053a13',1,'gs_hlod_bundle::dense_id_for_asset(uint64_t p_asset_id, const InstanceRegion &amp;p_region)']]],
   ['dense_5fid_5fgeneration_146',['dense_id_generation',['../structGaussianStreamingTypes_1_1AssetRegistryState.html#aec7fa798ec76613143c7b254e1ac46d4',1,'GaussianStreamingTypes::AssetRegistryState']]],
   ['dense_5fratio_147',['dense_ratio',['../structRasterStats.html#a3427686d4c92f38a739d9e77dc6e5827',1,'RasterStats::dense_ratio'],['../structGaussianSplatting_1_1TileDensityMetrics.html#a78fb7c7e58aee363fd0115d7d4f23323',1,'GaussianSplatting::TileDensityMetrics::dense_ratio']]],
   ['dense_5fratio_5fthreshold_148',['dense_ratio_threshold',['../structGaussianSplatting_1_1TileAdaptiveSettings.html#a0b962fcc1bfc8edde54f571b2bec2975',1,'GaussianSplatting::TileAdaptiveSettings']]],

@@ -18,6 +18,8 @@ var structGaussianRenderState_1_1SortingState =
     [ "override_forced_algorithm", "structGaussianRenderState_1_1SortingState.html#a59c1401634ee981bd11ede6a223289ea", null ],
     [ "sort_buffer_capacity", "structGaussianRenderState_1_1SortingState.html#a883eb4848f2117242b0e6c041e74f1c7", null ],
     [ "sort_buffers_pipeline_managed", "structGaussianRenderState_1_1SortingState.html#aabfc642d7bd2960c18c13a16dfb3803f", null ],
+    [ "sort_dispatch_frame", "structGaussianRenderState_1_1SortingState.html#a0e7f10eac453275222a0edd53ddf8382", null ],
+    [ "sort_dispatches_frame", "structGaussianRenderState_1_1SortingState.html#a369806b7815cc10736d93a6080d94ddb", null ],
     [ "sort_index_bytes", "structGaussianRenderState_1_1SortingState.html#a5a1a8c5cc65eec49238fda9e66f51aca", null ],
     [ "sort_indices_external", "structGaussianRenderState_1_1SortingState.html#a63ca3d9d1822a8966da24e645bfe32be", null ],
     [ "sort_key_bytes", "structGaussianRenderState_1_1SortingState.html#af8e34e7e98ec9e2e67200f69e9f9719f", null ],

@@ -50,6 +50,7 @@ var classGaussianSplatNode3D =
     [ "get_effective_config_snapshot", "classGaussianSplatNode3D.html#a8ea36c90e4da4828eee806c29741c9eb", null ],
     [ "get_existing_renderer", "classGaussianSplatNode3D.html#aef605632629df669e240463fa4928168", null ],
     [ "get_gpu_memory_mb", "classGaussianSplatNode3D.html#acd30b0afb8b82a522321458514f5e2b2", null ],
+    [ "get_hlod_instance_refusal_reason", "classGaussianSplatNode3D.html#a1f00cb578e66c4be54eb3636ffabdd59", null ],
     [ "get_last_matched_scene_effector_count", "classGaussianSplatNode3D.html#a46f2348856a434fd53ec6ca14e21faa8", null ],
     [ "get_last_update_time_ms", "classGaussianSplatNode3D.html#aa04fe4bf1bc9a16ea21f684e378d94c0", null ],
     [ "get_lod_bias", "classGaussianSplatNode3D.html#a304db960ec7c80b511031ef6cb226118", null ],

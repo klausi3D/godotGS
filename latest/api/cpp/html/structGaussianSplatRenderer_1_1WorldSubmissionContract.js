@@ -18,5 +18,6 @@ var structGaussianSplatRenderer_1_1WorldSubmissionContract =
     [ "opacity_multiplier", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#a1eaefbc7682f36c3b4e62aa6fd23a215", null ],
     [ "payload_source", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#a0620d0b4f4ba968a137c5beeb2181d77", null ],
     [ "static_chunks", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#a75ab88589c0f710121b356933ce20e7d", null ],
-    [ "streaming_overrides", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#ac039a05dfb07a6a7ec56e5840255243e", null ]
+    [ "streaming_overrides", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#ac039a05dfb07a6a7ec56e5840255243e", null ],
+    [ "view_max_splats", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#ac709731b82a5f09e5396f7aae05d7bba", null ]
 ];

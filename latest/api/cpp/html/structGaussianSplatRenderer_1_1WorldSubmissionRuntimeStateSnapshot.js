@@ -22,5 +22,6 @@ var structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot =
     [ "payload_source_splat_count", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#aaa9b3f164db7e19d87ecaa8d33e2993a", null ],
     [ "static_chunks", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a96905878e5169c538177c6c8585627c8", null ],
     [ "streaming_overrides", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#aa268b362b9f6e6a6ed5115a1292c2fef", null ],
-    [ "valid", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a162986661dca6014503d97d970eec0c9", null ]
+    [ "valid", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a162986661dca6014503d97d970eec0c9", null ],
+    [ "view_max_splats", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#aea9868432a75675f07ca4a0f954aa5f0", null ]
 ];

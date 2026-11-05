@@ -781,7 +781,9 @@ Internal State Access</h2></td></tr>
 <tr class="memitem:a7005972d9281105a82c770d58cd8b839" id="r_a7005972d9281105a82c770d58cd8b839"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7005972d9281105a82c770d58cd8b839">is_hlod_prepared_contract_current</a> () const</td></tr>
 <tr class="memitem:a8e8e12075a27cba3b34f504619c5ddff" id="r_a8e8e12075a27cba3b34f504619c5ddff"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8e8e12075a27cba3b34f504619c5ddff">publish_hlod_bundle</a> (bool p_relative)</td></tr>
 <tr class="memitem:a2a30b00b24eb2b39183cf999c64bc0b4" id="r_a2a30b00b24eb2b39183cf999c64bc0b4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2a30b00b24eb2b39183cf999c64bc0b4">refresh_hlod_instance_rows</a> ()</td></tr>
-<tr class="memitem:ac63f04472150d9e12c0b6ec8da063734" id="r_ac63f04472150d9e12c0b6ec8da063734"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac63f04472150d9e12c0b6ec8da063734">idle_hlod_streaming_bundle</a> ()</td></tr>
+<tr class="memitem:a6bc10cc38decf63ab2c91d4128214daf" id="r_a6bc10cc38decf63ab2c91d4128214daf"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6bc10cc38decf63ab2c91d4128214daf">idle_hlod_streaming_bundle</a> (bool p_with_instances=false, uint64_t p_origin_revision=0)</td></tr>
+<tr class="memitem:a374cf5b81870031ca63346c1eb95f90d" id="r_a374cf5b81870031ca63346c1eb95f90d"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a374cf5b81870031ca63346c1eb95f90d">get_hlod_instance_refusal</a> (uint64_t p_instance_key)</td></tr>
+<tr class="memitem:aa271342bfe1ba20fce0e4b5d2440c776" id="r_aa271342bfe1ba20fce0e4b5d2440c776"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa271342bfe1ba20fce0e4b5d2440c776">get_hlod_view_splat_cap</a> () const</td></tr>
 <tr class="memitem:a66f60ac1edffd5361e013400b7773d6f" id="r_a66f60ac1edffd5361e013400b7773d6f"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a66f60ac1edffd5361e013400b7773d6f">stage_hlod_edit</a> (const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_edited, String &amp;r_reason)</td></tr>
 <tr class="memitem:ae772ba7dcdb62ae4b563d6e0dc5afd03" id="r_ae772ba7dcdb62ae4b563d6e0dc5afd03"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae772ba7dcdb62ae4b563d6e0dc5afd03">get_hlod_served_snapshot</a> () const</td></tr>
 <tr class="memitem:ae17a9ad082e83b270f90e5d2bb527f1d" id="r_ae17a9ad082e83b270f90e5d2bb527f1d"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae17a9ad082e83b270f90e5d2bb527f1d">hlod_edit_blanks_frame</a> (String &amp;r_reason) const</td></tr>
@@ -5372,6 +5374,23 @@ Usage</h2>
 
 </div>
 </div>
+<a id="a374cf5b81870031ca63346c1eb95f90d" name="a374cf5b81870031ca63346c1eb95f90d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a374cf5b81870031ca63346c1eb95f90d">&#9670;&#160;</a></span>get_hlod_instance_refusal()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">String GaussianSplatRenderer::get_hlod_instance_refusal </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_instance_key</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="acfb79a17c96a8a5fae28aee6feca1b24" name="acfb79a17c96a8a5fae28aee6feca1b24"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#acfb79a17c96a8a5fae28aee6feca1b24">&#9670;&#160;</a></span>get_hlod_owned_byte_upper_bound()</h2>
 
@@ -5397,6 +5416,23 @@ Usage</h2>
       <table class="memname">
         <tr>
           <td class="memname">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; GaussianSplatRenderer::get_hlod_served_snapshot </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa271342bfe1ba20fce0e4b5d2440c776" name="aa271342bfe1ba20fce0e4b5d2440c776"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa271342bfe1ba20fce0e4b5d2440c776">&#9670;&#160;</a></span>get_hlod_view_splat_cap()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatRenderer::get_hlod_view_splat_cap </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -7764,8 +7800,8 @@ Usage</h2>
 
 </div>
 </div>
-<a id="ac63f04472150d9e12c0b6ec8da063734" name="ac63f04472150d9e12c0b6ec8da063734"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac63f04472150d9e12c0b6ec8da063734">&#9670;&#160;</a></span>idle_hlod_streaming_bundle()</h2>
+<a id="a6bc10cc38decf63ab2c91d4128214daf" name="a6bc10cc38decf63ab2c91d4128214daf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6bc10cc38decf63ab2c91d4128214daf">&#9670;&#160;</a></span>idle_hlod_streaming_bundle()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -7773,8 +7809,12 @@ Usage</h2>
         <tr>
           <td class="memname">bool GaussianSplatRenderer::idle_hlod_streaming_bundle </td>
           <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_with_instances</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_origin_revision</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

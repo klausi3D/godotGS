@@ -35,7 +35,7 @@ var searchData=
   ['degreefordim_32',['degreeForDim',['../namespacespz.html#adad2c593d355e5dcc240fed07a29dab4',1,'spz']]],
   ['demand_5fcount_33',['demand_count',['../classgs__hlod__runtime_1_1CutHistory.html#a1d368a172d18c8a53aeecf141ba0b674',1,'gs_hlod_runtime::CutHistory']]],
   ['demand_5fnode_34',['demand_node',['../classgs__hlod__runtime_1_1CutHistory.html#aa39c00838d5d720381c27a80f01e4350',1,'gs_hlod_runtime::CutHistory']]],
-  ['dense_5fid_5ffor_5fasset_35',['dense_id_for_asset',['../namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b',1,'gs_hlod_bundle']]],
+  ['dense_5fid_5ffor_5fasset_35',['dense_id_for_asset',['../namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b',1,'gs_hlod_bundle::dense_id_for_asset(uint64_t p_asset_id)'],['../namespacegs__hlod__bundle.html#a3b584f5a796f2a4fe8de8d645f053a13',1,'gs_hlod_bundle::dense_id_for_asset(uint64_t p_asset_id, const InstanceRegion &amp;p_region)']]],
   ['dependencynode_36',['DependencyNode',['../structDependencyNode.html#ab02fa8590a52f49d939b0a184a19d43f',1,'DependencyNode::DependencyNode()=default'],['../structDependencyNode.html#abaf17a428732b4a7c521b52021a1f7c0',1,'DependencyNode::DependencyNode(const AssetID &amp;p_id)']]],
   ['dequantize_5fposition_37',['dequantize_position',['../structChunkQuantizationInfo.html#a590620a10b179f545860e9a7efe5673a',1,'ChunkQuantizationInfo']]],
   ['dequantize_5fscale_38',['dequantize_scale',['../structChunkQuantizationInfo.html#a4288d4406a0ecaa7f5c37756e08f5564',1,'ChunkQuantizationInfo']]],

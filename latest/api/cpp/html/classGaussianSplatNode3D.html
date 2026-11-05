@@ -142,6 +142,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memdesc:af4c2db32beacfacc4efcd9d241bca977"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets a <a class="el" href="classGaussianSplatAsset.html">GaussianSplatAsset</a> resource to display.  <br /></td></tr>
 <tr class="memitem:a066bf8be8b71de5d918bacf325b95799" id="r_a066bf8be8b71de5d918bacf325b95799"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatAsset.html">GaussianSplatAsset</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a066bf8be8b71de5d918bacf325b95799">get_splat_asset</a> () const</td></tr>
 <tr class="memitem:a25d46e776c082ae849d7b10ae9c52de8" id="r_a25d46e776c082ae849d7b10ae9c52de8"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a25d46e776c082ae849d7b10ae9c52de8">get_asset_origin_label</a> () const</td></tr>
+<tr class="memitem:a1f00cb578e66c4be54eb3636ffabdd59" id="r_a1f00cb578e66c4be54eb3636ffabdd59"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1f00cb578e66c4be54eb3636ffabdd59">get_hlod_instance_refusal_reason</a> () const</td></tr>
+<tr class="memdesc:a1f00cb578e66c4be54eb3636ffabdd59"><td class="mdescLeft">&#160;</td><td class="mdescRight">This node's admission on the HLOD route in the last main view: empty when it was drawn (or was not visible), otherwise the refusal reason ("hlod_instance_reserve_exceeds_object_share": its reserve did not fit the objects' share of the view caps; it was not drawn at all).  <br /></td></tr>
 <tr class="memitem:a312cd145ef40835535c42be61b809d20" id="r_a312cd145ef40835535c42be61b809d20"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a312cd145ef40835535c42be61b809d20">reload_asset</a> ()</td></tr>
 <tr class="memdesc:a312cd145ef40835535c42be61b809d20"><td class="mdescLeft">&#160;</td><td class="mdescRight">Forces a reload of the current bound asset from its source path.  <br /></td></tr>
 <tr class="memitem:a3dea33ca2fd56f653312e5a6e403c909" id="r_a3dea33ca2fd56f653312e5a6e403c909"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3dea33ca2fd56f653312e5a6e403c909">is_asset_loading</a> () const</td></tr>
@@ -1190,6 +1192,26 @@ Basic Usage</h2>
 </div><div class="memdoc">
 
 <p>Returns estimated GPU memory usage in megabytes. </p>
+
+</div>
+</div>
+<a id="a1f00cb578e66c4be54eb3636ffabdd59" name="a1f00cb578e66c4be54eb3636ffabdd59"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1f00cb578e66c4be54eb3636ffabdd59">&#9670;&#160;</a></span>get_hlod_instance_refusal_reason()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">String GaussianSplatNode3D::get_hlod_instance_refusal_reason </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>This node's admission on the HLOD route in the last main view: empty when it was drawn (or was not visible), otherwise the refusal reason ("hlod_instance_reserve_exceeds_object_share": its reserve did not fit the objects' share of the view caps; it was not drawn at all). </p>
+<p>Internal C++ query, deliberately not bound. </p>
 
 </div>
 </div>

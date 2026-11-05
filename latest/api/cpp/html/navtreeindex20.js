@@ -1,5 +1,14 @@
 var NAVTREEINDEX20 =
 {
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73ab50339a10e1de285ac99d4c3990b8693":[0,0,12,83,0],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73aed5137c562c73ba7dcee203d32c421c6":[0,0,12,83,4],
+"namespaceGaussianSplatting.html#a05be61efd5bb2dc9484285c11fe9cb73af0c1640c1b7a985c2f3863b8c0fc9438":[0,0,12,83,1],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fe":[0,0,12,70],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea05f06463532933fff1375106025a4357":[0,0,12,70,2],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea1292719256e4e16cdec3bd0442de3287":[0,0,12,70,1],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005fea30de1b99ca5457e514fbca676c577e7c":[0,0,12,70,0],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005feab6145be5aad8b22f7accfdf46a8b0ee6":[0,0,12,70,3],
+"namespaceGaussianSplatting.html#a074cf93b96029d6d91ef3644dbb005feaca4f30aa2a1aa665ef0e47a27611ac27":[0,0,12,70,4],
 "namespaceGaussianSplatting.html#a0b5f323ab32f932701c2b3c02aafb9ae":[0,0,12,112],
 "namespaceGaussianSplatting.html#a0e092045a4ca3ec8d4a66fd6eb62430c":[0,0,12,89],
 "namespaceGaussianSplatting.html#a100859413391be23236e51dec6f52480":[0,0,12,87],
@@ -236,18 +245,9 @@ var NAVTREEINDEX20 =
 "namespaceRenderingErrorCodes.html#acc560631917fd39976afce2a06be2c29":[0,0,33,7],
 "namespaceRenderingErrorCodes.html#ad89b42441118d2f23b4a16334b875aac":[0,0,33,4],
 "namespaceResidentAtlasBudget.html":[0,0,34],
-"namespaceResidentAtlasBudget.html#a07dbe1c92ccc9df179b8d52350100556":[0,0,34,13],
+"namespaceResidentAtlasBudget.html#a07dbe1c92ccc9df179b8d52350100556":[0,0,34,15],
 "namespaceResidentAtlasBudget.html#a1997bd5d7c5817757a50bb4dbc58ccff":[0,0,34,3],
 "namespaceResidentAtlasBudget.html#a2d758ac8502c7cdabee9af6f74ed2756":[0,0,34,1],
 "namespaceResidentAtlasBudget.html#a2d758ac8502c7cdabee9af6f74ed2756a1acac8984c2139895dee3e8aa928de57":[0,0,34,1,1],
-"namespaceResidentAtlasBudget.html#a2d758ac8502c7cdabee9af6f74ed2756a60cba2874369bd3790e14ea5f8a7bc58":[0,0,34,1,0],
-"namespaceResidentAtlasBudget.html#a2d758ac8502c7cdabee9af6f74ed2756a7fc862ff55410f9fba8a7fe2ef0df986":[0,0,34,1,2],
-"namespaceResidentAtlasBudget.html#a3d5c0803f929a0429a2f12b04d41ad56":[0,0,34,5],
-"namespaceResidentAtlasBudget.html#a61588b5acf908dc32f1f43df890f1a7b":[0,0,34,7],
-"namespaceResidentAtlasBudget.html#a6c541683989a5def86d639ba7c05515d":[0,0,34,15],
-"namespaceResidentAtlasBudget.html#a7413f7bf6d44e01e3dce1e98b5974ef0":[0,0,34,8],
-"namespaceResidentAtlasBudget.html#ac09af750962b6c53865148c08b6fc9ad":[0,0,34,2],
-"namespaceResidentAtlasBudget.html#ac3826984906929f35963fccc8b6de4c0":[0,0,34,16],
-"namespaceResidentAtlasBudget.html#acd3f2b0aa7a6a1578582e313cddd5fab":[0,0,34,6],
-"namespaceResidentAtlasBudget.html#ad0750e28216f6a1b3884121950b49467":[0,0,34,12]
+"namespaceResidentAtlasBudget.html#a2d758ac8502c7cdabee9af6f74ed2756a60cba2874369bd3790e14ea5f8a7bc58":[0,0,34,1,0]
 };

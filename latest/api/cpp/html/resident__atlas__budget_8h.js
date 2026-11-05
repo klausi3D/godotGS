@@ -12,11 +12,15 @@ var resident__atlas__budget_8h =
     [ "ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes", "namespaceResidentAtlasBudget.html#a3d5c0803f929a0429a2f12b04d41ad56", null ],
     [ "ResidentAtlasBudget::compute_subset_plan", "namespaceResidentAtlasBudget.html#acd3f2b0aa7a6a1578582e313cddd5fab", null ],
     [ "ResidentAtlasBudget::hlod_candidate_fits", "namespaceResidentAtlasBudget.html#a7413f7bf6d44e01e3dce1e98b5974ef0", null ],
+    [ "ResidentAtlasBudget::hlod_mandatory_outstanding_bytes", "namespaceResidentAtlasBudget.html#abc16ac190d5c93a7ef7424c9c6d53221", null ],
+    [ "ResidentAtlasBudget::hlod_optional_growth_headroom", "namespaceResidentAtlasBudget.html#ace3937a25ef33fcb9eb9dd3851cf2792", null ],
     [ "ResidentAtlasBudget::hlod_prepared_fits", "namespaceResidentAtlasBudget.html#ad3a88f1f891d1c388758cab52828ab24", null ],
     [ "ResidentAtlasBudget::hlod_relative_atlas_records", "namespaceResidentAtlasBudget.html#ae64d38527c62d7dfe72bd8e114e76c53", null ],
     [ "ResidentAtlasBudget::hlod_scale_texture_bytes_for_pixels", "namespaceResidentAtlasBudget.html#adffcd47010aa6f0a4a5559e7eb0af949", null ],
     [ "ResidentAtlasBudget::hlod_should_stream", "namespaceResidentAtlasBudget.html#ad0750e28216f6a1b3884121950b49467", null ],
     [ "ResidentAtlasBudget::hlod_stream_page_budget", "namespaceResidentAtlasBudget.html#a07dbe1c92ccc9df179b8d52350100556", null ],
+    [ "ResidentAtlasBudget::hlod_stream_page_budget_with_instances", "namespaceResidentAtlasBudget.html#af1804004dfbcfa23a4ef9d5132714e03", null ],
     [ "ResidentAtlasBudget::hlod_view_grid_action", "namespaceResidentAtlasBudget.html#af7123abf6b7bd6a83e49ae34dfa23194", null ],
+    [ "ResidentAtlasBudget::hlod_view_grid_outstanding_bytes", "namespaceResidentAtlasBudget.html#a88a0d9e18b7afcf3bf2a272648c36d40", null ],
     [ "ResidentAtlasBudget::resident_asset_budget", "namespaceResidentAtlasBudget.html#a6c541683989a5def86d639ba7c05515d", null ]
 ];

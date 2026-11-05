@@ -1,5 +1,12 @@
 var NAVTREEINDEX17 =
 {
+"classgs__world__frame_1_1OriginShiftHook.html":[1,0,20,2],
+"classgs__world__frame_1_1OriginShiftHook.html#a3fcbea4705f5dfd34dd4e53907c61547":[0,0,30,2,1],
+"classgs__world__frame_1_1OriginShiftHook.html#a3fcbea4705f5dfd34dd4e53907c61547":[1,0,20,2,1],
+"classgs__world__frame_1_1OriginShiftHook.html#a99710244f3cf49a00f14b0a05ef705e9":[0,0,30,2,0],
+"classgs__world__frame_1_1OriginShiftHook.html#a99710244f3cf49a00f14b0a05ef705e9":[1,0,20,2,0],
+"classgs__world__frame_1_1WorldOriginContext.html":[0,0,30,3],
+"classgs__world__frame_1_1WorldOriginContext.html":[1,0,20,3],
 "classgs__world__frame_1_1WorldOriginContext.html#a179d4ff7a8162558ad33769ebfe3d2e8":[0,0,30,3,5],
 "classgs__world__frame_1_1WorldOriginContext.html#a179d4ff7a8162558ad33769ebfe3d2e8":[1,0,20,3,5],
 "classgs__world__frame_1_1WorldOriginContext.html#a1ca922b493c897f47c5ac6056135bfd5":[0,0,30,3,3],
@@ -242,12 +249,5 @@ var NAVTREEINDEX17 =
 "gaussian__import__preset_8cpp.html#a503275810e9c32f0a739b7143b927703":[2,0,0,0,6,2,1],
 "gaussian__import__preset_8cpp.html#aa2d5061aa1eb6dcdc76d601d472346d6":[2,0,0,0,6,2,2],
 "gaussian__import__preset_8cpp.html#af831e09bb971d042b8c1a1c860f180c0":[2,0,0,0,6,2,0],
-"gaussian__import__preset_8h.html":[2,0,0,0,6,3],
-"gaussian__import__preset_8h.html#a1aa28b77862539249b0ee0d54dafb383":[2,0,0,0,6,3,4],
-"gaussian__import__preset_8h.html#a503275810e9c32f0a739b7143b927703":[2,0,0,0,6,3,2],
-"gaussian__import__preset_8h.html#aa2d5061aa1eb6dcdc76d601d472346d6":[2,0,0,0,6,3,3],
-"gaussian__import__preset_8h.html#af831e09bb971d042b8c1a1c860f180c0":[2,0,0,0,6,3,1],
-"gaussian__import__preset_8h_source.html":[2,0,0,0,6,3],
-"gaussian__import__settings__dialog_8cpp.html":[2,0,0,0,4,10],
-"gaussian__import__settings__dialog_8h.html":[2,0,0,0,4,11]
+"gaussian__import__preset_8h.html":[2,0,0,0,6,3]
 };

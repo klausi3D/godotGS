@@ -112,6 +112,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a3de5d23ac399842f33f7a269fed4f508" id="r_a3de5d23ac399842f33f7a269fed4f508"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3de5d23ac399842f33f7a269fed4f508">sorting_in_progress</a> = false</td></tr>
 <tr class="memitem:a5b7792e3ca90f8703636880679218358" id="r_a5b7792e3ca90f8703636880679218358"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5b7792e3ca90f8703636880679218358">sorting_initialized</a> = false</td></tr>
 <tr class="memitem:ad69f539f05b1ec2d1671861172ef3417" id="r_ad69f539f05b1ec2d1671861172ef3417"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad69f539f05b1ec2d1671861172ef3417">sorted_splat_count</a> = 0</td></tr>
+<tr class="memitem:a0e7f10eac453275222a0edd53ddf8382" id="r_a0e7f10eac453275222a0edd53ddf8382"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e7f10eac453275222a0edd53ddf8382">sort_dispatch_frame</a> = UINT64_MAX</td></tr>
+<tr class="memitem:a369806b7815cc10736d93a6080d94ddb" id="r_a369806b7815cc10736d93a6080d94ddb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a369806b7815cc10736d93a6080d94ddb">sort_dispatches_frame</a> = 0</td></tr>
 <tr class="memitem:a0297f03450b08bb212fce6e98a829fe2" id="r_a0297f03450b08bb212fce6e98a829fe2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0297f03450b08bb212fce6e98a829fe2">instance_sort_buffer_republishes</a> = 0</td></tr>
 <tr class="memitem:ac1b9b12f84dfe078b67f45149b38aee0" id="r_ac1b9b12f84dfe078b67f45149b38aee0"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1b9b12f84dfe078b67f45149b38aee0">last_cull_indices_signature</a> = 0</td></tr>
 <tr class="memitem:a1bbfc96d3a0f5632d8a3bbc665fc8dd1" id="r_a1bbfc96d3a0f5632d8a3bbc665fc8dd1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1bbfc96d3a0f5632d8a3bbc665fc8dd1">last_cull_indices_signature_valid</a> = false</td></tr>
@@ -373,6 +375,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool GaussianRenderState::SortingState::sort_buffers_pipeline_managed = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0e7f10eac453275222a0edd53ddf8382" name="a0e7f10eac453275222a0edd53ddf8382"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0e7f10eac453275222a0edd53ddf8382">&#9670;&#160;</a></span>sort_dispatch_frame</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderState::SortingState::sort_dispatch_frame = UINT64_MAX</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a369806b7815cc10736d93a6080d94ddb" name="a369806b7815cc10736d93a6080d94ddb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a369806b7815cc10736d93a6080d94ddb">&#9670;&#160;</a></span>sort_dispatches_frame</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianRenderState::SortingState::sort_dispatches_frame = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

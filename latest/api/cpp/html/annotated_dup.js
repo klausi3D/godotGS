@@ -194,7 +194,13 @@ var annotated_dup =
       [ "QualityBandResult", "structgs__hlod_1_1QualityBandResult.html", "structgs__hlod_1_1QualityBandResult" ]
     ] ],
     [ "gs_hlod_bundle", "namespacegs__hlod__bundle.html", [
-      [ "Rows", "structgs__hlod__bundle_1_1Rows.html", "structgs__hlod__bundle_1_1Rows" ]
+      [ "Rows", "structgs__hlod__bundle_1_1Rows.html", "structgs__hlod__bundle_1_1Rows" ],
+      [ "InstanceAsset", "structgs__hlod__bundle_1_1InstanceAsset.html", "structgs__hlod__bundle_1_1InstanceAsset" ],
+      [ "InstanceRegion", "structgs__hlod__bundle_1_1InstanceRegion.html", "structgs__hlod__bundle_1_1InstanceRegion" ],
+      [ "OverlapWorldNeed", "structgs__hlod__bundle_1_1OverlapWorldNeed.html", "structgs__hlod__bundle_1_1OverlapWorldNeed" ],
+      [ "ObjectDemand", "structgs__hlod__bundle_1_1ObjectDemand.html", "structgs__hlod__bundle_1_1ObjectDemand" ],
+      [ "ObjectShare", "structgs__hlod__bundle_1_1ObjectShare.html", "structgs__hlod__bundle_1_1ObjectShare" ],
+      [ "Admission", "structgs__hlod__bundle_1_1Admission.html", "structgs__hlod__bundle_1_1Admission" ]
     ] ],
     [ "gs_hlod_pack", "namespacegs__hlod__pack.html", [
       [ "Params", "structgs__hlod__pack_1_1Params.html", "structgs__hlod__pack_1_1Params" ],

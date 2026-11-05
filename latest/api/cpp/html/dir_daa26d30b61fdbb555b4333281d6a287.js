@@ -31,6 +31,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "hlod_node_pack.h", "hlod__node__pack_8h.html", "hlod__node__pack_8h" ],
     [ "hlod_node_streamer.cpp", "hlod__node__streamer_8cpp.html", "hlod__node__streamer_8cpp" ],
     [ "hlod_node_streamer.h", "hlod__node__streamer_8h.html", "hlod__node__streamer_8h" ],
+    [ "hlod_world_instances.h", "hlod__world__instances_8h.html", "hlod__world__instances_8h" ],
     [ "instance_pipeline_contract.h", "instance__pipeline__contract_8h.html", "instance__pipeline__contract_8h" ],
     [ "painterly_pass_graph.cpp", "painterly__pass__graph_8cpp.html", null ],
     [ "painterly_pass_graph.h", "painterly__pass__graph_8h.html", "painterly__pass__graph_8h" ],
