@@ -79,6 +79,10 @@ public:
         bool has_desired_residency_hint = false;
         int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
         Dictionary desired_renderer_overrides;
+        // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
+        // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted. The
+        // node binds its submission generation to it and drops a call that arrives for an older submission.
+        Callable hlod_demotion_callback;
     };
 
     struct SubmissionCounts {
@@ -410,6 +414,9 @@ public:
     // Test-only: has_hlod_world_submission / build_hlod_instance_rows_for_renderer for the world of a scenario (same
     // code, located by scenario; rows use a null renderer-default grading). No RenderingDevice needed.
     bool test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const;
+    // Test-only: request_hlod_auto_route_demotion for the world of a scenario (same staleness check, located by scenario).
+    bool test_request_hlod_auto_route_demotion_for_scenario(const RID &p_scenario, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
     void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
     // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
@@ -422,6 +429,11 @@ public:
     // The HLOD route's world: an active world submission owned by `p_owner` (ADR one-route-many-producers, PR1b). Node
     // instances no longer make it exclusive: they join the route as rows 1..N (build_hlod_instance_rows_for_renderer).
     bool has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
+    // The automatic HLOD route's sticky demotion: queues the active world submission's demotion callback (deferred, main
+    // thread) when p_owner still owns it and p_refused_snapshot is still its submitted snapshot (a refusal of a snapshot
+    // a newer submission replaced is stale). Any thread; the callback is called outside world_mutex. True when queued.
+    bool request_hlod_auto_route_demotion(const GaussianSplatRenderer *p_renderer, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
     // The HLOD route's rows: row 0 is the world's identity row (asset 0), then one row per visible node instance with
     // asset data, in instance-store order, built exactly as build_instance_buffer_for_renderer builds a node row.
     // `r_asset_ids` and `r_instance_keys` are parallel: each row's 64-bit asset id and the stable key of its instance
@@ -773,6 +785,7 @@ private:
             bool has_desired_residency_hint = false;
             int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
             Dictionary desired_renderer_overrides;
+            Callable hlod_demotion_callback;
             GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
             bool active = false;
         };
@@ -1275,6 +1288,10 @@ private:
             const LocalVector<SphereEffectorSelection> &p_payload);
     // The two row shapes shared by build_instance_buffer_for_renderer and build_hlod_instance_rows_for_renderer.
     static bool _world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner);
+    // The demotion callback to queue for a refusal of p_refused_snapshot, or an empty Callable when the request is stale
+    // (another owner, or a newer submission with another snapshot). world_mutex held by the caller.
+    static Callable _hlod_demotion_callback_locked(const SharedWorld *p_world, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot);
     // world_mutex held by the caller.
     static void _build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
             LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,

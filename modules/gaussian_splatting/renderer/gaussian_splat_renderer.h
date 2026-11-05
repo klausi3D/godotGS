@@ -1013,6 +1013,9 @@ public:
     void hlod_edit_probe_step();
 #endif
     const char *hlod_streaming_unsupported_reason(const InstanceDataGPU *p_instance) const;
+    // The automatic route's sticky demotion (lod/hlod_auto_route.h): when the refusal is one that demotes, asks the world's
+    // node, once per submitted snapshot, to resubmit the world without its snapshot. True when the request was queued.
+    bool request_hlod_auto_route_demotion(const gs_hlod_auto_route::RefusalInputs &p_refusal);
 
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,

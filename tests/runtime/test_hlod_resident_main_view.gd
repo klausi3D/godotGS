@@ -613,6 +613,8 @@ const WI_FRAMES := 60
 const WI_INSTANCE_SPLATS := 1500
 const WI_TIMEOUT_MSEC := 150_000
 const WI_SIZE := Vector2i(256, 256)
+const WI_CUT_KEY := "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled"
+const WI_ROUTE_KEY := "rendering/gaussian_splatting/streaming/route_policy"
 const WI_COLORS := [Color(0, 1, 0), Color(0, 0.3, 1), Color(0, 1, 1), Color(0.1, 0.6, 1),
 		Color(0, 1, 0.5), Color(0.2, 0.9, 0.2), Color(0.2, 0.2, 1), Color(0, 0.8, 0.8)]
 const WI_FRAME_KEYS := ["hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records", "sort_dispatches_frame",
@@ -721,7 +723,7 @@ func _wi_place(nodes: Array, base: Array, t: float, swapped: bool) -> void:
 
 func _wi_run_mode(mode: String) -> bool:
 	var deadline := Time.get_ticks_msec() + WI_TIMEOUT_MSEC
-	var world := _wi_wall(mode == "paged")
+	var world := _wi_wall(mode.ends_with("paged"))
 	if not _check(world != null, "%s: wall world bake/load failed" % mode):
 		return false
 	var scene := Node3D.new()
@@ -771,6 +773,9 @@ func _wi_run_mode(mode: String) -> bool:
 		return false
 	var start := _wi_stats(renderer, mode)
 	if start.is_empty():
+		return false
+	# The automatic modes run under the default route_policy (streaming) and must still be on the HLOD route.
+	if mode.begins_with("auto") and not _check(str(start.get("requested_route_policy", "MISSING")) == "streaming", "%s: route_policy is not its default streaming (%s)" % [mode, start.get("requested_route_policy", "MISSING")]):
 		return false
 	var builds_before := int(start["hlod_bundle_builds"])
 	var summary := {"mode": mode, "start": start}
@@ -909,4 +914,158 @@ func _run_world_plus_instances_proof() -> bool:
 		var proved := await _wi_run_mode(mode)
 		if not proved:
 			return false
+	# The automatic route (ADR one-route-many-producers §4.7): the same proof with no routing flag set. The cut and
+	# route_policy go back to their registered defaults (route_policy's is streaming); the sort-device and quantization
+	# pins of _run() stay, as for every mode. A V4 paged package loaded from its file, and a whole-tree resident world,
+	# take the HLOD route with their 8 moving nodes. On a binary whose default is the chunk route without HLOD the
+	# route never becomes active and the mode fails.
+	for key in [WI_CUT_KEY, WI_ROUTE_KEY]:
+		ProjectSettings.set_setting(key, ProjectSettings.property_get_revert(key))
+	ProjectSettings.emit_signal("settings_changed")
+	_metrics["auto_route_defaults"] = {"hlod_runtime_cut_enabled": ProjectSettings.get_setting(WI_CUT_KEY),
+			"route_policy": ProjectSettings.get_setting(WI_ROUTE_KEY)}
+	for mode in ["auto_paged", "auto_whole"]:
+		var proved := await _wi_run_mode(mode)
+		if not proved:
+			return false
+	return await _wi_run_ortho_demotion()
+
+
+# Pumps frames until the world node's renderer reports the HLOD route active with world draws for 5 consecutive frames.
+# The deadline binds the pass (tests/AGENTS.md): a frame that ended past it is a failure, not an observation. {} on failure.
+func _wi_wait_hlod_active(world_node: GaussianSplatWorld3D, deadline: int, what: String) -> Dictionary:
+	var st := {}
+	var stable := 0
+	while Time.get_ticks_msec() < deadline and stable < 5:
+		await RenderingServer.frame_post_draw
+		if not _check(Time.get_ticks_msec() < deadline, "%s: exceeded its deadline before the HLOD route was active (stable=%d)" % [what, stable]):
+			return {}
+		var renderer := world_node.get_renderer()
+		if renderer == null:
+			stable = 0
+			continue
+		st = renderer.get_render_stats()
+		stable = stable + 1 if str(st.get("hlod_reason", "")) == "active" and int(st.get("hlod_world_draw_records", 0)) > 0 else 0
+	if not _check(stable >= 5, "%s: the paged world never became active in perspective (reason=%s)" % [what, st.get("hlod_reason", "MISSING")]):
+		return {}
+	for key in ["hlod_auto_route_demotions", "hlod_auto_route_demotion_cause", "sorted_splats"]:
+		if not _check(st.has(key), "%s: missing renderer field %s" % [what, key]):
+			return {}
+	return st
+
+
+# Pumps frames in the orthographic view until 10 consecutive frames show the world demoted (the reason, the counter at
+# p_demotions, the cause) and drawing the wall (sorted splats, the centre pixel the wall, the corner background). The
+# deadline binds the pass. {} on failure.
+func _wi_wait_demoted_draw(world_node: GaussianSplatWorld3D, deadline: int, p_demotions: int, what: String) -> Dictionary:
+	var drawn := 0
+	var last := {}
+	var cls_center := ""
+	var cls_corner := ""
+	while Time.get_ticks_msec() < deadline and drawn < 10:
+		await RenderingServer.frame_post_draw
+		if not _check(Time.get_ticks_msec() < deadline, "%s: exceeded its deadline before the demoted world drew (drawn=%d)" % [what, drawn]):
+			return {}
+		var renderer := world_node.get_renderer()
+		if renderer == null:
+			drawn = 0
+			continue
+		last = renderer.get_render_stats()
+		var img := get_root().get_texture().get_image()
+		cls_center = _wi_classify(img.get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2))
+		cls_corner = _wi_classify(img.get_pixel(3, 3))
+		var demoted: bool = str(last.get("hlod_reason", "")) == "hlod_auto_route_demoted:unsupported_view_or_material" \
+				and int(last.get("hlod_auto_route_demotions", -1)) == p_demotions \
+				and str(last.get("hlod_auto_route_demotion_cause", "")) == "unsupported_view_or_material"
+		drawn = drawn + 1 if demoted and int(last.get("sorted_splats", 0)) > 0 and cls_center == "wall" and cls_corner == "background" else 0
+	if not _check(drawn >= 10, "%s: the demoted world never drew in the orthographic view (reason=%s demotions=%s (expected %d) sorted=%s centre=%s corner=%s)" % [what, last.get("hlod_reason", "MISSING"), last.get("hlod_auto_route_demotions", "MISSING"), p_demotions, last.get("sorted_splats", "MISSING"), cls_center, cls_corner]):
+		return {}
+	return last
+
+
+# Sticky demotion (lod/hlod_auto_route.h): a paged world has no canonical copy, so an orthographic main view, which the
+# HLOD route does not serve, would draw no world splats. The automatic route demotes the world to the route it has
+# without it (the paged payload loaded into memory, then route_policy's chunk route): the wall draws in the orthographic
+# view, with the reason and the counter, and stays demoted when the view is perspective again. Then a replacement paged
+# world on the same node and renderer takes the HLOD route again, and an orthographic view demotes it again (Codex P2 on
+# #1309: the renderer's one-request latch was never re-armed by a replacement snapshot, so the replacement drew no world
+# splats in the orthographic view). No nodes: on the canonical routes the world row is dropped when nodes exist
+# (follow-up F1), on master as here.
+func _wi_run_ortho_demotion() -> bool:
+	var deadline := Time.get_ticks_msec() + WI_TIMEOUT_MSEC
+	var world := _wi_wall(true)
+	if not _check(world != null, "ortho: paged wall load failed"):
+		return false
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var camera := Camera3D.new()
+	camera.fov = 60.0
+	camera.near = 0.1
+	camera.far = 100.0
+	scene.add_child(camera)
+	camera.make_current()
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = world
+	world_node.set_hlod_tau_px(0.5)
+	scene.add_child(world_node)
+	world_node.apply_world()
+	var st := await _wi_wait_hlod_active(world_node, deadline, "ortho")
+	if st.is_empty():
+		return false
+	var demotions_before := int(st["hlod_auto_route_demotions"])
+	var summary := {"perspective": st.duplicate()}
+	camera.set_orthogonal(12.0, 0.1, 100.0)
+	var last := await _wi_wait_demoted_draw(world_node, deadline, demotions_before + 1, "ortho")
+	if last.is_empty():
+		return false
+	if not _check(not world.has_hlod_paged_source() and world.has_resident_gaussian_data(), "ortho: the demoted paged world did not load its payload"):
+		return false
+	var path := "user://hlod_world_instances_ortho_demoted_%d.png" % OS.get_process_id()
+	if not _check(get_root().get_texture().get_image().save_png(path) == OK, "ortho: cannot preserve the capture"):
+		return false
+	summary["ortho_demoted"] = last.duplicate()
+	summary["image_ortho"] = ProjectSettings.globalize_path(path)
+	# Sticky: perspective again, the world stays demoted (no re-promotion without apply_world()), still drawing. 30 frames
+	# is a lower bound on how long it must stay; the deadline still binds every one of them.
+	camera.set_perspective(60.0, 0.1, 100.0)
+	for f in range(30):
+		await RenderingServer.frame_post_draw
+		if not _check(Time.get_ticks_msec() < deadline, "ortho: the sticky phase exceeded its deadline (frame %d)" % f):
+			return false
+	var renderer := world_node.get_renderer()
+	if not _check(renderer != null, "ortho: the renderer is gone in the sticky phase"):
+		return false
+	var after := renderer.get_render_stats()
+	if not _check(str(after.get("hlod_reason", "")).begins_with("hlod_auto_route_demoted:") and int(after.get("hlod_auto_route_demotions", -1)) == demotions_before + 1 \
+			and _wi_classify(get_root().get_texture().get_image().get_pixel(WI_SIZE.x / 2, WI_SIZE.y / 2)) == "wall", "ortho: the demotion did not stick (reason=%s demotions=%s)" % [after.get("hlod_reason", "MISSING"), after.get("hlod_auto_route_demotions", "MISSING")]):
+		return false
+	summary["perspective_after"] = after.duplicate()
+	# A replacement paged world on the same node (set_world() applies it): it takes the HLOD route again, in perspective.
+	var replacement := _wi_wall(true)
+	if not _check(replacement != null, "ortho replacement: paged wall load failed"):
+		return false
+	world_node.world = replacement
+	var replaced := await _wi_wait_hlod_active(world_node, deadline, "ortho replacement")
+	if replaced.is_empty():
+		return false
+	if not _check(int(replaced["hlod_auto_route_demotions"]) == demotions_before + 1 and replacement.has_hlod_paged_source(), "ortho replacement: demoted again in perspective (demotions=%s paged=%s)" % [replaced["hlod_auto_route_demotions"], replacement.has_hlod_paged_source()]):
+		return false
+	summary["replacement_perspective"] = replaced.duplicate()
+	# A second unsupported view after the replacement demotes it again, to its own fallback route, which draws the wall.
+	camera.set_orthogonal(12.0, 0.1, 100.0)
+	var again := await _wi_wait_demoted_draw(world_node, deadline, demotions_before + 2, "ortho replacement")
+	if again.is_empty():
+		return false
+	if not _check(not replacement.has_hlod_paged_source() and replacement.has_resident_gaussian_data(), "ortho replacement: the demoted replacement did not load its payload"):
+		return false
+	summary["replacement_ortho_demoted"] = again.duplicate()
+	if not _check(Time.get_ticks_msec() < deadline, "ortho: proof completed after its deadline"):
+		return false
+	_metrics["world_ortho_demotion"] = summary
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
 	return true
