@@ -586,6 +586,65 @@ TEST_CASE("[GaussianSplatting][HLOD] world plus objects over the view cap: the w
 	CHECK(object_share_records(3.0e6, 1.0e6, 9.0e5) == doctest::Approx(5.0e5)); // A big world need keeps half.
 }
 
+// Codex P1 on #1308: the storage the route grew for the objects is not the world's need. Read as such, a stationary
+// view added the same object estimate on top of it again every frame and regrew the overlap storage (reallocating it and
+// rebuilding the sorter) until the record cap or the ledger headroom stopped it. This drives the publisher's sequence
+// (world_overlap_need -> requirement -> growth with slack -> track) over frames.
+TEST_CASE("[GaussianSplatting][HLOD] a stationary view with objects grows the overlap storage once, not every frame") {
+	struct Storage {
+		uint64_t capacity = 0;
+		uint32_t growths = 0;
+	};
+	const uint64_t seed = 1280000u; // leaf_count * 50, the world's seed rule.
+	const double objects = 64000.4;
+	Storage storage;
+	storage.capacity = seed; // Provisioned by the world's seed.
+	OverlapWorldNeed tracked;
+	// The publisher's step, with unlimited headroom (ensure_hlod_overlap_capacity grows to the slack request).
+	auto frame = [&](double p_objects) -> uint64_t {
+		const uint64_t world = world_overlap_need(tracked, storage.capacity, p_objects > 0.0 ? seed : 0u);
+		if (p_objects > 0.0 && world_plus_objects_overlap_records(world, p_objects) > storage.capacity) {
+			storage.capacity = world_plus_objects_overlap_growth(world, p_objects);
+			++storage.growths;
+		}
+		tracked.world_records = world;
+		tracked.storage_records = storage.capacity;
+		return world;
+	};
+	for (int f = 0; f < 120; ++f) {
+		const uint64_t world = frame(objects);
+		CHECK(world == seed); // The world's need never absorbs the objects' estimate.
+	}
+	CHECK(storage.growths == 1u);
+	CHECK(storage.capacity == seed + 96001u); // World + 3/2 of the objects' estimate.
+	// Objects leave the view and come back: the storage already holds them, nothing grows.
+	for (int f = 0; f < 10; ++f) { frame(0.0); }
+	for (int f = 0; f < 10; ++f) { frame(objects); }
+	CHECK(storage.growths == 1u);
+	// Moving objects whose estimate rises a little every frame: the slack absorbs it, no growth per rise.
+	for (int f = 0; f < 200; ++f) { frame(objects + 100.0 * f); }
+	CHECK(storage.growths == 1u);
+	// Two views of different demand alternate: the storage settles at the larger requirement and stays there.
+	for (int f = 0; f < 20; ++f) { frame((f & 1) ? objects : 2.0 * objects); }
+	CHECK(storage.growths == 2u);
+	CHECK(storage.capacity == seed + 192002u); // 3/2 of 128000.8, rounded up.
+	// A storage the route did not size (a measured-overflow growth) is read whole as the world's, once: one more growth,
+	// then stable again.
+	storage.capacity = 2000000u;
+	for (int f = 0; f < 30; ++f) { frame(objects); }
+	CHECK(storage.growths == 3u);
+	CHECK(storage.capacity == 2000000u + 96001u);
+	// The requirement is absolute and clamped; the slack never asks for less than the requirement.
+	CHECK(world_plus_objects_overlap_records(100u, 0.0) == 100u);
+	CHECK(world_plus_objects_overlap_records(100u, -5.0) == 100u);
+	CHECK(world_plus_objects_overlap_records(100u, NAN) == 100u);
+	CHECK(world_plus_objects_overlap_records(UINT32_MAX, 1.0e12) == UINT32_MAX);
+	CHECK(world_plus_objects_overlap_growth(100u, NAN) == 100u);
+	CHECK(world_plus_objects_overlap_growth(UINT32_MAX, 1.0e12) == UINT32_MAX);
+	for (double d : { 0.0, 1.0, 7.3, 64000.4, 1.0e9 }) { CHECK(world_plus_objects_overlap_growth(5000u, d) >= world_plus_objects_overlap_records(5000u, d)); }
+	CHECK(world_overlap_need(OverlapWorldNeed(), 0u, 7u) == 7u);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][SceneDirector] a resident world's contract clamps max_splats to its data count but keeps the view cap") {
 	GaussianSplatSceneDirector::WorldSubmission submission;
 	submission.gaussian_data = world_data(16);
