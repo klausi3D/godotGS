@@ -625,7 +625,11 @@ const WI_COLORS := [Color(0, 1, 0), Color(0, 0.3, 1), Color(0, 1, 1), Color(0.1,
 const WI_FRAME_KEYS := ["hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records", "sort_dispatches_frame",
 		"sort_dispatch_frame", "frame_count", "hlod_instance_refused_objects", "hlod_instance_admitted_objects",
 		"hlod_instance_visible_objects", "hlod_bundle_builds", "hlod_instance_row_reuploads", "hlod_selected_splats",
-		"hlod_instance_reserve_splats", "hlod_instance_reserve_refusal_frames", "hlod_last_refusal_reason"]
+		"hlod_instance_reserve_splats", "hlod_instance_reserve_refusal_frames", "hlod_last_refusal_reason",
+		"hlod_overlap_capacity_records", "hlod_instance_overlap_growths"]
+# Stationary frames after warm-up over which the overlap storage must not grow (Codex P1 on #1308: the objects' estimate
+# was added on top of a storage already grown for it, so every stationary frame regrew it and rebuilt the sorter).
+const WI_STATIONARY_FRAMES := 30
 
 
 func _wi_dc(c: Color) -> PackedFloat32Array:
@@ -759,6 +763,9 @@ func _wi_run_mode(mode: String) -> bool:
 	var last := {}
 	while Time.get_ticks_msec() < deadline and stable < 10:
 		await RenderingServer.frame_post_draw
+		# The deadline binds the pass: a frame that ended past it is not an observation (tests/AGENTS.md).
+		if not _check(Time.get_ticks_msec() < deadline, "%s: warm-up exceeded its deadline (stable=%d)" % [mode, stable]):
+			return false
 		renderer = world_node.get_renderer()
 		if renderer == null:
 			continue
@@ -773,8 +780,31 @@ func _wi_run_mode(mode: String) -> bool:
 	if start.is_empty():
 		return false
 	var builds_before := int(start["hlod_bundle_builds"])
-	var reuploads_before := int(start["hlod_instance_row_reuploads"])
 	var summary := {"mode": mode, "start": start}
+	# Stationary phase: nothing moves, so the shared overlap storage must hold still. The objects' record estimate is
+	# held next to the world's need once; it is never added again on top of the storage already grown for it.
+	var growths_before := int(start["hlod_instance_overlap_growths"])
+	var capacity_before := int(start["hlod_overlap_capacity_records"])
+	if not _check(growths_before >= 1 and capacity_before > 0, "%s: the objects' estimate never grew the overlap storage (growths=%d capacity=%d)" % [mode, growths_before, capacity_before]):
+		return false
+	for f in range(WI_STATIONARY_FRAMES):
+		await RenderingServer.frame_post_draw
+		if not _check(Time.get_ticks_msec() < deadline, "%s: stationary phase exceeded its deadline" % mode):
+			return false
+		var what := "%s stationary frame %d" % [mode, f]
+		var st := _wi_stats(renderer, what)
+		if st.is_empty():
+			return false
+		if not _check(str(st["hlod_reason"]) == "active" and int(st["hlod_instance_draw_records"]) == 8 and int(st["hlod_world_draw_records"]) > 0, "%s: reason=%s world=%s instance=%s" % [what, st["hlod_reason"], st["hlod_world_draw_records"], st["hlod_instance_draw_records"]]):
+			return false
+		if not _check(int(st["hlod_instance_overlap_growths"]) == growths_before and int(st["hlod_overlap_capacity_records"]) == capacity_before, "%s: the overlap storage grew with unchanged content (growths %d -> %s, capacity %d -> %s)" % [what, growths_before, st["hlod_instance_overlap_growths"], capacity_before, st["hlod_overlap_capacity_records"]]):
+			return false
+	var stationary := _wi_stats(renderer, mode)
+	if stationary.is_empty():
+		return false
+	summary["after_stationary"] = stationary
+	builds_before = int(stationary["hlod_bundle_builds"])
+	var reuploads_before := int(stationary["hlod_instance_row_reuploads"])
 	# Phases A (0-3 in front) and B (swapped): transform-only motion every frame.
 	for phase in ["A", "B"]:
 		var swapped: bool = phase == "B"
@@ -841,6 +871,9 @@ func _wi_run_mode(mode: String) -> bool:
 	while Time.get_ticks_msec() < deadline and refused_seen < 20:
 		_wi_place(nodes, base, 0.0, false)
 		await RenderingServer.frame_post_draw
+		# The deadline binds the pass: an observation from a frame that ended past it is a failure, not a count.
+		if not _check(Time.get_ticks_msec() < deadline, "%s: budget phase exceeded its deadline (refused_seen=%d)" % [mode, refused_seen]):
+			return false
 		var st := renderer.get_render_stats()
 		if str(st.get("hlod_reason", "")) == "active" and int(st.get("hlod_instance_refused_objects", 0)) > 0:
 			refused_seen += 1

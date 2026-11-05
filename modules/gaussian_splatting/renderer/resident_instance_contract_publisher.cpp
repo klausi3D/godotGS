@@ -1836,6 +1836,20 @@ static const char *hlod_paged_reason_key(const char *p_base, bool p_publish) {
 }
 
 // The route's device-ledger limit exactly as prepare_hlod_frame() derives it (including the test-only override).
+// What `p_views` ViewSet views of the HLOD route charge against the route's headroom (snapshot budget physical_bytes):
+// each holds one world instance's history (ViewSet::slot_bytes) and its draw records for node_budget = the world's nodes
+// (ViewSet::view_cost; the route's ResidencyBudget prices nothing per splat, record or node). UINT64_MAX when unprovable.
+static uint64_t hlod_view_reservation_bytes(uint32_t p_world_nodes, uint32_t p_views) {
+    using gs_hlod_runtime::ViewSet;
+    gs_hlod_runtime::Caps caps;
+    caps.splat_budget = 1;
+    caps.node_budget = MAX<uint32_t>(p_world_nodes, 1u);
+    const uint64_t history = ViewSet::slot_bytes(caps.node_budget);
+    uint64_t one = 0;
+    if (history == 0 || !ViewSet::view_cost(gs_hlod_runtime::ResidencyBudget(), caps, history, caps.node_budget, one)) { return UINT64_MAX; }
+    return one != 0 && p_views > UINT64_MAX / one ? UINT64_MAX : one * p_views;
+}
+
 static uint64_t hlod_route_limit_bytes(GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd) {
     uint64_t limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(p_rd->get_device_memory_budget(),
             GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
@@ -2113,7 +2127,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             // page budget leaves the scratch admission refusing every frame.
             uint64_t scratch_fixed = 0, scratch_per_record = 0;
             TileRenderer::get_hlod_scratch_reservation(relative_capacity, scratch_fixed, scratch_per_record);
-            const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget(atlas_limit > instance_atlas_bytes ? atlas_limit - instance_atlas_bytes : 0u,
+            // PR1b: the instance region's records get their frame scratch too (prepare_hlod_scratch sizes it from world + region).
+            const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(atlas_limit, region.records,
                     record_stride, stream_config.page_splats,
                     node_pages, fixed_bytes, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, route_limit, device_bytes,
                     scratch_fixed, scratch_per_record);
@@ -2321,10 +2336,48 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
     state.hlod_owned_byte_upper_bound = route_bytes;
+    // The frame's scratch request (admitted by prepare_hlod_scratch below). The scratch covers the atlas the frame draws
+    // from (its total_gaussians), not the tree's splat count; PR1b: plus the instance region at the atlas tail.
+    const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
+            input->leaf_count, input->parent_count) + uint32_t(state.hlod_instance_region.records);
+    const PipelineFeatureSet *features = p_context.deps.pipeline_features;
+    if (!features) { return fallback("current_pipeline_features_unavailable"); }
+    TileRenderer::RenderParams scratch_params;
+    scratch_params.viewport_size = p_context.viewport_size;
+    scratch_params.total_gaussians = total;
+    scratch_params.max_visible_splats = state.hlod_relative.buffers.max_visible_splats;
+    scratch_params.request_packed_stage_data = features->enable_packed_stage_data;
+    scratch_params.request_tighter_bounds = features->enable_tighter_bounds;
+    scratch_params.request_sh_amortization = features->enable_sh_amortization;
+    scratch_params.sh_amortization_divisor = features->sh_amortization_divisor;
+    // The ledger order of this frame (ResidentAtlasBudget::hlod_optional_growth_headroom). Every step below allocates from
+    // route_limit - route_bytes. The world's mandatory allocations still outstanding are set aside first: the view's tile
+    // grid (streamed and paged worlds), the frame scratch and the ViewSet reservation of the views. The optional overlap
+    // growths (measured overflow, objects' estimate) may only spend the rest, so they can never leave the scratch, the grid
+    // or a view refused on every frame; refused, they only leave the storage as it is.
+    uint64_t mandatory_bytes = 0;
+    {
+        uint64_t grid_bytes = 0;
+        if (state.hlod_streaming || input->is_paged()) {
+            uint64_t live_textures = 0;
+            if (!tile->get_hlod_texture_byte_upper_bound(live_textures)) { return fallback("resource_ledger_unavailable"); }
+            const Vector2i grid = tile->get_provisioned_viewport();
+            const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
+            const uint32_t seed = overlap_now == 0 ? tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))) : 0u;
+            grid_bytes = ResidentAtlasBudget::hlod_view_grid_outstanding_bytes(grid.x, grid.y, p_context.viewport_size.x, p_context.viewport_size.y,
+                    overlap_now, live_textures,
+                    tile->estimate_hlod_texture_bytes_for_viewport(p_context.viewport_size) + uint64_t(seed) * tile->get_hlod_overlap_bytes_per_record());
+        }
+        // Each admitted view (and this one, if it is new) is charged its history and draw records against the same
+        // headroom every frame (ViewSet::admit_view / select): node_budget = the world's nodes, one world instance.
+        const uint32_t views = MIN<uint32_t>(frame_context_manager.get_hlod_view_set().view_count() + 1u, RenderFrameContextManager::HLOD_MAX_VIEWS);
+        mandatory_bytes = ResidentAtlasBudget::hlod_mandatory_outstanding_bytes(grid_bytes, tile->get_hlod_scratch_outstanding_bytes(scratch_params),
+                hlod_view_reservation_bytes(input->nodes.size(), views));
+    }
     // Safe point for the overlap storage: the previous frames' measured overlap demand, before this frame's passes. It runs
-    // before the per-view grid decision below, so that decision (and the seed) reads the grown capacity. It runs before the
-    // route limit refusal too, so the headroom saturates: an over-limit route grows nothing and is refused below.
-    if (tile->grow_hlod_overlap_storage(route_bytes < route_limit ? route_limit - route_bytes : 0)) {
+    // before the per-view grid decision below, so that decision (and the seed) reads the grown capacity. Optional: only
+    // from the headroom the mandatory allocations leave (an over-limit route grows nothing and is refused below).
+    if (tile->grow_hlod_overlap_storage(ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes))) {
         if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
         state.hlod_owned_byte_upper_bound = route_bytes;
     }
@@ -2372,21 +2425,28 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             demands.push_back(demand);
             if (std::isfinite(demand.records)) { demand_records += demand.records; }
         }
+        // The world's need is tracked apart from the storage (gs_hlod_bundle::world_overlap_need): the storage already
+        // holds the objects' estimate of earlier frames, so it is not the world's need, and the requirement is absolute
+        // (world need + this view's estimate, once). Unchanged content never grows it again.
+        const uint64_t world_need = gs_hlod_bundle::world_overlap_need(state.hlod_overlap_world_need, tile->get_allocated_overlap_capacity(),
+                demands.is_empty() ? 0u : tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))));
+        world_record_need = double(world_need);
         if (!demands.is_empty()) {
-            const uint64_t world_seed = MAX<uint64_t>(tile->get_allocated_overlap_capacity(),
-                    tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))));
-            world_record_need = double(world_seed);
-            const uint64_t wanted = MIN<uint64_t>(world_seed + uint64_t(std::ceil(MIN(demand_records, double(UINT32_MAX)))), UINT32_MAX);
-            if (tile->ensure_hlod_overlap_capacity(uint32_t(wanted), route_bytes < route_limit ? route_limit - route_bytes : 0)) {
+            const uint32_t wanted = gs_hlod_bundle::world_plus_objects_overlap_records(world_need, demand_records);
+            // Optional: only what the outstanding mandatory allocations leave (see the ledger order above).
+            const uint64_t headroom = ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes);
+            // Grow with slack (moving objects must not reallocate it on every small rise), else exactly to the requirement.
+            if (tile->clamp_hlod_overlap_records(wanted) > tile->get_allocated_overlap_capacity() &&
+                    (tile->ensure_hlod_overlap_capacity(gs_hlod_bundle::world_plus_objects_overlap_growth(world_need, demand_records), headroom) ||
+                            tile->ensure_hlod_overlap_capacity(wanted, headroom))) {
+                ++state.hlod_instance_overlap_growths;
                 if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
                 state.hlod_owned_byte_upper_bound = route_bytes;
             }
         }
+        state.hlod_overlap_world_need.world_records = world_need;
+        state.hlod_overlap_world_need.storage_records = tile->get_allocated_overlap_capacity();
     }
-    // The scratch covers the atlas the frame draws from (its total_gaussians), not the tree's splat count.
-    // PR1b: plus the instance region at the atlas tail (0 without node instances).
-    const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
-            input->leaf_count, input->parent_count) + uint32_t(state.hlod_instance_region.records);
     if (state.hlod_streaming || input->is_paged()) {
         // The one tile-grid provisioner for streamed (D1) and V4 paged (E1) worlds. Neither runs a canonical frame after
         // startup, and prepare_hlod_scratch() refuses every frame whose size differs from the tile grid. Resize the grid to
@@ -2417,23 +2477,14 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         }
     }
     if (route_bytes > route_limit) { return fallback("route_memory_limit"); }
-    const uint32_t capacity = state.hlod_relative.buffers.max_visible_splats;
-    const PipelineFeatureSet *features = p_context.deps.pipeline_features;
-    if (!features) { return fallback("current_pipeline_features_unavailable"); }
-    TileRenderer::RenderParams scratch_params;
-    scratch_params.viewport_size = p_context.viewport_size;
-    scratch_params.total_gaussians = total;
-    scratch_params.max_visible_splats = capacity;
-    scratch_params.request_packed_stage_data = features->enable_packed_stage_data;
-    scratch_params.request_tighter_bounds = features->enable_tighter_bounds;
-    scratch_params.request_sh_amortization = features->enable_sh_amortization;
-    scratch_params.sh_amortization_divisor = features->sh_amortization_divisor;
+    // Mandatory: the frame scratch, from the headroom the optional growths above had to leave for it.
     if (!tile->prepare_hlod_scratch(scratch_params,
                 route_limit - route_bytes)) { return fallback("tile_capacity_warmup_or_memory_limit"); }
     if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("prepared_route_memory_limit"); }
     state.hlod_owned_byte_upper_bound = route_bytes;
     const uint32_t records = tile->get_allocated_overlap_capacity();
     if (records == 0) { return fallback("overlap_capacity_unavailable"); }
+    state.hlod_overlap_capacity_records = records;
     const double tau = double(state.hlod_tau_px > 0 ? state.hlod_tau_px : gs::settings::get_hlod_tau_px(ps)) * get_lod_bias();
     if (!std::isfinite(tau) || tau <= 0.0) { return fallback("invalid_tau"); }
     // The renderer no longer keeps histories of its own: gs_hlod_runtime::ViewSet owns every per-view cut,

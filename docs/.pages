@@ -115,6 +115,7 @@ nav:
               - Full SH GPU Storage: architecture/adr-full-sh-gpu-storage.md
               - Hierarchical LOD for Streamed Worlds: architecture/adr-hlod-streaming.md
               - Worlds Beyond VRAM: architecture/adr-beyond-vram-worlds.md
+              - One Route, Many Demand Producers: architecture/adr-one-route-many-producers.md
               - Import Importance Pruning: architecture/adr-import-importance-pruning.md
               - Import Input Hardening: architecture/adr-import-input-hardening.md
               - Overflow Drop Telemetry: architecture/adr-overflow-drop-telemetry.md

@@ -88,7 +88,9 @@ Two partial systems exist:
 
 - Real-scan beyond-VRAM content. It waits on #1294 and on tiled ingest.
 - Package F (editable regions).
-- Instanced or multi-package worlds.
+- Multi-package worlds (several world packages per scenario). Node instances are **not** a
+  non-goal: they coexist with the world in the same frame per
+  [One route, many demand producers](adr-one-route-many-producers.md).
 - Retrained or neural compression (not decodable per page at streaming rates; see the
   compression survey in "External prior art").
 - Any change to S1b rules or to the #1290 waiver. **The HLOD bake rule stays unchanged.**
@@ -117,8 +119,11 @@ The unit is a **run** keyed by `(asset_key, NodeKey, NodeVersion)`:
 - an HLOD node is a run of ≤ 16 pages;
 - a legacy chunk is a degenerate leaf node, a run of ≤ 64 pages.
 
-Selectors are separate **demand producers**: the HLOD `ViewSet` cut and legacy chunk
-visibility.
+Selectors are separate **demand producers**: the HLOD `ViewSet` cut, legacy chunk
+visibility and the movable node instances (rows 1..N of one draw list, per
+[One route, many demand producers](adr-one-route-many-producers.md)); light views and extra
+camera views follow. The producer interface takes several producers per frame from the start, so
+Steps A and B do not harden around one producer.
 
 **The seed is `lod/hlod_node_residency`.** It already has whole-group admission, tickets with
 generations, retirement delay, protection, and eviction outside the closure → LRU → finest
@@ -197,7 +202,7 @@ bound and bound+1, and carries an explicit maintainer disposition in an R3 PR.
 | Cut `splat_budget` = min(leaf_count, `max_splats`) (`publisher.cpp:1657-1658` ✓, `:2038` ✓) | min(`drawn_budget_splats`, visible cap, pool records). This needs the **new setting** from BV-16c. | — |
 | Offline job: 1 worker, 1 job | Per-worker job contexts. Limits come per bucket from the frozen HLOD ADR §15.2 job manifest. | — |
 | `materialize_paged_resident` fallback (`nodes/gaussian_splat_world_3d.cpp:664-674` ✓) | **Refusal only above the resident limit.** Worlds that fit RAM keep the warn-and-load fallback. Larger worlds would OOM today, so no working scene breaks. | Closes the HLOD ADR §14.8 stop condition (silent whole-world materialization). |
-| A second HLOD view (multi-view) | **Refused with `hlod_multiview_budget_undefined`** until per-view sub-budgets and a deterministic Desired merge exist (P6). The drawn budget is a **per-frame total**. | The benchmark has one view. This prevents closure starvation. |
+| A second HLOD view (multi-view) | **Refused with `hlod_multiview_budget_undefined`** until per-view sub-budgets and a deterministic Desired merge exist (P6). This refusal is an interim only, and it keeps its typed reason; light views for splat shadow casters are not deferred (see P6). The drawn budget is a **per-frame total**. | The benchmark has one view. This prevents closure starvation. |
 
 ### D-4 Frame time: an honest model. HLOD caps the drawn count; the 3090 targets are at risk until F is measured
 
@@ -429,7 +434,8 @@ needs a re-bake; that is stated, not hidden.
 
 `renderer/device_vram_ledger` apportions memory to the pool, the sort and overlap buffers (from
 the drawn budget or the visible cap), the per-view buffers, the HLOD scratch (by pool records),
-and the engine and driver reserves.
+and the engine and driver reserves. It also owns the resident object atlas, the instance region
+of the HLOD bundle and the shadow-caster scratch, so the world and the objects share one ledger.
 
 - The GS-owned share stays at 0.60 × device.
 - It is enforced on the HLOD route and report-only on the chunk route until Step C.
@@ -550,14 +556,17 @@ and proven, not assumed.
    Decode/pack workers  : GSQ decode (per-worker ZSTD_DCtx) → PackedGaussian 176 B → bounded ready queue
    ResidencyManager     : seed NodeResidency; ledger ◄ DeviceVramLedger; SegmentedPagePool (K=1 until Step C)
                           state lists + intrusive LRU per protection class; tickets/generations; retire queue
-   Demand producers     : HLOD ViewSet/CutHistory (one view) | legacy chunk visibility (until Step C)
+   Demand producers     : HLOD ViewSet/CutHistory | node instances (rows 1..N) | legacy chunk visibility (until Step C)
+                          → one draw list, one sort, one ledger per view
    Draw list            : DrawnNodeGPU {instance_id, chunk_id, fade, reserved, camera_offset[4]} 32 B
                           (renderer/gaussian_gpu_layout.h:269-278; segment id goes in `reserved` at Step C)
    Renderer             : depth/projection → COUNT/EMIT → overlap sort → raster; scratch sized from the drawn budget
    Telemetry            : release atomics + per-frame-serial GPU timings → binary frame trace (file)
 ```
 
-The `DrawnNodeGPU` layout was re-read at `renderer/gaussian_gpu_layout.h:269-278` ✓.
+The `DrawnNodeGPU` layout was re-read at `renderer/gaussian_gpu_layout.h:269-278` ✓. Its
+`instance_id` carries real instance rows (world = 0, node instances = 1..N), not only the
+identity world.
 
 ### 3.2 Interfaces
 
@@ -578,13 +587,13 @@ The `DrawnNodeGPU` layout was re-read at `renderer/gaussian_gpu_layout.h:269-278
 | I-1 | No per-frame O(N_world) CPU work. A scaling test runs at 10k, 100k and 1M nodes. |
 | I-2 | Whole-run admission. An unplaceable run is skipped, not waited for. Compaction starts after R = 8 skips. |
 | I-3 | Protected closure = pinned ∪ drawn ∪ ancestors ∪ fades ∪ in-flight ∪ retiring. The budget is checked against allocated pages. |
-| I-4 | Complete-or-nothing publication. The first READY frame is the root or the bootstrap frontier. |
+| I-4 | Complete-or-nothing publication. The first READY frame is the root or the bootstrap frontier. It holds **per producer**: a producer that is not ready never blanks another (a loading world still draws the objects, and a refused object producer never blanks the world). |
 | I-5 | Stale-generation completions are dropped and counted. |
 | I-6 | Ledger honesty. Every resize pre-flights old + new. |
 | I-7 | Drawn ≤ drawn budget ≤ visible cap. On the HLOD arm the visible cap never binds. |
 | I-8 | No silent whole-world materialization. |
 | I-9 | Every gate-consumed counter exists in release builds **and** has a forcing control (§8.5). |
-| I-10 | Deterministic ties by `(instance_key, NodeKey)`. |
+| I-10 | Deterministic ties by `(instance_key, NodeKey)`. Tested with ≥ 2 producers (world + node instances). |
 | **I-11** | A single owner, the render thread, for every residency mutation. Workers communicate only through bounded queues. |
 | **I-12** | Each page is encode → decode → validated by the writer before it is appended. Readers never trust a digest in place of semantic validation. |
 
@@ -1328,7 +1337,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | ★BV-26a | Freeze `drawn_budget_splats` (D-4 rule, from M1/M1c F/k), τ, SH bands in `settings` **before any HLOD data** | R3 | 09, 16c, M1c | 0.5–1 |
 | ★BV-21a | Prime job: V4 GSQ bake on the runner, `gen_sha + bake_sha` key, quarantine | R3 | 20d, C4, 06b | 2 |
 | ★BV-21b | Lane HLOD arm; oracle cuts (A); G3, G10h, G11h hard; P1, G11q calibrating | R3 | 21a, 15, 17, 25, 26a | 2–3 |
-| **M3** | **First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080** | | | |
+| **M3** | **First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080**, also run in GS-COMBINED-1 variant B once that gate exists | | | |
 
 ### P4: frame targets on both devices → **M4**
 
@@ -1344,7 +1353,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | ★BV-30 | Tier AB V4 GSQ on the workstation: bake, oracle cuts (AB), bundle tooling, signing, verifier, precheck | R3 (evidence tooling) | 21a | 2–3 |
 | ★BV-31 | 3080 calibration (5 dispatches, HLOD arm only; no flat-arm calibration) + promotion of P1, G5–G6t, G11, G11q, G13–G15 and Q-codec where they pass | R3 | 22–24b, 26b, 27 | 1 + runner |
 | ★BV-32 | **3090 calibration (5 workstation runs on AB) + promotion** | R3 | 30, 31 | 1 + maintainer's time |
-| **M4** | **Met only if P1 is hard and passing on the 3080 (A) and the 3090 (AB), on the HLOD arm.** Otherwise "not met", with the numbers. | | | |
+| **M4** | **Met only if P1 is hard and passing on the 3080 (A) and the 3090 (AB), on the HLOD arm**, with the same run also passing in GS-COMBINED-1 variant B ([One route, many demand producers](adr-one-route-many-producers.md) §9) once that gate exists. A world-only pass is reported but does not meet M4. Otherwise "not met", with the numbers. | | | |
 
 BV-22 to BV-25 start on day 1 in parallel.
 
@@ -1371,7 +1380,9 @@ BV-22 to BV-25 start on day 1 in parallel.
 - Compact GSQ-GPU layout.
 - Importer GSQ output (§12 item 5).
 - Issue: decorative importer compression flags.
-- Multi-view sub-budgets.
+- Multi-view sub-budgets for extra camera views. The light-view sub-budget that real splat
+  shadow casters need is **not** deferred here: it is scheduled with the caster work before M3
+  ([One route, many demand producers](adr-one-route-many-producers.md), decision 6).
 - Lazy index pages.
 - #1302.
 
@@ -1517,6 +1528,15 @@ The user (maintainer) answered the §12 questions on 2026-11-03. These decisions
    2 GiB ceiling stays on the resident route.
 5. **Importer.** Accepted by default: GSQ output is opt-in first. It becomes the default only
    once the codec quality gate is hard and passing on real scans.
+
+**Note (2026-11-04).** The maintainer decided that the world, static and movable objects,
+interactive objects, lights and shadows must work in the same frame, and accepted
+[One route, many demand producers](adr-one-route-many-producers.md). This record was amended
+to match, with minimal edits in eight places: the §1.3 non-goal (node instances removed from it;
+multi-package worlds stay out of scope), the D-1 producer set, the §3.1 producer line and
+`DrawnNodeGPU.instance_id`, the D-11 ledger scope, the multi-view refusal (D-3, as an interim) together
+with the P6 light-view sub-budget, invariant I-4 (per producer), invariant I-10 (tested with
+≥ 2 producers), and M3/M4, which are also run in GS-COMBINED-1 variant B. **No threshold or gate in §8 changed.**
 
 ---
 
