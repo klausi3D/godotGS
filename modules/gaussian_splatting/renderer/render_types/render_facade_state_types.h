@@ -180,6 +180,9 @@ struct ResourceState {
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
     // Lowers the HLOD route's device-ledger limit (0 = off) so a runtime scenario can force a memory refusal. Never raises it.
     std::atomic<uint64_t> hlod_test_route_limit_override{ 0 };
+    // Holds a streamed (paged) world idle: every main view takes the idle fallback with the view's admitted objects
+    // (reason hlod_test_world_held_idle), exactly as while its cut loads. Never makes anything drawable.
+    std::atomic<bool> hlod_test_hold_world_idle{ false };
     // Actual resident sort inputs, retained before the post-frame canonical restore.
     // Borrowed RID only; the observer validates lifetime, device and frame before readback.
     RID hlod_test_sort_count_buffer;

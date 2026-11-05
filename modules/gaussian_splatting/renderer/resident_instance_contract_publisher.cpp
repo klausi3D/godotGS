@@ -2648,6 +2648,12 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         instance_casters.origin_revision = snapshot.origin_revision;
         instance_casters_ready = true;
     }
+#ifdef TESTS_ENABLED
+    // Test-only: a streamed world held idle, with this view's objects formed (the state a loading cut is in).
+    if (state.hlod_streaming && state.hlod_test_hold_world_idle.load(std::memory_order_acquire)) {
+        return fallback("hlod_test_world_held_idle");
+    }
+#endif
     snapshot.budget = gs_hlod_runtime::ResidencyBudget();
     snapshot.budget.physical_bytes = route_limit - route_bytes;
     snapshot.assets.resize(1);
@@ -2833,6 +2839,10 @@ bool GaussianSplatRenderer::get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) c
 #ifdef TESTS_ENABLED
 void GaussianSplatRenderer::test_set_hlod_route_limit_override(int64_t p_bytes) {
     get_resource_state().hlod_test_route_limit_override.store(p_bytes > 0 ? uint64_t(p_bytes) : 0u, std::memory_order_release);
+}
+
+void GaussianSplatRenderer::test_set_hlod_hold_world_idle(bool p_hold) {
+    get_resource_state().hlod_test_hold_world_idle.store(p_hold, std::memory_order_release);
 }
 
 void GaussianSplatRenderer::test_set_hlod_publication_failure(int p_failure) {

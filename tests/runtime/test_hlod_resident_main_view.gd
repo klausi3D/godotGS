@@ -1259,11 +1259,28 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 	return true
 
 
-# An idle streamed world keeps its objects casting (Codex P2 on #1316). While a paged world's cut loads, the route draws
-# the admitted objects alone (ADR 4.4, idle_hlod_streaming_bundle with instances); their shadow must not vanish. No test
-# hook holds a paged world idle, so this judges the loading frames a fresh paged world goes through at startup (2 per run
-# on the development machine): every frame whose previous frame drew the objects alone must cast exactly their splats.
-# Fail-closed per judged frame; the number judged is reported (idle_frames_judged), never assumed.
+# An idle streamed world keeps its objects casting (Codex P2/P1 on #1316). While a paged world's cut loads, the route draws
+# the admitted objects alone (ADR 4.4, idle_hlod_streaming_bundle with instances); their shadow must not vanish. The
+# startup loading frames are judged when they occur (timing-dependent, reported, not required). The required evidence is a
+# held phase: the TESTS_ENABLED hook test_set_hlod_hold_world_idle keeps the active paged world idle (reason
+# hlod_test_world_held_idle), and at least SC_IDLE_FRAMES consecutive frames after an objects-only frame must each cast
+# exactly the node's splats; fewer by the deadline is a failure, never a pass (absence of a signal is not a pass).
+const SC_IDLE_FRAMES := 5
+const SC_IDLE_REASON := "hlod_test_world_held_idle"
+
+
+func _sc_judge_idle(st: Dictionary, what: String) -> bool:
+	if not _check(int(st["shadow_caster_frame"]) == int(st["frame_count"]) - 1 and int(st["shadow_caster_passes_cast"]) > 0, "%s: the objects the idle world still draws cast nothing (passes cast %s, refused %s, last refusal %s)" % [what, st["shadow_caster_passes_cast"], st["shadow_caster_passes_refused"], st["shadow_caster_last_refusal"]]):
+		return false
+	var per_pass := int(st["shadow_casters_rastered"]) / int(st["shadow_caster_passes_cast"])
+	return _check(per_pass == WI_INSTANCE_SPLATS, "%s: cast %d per pass (expected the node's %d, no world records)" % [what, per_pass, WI_INSTANCE_SPLATS])
+
+
+func _sc_release_hold(renderer: GaussianSplatRenderer) -> bool:
+	renderer.test_set_hlod_hold_world_idle(false)
+	return false
+
+
 func _run_shadow_caster_idle_world_proof() -> bool:
 	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
 	var world := _sc_slab(true)
@@ -1314,17 +1331,49 @@ func _run_shadow_caster_idle_world_proof() -> bool:
 		active = active + 1 if str(st["hlod_reason"]) == "active" else 0
 		# This frame's shadow passes drew the list the previous frame's main view uploaded.
 		if not previous.is_empty() and int(st["frame_count"]) == int(previous["frame_count"]) + 1 and bool(previous["idle_with_objects"]):
-			var what := "shadow casters (idle) frame_count %s after an objects-only frame" % st["frame_count"]
-			if not _check(int(st["shadow_caster_frame"]) == int(st["frame_count"]) - 1 and int(st["shadow_caster_passes_cast"]) > 0, "%s: the objects the idle world still draws cast nothing (passes cast %s, refused %s, last refusal %s)" % [what, st["shadow_caster_passes_cast"], st["shadow_caster_passes_refused"], st["shadow_caster_last_refusal"]]):
-				return false
-			var per_pass := int(st["shadow_casters_rastered"]) / int(st["shadow_caster_passes_cast"])
-			if not _check(per_pass == WI_INSTANCE_SPLATS, "%s: cast %d per pass (expected the node's %d, no world records)" % [what, per_pass, WI_INSTANCE_SPLATS]):
+			if not _sc_judge_idle(st, "shadow casters (idle startup) frame_count %s after an objects-only frame" % st["frame_count"]):
 				return false
 			judged += 1
 		previous = {"frame_count": int(st["frame_count"]), "idle_with_objects": idle_with_objects}
 	if not _check(active >= 10, "shadow casters (idle): the paged world never became active"):
 		return false
-	_metrics["shadow_casters_idle_world"] = {"loading_frames_with_objects": loading_seen, "idle_frames_judged": judged}
+	# Held phase (required): the active paged world held idle by the test hook.
+	var held_renderer := world_node.get_renderer()
+	if not _check(held_renderer != null and held_renderer.has_method("test_set_hlod_hold_world_idle"), "shadow casters (idle held): test_set_hlod_hold_world_idle is unavailable (TESTS_ENABLED build required)"):
+		return false
+	held_renderer.test_set_hlod_hold_world_idle(true)
+	var held_judged := 0
+	var held_previous := {}
+	while Time.get_ticks_msec() < deadline and held_judged < SC_IDLE_FRAMES:
+		await RenderingServer.frame_post_draw
+		if not _check(Time.get_ticks_msec() < deadline, "shadow casters (idle held): deadline (judged %d of %d)" % [held_judged, SC_IDLE_FRAMES]):
+			return _sc_release_hold(held_renderer)
+		var st := held_renderer.get_render_stats()
+		for key in SC_STAT_KEYS:
+			if not _check(st.has(key), "shadow casters (idle held): missing renderer field %s" % key):
+				return _sc_release_hold(held_renderer)
+		var held := str(st["hlod_reason"]) == SC_IDLE_REASON
+		if held and not _check(int(st["hlod_world_draw_records"]) == 0 and int(st["hlod_instance_draw_records"]) > 0, "shadow casters (idle held): the held world drew %s world / %s object records (expected 0 / > 0)" % [st["hlod_world_draw_records"], st["hlod_instance_draw_records"]]):
+			return _sc_release_hold(held_renderer)
+		if not held_previous.is_empty() and bool(held_previous["held"]):
+			# Every frame after a held frame is judged; losing the hold or skipping a frame fails the run.
+			if not _check(held and int(st["frame_count"]) == int(held_previous["frame_count"]) + 1, "shadow casters (idle held): the hold was lost or a frame was skipped (reason %s, frame_count %s after %s)" % [st["hlod_reason"], st["frame_count"], held_previous["frame_count"]]):
+				return _sc_release_hold(held_renderer)
+			if not _sc_judge_idle(st, "shadow casters (idle held) frame_count %s" % st["frame_count"]):
+				return _sc_release_hold(held_renderer)
+			held_judged += 1
+		held_previous = {"frame_count": int(st["frame_count"]), "held": held}
+	held_renderer.test_set_hlod_hold_world_idle(false)
+	if not _check(held_judged >= SC_IDLE_FRAMES, "shadow casters (idle held): only %d of %d held idle frames judged" % [held_judged, SC_IDLE_FRAMES]):
+		return false
+	# Released: the world becomes active again.
+	var reactive := 0
+	while Time.get_ticks_msec() < deadline and reactive < 3:
+		await RenderingServer.frame_post_draw
+		reactive = reactive + 1 if str(held_renderer.get_render_stats().get("hlod_reason", "")) == "active" else 0
+	if not _check(reactive >= 3, "shadow casters (idle held): the world did not become active after the hold was released"):
+		return false
+	_metrics["shadow_casters_idle_world"] = {"loading_frames_with_objects": loading_seen, "idle_frames_judged": judged, "held_idle_frames_judged": held_judged}
 	_scene = null
 	scene.queue_free()
 	await RenderingServer.frame_post_draw
