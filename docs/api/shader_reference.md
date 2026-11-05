@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `190` documented functions, `21` undocumented functions, `75` documented uniform fields, `115` undocumented uniform fields.
+Coverage summary: `190` documented functions, `28` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -171,6 +171,42 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>invert_depth</code></pre></td>
       <td><pre><code>float</code></pre></td>
       <td>1.0 to invert (reversed depth)</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_shadow_caster.glsl
+
+`modules/gaussian_splatting/shaders/gs_shadow_caster.glsl`
+
+### Uniform Blocks
+
+#### Params (params)
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>light_from_frame</code></pre></td>
+      <td><pre><code>mat4</code></pre></td>
+      <td>Godot directional shadow clip transform of a camera-relative position</td>
+    </tr>
+    <tr>
+      <td><pre><code>viewport</code></pre></td>
+      <td><pre><code>vec4</code></pre></td>
+      <td>xy = atlas rect size in texels, z = alpha threshold, w = low-pass dilation (texels^2)</td>
+    </tr>
+    <tr>
+      <td><pre><code>counts</code></pre></td>
+      <td><pre><code>uvec4</code></pre></td>
+      <td>x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = 0</td>
     </tr>
   </tbody>
 </table>
