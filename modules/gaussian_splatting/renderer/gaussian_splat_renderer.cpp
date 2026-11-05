@@ -2033,11 +2033,13 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
     const gs_shadow_caster::FrameRecord &record = state.hlod_shadow_caster_record;
     const InstancePipelineBuffers &buffers = state.hlod_relative.buffers;
     RenderingDevice *main_device = RenderingDevice::get_singleton();
-    // The record must name the relative bundle that still exists: same build, same uploaded draw count, every buffer
-    // valid on the device that owns the shadow framebuffer.
+    // The record must name the relative bundle that still exists: same build, the draw list it was recorded with (no
+    // upload since; a streamed world's end-of-frame idle restore zeroes only the bound draw count and the GPU counter, which
+    // the caster never reads, so the bound count is not the key), every buffer valid on the device that owns the shadow
+    // framebuffer.
     auto valid_buffer = [main_device](RID p_buffer) { return p_buffer.is_valid() && main_device->buffer_is_valid(p_buffer); };
     const bool bundle_current = record.valid && main_device && record.bundle_builds == state.hlod_bundle_builds &&
-            buffers.hlod_relative && buffers.hlod_draw_count == record.draw_count &&
+            buffers.hlod_relative && record.draw_list_upload == state.hlod_draw_list_uploads &&
             buffers.max_chunk_splats == record.max_chunk_splats && valid_buffer(buffers.atlas_gaussian_buffer) &&
             valid_buffer(buffers.instance_buffer) && valid_buffer(buffers.chunk_meta_buffer) &&
             valid_buffer(buffers.visible_chunk_buffer);

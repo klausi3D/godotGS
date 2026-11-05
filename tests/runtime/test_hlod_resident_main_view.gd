@@ -590,8 +590,14 @@ func _run() -> void:
 		if not world_instances_proved:
 			return
 		# Splat shadow casters (#1095, #1163): the same route casts into Godot's directional shadow map (own wall-clock bound).
-		var shadow_casters_proved := await _run_shadow_caster_proof()
-		if not shadow_casters_proved:
+		# Both world kinds: a streamed (paged) world idles its bundle at the end of every frame and draws its objects alone
+		# while its cut loads, and must cast all the same.
+		for sc_mode in ["whole", "paged"]:
+			var shadow_casters_proved := await _run_shadow_caster_proof(sc_mode)
+			if not shadow_casters_proved:
+				return
+		var idle_casters_proved := await _run_shadow_caster_idle_world_proof()
+		if not idle_casters_proved:
 			return
 		var shadow_receivers_proved := await _run_shadow_receiver_proof()
 		if not shadow_receivers_proved:
@@ -926,7 +932,11 @@ func _run_world_plus_instances_proof() -> bool:
 #   control  - cast_shadow off on the world and the node: no caster pass runs for the frame, the floor ROIs are lit;
 #   cast     - both cast: each ROI under a blocker is darker than its control by SC_MAX_RATIO or more, a lit reference ROI
 #              is unchanged, shadow_casters_rastered > 0 in this very frame (shadow_caster_frame == frame_count - 1);
-#   row_off  - only the node's cast_shadow off: its shadow is gone, the world's stays, exactly its splats fewer are drawn.
+#   row_off  - only the node's cast_shadow off: its shadow is gone, the world's stays, exactly its splats fewer are drawn;
+#   world_off - only the world's cast_shadow off (the node casts, so the shared renderer still gets a shadow pass): the
+#              world's shadow is gone, the node's stays, exactly the node's splats are drawn (Codex P2 on #1316);
+#   faded    - both cast, the node faded to opacity SC_FADED_OPACITY (peak alpha below the caster threshold, as drawn): its
+#              shadow is gone, the world's stays (Codex P2 on #1316: the caster ignored the instance opacity).
 # The ROIs are where the light ray through each blocker's centre meets the floor; the camera sees them past the blockers.
 const SC_TIMEOUT_MSEC := 120_000
 const SC_FRAMES := 30
@@ -938,12 +948,17 @@ const SC_REFERENCE := Vector3(0.0, 0.0, 3.0)
 const SC_MAX_RATIO := 0.6 # GS-COMBINED-1 S1-S4: receiver ROI luminance ratio <= 0.6.
 const SC_GONE_RATIO := 0.9 # A shadow that is gone leaves its ROI within 10 % of the control.
 const SC_ROI_HALF := 2 # 5 x 5 pixels.
+# Node opacity of the faded phase: the ball's stored opacity (sigmoid(6) ~ 0.998) times this is ~0.1, below the 0.5
+# caster threshold (renderer/hlod_shadow_caster_plan.h kAlphaThreshold) for every splat.
+const SC_FADED_OPACITY := 0.1
+# Per phase: [world casts, node casts] as the floor must show it.
+const SC_PHASES := {"cast": [true, true], "row_off": [true, false], "world_off": [false, true], "faded": [true, false]}
 const SC_STAT_KEYS := ["frame_count", "hlod_reason", "hlod_world_draw_records", "hlod_instance_draw_records",
 		"shadow_caster_frame", "shadow_casters_rastered", "shadow_caster_passes_cast", "shadow_caster_passes_refused",
 		"shadow_caster_last_refusal", "shadow_caster_source"]
 
 
-func _sc_slab() -> GaussianSplatWorld:
+func _sc_slab(paged: bool) -> GaussianSplatWorld:
 	var n := 64
 	var data := GaussianData.new()
 	data.resize(n * n)
@@ -969,7 +984,13 @@ func _sc_slab() -> GaussianSplatWorld:
 	w.gaussian_data = data
 	if w.bake_hlod() != OK or not w.has_hlod_tree():
 		return null
-	return w
+	if not paged:
+		return w
+	var path := "user://hlod_shadow_casters_%d_%d.gsplatworld" % [OS.get_process_id(), Time.get_ticks_usec()]
+	if w.save_hlod_paged(path) != OK:
+		return null
+	var loaded: GaussianSplatWorld = ResourceLoader.load(path, "GaussianSplatWorld", ResourceLoader.CACHE_MODE_IGNORE)
+	return loaded if loaded != null and loaded.has_hlod_paged_source() else null
 
 
 func _sc_floor_point(center: Vector3) -> Vector3:
@@ -1032,10 +1053,10 @@ func _sc_route_active(st: Dictionary, what: String) -> bool:
 			"%s: route not active with both producers (%s)" % [what, st["hlod_reason"]])
 
 
-func _run_shadow_caster_proof() -> bool:
+func _run_shadow_caster_proof(mode: String) -> bool:
 	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
-	var world := _sc_slab()
-	if not _check(world != null, "shadow casters: slab world bake failed"):
+	var world := _sc_slab(mode == "paged")
+	if not _check(world != null, "shadow casters (%s): slab world bake/load failed" % mode):
 		return false
 	var scene := Node3D.new()
 	get_root().add_child(scene)
@@ -1099,14 +1120,14 @@ func _run_shadow_caster_proof() -> bool:
 			stable += 1
 		else:
 			stable = 0
-	if not _check(stable >= 10, "shadow casters: world + instance never became active together (reason=%s)" % last.get("hlod_reason", "MISSING")):
+	if not _check(stable >= 10, "shadow casters (" + mode + "): world + instance never became active together (reason=%s)" % last.get("hlod_reason", "MISSING")):
 		return false
 	# Control: nothing casts. The node moves every frame (row re-upload path) in every phase.
 	var control: Array = []
 	for f in range(SC_FRAMES):
 		ball.position = SC_BALL_CENTER + Vector3(0.0, 0.0, 0.02 * sin(f * 0.3))
 		await RenderingServer.frame_post_draw
-		var what := "shadow casters control frame %d" % f
+		var what := "shadow casters (%s) control frame %d" % [mode, f]
 		if not _check(Time.get_ticks_msec() < deadline, "%s: deadline" % what):
 			return false
 		var sample := _sc_sample(camera, what)
@@ -1119,20 +1140,29 @@ func _run_shadow_caster_proof() -> bool:
 		if f >= 5 and st.has("shadow_caster_frame") and not _check(int(st["shadow_caster_frame"]) < int(st["frame_count"]) - 1, "%s: a caster pass ran although nothing casts" % what):
 			return false
 		control.append(sample)
-	if not _sc_save(control[-1]["image"], "control", summary):
+	if not _sc_save(control[-1]["image"], mode + "_control", summary):
 		return false
 	var control_slab := _sc_mean(control, "slab")
 	var control_ball := _sc_mean(control, "ball")
 	var control_reference := _sc_mean(control, "reference")
 	summary["control"] = {"slab": control_slab, "ball": control_ball, "reference": control_reference}
-	if not _check(control_slab > 0.1 and control_ball > 0.1 and control_reference > 0.1 and control_reference < 0.95, "shadow casters: the control floor is unlit or saturated (%s)" % summary["control"]):
+	if not _check(control_slab > 0.1 and control_ball > 0.1 and control_reference > 0.1 and control_reference < 0.95, "shadow casters (" + mode + "): the control floor is unlit or saturated (%s)" % summary["control"]):
 		return false
 	world_node.set_cast_shadow(true)
 	ball.set_cast_shadow(true)
 	var phases := {}
-	for phase in ["cast", "row_off"]:
+	for phase in SC_PHASES:
 		if phase == "row_off":
 			ball.set_cast_shadow(false)
+		elif phase == "world_off":
+			world_node.set_cast_shadow(false)
+			ball.set_cast_shadow(true)
+		elif phase == "faded":
+			world_node.set_cast_shadow(true)
+			ball.set_cast_shadow(true)
+			ball.set_opacity(SC_FADED_OPACITY)
+		var slab_casts: bool = SC_PHASES[phase][0]
+		var ball_casts: bool = SC_PHASES[phase][1]
 		# Pump (wall clock bound) until the new caster set is in effect; the frames below are each checked.
 		var settle_frames := 0
 		while Time.get_ticks_msec() < deadline and settle_frames < 10:
@@ -1144,7 +1174,7 @@ func _run_shadow_caster_proof() -> bool:
 		for f in range(SC_FRAMES):
 			ball.position = SC_BALL_CENTER + Vector3(0.0, 0.0, 0.02 * sin(f * 0.3))
 			await RenderingServer.frame_post_draw
-			var what := "shadow casters %s frame %d" % [phase, f]
+			var what := "shadow casters (%s) %s frame %d" % [mode, phase, f]
 			if not _check(Time.get_ticks_msec() < deadline, "%s: deadline" % what):
 				return false
 			# Pixels first: the receiver darkening is the property; the counters below name the pass that produced it.
@@ -1158,14 +1188,17 @@ func _run_shadow_caster_proof() -> bool:
 			sample["ball_ratio"] = ball_ratio
 			sample["reference_ratio"] = reference_ratio
 			summary["last_" + phase + "_ratios"] = {"slab": slab_ratio, "ball": ball_ratio, "reference": reference_ratio}
-			if f == 0 and not _sc_save(sample["image"], phase + "_first", summary):
+			if f == 0 and not _sc_save(sample["image"], mode + "_" + phase + "_first", summary):
 				return false
-			if not _check(slab_ratio <= SC_MAX_RATIO, "%s: the world slab casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, slab_ratio, SC_MAX_RATIO]):
+			if slab_casts:
+				if not _check(slab_ratio <= SC_MAX_RATIO, "%s: the world slab casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, slab_ratio, SC_MAX_RATIO]):
+					return false
+			elif not _check(slab_ratio >= SC_GONE_RATIO, "%s: the world with cast_shadow off still casts (ROI ratio %.3f < %.2f)" % [what, slab_ratio, SC_GONE_RATIO]):
 				return false
-			if phase == "cast":
+			if ball_casts:
 				if not _check(ball_ratio <= SC_MAX_RATIO, "%s: the node instance casts no shadow on the mesh floor (ROI ratio %.3f > %.2f)" % [what, ball_ratio, SC_MAX_RATIO]):
 					return false
-			elif not _check(ball_ratio >= SC_GONE_RATIO, "%s: the node with cast_shadow off still casts (ROI ratio %.3f < %.2f)" % [what, ball_ratio, SC_GONE_RATIO]):
+			elif not _check(ball_ratio >= SC_GONE_RATIO, "%s: the node with cast_shadow off or faded below the threshold still casts (ROI ratio %.3f < %.2f)" % [what, ball_ratio, SC_GONE_RATIO]):
 				return false
 			if not _check(abs(reference_ratio - 1.0) <= 1.0 - SC_GONE_RATIO, "%s: the lit reference ROI changed (ratio %.3f): the darkening is not a local shadow" % [what, reference_ratio]):
 				return false
@@ -1186,18 +1219,100 @@ func _run_shadow_caster_proof() -> bool:
 			sample.erase("image")
 			sample["stats"] = st
 			samples.append(sample)
-		if not _sc_save(get_root().get_texture().get_image(), phase, summary):
+		if not _sc_save(get_root().get_texture().get_image(), mode + "_" + phase, summary):
 			return false
 		phases[phase] = {"casters_per_pass_min": casters_min, "casters_per_pass_max": casters_max,
 				"slab_ratio_mean": _sc_mean(samples, "slab_ratio"), "ball_ratio_mean": _sc_mean(samples, "ball_ratio"),
 				"reference_ratio_mean": _sc_mean(samples, "reference_ratio"), "last_stats": samples[-1]["stats"]}
 	summary["phases"] = phases
-	_metrics["shadow_casters"] = summary
+	_metrics["shadow_casters_" + mode] = summary
 	# The node's row left the caster set: exactly its splats fewer per pass, and the same count every frame of a phase.
-	if not _check(int(phases["cast"]["casters_per_pass_min"]) == int(phases["cast"]["casters_per_pass_max"]) and int(phases["row_off"]["casters_per_pass_min"]) == int(phases["row_off"]["casters_per_pass_max"]), "shadow casters: the caster count per pass varied within a phase (%s)" % phases):
+	if not _check(int(phases["cast"]["casters_per_pass_min"]) == int(phases["cast"]["casters_per_pass_max"]) and int(phases["row_off"]["casters_per_pass_min"]) == int(phases["row_off"]["casters_per_pass_max"]), "shadow casters (" + mode + "): the caster count per pass varied within a phase (%s)" % phases):
 		return false
-	if not _check(int(phases["row_off"]["casters_per_pass_max"]) + WI_INSTANCE_SPLATS == int(phases["cast"]["casters_per_pass_min"]), "shadow casters: row off cast %s per pass, cast %s (expected %d fewer)" % [phases["row_off"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"], WI_INSTANCE_SPLATS]):
+	if not _check(int(phases["row_off"]["casters_per_pass_max"]) + WI_INSTANCE_SPLATS == int(phases["cast"]["casters_per_pass_min"]), "shadow casters (" + mode + "): row off cast %s per pass, cast %s (expected %d fewer)" % [phases["row_off"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"], WI_INSTANCE_SPLATS]):
 		return false
+	for phase in SC_PHASES:
+		if not _check(int(phases[phase]["casters_per_pass_min"]) == int(phases[phase]["casters_per_pass_max"]), "shadow casters (" + mode + "): the caster count per pass varied within %s (%s)" % [phase, phases[phase]]):
+			return false
+	# The world left the caster set: only the node's splats are counted, although the world's records are still drawn.
+	if not _check(int(phases["world_off"]["casters_per_pass_max"]) == WI_INSTANCE_SPLATS, "shadow casters (" + mode + "): world off cast %s per pass (expected the node's %d)" % [phases["world_off"]["casters_per_pass_max"], WI_INSTANCE_SPLATS]):
+		return false
+	# The faded node's row is still in the caster set (it casts and is drawn): its missing shadow is the opacity, not the mask.
+	if not _check(int(phases["faded"]["casters_per_pass_max"]) == int(phases["cast"]["casters_per_pass_min"]), "shadow casters (" + mode + "): faded cast %s per pass, cast %s (the faded node's row left the caster set)" % [phases["faded"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"]]):
+		return false
+	_scene = null
+	scene.queue_free()
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	return true
+
+
+# An idle streamed world keeps its objects casting (Codex P2 on #1316). While a paged world's cut loads, the route draws
+# the admitted objects alone (ADR 4.4, idle_hlod_streaming_bundle with instances); their shadow must not vanish. No test
+# hook holds a paged world idle, so this judges the loading frames a fresh paged world goes through at startup (2 per run
+# on the development machine): every frame whose previous frame drew the objects alone must cast exactly their splats.
+# Fail-closed per judged frame; the number judged is reported (idle_frames_judged), never assumed.
+func _run_shadow_caster_idle_world_proof() -> bool:
+	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
+	var world := _sc_slab(true)
+	if not _check(world != null, "shadow casters (idle): paged slab bake/load failed"):
+		return false
+	var scene := Node3D.new()
+	get_root().add_child(scene)
+	_scene = scene
+	var camera := Camera3D.new()
+	scene.add_child(camera)
+	camera.look_at_from_position(Vector3(0.0, 10.0, 10.0), Vector3.ZERO, Vector3.UP)
+	camera.make_current()
+	var light := DirectionalLight3D.new()
+	light.shadow_enabled = true
+	light.directional_shadow_max_distance = 40.0
+	scene.add_child(light)
+	light.look_at_from_position(Vector3(0.0, 10.0, 0.0), Vector3(0.0, 10.0, 0.0) + SC_LIGHT_DIR.normalized(), Vector3.FORWARD)
+	var world_node := GaussianSplatWorld3D.new()
+	world_node.set_auto_apply_on_ready(false)
+	world_node.world = world
+	world_node.set_hlod_tau_px(0.5)
+	world_node.set_cast_shadow(true)
+	scene.add_child(world_node)
+	world_node.apply_world()
+	var ball := GaussianSplatNode3D.new()
+	ball.set_splat_asset(_wi_ball(Color(0.2, 0.8, 0.2), 7))
+	ball.set_cast_shadow(true)
+	ball.position = SC_BALL_CENTER
+	scene.add_child(ball)
+	var judged := 0
+	var loading_seen := 0
+	var active := 0
+	var previous := {}
+	while Time.get_ticks_msec() < deadline and active < 10:
+		await RenderingServer.frame_post_draw
+		if not _check(Time.get_ticks_msec() < deadline, "shadow casters (idle): deadline"):
+			return false
+		var renderer := world_node.get_renderer()
+		if renderer == null:
+			previous = {}
+			continue
+		var st := renderer.get_render_stats()
+		for key in SC_STAT_KEYS:
+			if not _check(st.has(key), "shadow casters (idle): missing renderer field %s" % key):
+				return false
+		var idle_with_objects := str(st["hlod_reason"]) == "hlod_stream_loading" and int(st["hlod_world_draw_records"]) == 0 and int(st["hlod_instance_draw_records"]) > 0
+		loading_seen += 1 if idle_with_objects else 0
+		active = active + 1 if str(st["hlod_reason"]) == "active" else 0
+		# This frame's shadow passes drew the list the previous frame's main view uploaded.
+		if not previous.is_empty() and int(st["frame_count"]) == int(previous["frame_count"]) + 1 and bool(previous["idle_with_objects"]):
+			var what := "shadow casters (idle) frame_count %s after an objects-only frame" % st["frame_count"]
+			if not _check(int(st["shadow_caster_frame"]) == int(st["frame_count"]) - 1 and int(st["shadow_caster_passes_cast"]) > 0, "%s: the objects the idle world still draws cast nothing (passes cast %s, refused %s, last refusal %s)" % [what, st["shadow_caster_passes_cast"], st["shadow_caster_passes_refused"], st["shadow_caster_last_refusal"]]):
+				return false
+			var per_pass := int(st["shadow_casters_rastered"]) / int(st["shadow_caster_passes_cast"])
+			if not _check(per_pass == WI_INSTANCE_SPLATS, "%s: cast %d per pass (expected the node's %d, no world records)" % [what, per_pass, WI_INSTANCE_SPLATS]):
+				return false
+			judged += 1
+		previous = {"frame_count": int(st["frame_count"]), "idle_with_objects": idle_with_objects}
+	if not _check(active >= 10, "shadow casters (idle): the paged world never became active"):
+		return false
+	_metrics["shadow_casters_idle_world"] = {"loading_frames_with_objects": loading_seen, "idle_frames_judged": judged}
 	_scene = null
 	scene.queue_free()
 	await RenderingServer.frame_post_draw

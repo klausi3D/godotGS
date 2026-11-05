@@ -79,6 +79,9 @@ public:
         bool has_desired_residency_hint = false;
         int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
         Dictionary desired_renderer_overrides;
+        // The world's own cast_shadow (GaussianSplatWorld3D). Godot gives the shared renderer a shadow pass when ANY of its
+        // Gaussian instances casts, so the HLOD shadow casters read the world's flag here (row 0) instead of assuming it.
+        bool casts_shadow = true;
     };
 
     struct SubmissionCounts {
@@ -429,8 +432,11 @@ public:
     // build_instance_buffer_for_renderer (unchanged: the canonical routes keep their behaviour until follow-up F1),
     // a node never removes the world row.
     // Splat shadow casters (#1095): the stable keys (node ObjectIDs) of this renderer's world's node instances that are
-    // visible and cast shadows. The HLOD shadow pass casts exactly the drawn rows among them (row 0, the world, aside).
-    void collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<uint64_t> &r_keys) const;
+    // visible and cast shadows. The HLOD shadow pass casts exactly the drawn rows among them. Returns whether the world
+    // itself (row 0) casts: its submission's casts_shadow; false without an active world submission.
+    bool collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<uint64_t> &r_keys) const;
+    // The world node's cast_shadow changed: update the active submission in place (no resubmission, no bundle rebuild).
+    void set_world_submission_casts_shadow(ObjectID p_owner_id, bool p_casts_shadow);
     void build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
     // The node's HLOD-route admission state in the last main view its renderer prepared: empty when it was drawn (or
@@ -776,6 +782,7 @@ private:
             bool has_desired_residency_hint = false;
             int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
             Dictionary desired_renderer_overrides;
+            bool casts_shadow = true;
             GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
             bool active = false;
         };

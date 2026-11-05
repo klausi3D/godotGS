@@ -125,7 +125,7 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster budget is the vie
 		caster_keys.push_back(10 + i);
 	}
 	LocalVector<uint32_t> row_casts;
-	build_row_casts(row_keys, caster_keys, row_casts);
+	build_row_casts(row_keys, true, caster_keys, row_casts);
 	if (row_casts.size() != 5) {
 		FAIL("expected 5 row flags, got ", row_casts.size());
 		return;
@@ -137,19 +137,19 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster budget is the vie
 	CHECK(casters == 1500 + 1501);
 	CHECK(casters == admission.splats); // The list the color view draws, splat for splat.
 	CHECK(casters <= share.splats); // Never more than the object share of the view cap.
-	// A node with cast_shadow off (key 11, row 2) is drawn but casts nothing; the world row always casts.
+	// A node with cast_shadow off (key 11, row 2) is drawn but casts nothing; the world row casts with the world.
 	caster_keys.erase(11);
-	build_row_casts(row_keys, caster_keys, row_casts);
+	build_row_casts(row_keys, true, caster_keys, row_casts);
 	CHECK(row_casts[0] == 1u);
 	CHECK(row_casts[2] == 0u);
 	CHECK(admitted_instance_splats(region, demands, 4, admission, row_casts) == 1500);
-	// No caster keys at all: only the world row casts.
+	// No caster keys at all: only the (casting) world row casts.
 	LocalVector<uint64_t> no_keys;
-	build_row_casts(row_keys, no_keys, row_casts);
+	build_row_casts(row_keys, true, no_keys, row_casts);
 	CHECK(row_casts[0] == 1u);
 	CHECK(admitted_instance_splats(region, demands, 4, admission, row_casts) == 0);
 	// No objects admitted: no instance casters; an out-of-range demand index or row is ignored, never read.
-	build_row_casts(row_keys, caster_keys, row_casts);
+	build_row_casts(row_keys, true, caster_keys, row_casts);
 	Admission none;
 	CHECK(admitted_instance_splats(region, demands, 4, none, row_casts) == 0);
 	Admission bogus;
@@ -162,6 +162,92 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster budget is the vie
 	FrameRecord record = active_record();
 	record.instance_splats = casters;
 	CHECK(plan_pass(record, true, true).casters == record.world_splats + 1500 + 1501);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the world row follows the world's own cast_shadow, independently of node casters") {
+	// Godot gives the shared renderer a shadow pass when ANY of its Gaussian instances casts (renderer_scene_render_rd.cpp),
+	// so a casting node must never make a world with cast_shadow off cast (Codex P2 on #1316).
+	LocalVector<uint64_t> row_keys;
+	row_keys.push_back(0); // Row 0: the world.
+	row_keys.push_back(11);
+	row_keys.push_back(12);
+	LocalVector<uint64_t> caster_keys;
+	caster_keys.push_back(11); // Node 11 casts, node 12 does not.
+	LocalVector<uint32_t> row_casts;
+	build_row_casts(row_keys, false, caster_keys, row_casts);
+	if (row_casts.size() != 3) {
+		FAIL("expected 3 row flags, got ", row_casts.size());
+		return;
+	}
+	CHECK(row_casts[0] == 0u); // World off, although a node casts.
+	CHECK(row_casts[1] == 1u);
+	CHECK(row_casts[2] == 0u);
+	build_row_casts(row_keys, true, caster_keys, row_casts);
+	CHECK(row_casts[0] == 1u);
+	CHECK(row_casts[1] == 1u);
+	CHECK(row_casts[2] == 0u);
+	// A node keyed 0 never stands in for the world: row 0 is decided by the world flag alone.
+	LocalVector<uint64_t> zero_key;
+	zero_key.push_back(0);
+	build_row_casts(row_keys, false, zero_key, row_casts);
+	CHECK(row_casts[0] == 0u);
+
+	// The record's caster accounting: a world that does not cast contributes no splats, its records stay in the list (the
+	// shader masks the row), and with no casting object the pass refuses as empty instead of drawing.
+	FrameRecord world_off;
+	world_off.instance_records = 2;
+	world_off.instance_splats = 1500;
+	world_off.max_chunk_splats = 4096;
+	build_row_casts(row_keys, false, caster_keys, world_off.row_casts);
+	complete_record(world_off, 10, 25600);
+	CHECK(world_off.valid);
+	CHECK(world_off.world_records == 10);
+	CHECK(world_off.draw_count == 12);
+	CHECK(world_off.world_splats == 0);
+	CHECK(plan_pass(world_off, true, true).casters == 1500);
+	FrameRecord world_on = world_off;
+	build_row_casts(row_keys, true, caster_keys, world_on.row_casts);
+	complete_record(world_on, 10, 25600);
+	CHECK(world_on.world_splats == 25600);
+	CHECK(plan_pass(world_on, true, true).casters == 25600 + 1500);
+	FrameRecord nothing = world_off;
+	nothing.instance_splats = 0;
+	complete_record(nothing, 10, 25600);
+	CHECK(plan_pass(nothing, true, true).refusal == Refusal::EMPTY_DRAW_LIST);
+	// No rows at all (no flags): the world never casts by default.
+	FrameRecord no_rows;
+	no_rows.max_chunk_splats = 4096;
+	complete_record(no_rows, 10, 25600);
+	CHECK(no_rows.world_splats == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] an idle streamed world keeps its drawn objects casting: an instance-only record") {
+	// A paged world whose cut is loading or not admitted still draws the admitted objects (ADR 4.4, idle_hlod_streaming_bundle
+	// with instances): the uploaded list is the instance records alone, and that list casts (Codex P2 on #1316).
+	LocalVector<uint64_t> row_keys;
+	row_keys.push_back(0);
+	row_keys.push_back(11);
+	LocalVector<uint64_t> caster_keys;
+	caster_keys.push_back(11);
+	FrameRecord idle;
+	idle.instance_records = 3;
+	idle.instance_splats = 1500;
+	idle.max_chunk_splats = 4096;
+	build_row_casts(row_keys, true, caster_keys, idle.row_casts);
+	complete_record(idle, 0, 0);
+	CHECK(idle.valid);
+	CHECK(idle.world_records == 0);
+	CHECK(idle.draw_count == 3); // Exactly the uploaded instance records.
+	CHECK(idle.world_splats == 0);
+	const PassPlan plan = plan_pass(idle, true, true);
+	CHECK(plan.draws());
+	CHECK(plan.casters == 1500);
+	CHECK(plan.instance_slots == 3u * 4096u);
+	// The objects' cast_shadow off: the instance-only list has nothing to cast and refuses, it never draws empty.
+	FrameRecord idle_off = idle;
+	idle_off.instance_splats = 0;
+	complete_record(idle_off, 0, 0);
+	CHECK(plan_pass(idle_off, true, true).refusal == Refusal::EMPTY_DRAW_LIST);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-frame accounting sums the cascades of one frame and resets on the next") {

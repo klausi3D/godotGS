@@ -879,6 +879,7 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.has_desired_residency_hint = p_submission.has_desired_residency_hint;
 	r_record.desired_residency_hint = p_submission.desired_residency_hint;
 	r_record.desired_renderer_overrides = p_submission.desired_renderer_overrides;
+	r_record.casts_shadow = p_submission.casts_shadow;
 	r_record.renderer_restore_state = GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
 	r_record.active = true;
 }
@@ -913,6 +914,7 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->has_desired_residency_hint = p_record.has_desired_residency_hint;
 	r_submission->desired_residency_hint = p_record.desired_residency_hint;
 	r_submission->desired_renderer_overrides = p_record.desired_renderer_overrides;
+	r_submission->casts_shadow = p_record.casts_shadow;
 }
 
 void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld &p_world,
@@ -1838,18 +1840,27 @@ void GaussianSplatSceneDirector::build_hlod_instance_rows_for_renderer(const Gau
 	_build_hlod_instance_rows_locked(_find_world_for_renderer(p_renderer), renderer_default, r_rows, r_grading, r_asset_ids, r_instance_keys);
 }
 
-void GaussianSplatSceneDirector::collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer,
+bool GaussianSplatSceneDirector::collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer,
 		LocalVector<uint64_t> &r_keys) const {
 	r_keys.clear();
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	const SharedWorld *world = _find_world_for_renderer(p_renderer);
 	if (!world) {
-		return;
+		return false;
 	}
 	for (const InstanceRecord &record : world->instance_store.records()) {
 		if (record.visible && record.casts_shadow) {
 			r_keys.push_back(uint64_t(record.node_id));
 		}
+	}
+	return world->submission_store.is_active() && world->submission_store.get_record().casts_shadow;
+}
+
+void GaussianSplatSceneDirector::set_world_submission_casts_shadow(ObjectID p_owner_id, bool p_casts_shadow) {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _find_world_for_world_submission(p_owner_id);
+	if (world && world->submission_store.is_active()) {
+		world->submission_store.mutable_record().casts_shadow = p_casts_shadow;
 	}
 }
 

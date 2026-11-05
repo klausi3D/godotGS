@@ -159,9 +159,11 @@ struct ResourceState {
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
     // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The record names the draw list the last
-    // active main view uploaded (invalidated at the start of every main-view preparation and on release); the shadow
-    // passes of the next frame draw it. Render thread only.
+    // main view uploaded: the world cut plus the admitted objects, or (an idle streamed world) the objects alone. It is
+    // invalidated at the start of every main-view preparation and on release; the shadow passes of the next frame draw
+    // it. hlod_draw_list_uploads counts writes of the relative bundle's draw list (the record keys on it). Render thread only.
     gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
+    uint64_t hlod_draw_list_uploads = 0;
     gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).

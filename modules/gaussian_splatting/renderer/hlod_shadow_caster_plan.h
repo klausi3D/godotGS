@@ -85,20 +85,24 @@ struct FrameRecord {
 	uint64_t origin_revision = 0;
 	uint64_t renderer_frame = 0;
 	uint64_t bundle_builds = 0; // ResourceState::hlod_bundle_builds when recorded.
-	// Per bundle row (InstanceDataGPU index): 1 = the row casts. Row 0 (the world) casts whenever the renderer gets a
-	// shadow pass (Godot's per-instance caster list decides that); rows 1..N follow their node's cast_shadow.
+	// ResourceState::hlod_draw_list_uploads when the list was uploaded. A later upload rewrites the list the record names;
+	// an upload-free rebind (the streamed world's end-of-frame idle restore zeroes only the GPU counter) does not.
+	uint64_t draw_list_upload = 0;
+	// Per bundle row (InstanceDataGPU index): 1 = the row casts. Row 0 follows the world's own cast_shadow (Godot gives the
+	// shared renderer a shadow pass when ANY of its Gaussian instances casts, so that alone says nothing about the
+	// world); rows 1..N follow their node's cast_shadow.
 	LocalVector<uint32_t> row_casts;
 
 	uint64_t casters() const { return world_splats + instance_splats; }
 };
 
-// Per-row cast flags for the rows as uploaded (row 0 = the world). A node row casts iff its stable key is among the
-// director's visible && casts_shadow records.
-inline void build_row_casts(const LocalVector<uint64_t> &p_row_keys, const LocalVector<uint64_t> &p_caster_keys,
-		LocalVector<uint32_t> &r_row_casts) {
+// Per-row cast flags for the rows as uploaded (row 0 = the world). Row 0 casts iff the world casts; a node row casts iff
+// its stable key is among the director's visible && casts_shadow records.
+inline void build_row_casts(const LocalVector<uint64_t> &p_row_keys, bool p_world_casts,
+		const LocalVector<uint64_t> &p_caster_keys, LocalVector<uint32_t> &r_row_casts) {
 	r_row_casts.resize(p_row_keys.size());
 	for (uint32_t r = 0; r < p_row_keys.size(); ++r) {
-		uint32_t casts = r == 0 ? 1u : 0u;
+		uint32_t casts = r == 0 ? (p_world_casts ? 1u : 0u) : 0u;
 		for (uint32_t k = 0; r != 0 && k < p_caster_keys.size() && !casts; ++k) {
 			casts = p_caster_keys[k] == p_row_keys[r] ? 1u : 0u;
 		}
@@ -123,6 +127,18 @@ inline uint64_t admitted_instance_splats(const gs_hlod_bundle::InstanceRegion &p
 		}
 	}
 	return splats;
+}
+
+// Completes a record for the list a main view uploaded: `p_world_records` world records (their payloads summing to
+// `p_world_record_splats`) followed by the instance records the record already counts (instance_records,
+// instance_splats, row_casts). The world's splats are casters only when row 0 casts. An idle streamed world uploads
+// its instance records alone (p_world_records = 0): the objects it still draws keep casting (ADR 4.4).
+inline void complete_record(FrameRecord &r_record, uint32_t p_world_records, uint64_t p_world_record_splats) {
+	const bool world_casts = !r_record.row_casts.is_empty() && r_record.row_casts[0] != 0;
+	r_record.world_records = p_world_records;
+	r_record.world_splats = world_casts ? p_world_record_splats : 0;
+	r_record.draw_count = p_world_records + r_record.instance_records;
+	r_record.valid = true;
 }
 
 struct PassPlan {

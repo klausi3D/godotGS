@@ -119,7 +119,11 @@ void main() {
         return;
     }
 
-    float opacity = atlas_gaussian_buffer.gaussians[atlas_index].opacity;
+    // The row's instance opacity (params.x: the node's opacity, _fill_instance_row; 1 for the world) scales the stored
+    // opacity exactly as the colour raster scales it (tile_binning.glsl, clamped to [0, 1] there too), before both the
+    // threshold test and the support radius: a faded node casts what it shows.
+    InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
+    float opacity = clamp(atlas_gaussian_buffer.gaussians[atlas_index].opacity * instance.params.x, 0.0, 1.0);
     float threshold = params.viewport.z;
     // A splat whose peak alpha is below the threshold occludes nowhere.
     if (!(opacity >= threshold) || threshold <= 0.0) {
@@ -136,7 +140,6 @@ void main() {
         return;
     }
 
-    InstanceDataGPU instance = instance_buffer.instances[drawn.instance_id];
     uint instance_flags = instance.ids.y;
     float uniform_scale = abs(instance.translation_scale.w);
     vec3 frame_position = gs_hlod_camera_relative_position(local_position, instance_flags, instance.rotation,

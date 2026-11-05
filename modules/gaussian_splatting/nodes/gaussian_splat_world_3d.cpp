@@ -400,6 +400,11 @@ void GaussianSplatWorld3D::set_auto_apply_on_ready(bool p_enabled) {
 void GaussianSplatWorld3D::set_cast_shadow(bool p_enabled) {
     cast_shadow = p_enabled;
     _update_render_instance();
+    // Godot's per-instance caster list cannot tell the world from its node instances (one shared renderer), so the HLOD
+    // shadow casters read the world's own flag from its submission. Updated in place: no resubmission, no rebuild.
+    if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+        director->set_world_submission_casts_shadow(get_instance_id(), p_enabled);
+    }
 }
 
 void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {
@@ -633,6 +638,7 @@ void GaussianSplatWorld3D::_register_shared_renderer() {
 
     GaussianSplatSceneDirector::WorldSubmission submission;
     submission.owner_id = get_instance_id();
+    submission.casts_shadow = cast_shadow; // Row 0 of the HLOD shadow casters (#1095); see set_cast_shadow().
     submission.scenario = get_world_3d().is_valid() ? get_world_3d()->get_scenario() : RID();
     // Refresh the cached scenario so PREDELETE can teardown even after the
     // node has left its world ancestor. See last_known_scenario in the header.
