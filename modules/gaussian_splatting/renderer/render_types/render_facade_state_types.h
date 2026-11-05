@@ -118,7 +118,11 @@ struct ResourceState {
     uint64_t hlod_tile_stage_refused_frames = 0; // Admitted as active, then refused by the tile stage (drew nothing).
     uint64_t hlod_owned_byte_upper_bound = 0;
     uint64_t hlod_retired_bytes = 0;
+    // The prepared bundle's director generations (renderer/hlod_bundle_rows.h): the row generation names the uploaded row
+    // content (a change re-uploads the rows), the asset-set generation what the bundle packs (a change rebuilds it).
     uint64_t hlod_instance_generation = 0;
+    uint64_t hlod_instance_asset_generation = 0;
+    uint32_t hlod_instance_rows = 0; // Instance (and grading) rows of both prepared bundles; row 0 is the world.
     uint64_t hlod_grading_generation = 0;
     uint64_t hlod_prepared_owner_key = 0;
     uint32_t hlod_position_bits = 0;

@@ -929,6 +929,9 @@ public:
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
     bool is_hlod_prepared_contract_current() const;
     bool publish_hlod_bundle(bool p_relative);
+    // Re-uploads the prepared bundles' instance and grading rows in place when only the director's row generation moved
+    // (gs_hlod_bundle::PreparedRows::REUPLOAD). False when the rows can no longer be served in place (the caller releases).
+    bool refresh_hlod_instance_rows();
     // Streamed bundle only: nothing is drawn (draw count and GPU counters zero) and the bundle is published.
     bool idle_hlod_streaming_bundle();
     // Package F1 (internal, deliberately not a bound API; the public surface needs its own R3 review): stages an edited
