@@ -149,6 +149,12 @@ struct ResourceState {
     uint64_t hlod_instance_reserve_refusal_frames = 0; // Main views that refused at least one object (cumulative).
     uint64_t hlod_instance_reserve_splats = 0;
     double hlod_instance_reserve_records = 0.0;
+    // The world's overlap-record need, tracked apart from the shared storage the objects' estimate is grown into
+    // (gs_hlod_bundle::world_overlap_need), the storage the last prepared view drew with, and how often the objects'
+    // estimate grew it (cumulative). A stationary view with unchanged content grows it at most once.
+    gs_hlod_bundle::OverlapWorldNeed hlod_overlap_world_need;
+    uint32_t hlod_overlap_capacity_records = 0;
+    uint64_t hlod_instance_overlap_growths = 0;
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node

@@ -2369,16 +2369,26 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             demands.push_back(demand);
             if (std::isfinite(demand.records)) { demand_records += demand.records; }
         }
+        // The world's need is tracked apart from the storage (gs_hlod_bundle::world_overlap_need): the storage already
+        // holds the objects' estimate of earlier frames, so it is not the world's need, and the requirement is absolute
+        // (world need + this view's estimate, once). Unchanged content never grows it again.
+        const uint64_t world_need = gs_hlod_bundle::world_overlap_need(state.hlod_overlap_world_need, tile->get_allocated_overlap_capacity(),
+                demands.is_empty() ? 0u : tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))));
+        world_record_need = double(world_need);
         if (!demands.is_empty()) {
-            const uint64_t world_seed = MAX<uint64_t>(tile->get_allocated_overlap_capacity(),
-                    tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))));
-            world_record_need = double(world_seed);
-            const uint64_t wanted = MIN<uint64_t>(world_seed + uint64_t(std::ceil(MIN(demand_records, double(UINT32_MAX)))), UINT32_MAX);
-            if (tile->ensure_hlod_overlap_capacity(uint32_t(wanted), route_bytes < route_limit ? route_limit - route_bytes : 0)) {
+            const uint32_t wanted = gs_hlod_bundle::world_plus_objects_overlap_records(world_need, demand_records);
+            const uint64_t headroom = route_bytes < route_limit ? route_limit - route_bytes : 0;
+            // Grow with slack (moving objects must not reallocate it on every small rise), else exactly to the requirement.
+            if (tile->clamp_hlod_overlap_records(wanted) > tile->get_allocated_overlap_capacity() &&
+                    (tile->ensure_hlod_overlap_capacity(gs_hlod_bundle::world_plus_objects_overlap_growth(world_need, demand_records), headroom) ||
+                            tile->ensure_hlod_overlap_capacity(wanted, headroom))) {
+                ++state.hlod_instance_overlap_growths;
                 if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
                 state.hlod_owned_byte_upper_bound = route_bytes;
             }
         }
+        state.hlod_overlap_world_need.world_records = world_need;
+        state.hlod_overlap_world_need.storage_records = tile->get_allocated_overlap_capacity();
     }
     // The scratch covers the atlas the frame draws from (its total_gaussians), not the tree's splat count.
     // PR1b: plus the instance region at the atlas tail (0 without node instances).
@@ -2431,6 +2441,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_owned_byte_upper_bound = route_bytes;
     const uint32_t records = tile->get_allocated_overlap_capacity();
     if (records == 0) { return fallback("overlap_capacity_unavailable"); }
+    state.hlod_overlap_capacity_records = records;
     const double tau = double(state.hlod_tau_px > 0 ? state.hlod_tau_px : gs::settings::get_hlod_tau_px(ps)) * get_lod_bias();
     if (!std::isfinite(tau) || tau <= 0.0) { return fallback("invalid_tau"); }
     // The renderer no longer keeps histories of its own: gs_hlod_runtime::ViewSet owns every per-view cut,

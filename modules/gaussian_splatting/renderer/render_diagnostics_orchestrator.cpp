@@ -1572,6 +1572,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_instance_reserve_splats"] = int64_t(resource_state.hlod_instance_reserve_splats);
     stats["hlod_instance_reserve_records"] = resource_state.hlod_instance_reserve_records;
     stats["hlod_instance_view_frame"] = int64_t(resource_state.hlod_instance_view_frame);
+    stats["hlod_overlap_capacity_records"] = int64_t(resource_state.hlod_overlap_capacity_records);
+    stats["hlod_instance_overlap_growths"] = int64_t(resource_state.hlod_instance_overlap_growths);
     stats["hlod_bundle_builds"] = int64_t(resource_state.hlod_bundle_builds);
     stats["hlod_instance_row_reuploads"] = int64_t(resource_state.hlod_instance_row_reuploads);
     stats["hlod_reason"] = resource_state.hlod_reason;

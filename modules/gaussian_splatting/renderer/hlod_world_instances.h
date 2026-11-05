@@ -182,6 +182,36 @@ inline double object_share_records(double p_view_cap, double p_storage, double p
 	return MAX(0.0, MIN(object_share_records(view), p_storage - MIN(p_world_need, world_floor_records(p_storage))));
 }
 
+// The overlap storage is shared: the route grows it to the world's record need plus the objects' estimate
+// (TileRenderer::ensure_hlod_overlap_capacity). The world's need is tracked apart from the storage, because a storage
+// already grown for the objects is not the world's need: read as such, the same object demand is added on top of it
+// again every frame, and a stationary view regrows the storage (reallocating the overlap buffers and rebuilding the
+// sorter) until the record cap or the ledger headroom stops it.
+struct OverlapWorldNeed {
+	uint64_t world_records = 0; // The world's need the route last sized the storage for.
+	uint64_t storage_records = 0; // The storage capacity right after that sizing (0: never sized).
+};
+// The world's own record need this frame: the tracked need while the storage is still the one the route last sized.
+// Any other storage (the first frame, a measured-overflow growth, a new device) is read whole as the world's: at most one
+// object estimate too much, once, after which the tracked need holds. Never below `p_seed` (the world's seed rule).
+inline uint64_t world_overlap_need(const OverlapWorldNeed &p_tracked, uint64_t p_storage, uint64_t p_seed) {
+	const bool same_storage = p_tracked.storage_records != 0 && p_storage == p_tracked.storage_records;
+	return MAX(same_storage ? p_tracked.world_records : p_storage, p_seed);
+}
+// The absolute storage requirement of a view: the world's need plus the objects' estimate, counted once (32-bit clamp).
+// Unchanged content gives an unchanged requirement, so a storage that already holds it is never grown again.
+inline uint32_t world_plus_objects_overlap_records(uint64_t p_world_need, double p_object_records) {
+	const double objects = std::isfinite(p_object_records) && p_object_records > 0.0 ? std::ceil(MIN(p_object_records, double(UINT32_MAX))) : 0.0;
+	return uint32_t(MIN<uint64_t>(MIN<uint64_t>(p_world_need, UINT32_MAX) + uint64_t(objects), UINT32_MAX));
+}
+// What the route grows the storage to once the requirement above exceeds it: the world's need plus 3/2 of the objects'
+// estimate (the slack grow_hlod_overlap_storage gives a measured overflow), so objects that move and whose estimate
+// rises a little each frame do not reallocate the storage on every rise. The route falls back to the exact requirement
+// when the slack does not fit the headroom. Whether to grow is still decided by the exact requirement.
+inline uint32_t world_plus_objects_overlap_growth(uint64_t p_world_need, double p_object_records) {
+	return world_plus_objects_overlap_records(p_world_need, std::isfinite(p_object_records) ? p_object_records * 1.5 : 0.0);
+}
+
 // Two caps (PR1b): S = max(1, max_splats) bounds what the WORLD can draw (the world contract clamps it to the world's
 // data count), C = the view's performance cap the objects reserve from (C >= S; renderer get_hlod_view_splat_cap).
 // The world's need W = min(leaf_count, S) is PR1a's world cap.
