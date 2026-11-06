@@ -39,7 +39,7 @@ void *ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata = nullp
 
 namespace {
 
-static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
+static constexpr uint32_t kWorldMagic = gs_world_format::kMagic; // 'GSPW' little-endian.
 // v1 plain and v2 HLOD remain readable with their historical raw layout.
 // Both new plain and HLOD worlds use the explicit-layout v3 schema.
 static constexpr uint32_t kWorldVersion = gs_world_format::kVersion;
@@ -51,12 +51,12 @@ static constexpr uint32_t kMaxShDegree = 4;
 // the saver writes them verbatim — so it is bounded only by the structural
 // `fits_within` + `_checked_mul_u64` checks below, not by a magnitude cap.
 static constexpr uint32_t kMaxShFirstOrder = 3u;
-static constexpr uint32_t kFlagHasMetadata = 1u << 0u;
-static constexpr uint32_t kFlagIs2D = 1u << 1u;
-static constexpr uint32_t kFlagHasChunks = 1u << 2u;
-static constexpr uint32_t kFlagHasHighSh = 1u << 3u;
-static constexpr uint32_t kFlagCompressed = 1u << 4u;
-static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
+static constexpr uint32_t kFlagHasMetadata = gs_world_format::kFlagHasMetadata;
+static constexpr uint32_t kFlagIs2D = gs_world_format::kFlagIs2D;
+static constexpr uint32_t kFlagHasChunks = gs_world_format::kFlagHasChunks;
+static constexpr uint32_t kFlagHasHighSh = gs_world_format::kFlagHasHighSh;
+static constexpr uint32_t kFlagCompressed = gs_world_format::kFlagCompressed;
+static constexpr uint32_t kFlagResidentPayload = gs_world_format::kFlagResidentPayload;
 static constexpr uint32_t kFlagHasHlod = gs_world_format::kFlagHasHlod;
 static constexpr uint64_t kHeaderSizeBytesV1 = gs_world_format::kLegacyPrefixBytes;
 static constexpr uint64_t kHeaderSizeBytes = gs_world_format::kPrefixBytes;

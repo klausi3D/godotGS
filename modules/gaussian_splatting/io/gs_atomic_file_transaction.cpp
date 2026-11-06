@@ -161,7 +161,8 @@ Error GSAtomicFileTransaction::begin(const String &p_final_path) {
 	const Char16String w = native_temp.utf16();
 	// CREATE_NEW: never truncate or adopt an existing file. FILE_SHARE_READ lets a
 	// reader inspect the temp while it grows; no other writer can open it.
-	HANDLE h = CreateFileW((LPCWSTR)w.get_data(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+	// GENERIC_READ as well, for read_at() (scratch/spill read-back on the same handle).
+	HANDLE h = CreateFileW((LPCWSTR)w.get_data(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
 			FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h == INVALID_HANDLE_VALUE) {
 		const DWORD code = GetLastError();
@@ -173,7 +174,7 @@ Error GSAtomicFileTransaction::begin(const String &p_final_path) {
 	native_final_path = _gs_txn_globalize(p_final_path);
 	const String native_temp = _gs_txn_globalize(temp_path);
 	const CharString c = native_temp.utf8();
-	int flags = O_WRONLY | O_CREAT | O_EXCL;
+	int flags = O_RDWR | O_CREAT | O_EXCL; // O_RDWR for read_at()
 #if defined(O_CLOEXEC)
 	flags |= O_CLOEXEC;
 #endif
@@ -259,6 +260,71 @@ Error GSAtomicFileTransaction::write_at(uint64_t p_offset, const uint8_t *p_data
 		return ERR_INVALID_PARAMETER;
 	}
 	return _write_native(p_offset, p_data, p_size);
+}
+
+Error GSAtomicFileTransaction::read_at(uint64_t p_offset, uint8_t *r_data, uint64_t p_size) {
+	if (state != State::OPEN) {
+		return state == State::FAILED ? error : ERR_UNCONFIGURED;
+	}
+	if (p_offset > size || p_size > size - p_offset) {
+		return ERR_INVALID_PARAMETER;
+	}
+	if (p_size == 0) {
+		return OK;
+	}
+	if (r_data == nullptr) {
+		return ERR_INVALID_PARAMETER;
+	}
+	uint64_t done = 0;
+	while (done < p_size) {
+		const uint64_t want = MIN(kGSTxnMaxWriteSlice, p_size - done);
+		const uint64_t at = p_offset + done;
+#if defined(WINDOWS_ENABLED)
+		OVERLAPPED ov = {};
+		ov.Offset = DWORD(at & 0xFFFFFFFFu);
+		ov.OffsetHigh = DWORD(at >> 32u);
+		DWORD got = 0;
+		if (!ReadFile((HANDLE)native_handle, r_data + done, DWORD(want), &got, &ov)) {
+			const DWORD code = GetLastError();
+			return _fail(_gs_txn_map_os_error(code, ERR_FILE_CANT_READ), "ReadFile(temp)", int64_t(code));
+		}
+		if (got == 0) {
+			return _fail(ERR_FILE_CANT_READ, "ReadFile(temp) read 0 bytes", 0);
+		}
+#else
+		ssize_t got = -1;
+		do {
+			got = ::pread(native_fd, r_data + done, size_t(want), off_t(at));
+		} while (got < 0 && errno == EINTR);
+		if (got < 0) {
+			const int code = errno;
+			return _fail(_gs_txn_map_os_error(code, ERR_FILE_CANT_READ), "pread(temp)", int64_t(code));
+		}
+		if (got == 0) {
+			return _fail(ERR_FILE_CANT_READ, "pread(temp) read 0 bytes", 0);
+		}
+#endif
+		done += uint64_t(got);
+	}
+	return OK;
+}
+
+Error GSAtomicFileTransaction::flush_to_storage() {
+	if (state != State::OPEN) {
+		return state == State::FAILED ? error : ERR_UNCONFIGURED;
+	}
+#if defined(WINDOWS_ENABLED)
+	if (!FlushFileBuffers((HANDLE)native_handle)) {
+		const DWORD code = GetLastError();
+		return _fail(_gs_txn_map_os_error(code, ERR_FILE_CANT_WRITE), "FlushFileBuffers(temp)", int64_t(code));
+	}
+#else
+	if (_gs_txn_sync_fd(native_fd) != 0) {
+		const int code = errno;
+		return _fail(_gs_txn_map_os_error(code, ERR_FILE_CANT_WRITE), "fdatasync(temp)", int64_t(code));
+	}
+#endif
+	return OK;
 }
 
 Error GSAtomicFileTransaction::commit() {
