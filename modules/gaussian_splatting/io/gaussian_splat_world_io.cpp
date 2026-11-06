@@ -457,8 +457,10 @@ static Error _write_world_sh_payload(const Ref<FileAccess> &p_file,
 	const Vector3 *sh_ptr = p_gaussian_data->get_sh_high_order_coefficients_ptr();
 	ERR_FAIL_COND_V_MSG(sh_ptr == nullptr, ERR_INVALID_DATA,
 			"GaussianSplatWorld missing high-order SH coefficients while sh_high_order_count > 0.");
-	p_file->store_buffer(reinterpret_cast<const uint8_t *>(sh_ptr), p_layout.sh_bytes);
-	return _ensure_file_write_ok(p_file, "save(sh_data)");
+	// Sliced like the gaussian section (BV-02): the loader admits up to UINT32_MAX
+	// coefficients (~48 GiB) of SH, far past the 2 GB a single MSVC CRT fwrite
+	// handles reliably.
+	return _write_buffer_sliced(p_file, reinterpret_cast<const uint8_t *>(sh_ptr), p_layout.sh_bytes, "save(sh_data)");
 }
 
 static Error _write_world_chunk_table(const Ref<FileAccess> &p_file, const Vector<StaticChunk> &p_chunks) {

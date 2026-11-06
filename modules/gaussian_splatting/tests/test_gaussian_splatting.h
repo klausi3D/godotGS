@@ -78,6 +78,7 @@
 #include "test_sorter_metrics_metadata.h"
 #include "test_gaussian_splat_world_io.h"
 #include "test_gs_atomic_file_writer.h"
+#include "test_gs_atomic_file_transaction.h"
 #include "test_view_transform.h"
 #include "test_memory_leak_detection.h"
 #include "test_renderer_lifetime_proof.h"
