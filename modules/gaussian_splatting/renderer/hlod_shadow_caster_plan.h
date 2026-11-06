@@ -276,8 +276,9 @@ inline DepthGradient caster_depth_gradient(float p_a, float p_b, float p_c, floa
 	float ax = 0.0f;
 	float ay = 0.0f;
 	if (std::fabs(p_b) > 1e-12f) {
-		ax = p_b;
-		ay = e.major - a;
+		// The formulation without cancellation: (major - c, b) when a dominates, else (b, major - a).
+		ax = a >= c ? e.major - c : p_b;
+		ay = a >= c ? p_b : e.major - a;
 		const float len = std::sqrt(ax * ax + ay * ay);
 		ax /= len;
 		ay /= len;

@@ -461,6 +461,16 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a needle tilted across both 
 	const FootprintEigen e = footprint_eigenvalues(a, b, c, kLowPassTexels2);
 	CHECK(std::fabs(across) * std::sqrt(e.minor) <= 1e-3f * along * std::sqrt(e.major));
 
+	// Nearly axis-aligned needle (review case): a = 2621440000, b = 512000, c = 100. lambda0 - a rounds to 0, so the
+	// (b, lambda0 - a) eigenvector lost the tilt (~1.95e-4). With c parallel to the true major axis, g must be too.
+	{
+		const float na = 2621440000.0f, nb = 512000.0f, nc = 100.0f;
+		const float tilt = nb / (na - nc);
+		const float nx = 1000.0f, ny = 1000.0f * tilt;
+		const DepthGradient n = caster_depth_gradient(na, nb, nc, kLowPassTexels2, nx, ny);
+		CHECK(n.y / n.x == doctest::Approx(tilt).epsilon(1e-2));
+	}
+
 	// A well-conditioned case equals S'^-1 c exactly (the textbook solve).
 	const float wa = 5.0f, wb = 2.0f, wc = 3.0f, w = kLowPassTexels2, wx = 0.7f, wy = -0.4f;
 	const DepthGradient h = caster_depth_gradient(wa, wb, wc, w, wx, wy);

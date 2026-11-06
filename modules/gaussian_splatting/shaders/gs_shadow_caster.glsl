@@ -194,7 +194,10 @@ void main() {
         gs_caster_reject();
         return;
     }
-    vec2 axis0 = abs(b) > 1e-12 ? normalize(vec2(b, lambda0 - a)) : (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+    // Major eigenvector from the formulation without cancellation: (lambda0 - c, b) when a dominates, else (b, lambda0 - a).
+    // Mirrors gs_shadow_caster::caster_depth_gradient.
+    vec2 axis0 = abs(b) > 1e-12 ? normalize(a >= c ? vec2(lambda0 - c, b) : vec2(b, lambda0 - a))
+                                : (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
     vec2 axis1 = vec2(-axis0.y, axis0.x);
     // Exactly the support where alpha >= threshold: opacity * exp(-r^2/2) >= t  <=>  r <= sqrt(2 ln(opacity / t)).
     float sigma_extent = sqrt(max(2.0 * log(opacity / threshold), 0.0));

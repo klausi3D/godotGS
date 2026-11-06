@@ -2025,7 +2025,10 @@ bool GaussianSplatRenderer::_is_hlod_shadow_route_owner() const {
     const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     return state.hlod_snapshot.is_valid() && director &&
             gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) &&
-            director->has_hlod_world_submission(this, state.hlod_owner_key);
+            director->has_hlod_world_submission(this, state.hlod_owner_key) &&
+            // LOD off draws the canonical leaves, not a relative list: no caster record is published, so those frames
+            // keep the canonical shadow path they used before the HLOD casters existed.
+            get_lod_enabled();
 }
 
 bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_light_projection,
