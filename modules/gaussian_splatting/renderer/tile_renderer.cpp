@@ -503,12 +503,14 @@ private:
 
 		// Use caller's frame_serial if provided, otherwise auto-increment.
 		// A non-zero frame_serial is required for async GPU counter readback.
-		static uint64_t auto_frame_serial = 0;
+		// BV-04b: the serial comes from the shared GpuPassTiming counter, so the tile passes carry the
+		// same serial as the cull / projection / pre-sort / composite markers of this pipeline pass
+		// (RenderPipelineStages passes it in), and serials stay unique across renderers.
 		if (params.frame_serial > 0) {
 			renderer.frame_state.current_frame_serial = params.frame_serial;
-			auto_frame_serial = params.frame_serial; // Sync auto counter
+			GaussianSplatting::GpuPassTiming::note_external_frame_serial(params.frame_serial);
 		} else {
-			renderer.frame_state.current_frame_serial = ++auto_frame_serial;
+			renderer.frame_state.current_frame_serial = GaussianSplatting::GpuPassTiming::allocate_frame_serial();
 		}
 
 		renderer.render_settings.global_sort_enabled = true;
@@ -1669,6 +1671,10 @@ void TileRenderer::_on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
     debug_stats.on_overflow_signal_readback(p_data);
 }
 
+void TileRenderer::_on_hlod_level_stats_readback(const Vector<uint8_t> &p_data) {
+    debug_stats.on_hlod_level_stats_readback(p_data);
+}
+
 #ifdef TESTS_ENABLED
 void TileRenderer::_on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce)
 {
@@ -2773,6 +2779,7 @@ void TileRenderer::_reset_timestamp_tracking() {
 		timing_state.frame_gpu_timing_valid = false;
 		timing_state.gpu_timing_frame_serial = 0;
 		timing_state.gpu_timing_frames_behind = 0;
+		timing_state.pass_timing.reset();
 		return;
 	}
 	// Keep last resolved values across frames. Timestamp availability can lag by
@@ -2814,138 +2821,41 @@ bool TileRenderer::_resolve_timestamp_range(TimestampRange &p_range, float &r_du
 }
 
 void TileRenderer::_parse_timestamps_into_frame_map(RenderingDevice *p_device, uint32_t p_available,
-        HashMap<uint64_t, GpuTimestampFrameStages> &r_frames) const {
+        HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> &r_frames) const {
     if (!p_device) {
         return;
     }
-
-    struct TimestampFieldEntry {
-        const char *prefix;
-        int prefix_length;
-        const char *suffix;
-        GpuTimestampStageTimes GpuTimestampFrameStages::*stage;
-        double GpuTimestampStageTimes::*field;
-    };
-
-    static const TimestampFieldEntry timestamp_fields[] = {
-        { "TileBinning_", int(sizeof("TileBinning_") - 1), "_Begin", &GpuTimestampFrameStages::binning, &GpuTimestampStageTimes::begin_ns },
-        { "TileBinning_", int(sizeof("TileBinning_") - 1), "_End", &GpuTimestampFrameStages::binning, &GpuTimestampStageTimes::end_ns },
-        { "TileRaster_", int(sizeof("TileRaster_") - 1), "_Begin", &GpuTimestampFrameStages::raster, &GpuTimestampStageTimes::begin_ns },
-        { "TileRaster_", int(sizeof("TileRaster_") - 1), "_End", &GpuTimestampFrameStages::raster, &GpuTimestampStageTimes::end_ns },
-        { "TileOverlapCount_", int(sizeof("TileOverlapCount_") - 1), "_Begin", &GpuTimestampFrameStages::overlap_count, &GpuTimestampStageTimes::begin_ns },
-        { "TileOverlapCount_", int(sizeof("TileOverlapCount_") - 1), "_End", &GpuTimestampFrameStages::overlap_count, &GpuTimestampStageTimes::end_ns },
-        { "TileOverlapSort_", int(sizeof("TileOverlapSort_") - 1), "_Begin", &GpuTimestampFrameStages::overlap_sort, &GpuTimestampStageTimes::begin_ns },
-        { "TileOverlapSort_", int(sizeof("TileOverlapSort_") - 1), "_End", &GpuTimestampFrameStages::overlap_sort, &GpuTimestampStageTimes::end_ns },
-        { "TilePrefix_", int(sizeof("TilePrefix_") - 1), "_Begin", &GpuTimestampFrameStages::prefix, &GpuTimestampStageTimes::begin_ns },
-        { "TilePrefix_", int(sizeof("TilePrefix_") - 1), "_End", &GpuTimestampFrameStages::prefix, &GpuTimestampStageTimes::end_ns },
-        { "TileResolve_", int(sizeof("TileResolve_") - 1), "_Begin", &GpuTimestampFrameStages::resolve, &GpuTimestampStageTimes::begin_ns },
-        { "TileResolve_", int(sizeof("TileResolve_") - 1), "_End", &GpuTimestampFrameStages::resolve, &GpuTimestampStageTimes::end_ns },
-        { "GaussianSplat_", int(sizeof("GaussianSplat_") - 1), "_Begin", &GpuTimestampFrameStages::total, &GpuTimestampStageTimes::begin_ns },
-        { "GaussianSplat_", int(sizeof("GaussianSplat_") - 1), "_End", &GpuTimestampFrameStages::total, &GpuTimestampStageTimes::end_ns },
-    };
-
-    auto parse_label = [](const String &p_label, const char *p_prefix, int p_prefix_length, const char *p_suffix, uint64_t &r_serial) -> bool {
-        if (!p_label.begins_with(p_prefix)) {
-            return false;
-        }
-        int64_t suffix_pos = p_label.rfind(p_suffix);
-        if (suffix_pos < 0 || suffix_pos <= p_prefix_length) {
-            return false;
-        }
-        String serial_str = p_label.substr(p_prefix_length, suffix_pos - p_prefix_length);
-        r_serial = (uint64_t)serial_str.to_int();
-        return true;
-    };
-    auto get_frame_entry = [&r_frames](uint64_t p_serial) -> GpuTimestampFrameStages * {
-        GpuTimestampFrameStages *entry = r_frames.getptr(p_serial);
-        if (!entry) {
-            GpuTimestampFrameStages fresh;
-            r_frames.insert(p_serial, fresh);
-            entry = r_frames.getptr(p_serial);
-        }
-        return entry;
-    };
-
+    // Every pass marker is "<prefix><frame serial>_Begin|_End" (gpu_pass_timing.h). Since BV-04b this
+    // includes cull, projection, pre-sort and composite, captured outside this renderer on the same
+    // device under the frame serial RenderPipelineStages allocated for the pass.
     for (uint32_t i = 0; i < p_available; i++) {
-        String name = p_device->get_captured_timestamp_name(i);
-        double gpu_ns = double(p_device->get_captured_timestamp_gpu_time(i));
-
-        for (const TimestampFieldEntry &entry : timestamp_fields) {
-            uint64_t serial = 0;
-            if (!parse_label(name, entry.prefix, entry.prefix_length, entry.suffix, serial)) {
-                continue;
-            }
-            GpuTimestampFrameStages *frame_entry = get_frame_entry(serial);
-            if (!frame_entry) {
-                break;
-            }
-            GpuTimestampStageTimes &stage = frame_entry->*(entry.stage);
-            stage.*(entry.field) = gpu_ns;
-            break;
-        }
+        GaussianSplatting::GpuPassTiming::accumulate(r_frames, p_device->get_captured_timestamp_name(i),
+                double(p_device->get_captured_timestamp_gpu_time(i)));
     }
 }
 
-TileRenderer::GpuTimestampDurations TileRenderer::_compute_stage_durations(const HashMap<uint64_t, GpuTimestampFrameStages> &p_frames) const {
-    GpuTimestampDurations durations;
+void TileRenderer::_update_timing_metrics(const GaussianSplatting::GpuPassTiming::FrameDurations &p_frame,
+		const GaussianSplatting::GpuPassTiming::FrameDurations &p_pipeline_frame) {
+	using namespace GaussianSplatting::GpuPassTiming;
+	// BV-04b: every pass (incl. cull / projection / pre-sort / composite), with frame serials and the
+	// newest same-frame breakdown. p_pipeline_frame is the newest frame with ANY measured pass.
+	timing_state.pass_timing.ingest(p_pipeline_frame);
+	// Legacy tile-pass view. p_frame is the newest frame with a measured TILE pass (TILE_PASSES_MASK),
+	// so these fields select their frame exactly as before BV-04b; semantics below are unchanged.
+	struct LegacyDurations {
+		uint64_t serial;
+		bool has_data;
+		double count_ms, bin_ms, overlap_sort_ms, raster_ms, prefix_ms, resolve_ms;
+		bool count_valid, bin_valid, overlap_sort_valid, raster_valid, prefix_valid, resolve_valid;
+	} p_durations = {
+		p_frame.serial, p_frame.has_data,
+		p_frame.ms[PASS_OVERLAP_COUNT], p_frame.ms[PASS_BINNING], p_frame.ms[PASS_OVERLAP_SORT],
+		p_frame.ms[PASS_RASTER], p_frame.ms[PASS_PREFIX], p_frame.ms[PASS_RESOLVE],
+		p_frame.has_data && p_frame.valid[PASS_OVERLAP_COUNT], p_frame.has_data && p_frame.valid[PASS_BINNING],
+		p_frame.has_data && p_frame.valid[PASS_OVERLAP_SORT], p_frame.has_data && p_frame.valid[PASS_RASTER],
+		p_frame.has_data && p_frame.valid[PASS_PREFIX], p_frame.has_data && p_frame.valid[PASS_RESOLVE],
+	};
 
-    // Pick the latest frame serial with whatever timing survived the flush.
-    for (const KeyValue<uint64_t, GpuTimestampFrameStages> &kv : p_frames) {
-        const uint64_t serial = kv.key;
-        const GpuTimestampFrameStages &stages = kv.value;
-
-		// Check if we have valid markers (total or any per-pass stage).
-		// NOTE: Godot's buffer_get_data() flush resets the timestamp buffer mid-frame;
-		// only pre-flush markers (TileOverlapCount) are reliably readable. Post-flush
-		// markers (GaussianSplat_*, TileBinning_*, TileRaster_*) are usually discarded.
-		// See docs/GPU_TIMESTAMP_PROFILING.md for details.
-		auto has_ordered_stage = [](const GpuTimestampStageTimes &p_stage) -> bool {
-			return p_stage.is_complete() && p_stage.end_ns >= p_stage.begin_ns;
-		};
-		bool has_total = has_ordered_stage(stages.total);
-		bool has_binning = has_ordered_stage(stages.binning);
-		bool has_raster = has_ordered_stage(stages.raster);
-		bool has_overlap_count = has_ordered_stage(stages.overlap_count);
-		bool has_overlap_sort = has_ordered_stage(stages.overlap_sort);
-		bool has_prefix = has_ordered_stage(stages.prefix);
-		bool has_resolve = has_ordered_stage(stages.resolve);
-
-		if (!has_total && !has_binning && !has_raster && !has_overlap_count && !has_overlap_sort && !has_prefix && !has_resolve) {
-			continue; // Need at least one complete timing marker pair
-		}
-
-		double bin_ms = has_binning ? (stages.binning.end_ns - stages.binning.begin_ns) / 1e6 : 0.0;
-		double raster_ms = has_raster ? (stages.raster.end_ns - stages.raster.begin_ns) / 1e6 : 0.0;
-		double count_ms = has_overlap_count ? (stages.overlap_count.end_ns - stages.overlap_count.begin_ns) / 1e6 : 0.0;
-		double overlap_sort_ms = has_overlap_sort ? (stages.overlap_sort.end_ns - stages.overlap_sort.begin_ns) / 1e6 : 0.0;
-		double prefix_ms = has_prefix ? (stages.prefix.end_ns - stages.prefix.begin_ns) / 1e6 : 0.0;
-		double resolve_ms = has_resolve ? (stages.resolve.end_ns - stages.resolve.begin_ns) / 1e6 : 0.0;
-        double total_ms = has_total ? (stages.total.end_ns - stages.total.begin_ns) / 1e6 : 0.0;
-
-        if (!durations.has_data || serial > durations.serial) {
-            durations.has_data = true;
-            durations.serial = serial;
-            durations.bin_ms = bin_ms;
-            durations.raster_ms = raster_ms;
-			durations.count_ms = count_ms;
-			durations.overlap_sort_ms = overlap_sort_ms;
-			durations.prefix_ms = prefix_ms;
-			durations.resolve_ms = resolve_ms;
-			durations.total_ms = total_ms;
-			durations.bin_valid = has_binning;
-			durations.raster_valid = has_raster;
-			durations.count_valid = has_overlap_count;
-			durations.overlap_sort_valid = has_overlap_sort;
-			durations.prefix_valid = has_prefix;
-			durations.resolve_valid = has_resolve;
-			durations.total_valid = has_total;
-		}
-	}
-
-    return durations;
-}
-
-void TileRenderer::_update_timing_metrics(const GpuTimestampDurations &p_durations) {
 	// Runs on EVERY call, including the no-data frames resolve_gpu_timestamps_async() forwards
 	// when a scene stops dispatching: per-pass ingestion self-skips without fresh data (all
 	// *_valid are false), but the staleness pass below MUST still run so sticky timings age out
@@ -3054,15 +2964,19 @@ void TileRenderer::resolve_gpu_timestamps_async() {
         }
         // No fresh timestamps this frame (empty / no-dispatch view): still run the staleness pass
         // so the sticky per-pass timings age out instead of reporting the last scene's cost forever.
-        _update_timing_metrics(GpuTimestampDurations());
+        _update_timing_metrics(GaussianSplatting::GpuPassTiming::FrameDurations(),
+                GaussianSplatting::GpuPassTiming::FrameDurations());
         return;
     }
 
-    HashMap<uint64_t, GpuTimestampFrameStages> frame_times;
+    HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> frame_times;
     _parse_timestamps_into_frame_map(device, available, frame_times);
 
-    GpuTimestampDurations durations = _compute_stage_durations(frame_times);
-    _update_timing_metrics(durations);
+    const GaussianSplatting::GpuPassTiming::FrameDurations durations =
+            GaussianSplatting::GpuPassTiming::latest_frame(frame_times, GaussianSplatting::GpuPassTiming::TILE_PASSES_MASK);
+    const GaussianSplatting::GpuPassTiming::FrameDurations pipeline_durations =
+            GaussianSplatting::GpuPassTiming::latest_frame(frame_times);
+    _update_timing_metrics(durations, pipeline_durations);
     if (!durations.has_data && timing_state.gpu_timing_frame_serial > 0 && frame_state.current_frame_serial > timing_state.gpu_timing_frame_serial) {
         timing_state.gpu_timing_frames_behind = frame_state.current_frame_serial - timing_state.gpu_timing_frame_serial;
     }
@@ -3853,6 +3767,11 @@ void TileRenderer::_poll_overflow_drop_telemetry() {
 	// overlap-record overflow is surfaced (WARN_ONCE + overflow_drop_events) even in a pure
 	// production frame. Cheap: a single small async readback, throttled by its own pending flag.
 	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial);
+	// BV-04b: records per splat per HLOD level, only for frames whose emit pass ran on the HLOD route
+	// (the only route that binds and writes the counters).
+	if (instance_pipeline_buffers.hlod_relative) {
+		debug_stats.poll_hlod_level_stats(_get_resource_device(), frame_state.current_frame_serial);
+	}
 }
 
 float TileRenderer::get_projection_success_rate_pct() const {

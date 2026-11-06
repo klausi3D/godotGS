@@ -150,6 +150,17 @@ struct ResourceState {
     // Per main view (the last one prepared): the draw records each producer wrote and the budget rule's outcome.
     uint32_t hlod_world_draw_records = 0;
     uint32_t hlod_instance_draw_records = 0;
+    // BV-04b: the last main view's world draw records per HLOD level slot (gs_hlod_level_stat_slot of the
+    // node height) and the payload splats they draw (tree topology payload_count). The GPU side of
+    // "records per splat per level" is PerformanceMetrics::gpu_hlod_level_records.
+    uint32_t hlod_level_drawn_nodes[GS_HLOD_LEVEL_STAT_SLOTS] = {};
+    uint64_t hlod_level_drawn_splats[GS_HLOD_LEVEL_STAT_SLOTS] = {};
+    void clear_hlod_level_drawn() {
+        for (uint32_t i = 0; i < GS_HLOD_LEVEL_STAT_SLOTS; i++) {
+            hlod_level_drawn_nodes[i] = 0;
+            hlod_level_drawn_splats[i] = 0;
+        }
+    }
     uint32_t hlod_instance_visible_objects = 0;
     uint32_t hlod_instance_admitted_objects = 0;
     uint32_t hlod_instance_refused_objects = 0; // Refused this view: hlod_instance_reserve_exceeds_object_share.

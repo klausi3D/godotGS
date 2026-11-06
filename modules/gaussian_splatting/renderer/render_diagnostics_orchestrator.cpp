@@ -140,6 +140,19 @@ static Array _production_metrics_contract() {
 	keys.push_back("overlap_sort_cpu_dispatch_ms");
 	keys.push_back("overlap_sort_cpu_dispatch_valid");
 	keys.push_back("gpu_binning_ms");
+	keys.push_back("gpu_binning_valid");
+	// BV-04b: the passes that were untimed before (part of the fixed cost F).
+	keys.push_back("gpu_cull_ms");
+	keys.push_back("gpu_cull_valid");
+	keys.push_back("gpu_projection_ms");
+	keys.push_back("gpu_projection_valid");
+	keys.push_back("gpu_presort_ms");
+	keys.push_back("gpu_presort_valid");
+	keys.push_back("gpu_composite_ms");
+	keys.push_back("gpu_composite_valid");
+	keys.push_back("gpu_coherent_frame_serial");
+	keys.push_back("gpu_coherent_pass_mask");
+	keys.push_back("gpu_coherent_total_ms");
 	keys.push_back("gpu_prefix_ms");
 	keys.push_back("gpu_prefix_valid");
 	keys.push_back("prefix_cpu_sync_fallback_ms");
@@ -282,13 +295,17 @@ static bool _has_gpu_pass_breakdown(const GaussianSplatRenderer::PerformanceMetr
 		}
 	}
 
+	// BV-04b binning validity: binning counts through its valid flag, never through a bare
+	// non-zero value (absence of a flag is not a measurement).
+	if (p_perf.gpu_tile_binning_time_valid) {
+		return true;
+	}
 	const float timing_values[] = {
-		p_perf.gpu_tile_binning_time_ms,
 		p_perf.gpu_tile_prefix_time_ms,
 		p_perf.gpu_tile_raster_time_ms,
 		p_perf.gpu_tile_resolve_time_ms,
 	};
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < 3; i++) {
 		if (timing_values[i] > 0.0f) {
 			return true;
 		}
@@ -325,6 +342,22 @@ static void _append_production_gpu_metrics(Dictionary &r_metrics,
 	r_metrics["overlap_sort_cpu_dispatch_ms"] = p_perf.tile_overlap_sort_cpu_dispatch_ms;
 	r_metrics["overlap_sort_cpu_dispatch_valid"] = p_perf.tile_overlap_sort_cpu_dispatch_valid;
 	r_metrics["gpu_binning_ms"] = p_perf.gpu_tile_binning_time_ms;
+	r_metrics["gpu_binning_valid"] = p_perf.gpu_tile_binning_time_valid;
+	{
+		using namespace GaussianSplatting::GpuPassTiming;
+		const PassTimingSnapshot &pt = p_perf.gpu_pass_timing;
+		r_metrics["gpu_cull_ms"] = pt.ms[PASS_CULL];
+		r_metrics["gpu_cull_valid"] = pt.valid[PASS_CULL];
+		r_metrics["gpu_projection_ms"] = pt.ms[PASS_PROJECTION];
+		r_metrics["gpu_projection_valid"] = pt.valid[PASS_PROJECTION];
+		r_metrics["gpu_presort_ms"] = pt.ms[PASS_PRESORT];
+		r_metrics["gpu_presort_valid"] = pt.valid[PASS_PRESORT];
+		r_metrics["gpu_composite_ms"] = pt.ms[PASS_COMPOSITE];
+		r_metrics["gpu_composite_valid"] = pt.valid[PASS_COMPOSITE];
+		r_metrics["gpu_coherent_frame_serial"] = static_cast<int64_t>(pt.coherent_frame_serial);
+		r_metrics["gpu_coherent_pass_mask"] = static_cast<int64_t>(pt.coherent_pass_mask);
+		r_metrics["gpu_coherent_total_ms"] = pt.coherent_total_ms;
+	}
 	r_metrics["gpu_prefix_ms"] = p_perf.gpu_tile_prefix_time_ms;
 	r_metrics["gpu_prefix_valid"] = p_perf.gpu_tile_prefix_time_valid;
 	r_metrics["prefix_cpu_sync_fallback_ms"] = p_perf.tile_prefix_cpu_sync_fallback_ms;
@@ -481,6 +514,7 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	r_metrics["gpu_tile_overlap_count_time_ms"] = perf.gpu_tile_overlap_count_time_ms;
 	r_metrics["gpu_tile_overlap_count_time_valid"] = perf.gpu_tile_overlap_count_time_valid;
 	r_metrics["gpu_tile_binning_time_ms"] = perf.gpu_tile_binning_time_ms;
+	r_metrics["gpu_tile_binning_time_valid"] = perf.gpu_tile_binning_time_valid;
 	r_metrics["gpu_tile_overlap_emit_time_ms"] = perf.gpu_tile_overlap_emit_time_ms;
 	r_metrics["gpu_tile_overlap_emit_time_valid"] = perf.gpu_tile_overlap_emit_time_valid;
 	r_metrics["gpu_tile_overlap_sort_time_ms"] = perf.gpu_tile_overlap_sort_time_ms;
@@ -497,6 +531,7 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	r_metrics["gpu_tile_resolve_time_valid"] = perf.gpu_tile_resolve_time_valid;
 	r_metrics["gpu_timing_frame_serial"] = static_cast<int64_t>(perf.gpu_timing_frame_serial);
 	r_metrics["gpu_timing_frames_behind"] = static_cast<int64_t>(perf.gpu_timing_frames_behind);
+	GaussianSplatting::GpuPassTiming::append_to_dictionary(r_metrics, perf.gpu_pass_timing);
 	r_metrics["gpu_timeline_inflight_frames"] = static_cast<int64_t>(perf.gpu_timeline_inflight_frames);
 	r_metrics["gpu_timeline_completed_frames"] = static_cast<int64_t>(perf.gpu_timeline_completed_frames);
 	r_metrics["gpu_timeline_stall_count"] = static_cast<int64_t>(perf.gpu_timeline_stall_count);
@@ -1602,6 +1637,36 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
     stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;
     stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);
+    // BV-04b: records per splat per HLOD level. Slot i = level (node height) i, slot
+    // GS_HLOD_LEVEL_STAT_DEEPEST_SLOT = that level and above, the last slot = object (instance) records.
+    // GPU (tile_binning EMIT, last SAMPLED HLOD frame hlod_level_stats_frame_serial; 0 = never sampled):
+    // records emitted and splats that reached the emit loop. CPU (last main view): world draw records
+    // and their payload splats. records_per_emitted_splat is -1 where no splat reached the emit loop.
+    {
+        const GaussianSplatting::HlodLevelRecordSample &level_sample = perf.gpu_hlod_level_records;
+        Array level_records;
+        Array level_emitted_splats;
+        Array level_records_per_splat;
+        Array level_drawn_nodes;
+        Array level_drawn_splats;
+        for (uint32_t i = 0; i < GS_HLOD_LEVEL_STAT_SLOTS; i++) {
+            level_records.push_back(int64_t(level_sample.records[i]));
+            level_emitted_splats.push_back(int64_t(level_sample.splats[i]));
+            level_records_per_splat.push_back(level_sample.splats[i] > 0
+                            ? double(level_sample.records[i]) / double(level_sample.splats[i])
+                            : -1.0);
+            level_drawn_nodes.push_back(int64_t(resource_state.hlod_level_drawn_nodes[i]));
+            level_drawn_splats.push_back(int64_t(resource_state.hlod_level_drawn_splats[i]));
+        }
+        stats["hlod_level_stat_slots"] = int64_t(GS_HLOD_LEVEL_STAT_SLOTS);
+        stats["hlod_level_stats_frame_serial"] = int64_t(level_sample.frame_serial);
+        stats["hlod_level_stats_samples"] = int64_t(level_sample.sample_count);
+        stats["hlod_level_records"] = level_records;
+        stats["hlod_level_emitted_splats"] = level_emitted_splats;
+        stats["hlod_level_records_per_emitted_splat"] = level_records_per_splat;
+        stats["hlod_level_drawn_nodes"] = level_drawn_nodes;
+        stats["hlod_level_drawn_splats"] = level_drawn_splats;
+    }
     stats["hlod_visited_nodes"] = resource_state.hlod_visited_nodes;
     stats["hlod_cpu_cut_usec"] = int64_t(resource_state.hlod_cpu_cut_usec);
     stats["hlod_cpu_prepare_usec"] = int64_t(resource_state.hlod_cpu_prepare_usec);
@@ -1980,6 +2045,7 @@ Dictionary RenderDiagnosticsOrchestrator::get_runtime_diagnostic_snapshot() cons
 	gpu_performance["overlap_count_gpu_ms"] = perf.gpu_tile_overlap_count_time_ms;
 	gpu_performance["overlap_count_gpu_valid"] = perf.gpu_tile_overlap_count_time_valid;
 	gpu_performance["binning_gpu_ms"] = perf.gpu_tile_binning_time_ms;
+	gpu_performance["binning_gpu_valid"] = perf.gpu_tile_binning_time_valid;
 	gpu_performance["overlap_emit_gpu_ms"] = perf.gpu_tile_overlap_emit_time_ms;
 	gpu_performance["overlap_emit_gpu_valid"] = perf.gpu_tile_overlap_emit_time_valid;
 	gpu_performance["overlap_sort_gpu_ms"] = perf.gpu_tile_overlap_sort_time_ms;

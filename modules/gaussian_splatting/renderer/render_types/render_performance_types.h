@@ -15,6 +15,7 @@
 #include "core/templates/local_vector.h"
 #include "core/variant/dictionary.h"
 #include "render_pipeline_io_types.h"
+#include "../gpu_pass_timing.h"
 #include <cstdint>
 
 namespace GaussianRenderPerformance {
@@ -116,6 +117,7 @@ struct PerformanceMetrics {
 	float gpu_tile_overlap_count_time_ms = 0.0f;
 	bool gpu_tile_overlap_count_time_valid = false;
 	float gpu_tile_binning_time_ms = 0.0f;
+	bool gpu_tile_binning_time_valid = false; // BV-04b: binning is the emit pass; valid exactly when it is
 	float gpu_tile_overlap_emit_time_ms = 0.0f;
 	bool gpu_tile_overlap_emit_time_valid = false;
 	float gpu_tile_overlap_sort_time_ms = 0.0f;
@@ -132,6 +134,11 @@ struct PerformanceMetrics {
 	bool gpu_tile_resolve_time_valid = false;
 	uint64_t gpu_timing_frame_serial = 0;
 	uint64_t gpu_timing_frames_behind = 0;
+	// BV-04b: GPU timing completeness (cull, projection, pre-sort and composite next to the tile
+	// passes; per-pass measurement frame serials; newest same-frame breakdown).
+	GaussianSplatting::GpuPassTiming::PassTimingSnapshot gpu_pass_timing;
+	// BV-04b: records per splat per HLOD level (GPU, last sampled HLOD-route frame).
+	GaussianSplatting::HlodLevelRecordSample gpu_hlod_level_records;
 	uint32_t gpu_timeline_inflight_frames = 0;
 	uint32_t gpu_timeline_completed_frames = 0;
 	uint32_t gpu_timeline_stall_count = 0;
@@ -208,6 +215,7 @@ inline void PerformanceMetrics::reset_gpu_core_pass_timings() {
 	gpu_tile_overlap_count_time_ms = 0.0f;
 	gpu_tile_overlap_count_time_valid = false;
 	gpu_tile_binning_time_ms = 0.0f;
+	gpu_tile_binning_time_valid = false;
 	gpu_tile_overlap_emit_time_ms = 0.0f;
 	gpu_tile_overlap_emit_time_valid = false;
 	gpu_tile_overlap_sort_time_ms = 0.0f;
@@ -225,6 +233,8 @@ inline void PerformanceMetrics::reset_gpu_extended_pass_timings() {
 	tile_prefix_cpu_sync_fallback_valid = false;
 	gpu_tile_resolve_time_ms = 0.0f;
 	gpu_tile_resolve_time_valid = false;
+	gpu_pass_timing = GaussianSplatting::GpuPassTiming::PassTimingSnapshot();
+	gpu_hlod_level_records = GaussianSplatting::HlodLevelRecordSample();
 }
 
 inline void PerformanceMetrics::reset_gpu_timeline_metrics() {

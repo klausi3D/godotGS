@@ -7,6 +7,8 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/gpu_debug_utils.h"
+#include "../renderer/gpu_pass_timing.h"
+#include "../renderer/gpu_sorting_config.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
@@ -1245,6 +1247,10 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
 
     // GPU Debug: Output composition pass (Purple tones for compositing)
     ScopedGpuMarker composite_marker(p_device, "GS_Composite", Color(0.7f, 0.3f, 0.9f, 1.0f));
+    // BV-04b: GPU timestamp bracket of the compute composite (was untimed; part of the fixed cost F).
+    // The graphics-fallback composite is not bracketed and reads as "not measured".
+    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp composite_timestamp(p_device,
+            GaussianSplatting::GpuPassTiming::PASS_COMPOSITE, g_gpu_sorting_config.enable_stage_timestamps);
 
     RD::ComputeListID compute_list = p_device->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {
@@ -1317,6 +1323,7 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
 
     p_device->compute_list_dispatch(compute_list, groups_x, groups_y, 1);
     p_device->compute_list_end();
+    composite_timestamp.finish();
 
     if (manual_uniform_set && uniform_set.is_valid() && p_device->uniform_set_is_valid(uniform_set)) {
         p_device->free(uniform_set);

@@ -9,6 +9,18 @@
 #define GS_MAX_ASSET_LODS 8
 #endif
 
+// BV-04b: records per splat per HLOD level (HlodLevelRecordStats, binding 24 of the HLOD emit pass).
+// Mirrors GS_HLOD_LEVEL_STAT_SLOTS / GS_DRAWN_NODE_LEVEL_NONE in renderer/gaussian_gpu_layout.h.
+#define GS_HLOD_LEVEL_STAT_SLOTS 16
+#define GS_DRAWN_NODE_LEVEL_NONE 0xFFFFFFFFu
+
+uint gs_hlod_level_stat_slot(uint level) {
+    if (level == GS_DRAWN_NODE_LEVEL_NONE) {
+        return uint(GS_HLOD_LEVEL_STAT_SLOTS - 1);
+    }
+    return min(level, uint(GS_HLOD_LEVEL_STAT_SLOTS - 2));
+}
+
 #ifndef GS_MAX_SPHERE_EFFECTORS
 #define GS_MAX_SPHERE_EFFECTORS 4
 #endif
@@ -109,7 +121,7 @@ struct DrawnNodeGPU {
     uint instance_id;
     uint chunk_id;
     float fade;              // Reserved for the S6 cross-fade; written as 1.0 and not read yet
-    uint reserved;           // Zero
+    uint level;              // BV-04b: HLOD level (node height, 0 = leaf); GS_DRAWN_NODE_LEVEL_NONE for objects
     vec4 camera_offset;      // xyz = R s c + T - camera (double on the CPU, float last), w = 0
 };
 

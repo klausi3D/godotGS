@@ -17,12 +17,15 @@ namespace gs_hlod_gpu {
 // `p_camera_offset` is DrawRecord::camera_offset: R s c + T - camera, formed in double by
 // gs_world_frame::camera_relative_offset and converted to float last. It is view dependent, so it is written here and
 // never into the shared ChunkMetaGPU payload.
-inline DrawnNodeGPU make_drawn_node(uint32_t p_instance_id, uint32_t p_chunk_id, const Vector3 &p_camera_offset) {
+// `p_level` (BV-04b) is the HLOD level of a world node (its tree height, 0 = leaf); object (instance) records keep
+// GS_DRAWN_NODE_LEVEL_NONE. Only the emit pass's records-per-level counters read it.
+inline DrawnNodeGPU make_drawn_node(uint32_t p_instance_id, uint32_t p_chunk_id, const Vector3 &p_camera_offset,
+		uint32_t p_level = GS_DRAWN_NODE_LEVEL_NONE) {
 	DrawnNodeGPU node = {};
 	node.instance_id = p_instance_id;
 	node.chunk_id = p_chunk_id;
 	node.fade = 1.0f; // S6 cross-fade is not wired; fully opaque.
-	node.reserved = 0u;
+	node.level = p_level;
 	node.camera_offset[0] = p_camera_offset.x;
 	node.camera_offset[1] = p_camera_offset.y;
 	node.camera_offset[2] = p_camera_offset.z;

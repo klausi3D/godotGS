@@ -7,6 +7,9 @@
 #include "../renderer/render_diagnostics_orchestrator.h"
 #include "../renderer/rendering_diagnostics.h"
 #include "../renderer/rendering_error.h"
+#include "../renderer/gpu_pass_timing.h"
+#include "../renderer/hlod_drawn_node.h"
+#include "../renderer/tile_render_types.h"
 
 namespace {
 
@@ -485,3 +488,298 @@ TEST_CASE("[Gaussian Diagnostics][PerformanceMetrics][Reset] per-frame resets ne
     CHECK(m.cull_route_uid == String("sentinel_route"));
     CHECK(m.visible_after_culling == 910);
 }
+
+// ---------------------------------------------------------------------------------------------
+// BV-04b (ADR adr-beyond-vram-worlds.md D-4 / D-5): GPU timing completeness.
+
+namespace TestBV04bGpuPassTiming {
+
+using namespace GaussianSplatting::GpuPassTiming;
+
+static void bv04b_add_pass(HashMap<uint64_t, FrameStages> &r_frames, Pass p_pass, uint64_t p_serial, double p_begin_ns,
+        double p_end_ns) {
+    accumulate(r_frames, make_label(p_pass, p_serial) + "_Begin", p_begin_ns);
+    accumulate(r_frames, make_label(p_pass, p_serial) + "_End", p_end_ns);
+}
+
+TEST_CASE("[Gaussian Diagnostics] BV-04b pass labels parse for every pass and reject malformed names") {
+    for (uint32_t i = 0; i < PASS_COUNT; i++) {
+        const Pass pass = Pass(i);
+        Pass parsed = PASS_COUNT;
+        bool is_begin = false;
+        uint64_t serial = 0;
+        REQUIRE(parse_label(make_label(pass, 1234) + "_Begin", parsed, is_begin, serial));
+        CHECK(parsed == pass);
+        CHECK(is_begin);
+        CHECK(serial == 1234u);
+        REQUIRE(parse_label(make_label(pass, 77) + "_End", parsed, is_begin, serial));
+        CHECK(parsed == pass);
+        CHECK_FALSE(is_begin);
+        CHECK(serial == 77u);
+    }
+    // The four BV-04b passes have their own prefixes; the pre-sort is not the overlap sort.
+    CHECK(String(label_prefix(PASS_PRESORT)) != String(label_prefix(PASS_OVERLAP_SORT)));
+    Pass parsed = PASS_COUNT;
+    bool is_begin = false;
+    uint64_t serial = 0;
+    CHECK_FALSE(parse_label("GSCull__Begin", parsed, is_begin, serial)); // no serial
+    CHECK_FALSE(parse_label("GSCull_12x_End", parsed, is_begin, serial)); // not a number
+    CHECK_FALSE(parse_label("GSCull_12_Middle", parsed, is_begin, serial)); // no suffix
+    CHECK_FALSE(parse_label("BitonicSort_3_Start", parsed, is_begin, serial)); // foreign marker
+    CHECK_FALSE(parse_label("Render Setup", parsed, is_begin, serial)); // engine marker
+}
+
+TEST_CASE("[Gaussian Diagnostics] BV-04b latest frame is per frame serial: no pass is borrowed from another frame") {
+    HashMap<uint64_t, FrameStages> frames;
+    // Frame 5: tile overlap count plus the four BV-04b passes.
+    bv04b_add_pass(frames, PASS_CULL, 5, 0.0, 300000.0); // 0.3 ms
+    bv04b_add_pass(frames, PASS_PROJECTION, 5, 300000.0, 800000.0); // 0.5 ms
+    bv04b_add_pass(frames, PASS_PRESORT, 5, 800000.0, 2800000.0); // 2.0 ms
+    bv04b_add_pass(frames, PASS_OVERLAP_COUNT, 5, 2800000.0, 3800000.0); // 1.0 ms
+    bv04b_add_pass(frames, PASS_COMPOSITE, 5, 9000000.0, 9250000.0); // 0.25 ms
+    // Frame 7 (newer): only cull and composite survived; the raster pair is incomplete and the
+    // resolve pair is out of order. Neither may count as measured.
+    bv04b_add_pass(frames, PASS_CULL, 7, 0.0, 400000.0); // 0.4 ms
+    bv04b_add_pass(frames, PASS_COMPOSITE, 7, 1000000.0, 1100000.0); // 0.1 ms
+    accumulate(frames, make_label(PASS_RASTER, 7) + "_Begin", 500000.0);
+    bv04b_add_pass(frames, PASS_RESOLVE, 7, 900000.0, 800000.0);
+    // Serial 0: a sorter that had no serial (the pre-BV-04b depth pre-sort wrote TileOverlapSort_0).
+    bv04b_add_pass(frames, PASS_OVERLAP_SORT, 0, 0.0, 9000000.0);
+
+    const FrameDurations all = latest_frame(frames);
+    REQUIRE(all.has_data);
+    CHECK(all.serial == 7u);
+    CHECK(all.valid[PASS_CULL]);
+    CHECK(all.ms[PASS_CULL] == doctest::Approx(0.4));
+    CHECK(all.valid[PASS_COMPOSITE]);
+    CHECK(all.ms[PASS_COMPOSITE] == doctest::Approx(0.1));
+    CHECK_FALSE(all.valid[PASS_RASTER]);
+    CHECK(all.ms[PASS_RASTER] == 0.0);
+    CHECK_FALSE(all.valid[PASS_RESOLVE]);
+    CHECK_FALSE(all.valid[PASS_PRESORT]); // measured in frame 5 only: never borrowed into frame 7
+    CHECK_FALSE(all.valid[PASS_OVERLAP_SORT]); // serial 0 is never a frame
+    CHECK(all.pipeline_mask() == ((1u << PASS_CULL) | (1u << PASS_COMPOSITE)));
+    CHECK(all.pipeline_sum_ms() == doctest::Approx(0.5));
+
+    // The legacy tile fields select among frames with a TILE pass: frame 5 (frame 7 has none measured).
+    const FrameDurations tile = latest_frame(frames, TILE_PASSES_MASK);
+    REQUIRE(tile.has_data);
+    CHECK(tile.serial == 5u);
+    CHECK(tile.valid[PASS_OVERLAP_COUNT]);
+    CHECK(tile.ms[PASS_OVERLAP_COUNT] == doctest::Approx(1.0));
+    CHECK_FALSE(tile.valid[PASS_OVERLAP_SORT]);
+
+    // Only serial-0 markers: no data at all, never a fabricated frame.
+    HashMap<uint64_t, FrameStages> orphan;
+    bv04b_add_pass(orphan, PASS_OVERLAP_SORT, 0, 0.0, 1000000.0);
+    CHECK_FALSE(latest_frame(orphan).has_data);
+}
+
+TEST_CASE("[Gaussian Diagnostics] BV-04b accumulator keeps per-pass frame serials, a coherent frame, and ages out") {
+    PassTimingAccumulator acc;
+    FrameDurations f5;
+    f5.has_data = true;
+    f5.serial = 5;
+    f5.valid[PASS_CULL] = true;
+    f5.ms[PASS_CULL] = 0.3;
+    f5.valid[PASS_PRESORT] = true;
+    f5.ms[PASS_PRESORT] = 2.0;
+    f5.valid[PASS_COMPOSITE] = true;
+    f5.ms[PASS_COMPOSITE] = 0.25;
+    acc.ingest(f5);
+    FrameDurations f7;
+    f7.has_data = true;
+    f7.serial = 7;
+    f7.valid[PASS_CULL] = true;
+    f7.ms[PASS_CULL] = 0.4;
+    acc.ingest(f7);
+
+    const PassTimingSnapshot &snap = acc.get_snapshot();
+    CHECK(snap.valid[PASS_CULL]);
+    CHECK(snap.ms[PASS_CULL] == doctest::Approx(0.4f));
+    CHECK(snap.frame_serial[PASS_CULL] == 7u);
+    // Sticky, but labelled with the frame it was measured in.
+    CHECK(snap.valid[PASS_PRESORT]);
+    CHECK(snap.frame_serial[PASS_PRESORT] == 5u);
+    // The coherent breakdown is frame 7 alone; the sticky pre-sort is not added to it.
+    CHECK(snap.coherent_frame_serial == 7u);
+    CHECK(snap.coherent_pass_mask == (1u << PASS_CULL));
+    CHECK(snap.coherent_total_ms == doctest::Approx(0.4f));
+    CHECK_FALSE(snap.all_bv04b_passes_coherent());
+    // Never measured: invalid, 0, serial 0.
+    CHECK_FALSE(snap.valid[PASS_PROJECTION]);
+    CHECK(snap.ms[PASS_PROJECTION] == 0.0f);
+    CHECK(snap.frame_serial[PASS_PROJECTION] == 0u);
+
+    // An empty view: no data for more than STALE_RESOLVES resolves -> everything ages out.
+    for (uint64_t i = 0; i <= PassTimingAccumulator::STALE_RESOLVES; i++) {
+        acc.ingest(FrameDurations());
+    }
+    for (uint32_t i = 0; i < PIPELINE_PASS_COUNT; i++) {
+        CHECK_FALSE(snap.valid[i]);
+        CHECK(snap.ms[i] == 0.0f);
+        CHECK(snap.frame_serial[i] == 0u);
+    }
+    CHECK(snap.coherent_frame_serial == 0u);
+    CHECK(snap.coherent_pass_mask == 0u);
+    CHECK(snap.coherent_total_ms == 0.0f);
+
+    // A full frame with all four BV-04b passes reads coherent.
+    FrameDurations f9;
+    f9.has_data = true;
+    f9.serial = 9;
+    const Pass bv04b[] = { PASS_CULL, PASS_PROJECTION, PASS_PRESORT, PASS_COMPOSITE };
+    for (const Pass p : bv04b) {
+        f9.valid[p] = true;
+        f9.ms[p] = 1.0;
+    }
+    acc.ingest(f9);
+    CHECK(snap.all_bv04b_passes_coherent());
+    CHECK(snap.coherent_total_ms == doctest::Approx(4.0f));
+}
+
+TEST_CASE("[Gaussian Diagnostics] BV-04b telemetry dictionary publishes every pass, flat BV-04b keys and the coherent frame") {
+    PassTimingAccumulator acc;
+    FrameDurations frame;
+    frame.has_data = true;
+    frame.serial = 21;
+    frame.valid[PASS_PROJECTION] = true;
+    frame.ms[PASS_PROJECTION] = 0.75;
+    frame.valid[PASS_RASTER] = true;
+    frame.ms[PASS_RASTER] = 3.0;
+    acc.ingest(frame);
+
+    Dictionary metrics;
+    append_to_dictionary(metrics, acc.get_snapshot());
+    const char *names[] = { "cull", "projection", "presort", "composite" };
+    for (const char *name : names) {
+        const String base = String("gpu_") + name;
+        CHECK_MESSAGE(metrics.has(base + "_time_ms"), base);
+        CHECK_MESSAGE(metrics.has(base + "_time_valid"), base);
+        CHECK_MESSAGE(metrics.has(base + "_frame_serial"), base);
+    }
+    CHECK(bool(metrics["gpu_projection_time_valid"]));
+    CHECK(float(metrics["gpu_projection_time_ms"]) == doctest::Approx(0.75f));
+    CHECK(int64_t(metrics["gpu_projection_frame_serial"]) == 21);
+    CHECK_FALSE(bool(metrics["gpu_cull_time_valid"]));
+    CHECK(int64_t(metrics["gpu_cull_frame_serial"]) == 0);
+
+    REQUIRE(metrics.has("gpu_pass_timing"));
+    const Dictionary timing = metrics["gpu_pass_timing"];
+    const Dictionary passes = timing["passes"];
+    CHECK(passes.size() == int(PIPELINE_PASS_COUNT));
+    if (!passes.has("raster")) {
+        FAIL("gpu_pass_timing.passes has no raster entry");
+        return;
+    }
+    const Dictionary raster = passes.get("raster", Dictionary());
+    CHECK(bool(raster["valid"]));
+    CHECK(float(raster["time_ms"]) == doctest::Approx(3.0f));
+    CHECK(int64_t(raster["frame_serial"]) == 21);
+    CHECK(int64_t(timing["coherent_frame_serial"]) == 21);
+    const Array coherent = timing["coherent_passes"];
+    CHECK(coherent.size() == 2);
+    CHECK(float(timing["coherent_total_ms"]) == doctest::Approx(3.75f));
+    CHECK_FALSE(bool(timing["coherent_has_all_bv04b_passes"]));
+}
+
+TEST_CASE("[Gaussian Diagnostics] BV-04b production metrics carry binning validity and the untimed passes") {
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    OS *os = OS::get_singleton();
+    if (project_settings == nullptr || os == nullptr) {
+        FAIL("ProjectSettings / OS unavailable");
+        return;
+    }
+    const String validate_setting = "rendering/gaussian_splatting/diagnostics/validate_production_metrics";
+    const String gate_enabled_setting = "rendering/gaussian_splatting/diagnostics/perf_gate_enabled";
+    ProjectSettingGuard validate_guard(project_settings, validate_setting);
+    ProjectSettingGuard gate_enabled_guard(project_settings, gate_enabled_setting);
+    project_settings->set_setting(validate_setting, true);
+    project_settings->set_setting(gate_enabled_setting, false);
+
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    if (!renderer.is_valid() || renderer->debug_state_orchestrator == nullptr) {
+        FAIL("renderer unavailable");
+        return;
+    }
+    GaussianSplatRenderer::PerformanceMetrics &perf = renderer->get_performance_state().metrics;
+    perf.gpu_tile_binning_time_ms = 0.40f;
+    perf.gpu_tile_binning_time_valid = true;
+    PassTimingAccumulator acc;
+    FrameDurations frame;
+    frame.has_data = true;
+    frame.serial = 33;
+    const double values[] = { 0.11, 0.22, 0.33, 0.44 };
+    const Pass bv04b[] = { PASS_CULL, PASS_PROJECTION, PASS_PRESORT, PASS_COMPOSITE };
+    for (int i = 0; i < 4; i++) {
+        frame.valid[bv04b[i]] = true;
+        frame.ms[bv04b[i]] = values[i];
+    }
+    acc.ingest(frame);
+    perf.gpu_pass_timing = acc.get_snapshot();
+
+    RenderDiagnosticsOrchestrator::Dependencies dependencies;
+    dependencies.renderer = renderer.ptr();
+    dependencies.debug_state_orchestrator = renderer->debug_state_orchestrator.get();
+    dependencies.build_device_capability_report = []() { return Dictionary(); };
+    dependencies.runtime_ports.update_gpu_pass_metrics_from_tile_renderer =
+            &GaussianSplatRenderer::clear_debug_overlay_dirty_flags;
+    RenderDiagnosticsOrchestrator diagnostics(dependencies);
+    const uint64_t frame_start_usec = os->get_ticks_usec() > 1000 ? os->get_ticks_usec() - 1000 : 0;
+    diagnostics.finalize_frame_metrics(frame_start_usec);
+
+    Dictionary snapshot = diagnostics.get_runtime_diagnostic_snapshot();
+    const Array contract = snapshot.get("production_metrics_contract", Array());
+    Dictionary production_metrics = snapshot.get("production_metrics", Dictionary());
+    const char *keys[] = { "gpu_binning_valid", "gpu_cull_ms", "gpu_cull_valid", "gpu_projection_ms",
+        "gpu_projection_valid", "gpu_presort_ms", "gpu_presort_valid", "gpu_composite_ms",
+        "gpu_composite_valid", "gpu_coherent_frame_serial", "gpu_coherent_pass_mask",
+        "gpu_coherent_total_ms" };
+    for (const char *key : keys) {
+        CHECK_MESSAGE(diagnostics_contract_has_key(contract, key), vformat("contract lacks %s", key));
+        diagnostics_require_key(production_metrics, key);
+    }
+    CHECK(bool(production_metrics.get("gpu_binning_valid", false)));
+    CHECK(float(production_metrics.get("gpu_cull_ms", 0.0f)) == doctest::Approx(0.11f));
+    CHECK(float(production_metrics.get("gpu_projection_ms", 0.0f)) == doctest::Approx(0.22f));
+    CHECK(float(production_metrics.get("gpu_presort_ms", 0.0f)) == doctest::Approx(0.33f));
+    CHECK(float(production_metrics.get("gpu_composite_ms", 0.0f)) == doctest::Approx(0.44f));
+    CHECK(bool(production_metrics.get("gpu_presort_valid", false)));
+    CHECK(int64_t(production_metrics.get("gpu_coherent_frame_serial", int64_t(0))) == 33);
+    CHECK(int64_t(production_metrics.get("gpu_coherent_pass_mask", int64_t(0))) == int64_t(BV04B_PASSES_MASK));
+    CHECK(float(production_metrics.get("gpu_coherent_total_ms", 0.0f)) == doctest::Approx(1.10f));
+}
+
+TEST_CASE("[Gaussian Diagnostics] BV-04b HLOD draw records carry their level and map to a records-per-level slot") {
+    const DrawnNodeGPU leaf = gs_hlod_gpu::make_drawn_node(0u, 3u, Vector3(1, 2, 3), 0u);
+    CHECK(leaf.level == 0u);
+    const DrawnNodeGPU interior = gs_hlod_gpu::make_drawn_node(0u, 4u, Vector3(), 5u);
+    CHECK(interior.level == 5u);
+    const DrawnNodeGPU object = gs_hlod_gpu::make_drawn_node(2u, 4u, Vector3());
+    CHECK(object.level == GS_DRAWN_NODE_LEVEL_NONE);
+
+    CHECK(gs_hlod_level_stat_slot(0u) == 0u);
+    CHECK(gs_hlod_level_stat_slot(5u) == 5u);
+    CHECK(gs_hlod_level_stat_slot(GS_HLOD_LEVEL_STAT_DEEPEST_SLOT - 1u) == GS_HLOD_LEVEL_STAT_DEEPEST_SLOT - 1u);
+    CHECK(gs_hlod_level_stat_slot(GS_HLOD_LEVEL_STAT_DEEPEST_SLOT) == GS_HLOD_LEVEL_STAT_DEEPEST_SLOT);
+    CHECK(gs_hlod_level_stat_slot(1000u) == GS_HLOD_LEVEL_STAT_DEEPEST_SLOT);
+    CHECK(gs_hlod_level_stat_slot(GS_DRAWN_NODE_LEVEL_NONE) == GS_HLOD_LEVEL_STAT_OBJECT_SLOT);
+    CHECK(GS_HLOD_LEVEL_STAT_OBJECT_SLOT != GS_HLOD_LEVEL_STAT_DEEPEST_SLOT);
+
+    // The sample keeps the frame it came from and the per-slot counts.
+    GaussianSplatting::TileDiagnosticsState diag;
+    HlodLevelRecordStatsGPU gpu = {};
+    gpu.records[0] = 800u;
+    gpu.splats[0] = 100u;
+    gpu.records[GS_HLOD_LEVEL_STAT_OBJECT_SLOT] = 30u;
+    gpu.splats[GS_HLOD_LEVEL_STAT_OBJECT_SLOT] = 10u;
+    diag.record_hlod_level_stats_sample(gpu, 44u);
+    CHECK(diag.hlod_level_records.frame_serial == 44u);
+    CHECK(diag.hlod_level_records.sample_count == 1u);
+    CHECK(diag.hlod_level_records.records[0] == 800u);
+    CHECK(diag.hlod_level_records.splats[0] == 100u);
+    CHECK(diag.hlod_level_records.records[GS_HLOD_LEVEL_STAT_OBJECT_SLOT] == 30u);
+}
+
+} // namespace TestBV04bGpuPassTiming

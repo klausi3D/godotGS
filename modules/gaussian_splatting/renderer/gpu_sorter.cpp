@@ -2761,7 +2761,10 @@ uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer, RID values_buffer, 
     // captured after the radix passes finish but before the safe_submit, so
     // the full duration brackets every dispatch in the sort.
     last_sort_gpu_timestamp = {};
-    const String sort_timestamp_label = "TileOverlapSort_" + String::num_uint64(pending_frame_label_serial);
+    // Labelled "<prefix><serial>": the overlap sorter uses TileOverlapSort_, the depth pre-sort
+    // sorter GSPreSort_ (BV-04b). Before BV-04b the pre-sort also wrote TileOverlapSort_0, which the
+    // parser could pick as the overlap-sort time on a frame where only it survived.
+    const String sort_timestamp_label = timestamp_label_prefix + String::num_uint64(pending_frame_label_serial);
     const uint32_t sort_timestamp_base = compute_rd->get_captured_timestamps_count();
     compute_rd->capture_timestamp(sort_timestamp_label + String("_Begin"));
 

@@ -222,6 +222,7 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 	ERR_FAIL_COND_V(!p_gaussian_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!p_sorted_indices.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.debug_stats.overflow_statistics_buffer.is_valid(), RID());
+	ERR_FAIL_COND_V(owner.instance_pipeline_buffers.hlod_relative && !owner.debug_stats.hlod_level_stats_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.debug_stats.debug_counter_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.debug_stats.debug_splat_audit_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.projection_buffers.projection_buffer.is_valid(), RID());
@@ -341,6 +342,12 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
         draw_list.binding = 22;
         draw_list.append_id(owner.instance_pipeline_buffers.hlod_draw_list_buffer);
         uniforms.push_back(draw_list);
+        // BV-04b: records per splat per HLOD level (EMIT pass only; tile_binning.glsl binding 24).
+        RD::Uniform level_stats;
+        level_stats.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        level_stats.binding = 24;
+        level_stats.append_id(owner.debug_stats.hlod_level_stats_buffer);
+        uniforms.push_back(level_stats);
     }
 	RD::Uniform indirect_uniform;
 	indirect_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;

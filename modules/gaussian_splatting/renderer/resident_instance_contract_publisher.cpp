@@ -1569,6 +1569,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_relative_capacity = state.hlod_canonical_capacity = 0;
     state.hlod_remap_asset_generation = 0;
     state.hlod_world_draw_records = state.hlod_instance_draw_records = 0;
+    state.clear_hlod_level_drawn();
     state.hlod_instance_draws.clear();
     frame_context_manager.clear_hlod_views();
 }
@@ -2323,6 +2324,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // The per-view budget outcome describes THIS main view only: a view that never reaches the budget rule refuses
         // nothing and draws no object, so no earlier view's refusal survives into it.
         state.hlod_world_draw_records = state.hlod_instance_draw_records = 0;
+        state.clear_hlod_level_drawn();
         state.hlod_instance_visible_objects = state.hlod_instance_admitted_objects = state.hlod_instance_refused_objects = 0;
         state.hlod_instance_reserve_splats = 0;
         state.hlod_instance_reserve_records = 0.0;
@@ -2823,11 +2825,17 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             }
         }
     }
+    state.clear_hlod_level_drawn();
     for (uint32_t i = 0; i < selected_count; ++i) {
         const uint32_t node = outcome.records[i].node;
         // The ViewSet formed camera_offset in double for snapshot.origin_revision; every world record names the
-        // world's row (row 0, identity-placed).
-        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(gs_hlod_bundle::WORLD_ROW, node, outcome.records[i].camera_offset);
+        // world's row (row 0, identity-placed). BV-04b: the record carries the node's HLOD level (height) so the
+        // emit pass can count records per splat per level.
+        const uint32_t level = input->nodes[node].topology.height;
+        bundle.draw_entries.write[i] = gs_hlod_gpu::make_drawn_node(gs_hlod_bundle::WORLD_ROW, node, outcome.records[i].camera_offset, level);
+        const uint32_t level_slot = gs_hlod_level_stat_slot(level);
+        state.hlod_level_drawn_nodes[level_slot]++;
+        state.hlod_level_drawn_splats[level_slot] += input->nodes[node].topology.payload_count;
         state.hlod_selected_parents += !input->nodes[node].topology.is_leaf() ? 1u : 0u;
     }
     // The objects' records follow the world's: one draw list, one depth sort (record order is a lookup table, not a draw
