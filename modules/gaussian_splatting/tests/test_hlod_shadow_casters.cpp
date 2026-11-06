@@ -429,4 +429,51 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the depth plane keeps its sl
 	CHECK(caster_fragment_depth(0.001f, -0.01f, 0.01f, false) == 0.0f);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] a needle tilted across both axes keeps its depth slope in float32") {
+	// The review case: scales (1, 1e-5, 1e-5), long axis v = (0.5, 0.5, sqrt(0.5)), 512 texels per unit, light depth
+	// along z. Along the needle depth changes sqrt(0.5) per unit while the screen moves 512 * sqrt(0.5) texels, so the
+	// slope along the projected axis (1, 1) / sqrt(2) is 1 / 512 (times s / (s + w) from the low-pass).
+	const float texels = 512.0f;
+	const float v[3] = { 0.5f, 0.5f, std::sqrt(0.5f) };
+	const float minor2 = 1e-10f;
+	float cov[3][3];
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			cov[i][j] = (1.0f - minor2) * v[i] * v[j] + (i == j ? minor2 : 0.0f);
+		}
+	}
+	const float a = texels * texels * cov[0][0];
+	const float b = texels * texels * cov[0][1];
+	const float c = texels * texels * cov[1][1];
+	const float cx = texels * cov[0][2];
+	const float cy = texels * cov[1][2];
+	// The old adjugate / det form: det cancels to (near) zero, below its own relative threshold, and drops the plane.
+	const float det = a * c - b * b;
+	CHECK_FALSE(det > 1e-12f * a * c);
+	const DepthGradient g = caster_depth_gradient(a, b, c, kLowPassTexels2, cx, cy);
+	const float s = a + c; // the projected needle's variance along its axis
+	const float expected = (1.0f / texels) * s / (s + kLowPassTexels2);
+	const float along = (g.x + g.y) / std::sqrt(2.0f);
+	const float across = (g.x - g.y) / std::sqrt(2.0f);
+	CHECK(along == doctest::Approx(expected).epsilon(1e-3));
+	// Across the needle the quad is only sqrt(minor) wide: the depth it spans there must be negligible next to the
+	// depth span along the needle (rounding in the minor term is bounded by that width, then capped per fragment).
+	const FootprintEigen e = footprint_eigenvalues(a, b, c, kLowPassTexels2);
+	CHECK(std::fabs(across) * std::sqrt(e.minor) <= 1e-3f * along * std::sqrt(e.major));
+
+	// A well-conditioned case equals S'^-1 c exactly (the textbook solve).
+	const float wa = 5.0f, wb = 2.0f, wc = 3.0f, w = kLowPassTexels2, wx = 0.7f, wy = -0.4f;
+	const DepthGradient h = caster_depth_gradient(wa, wb, wc, w, wx, wy);
+	const float d = (wa + w) * (wc + w) - wb * wb;
+	CHECK(h.x == doctest::Approx(((wc + w) * wx - wb * wy) / d).epsilon(1e-5));
+	CHECK(h.y == doctest::Approx(((wa + w) * wy - wb * wx) / d).epsilon(1e-5));
+	// Axis-aligned (b = 0), both orientations.
+	const DepthGradient ax = caster_depth_gradient(9.0f, 0.0f, 1.0f, 0.0f, 3.0f, 2.0f);
+	CHECK(ax.x == doctest::Approx(3.0f / 9.0f));
+	CHECK(ax.y == doctest::Approx(2.0f / 1.0f));
+	const DepthGradient ay = caster_depth_gradient(1.0f, 0.0f, 9.0f, 0.0f, 3.0f, 2.0f);
+	CHECK(ay.x == doctest::Approx(3.0f / 1.0f));
+	CHECK(ay.y == doctest::Approx(2.0f / 9.0f));
+}
+
 } // namespace TestHlodShadowCasters

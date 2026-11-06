@@ -255,6 +255,44 @@ inline FootprintEigen footprint_eigenvalues(float p_a, float p_b, float p_c, flo
 	return e;
 }
 
+// The caster's mean-depth slope g = S'^-1 c (texel offset -> light depth), as gs_shadow_caster.glsl computes it:
+// through the dilated footprint's eigenbasis (footprint_eigenvalues and the shader's axis0), never through the
+// adjugate / det, which cancels to det = 0 in float32 for a needle tilted across both axes and drops the plane. S' is
+// the dilated covariance the quad already uses (minor eigenvalue >= the low-pass), so g is the conditional mean slope
+// of the blurred Gaussian and stays bounded.
+struct DepthGradient {
+	float x = 0.0f;
+	float y = 0.0f;
+};
+
+inline DepthGradient caster_depth_gradient(float p_a, float p_b, float p_c, float p_low_pass, float p_cx, float p_cy) {
+	const FootprintEigen e = footprint_eigenvalues(p_a, p_b, p_c, p_low_pass);
+	DepthGradient g;
+	if (!(e.major > 0.0f) || !(e.minor > 0.0f)) {
+		return g;
+	}
+	const float a = p_a + p_low_pass;
+	const float c = p_c + p_low_pass;
+	float ax = 0.0f;
+	float ay = 0.0f;
+	if (std::fabs(p_b) > 1e-12f) {
+		ax = p_b;
+		ay = e.major - a;
+		const float len = std::sqrt(ax * ax + ay * ay);
+		ax /= len;
+		ay /= len;
+	} else if (a >= c) {
+		ax = 1.0f;
+	} else {
+		ay = 1.0f;
+	}
+	const float p0 = (ax * p_cx + ay * p_cy) / e.major;
+	const float p1 = (-ay * p_cx + ax * p_cy) / e.minor;
+	g.x = ax * p0 - ay * p1;
+	g.y = ay * p0 + ax * p1;
+	return g;
+}
+
 // Per-renderer-frame caster accounting (stats shadow_caster_*). Shadow passes of a frame run before its main view, at
 // renderer frame counter F; get_render_stats() after that frame shows frame_count F + 1, so shadow_caster_frame is
 // frame_count - 1 exactly like sort_dispatch_frame.

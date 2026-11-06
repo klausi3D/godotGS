@@ -218,7 +218,7 @@ void main() {
     vec2 corner = GS_CASTER_CORNERS[gl_VertexIndex % 6];
     vec2 offset_texels = extent0 * corner.x + extent1 * corner.y;
     // Depth follows the Gaussian across its footprint: along the light ray through a texel offset u from the centre, the
-    // Gaussian's mean depth is z0 + g . u with g = S^-1 c (S = 2D covariance in texels, c = covariance of the texel axes
+    // Gaussian's mean depth is z0 + g . u with g = S^-1 c (S = dilated 2D covariance in texels, c = covariance of the texel axes
     // with light-space depth). Linear in u, so per-vertex depth is exact under the orthographic cascade. A constant
     // centre depth instead made every quad a light-facing billboard: on a tilted sheet each splat's billboard stood in
     // front of its down-light neighbours by spacing * slope and shadowed them (#1095 slice 1 review: blotches on a
@@ -231,16 +231,14 @@ void main() {
     if (!pancaked) {
         vec3 jz = vec3(params.light_from_frame[0][2], params.light_from_frame[1][2], params.light_from_frame[2][2]);
         vec3 cjz = cov3 * jz;
-        float sa = dot(jx, cjx);
-        float sb = dot(jx, cjy);
-        float sc = dot(jy, cjy);
-        float det = sa * sc - sb * sb;
-        if (det > 1e-12 * max(sa * sc, 1e-30)) {
-            vec2 cxz = vec2(dot(jx, cjz), dot(jy, cjz));
-            vec2 g = vec2(sc * cxz.x - sb * cxz.y, sa * cxz.y - sb * cxz.x) / det;
-            plane_cap = sigma_extent * sqrt(max(dot(jz, cjz), 0.0));
-            plane_dz = dot(g, offset_texels);
-        }
+        // g = S'^-1 c through the footprint's own eigenbasis (S' = the dilated covariance the quad already uses, so
+        // lambda1 >= the low-pass and g is the conditional mean depth slope of the blurred Gaussian). Mirrors
+        // gs_shadow_caster::caster_depth_gradient. The adjugate / det form cancelled to det = 0 in float32 for a
+        // needle tilted across both axes and dropped the plane (a light-facing billboard again).
+        vec2 cxz = vec2(dot(jx, cjz), dot(jy, cjz));
+        vec2 g = axis0 * (dot(axis0, cxz) / lambda0) + axis1 * (dot(axis1, cxz) / lambda1);
+        plane_cap = sigma_extent * sqrt(max(dot(jz, cjz), 0.0));
+        plane_dz = dot(g, offset_texels);
     }
     gl_Position = vec4(ndc.xy + offset_texels / half_size, depth, 1.0);
     v_sigma_uv = corner * sigma_extent;
