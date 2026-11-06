@@ -342,6 +342,12 @@ struct PassTimingSnapshot {
 	uint64_t coherent_age_resolves = 0;
 	// Monotonic resolve counter (every resolve call, data or not).
 	uint64_t resolve_count = 0;
+	// Freshness: OS::get_ticks_usec() at the last resolve, and at the resolve that last refreshed the
+	// coherent frame. Resolves run only while the Gaussian pipeline runs, so when nothing is drawn (e.g.
+	// the node is outside the view) every value above stays as it was; a consumer compares these with
+	// Time.get_ticks_usec() to tell a fresh sample from a held one.
+	uint64_t last_resolve_usec = 0;
+	uint64_t coherent_resolve_usec = 0;
 
 	bool all_bv04b_passes_coherent() const { return (coherent_pass_mask & BV04B_PASSES_MASK) == BV04B_PASSES_MASK; }
 };
@@ -365,8 +371,9 @@ public:
 	}
 
 	// Called once per resolve, with or without fresh data, so stale values age out on an empty view.
-	void ingest(const FrameDurations &p_durations) {
+	void ingest(const FrameDurations &p_durations, uint64_t p_now_usec = 0) {
 		const uint64_t now = ++snapshot.resolve_count;
+		snapshot.last_resolve_usec = p_now_usec;
 		for (uint32_t i = 0; i < PIPELINE_PASS_COUNT; i++) {
 			if (p_durations.has_data && p_durations.valid[i]) {
 				snapshot.ms[i] = float(p_durations.ms[i]);
@@ -383,11 +390,13 @@ public:
 			snapshot.coherent_frame_serial = p_durations.serial;
 			snapshot.coherent_pass_mask = p_durations.pipeline_mask();
 			snapshot.coherent_total_ms = float(p_durations.pipeline_sum_ms());
+			snapshot.coherent_resolve_usec = p_now_usec;
 			coherent_resolved_at = now;
 		} else if (snapshot.coherent_pass_mask != 0u && now - coherent_resolved_at > STALE_RESOLVES) {
 			snapshot.coherent_frame_serial = 0;
 			snapshot.coherent_pass_mask = 0;
 			snapshot.coherent_total_ms = 0.0f;
+			snapshot.coherent_resolve_usec = 0;
 		}
 		snapshot.coherent_age_resolves = snapshot.coherent_pass_mask != 0u ? now - coherent_resolved_at : 0u;
 	}
@@ -399,7 +408,8 @@ public:
 // nested "gpu_pass_timing" dictionary with every pass:
 //   passes.<name> = { time_ms, valid, frame_serial }
 //   coherent_frame_serial, coherent_passes (names), coherent_pass_mask, coherent_total_ms,
-//   coherent_age_resolves, coherent_has_all_bv04b_passes, resolve_count
+//   coherent_age_resolves, coherent_has_all_bv04b_passes, resolve_count,
+//   last_resolve_usec, coherent_resolve_usec
 // A pass that was not measured reads valid = false and time_ms = 0; nothing is inferred from a 0.
 inline void append_to_dictionary(Dictionary &r_metrics, const PassTimingSnapshot &p_snapshot) {
 	static const Pass flat_passes[] = { PASS_CULL, PASS_PROJECTION, PASS_PRESORT, PASS_COMPOSITE };
@@ -430,6 +440,8 @@ inline void append_to_dictionary(Dictionary &r_metrics, const PassTimingSnapshot
 	timing["coherent_age_resolves"] = static_cast<int64_t>(p_snapshot.coherent_age_resolves);
 	timing["coherent_has_all_bv04b_passes"] = p_snapshot.all_bv04b_passes_coherent();
 	timing["resolve_count"] = static_cast<int64_t>(p_snapshot.resolve_count);
+	timing["last_resolve_usec"] = static_cast<int64_t>(p_snapshot.last_resolve_usec);
+	timing["coherent_resolve_usec"] = static_cast<int64_t>(p_snapshot.coherent_resolve_usec);
 	r_metrics["gpu_pass_timing"] = timing;
 }
 

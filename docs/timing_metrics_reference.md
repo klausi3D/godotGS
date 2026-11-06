@@ -186,6 +186,11 @@ newest frame alone:
 To measure F, sum only passes from one frame: the coherent fields, or per-pass values whose `frame_serial`s agree.
 Never add sticky values blindly.
 
+**Freshness.** Timestamps are resolved only while the Gaussian pipeline runs. When nothing is drawn (for example, the
+node is outside the view), every value above is held unchanged and still reads valid. The nested dictionary carries
+`last_resolve_usec` and `coherent_resolve_usec` (`OS.get_ticks_usec()` at the resolve; compare with
+`Time.get_ticks_usec()`). If they are older than a frame or two, the values are held, not measured this frame.
+
 **Binning validity.** `binning` is the EMIT pass and shares its timestamp range with overlap emit, so
 `gpu_binning_valid` / `gpu_tile_binning_time_valid` equal the emit validity. `gpu_pass_breakdown_available` no
 longer counts a non-zero binning time without its flag.
@@ -194,8 +199,8 @@ longer counts a non-zero binning time without its flag.
 carry flat `gpu_<pass>_time_ms`, `gpu_<pass>_time_valid` and `gpu_<pass>_frame_serial` keys for cull, projection,
 presort and composite. They also carry a nested `gpu_pass_timing` dictionary with every pass
 (`passes.<name>.{time_ms, valid, frame_serial}`) and `coherent_frame_serial`, `coherent_passes`,
-`coherent_pass_mask`, `coherent_total_ms`, `coherent_age_resolves`, `coherent_has_all_bv04b_passes` and
-`resolve_count`. All of these are available in every build flavour. They are gated only by
+`coherent_pass_mask`, `coherent_total_ms`, `coherent_age_resolves`, `coherent_has_all_bv04b_passes`,
+`resolve_count`, `last_resolve_usec` and `coherent_resolve_usec`. All of these are available in every build flavour. They are gated only by
 `rendering/gaussian_splatting/gpu_sorting/enable_stage_timestamps` (default on).
 
 **Records per splat per HLOD level.** On the HLOD route, each draw record carries its node's level

@@ -2839,7 +2839,7 @@ void TileRenderer::_update_timing_metrics(const GaussianSplatting::GpuPassTiming
 	using namespace GaussianSplatting::GpuPassTiming;
 	// BV-04b: every pass (incl. cull / projection / pre-sort / composite), with frame serials and the
 	// newest same-frame breakdown. p_pipeline_frame is the newest frame with ANY measured pass.
-	timing_state.pass_timing.ingest(p_pipeline_frame);
+	timing_state.pass_timing.ingest(p_pipeline_frame, OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0);
 	// Legacy tile-pass view. p_frame is the newest frame with a measured TILE pass (TILE_PASSES_MASK),
 	// so these fields select their frame exactly as before BV-04b; semantics below are unchanged.
 	struct LegacyDurations {

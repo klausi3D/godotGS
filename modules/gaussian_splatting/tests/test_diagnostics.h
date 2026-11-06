@@ -586,15 +586,17 @@ TEST_CASE("[Gaussian Diagnostics] BV-04b accumulator keeps per-pass frame serial
     f5.ms[PASS_PRESORT] = 2.0;
     f5.valid[PASS_COMPOSITE] = true;
     f5.ms[PASS_COMPOSITE] = 0.25;
-    acc.ingest(f5);
+    acc.ingest(f5, 100);
     FrameDurations f7;
     f7.has_data = true;
     f7.serial = 7;
     f7.valid[PASS_CULL] = true;
     f7.ms[PASS_CULL] = 0.4;
-    acc.ingest(f7);
+    acc.ingest(f7, 101);
 
     const PassTimingSnapshot &snap = acc.get_snapshot();
+    CHECK(snap.coherent_resolve_usec == 101u);
+    CHECK(snap.last_resolve_usec == 101u);
     CHECK(snap.valid[PASS_CULL]);
     CHECK(snap.ms[PASS_CULL] == doctest::Approx(0.4f));
     CHECK(snap.frame_serial[PASS_CULL] == 7u);
