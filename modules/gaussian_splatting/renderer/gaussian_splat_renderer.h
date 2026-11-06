@@ -858,6 +858,12 @@ public:
     bool _ensure_shadow_blit_resources(RenderingDevice *p_device);
     bool _blit_shadow_depth(RID p_source_depth, RID p_shadow_fb, const Rect2i &p_atlas_rect, bool p_flip_y);
     bool _finish_shadow_render_result(const ShadowRenderResult &p_result);
+    // Splat shadow casters on the HLOD route (#1095, #1163; renderer/hlod_shadow_caster_plan.h). An HLOD world owner never
+    // enters the color pipeline for a light view: the pass draws the last active main view's draw list or refuses.
+    bool _is_hlod_shadow_route_owner() const;
+    bool _render_hlod_shadow_casters(const Projection &p_light_projection, const Transform3D &p_light_transform,
+            const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, ShadowRenderResult &r_result);
+    std::unique_ptr<class GsSplatShadowCaster> splat_shadow_caster;
     static const char *_shadow_failure_reason_label(ShadowRenderFailureReason p_reason);
 
 
@@ -2182,6 +2188,7 @@ public:
     void test_override_rendering_device(RenderingDevice *p_device);
     void test_set_hlod_publication_failure(int p_failure);
     void test_set_hlod_route_limit_override(int64_t p_bytes);
+    void test_set_hlod_hold_world_idle(bool p_hold);
     bool test_hlod_publication_refuses(int p_failure);
     Dictionary test_observe_hlod_publication(int64_t p_request_id = 0);
     Dictionary test_hlod_foreign_device_publication();

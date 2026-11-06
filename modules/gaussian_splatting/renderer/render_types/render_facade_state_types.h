@@ -9,6 +9,7 @@
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
 #include "../hlod_node_streamer.h"
 #include "../hlod_world_instances.h"
+#include "../hlod_shadow_caster_plan.h"
 #include "../../lod/hlod_auto_route.h"
 #include "core/os/mutex.h"
 #include "core/math/color.h"
@@ -163,6 +164,13 @@ struct ResourceState {
     uint64_t hlod_instance_overlap_growths = 0;
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
+    // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The record names the draw list the last
+    // main view uploaded: the world cut plus the admitted objects, or (an idle streamed world) the objects alone. It is
+    // invalidated at the start of every main-view preparation and on release; the shadow passes of the next frame draw
+    // it. hlod_draw_list_uploads counts writes of the relative bundle's draw list (the record keys on it). Render thread only.
+    gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
+    uint64_t hlod_draw_list_uploads = 0;
+    gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
     Mutex hlod_instance_refusal_mutex;
@@ -178,6 +186,9 @@ struct ResourceState {
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
     // Lowers the HLOD route's device-ledger limit (0 = off) so a runtime scenario can force a memory refusal. Never raises it.
     std::atomic<uint64_t> hlod_test_route_limit_override{ 0 };
+    // Holds a streamed (paged) world idle: every main view takes the idle fallback with the view's admitted objects
+    // (reason hlod_test_world_held_idle), exactly as while its cut loads. Never makes anything drawable.
+    std::atomic<bool> hlod_test_hold_world_idle{ false };
     // Actual resident sort inputs, retained before the post-frame canonical restore.
     // Borrowed RID only; the observer validates lifetime, device and frame before readback.
     RID hlod_test_sort_count_buffer;

@@ -622,6 +622,13 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         variants=(Variant("default", (), ("#1267",)),),
     ),
     ShaderMatrixEntry(
+        key="gs_shadow_caster",
+        source=SHADERS_DIR / "gs_shadow_caster.glsl",
+        stages=("vertex", "fragment"),
+        issue_ids=("#1095",),
+        variants=(Variant("default", (), ("#1095",)),),
+    ),
+    ShaderMatrixEntry(
         key="sobel_outline",
         source=SHADERS_DIR / "sobel_outline.glsl",
         stages=("compute",),
