@@ -70,6 +70,24 @@ public:
 	// poisoned by a rejected argument; nothing was written).
 	Error write_at(uint64_t p_offset, const uint8_t *p_data, uint64_t p_size);
 
+	// Reads back bytes this transaction has written; `p_offset + p_size` must not
+	// exceed get_size(). For scratch/spill use (BV-03a: the SINGLE_PASS SH spill is
+	// a transaction that is read back and then aborted, never committed). Reads go
+	// through the same native handle, so they see every completed write and need
+	// no second handle (Godot FileAccess may open with _SH_DENYWR, which a handle
+	// already open for writing would refuse). A rejected argument does not poison
+	// the transaction; a failed OS read does.
+	Error read_at(uint64_t p_offset, uint8_t *r_data, uint64_t p_size);
+
+	// Flushes the data written so far to stable storage (FlushFileBuffers /
+	// fdatasync) without closing the handle. Optional: commit() always flushes
+	// again. It exists so a caller can pay the long flush of a large file BEFORE
+	// taking a short exclusive window around commit() (BV-03a: the world writer
+	// suspends the destination's readers only across the replace), leaving
+	// commit() with little or nothing left to flush. A failure poisons the
+	// transaction like any other write failure.
+	Error flush_to_storage();
+
 	// Flushes the data to stable storage, closes the handle and atomically
 	// replaces the final path. On POSIX the containing directory is then fsynced;
 	// if only that last step fails the new file is already in place, the state is
