@@ -642,7 +642,10 @@ jobs:
 
   openworld-proof-evidence:
     name: Open-World Proof Evidence (non-blocking)
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
+    # `guards` is skipped on these events; the skip propagates through
+    # build-linux-editor unless this job overrides it with !cancelled() and
+    # requires the build explicitly.
+    if: ${{ !cancelled() && needs.build-linux-editor.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true))) }}
     continue-on-error: true
     runs-on: [self-hosted, Linux, X64, gpu]
     # Tests the binary build-linux-editor compiled for this exact commit. That
