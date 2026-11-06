@@ -7,8 +7,10 @@
 # installs system packages. `check-tools` instead fails closed and prints exactly
 # what is missing, so the person who administers the machine can install it once.
 #
-#   tests/ci/linux_gpu_runner.sh check-tools [--need-glslang] [--need-pwsh]
+#   tests/ci/linux_gpu_runner.sh check-tools [--build-only] [--need-glslang] [--need-pwsh]
 #   tests/ci/linux_gpu_runner.sh venv [--with-test-data]
+#   tests/ci/linux_gpu_runner.sh stage-binary <built-binary> <out-dir>
+#   tests/ci/linux_gpu_runner.sh install-binary <artifact-dir>
 #
 # `check-tools` (all findings are printed before the exit status is decided):
 #   * Python 3.11 resolvable (`uv python find 3.11`, else `python3.11`, else a
@@ -22,6 +24,23 @@
 #     Xorg of the NVIDIA GPU; Xvfb has no NVIDIA Vulkan)
 #   * glslangValidator or glslc            (--need-glslang)
 #   * PowerShell 7 (`pwsh`)                (--need-pwsh)
+#   `--build-only` drops the Vulkan-device and DISPLAY checks: a job that only
+#   compiles (the CPU build jobs that hand the GPU jobs a binary) renders
+#   nothing, so it must not demand a GPU and must be able to run on a runner
+#   without one.
+#
+# `stage-binary` / `install-binary` are the two halves of the build -> GPU-test
+# handoff. The build job compiles on a runner WITHOUT the `gpu` label and
+# uploads the binary as an artifact; the GPU job downloads it and only runs
+# tests. The handoff is pinned to the commit: `stage-binary` refuses unless the
+# checkout it built is exactly $GITHUB_SHA, and writes build-provenance.txt
+# (commit, run id, binary name, sha256) next to the copy. `install-binary`
+# refuses unless that provenance names this job's own $GITHUB_SHA and
+# $GITHUB_RUN_ID, this job's checkout is that same commit, the artifact holds
+# nothing else, and the sha256 matches; only then does it place the binary at
+# bin/<name>, where the jobs' unchanged "Resolve Godot binary" step finds it.
+# Every mismatch fails closed: a binary built from another commit is never
+# tested as this one.
 #
 # `venv` creates a per-job virtualenv from the version-and-hash-locked
 # tests/ci/requirements-scons.txt and prepends its bin/ to PATH for every later
@@ -50,9 +69,10 @@ resolve_python311() {
 }
 
 check_tools() {
-  local need_glslang=0 need_pwsh=0 arg
+  local need_glslang=0 need_pwsh=0 build_only=0 arg
   for arg in "$@"; do
     case "$arg" in
+      --build-only) build_only=1 ;;
       --need-glslang) need_glslang=1 ;;
       --need-pwsh) need_pwsh=1 ;;
       *) echo "check-tools: unknown argument $arg" >&2; return 2 ;;
@@ -100,7 +120,9 @@ check_tools() {
     fi
   fi
 
-  if ! command -v vulkaninfo >/dev/null 2>&1; then
+  if [ "$build_only" = 1 ]; then
+    echo "skipped  vulkaninfo and DISPLAY (--build-only: this job compiles and renders nothing)"
+  elif ! command -v vulkaninfo >/dev/null 2>&1; then
     missing+=("vulkaninfo (package vulkan-tools)")
   else
     local summary
@@ -115,7 +137,9 @@ check_tools() {
     fi
   fi
 
-  if [ -z "${DISPLAY:-}" ]; then
+  if [ "$build_only" = 1 ]; then
+    :
+  elif [ -z "${DISPLAY:-}" ]; then
     missing+=("DISPLAY (the runner .env must export DISPLAY=:0)")
   elif command -v xdpyinfo >/dev/null 2>&1; then
     if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
@@ -182,10 +206,139 @@ make_venv() {
   python -m SCons --version | head -3
 }
 
+# The only file names the jobs' "Resolve Godot binary" step accepts.
+HANDOFF_BINARY_NAMES=(godot.linuxbsd.editor.dev.x86_64 godot.linuxbsd.editor.x86_64)
+HANDOFF_PROVENANCE=build-provenance.txt
+
+is_handoff_binary_name() {
+  local name="$1" allowed
+  for allowed in "${HANDOFF_BINARY_NAMES[@]}"; do
+    [ "$name" = "$allowed" ] && return 0
+  done
+  return 1
+}
+
+# Value of KEY in a provenance file; fails unless KEY occurs exactly once.
+provenance_value() {
+  local file="$1" key="$2" count
+  count="$(grep -c "^${key}=" "$file" || true)"
+  if [ "$count" != 1 ]; then
+    echo "::error::$file has $count '${key}=' lines; expected exactly 1" >&2
+    return 1
+  fi
+  sed -n "s/^${key}=//p" "$file"
+}
+
+stage_binary() {
+  if [ "$#" -ne 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
+    echo "usage: $0 stage-binary <built-binary> <out-dir>" >&2
+    return 2
+  fi
+  local binary="$1" out="$2" name head digest
+  : "${GITHUB_SHA:?GITHUB_SHA is not set; this runs inside a GitHub Actions job}"
+  : "${GITHUB_RUN_ID:?GITHUB_RUN_ID is not set; this runs inside a GitHub Actions job}"
+  if [ ! -f "$binary" ] || [ ! -x "$binary" ]; then
+    echo "::error::stage-binary: $binary is not an executable file"
+    return 1
+  fi
+  name="$(basename "$binary")"
+  if ! is_handoff_binary_name "$name"; then
+    echo "::error::stage-binary: unexpected binary name '$name' (allowed: ${HANDOFF_BINARY_NAMES[*]})"
+    return 1
+  fi
+  head="$(git rev-parse HEAD)" || { echo "::error::stage-binary: git rev-parse HEAD failed"; return 1; }
+  if [ "$head" != "$GITHUB_SHA" ]; then
+    echo "::error::stage-binary: the checkout that was built is $head, not GITHUB_SHA $GITHUB_SHA; refusing to publish it as this commit's binary"
+    return 1
+  fi
+  if [ -e "$out" ] && [ -n "$(ls -A "$out")" ]; then
+    echo "::error::stage-binary: $out already exists and is not empty"
+    return 1
+  fi
+  mkdir -p "$out" || return 1
+  cp -- "$binary" "$out/$name" || { echo "::error::stage-binary: copy failed"; return 1; }
+  digest="$(sha256sum "$out/$name" | cut -d' ' -f1)" || return 1
+  {
+    echo "commit=$head"
+    echo "run_id=$GITHUB_RUN_ID"
+    echo "binary=$name"
+    echo "sha256=$digest"
+  } > "$out/$HANDOFF_PROVENANCE" || return 1
+  echo "Staged $name for commit $head:"
+  cat "$out/$HANDOFF_PROVENANCE"
+}
+
+install_binary() {
+  if [ "$#" -ne 1 ] || [ -z "$1" ]; then
+    echo "usage: $0 install-binary <artifact-dir>" >&2
+    return 2
+  fi
+  local dir="$1" provenance commit run_id name digest head actual dest existing listing expected
+  : "${GITHUB_SHA:?GITHUB_SHA is not set; this runs inside a GitHub Actions job}"
+  : "${GITHUB_RUN_ID:?GITHUB_RUN_ID is not set; this runs inside a GitHub Actions job}"
+  provenance="$dir/$HANDOFF_PROVENANCE"
+  if [ ! -f "$provenance" ]; then
+    echo "::error::install-binary: $provenance is missing; the artifact carries no build provenance"
+    return 1
+  fi
+  commit="$(provenance_value "$provenance" commit)" || return 1
+  run_id="$(provenance_value "$provenance" run_id)" || return 1
+  name="$(provenance_value "$provenance" binary)" || return 1
+  digest="$(provenance_value "$provenance" sha256)" || return 1
+  if [ "$commit" != "$GITHUB_SHA" ]; then
+    echo "::error::install-binary: the artifact was built from $commit, but this job tests GITHUB_SHA $GITHUB_SHA"
+    return 1
+  fi
+  if [ "$run_id" != "$GITHUB_RUN_ID" ]; then
+    echo "::error::install-binary: the artifact comes from run $run_id, not this run $GITHUB_RUN_ID"
+    return 1
+  fi
+  head="$(git rev-parse HEAD)" || { echo "::error::install-binary: git rev-parse HEAD failed"; return 1; }
+  if [ "$head" != "$commit" ]; then
+    echo "::error::install-binary: this job's checkout is $head but the binary was built from $commit"
+    return 1
+  fi
+  if ! is_handoff_binary_name "$name"; then
+    echo "::error::install-binary: unexpected binary name '$name' (allowed: ${HANDOFF_BINARY_NAMES[*]})"
+    return 1
+  fi
+  listing="$(ls -A "$dir" | LC_ALL=C sort | tr '\n' ' ')"
+  expected="$(printf '%s\n' "$HANDOFF_PROVENANCE" "$name" | LC_ALL=C sort | tr '\n' ' ')"
+  if [ "$listing" != "$expected" ]; then
+    echo "::error::install-binary: $dir must hold exactly '$expected'; found '$listing'"
+    return 1
+  fi
+  actual="$(sha256sum "$dir/$name" | cut -d' ' -f1)" || return 1
+  if [ "$actual" != "$digest" ]; then
+    echo "::error::install-binary: sha256 of $name is $actual, provenance says $digest"
+    return 1
+  fi
+  # A binary already in bin/ is what the resolver would pick up. The checkout's
+  # clean removes it, so its presence is a fault, never something to overwrite.
+  for existing in "${HANDOFF_BINARY_NAMES[@]}"; do
+    if [ -e "bin/$existing" ]; then
+      echo "::error::install-binary: bin/$existing already exists before install; refusing to test a binary of unknown origin"
+      return 1
+    fi
+  done
+  dest="bin/$name"
+  mkdir -p bin || return 1
+  cp -- "$dir/$name" "$dest" || { echo "::error::install-binary: copy failed"; return 1; }
+  chmod 0755 "$dest" || return 1
+  actual="$(sha256sum "$dest" | cut -d' ' -f1)" || return 1
+  if [ "$actual" != "$digest" ]; then
+    echo "::error::install-binary: installed $dest hashes to $actual, expected $digest"
+    return 1
+  fi
+  echo "Installed $dest, built from commit $commit in run $run_id (sha256 $digest)"
+}
+
 cmd="${1:-}"
 shift || true
 case "$cmd" in
   check-tools) check_tools "$@" ;;
   venv) make_venv "$@" ;;
-  *) echo "usage: $0 {check-tools [--need-glslang] [--need-pwsh] | venv [--with-test-data]}" >&2; exit 2 ;;
+  stage-binary) stage_binary "$@" ;;
+  install-binary) install_binary "$@" ;;
+  *) echo "usage: $0 {check-tools [--build-only] [--need-glslang] [--need-pwsh] | venv [--with-test-data] | stage-binary <built-binary> <out-dir> | install-binary <artifact-dir>}" >&2; exit 2 ;;
 esac

@@ -249,6 +249,99 @@ jobs:
           echo "run_windows_gpu=${{ steps.decide.outputs.run_windows_gpu }}"
           echo "reason=${{ steps.decide.outputs.reason }}"
 
+  # Compiles the tests=yes editor for the two GPU jobs below (module-validation,
+  # openworld-proof-evidence; both used these exact args), on a runner that does
+  # NOT need the `gpu` label, so the GPU sits idle for no compile and a CPU-only
+  # runner can take this job. The binary travels as an artifact pinned to
+  # github.sha: `stage-binary` refuses a checkout that is not github.sha and
+  # records commit, run id and sha256; `install-binary` in each GPU job refuses
+  # anything that does not match its own github.sha, run id and checkout
+  # (tests/ci/linux_gpu_runner.sh).
+  build-linux-editor:
+    name: Build Linux Editor for GPU Gates (Self-Hosted CPU)
+    # Runs exactly when one of its two consumers can run:
+    #   * module-validation's events: only after `guards` succeeded, as that
+    #     job's own compile did (it `needs: guards`);
+    #   * openworld-proof-evidence's events (schedule, or a dispatch asking for
+    #     an openworld surface), on which `guards` is skipped by design.
+    # `!cancelled()` is what lets the second branch run past a skipped `guards`;
+    # the fork guard leads the conjunction like every self-hosted job's.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !cancelled() && (needs.guards.result == 'success' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true))) }}
+    # No `gpu` label: this job renders nothing, so it is not part of the GPU pool
+    # that the contention/environment preflights guard.
+    runs-on: [self-hosted, Linux, X64]
+    needs: guards
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      # This runner has no sudo, so no job installs system packages.
+      # `--build-only` skips the Vulkan-device and DISPLAY checks: nothing here
+      # renders.
+      - name: Check Linux runner build toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools --build-only
+
+      # GAP-403: per-job venv from the hash-locked file, never the runner's
+      # global interpreter.
+      - name: Install SCons
+        run: bash tests/ci/linux_gpu_runner.sh venv
+
+      # The args module-validation and openworld-proof-evidence each used to
+      # run, unchanged. -j16, not nproc (32): the box has 24 GB of RAM.
+      - name: Build Godot editor with tests
+        run: |
+          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        run: |
+          resolved=""
+          for candidate in \
+            bin/godot.linuxbsd.editor.dev.x86_64 \
+            bin/godot.linuxbsd.editor.x86_64; do
+            if [ -x "$candidate" ]; then
+              resolved="$(realpath "$candidate")"
+              break
+            fi
+          done
+          if [ -z "$resolved" ]; then
+            echo "::error::Could not find built Godot binary in expected bin/ paths."
+            ls -la bin || true
+            exit 1
+          fi
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Stage binary with commit provenance
+        run: bash tests/ci/linux_gpu_runner.sh stage-binary "${{ steps.godot_bin.outputs.path }}" "$RUNNER_TEMP/godot-build"
+
+      - name: Upload binary for the GPU jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build/
+          if-no-files-found: error
+          retention-days: 7
+
   module-validation:
     name: Module Build + Runtime Harness (Windows Self-Hosted)
     # Same fork-PR guard as the guards job above: never build/run untrusted
@@ -260,9 +353,12 @@ jobs:
     # self-hosted runner is now the Linux RTX 3080 box.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
     runs-on: [self-hosted, Linux, X64, gpu]
+    # The job NAME still says "Module Build"; it is a status-check context. The
+    # build itself is build-linux-editor's; this job tests that binary.
     needs:
       - guards
       - gpu-evidence-requirement
+      - build-linux-editor
     timeout-minutes: 120
     # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
     # of this job's GPU processes. Rationale and the measured loader behaviour:
@@ -341,10 +437,18 @@ jobs:
       - name: Install SCons
         run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
 
-      # -j16, not nproc (32): the box has 24 GB of RAM.
-      - name: Build Godot editor with tests
-        run: |
-          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
+      # The binary comes from build-linux-editor, never from a compile here.
+      # install-binary fails closed unless its provenance names this run and
+      # this job's own checkout (github.sha) and the sha256 matches; then it
+      # places the binary in bin/, where the resolver below finds it.
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
 
       - name: Resolve Godot binary
         id: godot_bin
@@ -538,9 +642,16 @@ jobs:
 
   openworld-proof-evidence:
     name: Open-World Proof Evidence (non-blocking)
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
+    # `guards` is skipped on these events; the skip propagates through
+    # build-linux-editor unless this job overrides it with !cancelled() and
+    # requires the build explicitly.
+    if: ${{ !cancelled() && needs.build-linux-editor.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true))) }}
     continue-on-error: true
     runs-on: [self-hosted, Linux, X64, gpu]
+    # Tests the binary build-linux-editor compiled for this exact commit. That
+    # job does NOT carry continue-on-error, so a compile failure on these events
+    # now shows as a red run instead of being absorbed by this evidence job.
+    needs: build-linux-editor
     timeout-minutes: 120
     # #875 -- see the module-validation job above and the "Self-hosted GPU
     # runner environment" section of .github/workflows/README.md.
@@ -607,10 +718,15 @@ jobs:
       - name: Install SCons
         run: bash tests/ci/linux_gpu_runner.sh venv
 
-      # -j16, not nproc (32): the box has 24 GB of RAM.
-      - name: Build Godot editor with tests
-        run: |
-          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
+      # The binary comes from build-linux-editor; see module-validation above.
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
 
       - name: Resolve Godot binary
         id: godot_bin
