@@ -62,6 +62,37 @@ class ClassifyChangeTest(unittest.TestCase):
         self.assertEqual(self._cls(["tests/ci/check_renderer_release_gates.py"]), "R3")
         self.assertEqual(self._cls(["tests/ci/run_gpu_harness.py"]), "R3")
 
+    def test_flythrough_lane_is_r3(self):
+        # BV-01 (docs/architecture/adr-beyond-vram-worlds.md section 8.4, section 10):
+        # the fly-through harness, its frozen thresholds, its verdict module and the
+        # no-loosening guard are R3, so every lane and harness PR is R3. These paths
+        # do not exist yet; they are registered ahead of the PRs that add them. The
+        # guard is registered as tests/ci/check_flythrough_*.py (not the literal
+        # name) so test_guard_wiring does not demand a file BV-09 has not added;
+        # that test enforces wiring for every file such a glob matches.
+        for path in (
+            "tests/runtime/flythrough/x.gd",
+            "tests/runtime/flythrough/flythrough_thresholds.json",
+            "tests/runtime/flythrough/verdict.py",
+            "tests/runtime/flythrough/verify_bundle.py",
+            "tests/runtime/flythrough/fixtures/nested/report.json",
+            "tests/ci/check_flythrough_thresholds.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R3")
+
+    def test_flythrough_rule_does_not_reach_neighbouring_test_paths(self):
+        # The registration must not widen into ordinary test paths.
+        for path in (
+            "tests/runtime/flythrough_notes.gd",
+            "tests/runtime/other_lane/x.gd",
+            "tests/ci/flythrough_helper.py",
+            "tests/ci/check_flythrough.py",
+            "tests/ci/sub/check_flythrough_thresholds.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R1")
+
     def test_docs_is_r0(self):
         self.assertEqual(self._cls(["docs/governance/review-policy.md"]), "R0")
 
