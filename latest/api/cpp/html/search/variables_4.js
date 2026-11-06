@@ -178,12 +178,15 @@ var searchData=
   ['distances_5fsq_175',['distances_sq',['../structCullResult.html#a19784272bf0c7dfd7f0a3d83130779c2',1,'CullResult']]],
   ['domain_5frefusal_176',['domain_refusal',['../structgs__hlod__auto__route_1_1WorldInputs.html#a6109e45c0f3627f00ca932cebddd3af5',1,'gs_hlod_auto_route::WorldInputs']]],
   ['draw_5fbytes_5fper_5fnode_177',['draw_bytes_per_node',['../structgs__hlod__runtime_1_1ResidencyBudget.html#a3688c389292fe9bdf0a24b9766971886',1,'gs_hlod_runtime::ResidencyBudget']]],
-  ['draw_5fentries_178',['draw_entries',['../structGaussianRenderFacadeState_1_1HlodBundle.html#a4ccb00a18b63881b645ed972ac8ccc13',1,'GaussianRenderFacadeState::HlodBundle']]],
-  ['draw_5fgeneration_179',['draw_generation',['../structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#aaa6fc031fd27340718dc414577689a82',1,'gs_hlod_runtime::ViewSet::ViewResult']]],
-  ['drawn_180',['drawn',['../structHlodNodeStreamer_1_1Telemetry.html#a47813bcfb6aaba2fdb1223940eb2533a',1,'HlodNodeStreamer::Telemetry']]],
-  ['drawn_5fcount_181',['drawn_count',['../structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#ac3547d75d3a3c7cfe7d46a79a6881298',1,'gs_hlod_runtime::ViewSet::ViewResult']]],
-  ['dropped_5fcoefficient_5fcount_182',['dropped_coefficient_count',['../structSHCompressionMetrics.html#a9f9d0156536676ff63fde3e02f6b4a17',1,'SHCompressionMetrics']]],
-  ['dump_5fgpu_5fcounters_183',['dump_gpu_counters',['../structDebugOverlayOptions.html#ad14487bdb0867c9738cf9efb8e6ed866',1,'DebugOverlayOptions::dump_gpu_counters'],['../structRasterDebugOptions.html#a961d0810427813811aaf60124c02f703',1,'RasterDebugOptions::dump_gpu_counters'],['../structGaussianRenderDebug_1_1DebugConfigBase.html#a3b3eaea493636ecab26885d820e2be55',1,'GaussianRenderDebug::DebugConfigBase::dump_gpu_counters']]],
-  ['dump_5fpipeline_5ftrace_5fto_5ffile_184',['dump_pipeline_trace_to_file',['../structRenderDebugStateOrchestrator_1_1RuntimePorts.html#ac98b366953333ea12710571683c03cf9',1,'RenderDebugStateOrchestrator::RuntimePorts']]],
-  ['duration_185',['duration',['../structGaussianSplatting_1_1AnimationClip.html#a4a88d790b0e80314d1b345778247b80b',1,'GaussianSplatting::AnimationClip']]]
+  ['draw_5fcount_178',['draw_count',['../structGsSplatShadowCaster_1_1Inputs.html#a2e06a3257a6d36e07b978791e34f10ec',1,'GsSplatShadowCaster::Inputs::draw_count'],['../structgs__shadow__caster_1_1FrameRecord.html#afcd902274f25e1c869206abeb051f515',1,'gs_shadow_caster::FrameRecord::draw_count']]],
+  ['draw_5fentries_179',['draw_entries',['../structGaussianRenderFacadeState_1_1HlodBundle.html#a4ccb00a18b63881b645ed972ac8ccc13',1,'GaussianRenderFacadeState::HlodBundle']]],
+  ['draw_5fgeneration_180',['draw_generation',['../structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#aaa6fc031fd27340718dc414577689a82',1,'gs_hlod_runtime::ViewSet::ViewResult']]],
+  ['draw_5flist_5fbuffer_181',['draw_list_buffer',['../structGsSplatShadowCaster_1_1Inputs.html#aa5652053e89d63be4506de56abb92e53',1,'GsSplatShadowCaster::Inputs']]],
+  ['draw_5flist_5fupload_182',['draw_list_upload',['../structgs__shadow__caster_1_1FrameRecord.html#a897947424d848d197383feb6a93294a0',1,'gs_shadow_caster::FrameRecord']]],
+  ['drawn_183',['drawn',['../structHlodNodeStreamer_1_1Telemetry.html#a47813bcfb6aaba2fdb1223940eb2533a',1,'HlodNodeStreamer::Telemetry']]],
+  ['drawn_5fcount_184',['drawn_count',['../structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#ac3547d75d3a3c7cfe7d46a79a6881298',1,'gs_hlod_runtime::ViewSet::ViewResult']]],
+  ['dropped_5fcoefficient_5fcount_185',['dropped_coefficient_count',['../structSHCompressionMetrics.html#a9f9d0156536676ff63fde3e02f6b4a17',1,'SHCompressionMetrics']]],
+  ['dump_5fgpu_5fcounters_186',['dump_gpu_counters',['../structDebugOverlayOptions.html#ad14487bdb0867c9738cf9efb8e6ed866',1,'DebugOverlayOptions::dump_gpu_counters'],['../structRasterDebugOptions.html#a961d0810427813811aaf60124c02f703',1,'RasterDebugOptions::dump_gpu_counters'],['../structGaussianRenderDebug_1_1DebugConfigBase.html#a3b3eaea493636ecab26885d820e2be55',1,'GaussianRenderDebug::DebugConfigBase::dump_gpu_counters']]],
+  ['dump_5fpipeline_5ftrace_5fto_5ffile_187',['dump_pipeline_trace_to_file',['../structRenderDebugStateOrchestrator_1_1RuntimePorts.html#ac98b366953333ea12710571683c03cf9',1,'RenderDebugStateOrchestrator::RuntimePorts']]],
+  ['duration_188',['duration',['../structGaussianSplatting_1_1AnimationClip.html#a4a88d790b0e80314d1b345778247b80b',1,'GaussianSplatting::AnimationClip']]]
 ];

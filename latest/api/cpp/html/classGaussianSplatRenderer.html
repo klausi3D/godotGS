@@ -286,6 +286,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4fd8c431fea2f9e1877b824e6a189c7d" id="r_a4fd8c431fea2f9e1877b824e6a189c7d"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4fd8c431fea2f9e1877b824e6a189c7d">_ensure_shadow_blit_resources</a> (RenderingDevice *p_device)</td></tr>
 <tr class="memitem:a691058b2f63bf1c227d52e4366267ea6" id="r_a691058b2f63bf1c227d52e4366267ea6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a691058b2f63bf1c227d52e4366267ea6">_blit_shadow_depth</a> (RID p_source_depth, RID p_shadow_fb, const Rect2i &amp;p_atlas_rect, bool p_flip_y)</td></tr>
 <tr class="memitem:a32377facdc4b0f22b0ec64b211213fe8" id="r_a32377facdc4b0f22b0ec64b211213fe8"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a32377facdc4b0f22b0ec64b211213fe8">_finish_shadow_render_result</a> (const <a class="el" href="structGaussianSplatRenderer_1_1ShadowRenderResult.html">ShadowRenderResult</a> &amp;p_result)</td></tr>
+<tr class="memitem:a2f7e837139f62f301c4adc6287289a85" id="r_a2f7e837139f62f301c4adc6287289a85"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2f7e837139f62f301c4adc6287289a85">_is_hlod_shadow_route_owner</a> () const</td></tr>
+<tr class="memitem:a3bb59860271b90882f2617ef32b9dfab" id="r_a3bb59860271b90882f2617ef32b9dfab"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3bb59860271b90882f2617ef32b9dfab">_render_hlod_shadow_casters</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, const Rect2i &amp;p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, <a class="el" href="structGaussianSplatRenderer_1_1ShadowRenderResult.html">ShadowRenderResult</a> &amp;r_result)</td></tr>
 <tr class="memitem:a8857b70873e25a02d15787e3517fb7f7" id="r_a8857b70873e25a02d15787e3517fb7f7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8857b70873e25a02d15787e3517fb7f7">_release_shared_dynamic_asset</a> ()</td></tr>
 <tr class="memitem:a968296463834c8706f0699fa26252dca" id="r_a968296463834c8706f0699fa26252dca"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a968296463834c8706f0699fa26252dca">GaussianSplatRenderer</a> (RenderingDevice *p_device=nullptr)</td></tr>
 <tr class="memdesc:a968296463834c8706f0699fa26252dca"><td class="mdescLeft">&#160;</td><td class="mdescRight">Constructs a new renderer instance.  <br /></td></tr>
@@ -695,6 +697,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a96a7ff9eeaa5178b74b2877c29d3d729" id="r_a96a7ff9eeaa5178b74b2877c29d3d729"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a0ca53c175a37080729b24cdeb573438a">ShadowBlitState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a96a7ff9eeaa5178b74b2877c29d3d729">shadow_blit_state</a></td></tr>
 <tr class="memitem:a389f07d9bdd6e51ca900814537fb3627" id="r_a389f07d9bdd6e51ca900814537fb3627"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a389f07d9bdd6e51ca900814537fb3627">shadow_instance_filter_enabled</a> = false</td></tr>
 <tr class="memitem:afbc3b193e6b4cd591c992262501f12a6" id="r_afbc3b193e6b4cd591c992262501f12a6"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatRenderer_1_1ShadowRenderResult.html">ShadowRenderResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afbc3b193e6b4cd591c992262501f12a6">last_shadow_render_result</a></td></tr>
+<tr class="memitem:a4114843be735ae8da45806e9631102c5" id="r_a4114843be735ae8da45806e9631102c5"><td class="memItemLeft" align="right" valign="top">std::unique_ptr&lt; class <a class="el" href="classGsSplatShadowCaster.html">GsSplatShadowCaster</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4114843be735ae8da45806e9631102c5">splat_shadow_caster</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
@@ -2369,6 +2372,23 @@ Usage</h2>
 
 </div>
 </div>
+<a id="a2f7e837139f62f301c4adc6287289a85" name="a2f7e837139f62f301c4adc6287289a85"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2f7e837139f62f301c4adc6287289a85">&#9670;&#160;</a></span>_is_hlod_shadow_route_owner()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatRenderer::_is_hlod_shadow_route_owner </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a1b1d84f4e1acc08b67301efbc346ea7d" name="a1b1d84f4e1acc08b67301efbc346ea7d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a1b1d84f4e1acc08b67301efbc346ea7d">&#9670;&#160;</a></span>_mark_streaming_route_policy_dirty()</h2>
 
@@ -2599,6 +2619,47 @@ Usage</h2>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3bb59860271b90882f2617ef32b9dfab" name="a3bb59860271b90882f2617ef32b9dfab"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3bb59860271b90882f2617ef32b9dfab">&#9670;&#160;</a></span>_render_hlod_shadow_casters()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatRenderer::_render_hlod_shadow_casters </td>
+          <td>(</td>
+          <td class="paramtype">const Projection &amp;</td>          <td class="paramname"><span class="paramname"><em>p_light_projection</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Transform3D &amp;</td>          <td class="paramname"><span class="paramname"><em>p_light_transform</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Rect2i &amp;</td>          <td class="paramname"><span class="paramname"><em>p_atlas_rect</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RID</td>          <td class="paramname"><span class="paramname"><em>p_shadow_framebuffer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_flip_y</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structGaussianSplatRenderer_1_1ShadowRenderResult.html">ShadowRenderResult</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_result</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -12343,6 +12404,20 @@ Usage</h2>
       <table class="memname">
         <tr>
           <td class="memname">std::unique_ptr&lt;<a class="el" href="classRenderSortingOrchestrator.html">RenderSortingOrchestrator</a>&gt; GaussianSplatRenderer::sorting_orchestrator</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4114843be735ae8da45806e9631102c5" name="a4114843be735ae8da45806e9631102c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4114843be735ae8da45806e9631102c5">&#9670;&#160;</a></span>splat_shadow_caster</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::unique_ptr&lt;class <a class="el" href="classGsSplatShadowCaster.html">GsSplatShadowCaster</a>&gt; GaussianSplatRenderer::splat_shadow_caster</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -57,8 +57,9 @@ var searchData=
   ['gsoverlaystatsdispatcher_54',['GsOverlayStatsDispatcher',['../classGsOverlayStatsDispatcher.html',1,'']]],
   ['gsscenedepthlinearize_55',['GSSceneDepthLinearize',['../structGSSceneDepthLinearize.html',1,'']]],
   ['gssphereeffectorsettings_56',['GSSphereEffectorSettings',['../structgs_1_1settings_1_1GSSphereEffectorSettings.html',1,'gs::settings']]],
-  ['gsstartuptrace_57',['GSStartupTrace',['../classGSStartupTrace.html',1,'']]],
-  ['gsstartuptracescope_58',['GSStartupTraceScope',['../classGSStartupTraceScope.html',1,'']]],
-  ['gsstartuptracesnapshot_59',['GSStartupTraceSnapshot',['../structGSStartupTraceSnapshot.html',1,'']]],
-  ['gswindsettings_60',['GSWindSettings',['../structgs_1_1settings_1_1GSWindSettings.html',1,'gs::settings']]]
+  ['gssplatshadowcaster_57',['GsSplatShadowCaster',['../classGsSplatShadowCaster.html',1,'']]],
+  ['gsstartuptrace_58',['GSStartupTrace',['../classGSStartupTrace.html',1,'']]],
+  ['gsstartuptracescope_59',['GSStartupTraceScope',['../classGSStartupTraceScope.html',1,'']]],
+  ['gsstartuptracesnapshot_60',['GSStartupTraceSnapshot',['../structGSStartupTraceSnapshot.html',1,'']]],
+  ['gswindsettings_61',['GSWindSettings',['../structgs_1_1settings_1_1GSWindSettings.html',1,'gs::settings']]]
 ];

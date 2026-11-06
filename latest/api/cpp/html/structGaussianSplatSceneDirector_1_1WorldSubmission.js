@@ -1,6 +1,7 @@
 var structGaussianSplatSceneDirector_1_1WorldSubmission =
 [
     [ "bounds", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a9a15d10939b09797f51f8aa2b0477782", null ],
+    [ "casts_shadow", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#aa38ea5ee4ba705f0ead56a422d8b2ee9", null ],
     [ "desired_renderer_overrides", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a78d1c137084316a5e5c5b746f1a09714", null ],
     [ "desired_residency_hint", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a0c9bdf1571b29484e33b30588ed82c26", null ],
     [ "gaussian_data", "structGaussianSplatSceneDirector_1_1WorldSubmission.html#a6837331220e998cda93c556d5164106e", null ],

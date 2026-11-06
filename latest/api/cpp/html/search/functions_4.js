@@ -74,8 +74,10 @@ var searchData=
   ['dispatch_5ftile_5fresolve_71',['dispatch_tile_resolve',['../structTileResolveStage.html#acd4be7c858df00982bb1e832091236cd',1,'TileResolveStage']]],
   ['dot_72',['dot',['../namespacespz.html#a25f62366069254eb1692c656fed0b07f',1,'spz']]],
   ['drained_73',['drained',['../classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend.html#a71257931b2d095966f3ea150df805400',1,'StagedFileChunkPayloadSource::ScopedReaderSuspend::drained()'],['../struct__GSAtomicNoRenameGuard.html#a7582b0c51cb6fe8e7408f751f1fe7b56',1,'_GSAtomicNoRenameGuard::drained()']]],
-  ['drawn_74',['drawn',['../classgs__hlod__runtime_1_1ViewSet.html#a681908226c42eff83720cf25fa44614d',1,'gs_hlod_runtime::ViewSet']]],
-  ['drawn_5forigin_5frevision_75',['drawn_origin_revision',['../classgs__hlod__runtime_1_1ViewSet.html#abe142284bf979410c794ffb55daac8a4',1,'gs_hlod_runtime::ViewSet']]],
-  ['dump_5fgpu_5fdebug_5fcounters_76',['dump_gpu_debug_counters',['../structTileRendererDebugStats.html#a67c0cfdb133df2c0a65801a35b152ed5',1,'TileRendererDebugStats']]],
-  ['dump_5fpipeline_5ftrace_5fto_5ffile_77',['dump_pipeline_trace_to_file',['../classGaussianSplatRenderer.html#a5b6379004903ff323b29abf7a70ca706',1,'GaussianSplatRenderer::dump_pipeline_trace_to_file()'],['../classRenderDebugStateOrchestrator.html#a1f94e8bd81383aeb58bb90ab2efac1fd',1,'RenderDebugStateOrchestrator::dump_pipeline_trace_to_file()']]]
+  ['draw_74',['draw',['../classGsSplatShadowCaster.html#a6080b5716a165a69ea9d6bb0256206b9',1,'GsSplatShadowCaster']]],
+  ['drawn_75',['drawn',['../classgs__hlod__runtime_1_1ViewSet.html#a681908226c42eff83720cf25fa44614d',1,'gs_hlod_runtime::ViewSet']]],
+  ['drawn_5forigin_5frevision_76',['drawn_origin_revision',['../classgs__hlod__runtime_1_1ViewSet.html#abe142284bf979410c794ffb55daac8a4',1,'gs_hlod_runtime::ViewSet']]],
+  ['draws_77',['draws',['../structgs__shadow__caster_1_1PassPlan.html#aac658765232d9ebeb0858416fdd7f877',1,'gs_shadow_caster::PassPlan']]],
+  ['dump_5fgpu_5fdebug_5fcounters_78',['dump_gpu_debug_counters',['../structTileRendererDebugStats.html#a67c0cfdb133df2c0a65801a35b152ed5',1,'TileRendererDebugStats']]],
+  ['dump_5fpipeline_5ftrace_5fto_5ffile_79',['dump_pipeline_trace_to_file',['../classGaussianSplatRenderer.html#a5b6379004903ff323b29abf7a70ca706',1,'GaussianSplatRenderer::dump_pipeline_trace_to_file()'],['../classRenderDebugStateOrchestrator.html#a1f94e8bd81383aeb58bb90ab2efac1fd',1,'RenderDebugStateOrchestrator::dump_pipeline_trace_to_file()']]]
 ];

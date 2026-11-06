@@ -15,5 +15,6 @@ var searchData=
   ['buffer_5frendering_12',['BUFFER_RENDERING',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a88a674beda804d97ae9ba8c69bb10b26',1,'GaussianMemoryStream']]],
   ['buffer_5fuploading_13',['BUFFER_UPLOADING',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a81171ebea12043f0b13dbd560ea9450c',1,'GaussianMemoryStream']]],
   ['build_5fstreamed_14',['BUILD_STREAMED',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1af37530c5ebd5141995bca94cb66e1b0a',1,'GaussianSplatRenderer']]],
-  ['build_5fwhole_5ftree_15',['BUILD_WHOLE_TREE',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1ae512c719886b9325f41cfecd0b720c55',1,'GaussianSplatRenderer']]]
+  ['build_5fwhole_5ftree_15',['BUILD_WHOLE_TREE',['../classGaussianSplatRenderer.html#a445059b0ebd9c8c435aa0dd20a1c04f1ae512c719886b9325f41cfecd0b720c55',1,'GaussianSplatRenderer']]],
+  ['bundle_5fchanged_16',['BUNDLE_CHANGED',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a66ed569ab071ac98e5d4491a39188981',1,'gs_shadow_caster']]]
 ];

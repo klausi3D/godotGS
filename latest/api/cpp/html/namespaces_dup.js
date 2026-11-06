@@ -67,6 +67,7 @@ var namespaces_dup =
     [ "gs_hlod_runtime", "namespacegs__hlod__runtime.html", "namespacegs__hlod__runtime" ],
     [ "gs_layout_hint", "namespacegs__layout__hint.html", "namespacegs__layout__hint" ],
     [ "gs_logger", "namespacegs__logger.html", "namespacegs__logger" ],
+    [ "gs_shadow_caster", "namespacegs__shadow__caster.html", "namespacegs__shadow__caster" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
     [ "gs_splat_ref", "namespacegs__splat__ref.html", [
       [ "uint", "namespacegs__splat__ref.html#a191aa2dfe0e99af442cea7247344bf42", null ],

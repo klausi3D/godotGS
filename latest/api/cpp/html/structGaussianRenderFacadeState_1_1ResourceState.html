@@ -177,6 +177,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:aec4fbaca694b42f3184c81980df8a36e" id="r_aec4fbaca694b42f3184c81980df8a36e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec4fbaca694b42f3184c81980df8a36e">hlod_instance_overlap_growths</a> = 0</td></tr>
 <tr class="memitem:a6b7ccc36f08ceb12222b93d69a61313b" id="r_a6b7ccc36f08ceb12222b93d69a61313b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6b7ccc36f08ceb12222b93d69a61313b">hlod_instance_view_frame</a> = 0</td></tr>
 <tr class="memitem:adc58f0f2dc1c7189b56797965ecc0848" id="r_adc58f0f2dc1c7189b56797965ecc0848"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; <a class="el" href="structDrawnNodeGPU.html">DrawnNodeGPU</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc58f0f2dc1c7189b56797965ecc0848">hlod_instance_draws</a></td></tr>
+<tr class="memitem:a2080e67a983ecc0c3f33d29fce7a9edc" id="r_a2080e67a983ecc0c3f33d29fce7a9edc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">gs_shadow_caster::FrameRecord</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2080e67a983ecc0c3f33d29fce7a9edc">hlod_shadow_caster_record</a></td></tr>
+<tr class="memitem:a25d799032247c502e536bff313bd4095" id="r_a25d799032247c502e536bff313bd4095"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a25d799032247c502e536bff313bd4095">hlod_draw_list_uploads</a> = 0</td></tr>
+<tr class="memitem:a1c6f1e8f38aedb040f03ceb74a85f338" id="r_a1c6f1e8f38aedb040f03ceb74a85f338"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1FrameStats.html">gs_shadow_caster::FrameStats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c6f1e8f38aedb040f03ceb74a85f338">hlod_shadow_caster_stats</a></td></tr>
 <tr class="memitem:aade4d0521877585a48cc0517565efea1" id="r_aade4d0521877585a48cc0517565efea1"><td class="memItemLeft" align="right" valign="top">Mutex&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aade4d0521877585a48cc0517565efea1">hlod_instance_refusal_mutex</a></td></tr>
 <tr class="memitem:aeccdbd83558217acda443622ba9cb0c0" id="r_aeccdbd83558217acda443622ba9cb0c0"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeccdbd83558217acda443622ba9cb0c0">hlod_instance_refused_keys</a></td></tr>
 <tr class="memitem:aa9ce7fdd31bf8af9538995a367cb07c3" id="r_aa9ce7fdd31bf8af9538995a367cb07c3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa9ce7fdd31bf8af9538995a367cb07c3">hlod_grading_generation</a> = 0</td></tr>
@@ -459,6 +462,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t GaussianRenderFacadeState::ResourceState::hlod_device_byte_upper_bound = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a25d799032247c502e536bff313bd4095" name="a25d799032247c502e536bff313bd4095"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a25d799032247c502e536bff313bd4095">&#9670;&#160;</a></span>hlod_draw_list_uploads</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderFacadeState::ResourceState::hlod_draw_list_uploads = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1215,6 +1232,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t GaussianRenderFacadeState::ResourceState::hlod_selected_splats = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2080e67a983ecc0c3f33d29fce7a9edc" name="a2080e67a983ecc0c3f33d29fce7a9edc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2080e67a983ecc0c3f33d29fce7a9edc">&#9670;&#160;</a></span>hlod_shadow_caster_record</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">gs_shadow_caster::FrameRecord</a> GaussianRenderFacadeState::ResourceState::hlod_shadow_caster_record</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1c6f1e8f38aedb040f03ceb74a85f338" name="a1c6f1e8f38aedb040f03ceb74a85f338"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1c6f1e8f38aedb040f03ceb74a85f338">&#9670;&#160;</a></span>hlod_shadow_caster_stats</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__shadow__caster_1_1FrameStats.html">gs_shadow_caster::FrameStats</a> GaussianRenderFacadeState::ResourceState::hlod_shadow_caster_stats</td>
         </tr>
       </table>
 </div><div class="memdoc">

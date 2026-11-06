@@ -2,6 +2,7 @@ var structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord
 [
     [ "active", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#ad10886eec8e0ec9f947f3a9b33f716fd", null ],
     [ "bounds", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#ac63c9cf2ee4234255f6ad1449ac55210", null ],
+    [ "casts_shadow", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a8ad26ac649801290bbecbba8617ea0da", null ],
     [ "desired_renderer_overrides", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a2c16a474c87cd5c0a3299131ae08fe9a", null ],
     [ "desired_residency_hint", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a491715530b724b35d1edb8f9e7f900e8", null ],
     [ "gaussian_data", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html#a673634cd89358e0ac45a0903d7571870", null ],

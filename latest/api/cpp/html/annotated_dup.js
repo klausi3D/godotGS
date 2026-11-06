@@ -236,6 +236,13 @@ var annotated_dup =
       [ "LayoutHintFailureState", "structgs__layout__hint_1_1LayoutHintFailureState.html", "structgs__layout__hint_1_1LayoutHintFailureState" ],
       [ "LayoutHintIndexRange", "structgs__layout__hint_1_1LayoutHintIndexRange.html", "structgs__layout__hint_1_1LayoutHintIndexRange" ]
     ] ],
+    [ "gs_shadow_caster", "namespacegs__shadow__caster.html", [
+      [ "FrameRecord", "structgs__shadow__caster_1_1FrameRecord.html", "structgs__shadow__caster_1_1FrameRecord" ],
+      [ "PassPlan", "structgs__shadow__caster_1_1PassPlan.html", "structgs__shadow__caster_1_1PassPlan" ],
+      [ "FootprintEigen", "structgs__shadow__caster_1_1FootprintEigen.html", "structgs__shadow__caster_1_1FootprintEigen" ],
+      [ "DepthGradient", "structgs__shadow__caster_1_1DepthGradient.html", "structgs__shadow__caster_1_1DepthGradient" ],
+      [ "FrameStats", "structgs__shadow__caster_1_1FrameStats.html", "structgs__shadow__caster_1_1FrameStats" ]
+    ] ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", [
       [ "ReadbackPolicy", "structgs__sort__policy_1_1ReadbackPolicy.html", "structgs__sort__policy_1_1ReadbackPolicy" ]
     ] ],
@@ -362,6 +369,7 @@ var annotated_dup =
     [ "GPUSortingPipeline", "classGPUSortingPipeline.html", "classGPUSortingPipeline" ],
     [ "GsOverlayStatsDispatcher", "classGsOverlayStatsDispatcher.html", "classGsOverlayStatsDispatcher" ],
     [ "GSSceneDepthLinearize", "structGSSceneDepthLinearize.html", "structGSSceneDepthLinearize" ],
+    [ "GsSplatShadowCaster", "classGsSplatShadowCaster.html", "classGsSplatShadowCaster" ],
     [ "GSStartupTrace", "classGSStartupTrace.html", "classGSStartupTrace" ],
     [ "GSStartupTraceScope", "classGSStartupTraceScope.html", "classGSStartupTraceScope" ],
     [ "GSStartupTraceSnapshot", "structGSStartupTraceSnapshot.html", "structGSStartupTraceSnapshot" ],

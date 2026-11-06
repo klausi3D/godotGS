@@ -33,10 +33,11 @@ var searchData=
   ['gs_5flayout_5fhint_30',['gs_layout_hint',['../namespacegs__layout__hint.html',1,'']]],
   ['gs_5flogger_31',['gs_logger',['../namespacegs__logger.html',1,'']]],
   ['gs_5flogger_3a_3atest_32',['test',['../namespacegs__logger_1_1test.html',1,'gs_logger']]],
-  ['gs_5fsort_5fpolicy_33',['gs_sort_policy',['../namespacegs__sort__policy.html',1,'']]],
-  ['gs_5fsplat_5fref_34',['gs_splat_ref',['../namespacegs__splat__ref.html',1,'']]],
-  ['gs_5ftier_5fcap_35',['gs_tier_cap',['../namespacegs__tier__cap.html',1,'']]],
-  ['gs_5fworld_5fformat_36',['gs_world_format',['../namespacegs__world__format.html',1,'']]],
-  ['gs_5fworld_5fframe_37',['gs_world_frame',['../namespacegs__world__frame.html',1,'']]],
-  ['gs_5fworld_5fpaged_38',['gs_world_paged',['../namespacegs__world__paged.html',1,'']]]
+  ['gs_5fshadow_5fcaster_33',['gs_shadow_caster',['../namespacegs__shadow__caster.html',1,'']]],
+  ['gs_5fsort_5fpolicy_34',['gs_sort_policy',['../namespacegs__sort__policy.html',1,'']]],
+  ['gs_5fsplat_5fref_35',['gs_splat_ref',['../namespacegs__splat__ref.html',1,'']]],
+  ['gs_5ftier_5fcap_36',['gs_tier_cap',['../namespacegs__tier__cap.html',1,'']]],
+  ['gs_5fworld_5fformat_37',['gs_world_format',['../namespacegs__world__format.html',1,'']]],
+  ['gs_5fworld_5fframe_38',['gs_world_frame',['../namespacegs__world__frame.html',1,'']]],
+  ['gs_5fworld_5fpaged_39',['gs_world_paged',['../namespacegs__world__paged.html',1,'']]]
 ];

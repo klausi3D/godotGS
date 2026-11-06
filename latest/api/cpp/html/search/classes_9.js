@@ -12,7 +12,7 @@ var searchData=
   ['indirectdispatchlayout_9',['IndirectDispatchLayout',['../structGaussianSplatting_1_1IndirectDispatchLayout.html',1,'GaussianSplatting']]],
   ['info_10',['Info',['../structGaussianSplatHlodPagedSource_1_1Info.html',1,'GaussianSplatHlodPagedSource']]],
   ['inmemorychunkpayloadsource_11',['InMemoryChunkPayloadSource',['../classInMemoryChunkPayloadSource.html',1,'']]],
-  ['inputs_12',['Inputs',['../structResourceOwnerMismatchContract_1_1Inputs.html',1,'ResourceOwnerMismatchContract']]],
+  ['inputs_12',['Inputs',['../structGsSplatShadowCaster_1_1Inputs.html',1,'GsSplatShadowCaster::Inputs'],['../structResourceOwnerMismatchContract_1_1Inputs.html',1,'ResourceOwnerMismatchContract::Inputs']]],
   ['instanceasset_13',['InstanceAsset',['../structgs__hlod__bundle_1_1InstanceAsset.html',1,'gs_hlod_bundle']]],
   ['instanceassetregistration_14',['InstanceAssetRegistration',['../structInstanceAssetRegistration.html',1,'']]],
   ['instancecullparamsgpu_15',['InstanceCullParamsGPU',['../structInstanceCullParamsGPU.html',1,'']]],

@@ -1,5 +1,15 @@
 var NAVTREEINDEX18 =
 {
+"gaussian__gpu__layout_8h.html#ae085573af4c2320e148f668b3079fe44":[2,0,0,0,12,7,21],
+"gaussian__gpu__layout_8h.html#afdce846213d95df791d219ac465cc808":[2,0,0,0,12,7,25],
+"gaussian__gpu__layout_8h_source.html":[2,0,0,0,12,7],
+"gaussian__import__dialog_8cpp.html":[2,0,0,0,4,8],
+"gaussian__import__dialog_8h.html":[2,0,0,0,4,9],
+"gaussian__import__dialog_8h_source.html":[2,0,0,0,4,9],
+"gaussian__import__preset_8cpp.html":[2,0,0,0,6,2],
+"gaussian__import__preset_8cpp.html#a1aa28b77862539249b0ee0d54dafb383":[2,0,0,0,6,2,3],
+"gaussian__import__preset_8cpp.html#a503275810e9c32f0a739b7143b927703":[2,0,0,0,6,2,1],
+"gaussian__import__preset_8cpp.html#aa2d5061aa1eb6dcdc76d601d472346d6":[2,0,0,0,6,2,2],
 "gaussian__import__preset_8cpp.html#af831e09bb971d042b8c1a1c860f180c0":[2,0,0,0,6,2,0],
 "gaussian__import__preset_8h.html":[2,0,0,0,6,3],
 "gaussian__import__preset_8h.html#a1aa28b77862539249b0ee0d54dafb383":[2,0,0,0,6,3,4],
@@ -239,15 +249,5 @@ var NAVTREEINDEX18 =
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf083c7f17a7110a20b865f9e6c6316ca":[2,0,0,0,5,9,13,9],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf37b4be0ce37e1b3a4c668c5f5c5bf61":[2,0,0,0,5,9,13,7],
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3":[2,0,0,0,5,9,14],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a379cf16197e9684ff2fa892bbdf7d5af":[2,0,0,0,5,9,14,1],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a9daa79b56a04cd7de8ee15128dd2c99a":[2,0,0,0,5,9,14,2],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3ab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,14,0],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7b":[2,0,0,0,5,9,12],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba453ff96dc7e039691b670d8b246a54f5":[2,0,0,0,5,9,12,3],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba45de8a00d77faa4078a3e80a7759baf7":[2,0,0,0,5,9,12,2],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bab9e14d9b2886bcff408b85aefa780419":[2,0,0,0,5,9,12,0],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99":[2,0,0,0,5,9,12,1],
-"gpu__sorting__pipeline__interfaces_8h_source.html":[2,0,0,0,5,9],
-"gs__atomic__file__writer_8cpp.html":[2,0,0,0,6,9],
-"gs__atomic__file__writer_8cpp.html#a818a3736f95555a62743cecd097bd551":[2,0,0,0,6,9,0]
+"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a379cf16197e9684ff2fa892bbdf7d5af":[2,0,0,0,5,9,14,1]
 };

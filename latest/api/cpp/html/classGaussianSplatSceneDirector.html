@@ -179,6 +179,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4f8530c78df1fcdefe8dd0a8881e6eaa" id="r_a4f8530c78df1fcdefe8dd0a8881e6eaa"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f8530c78df1fcdefe8dd0a8881e6eaa">get_world_submission_for_scenario</a> (const RID &amp;p_scenario, <a class="el" href="structGaussianSplatSceneDirector_1_1WorldSubmission.html">WorldSubmission</a> *r_submission) const</td></tr>
 <tr class="memitem:abbfc402e3617303c6c9008818c0ee0b2" id="r_abbfc402e3617303c6c9008818c0ee0b2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abbfc402e3617303c6c9008818c0ee0b2">has_hlod_world_submission</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, uint64_t p_owner) const</td></tr>
 <tr class="memitem:a3574afbefc62843c290317011ffc3ed2" id="r_a3574afbefc62843c290317011ffc3ed2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3574afbefc62843c290317011ffc3ed2">request_hlod_auto_route_demotion</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, uint64_t p_owner, const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_refused_snapshot, const String &amp;p_cause)</td></tr>
+<tr class="memitem:aff0f797af7a49ee62965ad82a47fefd6" id="r_aff0f797af7a49ee62965ad82a47fefd6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aff0f797af7a49ee62965ad82a47fefd6">collect_hlod_shadow_caster_keys_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, LocalVector&lt; uint64_t &gt; &amp;r_keys) const</td></tr>
+<tr class="memitem:a7b70bf65e73924b428f09ed94ebb8c1b" id="r_a7b70bf65e73924b428f09ed94ebb8c1b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7b70bf65e73924b428f09ed94ebb8c1b">set_world_submission_casts_shadow</a> (ObjectID p_owner_id, bool p_casts_shadow)</td></tr>
 <tr class="memitem:a546e1349e92792a1cbc6e4e7fa5c5486" id="r_a546e1349e92792a1cbc6e4e7fa5c5486"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a546e1349e92792a1cbc6e4e7fa5c5486">build_hlod_instance_rows_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer, LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;r_rows, LocalVector&lt; <a class="el" href="structInstanceGradingGPU.html">InstanceGradingGPU</a> &gt; &amp;r_grading, LocalVector&lt; uint64_t &gt; &amp;r_asset_ids, LocalVector&lt; uint64_t &gt; &amp;r_instance_keys) const</td></tr>
 <tr class="memitem:a269970737bade9539745b40b29d85389" id="r_a269970737bade9539745b40b29d85389"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a269970737bade9539745b40b29d85389">get_hlod_instance_refusal_for_node</a> (ObjectID p_node_id) const</td></tr>
 <tr class="memitem:abd7e4d162e826052ce91a74e33c150f7" id="r_abd7e4d162e826052ce91a74e33c150f7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7e4d162e826052ce91a74e33c150f7">has_world_submission_for_renderer</a> (const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *p_renderer) const</td></tr>
@@ -479,6 +481,27 @@ Static Protected Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t *</td>          <td class="paramname"><span class="paramname"><em>r_total_scene_effectors</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aff0f797af7a49ee62965ad82a47fefd6" name="aff0f797af7a49ee62965ad82a47fefd6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aff0f797af7a49ee62965ad82a47fefd6">&#9670;&#160;</a></span>collect_hlod_shadow_caster_keys_for_renderer()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatSceneDirector::collect_hlod_shadow_caster_keys_for_renderer </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer.html">GaussianSplatRenderer</a> *</td>          <td class="paramname"><span class="paramname"><em>p_renderer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; uint64_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_keys</em></span>&#160;) const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1458,6 +1481,27 @@ Static Protected Member Functions</h2></td></tr>
           <td>(</td>
           <td class="paramtype">const <a class="el" href="structgs__world__frame_1_1PreciseCoord.html">gs_world_frame::PreciseCoord</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_origin</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7b70bf65e73924b428f09ed94ebb8c1b" name="a7b70bf65e73924b428f09ed94ebb8c1b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7b70bf65e73924b428f09ed94ebb8c1b">&#9670;&#160;</a></span>set_world_submission_casts_shadow()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatSceneDirector::set_world_submission_casts_shadow </td>
+          <td>(</td>
+          <td class="paramtype">ObjectID</td>          <td class="paramname"><span class="paramname"><em>p_owner_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_casts_shadow</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

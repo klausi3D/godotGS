@@ -5915,6 +5915,12 @@ almost black (<a href="https://github.com/klausi3D/godotGS/issues/1089">#1089</a
 rasterized splats from the light's view into a target of the shadow region's size, and
 today it never does. A dedicated depth-only splat caster is designed in #1095 and lands in
 slices: directional first, then spot, then omni.</p>
+<p><strong>First slice (HLOD route, directional only).</strong> A world on the HLOD route (<code>GaussianSplatWorld3D</code>
+with the runtime cut) and the node instances it draws now cast into a <code>DirectionalLight3D</code>'s
+shadow map, so meshes and splats receive their shadows. What still holds: nothing casts on the
+other routes; spot and omni lights refuse (<code>shadow_caster_light_type_not_directional</code>); only
+splats the camera's cut drew cast, so a caster just outside the view casts nothing; a quantized
+HLOD payload refuses. See <a href="../../architecture/lighting-system/">Lighting system</a>.</p>
 <p><strong>Workaround:</strong> for a shadow in the shape of a splat object, add a mesh proxy with
 <code>cast_shadow = Shadows Only</code> (for example a <code>SphereMesh</code> or a low-poly hull of the scan).</p>
 <p><strong>Evidence:</strong> the starter template, 1280×720, Vulkan Forward+, RTX 3090, dev builds of
@@ -6346,7 +6352,7 @@ re-checked in code at the commit named in its row's <strong>Checked at</strong> 
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-10-10
+    Source updated: 2026-11-06
   </span>
 
     

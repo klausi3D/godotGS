@@ -4,5 +4,6 @@ var searchData=
   ['quality_5fcustom_1',['QUALITY_CUSTOM',['../classGaussianSplatNode3D.html#a324efef8204dc33e146c3c457ed614b2a6873a07c87007a8c3c42d19f2c2ea0aa',1,'GaussianSplatNode3D']]],
   ['quality_5fperformance_2',['QUALITY_PERFORMANCE',['../classGaussianSplatNode3D.html#a324efef8204dc33e146c3c457ed614b2acc89b194411ca3d7b525a5ab7b6e7f42',1,'GaussianSplatNode3D']]],
   ['quality_5fquality_3',['QUALITY_QUALITY',['../classGaussianSplatNode3D.html#a324efef8204dc33e146c3c457ed614b2a505648360b9d5f2f80c70e5170143d65',1,'GaussianSplatNode3D']]],
-  ['quality_5fselection_4',['QUALITY_SELECTION',['../structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aea130011b2ecec547a67a382887f5c134f',1,'gs_hlod::BakeParams']]]
+  ['quality_5fselection_4',['QUALITY_SELECTION',['../structgs__hlod_1_1BakeParams.html#af9298de602df447c0dc000e80bd521aea130011b2ecec547a67a382887f5c134f',1,'gs_hlod::BakeParams']]],
+  ['quantized_5fpayload_5',['QUANTIZED_PAYLOAD',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a12f45ef785d3002006f76f33c26d4e10',1,'gs_shadow_caster']]]
 ];

@@ -120,5 +120,7 @@ var searchData=
   ['gs_5fproject_5fsettings_2eh_117',['gs_project_settings.h',['../gs__project__settings_8h.html',1,'']]],
   ['gs_5fraster_5fthresholds_2eh_118',['gs_raster_thresholds.h',['../gs__raster__thresholds_8h.html',1,'']]],
   ['gs_5fscene_5fdepth_5flinearize_2eh_119',['gs_scene_depth_linearize.h',['../gs__scene__depth__linearize_8h.html',1,'']]],
-  ['gs_5fvector_5falloc_2eh_120',['gs_vector_alloc.h',['../gs__vector__alloc_8h.html',1,'']]]
+  ['gs_5fshadow_5fcaster_2ecpp_120',['gs_shadow_caster.cpp',['../gs__shadow__caster_8cpp.html',1,'']]],
+  ['gs_5fshadow_5fcaster_2eh_121',['gs_shadow_caster.h',['../gs__shadow__caster_8h.html',1,'']]],
+  ['gs_5fvector_5falloc_2eh_122',['gs_vector_alloc.h',['../gs__vector__alloc_8h.html',1,'']]]
 ];

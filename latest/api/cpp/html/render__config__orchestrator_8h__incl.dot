@@ -186,15 +186,15 @@ digraph "render_config_orchestrator.h"
   Node131 -> Node77 [id="edge132_Node000131_Node000077",color="steelblue1",style="solid",tooltip=" "];
   Node131 -> Node111 [id="edge133_Node000131_Node000111",color="steelblue1",style="solid",tooltip=" "];
   Node131 -> Node112 [id="edge134_Node000131_Node000112",color="steelblue1",style="solid",tooltip=" "];
-  Node2 -> Node144 [id="edge135_Node000002_Node000144",color="steelblue1",style="solid",tooltip=" "];
-  Node144 [id="Node000144",label="render_types/render\l_frame_types.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$render__frame__types_8h.html",tooltip="Frame context and pipeline type definitions for GaussianSplatRenderer."];
-  Node144 -> Node23 [id="edge136_Node000144_Node000023",color="steelblue1",style="solid",tooltip=" "];
-  Node144 -> Node19 [id="edge137_Node000144_Node000019",color="steelblue1",style="solid",tooltip=" "];
-  Node144 -> Node20 [id="edge138_Node000144_Node000020",color="steelblue1",style="solid",tooltip=" "];
-  Node144 -> Node119 [id="edge139_Node000144_Node000119",color="steelblue1",style="solid",tooltip=" "];
-  Node2 -> Node145 [id="edge140_Node000002_Node000145",color="steelblue1",style="solid",tooltip=" "];
-  Node145 [id="Node000145",label="render_types/render\l_performance_types.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$render__performance__types_8h.html",tooltip="Performance metrics and settings type definitions."];
-  Node145 -> Node45 [id="edge141_Node000145_Node000045",color="steelblue1",style="solid",tooltip=" "];
-  Node145 -> Node19 [id="edge142_Node000145_Node000019",color="steelblue1",style="solid",tooltip=" "];
+  Node2 -> Node146 [id="edge135_Node000002_Node000146",color="steelblue1",style="solid",tooltip=" "];
+  Node146 [id="Node000146",label="render_types/render\l_frame_types.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$render__frame__types_8h.html",tooltip="Frame context and pipeline type definitions for GaussianSplatRenderer."];
+  Node146 -> Node23 [id="edge136_Node000146_Node000023",color="steelblue1",style="solid",tooltip=" "];
+  Node146 -> Node19 [id="edge137_Node000146_Node000019",color="steelblue1",style="solid",tooltip=" "];
+  Node146 -> Node20 [id="edge138_Node000146_Node000020",color="steelblue1",style="solid",tooltip=" "];
+  Node146 -> Node119 [id="edge139_Node000146_Node000119",color="steelblue1",style="solid",tooltip=" "];
+  Node2 -> Node147 [id="edge140_Node000002_Node000147",color="steelblue1",style="solid",tooltip=" "];
+  Node147 [id="Node000147",label="render_types/render\l_performance_types.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$render__performance__types_8h.html",tooltip="Performance metrics and settings type definitions."];
+  Node147 -> Node45 [id="edge141_Node000147_Node000045",color="steelblue1",style="solid",tooltip=" "];
+  Node147 -> Node19 [id="edge142_Node000147_Node000019",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node42 [id="edge143_Node000001_Node000042",color="steelblue1",style="solid",tooltip=" "];
 }
