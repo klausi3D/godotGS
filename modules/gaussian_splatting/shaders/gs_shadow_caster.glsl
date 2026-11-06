@@ -57,6 +57,11 @@ layout(push_constant, std430) uniform Params {
 
 layout(location = 0) out vec2 v_sigma_uv; // Fragment position in units of sigma along the ellipse's eigen axes.
 layout(location = 1) flat out float v_opacity;
+// Depth: v_depth_dz is the unclamped mean-depth plane offset g . u (linear, so interpolation is exact); the fragment
+// adds it to the flat centre depth and caps it there (gs_shadow_caster::caster_fragment_depth). x = centre depth,
+// y = cap (|dz| <= y; 0 = flat quad).
+layout(location = 2) out float v_depth_dz;
+layout(location = 3) flat out vec2 v_depth_center_cap;
 
 const vec2 GS_CASTER_CORNERS[6] = vec2[](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
         vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
@@ -83,6 +88,8 @@ void gs_caster_reject() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     v_sigma_uv = vec2(0.0);
     v_opacity = 0.0;
+    v_depth_dz = 0.0;
+    v_depth_center_cap = vec2(0.0);
 }
 
 void main() {
@@ -215,7 +222,12 @@ void main() {
     // with light-space depth). Linear in u, so per-vertex depth is exact under the orthographic cascade. A constant
     // centre depth instead made every quad a light-facing billboard: on a tilted sheet each splat's billboard stood in
     // front of its down-light neighbours by spacing * slope and shadowed them (#1095 slice 1 review: blotches on a
-    // wavy splat receiver). |g . u| is capped at the Gaussian's own depth extent, so an edge-on splat cannot spike.
+    // wavy splat receiver). |g . u| is capped at the Gaussian's own depth extent, so an edge-on splat cannot spike. The
+    // cap is applied per fragment, not at the quad corners: clamping corners bends the interpolated plane and flattens
+    // the slope inside the ellipse too (a corner sits sqrt(2) further out than the ellipse), which brought the
+    // self-shadowing back. gl_Position.z stays at the centre so clipping never removes a fragment the cap would keep.
+    float plane_dz = 0.0;
+    float plane_cap = 0.0;
     if (!pancaked) {
         vec3 jz = vec3(params.light_from_frame[0][2], params.light_from_frame[1][2], params.light_from_frame[2][2]);
         vec3 cjz = cov3 * jz;
@@ -226,17 +238,15 @@ void main() {
         if (det > 1e-12 * max(sa * sc, 1e-30)) {
             vec2 cxz = vec2(dot(jx, cjz), dot(jy, cjz));
             vec2 g = vec2(sc * cxz.x - sb * cxz.y, sa * cxz.y - sb * cxz.x) / det;
-            float max_dz = sigma_extent * sqrt(max(dot(jz, cjz), 0.0));
-            float dz = clamp(dot(g, offset_texels), -max_dz, max_dz);
-            depth = depth + dz;
-            if (params.counts.z != 0u) {
-                depth = min(depth, 0.9999);
-            }
+            plane_cap = sigma_extent * sqrt(max(dot(jz, cjz), 0.0));
+            plane_dz = dot(g, offset_texels);
         }
     }
     gl_Position = vec4(ndc.xy + offset_texels / half_size, depth, 1.0);
     v_sigma_uv = corner * sigma_extent;
     v_opacity = opacity;
+    v_depth_dz = plane_dz;
+    v_depth_center_cap = vec2(depth, plane_cap);
 }
 
 #[fragment]
@@ -245,6 +255,8 @@ void main() {
 
 layout(location = 0) in vec2 v_sigma_uv;
 layout(location = 1) flat in float v_opacity;
+layout(location = 2) in float v_depth_dz;
+layout(location = 3) flat in vec2 v_depth_center_cap;
 
 layout(push_constant, std430) uniform Params {
     mat4 light_from_frame;
@@ -257,4 +269,11 @@ void main() {
     if (alpha < params.viewport.z) {
         discard;
     }
+    // Mirrors gs_shadow_caster::caster_fragment_depth (renderer/hlod_shadow_caster_plan.h). A pancaked caster has
+    // cap 0 and its clamped centre depth; a pancake pass keeps every fragment at or in front of kPancakeDepth.
+    float depth = v_depth_center_cap.x + clamp(v_depth_dz, -v_depth_center_cap.y, v_depth_center_cap.y);
+    if (params.counts.z != 0u) {
+        depth = min(depth, 0.9999);
+    }
+    gl_FragDepth = clamp(depth, 0.0, 1.0);
 }

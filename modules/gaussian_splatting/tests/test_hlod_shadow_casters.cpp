@@ -394,4 +394,39 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] an elongated splat keeps its
 	CHECK(g.minor == doctest::Approx(gm - gd));
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the depth plane keeps its slope inside the ellipse; only the cap clamps") {
+	// The review case: projected covariance ~ identity, gradient g = (k, k), quad corners at (+-e, +-e) in texels for
+	// sigma_extent e. The Gaussian's depth extent caps |dz| at ~sqrt(2) k e, below the same-sign corners' 2 k e.
+	const float k = 1e-4f;
+	const float e = std::sqrt(2.0f * std::log(0.97f / kAlphaThreshold));
+	const float cap = std::sqrt(2.0f) * k * e;
+	const float center = 0.5f;
+	auto plane = [&](float p_u, float p_v) { return k * p_u + k * p_v; };
+	// Fragments inside the alpha ellipse (|u| <= e): the per-fragment depth is the exact plane.
+	const float inside[][2] = { { 0.5f * e, 0.5f * e }, { 0.7f * e, 0.0f }, { -0.3f * e, 0.6f * e }, { 0.6f * e, 0.6f * e } };
+	for (const auto &u : inside) {
+		const float d = caster_fragment_depth(center, plane(u[0], u[1]), cap, false);
+		CHECK(d == doctest::Approx(center + plane(u[0], u[1])).epsilon(1e-6));
+	}
+	// The old corner clamp: corners (+e, +e) and (-e, -e) clamp to +-cap, the diagonal of both quad triangles runs
+	// between them, so at (t e, t e) it interpolated t * cap instead of the plane's 2 k e t: a slope ~29 % flatter.
+	const float corner_pp = std::fmax(-cap, std::fmin(plane(e, e), cap));
+	const float corner_mm = std::fmax(-cap, std::fmin(plane(-e, -e), cap));
+	const float old_slope = (corner_pp - corner_mm) / (2.0f * e); // depth per unit of t * e along the diagonal
+	const float exact_slope = 2.0f * k;
+	CHECK(old_slope == doctest::Approx(exact_slope / std::sqrt(2.0f)).epsilon(1e-4));
+	CHECK(old_slope < 0.75f * exact_slope);
+	const float exact_half = caster_fragment_depth(0.0f, plane(0.5f * e, 0.5f * e), cap, false);
+	CHECK(exact_half == doctest::Approx(exact_slope * 0.5f * e).epsilon(1e-4));
+	// Beyond the cap (outside the ellipse) the depth is capped, never spiking.
+	CHECK(caster_fragment_depth(center, plane(e, e), cap, false) == doctest::Approx(center + cap));
+	CHECK(caster_fragment_depth(center, -10.0f, cap, false) == doctest::Approx(center - cap));
+	// A flat quad (cap 0, e.g. pancaked) keeps the centre depth; a pancake pass never exceeds kPancakeDepth; the
+	// written depth stays inside [0, 1].
+	CHECK(caster_fragment_depth(0.3f, 0.2f, 0.0f, false) == 0.3f);
+	CHECK(caster_fragment_depth(0.9998f, 0.01f, 0.01f, true) == kPancakeDepth);
+	CHECK(caster_fragment_depth(0.9998f, 0.01f, 0.01f, false) == 1.0f);
+	CHECK(caster_fragment_depth(0.001f, -0.01f, 0.01f, false) == 0.0f);
+}
+
 } // namespace TestHlodShadowCasters

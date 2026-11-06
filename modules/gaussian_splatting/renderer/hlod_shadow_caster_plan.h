@@ -222,6 +222,17 @@ inline float pancake_depth(float p_ndc_z) {
 	return p_ndc_z >= kPancakeDepth ? kPancakeDepth : p_ndc_z;
 }
 
+// A caster fragment's depth, as gs_shadow_caster.glsl's fragment stage writes it: the centre depth plus the mean-depth
+// plane offset p_plane_dz (interpolated unclamped, so the plane is exact), capped per fragment at the Gaussian's own
+// depth extent p_cap. Capping at the quad corners instead bent the plane and flattened its slope inside the ellipse.
+inline float caster_fragment_depth(float p_center, float p_plane_dz, float p_cap, bool p_pancake_pass) {
+	float depth = p_center + std::fmax(-p_cap, std::fmin(p_plane_dz, p_cap));
+	if (p_pancake_pass) {
+		depth = pancake_depth(depth);
+	}
+	return std::fmax(0.0f, std::fmin(depth, 1.0f));
+}
+
 // Eigenvalues of the dilated 2D footprint covariance [[a + w, b], [b, c + w]] (a, b, c without the low-pass w), in
 // float32 exactly as gs_shadow_caster.glsl computes them. The minor one is det / major, never mid - disc: for an
 // elongated splat mid - disc cancels catastrophically (a = 26214400, c ~ 0.3 gave 1e-8 instead of 0.3) and the quad
