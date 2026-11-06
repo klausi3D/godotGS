@@ -241,6 +241,14 @@ public:
 	float get_last_gpu_overlap_count_time_ms() const { return timing_state.last_overlap_count_gpu_ms; }
 	bool is_last_gpu_overlap_count_time_valid() const { return timing_state.overlap_count_gpu_timing_valid; }
 	float get_last_gpu_binning_time_ms() const { return timing_state.last_binning_gpu_ms; }
+	// BV-04b binning validity: "binning" is the tile_binning EMIT pass, the same timestamp range as
+	// overlap emit, so it is valid exactly when the emit time is.
+	bool is_last_gpu_binning_time_valid() const { return timing_state.overlap_emit_gpu_timing_valid; }
+	// BV-04b: records per splat per HLOD level of the last sampled HLOD-route frame.
+	const GaussianSplatting::HlodLevelRecordSample &get_hlod_level_record_sample() const { return diagnostics.hlod_level_records; }
+	// BV-04b: per-pass GPU times for every pass of the frame, with measurement frame serials and the
+	// newest same-frame breakdown (see GpuPassTiming::PassTimingSnapshot).
+	const GaussianSplatting::GpuPassTiming::PassTimingSnapshot &get_gpu_pass_timing_snapshot() const { return timing_state.pass_timing.get_snapshot(); }
 	float get_last_gpu_overlap_emit_time_ms() const { return timing_state.last_overlap_emit_gpu_ms; }
 	bool is_last_gpu_overlap_emit_time_valid() const { return timing_state.overlap_emit_gpu_timing_valid; }
 	float get_last_gpu_overlap_sort_time_ms() const { return timing_state.last_overlap_sort_gpu_ms; }
@@ -444,45 +452,11 @@ private:
 	bool _resolve_timestamp_range(TimestampRange &p_range, float &r_duration_ms);
     uint64_t _compute_shader_defines_hash() const;
 
-    // GPU timestamp helper structs (must be declared before methods that use them)
-    struct GpuTimestampStageTimes {
-        double begin_ns = -1.0;
-        double end_ns = -1.0;
-
-        bool is_complete() const { return begin_ns >= 0.0 && end_ns >= 0.0; }
-    };
-	struct GpuTimestampFrameStages {
-		GpuTimestampStageTimes binning;
-		GpuTimestampStageTimes raster;
-		GpuTimestampStageTimes overlap_count;
-        GpuTimestampStageTimes overlap_sort;
-        GpuTimestampStageTimes prefix;
-        GpuTimestampStageTimes resolve;
-        GpuTimestampStageTimes total;
-    };
-    struct GpuTimestampDurations {
-        uint64_t serial = UINT64_MAX;
-        double bin_ms = 0.0;
-        double raster_ms = 0.0;
-        double count_ms = 0.0;
-        double overlap_sort_ms = 0.0;
-        double prefix_ms = 0.0;
-		double resolve_ms = 0.0;
-		double total_ms = 0.0;
-		bool has_data = false;
-		bool bin_valid = false;
-		bool raster_valid = false;
-		bool count_valid = false;
-		bool overlap_sort_valid = false;
-		bool prefix_valid = false;
-		bool resolve_valid = false;
-		bool total_valid = false;
-	};
-
+    // GPU timestamp parsing (BV-04b): the pure parse/reduce lives in gpu_pass_timing.h.
     void _parse_timestamps_into_frame_map(RenderingDevice *p_device, uint32_t p_available,
-            HashMap<uint64_t, GpuTimestampFrameStages> &r_frames) const;
-    GpuTimestampDurations _compute_stage_durations(const HashMap<uint64_t, GpuTimestampFrameStages> &p_frames) const;
-    void _update_timing_metrics(const GpuTimestampDurations &p_durations);
+            HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> &r_frames) const;
+    void _update_timing_metrics(const GaussianSplatting::GpuPassTiming::FrameDurations &p_tile_frame,
+            const GaussianSplatting::GpuPassTiming::FrameDurations &p_pipeline_frame);
     void _issue_async_tile_count_readback(RenderingDevice *p_device, uint32_t p_counts_bytes);
     void _compute_density_metrics(const uint32_t *p_counts, uint32_t p_process_tiles, uint32_t p_total_tiles,
             uint32_t p_effective_capacity, uint32_t *p_density_write,
@@ -633,6 +607,7 @@ private:
     void _on_debug_counters_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_stats_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_signal_readback(const Vector<uint8_t> &p_data);
+    void _on_hlod_level_stats_readback(const Vector<uint8_t> &p_data); // BV-04b
 #ifdef TESTS_ENABLED
 	void _on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce);
 #endif

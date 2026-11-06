@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `190` documented functions, `28` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `190` documented functions, `29` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 

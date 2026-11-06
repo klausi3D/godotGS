@@ -573,6 +573,9 @@ void RenderResourceOrchestrator::update_gpu_pass_metrics_from_tile_renderer() {
 	metrics.gpu_tile_overlap_count_time_ms = perf.overlap_count_gpu_ms;
 	metrics.gpu_tile_overlap_count_time_valid = perf.overlap_count_gpu_valid;
 	metrics.gpu_tile_binning_time_ms = perf.binning_gpu_ms;
+	metrics.gpu_tile_binning_time_valid = perf.binning_gpu_valid;
+	metrics.gpu_pass_timing = perf.pass_timing;
+	metrics.gpu_hlod_level_records = perf.hlod_level_records;
 	metrics.gpu_tile_overlap_emit_time_ms = perf.overlap_emit_gpu_ms;
 	metrics.gpu_tile_overlap_emit_time_valid = perf.overlap_emit_gpu_valid;
 	metrics.gpu_tile_overlap_sort_time_ms = perf.overlap_sort_gpu_ms;

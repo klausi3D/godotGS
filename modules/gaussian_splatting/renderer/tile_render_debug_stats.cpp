@@ -207,6 +207,33 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
     }
 }
 
+void TileRenderer::TileRendererDebugStats::poll_hlod_level_stats(RenderingDevice *p_device, uint64_t p_frame_serial) {
+    // BV-04b: records per splat per HLOD level. A 128-byte async copy, issued only while no prior
+    // read is in flight (so a slow callback drops samples, never stalls). The sampled frame's serial
+    // travels with the result; frames between two samples are not counted.
+    if (!p_device || !hlod_level_stats_buffer.is_valid()) {
+        return;
+    }
+    if (p_frame_serial == 0 || hlod_level_stats_readback.pending) {
+        return;
+    }
+    hlod_level_stats_readback.requested_frame_serial = p_frame_serial;
+    Callable callback = callable_mp(&owner, &TileRenderer::_on_hlod_level_stats_readback);
+    if (p_device->buffer_get_data_async(hlod_level_stats_buffer, callback, 0, sizeof(HlodLevelRecordStatsGPU)) == OK) {
+        hlod_level_stats_readback.pending = true;
+    }
+}
+
+void TileRenderer::TileRendererDebugStats::on_hlod_level_stats_readback(const Vector<uint8_t> &p_data) {
+    hlod_level_stats_readback.pending = false;
+    if ((size_t)p_data.size() < sizeof(HlodLevelRecordStatsGPU)) {
+        return;
+    }
+    HlodLevelRecordStatsGPU sample;
+    std::memcpy(&sample, p_data.ptr(), sizeof(HlodLevelRecordStatsGPU));
+    owner.diagnostics.record_hlod_level_stats_sample(sample, hlod_level_stats_readback.requested_frame_serial);
+}
+
 void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
     overflow_signal_readback.pending = false;
     if ((size_t)p_data.size() < sizeof(OverflowStatsSnapshot)) {
@@ -1031,6 +1058,19 @@ void TileRenderer::TileRendererDebugStats::create_buffers(RenderingDevice *p_dev
         overflow_stats_owner.set(p_device);
     }
 
+    // BV-04b: per-HLOD-level record counters of the emit pass (bound only on the HLOD route).
+    Vector<uint8_t> level_stats_data;
+    level_stats_data.resize(sizeof(HlodLevelRecordStatsGPU));
+    level_stats_data.fill(0);
+    hlod_level_stats_buffer = p_device->storage_buffer_create(level_stats_data.size(), level_stats_data);
+    if (!hlod_level_stats_buffer.is_valid()) {
+        GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate HLOD level record stats buffer");
+        hlod_level_stats_owner.clear();
+    } else {
+        p_device->set_resource_name(hlod_level_stats_buffer, "GS_TileRenderer_HlodLevelRecordStatsBuffer");
+        hlod_level_stats_owner.set(p_device);
+    }
+
     Vector<uint8_t> audit_data;
     audit_data.resize(sizeof(DebugSplatAuditBuffer));
     audit_data.fill(0);
@@ -1057,9 +1097,12 @@ void TileRenderer::TileRendererDebugStats::free_buffers(RenderingDevice *p_devic
 		debug_counter_buffer = RID();
 		overflow_statistics_buffer = RID();
 		debug_splat_audit_buffer = RID();
+		hlod_level_stats_buffer = RID();
 		debug_counter_owner.clear();
 		overflow_stats_owner.clear();
 		debug_splat_audit_owner.clear();
+		hlod_level_stats_owner.clear();
+		hlod_level_stats_readback = AsyncReadbackState();
 		return;
 	}
 
@@ -1081,6 +1124,10 @@ void TileRenderer::TileRendererDebugStats::free_buffers(RenderingDevice *p_devic
 	if (overflow_statistics_buffer.is_valid()) {
 		safe_free_debug_buffer(overflow_statistics_buffer, overflow_stats_owner);
 	}
+	if (hlod_level_stats_buffer.is_valid()) {
+		safe_free_debug_buffer(hlod_level_stats_buffer, hlod_level_stats_owner);
+	}
+	hlod_level_stats_readback = AsyncReadbackState();
 }
 
 void TileRenderer::TileRendererDebugStats::clear_counters(RenderingDevice *p_device) {
@@ -1098,6 +1145,10 @@ void TileRenderer::TileRendererDebugStats::clear_counters(RenderingDevice *p_dev
 	if (overflow_statistics_buffer.is_valid()) {
 		p_device->buffer_clear(overflow_statistics_buffer, 0,
 				static_cast<uint32_t>(sizeof(OverflowStatsSnapshot) - sizeof(uint32_t)));
+	}
+	// BV-04b: per-frame HLOD level record counters (the poll's copy is recorded before the next clear).
+	if (hlod_level_stats_buffer.is_valid()) {
+		p_device->buffer_clear(hlod_level_stats_buffer, 0, static_cast<uint32_t>(sizeof(HlodLevelRecordStatsGPU)));
 	}
 }
 

@@ -135,6 +135,16 @@ layout(set = 0, binding = 23, std430) readonly buffer HlodDrawEntryBuffer {
 layout(set = 0, binding = 22, std430) readonly buffer HlodDrawListBuffer {
     DrawnNodeGPU entries[];
 } hlod_draw_list_buffer;
+#if defined(GS_TILE_GLOBAL_SORT_EMIT_PASS)
+// BV-04b: records per splat per HLOD level. Per splat that reaches the emit loop, the overlap
+// records it emitted and 1 are added to the slot of its draw record's level
+// (gs_hlod_level_stat_slot). Host mirror: HlodLevelRecordStatsGPU (renderer/gaussian_gpu_layout.h);
+// cleared with the per-frame debug counters and read back by an always-on async poll.
+layout(set = 0, binding = 24, std430) buffer HlodLevelRecordStats {
+    uint records[GS_HLOD_LEVEL_STAT_SLOTS];
+    uint splats[GS_HLOD_LEVEL_STAT_SLOTS];
+} hlod_level_stats;
+#endif
 #endif
 
 layout(set = 0, binding = 15, std430) readonly buffer InstanceIndirectDispatch {
@@ -1614,6 +1624,13 @@ void main() {
     }
 
     atomicAdd(overflow_stats.overflow_splats_aggregated, emitted_overlap_count);
+#if defined(GS_HLOD_RELATIVE_PAYLOAD)
+    {
+        uint level_slot = gs_hlod_level_stat_slot(selected.level);
+        atomicAdd(hlod_level_stats.records[level_slot], emitted_overlap_count);
+        atomicAdd(hlod_level_stats.splats[level_slot], 1u);
+    }
+#endif
     GS_DEBUG_INCREMENT(success_count);
     return;
 #endif

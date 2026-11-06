@@ -25,6 +25,11 @@
         // production frame.
         void poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial);
         void on_overflow_signal_readback(const Vector<uint8_t> &p_data);
+        // BV-04b: always-on async readback of the HLOD route's per-level record counters
+        // (HlodLevelRecordStatsGPU, tile_binning.glsl binding 24). Polled at the end of a frame
+        // whose emit pass ran on the HLOD route; never a sync stall.
+        void poll_hlod_level_stats(RenderingDevice *p_device, uint64_t p_frame_serial);
+        void on_hlod_level_stats_readback(const Vector<uint8_t> &p_data);
         void _log_readback_state_if_needed(uint64_t p_frame_serial, bool p_log_enabled) const;
         void _schedule_debug_readbacks(RenderingDevice *p_device, uint64_t p_frame_serial,
                 bool p_has_debug_buffer, bool p_has_overflow_buffer);
@@ -93,6 +98,8 @@
         BufferOwnership debug_counter_owner;
         BufferOwnership overflow_stats_owner;
         BufferOwnership debug_splat_audit_owner;
+        RID hlod_level_stats_buffer; // BV-04b: HlodLevelRecordStatsGPU (128 B), cleared per frame
+        BufferOwnership hlod_level_stats_owner;
 
         mutable DebugCounterSnapshot cached_debug_counters;
         mutable OverflowStatsSnapshot cached_overflow_stats;
@@ -120,6 +127,7 @@
         // poll_overflow_drop_signal resets the signal word right after its copy (read-and-reset),
         // so each set bit is counted by exactly one readback (PR #508 over-count fix, #1137 review).
         mutable AsyncReadbackState overflow_signal_readback;
+        mutable AsyncReadbackState hlod_level_stats_readback; // BV-04b
     };
 
     struct TileRenderParamsBuilder {

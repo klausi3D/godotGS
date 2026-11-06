@@ -164,6 +164,10 @@ protected:
     // Caller (tile renderer) sets this so the sort timestamps share a serial
     // with the surrounding pass timestamps and resolve to the same frame entry.
     uint64_t pending_frame_label_serial = 0;
+    // GPU timestamp label prefix of this sorter's indirect sort. The tile renderer's overlap sorter
+    // keeps "TileOverlapSort_"; the depth pre-sort sorter of GPUSortingPipeline uses "GSPreSort_"
+    // (BV-04b), so the two sorts never land in the same timing slot.
+    String timestamp_label_prefix = "TileOverlapSort_";
 
     // CPU-side timing utilities for measuring command recording/submission time.
     // WARNING: These measure wall-clock time on the CPU, NOT actual GPU execution time.
@@ -212,6 +216,8 @@ public:
     virtual void set_pending_frame_label_serial(uint64_t p_frame_serial) {
         pending_frame_label_serial = p_frame_serial;
     }
+    void set_timestamp_label_prefix(const String &p_prefix) { timestamp_label_prefix = p_prefix; }
+    const String &get_timestamp_label_prefix() const { return timestamp_label_prefix; }
 
     // Last completed sort dispatch's GPU-timestamp range. Default-invalid for
     // sorters that don't capture timestamps. Consumers may resolve the
