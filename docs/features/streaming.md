@@ -171,6 +171,25 @@ These methods are bound on `GaussianStreamingSystem`, but because no bound API h
 | `get_lod_debug_stats()` | `Dictionary` | LOD level distribution and transition counts. | `GaussianStreamingSystem::get_lod_debug_stats` |
 | `is_vram_budget_warning_active()` | `bool` | True when VRAM usage approaches the configured budget. | `GaussianStreamingSystem::is_vram_budget_warning_active` |
 
+### Streaming telemetry in optimized builds
+
+The pack, upload and regulator counters in `get_streaming_analytics()` count in every build
+flavour, `template_release` included, with debug logging off. Before this they read 0 in
+optimized builds. All of them are cheap: they are counted per job, per lock or per upload
+slice, never per splat, and none reads anything back from the GPU.
+
+| Key | Meaning |
+| --- | --- |
+| `upload_bytes_this_frame`, `read_bytes_this_frame`, `decode_bytes_this_frame` | Bytes written to the atlas, read from the chunk payload source into the pack snapshot, and produced by a decode stage, this frame. The uncompressed chunk route has no decode stage, so the decode bytes are 0. |
+| `upload_bytes_total`, `upload_chunks_total`, `read_bytes_total`, `decode_bytes_total` | Cumulative totals that are never reset. To get a rate, diff two samples. |
+| `streaming_latency_histograms` | Cumulative log2 histograms in microseconds for `read` (payload capture), `decode`, `pack` (`pack_gaussians_range`) and `upload` (time from pack completion until the job is dequeued for the GPU write). Each stage has `bucket_counts`, `samples`, `total_usec` and `max_usec`. `bucket_upper_usec` lists the exclusive upper bound of each bucket. The last bucket has no upper bound and is marked `-1`. |
+| `diagnostics.upload_stall_wall_ms` | How long, in wall-clock time, the upload-stall predicate behind `upload_stall_frames` has held. |
+| `vram_regulated_max_chunks`, `vram_auto_regulate_enabled` | The regulator's current chunk cap, and whether auto-regulation is on. |
+| `vram_thrash_reductions`, `vram_budget_reductions`, `vram_headroom_increases` | Regulator adjustments, counted by kind. They add up to `vram_regulation_adjustments`. |
+| `vram_lod_multiplier_adjustments`, `vram_last_regulation_frame`, `vram_last_regulation_reason` | How many times `lod_distance_multiplier` changed, plus the frame and the reason of the last adjustment. The reason is `none`, `thrash_reduction`, `budget_reduction` or `headroom_increase`. |
+| `lod_effective_load_distance` | The chunk load distance that the LOD multiplier produces. |
+| `effective_settings_revision` | Goes up by one at every `end_frame()` in which the effective VRAM budget, the regulated or effective chunk cap, the LOD multiplier or the auto-regulation flag differs from the previous frame. If two samples show the same revision, none of these settings changed between them. |
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix | Implementation reference |
