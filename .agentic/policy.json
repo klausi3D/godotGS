@@ -125,7 +125,7 @@
           "tests/ci/run_gpu_harness.py",
           "tests/ci/check_project_settings_reference.py",
           "tests/ci/check_overrides_no_inline_script.py",
-          "tests/runtime/run_runtime_validation.py"
+          "tests/runtime/run_runtime_validation.py", "tests/runtime/gs_combined_1_verdict.py", "tests/runtime/gs_combined_1_expectations.json"
         ]
       },
       {

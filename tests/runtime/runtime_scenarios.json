@@ -80,6 +80,19 @@
       "gd_timeout": 420,
       "fail_on_skip": true
     },
+    "gs-combined-1": {
+      "description": "GS-COMBINED-1 hard gate (docs/architecture/adr-one-route-many-producers.md section 9): the combined game scene (streamed world, 32 movable objects, pick target, animated mesh character, 1 directional + 4 omni lights with shadows) in variant A (chunk-streamed world) and variant B (V4 paged HLOD world). A scenario passes only when gs_combined_1_verdict.py reports every assertion live-pass; blocked assertions are listed in gs_combined_1_expectations.json and stay red. Run by .github/workflows/gs_combined_1.yml as a reported, not yet required, check.",
+      "gd_mode": "gpu-vulkan",
+      "cpp_tests": [],
+      "gd_tests": [
+        "GS-COMBINED-1 Variant A",
+        "GS-COMBINED-1 Variant B"
+      ],
+      "godot_args": ["--fixed-fps", "60"],
+      "gd_timeout": 1500,
+      "fail_on_skip": true,
+      "requires_renderer_proof": false
+    },
     "stress-only": {
       "description": "Stress-focused runtime lane for local and CI soak checks.",
       "gd_mode": "non-headless",

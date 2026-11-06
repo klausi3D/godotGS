@@ -1,0 +1,25 @@
+; Pinned settings file for GS-COMBINED-1 (docs/architecture/adr-one-route-many-producers.md
+; section 9.1). Run by tests/runtime/run_runtime_validation.py with --script; the scene is
+; built by tests/runtime/gs_combined_1_harness.gd. Per-variant route settings are pinned by
+; the harness and written into each run record.
+config_version=5
+
+[application]
+
+config/name="GodotGS GS-COMBINED-1"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/vsync/vsync_mode=0
+
+[physics]
+
+common/physics_ticks_per_second=60
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=0
+anti_aliasing/quality/use_taa=false
+anti_aliasing/quality/screen_space_aa=0

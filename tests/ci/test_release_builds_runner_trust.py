@@ -1640,5 +1640,226 @@ class GuardClassificationTests(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# GS-COMBINED-1 (docs/architecture/adr-one-route-many-producers.md section 9.1).
+#
+# The gate needs a GPU, so its execution job runs on the persistent runner, and it is
+# meant to become a required status. Those two facts pull against each other: a
+# self-hosted job must skip fork PRs, and a skipped job SATISFIES a required check. The
+# ADR's answer is a two-job shape, and these checks make it a tested property rather than
+# a review-time promise:
+#
+# * every self-hosted job in the workflow carries the standard per-job fork guard;
+# * exactly one GitHub-hosted status job `needs:` the execution job and has
+#   `if: ${{ always() }}` as its ONLY job-level condition (anything else could skip it);
+# * its step reads `needs.<execution job>.result`, passes only on `success`, and reports
+#   `gs_combined_requires_trusted_branch` for a skipped execution job;
+# * README's Runner Trust Boundary section names the execution job.
+
+GS_COMBINED_WORKFLOW = WORKFLOW_DIR / "gs_combined_1.yml"
+GS_COMBINED_EXECUTION_JOB = "gs-combined-1-gpu"
+GS_COMBINED_STATUS_JOB = "gs-combined-1"
+GS_COMBINED_TRUSTED_REASON = "gs_combined_requires_trusted_branch"
+NEEDS_LINE = re.compile(r"^    needs:\s*(.*)$")
+
+
+def _job_blocks(lines: List[str]) -> Dict[str, List[str]]:
+    blocks: Dict[str, List[str]] = {}
+    in_jobs = False
+    current: Optional[str] = None
+    for line in lines:
+        if line.rstrip() == "jobs:":
+            in_jobs = True
+            continue
+        if in_jobs and line.strip() and not line.startswith(" "):
+            in_jobs = False
+            current = None
+        if not in_jobs:
+            continue
+        match = JOB_KEY.match(line)
+        if match:
+            current = match.group(1)
+            blocks[current] = []
+            continue
+        if current is not None:
+            blocks[current].append(line)
+    return blocks
+
+
+def _job_needs(block: List[str]) -> List[str]:
+    for line in block:
+        match = NEEDS_LINE.match(line)
+        if match:
+            value = _strip_comment(match.group(1)).strip()
+            if value.startswith("[") and value.endswith("]"):
+                return [part.strip() for part in value[1:-1].split(",") if part.strip()]
+            if not value:
+                raise UnmodelledWorkflowConstruct("block-sequence `needs:` is not modelled; use a flow form")
+            return [value]
+    return []
+
+
+def gs_combined_gate_violations(
+    lines: List[str], policy: Optional[RunnerLabelPolicy] = None
+) -> List[str]:
+    """Every way the GS-COMBINED-1 workflow can break the ADR 9.1 two-job shape."""
+    if policy is None:
+        policy = runner_label_policy()
+    problems: List[str] = []
+    jobs = parse_jobs(lines)
+    blocks = _job_blocks(lines)
+    hosted = {name for name, data in jobs.items() if classify_runner(data["runs_on"], name, policy) == "github-hosted"}
+    self_hosted = set(jobs) - hosted
+    if self_hosted != {GS_COMBINED_EXECUTION_JOB}:
+        problems.append(f"self-hosted jobs are {sorted(self_hosted)}, expected exactly [{GS_COMBINED_EXECUTION_JOB!r}]")
+    for name in sorted(self_hosted):
+        if classify_guard(jobs[name]["if"]) != "standard":
+            problems.append(f"self-hosted job {name!r} does not carry the standard per-job fork guard (if={jobs[name]['if']!r})")
+    if GS_COMBINED_STATUS_JOB not in jobs:
+        problems.append(f"status job {GS_COMBINED_STATUS_JOB!r} is missing")
+        return problems
+    if GS_COMBINED_STATUS_JOB not in hosted:
+        problems.append(f"status job {GS_COMBINED_STATUS_JOB!r} must run on a GitHub-hosted runner")
+    raw_if = jobs[GS_COMBINED_STATUS_JOB]["if"]
+    if raw_if is None or _normalize_guard(raw_if) != "always()":
+        problems.append(f"status job condition must be exactly `${{{{ always() }}}}`, got {raw_if!r}")
+    block = blocks.get(GS_COMBINED_STATUS_JOB, [])
+    if _job_needs(block) != [GS_COMBINED_EXECUTION_JOB]:
+        problems.append(f"status job must `needs: {GS_COMBINED_EXECUTION_JOB}` and nothing else, got {_job_needs(block)}")
+    text = "\n".join(block)
+    required = {
+        f"needs.{GS_COMBINED_EXECUTION_JOB}.result": "reads the execution job's result",
+        GS_COMBINED_TRUSTED_REASON: "names the fork-PR reason",
+        "success)": "passes only on success",
+        "skipped)": "handles a skipped execution job",
+        "*)": "fails every other result",
+    }
+    for needle, why in required.items():
+        if needle not in text:
+            problems.append(f"status job step must contain {needle!r} ({why})")
+    if text.count("exit 1") < 2:
+        problems.append("status job must exit 1 for a skipped and for any non-success result")
+    if "continue-on-error" in text:
+        problems.append("status job must not use continue-on-error")
+    return problems
+
+
+GS_COMBINED_PR_PATHS_REQUIRED = (
+    ".github/workflows/gs_combined_1.yml",
+    "tests/runtime/run_runtime_validation.py",
+    "tests/runtime/gs_combined_1*",
+)
+GS_COMBINED_FILTER_NOTE = "in-job change detection"
+
+
+def gs_combined_trigger_violations(lines: List[str]) -> List[str]:
+    """The path filter (maintainer decision 2026-11-05) applies to pull_request only.
+
+    A workflow-level filter skips the status job too, so it must never reach the
+    trusted triggers, the gate's own files must stay inside it, and the README must say
+    it has to become in-job change detection before the check is required.
+    """
+    problems: List[str] = []
+    block: List[str] = []
+    in_on = False
+    for line in lines:
+        if line.rstrip() == "on:":
+            in_on = True
+            continue
+        if in_on and line.strip() and not line.startswith(" "):
+            break
+        if in_on:
+            block.append(line)
+    events: Dict[str, List[str]] = {}
+    current: Optional[str] = None
+    for line in block:
+        match = re.match(r"^  ([a-z_]+):", line)
+        if match:
+            current = match.group(1)
+            events[current] = []
+        elif current is not None:
+            events[current].append(line)
+    for event in ("pull_request", "push", "schedule", "workflow_dispatch"):
+        if event not in events:
+            problems.append(f"trigger {event!r} is missing")
+    for event, body in events.items():
+        text = "\n".join(body)
+        if event != "pull_request" and ("paths" in text or "paths-ignore" in text):
+            problems.append(f"trigger {event!r} must stay unfiltered")
+    pr_text = "\n".join(events.get("pull_request", []))
+    if "paths-ignore" in pr_text:
+        problems.append("pull_request must use an explicit `paths:` list, not paths-ignore")
+    for needle in GS_COMBINED_PR_PATHS_REQUIRED:
+        if f"'{needle}'" not in pr_text:
+            problems.append(f"pull_request paths must include {needle!r}")
+    return problems
+
+
+class GsCombinedGateShapeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.lines = GS_COMBINED_WORKFLOW.read_text(encoding="utf-8").splitlines()
+        self.policy = runner_label_policy()
+
+    def _mutated(self, old: str, new: str) -> List[str]:
+        text = "\n".join(self.lines)
+        self.assertEqual(text.count(old), 1, old)
+        return text.replace(old, new).splitlines()
+
+    def test_the_workflow_has_the_two_job_shape(self) -> None:
+        self.assertEqual(gs_combined_gate_violations(self.lines, self.policy), [])
+
+    def test_the_trigger_shape(self) -> None:
+        self.assertEqual(gs_combined_trigger_violations(self.lines), [])
+
+    def test_trigger_mutations_are_caught(self) -> None:
+        mutations = {
+            "push filtered": ("  push:\n    branches: [master]\n", "  push:\n    branches: [master]\n    paths: ['docs/**']\n"),
+            "gate files dropped from the filter": ("      - 'tests/runtime/gs_combined_1*'\n", ""),
+            "workflow file dropped from the filter": ("      - '.github/workflows/gs_combined_1.yml'\n", ""),
+            "schedule removed": ("  schedule:\n", "  schedule_off:\n"),
+        }
+        for label, (old, new) in mutations.items():
+            with self.subTest(mutation=label):
+                self.assertNotEqual(gs_combined_trigger_violations(self._mutated(old, new)), [], label)
+
+    def test_the_readme_requires_change_detection_before_required(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        rows = [line for line in text.splitlines() if line.startswith("| GS-COMBINED-1 Gate |")]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("path-filtered", rows[0])
+        self.assertIn(GS_COMBINED_FILTER_NOTE, rows[0])
+
+    def test_the_readme_names_the_execution_job(self) -> None:
+        section = readme_trust_section()
+        bullets = [line for line in section.splitlines() if line.lstrip().startswith("- ") and "gs_combined_1.yml" in line]
+        self.assertEqual(len(bullets), 1, "README Runner Trust Boundary needs exactly one gs_combined_1.yml bullet")
+        self.assertIn(f"`{GS_COMBINED_EXECUTION_JOB}`", bullets[0])
+        self.assertIn(GS_COMBINED_TRUSTED_REASON, bullets[0])
+
+    def test_mutations_are_caught(self) -> None:
+        guard = "if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
+        mutations = {
+            "fork guard removed": (guard, "if: ${{ true }}"),
+            "fork guard narrowed to a lookalike": (
+                guard, "if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}"),
+            "status condition gains a clause": (
+                "    if: ${{ always() }}\n", "    if: ${{ always() && github.event_name != 'pull_request' }}\n"),
+            "status condition replaced by success()": ("    if: ${{ always() }}\n", "    if: ${{ success() }}\n"),
+            "status loses needs": ("    needs: gs-combined-1-gpu\n", ""),
+            "status needs another job": ("    needs: gs-combined-1-gpu\n", "    needs: [gs-combined-1-gpu, other]\n"),
+            "status moved to the runner": ("    runs-on: ubuntu-latest\n", "    runs-on: [self-hosted, Linux, X64, gpu]\n"),
+            "fork reason dropped": ("::error::" + GS_COMBINED_TRUSTED_REASON, "::error::trusted_branch_needed"),
+            "skipped branch passes": ("""              exit 1
+              ;;
+            *)""", """              exit 0
+              ;;
+            *)"""),
+            "result never read": ("needs.gs-combined-1-gpu.result", "github.run_id"),
+        }
+        for label, (old, new) in mutations.items():
+            with self.subTest(mutation=label):
+                self.assertNotEqual(gs_combined_gate_violations(self._mutated(old, new), self.policy), [], label)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

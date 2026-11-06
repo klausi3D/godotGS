@@ -221,6 +221,8 @@ GDS_TESTS: Dict[str, Path] = {
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
     "Resident HLOD Main View": RUNTIME_DIR / "test_hlod_resident_main_view.gd",
     "Streamed HLOD Resize Views": RUNTIME_DIR / "test_hlod_streamed_resize_views.gd",
+    "GS-COMBINED-1 Variant A": RUNTIME_DIR / "test_gs_combined_1_variant_a.gd",
+    "GS-COMBINED-1 Variant B": RUNTIME_DIR / "test_gs_combined_1_variant_b.gd",
 }
 
 # COR-S2A-009: migrated positive native main-view acceptance is mandatory in
@@ -229,6 +231,16 @@ HLOD_MAIN_VIEW_SCENARIO = "Resident HLOD Main View"
 HLOD_RESIZE_VIEWS_SCENARIO = "Streamed HLOD Resize Views"
 HLOD_REQUIRED_PROFILES = ("streaming-gpu-ci", "release-ci")
 HLOD_MAIN_VIEW_PROJECT = RUNTIME_DIR / "hlod_main_view_project"
+
+# GS-COMBINED-1 hard gate (docs/architecture/adr-one-route-many-producers.md section 9).
+# The scenario script only captures a record; gs_combined_1_verdict.py decides, and a
+# scenario passes only when the gate is met (every assertion live-pass, nothing blocked).
+GS_COMBINED_1_SCENARIOS = {"GS-COMBINED-1 Variant A": "A", "GS-COMBINED-1 Variant B": "B"}
+GS_COMBINED_1_PROFILE = "gs-combined-1"
+GS_COMBINED_1_PROJECT = RUNTIME_DIR / "gs_combined_1_project"
+GS_COMBINED_1_VERDICT = RUNTIME_DIR / "gs_combined_1_verdict.py"
+GS_COMBINED_1_EXPECTATIONS = RUNTIME_DIR / "gs_combined_1_expectations.json"
+GS_COMBINED_1_OUTPUT = BUILD_DIR / "gs_combined_1"
 
 # Explicit dependency policy for every registered runtime scenario. Empty tuples
 # are deliberate fixture-free declarations, not an inferred absence. A scenario
@@ -289,6 +301,13 @@ SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
     ),
     "GDScript: Streamed HLOD Resize Views": ScenarioFixtureContract(
         GDS_TESTS["Streamed HLOD Resize Views"], ()
+    ),
+    # Content is generated in-process from a fixed seed (gs_combined_1_content.gd).
+    "GDScript: GS-COMBINED-1 Variant A": ScenarioFixtureContract(
+        GDS_TESTS["GS-COMBINED-1 Variant A"], ()
+    ),
+    "GDScript: GS-COMBINED-1 Variant B": ScenarioFixtureContract(
+        GDS_TESTS["GS-COMBINED-1 Variant B"], ()
     ),
 }
 
@@ -1187,6 +1206,8 @@ def _classify_result(
 ) -> TestResult:
     result = _classify_base_result(result, fail_on_skip=fail_on_skip,
         allow_skip_tests=allow_skip_tests, zero_assertion_allowlist=zero_assertion_allowlist)
+    if result.name in GS_COMBINED_1_SCENARIOS:
+        return _classify_gs_combined_1(result)
     if result.name != HLOD_MAIN_VIEW_SCENARIO:
         return result
     if result.status != "passed":
@@ -1201,6 +1222,83 @@ def _classify_result(
     if failures:
         result.status = "failed"
         result.reasons.extend(failures)
+    return result
+
+
+def _load_gs_combined_1_verdict_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gs_combined_1_verdict", GS_COMBINED_1_VERDICT)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {GS_COMBINED_1_VERDICT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _classify_gs_combined_1(result: TestResult) -> TestResult:
+    """Turn a GS-COMBINED-1 record into the scenario result. Fail-closed throughout.
+
+    The GDScript completion marker only says the record is complete. The scenario
+    passes iff gs_combined_1_verdict.py reports the gate met for this variant; every
+    blocked or failing assertion is listed in the reasons. The verdict (with the six
+    forcing controls evaluated on the same record) and the record are written under
+    tests/runtime/build/gs_combined_1/ for the workflow to upload.
+    """
+    import shutil
+    variant = GS_COMBINED_1_SCENARIOS[result.name]
+    if result.status != "passed":
+        result.status = "failed"
+        result.reasons.append(f"GS-COMBINED-1 {variant}: record capture did not complete; no verdict is possible.")
+        return result
+    metric_lines = [line for line in (result.stdout + "\n" + result.stderr).splitlines()
+                    if line.lstrip().startswith(METRICS_MARKER)]
+    record_path = result.metrics.get("record_path")
+    if len(metric_lines) != 1 or not isinstance(record_path, str) or not Path(record_path).is_file():
+        result.status = "failed"
+        result.reasons.append(
+            f"GS-COMBINED-1 {variant}: exactly one metrics record naming an existing run record is required.")
+        return result
+    try:
+        module = _load_gs_combined_1_verdict_module()
+        raw_expectations = json.loads(GS_COMBINED_1_EXPECTATIONS.read_text(encoding="utf-8"))
+        expectations = module.load_expectations(raw_expectations)
+        notes = module.load_notes(raw_expectations)
+        record = json.loads(Path(record_path).read_text(encoding="utf-8"))
+        log_text = result.stdout + "\n" + result.stderr
+        verdict = module.verdict(record, expectations, log_text, notes)
+        verdict["controls"] = module.run_controls(record, log_text)
+    except Exception as exc:  # malformed record or expectations: a failure, never a skip
+        result.status = "failed"
+        result.reasons.append(f"GS-COMBINED-1 {variant}: verdict could not be computed: {exc}")
+        return result
+    out_dir = GS_COMBINED_1_OUTPUT / variant
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(record_path, out_dir / "record.json")
+    # Screenshots and the character reference masks the harness wrote beside the record.
+    for shot in sorted(Path(record_path).parent.glob("*.png")):
+        shutil.copy2(shot, out_dir / shot.name)
+    (out_dir / "verdict.json").write_text(json.dumps(verdict, indent=2, sort_keys=True), encoding="utf-8")
+    (out_dir / "verdict.md").write_text(module.markdown_table([verdict]) + "\n", encoding="utf-8")
+    result.metrics = {
+        "gs_combined_1_gate_met": verdict["gate_met"],
+        "gs_combined_1_counts": verdict["counts"],
+        "gs_combined_1_regressions": verdict["regressions"],
+        "gs_combined_1_blocked": verdict["blocked"],
+        "gs_combined_1_stale_blocks": verdict["stale_blocks"],
+        "gs_combined_1_controls": {n: c["state"] for n, c in verdict["controls"].items()},
+        "gs_combined_1_verdict_path": str(out_dir / "verdict.json"),
+    }
+    if not verdict["gate_met"]:
+        result.status = "failed"
+        result.reasons.append(
+            f"GS-COMBINED-1 {variant}: gate not met (counts {verdict['counts']}); "
+            f"regressions {verdict['regressions']}, blocked {verdict['blocked']}, "
+            f"stale blocks {verdict['stale_blocks']}.")
+        for aid, row in verdict["assertions"].items():
+            if row["state"] != "live-pass":
+                issue = f" {row['issue']}" if row.get("issue") else ""
+                shown = ", ".join(row.get("unexplained_codes") or row["codes"])
+                result.reasons.append(f"  {aid} {row['state']}{issue}: {shown}")
     return result
 
 
@@ -1475,6 +1573,12 @@ def _build_godot_command(config: GodotRunConfig, script: Path) -> List[str]:
             project_path = HLOD_MAIN_VIEW_PROJECT
         if not (project_path / "project.godot").is_file():
             raise ValueError(f"Required HLOD project.godot missing under {project_path}.")
+    if script in {GDS_TESTS[name] for name in GS_COMBINED_1_SCENARIOS}:
+        # The pinned settings file of the gate (ADR 9.1); an explicit caller project wins.
+        if project_path is None:
+            project_path = GS_COMBINED_1_PROJECT
+        if not (project_path / "project.godot").is_file():
+            raise ValueError(f"Required GS-COMBINED-1 project.godot missing under {project_path}.")
     if project_path is not None:
         command.extend(["--path", str(project_path)])
     command.extend(config.extra_args)
@@ -1738,6 +1842,22 @@ def _validate_hlod_profile_wiring(config: Dict[str, object]) -> None:
                 raise ValueError(f"Required {name} must execute native HLOD without skips.")
 
 
+def _validate_gs_combined_1_profile_wiring(config: Dict[str, object]) -> None:
+    # Both variants run in the gate's profile, exactly once, on a GPU, without skips (ADR 9.1).
+    profiles = config.get("profiles", {})
+    profile = profiles.get(GS_COMBINED_1_PROFILE) if isinstance(profiles, dict) else None
+    if not isinstance(profile, dict):
+        raise ValueError(f"Required profile {GS_COMBINED_1_PROFILE} is missing.")
+    for required in (GS_COMBINED_1_PROJECT / "project.godot", GS_COMBINED_1_VERDICT, GS_COMBINED_1_EXPECTATIONS):
+        if not required.is_file():
+            raise ValueError(f"GS-COMBINED-1 requires {required.relative_to(ROOT)}.")
+    for scenario in GS_COMBINED_1_SCENARIOS:
+        if profile.get("gd_tests", []).count(scenario) != 1:
+            raise ValueError(f"{GS_COMBINED_1_PROFILE} must select {scenario} exactly once.")
+    if profile.get("gd_mode") != "gpu-vulkan" or profile.get("fail_on_skip") is not True:
+        raise ValueError(f"{GS_COMBINED_1_PROFILE} must run on gpu-vulkan with fail_on_skip.")
+
+
 def _load_scenario_config(path: Path) -> Dict[str, object]:
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -1804,6 +1924,7 @@ def _load_scenario_config(path: Path) -> Dict[str, object]:
     # configs retain their existing semantics; they cannot alter these lanes.
     if path.resolve() == DEFAULT_SCENARIO_CONFIG.resolve():
         _validate_hlod_profile_wiring(raw)
+        _validate_gs_combined_1_profile_wiring(raw)
 
     return raw
 
@@ -2409,6 +2530,14 @@ def main() -> int:
             reason = "Required HLOD main-view result missing or duplicated in full profile."
             all_results.append(TestResult(name="Required HLOD Main View Execution", command=[],
                 duration=0.0, exit_code=1, stdout="", stderr=reason, reasons=[reason]))
+
+    if profile_name == GS_COMBINED_1_PROFILE and not args.gd_test and not args.gd_script:
+        names = [result.name for result in all_results]
+        for scenario in GS_COMBINED_1_SCENARIOS:
+            if names.count(scenario) != 1:
+                reason = f"Required {scenario} result missing or duplicated in the {GS_COMBINED_1_PROFILE} profile."
+                all_results.append(TestResult(name=f"Required {scenario} Execution", command=[],
+                    duration=0.0, exit_code=1, stdout="", stderr=reason, reasons=[reason]))
 
     summary = summarise(all_results)
     summary["profile"] = profile_name
