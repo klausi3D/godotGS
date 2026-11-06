@@ -69,6 +69,7 @@ var dir_d02d02ccfbf78243378b2aff5a58b373 =
     [ "streaming_eviction_controller.h", "streaming__eviction__controller_8h.html", "streaming__eviction__controller_8h" ],
     [ "streaming_global_atlas_registry.cpp", "streaming__global__atlas__registry_8cpp.html", null ],
     [ "streaming_global_atlas_registry.h", "streaming__global__atlas__registry_8h.html", "streaming__global__atlas__registry_8h" ],
+    [ "streaming_latency_histogram.h", "streaming__latency__histogram_8h.html", "streaming__latency__histogram_8h" ],
     [ "streaming_layout_hint.cpp", "streaming__layout__hint_8cpp.html", "streaming__layout__hint_8cpp" ],
     [ "streaming_layout_hint.h", "streaming__layout__hint_8h.html", "streaming__layout__hint_8h" ],
     [ "streaming_lod_policy.cpp", "streaming__lod__policy_8cpp.html", null ],

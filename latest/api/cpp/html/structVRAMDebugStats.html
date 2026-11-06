@@ -111,6 +111,12 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:adebf84b22655f38643110abb7580c110" id="r_adebf84b22655f38643110abb7580c110"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adebf84b22655f38643110abb7580c110">device_capacity_known</a> = false</td></tr>
 <tr class="memitem:a18759b1d490974cc29a620a1c36ce744" id="r_a18759b1d490974cc29a620a1c36ce744"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18759b1d490974cc29a620a1c36ce744">regulation_adjustments</a> = 0</td></tr>
 <tr class="memitem:a67bb6a4bcda68adc9e713a867241e006" id="r_a67bb6a4bcda68adc9e713a867241e006"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a67bb6a4bcda68adc9e713a867241e006">thrashing_events</a> = 0</td></tr>
+<tr class="memitem:a4dc8021682c203b949114a8710926cfd" id="r_a4dc8021682c203b949114a8710926cfd"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4dc8021682c203b949114a8710926cfd">thrash_reductions</a> = 0</td></tr>
+<tr class="memitem:a672aeb6d789a88d58b7544893556c6a3" id="r_a672aeb6d789a88d58b7544893556c6a3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a672aeb6d789a88d58b7544893556c6a3">budget_reductions</a> = 0</td></tr>
+<tr class="memitem:aa0df1d901a615301e2e5729e5e191a91" id="r_aa0df1d901a615301e2e5729e5e191a91"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa0df1d901a615301e2e5729e5e191a91">headroom_increases</a> = 0</td></tr>
+<tr class="memitem:a46da5450ac83b086319fdd86c07e9a2a" id="r_a46da5450ac83b086319fdd86c07e9a2a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a46da5450ac83b086319fdd86c07e9a2a">lod_multiplier_adjustments</a> = 0</td></tr>
+<tr class="memitem:a99a5b1ab40969f5d5250604843bb64db" id="r_a99a5b1ab40969f5d5250604843bb64db"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a99a5b1ab40969f5d5250604843bb64db">last_regulation_frame</a> = 0</td></tr>
+<tr class="memitem:a3bf911272ffcf4bd88aa87513b5096e2" id="r_a3bf911272ffcf4bd88aa87513b5096e2"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3bf911272ffcf4bd88aa87513b5096e2">last_regulation_reason</a> = &quot;none&quot;</td></tr>
 </table>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="ae9f1944734f52f12fab9ffde2453fbd6" name="ae9f1944734f52f12fab9ffde2453fbd6"></a>
@@ -121,6 +127,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t VRAMDebugStats::budget_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a672aeb6d789a88d58b7544893556c6a3" name="a672aeb6d789a88d58b7544893556c6a3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a672aeb6d789a88d58b7544893556c6a3">&#9670;&#160;</a></span>budget_reductions</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t VRAMDebugStats::budget_reductions = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -253,6 +273,48 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="aa0df1d901a615301e2e5729e5e191a91" name="aa0df1d901a615301e2e5729e5e191a91"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa0df1d901a615301e2e5729e5e191a91">&#9670;&#160;</a></span>headroom_increases</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t VRAMDebugStats::headroom_increases = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a99a5b1ab40969f5d5250604843bb64db" name="a99a5b1ab40969f5d5250604843bb64db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a99a5b1ab40969f5d5250604843bb64db">&#9670;&#160;</a></span>last_regulation_frame</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t VRAMDebugStats::last_regulation_frame = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3bf911272ffcf4bd88aa87513b5096e2" name="a3bf911272ffcf4bd88aa87513b5096e2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3bf911272ffcf4bd88aa87513b5096e2">&#9670;&#160;</a></span>last_regulation_reason</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* VRAMDebugStats::last_regulation_reason = &quot;none&quot;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a0b3ec860b318c4ece77931d95aa8eb22" name="a0b3ec860b318c4ece77931d95aa8eb22"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a0b3ec860b318c4ece77931d95aa8eb22">&#9670;&#160;</a></span>loaded_chunks</h2>
 
@@ -281,6 +343,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a46da5450ac83b086319fdd86c07e9a2a" name="a46da5450ac83b086319fdd86c07e9a2a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a46da5450ac83b086319fdd86c07e9a2a">&#9670;&#160;</a></span>lod_multiplier_adjustments</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t VRAMDebugStats::lod_multiplier_adjustments = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a18759b1d490974cc29a620a1c36ce744" name="a18759b1d490974cc29a620a1c36ce744"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a18759b1d490974cc29a620a1c36ce744">&#9670;&#160;</a></span>regulation_adjustments</h2>
 
@@ -289,6 +365,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t VRAMDebugStats::regulation_adjustments = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4dc8021682c203b949114a8710926cfd" name="a4dc8021682c203b949114a8710926cfd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4dc8021682c203b949114a8710926cfd">&#9670;&#160;</a></span>thrash_reductions</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t VRAMDebugStats::thrash_reductions = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

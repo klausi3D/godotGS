@@ -53,13 +53,14 @@ var searchData=
   ['gpusorterfactory_50',['GPUSorterFactory',['../classGPUSorterFactory.html',1,'']]],
   ['gpusortingconfig_51',['GPUSortingConfig',['../structGPUSortingConfig.html',1,'']]],
   ['gpusortingpipeline_52',['GPUSortingPipeline',['../classGPUSortingPipeline.html',1,'']]],
-  ['gslightingsettings_53',['GSLightingSettings',['../structgs_1_1settings_1_1GSLightingSettings.html',1,'gs::settings']]],
-  ['gsoverlaystatsdispatcher_54',['GsOverlayStatsDispatcher',['../classGsOverlayStatsDispatcher.html',1,'']]],
-  ['gsscenedepthlinearize_55',['GSSceneDepthLinearize',['../structGSSceneDepthLinearize.html',1,'']]],
-  ['gssphereeffectorsettings_56',['GSSphereEffectorSettings',['../structgs_1_1settings_1_1GSSphereEffectorSettings.html',1,'gs::settings']]],
-  ['gssplatshadowcaster_57',['GsSplatShadowCaster',['../classGsSplatShadowCaster.html',1,'']]],
-  ['gsstartuptrace_58',['GSStartupTrace',['../classGSStartupTrace.html',1,'']]],
-  ['gsstartuptracescope_59',['GSStartupTraceScope',['../classGSStartupTraceScope.html',1,'']]],
-  ['gsstartuptracesnapshot_60',['GSStartupTraceSnapshot',['../structGSStartupTraceSnapshot.html',1,'']]],
-  ['gswindsettings_61',['GSWindSettings',['../structgs_1_1settings_1_1GSWindSettings.html',1,'gs::settings']]]
+  ['gsatomicfiletransaction_53',['GSAtomicFileTransaction',['../classGSAtomicFileTransaction.html',1,'']]],
+  ['gslightingsettings_54',['GSLightingSettings',['../structgs_1_1settings_1_1GSLightingSettings.html',1,'gs::settings']]],
+  ['gsoverlaystatsdispatcher_55',['GsOverlayStatsDispatcher',['../classGsOverlayStatsDispatcher.html',1,'']]],
+  ['gsscenedepthlinearize_56',['GSSceneDepthLinearize',['../structGSSceneDepthLinearize.html',1,'']]],
+  ['gssphereeffectorsettings_57',['GSSphereEffectorSettings',['../structgs_1_1settings_1_1GSSphereEffectorSettings.html',1,'gs::settings']]],
+  ['gssplatshadowcaster_58',['GsSplatShadowCaster',['../classGsSplatShadowCaster.html',1,'']]],
+  ['gsstartuptrace_59',['GSStartupTrace',['../classGSStartupTrace.html',1,'']]],
+  ['gsstartuptracescope_60',['GSStartupTraceScope',['../classGSStartupTraceScope.html',1,'']]],
+  ['gsstartuptracesnapshot_61',['GSStartupTraceSnapshot',['../structGSStartupTraceSnapshot.html',1,'']]],
+  ['gswindsettings_62',['GSWindSettings',['../structgs_1_1settings_1_1GSWindSettings.html',1,'gs::settings']]]
 ];

@@ -149,6 +149,13 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a9ad0c493636789915cbd132bceb01307" id="r_a9ad0c493636789915cbd132bceb01307"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ad0c493636789915cbd132bceb01307">last_pack_jobs</a> = 0</td></tr>
 <tr class="memitem:a49c16bbb31d139c44db7d7d778e2f9fc" id="r_a49c16bbb31d139c44db7d7d778e2f9fc"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a49c16bbb31d139c44db7d7d778e2f9fc">last_upload_mb</a> = 0.0</td></tr>
 <tr class="memitem:aa47d968467ec45b8d403039da6828a09" id="r_aa47d968467ec45b8d403039da6828a09"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa47d968467ec45b8d403039da6828a09">last_upload_chunks</a> = 0</td></tr>
+<tr class="memitem:a138e3995574d08ddc7489e5f5c78cdf8" id="r_a138e3995574d08ddc7489e5f5c78cdf8"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a138e3995574d08ddc7489e5f5c78cdf8">last_upload_bytes</a> = 0</td></tr>
+<tr class="memitem:abf3af7343794c3b8e051b14bd67df122" id="r_abf3af7343794c3b8e051b14bd67df122"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abf3af7343794c3b8e051b14bd67df122">last_read_bytes</a> = 0</td></tr>
+<tr class="memitem:aeb3047ec595ad7ddc4d56ab89386c02e" id="r_aeb3047ec595ad7ddc4d56ab89386c02e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeb3047ec595ad7ddc4d56ab89386c02e">last_decode_bytes</a> = 0</td></tr>
+<tr class="memitem:afab5145b924fcb5e6f2b603d14377502" id="r_afab5145b924fcb5e6f2b603d14377502"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afab5145b924fcb5e6f2b603d14377502">upload_bytes_cumulative</a> = 0</td></tr>
+<tr class="memitem:aaa3b52406840e548e0f032466564131d" id="r_aaa3b52406840e548e0f032466564131d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaa3b52406840e548e0f032466564131d">upload_chunks_cumulative</a> = 0</td></tr>
+<tr class="memitem:af15f5218aec3964a8104d54ae96b5bb0" id="r_af15f5218aec3964a8104d54ae96b5bb0"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af15f5218aec3964a8104d54ae96b5bb0">read_bytes_cumulative</a> = 0</td></tr>
+<tr class="memitem:a0209e99910b2f4bb4d3a2247505ffe48" id="r_a0209e99910b2f4bb4d3a2247505ffe48"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0209e99910b2f4bb4d3a2247505ffe48">decode_bytes_cumulative</a> = 0</td></tr>
 <tr class="memitem:acb37e028bc1fa20c2c8a2d9ea631eea7" id="r_acb37e028bc1fa20c2c8a2d9ea631eea7"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acb37e028bc1fa20c2c8a2d9ea631eea7">cap_tier_preset</a> = &quot;custom&quot;</td></tr>
 <tr class="memitem:a0a76340c3e6ea2351737295bb9de4731" id="r_a0a76340c3e6ea2351737295bb9de4731"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0a76340c3e6ea2351737295bb9de4731">cap_tier_active</a> = false</td></tr>
 <tr class="memitem:a1b7b6cabe96846faa594ece6e11f165b" id="r_a1b7b6cabe96846faa594ece6e11f165b"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b7b6cabe96846faa594ece6e11f165b">cap_source_upload_mb_per_frame</a> = &quot;project_default&quot;</td></tr>
@@ -582,6 +589,20 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a0209e99910b2f4bb4d3a2247505ffe48" name="a0209e99910b2f4bb4d3a2247505ffe48"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0209e99910b2f4bb4d3a2247505ffe48">&#9670;&#160;</a></span>decode_bytes_cumulative</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::decode_bytes_cumulative = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a2d79a5c05f8fd7e2e7bb01542e359b4c" name="a2d79a5c05f8fd7e2e7bb01542e359b4c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a2d79a5c05f8fd7e2e7bb01542e359b4c">&#9670;&#160;</a></span>effective_upload_cap_mb_per_frame</h2>
 
@@ -618,6 +639,20 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t StreamingUploadPipeline::effective_upload_cap_mb_per_slice = 16</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aeb3047ec595ad7ddc4d56ab89386c02e" name="aeb3047ec595ad7ddc4d56ab89386c02e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aeb3047ec595ad7ddc4d56ab89386c02e">&#9670;&#160;</a></span>last_decode_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::last_decode_bytes = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -722,6 +757,20 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="abf3af7343794c3b8e051b14bd67df122" name="abf3af7343794c3b8e051b14bd67df122"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abf3af7343794c3b8e051b14bd67df122">&#9670;&#160;</a></span>last_read_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::last_read_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a4dda86a01417a499decfcecf48580a21" name="a4dda86a01417a499decfcecf48580a21"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a4dda86a01417a499decfcecf48580a21">&#9670;&#160;</a></span>last_sync_promoted_pack_jobs</h2>
 
@@ -786,6 +835,20 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t StreamingUploadPipeline::last_thread_wakes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a138e3995574d08ddc7489e5f5c78cdf8" name="a138e3995574d08ddc7489e5f5c78cdf8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a138e3995574d08ddc7489e5f5c78cdf8">&#9670;&#160;</a></span>last_upload_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::last_upload_bytes = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1150,6 +1213,20 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="af15f5218aec3964a8104d54ae96b5bb0" name="af15f5218aec3964a8104d54ae96b5bb0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af15f5218aec3964a8104d54ae96b5bb0">&#9670;&#160;</a></span>read_bytes_cumulative</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::read_bytes_cumulative = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a5d7e3c0f1e971f69b5d115caf03725cd" name="a5d7e3c0f1e971f69b5d115caf03725cd"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a5d7e3c0f1e971f69b5d115caf03725cd">&#9670;&#160;</a></span>sync_pack_scratch</h2>
 
@@ -1228,6 +1305,34 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t StreamingUploadPipeline::upload_budget_tokens = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afab5145b924fcb5e6f2b603d14377502" name="afab5145b924fcb5e6f2b603d14377502"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afab5145b924fcb5e6f2b603d14377502">&#9670;&#160;</a></span>upload_bytes_cumulative</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::upload_bytes_cumulative = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaa3b52406840e548e0f032466564131d" name="aaa3b52406840e548e0f032466564131d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaa3b52406840e548e0f032466564131d">&#9670;&#160;</a></span>upload_chunks_cumulative</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::upload_chunks_cumulative = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

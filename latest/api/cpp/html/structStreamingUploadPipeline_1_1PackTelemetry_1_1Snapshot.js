@@ -1,5 +1,6 @@
 var structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot =
 [
+    [ "decode_bytes", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a2237c258abbf8d1b3283c6b593c3049a", null ],
     [ "mutex_wait_max", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#aac81950409b9d0bfffa8ef9a9e58b560", null ],
     [ "mutex_wait_samples", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#ae5dba51639428723d974725599fb8133", null ],
     [ "mutex_wait_total", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a2d349081ac8d80ad6d07d9b669be8968", null ],
@@ -9,6 +10,7 @@ var structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot =
     [ "pack_queue_lat_total", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a86e8aa909be9c592beafe6ea4624990c", null ],
     [ "pack_time_max", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a26e7f6cc2a22c86b834e9409ae50faf3", null ],
     [ "pack_time_total", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a091ec7dc808cf9d8467c017358630348", null ],
+    [ "read_bytes", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#aa0d31ab1f49e00bc96f9cbbe041cdec9", null ],
     [ "thread_dequeues", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#aa5bbbc565dfc857bdb8807d3426b6cd8", null ],
     [ "thread_enqueue_uploads", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a0e15a469efaf7d6526f35de3757b0221", null ],
     [ "thread_snapshots", "structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#a3267007ad9f4b1d074ef2e172d69e270", null ],

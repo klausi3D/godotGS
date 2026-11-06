@@ -93,6 +93,11 @@ $(function(){initNavTree('structStreamingUploadPipeline_1_1PackTelemetry.html','
 <div class="contents">
 
 <p><code>#include &lt;<a class="el" href="streaming__upload__pipeline_8h_source.html">streaming_upload_pipeline.h</a>&gt;</code></p>
+<div class="dynheader">
+Collaboration diagram for StreamingUploadPipeline::PackTelemetry:</div>
+<div class="dyncontent">
+<div class="center"><img src="structStreamingUploadPipeline_1_1PackTelemetry__coll__graph.png" border="0" usemap="#aStreamingUploadPipeline_1_1PackTelemetry_coll__map" loading="lazy" alt="Collaboration graph"/></div>
+<center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
@@ -100,24 +105,80 @@ Classes</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:a5934d43e105e3eac48d0b2318229172c" id="r_a5934d43e105e3eac48d0b2318229172c"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5934d43e105e3eac48d0b2318229172c">is_enabled</a> () const</td></tr>
-<tr class="memitem:ac1fed15db4ca2691492cb07b57084a59" id="r_ac1fed15db4ca2691492cb07b57084a59"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1fed15db4ca2691492cb07b57084a59">set_enabled</a> (bool)</td></tr>
-<tr class="memitem:ad09c3fb7b92507e5a6b243e112a27b28" id="r_ad09c3fb7b92507e5a6b243e112a27b28"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad09c3fb7b92507e5a6b243e112a27b28">add_pack_time</a> (uint64_t)</td></tr>
-<tr class="memitem:ac14fbf5fcf655f1503cb12ba926e48cf" id="r_ac14fbf5fcf655f1503cb12ba926e48cf"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac14fbf5fcf655f1503cb12ba926e48cf">add_upload_bytes</a> (uint64_t)</td></tr>
+<tr class="memitem:af4fa03a7dc907383a31cf76f29311316" id="r_af4fa03a7dc907383a31cf76f29311316"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af4fa03a7dc907383a31cf76f29311316">add_pack_time</a> (uint64_t p_usec)</td></tr>
+<tr class="memitem:ae417ead2b9a4c96cd62f928a3ab13964" id="r_ae417ead2b9a4c96cd62f928a3ab13964"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae417ead2b9a4c96cd62f928a3ab13964">add_read</a> (uint64_t p_bytes, uint64_t p_usec)</td></tr>
+<tr class="memitem:a278cac0a3f60ca889c8fc2fa40ea03f0" id="r_a278cac0a3f60ca889c8fc2fa40ea03f0"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a278cac0a3f60ca889c8fc2fa40ea03f0">add_decode</a> (uint64_t p_bytes, uint64_t p_usec)</td></tr>
+<tr class="memitem:a9d9c8e5cc74ae45e75ec94012571f207" id="r_a9d9c8e5cc74ae45e75ec94012571f207"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d9c8e5cc74ae45e75ec94012571f207">add_upload_bytes</a> (uint64_t p_bytes)</td></tr>
 <tr class="memitem:a11aaab0010d214c0d618a6b1ee6203b4" id="r_a11aaab0010d214c0d618a6b1ee6203b4"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a11aaab0010d214c0d618a6b1ee6203b4">add_upload_chunk</a> ()</td></tr>
-<tr class="memitem:a9d92180e24d6024c2d9e5bcc846a1e70" id="r_a9d92180e24d6024c2d9e5bcc846a1e70"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d92180e24d6024c2d9e5bcc846a1e70">add_pack_queue_latency</a> (uint64_t)</td></tr>
-<tr class="memitem:a76c63bcd39480ea781b129d5b1285ee3" id="r_a76c63bcd39480ea781b129d5b1285ee3"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a76c63bcd39480ea781b129d5b1285ee3">add_upload_queue_latency</a> (uint64_t)</td></tr>
-<tr class="memitem:ae402754fe1507bc283788f2baf0fa383" id="r_ae402754fe1507bc283788f2baf0fa383"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae402754fe1507bc283788f2baf0fa383">add_mutex_wait</a> (uint64_t)</td></tr>
+<tr class="memitem:a2ff7b1314ee22c2f3341a86d492b16fd" id="r_a2ff7b1314ee22c2f3341a86d492b16fd"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ff7b1314ee22c2f3341a86d492b16fd">add_pack_queue_latency</a> (uint64_t p_usec)</td></tr>
+<tr class="memitem:ae6ac613cd7103093334f55ea05bd4bb3" id="r_ae6ac613cd7103093334f55ea05bd4bb3"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae6ac613cd7103093334f55ea05bd4bb3">add_upload_queue_latency</a> (uint64_t p_usec)</td></tr>
+<tr class="memitem:a0e4e06bee44f0eb142fea4e2c1accd6a" id="r_a0e4e06bee44f0eb142fea4e2c1accd6a"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e4e06bee44f0eb142fea4e2c1accd6a">add_mutex_wait</a> (uint64_t p_usec)</td></tr>
 <tr class="memitem:a64bd57d0401d3a75ad7c301b5de616c5" id="r_a64bd57d0401d3a75ad7c301b5de616c5"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a64bd57d0401d3a75ad7c301b5de616c5">record_pack_thread_wake</a> ()</td></tr>
-<tr class="memitem:a0449df07fd091916bcfbbdd499c06af4" id="r_a0449df07fd091916bcfbbdd499c06af4"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0449df07fd091916bcfbbdd499c06af4">record_pack_thread_dequeue</a> (uint32_t)</td></tr>
+<tr class="memitem:aa148162b8c64faec2d2378ab244fa4ec" id="r_aa148162b8c64faec2d2378ab244fa4ec"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa148162b8c64faec2d2378ab244fa4ec">record_pack_thread_dequeue</a> (uint32_t p_count)</td></tr>
 <tr class="memitem:a35c5ad12273096fbb3ae79fd3fd4cc3d" id="r_a35c5ad12273096fbb3ae79fd3fd4cc3d"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a35c5ad12273096fbb3ae79fd3fd4cc3d">record_pack_thread_snapshot</a> ()</td></tr>
 <tr class="memitem:a54f7ca3a2ee13462bb24a0323178fbfb" id="r_a54f7ca3a2ee13462bb24a0323178fbfb"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a54f7ca3a2ee13462bb24a0323178fbfb">record_pack_thread_enqueue_upload</a> ()</td></tr>
-<tr class="memitem:a0b23e79f04c827aaa8273ee3f777b2e0" id="r_a0b23e79f04c827aaa8273ee3f777b2e0"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ <a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">Snapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0b23e79f04c827aaa8273ee3f777b2e0">exchange_and_reset</a> ()</td></tr>
-<tr class="memitem:aa5712daa6f46519cba9da361fe06b629" id="r_aa5712daa6f46519cba9da361fe06b629"><td class="memItemLeft" align="right" valign="top">_ALWAYS_INLINE_ <a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">Snapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa5712daa6f46519cba9da361fe06b629">read_current</a> () const</td></tr>
+<tr class="memitem:a8363c6c694658359f251ab953059f306" id="r_a8363c6c694658359f251ab953059f306"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">Snapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8363c6c694658359f251ab953059f306">exchange_and_reset</a> ()</td></tr>
+<tr class="memitem:ac4c3537d37cc24446df9fedefb517b91" id="r_ac4c3537d37cc24446df9fedefb517b91"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">Snapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac4c3537d37cc24446df9fedefb517b91">read_current</a> () const</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
+Public Attributes</h2></td></tr>
+<tr class="memitem:a2db9b8e00160b401d985ee42cbb731e5" id="r_a2db9b8e00160b401d985ee42cbb731e5"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2db9b8e00160b401d985ee42cbb731e5">pack_time_usec_total</a></td></tr>
+<tr class="memitem:af59bf65115b78ae84070ae984ede85d3" id="r_af59bf65115b78ae84070ae984ede85d3"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af59bf65115b78ae84070ae984ede85d3">pack_time_usec_max</a></td></tr>
+<tr class="memitem:aa460692a988c596bf78b9b28acf58492" id="r_aa460692a988c596bf78b9b28acf58492"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa460692a988c596bf78b9b28acf58492">pack_jobs_completed</a></td></tr>
+<tr class="memitem:a60e8f21e46f329ed6032b38691a387cc" id="r_a60e8f21e46f329ed6032b38691a387cc"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a60e8f21e46f329ed6032b38691a387cc">upload_bytes_total</a></td></tr>
+<tr class="memitem:a5773a3dcc0e04c501d5a85fe34dbbcdf" id="r_a5773a3dcc0e04c501d5a85fe34dbbcdf"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5773a3dcc0e04c501d5a85fe34dbbcdf">upload_chunks_completed</a></td></tr>
+<tr class="memitem:a566e7bdd2675fba527e67e44201148c9" id="r_a566e7bdd2675fba527e67e44201148c9"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a566e7bdd2675fba527e67e44201148c9">read_bytes_total</a></td></tr>
+<tr class="memitem:a3947ffea31e629d9decfdbdcafb93ffb" id="r_a3947ffea31e629d9decfdbdcafb93ffb"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3947ffea31e629d9decfdbdcafb93ffb">decode_bytes_total</a></td></tr>
+<tr class="memitem:a8e2263916e47bb2f13468103822102be" id="r_a8e2263916e47bb2f13468103822102be"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8e2263916e47bb2f13468103822102be">pack_queue_latency_usec_total</a></td></tr>
+<tr class="memitem:acfc9973a69768d45284cc78ea950c96a" id="r_acfc9973a69768d45284cc78ea950c96a"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acfc9973a69768d45284cc78ea950c96a">pack_queue_latency_usec_max</a></td></tr>
+<tr class="memitem:ada0722b499e2b02deaad46e696fe8d9e" id="r_ada0722b499e2b02deaad46e696fe8d9e"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ada0722b499e2b02deaad46e696fe8d9e">pack_queue_latency_samples</a></td></tr>
+<tr class="memitem:a22c5c51be15f16b5b2b77a00656c61aa" id="r_a22c5c51be15f16b5b2b77a00656c61aa"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a22c5c51be15f16b5b2b77a00656c61aa">upload_queue_latency_usec_total</a></td></tr>
+<tr class="memitem:a27b398636ef876a0083ec2f46d3aab52" id="r_a27b398636ef876a0083ec2f46d3aab52"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a27b398636ef876a0083ec2f46d3aab52">upload_queue_latency_usec_max</a></td></tr>
+<tr class="memitem:a7bd42bbbe6430a23db8018744475494c" id="r_a7bd42bbbe6430a23db8018744475494c"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7bd42bbbe6430a23db8018744475494c">upload_queue_latency_samples</a></td></tr>
+<tr class="memitem:a53871ab2e7d93a5b88ebb9a2901dc325" id="r_a53871ab2e7d93a5b88ebb9a2901dc325"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a53871ab2e7d93a5b88ebb9a2901dc325">pack_mutex_wait_usec_total</a></td></tr>
+<tr class="memitem:a11013984c4829ce499f1e4db3071c224" id="r_a11013984c4829ce499f1e4db3071c224"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a11013984c4829ce499f1e4db3071c224">pack_mutex_wait_usec_max</a></td></tr>
+<tr class="memitem:a06a50a7467013cbde8cd2f24cffc0f93" id="r_a06a50a7467013cbde8cd2f24cffc0f93"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a06a50a7467013cbde8cd2f24cffc0f93">pack_mutex_wait_samples</a></td></tr>
+<tr class="memitem:a6006b026a6fe4b0a91158ac69a973b6b" id="r_a6006b026a6fe4b0a91158ac69a973b6b"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6006b026a6fe4b0a91158ac69a973b6b">pack_thread_wake_count</a></td></tr>
+<tr class="memitem:a82e619ec9feca4ad61f432c85e444bc7" id="r_a82e619ec9feca4ad61f432c85e444bc7"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a82e619ec9feca4ad61f432c85e444bc7">pack_thread_dequeue_count</a></td></tr>
+<tr class="memitem:aee6376cb9f87d32671da26f253aa2751" id="r_aee6376cb9f87d32671da26f253aa2751"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aee6376cb9f87d32671da26f253aa2751">pack_thread_snapshot_count</a></td></tr>
+<tr class="memitem:a0b29ba6b605c52463a242ece7ac28a32" id="r_a0b29ba6b605c52463a242ece7ac28a32"><td class="memItemLeft" align="right" valign="top">SafeNumeric&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0b29ba6b605c52463a242ece7ac28a32">pack_thread_enqueue_upload_count</a></td></tr>
+<tr class="memitem:aca9840f57234bfc8ace323f7bf91333f" id="r_aca9840f57234bfc8ace323f7bf91333f"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca9840f57234bfc8ace323f7bf91333f">read_latency</a></td></tr>
+<tr class="memitem:a8936dd1c7670a7845ef0d0b94b20e726" id="r_a8936dd1c7670a7845ef0d0b94b20e726"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8936dd1c7670a7845ef0d0b94b20e726">decode_latency</a></td></tr>
+<tr class="memitem:aa075dfd875c89e368783d372b1bae580" id="r_aa075dfd875c89e368783d372b1bae580"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa075dfd875c89e368783d372b1bae580">pack_latency</a></td></tr>
+<tr class="memitem:a6515f94313a9013d5d156591b9c00a9c" id="r_a6515f94313a9013d5d156591b9c00a9c"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6515f94313a9013d5d156591b9c00a9c">upload_latency</a></td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
-<a id="ae402754fe1507bc283788f2baf0fa383" name="ae402754fe1507bc283788f2baf0fa383"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae402754fe1507bc283788f2baf0fa383">&#9670;&#160;</a></span>add_mutex_wait()</h2>
+<a id="a278cac0a3f60ca889c8fc2fa40ea03f0" name="a278cac0a3f60ca889c8fc2fa40ea03f0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a278cac0a3f60ca889c8fc2fa40ea03f0">&#9670;&#160;</a></span>add_decode()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_decode </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_usec</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0e4e06bee44f0eb142fea4e2c1accd6a" name="a0e4e06bee44f0eb142fea4e2c1accd6a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0e4e06bee44f0eb142fea4e2c1accd6a">&#9670;&#160;</a></span>add_mutex_wait()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -128,7 +189,7 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_mutex_wait </td>
           <td>(</td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_usec</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -141,8 +202,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a9d92180e24d6024c2d9e5bcc846a1e70" name="a9d92180e24d6024c2d9e5bcc846a1e70"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9d92180e24d6024c2d9e5bcc846a1e70">&#9670;&#160;</a></span>add_pack_queue_latency()</h2>
+<a id="a2ff7b1314ee22c2f3341a86d492b16fd" name="a2ff7b1314ee22c2f3341a86d492b16fd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2ff7b1314ee22c2f3341a86d492b16fd">&#9670;&#160;</a></span>add_pack_queue_latency()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -153,7 +214,7 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_pack_queue_latency </td>
           <td>(</td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_usec</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -166,8 +227,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ad09c3fb7b92507e5a6b243e112a27b28" name="ad09c3fb7b92507e5a6b243e112a27b28"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad09c3fb7b92507e5a6b243e112a27b28">&#9670;&#160;</a></span>add_pack_time()</h2>
+<a id="af4fa03a7dc907383a31cf76f29311316" name="af4fa03a7dc907383a31cf76f29311316"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af4fa03a7dc907383a31cf76f29311316">&#9670;&#160;</a></span>add_pack_time()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -178,7 +239,7 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_pack_time </td>
           <td>(</td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_usec</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -191,8 +252,37 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ac14fbf5fcf655f1503cb12ba926e48cf" name="ac14fbf5fcf655f1503cb12ba926e48cf"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac14fbf5fcf655f1503cb12ba926e48cf">&#9670;&#160;</a></span>add_upload_bytes()</h2>
+<a id="ae417ead2b9a4c96cd62f928a3ab13964" name="ae417ead2b9a4c96cd62f928a3ab13964"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae417ead2b9a4c96cd62f928a3ab13964">&#9670;&#160;</a></span>add_read()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_read </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_usec</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9d9c8e5cc74ae45e75ec94012571f207" name="a9d9c8e5cc74ae45e75ec94012571f207"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9d9c8e5cc74ae45e75ec94012571f207">&#9670;&#160;</a></span>add_upload_bytes()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -203,7 +293,7 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_upload_bytes </td>
           <td>(</td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -241,8 +331,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a76c63bcd39480ea781b129d5b1285ee3" name="a76c63bcd39480ea781b129d5b1285ee3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a76c63bcd39480ea781b129d5b1285ee3">&#9670;&#160;</a></span>add_upload_queue_latency()</h2>
+<a id="ae6ac613cd7103093334f55ea05bd4bb3" name="ae6ac613cd7103093334f55ea05bd4bb3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae6ac613cd7103093334f55ea05bd4bb3">&#9670;&#160;</a></span>add_upload_queue_latency()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -253,7 +343,7 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::add_upload_queue_latency </td>
           <td>(</td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_usec</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -266,83 +356,42 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a0b23e79f04c827aaa8273ee3f777b2e0" name="a0b23e79f04c827aaa8273ee3f777b2e0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a0b23e79f04c827aaa8273ee3f777b2e0">&#9670;&#160;</a></span>exchange_and_reset()</h2>
+<a id="a8363c6c694658359f251ab953059f306" name="a8363c6c694658359f251ab953059f306"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8363c6c694658359f251ab953059f306">&#9670;&#160;</a></span>exchange_and_reset()</h2>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">_ALWAYS_INLINE_ <a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">Snapshot</a> StreamingUploadPipeline::PackTelemetry::exchange_and_reset </td>
+          <td class="memname"><a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">StreamingUploadPipeline::PackTelemetry::Snapshot</a> StreamingUploadPipeline::PackTelemetry::exchange_and_reset </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 
 </div>
 </div>
-<a id="a5934d43e105e3eac48d0b2318229172c" name="a5934d43e105e3eac48d0b2318229172c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5934d43e105e3eac48d0b2318229172c">&#9670;&#160;</a></span>is_enabled()</h2>
+<a id="ac4c3537d37cc24446df9fedefb517b91" name="ac4c3537d37cc24446df9fedefb517b91"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac4c3537d37cc24446df9fedefb517b91">&#9670;&#160;</a></span>read_current()</h2>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">_ALWAYS_INLINE_ bool StreamingUploadPipeline::PackTelemetry::is_enabled </td>
+          <td class="memname"><a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">StreamingUploadPipeline::PackTelemetry::Snapshot</a> StreamingUploadPipeline::PackTelemetry::read_current </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 
 </div>
 </div>
-<a id="aa5712daa6f46519cba9da361fe06b629" name="aa5712daa6f46519cba9da361fe06b629"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa5712daa6f46519cba9da361fe06b629">&#9670;&#160;</a></span>read_current()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">_ALWAYS_INLINE_ <a class="el" href="structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html">Snapshot</a> StreamingUploadPipeline::PackTelemetry::read_current </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a0449df07fd091916bcfbbdd499c06af4" name="a0449df07fd091916bcfbbdd499c06af4"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a0449df07fd091916bcfbbdd499c06af4">&#9670;&#160;</a></span>record_pack_thread_dequeue()</h2>
+<a id="aa148162b8c64faec2d2378ab244fa4ec" name="aa148162b8c64faec2d2378ab244fa4ec"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa148162b8c64faec2d2378ab244fa4ec">&#9670;&#160;</a></span>record_pack_thread_dequeue()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -353,7 +402,7 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::record_pack_thread_dequeue </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -441,33 +490,346 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ac1fed15db4ca2691492cb07b57084a59" name="ac1fed15db4ca2691492cb07b57084a59"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac1fed15db4ca2691492cb07b57084a59">&#9670;&#160;</a></span>set_enabled()</h2>
+<a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="a3947ffea31e629d9decfdbdcafb93ffb" name="a3947ffea31e629d9decfdbdcafb93ffb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3947ffea31e629d9decfdbdcafb93ffb">&#9670;&#160;</a></span>decode_bytes_total</h2>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">_ALWAYS_INLINE_ void StreamingUploadPipeline::PackTelemetry::set_enabled </td>
-          <td>(</td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td></td>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::decode_bytes_total</td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 
 </div>
 </div>
-<hr/>The documentation for this struct was generated from the following file:<ul>
+<a id="a8936dd1c7670a7845ef0d0b94b20e726" name="a8936dd1c7670a7845ef0d0b94b20e726"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8936dd1c7670a7845ef0d0b94b20e726">&#9670;&#160;</a></span>decode_latency</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a> StreamingUploadPipeline::PackTelemetry::decode_latency</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa460692a988c596bf78b9b28acf58492" name="aa460692a988c596bf78b9b28acf58492"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa460692a988c596bf78b9b28acf58492">&#9670;&#160;</a></span>pack_jobs_completed</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_jobs_completed</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa075dfd875c89e368783d372b1bae580" name="aa075dfd875c89e368783d372b1bae580"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa075dfd875c89e368783d372b1bae580">&#9670;&#160;</a></span>pack_latency</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a> StreamingUploadPipeline::PackTelemetry::pack_latency</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a06a50a7467013cbde8cd2f24cffc0f93" name="a06a50a7467013cbde8cd2f24cffc0f93"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a06a50a7467013cbde8cd2f24cffc0f93">&#9670;&#160;</a></span>pack_mutex_wait_samples</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_mutex_wait_samples</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a11013984c4829ce499f1e4db3071c224" name="a11013984c4829ce499f1e4db3071c224"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a11013984c4829ce499f1e4db3071c224">&#9670;&#160;</a></span>pack_mutex_wait_usec_max</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::pack_mutex_wait_usec_max</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a53871ab2e7d93a5b88ebb9a2901dc325" name="a53871ab2e7d93a5b88ebb9a2901dc325"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a53871ab2e7d93a5b88ebb9a2901dc325">&#9670;&#160;</a></span>pack_mutex_wait_usec_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::pack_mutex_wait_usec_total</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ada0722b499e2b02deaad46e696fe8d9e" name="ada0722b499e2b02deaad46e696fe8d9e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ada0722b499e2b02deaad46e696fe8d9e">&#9670;&#160;</a></span>pack_queue_latency_samples</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_queue_latency_samples</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acfc9973a69768d45284cc78ea950c96a" name="acfc9973a69768d45284cc78ea950c96a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acfc9973a69768d45284cc78ea950c96a">&#9670;&#160;</a></span>pack_queue_latency_usec_max</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::pack_queue_latency_usec_max</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8e2263916e47bb2f13468103822102be" name="a8e2263916e47bb2f13468103822102be"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8e2263916e47bb2f13468103822102be">&#9670;&#160;</a></span>pack_queue_latency_usec_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::pack_queue_latency_usec_total</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a82e619ec9feca4ad61f432c85e444bc7" name="a82e619ec9feca4ad61f432c85e444bc7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a82e619ec9feca4ad61f432c85e444bc7">&#9670;&#160;</a></span>pack_thread_dequeue_count</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_thread_dequeue_count</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0b29ba6b605c52463a242ece7ac28a32" name="a0b29ba6b605c52463a242ece7ac28a32"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0b29ba6b605c52463a242ece7ac28a32">&#9670;&#160;</a></span>pack_thread_enqueue_upload_count</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_thread_enqueue_upload_count</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aee6376cb9f87d32671da26f253aa2751" name="aee6376cb9f87d32671da26f253aa2751"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aee6376cb9f87d32671da26f253aa2751">&#9670;&#160;</a></span>pack_thread_snapshot_count</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_thread_snapshot_count</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6006b026a6fe4b0a91158ac69a973b6b" name="a6006b026a6fe4b0a91158ac69a973b6b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6006b026a6fe4b0a91158ac69a973b6b">&#9670;&#160;</a></span>pack_thread_wake_count</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::pack_thread_wake_count</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af59bf65115b78ae84070ae984ede85d3" name="af59bf65115b78ae84070ae984ede85d3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af59bf65115b78ae84070ae984ede85d3">&#9670;&#160;</a></span>pack_time_usec_max</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::pack_time_usec_max</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2db9b8e00160b401d985ee42cbb731e5" name="a2db9b8e00160b401d985ee42cbb731e5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2db9b8e00160b401d985ee42cbb731e5">&#9670;&#160;</a></span>pack_time_usec_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::pack_time_usec_total</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a566e7bdd2675fba527e67e44201148c9" name="a566e7bdd2675fba527e67e44201148c9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a566e7bdd2675fba527e67e44201148c9">&#9670;&#160;</a></span>read_bytes_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::read_bytes_total</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aca9840f57234bfc8ace323f7bf91333f" name="aca9840f57234bfc8ace323f7bf91333f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aca9840f57234bfc8ace323f7bf91333f">&#9670;&#160;</a></span>read_latency</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a> StreamingUploadPipeline::PackTelemetry::read_latency</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a60e8f21e46f329ed6032b38691a387cc" name="a60e8f21e46f329ed6032b38691a387cc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a60e8f21e46f329ed6032b38691a387cc">&#9670;&#160;</a></span>upload_bytes_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::upload_bytes_total</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5773a3dcc0e04c501d5a85fe34dbbcdf" name="a5773a3dcc0e04c501d5a85fe34dbbcdf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5773a3dcc0e04c501d5a85fe34dbbcdf">&#9670;&#160;</a></span>upload_chunks_completed</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::upload_chunks_completed</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6515f94313a9013d5d156591b9c00a9c" name="a6515f94313a9013d5d156591b9c00a9c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6515f94313a9013d5d156591b9c00a9c">&#9670;&#160;</a></span>upload_latency</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structStreamingLatencyHistogram.html">StreamingLatencyHistogram</a> StreamingUploadPipeline::PackTelemetry::upload_latency</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7bd42bbbe6430a23db8018744475494c" name="a7bd42bbbe6430a23db8018744475494c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7bd42bbbe6430a23db8018744475494c">&#9670;&#160;</a></span>upload_queue_latency_samples</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint32_t&gt; StreamingUploadPipeline::PackTelemetry::upload_queue_latency_samples</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a27b398636ef876a0083ec2f46d3aab52" name="a27b398636ef876a0083ec2f46d3aab52"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a27b398636ef876a0083ec2f46d3aab52">&#9670;&#160;</a></span>upload_queue_latency_usec_max</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::upload_queue_latency_usec_max</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a22c5c51be15f16b5b2b77a00656c61aa" name="a22c5c51be15f16b5b2b77a00656c61aa"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a22c5c51be15f16b5b2b77a00656c61aa">&#9670;&#160;</a></span>upload_queue_latency_usec_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">SafeNumeric&lt;uint64_t&gt; StreamingUploadPipeline::PackTelemetry::upload_queue_latency_usec_total</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<hr/>The documentation for this struct was generated from the following files:<ul>
 <li><a class="el" href="streaming__upload__pipeline_8h_source.html">streaming_upload_pipeline.h</a></li>
+<li><a class="el" href="streaming__upload__pipeline_8cpp.html">streaming_upload_pipeline.cpp</a></li>
 </ul>
 </div><!-- contents -->
 </div><!-- doc-content -->

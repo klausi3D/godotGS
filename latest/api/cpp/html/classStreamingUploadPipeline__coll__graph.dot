@@ -9,7 +9,13 @@ digraph "StreamingUploadPipeline"
   Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">telemetry</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node2 [id="Node000002",label="StreamingUploadPipeline\l::PackTelemetry",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structStreamingUploadPipeline_1_1PackTelemetry.html",tooltip=" "];
-  Node3 -> Node1 [id="edge2_Node000001_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sync_pack_scratch</TD></TR>
+  Node3 -> Node2 [id="edge2_Node000002_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">decode_latency</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pack_latency</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">read_latency</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">upload_latency</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node3 [id="Node000003",label="StreamingUploadPipeline\l::PackSnapshotScratch",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structStreamingUploadPipeline_1_1PackSnapshotScratch.html",tooltip=" "];
+  Node3 [id="Node000003",label="StreamingLatencyHistogram",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structStreamingLatencyHistogram.html",tooltip=" "];
+  Node4 -> Node1 [id="edge3_Node000001_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sync_pack_scratch</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node4 [id="Node000004",label="StreamingUploadPipeline\l::PackSnapshotScratch",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structStreamingUploadPipeline_1_1PackSnapshotScratch.html",tooltip=" "];
 }

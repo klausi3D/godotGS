@@ -173,18 +173,18 @@ digraph "streaming_layout_hint.cpp"
   Node2 -> Node20 [id="edge121_Node000002_Node000020",color="steelblue1",style="solid",tooltip=" "];
   Node2 -> Node27 [id="edge122_Node000002_Node000027",color="steelblue1",style="solid",tooltip=" "];
   Node2 -> Node32 [id="edge123_Node000002_Node000032",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node69 [id="edge124_Node000001_Node000069",color="steelblue1",style="solid",tooltip=" "];
-  Node69 [id="Node000069",label="gs_project_settings.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__project__settings_8h.html",tooltip="Shared ProjectSettings helper utilities for the Gaussian Splatting module."];
-  Node69 -> Node54 [id="edge125_Node000069_Node000054",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node71 [id="edge124_Node000001_Node000071",color="steelblue1",style="solid",tooltip=" "];
+  Node71 [id="Node000071",label="gs_project_settings.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__project__settings_8h.html",tooltip="Shared ProjectSettings helper utilities for the Gaussian Splatting module."];
+  Node71 -> Node54 [id="edge125_Node000071_Node000054",color="steelblue1",style="solid",tooltip=" "];
   Node54 [id="Node000054",label="core/config/project\l_settings.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node69 -> Node70 [id="edge126_Node000069_Node000070",color="steelblue1",style="solid",tooltip=" "];
-  Node70 [id="Node000070",label="core/error/error_macros.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node69 -> Node55 [id="edge127_Node000069_Node000055",color="steelblue1",style="solid",tooltip=" "];
-  Node69 -> Node16 [id="edge128_Node000069_Node000016",color="steelblue1",style="solid",tooltip=" "];
-  Node69 -> Node10 [id="edge129_Node000069_Node000010",color="steelblue1",style="solid",tooltip=" "];
+  Node71 -> Node72 [id="edge126_Node000071_Node000072",color="steelblue1",style="solid",tooltip=" "];
+  Node72 [id="Node000072",label="core/error/error_macros.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node71 -> Node55 [id="edge127_Node000071_Node000055",color="steelblue1",style="solid",tooltip=" "];
+  Node71 -> Node16 [id="edge128_Node000071_Node000016",color="steelblue1",style="solid",tooltip=" "];
+  Node71 -> Node10 [id="edge129_Node000071_Node000010",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node54 [id="edge130_Node000001_Node000054",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node29 [id="edge131_Node000001_Node000029",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node71 [id="edge132_Node000001_Node000071",color="steelblue1",style="solid",tooltip=" "];
-  Node71 [id="Node000071",label="algorithm",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node73 [id="edge132_Node000001_Node000073",color="steelblue1",style="solid",tooltip=" "];
+  Node73 [id="Node000073",label="algorithm",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node1 -> Node32 [id="edge133_Node000001_Node000032",color="steelblue1",style="solid",tooltip=" "];
 }

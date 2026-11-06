@@ -173,12 +173,12 @@ digraph "streaming_atlas.cpp"
   Node67 -> Node30 [id="edge119_Node000067_Node000030",color="steelblue1",style="solid",tooltip=" "];
   Node67 -> Node50 [id="edge120_Node000067_Node000050",color="steelblue1",style="solid",tooltip=" "];
   Node67 -> Node8 [id="edge121_Node000067_Node000008",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node68 [id="edge122_Node000001_Node000068",color="steelblue1",style="solid",tooltip=" "];
-  Node68 [id="Node000068",label="../logger/gs_debug\l_trace.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__debug__trace_8h.html",tooltip=" "];
-  Node68 -> Node20 [id="edge123_Node000068_Node000020",color="steelblue1",style="solid",tooltip=" "];
-  Node68 -> Node69 [id="edge124_Node000068_Node000069",color="steelblue1",style="solid",tooltip=" "];
-  Node69 [id="Node000069",label="core/typedefs.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node68 -> Node30 [id="edge125_Node000068_Node000030",color="steelblue1",style="solid",tooltip=" "];
-  Node68 -> Node13 [id="edge126_Node000068_Node000013",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node70 [id="edge122_Node000001_Node000070",color="steelblue1",style="solid",tooltip=" "];
+  Node70 [id="Node000070",label="../logger/gs_debug\l_trace.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__debug__trace_8h.html",tooltip=" "];
+  Node70 -> Node20 [id="edge123_Node000070_Node000020",color="steelblue1",style="solid",tooltip=" "];
+  Node70 -> Node71 [id="edge124_Node000070_Node000071",color="steelblue1",style="solid",tooltip=" "];
+  Node71 [id="Node000071",label="core/typedefs.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node70 -> Node30 [id="edge125_Node000070_Node000030",color="steelblue1",style="solid",tooltip=" "];
+  Node70 -> Node13 [id="edge126_Node000070_Node000013",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node5 [id="edge127_Node000001_Node000005",color="steelblue1",style="solid",tooltip=" "];
 }

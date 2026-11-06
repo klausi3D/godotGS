@@ -9,6 +9,8 @@ var dir_7647312eaffe3fbde22451c27808fddd =
     [ "gaussian_splat_world_io.h", "gaussian__splat__world__io_8h.html", "gaussian__splat__world__io_8h" ],
     [ "gaussian_splat_world_paged.cpp", "gaussian__splat__world__paged_8cpp.html", "gaussian__splat__world__paged_8cpp" ],
     [ "gaussian_splat_world_paged.h", "gaussian__splat__world__paged_8h.html", "gaussian__splat__world__paged_8h" ],
+    [ "gs_atomic_file_transaction.cpp", "gs__atomic__file__transaction_8cpp.html", null ],
+    [ "gs_atomic_file_transaction.h", "gs__atomic__file__transaction_8h.html", "gs__atomic__file__transaction_8h" ],
     [ "gs_atomic_file_writer.cpp", "gs__atomic__file__writer_8cpp.html", "gs__atomic__file__writer_8cpp" ],
     [ "gs_atomic_file_writer.h", "gs__atomic__file__writer_8h.html", "gs__atomic__file__writer_8h" ],
     [ "i_gaussian_loader.cpp", "i__gaussian__loader_8cpp.html", null ],

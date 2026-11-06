@@ -93,7 +93,21 @@ $(function(){initNavTree('structGaussianStreamingTypes_1_1DiagnosticsState.html'
 <div class="contents">
 
 <p><code>#include &lt;<a class="el" href="streaming__runtime__state_8h_source.html">streaming_runtime_state.h</a>&gt;</code></p>
+<div class="dynheader">
+Collaboration diagram for GaussianStreamingTypes::DiagnosticsState:</div>
+<div class="dyncontent">
+<div class="center"><img src="structGaussianStreamingTypes_1_1DiagnosticsState__coll__graph.png" border="0" usemap="#aGaussianStreamingTypes_1_1DiagnosticsState_coll__map" loading="lazy" alt="Collaboration graph"/></div>
+<center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
+Classes</h2></td></tr>
+<tr class="memitem:EffectiveSettingsSample" id="r_EffectiveSettingsSample"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html">EffectiveSettingsSample</a></td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
+Public Member Functions</h2></td></tr>
+<tr class="memitem:aa4d586fb285612cb70ec1c56ff2af4f5" id="r_aa4d586fb285612cb70ec1c56ff2af4f5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4d586fb285612cb70ec1c56ff2af4f5">update_upload_stall_wall_clock</a> (bool p_upload_stalled, uint64_t p_now_usec)</td></tr>
+<tr class="memitem:aea70436af27e876f65efcd40c1a0d029" id="r_aea70436af27e876f65efcd40c1a0d029"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aea70436af27e876f65efcd40c1a0d029">observe_effective_settings</a> (const <a class="el" href="structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html">EffectiveSettingsSample</a> &amp;p_sample)</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
 <tr class="memitem:a4f149936a769c6656d40d03f11bb9c4f" id="r_a4f149936a769c6656d40d03f11bb9c4f"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f149936a769c6656d40d03f11bb9c4f">init_invalid_frames</a> = 0</td></tr>
@@ -125,6 +139,11 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a814c85cc81bb9eeef88d44252c3fee05" id="r_a814c85cc81bb9eeef88d44252c3fee05"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a814c85cc81bb9eeef88d44252c3fee05">last_fingerprint_log_frame</a> = 0</td></tr>
 <tr class="memitem:a71d84cb3b65fa8c19236f7181baafb6b" id="r_a71d84cb3b65fa8c19236f7181baafb6b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a71d84cb3b65fa8c19236f7181baafb6b">sustained_pressure_frames</a> = 0</td></tr>
 <tr class="memitem:a6e57c83c2fcee859dca3836efe9a7488" id="r_a6e57c83c2fcee859dca3836efe9a7488"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6e57c83c2fcee859dca3836efe9a7488">pressure_category</a> = &quot;none&quot;</td></tr>
+<tr class="memitem:ac85edb38e82b739e5ecacc89f0b74d01" id="r_ac85edb38e82b739e5ecacc89f0b74d01"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac85edb38e82b739e5ecacc89f0b74d01">upload_stall_start_usec</a> = 0</td></tr>
+<tr class="memitem:a16067fd4171c197e03704ebff6e6bcfa" id="r_a16067fd4171c197e03704ebff6e6bcfa"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a16067fd4171c197e03704ebff6e6bcfa">upload_stall_wall_usec</a> = 0</td></tr>
+<tr class="memitem:abb82da67a058607b86e71baceb264e95" id="r_abb82da67a058607b86e71baceb264e95"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html">EffectiveSettingsSample</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb82da67a058607b86e71baceb264e95">last_effective_settings</a></td></tr>
+<tr class="memitem:a6cb9fff500b1ac5aae86fc5f9d338850" id="r_a6cb9fff500b1ac5aae86fc5f9d338850"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6cb9fff500b1ac5aae86fc5f9d338850">effective_settings_sampled</a> = false</td></tr>
+<tr class="memitem:a7d4a1728479ca9bbfd6fef3758bd675a" id="r_a7d4a1728479ca9bbfd6fef3758bd675a"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7d4a1728479ca9bbfd6fef3758bd675a">effective_settings_revision</a> = 0</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
@@ -132,6 +151,61 @@ Static Public Attributes</h2></td></tr>
 <tr class="memitem:abe60cce699aea08b0ba6c6a50d040a34" id="r_abe60cce699aea08b0ba6c6a50d040a34"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe60cce699aea08b0ba6c6a50d040a34">LOG_INTERVAL_FRAMES</a> = 120</td></tr>
 <tr class="memitem:aa2f26ba486f3ab58401b239cfe41e3a9" id="r_aa2f26ba486f3ab58401b239cfe41e3a9"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa2f26ba486f3ab58401b239cfe41e3a9">SUSTAINED_PRESSURE_COOLDOWN_FRAMES</a> = 60</td></tr>
 </table>
+<a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="aea70436af27e876f65efcd40c1a0d029" name="aea70436af27e876f65efcd40c1a0d029"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aea70436af27e876f65efcd40c1a0d029">&#9670;&#160;</a></span>observe_effective_settings()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianStreamingTypes::DiagnosticsState::observe_effective_settings </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html">EffectiveSettingsSample</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_sample</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa4d586fb285612cb70ec1c56ff2af4f5" name="aa4d586fb285612cb70ec1c56ff2af4f5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa4d586fb285612cb70ec1c56ff2af4f5">&#9670;&#160;</a></span>update_upload_stall_wall_clock()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianStreamingTypes::DiagnosticsState::update_upload_stall_wall_clock </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_upload_stalled</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_now_usec</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="a8a2e8a4c3e66c5a30af367e433a678b7" name="a8a2e8a4c3e66c5a30af367e433a678b7"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8a2e8a4c3e66c5a30af367e433a678b7">&#9670;&#160;</a></span>active_category</h2>
@@ -217,6 +291,34 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a7d4a1728479ca9bbfd6fef3758bd675a" name="a7d4a1728479ca9bbfd6fef3758bd675a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7d4a1728479ca9bbfd6fef3758bd675a">&#9670;&#160;</a></span>effective_settings_revision</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianStreamingTypes::DiagnosticsState::effective_settings_revision = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6cb9fff500b1ac5aae86fc5f9d338850" name="a6cb9fff500b1ac5aae86fc5f9d338850"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6cb9fff500b1ac5aae86fc5f9d338850">&#9670;&#160;</a></span>effective_settings_sampled</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingTypes::DiagnosticsState::effective_settings_sampled = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a4f149936a769c6656d40d03f11bb9c4f" name="a4f149936a769c6656d40d03f11bb9c4f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a4f149936a769c6656d40d03f11bb9c4f">&#9670;&#160;</a></span>init_invalid_frames</h2>
 
@@ -281,6 +383,20 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t GaussianStreamingTypes::DiagnosticsState::invariant_upload_lifecycle_violations = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abb82da67a058607b86e71baceb264e95" name="abb82da67a058607b86e71baceb264e95"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abb82da67a058607b86e71baceb264e95">&#9670;&#160;</a></span>last_effective_settings</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html">EffectiveSettingsSample</a> GaussianStreamingTypes::DiagnosticsState::last_effective_settings</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -557,6 +673,34 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianStreamingTypes::DiagnosticsState::upload_stall_frames = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac85edb38e82b739e5ecacc89f0b74d01" name="ac85edb38e82b739e5ecacc89f0b74d01"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac85edb38e82b739e5ecacc89f0b74d01">&#9670;&#160;</a></span>upload_stall_start_usec</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianStreamingTypes::DiagnosticsState::upload_stall_start_usec = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a16067fd4171c197e03704ebff6e6bcfa" name="a16067fd4171c197e03704ebff6e6bcfa"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a16067fd4171c197e03704ebff6e6bcfa">&#9670;&#160;</a></span>upload_stall_wall_usec</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianStreamingTypes::DiagnosticsState::upload_stall_wall_usec = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
