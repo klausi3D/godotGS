@@ -185,6 +185,56 @@ struct DiagnosticsState {
     static constexpr uint32_t SUSTAINED_PRESSURE_COOLDOWN_FRAMES = 60;
     uint32_t sustained_pressure_frames = 0;
     String pressure_category = "none";   // none, bandwidth_limited, residency_limited, churn, pipeline_stall, combined
+
+    // BV-04a (ADR adr-beyond-vram-worlds.md D-5): wall-clock companion of upload_stall_frames.
+    // The frame-count predicate is unchanged; this measures how long the same predicate has
+    // held in microseconds, so a gate does not depend on the frame rate.
+    uint64_t upload_stall_start_usec = 0;
+    uint64_t upload_stall_wall_usec = 0;
+
+    void update_upload_stall_wall_clock(bool p_upload_stalled, uint64_t p_now_usec) {
+        if (!p_upload_stalled) {
+            upload_stall_start_usec = 0;
+            upload_stall_wall_usec = 0;
+            return;
+        }
+        if (upload_stall_start_usec == 0) {
+            // A stall that starts this frame has lasted 0 us. A 0 timestamp (no OS) stays 0.
+            upload_stall_start_usec = p_now_usec;
+        }
+        upload_stall_wall_usec = p_now_usec >= upload_stall_start_usec ? p_now_usec - upload_stall_start_usec : 0;
+    }
+
+    // BV-04a (ADR D-6 / V7): the effective settings a measured run freezes. The revision counts
+    // end_frame() samples whose tuple differs from the previous sample's, so a reader comparing
+    // two revisions sees a change even if it was reverted between the frames it sampled.
+    struct EffectiveSettingsSample {
+        int64_t vram_budget_mb = 0;
+        uint32_t regulated_max_chunks = 0;
+        uint32_t effective_max_chunks = 0;
+        float lod_distance_multiplier = 1.0f;
+        bool auto_regulate_enabled = false;
+
+        bool operator==(const EffectiveSettingsSample &p_other) const {
+            return vram_budget_mb == p_other.vram_budget_mb &&
+                    regulated_max_chunks == p_other.regulated_max_chunks &&
+                    effective_max_chunks == p_other.effective_max_chunks &&
+                    lod_distance_multiplier == p_other.lod_distance_multiplier &&
+                    auto_regulate_enabled == p_other.auto_regulate_enabled;
+        }
+        bool operator!=(const EffectiveSettingsSample &p_other) const { return !(*this == p_other); }
+    };
+    EffectiveSettingsSample last_effective_settings;
+    bool effective_settings_sampled = false;
+    uint64_t effective_settings_revision = 0;
+
+    void observe_effective_settings(const EffectiveSettingsSample &p_sample) {
+        if (effective_settings_sampled && p_sample != last_effective_settings) {
+            effective_settings_revision++;
+        }
+        last_effective_settings = p_sample;
+        effective_settings_sampled = true;
+    }
 };
 
 struct PrimaryChunkLayoutMetrics {

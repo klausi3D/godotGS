@@ -159,8 +159,6 @@ bool _chunk_slot_matches_allocator(const GaussianAtlasAllocator &p_allocator, ui
 }
 } // namespace
 
-#ifdef DEV_ENABLED
-
 StreamingUploadPipeline::PackTelemetry::Snapshot
 StreamingUploadPipeline::PackTelemetry::exchange_and_reset() {
     Snapshot s;
@@ -177,6 +175,10 @@ StreamingUploadPipeline::PackTelemetry::exchange_and_reset() {
     upload_bytes_total.set(0);
     s.upload_chunks = upload_chunks_completed.get();
     upload_chunks_completed.set(0);
+    s.read_bytes = read_bytes_total.get();
+    read_bytes_total.set(0);
+    s.decode_bytes = decode_bytes_total.get();
+    decode_bytes_total.set(0);
     s.pack_queue_lat_total = pack_queue_latency_usec_total.get();
     pack_queue_latency_usec_total.set(0);
     s.pack_queue_lat_max = pack_queue_latency_usec_max.get();
@@ -214,6 +216,8 @@ StreamingUploadPipeline::PackTelemetry::read_current() const {
     s.pack_jobs = pack_jobs_completed.get();
     s.upload_bytes = upload_bytes_total.get();
     s.upload_chunks = upload_chunks_completed.get();
+    s.read_bytes = read_bytes_total.get();
+    s.decode_bytes = decode_bytes_total.get();
     s.pack_queue_lat_total = pack_queue_latency_usec_total.get();
     s.pack_queue_lat_max = pack_queue_latency_usec_max.get();
     s.pack_queue_lat_samples = pack_queue_latency_samples.get();
@@ -229,8 +233,6 @@ StreamingUploadPipeline::PackTelemetry::read_current() const {
     s.thread_enqueue_uploads = pack_thread_enqueue_upload_count.get();
     return s;
 }
-
-#endif // DEV_ENABLED
 
 #if defined(TESTS_ENABLED)
 void StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls() {
@@ -882,6 +884,9 @@ bool StreamingUploadPipeline::finalize_completed_upload(GaussianStreamingSystem 
         return false;
     }
 
+    // BV-04a: counted here, on the one success path every completed async upload takes, in
+    // every build flavour. It feeds upload_chunks_this_frame and the upload-stall predicate.
+    telemetry.add_upload_chunk();
     memdelete(job);
     return true;
 }
@@ -1016,9 +1021,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                 upload_budget -= slice_bytes;
             }
             submitted = true;
-            if (telemetry.is_enabled()) {
-                telemetry.add_upload_bytes(slice_bytes);
-            }
+            telemetry.add_upload_bytes(slice_bytes);
         }
         return true;
     };
@@ -1030,9 +1033,6 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             return;
         }
         budget_state.completed_chunks++;
-        if (telemetry.is_enabled()) {
-            telemetry.add_upload_chunk();
-        }
     };
 
     UploadBudgetState upload_budget_state = prepare_upload_budget_state();
@@ -1190,9 +1190,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                             upload_budget_state.upload_budget -= batched_bytes;
                         }
                         submitted = true;
-                        if (telemetry.is_enabled()) {
-                            telemetry.add_upload_bytes(batched_bytes);
-                        }
+                        telemetry.add_upload_bytes(batched_bytes);
 
                         for (uint32_t i = 0; i < batched_job_count; i++) {
                             coalesced_upload_jobs[i]->bytes_uploaded += coalesced_upload_total_bytes[i];
@@ -1339,6 +1337,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     uint32_t sh_first_order = 0;
     uint32_t sh_high_order = 0;
     bool snapshot_ok = false;
+    const uint64_t read_start_usec = _ticks_usec_now();
     if (p_job.uses_explicit_source_indices) {
         const bool indices_ok = p_job.chunk_count == static_cast<uint32_t>(p_job.source_indices.size());
         if (indices_ok && has_payload_source) {
@@ -1369,14 +1368,18 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
         upload->payload_read_failed = true; // #1178: reported on the main thread
         return upload;
     }
+    {
+        // BV-04a: the read stage is the payload source capture (file read on the staged-file
+        // route, a copy on the in-memory route). Only successful reads are recorded.
+        const uint64_t read_end_usec = _ticks_usec_now();
+        const uint64_t read_bytes = uint64_t(r_scratch.gaussian_snapshot.size()) * sizeof(Gaussian) +
+                uint64_t(r_scratch.sh_high_order_snapshot.size()) * sizeof(Vector3);
+        telemetry.add_read(read_bytes, read_end_usec >= read_start_usec ? (read_end_usec - read_start_usec) : 0);
+    }
 
     const Vector3 *sh_coeffs =
             r_scratch.sh_high_order_snapshot.is_empty() ? nullptr : r_scratch.sh_high_order_snapshot.ptr();
-    const bool telemetry_on = telemetry.is_enabled();
-    uint64_t pack_start_usec = 0;
-    if (telemetry_on) {
-        pack_start_usec = _ticks_usec_now();
-    }
+    const uint64_t pack_start_usec = _ticks_usec_now();
     // #787: on allocation failure leave packed_data empty and return the upload unpopulated,
     // which is the same "no payload" state this function already produces when the snapshot
     // fails above. An empty payload is retired harmlessly; a short one would stage a chunk
@@ -1395,7 +1398,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
                 vformat("Failed to pack chunk %d (%d splats) for streaming upload; dropping payload.",
                         p_job.chunk_idx, p_job.chunk_count));
     }
-    if (telemetry_on) {
+    {
         const uint64_t pack_end_usec = _ticks_usec_now();
         const uint64_t duration = pack_end_usec >= pack_start_usec ? (pack_end_usec - pack_start_usec) : 0;
         telemetry.add_pack_time(duration);

@@ -198,3 +198,91 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] Known device capacity clamps
     CHECK(bool(stats.get("budget_capacity_verified", false)));
     CHECK_FALSE(bool(stats.get("budget_uses_unknown_capacity_fallback", true)));
 }
+
+// BV-04a (ADR adr-beyond-vram-worlds.md D-6): whether and why the regulator fired is published
+// by kind, with the frame and the LOD multiplier changes, so the M1 probe can label a run
+// settings_drifted. These drive VRAMBudgetRegulator::update() directly; no device is needed.
+namespace {
+
+Ref<VRAMBudgetRegulator> _make_bv04a_regulator() {
+    Ref<VRAMBudgetRegulator> regulator;
+    regulator.instantiate();
+    VRAMBudgetConfig config;
+    config.budget_mb = 1000;
+    config.min_chunks = 2;
+    config.max_chunks = 20;
+    config.auto_regulate_enabled = true;
+    config.warning_threshold_percent = 85;
+    config.regulation_step_percent = 5.0f; // step = 1 chunk of 20
+    regulator->set_config_override(config);
+    regulator->initialize(nullptr);
+    return regulator;
+}
+
+uint64_t _bv04a_usage_at_percent(const Ref<VRAMBudgetRegulator> &p_regulator, uint32_t p_percent) {
+    return p_regulator->get_debug_stats().budget_bytes / 100u * p_percent;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a the thrash ratchet is published as a thrash reduction with its LOD multiplier change") {
+    Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+    if (regulator->get_current_max_chunks() != 20u || regulator->get_debug_stats().budget_bytes == 0) {
+        FAIL("fixture precondition: chunk cap 20 and a non-zero budget");
+        return;
+    }
+    Dictionary stats = regulator->get_debug_stats_dictionary();
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("none"));
+    CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 0);
+
+    // 70 % usage sits between the step-up (< 59.5 %) and step-down (> 85 %) bands, so only
+    // the thrash detector (a load and an eviction in more than half of 16 frames) can fire.
+    const uint64_t usage = _bv04a_usage_at_percent(regulator, 70);
+    for (uint64_t frame = 1; frame <= 35; frame++) {
+        regulator->update(usage, usage, 10, 1, 1, frame);
+    }
+    stats = regulator->get_debug_stats_dictionary();
+    CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("budget_reductions", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("headroom_increases", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("regulation_adjustments", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("last_regulation_frame", int64_t(-1))) == 30); // MIN_FRAMES_BETWEEN_ADJUSTMENTS
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("thrash_reduction"));
+    CHECK(regulator->get_current_max_chunks() == 18u);
+    CHECK(regulator->get_lod_distance_multiplier() == doctest::Approx(1.1f));
+}
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a budget step-down and headroom step-up are published by kind") {
+    Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+    if (regulator->get_current_max_chunks() != 20u || regulator->get_debug_stats().budget_bytes == 0) {
+        FAIL("fixture precondition: chunk cap 20 and a non-zero budget");
+        return;
+    }
+    // No evictions, so the thrash detector stays quiet. Over the threshold: one step down.
+    const uint64_t over = _bv04a_usage_at_percent(regulator, 90);
+    for (uint64_t frame = 1; frame <= 30; frame++) {
+        regulator->update(over, over, 10, 0, 0, frame);
+    }
+    Dictionary stats = regulator->get_debug_stats_dictionary();
+    CHECK(int64_t(stats.get("budget_reductions", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("last_regulation_frame", int64_t(-1))) == 30);
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("budget_reduction"));
+    CHECK(regulator->get_current_max_chunks() == 19u);
+
+    // Well under the threshold: one step back up. The multiplier is still 1.0, so it is not
+    // an LOD multiplier adjustment.
+    const uint64_t under = _bv04a_usage_at_percent(regulator, 10);
+    for (uint64_t frame = 31; frame <= 60; frame++) {
+        regulator->update(under, under, 10, 0, 0, frame);
+    }
+    stats = regulator->get_debug_stats_dictionary();
+    CHECK(int64_t(stats.get("headroom_increases", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("regulation_adjustments", int64_t(-1))) == 2);
+    CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("last_regulation_frame", int64_t(-1))) == 60);
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("headroom_increase"));
+    CHECK(regulator->get_current_max_chunks() == 20u);
+}

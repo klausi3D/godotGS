@@ -8,6 +8,7 @@
 #include "streaming_telemetry_adapter.h"
 #include "core/config/project_settings.h"
 #include "core/math/math_funcs.h"
+#include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
@@ -208,6 +209,15 @@ void GaussianStreamingSystem::end_frame() {
         analytics_snapshot["vram_regulation_adjustments"] = vram_stats.regulation_adjustments;
         analytics_snapshot["vram_thrashing_events"] = vram_stats.thrashing_events;
         analytics_snapshot["lod_distance_multiplier"] = budget.vram_regulator->get_lod_distance_multiplier();
+        // BV-04a (ADR D-6): regulator events by kind.
+        analytics_snapshot["vram_auto_regulate_enabled"] = active_budget_config.auto_regulate_enabled;
+        analytics_snapshot["vram_regulated_max_chunks"] = static_cast<int64_t>(budget.vram_regulator->get_current_max_chunks());
+        analytics_snapshot["vram_thrash_reductions"] = static_cast<int64_t>(vram_stats.thrash_reductions);
+        analytics_snapshot["vram_budget_reductions"] = static_cast<int64_t>(vram_stats.budget_reductions);
+        analytics_snapshot["vram_headroom_increases"] = static_cast<int64_t>(vram_stats.headroom_increases);
+        analytics_snapshot["vram_lod_multiplier_adjustments"] = static_cast<int64_t>(vram_stats.lod_multiplier_adjustments);
+        analytics_snapshot["vram_last_regulation_frame"] = static_cast<int64_t>(vram_stats.last_regulation_frame);
+        analytics_snapshot["vram_last_regulation_reason"] = String(vram_stats.last_regulation_reason);
         analytics_snapshot["effective_vram_budget_mb"] = static_cast<int64_t>(active_budget_config.budget_mb);
         analytics_snapshot["effective_vram_min_chunks"] = static_cast<int64_t>(active_budget_config.min_chunks);
         analytics_snapshot["effective_vram_max_chunks"] = static_cast<int64_t>(active_budget_config.max_chunks);
@@ -221,6 +231,22 @@ void GaussianStreamingSystem::end_frame() {
         analytics_snapshot["vram_budget_unverified"] = active_budget_config.budget_unverified;
         analytics_snapshot["cap_tier_preset"] = active_budget_config.cap_tier_preset;
         analytics_snapshot["cap_tier_active"] = active_budget_config.cap_tier_active;
+    }
+    // BV-04a: the chunk load distance the LOD multiplier produces (base / multiplier), and the
+    // revision of the effective settings a measured run freezes (see DiagnosticsState).
+    analytics_snapshot["lod_effective_load_distance"] = _get_needed_set_load_threshold();
+    {
+        DiagnosticsState::EffectiveSettingsSample settings_sample;
+        if (budget.vram_regulator.is_valid()) {
+            const VRAMBudgetConfig &settings_config = budget.vram_regulator->get_config();
+            settings_sample.vram_budget_mb = static_cast<int64_t>(settings_config.budget_mb);
+            settings_sample.regulated_max_chunks = budget.vram_regulator->get_current_max_chunks();
+            settings_sample.lod_distance_multiplier = budget.vram_regulator->get_lod_distance_multiplier();
+            settings_sample.auto_regulate_enabled = settings_config.auto_regulate_enabled;
+        }
+        settings_sample.effective_max_chunks = get_effective_max_chunks();
+        diagnostics.observe_effective_settings(settings_sample);
+        analytics_snapshot["effective_settings_revision"] = static_cast<int64_t>(diagnostics.effective_settings_revision);
     }
 
     // Add distance-based LOD stats (Octree-GS)
@@ -242,6 +268,13 @@ void GaussianStreamingSystem::end_frame() {
     upload_pipeline.last_pack_jobs = tsnap.pack_jobs;
     upload_pipeline.last_upload_mb = double(tsnap.upload_bytes) / (1024.0 * 1024.0);
     upload_pipeline.last_upload_chunks = tsnap.upload_chunks;
+    upload_pipeline.last_upload_bytes = tsnap.upload_bytes;
+    upload_pipeline.last_read_bytes = tsnap.read_bytes;
+    upload_pipeline.last_decode_bytes = tsnap.decode_bytes;
+    upload_pipeline.upload_bytes_cumulative += tsnap.upload_bytes;
+    upload_pipeline.upload_chunks_cumulative += tsnap.upload_chunks;
+    upload_pipeline.read_bytes_cumulative += tsnap.read_bytes;
+    upload_pipeline.decode_bytes_cumulative += tsnap.decode_bytes;
     upload_pipeline.last_pack_queue_latency_avg_ms = tsnap.pack_queue_lat_samples > 0
             ? double(tsnap.pack_queue_lat_total) / (USEC_PER_MS * double(tsnap.pack_queue_lat_samples))
             : 0.0;
@@ -264,6 +297,25 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["pack_jobs_completed"] = (int)upload_pipeline.last_pack_jobs;
     analytics_snapshot["upload_mb_this_frame"] = upload_pipeline.last_upload_mb;
     analytics_snapshot["upload_chunks_this_frame"] = (int)upload_pipeline.last_upload_chunks;
+    // BV-04a: release-build byte counters (per frame, and cumulative for diffing) plus the
+    // cumulative read/decode/pack/upload latency histograms. See PackTelemetry.
+    analytics_snapshot["upload_bytes_this_frame"] = static_cast<int64_t>(upload_pipeline.last_upload_bytes);
+    analytics_snapshot["read_bytes_this_frame"] = static_cast<int64_t>(upload_pipeline.last_read_bytes);
+    analytics_snapshot["decode_bytes_this_frame"] = static_cast<int64_t>(upload_pipeline.last_decode_bytes);
+    analytics_snapshot["upload_bytes_total"] = static_cast<int64_t>(upload_pipeline.upload_bytes_cumulative);
+    analytics_snapshot["upload_chunks_total"] = static_cast<int64_t>(upload_pipeline.upload_chunks_cumulative);
+    analytics_snapshot["read_bytes_total"] = static_cast<int64_t>(upload_pipeline.read_bytes_cumulative);
+    analytics_snapshot["decode_bytes_total"] = static_cast<int64_t>(upload_pipeline.decode_bytes_cumulative);
+    {
+        const StreamingUploadPipeline::PackTelemetry &telemetry = upload_pipeline.telemetry;
+        Dictionary latency_histograms;
+        latency_histograms["bucket_upper_usec"] = StreamingLatencyHistogram::bucket_upper_bounds_usec();
+        latency_histograms["read"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.read_latency.read());
+        latency_histograms["decode"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.decode_latency.read());
+        latency_histograms["pack"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.pack_latency.read());
+        latency_histograms["upload"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.upload_latency.read());
+        analytics_snapshot["streaming_latency_histograms"] = latency_histograms;
+    }
     analytics_snapshot["pack_queue_latency_avg_ms"] = upload_pipeline.last_pack_queue_latency_avg_ms;
     analytics_snapshot["pack_queue_latency_max_ms"] = upload_pipeline.last_pack_queue_latency_max_ms;
     analytics_snapshot["upload_queue_latency_avg_ms"] = upload_pipeline.last_upload_queue_latency_avg_ms;
@@ -536,6 +588,7 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     } else {
         diagnostics.upload_stall_frames = 0;
     }
+    diagnostics.update_upload_stall_wall_clock(upload_stalled, OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0);
 
     const bool sync_fallback_stalled = runtime_ready &&
             !upload_pipeline.pack_thread_running.load() &&
@@ -844,6 +897,7 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     diagnostics_snapshot["culling_empty_frames"] = static_cast<int64_t>(diagnostics.culling_empty_frames);
     diagnostics_snapshot["scheduler_stall_frames"] = static_cast<int64_t>(diagnostics.scheduler_stall_frames);
     diagnostics_snapshot["upload_stall_frames"] = static_cast<int64_t>(diagnostics.upload_stall_frames);
+    diagnostics_snapshot["upload_stall_wall_ms"] = double(diagnostics.upload_stall_wall_usec) / 1000.0;
     diagnostics_snapshot["sync_fallback_stall_frames"] = static_cast<int64_t>(diagnostics.sync_fallback_stall_frames);
     diagnostics_snapshot["sustained_pressure_frames"] = static_cast<int64_t>(diagnostics.sustained_pressure_frames);
     diagnostics_snapshot["pressure_category"] = diagnostics.pressure_category;
