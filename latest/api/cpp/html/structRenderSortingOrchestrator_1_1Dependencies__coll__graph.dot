@@ -34,63 +34,69 @@ digraph "RenderSortingOrchestrator::Dependencies"
   Node13 -> Node12 [id="edge12_Node000012_Node000013",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">metrics</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node13 [id="Node000013",label="GaussianRenderPerformance\l::PerformanceMetrics",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPerformance_1_1PerformanceMetrics.html",tooltip=" "];
-  Node14 -> Node2 [id="edge13_Node000002_Node000014",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
+  Node14 -> Node13 [id="edge13_Node000013_Node000014",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_pass_timing</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node14 [id="Node000014",label="GaussianRenderFacadeState\l::TestDataState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1TestDataState.html",tooltip=" "];
-  Node15 -> Node2 [id="edge14_Node000002_Node000015",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">tile_renderer_state</TD></TR>
+  Node14 [id="Node000014",label="GaussianSplatting::\lGpuPassTiming::PassTimingSnapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html",tooltip=" "];
+  Node15 -> Node13 [id="edge14_Node000013_Node000015",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_hlod_level_records</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node15 [id="Node000015",label="GaussianRenderFacadeState\l::TileRendererState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1TileRendererState.html",tooltip=" "];
-  Node16 -> Node15 [id="edge15_Node000015_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_performance_monitor</TD></TR>
+  Node15 [id="Node000015",label="GaussianSplatting::\lHlodLevelRecordSample",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1HlodLevelRecordSample.html",tooltip=" "];
+  Node16 -> Node2 [id="edge15_Node000002_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node16 [id="Node000016",label="GPUPerformanceMonitor",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUPerformanceMonitor.html",tooltip=" "];
-  Node17 -> Node2 [id="edge16_Node000002_Node000017",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">subsystem_state</TD></TR>
+  Node16 [id="Node000016",label="GaussianRenderFacadeState\l::TestDataState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1TestDataState.html",tooltip=" "];
+  Node17 -> Node2 [id="edge16_Node000002_Node000017",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">tile_renderer_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node17 [id="Node000017",label="GaussianRenderFacadeState\l::SubsystemState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1SubsystemState.html",tooltip=" "];
-  Node18 -> Node2 [id="edge17_Node000002_Node000018",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">instance_pipeline_buffers</TD></TR>
+  Node17 [id="Node000017",label="GaussianRenderFacadeState\l::TileRendererState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1TileRendererState.html",tooltip=" "];
+  Node18 -> Node17 [id="edge17_Node000017_Node000018",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_performance_monitor</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node18 [id="Node000018",label="GaussianRenderPipeline\l::InstancePipelineBuffers",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1InstancePipelineBuffers.html",tooltip=" "];
-  Node19 -> Node2 [id="edge18_Node000002_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">instance_asset_remap</TD></TR>
+  Node18 [id="Node000018",label="GPUPerformanceMonitor",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUPerformanceMonitor.html",tooltip=" "];
+  Node19 -> Node2 [id="edge18_Node000002_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">subsystem_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node19 [id="Node000019",label="GaussianRenderPipeline\l::PublishedInstanceAssetRemap",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html",tooltip=" "];
-  Node20 -> Node2 [id="edge19_Node000002_Node000020",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">authoritative_route</TD></TR>
+  Node19 [id="Node000019",label="GaussianRenderFacadeState\l::SubsystemState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1SubsystemState.html",tooltip=" "];
+  Node20 -> Node2 [id="edge19_Node000002_Node000020",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">instance_pipeline_buffers</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node20 [id="Node000020",label="GaussianRenderPipeline\l::InstancePipelineBuffers",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1InstancePipelineBuffers.html",tooltip=" "];
+  Node21 -> Node2 [id="edge20_Node000002_Node000021",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">instance_asset_remap</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node21 [id="Node000021",label="GaussianRenderPipeline\l::PublishedInstanceAssetRemap",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html",tooltip=" "];
+  Node22 -> Node2 [id="edge21_Node000002_Node000022",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">authoritative_route</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_decision</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node20 [id="Node000020",label="GaussianRenderPipeline\l::RenderRouteDecision",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1RenderRouteDecision.html",tooltip=" "];
-  Node21 -> Node2 [id="edge20_Node000002_Node000021",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pipeline_features_effective</TD></TR>
+  Node22 [id="Node000022",label="GaussianRenderPipeline\l::RenderRouteDecision",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPipeline_1_1RenderRouteDecision.html",tooltip=" "];
+  Node23 -> Node2 [id="edge22_Node000002_Node000023",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pipeline_features_effective</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node21 [id="Node000021",label="PipelineFeatureSet",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structPipelineFeatureSet.html",tooltip=" "];
-  Node22 -> Node2 [id="edge21_Node000002_Node000022",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">jacobian_debug</TD></TR>
+  Node23 [id="Node000023",label="PipelineFeatureSet",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structPipelineFeatureSet.html",tooltip=" "];
+  Node24 -> Node2 [id="edge23_Node000002_Node000024",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">jacobian_debug</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node22 [id="Node000022",label="GaussianRenderDebug\l::JacobianDebugConfig",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1JacobianDebugConfig.html",tooltip="Debug toggles for Jacobian radial stretching investigation."];
-  Node23 -> Node2 [id="edge22_Node000002_Node000023",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shadow_blit_state</TD></TR>
+  Node24 [id="Node000024",label="GaussianRenderDebug\l::JacobianDebugConfig",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1JacobianDebugConfig.html",tooltip="Debug toggles for Jacobian radial stretching investigation."];
+  Node25 -> Node2 [id="edge24_Node000002_Node000025",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shadow_blit_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node23 [id="Node000023",label="GaussianRenderFacadeState\l::ShadowBlitState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1ShadowBlitState.html",tooltip=" "];
-  Node24 -> Node23 [id="edge23_Node000023_Node000024",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sampler_owner</TD></TR>
+  Node25 [id="Node000025",label="GaussianRenderFacadeState\l::ShadowBlitState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1ShadowBlitState.html",tooltip=" "];
+  Node26 -> Node25 [id="edge25_Node000025_Node000026",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sampler_owner</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shader_owner</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node24 [id="Node000024",label="GaussianSplatting::\lBufferOwnership",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1BufferOwnership.html",tooltip=" "];
-  Node25 -> Node2 [id="edge24_Node000002_Node000025",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">last_shadow_render</TD></TR>
+  Node26 [id="Node000026",label="GaussianSplatting::\lBufferOwnership",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1BufferOwnership.html",tooltip=" "];
+  Node27 -> Node2 [id="edge26_Node000002_Node000027",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">last_shadow_render</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_result</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node25 [id="Node000025",label="GaussianSplatRenderer\l::ShadowRenderResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatRenderer_1_1ShadowRenderResult.html",tooltip=" "];
-  Node26 -> Node1 [id="edge25_Node000001_Node000026",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_culler</TD></TR>
+  Node27 [id="Node000027",label="GaussianSplatRenderer\l::ShadowRenderResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatRenderer_1_1ShadowRenderResult.html",tooltip=" "];
+  Node28 -> Node1 [id="edge27_Node000001_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_culler</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node26 [id="Node000026",label="GPUCuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUCuller.html",tooltip=" "];
-  Node3 -> Node26 [id="edge26_Node000026_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node27 -> Node26 [id="edge27_Node000026_Node000027",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node27 [id="Node000027",label="ICuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classICuller.html",tooltip=" "];
-  Node28 -> Node1 [id="edge28_Node000001_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sorting_pipeline</TD></TR>
+  Node28 [id="Node000028",label="GPUCuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUCuller.html",tooltip=" "];
+  Node3 -> Node28 [id="edge28_Node000028_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node29 -> Node28 [id="edge29_Node000028_Node000029",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node29 [id="Node000029",label="ICuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classICuller.html",tooltip=" "];
+  Node30 -> Node1 [id="edge30_Node000001_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sorting_pipeline</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node28 [id="Node000028",label="GPUSortingPipeline",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUSortingPipeline.html",tooltip=" "];
-  Node3 -> Node28 [id="edge29_Node000028_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node29 -> Node28 [id="edge30_Node000028_Node000029",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node29 [id="Node000029",label="IGPUSortingPipeline",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classIGPUSortingPipeline.html",tooltip=" "];
-  Node30 -> Node1 [id="edge31_Node000001_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">performance_settings</TD></TR>
+  Node30 [id="Node000030",label="GPUSortingPipeline",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUSortingPipeline.html",tooltip=" "];
+  Node3 -> Node30 [id="edge31_Node000030_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node31 -> Node30 [id="edge32_Node000030_Node000031",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node31 [id="Node000031",label="IGPUSortingPipeline",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classIGPUSortingPipeline.html",tooltip=" "];
+  Node32 -> Node1 [id="edge33_Node000001_Node000032",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">performance_settings</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node30 [id="Node000030",label="GaussianRenderPerformance\l::PerformanceSettings",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPerformance_1_1PerformanceSettings.html",tooltip=" "];
-  Node14 -> Node1 [id="edge32_Node000001_Node000014",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
+  Node32 [id="Node000032",label="GaussianRenderPerformance\l::PerformanceSettings",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPerformance_1_1PerformanceSettings.html",tooltip=" "];
+  Node16 -> Node1 [id="edge34_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node31 -> Node1 [id="edge33_Node000001_Node000031",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">device_state</TD></TR>
+  Node33 -> Node1 [id="edge35_Node000001_Node000033",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">device_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node31 [id="Node000031",label="GaussianRenderFacadeState\l::DeviceState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1DeviceState.html",tooltip=" "];
+  Node33 [id="Node000033",label="GaussianRenderFacadeState\l::DeviceState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1DeviceState.html",tooltip=" "];
 }

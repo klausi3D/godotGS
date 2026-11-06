@@ -30,6 +30,7 @@ var structGaussianSplatting_1_1TileTimingState =
     [ "overlap_sort_cpu_dispatch_valid", "structGaussianSplatting_1_1TileTimingState.html#a77c8f0ad8bf5abcd95aedb92864b1780", null ],
     [ "overlap_sort_gpu_timing_valid", "structGaussianSplatting_1_1TileTimingState.html#a7af3e12744180945b02bba3ecec76f4d", null ],
     [ "overlap_sort_timestamp", "structGaussianSplatting_1_1TileTimingState.html#a2a4dbaefb45484a7347c23ba663a5b9c", null ],
+    [ "pass_timing", "structGaussianSplatting_1_1TileTimingState.html#a2a627d668aae368232e7f0bffe01ee82", null ],
     [ "prefix_cpu_sync_fallback_valid", "structGaussianSplatting_1_1TileTimingState.html#ac7aaebe7c9391b7eaaa0b70c123d00a4", null ],
     [ "prefix_gpu_timing_valid", "structGaussianSplatting_1_1TileTimingState.html#a568b5dd69c689e0a4334e15296ddbc20", null ],
     [ "prefix_timestamp", "structGaussianSplatting_1_1TileTimingState.html#a99cf81f05436eec2a9d3ed2f64c00347", null ],

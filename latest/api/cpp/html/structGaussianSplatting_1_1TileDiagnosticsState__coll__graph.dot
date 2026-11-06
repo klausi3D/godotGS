@@ -11,4 +11,7 @@ digraph "GaussianSplatting::TileDiagnosticsState"
   Node3 -> Node2 [id="edge2_Node000002_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">density_metrics</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node3 [id="Node000003",label="GaussianSplatting::\lTileDensityMetrics",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1TileDensityMetrics.html",tooltip=" "];
+  Node4 -> Node1 [id="edge3_Node000001_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_level_records</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node4 [id="Node000004",label="GaussianSplatting::\lHlodLevelRecordSample",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1HlodLevelRecordSample.html",tooltip=" "];
 }

@@ -1,0 +1,36 @@
+var gpu__pass__timing_8h =
+[
+    [ "GaussianSplatting::HlodLevelRecordSample", "structGaussianSplatting_1_1HlodLevelRecordSample.html", "structGaussianSplatting_1_1HlodLevelRecordSample" ],
+    [ "GaussianSplatting::GpuPassTiming::ScopedPassTimestamp", "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html", "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp" ],
+    [ "GaussianSplatting::GpuPassTiming::StageTimes", "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html", "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes" ],
+    [ "GaussianSplatting::GpuPassTiming::FrameStages", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages" ],
+    [ "GaussianSplatting::GpuPassTiming::FrameDurations", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations" ],
+    [ "GaussianSplatting::GpuPassTiming::PassTimingSnapshot", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot" ],
+    [ "GaussianSplatting::GpuPassTiming::PassTimingAccumulator", "classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html", "classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator" ],
+    [ "GaussianSplatting::GpuPassTiming::Pass", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16cab", [
+      [ "GaussianSplatting::GpuPassTiming::PASS_CULL", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba0b2a6261a7e97c49e966126ea4b01a6e", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_PROJECTION", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16cabac220219f8bf381ada1f36c338bb6f2aa", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_PRESORT", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba1064347ccf7a6765caf9993dededbf51", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_OVERLAP_COUNT", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16cabafe3684c12d06505c5c9b413ce4134125", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_PREFIX", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba4c6604951a5bfdd01e5bf6535fc1a1a1", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_BINNING", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3d0662b106d915ae28b9405ade35bd5c", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_OVERLAP_SORT", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3492d880bcf33d50cf5d8cfdfac8d235", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_RASTER", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba353a216c4ad11a22fc6f81b0f3da4649", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_RESOLVE", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba77a1b8f96651a40cd34ee34b572a266e", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_COMPOSITE", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba2772e873bc541100d7ea56c3c75307ff", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_TOTAL", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba9cb4f7f6036aac32619986d2d53b142b", null ],
+      [ "GaussianSplatting::GpuPassTiming::PASS_COUNT", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3315c8a1690c4c48efaeab9526bdc0e5", null ]
+    ] ],
+    [ "GaussianSplatting::GpuPassTiming::_current_frame_serial", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2e6d70ac998e46225f603d07f787a100", null ],
+    [ "GaussianSplatting::GpuPassTiming::_frame_serial_counter", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a38a2d27f617a3a2a745de870516500c3", null ],
+    [ "GaussianSplatting::GpuPassTiming::accumulate", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2d8dc98229c77e2435566b74d12afdda", null ],
+    [ "GaussianSplatting::GpuPassTiming::allocate_frame_serial", "namespaceGaussianSplatting_1_1GpuPassTiming.html#aaf389a21cd9dfe12940f8a7f5fb63fc6", null ],
+    [ "GaussianSplatting::GpuPassTiming::append_to_dictionary", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a72e19e1d007027f8df1ae6a5ce12a4ad", null ],
+    [ "GaussianSplatting::GpuPassTiming::current_frame_serial", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a96bc3c5c7493d40ca6211046e6dc4170", null ],
+    [ "GaussianSplatting::GpuPassTiming::label_prefix", "namespaceGaussianSplatting_1_1GpuPassTiming.html#ad57e4d91565475f7c25fc5a945cee3e6", null ],
+    [ "GaussianSplatting::GpuPassTiming::latest_frame", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a9b1bfb8f7fc6db7beacaeb308e641697", null ],
+    [ "GaussianSplatting::GpuPassTiming::make_label", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a5fe4f5eb457ddca8e38be031f32099d0", null ],
+    [ "GaussianSplatting::GpuPassTiming::note_external_frame_serial", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a653952f17667d7dd7e105b3b5c13dcee", null ],
+    [ "GaussianSplatting::GpuPassTiming::parse_label", "namespaceGaussianSplatting_1_1GpuPassTiming.html#a22d53e8de109bffd29e1141ce410b990", null ],
+    [ "GaussianSplatting::GpuPassTiming::pass_name", "namespaceGaussianSplatting_1_1GpuPassTiming.html#ac9f2c50fe105080e36694a17c644f7a9", null ]
+];

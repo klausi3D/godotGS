@@ -121,6 +121,7 @@ Classes</h2></td></tr>
 <tr class="memitem:AssetChunkIndexGPU" id="r_AssetChunkIndexGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structAssetChunkIndexGPU.html">AssetChunkIndexGPU</a></td></tr>
 <tr class="memitem:VisibleChunkRefGPU" id="r_VisibleChunkRefGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structVisibleChunkRefGPU.html">VisibleChunkRefGPU</a></td></tr>
 <tr class="memitem:DrawnNodeGPU" id="r_DrawnNodeGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structDrawnNodeGPU.html">DrawnNodeGPU</a></td></tr>
+<tr class="memitem:HlodLevelRecordStatsGPU" id="r_HlodLevelRecordStatsGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structHlodLevelRecordStatsGPU.html">HlodLevelRecordStatsGPU</a></td></tr>
 <tr class="memitem:SplatRefGPU" id="r_SplatRefGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structSplatRefGPU.html">SplatRefGPU</a></td></tr>
 <tr class="memitem:QuantizationChunkGPU" id="r_QuantizationChunkGPU"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structQuantizationChunkGPU.html">QuantizationChunkGPU</a></td></tr>
 <tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Per-chunk quantization data for GPU access.  <a href="structQuantizationChunkGPU.html#details">More...</a><br /></td></tr>
@@ -141,6 +142,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a5e0979d8b4f165fb9b982aece4ecc375" id="r_a5e0979d8b4f165fb9b982aece4ecc375"><td class="memItemLeft" align="right" valign="top"><a class="el" href="gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40">GaussianDCEncoding</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e0979d8b4f165fb9b982aece4ecc375">gs_get_dc_encoding</a> (uint32_t p_metadata)</td></tr>
 <tr class="memitem:ac0327edc85af51e286060556c64b5250" id="r_ac0327edc85af51e286060556c64b5250"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac0327edc85af51e286060556c64b5250">gs_pack_asset_gpu_flags</a> (bool p_is_2d, <a class="el" href="gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40">GaussianDCEncoding</a> p_dc_encoding)</td></tr>
 <tr class="memitem:ae085573af4c2320e148f668b3079fe44" id="r_ae085573af4c2320e148f668b3079fe44"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae085573af4c2320e148f668b3079fe44">gs_get_non_finite_pack_rejection_count</a> ()</td></tr>
+<tr class="memitem:a18c54481e5877366c4600676be58b964" id="r_a18c54481e5877366c4600676be58b964"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18c54481e5877366c4600676be58b964">gs_hlod_level_stat_slot</a> (uint32_t p_level)</td></tr>
 <tr class="memitem:afdce846213d95df791d219ac465cc808" id="r_afdce846213d95df791d219ac465cc808"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afdce846213d95df791d219ac465cc808">gs_sh_layout_dropped_coefficients</a> (uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout)</td></tr>
 <tr class="memitem:ad7d55777e7afe8b86865dc8d8f82ce7c" id="r_ad7d55777e7afe8b86865dc8d8f82ce7c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad7d55777e7afe8b86865dc8d8f82ce7c">gs_warn_sh_layout_truncation_once</a> (uint64_t p_asset_key, const String &amp;p_asset_label, uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout)</td></tr>
 <tr class="memitem:a207132aa2f88034dc8b8d02b97f9171b" id="r_a207132aa2f88034dc8b8d02b97f9171b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a207132aa2f88034dc8b8d02b97f9171b">gs_warn_sh_layout_truncation_once</a> (const <a class="el" href="classGaussianData.html">GaussianData</a> &amp;p_data, uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout)</td></tr>
@@ -237,6 +239,31 @@ Functions</h2></td></tr>
           <td class="memname">uint32_t gs_get_sh_encoding </td>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_metadata</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a18c54481e5877366c4600676be58b964" name="a18c54481e5877366c4600676be58b964"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a18c54481e5877366c4600676be58b964">&#9670;&#160;</a></span>gs_hlod_level_stat_slot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_level_stat_slot </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_level</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>

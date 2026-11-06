@@ -6,5 +6,6 @@ var searchData=
   ['zero_5fvisible_5fconsecutive_5fframes_3',['zero_visible_consecutive_frames',['../structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#a01ce32120d997e4f24a46b3c0d116faf',1,'StreamingVisibilityController::ZeroVisibleRecoveryState']]],
   ['zerovisiblerecoverymode_4',['ZeroVisibleRecoveryMode',['../classStreamingVisibilityController.html#aabd7df95102825eff5057879c2926d88',1,'StreamingVisibilityController']]],
   ['zerovisiblerecoverystate_5',['ZeroVisibleRecoveryState',['../structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html',1,'StreamingVisibilityController']]],
-  ['zstd_6',['ZSTD',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70a8406cc2302e19183037b61249546b234',1,'GaussianSplatting']]]
+  ['zstd_6',['ZSTD',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70a8406cc2302e19183037b61249546b234',1,'GaussianSplatting']]],
+  ['zstd_5flevel_7',['zstd_level',['../structgs__world__writer_1_1CodecParams.html#aafb7ea6f5ef8f0677a224e0b1c05ee0f',1,'gs_world_writer::CodecParams']]]
 ];

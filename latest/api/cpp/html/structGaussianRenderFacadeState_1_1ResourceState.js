@@ -1,5 +1,6 @@
 var structGaussianRenderFacadeState_1_1ResourceState =
 [
+    [ "clear_hlod_level_drawn", "structGaussianRenderFacadeState_1_1ResourceState.html#a9c306c335686c89818584999c22f5b92", null ],
     [ "buffer_manager", "structGaussianRenderFacadeState_1_1ResourceState.html#a650201267699a8589f93f720f7a0aa03", null ],
     [ "buffer_manager_initialized", "structGaussianRenderFacadeState_1_1ResourceState.html#acf4b51ce72bab928b075e28ae0e24b3e", null ],
     [ "deletion_queue", "structGaussianRenderFacadeState_1_1ResourceState.html#a143088aad02c0f1116ab6247a0cf5e25", null ],
@@ -51,6 +52,8 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_instance_view_frame", "structGaussianRenderFacadeState_1_1ResourceState.html#a6b7ccc36f08ceb12222b93d69a61313b", null ],
     [ "hlod_instance_visible_objects", "structGaussianRenderFacadeState_1_1ResourceState.html#a590d6d3c1dc0518641edcf6333af122e", null ],
     [ "hlod_last_refusal_reason", "structGaussianRenderFacadeState_1_1ResourceState.html#a9403d509d01ad4789e9eb1aa31355c69", null ],
+    [ "hlod_level_drawn_nodes", "structGaussianRenderFacadeState_1_1ResourceState.html#af817a380998e36e4275991141a5df9c5", null ],
+    [ "hlod_level_drawn_splats", "structGaussianRenderFacadeState_1_1ResourceState.html#af39648b28de81a57ece364a0bf5a57ae", null ],
     [ "hlod_origin_revision", "structGaussianRenderFacadeState_1_1ResourceState.html#aaa247ef57a164b16d9684a644b7efa87", null ],
     [ "hlod_overlap_capacity_records", "structGaussianRenderFacadeState_1_1ResourceState.html#a6c3fc9af0764882143d434b399c7cca0", null ],
     [ "hlod_overlap_world_need", "structGaussianRenderFacadeState_1_1ResourceState.html#a2258e7ded8fa045d9ddae9012bfb2815", null ],

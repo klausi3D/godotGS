@@ -17,6 +17,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "gpu_debug_utils.h", "gpu__debug__utils_8h.html", "gpu__debug__utils_8h" ],
     [ "gpu_memory_stream.cpp", "gpu__memory__stream_8cpp.html", null ],
     [ "gpu_memory_stream.h", "gpu__memory__stream_8h.html", "gpu__memory__stream_8h" ],
+    [ "gpu_pass_timing.h", "gpu__pass__timing_8h.html", "gpu__pass__timing_8h" ],
     [ "gpu_performance_monitor.cpp", "gpu__performance__monitor_8cpp.html", null ],
     [ "gpu_performance_monitor.h", "gpu__performance__monitor_8h.html", "gpu__performance__monitor_8h" ],
     [ "gpu_record_sizes.h", "gpu__record__sizes_8h.html", "gpu__record__sizes_8h" ],

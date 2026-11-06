@@ -99,9 +99,14 @@ Collaboration diagram for GaussianSplatting::TileDiagnosticsState:</div>
 <div class="center"><img src="structGaussianSplatting_1_1TileDiagnosticsState__coll__graph.png" border="0" usemap="#aGaussianSplatting_1_1TileDiagnosticsState_coll__map" loading="lazy" alt="Collaboration graph"/></div>
 <center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
+Public Member Functions</h2></td></tr>
+<tr class="memitem:a9c932d52cd446a12c59efb41614e19db" id="r_a9c932d52cd446a12c59efb41614e19db"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9c932d52cd446a12c59efb41614e19db">record_hlod_level_stats_sample</a> (const <a class="el" href="structHlodLevelRecordStatsGPU.html">HlodLevelRecordStatsGPU</a> &amp;p_sample, uint64_t p_frame_serial) const</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
 <tr class="memitem:a866b99fc34677588f1f8e919242ec216" id="r_a866b99fc34677588f1f8e919242ec216"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1TileRenderStats.html">TileRenderStats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a866b99fc34677588f1f8e919242ec216">last_render_stats</a></td></tr>
+<tr class="memitem:ac61725e83ce29e41cec6cef40ecc180f" id="r_ac61725e83ce29e41cec6cef40ecc180f"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1HlodLevelRecordSample.html">HlodLevelRecordSample</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac61725e83ce29e41cec6cef40ecc180f">hlod_level_records</a></td></tr>
 <tr class="memitem:a9f76320c198298513d1a93076743d35c" id="r_a9f76320c198298513d1a93076743d35c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9f76320c198298513d1a93076743d35c">sort_key_32bit_engaged</a> = false</td></tr>
 <tr class="memitem:a26c25fdc27946b9e1b9b49ff02e34bed" id="r_a26c25fdc27946b9e1b9b49ff02e34bed"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a26c25fdc27946b9e1b9b49ff02e34bed">overflow_drop_events</a> = 0</td></tr>
 <tr class="memitem:a3bc987effd24e2e2edb00bed1c8f56d3" id="r_a3bc987effd24e2e2edb00bed1c8f56d3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3bc987effd24e2e2edb00bed1c8f56d3">raster_tile_cap_drop_events</a> = 0</td></tr>
@@ -127,6 +132,36 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a1fe387819612c0983b89afb461d16117" id="r_a1fe387819612c0983b89afb461d16117"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1fe387819612c0983b89afb461d16117">last_overlap_record_budget_effective</a> = 0</td></tr>
 <tr class="memitem:afe4ed2c1bd8a550a61f340487357b28e" id="r_afe4ed2c1bd8a550a61f340487357b28e"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afe4ed2c1bd8a550a61f340487357b28e">last_overlap_keep_ratio</a> = 1.0f</td></tr>
 </table>
+<a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="a9c932d52cd446a12c59efb41614e19db" name="a9c932d52cd446a12c59efb41614e19db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9c932d52cd446a12c59efb41614e19db">&#9670;&#160;</a></span>record_hlod_level_stats_sample()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatting::TileDiagnosticsState::record_hlod_level_stats_sample </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structHlodLevelRecordStatsGPU.html">HlodLevelRecordStatsGPU</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_sample</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_frame_serial</em></span>&#160;) const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="ad71162c4cacaa9cc6dc520c38c645348" name="ad71162c4cacaa9cc6dc520c38c645348"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ad71162c4cacaa9cc6dc520c38c645348">&#9670;&#160;</a></span>capture_tile_density_snapshot</h2>
@@ -264,6 +299,28 @@ Public Attributes</h2></td></tr>
           <td class="memname">bool GaussianSplatting::TileDiagnosticsState::debug_tile_pipeline_logs_enabled = false</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac61725e83ce29e41cec6cef40ecc180f" name="ac61725e83ce29e41cec6cef40ecc180f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac61725e83ce29e41cec6cef40ecc180f">&#9670;&#160;</a></span>hlod_level_records</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1HlodLevelRecordSample.html">HlodLevelRecordSample</a> GaussianSplatting::TileDiagnosticsState::hlod_level_records</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel mutable">mutable</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>

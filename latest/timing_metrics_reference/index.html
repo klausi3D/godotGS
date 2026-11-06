@@ -2314,6 +2314,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#gpu-timing-completeness-bv-04b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU timing completeness (BV-04b)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4743,6 +4754,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#gpu-timing-completeness-bv-04b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU timing completeness (BV-04b)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4846,6 +4868,12 @@ readback is temporarily delayed.</p>
 <li><code>overlap_sort_cpu_dispatch_ms</code></li>
 <li><code>overlap_sort_cpu_dispatch_valid</code></li>
 <li><code>gpu_binning_ms</code></li>
+<li><code>gpu_binning_valid</code></li>
+<li><code>gpu_cull_ms</code>, <code>gpu_cull_valid</code></li>
+<li><code>gpu_projection_ms</code>, <code>gpu_projection_valid</code></li>
+<li><code>gpu_presort_ms</code>, <code>gpu_presort_valid</code></li>
+<li><code>gpu_composite_ms</code>, <code>gpu_composite_valid</code></li>
+<li><code>gpu_coherent_frame_serial</code>, <code>gpu_coherent_pass_mask</code>, <code>gpu_coherent_total_ms</code></li>
 <li><code>gpu_prefix_ms</code></li>
 <li><code>gpu_prefix_valid</code></li>
 <li><code>prefix_cpu_sync_fallback_ms</code></li>
@@ -4865,6 +4893,7 @@ readback is temporarily delayed.</p>
 <li><code>gpu_tile_overlap_count_time_ms</code></li>
 <li><code>gpu_tile_overlap_count_time_valid</code></li>
 <li><code>gpu_tile_binning_time_ms</code></li>
+<li><code>gpu_tile_binning_time_valid</code></li>
 <li><code>gpu_tile_overlap_emit_time_ms</code></li>
 <li><code>gpu_tile_overlap_emit_time_valid</code></li>
 <li><code>gpu_tile_overlap_sort_time_ms</code></li>
@@ -4893,6 +4922,116 @@ CPU wall-clock and is valid only when deterministic readback forces a blocking p
 <li>cull/sort/raster stage timings must be non-placeholder for meaningful successful workloads;</li>
 <li>when a GPU timing frame sample is available, GPU pass breakdown must not collapse to all-zero placeholders.</li>
 </ul>
+<h2 id="gpu-timing-completeness-bv-04b">GPU timing completeness (BV-04b)<a class="headerlink" href="#gpu-timing-completeness-bv-04b" title="Permanent link">¶</a></h2>
+<p>ADR <code>docs/architecture/adr-beyond-vram-worlds.md</code> (D-4, D-5) needs the fixed cost F of a frame. Before BV-04b only
+the tile passes had GPU timestamps. Cull, projection, the depth pre-sort and the composite were untimed.</p>
+<p><strong>Passes.</strong> Every pass of a pipeline pass is bracketed by two RenderingDevice timestamps,
+<code>&lt;prefix&gt;&lt;frame serial&gt;_Begin</code> and <code>_End</code> (<code>renderer/gpu_pass_timing.h</code>):</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Pass</th>
+<th>Prefix</th>
+<th>What it brackets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cull</code></td>
+<td><code>GSCull_</code></td>
+<td>frustum / instance-chunk cull (<code>GPUCuller</code>)</td>
+</tr>
+<tr>
+<td><code>projection</code></td>
+<td><code>GSProjection_</code></td>
+<td>depth-key projection: instance chunk dispatch, depth compute, count clamp</td>
+</tr>
+<tr>
+<td><code>presort</code></td>
+<td><code>GSPreSort_</code></td>
+<td>depth pre-sort of the visible splats (<code>GPUSortingPipeline</code> radix sort)</td>
+</tr>
+<tr>
+<td><code>overlap_count</code></td>
+<td><code>TileOverlapCount_</code></td>
+<td>tile_binning COUNT</td>
+</tr>
+<tr>
+<td><code>prefix</code></td>
+<td><code>TilePrefix_</code></td>
+<td>tile prefix scan</td>
+</tr>
+<tr>
+<td><code>binning</code></td>
+<td><code>TileBinning_</code></td>
+<td>tile_binning EMIT (also reported as overlap emit)</td>
+</tr>
+<tr>
+<td><code>overlap_sort</code></td>
+<td><code>TileOverlapSort_</code></td>
+<td>overlap-record radix sort</td>
+</tr>
+<tr>
+<td><code>raster</code></td>
+<td><code>TileRaster_</code></td>
+<td>tile raster</td>
+</tr>
+<tr>
+<td><code>resolve</code></td>
+<td><code>TileResolve_</code></td>
+<td>tile resolve</td>
+</tr>
+<tr>
+<td><code>composite</code></td>
+<td><code>GSComposite_</code></td>
+<td>compute composite into the engine frame</td>
+</tr>
+</tbody>
+</table></div>
+<p>Not bracketed: the graphics-fallback composite, the CPU HLOD cut (it has no GPU cull), and passes recorded on a
+RenderingDevice other than the tile renderer's submission device. They read as not measured, never as 0 ms.</p>
+<p><strong>Frame serial.</strong> <code>RenderPipelineStages::prepare_frame_context</code> allocates one serial per pipeline pass, and every
+pass of that pass carries it. The tile renderer takes it through <code>RenderParams::frame_serial</code>. Before BV-04b the
+depth pre-sort wrote <code>TileOverlapSort_0</code>, which the parser could report as the overlap-sort time; serial 0 is now never
+a frame.</p>
+<p><strong>Per-frame-serial validity.</strong> RenderingDevice flushes discard some markers on most frames, so per-pass values stay
+"sticky" until a pass has not been measured for 120 resolves. Sticky values of different passes can therefore come
+from different frames. Each pass publishes the frame serial it was measured in, and the coherent fields describe the
+newest frame alone:</p>
+<ul>
+<li><code>gpu_coherent_frame_serial</code>: newest frame with at least one measured pass (0 = none, or aged out);</li>
+<li><code>gpu_coherent_pass_mask</code>: bit i = pass i (table order above, <code>cull</code> = bit 0) was measured in that frame;</li>
+<li><code>gpu_coherent_total_ms</code>: the sum of exactly those passes.</li>
+</ul>
+<p>To measure F, sum only passes from one frame: the coherent fields, or per-pass values whose <code>frame_serial</code>s agree.
+Never add sticky values blindly.</p>
+<p><strong>Freshness.</strong> Timestamps are resolved only while the Gaussian pipeline runs. When nothing is drawn (for example, the
+node is outside the view), every value above is held unchanged and still reads valid. The nested dictionary carries
+<code>last_resolve_usec</code> and <code>coherent_resolve_usec</code> (<code>OS.get_ticks_usec()</code> at the resolve; compare with
+<code>Time.get_ticks_usec()</code>). If they are older than a frame or two, the values are held, not measured this frame.</p>
+<p><strong>Binning validity.</strong> <code>binning</code> is the EMIT pass and shares its timestamp range with overlap emit, so
+<code>gpu_binning_valid</code> / <code>gpu_tile_binning_time_valid</code> equal the emit validity. <code>gpu_pass_breakdown_available</code> no
+longer counts a non-zero binning time without its flag.</p>
+<p><strong>Where.</strong> Production metrics carry the keys listed above. <code>get_render_stats()</code> and the streaming <code>streaming_state</code>
+carry flat <code>gpu_&lt;pass&gt;_time_ms</code>, <code>gpu_&lt;pass&gt;_time_valid</code> and <code>gpu_&lt;pass&gt;_frame_serial</code> keys for cull, projection,
+presort and composite. They also carry a nested <code>gpu_pass_timing</code> dictionary with every pass
+(<code>passes.&lt;name&gt;.{time_ms, valid, frame_serial}</code>) and <code>coherent_frame_serial</code>, <code>coherent_passes</code>,
+<code>coherent_pass_mask</code>, <code>coherent_total_ms</code>, <code>coherent_age_resolves</code>, <code>coherent_has_all_bv04b_passes</code>,
+<code>resolve_count</code>, <code>last_resolve_usec</code> and <code>coherent_resolve_usec</code>. All of these are available in every build flavour. They are gated only by
+<code>rendering/gaussian_splatting/gpu_sorting/enable_stage_timestamps</code> (default on).</p>
+<p><strong>Records per splat per HLOD level.</strong> On the HLOD route, each draw record carries its node's level
+(<code>DrawnNodeGPU.level</code>, the tree height, 0 = leaf). The tile_binning EMIT pass adds the overlap records it emitted, and
+1, to the level's slot of a 128-byte counter buffer (binding 24). An always-on async readback samples it.
+<code>get_render_stats()</code> reports, per slot:</p>
+<ul>
+<li><code>hlod_level_records</code> and <code>hlod_level_emitted_splats</code> (GPU, last sampled frame <code>hlod_level_stats_frame_serial</code>;
+  <code>hlod_level_stats_samples</code> counts the samples);</li>
+<li><code>hlod_level_records_per_emitted_splat</code> (-1 where no splat reached the emit loop);</li>
+<li><code>hlod_level_drawn_nodes</code> and <code>hlod_level_drawn_splats</code> (CPU, the last main view's world draw records).</li>
+</ul>
+<p>There are 16 slots. Slot i is level i for levels 0..13, slot 14 holds level 14 and above, and slot 15 holds object
+(instance) records. Records include those later dropped at capacity, which is the demand the frame model's k depends
+on.</p>
 
 
 
@@ -4913,7 +5052,7 @@ CPU wall-clock and is valid only when deterministic readback forces a blocking p
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-10-01
+    Source updated: 2026-11-07
   </span>
 
     

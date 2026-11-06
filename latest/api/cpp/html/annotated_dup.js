@@ -77,6 +77,14 @@ var annotated_dup =
         [ "StageValidationRecord", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord" ],
         [ "StageValidationHarness", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html", "classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness" ]
       ] ],
+      [ "GpuPassTiming", "namespaceGaussianSplatting_1_1GpuPassTiming.html", [
+        [ "ScopedPassTimestamp", "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html", "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp" ],
+        [ "StageTimes", "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html", "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes" ],
+        [ "FrameStages", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages" ],
+        [ "FrameDurations", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html", "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations" ],
+        [ "PassTimingSnapshot", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot" ],
+        [ "PassTimingAccumulator", "classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html", "classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator" ]
+      ] ],
       [ "InstancePipelineContract", "namespaceGaussianSplatting_1_1InstancePipelineContract.html", [
         [ "InvariantViolation", "structGaussianSplatting_1_1InstancePipelineContract_1_1InvariantViolation.html", "structGaussianSplatting_1_1InstancePipelineContract_1_1InvariantViolation" ]
       ] ],
@@ -104,6 +112,7 @@ var annotated_dup =
       [ "PassColors", "structGaussianSplatting_1_1PassColors.html", null ],
       [ "ScopedGpuMarker", "classGaussianSplatting_1_1ScopedGpuMarker.html", "classGaussianSplatting_1_1ScopedGpuMarker" ],
       [ "ScopedGpuMarkerEx", "classGaussianSplatting_1_1ScopedGpuMarkerEx.html", "classGaussianSplatting_1_1ScopedGpuMarkerEx" ],
+      [ "HlodLevelRecordSample", "structGaussianSplatting_1_1HlodLevelRecordSample.html", "structGaussianSplatting_1_1HlodLevelRecordSample" ],
       [ "IndirectDispatchLayout", "structGaussianSplatting_1_1IndirectDispatchLayout.html", "structGaussianSplatting_1_1IndirectDispatchLayout" ],
       [ "SortBenchmarkTimingMetrics", "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html", "structGaussianSplatting_1_1SortBenchmarkTimingMetrics" ],
       [ "SortFallbackPolicyDecision", "structGaussianSplatting_1_1SortFallbackPolicyDecision.html", "structGaussianSplatting_1_1SortFallbackPolicyDecision" ],
@@ -261,6 +270,12 @@ var annotated_dup =
     [ "gs_world_paged", "namespacegs__world__paged.html", [
       [ "NodeMetrics", "structgs__world__paged_1_1NodeMetrics.html", "structgs__world__paged_1_1NodeMetrics" ]
     ] ],
+    [ "gs_world_writer", "namespacegs__world__writer.html", [
+      [ "CodecParams", "structgs__world__writer_1_1CodecParams.html", "structgs__world__writer_1_1CodecParams" ],
+      [ "PlainSpec", "structgs__world__writer_1_1PlainSpec.html", "structgs__world__writer_1_1PlainSpec" ],
+      [ "ChunkDesc", "structgs__world__writer_1_1ChunkDesc.html", "structgs__world__writer_1_1ChunkDesc" ],
+      [ "Writer", "classgs__world__writer_1_1Writer.html", "classgs__world__writer_1_1Writer" ]
+    ] ],
     [ "ResidentAtlasBudget", "namespaceResidentAtlasBudget.html", [
       [ "SubsetPlan", "structResidentAtlasBudget_1_1SubsetPlan.html", "structResidentAtlasBudget_1_1SubsetPlan" ]
     ] ],
@@ -375,6 +390,7 @@ var annotated_dup =
     [ "GSStartupTraceScope", "classGSStartupTraceScope.html", "classGSStartupTraceScope" ],
     [ "GSStartupTraceSnapshot", "structGSStartupTraceSnapshot.html", "structGSStartupTraceSnapshot" ],
     [ "HlodFallback", "structHlodFallback.html", "structHlodFallback" ],
+    [ "HlodLevelRecordStatsGPU", "structHlodLevelRecordStatsGPU.html", "structHlodLevelRecordStatsGPU" ],
     [ "HlodNodeStreamer", "classHlodNodeStreamer.html", "classHlodNodeStreamer" ],
     [ "HlodViewIdentity", "structHlodViewIdentity.html", "structHlodViewIdentity" ],
     [ "HlodViewOutcome", "structHlodViewOutcome.html", "structHlodViewOutcome" ],

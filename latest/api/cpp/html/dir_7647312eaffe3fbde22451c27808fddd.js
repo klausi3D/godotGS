@@ -13,6 +13,8 @@ var dir_7647312eaffe3fbde22451c27808fddd =
     [ "gs_atomic_file_transaction.h", "gs__atomic__file__transaction_8h.html", "gs__atomic__file__transaction_8h" ],
     [ "gs_atomic_file_writer.cpp", "gs__atomic__file__writer_8cpp.html", "gs__atomic__file__writer_8cpp" ],
     [ "gs_atomic_file_writer.h", "gs__atomic__file__writer_8h.html", "gs__atomic__file__writer_8h" ],
+    [ "gs_world_writer.cpp", "gs__world__writer_8cpp.html", null ],
+    [ "gs_world_writer.h", "gs__world__writer_8h.html", "gs__world__writer_8h" ],
     [ "i_gaussian_loader.cpp", "i__gaussian__loader_8cpp.html", null ],
     [ "i_gaussian_loader.h", "i__gaussian__loader_8h.html", "i__gaussian__loader_8h" ],
     [ "io_settings_utils.h", "io__settings__utils_8h.html", "io__settings__utils_8h" ],

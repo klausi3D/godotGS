@@ -10,11 +10,13 @@ var searchData=
   ['framecompletiontracker_7',['FrameCompletionTracker',['../classFrameCompletionTracker.html',1,'']]],
   ['framedata_8',['FrameData',['../structGaussianStreamingTypes_1_1FrameData.html',1,'GaussianStreamingTypes']]],
   ['framedeps_9',['FrameDeps',['../structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html',1,'GaussianSplatRenderer::RenderFrameContext']]],
-  ['framemetrics_10',['FrameMetrics',['../structGPUPerformanceMonitor_1_1FrameMetrics.html',1,'GPUPerformanceMonitor']]],
-  ['framerecord_11',['FrameRecord',['../structgs__shadow__caster_1_1FrameRecord.html',1,'gs_shadow_caster']]],
-  ['framestate_12',['FrameState',['../structRenderFrameContextManager_1_1FrameState.html',1,'RenderFrameContextManager']]],
-  ['framestateprovider_13',['FrameStateProvider',['../classGaussianSplatRenderer_1_1FrameStateProvider.html',1,'GaussianSplatRenderer']]],
-  ['framestats_14',['FrameStats',['../structgs__shadow__caster_1_1FrameStats.html',1,'gs_shadow_caster']]],
-  ['frametimingsample_15',['FrameTimingSample',['../structGaussianRenderFrame_1_1FrameTimingSample.html',1,'GaussianRenderFrame']]],
-  ['frustumcullparamsgpu_16',['FrustumCullParamsGPU',['../structFrustumCullParamsGPU.html',1,'']]]
+  ['framedurations_10',['FrameDurations',['../structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html',1,'GaussianSplatting::GpuPassTiming']]],
+  ['framemetrics_11',['FrameMetrics',['../structGPUPerformanceMonitor_1_1FrameMetrics.html',1,'GPUPerformanceMonitor']]],
+  ['framerecord_12',['FrameRecord',['../structgs__shadow__caster_1_1FrameRecord.html',1,'gs_shadow_caster']]],
+  ['framestages_13',['FrameStages',['../structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html',1,'GaussianSplatting::GpuPassTiming']]],
+  ['framestate_14',['FrameState',['../structRenderFrameContextManager_1_1FrameState.html',1,'RenderFrameContextManager']]],
+  ['framestateprovider_15',['FrameStateProvider',['../classGaussianSplatRenderer_1_1FrameStateProvider.html',1,'GaussianSplatRenderer']]],
+  ['framestats_16',['FrameStats',['../structgs__shadow__caster_1_1FrameStats.html',1,'gs_shadow_caster']]],
+  ['frametimingsample_17',['FrameTimingSample',['../structGaussianRenderFrame_1_1FrameTimingSample.html',1,'GaussianRenderFrame']]],
+  ['frustumcullparamsgpu_18',['FrustumCullParamsGPU',['../structFrustumCullParamsGPU.html',1,'']]]
 ];

@@ -11,6 +11,7 @@ var namespaceGaussianSplatting =
       [ "PREFIX_SIZE", "namespaceGaussianSplatting_1_1ScenePayload.html#a78c3bf258130c87603609039ab1cfac7", null ],
       [ "RECORD_SIZE", "namespaceGaussianSplatting_1_1ScenePayload.html#a0d7380c467326c03d948169a319aba77", null ]
     ] ],
+    [ "GpuPassTiming", "namespaceGaussianSplatting_1_1GpuPassTiming.html", "namespaceGaussianSplatting_1_1GpuPassTiming" ],
     [ "InstancePipelineContract", "namespaceGaussianSplatting_1_1InstancePipelineContract.html", "namespaceGaussianSplatting_1_1InstancePipelineContract" ],
     [ "AnimationTrack", "structGaussianSplatting_1_1AnimationTrack.html", "structGaussianSplatting_1_1AnimationTrack" ],
     [ "AnimationClip", "structGaussianSplatting_1_1AnimationClip.html", "structGaussianSplatting_1_1AnimationClip" ],
@@ -36,6 +37,7 @@ var namespaceGaussianSplatting =
     [ "PassColors", "structGaussianSplatting_1_1PassColors.html", null ],
     [ "ScopedGpuMarker", "classGaussianSplatting_1_1ScopedGpuMarker.html", "classGaussianSplatting_1_1ScopedGpuMarker" ],
     [ "ScopedGpuMarkerEx", "classGaussianSplatting_1_1ScopedGpuMarkerEx.html", "classGaussianSplatting_1_1ScopedGpuMarkerEx" ],
+    [ "HlodLevelRecordSample", "structGaussianSplatting_1_1HlodLevelRecordSample.html", "structGaussianSplatting_1_1HlodLevelRecordSample" ],
     [ "IndirectDispatchLayout", "structGaussianSplatting_1_1IndirectDispatchLayout.html", "structGaussianSplatting_1_1IndirectDispatchLayout" ],
     [ "SortBenchmarkTimingMetrics", "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html", "structGaussianSplatting_1_1SortBenchmarkTimingMetrics" ],
     [ "SortFallbackPolicyDecision", "structGaussianSplatting_1_1SortFallbackPolicyDecision.html", "structGaussianSplatting_1_1SortFallbackPolicyDecision" ],

@@ -10,12 +10,14 @@ var classIGPUSorter =
     [ "get_max_elements", "classIGPUSorter.html#ab56d8c26c6e6d4602e545de3b2e83bbf", null ],
     [ "get_metrics", "classIGPUSorter.html#a02fde2ecdd71e2634e0763bf50d393b2", null ],
     [ "get_theoretical_complexity", "classIGPUSorter.html#a16b665b593cfd8d1ba41adb535e365dc", null ],
+    [ "get_timestamp_label_prefix", "classIGPUSorter.html#a3560f2843d982f0fcf634ce69e463c27", null ],
     [ "initialize", "classIGPUSorter.html#a1a862cc6b3b31314a488898047bf1fa2", null ],
     [ "is_ready", "classIGPUSorter.html#adbeb658ae6cee3aa490f186137e1e8eb", null ],
     [ "record_fallback_reason", "classIGPUSorter.html#adeff99dd103eb7206451497195e0492b", null ],
     [ "reset_metrics", "classIGPUSorter.html#a23fa6c6b0094f76b142dc4d7c1f37448", null ],
     [ "set_key_config", "classIGPUSorter.html#a92e25470ef29afc5e121ae732509acca", null ],
     [ "set_pending_frame_label_serial", "classIGPUSorter.html#af0769b79306bfedf6254bef94571ed9c", null ],
+    [ "set_timestamp_label_prefix", "classIGPUSorter.html#ab83685038e037fc89d89289f4342bbf5", null ],
     [ "shutdown", "classIGPUSorter.html#a47ae1cc6567fd80665fa300dbd08ddc3", null ],
     [ "sort", "classIGPUSorter.html#afc2c0d8cedc6bd83579aab6a9c743d4f", null ],
     [ "sort_async", "classIGPUSorter.html#ac7659647cf7f83535367a42f8cae8bf4", null ],
@@ -32,5 +34,6 @@ var classIGPUSorter =
     [ "metrics_collector", "classIGPUSorter.html#a845ba9e44095460fec8a0d4aba325952", null ],
     [ "pending_frame_label_serial", "classIGPUSorter.html#a11469c719c87043b4d2e8c6380e7df96", null ],
     [ "rd", "classIGPUSorter.html#a3e1d9866af4c3dbcd0331090b28e53be", null ],
-    [ "sort_start_time", "classIGPUSorter.html#a4280188d014dc0bc73a0209af589089e", null ]
+    [ "sort_start_time", "classIGPUSorter.html#a4280188d014dc0bc73a0209af589089e", null ],
+    [ "timestamp_label_prefix", "classIGPUSorter.html#a7f7b9ed75fbd916367bfa0ebd4f63311", null ]
 ];

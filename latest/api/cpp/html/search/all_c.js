@@ -23,13 +23,14 @@ var searchData=
   ['kinstanceassetemptysyncgraceframes_20',['kInstanceAssetEmptySyncGraceFrames',['../render__streaming__orchestrator_8cpp.html#a91642b57112eb973665193b5ffbdd9fb',1,'render_streaming_orchestrator.cpp']]],
   ['kinvalidstreamingassetid_21',['kInvalidStreamingAssetId',['../render__streaming__orchestrator_8cpp.html#ae2e20f365baae5581cad8cdc5219c503',1,'render_streaming_orchestrator.cpp']]],
   ['klogframedebug_22',['kLogFrameDebug',['../gaussian__splat__renderer_8cpp.html#ab01191949fd6e29d089589ed66f31e57',1,'gaussian_splat_renderer.cpp']]],
-  ['kprimarystreamingassetid_23',['kPrimaryStreamingAssetId',['../render__streaming__orchestrator_8cpp.html#ace7a1e4912b2a9c5e0531ec1800493fe',1,'render_streaming_orchestrator.cpp']]],
-  ['krequiredplyelementnames_24',['kRequiredPlyElementNames',['../structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#ae052674bc11054ba1181e72ca7dc5e1f',1,'spz::SpzExtensionSafeOrbitCameraAdobe']]],
-  ['ksourcebuffermanager_25',['kSourceBufferManager',['../structGaussianRenderPipeline_1_1SplatDataSource.html#a90d6edd892dbf3a1166bc30e128e759c',1,'GaussianRenderPipeline::SplatDataSource']]],
-  ['ksourcecpudata_26',['kSourceCpuData',['../structGaussianRenderPipeline_1_1SplatDataSource.html#ae249c2a0e7011eaf34f0b7f76f8cf5c9',1,'GaussianRenderPipeline::SplatDataSource']]],
-  ['ksourcenone_27',['kSourceNone',['../structGaussianRenderPipeline_1_1SplatDataSource.html#ac71709b743e1a54aaa0fc2780ea6fba8',1,'GaussianRenderPipeline::SplatDataSource']]],
-  ['ksourceresidentinstance_28',['kSourceResidentInstance',['../structGaussianRenderPipeline_1_1SplatDataSource.html#abb923ad12aa0758882a26de601f7f792',1,'GaussianRenderPipeline::SplatDataSource']]],
-  ['ksourcestreaming_29',['kSourceStreaming',['../structGaussianRenderPipeline_1_1SplatDataSource.html#aaee41bdff0f4f11bb56850ca4a244cb9',1,'GaussianRenderPipeline::SplatDataSource']]],
-  ['ksourceunavailable_30',['kSourceUnavailable',['../structGaussianRenderPipeline_1_1SplatDataSource.html#ae00a8822868b12d9fdfec78ff0636e4e',1,'GaussianRenderPipeline::SplatDataSource']]],
-  ['kstreamingbootstrapretrycooldownframes_31',['kStreamingBootstrapRetryCooldownFrames',['../render__streaming__orchestrator_8cpp.html#a23fc24451c9b3bed29094c4d0a203dc3',1,'render_streaming_orchestrator.cpp']]]
+  ['knopass_23',['kNoPass',['../classgs__world__writer_1_1Writer.html#a6658d10c0882971673d3e3cdb211fdec',1,'gs_world_writer::Writer']]],
+  ['kprimarystreamingassetid_24',['kPrimaryStreamingAssetId',['../render__streaming__orchestrator_8cpp.html#ace7a1e4912b2a9c5e0531ec1800493fe',1,'render_streaming_orchestrator.cpp']]],
+  ['krequiredplyelementnames_25',['kRequiredPlyElementNames',['../structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#ae052674bc11054ba1181e72ca7dc5e1f',1,'spz::SpzExtensionSafeOrbitCameraAdobe']]],
+  ['ksourcebuffermanager_26',['kSourceBufferManager',['../structGaussianRenderPipeline_1_1SplatDataSource.html#a90d6edd892dbf3a1166bc30e128e759c',1,'GaussianRenderPipeline::SplatDataSource']]],
+  ['ksourcecpudata_27',['kSourceCpuData',['../structGaussianRenderPipeline_1_1SplatDataSource.html#ae249c2a0e7011eaf34f0b7f76f8cf5c9',1,'GaussianRenderPipeline::SplatDataSource']]],
+  ['ksourcenone_28',['kSourceNone',['../structGaussianRenderPipeline_1_1SplatDataSource.html#ac71709b743e1a54aaa0fc2780ea6fba8',1,'GaussianRenderPipeline::SplatDataSource']]],
+  ['ksourceresidentinstance_29',['kSourceResidentInstance',['../structGaussianRenderPipeline_1_1SplatDataSource.html#abb923ad12aa0758882a26de601f7f792',1,'GaussianRenderPipeline::SplatDataSource']]],
+  ['ksourcestreaming_30',['kSourceStreaming',['../structGaussianRenderPipeline_1_1SplatDataSource.html#aaee41bdff0f4f11bb56850ca4a244cb9',1,'GaussianRenderPipeline::SplatDataSource']]],
+  ['ksourceunavailable_31',['kSourceUnavailable',['../structGaussianRenderPipeline_1_1SplatDataSource.html#ae00a8822868b12d9fdfec78ff0636e4e',1,'GaussianRenderPipeline::SplatDataSource']]],
+  ['kstreamingbootstrapretrycooldownframes_32',['kStreamingBootstrapRetryCooldownFrames',['../render__streaming__orchestrator_8cpp.html#a23fc24451c9b3bed29094c4d0a203dc3',1,'render_streaming_orchestrator.cpp']]]
 ];

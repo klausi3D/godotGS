@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['aborted_0',['ABORTED',['../classGSAtomicFileTransaction.html#aeed58611bb5ab01eb0f118d07d5e842ba4e6c860e5da10e31c5fd9cb76ddc2025',1,'GSAtomicFileTransaction']]],
+  ['aborted_0',['ABORTED',['../classGSAtomicFileTransaction.html#aeed58611bb5ab01eb0f118d07d5e842ba4e6c860e5da10e31c5fd9cb76ddc2025',1,'GSAtomicFileTransaction::ABORTED'],['../classgs__world__writer_1_1Writer.html#a11338e9bac65a12690482f3d15890a14a4e6c860e5da10e31c5fd9cb76ddc2025',1,'gs_world_writer::Writer::ABORTED']]],
   ['absent_1',['ABSENT',['../classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28ad6b2cfe28c56a5b9cdb63865e43f3265',1,'gs_hlod_runtime::NodeResidency::ABSENT'],['../classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28ad6b2cfe28c56a5b9cdb63865e43f3265',1,'NodeResidency::ABSENT']]],
   ['add_2',['ADD',['../interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4a9eeb52badb613229884838847294b90d',1,'interactive_state_interfaces.h']]],
   ['admitted_3',['ADMITTED',['../classgs__hlod__runtime_1_1ViewSet.html#ae51e02df8528f573f88859ba3e5bd9e5afc244bb29b29a1b59faba6d1dbabc9a1',1,'gs_hlod_runtime::ViewSet']]],

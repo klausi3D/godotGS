@@ -99,6 +99,10 @@ Collaboration diagram for GaussianRenderFacadeState::ResourceState:</div>
 <div class="center"><img src="structGaussianRenderFacadeState_1_1ResourceState__coll__graph.png" border="0" usemap="#aGaussianRenderFacadeState_1_1ResourceState_coll__map" loading="lazy" alt="Collaboration graph"/></div>
 <center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
+Public Member Functions</h2></td></tr>
+<tr class="memitem:a9c306c335686c89818584999c22f5b92" id="r_a9c306c335686c89818584999c22f5b92"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9c306c335686c89818584999c22f5b92">clear_hlod_level_drawn</a> ()</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
 <tr class="memitem:ab1acbcd2768548e2e2a30f1127df2527" id="r_ab1acbcd2768548e2e2a30f1127df2527"><td class="memItemLeft" align="right" valign="top">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab1acbcd2768548e2e2a30f1127df2527">hlod_snapshot</a></td></tr>
@@ -166,6 +170,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a3748388f04b3b9ae07eeae77ef6ebdb1" id="r_a3748388f04b3b9ae07eeae77ef6ebdb1"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3748388f04b3b9ae07eeae77ef6ebdb1">hlod_instance_row_reuploads</a> = 0</td></tr>
 <tr class="memitem:a9976d232c288cb5552cfed9ff02277c9" id="r_a9976d232c288cb5552cfed9ff02277c9"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9976d232c288cb5552cfed9ff02277c9">hlod_world_draw_records</a> = 0</td></tr>
 <tr class="memitem:aa05144a3b9d08663a9d179560a59d025" id="r_aa05144a3b9d08663a9d179560a59d025"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa05144a3b9d08663a9d179560a59d025">hlod_instance_draw_records</a> = 0</td></tr>
+<tr class="memitem:af817a380998e36e4275991141a5df9c5" id="r_af817a380998e36e4275991141a5df9c5"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af817a380998e36e4275991141a5df9c5">hlod_level_drawn_nodes</a> [GS_HLOD_LEVEL_STAT_SLOTS] = {}</td></tr>
+<tr class="memitem:af39648b28de81a57ece364a0bf5a57ae" id="r_af39648b28de81a57ece364a0bf5a57ae"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af39648b28de81a57ece364a0bf5a57ae">hlod_level_drawn_splats</a> [GS_HLOD_LEVEL_STAT_SLOTS] = {}</td></tr>
 <tr class="memitem:a590d6d3c1dc0518641edcf6333af122e" id="r_a590d6d3c1dc0518641edcf6333af122e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a590d6d3c1dc0518641edcf6333af122e">hlod_instance_visible_objects</a> = 0</td></tr>
 <tr class="memitem:ab745ade071da83a6ad40cd57c300d4b2" id="r_ab745ade071da83a6ad40cd57c300d4b2"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab745ade071da83a6ad40cd57c300d4b2">hlod_instance_admitted_objects</a> = 0</td></tr>
 <tr class="memitem:a28ab82d1f7331af672dfd19b7ea0dae2" id="r_a28ab82d1f7331af672dfd19b7ea0dae2"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a28ab82d1f7331af672dfd19b7ea0dae2">hlod_instance_refused_objects</a> = 0</td></tr>
@@ -229,6 +235,32 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a96c8989d1848080fa30f81ae1b5faae2" id="r_a96c8989d1848080fa30f81ae1b5faae2"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a96c8989d1848080fa30f81ae1b5faae2">resident_atlas_source_count</a> = 0</td></tr>
 <tr class="memitem:af56a24317a34b686acb96fbde89b456b" id="r_af56a24317a34b686acb96fbde89b456b"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af56a24317a34b686acb96fbde89b456b">resident_atlas_keep_ratio</a> = 1.0f</td></tr>
 </table>
+<a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="a9c306c335686c89818584999c22f5b92" name="a9c306c335686c89818584999c22f5b92"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9c306c335686c89818584999c22f5b92">&#9670;&#160;</a></span>clear_hlod_level_drawn()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianRenderFacadeState::ResourceState::clear_hlod_level_drawn </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="a650201267699a8589f93f720f7a0aa03" name="a650201267699a8589f93f720f7a0aa03"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a650201267699a8589f93f720f7a0aa03">&#9670;&#160;</a></span>buffer_manager</h2>
@@ -938,6 +970,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">String GaussianRenderFacadeState::ResourceState::hlod_last_refusal_reason</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af817a380998e36e4275991141a5df9c5" name="af817a380998e36e4275991141a5df9c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af817a380998e36e4275991141a5df9c5">&#9670;&#160;</a></span>hlod_level_drawn_nodes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianRenderFacadeState::ResourceState::hlod_level_drawn_nodes[GS_HLOD_LEVEL_STAT_SLOTS] = {}</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af39648b28de81a57ece364a0bf5a57ae" name="af39648b28de81a57ece364a0bf5a57ae"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af39648b28de81a57ece364a0bf5a57ae">&#9670;&#160;</a></span>hlod_level_drawn_splats</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderFacadeState::ResourceState::hlod_level_drawn_splats[GS_HLOD_LEVEL_STAT_SLOTS] = {}</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -227,6 +227,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aff00f5a6cab6d5b7652209bf8cd72029" id="r_aff00f5a6cab6d5b7652209bf8cd72029"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aff00f5a6cab6d5b7652209bf8cd72029">get_last_gpu_overlap_count_time_ms</a> () const</td></tr>
 <tr class="memitem:ab24566262acc2dc836e42a84c7d18356" id="r_ab24566262acc2dc836e42a84c7d18356"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab24566262acc2dc836e42a84c7d18356">is_last_gpu_overlap_count_time_valid</a> () const</td></tr>
 <tr class="memitem:ad20d7494b8f59fd190ff1f16b5121a76" id="r_ad20d7494b8f59fd190ff1f16b5121a76"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad20d7494b8f59fd190ff1f16b5121a76">get_last_gpu_binning_time_ms</a> () const</td></tr>
+<tr class="memitem:afc40b4968ede0ad2fe0ae73d17a7d5b1" id="r_afc40b4968ede0ad2fe0ae73d17a7d5b1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afc40b4968ede0ad2fe0ae73d17a7d5b1">is_last_gpu_binning_time_valid</a> () const</td></tr>
+<tr class="memitem:aa1a578f81275c39ada72eca629db8f18" id="r_aa1a578f81275c39ada72eca629db8f18"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussianSplatting_1_1HlodLevelRecordSample.html">GaussianSplatting::HlodLevelRecordSample</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa1a578f81275c39ada72eca629db8f18">get_hlod_level_record_sample</a> () const</td></tr>
+<tr class="memitem:ab9cb4a3435bf4869a8a53e5af717de3c" id="r_ab9cb4a3435bf4869a8a53e5af717de3c"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html">GaussianSplatting::GpuPassTiming::PassTimingSnapshot</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab9cb4a3435bf4869a8a53e5af717de3c">get_gpu_pass_timing_snapshot</a> () const</td></tr>
 <tr class="memitem:a72b5c04df77fd0b6625c0a17d212039a" id="r_a72b5c04df77fd0b6625c0a17d212039a"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a72b5c04df77fd0b6625c0a17d212039a">get_last_gpu_overlap_emit_time_ms</a> () const</td></tr>
 <tr class="memitem:a5e9e672c6282c64973408801b3d75756" id="r_a5e9e672c6282c64973408801b3d75756"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e9e672c6282c64973408801b3d75756">is_last_gpu_overlap_emit_time_valid</a> () const</td></tr>
 <tr class="memitem:adedf2e7d2251110ced4b9265ddf8b5f7" id="r_adedf2e7d2251110ced4b9265ddf8b5f7"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adedf2e7d2251110ced4b9265ddf8b5f7">get_last_gpu_overlap_sort_time_ms</a> () const</td></tr>
@@ -1345,6 +1348,31 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="ab9cb4a3435bf4869a8a53e5af717de3c" name="ab9cb4a3435bf4869a8a53e5af717de3c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab9cb4a3435bf4869a8a53e5af717de3c">&#9670;&#160;</a></span>get_gpu_pass_timing_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const <a class="el" href="structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html">GaussianSplatting::GpuPassTiming::PassTimingSnapshot</a> &amp; TileRenderer::get_gpu_pass_timing_snapshot </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a19e173ad40213e53c808c9f90024f2f0" name="a19e173ad40213e53c808c9f90024f2f0"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a19e173ad40213e53c808c9f90024f2f0">&#9670;&#160;</a></span>get_gpu_timing_frame_serial()</h2>
 
@@ -1381,6 +1409,31 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t TileRenderer::get_gpu_timing_frames_behind </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa1a578f81275c39ada72eca629db8f18" name="aa1a578f81275c39ada72eca629db8f18"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa1a578f81275c39ada72eca629db8f18">&#9670;&#160;</a></span>get_hlod_level_record_sample()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const <a class="el" href="structGaussianSplatting_1_1HlodLevelRecordSample.html">GaussianSplatting::HlodLevelRecordSample</a> &amp; TileRenderer::get_hlod_level_record_sample </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>
@@ -2948,6 +3001,31 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool TileRenderer::is_initialized </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afc40b4968ede0ad2fe0ae73d17a7d5b1" name="afc40b4968ede0ad2fe0ae73d17a7d5b1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afc40b4968ede0ad2fe0ae73d17a7d5b1">&#9670;&#160;</a></span>is_last_gpu_binning_time_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool TileRenderer::is_last_gpu_binning_time_valid </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>

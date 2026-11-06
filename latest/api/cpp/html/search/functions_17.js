@@ -81,5 +81,6 @@ var searchData=
   ['_7etilerasterizer_78',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
   ['_7etilerenderer_79',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
   ['_7etileshaderresources_80',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
-  ['_7evrambudgetregulator_81',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]]
+  ['_7evrambudgetregulator_81',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]],
+  ['_7ewriter_82',['~Writer',['../classgs__world__writer_1_1Writer.html#a38524b8a1d4ef5f753ce1e4855107612',1,'gs_world_writer::Writer']]]
 ];

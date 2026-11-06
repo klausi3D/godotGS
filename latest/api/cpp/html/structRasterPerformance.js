@@ -1,8 +1,10 @@
 var structRasterPerformance =
 [
     [ "binning_gpu_ms", "structRasterPerformance.html#a888c6b678b6fa02811debd26864739b4", null ],
+    [ "binning_gpu_valid", "structRasterPerformance.html#af21a2fe6efba0bec926bf8c3fdad2a97", null ],
     [ "frame_gpu_ms", "structRasterPerformance.html#a9ee09adae1485e68816d1a5966172a73", null ],
     [ "frame_gpu_valid", "structRasterPerformance.html#a23e29b615c87038d48c5eebadf72a231", null ],
+    [ "hlod_level_records", "structRasterPerformance.html#a659df31274f8cdfedd076661f30b37a5", null ],
     [ "overlap_count_gpu_ms", "structRasterPerformance.html#a715537a387a56659051a9a58e1a56f83", null ],
     [ "overlap_count_gpu_valid", "structRasterPerformance.html#a6a2a01a41c6dfc3582795e978ce7c0fb", null ],
     [ "overlap_emit_gpu_ms", "structRasterPerformance.html#abc91e86c011a98193a3c0e82424dfea5", null ],
@@ -11,6 +13,7 @@ var structRasterPerformance =
     [ "overlap_sort_cpu_dispatch_valid", "structRasterPerformance.html#a7de10f0c3942a793e6ab972e36a8225e", null ],
     [ "overlap_sort_gpu_ms", "structRasterPerformance.html#ab8a79c1c07bed5736298e4b2a0e10208", null ],
     [ "overlap_sort_gpu_valid", "structRasterPerformance.html#ab2b65dfafefd103caa19091d23803e9e", null ],
+    [ "pass_timing", "structRasterPerformance.html#af9e2bd05c47a24cf8f4733f413dc72d0", null ],
     [ "prefix_cpu_sync_fallback_ms", "structRasterPerformance.html#a5c92906ac33577a73fdfc672c363a469", null ],
     [ "prefix_cpu_sync_fallback_valid", "structRasterPerformance.html#a613a8808586fa53472f63880fe9c8531", null ],
     [ "prefix_gpu_ms", "structRasterPerformance.html#a64c904927846fe7cc326bd93e1859953", null ],

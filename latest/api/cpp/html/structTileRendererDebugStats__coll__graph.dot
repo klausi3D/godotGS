@@ -15,6 +15,7 @@ digraph "TileRendererDebugStats"
 </TABLE>> ,fontcolor="grey" ];
   Node4 [id="Node000004",label="DebugCounterSnapshot",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structDebugCounterSnapshot.html",tooltip=" "];
   Node5 -> Node1 [id="edge4_Node000001_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">debug_counter_readback</TD></TR>
+<TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_level_stats_readback</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">overflow_signal_readback</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">overflow_stats_readback</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">splat_audit_readback</TD></TR>

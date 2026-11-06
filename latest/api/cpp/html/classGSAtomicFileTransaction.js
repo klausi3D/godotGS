@@ -15,6 +15,7 @@ var classGSAtomicFileTransaction =
     [ "append", "classGSAtomicFileTransaction.html#a82496e355cf2d99c98d5f48a6ba36196", null ],
     [ "begin", "classGSAtomicFileTransaction.html#a8d6f2b2d075cecaf6349e7a6f31d841b", null ],
     [ "commit", "classGSAtomicFileTransaction.html#af9c308931982f298ecc0d7e8513c7dba", null ],
+    [ "flush_to_storage", "classGSAtomicFileTransaction.html#ab1373532e868e31e11391da12217b6ca", null ],
     [ "get_error", "classGSAtomicFileTransaction.html#a4492b2514fb49de0bdde56b84e19fc8e", null ],
     [ "get_error_message", "classGSAtomicFileTransaction.html#af3446252504b593761aaa8ec8bf2937c", null ],
     [ "get_final_path", "classGSAtomicFileTransaction.html#acdf539c27f9ef968ebb6ff045ccdacbe", null ],
@@ -24,5 +25,6 @@ var classGSAtomicFileTransaction =
     [ "is_open", "classGSAtomicFileTransaction.html#adb34e46909a0a5d1f3a4ef7abe7a558e", null ],
     [ "operator=", "classGSAtomicFileTransaction.html#a953d3fc393d8f2046ad3a97870d713d3", null ],
     [ "operator=", "classGSAtomicFileTransaction.html#abd70aa778b5150fdce8bbb48ce2ccb48", null ],
+    [ "read_at", "classGSAtomicFileTransaction.html#af06ad2cf800a07aeb601d906b33b4960", null ],
     [ "write_at", "classGSAtomicFileTransaction.html#a1c3302587604cfe137ea73e1cdf0b892", null ]
 ];
