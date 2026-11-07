@@ -166,7 +166,7 @@ inline Errors measure(const Fixture &p_src, const Fixture &p_out) {
 	return e;
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] round trip stays inside the D-12 error bound of every attribute, in both position modes") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] round trip stays inside the D-12 error bound of every attribute, in both position modes") {
 	struct Case {
 		float extent;
 		uint32_t bits;
@@ -208,8 +208,9 @@ TEST_CASE("[GaussianSplatting][GSQ] round trip stays inside the D-12 error bound
 		CHECK(e.sh[0] <= 0.4f / 31.0f * 0.51f);
 		CHECK(e.sh[1] <= 0.1f / 15.0f * 0.51f);
 		CHECK(e.sh[2] <= 0.1f / 15.0f * 0.51f);
-		// Half a 10-bit step per smallest component: at most about 0.07 degrees of rotation.
-		CHECK(e.rotation_cos >= 0.9999995f);
+		// Half a step is 6.9e-4 per stored component. The worst case is (1/2, 1/2, 1/2, 1/2), where
+		// the rebuilt largest component adds 2.1e-3: cos >= 1 - 2.9e-6, about 0.28 degrees.
+		CHECK(e.rotation_cos >= 0.999997f);
 		CHECK(e.rotation_norm <= 2e-6f);
 		CHECK(e.zero_sh_broken == 0u);
 		CHECK(e.constants_broken == 0u);
@@ -218,7 +219,7 @@ TEST_CASE("[GaussianSplatting][GSQ] round trip stays inside the D-12 error bound
 	}
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] page limits: a full page, per-splat normals, one splat") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] page limits: a full page, per-splat normals, one splat") {
 	// 65,536 splats fill all 16 table entries of the fixed header.
 	const Fixture full = make_fixture(kMaxPageSplats, 0, 16.0f, 5);
 	LocalVector<uint8_t> page;
@@ -260,7 +261,7 @@ TEST_CASE("[GaussianSplatting][GSQ] page limits: a full page, per-splat normals,
 	CHECK(std::abs(out.gaussians[0].sh_dc.r - one.gaussians[0].sh_dc.r) <= 1e-7f);
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] digests: same input same bytes and same decoded digest, one changed splat changes both") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] digests: same input same bytes and same decoded digest, one changed splat changes both") {
 	const Fixture src = make_fixture(9000, 3, 60.0f, 21);
 	LocalVector<uint8_t> a;
 	LocalVector<uint8_t> b;
@@ -305,7 +306,7 @@ TEST_CASE("[GaussianSplatting][GSQ] digests: same input same bytes and same deco
 	CHECK_FALSE(digest_equal(info_a.stored_digest, info_c.stored_digest));
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] a range decodes to the same splats as the whole page and touches only its own sub-blocks") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] a range decodes to the same splats as the whole page and touches only its own sub-blocks") {
 	const Fixture src = make_fixture(12000, 3, 60.0f, 31);
 	LocalVector<uint8_t> page;
 	CHECK(encode(src, page) == OK);
@@ -351,7 +352,7 @@ TEST_CASE("[GaussianSplatting][GSQ] a range decodes to the same splats as the wh
 	CHECK(ctx.decode_range(page.ptr(), page.size(), 0, 0, range.ptr(), range_sh.ptr(), reason) != OK);
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] a corrupt page is refused with a reason and no crash, and the context stays usable") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] a corrupt page is refused with a reason and no crash, and the context stays usable") {
 	const Fixture src = make_fixture(6000, 2, 16.0f, 41);
 	LocalVector<uint8_t> page;
 	CHECK(encode(src, page) == OK);
@@ -401,7 +402,7 @@ TEST_CASE("[GaussianSplatting][GSQ] a corrupt page is refused with a reason and 
 	CHECK(e.opacity <= 0.51f / 65535.0f);
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] one context per worker: concurrent decodes of one page agree with a serial decode") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] one context per worker: concurrent decodes of one page agree with a serial decode") {
 	const Fixture src = make_fixture(20000, 3, 60.0f, 51);
 	LocalVector<uint8_t> page;
 	CHECK(encode(src, page) == OK);
@@ -444,7 +445,7 @@ TEST_CASE("[GaussianSplatting][GSQ] one context per worker: concurrent decodes o
 	CHECK(work.mismatches.load() == 0u);
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] what a page cannot carry is refused with a gsq reason, never dropped") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] what a page cannot carry is refused with a gsq reason, never dropped") {
 	const Fixture base = make_fixture(100, 1, 16.0f, 61);
 	LocalVector<uint8_t> page;
 	String reason;
@@ -494,7 +495,7 @@ TEST_CASE("[GaussianSplatting][GSQ] what a page cannot carry is refused with a g
 	CHECK(reason.begins_with("gsq_invalid_params"));
 }
 
-TEST_CASE("[GaussianSplatting][GSQ] zstd link check: the codec's symbols link and header and library agree (K11)") {
+TEST_CASE("[GaussianSplatting][WorldIO][GSQ] zstd link check: the codec's symbols link and header and library agree (K11)") {
 	// A missing symbol fails this binary's link. An ABI mismatch between the header the module
 	// compiled against and the library it linked is caught here, at run time.
 	CHECK(zstd_header_version() == zstd_library_version());
