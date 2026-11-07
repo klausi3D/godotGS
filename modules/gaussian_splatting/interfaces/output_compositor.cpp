@@ -1108,9 +1108,10 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
     // Bind the source as a dummy when not compositing so the shader's binding-4
     // sampler slot always has a valid resource.
     RID scratch_for_binding = p_source;
+    bool dest_can_copy_from = false;
     if (p_composite_with_destination) {
         const RD::TextureFormat dest_actual = p_device->texture_get_format(p_destination);
-        const bool dest_can_copy_from = (dest_actual.usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT) != 0;
+        dest_can_copy_from = (dest_actual.usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT) != 0;
         // The internal render-buffer color texture (the composite destination whenever
         // 3D scaling is active) never carries CAN_COPY_FROM, so texture_copy cannot fill
         // the scratch there. It IS sampleable, so fill the scratch with a graphics blit
@@ -1132,6 +1133,18 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
             WARN_PRINT_ONCE("[OutputCompositor] Composite destination supports neither CAN_COPY_FROM nor a sampled scratch fill; falling back to caller-provided graphics path.");
             return false;
         }
+    }
+
+    // BV-04b: GPU timestamp bracket of the compute composite (was untimed; part of the fixed cost F).
+    // #1326: the bracket opens BEFORE the destination->scratch fill (texture_copy or sampled blit),
+    // so gpu_composite_ms and the coherent per-frame total include that full-viewport copy. It opens
+    // after the graphics-fallback early return, so the untimed fallback leaves no marker and reads
+    // as "not measured". A failure return after this point leaves a Begin without an End, which the
+    // parser also reads as "not measured" for this frame serial.
+    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp composite_timestamp(p_device,
+            GaussianSplatting::GpuPassTiming::PASS_COMPOSITE, g_gpu_sorting_config.enable_stage_timestamps);
+
+    if (p_composite_with_destination) {
         const int32_t dest_w = p_destination_format.width > 0 ? (int32_t)p_destination_format.width
                                                               : MAX(p_destination_offset.x + p_copy_extent.x, 1);
         const int32_t dest_h = p_destination_format.height > 0 ? (int32_t)p_destination_format.height
@@ -1247,10 +1260,6 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
 
     // GPU Debug: Output composition pass (Purple tones for compositing)
     ScopedGpuMarker composite_marker(p_device, "GS_Composite", Color(0.7f, 0.3f, 0.9f, 1.0f));
-    // BV-04b: GPU timestamp bracket of the compute composite (was untimed; part of the fixed cost F).
-    // The graphics-fallback composite is not bracketed and reads as "not measured".
-    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp composite_timestamp(p_device,
-            GaussianSplatting::GpuPassTiming::PASS_COMPOSITE, g_gpu_sorting_config.enable_stage_timestamps);
 
     RD::ComputeListID compute_list = p_device->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {

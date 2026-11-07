@@ -248,10 +248,14 @@ def _parse_host_size_contract(path: Path, struct_name: str) -> int:
     return int(size_match.group(1))
 
 
-def _parse_fields_from_body(body: str, path: Path) -> tuple[RawField, ...]:
+def _parse_fields_from_body(
+    body: str, path: Path, external_constants: dict[str, int] | None = None
+) -> tuple[RawField, ...]:
     """Parse the scalar/vector/array field declarations from a struct or buffer-block body.
     Shared by _parse_struct_definition (C++/GLSL `struct`) and _parse_buffer_block_definition
-    (GLSL `buffer` SSBO block); tolerates C++ default-member-initializers via _FIELD_RE."""
+    (GLSL `buffer` SSBO block); tolerates C++ default-member-initializers via _FIELD_RE.
+    `external_constants` resolves array bounds declared outside the body (a host
+    `static constexpr` or a GLSL `#define`); an unknown bound still fails closed."""
     fields: list[RawField] = []
     constants: dict[str, int] = {}
     for raw_line in body.splitlines():
@@ -276,28 +280,34 @@ def _parse_fields_from_body(body: str, path: Path) -> tuple[RawField, ...]:
             count_value = int(count)
         elif count in constants:
             count_value = constants[count]
+        elif external_constants is not None and count in external_constants:
+            count_value = external_constants[count]
         else:
             raise RuntimeError(f"Unknown array bound `{count}` in {path}: {raw_line.strip()}")
         fields.append(RawField(field_match.group("type"), field_match.group("name"), count_value))
     return tuple(fields)
 
 
-def _parse_struct_definition(path: Path, struct_name: str) -> StructDef:
+def _parse_struct_definition(
+    path: Path, struct_name: str, external_constants: dict[str, int] | None = None
+) -> StructDef:
     text = path.read_text(encoding="utf-8")
     match = _struct_pattern(struct_name).search(text)
     if not match:
         raise RuntimeError(f"Could not find `struct {struct_name}` in {path}")
-    fields = _parse_fields_from_body(match.group("body"), path)
+    fields = _parse_fields_from_body(match.group("body"), path, external_constants)
     return StructDef(struct_name, fields, int(match.group("align")) if match.group("align") else None)
 
 
-def _parse_buffer_block_definition(path: Path, block_name: str) -> StructDef:
+def _parse_buffer_block_definition(
+    path: Path, block_name: str, external_constants: dict[str, int] | None = None
+) -> StructDef:
     text = path.read_text(encoding="utf-8")
     pattern = re.compile(_BUFFER_BLOCK_RE_TEMPLATE.format(name=re.escape(block_name)), re.DOTALL)
     match = pattern.search(text)
     if not match:
         raise RuntimeError(f"Could not find `buffer {block_name} {{ ... }} <instance>;` in {path}")
-    fields = _parse_fields_from_body(match.group("body"), path)
+    fields = _parse_fields_from_body(match.group("body"), path, external_constants)
     return StructDef(block_name, fields, None)
 
 
@@ -1160,6 +1170,101 @@ def _check_debug_counters_mirror(failures: list[str]) -> None:
         _compare_layouts(host_layout, block_layout, shader_path, block_name, DEBUG_COUNTERS_HOST_NAME, failures)
 
 
+# BV-04b (#1325, follow-up #1326): the binding-24 per-HLOD-level record/splat stats SSBO. The
+# host allocates, clears and reads back sizeof(HlodLevelRecordStatsGPU) bytes
+# (tile_render_debug_stats.cpp); the EMIT pass of tile_binning.glsl adds into the
+# `HlodLevelRecordStats` block. Both arrays are bounded by GS_HLOD_LEVEL_STAT_SLOTS, defined once
+# per side (host static constexpr, GLSL #define), so the two constants are pinned equal and each
+# side's layout is computed with its own constant. The binding number is pinned on both ends.
+HLOD_LEVEL_STATS_HOST_NAME = "HlodLevelRecordStatsGPU"
+HLOD_LEVEL_STATS_SHADER_MIRRORS: tuple[tuple[Path, str], ...] = (
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl", "HlodLevelRecordStats"),
+)
+HLOD_LEVEL_STATS_SLOTS_NAME = "GS_HLOD_LEVEL_STAT_SLOTS"
+HLOD_LEVEL_STATS_GLSL_CONSTANTS = (
+    ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_instance_layout.glsl"
+)
+HLOD_LEVEL_STATS_BINDING = 24
+HLOD_LEVEL_STATS_HOST_BINDING_CPP = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_binning.cpp"
+HLOD_LEVEL_STATS_HOST_BUFFER_EXPR = "hlod_level_stats_buffer"
+
+
+def _check_hlod_level_stats_mirror(failures: list[str]) -> None:
+    name = HLOD_LEVEL_STATS_SLOTS_NAME
+    host_text = HOST_LAYOUT.read_text(encoding="utf-8")
+    host_const = re.findall(
+        rf"^\s*static\s+constexpr\s+\w+\s+{name}\s*=\s*(\d+)[uU]?\s*;", _blank_comments(host_text), re.MULTILINE
+    )
+    glsl_text = _blank_comments(HLOD_LEVEL_STATS_GLSL_CONSTANTS.read_text(encoding="utf-8"))
+    glsl_const = re.findall(rf"^\s*#\s*define\s+{name}\s+(\d+)[uU]?\s*$", glsl_text, re.MULTILINE)
+    if len(host_const) != 1 or len(glsl_const) != 1:
+        failures.append(
+            f"{name}: expected exactly one host definition in {HOST_LAYOUT.relative_to(ROOT)} (found {len(host_const)}) "
+            f"and one GLSL #define in {HLOD_LEVEL_STATS_GLSL_CONSTANTS.relative_to(ROOT)} (found {len(glsl_const)})"
+        )
+        return
+    host_slots, glsl_slots = int(host_const[0]), int(glsl_const[0])
+    if host_slots != glsl_slots:
+        failures.append(f"{name}: host value {host_slots} != GLSL value {glsl_slots}")
+
+    host_def = _parse_struct_definition(HOST_LAYOUT, HLOD_LEVEL_STATS_HOST_NAME, {name: host_slots})
+    host_layout = _layout_struct({HLOD_LEVEL_STATS_HOST_NAME: host_def}, HLOD_LEVEL_STATS_HOST_NAME, "host")
+    contract_size = _parse_struct_size_contract(host_text, HLOD_LEVEL_STATS_HOST_NAME)
+    if contract_size is None:
+        failures.append(
+            f"{HOST_LAYOUT.relative_to(ROOT)}: `{HLOD_LEVEL_STATS_HOST_NAME}` has no literal `sizeof` static_assert to anchor the HlodLevelRecordStats mirror"
+        )
+    elif host_layout.size != contract_size:
+        failures.append(
+            f"{HOST_LAYOUT.relative_to(ROOT)}: computed {HLOD_LEVEL_STATS_HOST_NAME} size {host_layout.size} != host contract {contract_size}"
+        )
+
+    for shader_path, block_name in HLOD_LEVEL_STATS_SHADER_MIRRORS:
+        if not shader_path.exists():
+            failures.append(f"{block_name}: expected HlodLevelRecordStats shader mirror {shader_path.relative_to(ROOT)} not found")
+            continue
+        block_def = _parse_buffer_block_definition(shader_path, block_name, {name: glsl_slots})
+        block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
+        _compare_layouts(host_layout, block_layout, shader_path, block_name, HLOD_LEVEL_STATS_HOST_NAME, failures)
+        shader_text = _blank_comments(shader_path.read_text(encoding="utf-8"))
+        decls = re.findall(rf"layout\s*\(([^)]*)\)\s*buffer\s+{re.escape(block_name)}\b", shader_text)
+        if len(decls) != 1:
+            failures.append(f"{shader_path.relative_to(ROOT)}: expected one `buffer {block_name}` declaration, found {len(decls)}")
+            continue
+        binding_match = _LAYOUT_BINDING_RE.search(decls[0])
+        actual = int(binding_match.group(1)) if binding_match else None
+        if actual != HLOD_LEVEL_STATS_BINDING:
+            failures.append(
+                f"{shader_path.relative_to(ROOT)}: {block_name} is at binding {actual}, pinned {HLOD_LEVEL_STATS_BINDING}"
+            )
+
+    # Host slot: the one `X.append_id(...hlod_level_stats_buffer)` must follow `X.binding = 24;`
+    # after its `RD::Uniform X;` declaration (same walk-back as the IndirectDispatch pins).
+    cpp_text = _blank_comments(HLOD_LEVEL_STATS_HOST_BINDING_CPP.read_text(encoding="utf-8"))
+    cpp_rel = HLOD_LEVEL_STATS_HOST_BINDING_CPP.relative_to(ROOT)
+    sites = list(
+        re.finditer(rf"(?P<var>\w+)\s*\.\s*append_id\([^;]*\b{HLOD_LEVEL_STATS_HOST_BUFFER_EXPR}\s*\)", cpp_text)
+    )
+    if len(sites) != 1:
+        failures.append(f"{cpp_rel}: expected one host binding site of {HLOD_LEVEL_STATS_HOST_BUFFER_EXPR}, found {len(sites)}")
+        return
+    site = sites[0]
+    var = site.group("var")
+    decls = list(re.finditer(rf"RD::Uniform\s+{re.escape(var)}\s*;", cpp_text[: site.start()]))
+    if not decls:
+        failures.append(f"{cpp_rel}: `{var}` (binds {HLOD_LEVEL_STATS_HOST_BUFFER_EXPR}) has no `RD::Uniform {var};` declaration")
+        return
+    window = cpp_text[decls[-1].end() : site.start()]
+    assigns = [m for m in _UNIFORM_BINDING_ASSIGN_RE.finditer(window) if m.group("var") == var]
+    if not assigns:
+        failures.append(f"{cpp_rel}: `{var}` binds {HLOD_LEVEL_STATS_HOST_BUFFER_EXPR} with no `{var}.binding = N;` (defaults to 0)")
+    elif int(assigns[-1].group("binding")) != HLOD_LEVEL_STATS_BINDING:
+        failures.append(
+            f"{cpp_rel}: `{var}` binds {HLOD_LEVEL_STATS_HOST_BUFFER_EXPR} at binding {assigns[-1].group('binding')}, "
+            f"pinned {HLOD_LEVEL_STATS_BINDING}"
+        )
+
+
 SH_BINNING_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_sh_binning.glsl"
 TILE_BINNING_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl"
 HOST_LAYOUT_CPP = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_gpu_layout.cpp"
@@ -1827,6 +1932,7 @@ def main() -> int:
 
     _check_overflow_stats_mirror(failures)
     _check_debug_counters_mirror(failures)
+    _check_hlod_level_stats_mirror(failures)
     _check_sh_snorm10_contract(failures)
 
     indirect_dispatch_coverage = _check_indirect_dispatch_abi(failures)
@@ -1855,6 +1961,7 @@ def main() -> int:
         + "."
     )
     print("[gaussian-layout-check] DebugCounters binding-6 SSBO matches host TileDebugCounterSnapshot (tile_binning.glsl).")
+    print("[gaussian-layout-check] HlodLevelRecordStats binding-24 SSBO matches host HlodLevelRecordStatsGPU (tile_binning.glsl; GS_HLOD_LEVEL_STAT_SLOTS host == GLSL; host slot pinned).")
     print("[gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, signed extraction, encoder shifts and clamp, scale lane sh_dc.w) matches between host and GLSL; RGB9E5 is not emitted.")
     # Counts come from what _check_indirect_dispatch_abi actually examined, not from the pin
     # lists, so the line cannot claim coverage for a check that did not run
