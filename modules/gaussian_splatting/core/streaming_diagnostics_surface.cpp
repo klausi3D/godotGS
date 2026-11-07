@@ -19,6 +19,8 @@
 #include "../logger/gs_logger.h"
 #include "../lod/lod_config.h"
 #include <cstdint>
+#include <memory>
+#include <utility>
 
 // Streaming diagnostics surface: telemetry logging, end-of-frame analytics
 // assembly, the diagnostics snapshot, and the public debug/analytics/culling/

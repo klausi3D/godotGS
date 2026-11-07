@@ -10,8 +10,12 @@
 #include "core/string/string_name.h"
 #include "servers/rendering/rendering_device.h"
 
+#include <functional>
+#include <memory>
+
 class GaussianMemoryStream;
 class OS;
+class StreamingAnalyticsFrame;
 
 // Extracted subsystem headers (ISSUE-006 split)
 #include "streaming_config_overrides.h"
@@ -265,8 +269,9 @@ public:
     // Frame management
     void begin_frame();
     void end_frame();
-    // end_frame() with an overlay that runs on the Dictionary when it is first read. p_overlay is part of the
-    // published frame, so no reader can see the frame without it.
+    // Runs on the analytics Dictionary when it is first read. It is part of the published frame, so no reader
+    // can see the frame without it.
+    using AnalyticsOverlay = std::function<void(Dictionary &)>;
     void end_frame_with_overlay(AnalyticsOverlay p_overlay);
     std::shared_ptr<StreamingAnalyticsFrame> get_analytics_frame() const;
 
