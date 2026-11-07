@@ -944,8 +944,9 @@ func _setup_world_scene(dataset: GaussianData) -> bool:
 
     camera = Camera3D.new()
     camera.name = "GpuStreamingStressCamera"
-    camera.position = Vector3(0.0, 0.0, 6.0)
-    camera.look_at(Vector3.ZERO, Vector3.UP)
+    # look_at() needs the node in the tree (it reads the global transform) and logs an
+    # engine error otherwise; look_at_from_position() is valid before add_child().
+    camera.look_at_from_position(Vector3(0.0, 0.0, 6.0), Vector3.ZERO, Vector3.UP)
     camera.make_current()
     scene_root.add_child(camera)
 

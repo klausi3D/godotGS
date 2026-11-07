@@ -20,6 +20,7 @@
 #include "../core/effective_config_snapshot.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_streaming.h"
@@ -30,6 +31,7 @@
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/quantization_config.h"
 #include "../renderer/pipeline_feature_set.h"
+#include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
 #include "../renderer/render_instancing_orchestrator.h"
 #include "../renderer/render_pipeline_stages.h"
@@ -74,6 +76,162 @@ static_assert(offsetof(TileRenderParamsGPU, effector_meta) == 688, "TileRenderPa
 static_assert(offsetof(TileRenderParamsGPU, effector_spheres) == 704, "TileRenderParamsGPU.effector_spheres offset contract changed");
 static_assert(offsetof(TileRenderParamsGPU, effector_configs) == 768, "TileRenderParamsGPU.effector_configs offset contract changed");
 static_assert(offsetof(TileRenderParamsGPU, effector_opacity_configs) == 832, "TileRenderParamsGPU.effector_opacity_configs offset contract changed");
+
+// Synthetic CPU transport controls using the same callback factory as the
+// actual RD observer. They prove callback ownership/state, not GPU copy results.
+using HlodObservationBox = GaussianSplatRenderer::HlodPublicationObservation;
+
+static Ref<HlodObservationBox> make_hlod_observation_box() {
+	Ref<HlodObservationBox> box;
+	box.instantiate();
+	box->request_id = 42;
+	box->device_id = 7;
+	for (int slot = 0; slot < 3; ++slot) {
+		box->expected_bytes[slot] = 4;
+	}
+	box->expected_bytes[3] = sizeof(GaussianSplatting::IndirectDispatchLayout);
+	box->result["gpu_sort_count"] = Dictionary();
+	return box;
+}
+
+static Vector<uint8_t> hlod_observation_bytes(int p_slot) {
+	Vector<uint8_t> bytes;
+	if (p_slot == 3) {
+		const GaussianSplatting::IndirectDispatchLayout header = { 2, 1, 1, 321, 0, 321 };
+		if (bytes.resize(sizeof(header)) != OK) {
+			FAIL("Synthetic count payload allocation failed");
+			return bytes;
+		}
+		memcpy(bytes.ptrw(), &header, sizeof(header));
+	} else {
+		if (bytes.resize(4) != OK) {
+			FAIL("Synthetic publication payload allocation failed");
+			return bytes;
+		}
+		bytes.fill(uint8_t(p_slot + 1));
+	}
+	return bytes;
+}
+
+TEST_CASE("[GaussianSplatting][Lifetime][HLODObservation] Actual callback factory completes four synthetic payloads") {
+	const Ref<HlodObservationBox> box = make_hlod_observation_box();
+	for (int slot = 0; slot < 4; ++slot) {
+		HlodObservationBox::make_callback(box, slot).call(hlod_observation_bytes(slot));
+		CHECK(box->received_mask == ((1u << (slot + 1)) - 1));
+		CHECK(box->complete == (slot == 3));
+	}
+	CHECK_FALSE(box->failed);
+	CHECK_FALSE(box->result.has("error"));
+	CHECK(bool(box->result.get("readback_complete", false)));
+	CHECK(String(box->result.get("atlas_hex", "")) == String("01010101"));
+	CHECK(String(box->result.get("instance_hex", "")) == String("02020202"));
+	CHECK(String(box->result.get("grading_hex", "")) == String("03030303"));
+	const Dictionary header = box->result["gpu_sort_count"];
+	CHECK(int64_t(header.get("header_bytes", 0)) == 24);
+	CHECK(int64_t(header.get("dispatch_x", 0)) == 2);
+	CHECK(int64_t(header.get("element_count", 0)) == 321);
+	CHECK(int64_t(header.get("unclamped_total", 0)) == 321);
+}
+
+TEST_CASE("[GaussianSplatting][Lifetime][HLODObservation] Queued callback owns cancelled box after worker owner release") {
+	Ref<HlodObservationBox> owner = make_hlod_observation_box();
+	const ObjectID id = owner->get_instance_id();
+	Callable queued = HlodObservationBox::make_callback(owner, 0);
+	struct ReleaseContext {
+		Ref<HlodObservationBox> owner;
+		Thread::ID released_on = Thread::UNASSIGNED_ID;
+	} context;
+	context.owner = owner;
+	owner.unref();
+	Thread worker;
+	worker.start([](void *p_context) {
+		auto *release = static_cast<ReleaseContext *>(p_context);
+		release->released_on = Thread::get_caller_id();
+		release->owner->cancel();
+		release->owner.unref();
+	}, &context);
+	if (!worker.is_started()) {
+		FAIL("Worker thread required for callback owner-release control");
+		return;
+	}
+	worker.wait_to_finish();
+	CHECK(context.released_on != Thread::get_caller_id());
+	CHECK(context.owner.is_null());
+	auto *retained = Object::cast_to<HlodObservationBox>(ObjectDB::get_instance(id));
+	if (!retained) {
+		FAIL("Queued actual callback must retain its request box after owner release");
+		return;
+	}
+	queued.call(hlod_observation_bytes(0));
+	CHECK(retained->cancelled);
+	CHECK(retained->complete);
+	CHECK(retained->received_mask == 0);
+	CHECK_FALSE(retained->result.has("atlas_hex"));
+	CHECK_FALSE(bool(retained->result.get("readback_complete", false)));
+	CHECK(bool(retained->result.get("fatal", false)));
+	queued = Callable();
+	CHECK(ObjectDB::get_instance(id) == nullptr); // No renderer/device/Callable cycle.
+}
+
+TEST_CASE("[GaussianSplatting][Lifetime][HLODObservation] Stale callback identities cannot complete a newer request") {
+	for (bool change_device : { false, true }) {
+		const Ref<HlodObservationBox> box = make_hlod_observation_box();
+		const Callable stale = HlodObservationBox::make_callback(box, 0);
+		{
+			MutexLock lock(box->mutex);
+			if (change_device) {
+				++box->device_id;
+			} else {
+				++box->request_id;
+			}
+		}
+		stale.call(hlod_observation_bytes(0));
+		CHECK(box->received_mask == 0);
+		CHECK_FALSE(box->complete);
+		CHECK_FALSE(box->result.has("atlas_hex"));
+		for (int slot = 0; slot < 4; ++slot) {
+			HlodObservationBox::make_callback(box, slot).call(hlod_observation_bytes(slot));
+		}
+		CHECK(box->complete);
+		CHECK_FALSE(box->failed);
+		CHECK(bool(box->result.get("readback_complete", false)));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][Lifetime][HLODObservation] Malformed or duplicate callback permanently fails the request") {
+	for (int bad_slot = 0; bad_slot < 4; ++bad_slot) {
+		for (int size_delta : { -1, 0, 1 }) {
+			const Ref<HlodObservationBox> box = make_hlod_observation_box();
+			Vector<uint8_t> bytes = hlod_observation_bytes(bad_slot);
+			const Callable callback = HlodObservationBox::make_callback(box, bad_slot);
+			if (size_delta == 0) {
+				callback.call(bytes); // The second delivery is the duplicate negative.
+			} else {
+				if (bytes.resize(bytes.size() + size_delta) != OK) {
+					FAIL("Synthetic malformed payload allocation failed");
+					return;
+				}
+			}
+			callback.call(bytes);
+			CHECK(box->complete);
+			CHECK(box->failed);
+			CHECK(bool(box->result.get("fatal", false)));
+			CHECK_FALSE(bool(box->result.get("readback_complete", false)));
+			const String first_error = box->result.get("error", "");
+			CHECK_FALSE(first_error.is_empty());
+			const uint32_t failed_mask = box->received_mask;
+			// Real factory callbacks with correct data must not erase the failure.
+			for (int slot = 0; slot < 4; ++slot) {
+				HlodObservationBox::make_callback(box, slot).call(hlod_observation_bytes(slot));
+			}
+			CHECK(box->received_mask == failed_mask);
+			CHECK(box->failed);
+			CHECK(box->complete);
+			CHECK(String(box->result.get("error", "")) == first_error);
+			CHECK_FALSE(bool(box->result.get("readback_complete", false)));
+		}
+	}
+}
 
 TEST_CASE("[GaussianSplatting] Stage cascade contract preserves first failure and downstream skip cause") {
 	GaussianSplatRenderer::StageResult sort_failure;
@@ -6067,6 +6225,71 @@ TEST_CASE("[GaussianSplatting] file-backed payload forces streaming backend even
 	CHECK(bool(stats.get(StringName("payload_streamable"), false)));
 	CHECK(bool(stats.get(StringName("payload_source_active"), false)));
 	CHECK_FALSE(bool(stats.get(StringName("resident_payload_active"), true)));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] chunk-streaming route names why HLOD is not engaged") {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings == nullptr) {
+		FAIL("ProjectSettings singleton required");
+		return;
+	}
+
+	ScopedGaussianManagerPipeline manager_guard;
+	const String route_policy_setting = "rendering/gaussian_splatting/streaming/route_policy";
+	const String cut_setting = "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled";
+	ScopedProjectSetting route_guard(project_settings, route_policy_setting);
+	ScopedProjectSetting cut_guard(project_settings, cut_setting);
+	project_settings->set_setting(route_policy_setting, int64_t(gs::settings::GS_ROUTE_STREAMING));
+	project_settings->set_setting(cut_setting, true);
+
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	if (renderer.is_null()) { FAIL("renderer instantiate failed"); return; }
+	// A file-backed payload keeps the streaming backend (no resident override), as a streamed world does.
+	renderer->get_scene_state().payload_source_splat_count = 32;
+	Ref<GaussianSplatHlodRuntimeData> snapshot;
+	snapshot.instantiate();
+	renderer->get_resource_state().hlod_snapshot = snapshot;
+
+	const GaussianSplatRenderer::FrameBackendPlan plan = renderer->build_frame_backend_plan(false);
+	REQUIRE(plan.streaming_requested);
+	REQUIRE_FALSE(plan.prefer_resident_backend);
+	CHECK(plan.hlod_route_reason == String("hlod_route_policy_chunk_streaming"));
+
+	CHECK(String(renderer->get_render_stats().get(StringName("hlod_reason"), String("missing"))).is_empty());
+	// The render entry builds the plan through the wrapper, which publishes the reason.
+	const GaussianSplatRenderer::FrameBackendPlan applied = renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(applied.hlod_route_reason == String("hlod_route_policy_chunk_streaming"));
+	const Dictionary stats = renderer->get_render_stats();
+	CHECK(String(stats.get(StringName("hlod_reason"), String())) == String("hlod_route_policy_chunk_streaming"));
+	CHECK_FALSE(bool(stats.get(StringName("hlod_active"), true)));
+	// The route flips away (the cut is switched off): the stale route reason is cleared, not left behind.
+	project_settings->set_setting(cut_setting, false);
+	renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(String(renderer->get_render_stats().get(StringName("hlod_reason"), String("missing"))).is_empty());
+	// A reason the HLOD publisher wrote is never touched by a plan without a route reason.
+	renderer->get_resource_state().hlod_reason = "hlod_idle_bundle_unavailable";
+	renderer->build_and_apply_frame_backend_plan(false);
+	CHECK(renderer->get_resource_state().hlod_reason == String("hlod_idle_bundle_unavailable"));
+	renderer->get_resource_state().hlod_reason = String();
+	project_settings->set_setting(cut_setting, true);
+
+	// No reason where HLOD was never going to run: the cut is off, or the world carries no snapshot.
+	project_settings->set_setting(cut_setting, false);
+	CHECK(renderer->build_frame_backend_plan(false).hlod_route_reason.is_empty());
+	project_settings->set_setting(cut_setting, true);
+	renderer->get_resource_state().hlod_snapshot.unref();
+	CHECK(renderer->build_frame_backend_plan(false).hlod_route_reason.is_empty());
+	// The resident route is not the chunk-streaming route: no streaming reason.
+	// (A fresh renderer: the route policy is cached per renderer.)
+	project_settings->set_setting(route_policy_setting, int64_t(gs::settings::GS_ROUTE_RESIDENT));
+	Ref<GaussianSplatRenderer> resident_renderer;
+	resident_renderer.instantiate();
+	if (resident_renderer.is_null()) { FAIL("renderer instantiate failed"); return; }
+	resident_renderer->get_resource_state().hlod_snapshot = snapshot;
+	const GaussianSplatRenderer::FrameBackendPlan resident_plan = resident_renderer->build_frame_backend_plan(false);
+	CHECK(resident_plan.prefer_resident_backend);
+	CHECK(resident_plan.hlod_route_reason.is_empty());
 }
 
 TEST_CASE("[GaussianSplatting] get_streaming_route_policy defaults to STREAMING when unset") {

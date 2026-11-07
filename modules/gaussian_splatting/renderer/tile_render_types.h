@@ -8,6 +8,7 @@
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
 #include "gaussian_gpu_layout.h"
+#include "gpu_pass_timing.h"
 #include "servers/rendering/rendering_device.h"
 
 #include "../core/gs_project_settings.h"
@@ -355,6 +356,10 @@ struct TileTimingState {
 	uint64_t last_raster_resolved_serial = 0;
 	uint64_t last_prefix_resolved_serial = 0;
 	uint64_t last_resolve_resolved_serial = 0;
+	// BV-04b: every pass of the frame (cull, projection, pre-sort, the tile passes, composite) with
+	// its measurement frame serial and the newest same-frame (coherent) breakdown. Fed by
+	// resolve_gpu_timestamps_async() alongside the legacy tile-pass fields above.
+	GaussianSplatting::GpuPassTiming::PassTimingAccumulator pass_timing;
 };
 
 struct TilePerformanceMetrics {
@@ -404,6 +409,15 @@ struct TilePerformanceMetrics {
 
 struct TileDiagnosticsState {
 	mutable TileRenderStats last_render_stats;
+	mutable HlodLevelRecordSample hlod_level_records; // BV-04b
+	void record_hlod_level_stats_sample(const HlodLevelRecordStatsGPU &p_sample, uint64_t p_frame_serial) const {
+		hlod_level_records.frame_serial = p_frame_serial;
+		hlod_level_records.sample_count++;
+		for (uint32_t i = 0; i < GS_HLOD_LEVEL_STAT_SLOTS; i++) {
+			hlod_level_records.records[i] = p_sample.records[i];
+			hlod_level_records.splats[i] = p_sample.splats[i];
+		}
+	}
 	// Set true when the opt-in 32-bit sort-key path survives config resolution and
 	// actually engages (see TileRenderer::_get_effective_sort_key_config). mutable
 	// because that config getter is const, mirroring last_render_stats above.
@@ -488,6 +502,12 @@ struct TileRenderParams {
 	// SplatRefGPU.instance_id). Bound at set=0, binding=20 in tile_binning.glsl.
 	RID instance_grading_buffer;
 	RID splat_ref_buffer;
+        RID hlod_draw_entry_buffer;
+        RID hlod_draw_list_buffer;
+        bool hlod_relative = false;
+        uint64_t hlod_source_generation = 0;
+        uint64_t hlod_content_generation = 0;
+        uint64_t hlod_origin_revision = 0;
 	RID chunk_meta_buffer;
 	RID quantization_buffer;
 	RID instance_indirect_count_buffer;

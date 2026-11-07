@@ -173,7 +173,40 @@ LAYER_DISABLE_ENV: Tuple[Tuple[str, str, str], ...] = (
     ("VK_LAYER_OW_OBS_HOOK", "DISABLE_VULKAN_OW_OBS_CAPTURE", "1"),
     # C:\Program Files (x86)\Overwolf\<version>\ow-vulkan-overlay64.json
     ("VK_LAYER_OW_OVERLAY", "DISABLE_VULKAN_OW_OVERLAY_LAYER", "1"),
+    # Linux: Mesa's device-select layer is registered implicitly by the distro
+    # (`/usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json`,
+    # `disable_environment` = NODEVICE_SELECT). The Linux GPU runner pins the ICD
+    # to the NVIDIA driver, so the layer has no job to do there and is stripped
+    # like any other layer that is not the driver's own.
+    ("VK_LAYER_MESA_device_select", "NODEVICE_SELECT", "1"),
 )
+
+#: The Linux NVIDIA driver registers no implicit Vulkan layers of its own that the
+#: loader inserts by default (`nvidia_layers.json` layers are opt-in), so on Linux
+#: nothing is "the driver's own" and the effective chain must be EMPTY. The
+#: control run still has to show a layer (the Mesa one above), which is what keeps
+#: an empty effective chain from being a parser that matches nothing.
+EXPECTED_LAYERS_LINUX: Tuple[str, ...] = ()
+
+#: Chains the control run must have been seen to report. Windows builds both an
+#: instance and a device chain. The Linux loader (1.3.x) prints only the instance
+#: chain for the Mesa layer, so a device-chain observation cannot be demanded of
+#: a probe that has no device layer to show.
+REQUIRED_CONTROL_CHAINS_WINDOWS: Tuple[str, ...] = ("device", "instance")
+REQUIRED_CONTROL_CHAINS_LINUX: Tuple[str, ...] = ("instance",)
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def expected_layers() -> Tuple[str, ...]:
+    """The driver-own layers allowed in the effective chain on THIS platform."""
+    return EXPECTED_LAYERS if _is_windows() else EXPECTED_LAYERS_LINUX
+
+
+def required_control_chains() -> Tuple[str, ...]:
+    return REQUIRED_CONTROL_CHAINS_WINDOWS if _is_windows() else REQUIRED_CONTROL_CHAINS_LINUX
 
 #: Environment variables stripped for the control run: everything the jobs set
 #: to influence the chain. `VK_INSTANCE_LAYERS` is the legacy force-enable
@@ -213,6 +246,25 @@ PROBE_ENV_VAR = "GS_CI_VULKAN_PROBE"
 #: a loader report and must not influence the gate (#923).
 _LOADER_DEBUG_MARKER = "[Vulkan Loader]"
 
+#: Linux loader 1.3.x prefixes its debug lines with the message type instead:
+#: `INFO | LAYER:      Insert instance layer "VK_LAYER_X" (libVkLayer_x.so)`, and
+#: continuation lines with a bare `LAYER:` / `INFO:` / `DRIVER:`.
+#:
+#: This wider anchor is applied ONLY when the preflight runs on a non-Windows
+#: host (see `_is_windows()`): the Windows gate keeps exactly the `[Vulkan
+#: Loader]` provenance anchor it was reviewed with, so layer-shaped text that
+#: merely starts with `LAYER:` cannot influence the Windows verdict. On Linux the
+#: anchor is the same idea as the Windows marker -- text without it is not a
+#: loader report (an unprefixed line is still ignored; see the spoof test).
+_LOADER_DEBUG_ANCHOR_LINUX = (
+    r"(?:\[Vulkan Loader\]"
+    r"|(?:INFO|WARNING|ERROR|DEBUG|PERF)[ \t]*\|[ \t]*[A-Z]+:"
+    r"|(?:LAYER|INFO|DRIVER|WARNING|ERROR|DEBUG|PERF):)"
+)
+_LOADER_DEBUG_ANCHOR_WINDOWS = re.escape(_LOADER_DEBUG_MARKER)
+_LOADER_DEBUG_LINE = re.compile(rf"^{_LOADER_DEBUG_ANCHOR_WINDOWS}", re.MULTILINE)
+_LOADER_DEBUG_LINE_LINUX = re.compile(rf"^{_LOADER_DEBUG_ANCHOR_LINUX}", re.MULTILINE)
+
 #: The loader's own debug messages, one per layer it inserts into a chain.
 #: `Insert instance layer "VK_LAYER_X" (C:\\path\\to.dll)` and the device-chain
 #: form `Inserted device layer "..."`. The module path is optional so a loader
@@ -223,7 +275,14 @@ _LOADER_DEBUG_MARKER = "[Vulkan Loader]"
 #: `C:\\Program Files (x86` under a non-greedy `[^)]*`, which would name the
 #: offending layer's module wrongly in the very message a maintainer acts on.
 _LAYER_LINE = re.compile(
-    rf'^{re.escape(_LOADER_DEBUG_MARKER)}[^\r\n]*?'
+    rf'^{_LOADER_DEBUG_ANCHOR_WINDOWS}[^\r\n]*?'
+    r'(?P<chain>Insert instance layer|Inserted device layer)\s+"(?P<name>[^"]+)"'
+    r'(?:\s*\((?P<module>.*)\))?\s*$',
+    re.MULTILINE,
+)
+
+_LAYER_LINE_LINUX = re.compile(
+    rf'^{_LOADER_DEBUG_ANCHOR_LINUX}[^\r\n]*?'
     r'(?P<chain>Insert instance layer|Inserted device layer)\s+"(?P<name>[^"]+)"'
     r'(?:\s*\((?P<module>.*)\))?\s*$',
     re.MULTILINE,
@@ -308,7 +367,8 @@ def parse_ignored_env_vars(text: str) -> Tuple[str, ...]:
 def parse_layer_report(text: str) -> Dict[str, LayerRecord]:
     """Layer name -> modules/chains, from the loader's `VK_LOADER_DEBUG=layer` output."""
     collected: Dict[str, Tuple[List[str], List[str]]] = {}
-    for match in _LAYER_LINE.finditer(text):
+    layer_line = _LAYER_LINE if _is_windows() else _LAYER_LINE_LINUX
+    for match in layer_line.finditer(text):
         name = match.group("name")
         module = (match.group("module") or "").strip()
         chain = "instance" if match.group("chain").startswith("Insert instance") else "device"
@@ -342,7 +402,8 @@ def run_probe(probe: str, strip_disable: bool) -> ProbeResult:
         )
 
     text = (completed.stdout or "") + (completed.stderr or "")
-    debug_lines = text.count(_LOADER_DEBUG_MARKER)
+    debug_pattern = _LOADER_DEBUG_LINE if _is_windows() else _LOADER_DEBUG_LINE_LINUX
+    debug_lines = len(debug_pattern.findall(text))
     if completed.returncode != 0:
         return ProbeResult(
             False,
@@ -456,7 +517,7 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
         chain for entry in control.layers.values() for chain in entry.chains
     }
     record["control_chain_types"] = sorted(control_chain_types)
-    missing_chain_types = sorted({"device", "instance"} - control_chain_types)
+    missing_chain_types = sorted(set(required_control_chains()) - control_chain_types)
     if missing_chain_types:
         lines.append(
             "  FAIL: the control run reported layers, but not one of them on the "
@@ -493,8 +554,8 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
     # layers exist at all, and demanding a layer the driver never registered
     # would be this guard asserting facts about hardware instead of measuring
     # it.
-    expected_in_control = control_names & set(EXPECTED_LAYERS)
-    if not expected_in_control:
+    expected_in_control = control_names & set(expected_layers())
+    if expected_layers() and not expected_in_control:
         lines.append(
             "  FAIL: the control run inserted layers, but none of them were the GPU "
             f"driver's own ({', '.join(EXPECTED_LAYERS)}). Either the driver's implicit "
@@ -598,15 +659,18 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
         )
         return False, lines, record
 
-    lines.append(
-        "  driver layers retained: "
-        + ", ".join(
-            f"{name} [{'+'.join(effective.layers[name].chains)}]"
-            for name in sorted(expected_in_control)
+    if expected_in_control:
+        lines.append(
+            "  driver layers retained: "
+            + ", ".join(
+                f"{name} [{'+'.join(effective.layers[name].chains)}]"
+                for name in sorted(expected_in_control)
+            )
         )
-    )
+    else:
+        lines.append("  driver layers retained: (none; this platform's driver registers no implicit layers)")
 
-    unexpected = sorted(effective_names - set(EXPECTED_LAYERS))
+    unexpected = sorted(effective_names - set(expected_layers()))
     if unexpected:
         lines.append(
             f"  FAIL: {len(unexpected)} layer(s) are still in the runtime chain that are not "
@@ -910,7 +974,7 @@ def check_page_heap() -> Tuple[bool, List[str], Dict[str, object]]:
     if os.name != "nt":
         lines.append(
             "  N/A: Image File Execution Options is a Windows registry mechanism and this "
-            "host is not Windows. The GPU jobs this preflight guards are Windows-only."
+            "host is not Windows (page heap / Application Verifier do not exist here)."
         )
         record["status"] = "not-applicable"
         return True, lines, record

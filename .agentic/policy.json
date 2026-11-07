@@ -130,6 +130,15 @@
       },
       {
         "class": "R3",
+        "reason": "Beyond-VRAM fly-through acceptance lane: harness, frozen thresholds, verdict module and no-loosening guard (ADR docs/architecture/adr-beyond-vram-worlds.md section 8.4, BV-01)",
+        "path_globs": [
+          "tests/runtime/flythrough/**",
+          "tests/runtime/flythrough/flythrough_thresholds.json",
+          "tests/ci/check_flythrough_*.py"
+        ]
+      },
+      {
+        "class": "R3",
         "reason": "Docs dependency lock installed by docs-build and deploy",
         "path_globs": [
           "docs/requirements-lock.txt"

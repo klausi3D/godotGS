@@ -1,23 +1,25 @@
 #include "gaussian_splat_world_io.h"
 #include "gaussian_splat_world_format.h"
+#include "gaussian_splat_world_paged.h"
 
 #include "../core/gs_vector_alloc.h"
 
 #include "core/error/error_macros.h"
-#include "core/io/file_access.h"
-#include "core/io/resource_importer.h"
-#include "core/io/json.h"
 #include "core/io/compression.h"
-#include "core/string/ustring.h"
+#include "core/io/file_access.h"
+#include "core/io/json.h"
+#include "core/io/resource_importer.h"
 #include "core/math/math_funcs.h"
-#include "io_settings_utils.h"
-#include "gs_atomic_file_writer.h"
+#include "core/string/ustring.h"
 #include "../core/gaussian_data.h"
-#include "../core/gaussian_splat_hlod_tree.h"
+#include "../core/gaussian_splat_hlod_job.h"
 #include "../core/gaussian_splat_hlod_merge.h"
+#include "../core/gaussian_splat_hlod_tree.h"
 #include "../core/gaussian_splat_world.h"
 #include "../interfaces/gpu_culler.h"
 #include "../logger/gs_logger.h"
+#include "gs_atomic_file_writer.h"
+#include "io_settings_utils.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -30,15 +32,18 @@
 #ifdef TESTS_ENABLED
 ResourceFormatSaverGaussianSplatWorld::HlodSnapshotTestHook ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook = nullptr;
 void *ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata = nullptr;
+ResourceFormatSaverGaussianSplatWorld::OfflineWriteTestHook
+        ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook = nullptr;
+void *ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata = nullptr;
 #endif
 
 namespace {
 
-static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
+static constexpr uint32_t kWorldMagic = gs_world_format::kMagic; // 'GSPW' little-endian.
 // v1 plain and v2 HLOD remain readable with their historical raw layout.
 // Both new plain and HLOD worlds use the explicit-layout v3 schema.
 static constexpr uint32_t kWorldVersion = gs_world_format::kVersion;
-static constexpr uint32_t kMaxShDegree = 3;
+static constexpr uint32_t kMaxShDegree = 4;
 // Gaussian.sh_1[3] holds at most 3 first-order coefficients on disk, and
 // GaussianData::set_gaussian_payload() clamps p_sh_first_order_count to 3, so
 // a value above 3 cannot have been produced by the in-tree saver. sh_high_order
@@ -46,12 +51,12 @@ static constexpr uint32_t kMaxShDegree = 3;
 // the saver writes them verbatim — so it is bounded only by the structural
 // `fits_within` + `_checked_mul_u64` checks below, not by a magnitude cap.
 static constexpr uint32_t kMaxShFirstOrder = 3u;
-static constexpr uint32_t kFlagHasMetadata = 1u << 0u;
-static constexpr uint32_t kFlagIs2D = 1u << 1u;
-static constexpr uint32_t kFlagHasChunks = 1u << 2u;
-static constexpr uint32_t kFlagHasHighSh = 1u << 3u;
-static constexpr uint32_t kFlagCompressed = 1u << 4u;
-static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
+static constexpr uint32_t kFlagHasMetadata = gs_world_format::kFlagHasMetadata;
+static constexpr uint32_t kFlagIs2D = gs_world_format::kFlagIs2D;
+static constexpr uint32_t kFlagHasChunks = gs_world_format::kFlagHasChunks;
+static constexpr uint32_t kFlagHasHighSh = gs_world_format::kFlagHasHighSh;
+static constexpr uint32_t kFlagCompressed = gs_world_format::kFlagCompressed;
+static constexpr uint32_t kFlagResidentPayload = gs_world_format::kFlagResidentPayload;
 static constexpr uint32_t kFlagHasHlod = gs_world_format::kFlagHasHlod;
 static constexpr uint64_t kHeaderSizeBytesV1 = gs_world_format::kLegacyPrefixBytes;
 static constexpr uint64_t kHeaderSizeBytes = gs_world_format::kPrefixBytes;
@@ -371,8 +376,21 @@ static Error _write_buffer_sliced(const Ref<FileAccess> &p_file,
 	constexpr uint64_t kSliceBytes = 256u * 1024u * 1024u;
 	uint64_t written = 0;
 	while (written < p_size) {
-		const uint64_t slice = MIN(kSliceBytes, p_size - written);
+		if (gs_hlod::offline_job_check() != OK) {
+			return gs_hlod::offline_job_check();
+		}
+		const uint64_t slice = MIN(gs_hlod::active_offline_job ? uint64_t(1u << 20u) : kSliceBytes, p_size - written);
+		if (gs_hlod::active_offline_job && (p_file->get_position() > gs_hlod::active_offline_job->output ||
+		                                    slice > gs_hlod::active_offline_job->output - p_file->get_position())) {
+			return ERR_OUT_OF_MEMORY;
+		}
 		p_file->store_buffer(p_src + written, slice);
+#ifdef TESTS_ENABLED
+		if (gs_hlod::active_offline_job && ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook) {
+			ResourceFormatSaverGaussianSplatWorld::offline_write_test_hook(
+			        ResourceFormatSaverGaussianSplatWorld::offline_write_test_userdata);
+		}
+#endif
 		const Error err = _ensure_file_write_ok(p_file, p_context);
 		if (err != OK) {
 			return err;
@@ -439,8 +457,10 @@ static Error _write_world_sh_payload(const Ref<FileAccess> &p_file,
 	const Vector3 *sh_ptr = p_gaussian_data->get_sh_high_order_coefficients_ptr();
 	ERR_FAIL_COND_V_MSG(sh_ptr == nullptr, ERR_INVALID_DATA,
 			"GaussianSplatWorld missing high-order SH coefficients while sh_high_order_count > 0.");
-	p_file->store_buffer(reinterpret_cast<const uint8_t *>(sh_ptr), p_layout.sh_bytes);
-	return _ensure_file_write_ok(p_file, "save(sh_data)");
+	// Sliced like the gaussian section (BV-02): the loader admits up to UINT32_MAX
+	// coefficients (~48 GiB) of SH, far past the 2 GB a single MSVC CRT fwrite
+	// handles reliably.
+	return _write_buffer_sliced(p_file, reinterpret_cast<const uint8_t *>(sh_ptr), p_layout.sh_bytes, "save(sh_data)");
 }
 
 static Error _write_world_chunk_table(const Ref<FileAccess> &p_file, const Vector<StaticChunk> &p_chunks) {
@@ -726,71 +746,10 @@ static bool _allocation_probe(uint64_t p_bytes) {
 
 static bool _validate_hlod_payload(const GaussianSplatHlodTree &p_tree, const GaussianSplatHlodNode &p_node,
 		const Gaussian *p_gaussians, const Vector3 *p_sh, String &r_reason) {
+	// One implementation for the v2/v3 loader and the V4 paged reader (io/gaussian_splat_world_paged.cpp).
 	double center[3];
 	p_tree.node_cell_center(p_node, center);
-	for (uint32_t i = 0; i < p_node.payload_count; i++) {
-		const Gaussian &g = p_gaussians[i];
-		const real_t fields[] = { g.position.x, g.position.y, g.position.z, g.opacity, g.scale.x, g.scale.y, g.scale.z,
-			g.area, g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w, g.sh_dc.r, g.sh_dc.g, g.sh_dc.b, g.sh_dc.a,
-			g.normal.x, g.normal.y, g.normal.z, g.stroke_age, g.brush_axes.x, g.brush_axes.y };
-		for (real_t field : fields) {
-			if (!Math::is_finite(field)) {
-				r_reason = "non-finite Gaussian field in HLOD payload";
-				return false;
-			}
-		}
-		for (const Vector3 &v : g.sh_1) {
-			if (!Math::is_finite(v.x) || !Math::is_finite(v.y) || !Math::is_finite(v.z)) {
-				r_reason = "non-finite first-order SH in HLOD payload";
-				return false;
-			}
-		}
-		for (uint32_t k = 0; k < p_tree.sh_high_order_count; k++) {
-			const Vector3 &v = p_sh[uint64_t(i) * p_tree.sh_high_order_count + k];
-			if (!Math::is_finite(v.x) || !Math::is_finite(v.y) || !Math::is_finite(v.z)) {
-				r_reason = "non-finite high-order SH in HLOD payload";
-				return false;
-			}
-		}
-		double cov[6];
-		gs_hlod::splat_covariance(g, cov);
-		double distance_squared = 0.0;
-		double tolerance_squared = 0.0;
-		const int diagonal[] = { 0, 3, 5 };
-		for (int a = 0; a < 3; a++) {
-			const double position = g.position[a];
-			const double absolute = center[a] + position;
-			if (!Math::is_finite(absolute) || std::abs(absolute) > std::numeric_limits<real_t>::max()) {
-				r_reason = "HLOD payload position overflows runtime coordinates";
-				return false;
-			}
-			// Leaf serialization rounds (absolute_position - cell_center) to real_t.
-			// Permit only that half-ULP plus double arithmetic rounding, not a world-scale epsilon.
-			const real_t lower = std::nextafter(g.position[a], real_t(-INFINITY));
-			const real_t upper = std::nextafter(g.position[a], real_t(INFINITY));
-			const double spacing = MAX(Math::is_finite(lower) ? position - double(lower) : 0.0,
-					Math::is_finite(upper) ? double(upper) - position : 0.0);
-			const double tolerance = 0.5 * spacing +
-					4.0 * std::numeric_limits<double>::epsilon() * (std::abs(center[a]) + std::abs(position) +
-							std::abs(double(p_node.aabb_min[a])) + std::abs(double(p_node.aabb_max[a])));
-			const double half_extent = 3.0 * std::sqrt(MAX(cov[diagonal[a]], 0.0));
-			if (!Math::is_finite(half_extent) || position - half_extent < double(p_node.aabb_min[a]) - tolerance ||
-					position + half_extent > double(p_node.aabb_max[a]) + tolerance) {
-				r_reason = "HLOD node AABB does not contain its payload's three-sigma support";
-				return false;
-			}
-			const double mid = 0.5 * (double(p_node.aabb_min[a]) + double(p_node.aabb_max[a]));
-			const double delta = position - mid;
-			distance_squared += delta * delta;
-			tolerance_squared += tolerance * tolerance;
-		}
-		const double support_radius = 3.0 * MAX(std::abs(double(g.scale.x)), MAX(std::abs(double(g.scale.y)), std::abs(double(g.scale.z))));
-		if (std::sqrt(distance_squared) + support_radius > double(p_node.radius) + std::sqrt(tolerance_squared)) {
-			r_reason = "HLOD node sphere does not contain its payload's three-sigma support";
-			return false;
-		}
-	}
-	return true;
+	return gs_world_paged::validate_node_payload(center, p_tree.sh_high_order_count, p_node, p_gaussians, p_sh, r_reason);
 }
 
 // The header world AABB becomes the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
@@ -1038,8 +997,9 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		return refuse("read error in the node tables");
 	}
 	String reason;
-	if (!gs_hlod_validate_tree(tree, &reason)) {
-		return refuse(reason);
+	Error validation_error = OK;
+	if (!gs_hlod_validate_tree(tree, &reason, &validation_error)) {
+		return refuse(reason, validation_error == ERR_OUT_OF_MEMORY ? ERR_OUT_OF_MEMORY : ERR_FILE_CORRUPT);
 	}
 	// A finite but too-small or disjoint header AABB would let engine frustum culling hide valid splats.
 	if (!_hlod_bounds_enclose_root(tree, p_bounds_pos, p_bounds_size)) {
@@ -1181,6 +1141,9 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		world->set_chunk_payload_source(file_source);
 	}
 	world->set_hlod_tree(std::move(tree));
+	if (!world->has_hlod_tree()) {
+		return refuse("HLOD bounds cannot be published in runtime coordinates");
+	}
 
 	if (r_error) {
 		*r_error = OK;
@@ -1192,14 +1155,42 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 }
 
 static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref<GaussianData> &p_gaussian_data,
-		const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode) {
+                                    const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode,
+                                    uint64_t p_max_bytes = 0)
+{
 	const GaussianSplatHlodTree &tree = p_world->get_hlod_tree();
+	if (p_max_bytes) {
+		ERR_FAIL_COND_V (!gs_hlod::active_offline_job || !p_world->get_metadata().is_empty() ||
+		                         !tree.top_level_nodes.is_empty() || !tree.instances.is_empty() ||
+		                         !tree.interior_resident ||
+		                         p_mode != ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED,
+		                 ERR_INVALID_PARAMETER)
+			;
+		const uint64_t total = uint64_t(tree.leaf_splat_count) + tree.interior_splat_count;
+		ERR_FAIL_COND_V (total > gs_hlod::active_offline_job->prepared ||
+		                         tree.nodes.size() > gs_hlod::active_offline_job->nodes ||
+		                         tree.sh_high_order_count > 21u,
+		                 ERR_OUT_OF_MEMORY)
+			;
+		uint64_t remaining = p_max_bytes;
+		ERR_FAIL_COND_V (
+		        !gs_hlod::quality_charge_product(remaining, kHlodHeaderSizeBytes, 1u) ||
+		                !gs_hlod::quality_charge_product(remaining, total,
+		                                                 sizeof(Gaussian) + uint64_t(tree.sh_high_order_count) *
+		                                                                            sizeof(Vector3)) ||
+		                !gs_hlod::quality_charge_product(remaining, tree.nodes.size(), gs_hlod::kNodeRecordBytes),
+		        ERR_OUT_OF_MEMORY)
+			;
+		ERR_FAIL_COND_V (gs_hlod::offline_job_check() != OK, gs_hlod::offline_job_check())
+			;
+	}
 	ERR_FAIL_COND_V_MSG(!p_world->is_hlod_payload_current(), ERR_INVALID_DATA,
 			vformat("Refusing to save %s: the gaussian payload was edited after its HLOD tree was baked, so the tree's merged "
 					"nodes are stale. Call bake_hlod() again, or set_gaussian_data() to drop the tree.",
 					p_path));
 	String reason;
-	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason), ERR_INVALID_DATA,
+	Error validation_error = OK;
+	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason, &validation_error), validation_error,
 			vformat("Refusing to save %s: invalid HLOD tree: %s", p_path, reason));
 	const uint32_t leaf_count = tree.leaf_splat_count;
 
@@ -1365,6 +1356,9 @@ static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref
 			}
 		}
 		for (uint32_t i = 0; i < tree.nodes.size(); i++) {
+			if (p_max_bytes && (i & 63u) == 0u && gs_hlod::offline_job_check() != OK) {
+				return gs_hlod::offline_job_check();
+			}
 			_write_hlod_node(file, tree.nodes[i]);
 		}
 		for (uint32_t i = 0; i < tree.top_level_nodes.size(); i++) {
@@ -1380,6 +1374,9 @@ static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref
 		if (!metadata_bytes.is_empty()) {
 			file->store_buffer(metadata_bytes.ptr(), metadata_bytes.size());
 		}
+		if (p_max_bytes && (file->get_position() > p_max_bytes || gs_hlod::offline_job_check() != OK)) {
+			return file->get_position() > p_max_bytes ? ERR_OUT_OF_MEMORY : gs_hlod::offline_job_check();
+		}
 		return _ensure_file_write_ok(file, "save(v3 final)");
 	});
 }
@@ -1389,6 +1386,53 @@ static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref
 // GaussianSplatWorld::bake_hlod() publishes the same bounds the v2 saver writes into the header.
 bool gs_hlod_bounds_enclosing_root(const GaussianSplatHlodTree &p_tree, const AABB &p_world_bounds, AABB &r_bounds) {
 	return _hlod_header_bounds(p_tree, p_world_bounds, r_bounds);
+}
+
+// V4 paged package (ADR 14.4, package E1): opens and fully validates the header, every index page and the topology,
+// reads NO node payload and installs a world whose payload stays in the file. Fails closed with a distinct reason.
+static Ref<Resource> _load_gsplatworld_paged(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
+	auto refuse = [&](const String &p_why, Error p_err) {
+		if (r_error) {
+			*r_error = p_err;
+		}
+		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load V4 paged package %s: %s", p_path, p_why));
+		return Ref<Resource>();
+	};
+	Ref<GaussianSplatHlodPagedSource> source;
+	source.instantiate();
+	GaussianSplatHlodTree tree;
+	Dictionary file_metadata;
+	String reason;
+	const Error open_error = source->open(p_path, tree, file_metadata, reason);
+	if (open_error != OK) {
+		return refuse(reason, open_error);
+	}
+	// Validation comes first, so a damaged or foreign file reports its own error even to a resident load.
+	if (p_force_resident) {
+		return refuse("a paged package has no resident form (its payload is read on demand)", ERR_UNAVAILABLE);
+	}
+	if (r_progress) {
+		*r_progress = 0.5f;
+	}
+	const GaussianSplatHlodPagedSource::Info &info = source->get_info();
+	// A finite but too-small or disjoint header AABB would let engine frustum culling hide valid splats.
+	if (!_hlod_bounds_enclose_root(tree, info.bounds.position, info.bounds.size)) {
+		return refuse("header world bounds are invalid or do not enclose the HLOD root", ERR_FILE_CORRUPT);
+	}
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_bounds(info.bounds);
+	world->set_metadata(file_metadata);
+	if (world->set_hlod_paged_package(std::move(tree), source) != OK || !world->has_hlod_paged_source()) {
+		return refuse("HLOD bounds cannot be published in runtime coordinates", ERR_FILE_CORRUPT);
+	}
+	if (r_error) {
+		*r_error = OK;
+	}
+	if (r_progress) {
+		*r_progress = 1.0f;
+	}
+	return world;
 }
 
 static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
@@ -1421,6 +1465,11 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t version = file->get_32();
+	if (version == gs_world_paged::kVersion) {
+		// V4 is a distinct, opt-in identity with its own strict reader; v1-v3 below are untouched.
+		file.unref();
+		return _load_gsplatworld_paged(p_path, r_error, r_progress, p_force_resident);
+	}
 	const uint32_t flags = file->get_32();
 	gs_world_format::HeaderLayout header;
 	const Error header_error = gs_world_format::select_header(version, flags, file_len, header);
@@ -1976,6 +2025,18 @@ Error ResourceFormatSaverGaussianSplatWorld::save_with_payload_mode(const Ref<Re
 	return gs_atomic_file_write(p_path, [&](const Ref<FileAccess> &file) -> Error {
 		return _write_world_save_sections(file, world, gaussian_data, chunks, layout);
 	});
+}
+
+Error ResourceFormatSaverGaussianSplatWorld::save_offline_candidate(const Ref<Resource> &p_resource,
+                                                                    const String &p_path, uint64_t p_max_bytes)
+{
+	GaussianSplatWorld *world = Object::cast_to<GaussianSplatWorld>(*p_resource);
+	ERR_FAIL_COND_V (!world || !world->has_hlod_tree() || world->get_gaussian_data().is_null() || !p_max_bytes ||
+	                         !gs_hlod::active_offline_job || p_max_bytes != gs_hlod::active_offline_job->output,
+	                 ERR_INVALID_PARAMETER)
+		;
+	return _save_gsplatworld_hlod(world, world->get_gaussian_data(), p_path, SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED,
+	                              p_max_bytes);
 }
 
 void ResourceFormatSaverGaussianSplatWorld::get_recognized_extensions(const Ref<Resource> &p_resource,

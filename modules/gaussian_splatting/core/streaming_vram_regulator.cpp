@@ -365,9 +365,16 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
             current_max_chunks = new_max;
             last_adjustment_frame = current_frame;
             stats.regulation_adjustments++;
+            stats.thrash_reductions++;
+            stats.last_regulation_frame = current_frame;
+            stats.last_regulation_reason = "thrash_reduction";
 
             // Also increase LOD distance to reduce quality demands
+            const float previous_lod_multiplier = lod_distance_multiplier;
             lod_distance_multiplier = MIN(2.0f, lod_distance_multiplier * 1.1f);
+            if (lod_distance_multiplier != previous_lod_multiplier) {
+                stats.lod_multiplier_adjustments++;
+            }
 
             GS_LOG_STREAMING_INFO(vformat("[VRAM Regulator] Thrashing detected! Reduced max chunks to %d, LOD multiplier: %.2f",
                     current_max_chunks, lod_distance_multiplier));
@@ -385,6 +392,9 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
             current_max_chunks = new_max;
             last_adjustment_frame = current_frame;
             stats.regulation_adjustments++;
+            stats.budget_reductions++;
+            stats.last_regulation_frame = current_frame;
+            stats.last_regulation_reason = "budget_reduction";
 
             GS_LOG_STREAMING_DEBUG(vformat("[VRAM Regulator] Reducing max chunks: %d -> %d (usage: %.1f%%)",
                     current_max_chunks + step_size, current_max_chunks, decision_percent));
@@ -398,10 +408,14 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
                 current_max_chunks = new_max;
                 last_adjustment_frame = current_frame;
                 stats.regulation_adjustments++;
+                stats.headroom_increases++;
+                stats.last_regulation_frame = current_frame;
+                stats.last_regulation_reason = "headroom_increase";
 
                 // Also recover LOD quality if we have headroom
                 if (lod_distance_multiplier > 1.0f) {
                     lod_distance_multiplier = MAX(1.0f, lod_distance_multiplier * 0.95f);
+                    stats.lod_multiplier_adjustments++;
                 }
 
                 GS_LOG_STREAMING_DEBUG(vformat("[VRAM Regulator] Increasing max chunks: %d -> %d (usage: %.1f%%)",
@@ -488,6 +502,12 @@ Dictionary VRAMBudgetRegulator::get_debug_stats_dictionary() const {
     d["device_memory_queryable"] = stats.device_memory_queryable;
     d["regulation_adjustments"] = stats.regulation_adjustments;
     d["thrashing_events"] = stats.thrashing_events;
+    d["thrash_reductions"] = stats.thrash_reductions;
+    d["budget_reductions"] = stats.budget_reductions;
+    d["headroom_increases"] = stats.headroom_increases;
+    d["lod_multiplier_adjustments"] = stats.lod_multiplier_adjustments;
+    d["last_regulation_frame"] = int64_t(stats.last_regulation_frame);
+    d["last_regulation_reason"] = String(stats.last_regulation_reason);
     d["lod_distance_multiplier"] = lod_distance_multiplier;
     d["auto_regulate_enabled"] = config.auto_regulate_enabled;
     d["cap_tier_preset"] = config.cap_tier_preset;

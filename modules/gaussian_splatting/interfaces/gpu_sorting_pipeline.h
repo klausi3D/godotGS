@@ -25,6 +25,10 @@ public:
         RID chunk_meta_buffer;
         RID visible_chunk_buffer;
         RID splat_ref_buffer;
+        RID hlod_draw_entry_buffer;
+        bool hlod_relative = false;
+        uint64_t hlod_source_generation = 0;
+        uint64_t hlod_content_generation = 0;
         RID sort_key_buffer;
         RID sort_value_buffer;
         RID counter_buffer;
@@ -149,6 +153,7 @@ public:
 
     // Statistics
     uint32_t get_sort_buffer_capacity() const { return sort_buffer_capacity; }
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const;
     uint32_t get_local_buffer_capacity() const { return local_sort_buffer_capacity; }
     bool are_buffers_external() const { return sort_keys_external || sort_indices_external; }
 
@@ -204,6 +209,7 @@ private:
     bool depth_submission_needs_submit = false;
     bool depth_submission_requires_wait = false;
     bool depth_quantization_enabled = false;
+    bool depth_hlod_relative_enabled = false;
     RID instance_param_buffer = RID();
     RenderingDevice *instance_resource_device = nullptr;
 

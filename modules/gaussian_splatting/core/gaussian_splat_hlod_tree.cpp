@@ -1,5 +1,7 @@
 #include "gaussian_splat_hlod_tree.h"
 
+#include "gs_vector_alloc.h"
+
 #include "core/io/file_access.h"
 #include "core/math/math_funcs.h"
 
@@ -30,8 +32,11 @@ struct PayloadRange {
 };
 
 // Ranges must tile [p_begin, p_end) exactly: sorted by start, each starting where the previous ended.
-bool _tiles(LocalVector<PayloadRange> &p_ranges, uint64_t p_begin, uint64_t p_end, const char *p_what, String *r_reason) {
-	std::sort(p_ranges.ptr(), p_ranges.ptr() + p_ranges.size());
+bool _tiles(Vector<PayloadRange> &p_ranges, uint64_t p_begin, uint64_t p_end, const char *p_what, String *r_reason) {
+	if (p_ranges.size() > 1) {
+		PayloadRange *ranges = p_ranges.ptrw();
+		std::sort(ranges, ranges + p_ranges.size());
+	}
 	uint64_t cursor = p_begin;
 	for (uint32_t i = 0; i < p_ranges.size(); i++) {
 		if (p_ranges[i].first != cursor) {
@@ -223,7 +228,10 @@ bool _validate_shape(const GaussianSplatHlodTree &p_tree, const LocalVector<Gaus
 
 } // namespace
 
-bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason) {
+bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason, Error *r_error) {
+	if (r_error) {
+		*r_error = ERR_INVALID_DATA;
+	}
 	for (int a = 0; a < 3; a++) {
 		if (!Math::is_finite(p_tree.origin[a])) {
 			return _fail(r_reason, "HLOD world origin is not finite.");
@@ -247,8 +255,25 @@ bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason
 		return false;
 	}
 
-	LocalVector<PayloadRange> leaf_ranges;
-	LocalVector<PayloadRange> interior_ranges;
+	uint32_t leaf_nodes = 0u;
+	for (const GaussianSplatHlodNode &node : nodes) {
+		leaf_nodes += node.child_count == 0u ? 1u : 0u;
+	}
+	Vector<PayloadRange> leaf_ranges;
+	Vector<PayloadRange> interior_ranges;
+	// Allocate the actual range storage fallibly, not a probe followed by a separate
+	// infallible LocalVector allocation. Population below cannot grow either vector.
+	if (node_count > uint64_t(SIZE_MAX) / sizeof(PayloadRange) ||
+			!gs_resize_or_fail(leaf_ranges, leaf_nodes, "gs_hlod_validate_tree leaf_ranges") ||
+			(node_count > leaf_nodes &&
+					!gs_resize_or_fail(interior_ranges, node_count - leaf_nodes, "gs_hlod_validate_tree interior_ranges"))) {
+		if (r_error) {
+			*r_error = ERR_OUT_OF_MEMORY;
+		}
+		return _fail(r_reason, "Cannot allocate HLOD payload validation ranges.");
+	}
+	uint32_t leaf_index = 0u;
+	uint32_t interior_index = 0u;
 	for (uint32_t i = 0; i < nodes.size(); i++) {
 		const GaussianSplatHlodNode &n = nodes[i];
 		if (n.payload_count == 0u || n.payload_count > gs_hlod::kMaxNodeSplats) {
@@ -272,7 +297,7 @@ bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason
 			if (n.payload_first + n.payload_count > leaf_count) {
 				return _fail(r_reason, vformat("HLOD leaf %d payload lies outside the leaf range.", i));
 			}
-			leaf_ranges.push_back(range);
+			leaf_ranges.write[leaf_index++] = range;
 			continue;
 		}
 		if (kind != gs_hlod::NODE_KIND_MERGED && kind != gs_hlod::NODE_KIND_SELECTED) {
@@ -284,7 +309,7 @@ bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason
 		if (n.payload_first < leaf_count) {
 			return _fail(r_reason, vformat("HLOD interior node %d payload lies inside the leaf range.", i));
 		}
-		interior_ranges.push_back(range);
+		interior_ranges.write[interior_index++] = range;
 	}
 	if (!_tiles(leaf_ranges, 0u, leaf_count, "Leaf", r_reason)) {
 		return false;
@@ -330,6 +355,9 @@ bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason
 				}
 			}
 		}
+	}
+	if (r_error) {
+		*r_error = OK;
 	}
 	return true;
 }

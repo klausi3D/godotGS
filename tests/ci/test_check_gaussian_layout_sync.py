@@ -301,5 +301,87 @@ class SHSelectionWiringTests(unittest.TestCase):
         self.assertRegex(prefix, r"_reload_sh_config_if_dirty\(\);\s*set_global_sh_band_level\(int\(g_sh_config\.sh_bands\)\)")
 
 
+class HlodLevelStatsMirrorTests(unittest.TestCase):
+    """Binding-24 HlodLevelRecordStats (BV-04b, #1326). Each mutation is applied to a temp copy of
+    the real source, so a pass on the committed tree and a fail on each drift prove the check
+    discriminates."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.host_h = guard.HOST_LAYOUT.read_text(encoding="utf-8")
+        cls.binning = guard.HLOD_LEVEL_STATS_SHADER_MIRRORS[0][0].read_text(encoding="utf-8")
+        cls.glsl_consts = guard.HLOD_LEVEL_STATS_GLSL_CONSTANTS.read_text(encoding="utf-8")
+        cls.host_cpp = guard.HLOD_LEVEL_STATS_HOST_BINDING_CPP.read_text(encoding="utf-8")
+
+    def _run(self, *, host_h=None, binning=None, glsl_consts=None, host_cpp=None) -> list[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(directory)
+            paths = {}
+            for name, text, default in (
+                ("gaussian_gpu_layout.h", host_h, self.host_h),
+                ("tile_binning.glsl", binning, self.binning),
+                ("gs_instance_layout.glsl", glsl_consts, self.glsl_consts),
+                ("tile_render_binning.cpp", host_cpp, self.host_cpp),
+            ):
+                paths[name] = d / name
+                paths[name].write_text(default if text is None else text, encoding="utf-8")
+            block_name = guard.HLOD_LEVEL_STATS_SHADER_MIRRORS[0][1]
+            with (
+                mock.patch.object(guard, "ROOT", d),
+                mock.patch.object(guard, "HOST_LAYOUT", paths["gaussian_gpu_layout.h"]),
+                mock.patch.object(guard, "HLOD_LEVEL_STATS_SHADER_MIRRORS", ((paths["tile_binning.glsl"], block_name),)),
+                mock.patch.object(guard, "HLOD_LEVEL_STATS_GLSL_CONSTANTS", paths["gs_instance_layout.glsl"]),
+                mock.patch.object(guard, "HLOD_LEVEL_STATS_HOST_BINDING_CPP", paths["tile_render_binning.cpp"]),
+            ):
+                failures: list[str] = []
+                guard._check_hlod_level_stats_mirror(failures)
+                return failures
+
+    def _mutate(self, text: str, old: str, new: str) -> str:
+        self.assertEqual(text.count(old), 1, f"mutation anchor not unique: {old!r}")
+        return text.replace(old, new)
+
+    def test_committed_tree_passes(self) -> None:
+        self.assertEqual(self._run(), [])
+
+    def test_main_reaches_the_check(self) -> None:
+        calls = []
+        real = guard._check_hlod_level_stats_mirror
+        with mock.patch.object(guard, "_check_hlod_level_stats_mirror", lambda f: (calls.append(1), real(f))):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(guard.main(), 0)
+        self.assertEqual(len(calls), 1)
+
+    def test_slot_constant_mismatch_fails(self) -> None:
+        consts = self._mutate(self.glsl_consts, "#define GS_HLOD_LEVEL_STAT_SLOTS 16", "#define GS_HLOD_LEVEL_STAT_SLOTS 15")
+        failures = self._run(glsl_consts=consts)
+        self.assertTrue(any("host value 16 != GLSL value 15" in f for f in failures), failures)
+
+    def test_shader_field_drift_fails(self) -> None:
+        binning = self._mutate(
+            self.binning, "    uint splats[GS_HLOD_LEVEL_STAT_SLOTS];\n} hlod_level_stats;", "    uint splats[GS_HLOD_LEVEL_STAT_SLOTS];\n    uint extra;\n} hlod_level_stats;"
+        )
+        self.assertNotEqual(self._run(binning=binning), [])
+
+    def test_shader_binding_drift_fails(self) -> None:
+        binning = self._mutate(
+            self.binning, "binding = 24, std430) buffer HlodLevelRecordStats", "binding = 25, std430) buffer HlodLevelRecordStats"
+        )
+        failures = self._run(binning=binning)
+        self.assertTrue(any("binding 25, pinned 24" in f for f in failures), failures)
+
+    def test_host_binding_drift_fails_even_with_commented_decoy(self) -> None:
+        host_cpp = self._mutate(
+            self.host_cpp, "level_stats.binding = 24;", "level_stats.binding = 25; // level_stats.binding = 24;"
+        )
+        failures = self._run(host_cpp=host_cpp)
+        self.assertTrue(any("at binding 25, pinned 24" in f for f in failures), failures)
+
+    def test_host_size_contract_drift_fails(self) -> None:
+        host_h = self._mutate(self.host_h, "sizeof(HlodLevelRecordStatsGPU) == 128", "sizeof(HlodLevelRecordStatsGPU) == 132")
+        failures = self._run(host_h=host_h)
+        self.assertTrue(any("size 128 != host contract 132" in f for f in failures), failures)
+
+
 if __name__ == "__main__":
     unittest.main()

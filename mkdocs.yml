@@ -85,11 +85,6 @@ plugins:
   - awesome-nav:
       filename: .pages
   - glightbox
-  - git-revision-date-localized:
-      enabled: !ENV [ENABLE_GIT_DATES, true]
-      enable_creation_date: false
-      fallback_to_build_date: true
-      enable_git_follow: false
   - redirects:
       # README.md -> index.md normalization keeps the same published section URLs.
       # A page merged into another keeps its old URL as a redirect to the page

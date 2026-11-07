@@ -28,6 +28,9 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "agentic" / "condense_output.py"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+# Verbatim producer output, never hand-authored (tests/AGENTS.md). How each was
+# captured is recorded on the test that reads it.
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "condense_output"
 
 
 def _load():
@@ -39,6 +42,28 @@ def _load():
 
 
 condense_output = _load()
+
+# Valid (or at least plausible) commands that start like a build/runner but
+# carry a construct the rewrite cannot wrap safely. They must pass through.
+UNTOUCHED_SHELL_CONSTRUCTS = (
+    "scons -j8 # build",
+    "scons -j8 #",
+    "python tests/ci/run_module_tests.py --guard-only # guard lane",
+    "scons -j8 &",
+    "scons -j8 && echo ok",
+    "scons -j8 || echo failed",
+    "scons -j8; echo done",
+    "python tests/ci/run_module_tests.py <<'EOF'\n--guard-only\nEOF",
+    "python tests/ci/run_module_tests.py <<<x",
+    "scons -j8 \\",
+    "scons -j8 \\\n  target=editor",
+    'scons "unterminated',
+    "scons 'unterminated",
+    "scons (x)",
+    'scons "suffix=$(date +%s)"',
+    'scons "suffix=`date`"',
+    "scons -j8\r target=editor",
+)
 
 
 def _bash() -> str | None:
@@ -96,6 +121,19 @@ class ClassifyTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(condense_output.classify(command))
 
+    def test_constructs_the_rewrite_cannot_carry_are_left_alone(self) -> None:
+        # Codex P2 on #1276: a trailing comment swallowed the appended pipeline
+        # and the closing parenthesis. Every construct the scanner does not
+        # fully understand must pass through untouched.
+        for command in UNTOUCHED_SHELL_CONSTRUCTS:
+            with self.subTest(command=command):
+                self.assertIsNone(condense_output.classify(command))
+
+    def test_quoted_metacharacters_do_not_block_a_rewrite(self) -> None:
+        for command in ('scons "extra_suffix=a#b" -j8', "scons 'CCFLAGS=-DX=1 # y'"):
+            with self.subTest(command=command):
+                self.assertEqual(condense_output.classify(command), "scons")
+
 
 class WiringTests(unittest.TestCase):
     def test_claude_settings_wire_the_hook_to_this_script(self) -> None:
@@ -109,8 +147,11 @@ class WiringTests(unittest.TestCase):
             for hook in entry.get("hooks", [])
             if hook.get("type") == "command"
         ]
-        wired = [c for c in commands if "scripts/agentic/condense_output.py" in c and c.rstrip().endswith(" hook")]
+        wired = [c for c in commands if "scripts/agentic/condense_output.py" in c and " hook" in c]
         self.assertEqual(len(wired), 1, f"expected exactly one Bash PreToolUse hook running the condenser, got {commands}")
+        # Exit code 2 from a PreToolUse hook BLOCKS the tool call, and python
+        # exits 2 when the script is missing: the wiring must fail open.
+        self.assertTrue(wired[0].rstrip().endswith(" hook || exit 0"), wired[0])
 
 
 class HookTests(unittest.TestCase):
@@ -140,6 +181,22 @@ class HookTests(unittest.TestCase):
             self.assertEqual(condense_output.run_hook(self._payload("git status")), "{}")
             self.assertEqual(condense_output.run_hook(self._payload("scons", tool="Read")), "{}")
             self.assertEqual(condense_output.run_hook("not json"), "{}")
+
+    def test_hook_mode_fails_open_on_bad_input(self) -> None:
+        # A PreToolUse hook that exits 2 blocks the tool call; hook mode must
+        # answer "{}" and exit 0 whatever arrives on stdin.
+        for stdin in ("not json", "[]", '{"tool_name": "Bash", "tool_input": []}', ""):
+            with self.subTest(stdin=stdin):
+                completed = subprocess.run(
+                    [sys.executable, str(SCRIPT), "hook"],
+                    input=stdin,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    env=dict(os.environ, GS_RAW_OUTPUT=""),
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.strip(), "{}")
 
     def test_environment_opt_out_disables_rewriting(self) -> None:
         with mock.patch.dict(os.environ, {"GS_RAW_OUTPUT": "1"}):
@@ -173,6 +230,139 @@ class CondenseTests(unittest.TestCase):
         out = "\n".join(condense_output.condense(["compiling a.cpp", "linking"], "scons"))
         self.assertIn("NOT evidence of success", out)
         self.assertIn("linking", out, "the tail is always shown")
+
+
+def _fixture(name: str) -> list[str]:
+    return (FIXTURES / name).read_text(encoding="utf-8").splitlines()
+
+
+class RealProducerTests(unittest.TestCase):
+    """Condensation asserted against verbatim producer output (Codex P1 on #1276).
+
+    The fixtures are captured, not written:
+
+    * ``scons_linuxbsd_editor_dev_excerpt.txt``: the SCons step of GitHub Actions
+      run 41362665136 (job "CPU-Only QA Tests (Linux)", 2026-11-01), fetched with
+      ``gh run view 41362665136 --log-failed``. Five contiguous slices of the
+      SCons output (banner, two GCC warning blocks, the ``core/error/*.cpp``
+      compile lines, the end of the build) with only the Actions
+      ``<job>\\t<step>\\t<timestamp> `` prefix removed; ANSI colour bytes kept.
+    * ``run_baseline_qa_linux_ci_failure.txt``: the ``run_baseline_qa.py`` report
+      of the same run (a real "Module Test Suite" failure), same prefix removal.
+    * ``run_module_tests_guard_only_windows.txt``: the complete stdout+stderr of
+      ``GS_RAW_OUTPUT=1 python tests/ci/run_module_tests.py --guard-only`` on
+      Windows Python 3.11 from the #1276 worktree, 2026-11-07 (exit 0); CRLF
+      normalised to LF by ``.gitattributes`` (``eol=lf``), nothing else changed.
+    """
+
+    def test_real_scons_output_has_no_false_errors_and_counts_colored_warnings(self) -> None:
+        lines = _fixture("scons_linuxbsd_editor_dev_excerpt.txt")
+        self.assertTrue(any("\x1b[" in line for line in lines), "fixture must keep the producer's ANSI bytes")
+        self.assertTrue(any("core/error/error_list.cpp" in line for line in lines))
+        out = condense_output.condense(lines, "scons")
+        text = "\n".join(out)
+        head = text.split("[condense] last", 1)[0]
+        # "Compiling core/error/error_list.cpp ..." is a file name, not an error.
+        self.assertIn("no failure/error line matched", head)
+        self.assertNotIn("error_list.cpp", head)
+        # GCC colours "warning:" with an escape that glued a letter to the word;
+        # the warnings must still be counted.
+        self.assertIn("warning: unused variable 'fc' [-Wunused-variable]", head)
+        self.assertIn("5 warning/ERROR/SKIP line(s)", head)
+        self.assertIn("scons: done building targets.", text)
+        self.assertNotIn("\x1b", text, "the condensed view is plain text")
+        self.assertLess(len(out), len(lines) / 2)
+
+    def test_real_guard_only_output_keeps_every_unittest_summary(self) -> None:
+        lines = _fixture("run_module_tests_guard_only_windows.txt")
+        summaries = [line for line in lines if " Ran " in line and " tests in " in line]
+        self.assertGreater(len(summaries), 10, "fixture must be the real guard lane")
+        out = condense_output.condense(lines, "runner")
+        head = "\n".join(out).split("[condense] last", 1)[0]
+        for summary in summaries:
+            self.assertIn(summary, head)
+        self.assertIn("[module-tests] Guard-only mode complete.", "\n".join(out))
+        self.assertLess(len(out), len(lines))
+
+    def test_real_baseline_qa_failure_is_surfaced(self) -> None:
+        lines = _fixture("run_baseline_qa_linux_ci_failure.txt")
+        out = condense_output.condense(lines, "runner")
+        head = "\n".join(out).split("[condense] last", 1)[0]
+        self.assertIn("[FAIL] FAIL Module Test Suite (GaussianSplatting) (79.2s)", head)
+        self.assertIn("[FAIL] FAILED (79.2s) - Exit code: 1", head)
+        self.assertNotIn("no failure/error line matched", head)
+
+    def test_filter_keeps_the_raw_producer_bytes_in_the_full_log(self) -> None:
+        raw = (FIXTURES / "scons_linuxbsd_editor_dev_excerpt.txt").read_bytes()
+        with tempfile.TemporaryDirectory() as log_dir:
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "filter", "--kind", "scons"],
+                input=raw,
+                capture_output=True,
+                timeout=60,
+                env=dict(os.environ, GS_AGENT_LOG_DIR=log_dir),
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            logs = list(Path(log_dir).glob("scons-*.log"))
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0].read_bytes().replace(b"\r\n", b"\n"), raw.replace(b"\r\n", b"\n"))
+
+
+@unittest.skipIf(_bash() is None, "bash not available: shell syntax of the rewrite NOT checked")
+class ShellSyntaxTests(unittest.TestCase):
+    """The hook must never turn a valid command into one bash rejects."""
+
+    def _syntax_ok(self, command: str) -> bool:
+        completed = subprocess.run([_bash(), "-n", "-c", command], capture_output=True, text=True, timeout=60)
+        return completed.returncode == 0
+
+    def _hook_command(self, command: str) -> str:
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        with mock.patch.dict(os.environ, {"GS_RAW_OUTPUT": ""}):
+            answer = json.loads(condense_output.run_hook(payload))
+        if not answer:
+            return command
+        return answer["hookSpecificOutput"]["updatedInput"]["command"]
+
+    def test_every_rewrite_parses_when_the_original_does(self) -> None:
+        corpus = list(UNTOUCHED_SHELL_CONSTRUCTS) + [
+            "scons platform=windows target=editor dev_build=yes -j16",
+            'scons "extra_suffix=a#b" -j8',
+            "scons 'CCFLAGS=-DX=1 # y'",
+            "scons foo\\ bar",
+            "python tests/ci/run_module_tests.py --guard-only",
+            'python3 -u tests/ci/run_gpu_harness.py --batch "A B"',
+        ]
+        checked = 0
+        for command in corpus:
+            with self.subTest(command=command):
+                if not self._syntax_ok(command):
+                    continue
+                checked += 1
+                rewritten = self._hook_command(command)
+                self.assertTrue(self._syntax_ok(rewritten), f"hook broke a valid command: {rewritten!r}")
+        self.assertGreater(checked, 10, "the corpus must exercise real, parseable commands")
+
+    def test_trailing_comment_regression(self) -> None:
+        # The exact Codex P2 repro: before the fix this rewrite failed `bash -n` with exit 2.
+        self.assertTrue(self._syntax_ok("scons -j8 # build"))
+        self.assertEqual(self._hook_command("scons -j8 # build"), "scons -j8 # build")
+
+    def test_settings_hook_command_fails_open_when_the_script_is_missing(self) -> None:
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        hook_command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "scons -j8"}})
+        with tempfile.TemporaryDirectory() as missing_root:
+            completed = subprocess.run(
+                [_bash(), "-c", hook_command],
+                input=payload,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=dict(os.environ, CLAUDE_PROJECT_DIR=missing_root),
+            )
+        self.assertEqual(completed.returncode, 0, "exit 2 would block every Bash call: " + completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "")
 
 
 @unittest.skipIf(_bash() is None, "bash not available: exit-status passthrough NOT checked")

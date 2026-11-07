@@ -128,6 +128,9 @@ struct SortingState {
 	bool sorting_in_progress = false;
 	bool sorting_initialized = false;
 	uint32_t sorted_splat_count = 0;
+	// Depth sorts executed in renderer frame `sort_dispatch_frame` (RenderSortingOrchestrator::sort_gaussians_for_view).
+	uint64_t sort_dispatch_frame = UINT64_MAX;
+	uint32_t sort_dispatches_frame = 0;
 	// #980: how many times refresh_gpu_sorter() republished the instance contract's sort
 	// buffers after a rebuild reallocated them (surfaced as instance_sort_buffer_republishes
 	// in get_render_stats()). Moves together with instance_pipeline_content_generation.

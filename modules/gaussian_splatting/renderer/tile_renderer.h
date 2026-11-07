@@ -129,6 +129,44 @@ public:
     RID get_tile_raster_pipeline() const { return shader_resources.tile_raster_pipeline; }
     uint64_t get_shader_defines_hash() const { return shader_resources.shader_defines_hash; }
 
+    // Physical texture-allocation deltas, retained conservatively through deferred release.
+    bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
+    uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
+    bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already
+    // allocated for these params; UINT64_MAX when the params can never be admitted). Same plan as the admission itself,
+    // so the HLOD route can reserve the outstanding scratch before any optional growth spends the headroom.
+    uint64_t get_hlod_scratch_outstanding_bytes(const RenderParams &p_params);
+    // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
+    // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
+    // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
+    static void get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record);
+    // Why the last render() refused an HLOD-relative frame (empty when it did not refuse one).
+    const String &get_last_hlod_refusal() const { return last_hlod_refusal; }
+    // Streamed and V4 paged HLOD worlds never run a canonical frame after startup, so nothing else resizes the tile grid for them.
+    // Creates the output targets for `p_viewport` and the global overlap storage for `p_overlap_records` without
+    // drawing, so prepare_hlod_scratch()'s "warm on the canonical path" preconditions (and the texture ledger) hold
+    // for the view about to be drawn. Idempotent; a resize reallocates exactly as a render would.
+    Error provision_hlod_route(const Vector2i &p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records);
+    // Size of the tile grid's viewport (what the last resize/render provisioned); (0,0) before the first one.
+    Vector2i get_provisioned_viewport() const { return grid_state.viewport_size; }
+    // What provision_hlod_route(.., p_overlap_records) really allocates for the overlap storage: the records are capped at
+    // the configured max_overlap_records (ensure_resources does the same), and each costs the sort keys (1 or 2 words,
+    // 2 with 64-bit keys) plus the values word, twice (the sorter's alternate buffers): 24 B with 64-bit keys.
+    uint32_t clamp_hlod_overlap_records(uint32_t p_records) const;
+    uint64_t get_hlod_overlap_bytes_per_record() const;
+    // Upper bound of the texture bytes a resize to `p_viewport` leaves charged to the ledger: the live bytes scaled by
+    // the pixel ratio (never below the live bytes), so a refusal can be decided before anything is reallocated.
+    uint64_t estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const;
+    // Safe point (before the frame's passes, after the previous frame's readback): grows the overlap storage when the
+    // previous frames measured more overlap records than it holds, if the growth fits `p_headroom` bytes. The relative
+    // HLOD frames never grow it themselves. Returns true when it grew.
+    bool grow_hlod_overlap_storage(uint64_t p_headroom);
+    // Same safe point (PR1b): grows the overlap storage to `p_records` (clamped like the seed) when it holds fewer, if the
+    // full new allocation fits `p_headroom` (32 B per record, as grow_hlod_overlap_storage charges). The HLOD route uses it
+    // so the node instances' record reserve is held next to the world's, instead of being taken out of a storage that only
+    // grows on a measured overflow (a world cut pinned coarse by the reserve never overflows). Returns true when it grew.
+    bool ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom);
     int get_tile_size() const { return config_state.tile_size; }
     Vector2i get_tile_grid_size() const { return Vector2i(grid_state.tiles_x, grid_state.tiles_y); }
     int get_tile_splat_capacity() const { return config_state.effective_splat_capacity; }
@@ -203,6 +241,14 @@ public:
 	float get_last_gpu_overlap_count_time_ms() const { return timing_state.last_overlap_count_gpu_ms; }
 	bool is_last_gpu_overlap_count_time_valid() const { return timing_state.overlap_count_gpu_timing_valid; }
 	float get_last_gpu_binning_time_ms() const { return timing_state.last_binning_gpu_ms; }
+	// BV-04b binning validity: "binning" is the tile_binning EMIT pass, the same timestamp range as
+	// overlap emit, so it is valid exactly when the emit time is.
+	bool is_last_gpu_binning_time_valid() const { return timing_state.overlap_emit_gpu_timing_valid; }
+	// BV-04b: records per splat per HLOD level of the last sampled HLOD-route frame.
+	const GaussianSplatting::HlodLevelRecordSample &get_hlod_level_record_sample() const { return diagnostics.hlod_level_records; }
+	// BV-04b: per-pass GPU times for every pass of the frame, with measurement frame serials and the
+	// newest same-frame breakdown (see GpuPassTiming::PassTimingSnapshot).
+	const GaussianSplatting::GpuPassTiming::PassTimingSnapshot &get_gpu_pass_timing_snapshot() const { return timing_state.pass_timing.get_snapshot(); }
 	float get_last_gpu_overlap_emit_time_ms() const { return timing_state.last_overlap_emit_gpu_ms; }
 	bool is_last_gpu_overlap_emit_time_valid() const { return timing_state.overlap_emit_gpu_timing_valid; }
 	float get_last_gpu_overlap_sort_time_ms() const { return timing_state.last_overlap_sort_gpu_ms; }
@@ -297,6 +343,19 @@ public:
     const TilePerformanceMetrics &_test_raster_metrics() const { return perf_metrics; }
     static Vector<uint64_t> _test_instance_pipeline_binding_generation_trace(
             const Vector<RenderParams> &p_params_sequence);
+    struct TestDescriptorCacheSnapshot {
+        uint64_t generation;
+        RID binning_params;
+        RID fragment_params;
+        RID compute_params;
+        RID depth_fallback;
+        RID depth_sampler;
+    };
+    TestDescriptorCacheSnapshot _test_descriptor_cache_snapshot() const {
+        return { descriptor_generation, binning_stage.cached_binning_param_uniform_set,
+            raster_stage.cached_raster_param_uniform_set, raster_stage.cached_raster_compute_param_uniform_set,
+            raster_stage.scene_depth_fallback_texture, raster_stage.scene_depth_sampler };
+    }
 
     // Codex PR #419 round-2 Finding 2: aggregate non-byte RID-leak coverage for
     // the tile_shader_recompile lifetime scenario (#298 regression). The forced
@@ -362,6 +421,14 @@ private:
     void _update_splat_audit_buffer(const RenderParams &p_params);
     uint32_t _get_projection_stride() const;
     uint64_t _compute_projection_buffer_bytes(uint32_t p_visible_count, uint32_t &r_capacity);
+    // The HLOD scratch admission plan shared by prepare_hlod_scratch() and get_hlod_scratch_outstanding_bytes().
+    struct HlodScratchPlan {
+        bool packed = false, sh = false, packed_changed = false, sh_changed = false, tighter_changed = false;
+        uint32_t divisor = 1u, history_entries = 0u;
+        uint64_t projection_bytes = 0, history_bytes = 0, sh_bytes = 0, visibility_bytes = 0;
+        uint64_t extra = 0; // Full new allocations the admission charges against its headroom.
+    };
+    bool _plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan);
     void _destroy_output_textures();
 	    uint64_t _dispatch_tile_binning(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RID p_lighting_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync);
@@ -385,45 +452,11 @@ private:
 	bool _resolve_timestamp_range(TimestampRange &p_range, float &r_duration_ms);
     uint64_t _compute_shader_defines_hash() const;
 
-    // GPU timestamp helper structs (must be declared before methods that use them)
-    struct GpuTimestampStageTimes {
-        double begin_ns = -1.0;
-        double end_ns = -1.0;
-
-        bool is_complete() const { return begin_ns >= 0.0 && end_ns >= 0.0; }
-    };
-	struct GpuTimestampFrameStages {
-		GpuTimestampStageTimes binning;
-		GpuTimestampStageTimes raster;
-		GpuTimestampStageTimes overlap_count;
-        GpuTimestampStageTimes overlap_sort;
-        GpuTimestampStageTimes prefix;
-        GpuTimestampStageTimes resolve;
-        GpuTimestampStageTimes total;
-    };
-    struct GpuTimestampDurations {
-        uint64_t serial = UINT64_MAX;
-        double bin_ms = 0.0;
-        double raster_ms = 0.0;
-        double count_ms = 0.0;
-        double overlap_sort_ms = 0.0;
-        double prefix_ms = 0.0;
-		double resolve_ms = 0.0;
-		double total_ms = 0.0;
-		bool has_data = false;
-		bool bin_valid = false;
-		bool raster_valid = false;
-		bool count_valid = false;
-		bool overlap_sort_valid = false;
-		bool prefix_valid = false;
-		bool resolve_valid = false;
-		bool total_valid = false;
-	};
-
+    // GPU timestamp parsing (BV-04b): the pure parse/reduce lives in gpu_pass_timing.h.
     void _parse_timestamps_into_frame_map(RenderingDevice *p_device, uint32_t p_available,
-            HashMap<uint64_t, GpuTimestampFrameStages> &r_frames) const;
-    GpuTimestampDurations _compute_stage_durations(const HashMap<uint64_t, GpuTimestampFrameStages> &p_frames) const;
-    void _update_timing_metrics(const GpuTimestampDurations &p_durations);
+            HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> &r_frames) const;
+    void _update_timing_metrics(const GaussianSplatting::GpuPassTiming::FrameDurations &p_tile_frame,
+            const GaussianSplatting::GpuPassTiming::FrameDurations &p_pipeline_frame);
     void _issue_async_tile_count_readback(RenderingDevice *p_device, uint32_t p_counts_bytes);
     void _compute_density_metrics(const uint32_t *p_counts, uint32_t p_process_tiles, uint32_t p_total_tiles,
             uint32_t p_effective_capacity, uint32_t *p_density_write,
@@ -437,7 +470,7 @@ private:
 	RenderingDevice *_get_resource_device() const;
 	RenderingDevice *_get_submission_device();
 	RenderingDevice *_acquire_submission_device();
-	void _invalidate_descriptor_cache();
+	void _invalidate_descriptor_cache(bool p_preserve_scene_depth = false);
 	// Free the compiled tile shaders/pipelines before clearing their RIDs. Forced
 	// recompiles (config/debug toggles) must not abandon the previous GPU objects;
 	// a bare shader_resources.reset_state() would null the RIDs and leak them.
@@ -524,6 +557,12 @@ private:
         RID instance_buffer;
         RID instance_grading_buffer;
         RID splat_ref_buffer;
+        RID hlod_draw_entry_buffer;
+        RID hlod_draw_list_buffer;
+        bool hlod_relative = false;
+        uint64_t hlod_source_generation = 0;
+        uint64_t hlod_content_generation = 0;
+        uint64_t hlod_origin_revision = 0;
         RID chunk_meta_buffer;
         RID quantization_buffer;
         RID indirect_count_buffer;
@@ -538,6 +577,23 @@ private:
     TileDeviceContext device_context;
     bool gpu_timestamp_capture_enabled = true;
     TileRenderTargets render_targets;
+    // HLOD texture ledger: the bytes of the textures this renderer created and still owns. Each creation records its
+    // measured delta under its RID; a texture that is no longer valid on the device is subtracted when the ledger is next
+    // read (so many viewport resizes do not accumulate). Memory the device retires lazily after a free is not counted
+    // again, which can undercount for the frame or two RD keeps it. Mutable: reading reconciles.
+    struct HlodTextureEntry {
+        RenderingDevice *device = nullptr;
+        uint64_t device_id = 0;
+        uint64_t bytes = 0;
+    };
+    mutable HashMap<RID, HlodTextureEntry> hlod_texture_live;
+    mutable uint64_t hlod_texture_bytes = 0;
+    mutable uint64_t hlod_texture_device = 0;
+    mutable bool hlod_texture_ledger_valid = true;
+    bool hlod_scratch_preparing = false;
+    String last_hlod_refusal;
+    void _record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created);
+    void _reconcile_hlod_texture_ledger() const;
 
     // Cache keys for binning/raster uniform sets live in stage structs.
     // Depth buffer for post-processing compatibility (Issue #128) lives in TileRenderTargets.
@@ -551,6 +607,7 @@ private:
     void _on_debug_counters_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_stats_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_signal_readback(const Vector<uint8_t> &p_data);
+    void _on_hlod_level_stats_readback(const Vector<uint8_t> &p_data); // BV-04b
 #ifdef TESTS_ENABLED
 	void _on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce);
 #endif

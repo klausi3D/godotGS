@@ -3,6 +3,7 @@
 
 #include "gaussian_data.h"
 #include "streaming_chunk_payload_source.h"
+#include "streaming_latency_histogram.h"
 #include "core/os/mutex.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
@@ -86,14 +87,25 @@ public:
         uint32_t thread_index = 0;
     };
 
+    // BV-04a (ADR adr-beyond-vram-worlds.md D-5): every counter here is a lock-free atomic in
+    // EVERY build flavour. They were stubs without DEV_ENABLED, and the upload counters were
+    // further gated on debug frame logging, so `upload_chunks_this_frame` read 0 in optimized
+    // builds and fed a constant 0 into the upload-stall predicate and the broad forced-sync
+    // guard. Recording is per job, per lock or per upload slice, never per splat.
+    //
+    // The per-frame fields are drained by exchange_and_reset() once per frame on the main thread
+    // (end_frame). The latency histograms are cumulative over the pipeline lifetime.
     struct alignas(64) PackTelemetry {
-#ifdef DEV_ENABLED
-        SafeFlag enabled;
         SafeNumeric<uint64_t> pack_time_usec_total;
         SafeNumeric<uint64_t> pack_time_usec_max;
         SafeNumeric<uint32_t> pack_jobs_completed;
         SafeNumeric<uint64_t> upload_bytes_total;
         SafeNumeric<uint32_t> upload_chunks_completed;
+        // Bytes the chunk payload source delivered into the pack snapshot (gaussians + SH).
+        SafeNumeric<uint64_t> read_bytes_total;
+        // Bytes produced by a payload decode stage. The uncompressed (PLAIN) chunk route has no
+        // decode stage, so nothing records here yet; the compressed codec (BV-C1) does.
+        SafeNumeric<uint64_t> decode_bytes_total;
         SafeNumeric<uint64_t> pack_queue_latency_usec_total;
         SafeNumeric<uint64_t> pack_queue_latency_usec_max;
         SafeNumeric<uint32_t> pack_queue_latency_samples;
@@ -108,13 +120,31 @@ public:
         SafeNumeric<uint32_t> pack_thread_snapshot_count;
         SafeNumeric<uint32_t> pack_thread_enqueue_upload_count;
 
-        _ALWAYS_INLINE_ bool is_enabled() const { return enabled.is_set(); }
-        _ALWAYS_INLINE_ void set_enabled(bool p_on) { enabled.set_to(p_on); }
+        // Cumulative stage latency histograms (see StreamingLatencyHistogram):
+        //  read   - payload source capture (capture_*_chunk_snapshot) wall time, successful reads;
+        //  decode - payload decode wall time (no producer on the uncompressed route, see above);
+        //  pack   - pack_gaussians_range wall time;
+        //  upload - pack completion to dequeue for the GPU write (upload queue latency).
+        StreamingLatencyHistogram read_latency;
+        StreamingLatencyHistogram decode_latency;
+        StreamingLatencyHistogram pack_latency;
+        StreamingLatencyHistogram upload_latency;
 
         _ALWAYS_INLINE_ void add_pack_time(uint64_t p_usec) {
             pack_time_usec_total.add(p_usec);
             pack_jobs_completed.increment();
             pack_time_usec_max.exchange_if_greater(p_usec);
+            pack_latency.record(p_usec);
+        }
+
+        _ALWAYS_INLINE_ void add_read(uint64_t p_bytes, uint64_t p_usec) {
+            read_bytes_total.add(p_bytes);
+            read_latency.record(p_usec);
+        }
+
+        _ALWAYS_INLINE_ void add_decode(uint64_t p_bytes, uint64_t p_usec) {
+            decode_bytes_total.add(p_bytes);
+            decode_latency.record(p_usec);
         }
 
         _ALWAYS_INLINE_ void add_upload_bytes(uint64_t p_bytes) {
@@ -135,6 +165,7 @@ public:
             upload_queue_latency_usec_total.add(p_usec);
             upload_queue_latency_samples.increment();
             upload_queue_latency_usec_max.exchange_if_greater(p_usec);
+            upload_latency.record(p_usec);
         }
 
         _ALWAYS_INLINE_ void add_mutex_wait(uint64_t p_usec) {
@@ -167,6 +198,8 @@ public:
             uint32_t pack_jobs = 0;
             uint64_t upload_bytes = 0;
             uint32_t upload_chunks = 0;
+            uint64_t read_bytes = 0;
+            uint64_t decode_bytes = 0;
             uint64_t pack_queue_lat_total = 0;
             uint64_t pack_queue_lat_max = 0;
             uint32_t pack_queue_lat_samples = 0;
@@ -182,46 +215,9 @@ public:
             uint32_t thread_enqueue_uploads = 0;
         };
 
+        // Drains the per-frame fields. Does not touch the cumulative histograms.
         Snapshot exchange_and_reset();
         Snapshot read_current() const;
-#else
-        _ALWAYS_INLINE_ bool is_enabled() const { return false; }
-        _ALWAYS_INLINE_ void set_enabled(bool) {}
-        _ALWAYS_INLINE_ void add_pack_time(uint64_t) {}
-        _ALWAYS_INLINE_ void add_upload_bytes(uint64_t) {}
-        _ALWAYS_INLINE_ void add_upload_chunk() {}
-        _ALWAYS_INLINE_ void add_pack_queue_latency(uint64_t) {}
-        _ALWAYS_INLINE_ void add_upload_queue_latency(uint64_t) {}
-        _ALWAYS_INLINE_ void add_mutex_wait(uint64_t) {}
-        _ALWAYS_INLINE_ void record_pack_thread_wake() {}
-        _ALWAYS_INLINE_ void record_pack_thread_dequeue(uint32_t) {}
-        _ALWAYS_INLINE_ void record_pack_thread_snapshot() {}
-        _ALWAYS_INLINE_ void record_pack_thread_enqueue_upload() {}
-
-        struct Snapshot {
-            uint64_t pack_time_total = 0;
-            uint64_t pack_time_max = 0;
-            uint32_t pack_jobs = 0;
-            uint64_t upload_bytes = 0;
-            uint32_t upload_chunks = 0;
-            uint64_t pack_queue_lat_total = 0;
-            uint64_t pack_queue_lat_max = 0;
-            uint32_t pack_queue_lat_samples = 0;
-            uint64_t upload_queue_lat_total = 0;
-            uint64_t upload_queue_lat_max = 0;
-            uint32_t upload_queue_lat_samples = 0;
-            uint64_t mutex_wait_total = 0;
-            uint64_t mutex_wait_max = 0;
-            uint32_t mutex_wait_samples = 0;
-            uint32_t thread_wakes = 0;
-            uint32_t thread_dequeues = 0;
-            uint32_t thread_snapshots = 0;
-            uint32_t thread_enqueue_uploads = 0;
-        };
-
-        _ALWAYS_INLINE_ Snapshot exchange_and_reset() { return {}; }
-        _ALWAYS_INLINE_ Snapshot read_current() const { return {}; }
-#endif
     };
 
     struct UploadBudgetState {
@@ -251,6 +247,15 @@ public:
     uint32_t last_pack_jobs = 0;
     double last_upload_mb = 0.0;
     uint32_t last_upload_chunks = 0;
+    // BV-04a: exact per-frame byte counts drained in end_frame, and their cumulative totals
+    // (main thread only, never reset, so a reader that samples some frames diffs two totals).
+    uint64_t last_upload_bytes = 0;
+    uint64_t last_read_bytes = 0;
+    uint64_t last_decode_bytes = 0;
+    uint64_t upload_bytes_cumulative = 0;
+    uint64_t upload_chunks_cumulative = 0;
+    uint64_t read_bytes_cumulative = 0;
+    uint64_t decode_bytes_cumulative = 0;
     String cap_tier_preset = "custom";
     bool cap_tier_active = false;
     String cap_source_upload_mb_per_frame = "project_default";

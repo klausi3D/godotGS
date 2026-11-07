@@ -164,6 +164,10 @@ protected:
     // Caller (tile renderer) sets this so the sort timestamps share a serial
     // with the surrounding pass timestamps and resolve to the same frame entry.
     uint64_t pending_frame_label_serial = 0;
+    // GPU timestamp label prefix of this sorter's indirect sort. The tile renderer's overlap sorter
+    // keeps "TileOverlapSort_"; the depth pre-sort sorter of GPUSortingPipeline uses "GSPreSort_"
+    // (BV-04b), so the two sorts never land in the same timing slot.
+    String timestamp_label_prefix = "TileOverlapSort_";
 
     // CPU-side timing utilities for measuring command recording/submission time.
     // WARNING: These measure wall-clock time on the CPU, NOT actual GPU execution time.
@@ -212,6 +216,8 @@ public:
     virtual void set_pending_frame_label_serial(uint64_t p_frame_serial) {
         pending_frame_label_serial = p_frame_serial;
     }
+    void set_timestamp_label_prefix(const String &p_prefix) { timestamp_label_prefix = p_prefix; }
+    const String &get_timestamp_label_prefix() const { return timestamp_label_prefix; }
 
     // Last completed sort dispatch's GPU-timestamp range. Default-invalid for
     // sorters that don't capture timestamps. Consumers may resolve the
@@ -227,6 +233,9 @@ public:
     // Algorithm-specific info
     virtual String get_algorithm_name() const = 0;
     virtual uint32_t get_max_elements() const { return max_elements; }
+    // Successful live owned buffer payload allocations only; input keys/values are borrowed.
+    // false means unknown ownership/generation, never a zero-byte admission.
+    virtual bool get_allocated_buffer_bytes(uint64_t &r_bytes) const { r_bytes = 0; return false; }
     virtual bool supports_non_power_of_two() const = 0;
     // DEPRECATED: prefer algorithm-specific benchmarks via get_metrics().
     // The returned float is a unitless relative indicator (lower = fewer passes):
@@ -285,6 +294,7 @@ protected:
 public:
     BitonicSort();
     ~BitonicSort() override;
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const override;
 
     // IGPUSorter implementation
     Error initialize(RenderingDevice *p_rd, uint32_t p_max_elements) override;
@@ -404,6 +414,7 @@ protected:
 public:
     RadixSort();
     ~RadixSort() override;
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const override;
 
     Error initialize(RenderingDevice *p_rd, uint32_t p_max_elements) override;
     void shutdown() override;
@@ -495,6 +506,7 @@ protected:
 public:
     OneSweepSort();
     ~OneSweepSort() override;
+    bool get_allocated_buffer_bytes(uint64_t &r_bytes) const override;
 
     Error initialize(RenderingDevice *p_rd, uint32_t p_max_elements) override;
     void shutdown() override;

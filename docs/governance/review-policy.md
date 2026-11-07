@@ -67,6 +67,18 @@ spots**. Each finding has a severity:
   Gates readiness enforcement (#1164) enforces `897_907_ready`, `900_ready` and
   `815_ready`; `943_ready`, `871_ready` and `902_ready` are reported, not enforced,
   until #1241 (maintainer decision 2026-10-13; the report-only set may only shrink).
+  Recorded relaxation (user decision 2026-11-01, owner: repository owner @klausi3D): the shipped
+  **Windows archives are not executed by any gating lane**. The Windows editor zip and the
+  Windows export template zip are built on GitHub-hosted `windows-latest` and attested, and
+  `release_candidate_gate` / `publish_release` wait for and require both builds, but the only
+  lane that runs the Windows exe, `export_smoke_windows`, needs a Windows GPU runner that no
+  longer exists. It is **skipped unless the repository variable `GODOTGS_WINDOWS_GPU_RUNNER`
+  is `true`** and is in no `needs:` list and no gate `if:`. The gating export smoke is
+  `export_smoke_linux` (the Linux template, executed on the RTX 3080 runner). Retirement path:
+  register a Windows GPU runner labelled `self-hosted, Windows, X64, gpu, d3d12`, set
+  `GODOTGS_WINDOWS_GPU_RUNNER=true`, then add `export_smoke_windows` to the `needs:` and `if:` of
+  both gates in the same change and remove this exception; the Windows contract (same script,
+  `--target windows`, same negative control) is kept intact for that day.
 
 ## Repository enforcement
 

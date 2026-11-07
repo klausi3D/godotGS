@@ -15,7 +15,10 @@ Two modes:
         ( set -o pipefail; <command> 2>&1 | python condense_output.py filter --kind <kind> )
 
     Anything else is left untouched (the hook prints ``{}``). Commands that
-    already pipe, redirect, chain or substitute are never rewritten, and neither
+    already pipe, redirect, chain, background or substitute are never rewritten,
+    nor are commands carrying an unquoted comment, a heredoc, a parenthesis, an
+    unterminated quote or a dangling backslash (anything the rewrite could break;
+    the hook must never turn a valid command into a failing one), and neither
     is a command prefixed with ``GS_RAW_OUTPUT=1`` (per-command opt-out) or any
     command while ``GS_RAW_OUTPUT=1`` is set in Claude Code's environment.
 
@@ -87,10 +90,63 @@ _STRONG = {
 # Weak signals: counted, a few unique samples shown.
 _WEAK = re.compile(r"\bwarning\b|\bWARNING\b|\bERROR\b|\bSKIP(?:PED)?\b", re.IGNORECASE)
 
+# ANSI SGR/erase sequences (Godot's SCons progress lines, GCC diagnostics).
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# Godot's SCons progress lines, e.g. "Compiling core/error/error_list.cpp ...":
+# file names are not diagnostics.
+_SCONS_PROGRESS = re.compile(
+    r"^(?:Compiling|Linking(?: Static Library| Program| Shared Library)?|Ranlib Library|Generating|Embedding|Installing)\s.*\s\.\.\.$"
+)
+
 MAX_STRONG_LINES = 160
 CONTEXT = 1
 WEAK_SAMPLES = 15
 TAIL = {"scons": 15, "runner": 40}
+
+
+# Unquoted characters the rewrite cannot carry safely. ``#`` starts a comment
+# (``scons -j8 # build`` would swallow the appended pipeline and the closing
+# parenthesis); ``(``/``)`` would unbalance the wrapping subshell; the rest are
+# the compound/redirect operators already rejected by ``_UNSAFE``.
+_UNQUOTED_UNSAFE = frozenset("|&;<>()`#\n\r")
+
+
+def _is_plain_simple_command(command: str) -> bool:
+    """True only when ``command`` is one simple command whose tokens the rewrite keeps intact.
+
+    A small, deliberately conservative scan of POSIX shell quoting: anything it
+    does not fully understand (an unquoted comment, operator or parenthesis, an
+    unterminated quote, a dangling trailing backslash, a command substitution
+    even inside double quotes) makes the command ineligible, so the hook leaves
+    it untouched. The hook must never turn a valid command into a failing one.
+    """
+    quote: str | None = None
+    index = 0
+    length = len(command)
+    while index < length:
+        char = command[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+        elif quote == '"':
+            if char == "\\":
+                index += 1  # the escaped character is literal inside double quotes
+            elif char == '"':
+                quote = None
+            elif char == "`" or (char == "$" and command[index + 1 : index + 2] == "("):
+                return False
+        elif char == "\\":
+            if index + 1 >= length:
+                return False  # dangling escape would swallow the appended " 2>&1"
+            index += 1
+        elif char in "'\"":
+            quote = char
+        elif char in _UNQUOTED_UNSAFE:
+            return False
+        elif char == "$" and command[index + 1 : index + 2] == "(":
+            return False
+        index += 1
+    return quote is None
 
 
 def classify(command: str) -> str | None:
@@ -98,7 +154,7 @@ def classify(command: str) -> str | None:
     stripped = command.strip()
     if not stripped or stripped.startswith("GS_RAW_OUTPUT=1"):
         return None
-    if _UNSAFE.search(stripped):
+    if _UNSAFE.search(stripped) or not _is_plain_simple_command(stripped):
         return None
     for kind, pattern in _KINDS:
         if pattern.match(stripped):
@@ -175,9 +231,15 @@ def run_hook(stdin_text: str, codex: bool = False) -> str:
 
 
 def condense(lines: list[str], kind: str) -> list[str]:
+    # Real SCons/GCC output is ANSI-coloured (the escape before "error:" glues a
+    # letter to the word, so \berror\b never matched); match and show plain text.
+    # The full log keeps the raw bytes.
+    lines = [_ANSI.sub("", line) for line in lines]
     strong = _STRONG[kind]
     keep: set[int] = set()
     for index, line in enumerate(lines):
+        if kind == "scons" and _SCONS_PROGRESS.match(line):
+            continue  # "Compiling core/error/error_list.cpp ..." is not an error
         if strong.search(line):
             keep.update(range(max(0, index - CONTEXT), min(len(lines), index + CONTEXT + 1)))
     out: list[str] = []
@@ -202,6 +264,8 @@ def condense(lines: list[str], kind: str) -> list[str]:
     weak_counts: dict[str, int] = {}
     for index, line in enumerate(lines):
         if index in keep or not _WEAK.search(line):
+            continue
+        if kind == "scons" and _SCONS_PROGRESS.match(line):
             continue
         key = line.strip()[:200]
         weak_counts[key] = weak_counts.get(key, 0) + 1
@@ -282,9 +346,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--hex", required=True)
     args = parser.parse_args(argv)
     if args.mode == "hook":
+        # Fail open: whatever goes wrong, answer "no change" and exit 0. A
+        # PreToolUse hook that exits 2 BLOCKS the tool call, and argparse/usage
+        # errors exit 2, so nothing may escape this branch.
         try:
             answer = run_hook(sys.stdin.read(), codex=args.codex)
-        except Exception:  # never block or break the agent's command
+        except Exception:  # noqa: BLE001 - fail open by design
             answer = "{}"
         print(answer)
         return 0

@@ -397,6 +397,9 @@ void register_lod_project_settings() {
     // Legacy LOD settings (kept for compatibility)
     GLOBAL_DEF(LOD_CONFIG_MIN_SCREEN_SIZE_PIXELS_PATH, 1.5f);
     GLOBAL_DEF(LOD_CONFIG_BIAS_PATH, 1.0f);
+    // On by default: the automatic HLOD route (lod/hlod_auto_route.h). false is the explicit opt-out.
+    GLOBAL_DEF(LOD_CONFIG_HLOD_RUNTIME_ENABLED_PATH, true);
+    GLOBAL_DEF(LOD_CONFIG_HLOD_TAU_PATH, 1.0f);
 
     // Global importance-cull threshold behind the per-renderer
     // cull/importance_threshold override. GPUCuller reads this key

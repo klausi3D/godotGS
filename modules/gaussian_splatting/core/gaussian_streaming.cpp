@@ -270,10 +270,6 @@ uint32_t _compute_morton_code_10(const Vector3 &p_position, const AABB &p_bounds
 
 } // namespace
 
-// ============================================================================
-// PackTelemetry implementation (DEV_ENABLED only)
-// ============================================================================
-
 GaussianStreamingSystem::GaussianStreamingSystem() {
     // Initialize frame data
     for (int i = 0; i < RING_BUFFER_FRAMES; i++) {
@@ -4530,7 +4526,6 @@ void GaussianStreamingSystem::_reload_debug_logging_config() {
         debug_frame_log_frequency = 1;
     }
 #endif
-    upload_pipeline.telemetry.set_enabled(debug_logging_enabled);
 }
 
 void GaussianStreamingSystem::_start_pack_threads() {

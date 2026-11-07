@@ -73,52 +73,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gpu-tests:
-    name: GPU QA Tests (Windows Self-Hosted)
-    # Never run self-hosted Windows on untrusted PR fork code. Same-repo
-    # branches (maintainer PRs) still trigger the gate; fork PRs are routed
-    # to the Linux cpu-tests lane only. Mirrors release_builds.yml's pattern
-    # and protects the persistent runner's scons cache, credential store,
-    # and Actions runner token from arbitrary code in `tests/ci/*.py`,
-    # `SConstruct`, `methods.py`, or any `SCsub` checked out from a fork.
+  # Compiles the tests=yes editor ONCE for both GPU jobs below, on a runner that
+  # does NOT need the `gpu` label, so the GPU sits idle for no compile and a
+  # CPU-only runner can take this job. The binary travels to gpu-tests and
+  # gpu-harness as an artifact pinned to github.sha: `stage-binary` refuses a
+  # checkout that is not github.sha and records commit, run id and sha256;
+  # `install-binary` in each GPU job refuses anything that does not match its own
+  # github.sha, run id and checkout (tests/ci/linux_gpu_runner.sh).
+  build-linux-editor:
+    name: Build Linux Editor for GPU QA (Self-Hosted CPU)
+    # Same fork guard as the GPU jobs: this compiles checked-out SConstruct,
+    # methods.py and SCsub files on the persistent self-hosted runner.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    # No `gpu` label: this job renders nothing, so it is not part of the GPU pool
+    # that the contention/environment preflights guard.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
-
-    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
-    # processes. Rationale and the measured loader behaviour: the "Self-hosted
-    # GPU runner environment" section of .github/workflows/README.md. Setting
-    # these proves nothing on its own, which is why the preflight step below
-    # reads back the chain the loader actually built.
-    env:
-      # Loader-side filter. Honoured only in a NON-elevated process: this
-      # runner's service is registered as LocalSystem, and the loader discards
-      # its own filter variables when elevated (measured -- run 31603970211).
-      # Kept because they are the only mechanism covering a layer nobody has
-      # enumerated, and because they do work on a non-elevated runner.
-      VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
-      # What actually strips the layers here: each layer's own opt-out, declared
-      # in its own manifest under `disable_environment`. The loader reads these
-      # unprivileged, so they survive the elevated job. Mirrored in
-      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
-      # VK_LAYER_OBS_HOOK
-      DISABLE_VULKAN_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OBS_HOOK
-      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OVERLAY
-      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
-
     defaults:
       run:
         working-directory: repo
-        shell: pwsh
+        shell: bash
 
     steps:
     - name: Configure Git safe.directory
       working-directory: ${{ github.workspace }}
       run: |
-        git config --global --add safe.directory '*'
+        git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
 
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -130,93 +110,201 @@ jobs:
 
     - name: Verify Python
       run: |
-        python --version
+        python3 --version
 
-    # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
-    # GPU work lands on it while CI runs and turns wall-clock budgets into
-    # failures that read like renderer regressions (#867, #881). This waits for
-    # the GPU to be free, then leaves a background sampler running so the
-    # postflight below can say whether contention began mid-job. It never
-    # relaxes a budget: a contended run is void, not passed.
-    - name: Preflight - GPU contention, wait for a free runner (#875)
-      run: python tests/ci/runner_gpu_contention.py preflight
+    # This runner has no sudo, so no job installs system packages. `--build-only`
+    # skips the Vulkan-device and DISPLAY checks: nothing here renders.
+    - name: Check Linux runner build toolchain
+      run: bash tests/ci/linux_gpu_runner.sh check-tools --build-only
 
-    # Must precede the build and every GPU step: it decides whether anything
-    # measured afterwards is a measurement of the renderer (#875).
-    - name: Preflight - runner GPU environment (#875)
-      run: python tests/ci/preflight_runner_gpu_environment.py
-
-    - name: Set up MSVC
-      uses: ilammy/msvc-dev-cmd@v1
-
-    # GAP-403: this runner is the maintainer's workstation, so nothing is
-    # installed into its global interpreter. SCons goes into a per-job venv from
-    # the version-and-hash-locked tests/ci/requirements-scons.txt, and the venv's
-    # Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for every later
-    # step), so each later `python`, including `python -m SCons`, runs in the
-    # venv. No repository script this job runs imports a third-party module, so
-    # SCons is the whole toolchain.
+    # GAP-403: SCons goes into a per-job venv from the version-and-hash-locked
+    # tests/ci/requirements-scons.txt, never the runner's global interpreter.
     - name: Install SCons
-      run: |
-        $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
-        python -m venv --clear $venv
-        if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
-        $env:PATH = "$venv\Scripts;$env:PATH"
-        if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
-        python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
-        if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
-        "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      run: bash tests/ci/linux_gpu_runner.sh venv
 
     - name: Build module-enabled Godot editor
       run: |
-        # Pass `module_gaussian_splatting_enabled=yes` explicitly to match the
-        # gpu-harness job's scons args byte-for-byte. The module already
-        # defaults to on via `modules/gaussian_splatting/config.py:can_build()`,
-        # so the practical effect on CPPDEFINES is zero — but keeping the arg
-        # string aligned across both jobs eliminates any scons env-hash drift
-        # in the shared `C:/godotgs-scons-cache` and removes a misleading
-        # signal in build logs that the two jobs are building different
-        # configurations.
-        python -m SCons platform=windows target=editor dev_build=yes tests=yes module_gaussian_splatting_enabled=yes gs_native_arch=no cache_path=C:/godotgs-scons-cache cache_limit=50 -j12
+        # The one build both GPU jobs test. These args are the ones gpu-tests and
+        # gpu-harness each used to run, unchanged, so the object cache in
+        # /opt/actions-runner/godotgs-scons-cache keeps its env hash. -j16, not
+        # nproc (32): the box has 24 GB of RAM and a full-width dev build of this
+        # module is memory-bound.
+        python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes module_gaussian_splatting_enabled=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
 
     - name: Resolve Godot binary
       id: godot_binary
       run: |
-        $candidates = @(
-          "bin\godot.windows.editor.dev.x86_64.console.exe",
-          "bin\godot.windows.editor.dev.x86_64.exe",
-          "bin\godot.windows.editor.x86_64.console.exe",
-          "bin\godot.windows.editor.x86_64.exe"
-        )
-        $resolved = $null
-        foreach ($candidate in $candidates) {
-          if (Test-Path -LiteralPath $candidate) {
-            $resolved = (Resolve-Path -LiteralPath $candidate).Path
+        resolved=""
+        for candidate in \
+          bin/godot.linuxbsd.editor.dev.x86_64 \
+          bin/godot.linuxbsd.editor.x86_64; do
+          if [ -x "$candidate" ]; then
+            resolved="$(realpath "$candidate")"
             break
-          }
-        }
-        if (-not $resolved) {
-          throw "Could not find built Godot binary in expected bin\ paths."
-        }
-        Write-Host "Resolved Godot binary: $resolved"
-        "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-        "GODOT_BINARY=$resolved" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          fi
+        done
+        if [ -z "$resolved" ]; then
+          echo "::error::Could not find built Godot binary in expected bin/ paths."
+          ls -la bin || true
+          exit 1
+        fi
+        echo "Resolved Godot binary: $resolved"
+        echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+    - name: Stage binary with commit provenance
+      run: bash tests/ci/linux_gpu_runner.sh stage-binary "${{ steps.godot_binary.outputs.path }}" "$RUNNER_TEMP/godot-build"
+
+    - name: Upload binary for the GPU jobs
+      uses: actions/upload-artifact@v4
+      with:
+        name: godot-linuxbsd-editor-tests-${{ github.sha }}
+        path: ${{ runner.temp }}/godot-build/
+        if-no-files-found: error
+        retention-days: 7
+
+  gpu-tests:
+    name: GPU QA Tests (Windows Self-Hosted)
+    # Never run self-hosted code on untrusted PR fork code. Same-repo
+    # branches (maintainer PRs) still trigger the gate; fork PRs are routed
+    # to the Linux cpu-tests lane only. Mirrors release_builds.yml's pattern
+    # and protects the persistent runner's scons cache, credential store,
+    # and Actions runner token from arbitrary code in `tests/ci/*.py`,
+    # `SConstruct`, `methods.py`, or any `SCsub` checked out from a fork.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # The only self-hosted runner is the Linux RTX 3080 box (gpu-linux-3080).
+    # The job NAME above still says "Windows Self-Hosted" on purpose: it is a
+    # status-check context and renaming it is a separate decision.
+    runs-on: [self-hosted, Linux, X64, gpu]
+    # Tests the binary build-linux-editor compiled for this exact commit; this
+    # job compiles nothing.
+    needs: build-linux-editor
+    timeout-minutes: 120
+
+    # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
+    # of this job's GPU processes. Rationale and the measured loader behaviour:
+    # the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md. Setting these proves nothing on its own, which
+    # is why the preflight step below reads back the chain the loader actually
+    # built.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process; the Linux
+      # runner is not elevated, so on Linux this alone strips implicit layers.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
+      # driver's layers are not implicit, and force-enabling them would put layers
+      # into the chain that no run outside CI has (measured: the preflight failed).
+      # Each layer's own opt-out, declared in its own manifest under
+      # `disable_environment`. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
+
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+
+    steps:
+    - name: Configure Git safe.directory
+      working-directory: ${{ github.workspace }}
+      run: |
+        git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        path: repo
+        fetch-depth: 0
+        submodules: recursive
+        set-safe-directory: false
+
+    - name: Verify Python
+      run: |
+        python3 --version
+
+    # This runner has no sudo, so no job installs system packages. This step
+    # fails closed and names exactly what is missing (Python 3.11, the Godot
+    # build's pkg-config entries, an NVIDIA Vulkan device, DISPLAY).
+    - name: Check Linux GPU runner toolchain
+      run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+    # #875 -- unrelated GPU work landing on the box while CI runs turns
+    # wall-clock budgets into failures that read like renderer regressions
+    # (#867, #881). This waits for the GPU to be free, then leaves a background
+    # sampler running so the postflight below can say whether contention began
+    # mid-job. It never relaxes a budget: a contended run is void, not passed.
+    - name: Preflight - GPU contention, wait for a free runner (#875)
+      run: python3 tests/ci/runner_gpu_contention.py preflight
+
+    # Must precede the build and every GPU step: it decides whether anything
+    # measured afterwards is a measurement of the renderer (#875).
+    - name: Preflight - runner GPU environment (#875)
+      run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+    # GAP-403: nothing is installed into the runner's global interpreter. SCons
+    # goes into a per-job venv from the version-and-hash-locked
+    # tests/ci/requirements-scons.txt, and the venv's bin/ is prepended to PATH
+    # (via GITHUB_PATH, for every later step), so each later `python`, including
+    # `python -m SCons`, runs in the venv. No repository script this job runs
+    # imports a third-party module, so SCons is the whole toolchain.
+    - name: Install SCons
+      run: bash tests/ci/linux_gpu_runner.sh venv
+
+    # The binary comes from build-linux-editor, never from a compile here.
+    # install-binary fails closed unless its provenance names this run and this
+    # job's own checkout (github.sha) and the sha256 matches; then it places the
+    # binary in bin/, where the resolver below finds it.
+    - name: Download binary built for this commit
+      uses: actions/download-artifact@v4
+      with:
+        name: godot-linuxbsd-editor-tests-${{ github.sha }}
+        path: ${{ runner.temp }}/godot-build
+
+    - name: Verify and install binary (pinned to github.sha)
+      run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+    - name: Resolve Godot binary
+      id: godot_binary
+      run: |
+        resolved=""
+        for candidate in \
+          bin/godot.linuxbsd.editor.dev.x86_64 \
+          bin/godot.linuxbsd.editor.x86_64; do
+          if [ -x "$candidate" ]; then
+            resolved="$(realpath "$candidate")"
+            break
+          fi
+        done
+        if [ -z "$resolved" ]; then
+          echo "::error::Could not find built Godot binary in expected bin/ paths."
+          ls -la bin || true
+          exit 1
+        fi
+        echo "Resolved Godot binary: $resolved"
+        echo "path=$resolved" >> "$GITHUB_OUTPUT"
+        echo "GODOT_BINARY=$resolved" >> "$GITHUB_ENV"
 
     - name: Resolve baseline mode
       id: baseline_mode
       run: |
-        $mode = "compare"
-        $reason = "default-compare"
-        if ("${{ github.event_name }}" -eq "schedule") {
-          $mode = "update"
-          $reason = "nightly-schedule-update"
-        } elseif ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.baseline_mode }}" -eq "update") {
-          $mode = "update"
-          $reason = "manual-update"
-        }
-        "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-        "reason=$reason" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-        Write-Host "Resolved baseline mode: $mode ($reason)"
+        mode="compare"
+        reason="default-compare"
+        if [ "${{ github.event_name }}" = "schedule" ]; then
+          mode="update"
+          reason="nightly-schedule-update"
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
+          mode="update"
+          reason="manual-update"
+        fi
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
+        echo "reason=$reason" >> "$GITHUB_OUTPUT"
+        echo "Resolved baseline mode: $mode ($reason)"
 
     - name: Run GPU sorting construction check (no sort-order coverage)
       # NOT a sort-correctness gate. tests/ci/test_gpu_sorting_ci.gd only
@@ -242,11 +330,7 @@ jobs:
               && github.event.merge_group.base_sha
               || github.event.pull_request.base.sha }}
       run: |
-        $args = @(
-          "--categories", "sorting,renderer",
-          "--godot", $env:GODOT_BINARY
-        )
-        python tests/ci/run_baseline_qa.py @args
+        python tests/ci/run_baseline_qa.py --categories sorting,renderer --godot "$GODOT_BINARY"
 
     - name: Run QA scene suite (blocking visual/SSIM gate)
       # THE reason this step exists on a GPU job: the QA scene suite renders and
@@ -285,13 +369,7 @@ jobs:
         # absent, including via `baseline_mode`. A lane that rewrites the
         # expectations it is checking absorbs regressions instead of detecting
         # them; the guard named above fails the build if this changes.
-        $args = @(
-          "--categories", "qa",
-          "--qa-require-capture",
-          "--require-qa-baseline",
-          "--godot", $env:GODOT_BINARY
-        )
-        python tests/ci/run_baseline_qa.py @args
+        python tests/ci/run_baseline_qa.py --categories qa --qa-require-capture --require-qa-baseline --godot "$GODOT_BINARY"
 
     - name: Upload GPU test artifacts
       if: always()
@@ -311,42 +389,17 @@ jobs:
     - name: Post GPU test summary
       if: always()
       run: |
-        $summaryFile = $env:GITHUB_STEP_SUMMARY
-        "# GPU Baseline Test Results" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-        "" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-        "- Trigger: ``${{ github.event_name }}``" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-        "- Baseline mode: ``${{ steps.baseline_mode.outputs.mode }}`` (${{ steps.baseline_mode.outputs.reason }})" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-        "" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
+        python3 tests/ci/ci_reports.py baseline-qa-summary \
+          --trigger "${{ github.event_name }}" \
+          --baseline-mode "${{ steps.baseline_mode.outputs.mode }}" \
+          --baseline-reason "${{ steps.baseline_mode.outputs.reason }}"
 
-        if (Test-Path "baseline_qa_results.json") {
-          $data = Get-Content "baseline_qa_results.json" -Raw | ConvertFrom-Json
-          "## Test Summary" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          "| Metric | Value |" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          "|--------|-------|" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          "| Total Tests | $($data.total_tests) |" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          "| Passed | $($data.passed_tests) |" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          "| Failed | $($data.failed_tests) |" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          if ($data.total_tests -gt 0) {
-            $rate = [math]::Round($data.passed_tests / $data.total_tests * 100, 1)
-            "| Success Rate | ${rate}% |" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          }
-          "" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          "## Test Details" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          foreach ($test in $data.tests) {
-            $status = if ($test.success) { "PASS" } else { "FAIL" }
-            $duration = [math]::Round($test.duration, 1)
-            "- $status **$($test.name)** (${duration}s)" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-          }
-        } else {
-          "Test results file not found" | Out-File -FilePath $summaryFile -Encoding utf8 -Append
-        }
     # #875 -- must run even when the job failed: a timing failure above is
     # exactly the result whose attribution this decides. Exits 75 (not 1) when
     # the run is void, so it cannot be read as a test failure.
     - name: Postflight - GPU contention verdict (#875)
       if: always()
-      run: python tests/ci/runner_gpu_contention.py postflight
-
+      run: python3 tests/ci/runner_gpu_contention.py postflight
 
   gpu-harness:
     name: GPU Harness + Visual Gate (Windows Self-Hosted)
@@ -356,7 +409,7 @@ jobs:
     if: |
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       !cancelled()
-    runs-on: [self-hosted, Windows, X64, godotgs, gpu]
+    runs-on: [self-hosted, Linux, X64, gpu]
     # Runs after gpu-tests so the two GPU jobs serialize on the shared runner
     # and split the scons cache cleanly. Independent of gpu-tests' result —
     # a failing GDScript-based gpu-test should not gate the doctest-based
@@ -366,7 +419,11 @@ jobs:
     # requirement, so a failing gpu-tests run still lets the visual gate run.
     # Not using `always()` because it would evaluate true during cancellation
     # and defeat the workflow's `concurrency.cancel-in-progress: true`.
-    needs: gpu-tests
+    # build-linux-editor supplies the binary. Under the same `!cancelled()`, a
+    # failed build does not skip this job: when the path filter says the harness
+    # must run, the download step below fails and the job goes red, exactly as
+    # its own compile step used to.
+    needs: [build-linux-editor, gpu-tests]
     timeout-minutes: 60
     permissions:
       contents: write
@@ -381,7 +438,9 @@ jobs:
       # Kept because they are the only mechanism covering a layer nobody has
       # enumerated, and because they do work on a non-elevated runner.
       VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
+      # driver's layers are not implicit, and force-enabling them would put layers
+      # into the chain that no run outside CI has (measured: the preflight failed).
       # What actually strips the layers here: each layer's own opt-out, declared
       # in its own manifest under `disable_environment`. The loader reads these
       # unprivileged, so they survive the elevated job. Mirrored in
@@ -392,16 +451,18 @@ jobs:
       DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
       # VK_LAYER_OW_OVERLAY
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
 
     defaults:
       run:
         working-directory: repo
-        shell: pwsh
+        shell: bash
 
     steps:
       - name: Configure Git safe.directory
         working-directory: ${{ github.workspace }}
-        run: git config --global --add safe.directory '*'
+        run: git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -588,119 +649,99 @@ jobs:
 
       - name: Report decision
         run: |
-          Write-Host "run_harness=${{ steps.path_filter.outputs.run_harness }}"
-          Write-Host "reason=${{ steps.path_filter.outputs.reason }}"
+          echo "run_harness=${{ steps.path_filter.outputs.run_harness }}"
+          echo "reason=${{ steps.path_filter.outputs.reason }}"
 
       - name: Verify Python
         if: steps.path_filter.outputs.run_harness == 'true'
-        run: python --version
+        run: python3 --version
 
-      # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
-      # GPU work lands on it while CI runs and turns wall-clock budgets into
-      # failures that read like renderer regressions (#867, #881). This waits for
-      # the GPU to be free, then leaves a background sampler running so the
-      # postflight below can say whether contention began mid-job. It never
-      # relaxes a budget: a contended run is void, not passed.
+      # This runner has no sudo, so no job installs system packages. This step
+      # fails closed and names exactly what is missing.
+      - name: Check Linux GPU runner toolchain
+        if: steps.path_filter.outputs.run_harness == 'true'
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      # #875 -- unrelated GPU work landing on the box while CI runs turns
+      # wall-clock budgets into failures that read like renderer regressions
+      # (#867, #881). This waits for the GPU to be free, then leaves a background
+      # sampler running so the postflight below can say whether contention began
+      # mid-job. It never relaxes a budget: a contended run is void, not passed.
       - name: Preflight - GPU contention, wait for a free runner (#875)
         if: steps.path_filter.outputs.run_harness == 'true'
-        run: python tests/ci/runner_gpu_contention.py preflight
+        run: python3 tests/ci/runner_gpu_contention.py preflight
 
       # Must precede the build and every GPU step (#875). Carries the same
       # path-filter condition as the rest of the job: when the harness does not
       # run there is no GPU measurement for it to protect.
       - name: Preflight - runner GPU environment (#875)
         if: steps.path_filter.outputs.run_harness == 'true'
-        run: python tests/ci/preflight_runner_gpu_environment.py
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
 
-      - name: Set up MSVC
-        if: steps.path_filter.outputs.run_harness == 'true'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # GAP-403: per-job venv from the hash-locked file, never the workstation's
+      # GAP-403: per-job venv from the hash-locked file, never the runner's
       # global interpreter. Same shape and reasoning as the gpu-tests job above.
       - name: Install SCons
         if: steps.path_filter.outputs.run_harness == 'true'
-        run: |
-          $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
-          python -m venv --clear $venv
-          if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
-          $env:PATH = "$venv\Scripts;$env:PATH"
-          if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
-          python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
-          if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
-          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: bash tests/ci/linux_gpu_runner.sh venv
 
-      - name: Build module-enabled Godot editor (tests=yes)
+      # The same binary gpu-tests tests, compiled once by build-linux-editor.
+      # install-binary fails closed unless its provenance names this run and
+      # this job's own checkout (github.sha) and the sha256 matches.
+      - name: Download binary built for this commit
         if: steps.path_filter.outputs.run_harness == 'true'
-        run: |
-          # Mirror gpu-tests's scons args byte-for-byte so the two jobs share
-          # `C:/godotgs-scons-cache` cleanly. The module defaults to on (see
-          # modules/gaussian_splatting/config.py:can_build), so passing
-          # `module_gaussian_splatting_enabled=yes` doesn't change CPPDEFINES —
-          # it just keeps the arg string aligned and removes any scons
-          # env-hash drift between the two jobs. (Note: the dominant rebuild
-          # cost between jobs is `actions/checkout` blowing away .sconsign
-          # between runs, not cache fragmentation; eliminating that needs
-          # artifact handoff from gpu-tests, tracked separately.)
-          python -m SCons platform=windows target=editor dev_build=yes tests=yes `
-            module_gaussian_splatting_enabled=yes gs_native_arch=no `
-            cache_path=C:/godotgs-scons-cache cache_limit=50 -j12
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        if: steps.path_filter.outputs.run_harness == 'true'
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
 
       - name: Resolve Godot binary
         if: steps.path_filter.outputs.run_harness == 'true'
         id: godot_binary
         run: |
-          $candidates = @(
-            "bin\godot.windows.editor.dev.x86_64.console.exe",
-            "bin\godot.windows.editor.dev.x86_64.exe",
-            "bin\godot.windows.editor.x86_64.console.exe",
-            "bin\godot.windows.editor.x86_64.exe"
-          )
-          $resolved = $null
-          foreach ($candidate in $candidates) {
-            if (Test-Path -LiteralPath $candidate) {
-              $resolved = (Resolve-Path -LiteralPath $candidate).Path
+          resolved=""
+          for candidate in \
+            bin/godot.linuxbsd.editor.dev.x86_64 \
+            bin/godot.linuxbsd.editor.x86_64; do
+            if [ -x "$candidate" ]; then
+              resolved="$(realpath "$candidate")"
               break
-            }
-          }
-          if (-not $resolved) { throw "Could not find built Godot binary in bin\." }
-          Write-Host "Resolved Godot binary: $resolved"
-          "GODOT_BINARY=$resolved" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            fi
+          done
+          if [ -z "$resolved" ]; then
+            echo "::error::Could not find built Godot binary in bin/."
+            ls -la bin || true
+            exit 1
+          fi
+          echo "Resolved Godot binary: $resolved"
+          echo "GODOT_BINARY=$resolved" >> "$GITHUB_ENV"
 
       - name: Resolve baseline mode
         if: steps.path_filter.outputs.run_harness == 'true'
         id: baseline_mode
         run: |
-          $mode = "compare"; $reason = "default-compare"
-          if ("${{ github.event_name }}" -eq "schedule") {
-            $mode = "update"; $reason = "nightly-schedule-update"
-          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.baseline_mode }}" -eq "update") {
-            $mode = "update"; $reason = "manual-update"
-          }
-          "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "reason=$reason" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          mode="compare"
+          reason="default-compare"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            mode="update"
+            reason="nightly-schedule-update"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
+            mode="update"
+            reason="manual-update"
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
 
       - name: Record runner provenance
         if: steps.path_filter.outputs.run_harness == 'true'
         run: |
-          $gpu = Get-CimInstance Win32_VideoController | Select-Object -First 1
-          $os_info = Get-CimInstance Win32_OperatingSystem
-          $head_sha = (git -C . rev-parse HEAD).Trim()
-          $info = [ordered]@{
-            gpu = if ($gpu) { $gpu.Name } else { "unknown" }
-            driver = if ($gpu) { $gpu.DriverVersion } else { "unknown" }
-            runner_id = $env:RUNNER_NAME
-            runner_os_build = $os_info.BuildNumber
-            timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
-            baseline_mode = "${{ steps.baseline_mode.outputs.mode }}"
-            baseline_mode_reason = "${{ steps.baseline_mode.outputs.reason }}"
-            harness_commit = $head_sha
-            github_run_id = $env:GITHUB_RUN_ID
-            github_event = $env:GITHUB_EVENT_NAME
-          }
-          $info | ConvertTo-Json | Out-File -FilePath "tests/visual_baselines/.provenance.json" -Encoding utf8
-          Write-Host "Provenance:"
-          Get-Content "tests/visual_baselines/.provenance.json"
+          python3 tests/ci/ci_reports.py provenance \
+            --out tests/visual_baselines/.provenance.json \
+            --baseline-mode "${{ steps.baseline_mode.outputs.mode }}" \
+            --baseline-reason "${{ steps.baseline_mode.outputs.reason }}"
 
       - name: Run GPU harness
         if: steps.path_filter.outputs.run_harness == 'true'
@@ -708,10 +749,9 @@ jobs:
           GS_CI_GPU_REQUIRED: "1"
           GS_VISUAL_BASELINE_MODE: ${{ steps.baseline_mode.outputs.mode }}
         run: |
-          python tests/ci/run_gpu_harness.py `
-            --godot $env:GODOT_BINARY `
+          python tests/ci/run_gpu_harness.py \
+            --godot "$GODOT_BINARY" \
             --report tests/ci/gpu_harness_report.json
-
       - name: Upload visual diff artifacts (compare mode)
         if: always() && steps.path_filter.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'compare'
         uses: actions/upload-artifact@v4
@@ -742,12 +782,12 @@ jobs:
         env:
           PAT_PROBE: ${{ secrets.BASELINE_UPDATE_PAT }}
         run: |
-          if ([string]::IsNullOrEmpty($env:PAT_PROBE)) {
-            "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Host "::warning::BASELINE_UPDATE_PAT secret is not provisioned. Update-mode run will capture baselines as artifacts only; no recapture PR will be opened. Provision the secret in repo settings to enable the auto-PR flow."
-          } else {
-            "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
+          if [ -z "$PAT_PROBE" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::BASELINE_UPDATE_PAT secret is not provisioned. Update-mode run will capture baselines as artifacts only; no recapture PR will be opened. Provision the secret in repo settings to enable the auto-PR flow."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Open recapture PR
         if: success() && steps.path_filter.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'update' && steps.recapture_pat.outputs.available == 'true'
@@ -789,101 +829,27 @@ jobs:
       - name: Append GPU harness summary
         if: always() && steps.path_filter.outputs.run_harness == 'true'
         run: |
-          $summaryFile = $env:GITHUB_STEP_SUMMARY
-          "## GPU Harness + Visual Gate" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-          "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-          "- Mode: ``${{ steps.baseline_mode.outputs.mode }}`` (${{ steps.baseline_mode.outputs.reason }})" `
-            | Out-File -Append -FilePath $summaryFile -Encoding utf8
-          if (Test-Path "tests/visual_baselines/.provenance.json") {
-            $p = $null
-            try {
-              $p = Get-Content "tests/visual_baselines/.provenance.json" -Raw | ConvertFrom-Json -ErrorAction Stop
-            } catch {
-              Write-Host "::warning::Failed to parse provenance.json: $($_.Exception.Message)"
-            }
-            if ($p) {
-              "- GPU: $($p.gpu)" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              "- Driver: $($p.driver)" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              "- Runner: $($p.runner_id)" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            }
-          }
-          $r = $null
-          if (Test-Path "tests/ci/gpu_harness_report.json") {
-            try {
-              $r = Get-Content "tests/ci/gpu_harness_report.json" -Raw | ConvertFrom-Json -ErrorAction Stop
-            } catch {
-              Write-Host "::warning::Failed to parse gpu_harness_report.json: $($_.Exception.Message)"
-            }
-          }
-          if ($r) {
-            "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "| Metric | Value |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "|---|---|" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "| Test cases | $($r.totals.test_cases_passed)/$($r.totals.test_cases_total) |" `
-              | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "| Assertions | $($r.totals.assertions_passed)/$($r.totals.assertions_total) |" `
-              | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "| Wall seconds | $($r.wall_seconds) |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "| Supervisor exit | $($r.supervisor_exit) |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            # A timed-out batch produces no doctest summary, so its counts parse as 0
-            # and its leak bytes are partial — yet both get summed into the totals
-            # above. Flag that loudly here, next to the numbers themselves, so the
-            # table is never read as a complete result (#677). `totals_authoritative`
-            # is emitted by tests/ci/run_gpu_harness.py.
-            # @(...) forces an array even when ConvertFrom-Json hands back a bare
-            # scalar for a single-element list, so .Count is always meaningful.
-            $timedOut = @($r.timed_out_batches)
-            if ($timedOut.Count -gt 0) {
-              $tob = $timedOut -join ", "
-              Write-Host "::warning::GPU harness batches timed out: $tob - totals are incomplete"
-              "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              "> **:warning: Timed-out batches: $tob**" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              "> These batches produced no doctest summary. The Test cases / Assertions" `
-                | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              "> totals above EXCLUDE them and must not be quoted as complete coverage," `
-                | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              "> and any leak figure from this run is a lower bound, not a clean result." `
-                | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            }
-            "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "### Per-batch breakdown" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "| Batch | RC | Cases | Asserts | Status | Wall (s) |" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "|---|---|---|---|---|---|" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            foreach ($b in $r.batches) {
-              "| $($b.name) | $($b.rc) | $($b.test_cases.passed)/$($b.test_cases.total) | $($b.assertions.passed)/$($b.assertions.total) | $($b.status) | $($b.wall_seconds) |" `
-                | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            }
-            if ($r.totals.test_cases_failed -gt 0 -or $r.totals.assertions_failed -gt 0) {
-              $actuals = Get-ChildItem "tests/visual_baselines" -Filter "*.actual.png" -ErrorAction SilentlyContinue
-              if ($actuals) {
-                "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-                "**Visual-diff captures: $($actuals.Count)** (see ``gpu-harness-visual-diffs`` artifact)" `
-                  | Out-File -Append -FilePath $summaryFile -Encoding utf8
-              }
-            }
-          } else {
-            "" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-            "*No gpu_harness_report.json could be parsed — the harness may have crashed before writing the report, or the JSON was malformed.*" `
-              | Out-File -Append -FilePath $summaryFile -Encoding utf8
-          }
+          python3 tests/ci/ci_reports.py gpu-harness-summary \
+            --mode "${{ steps.baseline_mode.outputs.mode }}" \
+            --reason "${{ steps.baseline_mode.outputs.reason }}"
 
       - name: Report skipped run
         if: steps.path_filter.outputs.run_harness != 'true'
         run: |
-          $summaryFile = $env:GITHUB_STEP_SUMMARY
-          "## GPU Harness + Visual Gate" | Out-File -Append -FilePath $summaryFile -Encoding utf8
-          "Skipped: ${{ steps.path_filter.outputs.reason }}" | Out-File -Append -FilePath $summaryFile -Encoding utf8
+          {
+            echo "## GPU Harness + Visual Gate"
+            echo "Skipped: ${{ steps.path_filter.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
       # #875 -- must run even when the job failed: a timing failure above is
       # exactly the result whose attribution this decides. Exits 75 (not 1) when
       # the run is void, so it cannot be read as a test failure.
       - name: Postflight - GPU contention verdict (#875)
         if: always() && (steps.path_filter.outputs.run_harness == 'true')
-        run: python tests/ci/runner_gpu_contention.py postflight
-
+        run: python3 tests/ci/runner_gpu_contention.py postflight
 
   cpu-tests:
     name: CPU-Only QA Tests (Linux)
-    # Skip the slow Linux build on PRs — Windows self-hosted is the fast gate.
+    # Skip the slow Linux build on PRs — the self-hosted Linux GPU runner is the fast gate.
     # Runs on push to master/develop, nightly schedule, and manual dispatch.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -939,7 +905,11 @@ jobs:
 
     - name: Build module-enabled Godot editor
       run: |
-        scons platform=linuxbsd target=editor dev_build=yes tests=yes cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+        # ccflags="-march=x86-64" is PINNED. ubuntu-latest is Ubuntu 26.04,
+        # whose gcc 15 defaults to -march=x86-64-v3 (defines __AVX2__). That
+        # makes embree's isa.h select avx2:: symbols whose SIMD8 sources the
+        # raycast module does not build -> undefined reference at link.
+        scons platform=linuxbsd target=editor dev_build=yes tests=yes ccflags="-march=x86-64" cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
 
     - name: Resolve module-enabled Godot binary
       id: godot_binary

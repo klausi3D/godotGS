@@ -222,6 +222,7 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 	ERR_FAIL_COND_V(!p_gaussian_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!p_sorted_indices.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.debug_stats.overflow_statistics_buffer.is_valid(), RID());
+	ERR_FAIL_COND_V(owner.instance_pipeline_buffers.hlod_relative && !owner.debug_stats.hlod_level_stats_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.debug_stats.debug_counter_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.debug_stats.debug_splat_audit_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.projection_buffers.projection_buffer.is_valid(), RID());
@@ -246,7 +247,10 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 	ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.indirect_count_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.indirect_dispatch_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(quantization_required && !owner.instance_pipeline_buffers.quantization_buffer.is_valid(), RID());
-	ERR_FAIL_COND_V(quantization_required && !owner.instance_pipeline_buffers.chunk_meta_buffer.is_valid(), RID());
+	ERR_FAIL_COND_V((quantization_required || owner.instance_pipeline_buffers.hlod_relative) && !owner.instance_pipeline_buffers.chunk_meta_buffer.is_valid(), RID());
+    ERR_FAIL_COND_V(owner.instance_pipeline_buffers.hlod_relative &&
+            (!owner.instance_pipeline_buffers.hlod_draw_entry_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_draw_list_buffer.is_valid() ||
+                    owner.instance_pipeline_buffers.hlod_source_generation == 0 || owner.instance_pipeline_buffers.hlod_content_generation == 0), RID());
 
 	RID tile_counts_buffer = owner.global_sort_resources.get_tile_counts_buffer();
 	const bool cache_deps_match = cached_generation == owner.descriptor_generation &&
@@ -318,7 +322,8 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 		quant_uniform.binding = 14;
 		quant_uniform.append_id(owner.instance_pipeline_buffers.quantization_buffer);
 		uniforms.push_back(quant_uniform);
-
+	}
+	if (quantization_required || owner.instance_pipeline_buffers.hlod_relative) {
 		RD::Uniform chunk_meta_uniform;
 		chunk_meta_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 		chunk_meta_uniform.binding = 18;
@@ -326,6 +331,24 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
 		uniforms.push_back(chunk_meta_uniform);
 	}
 
+    if (owner.instance_pipeline_buffers.hlod_relative) {
+        RD::Uniform sidecar;
+        sidecar.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        sidecar.binding = 23; // Binding 21 belongs to record-loss capture (#1261).
+        sidecar.append_id(owner.instance_pipeline_buffers.hlod_draw_entry_buffer);
+        uniforms.push_back(sidecar);
+        RD::Uniform draw_list;
+        draw_list.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        draw_list.binding = 22;
+        draw_list.append_id(owner.instance_pipeline_buffers.hlod_draw_list_buffer);
+        uniforms.push_back(draw_list);
+        // BV-04b: records per splat per HLOD level (EMIT pass only; tile_binning.glsl binding 24).
+        RD::Uniform level_stats;
+        level_stats.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        level_stats.binding = 24;
+        level_stats.append_id(owner.debug_stats.hlod_level_stats_buffer);
+        uniforms.push_back(level_stats);
+    }
 	RD::Uniform indirect_uniform;
 	indirect_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 	indirect_uniform.binding = 15;
@@ -482,7 +505,10 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 	ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.indirect_count_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(!owner.instance_pipeline_buffers.indirect_dispatch_buffer.is_valid(), RID());
 	ERR_FAIL_COND_V(quantization_required && !owner.instance_pipeline_buffers.quantization_buffer.is_valid(), RID());
-	ERR_FAIL_COND_V(quantization_required && !owner.instance_pipeline_buffers.chunk_meta_buffer.is_valid(), RID());
+	ERR_FAIL_COND_V((quantization_required || owner.instance_pipeline_buffers.hlod_relative) && !owner.instance_pipeline_buffers.chunk_meta_buffer.is_valid(), RID());
+    ERR_FAIL_COND_V(owner.instance_pipeline_buffers.hlod_relative &&
+            (!owner.instance_pipeline_buffers.hlod_draw_entry_buffer.is_valid() || !owner.instance_pipeline_buffers.hlod_draw_list_buffer.is_valid() ||
+                    owner.instance_pipeline_buffers.hlod_source_generation == 0 || owner.instance_pipeline_buffers.hlod_content_generation == 0), RID());
 
 	RID tile_counts_buffer = owner.global_sort_resources.get_tile_counts_buffer();
 	const bool cache_deps_match = cached_generation == owner.descriptor_generation &&
@@ -555,7 +581,8 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 		quant_uniform.binding = 14;
 		quant_uniform.append_id(owner.instance_pipeline_buffers.quantization_buffer);
 		uniforms.push_back(quant_uniform);
-
+	}
+	if (quantization_required || owner.instance_pipeline_buffers.hlod_relative) {
 		RD::Uniform chunk_meta_uniform;
 		chunk_meta_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 		chunk_meta_uniform.binding = 18;
@@ -563,6 +590,18 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 		uniforms.push_back(chunk_meta_uniform);
 	}
 
+    if (owner.instance_pipeline_buffers.hlod_relative) {
+        RD::Uniform sidecar;
+        sidecar.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        sidecar.binding = 23; // Binding 21 belongs to record-loss capture (#1261).
+        sidecar.append_id(owner.instance_pipeline_buffers.hlod_draw_entry_buffer);
+        uniforms.push_back(sidecar);
+        RD::Uniform draw_list;
+        draw_list.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+        draw_list.binding = 22;
+        draw_list.append_id(owner.instance_pipeline_buffers.hlod_draw_list_buffer);
+        uniforms.push_back(draw_list);
+    }
 	RD::Uniform indirect_uniform;
 	indirect_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 	indirect_uniform.binding = 15;

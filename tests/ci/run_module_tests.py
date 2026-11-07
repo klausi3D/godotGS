@@ -35,6 +35,9 @@ GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sy
 GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layout_sync.py"
 # Shader numerical contracts evaluated from the .glsl source on the host (#1157, #1153, #1168).
 SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
+HLOD_OFFLINE_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_hlod_offline_job.py"
+HLOD_S1B_QUALITY_TEST_SCRIPT = ROOT / "tests" / "runtime" / "hlod_s1b_quality" / "test_s1b_quality.py"
+WORLD_MANIFEST_VERIFIER_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_verify_world_manifest.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -81,6 +84,10 @@ BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_ben
 # runner actually reaches these contract-test files.
 RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+# BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
+BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
+# BV-07: the probe lane's path, ground truth, trace parser and summary arithmetic.
+BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_probe_lane.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -924,6 +931,62 @@ def _run_shader_host_numerics_guard() -> tuple[bool, list[str]]:
         if not output_lines:
             output_lines = [f"Shader host-numerics tests failed with exit code {code}."]
         return False, output_lines
+    return True, output_lines
+
+
+def _run_hlod_offline_contract_tests() -> tuple[bool, list[str]]:
+    """Portable admission/publication contracts only; no native Job Object evidence."""
+    script = HLOD_OFFLINE_CONTRACT_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing HLOD offline portable contract test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        return False, output_lines or [f"HLOD offline portable contract tests failed with exit code {code}."]
+    # Require unittest's complete nonempty success footer. Exit 0 alone also
+    # describes a deleted unittest.main(), zero discovered cases, or skipped tests.
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["HLOD offline portable tests have no complete, nonempty success summary without skips."]
+    return True, output_lines
+
+
+def _run_hlod_s1b_quality_tests() -> tuple[bool, list[str]]:
+    """CPU-only S1b harness contracts (ROI, decision rule, fail-closed validation); no GPU."""
+    script = HLOD_S1B_QUALITY_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing HLOD S1b quality harness test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, "-B", str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        return False, output_lines or [f"HLOD S1b quality harness tests failed with exit code {code}."]
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["HLOD S1b quality tests have no complete, nonempty success summary without skips."]
+    return True, output_lines
+
+
+def _run_world_manifest_verifier_tests() -> tuple[bool, list[str]]:
+    """CPU-only contracts of the BV-05 world-manifest verifier (constructed worlds); no binary."""
+    script = WORLD_MANIFEST_VERIFIER_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing world manifest verifier test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, "-B", str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        return False, output_lines or [f"World manifest verifier tests failed with exit code {code}."]
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["World manifest verifier tests have no complete, nonempty success summary without skips."]
     return True, output_lines
 
 
@@ -2083,6 +2146,55 @@ def _run_gpu_contention_contract_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, ["GPU contention contract guard passed."]
+
+
+def _run_beyond_vram_dispatch_lane_guard() -> tuple[bool, list[str]]:
+    """Guard (BV-06a): the beyond-VRAM dispatch lane fails closed, and its workflow wires it so.
+
+    Static, headless, no GPU, no engine binary: `df`, `dd`, `fio`, `vulkaninfo`,
+    the generator and the probe are replaced by fakes, and
+    `.github/workflows/beyond_vram_flythrough.yml` is read as text. It pins the
+    ADR section 5.3 disk refusal (one byte below the budget refuses), that an
+    absent generator/probe entry point is NOT_RUN and never OK, that a zero exit
+    without a manifest/summary fails, that cleanup deletes only a world root the
+    lane created, and that the disk preflight gates every later lane step.
+    """
+    script = BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing beyond-VRAM dispatch lane test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Beyond-VRAM dispatch lane guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Beyond-VRAM dispatch lane guard passed."]
+
+
+def _run_beyond_vram_probe_lane_tests() -> tuple[bool, list[str]]:
+    """Guard (BV-07): the probe lane never turns an absent signal into a number.
+
+    Static, headless, no GPU, no engine binary. Runs on captured producer output
+    (a BV-05 T-smoke manifest; a real probe_world.gd trace and result). Pins the
+    arc-length path and its `path_sha256`, the frustum ground truth, that a torn
+    trace / skipped frame / rows != frames is INVALID, that a held GPU sample is
+    never counted as fresh, that a settings change labels `settings_drifted`,
+    the F/k fit, and the entry point's NOT_RUN / FAIL / INVALID exits.
+    """
+    script = BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing beyond-VRAM probe lane test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Beyond-VRAM probe lane tests failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Beyond-VRAM probe lane tests passed."]
 
 
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
@@ -3637,6 +3749,21 @@ def _run_required_message_guards() -> int | None:
     required_guards: tuple[tuple[GuardRunner, str, str], ...] = (
         (_run_tracked_backup_guard, "Tracked backup-file guard failed.", "Tracked backup-file guard passed."),
         (_run_tracked_artifact_guard, "Tracked artifact hygiene guard failed.", "Tracked artifact hygiene guard passed."),
+        (
+            _run_hlod_offline_contract_tests,
+            "HLOD offline portable contract tests failed.",
+            "HLOD offline portable contract tests passed (native Job Object not exercised).",
+        ),
+        (
+            _run_hlod_s1b_quality_tests,
+            "HLOD S1b quality harness tests failed.",
+            "HLOD S1b quality harness tests passed (CPU contracts only; renders not exercised).",
+        ),
+        (
+            _run_world_manifest_verifier_tests,
+            "World manifest verifier tests failed.",
+            "World manifest verifier tests passed (constructed worlds; generator output not exercised).",
+        ),
     )
     for runner, failure_summary, success_summary in required_guards:
         exit_code = _run_message_guard(
@@ -3909,6 +4036,18 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gpu_contention_contract_guard,
             "GPU contention contract guard failed.",
             "GPU contention contract guard passed.",
+        ),
+        (
+            True,
+            _run_beyond_vram_dispatch_lane_guard,
+            "Beyond-VRAM dispatch lane guard failed.",
+            "Beyond-VRAM dispatch lane guard passed.",
+        ),
+        (
+            True,
+            _run_beyond_vram_probe_lane_tests,
+            "Beyond-VRAM probe lane tests failed.",
+            "Beyond-VRAM probe lane tests passed (captured traces; no GPU run).",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

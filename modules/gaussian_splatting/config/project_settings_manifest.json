@@ -833,6 +833,18 @@
       "test_coverage": "inventory_only"
     },
     {
+      "effective_state": "gs::settings::get_hlod_runtime_cut_enabled",
+      "key": "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled",
+      "notes": "HLOD runtime cut; defaults on since the automatic HLOD route (docs/architecture/adr-one-route-many-producers.md 4.7): a GaussianSplatWorld3D whose world carries an HLOD tree (a resident complete tree or a V4 paged package) takes the HLOD route with its node instances, whatever streaming/route_policy says. false is the explicit opt-out and restores the routing from before exactly: no snapshot, route_policy decides the backend, a V4 paged world loads its payload into memory. Worlds without an HLOD tree, and imported .gsplatworld worlds (file-backed payload), are unaffected either way. A world the route cannot serve after submission (an orthographic/XR/painterly view, a late domain or quantization over a mixed-DC tree, with no canonical copy) is demoted once to its previous route (hlod_auto_route_demoted:<cause>) until apply_world(). Routing matrix and demotion: tests/test_hlod_auto_route.cpp.",
+      "test_coverage": "covered"
+    },
+    {
+      "effective_state": "gs::settings::get_hlod_tau_px",
+      "key": "rendering/gaussian_splatting/lod/hlod_tau_px",
+      "notes": "Positive pixel error threshold for the opt-in resident HLOD cut; provisional default 1. Invalid values use 1 with a warning. World overrides use 0 to inherit, then multiply by world LOD bias.",
+      "test_coverage": "inventory_only"
+    },
+    {
       "effective_state": "LODConfig/GPUCuller.hysteresis_zone",
       "key": "rendering/gaussian_splatting/lod/hysteresis_zone",
       "test_coverage": "inventory_only"
@@ -1246,6 +1258,7 @@
     {
       "effective_state": "StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.route_policy",
       "key": "rendering/gaussian_splatting/streaming/route_policy",
+      "notes": "Backend of a world submission that does not take the HLOD route. A world with an HLOD tree takes the HLOD route (resident backend) whatever this says, unless lod/hlod_runtime_cut_enabled is false. It is not an HLOD opt-out: a value set equal to its default (streaming) cannot be told from an unset one.",
       "test_coverage": "covered"
     },
     {

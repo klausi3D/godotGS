@@ -15,6 +15,7 @@
 
 #include "gaussian_data.h"
 #include "gaussian_splat_asset.h"
+#include "gaussian_splat_world_frame.h"
 #include "streaming_chunk_payload_source.h"
 #include "thread_owned_mutex.h"
 #include "../lod/lod_config.h"
@@ -64,6 +65,10 @@ public:
     };
 
     struct WorldSubmission {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_world_key = 0;
         ObjectID owner_id;
         RID scenario;
         Ref<GaussianData> gaussian_data;
@@ -74,6 +79,13 @@ public:
         bool has_desired_residency_hint = false;
         int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
         Dictionary desired_renderer_overrides;
+        // The world's own cast_shadow (GaussianSplatWorld3D). Godot gives the shared renderer a shadow pass when ANY of its
+        // Gaussian instances casts, so the HLOD shadow casters read the world's flag here (row 0) instead of assuming it.
+        bool casts_shadow = true;
+        // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
+        // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted. The
+        // node binds its submission generation to it and drops a call that arrives for an older submission.
+        Callable hlod_demotion_callback;
     };
 
     struct SubmissionCounts {
@@ -109,6 +121,16 @@ public:
     };
 
     static GaussianSplatSceneDirector *get_singleton();
+
+    // Origin of the GS render frame (ADR 14.3, package C). Owned by the module, never by a scene node: changing
+    // it moves no scene node and no stored payload; it bumps a revision that frame-dependent snapshots and caches
+    // key on. Gameplay/physics origin handling attaches through add_world_origin_hook() only. Thread-safe.
+    bool set_world_origin(const gs_world_frame::PreciseCoord &p_origin);
+    bool shift_world_origin_by(const double p_delta[3]);
+    void get_world_origin(gs_world_frame::PreciseCoord &r_origin, uint64_t &r_revision) const;
+    uint64_t get_world_origin_revision() const;
+    void add_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook);
+    void remove_world_origin_hook(gs_world_frame::OriginShiftHook *p_hook);
 
     GaussianSplatSceneDirector();
     ~GaussianSplatSceneDirector();
@@ -392,9 +414,47 @@ public:
     // exercised in a headless [SceneDirector] doctest without a RenderingDevice.
     uint64_t test_instance_generation_for_scenario(const RID &p_scenario) const;
     uint64_t test_instance_asset_generation_for_scenario(const RID &p_scenario) const;
+    // Test-only: has_hlod_world_submission / build_hlod_instance_rows_for_renderer for the world of a scenario (same
+    // code, located by scenario; rows use a null renderer-default grading). No RenderingDevice needed.
+    bool test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const;
+    // Test-only: request_hlod_auto_route_demotion for the world of a scenario (same staleness check, located by scenario).
+    bool test_request_hlod_auto_route_demotion_for_scenario(const RID &p_scenario, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
+    void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
+            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+    // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
+    // max_splats is `p_renderer_max_splats` (the clamp to the data count and the pre-clamp view cap, PR1b).
+    static GaussianSplatRenderer::WorldSubmissionContract test_build_world_contract(const WorldSubmission &p_submission,
+            int p_renderer_max_splats);
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
     bool get_world_submission_for_scenario(const RID &p_scenario, WorldSubmission *r_submission) const;
+    // The HLOD route's world: an active world submission owned by `p_owner` (ADR one-route-many-producers, PR1b). Node
+    // instances no longer make it exclusive: they join the route as rows 1..N (build_hlod_instance_rows_for_renderer).
+    bool has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
+    // The automatic HLOD route's sticky demotion: queues the active world submission's demotion callback (deferred, main
+    // thread) when p_owner still owns it and p_refused_snapshot is still its submitted snapshot (a refusal of a snapshot
+    // a newer submission replaced is stale). Any thread; the callback is called outside world_mutex. True when queued.
+    bool request_hlod_auto_route_demotion(const GaussianSplatRenderer *p_renderer, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
+    // The HLOD route's rows: row 0 is the world's identity row (asset 0), then one row per visible node instance with
+    // asset data, in instance-store order, built exactly as build_instance_buffer_for_renderer builds a node row.
+    // `r_asset_ids` and `r_instance_keys` are parallel: each row's 64-bit asset id and the stable key of its instance
+    // (the node's ObjectID; 0 for the world). Empty when there is no renderable world submission. Unlike
+    // build_instance_buffer_for_renderer (unchanged: the canonical routes keep their behaviour until follow-up F1),
+    // a node never removes the world row.
+    // Splat shadow casters (#1095): the stable keys (node ObjectIDs) of this renderer's world's node instances that are
+    // visible and cast shadows. The HLOD shadow pass casts exactly the drawn rows among them. Returns whether the world
+    // itself (row 0) casts: its submission's casts_shadow; false without an active world submission.
+    bool collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<uint64_t> &r_keys) const;
+    // The world node's cast_shadow changed: update the active submission in place (no resubmission, no bundle rebuild).
+    void set_world_submission_casts_shadow(ObjectID p_owner_id, bool p_casts_shadow);
+    void build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<InstanceDataGPU> &r_rows,
+            LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
+    // The node's HLOD-route admission state in the last main view its renderer prepared: empty when it was drawn (or
+    // not visible in that view), otherwise the refusal reason (hlod_instance_reserve_exceeds_object_share). Internal,
+    // not a bound API (a bound query is a public-surface change).
+    String get_hlod_instance_refusal_for_node(ObjectID p_node_id) const;
     bool has_world_submission_for_renderer(const GaussianSplatRenderer *p_renderer) const;
     // Current hint precedence is active world > homogeneous instance submissions.
     // Conflicting instance submission hints return false with source "mixed_instance_submissions".
@@ -721,6 +781,10 @@ private:
     class SubmissionStore {
     public:
         struct WorldSubmissionRecord {
+        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
+        String hlod_reason;
+        float hlod_tau_px = 0.0f;
+        uint64_t hlod_world_key = 0;
             ObjectID owner_id;
             Ref<GaussianData> gaussian_data;
             Ref<ChunkPayloadSource> payload_source;
@@ -730,6 +794,8 @@ private:
             bool has_desired_residency_hint = false;
             int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
             Dictionary desired_renderer_overrides;
+            bool casts_shadow = true;
+            Callable hlod_demotion_callback;
             GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
             bool active = false;
         };
@@ -1102,6 +1168,9 @@ public:
 
 private:
     static GaussianSplatSceneDirector *singleton;
+    // Guards `world_origin` (main thread writes, render thread reads). Hooks run under it: they must not block.
+    mutable Mutex world_origin_mutex;
+    gs_world_frame::WorldOriginContext world_origin;
 
     // #611: a plain `Mutex` cannot answer "does this thread already hold me?",
     // so the renderer-contract boundary below had no way to check the ordering
@@ -1227,6 +1296,19 @@ private:
     // cache fresh via update_instance_scene_effector_filter().
     static uint32_t _build_scene_effector_mask_for_record(const InstanceRecord &p_record,
             const LocalVector<SphereEffectorSelection> &p_payload);
+    // The two row shapes shared by build_instance_buffer_for_renderer and build_hlod_instance_rows_for_renderer.
+    static bool _world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner);
+    // The demotion callback to queue for a refusal of p_refused_snapshot, or an empty Callable when the request is stale
+    // (another owner, or a newer submission with another snapshot). world_mutex held by the caller.
+    static Callable _hlod_demotion_callback_locked(const SharedWorld *p_world, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot);
+    // world_mutex held by the caller.
+    static void _build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
+            LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
+            LocalVector<uint64_t> &r_instance_keys);
+    static void _fill_world_identity_row(const LocalVector<SphereEffectorSelection> &p_payload, InstanceDataGPU &r_entry);
+    static void _fill_instance_row(const InstanceRecord &p_record, const LocalVector<SphereEffectorSelection> &p_payload,
+            InstanceDataGPU &r_entry);
 
 	// Single source of truth for the SharedWorld::asset_records key. The key is
 	// the FULL 64-bit ObjectID; it must never be truncated to 32 bits or two

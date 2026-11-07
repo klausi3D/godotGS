@@ -14,6 +14,8 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gpu_debug_utils.h"
+#include "../renderer/gpu_pass_timing.h"
+#include "../renderer/gpu_sorting_config.h"
 #include "../interfaces/overflow_auto_tuner.h"
 #include "../interfaces/sync_policy.h"
 #include "../compute/frustum_cull.glsl.gen.h"
@@ -1259,6 +1261,9 @@ CullResult GPUCuller::cull(const CullParams &p_params, const CullInputBuffers &p
 
     // GPU Debug: Frustum culling pass
     ScopedGpuMarkerEx cull_marker(dispatch_device, "GS_FrustumCull", PassColors::CULLING);
+    // BV-04b: GPU timestamp bracket of the cull pass (was untimed; part of the fixed cost F).
+    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp cull_timestamp(dispatch_device,
+            GaussianSplatting::GpuPassTiming::PASS_CULL, g_gpu_sorting_config.enable_stage_timestamps);
 
     RD::ComputeListID compute_list = dispatch_device->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {
@@ -1273,6 +1278,7 @@ CullResult GPUCuller::cull(const CullParams &p_params, const CullInputBuffers &p
     dispatch_device->compute_list_dispatch(compute_list, group_count, 1, 1);
     dispatch_device->compute_list_add_barrier(compute_list);
     dispatch_device->compute_list_end();
+    cull_timestamp.finish();
 
     if (dispatch_device->uniform_set_is_valid(cull_uniform_set)) {
         dispatch_device->free(cull_uniform_set);
@@ -1512,6 +1518,9 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     }
 
     ScopedGpuMarkerEx cull_marker(p_inputs.device, "GS_InstanceFrustumCull", PassColors::CULLING);
+    // BV-04b: GPU timestamp bracket of the instance cull pass (was untimed; part of the fixed cost F).
+    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp cull_timestamp(p_inputs.device,
+            GaussianSplatting::GpuPassTiming::PASS_CULL, g_gpu_sorting_config.enable_stage_timestamps);
     RD::ComputeListID compute_list = p_inputs.device->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {
         return false;
@@ -1523,6 +1532,7 @@ bool GPUCuller::_gpu_frustum_cull_instance(const CullParams &p_params, const Ins
     p_inputs.device->compute_list_dispatch(compute_list, group_x, instance_count, 1);
     p_inputs.device->compute_list_add_barrier(compute_list);
     p_inputs.device->compute_list_end();
+    cull_timestamp.finish();
 
     const uint32_t max_visible_chunks = params.max_visible_chunks > 0 ? params.max_visible_chunks : instance_count;
     // Keep published visible-chunk counts aligned to this frame's dispatch domain.

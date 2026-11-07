@@ -1,6 +1,7 @@
 #include "tile_renderer.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "resident_atlas_budget.h"
 
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
@@ -502,12 +503,14 @@ private:
 
 		// Use caller's frame_serial if provided, otherwise auto-increment.
 		// A non-zero frame_serial is required for async GPU counter readback.
-		static uint64_t auto_frame_serial = 0;
+		// BV-04b: the serial comes from the shared GpuPassTiming counter, so the tile passes carry the
+		// same serial as the cull / projection / pre-sort / composite markers of this pipeline pass
+		// (RenderPipelineStages passes it in), and serials stay unique across renderers.
 		if (params.frame_serial > 0) {
 			renderer.frame_state.current_frame_serial = params.frame_serial;
-			auto_frame_serial = params.frame_serial; // Sync auto counter
+			GaussianSplatting::GpuPassTiming::note_external_frame_serial(params.frame_serial);
 		} else {
-			renderer.frame_state.current_frame_serial = ++auto_frame_serial;
+			renderer.frame_state.current_frame_serial = GaussianSplatting::GpuPassTiming::allocate_frame_serial();
 		}
 
 		renderer.render_settings.global_sort_enabled = true;
@@ -535,10 +538,20 @@ private:
 			packed_stage_requested = false;
 		}
 		bool packed_stage_changed = (renderer.render_settings.enable_packed_stage_data != packed_stage_requested);
+		if (params.hlod_relative && packed_stage_changed) {
+			renderer.last_hlod_refusal = "projection_layout";
+			ERR_PRINT_ONCE("[TileRenderer] HLOD projection layout differs from its admitted scratch layout.");
+			return false;
+		}
 		renderer.render_settings.enable_packed_stage_data = packed_stage_requested;
 
 		bool tighter_bounds_requested = params.request_tighter_bounds;
 		bool tighter_bounds_changed = (renderer.render_settings.enable_tighter_bounds != tighter_bounds_requested);
+		if (params.hlod_relative && tighter_bounds_changed) {
+			renderer.last_hlod_refusal = "bounds_mode";
+			ERR_PRINT_ONCE("[TileRenderer] HLOD bounds mode differs from its admitted scratch mode.");
+			return false;
+		}
 		renderer.render_settings.enable_tighter_bounds = tighter_bounds_requested;
 
 		// Per-splat scene-depth clip (slice D): latch the scene depth for the raster
@@ -558,9 +571,24 @@ private:
 			sh_amortization_requested = false;
 			sh_divisor = 1u;
 		}
+		if (params.hlod_relative && (renderer.render_settings.enable_sh_amortization != sh_amortization_requested ||
+				renderer.render_settings.sh_amortization_divisor != sh_divisor)) {
+			renderer.last_hlod_refusal = "sh_mode";
+			ERR_PRINT_ONCE("[TileRenderer] HLOD SH mode differs from its admitted scratch mode.");
+			return false;
+		}
 		bool sh_cache_resized = false;
 		if (sh_amortization_requested && resolved_total_gaussians > 0) {
-			sh_cache_resized = renderer.sh_cache_buffers.ensure_color_cache(resolved_total_gaussians);
+			if (params.hlod_relative) {
+				if (!renderer.sh_cache_buffers.sh_color_cache.is_valid() ||
+						renderer.sh_cache_buffers.sh_color_cache_size < uint64_t(resolved_total_gaussians) * sizeof(uint32_t)) {
+					renderer.last_hlod_refusal = "sh_cache_capacity";
+					ERR_PRINT_ONCE("[TileRenderer] HLOD SH cache differs from its admitted scratch capacity.");
+					return false;
+				}
+			} else {
+				sh_cache_resized = renderer.sh_cache_buffers.ensure_color_cache(resolved_total_gaussians);
+			}
 			if (!renderer.sh_cache_buffers.sh_color_cache.is_valid()) {
 				WARN_PRINT_ONCE("[TileRenderer] SH amortization cache allocation failed; disabling for this frame.");
 				sh_amortization_requested = false;
@@ -580,7 +608,13 @@ private:
 
 		const uint32_t subpixel_history_entries = MAX(resolved_total_gaussians, effective_splat_floor);
 		if (subpixel_history_entries > 0) {
-			renderer.subpixel_history_buffers.ensure_history_buffer(subpixel_history_entries);
+			if (!params.hlod_relative) {
+				renderer.subpixel_history_buffers.ensure_history_buffer(subpixel_history_entries);
+			} else if (renderer.subpixel_history_buffers.subpixel_history_size < uint64_t(subpixel_history_entries) * sizeof(uint32_t)) {
+				renderer.last_hlod_refusal = "history_capacity";
+				ERR_PRINT_ONCE("[TileRenderer] HLOD history exceeds its admitted scratch capacity.");
+				return false;
+			}
 			if (!renderer.subpixel_history_buffers.subpixel_history_buffer.is_valid()) {
 				ERR_PRINT_ONCE("[TileRenderer] Failed to allocate subpixel history buffer for hysteresis.");
 				return false;
@@ -655,8 +689,14 @@ private:
 		}
 
 		effective_visible_splats = _resolve_effective_visible_splats();
-		renderer._ensure_global_projection_buffer(effective_visible_splats);
-		renderer.subpixel_visibility_buffers.ensure_visibility_buffer(effective_visible_splats);
+		if (!params.hlod_relative) { renderer._ensure_global_projection_buffer(effective_visible_splats); }
+		if (!params.hlod_relative) {
+			renderer.subpixel_visibility_buffers.ensure_visibility_buffer(effective_visible_splats);
+		} else if (renderer.subpixel_visibility_buffers.subpixel_visibility_size < uint64_t(MAX(effective_visible_splats, 1u)) * sizeof(uint32_t)) {
+			renderer.last_hlod_refusal = "visibility_capacity";
+			ERR_PRINT_ONCE("[TileRenderer] HLOD visibility exceeds its admitted scratch capacity.");
+			return false;
+		}
 
 		if (!renderer.projection_buffers.projection_buffer.is_valid() ||
 				!renderer.subpixel_visibility_buffers.subpixel_visibility_buffer.is_valid() ||
@@ -827,7 +867,7 @@ private:
 				// Async auto-resize: If the previous frame detected overflow via async readback,
 				// proactively resize buffers BEFORE the count pass. This allows disabling sync
 				// readback for a pure GPU-driven pipeline with no CPU stalls.
-				if (renderer.async_readback.overflow_state.first_frame_complete && renderer.async_readback.overflow_state.overflow_detected) {
+				if (!params.hlod_relative && renderer.async_readback.overflow_state.first_frame_complete && renderer.async_readback.overflow_state.overflow_detected) {
 					const uint32_t headroom_factor = 3u; // 50% headroom = multiply by 1.5 ≈ 3/2
 					const uint64_t needed64 = uint64_t(renderer.async_readback.overflow_state.last_unclamped_total) * headroom_factor / 2u;
 					const uint32_t needed = needed64 > UINT32_MAX ? UINT32_MAX : uint32_t(needed64);
@@ -872,7 +912,7 @@ private:
 							overlap_estimate = MAX(overlap_estimate, adaptive_overlap_floor);
 						}
 					}
-					renderer._ensure_global_sort_resources(overlap_estimate);
+					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate); }
 				renderer.global_sort_resources.advance_tile_counts_buffer();
 			tile_counts_buffer_advanced = true;
 			if (renderer.global_sort_resources.capacity == 0 ||
@@ -989,7 +1029,7 @@ private:
 					measured_overlap_demand = MAX(measured_overlap_demand, adaptive_overlap_budget_suggested);
 				}
 				renderer.global_sort_resources.last_observed_demand = measured_overlap_demand;
-			if (overlap_capacity_request > renderer.global_sort_resources.capacity) {
+			if (!params.hlod_relative && overlap_capacity_request > renderer.global_sort_resources.capacity) {
 				const uint64_t gen_before = renderer.descriptor_generation;
 				renderer._ensure_global_sort_resources(overlap_capacity_request);
 
@@ -1629,6 +1669,10 @@ void TileRenderer::_on_overflow_stats_readback(const Vector<uint8_t> &p_data) {
 
 void TileRenderer::_on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
     debug_stats.on_overflow_signal_readback(p_data);
+}
+
+void TileRenderer::_on_hlod_level_stats_readback(const Vector<uint8_t> &p_data) {
+    debug_stats.on_hlod_level_stats_readback(p_data);
 }
 
 #ifdef TESTS_ENABLED
@@ -2332,6 +2376,9 @@ Vector<String> TileRenderer::_build_common_shader_defines(bool p_include_dispatc
 		if (instance_pipeline_buffers.quantization_required) {
 			defines.push_back("#define USE_QUANTIZED_GAUSSIANS 1\n");
 		}
+    if (instance_pipeline_buffers.hlod_relative) {
+        defines.push_back("#define GS_HLOD_RELATIVE_PAYLOAD 1\n");
+    }
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 	uint32_t max_directional_lights = light_storage ? light_storage->get_max_directional_lights() : 1u;
 	if (max_directional_lights == 0u) {
@@ -2732,6 +2779,7 @@ void TileRenderer::_reset_timestamp_tracking() {
 		timing_state.frame_gpu_timing_valid = false;
 		timing_state.gpu_timing_frame_serial = 0;
 		timing_state.gpu_timing_frames_behind = 0;
+		timing_state.pass_timing.reset();
 		return;
 	}
 	// Keep last resolved values across frames. Timestamp availability can lag by
@@ -2773,138 +2821,41 @@ bool TileRenderer::_resolve_timestamp_range(TimestampRange &p_range, float &r_du
 }
 
 void TileRenderer::_parse_timestamps_into_frame_map(RenderingDevice *p_device, uint32_t p_available,
-        HashMap<uint64_t, GpuTimestampFrameStages> &r_frames) const {
+        HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> &r_frames) const {
     if (!p_device) {
         return;
     }
-
-    struct TimestampFieldEntry {
-        const char *prefix;
-        int prefix_length;
-        const char *suffix;
-        GpuTimestampStageTimes GpuTimestampFrameStages::*stage;
-        double GpuTimestampStageTimes::*field;
-    };
-
-    static const TimestampFieldEntry timestamp_fields[] = {
-        { "TileBinning_", int(sizeof("TileBinning_") - 1), "_Begin", &GpuTimestampFrameStages::binning, &GpuTimestampStageTimes::begin_ns },
-        { "TileBinning_", int(sizeof("TileBinning_") - 1), "_End", &GpuTimestampFrameStages::binning, &GpuTimestampStageTimes::end_ns },
-        { "TileRaster_", int(sizeof("TileRaster_") - 1), "_Begin", &GpuTimestampFrameStages::raster, &GpuTimestampStageTimes::begin_ns },
-        { "TileRaster_", int(sizeof("TileRaster_") - 1), "_End", &GpuTimestampFrameStages::raster, &GpuTimestampStageTimes::end_ns },
-        { "TileOverlapCount_", int(sizeof("TileOverlapCount_") - 1), "_Begin", &GpuTimestampFrameStages::overlap_count, &GpuTimestampStageTimes::begin_ns },
-        { "TileOverlapCount_", int(sizeof("TileOverlapCount_") - 1), "_End", &GpuTimestampFrameStages::overlap_count, &GpuTimestampStageTimes::end_ns },
-        { "TileOverlapSort_", int(sizeof("TileOverlapSort_") - 1), "_Begin", &GpuTimestampFrameStages::overlap_sort, &GpuTimestampStageTimes::begin_ns },
-        { "TileOverlapSort_", int(sizeof("TileOverlapSort_") - 1), "_End", &GpuTimestampFrameStages::overlap_sort, &GpuTimestampStageTimes::end_ns },
-        { "TilePrefix_", int(sizeof("TilePrefix_") - 1), "_Begin", &GpuTimestampFrameStages::prefix, &GpuTimestampStageTimes::begin_ns },
-        { "TilePrefix_", int(sizeof("TilePrefix_") - 1), "_End", &GpuTimestampFrameStages::prefix, &GpuTimestampStageTimes::end_ns },
-        { "TileResolve_", int(sizeof("TileResolve_") - 1), "_Begin", &GpuTimestampFrameStages::resolve, &GpuTimestampStageTimes::begin_ns },
-        { "TileResolve_", int(sizeof("TileResolve_") - 1), "_End", &GpuTimestampFrameStages::resolve, &GpuTimestampStageTimes::end_ns },
-        { "GaussianSplat_", int(sizeof("GaussianSplat_") - 1), "_Begin", &GpuTimestampFrameStages::total, &GpuTimestampStageTimes::begin_ns },
-        { "GaussianSplat_", int(sizeof("GaussianSplat_") - 1), "_End", &GpuTimestampFrameStages::total, &GpuTimestampStageTimes::end_ns },
-    };
-
-    auto parse_label = [](const String &p_label, const char *p_prefix, int p_prefix_length, const char *p_suffix, uint64_t &r_serial) -> bool {
-        if (!p_label.begins_with(p_prefix)) {
-            return false;
-        }
-        int64_t suffix_pos = p_label.rfind(p_suffix);
-        if (suffix_pos < 0 || suffix_pos <= p_prefix_length) {
-            return false;
-        }
-        String serial_str = p_label.substr(p_prefix_length, suffix_pos - p_prefix_length);
-        r_serial = (uint64_t)serial_str.to_int();
-        return true;
-    };
-    auto get_frame_entry = [&r_frames](uint64_t p_serial) -> GpuTimestampFrameStages * {
-        GpuTimestampFrameStages *entry = r_frames.getptr(p_serial);
-        if (!entry) {
-            GpuTimestampFrameStages fresh;
-            r_frames.insert(p_serial, fresh);
-            entry = r_frames.getptr(p_serial);
-        }
-        return entry;
-    };
-
+    // Every pass marker is "<prefix><frame serial>_Begin|_End" (gpu_pass_timing.h). Since BV-04b this
+    // includes cull, projection, pre-sort and composite, captured outside this renderer on the same
+    // device under the frame serial RenderPipelineStages allocated for the pass.
     for (uint32_t i = 0; i < p_available; i++) {
-        String name = p_device->get_captured_timestamp_name(i);
-        double gpu_ns = double(p_device->get_captured_timestamp_gpu_time(i));
-
-        for (const TimestampFieldEntry &entry : timestamp_fields) {
-            uint64_t serial = 0;
-            if (!parse_label(name, entry.prefix, entry.prefix_length, entry.suffix, serial)) {
-                continue;
-            }
-            GpuTimestampFrameStages *frame_entry = get_frame_entry(serial);
-            if (!frame_entry) {
-                break;
-            }
-            GpuTimestampStageTimes &stage = frame_entry->*(entry.stage);
-            stage.*(entry.field) = gpu_ns;
-            break;
-        }
+        GaussianSplatting::GpuPassTiming::accumulate(r_frames, p_device->get_captured_timestamp_name(i),
+                double(p_device->get_captured_timestamp_gpu_time(i)));
     }
 }
 
-TileRenderer::GpuTimestampDurations TileRenderer::_compute_stage_durations(const HashMap<uint64_t, GpuTimestampFrameStages> &p_frames) const {
-    GpuTimestampDurations durations;
+void TileRenderer::_update_timing_metrics(const GaussianSplatting::GpuPassTiming::FrameDurations &p_frame,
+		const GaussianSplatting::GpuPassTiming::FrameDurations &p_pipeline_frame) {
+	using namespace GaussianSplatting::GpuPassTiming;
+	// BV-04b: every pass (incl. cull / projection / pre-sort / composite), with frame serials and the
+	// newest same-frame breakdown. p_pipeline_frame is the newest frame with ANY measured pass.
+	timing_state.pass_timing.ingest(p_pipeline_frame, OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0);
+	// Legacy tile-pass view. p_frame is the newest frame with a measured TILE pass (TILE_PASSES_MASK),
+	// so these fields select their frame exactly as before BV-04b; semantics below are unchanged.
+	struct LegacyDurations {
+		uint64_t serial;
+		bool has_data;
+		double count_ms, bin_ms, overlap_sort_ms, raster_ms, prefix_ms, resolve_ms;
+		bool count_valid, bin_valid, overlap_sort_valid, raster_valid, prefix_valid, resolve_valid;
+	} p_durations = {
+		p_frame.serial, p_frame.has_data,
+		p_frame.ms[PASS_OVERLAP_COUNT], p_frame.ms[PASS_BINNING], p_frame.ms[PASS_OVERLAP_SORT],
+		p_frame.ms[PASS_RASTER], p_frame.ms[PASS_PREFIX], p_frame.ms[PASS_RESOLVE],
+		p_frame.has_data && p_frame.valid[PASS_OVERLAP_COUNT], p_frame.has_data && p_frame.valid[PASS_BINNING],
+		p_frame.has_data && p_frame.valid[PASS_OVERLAP_SORT], p_frame.has_data && p_frame.valid[PASS_RASTER],
+		p_frame.has_data && p_frame.valid[PASS_PREFIX], p_frame.has_data && p_frame.valid[PASS_RESOLVE],
+	};
 
-    // Pick the latest frame serial with whatever timing survived the flush.
-    for (const KeyValue<uint64_t, GpuTimestampFrameStages> &kv : p_frames) {
-        const uint64_t serial = kv.key;
-        const GpuTimestampFrameStages &stages = kv.value;
-
-		// Check if we have valid markers (total or any per-pass stage).
-		// NOTE: Godot's buffer_get_data() flush resets the timestamp buffer mid-frame;
-		// only pre-flush markers (TileOverlapCount) are reliably readable. Post-flush
-		// markers (GaussianSplat_*, TileBinning_*, TileRaster_*) are usually discarded.
-		// See docs/GPU_TIMESTAMP_PROFILING.md for details.
-		auto has_ordered_stage = [](const GpuTimestampStageTimes &p_stage) -> bool {
-			return p_stage.is_complete() && p_stage.end_ns >= p_stage.begin_ns;
-		};
-		bool has_total = has_ordered_stage(stages.total);
-		bool has_binning = has_ordered_stage(stages.binning);
-		bool has_raster = has_ordered_stage(stages.raster);
-		bool has_overlap_count = has_ordered_stage(stages.overlap_count);
-		bool has_overlap_sort = has_ordered_stage(stages.overlap_sort);
-		bool has_prefix = has_ordered_stage(stages.prefix);
-		bool has_resolve = has_ordered_stage(stages.resolve);
-
-		if (!has_total && !has_binning && !has_raster && !has_overlap_count && !has_overlap_sort && !has_prefix && !has_resolve) {
-			continue; // Need at least one complete timing marker pair
-		}
-
-		double bin_ms = has_binning ? (stages.binning.end_ns - stages.binning.begin_ns) / 1e6 : 0.0;
-		double raster_ms = has_raster ? (stages.raster.end_ns - stages.raster.begin_ns) / 1e6 : 0.0;
-		double count_ms = has_overlap_count ? (stages.overlap_count.end_ns - stages.overlap_count.begin_ns) / 1e6 : 0.0;
-		double overlap_sort_ms = has_overlap_sort ? (stages.overlap_sort.end_ns - stages.overlap_sort.begin_ns) / 1e6 : 0.0;
-		double prefix_ms = has_prefix ? (stages.prefix.end_ns - stages.prefix.begin_ns) / 1e6 : 0.0;
-		double resolve_ms = has_resolve ? (stages.resolve.end_ns - stages.resolve.begin_ns) / 1e6 : 0.0;
-        double total_ms = has_total ? (stages.total.end_ns - stages.total.begin_ns) / 1e6 : 0.0;
-
-        if (!durations.has_data || serial > durations.serial) {
-            durations.has_data = true;
-            durations.serial = serial;
-            durations.bin_ms = bin_ms;
-            durations.raster_ms = raster_ms;
-			durations.count_ms = count_ms;
-			durations.overlap_sort_ms = overlap_sort_ms;
-			durations.prefix_ms = prefix_ms;
-			durations.resolve_ms = resolve_ms;
-			durations.total_ms = total_ms;
-			durations.bin_valid = has_binning;
-			durations.raster_valid = has_raster;
-			durations.count_valid = has_overlap_count;
-			durations.overlap_sort_valid = has_overlap_sort;
-			durations.prefix_valid = has_prefix;
-			durations.resolve_valid = has_resolve;
-			durations.total_valid = has_total;
-		}
-	}
-
-    return durations;
-}
-
-void TileRenderer::_update_timing_metrics(const GpuTimestampDurations &p_durations) {
 	// Runs on EVERY call, including the no-data frames resolve_gpu_timestamps_async() forwards
 	// when a scene stops dispatching: per-pass ingestion self-skips without fresh data (all
 	// *_valid are false), but the staleness pass below MUST still run so sticky timings age out
@@ -3013,15 +2964,19 @@ void TileRenderer::resolve_gpu_timestamps_async() {
         }
         // No fresh timestamps this frame (empty / no-dispatch view): still run the staleness pass
         // so the sticky per-pass timings age out instead of reporting the last scene's cost forever.
-        _update_timing_metrics(GpuTimestampDurations());
+        _update_timing_metrics(GaussianSplatting::GpuPassTiming::FrameDurations(),
+                GaussianSplatting::GpuPassTiming::FrameDurations());
         return;
     }
 
-    HashMap<uint64_t, GpuTimestampFrameStages> frame_times;
+    HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> frame_times;
     _parse_timestamps_into_frame_map(device, available, frame_times);
 
-    GpuTimestampDurations durations = _compute_stage_durations(frame_times);
-    _update_timing_metrics(durations);
+    const GaussianSplatting::GpuPassTiming::FrameDurations durations =
+            GaussianSplatting::GpuPassTiming::latest_frame(frame_times, GaussianSplatting::GpuPassTiming::TILE_PASSES_MASK);
+    const GaussianSplatting::GpuPassTiming::FrameDurations pipeline_durations =
+            GaussianSplatting::GpuPassTiming::latest_frame(frame_times);
+    _update_timing_metrics(durations, pipeline_durations);
     if (!durations.has_data && timing_state.gpu_timing_frame_serial > 0 && frame_state.current_frame_serial > timing_state.gpu_timing_frame_serial) {
         timing_state.gpu_timing_frames_behind = frame_state.current_frame_serial - timing_state.gpu_timing_frame_serial;
     }
@@ -3038,6 +2993,7 @@ RID TileRenderer::render(RenderingDevice *p_rendering_device, const RenderParams
     RenderingDevice *resource_device = _get_resource_device();
     ERR_FAIL_NULL_V_MSG(resource_device, RID(), "[TileRenderer] Rendering device is required");
 
+    last_hlod_refusal = String();
     RenderFrameExecutor executor(*this, p_rendering_device, p_params, resource_device);
     return executor.run();
 }
@@ -3306,11 +3262,11 @@ void TileRenderer::_release_compiled_shaders() {
     shader_resources.release(shader_owner, pipeline_owner);
 }
 
-void TileRenderer::_invalidate_descriptor_cache() {
+void TileRenderer::_invalidate_descriptor_cache(bool p_preserve_scene_depth) {
 #ifdef TESTS_ENABLED
-	debug_stats.membership_sets.clear();
+    debug_stats.membership_sets.clear();
 #endif
-	descriptor_generation++;
+    descriptor_generation++;
 
     // Release GPU uniform set objects. The generation counter will force
     // acquire_* functions to rebuild on next access.
@@ -3378,6 +3334,15 @@ void TileRenderer::_invalidate_descriptor_cache() {
     // sampler/fallback so the next acquire re-resolves them on the current device.
     raster_stage.cached_raster_scene_depth = RID();
     raster_stage.cached_raster_compute_scene_depth = RID();
+    // An HLOD admission already charged the warmed fallback allocation. A new
+    // buffer layout/content invalidates sets, not the same-device fallback.
+    if ((p_preserve_scene_depth || hlod_scratch_preparing) &&
+            (!raster_stage.scene_depth_fallback_texture.is_valid() ||
+                    raster_stage.scene_depth_fallback_device == _get_resource_device()) &&
+            (!raster_stage.scene_depth_sampler.is_valid() ||
+                    raster_stage.scene_depth_sampler_device == _get_resource_device())) {
+        return;
+    }
     if (raster_stage.scene_depth_sampler.is_valid() && raster_stage.scene_depth_sampler_device) {
         raster_stage.scene_depth_sampler_device->free(raster_stage.scene_depth_sampler);
     }
@@ -3391,8 +3356,32 @@ void TileRenderer::_invalidate_descriptor_cache() {
 }
 
 bool TileRenderer::_update_instance_pipeline_bindings(const RenderParams &p_params) {
-	return _apply_instance_pipeline_bindings(instance_pipeline_buffers, p_params, [this]() {
-		_invalidate_descriptor_cache();
+    RenderParams same_content = p_params;
+    same_content.hlod_content_generation = instance_pipeline_buffers.hlod_content_generation;
+    same_content.hlod_origin_revision = instance_pipeline_buffers.hlod_origin_revision;
+    if (!_instance_pipeline_bindings_changed(instance_pipeline_buffers, same_content) &&
+            (instance_pipeline_buffers.hlod_content_generation != p_params.hlod_content_generation ||
+                    instance_pipeline_buffers.hlod_origin_revision != p_params.hlod_origin_revision)) {
+        // Same storage, new draw-list contents. Invalidate descriptor/readiness generation
+        // without destroying unrelated fallback textures on every HLOD frame.
+#ifdef TESTS_ENABLED
+        if (debug_stats.membership_enabled()) {
+            // Capture records describe the generation at set creation. Rebuild
+            // cached parameter sets as well, retaining same-device depth inputs.
+            _invalidate_descriptor_cache(true);
+        } else
+#endif
+        {
+            ++descriptor_generation;
+        }
+        _assign_instance_pipeline_bindings(instance_pipeline_buffers, p_params);
+        return true;
+    }
+    if (instance_pipeline_buffers.hlod_relative != p_params.hlod_relative) {
+        _release_compiled_shaders();
+    }
+	return _apply_instance_pipeline_bindings(instance_pipeline_buffers, p_params, [this, &p_params]() {
+		_invalidate_descriptor_cache(p_params.hlod_relative || instance_pipeline_buffers.hlod_relative);
 	});
 }
 
@@ -3412,7 +3401,13 @@ bool TileRenderer::_apply_instance_pipeline_bindings(InstancePipelineBindings &r
 bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBindings &p_bindings,
 		const RenderParams &p_params) {
 	const bool new_quantization_required = p_params.quantization_buffer.is_valid();
-	return p_bindings.instance_buffer != p_params.instance_buffer ||
+    return p_bindings.hlod_relative != p_params.hlod_relative ||
+            p_bindings.hlod_draw_entry_buffer != p_params.hlod_draw_entry_buffer ||
+            p_bindings.hlod_draw_list_buffer != p_params.hlod_draw_list_buffer ||
+            p_bindings.hlod_source_generation != p_params.hlod_source_generation ||
+            p_bindings.hlod_content_generation != p_params.hlod_content_generation ||
+            p_bindings.hlod_origin_revision != p_params.hlod_origin_revision ||
+            p_bindings.instance_buffer != p_params.instance_buffer ||
 			p_bindings.instance_grading_buffer != p_params.instance_grading_buffer ||
 			p_bindings.splat_ref_buffer != p_params.splat_ref_buffer ||
 			p_bindings.chunk_meta_buffer != p_params.chunk_meta_buffer ||
@@ -3424,6 +3419,12 @@ bool TileRenderer::_instance_pipeline_bindings_changed(const InstancePipelineBin
 
 void TileRenderer::_assign_instance_pipeline_bindings(InstancePipelineBindings &r_bindings,
 		const RenderParams &p_params) {
+    r_bindings.hlod_relative = p_params.hlod_relative;
+    r_bindings.hlod_draw_entry_buffer = p_params.hlod_draw_entry_buffer;
+    r_bindings.hlod_draw_list_buffer = p_params.hlod_draw_list_buffer;
+    r_bindings.hlod_source_generation = p_params.hlod_source_generation;
+    r_bindings.hlod_content_generation = p_params.hlod_content_generation;
+    r_bindings.hlod_origin_revision = p_params.hlod_origin_revision;
 	r_bindings.instance_buffer = p_params.instance_buffer;
 	r_bindings.instance_grading_buffer = p_params.instance_grading_buffer;
 	r_bindings.splat_ref_buffer = p_params.splat_ref_buffer;
@@ -3766,6 +3767,11 @@ void TileRenderer::_poll_overflow_drop_telemetry() {
 	// overlap-record overflow is surfaced (WARN_ONCE + overflow_drop_events) even in a pure
 	// production frame. Cheap: a single small async readback, throttled by its own pending flag.
 	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial);
+	// BV-04b: records per splat per HLOD level, only for frames whose emit pass ran on the HLOD route
+	// (the only route that binds and writes the counters).
+	if (instance_pipeline_buffers.hlod_relative) {
+		debug_stats.poll_hlod_level_stats(_get_resource_device(), frame_state.current_frame_serial);
+	}
 }
 
 float TileRenderer::get_projection_success_rate_pct() const {
@@ -3884,4 +3890,216 @@ TileRenderer::RenderResult TileRenderer::render_with_contract(RenderingDevice *p
 			result.depth_texture, result.has_depth ? result.depth_owner : nullptr);
 
 	return result;
+}
+
+void TileRenderer::_record_hlod_texture_allocation(RenderingDevice *p_device, uint64_t p_before, RID p_created) {
+    const uint64_t after = p_device->get_memory_usage(RD::MEMORY_TEXTURES);
+    const uint64_t device_id = p_device->get_device_instance_id();
+    if ((hlod_texture_device != 0 && hlod_texture_device != device_id) || after < p_before ||
+            (p_created.is_valid() && after == p_before) || after - p_before > UINT64_MAX - hlod_texture_bytes) {
+        hlod_texture_ledger_valid = false;
+        return;
+    }
+    hlod_texture_device = device_id;
+    hlod_texture_bytes += after - p_before;
+    if (p_created.is_valid() && after > p_before) {
+        HlodTextureEntry entry;
+        entry.device = p_device;
+        entry.device_id = device_id;
+        entry.bytes = after - p_before;
+        hlod_texture_live.insert(p_created, entry);
+    }
+}
+
+void TileRenderer::_reconcile_hlod_texture_ledger() const {
+    RenderingDevice *active = get_active_device();
+    const uint64_t active_id = active ? active->get_device_instance_id() : 0;
+    LocalVector<RID> dead;
+    for (const KeyValue<RID, HlodTextureEntry> &kv : hlod_texture_live) {
+        // An entry on another (or a destroyed) device is gone with that device; never dereference its pointer.
+        if (kv.value.device_id != active_id || kv.value.device != active || !active->texture_is_valid(kv.key)) {
+            dead.push_back(kv.key);
+        }
+    }
+    for (const RID &rid : dead) {
+        const HlodTextureEntry *entry = hlod_texture_live.getptr(rid);
+        if (entry) { hlod_texture_bytes -= MIN(hlod_texture_bytes, entry->bytes); }
+        hlod_texture_live.erase(rid);
+    }
+    if (hlod_texture_live.is_empty()) {
+        // Nothing live is accounted: re-base (also clears an invalid state left by a device change or inconsistent counters).
+        hlod_texture_bytes = 0;
+        hlod_texture_ledger_valid = active_id != 0;
+        hlod_texture_device = active_id;
+    }
+}
+
+bool TileRenderer::get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const {
+    _reconcile_hlod_texture_ledger();
+    r_bytes = hlod_texture_bytes;
+    return hlod_texture_ledger_valid && get_active_device() &&
+            hlod_texture_device == get_active_device()->get_device_instance_id();
+}
+
+Error TileRenderer::provision_hlod_route(const Vector2i &p_viewport, RD::DataFormat p_format, uint32_t p_overlap_records) {
+    if (!_get_resource_device()) { return ERR_UNCONFIGURED; }
+    render_settings.global_sort_enabled = true; // Every render() sets this; the HLOD route requires it before its first one.
+    const Error resized = resize(p_viewport, p_format);
+    if (resized != OK) { return resized; }
+    // Always (not only on growth): the tile-count / tile-range buffers are sized by the tile grid, which a resize just
+    // changed, and the relative HLOD frames never re-run this themselves (the canonical path does, every frame).
+    _ensure_global_sort_resources(MAX(global_sort_resources.capacity, p_overlap_records));
+    return get_allocated_overlap_capacity() != 0 && global_sort_resources.sorter.is_valid() ? OK : ERR_CANT_CREATE;
+}
+
+uint32_t TileRenderer::clamp_hlod_overlap_records(uint32_t p_records) const {
+    const uint32_t hard_cap = g_gpu_sorting_config.get_overlap_records_hard_cap();
+    return hard_cap > 0u ? MIN(p_records, hard_cap) : p_records;
+}
+
+uint64_t TileRenderer::get_hlod_overlap_bytes_per_record() const {
+    // Same rule as global_sort_key_stride_words() in tile_render_resources.cpp: 64-bit keys take two words.
+    const uint32_t key_words = _get_effective_sort_key_config().key_bits > 32 ? 2u : 1u;
+    return 2u * uint64_t(key_words + 1u) * sizeof(uint32_t);
+}
+
+uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const {
+    uint64_t live = 0;
+    get_hlod_texture_byte_upper_bound(live);
+    const Vector2i current = grid_state.viewport_size;
+    if (current.x <= 0 || current.y <= 0 || p_viewport.x <= 0 || p_viewport.y <= 0) { return live; }
+    return ResidentAtlasBudget::hlod_scale_texture_bytes_for_pixels(live, uint64_t(current.x) * uint64_t(current.y),
+            uint64_t(p_viewport.x) * uint64_t(p_viewport.y));
+}
+
+bool TileRenderer::grow_hlod_overlap_storage(uint64_t p_headroom) {
+    auto &overflow = async_readback.overflow_state;
+    if (!overflow.first_frame_complete || !overflow.overflow_detected) { return false; }
+    const uint64_t wanted = uint64_t(overflow.last_unclamped_total) * 3u / 2u;
+    const uint32_t needed = uint32_t(MIN<uint64_t>(wanted, UINT32_MAX));
+    if (needed <= global_sort_resources.capacity) {
+        overflow.overflow_detected = false;
+        return false;
+    }
+    // Keys and values (8 B each), tile ranges and scan scratch scale with the record count: charge 32 B per record,
+    // as a full new allocation (the old buffers stay charged until retired). Refused growth keeps the flag set.
+    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    _ensure_global_sort_resources(needed);
+    overflow.overflow_detected = false;
+    return true;
+}
+
+bool TileRenderer::ensure_hlod_overlap_capacity(uint32_t p_records, uint64_t p_headroom) {
+    const uint32_t needed = clamp_hlod_overlap_records(p_records);
+    if (needed <= global_sort_resources.capacity) { return false; }
+    if (uint64_t(needed) * 32u > p_headroom) { return false; }
+    _ensure_global_sort_resources(needed);
+    return true;
+}
+
+void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_fixed_bytes, uint64_t &r_bytes_per_record) {
+    // Mirrors prepare_hlod_scratch(): projection at the power-of-two capacity of the cut (_compute_projection_buffer_bytes),
+    // visibility per cut splat, history max(records, cut) <= records + cut, and the SH cache 4 B per record plus the
+    // growth slack of tile_compute_sh_cache_resize_plan (max(25 %, 4096 B)) <= 5 B per record + 4096 B.
+    const uint32_t required = MAX<uint32_t>(p_visible, 1u);
+    uint64_t projection_capacity = 1u;
+    while (projection_capacity < required) { projection_capacity <<= 1u; }
+    r_fixed_bytes = projection_capacity * TileProjectionLayout::STRIDE_FULL + 2u * uint64_t(p_visible) * sizeof(uint32_t) +
+            GaussianSplatting::TILE_SH_CACHE_MIN_GROWTH_SLACK_BYTES;
+    r_bytes_per_record = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) * GaussianSplatting::TILE_SH_CACHE_GROWTH_SLACK_PERCENT / 100u;
+}
+
+bool TileRenderer::_plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan) {
+    // Resolve the CURRENT route's layout before admission, not the last pass's
+    // settings. A canonical leaf atlas can fit packed indices while the all-node
+    // HLOD atlas exceeds UINT16_MAX; toggling SH also changes required storage.
+    r_plan = HlodScratchPlan();
+    const uint32_t total = p_params.total_gaussians;
+    const uint32_t visible = p_params.max_visible_splats;
+    if (total == 0 || visible == 0) { return false; }
+    r_plan.packed = p_params.request_packed_stage_data && total <= UINT16_MAX;
+    r_plan.sh = p_params.request_sh_amortization && p_params.sh_amortization_divisor > 1u && total > 0;
+    r_plan.divisor = r_plan.sh ? p_params.sh_amortization_divisor : 1u;
+    r_plan.packed_changed = render_settings.enable_packed_stage_data != r_plan.packed;
+    r_plan.sh_changed = render_settings.enable_sh_amortization != r_plan.sh;
+    r_plan.tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
+    // A streamed atlas can hold fewer records than the cut may draw splats (pages < leaves) or more (pages round up
+    // per node): the frame sizes the history by the larger of the two (_validate_and_configure_settings), so admit it so.
+    r_plan.history_entries = MAX(total, visible);
+    uint32_t projection_capacity = 0;
+    _compute_projection_buffer_bytes(visible, projection_capacity);
+    r_plan.projection_bytes = uint64_t(projection_capacity) *
+            (r_plan.packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
+    r_plan.history_bytes = uint64_t(r_plan.history_entries) * sizeof(uint32_t);
+    r_plan.sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
+    r_plan.visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
+    if (r_plan.projection_bytes > UINT32_MAX || r_plan.history_bytes > UINT32_MAX || r_plan.visibility_bytes > UINT32_MAX) { return false; }
+    const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
+            uint32_t(r_plan.sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
+    // Count full new allocations: old RD buffers remain charged until actually retired.
+    if (r_plan.packed_changed || projection_buffers.projection_buffer_size < r_plan.projection_bytes) { r_plan.extra += r_plan.projection_bytes; }
+    if (subpixel_history_buffers.subpixel_history_size < r_plan.history_bytes) { r_plan.extra += r_plan.history_bytes; }
+    if (subpixel_visibility_buffers.subpixel_visibility_size < r_plan.visibility_bytes) { r_plan.extra += r_plan.visibility_bytes; }
+    if (r_plan.sh && sh_cache_buffers.sh_color_cache_size < r_plan.sh_bytes) { r_plan.extra += sh_plan.target_bytes; }
+    return true;
+}
+
+uint64_t TileRenderer::get_hlod_scratch_outstanding_bytes(const RenderParams &p_params) {
+    HlodScratchPlan plan;
+    return _plan_hlod_scratch(p_params, plan) ? plan.extra : UINT64_MAX;
+}
+
+bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
+    HlodScratchPlan plan;
+    const bool planned = _plan_hlod_scratch(p_params, plan);
+    const uint32_t total = p_params.total_gaussians;
+    const uint32_t visible = p_params.max_visible_splats;
+    const bool packed = plan.packed;
+    const bool sh = plan.sh;
+    const uint32_t divisor = plan.divisor;
+    const bool packed_changed = plan.packed_changed;
+    const bool sh_changed = plan.sh_changed;
+    const bool tighter_changed = plan.tighter_changed;
+    const uint32_t history_entries = plan.history_entries;
+    // Output targets and overlap storage must already be warm on the canonical
+    // path. Resizes return there instead of allocating textures after admission.
+    if (!planned ||
+            grid_state.viewport_size != p_params.viewport_size || !render_targets.output_texture.is_valid() ||
+            !render_targets.resolved_texture.is_valid() || !render_targets.normal_texture.is_valid() ||
+            !render_settings.global_sort_enabled || get_allocated_overlap_capacity() == 0 ||
+            !global_sort_resources.sorter.is_valid()) { return false; }
+    uint64_t sorter_bytes = 0;
+    if (!global_sort_resources.sorter->get_allocated_buffer_bytes(sorter_bytes)) { return false; }
+    const uint64_t projection_bytes = plan.projection_bytes;
+    const uint64_t history_bytes = plan.history_bytes;
+    const uint64_t sh_bytes = plan.sh_bytes;
+    const uint64_t visibility_bytes = plan.visibility_bytes;
+    // The caller rechecks the actual ledger before publishing the cut.
+    if (plan.extra > p_headroom) { return false; }
+    struct ScratchPreparationGuard {
+        bool &active;
+        explicit ScratchPreparationGuard(bool &p_active) : active(p_active) { active = true; }
+        ~ScratchPreparationGuard() { active = false; }
+    } preparation_guard(hlod_scratch_preparing);
+    render_settings.enable_packed_stage_data = packed;
+    render_settings.enable_tighter_bounds = p_params.request_tighter_bounds;
+    if (sh_changed || render_settings.sh_amortization_divisor != divisor) { sh_cache_needs_full_update = sh; }
+    render_settings.enable_sh_amortization = sh;
+    render_settings.sh_amortization_divisor = divisor;
+    if (packed_changed || tighter_changed || sh_changed) {
+        _release_compiled_shaders();
+        if (packed_changed) { projection_buffers.release(_get_resource_device()); }
+        _invalidate_descriptor_cache();
+    }
+    if (projection_buffers.projection_buffer_size < projection_bytes) { _ensure_global_projection_buffer(visible); }
+    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { subpixel_history_buffers.ensure_history_buffer(history_entries); }
+    if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { subpixel_visibility_buffers.ensure_visibility_buffer(visible); }
+    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) {
+        sh_cache_buffers.ensure_color_cache(total);
+        sh_cache_needs_full_update = true;
+    }
+    return projection_buffers.projection_buffer.is_valid() && projection_buffers.projection_buffer_size >= projection_bytes &&
+            subpixel_history_buffers.subpixel_history_buffer.is_valid() && subpixel_history_buffers.subpixel_history_size >= history_bytes &&
+            subpixel_visibility_buffers.subpixel_visibility_buffer.is_valid() && subpixel_visibility_buffers.subpixel_visibility_size >= visibility_bytes &&
+            (!sh || (sh_cache_buffers.sh_color_cache.is_valid() && sh_cache_buffers.sh_color_cache_size >= sh_bytes));
 }
