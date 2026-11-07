@@ -1526,9 +1526,31 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	// Resident atlas VRAM-budget LOD clamp telemetry (#321 follow-up). `reduced` is true when
 	// the atlas was thinned by importance to fit the device VRAM budget; surfaced so the
 	// degradation is observable in the residency HUD / debug stats rather than silent.
+    const DeviceVramLedger::Snapshot ledger_snapshot = resource_state.device_vram_ledger.snapshot();
+    {
+        // BV-11 (ADR D-11): the device ledger. `live` splits the measured device bytes; what it does not explain is unattributed.
+        Dictionary ledger;
+        ledger["device_heap_bytes"] = int64_t(ledger_snapshot.device_heap_bytes);
+        ledger["limit_bytes"] = int64_t(ledger_snapshot.limit_bytes);
+        ledger["engine_driver_reserve_bytes"] = int64_t(ledger_snapshot.engine_driver_reserve_bytes);
+        ledger["device_observed"] = ledger_snapshot.device_observed;
+        ledger["device_bytes"] = int64_t(ledger_snapshot.device_bytes);
+        ledger["attributed_bytes"] = int64_t(ledger_snapshot.attributed_bytes);
+        ledger["unattributed_bytes"] = int64_t(ledger_snapshot.unattributed_bytes);
+        ledger["pending_bytes"] = int64_t(ledger_snapshot.pending_bytes);
+        ledger["headroom_bytes"] = int64_t(ledger_snapshot.headroom_bytes);
+        ledger["refused_reservations"] = int64_t(ledger_snapshot.refused_reservations);
+        ledger["report_only_overruns"] = int64_t(ledger_snapshot.report_only_overruns);
+        Dictionary ledger_live;
+        for (uint32_t i = 0; i < DeviceVramLedger::CATEGORY_COUNT; ++i) {
+            ledger_live[DeviceVramLedger::category_name(DeviceVramLedger::Category(i))] = int64_t(ledger_snapshot.live[i]);
+        }
+        ledger["live"] = ledger_live;
+        stats["device_vram_ledger"] = ledger;
+    }
     stats["hlod_active"] = resource_state.hlod_frame_active;
     stats["hlod_tile_stage_refused_frames"] = int64_t(resource_state.hlod_tile_stage_refused_frames);
-    stats["hlod_route_owned_bytes"] = int64_t(resource_state.hlod_owned_byte_upper_bound); // ledger + device buffers, as last admitted
+    stats["hlod_route_owned_bytes"] = int64_t(ledger_snapshot.admitted_device_bytes); // ledger + device buffers, as last admitted
     // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
     stats["hlod_streaming"] = resource_state.hlod_streaming;
     if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
@@ -1633,7 +1655,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
     stats["hlod_auto_route_demotions"] = int64_t(resource_state.hlod_auto_route_demotions);
     stats["hlod_auto_route_demotion_cause"] = resource_state.hlod_auto_route_demotion.cause;
-    stats["hlod_owned_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
+    stats["hlod_owned_byte_upper_bound"] = int64_t(ledger_snapshot.admitted_device_bytes);
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
     stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;
     stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);
@@ -1675,7 +1697,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_budget_bound_frames"] = int64_t(resource_state.hlod_budget_bound_frames);
     stats["hlod_root_dropped_frames"] = int64_t(resource_state.hlod_root_dropped_frames);
     stats["hlod_estimated_records"] = resource_state.hlod_estimated_records;
-    stats["hlod_gpu_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
+    stats["hlod_gpu_byte_upper_bound"] = int64_t(ledger_snapshot.admitted_device_bytes);
     stats["hlod_gpu_byte_accounting"] = "buffer_device_superset_plus_owned_textures";
     stats["hlod_source_generation"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->get_instance_id()) : int64_t(0);
     stats["hlod_content_generation"] = int64_t(resource_state.hlod_content_serial);

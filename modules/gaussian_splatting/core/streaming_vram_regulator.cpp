@@ -6,6 +6,7 @@
 #include "core/math/math_funcs.h"
 #include "core/object/callable_method_pointer.h"
 #include "../logger/gs_logger.h"
+#include "../renderer/device_vram_ledger.h"
 #include "../renderer/gpu_debug_utils.h"
 
 using namespace gs_tier_cap;
@@ -276,7 +277,7 @@ void VRAMBudgetRegulator::_query_device_memory() {
         // otherwise clamp the budget to nonsense AND mark it capacity-verified, which is
         // strictly worse than the conservative unknown-capacity fallback. The floor also
         // closes the capacity_mb == 0 (< 1 MiB) truncation hole in the _apply_config clamp.
-        constexpr uint64_t MIN_TRUSTED_DEVICE_CAPACITY_BYTES = uint64_t(256) * 1024 * 1024;
+        constexpr uint64_t MIN_TRUSTED_DEVICE_CAPACITY_BYTES = DeviceVramLedger::kMinTrustedDeviceBytes;
         const uint64_t queried_capacity_bytes = rd->get_device_memory_budget();
         const bool capacity_plausible = queried_capacity_bytes >= MIN_TRUSTED_DEVICE_CAPACITY_BYTES;
         stats.device_capacity_bytes = capacity_plausible ? queried_capacity_bytes : 0;
