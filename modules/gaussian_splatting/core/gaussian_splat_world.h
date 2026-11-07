@@ -11,7 +11,7 @@
 #include "gaussian_splat_hlod_runtime_data.h"
 #include "../io/gaussian_splat_world_paged.h"
 #include "streaming_chunk_payload_source.h"
-#include "../renderer/gaussian_splat_renderer.h"
+#include "../interfaces/gpu_culler.h"
 
 class GaussianSplatWorld : public Resource {
     GDCLASS(GaussianSplatWorld, Resource);
@@ -22,7 +22,7 @@ private:
     uint64_t render_input_epoch = 1;
     Ref<GaussianData> gaussian_data;
     Ref<ChunkPayloadSource> chunk_payload_source;
-    Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
+    Vector<StaticChunk> static_chunks;
     AABB bounds;
     Dictionary metadata;
     uint32_t splat_count_metadata = 0;
@@ -65,8 +65,8 @@ public:
     void set_metadata(const Dictionary &p_metadata);
     Dictionary get_metadata() const { MutexLock lock(render_input_mutex); return metadata; }
 
-    void set_static_chunks(const Vector<GaussianSplatRenderer::StaticChunk> &p_chunks);
-    const Vector<GaussianSplatRenderer::StaticChunk> &get_static_chunks() const { return static_chunks; }
+    void set_static_chunks(const Vector<StaticChunk> &p_chunks);
+    const Vector<StaticChunk> &get_static_chunks() const { return static_chunks; }
 
     void set_chunk_payload_source(const Ref<ChunkPayloadSource> &p_source);
     Ref<ChunkPayloadSource> get_chunk_payload_source() const { MutexLock lock(render_input_mutex); return chunk_payload_source; }
@@ -100,7 +100,7 @@ public:
     Error save_to_file(const String &p_path) const;
 
     uint64_t capture_render_input(Ref<GaussianData> &r_data, Ref<ChunkPayloadSource> &r_source,
-            Vector<GaussianSplatRenderer::StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const;
+            Vector<StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const;
     Error capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRuntimeData> &r_snapshot, String &r_reason) const;
     bool is_hlod_runtime_snapshot_current(const GaussianSplatHlodRuntimeData &p_snapshot) const;
 
@@ -147,7 +147,7 @@ public:
     // One StaticChunk per leaf, in payload order: world bounds, a sphere enclosing at least
     // its AABB, and its contiguous index range. Until S2's cut, today's runtime streams leaves as chunks.
     // Returns false (r_chunks empty) when an allocation fails.
-    static bool build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_tree, Vector<GaussianSplatRenderer::StaticChunk> &r_chunks);
+    static bool build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_tree, Vector<StaticChunk> &r_chunks);
 };
 
 #endif // GAUSSIAN_SPLAT_WORLD_H
