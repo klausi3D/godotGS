@@ -335,6 +335,11 @@ TEST_CASE("[Gaussian Diagnostics][PerformanceMetrics][Reset] reset helpers resto
     m.raster_overlap_records = 19;
     m.raster_overlap_record_budget = 20;
     m.raster_overlap_record_budget_effective = 21;
+    m.raster_overlap_sort_capacity = 22;
+    m.raster_overlap_sort_capacity_high_water = 23;
+    m.raster_overlap_sort_bytes = 24;
+    m.raster_overlap_sort_resize_peak_bytes = 25;
+    m.raster_overlap_sort_resize_preflight_refusals = 26;
     m.raster_overlap_record_budget_configured = 22;
     m.raster_overlap_thinning_keep_ratio = 0.23f; // default is 1.0f
     m.raster_feature_global_sort = true;
@@ -400,6 +405,11 @@ TEST_CASE("[Gaussian Diagnostics][PerformanceMetrics][Reset] reset helpers resto
     CHECK(m.raster_overlap_records == fresh.raster_overlap_records);
     CHECK(m.raster_overlap_record_budget == fresh.raster_overlap_record_budget);
     CHECK(m.raster_overlap_record_budget_effective == fresh.raster_overlap_record_budget_effective);
+    CHECK(m.raster_overlap_sort_capacity == fresh.raster_overlap_sort_capacity);
+    CHECK(m.raster_overlap_sort_capacity_high_water == fresh.raster_overlap_sort_capacity_high_water);
+    CHECK(m.raster_overlap_sort_bytes == fresh.raster_overlap_sort_bytes);
+    CHECK(m.raster_overlap_sort_resize_peak_bytes == fresh.raster_overlap_sort_resize_peak_bytes);
+    CHECK(m.raster_overlap_sort_resize_preflight_refusals == fresh.raster_overlap_sort_resize_preflight_refusals);
     CHECK(m.raster_overlap_record_budget_configured == fresh.raster_overlap_record_budget_configured);
     CHECK(m.raster_overlap_thinning_keep_ratio == doctest::Approx(fresh.raster_overlap_thinning_keep_ratio));
     CHECK(m.raster_feature_global_sort == fresh.raster_feature_global_sort);

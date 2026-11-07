@@ -491,7 +491,7 @@ private:
     // (single source for the define, the render stats and the #1137 cap warning).
     static uint32_t _get_effective_raster_tile_cap();
     void _ensure_global_projection_buffer(uint32_t p_visible_count);
-    void _ensure_global_sort_resources(uint32_t p_visible_count);
+    void _ensure_global_sort_resources(uint32_t p_visible_count, bool p_growth_headroom = false);
 	bool _update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices, RenderingDevice *p_device,
 			uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback);
     bool _validate_tile_grid(const char *p_context) const;

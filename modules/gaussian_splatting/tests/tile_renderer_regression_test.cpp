@@ -17,6 +17,7 @@
 #include "../renderer/tile_renderer.h"
 #include "../renderer/gpu_sorting_config.h"
 #include "../renderer/gpu_sorting_constants.h"
+#include "../renderer/overlap_bootstrap_policy.h"
 #include "../renderer/sort_fallback_policy.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/pipeline_io_contracts.h"
@@ -305,6 +306,7 @@ public:
     // resident-signal telemetry (overflow_drop_events) goes non-zero. Self-initializes the
     // tile renderer, so it can be driven standalone from a dedicated [RequiresGPU] TEST_CASE.
     TestResult test_overflow_drop_telemetry(RenderingDevice *p_rd);
+    TestResult test_overlap_bootstrap_same_frame_grow(RenderingDevice *p_rd);
     TestResult test_hlod_content_capture(RenderingDevice *p_rd, bool p_capture, bool p_compute);
     // #1137: one 16 px tile holding p_splat_count depth-spread records, rendered through the
     // real instance pipeline under the shipped default gpu_preset with an explicit
@@ -1823,6 +1825,103 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_hlod_con
     if (p_capture) {
         print_line("[HLOD-CONTENT-CAPTURE] Native packet artifacts: " + output);
     }
+    return result;
+}
+
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overlap_bootstrap_same_frame_grow(RenderingDevice *p_rd) {
+    // BV-10 E3: the bootstrap allocates a small seed, so a close-up above the seed must grow inside
+    // its first frame. 4000 large splats near the camera cover hundreds of tiles each, well above
+    // the 100000-record adaptive floor that the seed starts from; without the synchronous sample the
+    // first frame runs at the seed and drops records. The scene is built so a seed that happened to
+    // fit fails the test instead of passing it.
+    TestResult result;
+    const uint32_t splat_count = 4000u;
+    constexpr int FRAMES = 8;
+
+    Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+    if (err != OK) {
+        result.error_message = "Failed to initialize tile renderer for the overlap bootstrap test";
+        return result;
+    }
+    tile_renderer->set_debug_binning_counters_enabled(true);
+
+    Vector<Gaussian> gaussians = generate_test_gaussians(splat_count);
+    for (Gaussian &gaussian : gaussians) {
+        gaussian.scale = Vector3(2, 2, 2);
+    }
+    RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+    RID sorted_indices = create_test_sorted_indices(p_rd, splat_count);
+    InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, splat_count);
+    auto free_scene = [&]() {
+        tile_renderer->cleanup();
+        if (gaussian_buffer.is_valid()) {
+            p_rd->free(gaussian_buffer);
+        }
+        if (sorted_indices.is_valid()) {
+            p_rd->free(sorted_indices);
+        }
+        instance_inputs.free(p_rd);
+    };
+    if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+        free_scene();
+        result.error_message = "Failed to create overlap bootstrap scene buffers";
+        return result;
+    }
+
+    TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices, splat_count,
+            TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+    bind_instance_pipeline_inputs(params, instance_inputs, splat_count);
+
+    auto &sort_resources = tile_renderer->_test_global_sort_resources();
+    const uint32_t seed_capacity = MAX(GaussianSplatting::overlap_demand_estimate(splat_count, 0u),
+            g_gpu_sorting_config.get_overlap_records_adaptive_min());
+    const uint32_t drop_events_before = tile_renderer->get_overflow_drop_events();
+
+    if (!tile_renderer->render(p_rd, params).is_valid()) {
+        free_scene();
+        result.error_message = "First overlap bootstrap frame failed";
+        return result;
+    }
+    const uint32_t first_frame_capacity = sort_resources.capacity;
+    const uint32_t first_frame_rate_q8 = sort_resources.measured_records_per_splat_q8;
+    const uint64_t first_frame_measured = uint64_t(first_frame_rate_q8) * splat_count / GaussianSplatting::OVERLAP_RECORDS_PER_SPLAT_ONE;
+    const bool sampled = sort_resources.overlap_bootstrap_sampled;
+
+    for (int frame = 1; frame < FRAMES; frame++) {
+        if (!tile_renderer->render(p_rd, params).is_valid()) {
+            free_scene();
+            result.error_message = "Overlap bootstrap frame failed";
+            return result;
+        }
+        // Local test RD: flush so the always-on drop signal readback completes.
+        p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(uint32_t));
+    }
+    const uint32_t drop_events_after = tile_renderer->get_overflow_drop_events();
+    free_scene();
+
+    if (!sampled || first_frame_rate_q8 == 0u) {
+        result.error_message = "The first frame took no overlap measurement";
+        return result;
+    }
+    if (first_frame_measured <= seed_capacity) {
+        result.error_message = vformat("Scene demand %d does not exceed the seed %d: this run proves nothing about the same-frame grow",
+                int(first_frame_measured), int(seed_capacity));
+        return result;
+    }
+    if (first_frame_capacity < first_frame_measured) {
+        result.error_message = vformat("First frame capacity %d is below its measured demand %d", int(first_frame_capacity), int(first_frame_measured));
+        return result;
+    }
+    if (first_frame_capacity >= g_gpu_sorting_config.get_overlap_records_hard_cap()) {
+        result.error_message = "First frame capacity sits at the hard cap: the bootstrap is not demand-driven";
+        return result;
+    }
+    if (drop_events_after != drop_events_before) {
+        result.error_message = vformat("The bootstrap dropped overlap records: overflow_drop_events %d -> %d", drop_events_before, drop_events_after);
+        return result;
+    }
+    print_line(vformat("[BV-10] demand=%d seed=%d first_frame_capacity=%d", int(first_frame_measured), int(seed_capacity), int(first_frame_capacity)));
+    result.passed = true;
     return result;
 }
 
@@ -3600,6 +3699,29 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
     // macro, so it destructs last. Matches the other [RequiresGPU] teardown idiom (e.g. bm.unref()
     // in test_gpu_buffer_manager_lifetime.h); running ~TileRenderer after the device is freed
     // would dereference a freed device (use-after-free at teardown).
+    regression_test.unref();
+
+    if (!result.passed) {
+        MESSAGE(result.error_message.utf8().get_data());
+    }
+    CHECK(result.passed);
+}
+
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overlap bootstrap grows above the seed inside the first frame (BV-10)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("The overlap bootstrap regression requires a real local RenderingDevice from the GPU harness.");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_overlap_bootstrap_same_frame_grow(local_device);
+
+    // Release before the ScopedLocalRD guard frees local_device, as in the overflow-drop case above.
     regression_test.unref();
 
     if (!result.passed) {

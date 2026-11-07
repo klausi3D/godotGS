@@ -74,6 +74,11 @@ struct PerformanceMetrics {
 	uint32_t raster_overlap_record_budget = 0;
 	uint32_t raster_overlap_record_budget_effective = 0;
 	uint32_t raster_overlap_record_budget_configured = 0;
+	uint32_t raster_overlap_sort_capacity = 0;
+	uint32_t raster_overlap_sort_capacity_high_water = 0;
+	uint64_t raster_overlap_sort_bytes = 0;
+	uint64_t raster_overlap_sort_resize_peak_bytes = 0;
+	uint64_t raster_overlap_sort_resize_preflight_refusals = 0;
 	float raster_overlap_thinning_keep_ratio = 1.0f;
 	bool raster_feature_global_sort = false;
 	bool raster_feature_packed_stage_data = false;
@@ -196,6 +201,11 @@ inline void PerformanceMetrics::reset_raster_frame_stats() {
 	raster_overlap_record_budget = 0;
 	raster_overlap_record_budget_effective = 0;
 	raster_overlap_record_budget_configured = 0;
+	raster_overlap_sort_capacity = 0;
+	raster_overlap_sort_capacity_high_water = 0;
+	raster_overlap_sort_bytes = 0;
+	raster_overlap_sort_resize_peak_bytes = 0;
+	raster_overlap_sort_resize_preflight_refusals = 0;
 	raster_overlap_thinning_keep_ratio = 1.0f;
 	raster_feature_global_sort = false;
 	raster_feature_packed_stage_data = false;

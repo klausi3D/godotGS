@@ -72,6 +72,7 @@
 #include "test_quantized_packing.h"
 #include "test_tile_lighting_abi.h"
 #include "test_tile_buffer_resize.h"
+#include "test_overlap_bootstrap_policy.h"
 #include "test_tile_descriptor_cache.h"
 #include "test_sort_fallback_policy.h"
 #include "test_sort_benchmark_metrics.h"
