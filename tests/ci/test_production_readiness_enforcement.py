@@ -56,7 +56,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github" / "workflows" / "gaussian_production_gates.yml"
+# CI diet (2026-11-07): the evidence collector and its enforcement moved from
+# gaussian_production_gates.yml module-validation into baseline_qa.yml gpu-tests.
+WORKFLOW = ROOT / ".github" / "workflows" / "baseline_qa.yml"
 SCRIPT = ROOT / "tests" / "ci" / "collect_production_evidence.ps1"
 RUNTIME_DIR = ROOT / "tests" / "runtime"
 RUNTIME_REPORT = RUNTIME_DIR / "gs_runtime_report.gd"
@@ -65,7 +67,9 @@ RUNTIME_REPORT = RUNTIME_DIR / "gs_runtime_report.gd"
 # against the script's own $runtimeScripts table below, so this is not a
 # hand-kept coverage list.
 ENFORCE_STEP_NAME = "Enforce readiness booleans"
-NON_DISPATCH_EVENTS = ("pull_request", "push", "merge_group")
+# The non-dispatch events the workflow triggers on (it has no push trigger since
+# the CI diet); test_non_dispatch_events_match_the_workflow_triggers derives them.
+NON_DISPATCH_EVENTS = ("pull_request", "merge_group", "schedule")
 # Policy, not coverage (tests/AGENTS.md): the readiness keys that are reported
 # but not enforced, by maintainer decision 2026-10-13, until #1241 makes them
 # pass. They are false on master and on every PR (run 38131297064). This set
@@ -371,7 +375,7 @@ PRE_1164_CONDITION = (
 def _context(event: str, **overrides: Any) -> Dict[str, Any]:
     ctx: Dict[str, Any] = {
         "github.event_name": event,
-        "needs.gpu-evidence-requirement.outputs.run_windows_gpu": "true",
+        "needs.changes.outputs.run_evidence": "true",
         "steps.evidence.outcome": "success",
         "steps.evidence.outputs.dir": "C:\\runner\\artifacts\\evidence\\20261004_000000",
     }
@@ -402,6 +406,20 @@ class ReadinessEnforcementWorkflowTests(unittest.TestCase):
                     f"{self.condition}",
                 )
 
+    def test_non_dispatch_events_match_the_workflow_triggers(self) -> None:
+        """The event list above is checked against the workflow's own `on:` block,
+        so a trigger added later cannot sit outside the per-event evaluation."""
+        lines = self.text.splitlines()
+        start = next(i for i, line in enumerate(lines) if re.match(r"^on:\s*$", line))
+        events = set()
+        for line in lines[start + 1:]:
+            if line and not line[0].isspace():
+                break
+            match = re.match(r"^  ([A-Za-z_][A-Za-z0-9_]*):", line)
+            if match:
+                events.add(match.group(1))
+        self.assertEqual(sorted(events - {"workflow_dispatch"}), sorted(NON_DISPATCH_EVENTS))
+
     def test_no_input_value_can_skip_enforcement_outside_dispatch(self) -> None:
         """Property, not mechanism: whatever `inputs` holds, a non-dispatch run enforces."""
         for event in NON_DISPATCH_EVENTS:
@@ -423,12 +441,12 @@ class ReadinessEnforcementWorkflowTests(unittest.TestCase):
 
     def test_condition_still_requires_collected_evidence(self) -> None:
         for overrides in (
-            {"needs.gpu-evidence-requirement.outputs.run_windows_gpu": "false"},
+            {"needs.changes.outputs.run_evidence": "false"},
             {"steps.evidence.outputs.dir": ""},
             {"steps.evidence.outcome": "skipped"},
         ):
             with self.subTest(overrides=overrides):
-                self.assertFalse(_truthy(evaluate(self.condition, _context("push", **overrides))))
+                self.assertFalse(_truthy(evaluate(self.condition, _context("schedule", **overrides))))
 
     def test_every_collected_readiness_boolean_is_enforced_or_reported(self) -> None:
         emitted = _script_issue_keys(_script_text())

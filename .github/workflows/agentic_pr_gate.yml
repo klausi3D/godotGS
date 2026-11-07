@@ -210,9 +210,17 @@ jobs:
         # tests/ci/test_run_module_tests_skip_marker.py derives the event list
         # from this file's own `on:` block and fails if any base-bearing event
         # is left without an export.
+        #
+        # CI diet (maintainer approval 2026-11-07): this is the ONLY per-PR run of
+        # the guard phase; the duplicate Production Gates `guards` job and the
+        # guard phase inside the GPU job are gone. `--guard-self-tests auto` skips
+        # the path-gated guard self-tests (run_module_tests.py
+        # PATH_GATED_GUARD_SELF_TESTS) when this PR's diff touches none of their
+        # inputs; every check against the tree still runs, every skip is printed,
+        # and the nightly (baseline_qa.yml cpu-tests on schedule) runs all of them.
         env:
           GS_CI_BASE_REF: >-
             ${{ github.event_name == 'merge_group'
                 && github.event.merge_group.base_sha
                 || github.event.pull_request.base.sha }}
-        run: python tests/ci/run_module_tests.py --guard-only
+        run: python tests/ci/run_module_tests.py --guard-only --guard-self-tests auto

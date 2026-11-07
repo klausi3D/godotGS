@@ -1,20 +1,45 @@
 name: Baseline QA Automation
 
+# The per-PR CI and the nightly full run (CI diet, maintainer approval 2026-11-07).
+#
+#   pull_request / merge_group
+#     changes    (GitHub-hosted)  decides what this PR can affect, from its diff.
+#     cpu-tests  (GitHub-hosted)  builds the tests=yes editor and runs every
+#                                 CPU-only lane: the 29 module doctest lanes
+#                                 (`run_module_tests.py --skip-guards`), the PLY /
+#                                 pipeline / runtime categories and the headless-ci
+#                                 runtime profile. Runs for fork PRs too.
+#     gpu-tests  (self-hosted gpu) the ONLY self-hosted job of a PR. Builds once from
+#                                 the runner's persistent scons cache (no artifact
+#                                 round trip), then the GPU sorting / render-thread
+#                                 characterization, the QA scene SSIM gate, the GPU
+#                                 harness + visual gate, the streaming GPU runtime
+#                                 gate and (render/streaming PRs) the production
+#                                 evidence collector with its readiness enforcement.
+#   The guard phase is NOT here: it runs once per PR in the required
+#   agentic-pr-gate (agentic_pr_gate.yml).
+#
+#   schedule (nightly, 00:30 UTC, master HEAD)
+#     The same jobs with every path filter off, plus the FULL guard phase including
+#     every guard self-test (cpu-tests runs run_module_tests.py without
+#     --skip-guards), the evidence collector, and the GPU harness in baseline
+#     UPDATE mode (recapture PR when BASELINE_UPDATE_PAT is provisioned).
+#
+# There is no push trigger: a merge to master costs no self-hosted runner time. A
+# regression that only appears when two individually green PRs combine is caught by
+# the next nightly (accepted one-day detection window, maintainer approval
+# 2026-11-07; see docs/governance/review-policy.md).
+
 on:
-  push:
-    branches: [ master, develop, feature/*, phase* ]
-    paths:
-      - 'modules/gaussian_splatting/**'
-      - 'tests/**'
-      - 'test_*.gd'
-      - '.github/workflows/baseline_qa.yml'
   pull_request:
     branches: [ master, develop ]
   merge_group:
     types: [checks_requested]
   schedule:
-    # Nightly baseline refresh run at 03:30 UTC.
-    - cron: '30 3 * * *'
+    # Nightly full run at 00:30 UTC. Staggered against the other self-hosted
+    # nightlies: Release Builds 02:30, release-ci runtime 06:00, Production
+    # Gates open-world proof Mon 03:30. See .github/workflows/README.md.
+    - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
       debug_mode:
@@ -44,6 +69,25 @@ on:
         options:
           - compare
           - update
+      run_gpu_lane:
+        description: "Run the production evidence collector (collect_production_evidence.ps1) and enforce its readiness booleans"
+        required: false
+        default: false
+        type: boolean
+      # #1164: enforcement is the default on EVERY event that produced evidence.
+      # This input exists only so a maintainer can run a manual, diagnostic
+      # dispatch that collects without enforcing; it cannot switch enforcement
+      # off for pull_request, merge_group or schedule runs.
+      enforce_gpu_readiness:
+        description: "Fail if summary.json readiness booleans are not all true (set false only for a diagnostic manual run)"
+        required: false
+        default: true
+        type: boolean
+      runtime_loops:
+        description: "Runtime loop count for evidence collection"
+        required: false
+        default: "3"
+        type: string
 
 env:
   GODOT_BINARY: "godot"
@@ -52,806 +96,222 @@ env:
 permissions:
   actions: read
   contents: read
-  issues: write
-  pull-requests: write
 
 concurrency:
-  # PR runs and merge_group runs are INDEPENDENT gates — they validate
-  # different commits (the PR head vs the queue-merged-with-base version),
-  # so they shouldn't (and won't) cross-serialize. Each event type
-  # serializes within itself:
-  #   - pull_request: by PR number, so an amended/force-pushed PR cancels
-  #     the in-flight run on the older head (saves a full ~6 min rebuild).
-  #   - merge_group: by head_sha, so each queue entry gets a dedicated slot.
-  #   - push / schedule / workflow_dispatch: fall back to github.ref.
-  # On the self-hosted GPU runner, simultaneous PR + merge_group entries for
-  # the *same* PR will simply queue on the runner's single-job-at-a-time
-  # constraint — they share the scons cache directory rather than running
-  # in parallel, so cache contention is bounded by the runner's serial
-  # execution, not by this expression.
+  # pull_request: by PR number, so a new push cancels the superseded run.
+  # merge_group: by head_sha, so each queue entry gets its own slot.
+  # schedule / workflow_dispatch: by ref, and NOT cancelled - a nightly is never
+  # cut short by the next dispatch; the later run waits.
   group: baseline-qa-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
 
 jobs:
-  # Compiles the tests=yes editor ONCE for both GPU jobs below, on a runner that
-  # does NOT need the `gpu` label, so the GPU sits idle for no compile and a
-  # CPU-only runner can take this job. The binary travels to gpu-tests and
-  # gpu-harness as an artifact pinned to github.sha: `stage-binary` refuses a
-  # checkout that is not github.sha and records commit, run id and sha256;
-  # `install-binary` in each GPU job refuses anything that does not match its own
-  # github.sha, run id and checkout (tests/ci/linux_gpu_runner.sh).
-  build-linux-editor:
-    name: Build Linux Editor for GPU QA (Self-Hosted CPU)
-    # Same fork guard as the GPU jobs: this compiles checked-out SConstruct,
-    # methods.py and SCsub files on the persistent self-hosted runner.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    # No `gpu` label: this job renders nothing, so it is not part of the GPU pool
-    # that the contention/environment preflights guard.
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 120
-    defaults:
-      run:
-        working-directory: repo
-        shell: bash
-
-    steps:
-    - name: Configure Git safe.directory
-      working-directory: ${{ github.workspace }}
-      run: |
-        git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
-
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        path: repo
-        fetch-depth: 0
-        submodules: recursive
-        set-safe-directory: false
-
-    - name: Verify Python
-      run: |
-        python3 --version
-
-    # This runner has no sudo, so no job installs system packages. `--build-only`
-    # skips the Vulkan-device and DISPLAY checks: nothing here renders.
-    - name: Check Linux runner build toolchain
-      run: bash tests/ci/linux_gpu_runner.sh check-tools --build-only
-
-    # GAP-403: SCons goes into a per-job venv from the version-and-hash-locked
-    # tests/ci/requirements-scons.txt, never the runner's global interpreter.
-    - name: Install SCons
-      run: bash tests/ci/linux_gpu_runner.sh venv
-
-    - name: Build module-enabled Godot editor
-      run: |
-        # The one build both GPU jobs test. These args are the ones gpu-tests and
-        # gpu-harness each used to run, unchanged, so the object cache in
-        # /opt/actions-runner/godotgs-scons-cache keeps its env hash. -j16, not
-        # nproc (32): the box has 24 GB of RAM and a full-width dev build of this
-        # module is memory-bound.
-        python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes module_gaussian_splatting_enabled=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
-
-    - name: Resolve Godot binary
-      id: godot_binary
-      run: |
-        resolved=""
-        for candidate in \
-          bin/godot.linuxbsd.editor.dev.x86_64 \
-          bin/godot.linuxbsd.editor.x86_64; do
-          if [ -x "$candidate" ]; then
-            resolved="$(realpath "$candidate")"
-            break
-          fi
-        done
-        if [ -z "$resolved" ]; then
-          echo "::error::Could not find built Godot binary in expected bin/ paths."
-          ls -la bin || true
-          exit 1
-        fi
-        echo "Resolved Godot binary: $resolved"
-        echo "path=$resolved" >> "$GITHUB_OUTPUT"
-
-    - name: Stage binary with commit provenance
-      run: bash tests/ci/linux_gpu_runner.sh stage-binary "${{ steps.godot_binary.outputs.path }}" "$RUNNER_TEMP/godot-build"
-
-    - name: Upload binary for the GPU jobs
-      uses: actions/upload-artifact@v4
-      with:
-        name: godot-linuxbsd-editor-tests-${{ github.sha }}
-        path: ${{ runner.temp }}/godot-build/
-        if-no-files-found: error
-        retention-days: 7
-
-  gpu-tests:
-    name: GPU QA Tests (Windows Self-Hosted)
-    # Never run self-hosted code on untrusted PR fork code. Same-repo
-    # branches (maintainer PRs) still trigger the gate; fork PRs are routed
-    # to the Linux cpu-tests lane only. Mirrors release_builds.yml's pattern
-    # and protects the persistent runner's scons cache, credential store,
-    # and Actions runner token from arbitrary code in `tests/ci/*.py`,
-    # `SConstruct`, `methods.py`, or any `SCsub` checked out from a fork.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    # The only self-hosted runner is the Linux RTX 3080 box (gpu-linux-3080).
-    # The job NAME above still says "Windows Self-Hosted" on purpose: it is a
-    # status-check context and renaming it is a separate decision.
-    runs-on: [self-hosted, Linux, X64, gpu]
-    # Tests the binary build-linux-editor compiled for this exact commit; this
-    # job compiles nothing.
-    needs: build-linux-editor
-    timeout-minutes: 120
-
-    # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
-    # of this job's GPU processes. Rationale and the measured loader behaviour:
-    # the "Self-hosted GPU runner environment" section of
-    # .github/workflows/README.md. Setting these proves nothing on its own, which
-    # is why the preflight step below reads back the chain the loader actually
-    # built.
-    env:
-      # Loader-side filter. Honoured only in a NON-elevated process; the Linux
-      # runner is not elevated, so on Linux this alone strips implicit layers.
-      VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
-      # driver's layers are not implicit, and force-enabling them would put layers
-      # into the chain that no run outside CI has (measured: the preflight failed).
-      # Each layer's own opt-out, declared in its own manifest under
-      # `disable_environment`. Mirrored in
-      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
-      # VK_LAYER_OBS_HOOK
-      DISABLE_VULKAN_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OBS_HOOK
-      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OVERLAY
-      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
-      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
-      NODEVICE_SELECT: '1'
-
-    defaults:
-      run:
-        working-directory: repo
-        shell: bash
-
-    steps:
-    - name: Configure Git safe.directory
-      working-directory: ${{ github.workspace }}
-      run: |
-        git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
-
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        path: repo
-        fetch-depth: 0
-        submodules: recursive
-        set-safe-directory: false
-
-    - name: Verify Python
-      run: |
-        python3 --version
-
-    # This runner has no sudo, so no job installs system packages. This step
-    # fails closed and names exactly what is missing (Python 3.11, the Godot
-    # build's pkg-config entries, an NVIDIA Vulkan device, DISPLAY).
-    - name: Check Linux GPU runner toolchain
-      run: bash tests/ci/linux_gpu_runner.sh check-tools
-
-    # #875 -- unrelated GPU work landing on the box while CI runs turns
-    # wall-clock budgets into failures that read like renderer regressions
-    # (#867, #881). This waits for the GPU to be free, then leaves a background
-    # sampler running so the postflight below can say whether contention began
-    # mid-job. It never relaxes a budget: a contended run is void, not passed.
-    - name: Preflight - GPU contention, wait for a free runner (#875)
-      run: python3 tests/ci/runner_gpu_contention.py preflight
-
-    # Must precede the build and every GPU step: it decides whether anything
-    # measured afterwards is a measurement of the renderer (#875).
-    - name: Preflight - runner GPU environment (#875)
-      run: python3 tests/ci/preflight_runner_gpu_environment.py
-
-    # GAP-403: nothing is installed into the runner's global interpreter. SCons
-    # goes into a per-job venv from the version-and-hash-locked
-    # tests/ci/requirements-scons.txt, and the venv's bin/ is prepended to PATH
-    # (via GITHUB_PATH, for every later step), so each later `python`, including
-    # `python -m SCons`, runs in the venv. No repository script this job runs
-    # imports a third-party module, so SCons is the whole toolchain.
-    - name: Install SCons
-      run: bash tests/ci/linux_gpu_runner.sh venv
-
-    # The binary comes from build-linux-editor, never from a compile here.
-    # install-binary fails closed unless its provenance names this run and this
-    # job's own checkout (github.sha) and the sha256 matches; then it places the
-    # binary in bin/, where the resolver below finds it.
-    - name: Download binary built for this commit
-      uses: actions/download-artifact@v4
-      with:
-        name: godot-linuxbsd-editor-tests-${{ github.sha }}
-        path: ${{ runner.temp }}/godot-build
-
-    - name: Verify and install binary (pinned to github.sha)
-      run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
-
-    - name: Resolve Godot binary
-      id: godot_binary
-      run: |
-        resolved=""
-        for candidate in \
-          bin/godot.linuxbsd.editor.dev.x86_64 \
-          bin/godot.linuxbsd.editor.x86_64; do
-          if [ -x "$candidate" ]; then
-            resolved="$(realpath "$candidate")"
-            break
-          fi
-        done
-        if [ -z "$resolved" ]; then
-          echo "::error::Could not find built Godot binary in expected bin/ paths."
-          ls -la bin || true
-          exit 1
-        fi
-        echo "Resolved Godot binary: $resolved"
-        echo "path=$resolved" >> "$GITHUB_OUTPUT"
-        echo "GODOT_BINARY=$resolved" >> "$GITHUB_ENV"
-
-    - name: Resolve baseline mode
-      id: baseline_mode
-      run: |
-        mode="compare"
-        reason="default-compare"
-        if [ "${{ github.event_name }}" = "schedule" ]; then
-          mode="update"
-          reason="nightly-schedule-update"
-        elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
-          mode="update"
-          reason="manual-update"
-        fi
-        echo "mode=$mode" >> "$GITHUB_OUTPUT"
-        echo "reason=$reason" >> "$GITHUB_OUTPUT"
-        echo "Resolved baseline mode: $mode ($reason)"
-
-    - name: Run GPU sorting construction check (no sort-order coverage)
-      # NOT a sort-correctness gate. tests/ci/test_gpu_sorting_ci.gd only
-      # exercises the GDScript-visible surface of the sorting subsystem,
-      # which is construction (RadixSort.new() + get_algorithm_name()) —
-      # IGPUSorter/RadixSort's sort()/initialize() are never bound to
-      # GDScript, so there is no scriptable way to feed a sorter real data
-      # and assert output order from this step. See #594 for the audit
-      # finding and #622 for the tracked follow-up (real order-asserting
-      # [RequiresGPU] doctests already exist in test_gpu_sorting.cpp but are
-      # not yet wired into a passing CI batch).
-      env:
-        GS_CI_GPU_REQUIRED: "1"
-        GS_CI_VALIDATION_MODE: "strict"
-        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
-        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
-        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
-        # `module` category, and the wrapper fails closed on a base-bearing
-        # event without a base -- which would block the merge queue only after
-        # the long job had already run.
-        GS_CI_BASE_REF: >-
-          ${{ github.event_name == 'merge_group'
-              && github.event.merge_group.base_sha
-              || github.event.pull_request.base.sha }}
-      run: |
-        python tests/ci/run_baseline_qa.py --categories sorting,renderer --godot "$GODOT_BINARY"
-
-    - name: Run QA scene suite (blocking visual/SSIM gate)
-      # THE reason this step exists on a GPU job: the QA scene suite renders and
-      # reads back viewports. Under --headless there is no RenderingDevice, every
-      # capture returns null, and run_baseline_qa.py launders the failing run into
-      # a skip — which is why this category ran in no lane at all before #522 and
-      # its scenes had never once executed for real.
-      #
-      # --qa-require-capture launches the suite on the real display AND makes a
-      # no-results run a hard failure: on a lane that promises a GPU, a skip means
-      # the promise broke. --require-qa-baseline makes a missing baseline fail
-      # instead of warning. Both are passed in argv rather than left to
-      # GS_CI_GPU_REQUIRED so the intent is legible at the call site.
-      #
-      # Deliberately COMPARE-ONLY, unlike the gpu-harness visual baselines: this
-      # step never honours steps.baseline_mode. A nightly job that rewrites its
-      # own expectations cannot detect a regression — it absorbs one. Refreshing
-      # tests/ci/baselines/qa_results.json is a deliberate act: run
-      # `--categories qa --qa-require-capture --update-qa-baseline` locally and
-      # commit the result for review.
-      env:
-        GS_CI_GPU_REQUIRED: "1"
-        GS_CI_VALIDATION_MODE: "strict"
-        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
-        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
-        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
-        # `module` category, and the wrapper fails closed on a base-bearing
-        # event without a base -- which would block the merge queue only after
-        # the long job had already run.
-        GS_CI_BASE_REF: >-
-          ${{ github.event_name == 'merge_group'
-              && github.event.merge_group.base_sha
-              || github.event.pull_request.base.sha }}
-      run: |
-        # `--update-qa-baseline` is intentionally absent here and must stay
-        # absent, including via `baseline_mode`. A lane that rewrites the
-        # expectations it is checking absorbs regressions instead of detecting
-        # them; the guard named above fails the build if this changes.
-        python tests/ci/run_baseline_qa.py --categories qa --qa-require-capture --require-qa-baseline --godot "$GODOT_BINARY"
-
-    - name: Upload GPU test artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: baseline-qa-gpu-results
-        path: |
-          repo/baseline_qa_results.json
-          repo/tests/ci/qa_results.json
-          repo/baseline_qa_regression_report.json
-          repo/baseline_qa_regression_summary.md
-          repo/*test_results.json
-          repo/*.log
-        if-no-files-found: warn
-        retention-days: 30
-
-    - name: Post GPU test summary
-      if: always()
-      run: |
-        python3 tests/ci/ci_reports.py baseline-qa-summary \
-          --trigger "${{ github.event_name }}" \
-          --baseline-mode "${{ steps.baseline_mode.outputs.mode }}" \
-          --baseline-reason "${{ steps.baseline_mode.outputs.reason }}"
-
-    # #875 -- must run even when the job failed: a timing failure above is
-    # exactly the result whose attribution this decides. Exits 75 (not 1) when
-    # the run is void, so it cannot be read as a test failure.
-    - name: Postflight - GPU contention verdict (#875)
-      if: always()
-      run: python3 tests/ci/runner_gpu_contention.py postflight
-
-  gpu-harness:
-    name: GPU Harness + Visual Gate (Windows Self-Hosted)
-    # Same fork-PR gate as gpu-tests — never let an untrusted fork PR's
-    # workflow files, SConstruct, methods.py, or test code run on the
-    # persistent self-hosted runner.
-    if: |
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-      !cancelled()
-    runs-on: [self-hosted, Linux, X64, gpu]
-    # Runs after gpu-tests so the two GPU jobs serialize on the shared runner
-    # and split the scons cache cleanly. Independent of gpu-tests' result —
-    # a failing GDScript-based gpu-test should not gate the doctest-based
-    # visual gate.
-    # The `if:` block above also handles the needs:-failure case: `!cancelled()`
-    # in the conjunction is enough to override `needs:`'s implicit success()
-    # requirement, so a failing gpu-tests run still lets the visual gate run.
-    # Not using `always()` because it would evaluate true during cancellation
-    # and defeat the workflow's `concurrency.cancel-in-progress: true`.
-    # build-linux-editor supplies the binary. Under the same `!cancelled()`, a
-    # failed build does not skip this job: when the path filter says the harness
-    # must run, the download step below fails and the job goes red, exactly as
-    # its own compile step used to.
-    needs: [build-linux-editor, gpu-tests]
-    timeout-minutes: 60
+  # GitHub-hosted, reads only the API (no checkout), so it is fork-safe. Every
+  # decision fails OPEN towards running: an API error or a truncated file list
+  # runs everything.
+  changes:
+    name: Decide PR CI scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      contents: write
-      pull-requests: write
-
-    # #875 -- see the gpu-tests job above and the "Self-hosted GPU runner
-    # environment" section of .github/workflows/README.md.
-    env:
-      # Loader-side filter. Honoured only in a NON-elevated process: this
-      # runner's service is registered as LocalSystem, and the loader discards
-      # its own filter variables when elevated (measured -- run 31603970211).
-      # Kept because they are the only mechanism covering a layer nobody has
-      # enumerated, and because they do work on a non-elevated runner.
-      VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
-      # driver's layers are not implicit, and force-enabling them would put layers
-      # into the chain that no run outside CI has (measured: the preflight failed).
-      # What actually strips the layers here: each layer's own opt-out, declared
-      # in its own manifest under `disable_environment`. The loader reads these
-      # unprivileged, so they survive the elevated job. Mirrored in
-      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
-      # VK_LAYER_OBS_HOOK
-      DISABLE_VULKAN_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OBS_HOOK
-      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OVERLAY
-      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
-      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
-      NODEVICE_SELECT: '1'
-
-    defaults:
-      run:
-        working-directory: repo
-        shell: bash
-
+      contents: read
+      pull-requests: read
+    outputs:
+      run_code: ${{ steps.decide.outputs.run_code }}
+      run_harness: ${{ steps.decide.outputs.run_harness }}
+      run_evidence: ${{ steps.decide.outputs.run_evidence }}
+      run_streaming_heavy: ${{ steps.decide.outputs.run_streaming_heavy }}
+      reason: ${{ steps.decide.outputs.reason }}
     steps:
-      - name: Configure Git safe.directory
-        working-directory: ${{ github.workspace }}
-        run: git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          path: repo
-          fetch-depth: 0
-          submodules: recursive
-          set-safe-directory: false
-          # `persist-credentials: false` — without it, the checkout token
-          # (potentially the broadly-scoped BASELINE_UPDATE_PAT below) gets
-          # stored in .git/config as a credential helper for the rest of the
-          # job, exposing it to every subsequent step (scons cache writes,
-          # git submodule fetches, the provenance step, etc.). The create-PR
-          # step (peter-evans/create-pull-request) receives the PAT directly
-          # via its own `token:` input, so disabling persistence here doesn't
-          # break the recapture-PR flow but does narrow the blast radius.
-          persist-credentials: false
-          # Update-mode runs push baseline changes back through a PR; everything
-          # else stays on the workflow's default token.
-          token: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.baseline_mode == 'update')) && secrets.BASELINE_UPDATE_PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Decide whether GPU harness should run
-        id: path_filter
+      - name: Decide which lanes this event must run
+        id: decide
         uses: actions/github-script@v7
         with:
           script: |
             const fallbackLabel = "ci/gpu-runner-unavailable";
+            const eventName = context.eventName;
+            // Everything runs unless a PR / merge-queue diff proves otherwise.
+            let runCode = true;
             let runHarness = true;
-            let reason = "default-run";
-            // Set true when the merge_group fallback paths override the
-            // normal path-filter result (truncated file list or API error).
-            let decisionForced = false;
+            let runEvidence = true;
+            let runStreamingHeavy = true;
+            let reason = `event:${eventName}`;
 
-            if (context.eventName === "schedule" || context.eventName === "push" || context.eventName === "workflow_dispatch") {
-              reason = `event:${context.eventName}`;
-            } else if (context.eventName === "pull_request" || context.eventName === "merge_group") {
-              // Path filter — trigger the visual gate on anything that can
-              // change the GPU output of our test path:
-              //   - The whole gaussian_splatting module (SCsub
-              //     `source_directories` spans renderer/, shaders/, compute/,
-              //     core/, io/, lod/, interfaces/, nodes/, editor/, animation/,
-              //     asset_management/, painterly/, persistence/, logger/,
-              //     resources/, tests/).
-              //   - The upstream RenderingDevice surface and shader pipelines
-              //     under servers/rendering/. The harness boots an offscreen
-              //     RD via `Main::test_setup()` then drives it directly, so
-              //     changes here can absolutely change rendered output.
-              //   - GPU drivers (Vulkan canonical, D3D12 for the differential
-              //     lane). RenderingContextDriverVulkan/D3D12 changes can shift
-              //     adapter selection, queue setup, or pipeline-creation
-              //     behavior in ways the visual gate should catch.
-              //   - main/main.cpp (the --gs-gpu-test entrypoint lives there).
-              //   - The harness script, baselines, and this workflow file.
-              //   - Build system surface that controls what's compiled into
-              //     the harness binary (SConstruct, methods.py, platform/,
-              //     and the upstream doctest header). Edits here can change
-              //     RID lifetime, Image readback, env-var handling, or the
-              //     test framework itself — all directly load-bearing for
-              //     the visual gate.
-              //   - core/ — Image, RID, OS::get_environment, atomics, etc.
-              //     all live here and are exercised by the harness path.
-              // Costs CI minutes on broader-than-strictly-necessary changes
-              // (any servers/rendering edit triggers the gate), but the
-              // alternative is silent regressions on upstream rendering work.
-              const renderPrefixes = [
-                "modules/gaussian_splatting/",
-                "servers/rendering/",
-                "drivers/vulkan/",
-                "drivers/d3d12/",
-                "core/",
-                "platform/",
-                "thirdparty/doctest/",
-                "tests/visual_baselines/",
-                "main/main.cpp",
-                "tests/ci/run_gpu_harness.py",
+            // Code that the build or a CI lane consumes. A PR that touches none
+            // of it (docs, governance, .agentic, other workflows) needs no build.
+            const isCode = (p) => {
+              if (p.endsWith(".md")) return false;
+              if (!p.includes("/")) return p === "SConstruct" || p.endsWith(".py");
+              return [
+                "modules/", "core/", "drivers/", "editor/", "main/", "platform/",
+                "scene/", "servers/", "thirdparty/", "tests/",
                 ".github/workflows/baseline_qa.yml",
-                "SConstruct",
-                "methods.py",
-              ];
+              ].some((prefix) => p.startsWith(prefix));
+            };
+            // GPU harness + visual gate: anything that can change the GPU output
+            // of the harness path (moved unchanged from the former gpu-harness job):
+            // the whole module, the upstream RenderingDevice surface, GPU drivers,
+            // core/, platform/, the doctest header, main/main.cpp (the
+            // --gs-gpu-test entrypoint), the harness and its baselines, the build
+            // system, and this workflow.
+            const renderPrefixes = [
+              "modules/gaussian_splatting/",
+              "servers/rendering/",
+              "drivers/vulkan/",
+              "drivers/d3d12/",
+              "core/",
+              "platform/",
+              "thirdparty/doctest/",
+              "tests/visual_baselines/",
+              "main/main.cpp",
+              "tests/ci/run_gpu_harness.py",
+              ".github/workflows/baseline_qa.yml",
+              "SConstruct",
+              "methods.py",
+            ];
+            // Production evidence collector (moved unchanged from the former
+            // gaussian_production_gates.yml gpu-evidence-requirement job).
+            const renderStreamingPrefixes = [
+              "modules/gaussian_splatting/renderer/",
+              "modules/gaussian_splatting/shaders/",
+              "modules/gaussian_splatting/core/gaussian_streaming",
+            ];
+            // The two slow streaming scenarios (Resident HLOD Main View, GPU
+            // Streaming Stress) run on PRs that can affect streaming, HLOD or the
+            // renderer, and always nightly.
+            const streamingHeavyPrefixes = [
+              "modules/gaussian_splatting/renderer/",
+              "modules/gaussian_splatting/shaders/",
+              "modules/gaussian_splatting/core/",
+              "modules/gaussian_splatting/lod/",
+              "servers/rendering/",
+              "drivers/vulkan/",
+              "tests/runtime/",
+              ".github/workflows/baseline_qa.yml",
+            ];
+            const isStreamingHeavy = (p) =>
+              streamingHeavyPrefixes.some((prefix) => p.startsWith(prefix)) ||
+              (p.startsWith("modules/gaussian_splatting/") && /stream|hlod/i.test(p));
 
-              // pulls.listFiles is capped at 3000 files per PR; github.paginate
-              // walks all pages but stops at that ceiling. Mirror the
-              // merge_group truncation fallback: if we hit the cap, force
-              // runHarness=true rather than risk silently skipping a giant PR
-              // that happens to touch renderer/shader code past the limit.
-              const GH_PULLS_LISTFILES_CAP = 3000;
-              let changedPaths = [];
-              // Rename detection: pulls.listFiles / compareCommitsWithBasehead
-              // report renamed files with status="renamed" and an extra
-              // `previous_filename` for the old path. If a file moves from a
-              // watched prefix (e.g. modules/gaussian_splatting/) to an
-              // unwatched one, only matching against `filename` misses it and
-              // we'd silently skip the visual gate. Also include the old path
-              // so either side of the rename triggers the harness.
+            if (eventName === "workflow_dispatch") {
+              const requested = String(context.payload.inputs?.run_gpu_lane ?? "false").toLowerCase();
+              runEvidence = requested === "true";
+              reason = runEvidence ? "manual-dispatch" : "manual-dispatch-no-evidence";
+            } else if (eventName === "pull_request" || eventName === "merge_group") {
+              const owner = context.repo.owner;
+              const repo = context.repo.repo;
+              // Renames: match both the new and the old path, so a file moving out
+              // of a watched prefix still triggers the lanes that watched it.
               const pathsFromFile = (f) => {
                 const out = [];
                 if (f.filename) out.push(String(f.filename));
                 if (f.previous_filename) out.push(String(f.previous_filename));
                 return out;
               };
-              if (context.eventName === "pull_request") {
+              let changedPaths = [];
+              let forced = false;
+              if (eventName === "pull_request") {
+                const GH_PULLS_LISTFILES_CAP = 3000;
                 try {
                   const files = await github.paginate(github.rest.pulls.listFiles, {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: context.payload.pull_request.number,
-                    per_page: 100,
+                    owner, repo, pull_number: context.payload.pull_request.number, per_page: 100,
                   });
                   changedPaths = files.flatMap(pathsFromFile);
                   if (files.length >= GH_PULLS_LISTFILES_CAP) {
-                    core.warning(
-                      `pulls.listFiles returned >= ${GH_PULLS_LISTFILES_CAP} files (API cap). ` +
-                      "Path filter may be incomplete; forcing runHarness=true to stay safe."
-                    );
-                    decisionForced = true;
-                    runHarness = true;
+                    core.warning(`pulls.listFiles hit the ${GH_PULLS_LISTFILES_CAP}-file API cap; running every lane.`);
+                    forced = true;
                     reason = "pull-request-file-list-truncated";
                   }
                 } catch (e) {
-                  core.warning(`pulls.listFiles failed: ${e.message}; forcing runHarness=true`);
-                  decisionForced = true;
-                  runHarness = true;
+                  core.warning(`pulls.listFiles failed: ${e.message}; running every lane.`);
+                  forced = true;
                   reason = "pull-request-files-api-error";
                 }
               } else {
-                // merge_group: compareCommitsWithBasehead returns a single
-                // comparison object whose `files` array is NOT paginated like
-                // pulls.listFiles — it returns up to a hard cap (300) in the
-                // first response and silently omits the rest. To minimize
-                // false positives, request the maximum (per_page=300) and
-                // only force the safety fallback when we hit that real cap.
-                // For merge queues that batch >300 changed files, truncation
-                // can still miss renderer/shader changes — Soft-fallback: on
-                // any error or when the response is truncated, default to
-                // runHarness=true (safer to run than skip).
                 const GH_COMPARE_FILES_CAP = 300;
                 const base = context.payload.merge_group.base_sha;
                 const head = context.payload.merge_group.head_sha;
                 try {
                   const compare = await github.rest.repos.compareCommitsWithBasehead({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    basehead: `${base}...${head}`,
-                    per_page: GH_COMPARE_FILES_CAP,
+                    owner, repo, basehead: `${base}...${head}`, per_page: GH_COMPARE_FILES_CAP,
                   });
                   changedPaths = (compare.data.files || []).flatMap(pathsFromFile);
                   if (compare.data.files && compare.data.files.length >= GH_COMPARE_FILES_CAP) {
-                    core.warning(
-                      `merge_group compare returned >= ${GH_COMPARE_FILES_CAP} files (API cap). ` +
-                      "Path filter may be incomplete; forcing runHarness=true to stay safe."
-                    );
-                    decisionForced = true;
-                    runHarness = true;
+                    core.warning(`merge_group compare hit the ${GH_COMPARE_FILES_CAP}-file API cap; running every lane.`);
+                    forced = true;
                     reason = "merge-group-file-list-truncated";
                   }
                 } catch (e) {
-                  core.warning(`merge_group compare API failed: ${e.message}; forcing runHarness=true`);
-                  decisionForced = true;
-                  runHarness = true;
+                  core.warning(`merge_group compare failed: ${e.message}; running every lane.`);
+                  forced = true;
                   reason = "merge-group-compare-error";
                 }
               }
 
-              if (!decisionForced) {
-                runHarness = changedPaths.some((p) =>
-                  renderPrefixes.some((prefix) => p.startsWith(prefix))
-                );
-                reason = runHarness ? "render-path-change" : "no-render-changes";
+              if (!forced) {
+                runCode = changedPaths.some(isCode);
+                runHarness = changedPaths.some((p) => renderPrefixes.some((prefix) => p.startsWith(prefix)));
+                runEvidence = changedPaths.some((p) => renderStreamingPrefixes.some((prefix) => p.startsWith(prefix)));
+                runStreamingHeavy = changedPaths.some(isStreamingHeavy);
+                reason = runCode ? "code-change" : "no-code-change";
               }
 
+              // The fallback label switches off the GPU harness and the evidence
+              // collector, exactly as it did on the former gpu-harness and
+              // module-validation jobs. merge_group carries no labels; look them up
+              // through the PR number encoded in head_ref.
               let labels = [];
-              if (context.eventName === "pull_request") {
+              if (eventName === "pull_request") {
                 labels = (context.payload.pull_request.labels || []).map((l) => l.name);
+              } else {
+                const prMatch = (context.payload.merge_group.head_ref || "").match(/\/pr-(\d+)\//);
+                if (prMatch) {
+                  try {
+                    const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: parseInt(prMatch[1]) });
+                    labels = (pr.labels || []).map((l) => l.name);
+                  } catch (e) {
+                    core.warning(`Could not fetch PR labels from merge_group head_ref: ${e.message}`);
+                  }
+                }
               }
-              if (runHarness && labels.includes(fallbackLabel)) {
+              if (labels.includes(fallbackLabel)) {
                 runHarness = false;
-                reason = `fallback-label:${fallbackLabel}`;
+                runEvidence = false;
+                reason = `${reason}+fallback-label:${fallbackLabel}`;
+              }
+
+              // No build means no GPU sub-lane either.
+              if (!runCode) {
+                runHarness = false;
+                runEvidence = false;
+                runStreamingHeavy = false;
               }
             }
 
-            core.info(`run_harness=${runHarness} reason=${reason}`);
-            core.setOutput("run_harness", runHarness ? "true" : "false");
+            const flag = (value) => (value ? "true" : "false");
+            core.info(`run_code=${runCode} run_harness=${runHarness} run_evidence=${runEvidence} run_streaming_heavy=${runStreamingHeavy} reason=${reason}`);
+            core.setOutput("run_code", flag(runCode));
+            core.setOutput("run_harness", flag(runHarness));
+            core.setOutput("run_evidence", flag(runEvidence));
+            core.setOutput("run_streaming_heavy", flag(runStreamingHeavy));
             core.setOutput("reason", reason);
-
-      - name: Report decision
-        run: |
-          echo "run_harness=${{ steps.path_filter.outputs.run_harness }}"
-          echo "reason=${{ steps.path_filter.outputs.reason }}"
-
-      - name: Verify Python
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: python3 --version
-
-      # This runner has no sudo, so no job installs system packages. This step
-      # fails closed and names exactly what is missing.
-      - name: Check Linux GPU runner toolchain
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: bash tests/ci/linux_gpu_runner.sh check-tools
-
-      # #875 -- unrelated GPU work landing on the box while CI runs turns
-      # wall-clock budgets into failures that read like renderer regressions
-      # (#867, #881). This waits for the GPU to be free, then leaves a background
-      # sampler running so the postflight below can say whether contention began
-      # mid-job. It never relaxes a budget: a contended run is void, not passed.
-      - name: Preflight - GPU contention, wait for a free runner (#875)
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: python3 tests/ci/runner_gpu_contention.py preflight
-
-      # Must precede the build and every GPU step (#875). Carries the same
-      # path-filter condition as the rest of the job: when the harness does not
-      # run there is no GPU measurement for it to protect.
-      - name: Preflight - runner GPU environment (#875)
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: python3 tests/ci/preflight_runner_gpu_environment.py
-
-      # GAP-403: per-job venv from the hash-locked file, never the runner's
-      # global interpreter. Same shape and reasoning as the gpu-tests job above.
-      - name: Install SCons
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: bash tests/ci/linux_gpu_runner.sh venv
-
-      # The same binary gpu-tests tests, compiled once by build-linux-editor.
-      # install-binary fails closed unless its provenance names this run and
-      # this job's own checkout (github.sha) and the sha256 matches.
-      - name: Download binary built for this commit
-        if: steps.path_filter.outputs.run_harness == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: godot-linuxbsd-editor-tests-${{ github.sha }}
-          path: ${{ runner.temp }}/godot-build
-
-      - name: Verify and install binary (pinned to github.sha)
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
-
-      - name: Resolve Godot binary
-        if: steps.path_filter.outputs.run_harness == 'true'
-        id: godot_binary
-        run: |
-          resolved=""
-          for candidate in \
-            bin/godot.linuxbsd.editor.dev.x86_64 \
-            bin/godot.linuxbsd.editor.x86_64; do
-            if [ -x "$candidate" ]; then
-              resolved="$(realpath "$candidate")"
-              break
-            fi
-          done
-          if [ -z "$resolved" ]; then
-            echo "::error::Could not find built Godot binary in bin/."
-            ls -la bin || true
-            exit 1
-          fi
-          echo "Resolved Godot binary: $resolved"
-          echo "GODOT_BINARY=$resolved" >> "$GITHUB_ENV"
-
-      - name: Resolve baseline mode
-        if: steps.path_filter.outputs.run_harness == 'true'
-        id: baseline_mode
-        run: |
-          mode="compare"
-          reason="default-compare"
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            mode="update"
-            reason="nightly-schedule-update"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
-            mode="update"
-            reason="manual-update"
-          fi
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
-          echo "reason=$reason" >> "$GITHUB_OUTPUT"
-
-      - name: Record runner provenance
-        if: steps.path_filter.outputs.run_harness == 'true'
-        run: |
-          python3 tests/ci/ci_reports.py provenance \
-            --out tests/visual_baselines/.provenance.json \
-            --baseline-mode "${{ steps.baseline_mode.outputs.mode }}" \
-            --baseline-reason "${{ steps.baseline_mode.outputs.reason }}"
-
-      - name: Run GPU harness
-        if: steps.path_filter.outputs.run_harness == 'true'
-        env:
-          GS_CI_GPU_REQUIRED: "1"
-          GS_VISUAL_BASELINE_MODE: ${{ steps.baseline_mode.outputs.mode }}
-        run: |
-          python tests/ci/run_gpu_harness.py \
-            --godot "$GODOT_BINARY" \
-            --report tests/ci/gpu_harness_report.json
-      - name: Upload visual diff artifacts (compare mode)
-        if: always() && steps.path_filter.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'compare'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gpu-harness-visual-diffs
-          path: |
-            repo/tests/visual_baselines/**/*.actual.png
-            repo/tests/visual_baselines/.provenance.json
-            repo/tests/ci/gpu_harness_report.json
-          if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Upload regenerated baselines (update mode)
-        if: always() && steps.path_filter.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'update'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gpu-harness-recaptured-baselines
-          path: |
-            repo/tests/visual_baselines/**/*.png
-            repo/tests/visual_baselines/.provenance.json
-            repo/tests/ci/gpu_harness_report.json
-          if-no-files-found: warn
-          retention-days: 90
-
-      - name: Check recapture PAT availability
-        id: recapture_pat
-        if: success() && steps.path_filter.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'update'
-        env:
-          PAT_PROBE: ${{ secrets.BASELINE_UPDATE_PAT }}
-        run: |
-          if [ -z "$PAT_PROBE" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::BASELINE_UPDATE_PAT secret is not provisioned. Update-mode run will capture baselines as artifacts only; no recapture PR will be opened. Provision the secret in repo settings to enable the auto-PR flow."
-          else
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Open recapture PR
-        if: success() && steps.path_filter.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'update' && steps.recapture_pat.outputs.available == 'true'
-        # SHA-pinned (third-party action handed BASELINE_UPDATE_PAT).
-        # `c5a7806660adbe173f04e3e038b0ccdcd758773c` is `peter-evans/create-pull-request@v6`
-        # as of 2026-05-17 — refreshed via:
-        #   gh api repos/peter-evans/create-pull-request/git/refs/tags/v6
-        # Bump intentionally (review the diff between the old and new SHA)
-        # rather than letting the floating major tag move silently. The
-        # tj-actions/changed-files March-2025 incident is the canonical
-        # cautionary tale for floating tags on actions that hold secrets.
-        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
-        with:
-          token: ${{ secrets.BASELINE_UPDATE_PAT }}
-          path: repo
-          branch: ci/baseline-recapture/${{ github.run_id }}
-          base: master
-          commit-message: |
-            visual_baselines: recapture from run ${{ github.run_id }}
-
-            Trigger: ${{ github.event_name }} (${{ steps.baseline_mode.outputs.reason }})
-            Provenance is in the gpu-harness-recaptured-baselines artifact
-            and (after merge) in tests/visual_baselines/.provenance.json.
-          title: "visual_baselines: scheduled recapture (${{ github.run_id }})"
-          body: |
-            Automated baseline recapture from `baseline_qa.yml` run ${{ github.run_id }}.
-            Provenance JSON is attached to the `gpu-harness-recaptured-baselines`
-            workflow artifact for this run.
-
-            **Reviewer checklist:**
-            - [ ] Diffs are within sub-LSB rendering tolerances (no functional regression).
-            - [ ] Driver/GPU change documented per `tests/visual_baselines/README.md`.
-            - [ ] No new PNGs exceed the 256x256 fixture-size guideline unless justified.
-          add-paths: |
-            tests/visual_baselines/**/*.png
-            tests/visual_baselines/.provenance.json
-          delete-branch: true
-
-      - name: Append GPU harness summary
-        if: always() && steps.path_filter.outputs.run_harness == 'true'
-        run: |
-          python3 tests/ci/ci_reports.py gpu-harness-summary \
-            --mode "${{ steps.baseline_mode.outputs.mode }}" \
-            --reason "${{ steps.baseline_mode.outputs.reason }}"
-
-      - name: Report skipped run
-        if: steps.path_filter.outputs.run_harness != 'true'
-        run: |
-          {
-            echo "## GPU Harness + Visual Gate"
-            echo "Skipped: ${{ steps.path_filter.outputs.reason }}"
-          } >> "$GITHUB_STEP_SUMMARY"
-      # #875 -- must run even when the job failed: a timing failure above is
-      # exactly the result whose attribution this decides. Exits 75 (not 1) when
-      # the run is void, so it cannot be read as a test failure.
-      - name: Postflight - GPU contention verdict (#875)
-        if: always() && (steps.path_filter.outputs.run_harness == 'true')
-        run: python3 tests/ci/runner_gpu_contention.py postflight
+            await core.summary
+              .addHeading("PR CI scope", 3)
+              .addList([
+                `reason: ${reason}`,
+                `build + CPU lanes + GPU job: ${runCode}`,
+                `GPU harness + visual gate: ${runHarness}`,
+                `production evidence collector: ${runEvidence}`,
+                `slow streaming scenarios (Resident HLOD Main View, GPU Streaming Stress): ${runStreamingHeavy}`,
+              ])
+              .write();
 
   cpu-tests:
-    name: CPU-Only QA Tests (Linux)
-    # Skip the slow Linux build on PRs — the self-hosted Linux GPU runner is the fast gate.
-    # Runs on push to master/develop, nightly schedule, and manual dispatch.
-    if: github.event_name != 'pull_request'
+    name: CPU-Only QA Tests (Linux, hosted)
+    # GitHub-hosted: no fork guard needed, and fork PRs get the doctest lanes too.
+    # These lanes need no GPU, so they never occupy the self-hosted GPU runner.
+    needs: changes
+    if: needs.changes.outputs.run_code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -861,6 +321,7 @@ jobs:
       with:
         fetch-depth: 0
         submodules: recursive
+        persist-credentials: false
 
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -868,7 +329,8 @@ jobs:
         python-version: '3.11'
 
     # GAP-403: version-and-hash-locked. numpy is the only third-party import this
-    # job runs (test_data/generate_test_data.py); SCons comes from apt below.
+    # job runs (test_data/generate_test_data.py and, nightly, the guard phase's S1b
+    # quality harness tests); SCons comes from apt below.
     - name: Install Python dependencies
       run: |
         python -m pip install --require-hashes -r tests/ci/requirements-test-data.txt
@@ -920,6 +382,7 @@ jobs:
           ls -la bin
           exit 1
         fi
+        GODOT_BIN="$(realpath "$GODOT_BIN")"
         echo "path=$GODOT_BIN" >> "$GITHUB_OUTPUT"
         echo "GODOT_BINARY=$GODOT_BIN" >> "$GITHUB_ENV"
         echo "Using module-enabled binary: $GODOT_BIN"
@@ -954,23 +417,67 @@ jobs:
           echo "No test data generator found, proceeding without pre-generated data"
         fi
 
-    - name: Run baseline QA tests
+    - name: Run baseline QA tests (PLY, pipeline smoke, runtime)
+      # `pipeline` is the Gaussian pipeline smoke test the former Production Gates
+      # module-validation job ran on the GPU runner; it is headless.
       env:
         DISPLAY: :99
         GS_CI_GPU_REQUIRED: "0"
         # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
-        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
-        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
-        # `module` category, and the wrapper fails closed on a base-bearing
-        # event without a base -- which would block the merge queue only after
-        # the long job had already run.
+        # tests/ci/check_environment_skip_marker.py (#595). run_baseline_qa.py can
+        # reach tests/ci/run_module_tests.py (its `module` category), which fails
+        # closed on a base-bearing event without a base. Exported per SCRIPT, not
+        # per category: a present-but-unused base costs nothing.
         GS_CI_BASE_REF: >-
           ${{ github.event_name == 'merge_group'
               && github.event.merge_group.base_sha
               || github.event.pull_request.base.sha }}
       run: |
-        python3 tests/ci/run_baseline_qa.py --categories ply,pipeline,runtime,module
-      continue-on-error: false
+        python3 tests/ci/run_baseline_qa.py --categories ply,pipeline,runtime
+
+    - name: Run module tests (doctest lanes; full guard phase nightly)
+      # pull_request / merge_group: --skip-guards. The binary-independent guard
+      # phase already ran once in the required agentic-pr-gate; the guards that
+      # need this binary (runtime-validation real-producer capture, StringName
+      # orphan count) still run here. schedule / workflow_dispatch: the FULL
+      # phase, including every guard self-test, before the lanes.
+      if: ${{ !cancelled() && steps.godot_binary.outcome == 'success' }}
+      env:
+        DISPLAY: :99
+        EVENT_NAME: ${{ github.event_name }}
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
+      run: |
+        guard_args=()
+        if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
+          guard_args=(--skip-guards)
+        fi
+        python3 tests/ci/run_module_tests.py "${guard_args[@]}" --godot-binary "$GODOT_BINARY"
+
+    # T3 (#891, ADR section 4.6): its own report path, so no other runtime run in
+    # this workspace truncates it before the upload below.
+    - name: Run runtime validation harness (headless structural gate)
+      if: ${{ !cancelled() && steps.godot_binary.outcome == 'success' }}
+      run: |
+        python3 tests/runtime/run_runtime_validation.py \
+          --godot-binary "$GODOT_BINARY" \
+          --profile headless-ci \
+          --gd-mode headless \
+          --skip-cpp \
+          --fail-on-skip \
+          --report-path tests/runtime/runtime_validation_report_headless_ci.json
+
+    - name: Upload headless runtime validation report
+      if: ${{ always() && steps.godot_binary.outcome == 'success' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: runtime-validation-report-headless-ci
+        # Fail-loud: a soak that reads a silently absent report would count
+        # absence as evidence.
+        if-no-files-found: error
+        path: tests/runtime/runtime_validation_report_headless_ci.json
 
     - name: Collect test results
       if: always()
@@ -1052,40 +559,508 @@ jobs:
         if-no-files-found: warn
         retention-days: 30
 
-    - name: Comment on PR (success only)
-      if: github.event_name == 'pull_request' && success()
-      uses: actions/github-script@v7
+  gpu-tests:
+    name: GPU CI (build, QA scenes, harness, streaming)
+    # Never run self-hosted code on untrusted PR fork code. Same-repo branches
+    # (maintainer PRs) run it; fork PRs get cpu-tests and the required hosted
+    # agentic-pr-gate only. Protects the persistent runner's scons cache,
+    # credential store and Actions runner token from arbitrary code in
+    # `tests/ci/*.py`, `SConstruct`, `methods.py` or any `SCsub` checked out from a
+    # fork. (merge_group is maintainer-gated - see the README runner trust boundary.)
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.run_code == 'true'
+    runs-on: [self-hosted, Linux, X64, gpu]
+    needs: changes
+    timeout-minutes: 120
+    # Update-mode runs open a recapture PR (through BASELINE_UPDATE_PAT); the
+    # default token never pushes.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
+    # of this job's GPU processes. Rationale and the measured loader behaviour:
+    # the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md. Setting these proves nothing on its own, which
+    # is why the preflight step below reads back the chain the loader actually
+    # built.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process; the Linux
+      # runner is not elevated, so on Linux this alone strips implicit layers.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
+      # driver's layers are not implicit, and force-enabling them would put layers
+      # into the chain that no run outside CI has (measured: the preflight failed).
+      # Each layer's own opt-out, declared in its own manifest under
+      # `disable_environment`. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
+
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+
+    steps:
+    - name: Configure Git safe.directory
+      working-directory: ${{ github.workspace }}
+      run: |
+        git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
       with:
-        script: |
-          const fs = require('fs');
+        path: repo
+        fetch-depth: 0
+        submodules: recursive
+        set-safe-directory: false
+        # `persist-credentials: false` - without it, the checkout token
+        # (potentially the broadly-scoped BASELINE_UPDATE_PAT below) gets stored
+        # in .git/config as a credential helper for the rest of the job, exposing
+        # it to every subsequent step (scons cache writes, submodule fetches, the
+        # provenance step, etc.). The create-PR step receives the PAT directly via
+        # its own `token:` input, so the recapture-PR flow still works.
+        persist-credentials: false
+        # Update-mode runs push baseline changes back through a PR; everything
+        # else stays on the workflow's default token.
+        token: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.baseline_mode == 'update')) && secrets.BASELINE_UPDATE_PAT || secrets.GITHUB_TOKEN }}
 
-          let comment = '## Baseline QA Test Results (CPU)\n\n';
+    - name: Verify Python
+      run: |
+        python3 --version
 
-          try {
-            const results = JSON.parse(fs.readFileSync('baseline_qa_results.json', 'utf8'));
+    # This runner has no sudo, so no job installs system packages. This step
+    # fails closed and names exactly what is missing (Python 3.11, an NVIDIA
+    # Vulkan device, DISPLAY). PowerShell 7 is only required when the evidence
+    # collector (a .ps1) will run.
+    - name: Check Linux GPU runner toolchain
+      run: bash tests/ci/linux_gpu_runner.sh check-tools ${{ needs.changes.outputs.run_evidence == 'true' && '--need-pwsh' || '' }}
 
-            const total = results.total_tests;
-            const passed = results.passed_tests;
-            const successRate = total > 0 ? (passed/total*100).toFixed(1) : 0;
+    # Must precede the build and every GPU step: it decides whether anything
+    # measured afterwards is a measurement of the renderer (#875).
+    # #875 -- unrelated GPU work landing on the box while CI runs turns
+    # wall-clock budgets into failures that read like renderer regressions
+    # (#867, #881). This waits for the GPU to be free, then leaves a background
+    # sampler running so the postflight below can say whether contention began
+    # mid-job. It never relaxes a budget: a contended run is void, not passed.
+    - name: Preflight - GPU contention, wait for a free runner (#875)
+      run: python3 tests/ci/runner_gpu_contention.py preflight
 
-            comment += '| Test Suite | Status | Details |\n';
-            comment += '|------------|--------|---------|\n';
+    - name: Preflight - runner GPU environment (#875)
+      run: python3 tests/ci/preflight_runner_gpu_environment.py
 
-            for (const test of results.tests) {
-              const status = test.success ? 'PASS' : 'FAIL';
-              const duration = test.duration.toFixed(1);
-              comment += `| ${test.name} | ${status} | ${duration}s |\n`;
-            }
+    # GAP-403: nothing is installed into the runner's global interpreter. SCons
+    # goes into a per-job venv from the version-and-hash-locked
+    # tests/ci/requirements-scons.txt, and the venv's bin/ is prepended to PATH
+    # (via GITHUB_PATH, for every later step), so each later `python`, including
+    # `python -m SCons`, runs in the venv. `--with-test-data` adds the hash-locked
+    # numpy for the evidence collector's module-test run.
+    - name: Install SCons
+      run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
 
-            comment += `\n**Summary:** ${passed}/${total} tests passed (${successRate}%)\n`;
+    # CI diet (2026-11-07): the ONE self-hosted build of a PR, compiled in the job
+    # that tests it from the runner's persistent object cache. This replaces two
+    # identical build jobs plus two artifact uploads and three downloads to the
+    # same machine (~8-10 runner-minutes per PR, measured). No binary crosses a job
+    # boundary, so there is no provenance hand-off to verify; the checkout above is
+    # github.sha and this step builds exactly that tree. -j16, not nproc (32): the
+    # box has 24 GB of RAM and a full-width dev build of this module is
+    # memory-bound.
+    - name: Build module-enabled Godot editor
+      run: |
+        python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes module_gaussian_splatting_enabled=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
 
-          } catch (error) {
-            comment += 'Could not parse test results. Check the job logs for details.\n';
+    - name: Resolve Godot binary
+      id: godot_binary
+      run: |
+        resolved=""
+        for candidate in \
+          bin/godot.linuxbsd.editor.dev.x86_64 \
+          bin/godot.linuxbsd.editor.x86_64; do
+          if [ -x "$candidate" ]; then
+            resolved="$(realpath "$candidate")"
+            break
+          fi
+        done
+        if [ -z "$resolved" ]; then
+          echo "::error::Could not find built Godot binary in expected bin/ paths."
+          ls -la bin || true
+          exit 1
+        fi
+        echo "Resolved Godot binary: $resolved"
+        echo "path=$resolved" >> "$GITHUB_OUTPUT"
+        echo "GODOT_BINARY=$resolved" >> "$GITHUB_ENV"
+
+    - name: Resolve baseline mode
+      id: baseline_mode
+      run: |
+        mode="compare"
+        reason="default-compare"
+        if [ "${{ github.event_name }}" = "schedule" ]; then
+          mode="update"
+          reason="nightly-schedule-update"
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.baseline_mode }}" = "update" ]; then
+          mode="update"
+          reason="manual-update"
+        fi
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
+        echo "reason=$reason" >> "$GITHUB_OUTPUT"
+        echo "Resolved baseline mode: $mode ($reason)"
+
+    # Every GPU lane below runs once the binary exists, independent of whether an
+    # earlier lane failed: they used to be separate jobs, and one red lane must not
+    # hide the verdict of another.
+    - name: Run GPU sorting construction check (no sort-order coverage)
+      # NOT a sort-correctness gate. tests/ci/test_gpu_sorting_ci.gd only
+      # exercises the GDScript-visible surface of the sorting subsystem,
+      # which is construction (RadixSort.new() + get_algorithm_name()) -
+      # IGPUSorter/RadixSort's sort()/initialize() are never bound to
+      # GDScript, so there is no scriptable way to feed a sorter real data
+      # and assert output order from this step. See #594 for the audit
+      # finding and #622 for the tracked follow-up. Sort order is proven by the
+      # GPU harness `GpuSorting` batch below.
+      if: ${{ !cancelled() && steps.godot_binary.outcome == 'success' }}
+      env:
+        GS_CI_GPU_REQUIRED: "1"
+        GS_CI_VALIDATION_MODE: "strict"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step can reach
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
+      run: |
+        python tests/ci/run_baseline_qa.py --categories sorting,renderer --godot "$GODOT_BINARY"
+
+    - name: Run QA scene suite (blocking visual/SSIM gate)
+      # THE reason this step exists on a GPU job: the QA scene suite renders and
+      # reads back viewports. Under --headless there is no RenderingDevice, every
+      # capture returns null, and run_baseline_qa.py launders the failing run into
+      # a skip - which is why this category ran in no lane at all before #522 and
+      # its scenes had never once executed for real.
+      #
+      # --qa-require-capture launches the suite on the real display AND makes a
+      # no-results run a hard failure: on a lane that promises a GPU, a skip means
+      # the promise broke. --require-qa-baseline makes a missing baseline fail
+      # instead of warning. Both are passed in argv rather than left to
+      # GS_CI_GPU_REQUIRED so the intent is legible at the call site.
+      #
+      # Deliberately COMPARE-ONLY, unlike the GPU harness visual baselines: this
+      # step never honours steps.baseline_mode. A nightly job that rewrites its
+      # own expectations cannot detect a regression - it absorbs one. Refreshing
+      # tests/ci/baselines/qa_results.json is a deliberate act: run
+      # `--categories qa --qa-require-capture --update-qa-baseline` locally and
+      # commit the result for review.
+      if: ${{ !cancelled() && steps.godot_binary.outcome == 'success' }}
+      env:
+        GS_CI_GPU_REQUIRED: "1"
+        GS_CI_VALIDATION_MODE: "strict"
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
+      run: |
+        # `--update-qa-baseline` is intentionally absent here and must stay
+        # absent, including via `baseline_mode`. A lane that rewrites the
+        # expectations it is checking absorbs regressions instead of detecting
+        # them; the guard named above fails the build if this changes.
+        python tests/ci/run_baseline_qa.py --categories qa --qa-require-capture --require-qa-baseline --godot "$GODOT_BINARY"
+
+    - name: Upload GPU test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: baseline-qa-gpu-results
+        path: |
+          repo/baseline_qa_results.json
+          repo/tests/ci/qa_results.json
+          repo/baseline_qa_regression_report.json
+          repo/baseline_qa_regression_summary.md
+          repo/*test_results.json
+          repo/*.log
+        if-no-files-found: warn
+        retention-days: 30
+
+    - name: Post GPU test summary
+      if: always()
+      run: |
+        python3 tests/ci/ci_reports.py baseline-qa-summary \
+          --trigger "${{ github.event_name }}" \
+          --baseline-mode "${{ steps.baseline_mode.outputs.mode }}" \
+          --baseline-reason "${{ steps.baseline_mode.outputs.reason }}"
+
+    # --- GPU harness + visual gate (formerly the gpu-harness job) ---
+    - name: Record runner provenance
+      if: ${{ !cancelled() && needs.changes.outputs.run_harness == 'true' && steps.godot_binary.outcome == 'success' }}
+      run: |
+        python3 tests/ci/ci_reports.py provenance \
+          --out tests/visual_baselines/.provenance.json \
+          --baseline-mode "${{ steps.baseline_mode.outputs.mode }}" \
+          --baseline-reason "${{ steps.baseline_mode.outputs.reason }}"
+
+    - name: Run GPU harness
+      id: harness
+      if: ${{ !cancelled() && needs.changes.outputs.run_harness == 'true' && steps.godot_binary.outcome == 'success' }}
+      env:
+        GS_CI_GPU_REQUIRED: "1"
+        GS_VISUAL_BASELINE_MODE: ${{ steps.baseline_mode.outputs.mode }}
+      run: |
+        python tests/ci/run_gpu_harness.py \
+          --godot "$GODOT_BINARY" \
+          --report tests/ci/gpu_harness_report.json
+
+    - name: Upload visual diff artifacts (compare mode)
+      if: always() && needs.changes.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'compare'
+      uses: actions/upload-artifact@v4
+      with:
+        name: gpu-harness-visual-diffs
+        path: |
+          repo/tests/visual_baselines/**/*.actual.png
+          repo/tests/visual_baselines/.provenance.json
+          repo/tests/ci/gpu_harness_report.json
+        if-no-files-found: ignore
+        retention-days: 30
+
+    - name: Upload regenerated baselines (update mode)
+      if: always() && needs.changes.outputs.run_harness == 'true' && steps.baseline_mode.outputs.mode == 'update'
+      uses: actions/upload-artifact@v4
+      with:
+        name: gpu-harness-recaptured-baselines
+        path: |
+          repo/tests/visual_baselines/**/*.png
+          repo/tests/visual_baselines/.provenance.json
+          repo/tests/ci/gpu_harness_report.json
+        if-no-files-found: warn
+        retention-days: 90
+
+    # Keyed to the harness step's own outcome, not to success(): the harness used
+    # to be its own job, so a failed QA scene lane did not suppress a recapture.
+    - name: Check recapture PAT availability
+      id: recapture_pat
+      if: ${{ !cancelled() && steps.harness.outcome == 'success' && steps.baseline_mode.outputs.mode == 'update' }}
+      env:
+        PAT_PROBE: ${{ secrets.BASELINE_UPDATE_PAT }}
+      run: |
+        if [ -z "$PAT_PROBE" ]; then
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::BASELINE_UPDATE_PAT secret is not provisioned. Update-mode run will capture baselines as artifacts only; no recapture PR will be opened. Provision the secret in repo settings to enable the auto-PR flow."
+        else
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Open recapture PR
+      if: ${{ !cancelled() && steps.harness.outcome == 'success' && steps.baseline_mode.outputs.mode == 'update' && steps.recapture_pat.outputs.available == 'true' }}
+      # SHA-pinned (third-party action handed BASELINE_UPDATE_PAT).
+      # `c5a7806660adbe173f04e3e038b0ccdcd758773c` is `peter-evans/create-pull-request@v6`
+      # as of 2026-05-17 - refreshed via:
+      #   gh api repos/peter-evans/create-pull-request/git/refs/tags/v6
+      # Bump intentionally (review the diff between the old and new SHA)
+      # rather than letting the floating major tag move silently. The
+      # tj-actions/changed-files March-2025 incident is the canonical
+      # cautionary tale for floating tags on actions that hold secrets.
+      uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
+      with:
+        token: ${{ secrets.BASELINE_UPDATE_PAT }}
+        path: repo
+        branch: ci/baseline-recapture/${{ github.run_id }}
+        base: master
+        commit-message: |
+          visual_baselines: recapture from run ${{ github.run_id }}
+
+          Trigger: ${{ github.event_name }} (${{ steps.baseline_mode.outputs.reason }})
+          Provenance is in the gpu-harness-recaptured-baselines artifact
+          and (after merge) in tests/visual_baselines/.provenance.json.
+        title: "visual_baselines: scheduled recapture (${{ github.run_id }})"
+        body: |
+          Automated baseline recapture from `baseline_qa.yml` run ${{ github.run_id }}.
+          Provenance JSON is attached to the `gpu-harness-recaptured-baselines`
+          workflow artifact for this run.
+
+          **Reviewer checklist:**
+          - [ ] Diffs are within sub-LSB rendering tolerances (no functional regression).
+          - [ ] Driver/GPU change documented per `tests/visual_baselines/README.md`.
+          - [ ] No new PNGs exceed the 256x256 fixture-size guideline unless justified.
+        add-paths: |
+          tests/visual_baselines/**/*.png
+          tests/visual_baselines/.provenance.json
+        delete-branch: true
+
+    - name: Append GPU harness summary
+      if: always() && needs.changes.outputs.run_harness == 'true'
+      run: |
+        python3 tests/ci/ci_reports.py gpu-harness-summary \
+          --mode "${{ steps.baseline_mode.outputs.mode }}" \
+          --reason "${{ steps.baseline_mode.outputs.reason }}"
+
+    - name: Report skipped GPU harness
+      if: needs.changes.outputs.run_harness != 'true'
+      run: |
+        {
+          echo "## GPU Harness + Visual Gate"
+          echo "Skipped: ${{ needs.changes.outputs.reason }} (no render-path change)"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # --- Streaming GPU runtime gate (formerly in Production Gates module-validation) ---
+    # Canonical blocking profile. Nightly and on PRs that can affect streaming, HLOD
+    # or the renderer it runs every scenario of the profile. Other PRs skip the two
+    # slow scenarios (Resident HLOD Main View ~89 s, GPU Streaming Stress ~61 s);
+    # the remaining scenarios are DERIVED from the profile, so a scenario added
+    # later runs on every PR by default, and the step fails if either slow
+    # scenario disappears from the profile (the skip list would then be stale).
+    - name: Run streaming GPU runtime gate (canonical blocking profile, gpu-vulkan)
+      if: ${{ !cancelled() && steps.godot_binary.outcome == 'success' }}
+      env:
+        RUN_STREAMING_HEAVY: ${{ needs.changes.outputs.run_streaming_heavy }}
+      run: |
+        selection=()
+        if [ "$RUN_STREAMING_HEAVY" != "true" ]; then
+          mapfile -t light < <(python3 - <<'PY'
+        import json
+        heavy = {"Resident HLOD Main View", "GPU Streaming Stress"}
+        with open("tests/runtime/runtime_scenarios.json", encoding="utf-8") as handle:
+            tests = json.load(handle)["profiles"]["streaming-gpu-ci"]["gd_tests"]
+        missing = sorted(heavy - set(tests))
+        if missing:
+            raise SystemExit(f"slow streaming scenarios no longer in streaming-gpu-ci: {missing}")
+        for name in tests:
+            if name not in heavy:
+                print(name)
+        PY
+          )
+          if [ "${#light[@]}" -eq 0 ]; then
+            echo "::error::No streaming scenario left to run after removing the slow ones."
+            exit 1
+          fi
+          for name in "${light[@]}"; do
+            selection+=(--gd-test "$name")
+          done
+          echo "::notice::Slow streaming scenarios skipped on this PR (no streaming/HLOD/renderer change); they run nightly. Running: ${light[*]}"
+        fi
+        python tests/runtime/run_runtime_validation.py \
+          --godot-binary "$GODOT_BINARY" \
+          --profile streaming-gpu-ci \
+          --skip-cpp \
+          --fail-on-skip \
+          --report-path tests/runtime/runtime_validation_report_streaming_gpu_ci.json \
+          "${selection[@]}"
+
+    - name: Upload streaming runtime validation report
+      if: ${{ always() && steps.godot_binary.outcome == 'success' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: runtime-validation-report
+        # if-no-files-found stays fail-loud: a soak that reads a silently
+        # absent report would count absence as evidence.
+        if-no-files-found: error
+        path: repo/tests/runtime/runtime_validation_report_streaming_gpu_ci.json
+
+    # --- Production evidence (formerly in Production Gates module-validation) ---
+    # The collector is PowerShell (tests/ci/collect_production_evidence.ps1) and
+    # is OS-aware: it picks the `x11` display driver and the linuxbsd binary names
+    # here. PowerShell 7 on the Linux runner is checked by the toolchain step.
+    - name: Collect production evidence
+      id: evidence
+      if: ${{ always() && needs.changes.outputs.run_evidence == 'true' && steps.godot_binary.outcome == 'success' }}
+      shell: pwsh
+      env:
+        RUNTIME_LOOPS: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_loops || '3' }}
+      run: |
+        $runtimeLoops = [int]$env:RUNTIME_LOOPS
+        ./tests/ci/collect_production_evidence.ps1 `
+          -Root $PWD `
+          -GodotBinary "${{ steps.godot_binary.outputs.path }}" `
+          -OutputRoot (Join-Path $PWD "artifacts/evidence") `
+          -RuntimeLoops $runtimeLoops
+        # #1164: the script exits non-zero when any recorded sub-command did
+        # not pass. Capture it before anything else runs, publish the evidence
+        # directory so the upload step still ships the logs, then fail.
+        $evidenceExit = $LASTEXITCODE
+
+        $latest = Get-ChildItem (Join-Path $PWD "artifacts/evidence") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        if (-not $latest) {
+          throw "Evidence directory not found after run."
+        }
+        "dir=$($latest.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        if ($null -eq $evidenceExit -or $evidenceExit -ne 0) {
+          throw "collect_production_evidence.ps1 exited '$evidenceExit': at least one recorded sub-command did not pass (see results[].passed in summary.json)."
+        }
+
+    - name: Upload evidence artifact
+      if: ${{ always() && needs.changes.outputs.run_evidence == 'true' && steps.evidence.outputs.dir != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-gpu-production-evidence
+        path: ${{ steps.evidence.outputs.dir }}
+
+    # #1164: this used to run only on a workflow_dispatch with
+    # enforce_gpu_readiness=true (default false), so on pull_request, push and
+    # merge_group the booleans were collected, uploaded and never compared.
+    # It runs on every event that produced evidence; the only way to skip it is
+    # an explicit enforce_gpu_readiness=false on a manual dispatch.
+    # Careful when editing: for non-dispatch events `inputs.*` is null, and in
+    # Actions expressions null == false is TRUE, so a bare
+    # `inputs.enforce_gpu_readiness != false` would silently skip every PR.
+    # tests/ci/test_production_readiness_enforcement.py evaluates this
+    # condition per event and fails if any non-dispatch event can skip it.
+    - name: Enforce readiness booleans
+      if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.enforce_gpu_readiness == false || inputs.enforce_gpu_readiness == 'false')) && needs.changes.outputs.run_evidence == 'true' && steps.evidence.outcome == 'success' && steps.evidence.outputs.dir != '' }}
+      shell: pwsh
+      run: |
+        $summaryPath = Join-Path "${{ steps.evidence.outputs.dir }}" "summary.json"
+        if (-not (Test-Path -LiteralPath $summaryPath)) {
+          throw "Missing summary.json at $summaryPath"
+        }
+
+        $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+        # Ratchet (#1164, maintainer decision 2026-10-13): enforce the booleans
+        # that pass today. The other summary.json keys are REPORTED, NOT
+        # ENFORCED until #1241 makes them pass: 943_ready (tier_1m baseline,
+        # including the #883 advisory ratio), 871_ready (needs an executed,
+        # un-quarantined streaming QA scene; all are quarantined, #786) and
+        # 902_ready (their conjunction). These are legacy tracker labels, not
+        # GitHub issues #943/#871/#902. Moving a key from $reported into
+        # $required is the only allowed direction;
+        # tests/ci/test_production_readiness_enforcement.py fails if the
+        # reported set grows.
+        $required = @("897_907_ready", "900_ready", "815_ready")
+        $reported = @("943_ready", "871_ready", "902_ready")
+        $missing = @()
+        foreach ($key in $required) {
+          if (-not $summary.issues.$key) {
+            $missing += $key
           }
+        }
 
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: comment
-          });
+        $reportLines = @("### Readiness booleans reported, not enforced (#1241)", "")
+        foreach ($key in $reported) {
+          $value = $summary.issues.$key
+          $state = if ($null -eq $value) { "MISSING" } elseif ($value) { "true" } else { "false" }
+          $reportLines += "- ``$key`` = $state (reported, not enforced; tracked in #1241)"
+          if ($state -ne "true") {
+            Write-Host "::warning title=Readiness reported, not enforced::$key = $state (tracked in #1241)"
+          }
+        }
+        if ($env:GITHUB_STEP_SUMMARY) {
+          $reportLines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+        }
+        $reportLines | ForEach-Object { Write-Host $_ }
+
+        if ($missing.Count -gt 0) {
+          throw ("Production readiness checks failed: " + ($missing -join ", "))
+        }
+
+    # #875 -- must run even when the job failed: a timing failure above is
+    # exactly the result whose attribution this decides. Exits 75 (not 1) when
+    # the run is void, so it cannot be read as a test failure.
+    - name: Postflight - GPU contention verdict (#875)
+      if: always()
+      run: python3 tests/ci/runner_gpu_contention.py postflight

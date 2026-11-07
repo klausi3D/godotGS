@@ -2867,7 +2867,7 @@ class BenchmarkEvidenceWorkflowWiringTests(unittest.TestCase):
             for path in sorted(WORKFLOW_DIR.glob("*.yml"))
         }
 
-    def _executed_prep_steps(self):
+    def _executed_prep_steps(self, workflow_paths=None):
         """(workflow, job, step name, run script) for every step that RUNS the prep.
 
         Read through the GPU-environment guard's structural step parser rather than
@@ -2887,7 +2887,7 @@ class BenchmarkEvidenceWorkflowWiringTests(unittest.TestCase):
             ci_dir / "test_preflight_runner_gpu_environment.py",
         )
         found = []
-        for path in env_guard.workflow_paths():
+        for path in (env_guard.workflow_paths() if workflow_paths is None else workflow_paths):
             lines = path.read_text(encoding="utf-8").splitlines()
             for job, (first, last) in sorted(env_guard.job_spans(lines).items()):
                 job_lines = lines[first:last]
@@ -2925,27 +2925,39 @@ class BenchmarkEvidenceWorkflowWiringTests(unittest.TestCase):
     def test_a_trigger_path_filter_is_not_a_prep_invocation(self):
         """The regression this replaces: two `paths:` entries failed master.
 
-        Discrimination in both directions. The filter entries must exist -- if they
-        stop existing, this case says so rather than passing over nothing -- and
-        they must not be counted, while the real invocation in
-        gaussian_production_gates.yml still is.
+        Discrimination in both directions: a filter entry must not be counted, while
+        the real invocation in gaussian_production_gates.yml still is.
+
+        The CI diet (2026-11-07) removed release_builds.yml's path-filtered triggers,
+        and with them the two real filter entries this case used to read. The filter
+        shape is therefore a fixture now, so the case keeps exercising the reader
+        instead of passing over nothing.
         """
-        release = (WORKFLOW_DIR / "release_builds.yml").read_text(encoding="utf-8")
-        filter_entries = [
-            line for line in release.splitlines()
-            if line.strip() == '- "tests/runtime/prepare_synthetic_assets.py"'
-        ]
-        self.assertTrue(
-            filter_entries,
-            "release_builds.yml no longer lists the prep script as a trigger path; "
-            "this case no longer exercises anything",
+        fixture = (
+            "on:\n"
+            "  pull_request:\n"
+            "    paths:\n"
+            '      - "tests/runtime/prepare_synthetic_assets.py"\n'
+            "  push:\n"
+            "    paths:\n"
+            '      - "tests/runtime/prepare_synthetic_assets.py"\n'
+            "jobs:\n"
+            "  build:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - name: Build\n"
+            "        run: echo build\n"
         )
+        with tempfile.TemporaryDirectory() as raw:
+            workflow = Path(raw) / "filter_only.yml"
+            workflow.write_text(fixture, encoding="utf-8")
+            self.assertIn('- "tests/runtime/prepare_synthetic_assets.py"', fixture)
+            self.assertEqual(
+                self._executed_prep_steps([workflow]),
+                [],
+                "a trigger path filter was counted as an invocation of the prep script",
+            )
         steps = self._executed_prep_steps()
-        self.assertNotIn(
-            "release_builds.yml",
-            {workflow for workflow, _job, _name, _run in steps},
-            "a trigger path filter was counted as an invocation of the prep script",
-        )
         self.assertIn(
             "gaussian_production_gates.yml",
             {workflow for workflow, _job, _name, _run in steps},

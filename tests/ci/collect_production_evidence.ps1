@@ -368,8 +368,12 @@ $ErrorActionPreference = "SilentlyContinue"
 & $GodotBinary --version 2>&1 | Tee-Object -FilePath $versionLog | Out-Null
 $ErrorActionPreference = $previousErrorActionPreference
 
+# --skip-guards (CI diet, 2026-11-07): the binary-independent guard phase runs once
+# per PR in agentic-pr-gate and in full nightly; re-running it here only held the
+# GPU runner. The binary-dependent guards and every doctest lane still run.
 $moduleTestCommand = $PythonCommand + @(
     "tests/ci/run_module_tests.py",
+    "--skip-guards",
     "--godot-binary",
     $GodotBinary
 )

@@ -139,6 +139,14 @@ the Phase-2 settings-as-code item above.
   fork PR code on a persistent self-hosted runner, and never enable a
   `pull_request_target` privileged checkout.
 
+## Code scanning
+
+- CodeQL runs as an advanced-setup workflow, `.github/workflows/codeql.yml`
+  (weekly + `workflow_dispatch`, GitHub-hosted), since the CI diet (maintainer
+  approval 2026-11-07). GitHub's CodeQL **default setup** must be switched off
+  (Settings -> Code security -> Code scanning) once that workflow is on `master`;
+  GitHub refuses advanced-setup uploads while default setup is enabled.
+
 ## Emergency bypass
 
 - `enforce_admins` is `true`, so an admin cannot merge past a failing required
