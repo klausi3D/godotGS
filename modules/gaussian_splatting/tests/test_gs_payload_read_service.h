@@ -92,7 +92,7 @@ bool _prs_bytes_match(const PRS::Completion &p_completion, uint64_t p_offset, ui
 
 } // namespace
 
-TEST_CASE("[GaussianSplatting][PayloadReadService] concurrent reads of one file get the right bytes on pooled handles") {
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] concurrent reads of one file get the right bytes on pooled handles") {
 	PrsFile file("positional", 256 * 1024);
 
 	{
@@ -145,7 +145,7 @@ TEST_CASE("[GaussianSplatting][PayloadReadService] concurrent reads of one file 
 	}
 }
 
-TEST_CASE("[GaussianSplatting][PayloadReadService] the idle pool is bounded and release_handles closes what it holds") {
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] the idle pool is bounded and release_handles closes what it holds") {
 	PrsFile a("idle_a", 4096);
 	PrsFile b("idle_b", 4096);
 	PRS service;
@@ -174,7 +174,7 @@ TEST_CASE("[GaussianSplatting][PayloadReadService] the idle pool is bounded and 
 	CHECK(DirAccess::remove_absolute(a.path) == OK);
 }
 
-TEST_CASE("[GaussianSplatting][PayloadReadService] bytes in flight stay bounded until the consumer takes them") {
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] bytes in flight stay bounded until the consumer takes them") {
 	PrsFile file("budget", 4096);
 	PrsReadGate gate;
 	gate.ticket = 1;
@@ -217,7 +217,7 @@ TEST_CASE("[GaussianSplatting][PayloadReadService] bytes in flight stay bounded 
 	CHECK(stats.completed_ok == 3);
 }
 
-TEST_CASE("[GaussianSplatting][PayloadReadService] a cancelled ticket is never delivered, wherever it was") {
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] a cancelled ticket is never delivered, wherever it was") {
 	const uint64_t slice = PRS::read_slice_bytes;
 	PrsFile file("cancel", 3 * slice + 4096);
 	PrsReadGate gate;
@@ -276,7 +276,7 @@ TEST_CASE("[GaussianSplatting][PayloadReadService] a cancelled ticket is never d
 	CHECK(stats.completed_ok == 3); // Ticket 4 did finish; the cancel withdrew its result.
 }
 
-TEST_CASE("[GaussianSplatting][PayloadReadService] a failed read delivers no bytes and retires its handle") {
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] a failed read delivers no bytes and retires its handle") {
 	PrsFile file("failure", 4096);
 	PRS service;
 	PRS::Config config;
@@ -339,7 +339,7 @@ struct PrsStopper {
 
 } // namespace
 
-TEST_CASE("[GaussianSplatting][PayloadReadService] shutdown wakes waiters, stops running reads and leaves nothing behind") {
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] shutdown wakes waiters, stops running reads and leaves nothing behind") {
 	const uint64_t slice = PRS::read_slice_bytes;
 	PrsFile file("shutdown", 3 * slice);
 	PrsReadGate gate;
