@@ -1,0 +1,133 @@
+scons: Reading SConscript files ...
+SCons cache enabled... (path: ".scons_cache")
+[33m[1mWARNING:[22;23;24;29m wayland-scanner not found. Disabling Wayland support.[0m
+Building for platform "linuxbsd", architecture "x86_64", target "editor".
+[90m[1mINFO:[22;23;24;29m Developer build, with debug optimization level and debug symbols (unless overridden).[0m
+scons: done reading SConscript files.
+scons: Building targets ...
+[34mGenerating [1mcore/disabled_classes.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mcore/object/gdvirtual.gen.inc[22;23;24;29m ...[0m
+[34mGenerating [1mcore/version_generated.gen.h[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/godot_linuxbsd.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/crash_handler_linuxbsd.cpp[22;23;24;29m ...[0m
+[34mGenerating [1mcore/io/certs_compressed.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mmodules/modules_enabled.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/effects/copy.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/effects/cubemap_filter.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/feed.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/effects/glow.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/effects/post.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/canvas.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/canvas_occlusion.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/sky.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/particles.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/scene.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/skeleton.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/particles_copy.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mdrivers/gles3/shaders/canvas_sdf.glsl.gen.h[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/freedesktop_portal_desktop.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/os_linuxbsd.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/freedesktop_screensaver.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/freedesktop_at_spi_monitor.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/xkbcommon-so_wrap.c[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/blit.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/volumetric_fog.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/volumetric_fog_process.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/canvas.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/canvas_occlusion.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/skeleton.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/particles.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/particles_copy.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/canvas_sdf.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/cluster_debug.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/cluster_render.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/cluster_store.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/gi.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/sdfgi_debug.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/sdfgi_debug_probes.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/sdfgi_direct_light.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/sdfgi_integrate.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/sdfgi_preprocess.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/voxel_gi.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/voxel_gi_debug.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/bokeh_dof.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/bokeh_dof_raster.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/blur_raster.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/copy.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/copy_to_fb.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/cube_to_dp.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/cubemap_downsampler.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/cubemap_downsampler_raster.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/cubemap_filter.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/cubemap_filter_raster.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/smaa_edge_detection.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/smaa_weight_calculation.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/tonemap.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/vrs.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/sky.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/effects/sort.glsl.gen.h[22;23;24;29m ...[0m
+[34mCompiling [1mplatform/linuxbsd/x11/display_server_x11.cpp[22;23;24;29m ...[0m
+In file included from [01m[K./modules/gaussian_splatting/renderer/gaussian_splat_renderer.h:40[m[K,
+                 from [01m[K./servers/rendering/renderer_rd/storage_rd/render_data_rd.h:44[m[K,
+                 from [01m[K./servers/rendering/renderer_rd/environment/sky.h:38[m[K,
+                 from [01m[K./servers/rendering/renderer_rd/environment/gi.h:37[m[K,
+                 from [01m[K./servers/rendering/renderer_rd/environment/fog.h:37[m[K,
+                 from [01m[K./servers/rendering/renderer_rd/renderer_compositor_rd.h:35[m[K,
+                 from [01m[Kplatform/linuxbsd/x11/display_server_x11.cpp:49[m[K:
+[01m[K./modules/gaussian_splatting/renderer/../core/gs_project_settings.h:288:57:[m[K [01;35m[Kwarning: [m[K'[01m[K/*[m[K' within comment [[01;35m[K-Wcomment[m[K]
+  288 |  * @brief The six `rendering/gaussian_splatting/lighting/*` settings. #851.
+In file included from [01m[K./modules/gaussian_splatting/renderer/../interfaces/../renderer/tile_render_types.h:13[m[K,
+                 from [01m[K./modules/gaussian_splatting/renderer/../interfaces/rasterizer_interfaces.h:12[m[K,
+                 from [01m[K./modules/gaussian_splatting/renderer/../interfaces/tile_rasterizer.h:4[m[K,
+                 from [01m[K./modules/gaussian_splatting/renderer/../interfaces/painterly_renderer.h:5[m[K,
+                 from [01m[K./modules/gaussian_splatting/renderer/gaussian_splat_renderer.h:43[m[K:
+[01m[K./modules/gaussian_splatting/renderer/../interfaces/../renderer/../core/gs_project_settings.h:288:57:[m[K [01;35m[Kwarning: [m[K'[01m[K/*[m[K' within comment [[01;35m[K-Wcomment[m[K]
+  288 |  * @brief The six `rendering/gaussian_splatting/lighting/*` settings. #851.
+[34mCompiling [1mthirdparty/harfbuzz/src/hb-ot-layout.cc[22;23;24;29m ...[0m
+In file included from [01m[K./modules/modules_tests.gen.h:57[m[K:
+[01m[K./modules/gaussian_splatting/tests/test_deformation_math.h:[m[K In function '[01m[Kvoid[01;32m[K DOCTEST_ANON_FUNC_10093[m[K()[m[K':
+[01m[K./modules/gaussian_splatting/tests/test_deformation_math.h:108:21:[m[K [01;35m[Kwarning: [m[Kunused variable '[01m[Kfc[m[K' [[01;35m[K-Wunused-variable[m[K]
+  108 |         const float [01;35m[Kfc[m[K = sphere_effector_anim_sample(c, center, radius, falloff, frequency, time_seconds).anim_factor;
+      |                     [01;35m[K^~[m[K
+In file included from [01m[K./modules/modules_tests.gen.h:61[m[K:
+[01m[K./modules/gaussian_splatting/tests/test_gaussian_importance_prune.h:[m[K In function '[01m[Kvoid[01;32m[K DOCTEST_ANON_FUNC_10153[m[K()[m[K':
+[01m[K./modules/gaussian_splatting/tests/test_gaussian_importance_prune.h:115:15:[m[K [01;35m[Kwarning: [m[K'[01m[Kvoid*[01;32m[K memcpy[m[K(void*, const void*, size_t)[m[K' writing to an object of type '[01m[Kstruct Gaussian[m[K' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [[01;35m[K-Wclass-memaccess[m[K]
+  115 |         [01;35m[Kmemcpy(gaussians_before.ptr(), data->get_gaussians(), sizeof(Gaussian) * 6)[m[K;
+      |         [01;35m[K~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+In file included from [01m[K./modules/gaussian_splatting/tests/synthetic_ply_writer.h:4[m[K,
+                 from [01m[K./modules/gaussian_splatting/tests/generate_synthetic_ply_fixtures.h:6[m[K,
+[34mCompiling [1mcore/string/translation_domain.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/string/translation_po.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/string/translation_server.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/string/ustring.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/config/engine.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/config/project_settings.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/error/error_list.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mcore/error/error_macros.cpp[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/autofit/autofit.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftbase.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftbbox.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftbdf.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftbitmap.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftcid.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftdebug.c[22;23;24;29m ...[0m
+[34mCompiling [1mthirdparty/freetype/src/base/ftfstype.c[22;23;24;29m ...[0m
+[34mGenerating [1mmodules/gaussian_splatting/shaders/includes/quantization_dequant.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mmodules/gaussian_splatting/shaders/includes/sort_contract.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mmodules/gaussian_splatting/shaders/includes/tile_projection_common.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mmodules/gaussian_splatting/shaders/includes/tile_raster_common.glsl.gen.h[22;23;24;29m ...[0m
+[34mLinking Static Library [1mbin/obj/modules/msdfgen/libmsdfgen_builtin.linuxbsd.editor.dev.x86_64.a[22;23;24;29m ...[0m
+[34mRanlib Library [1mbin/obj/modules/msdfgen/libmsdfgen_builtin.linuxbsd.editor.dev.x86_64.a[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/canvas_uniforms_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/cluster_data_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/environment/voxel_gi_sdf.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/giprobe_write.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/half_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/samplers_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/scene_forward_aa_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/scene_forward_gi_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/scene_forward_lights_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mGenerating [1mservers/rendering/renderer_rd/shaders/scene_forward_vertex_lights_inc.glsl.gen.h[22;23;24;29m ...[0m
+[34mLinking Program [1mbin/godot.linuxbsd.editor.dev.x86_64[22;23;24;29m ...[0m
+scons: done building targets.
+[90m[1mINFO:[22;23;24;29m Time elapsed: 00:26:15.25[0m

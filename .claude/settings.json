@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR}/scripts/agentic/condense_output.py\" hook",
+            "command": "python \"${CLAUDE_PROJECT_DIR}/scripts/agentic/condense_output.py\" hook || exit 0",
             "timeout": 10
           }
         ]
