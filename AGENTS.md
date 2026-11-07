@@ -16,6 +16,7 @@ under `modules/gaussian_splatting/`. Treat everything else as upstream Godot.
 | `tests/` | CI guards, runtime harness, benchmarks, GDScript/C++ tests. Has its own `AGENTS.md`. |
 | `.github/workflows/` | CI workflows incl. self-hosted runners. Has its own `AGENTS.md`. |
 | `.agentic/` | Machine-readable agent control plane (risk policy, ownership, task/review contracts, roles). |
+| `.claude/`, `.codex/`, `.agents/skills/` | Tool adapters: Claude Code and Codex settings, hooks, subagents, and on-demand skills (`.agents/skills/` mirrors `.claude/skills/`; a test enforces it). |
 | `docs/governance/` | Canonical process docs. |
 | `docs/agent_memory/` | **Legacy. Not source of truth.** Frozen coordination memory; active issues live in GitHub Issues. |
 | `servers/`, `scene/`, `core/`, `editor/`, `platform/`, `drivers/`, `main/` | Upstream Godot. Touch only with strong justification. |

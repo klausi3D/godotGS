@@ -47,14 +47,19 @@ Module-only targets are in `modules/gaussian_splatting/docs/BUILD_AND_TEST.md`.
   `scons ...` and `python tests/{ci,runtime}/run_*.py ...` commands. The output is
   condensed to failure lines, a warning count and the tail, and the full log goes to
   `tests/output/agent_logs/`. The exit status passes through unchanged.
-  - For raw output, prefix the command with `GS_RAW_OUTPUT=1`.
+  - Claude Code: `.claude/settings.json`. Codex: `.codex/hooks.json` (trust it once
+    via `/hooks`).
+  - For raw output in Claude Code, prefix the command with `GS_RAW_OUTPUT=1`. In
+    Codex, set `GS_RAW_OUTPUT=1` in the environment Codex starts in.
   - Commands that already pipe, redirect or chain are not rewritten.
-- Without the hook, call the condenser directly from bash:
+- Without the hook, call the condenser directly. Any shell:
+  `python scripts/agentic/condense_output.py run --kind runner --hex <hex of the command>`.
+  Bash:
   `( set -o pipefail; <cmd> 2>&1 | python scripts/agentic/condense_output.py filter --kind runner )`.
   Use `--kind scons` for builds.
 - To dig into a full log, search it for the failing case name. Do not read it whole.
-- For long multi-lane runs, delegate to the `gs-verifier` subagent. It returns a short
-  verdict with evidence.
+- For long multi-lane runs, delegate to the verifier subagent (`gs-verifier` in
+  Claude Code, `gs_verifier` in Codex). It returns a short verdict with evidence.
 
 ## Report honestly
 

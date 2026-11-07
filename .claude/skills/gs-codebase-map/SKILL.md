@@ -41,8 +41,9 @@ How to work with them:
 1. Find the symbol: search (`rg -n`) for `ClassName::method` or the identifier.
 2. Read only a window of about 80–200 lines around the hit.
 3. Read headers (`*.h`) for the API before reading `*.cpp` for implementation.
-4. Delegate broad "how does X work" questions to the `gs-explorer` subagent, which
-   returns file:line summaries instead of file contents.
+4. Delegate broad "how does X work" questions to the explorer subagent
+   (`gs-explorer` in Claude Code, `gs_explorer` in Codex). It returns file:line
+   summaries instead of file contents.
 
 ## Never a source of truth / not worth reading
 
