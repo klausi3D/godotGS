@@ -20,7 +20,7 @@ inline uint64_t default_sort_bytes(uint64_t p_records) {
 	return GPUSortingConstants::overlap_sort_total_bytes(p_records, 4u, 512u, 64u);
 }
 
-TEST_CASE("[GaussianSplatting][OverlapBootstrap] E4 accounting is the ADR's 28 B per record") {
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] E4 accounting is the ADR's 28 B per record") {
 	// The ADR's two figures: 100M records 2,670 MiB, 32M records 855 MiB.
 	CHECK(default_sort_bytes(100000000u) / MIB == 2670u);
 	CHECK(default_sort_bytes(32000000u) / MIB == 854u);
@@ -33,14 +33,14 @@ TEST_CASE("[GaussianSplatting][OverlapBootstrap] E4 accounting is the ADR's 28 B
 	CHECK(GPUSortingConstants::overlap_sort_total_bytes(1u << 20, 5u, 512u, 64u) == GPUSortingConstants::SORT_PATH_SIZE_UNSUPPORTED);
 }
 
-TEST_CASE("[GaussianSplatting][OverlapBootstrap] the unmeasured bootstrap costs the steady figure, not the 2,670 MiB cap") {
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] the unmeasured bootstrap costs the steady figure, not the 2,670 MiB cap") {
 	const uint32_t seed = GaussianSplatting::overlap_demand_estimate(4000000u, 0u);
 	CHECK(seed == 32000000u);
 	CHECK(default_sort_bytes(seed) / MIB == 854u);
 	CHECK(GaussianSplatting::overlap_demand_estimate(0u, 0u) == 0u);
 }
 
-TEST_CASE("[GaussianSplatting][OverlapBootstrap] a measurement replaces the seed in both directions") {
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] a measurement replaces the seed in both directions") {
 	const uint32_t sparse_q8 = GaussianSplatting::overlap_records_per_splat_q8(1000000u, 4000000u);
 	CHECK(sparse_q8 == 64u); // 0.25 records/splat survives the fixed point.
 	CHECK(GaussianSplatting::overlap_demand_estimate(4000000u, sparse_q8) == 1203125u);
@@ -62,7 +62,7 @@ TEST_CASE("[GaussianSplatting][OverlapBootstrap] a measurement replaces the seed
 	CHECK(GaussianSplatting::overlap_demand_estimate(UINT32_MAX, UINT32_MAX) == UINT32_MAX);
 }
 
-TEST_CASE("[GaussianSplatting][OverlapBootstrap] a grow pads geometrically and never below the request") {
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] a grow pads geometrically and never below the request") {
 	CHECK(GaussianSplatting::overlap_grow_target(11000000u, 10000000u, 100000000u) == 15000000u);
 	CHECK(GaussianSplatting::overlap_grow_target(40000000u, 10000000u, 100000000u) == 40000000u);
 	// The padding stops at the hard cap; a request at the cap is served whole.
@@ -74,7 +74,7 @@ TEST_CASE("[GaussianSplatting][OverlapBootstrap] a grow pads geometrically and n
 	CHECK(GaussianSplatting::overlap_grow_target(10u, 3000000000u, 0u) == UINT32_MAX);
 }
 
-TEST_CASE("[GaussianSplatting][OverlapBootstrap] the pre-flight charges old + new at the exact boundary") {
+TEST_CASE("[GaussianSplatting][Config][OverlapBootstrap] the pre-flight charges old + new at the exact boundary") {
 	using GaussianSplatting::OverlapResizePreflight;
 	const uint64_t device = 10u * GIB;
 	const uint64_t limit = device - GaussianSplatting::OVERLAP_RESIZE_DRIVER_RESERVE_BYTES;
