@@ -40,8 +40,11 @@ public:
     // #1088: p_visible_fit_pages > 0 restricts a VISIBLE victim to one whose release completes a
     // contiguous free run of that many atlas pages, so an on-screen chunk is only ever evicted when
     // that eviction alone lets the incoming chunk load. Non-visible victims stay plain LRU.
+    // BV-PRIO: padding-only chunks rank between off-screen and needed chunks. They are victims
+    // when p_allow_padding_eviction or p_allow_visible_eviction is set; both needed loads and
+    // budget eviction take them first, without the fit check, and report EvictedNonVisible.
     EvictionResult evict_least_recently_used(GaussianStreamingSystem &system, bool p_allow_visible_eviction,
-            uint32_t p_visible_fit_pages = 0);
+            uint32_t p_visible_fit_pages = 0, bool p_allow_padding_eviction = false);
     // Returns EvictionResult and does NOT internally call record_eviction_result(),
     // matching the contract of evict_least_recently_used() so callers can drive
     // bookkeeping explicitly. Returns SkippedAllVisible when the admission intent
@@ -65,6 +68,7 @@ private:
     LocalVector<uint64_t> loaded_non_primary_chunk_keys;
     LocalVector<NonPrimaryEvictionCandidate> cached_non_primary_lru_candidates;
     LocalVector<uint32_t> cached_visible_chunks;
+    LocalVector<uint32_t> cached_padding_chunks;
     LocalVector<uint32_t> cached_nonvisible_chunks;
 };
 

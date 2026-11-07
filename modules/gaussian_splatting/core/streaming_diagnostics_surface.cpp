@@ -434,6 +434,8 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
     analytics[AK::needed_chunks] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
     analytics[AK::needed_resident_chunks] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
     analytics[AK::needed_unserved_chunks] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);
+    analytics[AK::padding_chunks] = static_cast<int64_t>(scheduler.last_padding_chunk_count);
+    analytics[AK::padding_resident_chunks] = static_cast<int64_t>(scheduler.last_padding_resident_chunk_count);
     analytics[AK::needed_set_stall_seconds] = scheduler.needed_set_stall_seconds;
     analytics[AK::needed_set_stalled] = scheduler.needed_set_stall_seconds >=
             StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;

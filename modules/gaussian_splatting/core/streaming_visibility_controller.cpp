@@ -315,6 +315,7 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
                 uint32_t ci = nearby[j];
                 if (!system.chunks[ci].is_visible && recoverable(ci)) {
                     system.chunks[ci].is_visible = true;
+                    system.chunks[ci].padding_only = false;
                     visible_chunk_indices.push_back(ci);
                 }
             }
@@ -329,6 +330,7 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
             for (uint32_t i = 0; i < system.chunks.size(); i++) {
                 if (recoverable(i)) {
                     system.chunks[i].is_visible = true;
+                    system.chunks[i].padding_only = false;
                     visible_chunk_indices.push_back(i);
                 }
             }
@@ -341,6 +343,7 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
         for (uint32_t i = 0; i < system.chunks.size(); i++) {
             if (recoverable(i)) {
                 system.chunks[i].is_visible = true;
+                system.chunks[i].padding_only = false;
                 visible_chunk_indices.push_back(i);
             }
         }
@@ -519,17 +522,21 @@ void StreamingVisibilityController::update_chunk_visibility(
                     padded_bounds.position -= radius_vec;
                     padded_bounds.size += radius_vec * 2.0f;
                 }
+                const AABB unpadded_bounds = padded_bounds;
                 Vector3 padding_vec = padded_bounds.size * (chunk_frustum_padding - 1.0f) * 0.5f;
                 padded_bounds.position -= padding_vec;
                 padded_bounds.size += padding_vec * 2.0f;
 
                 system.chunks[i].is_visible = is_chunk_in_frustum(padded_bounds, frustum_planes);
+                system.chunks[i].padding_only = system.chunks[i].is_visible &&
+                        !is_chunk_in_frustum(unpadded_bounds, frustum_planes);
 
                 if (!system.chunks[i].is_visible) {
                     culling_stats.frustum_culled_chunks++;
                 }
             } else {
                 system.chunks[i].is_visible = true;
+                system.chunks[i].padding_only = false;
             }
 
             if (system.chunks[i].is_visible) {
@@ -562,17 +569,21 @@ void StreamingVisibilityController::update_chunk_visibility(
                     padded_bounds.position -= radius_vec;
                     padded_bounds.size += radius_vec * 2.0f;
                 }
+                const AABB unpadded_bounds = padded_bounds;
                 Vector3 padding_vec = padded_bounds.size * (chunk_frustum_padding - 1.0f) * 0.5f;
                 padded_bounds.position -= padding_vec;
                 padded_bounds.size += padding_vec * 2.0f;
 
                 system.chunks[i].is_visible = is_chunk_in_frustum(padded_bounds, frustum_planes);
+                system.chunks[i].padding_only = system.chunks[i].is_visible &&
+                        !is_chunk_in_frustum(unpadded_bounds, frustum_planes);
 
                 if (!system.chunks[i].is_visible) {
                     culling_stats.frustum_culled_chunks++;
                 }
             } else {
                 system.chunks[i].is_visible = true;
+                system.chunks[i].padding_only = false;
             }
 
             if (system.chunks[i].is_visible) {
@@ -584,6 +595,7 @@ void StreamingVisibilityController::update_chunk_visibility(
 
     // Sort visible chunks by distance from camera so the streaming scheduler
     // loads nearby chunks first (the scan cursor iterates this list in order).
+    // BV-PRIO: every needed chunk ranks before every padding chunk, however near that one is.
     if (visible_chunk_indices.size() > 1) {
         const GaussianStreamingSystem::StreamingChunk *cptr = system.chunks.ptr();
         const uint32_t cnt = visible_chunk_indices.size();
@@ -593,8 +605,11 @@ void StreamingVisibilityController::update_chunk_visibility(
         for (uint32_t i = 1; i < cnt; i++) {
             uint32_t key = iptr[i];
             float key_dist = cptr[key].distance;
+            const bool key_padding = cptr[key].padding_only;
             int32_t j = (int32_t)i - 1;
-            while (j >= 0 && cptr[iptr[j]].distance > key_dist) {
+            while (j >= 0 && (cptr[iptr[j]].padding_only != key_padding
+                                     ? cptr[iptr[j]].padding_only
+                                     : cptr[iptr[j]].distance > key_dist)) {
                 iptr[j + 1] = iptr[j];
                 j--;
             }

@@ -1291,8 +1291,28 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | # | PR | Class | Eff. | Survives? |
 |---|---|---|---|---|
 | BV-08a | Thrash detector as a wall-clock refetch window, with two-frame-rate negative control | R2 | 1.5–2 | until Step C |
+| BV-PRIO | Residency priority: strict-frustum chunks first; padding and prefetch only in free capacity | R2 | 1 | until Step C |
 | BV-08b | `PayloadReadService` (positional reads, pool, pooled handles, cancellation) | R3 | 3–5 | yes |
 | BV-08c | Bounded ready queue + upload clamp | R2 | 1–1.5 | yes |
+
+**BV-PRIO (added after M1, run 42375402519).** C0, C1, C6 and C7 never settled in either pass.
+The strict frustum needs 233–258 chunks at those poses and the cap is 320, but the route's needed
+set was the frustum **with `chunk_frustum_padding` 1.5**: 420–489 chunks. At each of the four
+poses `needed_unserved_chunks` is exactly that set minus the cap (100, 169, 121, 100); the four
+poses that settled have a padded set ≤ 260. Nothing told padding from demand, so:
+
+- near padding chunks were admitted before far frustum chunks;
+- the padded set could never be served, so `missing chunks = 0` (§7.3) could not become true;
+- each load evicted another needed chunk for ever: 80–86 uploads/s at a static camera, 53 % of
+  all M1 uploads (23,407 of 44,060) fell in settle waits.
+
+Decision: a chunk is **needed** when it is inside the frustum without the padding and inside the
+load distance. Needed chunks rank first at admission and last at eviction. A padding chunk draws
+when resident but is not demand: it and prefetch take free capacity only (off-screen victims are
+free capacity), never evict a needed chunk or each other, and any needed load displaces them.
+`needed_chunks`, `needed_unserved_chunks`, and through them the §7.3 settle, now
+count the needed set, which is the set §6.4 ground truth computes. A needed set larger than the
+cap still evicts itself; the BV-08a detector reports that as thrash.
 
 ### P2: compressed chunk world → **M1c**, then hard correctness gates → **M2**
 

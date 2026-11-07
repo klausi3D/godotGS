@@ -106,6 +106,8 @@ struct SchedulerState {
     uint32_t last_needed_chunk_count = 0;
     uint32_t last_needed_resident_chunk_count = 0;
     uint32_t last_needed_unserved_chunk_count = 0;
+    uint32_t last_padding_chunk_count = 0; // BV-PRIO: visible only through the frustum padding
+    uint32_t last_padding_resident_chunk_count = 0;
     bool last_visible_scan_had_capacity = false;
     bool last_visible_scan_starvation_eligible = false;
     bool last_visible_scan_starved = false;

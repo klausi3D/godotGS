@@ -183,6 +183,8 @@
     X(needed_chunks) \
     X(needed_resident_chunks) \
     X(needed_unserved_chunks) \
+    X(padding_chunks) \
+    X(padding_resident_chunks) \
     X(needed_set_stall_seconds) \
     X(needed_set_stalled) \
     X(scheduler_visible_scan_had_capacity) \
