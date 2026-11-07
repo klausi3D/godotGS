@@ -2,7 +2,11 @@
 
 Related docs: [ARCHITECTURE](ARCHITECTURE.md), [ABBREVIATIONS](ABBREVIATIONS.md), [README](README.md)
 
-For new contributors to understand the Gaussian Splatting module:
+For new contributors to understand the Gaussian Splatting module.
+
+> **Map, not checklist.** Several entries are 3,000–5,000-line sources. For a task,
+> open only the entries it touches. In large files, search for the symbol and read
+> the surrounding range rather than the whole file.
 
 ## Level 1: Core Concepts (Start Here)
 1. `README.md` - Overview and runtime data flow

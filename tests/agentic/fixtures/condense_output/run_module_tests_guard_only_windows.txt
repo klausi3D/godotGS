@@ -1,0 +1,194 @@
+[module-tests] Tracked backup-file guard passed.
+[module-tests] Tracked artifact hygiene guard passed.
+[module-tests] .....................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 21 tests in 1.329s
+[module-tests] OK
+[module-tests] HLOD offline portable contract tests passed (native Job Object not exercised).
+[module-tests] .................................................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 49 tests in 0.941s
+[module-tests] OK
+[module-tests] HLOD S1b quality harness tests passed (CPU contracts only; renders not exercised).
+[module-tests] ............
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 12 tests in 0.265s
+[module-tests] OK
+[module-tests] World manifest verifier tests passed (constructed worlds; generator output not exercised).
+[module-tests] History artifact guard mode: warn (env: GS_CI_HISTORY_ARTIFACT_GUARD_MODE).
+[module-tests] Missing history artifact audit script: scripts\repo\history_artifact_audit.py; skipping history audit in warn mode.
+[module-tests] [build-metadata-check] PASSED
+[module-tests] [build-metadata-check] SCsub/CMake/doc metadata contracts are aligned.
+[module-tests] [shader-dependency-check] PASSED
+[module-tests] [shader-dependency-check] Shader include/build graph contracts are intact.
+[module-tests] Gaussian ProjectSettings manifest guard self-test OK.
+[module-tests] Gaussian ProjectSettings manifest OK (196 settings).
+[module-tests] Z:\projects\godotgs-tokenopt\modules\gaussian_splatting\tests\check_project_settings_manifest.py:121: DeprecationWarning: invalid escape sequence '\)'
+[module-tests]   return bytes(value, "utf-8").decode("unicode_escape", errors="ignore")
+[module-tests] test_conflicting_defaults_fail (__main__.GeneratorScanTest.test_conflicting_defaults_fail) ... ok
+[module-tests] test_every_global_def_variant_registers (__main__.GeneratorScanTest.test_every_global_def_variant_registers) ... ok
+[module-tests] test_helper_forwarding_a_default_uses_call_site_defaults (__main__.GeneratorScanTest.test_helper_forwarding_a_default_uses_call_site_defaults) ... ok
+[module-tests] test_manifest_key_neither_registered_nor_read_fails (__main__.GeneratorScanTest.test_manifest_key_neither_registered_nor_read_fails) ... ok
+[module-tests] test_registered_alias_fails (__main__.GeneratorScanTest.test_registered_alias_fails) ... ok
+[module-tests] test_registered_key_missing_from_manifest_fails (__main__.GeneratorScanTest.test_registered_key_missing_from_manifest_fails) ... ok
+[module-tests] test_registration_forms_resolve (__main__.GeneratorScanTest.test_registration_forms_resolve) ... ok
+[module-tests] test_rendered_page_lists_every_manifest_key_once (__main__.GeneratorScanTest.test_rendered_page_lists_every_manifest_key_once) ... ok
+[module-tests] test_unresolvable_key_fails (__main__.GeneratorScanTest.test_unresolvable_key_fails) ... ok
+[module-tests] test_duplicate_row_fails (__main__.GuardTest.test_duplicate_row_fails) ... ok
+[module-tests] test_empty_manifest_is_not_a_pass (__main__.GuardTest.test_empty_manifest_is_not_a_pass) ... ok
+[module-tests] test_key_deleted_from_page_fails (__main__.GuardTest.test_key_deleted_from_page_fails) ... ok
+[module-tests] test_manifest_key_added_without_regenerating_fails (__main__.GuardTest.test_manifest_key_added_without_regenerating_fails) ... ok
+[module-tests] test_matching_page_passes (__main__.GuardTest.test_matching_page_passes) ... ok
+[module-tests] test_missing_marker_fails (__main__.GuardTest.test_missing_marker_fails) ... ok
+[module-tests] test_page_key_not_in_manifest_fails (__main__.GuardTest.test_page_key_not_in_manifest_fails) ... ok
+[module-tests] test_prose_mentions_do_not_count (__main__.GuardTest.test_prose_mentions_do_not_count) ... ok
+[module-tests] test_repository_page_covers_repository_manifest (__main__.GuardTest.test_repository_page_covers_repository_manifest) ... ok
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 18 tests in 0.013s
+[module-tests] OK
+[module-tests] Project settings reference covers the manifest (196 keys).
+[module-tests] ........................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 24 tests in 11.509s
+[module-tests] OK
+[module-tests] [gaussian-layout-check] PASSED
+[module-tests] [gaussian-layout-check] PackedGaussian and PackedGaussianQuantized host/mirror field signatures, offsets, and size are aligned.
+[module-tests] [gaussian-layout-check] Instancing/asset/chunk/quantization mirror structs are aligned: InstanceDataGPU, InstanceGradingGPU, AssetLodRangeGPU, ChunkMetaGPU, AssetChunkIndexGPU, VisibleChunkRefGPU, DrawnNodeGPU, SplatRefGPU, ChunkQuantizationGPU, DebugSplatAuditEntry.
+[module-tests] [gaussian-layout-check] OverflowStats binding-3 SSBO matches host TileOverflowStatsSnapshot across tile_binning.glsl, tile_rasterizer.glsl, tile_rasterizer_compute.glsl.
+[module-tests] [gaussian-layout-check] DebugCounters binding-6 SSBO matches host TileDebugCounterSnapshot (tile_binning.glsl).
+[module-tests] [gaussian-layout-check] HlodLevelRecordStats binding-24 SSBO matches host HlodLevelRecordStatsGPU (tile_binning.glsl; GS_HLOD_LEVEL_STAT_SLOTS host == GLSL; host slot pinned).
+[module-tests] [gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, signed extraction, encoder shifts and clamp, scale lane sh_dc.w) matches between host and GLSL; RGB9E5 is not emitted.
+[module-tests] [gaussian-layout-check] IndirectDispatchLayout is pinned across 12 GLSL declaration(s) tile_prefix_scan.glsl:IndirectDispatch@set0/binding5, tile_rasterizer.glsl:IndirectDispatch@set0/binding6, tile_rasterizer_compute.glsl:IndirectDispatch@set0/binding6, tile_binning.glsl:IndirectDispatch@set0/binding9, tile_binning.glsl:InstanceIndirectDispatch@set0/binding15, tile_raster_common.glsl:InstanceIndirectDispatch@set0/binding15, instance_count_clamp.glsl:IndirectDispatch@set0/binding1, instance_count_clamp.glsl:InstanceCount@set0/binding3, gpu_sorter.cpp:IndirectCount@set0/binding2, gpu_sorter.cpp:IndirectCount@set0/binding3, gpu_sorter.cpp:IndirectCount@set0/binding6, gpu_sorter.cpp:IndirectCount@set0/binding0, 8 host append_id binding site(s), 6 host constructor binding site(s), and 1 host struct mirror(s) tile_render_prefix_scan.cpp:IndirectDispatchReadback.
+[module-tests] [gaussian-layout-check] Push-constant std430 blocks match their host structs: ResolvePushConstants->ResolveParams, TilePrefixPass2ControlLayout->PrefixPass2Control, PainterlyCompositePushConstant->CompositePush.
+[module-tests] [gaussian-layout-check] RenderParams std140 uniform block matches TileRenderParamsGPU (bidirectional): offsets, scalar kinds, byte widths, component widths, reverse coverage, size, and layout version.
+[module-tests] [gaussian-layout-check] HLOD cut oracle compares all 12 semantic Gaussian members; exact padding declarations excluded.
+[module-tests] .................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 17 tests in 1.783s
+[module-tests] OK
+[module-tests] [cull-signature-parity] PASSED - all 32 CullingConfig fields are hashed (18) or explicitly waived (14).
+[module-tests] [cull-signature-parity] PASSED - all 32 CullingConfig fields are hashed (18) or explicitly waived (14).
+[module-tests] ..............
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 14 tests in 0.005s
+[module-tests] OK
+[module-tests] [metric-reset-parity] PASSED - all 96 PerformanceMetrics fields are reset-covered (56) or explicitly not-per-frame-reset (40); 5 reset helper(s).
+[module-tests] ..................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 18 tests in 0.102s
+[module-tests] OK
+[module-tests] ......................................................................................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 86 tests in 10.708s
+[module-tests] OK
+[module-tests] [download-flavor-guard] PASS: 3 download surface(s) all carry the -O0 / dev_build warning and link to the performance dashboard.
+[module-tests] ......................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 22 tests in 0.596s
+[module-tests] OK
+[module-tests] [overrides-script] OK: 2 file(s) under overrides/ carry no script.
+[module-tests] [doc-classes-check] PASSED - all 35 registered classes have a doc_classes XML with a non-empty brief.
+[module-tests] ..................................................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 50 tests in 21.393s
+[module-tests] OK
+[module-tests] check_doc_snippets: 123 pages, 0 error(s), 0 warning(s) (warnings: docs/architecture/ and ADRs are historical)
+[module-tests] [test-linkage-check] PASSED - 42 tests/*.cpp scanned: 27 declare TEST_CASEs (25 force-link anchored, 2 allow-listed as KNOWN_UNLINKED), 14 declare none, 1 carry header-sourced cases (must stay unanchored).
+[module-tests] [test-linkage-check]   allow-listed (unlinked): test_gpu_sorting.cpp -> https://github.com/klausi3D/godotGS/issues/622
+[module-tests] [test-linkage-check]   allow-listed (unlinked): test_painterly_viewport_copy.cpp -> https://github.com/klausi3D/godotGS/issues/631
+[module-tests] [test-linkage-check]   header-sourced cases (must stay unanchored): test_config_validation.cpp
+[module-tests] [require-null-deref] PASS 147 test source(s) scanned; 330 baselined site(s) across 33 file(s), 0 new, 0 stale.
+[module-tests] [size-then-index] PASS 147 test source(s) scanned; 48 baselined site(s) across 19 file(s) (41 straight-line, 7 loop-bounded-by-another-container, 0 bounded-below-the-index), 0 new, 0 stale.
+[module-tests] [require-null-deref] PASS 0 new relative to review base a635e78d560d.
+[module-tests] [size-then-index] PASS 0 new relative to review base a635e78d560d.
+[module-tests] ....................................................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 52 tests in 5.917s
+[module-tests] OK
+[module-tests] [shipped-project-scripts] clean: 123 GDScript + 71 scene file(s) scanned, 359 module C++ file(s) checked for a second overlay, 8 detectors, 114 registered monitor ids derived from _register_monitor_definitions().
+[module-tests] Environment-skip marker guard unit test passed.
+[module-tests] Skip-marker detector pin test passed.
+[module-tests] [env-skip] PASS 150 test source(s) scanned; 261 baselined site(s) across 27 file(s), 0 new, 0 stale.
+[module-tests] Unchecked-resize guard self-test passed (40 cases).
+[module-tests] [unchecked-resize] PASSED: 17 known site(s); 64 baseline entr(y/ies) no longer present.
+[module-tests]   Run with --regenerate to record the fixes and tighten the ratchet:
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_data.cpp::GaussianData::get_brush_override_ids::result.resize(gaussians.size())
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_data.cpp::GaussianData::get_spherical_harmonics::result.resize(vector_count*3)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_brush_axes_vector2::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_normal_vectors::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_opacities::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_painterly_flags_buffer::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_palette_ids_buffer::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_position_vectors::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_scale_vectors::result.resize(splat_count)
+[module-tests]     fixed: modules/gaussian_splatting/core/gaussian_splat_asset.cpp::GaussianSplatAsset::get_spherical_harmonics_buffer::result.resize(int64_t(splat_count)*int64_t(total_terms)*3)
+[module-tests]     ... and 54 more
+[module-tests] [test-lane-coverage] note: corpus includes 1 gaussian-relevant case(s) from tests/servers/rendering/test_renderer_scene_cull.h (outside the module tests directory).
+[module-tests] [test-lane-coverage] note: corpus includes 6 gaussian-relevant case(s) from tests/test_projection_math.cpp (outside the module tests directory).
+[module-tests] [test-lane-coverage] strict-coverage contract [DataAuthority]: 16 protected case(s), 0 without a strict lane; covering strict lane(s): GaussianSplatting [DataAuthority].
+[module-tests] [test-lane-coverage] strict-coverage contract [TestPump]: 6 protected case(s), 0 without a strict lane; covering strict lane(s): GaussianSplatting [TestPump].
+[module-tests] [test-lane-coverage] PASS 1366 registered case(s); 82 stranded, all declared in 19 manifest entries.
+[module-tests] [test-lane-coverage] report (not gated): 476 case(s) reach no STRICT module lane and no GPU batch - see this script's docstring for why that is reported rather than failed.
+[module-tests] [test-lane-coverage] report (not gated): 56 of the stranded case(s) are listed in the opt-in [requires-RD] catalogue, which blocking CI never runs. The catalogue is not counted as coverage.
+[module-tests] Renderer-contract boundary guard passed: 10 blocking-dispatch call(s) in 6 function(s), all instrumented or provably unlocked.
+[module-tests]   DISPATCHING_METHODS derived from renderer sources (12): _initialize_on_render_thread, apply_world_submission_contract, clear_world_submission_contract, force_sort_for_view, initialize, restore_world_submission_runtime_state, set_file_backed_payload_source, set_gaussian_data, set_max_splats, test_dispatch_call_on_render_thread_blocking_with_completion, test_dispatch_call_on_render_thread_blocking_without_completion, ~GaussianSplatRenderer
+[module-tests]   - GaussianSplatSceneDirector::DeferredRendererWork::flush: 4 call(s) -- runs with world_mutex released by construction (callers declare the queue before the lock, so it is destroyed after it)
+[module-tests]   - GaussianSplatSceneDirector::_apply_world_submission_contract_unlocked: 1 call(s) -- #611 PR B2: submit_world_submission's apply, called between two world_mutex scopes rather than inside one; instrumented, so calling it under the lock still reports
+[module-tests]   - GaussianSplatSceneDirector::_apply_world_submission_to_renderer: 1 call(s) -- instrumented boundary: reports via _report_renderer_contract_lock_violation
+[module-tests]   - GaussianSplatSceneDirector::_initialize_world_renderer: 1 call(s) -- instrumented boundary: reports via _report_renderer_contract_lock_violation
+[module-tests]   - GaussianSplatSceneDirector::_restore_world_submission_renderer: 2 call(s) -- instrumented boundary: reports via _report_renderer_contract_lock_violation
+[module-tests]   - GaussianSplatSceneDirector::teardown_world_for_scenario: 1 call(s) -- #628: explicitly moves the renderer Ref out under the lock and calls this after the MutexLock scope has ended
+[module-tests] GS pre-upscale composite hook guard passed (ordering, phase gating, encoding mirror, painterly composite reachability + source decode).
+[module-tests] check_painterly_test_non_vacuity: 4 GDScript file(s) enable painterly
+[module-tests]   - tests/examples/godot/test_project/scenes/painterly_test.gd (allowlisted, does NOT assert path)
+[module-tests]   - tests/examples/godot/test_toggle_painterly.gd (allowlisted, does NOT assert path)
+[module-tests]   - tests/runtime/test_painterly_material_render.gd (asserts path)
+[module-tests]   - tests/test_gaussian_splat_visibility.gd (allowlisted, does NOT assert path)
+[module-tests] check_painterly_test_non_vacuity: OK
+[module-tests] check_render_param_family_producers: 1 family/families, 2 live producer(s), 1 exempt dead producer(s)
+[module-tests]   family 'wind': 6 field(s) -> wind_direction, wind_enabled, wind_frequency, wind_spatial_frequency, wind_strength, wind_time_seconds
+[module-tests]   dead producer modules/gaussian_splatting/interfaces/tile_rasterizer.cpp: no 'PainterlyRenderInput' is constructed in-tree, so its entry point is still unreachable
+[module-tests] check_render_param_family_producers: OK
+[module-tests] Device-submission contract guard passed: 366 module source(s) scanned, 0 raw submit/sync/blocking-readback calls outside gs_device_utils.
+[module-tests] check_editor_node_pointer_lifetime: PASS
+[module-tests] Renderer release gate contract check passed
+[module-tests] ...............................................................................................................--candidate-evidence and --issues-json must identify different files; the evidence bundle cannot certify its own blocker set
+[module-tests] .--issues-json is required in candidate mode; an issue snapshot embedded in the candidate evidence cannot certify its own blocker set
+[module-tests] ...............................................................................
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 191 tests in 8.598s
+[module-tests] OK
+[module-tests] ...........
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 11 tests in 0.203s
+[module-tests] OK
+[module-tests] Baseline QA require-flag unit test passed.
+[module-tests] Quarantine manifest schema guard passed (0 entries, tests\ci\quarantine_manifest.json).
+[module-tests] Quarantine manifest unit test passed.
+[module-tests] Lane-ledger unit test passed.
+[module-tests] [benchmark-asset-guard] passed (runtime_fixture_references=6)
+[module-tests] ...
+[module-tests] ----------------------------------------------------------------------
+[module-tests] Ran 3 tests in 0.062s
+[module-tests] OK
+[module-tests] GPU harness deferred contract guard passed.
+[module-tests] [gpu-sorting-order-coverage] PASSED - the required GpuSorting batch selects 5 sort-order oracle(s), each carrying [RequiresGPU] and its discriminating order assertion: GPU Bitonic Sorting, Radix capacity respects dispatch X after device adaptation (#539), Radix device adaptation preserves indirect64 sorting (#539), Radix sort 8-bit is correct at all workgroup sizes, Radix sort factory honors 32-bit key layout.
+[module-tests] [overflow-drop-coverage] PASSED - the TileRenderer batch selects the overflow-drop proof ('Overflow-record drop raises the C4b telemetry counter'), it carries [RequiresGPU], calls test_overflow_drop_telemetry(), and that method still holds all 3 discriminating elements (forced-low budget, control assertion, overflow assertion).
+[module-tests] Benchmark fixture contract guard passed.
+[module-tests] Streaming evidence fail-closed guard passed.
+[module-tests] Production readiness enforcement guard passed.
+[module-tests] Runtime validation contract guard passed (real-producer capture NOT run: no Godot binary was selected).
+[module-tests] Export template naming guard passed.
+[module-tests] Export smoke preset state guard passed.
+[module-tests] Release builds path filter guard passed.
+[module-tests] Release builds runner trust guard passed.
+[module-tests] Release publication gating guard passed.
+[module-tests] GPU runner environment contract guard passed.
+[module-tests] GPU contention contract guard passed.
+[module-tests] Beyond-VRAM dispatch lane guard passed.
+[module-tests] Beyond-VRAM probe lane tests passed.
+[module-tests] Renderer guard checks passed.
+[module-tests] Static format safety guards passed (8 checks).
+[module-tests] StringName orphan guard skipped: binary not found at 'godot' and not resolvable via PATH.
+[GS-LIFETIME] {"scenario":"stringname_orphans","passed":true,"stringname_orphan_delta":-1,"threshold_orphans":5,"fail_reason":"binary_missing"}
+[module-tests] Guard-only mode complete.

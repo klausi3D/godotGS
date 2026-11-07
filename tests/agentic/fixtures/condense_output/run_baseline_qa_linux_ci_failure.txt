@@ -1,0 +1,66 @@
+[INFO] Using Godot: 4.5.rc.custom_build.577f890d7
+=== Baseline QA Test Suite ===
+[INFO] Fixture generator: Python fallback -- no category run from here needs the C++ corpus: the QA scene suite loads its own pinned qa_splats_1024.ply, and the module and runtime categories prepare the C++ corpus themselves with --require-asset-floors (#934).
+[prepare_synthetic_assets] WARNING: LOW-FIDELITY FIXTURES
+[prepare_synthetic_assets]   no --godot-binary was given
+[prepare_synthetic_assets]   where no whole, floor-valid fixture is already in place, the Python fallback generators write:
+[prepare_synthetic_assets]     synthetic_cloud.ply: 4096 splats instead of 80000 (20x smaller)
+[prepare_synthetic_assets]     synthetic_cube.ply: 2048 splats instead of 50000 (24x smaller)
+[prepare_synthetic_assets]     synthetic_mandelbulb.ply: 4096 splats instead of 100000 (24x smaller)
+[prepare_synthetic_assets]     synthetic_plane.ply: 2048 splats instead of 50000 (24x smaller)
+[prepare_synthetic_assets]     synthetic_sphere.ply: 2048 splats instead of 50000 (24x smaller)
+[prepare_synthetic_assets]     synthetic_torus.ply: 3072 splats instead of 50000 (16x smaller)
+[prepare_synthetic_assets]     test_splats.ply: 1024 splats instead of 10000 (10x smaller)
+[prepare_synthetic_assets]   any benchmark number produced from these fixtures measures a different workload than the lane names.
+[prepare_synthetic_assets]   to fix: python tests/runtime/prepare_synthetic_assets.py --godot-binary ./bin/<godot built with tests=yes>
+[PASS] Synthetic asset prep complete.
+
+[TEST] Running PLY Loader Tests...
+   Command: bin/godot.linuxbsd.editor.dev.x86_64 --headless --verbose --script tests/ci/test_ply_loader_ci.gd
+   [PASS] PASSED (1.9s)
+
+[TEST] Running PLY Pipeline Tests...
+   Command: bin/godot.linuxbsd.editor.dev.x86_64 --headless --verbose --script tests/ci/test_ply_pipeline_ci.gd
+   [PASS] PASSED (1.8s)
+
+[TEST] Running Runtime Validation Suite...
+   Command: /opt/hostedtoolcache/Python/3.11.17/x64/bin/python3 tests/runtime/run_runtime_validation.py --profile headless-ci --godot-binary bin/godot.linuxbsd.editor.dev.x86_64
+   [PASS] PASSED (6.7s)
+
+[TEST] Running Module Test Suite (GaussianSplatting)...
+   Command: /opt/hostedtoolcache/Python/3.11.17/x64/bin/python3 tests/ci/run_module_tests.py --godot-binary bin/godot.linuxbsd.editor.dev.x86_64
+   [FAIL] FAILED (79.2s) - Exit code: 1
+
+============================================================
+BASELINE QA TEST REPORT
+============================================================
+Total Tests: 4
+Passed: 3
+Failed: 1
+Skipped: 0
+Duration: 90.4 seconds
+Success Rate: 75.0%
+
+DETAILED RESULTS:
+  [PASS] PASS PLY Loader Tests (1.9s)
+  [PASS] PASS PLY Pipeline Tests (1.8s)
+  [PASS] PASS Runtime Validation Suite (6.7s)
+  [FAIL] FAIL Module Test Suite (GaussianSplatting) (79.2s)
+       Exit Code: 1
+
+PERFORMANCE METRICS:
+
+[REPORT] Detailed report saved to /home/runner/work/godotGS/godotGS/baseline_qa_results.json
+
+[WARN] 1 TEST(S) FAILED
+
+============================================================
+ACTIONABLE FAILURE ANALYSIS
+============================================================
+
+[FAIL] Module Test Suite (GaussianSplatting) FAILED
+   Command: /opt/hostedtoolcache/Python/3.11.17/x64/bin/python3 tests/ci/run_module_tests.py --godot-binary bin/godot.linuxbsd.editor.dev.x86_64
+   Exit Code: 1
+   Duration: 79.2s
+   [ISSUE] ISSUE: Functional test failure
+   [ACTION] ACTION: Review test output and fix underlying implementation
