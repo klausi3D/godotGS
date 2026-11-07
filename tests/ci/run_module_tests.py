@@ -37,6 +37,7 @@ GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layou
 SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
 HLOD_OFFLINE_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_hlod_offline_job.py"
 HLOD_S1B_QUALITY_TEST_SCRIPT = ROOT / "tests" / "runtime" / "hlod_s1b_quality" / "test_s1b_quality.py"
+WORLD_MANIFEST_VERIFIER_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_verify_world_manifest.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -966,6 +967,24 @@ def _run_hlod_s1b_quality_tests() -> tuple[bool, list[str]]:
     )
     if completed is None:
         return False, output_lines + ["HLOD S1b quality tests have no complete, nonempty success summary without skips."]
+    return True, output_lines
+
+
+def _run_world_manifest_verifier_tests() -> tuple[bool, list[str]]:
+    """CPU-only contracts of the BV-05 world-manifest verifier (constructed worlds); no binary."""
+    script = WORLD_MANIFEST_VERIFIER_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing world manifest verifier test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, "-B", str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        return False, output_lines or [f"World manifest verifier tests failed with exit code {code}."]
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["World manifest verifier tests have no complete, nonempty success summary without skips."]
     return True, output_lines
 
 
@@ -3713,6 +3732,11 @@ def _run_required_message_guards() -> int | None:
             _run_hlod_s1b_quality_tests,
             "HLOD S1b quality harness tests failed.",
             "HLOD S1b quality harness tests passed (CPU contracts only; renders not exercised).",
+        ),
+        (
+            _run_world_manifest_verifier_tests,
+            "World manifest verifier tests failed.",
+            "World manifest verifier tests passed (constructed worlds; generator output not exercised).",
         ),
     )
     for runner, failure_summary, success_summary in required_guards:
