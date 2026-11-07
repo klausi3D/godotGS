@@ -84,6 +84,8 @@ struct StreamingChunk {
     uint64_t pending_upload_bytes = 0;
     uint64_t last_used_frame = 0;
     uint64_t last_loaded_frame = 0;
+    // BV-08a: wall clock of the last eviction, 0 once a reload has been judged against it.
+    uint64_t last_evicted_usec = 0;
     uint32_t buffer_slot = UINT32_MAX;
     uint64_t explicit_request_generation = 0;
 

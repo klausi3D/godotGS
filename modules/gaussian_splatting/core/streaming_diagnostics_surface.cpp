@@ -213,6 +213,7 @@ void GaussianStreamingSystem::end_frame() {
         analytics_snapshot["vram_auto_regulate_enabled"] = active_budget_config.auto_regulate_enabled;
         analytics_snapshot["vram_regulated_max_chunks"] = static_cast<int64_t>(budget.vram_regulator->get_current_max_chunks());
         analytics_snapshot["vram_thrash_reductions"] = static_cast<int64_t>(vram_stats.thrash_reductions);
+        analytics_snapshot["vram_visible_refetches_total"] = static_cast<int64_t>(vram_stats.visible_refetches_total);
         analytics_snapshot["vram_budget_reductions"] = static_cast<int64_t>(vram_stats.budget_reductions);
         analytics_snapshot["vram_headroom_increases"] = static_cast<int64_t>(vram_stats.headroom_increases);
         analytics_snapshot["vram_lod_multiplier_adjustments"] = static_cast<int64_t>(vram_stats.lod_multiplier_adjustments);

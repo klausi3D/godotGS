@@ -207,6 +207,7 @@ private:
     bool quantization_dirty = false;
 #if defined(TESTS_ENABLED)
     bool test_force_next_chunk_upload_failure = false;
+    uint64_t test_wall_clock_usec = 0; // non-zero replaces the OS clock in _wall_clock_usec()
 #endif
 
     void _connect_project_settings();
@@ -463,6 +464,7 @@ public:
 	void _test_set_atlas_page_ceiling(uint32_t p_pages) { streaming_max_capacity = p_pages; }
 	uint32_t _test_atlas_occupancy_target_pages() const { return _atlas_occupancy_target_pages(); }
 	void _test_update_vram_regulator() { _update_vram_regulator(); }
+	void _test_set_wall_clock_usec(uint64_t p_usec) { test_wall_clock_usec = p_usec; }
 	bool _test_regulator_allows_load() const {
 		return budget.vram_regulator.is_valid() && budget.vram_regulator->can_load_more_chunks(_get_reserved_chunk_count());
 	}
@@ -637,6 +639,7 @@ private:
     void _record_visible_scan_starvation(uint32_t p_scan_origin, uint32_t p_scanned_chunks, float p_load_threshold);
     void _handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max);
     void _update_vram_regulator();
+    uint64_t _wall_clock_usec() const;
     void _log_streaming_frame_stats(uint32_t effective_max);
     Error _load_chunk(uint32_t chunk_idx);
     Error _load_chunk(uint32_t asset_id, uint32_t chunk_idx);

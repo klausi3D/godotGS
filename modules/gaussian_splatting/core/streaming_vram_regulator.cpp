@@ -300,7 +300,8 @@ void VRAMBudgetRegulator::_query_device_memory() {
 
 void VRAMBudgetRegulator::update(uint64_t p_reported_usage, uint64_t p_decision_usage, uint32_t loaded_chunks,
                                   uint32_t loads_this_frame, uint32_t evictions_this_frame,
-                                  uint64_t current_frame) {
+                                  uint64_t current_frame, uint32_t p_refetches_this_frame,
+                                  uint64_t p_now_usec) {
     // p_reported_usage is the allocation-inclusive footprint (persistent buffer + payload +
     // auxiliary overhead) — it mirrors get_vram_usage()/end-frame vram_mb and is what the debug
     // overlay and the budget warning must show. p_decision_usage is the reclaimable/evictable
@@ -333,17 +334,17 @@ void VRAMBudgetRegulator::update(uint64_t p_reported_usage, uint64_t p_decision_
                 p_reported_usage / (1024 * 1024)));
     }
 
-    // Record activity for thrashing detection
-    _record_activity(loads_this_frame, evictions_this_frame);
+    // Record visible-set refetches for thrashing detection
+    _record_refetches(p_refetches_this_frame, p_now_usec);
 
     // Auto-regulation chases the budget by raising/lowering the chunk cap; reducing the cap only
     // frees payload, so it must act on the reclaimable decision usage, not the full allocation.
     if (config.auto_regulate_enabled) {
-        _update_regulation(p_decision_usage, current_frame);
+        _update_regulation(p_decision_usage, current_frame, p_now_usec);
     }
 }
 
-void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t current_frame) {
+void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t current_frame, uint64_t now_usec) {
     // Don't adjust too frequently (prevent oscillation)
     if (current_frame - last_adjustment_frame < MIN_FRAMES_BETWEEN_ADJUSTMENTS) {
         return;
@@ -357,8 +358,9 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
             : 0.0f;
 
     // Check for thrashing - if detected, reduce chunks more aggressively
-    if (_detect_thrashing()) {
+    if (_detect_thrashing(now_usec)) {
         stats.thrashing_events++;
+        _clear_refetch_window(); // the next cut needs refetches of its own
         uint32_t reduction = MAX(1u, current_max_chunks / 10); // 10% reduction on thrashing
         uint32_t new_max = MAX(config.min_chunks, current_max_chunks - reduction);
         if (new_max != current_max_chunks) {
@@ -427,25 +429,40 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
     stats.current_max_chunks = current_max_chunks;
 }
 
-bool VRAMBudgetRegulator::_detect_thrashing() const {
-    // Thrashing = high load AND eviction activity simultaneously
-    // Check if both loads and evictions are consistently high in recent history
-    uint32_t high_activity_frames = 0;
-    for (uint32_t i = 0; i < THRASHING_HISTORY_SIZE; i++) {
-        // Both loading and evicting in same frame = potential thrashing
-        if (load_history[i] > 0 && evict_history[i] > 0) {
-            high_activity_frames++;
+bool VRAMBudgetRegulator::_detect_thrashing(uint64_t now_usec) const {
+    // Thrashing = the visible set keeps fetching back what was just evicted (BV-08a, ADR D-6).
+    // Loads and evictions in the same frame alone are what any moving camera does at a full
+    // cap, so they are no signal; a frame-count window would also shrink with the frame rate.
+    const uint64_t newest_bucket = now_usec / THRASH_REFETCH_BUCKET_USEC + THRASH_REFETCH_BUCKETS;
+    uint32_t refetches = 0;
+    for (uint32_t i = 0; i < THRASH_REFETCH_BUCKETS; i++) {
+        if (refetch_bucket_ids[i] + THRASH_REFETCH_BUCKETS > newest_bucket) {
+            refetches += refetch_bucket_counts[i];
         }
     }
-
-    // If more than half the recent frames show load+evict, we're thrashing
-    return high_activity_frames > THRASHING_HISTORY_SIZE / 2;
+    return refetches >= MAX(THRASH_REFETCH_MIN_COUNT, current_max_chunks / 4);
 }
 
-void VRAMBudgetRegulator::_record_activity(uint32_t loads, uint32_t evictions) {
-    history_index = (history_index + 1) % THRASHING_HISTORY_SIZE;
-    load_history[history_index] = loads;
-    evict_history[history_index] = evictions;
+void VRAMBudgetRegulator::_record_refetches(uint32_t refetches, uint64_t now_usec) {
+    if (refetches == 0) {
+        return;
+    }
+    stats.visible_refetches_total += refetches;
+    // Offset by a whole window: bucket id 0 means "never written", also at clock 0.
+    const uint64_t bucket = now_usec / THRASH_REFETCH_BUCKET_USEC + THRASH_REFETCH_BUCKETS;
+    const uint32_t slot = uint32_t(bucket % THRASH_REFETCH_BUCKETS);
+    if (refetch_bucket_ids[slot] != bucket) {
+        refetch_bucket_ids[slot] = bucket;
+        refetch_bucket_counts[slot] = 0;
+    }
+    refetch_bucket_counts[slot] += refetches;
+}
+
+void VRAMBudgetRegulator::_clear_refetch_window() {
+    for (uint32_t i = 0; i < THRASH_REFETCH_BUCKETS; i++) {
+        refetch_bucket_counts[i] = 0;
+        refetch_bucket_ids[i] = 0;
+    }
 }
 
 bool VRAMBudgetRegulator::can_load_more_chunks(uint32_t current_loaded) const {
@@ -503,6 +520,7 @@ Dictionary VRAMBudgetRegulator::get_debug_stats_dictionary() const {
     d["regulation_adjustments"] = stats.regulation_adjustments;
     d["thrashing_events"] = stats.thrashing_events;
     d["thrash_reductions"] = stats.thrash_reductions;
+    d["visible_refetches_total"] = stats.visible_refetches_total;
     d["budget_reductions"] = stats.budget_reductions;
     d["headroom_increases"] = stats.headroom_increases;
     d["lod_multiplier_adjustments"] = stats.lod_multiplier_adjustments;
