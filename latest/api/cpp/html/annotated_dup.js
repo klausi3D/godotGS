@@ -464,6 +464,7 @@ var annotated_dup =
     [ "PainterlyRenderResult", "structPainterlyRenderResult.html", "structPainterlyRenderResult" ],
     [ "PainterlyTextureInfo", "structPainterlyTextureInfo.html", "structPainterlyTextureInfo" ],
     [ "PassColors", "structPassColors.html", null ],
+    [ "PayloadReadService", "classPayloadReadService.html", "classPayloadReadService" ],
     [ "PickParams", "structPickParams.html", "structPickParams" ],
     [ "PickResult", "structPickResult.html", "structPickResult" ],
     [ "PipelineFeatureSet", "structPipelineFeatureSet.html", "structPipelineFeatureSet" ],

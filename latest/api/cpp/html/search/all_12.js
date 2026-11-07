@@ -93,6 +93,7 @@ var searchData=
   ['queue_5frestore_90',['queue_restore',['../classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#adfe954706efda76a4436c43341ee090b',1,'GaussianSplatSceneDirector::DeferredRendererWork::queue_restore()'],['../classGaussianSplatSceneDirector_1_1RendererContractWorkQueue.html#a67488a88c4970a0cec8e484e943e6992',1,'GaussianSplatSceneDirector::RendererContractWorkQueue::queue_restore()']]],
   ['queue_5frestore_5ffirst_91',['queue_restore_first',['../classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a57ae8546d8fb1894964c725d6f7e0a77',1,'GaussianSplatSceneDirector::DeferredRendererWork::queue_restore_first()'],['../classGaussianSplatSceneDirector_1_1RendererContractWorkQueue.html#a57296eb8f6a7c938ef6678ff512d6e03',1,'GaussianSplatSceneDirector::RendererContractWorkQueue::queue_restore_first()']]],
   ['queue_5fviewport_5fbootstrap_92',['queue_viewport_bootstrap',['../classGaussianSplatNodeViewportHelper.html#a06d989a827046ae283d58d807cd35204',1,'GaussianSplatNodeViewportHelper']]],
-  ['queued_5fchunk_5floads_5fthis_5fframe_93',['queued_chunk_loads_this_frame',['../classStreamingUploadPipeline.html#adaff1f9f90d6156c512eb32c09508a6c',1,'StreamingUploadPipeline']]],
-  ['queuepressuresnapshot_94',['QueuePressureSnapshot',['../structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html',1,'StreamingTelemetryAdapter']]]
+  ['queued_93',['queued',['../structPayloadReadService_1_1Stats.html#a8de2f70145b95b7a76dbbe14acf11300',1,'PayloadReadService::Stats']]],
+  ['queued_5fchunk_5floads_5fthis_5fframe_94',['queued_chunk_loads_this_frame',['../classStreamingUploadPipeline.html#adaff1f9f90d6156c512eb32c09508a6c',1,'StreamingUploadPipeline']]],
+  ['queuepressuresnapshot_95',['QueuePressureSnapshot',['../structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html',1,'StreamingTelemetryAdapter']]]
 ];

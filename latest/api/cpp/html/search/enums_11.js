@@ -29,5 +29,6 @@ var searchData=
   ['streaminguploadlifecyclestate_26',['StreamingUploadLifecycleState',['../namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94f',1,'GaussianStreamingTypes']]],
   ['stylepreset_27',['StylePreset',['../classPainterlyMaterial.html#a16d60e38368200c91d13eed76502a2f7',1,'PainterlyMaterial']]],
   ['subgroupprefixmode_28',['SubgroupPrefixMode',['../structGPUSortingConfig.html#abe79287de1d3073e1a23585da1959b1e',1,'GPUSortingConfig']]],
-  ['submissionresidencyhint_29',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]]
+  ['submissionresidencyhint_29',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]],
+  ['submitresult_30',['SubmitResult',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82ea',1,'PayloadReadService']]]
 ];

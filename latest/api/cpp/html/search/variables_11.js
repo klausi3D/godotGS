@@ -34,5 +34,6 @@ var searchData=
   ['queue_5fpressure_5fframes_31',['queue_pressure_frames',['../structGaussianStreamingTypes_1_1DiagnosticsState.html#ac06261231d241813ec3a1e20edf7a5ad',1,'GaussianStreamingTypes::DiagnosticsState']]],
   ['queue_5fpressure_5freason_32',['queue_pressure_reason',['../classStreamingUploadPipeline.html#afe24079a62bde075cdfda4156dcd274d',1,'StreamingUploadPipeline']]],
   ['queue_5fpressure_5fsource_33',['queue_pressure_source',['../classStreamingUploadPipeline.html#a4d06e1a12f206db3a6c360dce328adfb',1,'StreamingUploadPipeline']]],
-  ['queued_5fchunk_5floads_5fthis_5fframe_34',['queued_chunk_loads_this_frame',['../classStreamingUploadPipeline.html#adaff1f9f90d6156c512eb32c09508a6c',1,'StreamingUploadPipeline']]]
+  ['queued_34',['queued',['../structPayloadReadService_1_1Stats.html#a8de2f70145b95b7a76dbbe14acf11300',1,'PayloadReadService::Stats']]],
+  ['queued_5fchunk_5floads_5fthis_5fframe_35',['queued_chunk_loads_this_frame',['../classStreamingUploadPipeline.html#adaff1f9f90d6156c512eb32c09508a6c',1,'StreamingUploadPipeline']]]
 ];

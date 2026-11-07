@@ -82,7 +82,7 @@ var searchData=
   ['stagevalidationrecord_79',['StageValidationRecord',['../structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html',1,'GaussianSplatting::ComputeInfrastructure']]],
   ['stateuniformdata_80',['StateUniformData',['../structGaussianRenderConfig_1_1StateUniformData.html',1,'GaussianRenderConfig']]],
   ['staticchunk_81',['StaticChunk',['../structStaticChunk.html',1,'']]],
-  ['stats_82',['Stats',['../structGaussianSplatHlodPagedSource_1_1Stats.html',1,'GaussianSplatHlodPagedSource::Stats'],['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode_1_1Stats.html',1,'GaussianSplatting::HierarchicalSplatStructure::OctreeNode::Stats'],['../structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html',1,'gs_hlod_runtime::NodeResidency::Stats'],['../structNodeResidency_1_1Stats.html',1,'NodeResidency::Stats']]],
+  ['stats_82',['Stats',['../structGaussianSplatHlodPagedSource_1_1Stats.html',1,'GaussianSplatHlodPagedSource::Stats'],['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode_1_1Stats.html',1,'GaussianSplatting::HierarchicalSplatStructure::OctreeNode::Stats'],['../structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html',1,'gs_hlod_runtime::NodeResidency::Stats'],['../structNodeResidency_1_1Stats.html',1,'NodeResidency::Stats'],['../structPayloadReadService_1_1Stats.html',1,'PayloadReadService::Stats']]],
   ['streambuffer_83',['StreamBuffer',['../structGaussianMemoryStream_1_1StreamBuffer.html',1,'GaussianMemoryStream']]],
   ['streamingchunk_84',['StreamingChunk',['../structGaussianStreamingTypes_1_1StreamingChunk.html',1,'GaussianStreamingTypes']]],
   ['streamingchunkbakerecord_85',['StreamingChunkBakeRecord',['../structStreamingChunkBakeRecord.html',1,'']]],

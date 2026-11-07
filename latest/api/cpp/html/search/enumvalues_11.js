@@ -115,10 +115,16 @@ var searchData=
   ['submission_5fdevice_5funavailable_112',['SUBMISSION_DEVICE_UNAVAILABLE',['../gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca555d75fb308aa9e44cb7ee4332d40f9b',1,'SUBMISSION_DEVICE_UNAVAILABLE:&#160;gpu_sorting_pipeline_interfaces.h'],['../gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1a555d75fb308aa9e44cb7ee4332d40f9b',1,'SUBMISSION_DEVICE_UNAVAILABLE:&#160;gpu_sorter.h']]],
   ['submission_5fresidency_5fhint_5fresident_113',['SUBMISSION_RESIDENCY_HINT_RESIDENT',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3aae53012a0357a2c94c7930fcbc4080b5',1,'GaussianSplatSceneDirector']]],
   ['submission_5fresidency_5fhint_5fstreaming_114',['SUBMISSION_RESIDENCY_HINT_STREAMING',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3acf155f7064b149dad5ddda65a10478de',1,'GaussianSplatSceneDirector']]],
-  ['submitted_115',['SUBMITTED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a68b3434545536be2c3310cd8c714aa6f',1,'GaussianSplatting']]],
-  ['success_116',['SUCCESS',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946ad0749aaba8b833466dfcbb0428e4f89c',1,'GaussianRenderPipeline::StageResult']]],
-  ['sync_5fcompleted_117',['SYNC_COMPLETED',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99',1,'gpu_sorting_pipeline_interfaces.h']]],
-  ['sync_5ffallback_5ffailed_118',['SYNC_FALLBACK_FAILED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a5dd2a9d54d9f6a2c57e38bae9af1ee4a',1,'GaussianSplatting']]],
-  ['sync_5ffallback_5fok_119',['SYNC_FALLBACK_OK',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a66d4a96af07ba30bc58429286a3b25aa',1,'GaussianSplatting']]],
-  ['synchronization_120',['SYNCHRONIZATION',['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180a8a98c80f69eb6125f41189d4d30343a9',1,'RenderingError']]]
+  ['submit_5fbusy_115',['SUBMIT_BUSY',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa98c4492360b7b9183029b7a8258acb5d',1,'PayloadReadService']]],
+  ['submit_5fduplicate_5fticket_116',['SUBMIT_DUPLICATE_TICKET',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa19cc29091fdbcc867bca48ef635e2804',1,'PayloadReadService']]],
+  ['submit_5finvalid_117',['SUBMIT_INVALID',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa9512e4413e279ea23c4ee7b1ee462182',1,'PayloadReadService']]],
+  ['submit_5fnot_5frunning_118',['SUBMIT_NOT_RUNNING',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa257aee5e3216516a79f42a43281cf489',1,'PayloadReadService']]],
+  ['submit_5fok_119',['SUBMIT_OK',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa71c4cba443a423d870747708f87dcba0',1,'PayloadReadService']]],
+  ['submit_5ftoo_5flarge_120',['SUBMIT_TOO_LARGE',['../classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82eaa9e538626926f13a081adf92a1024baef',1,'PayloadReadService']]],
+  ['submitted_121',['SUBMITTED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a68b3434545536be2c3310cd8c714aa6f',1,'GaussianSplatting']]],
+  ['success_122',['SUCCESS',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946ad0749aaba8b833466dfcbb0428e4f89c',1,'GaussianRenderPipeline::StageResult']]],
+  ['sync_5fcompleted_123',['SYNC_COMPLETED',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sync_5ffallback_5ffailed_124',['SYNC_FALLBACK_FAILED',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a5dd2a9d54d9f6a2c57e38bae9af1ee4a',1,'GaussianSplatting']]],
+  ['sync_5ffallback_5fok_125',['SYNC_FALLBACK_OK',['../namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a66d4a96af07ba30bc58429286a3b25aa',1,'GaussianSplatting']]],
+  ['synchronization_126',['SYNCHRONIZATION',['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180a8a98c80f69eb6125f41189d4d30343a9',1,'RenderingError']]]
 ];
