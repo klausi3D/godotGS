@@ -646,7 +646,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 
 	// Enforce the user-configurable overlap budget so emit/sort never write past buffer capacity.
 	// The budget is controlled via ProjectSettings: rendering/gaussian_splatting/gpu_sorting/max_overlap_records
-	// Default: 100 million (~1.2 GB VRAM). Users can increase for large scenes or decrease for VRAM-limited GPUs.
+	// Default: 100 million (2.6 GiB VRAM at the cap, 28 B/record). Users can increase for large scenes or decrease for VRAM-limited GPUs.
 	uint64_t max_records = uint64_t(UINT32_MAX);
 	const uint32_t effective_capacity = owner._get_effective_overlap_capacity();
 	if (effective_capacity > 0) {

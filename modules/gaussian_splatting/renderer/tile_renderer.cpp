@@ -1,6 +1,7 @@
 #include "tile_renderer.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "overlap_bootstrap_policy.h"
 #include "resident_atlas_budget.h"
 
 #include "core/error/error_macros.h"
@@ -20,6 +21,7 @@
 #include "gpu_debug_utils.h"
 #include "gpu_performance_monitor.h"
 #include "gpu_sorting_config.h"
+#include "gpu_sorting_constants.h"
 #include "instance_pipeline_contract.h"
 #include "quantization_config.h"
 #include "resource_owner_mismatch_contract.h"
@@ -881,13 +883,15 @@ private:
 					// Clear the overflow flag after handling to prevent repeated resizes.
 					renderer.async_readback.overflow_state.overflow_detected = false;
 				}
-				// Initial buffer sizing: use higher multiplier for close camera views where splats cover many tiles.
-				// With camera close to geometry, each splat can cover 50-100+ tiles easily.
-				// Using 50x provides headroom for close-up views without budget cutoff.
+				// Demand-driven sizing (BV-10 E3): visible * measured records/splat, or a small seed
+				// before the first measurement. A close-up can cover 100+ tiles per splat, which is
+				// why the seed is not trusted: the first frame takes one synchronous overlap sample
+				// below and grows in the same frame, so the seed never drops a record.
 				// Use effective_visible_splats (accounts for max_visible_splats from instance pipeline)
 				// to avoid undersized initial allocation when CPU readback is stale.
 				const uint32_t overlap_base_count = MAX(params.splat_count, effective_visible_splats);
-				uint32_t overlap_estimate = MIN<uint64_t>(uint64_t(overlap_base_count) * 50u, UINT32_MAX);
+				const uint32_t measured_records_per_splat_q8 = renderer.global_sort_resources.measured_records_per_splat_q8;
+				uint32_t overlap_estimate = GaussianSplatting::overlap_demand_estimate(overlap_base_count, measured_records_per_splat_q8);
 				if (renderer.global_sort_resources.capacity == 0 &&
 						params.total_gaussians > 0 &&
 						overlap_base_count < 1024u) {
@@ -905,14 +909,26 @@ private:
 					const uint32_t adaptive_overlap_floor = _get_adaptive_overlap_budget_floor(&renderer);
 					if (adaptive_overlap_floor > 0u) {
 						if (_adaptive_overlap_budget_has_history(&renderer)) {
-							// After we have raw usage history, drive allocation from adaptive budget directly.
-							overlap_estimate = adaptive_overlap_floor;
+							// After we have raw usage history, drive allocation from adaptive budget, and
+							// lead it by visible * records/splat: the budget only sees a rise in visible
+							// splats a readback later.
+							overlap_estimate = measured_records_per_splat_q8 > 0u
+									? MAX(overlap_estimate, adaptive_overlap_floor)
+									: adaptive_overlap_floor;
 						} else {
 							// Bootstrap from coarse estimate before first reliable overlap sample is available.
 							overlap_estimate = MAX(overlap_estimate, adaptive_overlap_floor);
 						}
 					}
-					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate); }
+					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate, true); }
+					// The one synchronous overlap sample of the bootstrap (policy allow_sync_bootstrap,
+					// same rule as the instance-count bootstrap): it gives the prefix pass a real total
+					// so the same-frame grow below runs. STRICT_ASYNC profiling keeps its timestamps
+					// instead and grows from the async overflow path a few frames later.
+					const bool overlap_bootstrap_sample = !allow_sync_readback && readback_policy.allow_sync_bootstrap &&
+							!params.hlod_relative && !renderer.global_sort_resources.overlap_bootstrap_sampled &&
+							overlap_base_count > 0u;
+					const bool overlap_sync_measurement = allow_sync_readback || overlap_bootstrap_sample;
 				renderer.global_sort_resources.advance_tile_counts_buffer();
 			tile_counts_buffer_advanced = true;
 			if (renderer.global_sort_resources.capacity == 0 ||
@@ -977,9 +993,12 @@ private:
 			uint32_t overlap_record_count = 0;
 			uint32_t raw_overlap_record_count = 0;
 			if (!renderer._update_global_tile_ranges(params.gaussian_buffer, params.sorted_indices, uniform_device, overlap_record_count,
-						raw_overlap_record_count, allow_sync_readback)) {
+						raw_overlap_record_count, overlap_sync_measurement)) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to build global tile ranges for rasterization");
 				return false;
+			}
+			if (overlap_sync_measurement) {
+				renderer.global_sort_resources.overlap_bootstrap_sampled = true;
 			}
 			// Feed the adaptive budget only REAL overlap measurements. On the default
 			// async path the first frames report raw_overlap_record_count = effective
@@ -988,9 +1007,18 @@ private:
 			// and, because the budget only decays ~10%/120 frames, the shrink could not
 			// converge for ~1-2k frames. Sync readback always yields a real value; in
 			// async, wait for the first completed readback. Until then keep the existing
-			// suggestion (frame-start estimate stays on the coarse visible*50 bootstrap).
+			// suggestion (frame-start estimate stays on the demand-driven seed).
 			const bool have_real_overlap_measurement =
-					allow_sync_readback || renderer.async_readback.overflow_state.first_frame_complete;
+					overlap_sync_measurement || renderer.async_readback.overflow_state.first_frame_complete;
+			auto note_measured_overlap_rate = [&](uint32_t p_raw_records) {
+				const uint32_t rate_q8 = GaussianSplatting::overlap_records_per_splat_q8(p_raw_records, overlap_base_count);
+				if (rate_q8 > 0u) {
+					renderer.global_sort_resources.measured_records_per_splat_q8 = rate_q8;
+				}
+			};
+			if (have_real_overlap_measurement) {
+				note_measured_overlap_rate(raw_overlap_record_count);
+			}
 			const uint32_t adaptive_overlap_budget_suggested = have_real_overlap_measurement
 					? _update_adaptive_overlap_budget(&renderer, raw_overlap_record_count)
 					: _get_adaptive_overlap_budget_suggestion(&renderer);
@@ -1031,7 +1059,7 @@ private:
 				renderer.global_sort_resources.last_observed_demand = measured_overlap_demand;
 			if (!params.hlod_relative && overlap_capacity_request > renderer.global_sort_resources.capacity) {
 				const uint64_t gen_before = renderer.descriptor_generation;
-				renderer._ensure_global_sort_resources(overlap_capacity_request);
+				renderer._ensure_global_sort_resources(overlap_capacity_request, true);
 
 				if (renderer.descriptor_generation > gen_before) {
 					// Descriptor cache was invalidated: buffers were reallocated.
@@ -1061,11 +1089,14 @@ private:
 					overlap_record_count = 0;
 					raw_overlap_record_count = 0;
 					if (!renderer._update_global_tile_ranges(params.gaussian_buffer, params.sorted_indices,
-								uniform_device, overlap_record_count, raw_overlap_record_count, allow_sync_readback)) {
+								uniform_device, overlap_record_count, raw_overlap_record_count, overlap_sync_measurement)) {
 						GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to rebuild tile ranges after buffer resize");
 						return false;
 					}
 					_update_adaptive_overlap_budget(&renderer, raw_overlap_record_count);
+					if (have_real_overlap_measurement) {
+						note_measured_overlap_rate(raw_overlap_record_count);
+					}
 				}
 			}
 
@@ -2740,8 +2771,8 @@ void TileRenderer::_ensure_global_projection_buffer(uint32_t p_visible_count) {
 	projection_buffers.ensure_projection_buffer(p_visible_count);
 }
 
-void TileRenderer::_ensure_global_sort_resources(uint32_t p_visible_count) {
-	global_sort_resources.ensure_resources(p_visible_count);
+void TileRenderer::_ensure_global_sort_resources(uint32_t p_visible_count, bool p_growth_headroom) {
+	global_sort_resources.ensure_resources(p_visible_count, p_growth_headroom);
 }
 bool TileRenderer::_update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices,
         RenderingDevice *p_device, uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback) {
@@ -3631,6 +3662,11 @@ TileRenderer::RenderStats TileRenderer::_build_render_stats_from_cached_counts()
 	stats.overlap_record_budget_configured = configured_overlap_budget;
 	stats.overlap_record_budget_effective = diagnostics.last_overlap_record_budget_effective;
 	stats.overlap_thinning_keep_ratio = diagnostics.last_overlap_keep_ratio;
+	stats.overlap_sort_capacity = global_sort_resources.capacity;
+	stats.overlap_sort_capacity_high_water = global_sort_resources.capacity_high_water;
+	stats.overlap_sort_bytes = global_sort_resources.allocated_sort_bytes();
+	stats.overlap_sort_resize_peak_bytes = global_sort_resources.resize_peak_bytes;
+	stats.overlap_sort_resize_preflight_refusals = global_sort_resources.resize_preflight_refusals;
 
 	uint32_t *density_write = nullptr;
 	if (diagnostics.capture_tile_density_snapshot) {
@@ -3958,9 +3994,11 @@ uint32_t TileRenderer::clamp_hlod_overlap_records(uint32_t p_records) const {
 }
 
 uint64_t TileRenderer::get_hlod_overlap_bytes_per_record() const {
-    // Same rule as global_sort_key_stride_words() in tile_render_resources.cpp: 64-bit keys take two words.
-    const uint32_t key_words = _get_effective_sort_key_config().key_bits > 32 ? 2u : 1u;
-    return 2u * uint64_t(key_words + 1u) * sizeof(uint32_t);
+    // BV-10 E4: the whole sort, radix histograms included, rounded up over a representative capacity.
+    constexpr uint64_t SAMPLE_RECORDS = 1u << 20;
+    const uint64_t bytes = GPUSortingConstants::overlap_sort_total_bytes(SAMPLE_RECORDS, g_gpu_sorting_config.radix_bits,
+            g_gpu_sorting_config.workgroup_size, _get_effective_sort_key_config().key_bits);
+    return (bytes + SAMPLE_RECORDS - 1u) / SAMPLE_RECORDS;
 }
 
 uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const {
