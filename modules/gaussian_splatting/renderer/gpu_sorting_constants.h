@@ -149,6 +149,30 @@ inline bool sort_path_allocation_fits_device_size(uint64_t p_max_elements, uint3
 			uint64_t(UINT32_MAX);
 }
 
+// VRAM of one global overlap sort at this capacity (BV-10, E4): the renderer's keys and values plus
+// the radix temp keys, temp values, histogram, workgroup prefix and bin tables of
+// RadixSort::initialize. 28 B per record at the defaults (64-bit keys, 4-bit radix, workgroup 512):
+// keys 8 + values 4 + temp 8 + 4 + histogram 2 + workgroup prefix 2. An unsupported radix yields
+// SORT_PATH_SIZE_UNSUPPORTED, as sort_path_max_buffer_bytes() above does.
+inline uint64_t overlap_sort_total_bytes(uint64_t p_max_elements, uint32_t p_radix_bits,
+		uint32_t p_workgroup_size, uint32_t p_key_bits) {
+	if (!is_supported_radix_bits(p_radix_bits)) {
+		return SORT_PATH_SIZE_UNSUPPORTED;
+	}
+	if (p_max_elements == 0) {
+		return 0;
+	}
+	const uint32_t workgroup_size = p_workgroup_size > 0 ? p_workgroup_size : DEFAULT_RADIX_WORKGROUP_SIZE;
+	const uint64_t key_bits = p_key_bits > 32 ? 64u : 32u;
+	const uint64_t radix_size = 1ull << p_radix_bits;
+	const uint64_t num_passes = (key_bits + p_radix_bits - 1ull) / p_radix_bits;
+	const uint64_t workgroups = (p_max_elements + workgroup_size - 1ull) / workgroup_size;
+	const uint64_t record_bytes = (key_bits / 8u + sizeof(uint32_t)) * p_max_elements;
+	const uint64_t histogram_bytes = workgroups * radix_size * num_passes * sizeof(uint32_t);
+	const uint64_t bin_bytes = num_passes * radix_size * sizeof(uint32_t);
+	return record_bytes * 2u + histogram_bytes * 2u + bin_bytes * 2u;
+}
+
 // ---------------------------------------------------------------------------
 // RadixSort scatter-kernel shared-memory bound (#634)
 // ---------------------------------------------------------------------------

@@ -248,6 +248,11 @@ struct TileRenderStats {
 	uint32_t overlap_record_budget = 0;
 	uint32_t overlap_record_budget_effective = 0;
 	uint32_t overlap_record_budget_configured = 0;
+	uint32_t overlap_sort_capacity = 0;
+	uint32_t overlap_sort_capacity_high_water = 0;
+	uint64_t overlap_sort_bytes = 0;
+	uint64_t overlap_sort_resize_peak_bytes = 0;
+	uint64_t overlap_sort_resize_preflight_refusals = 0;
 	float overlap_thinning_keep_ratio = 1.0f;
 	uint64_t compute_raster_frames = 0;
 	uint64_t fragment_raster_frames = 0;

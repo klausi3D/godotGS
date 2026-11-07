@@ -2607,6 +2607,11 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	performance_state.metrics.raster_overlap_record_budget = raster_stats.overlap_record_budget;
 	performance_state.metrics.raster_overlap_record_budget_effective = raster_stats.overlap_record_budget_effective;
 	performance_state.metrics.raster_overlap_record_budget_configured = raster_stats.overlap_record_budget_configured;
+	performance_state.metrics.raster_overlap_sort_capacity = raster_stats.overlap_sort_capacity;
+	performance_state.metrics.raster_overlap_sort_capacity_high_water = raster_stats.overlap_sort_capacity_high_water;
+	performance_state.metrics.raster_overlap_sort_bytes = raster_stats.overlap_sort_bytes;
+	performance_state.metrics.raster_overlap_sort_resize_peak_bytes = raster_stats.overlap_sort_resize_peak_bytes;
+	performance_state.metrics.raster_overlap_sort_resize_preflight_refusals = raster_stats.overlap_sort_resize_preflight_refusals;
 	performance_state.metrics.raster_overlap_thinning_keep_ratio = raster_stats.overlap_thinning_keep_ratio;
 	performance_state.metrics.raster_feature_global_sort = raster_stats.global_sort_enabled;
 	performance_state.metrics.raster_feature_packed_stage_data = raster_stats.feature_packed_stage_data;
