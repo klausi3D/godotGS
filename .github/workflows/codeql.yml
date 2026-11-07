@@ -1,0 +1,61 @@
+name: CodeQL
+
+# Weekly CodeQL code scanning (advanced setup), replacing GitHub's CodeQL "default
+# setup", which ran on every push and PR and averaged ~259 hosted-runner minutes per
+# run (CI diet audit, 2026-11-07). The maintainer approved moving it to a weekly
+# schedule on 2026-11-07. Default setup must be switched OFF in the repository
+# settings once this workflow is on the default branch: GitHub refuses advanced-setup
+# uploads while default setup is enabled.
+#
+# GitHub-hosted only. It never touches the self-hosted runners and checks out only
+# the default branch (schedule) or the dispatching ref, never fork code.
+#
+# Build mode is `none` for every language: CodeQL extracts C/C++ without running
+# the SCons build, which keeps the job inside the hosted runner's time limit and
+# off any build toolchain. That is the same extraction mode default setup uses for
+# C/C++ on a repository it cannot build.
+
+on:
+  schedule:
+    # Sunday 04:00 UTC.
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      # Upload SARIF results to code scanning.
+      security-events: write
+      # Read workflow run metadata (required by codeql-action on private forks).
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [c-cpp, python, actions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

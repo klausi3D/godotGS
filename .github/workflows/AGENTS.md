@@ -36,6 +36,13 @@ workflow inventory and the runner trust policy.
   are not executed by a gating lane; `export_smoke_windows` is skipped unless the repository
   variable `GODOTGS_WINDOWS_GPU_RUNNER` is `true`. Details, owner and retirement path:
   `docs/governance/review-policy.md`.
+- Recorded gate downgrade (maintainer approval 2026-11-07, "CI diet"): per-merge release
+  builds and duplicate gate runs moved to nightly; up to one-day detection window for
+  regressions on master accepted. Nothing self-hosted runs on a push to `master`;
+  `release_builds.yml` runs nightly, on `v*` tags and on dispatch only; the guard phase runs
+  once per PR in `agentic-pr-gate` (path-gated self-tests via `--guard-self-tests auto`) and
+  in full nightly in `baseline_qa.yml`. Layout and coverage moves: `README.md` ("CI layout");
+  details and retirement path: `docs/governance/review-policy.md`.
 
 ## Process rules
 

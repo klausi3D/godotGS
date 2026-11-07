@@ -532,6 +532,14 @@ _approved_tracked_synthetic_ply_fixtures_cache: set[str] | None = None
 def _run_command(
     args: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None
 ) -> tuple[int, str, str]:
+    skipped = _is_skipped_guard_self_test(args)
+    if skipped is not None:
+        # Printed here, not returned: several callers drop a passing script's
+        # output, and a skip must never read as a silent pass.
+        message = f"[module-tests][guard-self-test] SKIPPED {skipped} (path-gated; see --guard-self-tests)"
+        print(message)
+        _GUARD_SELF_TESTS_SKIPPED_LOG.append(skipped)
+        return 0, message + "\n", ""
     result = subprocess.run(
         args,
         cwd=cwd,
@@ -1160,6 +1168,124 @@ _GUARD_GODOT_BINARY_OVERRIDE: str | None = None
 # so the value alone cannot tell `--godot-binary godot` from no option at all.
 _GUARD_GODOT_BINARY_EXPLICIT: bool = False
 
+# --- Guard SELF-TESTS: path-gated on PRs, always run nightly (CI diet, 2026-11-07) ---
+#
+# Most of the guard phase's wall time is spent in unit tests OF the guards, not in
+# checks against this tree (measured 2026-11-07: 286 of 364 s locally). A guard's
+# self-test can only change its verdict when one of its inputs changes. The scripts
+# below were each read for what they load from the REAL repository (not their
+# temporary fixtures), and every such read lies under
+# GUARD_SELF_TEST_TRIGGER_PREFIXES or is a root-level file. Self-tests that read
+# product code outside that set (for example the layout-sync, runtime-validation
+# contract, benchmark-fixture and doc-snippet tests, and the lane-ledger test, which
+# scans the whole module) are deliberately NOT listed and always run.
+#
+# `--guard-self-tests auto` (agentic_pr_gate.yml) skips exactly these scripts when
+# the diff against the review base touches none of the trigger prefixes. Every
+# skip is printed. The default is `always`, which the nightly (baseline_qa.yml
+# cpu-tests on schedule) and every local run use, so the full self-test set still
+# runs at least once a day on master. A base that cannot be resolved, or a diff
+# that cannot be computed, RUNS the self-tests: an unknown is never a skip.
+GUARD_SELF_TEST_TRIGGER_PREFIXES: tuple[str, ...] = (
+    "tests/",
+    ".github/",
+    ".agentic/",
+    "scripts/",
+    "docs/",
+    "thirdparty/doctest/",
+    "modules/gaussian_splatting/tests/",
+)
+PATH_GATED_GUARD_SELF_TESTS: tuple[Path, ...] = (
+    ROOT / "tests" / "ci" / "test_check_require_null_deref.py",
+    ROOT / "tests" / "ci" / "test_check_environment_skip_marker.py",
+    ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py",
+    ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py",
+    ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py",
+    ROOT / "tests" / "ci" / "test_renderer_release_gates.py",
+    ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py",
+    ROOT / "tests" / "ci" / "test_quarantine_manifest.py",
+    ROOT / "tests" / "ci" / "test_streaming_evidence_fail_closed.py",
+    ROOT / "tests" / "ci" / "test_production_readiness_enforcement.py",
+    ROOT / "tests" / "ci" / "test_release_builds_path_filters.py",
+    ROOT / "tests" / "ci" / "test_release_publication_gating.py",
+    ROOT / "tests" / "ci" / "test_release_builds_runner_trust.py",
+    ROOT / "tests" / "ci" / "test_preflight_runner_gpu_environment.py",
+    ROOT / "tests" / "ci" / "test_runner_gpu_contention.py",
+)
+GUARD_SELF_TESTS_ENV = "GS_GUARD_SELF_TESTS"
+# Populated by _configure_guard_self_tests(); empty means "run everything".
+_SKIPPED_GUARD_SELF_TESTS: frozenset[str] = frozenset()
+_GUARD_SELF_TESTS_SKIPPED_LOG: list[str] = []
+
+
+def _changed_paths_against(base_ref: str) -> list[str] | None:
+    """Repo-relative paths changed between the merge base of `base_ref` and HEAD.
+
+    None when git cannot answer; the caller treats that as "run the self-tests".
+    """
+    code, out, err = _run_command(["git", "diff", "--name-only", f"{base_ref}...HEAD"])
+    if code != 0:
+        print(f"[module-tests] Cannot diff against {base_ref!r}: {(err or out).strip()}")
+        return None
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def _guard_self_tests_needed(changed: list[str]) -> list[str]:
+    """The changed paths that can change a gated self-test's verdict."""
+    return [
+        path
+        for path in changed
+        if "/" not in path or path.startswith(GUARD_SELF_TEST_TRIGGER_PREFIXES)
+    ]
+
+
+def _configure_guard_self_tests(mode: str, base_ref_override: str | None) -> None:
+    global _SKIPPED_GUARD_SELF_TESTS
+    _SKIPPED_GUARD_SELF_TESTS = frozenset()
+    _GUARD_SELF_TESTS_SKIPPED_LOG.clear()
+    if mode != "auto":
+        return
+    base_ref = base_ref_override
+    if not base_ref:
+        for name in ENVIRONMENT_SKIP_BASE_ENV_VARS:
+            value = os.environ.get(name, "").strip()
+            if value:
+                base_ref = value
+                break
+    if not base_ref:
+        print("[module-tests] Guard self-tests: auto mode but no review base; running all of them.")
+        return
+    changed = _changed_paths_against(base_ref)
+    if changed is None:
+        print("[module-tests] Guard self-tests: diff unavailable; running all of them.")
+        return
+    triggering = _guard_self_tests_needed(changed)
+    if triggering:
+        print(
+            f"[module-tests] Guard self-tests: running all of them; {len(triggering)} changed "
+            f"path(s) can affect them (first: {triggering[0]})."
+        )
+        return
+    _SKIPPED_GUARD_SELF_TESTS = frozenset(str(path.resolve()) for path in PATH_GATED_GUARD_SELF_TESTS)
+    print(
+        f"[module-tests] Guard self-tests: {len(PATH_GATED_GUARD_SELF_TESTS)} path-gated self-test "
+        f"script(s) will be SKIPPED: none of the {len(changed)} changed path(s) lies under "
+        f"{', '.join(GUARD_SELF_TEST_TRIGGER_PREFIXES)} or the repository root. They run in "
+        "full nightly (baseline_qa.yml, schedule)."
+    )
+
+
+def _is_skipped_guard_self_test(args: list[str]) -> str | None:
+    if not _SKIPPED_GUARD_SELF_TESTS or len(args) < 2:
+        return None
+    try:
+        candidate = str(Path(args[1]).resolve())
+    except (OSError, ValueError):
+        return None
+    if candidate in _SKIPPED_GUARD_SELF_TESTS:
+        return _display_path(Path(args[1]))
+    return None
+
 # The PR base, in priority order. GITHUB_BASE_SHA / GITHUB_BASE_REF are what
 # .github/workflows/agentic_pr_gate.yml has available from
 # `github.event.pull_request.base.*`.
@@ -1174,9 +1300,9 @@ ENVIRONMENT_SKIP_BASE_ENV_VARS: tuple[str, ...] = (
 # Events that propose a CHANGE for review and therefore HAVE a base. Anything
 # else (push, schedule, workflow_dispatch) has no "review base" at all: HEAD is
 # already the integrated state, so demanding one there would block the run rather
-# than protect it. gaussian_production_gates.yml runs --guard-only on push,
-# schedule, workflow_dispatch and merge_group as well as pull_request, so the
-# distinction is load-bearing and not hypothetical.
+# than protect it. baseline_qa.yml runs the full guard phase on schedule and
+# workflow_dispatch, and agentic_pr_gate.yml runs --guard-only on merge_group as
+# well as pull_request, so the distinction is load-bearing and not hypothetical.
 BASE_BEARING_EVENTS: frozenset[str] = frozenset(
     {"pull_request", "pull_request_target", "merge_group"}
 )
@@ -4088,10 +4214,47 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
     _GUARD_GODOT_BINARY_OVERRIDE = getattr(cli_args, "godot_binary", None)
     _GUARD_GODOT_BINARY_EXPLICIT = bool(getattr(cli_args, "godot_binary_explicit", False))
 
+    if getattr(cli_args, "skip_guards", False):
+        # CI diet (2026-11-07): the binary-independent guards run once per PR in
+        # the required agentic-pr-gate (`--guard-only`) and in full nightly. The
+        # two guard steps that need the Godot binary this job built cannot run
+        # there (that job builds nothing), so they stay here.
+        print(
+            "[module-tests] --skip-guards: binary-independent guards skipped (they run in "
+            "agentic-pr-gate and nightly); running the binary-dependent guards only."
+        )
+        return _first_guard_failure(
+            (
+                lambda: _run_message_guard(
+                    _run_runtime_validation_contract_guard,
+                    "Runtime validation contract guard failed.",
+                    "Runtime validation contract guard passed.",
+                    success_always=True,
+                ),
+                lambda: _run_stringname_orphan_guard_step(cli_args.godot_binary),
+            )
+        )
+
+    _configure_guard_self_tests(
+        getattr(cli_args, "guard_self_tests", "always") or "always",
+        getattr(cli_args, "base_ref", None),
+    )
+
     history_guard_mode, history_guard_mode_warning = _resolve_history_artifact_guard_mode()
     if history_guard_mode_warning:
         print(f"[module-tests] {history_guard_mode_warning}")
 
+    try:
+        return _run_guard_phase(cli_args, history_guard_mode)
+    finally:
+        if _GUARD_SELF_TESTS_SKIPPED_LOG:
+            print(
+                f"[module-tests] Guard self-tests SKIPPED this run ({len(_GUARD_SELF_TESTS_SKIPPED_LOG)}): "
+                + ", ".join(_GUARD_SELF_TESTS_SKIPPED_LOG)
+            )
+
+
+def _run_guard_phase(cli_args: argparse.Namespace, history_guard_mode: str) -> int | None:
     return _first_guard_failure(
         (
             _run_required_message_guards,
@@ -4960,6 +5123,24 @@ def _parse_args() -> argparse.Namespace:
                         help="Git base ref/commit for render-path guard diff (default: auto-detected).")
     parser.add_argument("--guard-only", "--guards-only", action="store_true",
                         help="Run guards only and skip Godot test execution.")
+    parser.add_argument(
+        "--skip-guards",
+        action="store_true",
+        help=(
+            "Skip the binary-independent guard phase (it runs in agentic-pr-gate and "
+            "nightly) and run only the guards that need --godot-binary, then the lanes."
+        ),
+    )
+    parser.add_argument(
+        "--guard-self-tests",
+        choices=("always", "auto"),
+        default=os.environ.get(GUARD_SELF_TESTS_ENV, "").strip().lower() or "always",
+        help=(
+            "'always' (default) runs every guard self-test. 'auto' skips the path-gated "
+            "self-tests (PATH_GATED_GUARD_SELF_TESTS) when the diff against the review "
+            "base touches none of GUARD_SELF_TEST_TRIGGER_PREFIXES."
+        ),
+    )
     parser.add_argument("--skip-render-guards", action="store_true",
                         help="Skip render-path mutation guard checks.")
     parser.add_argument("--skip-static-guards", action="store_true",
@@ -5010,6 +5191,8 @@ def _parse_args() -> argparse.Namespace:
         # An empty ledger from a run that executed no lane reads as "no lane
         # failed". Refuse rather than emit it.
         parser.error("--lane-report cannot be combined with --guard-only: no lane runs.")
+    if args.skip_guards and args.guard_only:
+        parser.error("--skip-guards cannot be combined with --guard-only: nothing would run.")
     return args
 
 

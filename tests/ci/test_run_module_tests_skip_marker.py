@@ -915,9 +915,10 @@ class WorkflowBaseExportTests(IsolatedTestCase):
             "the transitive walk no longer reaches the indirect caller",
         )
         names = {path.name for path, _member in self._invoking_workflows()}
+        # gaussian_production_gates.yml left this list with the CI diet
+        # (2026-11-07): it no longer runs the module runner at all.
         for workflow in (
             "agentic_pr_gate.yml",
-            "gaussian_production_gates.yml",
             "baseline_qa.yml",
         ):
             self.assertIn(workflow, names, f"{workflow} dropped out of the derived surface")
@@ -925,8 +926,8 @@ class WorkflowBaseExportTests(IsolatedTestCase):
     def test_non_base_bearing_events_do_not_require_a_base(self) -> None:
         """push / schedule / workflow_dispatch have no review base at all.
 
-        gaussian_production_gates.yml runs --guard-only on those events too, so
-        demanding a base there would fail a required gate on every push.
+        baseline_qa.yml runs the full guard phase on schedule and dispatch, so
+        demanding a base there would fail every nightly.
         """
         for event in ("push", "schedule", "workflow_dispatch"):
             with mock.patch.dict(
@@ -958,6 +959,88 @@ class WorkflowBaseExportTests(IsolatedTestCase):
                     harness._GUARD_BASE_REF_OVERRIDE = saved
             self.assertIsNone(base_ref, event)
             self.assertTrue(failures, f"{event} should require a base")
+
+
+class GuardSelfTestPathGateTests(unittest.TestCase):
+    """CI diet (2026-11-07): `--guard-self-tests auto` and `--skip-guards`.
+
+    The gate may only skip a self-test when the diff provably cannot change its
+    verdict, must print every skip, and must run everything when it cannot tell.
+    """
+
+    def setUp(self) -> None:
+        self.addCleanup(harness._configure_guard_self_tests, "always", None)
+
+    def _configure(self, changed, base="deadbeef"):
+        with mock.patch.object(harness, "_changed_paths_against", return_value=changed), \
+                mock.patch.dict(os.environ, {}, clear=False):
+            for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
+                os.environ.pop(name, None)
+            with contextlib.redirect_stdout(io.StringIO()):
+                harness._configure_guard_self_tests("auto", base)
+        return harness._SKIPPED_GUARD_SELF_TESTS
+
+    def test_every_gated_script_exists_and_is_a_test_file(self) -> None:
+        self.assertTrue(harness.PATH_GATED_GUARD_SELF_TESTS)
+        for path in harness.PATH_GATED_GUARD_SELF_TESTS:
+            with self.subTest(path=path):
+                self.assertTrue(path.is_file(), f"{path} does not exist")
+                self.assertTrue(path.name.startswith("test_"), path.name)
+
+    def test_product_only_diff_skips_the_gated_set(self) -> None:
+        skipped = self._configure(["modules/gaussian_splatting/renderer/tile_renderer.cpp"])
+        self.assertEqual(len(skipped), len(harness.PATH_GATED_GUARD_SELF_TESTS))
+
+    def test_any_trigger_path_runs_everything(self) -> None:
+        for path in (
+            "tests/ci/run_module_tests.py",
+            ".github/workflows/baseline_qa.yml",
+            "docs/getting-started/downloads.md",
+            "modules/gaussian_splatting/tests/test_animation.h",
+            "thirdparty/doctest/doctest.h",
+            "README.md",
+            "SConstruct",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    self._configure(["modules/gaussian_splatting/renderer/x.cpp", path]), frozenset()
+                )
+
+    def test_unknown_diff_or_missing_base_runs_everything(self) -> None:
+        self.assertEqual(self._configure(None), frozenset())
+        self.assertEqual(self._configure(["modules/gaussian_splatting/renderer/x.cpp"], base=None), frozenset())
+
+    def test_always_mode_never_skips(self) -> None:
+        with mock.patch.object(harness, "_changed_paths_against", return_value=["modules/x.cpp"]):
+            harness._configure_guard_self_tests("always", "deadbeef")
+        self.assertEqual(harness._SKIPPED_GUARD_SELF_TESTS, frozenset())
+
+    def test_a_skipped_self_test_is_printed_and_not_executed(self) -> None:
+        self._configure(["modules/gaussian_splatting/renderer/x.cpp"])
+        target = harness.PATH_GATED_GUARD_SELF_TESTS[0]
+        buffer = io.StringIO()
+        with mock.patch.object(harness.subprocess, "run") as run, contextlib.redirect_stdout(buffer):
+            code, out, _err = harness._run_command([sys.executable, str(target)])
+        run.assert_not_called()
+        self.assertEqual(code, 0)
+        self.assertIn("SKIPPED", buffer.getvalue())
+        self.assertIn(target.name, buffer.getvalue())
+
+    def test_a_real_check_is_never_skipped(self) -> None:
+        self._configure(["modules/gaussian_splatting/renderer/x.cpp"])
+        check = harness.ROOT / "tests" / "ci" / "check_require_null_deref.py"
+        self.assertIsNone(harness._is_skipped_guard_self_test([sys.executable, str(check)]))
+
+    def test_skip_guards_runs_only_the_binary_dependent_guards(self) -> None:
+        args = mock.Mock(skip_guards=True, base_ref=None, godot_binary="godot", godot_binary_explicit=False)
+        with mock.patch.object(harness, "_run_runtime_validation_contract_guard", return_value=(True, [])) as rv, \
+                mock.patch.object(harness, "_run_stringname_orphan_guard_step", return_value=None) as sn, \
+                mock.patch.object(harness, "_run_guard_phase") as full, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(harness._run_ci_guard_steps(args))
+        rv.assert_called_once()
+        sn.assert_called_once_with("godot")
+        full.assert_not_called()
 
 
 if __name__ == "__main__":

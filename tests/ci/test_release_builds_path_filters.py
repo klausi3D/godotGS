@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """Every script release_builds.yml depends on must also trigger it (#825).
 
+CI DIET (maintainer approval 2026-11-07): release_builds.yml no longer has a
+pull_request or branch-push trigger, only `schedule`, `push: tags` and
+`workflow_dispatch`, none of which is path-filtered. Every lane, helper script and
+smoke-test input therefore runs on every nightly on master HEAD, and the coverage
+question below ("can a change skip the lanes that run it?") has the answer "no" by
+construction. `FILTERED_EVENTS` is now DERIVED from the workflow, so the
+filter-coverage tests stay armed: if a path-filtered trigger is ever added back,
+they run against it again, and `UnfilteredTriggerTests` fails first to force the
+decision to be made explicitly.
+
 The workflow's `paths:` filters list root-level `"*.py"`. A single `*` does not
 span `/` in GitHub's filter syntax, so `tests/ci/anything.py` is NOT covered.
 When the export-template jobs were changed to call
@@ -92,7 +102,10 @@ from typing import Dict, List, NamedTuple, Sequence, Set
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "release_builds.yml"
-FILTERED_EVENTS = ("pull_request", "push")
+# Derived from the workflow's `on:` block once the parser is defined (see the
+# assignment below `_workflow_text`). It was the literal ("pull_request", "push")
+# until the CI diet removed both triggers.
+FILTERED_EVENTS: tuple = ()
 
 # The declared dependency set. The filter check runs against THIS, not against
 # whatever a regex happened to find. Add an entry when a job starts depending on
@@ -194,7 +207,9 @@ DIRECTORY_DEPENDENCY_DISPOSITIONS: Dict[str, DirectoryDisposition] = {
     "PROJECT_DIR": DirectoryDisposition(
         triggering=("tests/examples/godot/test_project/project.godot",),
         whole_tree=True,
-        compensating_workflow=".github/workflows/gaussian_production_gates.yml",
+        # Was gaussian_production_gates.yml, which no longer runs per change since the
+        # CI diet. Only consulted while release_builds.yml has a path-filtered trigger.
+        compensating_workflow=".github/workflows/baseline_qa.yml",
         accepted_risk=(
             "A push that changes only one of these files does not run the blocking export "
             "smoke test on that commit. It DOES run the compensating workflow, which loads "
@@ -771,6 +786,69 @@ def _workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
+FILTERED_EVENTS = tuple(sorted(parse_event_paths(_workflow_text())))
+
+
+def _on_block_events(workflow_text: str) -> Dict[str, List[str]]:
+    """Top-level trigger name -> its non-comment body lines, from the `on:` block."""
+    lines = workflow_text.splitlines()
+    start = next(i for i, line in enumerate(lines) if re.match(r"^on:\s*$", line))
+    events: Dict[str, List[str]] = {}
+    current = None
+    for line in lines[start + 1:]:
+        if line and not line[0].isspace():
+            break
+        match = re.match(r"^  ([A-Za-z_][A-Za-z0-9_]*):", line)
+        if match:
+            current = match.group(1)
+            events[current] = []
+        elif current is not None and line.strip() and not line.strip().startswith("#"):
+            events[current].append(line.strip())
+    return events
+
+
+class UnfilteredTriggerTests(unittest.TestCase):
+    """CI diet (2026-11-07): no trigger of release_builds.yml can skip a lane.
+
+    The coverage tests in this file prove that a path-filtered trigger covers every
+    file the release lanes consume. With no path-filtered trigger there is nothing
+    for a change to slip past: each nightly runs every lane on master HEAD. These
+    tests pin that state, so re-adding a filtered trigger is a decision that brings
+    the derived FILTERED_EVENTS, and with it the coverage tests, back into force.
+    """
+
+    def setUp(self) -> None:
+        self.text = _workflow_text()
+        self.events = _on_block_events(self.text)
+
+    def test_no_trigger_is_path_filtered(self) -> None:
+        self.assertEqual(
+            parse_event_paths(self.text),
+            {},
+            "release_builds.yml has a path-filtered trigger again; the filter-coverage "
+            "tests in this file now apply to it, and the CI-diet record in "
+            "docs/governance/review-policy.md must be revisited.",
+        )
+        self.assertEqual(FILTERED_EVENTS, ())
+
+    def test_no_pull_request_trigger(self) -> None:
+        self.assertNotIn("pull_request", self.events)
+        self.assertNotIn("pull_request_target", self.events)
+
+    def test_push_fires_only_on_release_tags(self) -> None:
+        self.assertIn("push", self.events)
+        body = self.events["push"]
+        self.assertIn("tags:", body)
+        self.assertFalse(
+            [line for line in body if line.startswith(("branches", "branches-ignore"))],
+            f"release_builds.yml runs on a branch push again: {body}",
+        )
+
+    def test_the_nightly_runs_every_lane(self) -> None:
+        self.assertIn("schedule", self.events)
+        self.assertTrue([line for line in self.events["schedule"] if "cron:" in line])
+
+
 class NegatedPatternTests(unittest.TestCase):
     """The Medium this round: an ordered include/exclude list must not read as covered."""
 
@@ -999,6 +1077,11 @@ class ManifestTests(unittest.TestCase):
         )
 
     def test_both_event_filters_stay_in_sync(self) -> None:
+        if not {"pull_request", "push"} <= set(self.filters):
+            # Not both events are filtered; UnfilteredTriggerTests pins that no
+            # filtered trigger exists at all.
+            self.assertEqual(self.filters, {})
+            return
         self.assertEqual(
             sorted(self.filters["pull_request"]),
             sorted(self.filters["push"]),
@@ -1199,6 +1282,11 @@ class WholeProjectInputDispositionTests(unittest.TestCase):
         -- the filter narrows, the workflow stops using the project -- the
         accepted risk grows and this fails rather than going quiet.
         """
+        if "push" not in parse_event_paths(self.text):
+            # No path-filtered push: every project file reaches the nightly smoke
+            # test, so there is no untriggered set whose risk needs bounding.
+            self.assertEqual(parse_event_paths(self.text), {})
+            return
         state = project_input_disposition("push")
         compensating = ROOT / state.compensating_workflow
         self.assertTrue(compensating.is_file(), f"{state.compensating_workflow} does not exist")
