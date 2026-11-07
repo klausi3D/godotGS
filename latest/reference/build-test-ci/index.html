@@ -2573,6 +2573,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ci-layout-and-where-each-moved-check-runs-ci-diet-2026-11-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI layout and where each moved check runs (CI diet, 2026-11-07)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#self-hosted-linux-gpu-runner" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4789,6 +4800,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ci-layout-and-where-each-moved-check-runs-ci-diet-2026-11-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI layout and where each moved check runs (CI diet, 2026-11-07)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#self-hosted-linux-gpu-runner" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4879,6 +4901,12 @@ For example, Windows produces <code>bin/godot.windows.editor.dev.x86_64.exe</cod
 <li><code>python3 tests/ci/run_module_tests.py --guard-only</code></li>
 <li><code>python3 tests/ci/run_module_tests.py --godot-binary &lt;module-built-binary&gt;</code></li>
 <li><code>--guard-only</code> includes the renderer release-gate contract check.</li>
+<li><code>--skip-guards</code> runs only the guards that need the binary (runtime-validation real-producer
+    capture, StringName orphan count) before the doctest lanes; the PR CI uses it because the
+    required <code>agentic-pr-gate</code> already ran the rest of the guard phase.</li>
+<li><code>--guard-self-tests auto</code> (used by <code>agentic-pr-gate</code>) skips the path-gated guard self-tests
+    when the diff against the review base touches none of their inputs; the default <code>always</code>
+    runs all of them (nightly and every local run).</li>
 <li><code>--lane-report &lt;path&gt;</code> additionally writes the per-lane ledger below as JSON (see <a href="#per-lane-result-ledger">Per-lane result ledger</a>).</li>
 <li>Runtime validation:</li>
 <li><code>python3 tests/runtime/run_runtime_validation.py --godot-binary &lt;module-built-binary&gt; --profile headless-ci</code></li>
@@ -4892,7 +4920,7 @@ For example, Windows produces <code>bin/godot.windows.editor.dev.x86_64.exe</cod
 <li><code>python3 tests/ci/run_gpu_harness.py --batch CompositorHazard --godot &lt;module-built-binary&gt;</code></li>
 <li>Direct doctest invocation: <code>&lt;module-built-binary&gt; --gs-gpu-test --test-case="*HazardRepro*"</code></li>
 </ul>
-<p>For module-only build commands and SCons targets, see <a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/modules/gaussian_splatting/docs/BUILD_AND_TEST.md">Gaussian Splatting Build and Test Guide</a>. For test-runner overviews, see <a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/tests/README.md">Tests Overview</a>.</p>
+<p>For module-only build commands and SCons targets, see <a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/modules/gaussian_splatting/docs/BUILD_AND_TEST.md">Gaussian Splatting Build and Test Guide</a>. For test-runner overviews, see <a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/tests/README.md">Tests Overview</a>.</p>
 <h2 id="per-lane-result-ledger">Per-lane result ledger<a class="headerlink" href="#per-lane-result-ledger" title="Permanent link">¶</a></h2>
 <p><code>tests/ci/run_module_tests.py</code> declares 29 doctest lanes in <code>MODULE_TEST_FILTERS</code>:
 <strong>23 strict, 6 advisory</strong> (<code>strict=False</code>), as derived at the time of writing.</p>
@@ -5092,8 +5120,8 @@ opt-in GPU lanes are covered by the same totality check rather than escaping it.
 <p>Since #329 the harness also registers the mock <code>DisplayServer</code> driver, so <code>[SceneTree]</code>-tagged <code>[RequiresGPU]</code> cases <strong>do</strong> get a full <code>SceneTree</code> — they run in the <code>NodeSceneTree</code> / <code>WorldSceneTree</code> / <code>SceneDirectorSceneTree</code> / <code>RendererSceneTree</code> batches, which pass explicit <code>--test-case=</code> filters. (A bare <code>--gs-gpu-test</code> with no filter still excludes <code>*[SceneTree]*</code> as a conservative convenience default, which is why the harness can look <code>SceneTree</code>-less when invoked by hand.) This page previously said the harness has "no <code>SceneTree</code>"; that has not been true since #329, and the stale line was cited as evidence that a device-plus-<code>SceneTree</code> lane still had to be built (#675).</p>
 <ul>
 <li>Canonical detail (per-batch table, contracts, troubleshooting): <a href="../../testing/setup-guide/#gpu-test-harness-gs-gpu-test">Testing Setup Guide — GPU Test Harness</a>.</li>
-<li>Per-batch filter table and listener semantics: <a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/modules/gaussian_splatting/tests/README.md"><code>modules/gaussian_splatting/tests/README.md</code></a>.</li>
-<li>Seeded golden captures and recapture workflow: <a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/tests/visual_baselines/README.md"><code>tests/visual_baselines/README.md</code></a>.</li>
+<li>Per-batch filter table and listener semantics: <a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/modules/gaussian_splatting/tests/README.md"><code>modules/gaussian_splatting/tests/README.md</code></a>.</li>
+<li>Seeded golden captures and recapture workflow: <a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/tests/visual_baselines/README.md"><code>tests/visual_baselines/README.md</code></a>.</li>
 </ul>
 <p>Required-batch contract: <code>REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree", "GpuSorting"}</code> in <code>tests/ci/run_gpu_harness.py</code>; an import-time assertion checks that every name in it is a defined batch. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical <code>#256</code> regression batch, <code>#351</code>'s route/stage cascade coverage, <code>#352</code>'s GPU-resource lifetime proof, the SceneTree/OutputCompositor coverage promoted in #724, or the <code>GpuSorting</code> sort-pipeline and sort-order cases promoted in #744. <code>NodeSceneTree</code> is deliberately NOT required — #630's contention variance on the shared self-hosted runner would make it a flaky gate (its measured wall times and its 300 s budget are recorded beside its <code>BatchSpec</code> in <code>tests/ci/run_gpu_harness.py</code>); it stays advisory until #630 is resolved.</p>
 <h3 id="render-thread-dispatch-characterization-live-renderingserver">Render-thread dispatch characterization (live RenderingServer)<a class="headerlink" href="#render-thread-dispatch-characterization-live-renderingserver" title="Permanent link">¶</a></h3>
@@ -5107,19 +5135,98 @@ opt-in GPU lanes are covered by the same totality check rather than escaping it.
 <p>The GDScript bindings it drives (<code>test_dispatch_call_on_render_thread_blocking_*</code>, <code>test_is_render_thread_dispatch_path_active</code>, …) exist only in <code>TESTS_ENABLED</code> builds and never ship in a release template. CI runs it in the self-hosted GPU lane (<code>--categories sorting,renderer</code> in <code>baseline_qa.yml</code>); a requested category that selects no tests now fails the run, so dropping or renaming this entry cannot leave the lane green.</p>
 <h2 id="ci-source-of-truth">CI Source of Truth<a class="headerlink" href="#ci-source-of-truth" title="Permanent link">¶</a></h2>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/.github/workflows/README.md">Workflow overview</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/.github/workflows/gaussian_production_gates.yml">Production gate workflow</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/c8d92c8c398ff9101e270c1f3d7224d73ca8275a/.github/workflows/baseline_qa.yml">Baseline QA workflow (gpu-tests + gpu-harness visual gate)</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/.github/workflows/README.md">Workflow overview</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/.github/workflows/baseline_qa.yml">Baseline QA workflow (per-PR CI and nightly: cpu-tests + gpu-tests)</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7d84dfe16c55dd02e26c96d7469bc5539eda8bb9/.github/workflows/gaussian_production_gates.yml">Production gate workflow (weekly open-world proof)</a></li>
 <li><a href="../renderer-release-gates/">Renderer release gate contract</a></li>
 </ul>
-<p>Fork-PR safety gate: the <code>gpu-tests</code> and <code>gpu-harness</code> jobs in <code>baseline_qa.yml</code> both guard on <code>github.event.pull_request.head.repo.full_name == github.repository</code>, so untrusted fork-PR code never executes on the self-hosted GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate.</p>
+<p>Fork-PR safety gate: the self-hosted <code>gpu-tests</code> job in <code>baseline_qa.yml</code> guards on <code>github.event.pull_request.head.repo.full_name == github.repository</code>, so untrusted fork-PR code never executes on the self-hosted GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate. The hosted <code>cpu-tests</code> job runs for fork PRs too.</p>
+<h3 id="ci-layout-and-where-each-moved-check-runs-ci-diet-2026-11-07">CI layout and where each moved check runs (CI diet, 2026-11-07)<a class="headerlink" href="#ci-layout-and-where-each-moved-check-runs-ci-diet-2026-11-07" title="Permanent link">¶</a></h3>
+<p>Maintainer approval 2026-11-07: per-merge release builds and duplicate gate runs moved to
+nightly; up to one-day detection window for regressions on master accepted (recorded in
+<a href="../../governance/review-policy/">review policy</a>). Per PR there is one self-hosted Godot build
+and one self-hosted GPU job; a push to <code>master</code> runs nothing self-hosted; the nightly runs the
+union of everything with no path filter. Measured before (medians of the last 5 successful
+runs, audit of 2026-11-07): 26-33 self-hosted runner-minutes per PR iteration, about 34 per
+master push, 26-90 min PR wall time.</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Removed or moved</th>
+<th>Its coverage now runs in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Production Gates <code>guards</code> (PR, merge_group, push)</td>
+<td><code>agentic-pr-gate</code> (identical command, required) on every PR; <code>baseline_qa.yml</code> <code>cpu-tests</code> full guard phase nightly</td>
+</tr>
+<tr>
+<td>Guard phase inside Production Gates <code>module-validation</code></td>
+<td>same as above (<code>run_module_tests.py --skip-guards</code>); the two binary-dependent guards still run in <code>cpu-tests</code> and in the evidence collector</td>
+</tr>
+<tr>
+<td>Guard self-tests on every PR</td>
+<td><code>agentic-pr-gate</code> when the PR touches <code>tests/</code>, <code>.github/</code>, <code>.agentic/</code>, <code>scripts/</code>, <code>docs/</code>, <code>thirdparty/doctest/</code>, <code>modules/gaussian_splatting/tests/</code> or a root file; all of them nightly (<code>cpu-tests</code>)</td>
+</tr>
+<tr>
+<td>Production Gates <code>module-validation</code>: 29 doctest lanes</td>
+<td><code>baseline_qa.yml</code> <code>cpu-tests</code> (GitHub-hosted) on every code PR and nightly</td>
+</tr>
+<tr>
+<td>Production Gates <code>module-validation</code>: pipeline smoke (<code>--category pipeline</code>)</td>
+<td><code>cpu-tests</code> (<code>--categories ply,pipeline,runtime</code>)</td>
+</tr>
+<tr>
+<td>Production Gates <code>module-validation</code>: headless-ci runtime profile</td>
+<td><code>cpu-tests</code> (same command, own report artifact <code>runtime-validation-report-headless-ci</code>)</td>
+</tr>
+<tr>
+<td>Production Gates <code>module-validation</code>: streaming-gpu-ci</td>
+<td><code>baseline_qa.yml</code> <code>gpu-tests</code>; the two slow scenarios (Resident HLOD Main View, GPU Streaming Stress) only on PRs touching streaming/HLOD/renderer paths, always nightly and in <code>release_ci_runtime.yml</code></td>
+</tr>
+<tr>
+<td>Production Gates evidence collector + readiness enforcement</td>
+<td><code>gpu-tests</code> (same render/streaming path filter, nightly unfiltered)</td>
+</tr>
+<tr>
+<td>Production Gates and Baseline QA <code>build-linux-editor</code> (2 builds, 2 uploads, 2-3 downloads per PR)</td>
+<td>one in-job build in <code>gpu-tests</code> from the persistent scons cache</td>
+</tr>
+<tr>
+<td>Baseline QA <code>gpu-harness</code></td>
+<td><code>gpu-tests</code> (same path filter and baseline modes)</td>
+</tr>
+<tr>
+<td>Baseline QA <code>cpu-tests</code> (push only)</td>
+<td><code>cpu-tests</code> on every code PR (earlier, not removed) and nightly</td>
+</tr>
+<tr>
+<td>Baseline QA / Production Gates push runs on <code>master</code></td>
+<td>nightly <code>baseline_qa.yml</code> on master HEAD</td>
+</tr>
+<tr>
+<td>Release Builds on PR (Linux editor, fast-math guard, Linux export template) and on push (plus Windows builds, export smoke)</td>
+<td><code>release_builds.yml</code> nightly (02:30), <code>v*</code> tags and dispatch</td>
+</tr>
+<tr>
+<td>Shader validation on push</td>
+<td>PR (path-filtered, unchanged) and nightly (00:15, unfiltered)</td>
+</tr>
+<tr>
+<td>CodeQL default setup on every push and PR</td>
+<td><code>codeql.yml</code> weekly (Sun 04:00) and on dispatch</td>
+</tr>
+</tbody>
+</table></div>
 <h3 id="self-hosted-linux-gpu-runner">Self-hosted Linux GPU runner<a class="headerlink" href="#self-hosted-linux-gpu-runner" title="Permanent link">¶</a></h3>
 <p>The only self-hosted runner is <code>gpu-linux-3080</code> (labels <code>self-hosted, X64, gpu, Linux, rtx3080</code>; Ubuntu 24.04, RTX 3080 with 10 GB of VRAM, 24 GB RAM). Every self-hosted GPU/guard/shader job runs there; the Windows editor and export-template builds run on GitHub-hosted <code>windows-latest</code>; the one job that needs Windows <em>and</em> a GPU (<code>export_smoke_windows</code>) waits for a Windows GPU workstation labelled <code>self-hosted, Windows, X64, gpu, d3d12</code>.</p>
 <ul>
 <li><strong>Display and driver.</strong> Godot renders on the real Xorg of the NVIDIA GPU (<code>DISPLAY=:0</code>, <code>--display-driver x11 --rendering-driver vulkan</code>). Do not use Xvfb: it has no NVIDIA Vulkan. The runner <code>.env</code> pins <code>VK_ICD_FILENAMES</code> to the NVIDIA ICD; jobs must not override it.</li>
 <li><strong>No sudo.</strong> Jobs never install system packages. <code>bash tests/ci/linux_gpu_runner.sh check-tools</code> fails closed and lists what is missing (Python 3.11 via <code>uv</code>, else <code>python3.11</code>, else a <code>python3</code> &gt;= 3.11 — the hash-locked requirements were compiled for 3.11 and 3.12.3 is accepted because it was observed to build and pass on the runner; <code>glslangValidator</code>/<code>glslc</code>, an NVIDIA Vulkan device, <code>DISPLAY</code>; <code>pwsh</code> only for the production-evidence collector).</li>
 <li><strong>Build.</strong> <code>python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes ... cache_path=/opt/actions-runner/godotgs-scons-cache -j16</code>. The editor builds against the headers bundled in <code>thirdparty/linuxbsd_headers</code> (<code>use_sowrap=yes</code>, the default), so no <code>-dev</code> packages are needed. <code>-j16</code> rather than <code>nproc</code> (32) because the machine has 24 GB of RAM. The binary is <code>bin/godot.linuxbsd.editor.dev.x86_64</code>.</li>
-<li><strong>Build and GPU tests are separate jobs.</strong> In <code>baseline_qa.yml</code>, <code>gaussian_production_gates.yml</code> and <code>release_ci_runtime.yml</code> the compile runs in a <code>build-linux-editor</code> job on <code>[self-hosted, Linux, X64]</code> (no <code>gpu</code> label, <code>check-tools --build-only</code>), so a CPU-only runner can take it and the GPU is never held by a compile. It uploads the binary as the artifact <code>godot-linuxbsd-editor-tests-&lt;github.sha&gt;</code> with a <code>build-provenance.txt</code> (commit, run id, sha256) written by <code>linux_gpu_runner.sh stage-binary</code>, which refuses a checkout that is not <code>github.sha</code>. The GPU jobs <code>needs:</code> it, download that artifact, and <code>linux_gpu_runner.sh install-binary</code> fails closed unless the provenance names the job's own <code>github.sha</code>, run id and checkout and the sha256 matches; the GPU jobs compile nothing. Their names (for example "Module Build + Runtime Harness") are unchanged because they are status-check contexts.</li>
+<li><strong>One build per PR, in the GPU job.</strong> <code>baseline_qa.yml</code> <code>gpu-tests</code> compiles the editor itself from the persistent scons cache (about 2 min on a cache hit) and tests it in the same job; the former separate build jobs, their artifact uploads and the downloads to the same machine cost more than the build (about 8.5-10 runner-minutes per PR, measured). No GPU job name is a required status-check context (only <code>agentic-pr-gate</code> and <code>docs-build</code> are), so the job names changed freely.</li>
+<li><strong>Build and GPU tests are separate jobs in the weekly and nightly lanes.</strong> In <code>gaussian_production_gates.yml</code> and <code>release_ci_runtime.yml</code> the compile runs in a <code>build-linux-editor</code> job on <code>[self-hosted, Linux, X64]</code> (no <code>gpu</code> label, <code>check-tools --build-only</code>), so a CPU-only runner can take it and the GPU is never held by a compile. It uploads the binary as the artifact <code>godot-linuxbsd-editor-tests-&lt;github.sha&gt;</code> with a <code>build-provenance.txt</code> (commit, run id, sha256) written by <code>linux_gpu_runner.sh stage-binary</code>, which refuses a checkout that is not <code>github.sha</code>. The GPU jobs <code>needs:</code> it, download that artifact, and <code>linux_gpu_runner.sh install-binary</code> fails closed unless the provenance names the job's own <code>github.sha</code>, run id and checkout and the sha256 matches; those GPU jobs compile nothing.</li>
 <li><strong>Beyond-VRAM dispatch lane (BV-06a).</strong> <code>beyond_vram_flythrough.yml</code> is <code>workflow_dispatch</code>-only and report-only. Its <code>build-linux-editor</code> builds the optimized producer binary (<code>target=editor optimize=speed_trace dev_build=no tests=yes</code>, own cache <code>/opt/actions-runner/godotgs-scons-cache-opt</code>, <code>cache_limit=15</code>) through the same artifact handoff; its <code>flythrough</code> GPU job runs <code>tests/runtime/flythrough/dispatch_lane.py</code> (disk preflight that refuses with <code>DID NOT RUN: disk</code> below the ADR section 5.3 budget, O_DIRECT <code>dd</code> read throughput, <code>fio</code> if installed, <code>vulkaninfo</code> limits, <code>build_info</code>, generator, probe, cleanup). Generator and probe exit 3 <code>NOT_RUN</code> until BV-05 and BV-07 land. Unit tests: <code>python tests/runtime/flythrough/test_dispatch_lane.py</code> (also in <code>--guard-only</code>).</li>
 <li><strong>Runtime mode.</strong> <code>run_runtime_validation.py --gd-mode gpu-vulkan</code> resolves to the host's GPU driver (<code>windows</code> on Windows, <code>x11</code> on Linux); <code>windows-vulkan</code> remains for explicitly Windows-only callers.</li>
 <li><strong>Reporting.</strong> Step summaries and the harness provenance record come from <code>tests/ci/ci_reports.py</code> (stdlib only).</li>

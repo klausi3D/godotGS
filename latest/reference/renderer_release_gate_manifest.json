@@ -299,18 +299,22 @@
     ],
     "required_workflows": [
       {
-        "file": ".github/workflows/gaussian_production_gates.yml",
+        "file": ".github/workflows/agentic_pr_gate.yml",
         "required_for_public_alpha": true,
         "required_jobs": [
-          "guards",
-          "module-validation"
+          "agentic-pr-gate",
+          "run_module_tests.py --guard-only"
         ]
       },
       {
         "file": ".github/workflows/baseline_qa.yml",
         "required_for_public_alpha": true,
         "required_jobs": [
-          "Run GPU harness"
+          "Run GPU harness",
+          "gpu-tests",
+          "cpu-tests",
+          "streaming-gpu-ci",
+          "Enforce readiness booleans"
         ]
       },
       {
