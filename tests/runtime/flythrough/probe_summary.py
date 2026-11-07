@@ -298,16 +298,32 @@ def settings_drift(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     }
 
 
+#: The cumulative streaming counters start at 0 when the process starts and are never
+#: reset (docs/features/streaming.md, BV-04a).
+COUNTER_INITIAL_VALUE = 0
+
+
 def streaming_counters(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
+    """Counter totals over a contiguous window of rows.
+
+    A cumulative counter's window total is (last valid sample in the window) minus the
+    baseline: the last valid sample BEFORE the window (the preceding boundary), or the
+    known initial value 0 when there is none. Using the first sample inside the window
+    as the baseline would drop whatever the counter did before that sample (Codex on
+    #1333: 4.3 MB of reads before the first sampled frame of the captured path).
+    """
     if not rows:
         return {"status": MISSING, "reason": "no rows"}
+    first = min(rows)
 
     def delta(name: str) -> Dict[str, object]:
         have = _signal_rows(trace, rows, name)
         if not have:
             return missing(f"{name} absent from the streaming state in every row")
-        a, b = trace.get(trace.rows[have[0]], name), trace.get(trace.rows[have[-1]], name)
-        rec = metric(b - a)
+        before = [i for i in range(first - 1, -1, -1) if trace.get(trace.rows[i], name) >= 0][:1]
+        base = trace.get(trace.rows[before[0]], name) if before else COUNTER_INITIAL_VALUE
+        rec = metric(trace.get(trace.rows[have[-1]], name) - base)
+        rec["baseline"] = "preceding_sample" if before else "initial_zero"
         rec["rows_without_signal"] = len(rows) - len(have)
         return rec
 
@@ -366,6 +382,9 @@ def fit_frame_model(points: Sequence[Dict[str, object]], y_key: str) -> Dict[str
     for p in points:
         y = p.get(y_key) or {}
         drawn = p.get("drawn_mean")
+        if p.get("valid_for_fit") is False:
+            excluded.append({"point": p.get("id"), "reason": "not settled: measured with chunks missing"})
+            continue
         if not isinstance(y, dict) or y.get("status") != OK or drawn is None or drawn <= 0:
             excluded.append({"point": p.get("id"), "reason": (y or {}).get("reason", "no drawn count") if isinstance(y, dict) else "no value"})
             continue

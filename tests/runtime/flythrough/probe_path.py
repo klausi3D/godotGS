@@ -230,8 +230,13 @@ def _move(
     points: Sequence[Vec3],
     yaw_fn=None,
     pitch_fn=None,
+    absolute_yaw_fn=None,
 ) -> dict:
+    """A moving segment. The camera yaw is the travel heading plus ``yaw_fn(s, L)``, or,
+    with ``absolute_yaw_fn(start_heading, s, L)``, exactly that function of the heading at
+    s = 0 (the travel heading is then ignored)."""
     spline = ArcLengthSpline(points)
+    start_heading: Optional[float] = None
     n = max(1, int(math.ceil(spline.length / TABLE_STEP_M)))
     table = []
     prev_yaw: Optional[float] = None
@@ -257,7 +262,12 @@ def _move(
             # Unwrap so that linear interpolation between rows never spins round.
             yaw += 360.0 * round((prev_yaw - yaw) / 360.0)
         prev_yaw = yaw
-        yaw += yaw_fn(s, spline.length) if yaw_fn else 0.0
+        if start_heading is None:
+            start_heading = yaw
+        if absolute_yaw_fn is not None:
+            yaw = absolute_yaw_fn(start_heading, s, spline.length)
+        else:
+            yaw += yaw_fn(s, spline.length) if yaw_fn else 0.0
         pitch = pitch_fn(s, spline.length) if pitch_fn else 0.0
         table.append([round(s, 4), round(p[0], 4), round(p[1], 4), round(p[2], 4), round(yaw, 4), round(pitch, 4)])
     return {
@@ -374,9 +384,12 @@ def resolve_path(manifest: dict) -> dict:
         for k in range(7)
     ]
     ring = [_clamp_xz(p, extent, margin) for p in ring]
+    # The camera turns a full 360 degrees at 24 deg/s from the heading it enters with,
+    # independent of the ring's own turning (adding the ramp to the ring tangent gave only
+    # ~78 degrees net on T-smoke).
     s8 = _move(
         "S8", "town 360 yaw", TOWN_SPEED_M_S, ring,
-        yaw_fn=lambda s, length: 360.0 * s / length,
+        absolute_yaw_fn=lambda h0, s, length: h0 + 360.0 * s / length,
     )
     segs.append(s8)
     segs.append(_hold("S8c", KIND_STOP, "town stop", _last_pose(s8), "C3"))

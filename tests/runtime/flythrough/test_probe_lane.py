@@ -24,7 +24,9 @@ from __future__ import annotations
 import gzip
 import importlib.util
 import json
+import copy
 import math
+import os
 import struct
 import sys
 import tempfile
@@ -122,6 +124,17 @@ class Path_(unittest.TestCase):
                 self.assertLess(abs(b[4] - a[4]), 30.0, seg["id"])
             # The polyline through the rows is the curve to within 1 %: s is distance travelled.
             self.assertGreater(chords, 0.99 * seg["length_m"], seg["id"])
+
+    def test_town_segment_turns_the_camera_a_full_circle(self) -> None:
+        """S8: 360 degrees net camera yaw at 24 deg/s, whatever the ring's own turning."""
+        for m in (manifest(),):
+            s8 = next(s for s in pp.resolve_path(m)["segments"] if s["id"] == "S8")
+            net = s8["table"][-1][4] - s8["table"][0][4]
+            self.assertAlmostEqual(net, 360.0, delta=0.5)
+            self.assertAlmostEqual(s8["length_m"] / s8["speed_m_s"], 360.0 / pp.TOWN_YAW_RATE_DEG_S, delta=0.5)
+            # Monotone: the camera never turns back while sweeping.
+            for a, b in zip(s8["table"], s8["table"][1:]):
+                self.assertGreaterEqual(b[4], a[4])
 
     def test_spline_length_is_exact_on_a_line(self) -> None:
         sp = pp.ArcLengthSpline([(0.0, 0.0, 0.0), (5.0, 0.0, 0.0), (10.0, 0.0, 0.0)])
@@ -290,6 +303,52 @@ class CapturedTrace(unittest.TestCase):
         self.assertTrue(all(c["settled"] for c in p0["checkpoints"]))
         self.assertEqual(s["records_per_splat"]["status"], ps.MISSING)
         self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
+
+    def test_counter_totals_keep_activity_before_the_first_sample(self) -> None:
+        """Whole run: last value minus the initial 0. A later window: minus the last sample
+        before it. Never minus the window's own first sample."""
+        tr = ps.read_trace(self.path_trace)
+        rows = list(range(len(tr.rows)))
+        reads = [v for v in tr.col("read_bytes_total") if v >= 0]
+        self.assertGreater(reads[0], 0, "the fixture has activity before its first sample")
+        whole = ps.streaming_counters(tr, rows)["read_bytes"]
+        self.assertEqual(whole["value"], reads[-1] - ps.COUNTER_INITIAL_VALUE)
+        self.assertEqual(whole["baseline"], "initial_zero")
+        cut = len(rows) // 2
+        head = ps.streaming_counters(tr, rows[:cut])["read_bytes"]["value"]
+        tail = ps.streaming_counters(tr, rows[cut:])
+        self.assertEqual(tail["read_bytes"]["baseline"], "preceding_sample")
+        self.assertEqual(head + tail["read_bytes"]["value"], whole["value"], "windows add up to the whole run")
+
+    def test_missed_checkpoint_deadlines_make_the_run_invalid(self) -> None:
+        """Replay of the captured run with every checkpoint marked settle_deadline_missed."""
+        result = copy.deepcopy(self.path_result)
+        for cp in result["checkpoints"]:
+            cp["settle"] = {"settled": False, "settle_usec": -1, "frames": 1, "deadline_s": 15.0,
+                            "reason": "settle_deadline_missed"}
+        m = manifest()
+        path = pp.resolve_path(m)
+        truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+        s = rp.summarise_path(ps.read_trace(self.path_trace), self.run_of(self.path_trace, result), path, truth, 1)
+        problems = rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}})
+        self.assertEqual(len([p for p in problems if "settle_deadline_missed" in p]), 8, problems)
+        # A dropped checkpoint is a problem too.
+        s["passes"][0]["checkpoints"] = s["passes"][0]["checkpoints"][:-1]
+        problems = rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}})
+        self.assertTrue(any("expected" in p for p in problems), problems)
+
+    def test_unsettled_sweep_view_is_not_fk_evidence(self) -> None:
+        result = copy.deepcopy(self.sweep_result)
+        result["sweep"][0]["settle"] = {"settled": False, "settle_usec": -1, "reason": "settle_deadline_missed"}
+        tr = ps.read_trace(self.sweep_trace)
+        views = rp.summarise_sweep_point(tr, self.run_of(self.sweep_trace, result), "x", 1)
+        bad = views[result["sweep"][0]["view"]]
+        self.assertFalse(bad["valid_for_fit"])
+        fit = ps.fit_frame_model([dict(bad, id="x"), dict(bad, id="y", drawn_mean=2 * bad["drawn_mean"], valid_for_fit=True),
+                                  dict(bad, id="z", drawn_mean=3 * bad["drawn_mean"], valid_for_fit=True)],
+                                 "gpu_pipeline_mean_ms")
+        self.assertEqual(fit["points_used"], ["y", "z"])
+        self.assertEqual(fit["excluded"][0]["point"], "x")
 
     def test_settled_checkpoint_was_observed_at_its_pose(self) -> None:
         """The driver settles only on stats that describe the pose (pose error <= 1 mm)."""
@@ -481,6 +540,80 @@ class EntryPoint(unittest.TestCase):
         self.assertIn('PROBE_ENTRY = Path("tests/runtime/flythrough/run_probe.py")', lane)
         self.assertIn('PROBE_SUMMARY_NAME = "summary.json"', lane)
         self.assertEqual(rp.SUMMARY_NAME, "summary.json")
+
+    def _sweep_runs(self, held_point=None, unsettled_point=None):
+        """run_godot replacement for run_sweep: every point replays the captured sweep run;
+        held_point gets a trace whose coherent GPU sample never refreshes."""
+        trace, result = captured("tsmoke_sweep", self.tmp)
+        held = self.tmp / "held_sweep.bin"
+        tr = ps.read_trace(trace)
+        r0 = tr.rows[0]
+
+        def hold(i, v, ix):
+            v[ix["coherent_resolve_usec"]] = r0[ix["coherent_resolve_usec"]]
+            v[ix["coherent_frame_serial"]] = r0[ix["coherent_frame_serial"]]
+
+        rewrite_rows(trace, held, hold)
+
+        def fake(binary, plan, workdir, timeout_s):
+            pid = Path(workdir).name
+            res = copy.deepcopy(result)
+            if pid == unsettled_point:
+                for e in res["sweep"]:
+                    e["settle"] = {"settled": False, "settle_usec": -1, "reason": "settle_deadline_missed"}
+            return {"exit_code": 0, "timed_out": False, "wall_s": 1.0, "result": res,
+                    "rss": {"peak_rss_bytes": ps.metric(1, unit="bytes")}, "log": "",
+                    "trace": str(held if pid == held_point else trace)}
+
+        return fake
+
+    def _run_sweep_main(self, **kw):
+        out = self.tmp / "out"
+        with mock.patch.object(rp, "run_godot", side_effect=self._sweep_runs(**kw)), \
+                mock.patch.object(rp, "generate_subset", return_value=None):
+            code = rp.main(["--godot-binary", str(self.binary), "--world", f"T0={self.world}",
+                            "--out", str(out), "--no-path"])
+        return code, self.summary(out)
+
+    def test_complete_sweep_points_raise_no_point_problem(self) -> None:
+        # Every point replays the same capture, so the fits have one distinct N and are
+        # MISSING here; what this pins is that complete points add no per-point problem.
+        _, s = self._run_sweep_main()
+        self.assertEqual(rp.required_sweep_points(s["sweep"]), [])
+        self.assertFalse(any("point " in p for p in s["problems"]), s["problems"])
+
+    def test_f_small_without_coherent_samples_is_invalid(self) -> None:
+        code, s = self._run_sweep_main(held_point="F_small")
+        self.assertEqual(code, rp.EXIT_INVALID)
+        self.assertTrue(any("F_small" in p and "gpu_pipeline_mean_ms MISSING" in p for p in s["problems"]), s["problems"])
+        # The partial fit over the remaining points is kept for diagnostics.
+        fit = s["sweep"]["fits"]["overview"]["gpu_pipeline"]
+        self.assertIn("F_small", [e["point"] for e in fit["excluded"]])
+
+    def test_unsettled_sweep_point_is_invalid(self) -> None:
+        code, s = self._run_sweep_main(unsettled_point="1M")
+        self.assertEqual(code, rp.EXIT_INVALID)
+        self.assertTrue(any("1M" in p and "settle_deadline_missed" in p for p in s["problems"]), s["problems"])
+
+    def test_relative_world_dir_reaches_godot_as_an_absolute_path(self) -> None:
+        plans = []
+
+        def fake(binary, plan, workdir, timeout_s):
+            plans.append(plan)
+            return {"exit_code": 0, "timed_out": False, "wall_s": 0.1, "result": None,
+                    "rss": {"peak_rss_bytes": ps.missing("x")}, "log": "", "trace": ""}
+
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        try:
+            with mock.patch.object(rp, "run_godot", side_effect=fake):
+                rp.main(["--godot-binary", str(self.binary), "--world", "T-smoke=world",
+                         "--out", str(self.tmp / "out"), "--no-sweep"])
+        finally:
+            os.chdir(cwd)
+        self.assertTrue(plans)
+        self.assertTrue(Path(plans[0]["world"]).is_absolute(), plans[0]["world"])
+        self.assertEqual(Path(plans[0]["world"]), (self.world / rp.WORLD_NAME).resolve())
 
     def test_guard_lane_runs_this_file(self) -> None:
         text = (ROOT / "tests" / "ci" / "run_module_tests.py").read_text(encoding="utf-8")

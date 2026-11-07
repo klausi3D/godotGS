@@ -128,6 +128,7 @@ SWEEP_POINTS: Tuple[Tuple[str, Optional[int]], ...] = (
     ("4M", None),
 )
 
+EXPECTED_CHECKPOINTS = [f"C{i}" for i in range(8)]
 SETTLE = {"cold_deadline_s": 90.0, "stop_deadline_s": 15.0, "teleport_deadline_s": 30.0}
 RSS_POLL_S = 0.2
 
@@ -432,6 +433,15 @@ def required_path_metrics(world_summary: dict) -> List[str]:
             problems.append(f"pass {p['pass_index']}: settings drift not evaluable")
         if p["moving_gpu"]["coherent_total_ms"].get("status") == ps.MISSING:
             problems.append(f"pass {p['pass_index']}: no fresh GPU breakdown while moving")
+        got = [c["checkpoint"] for c in p.get("checkpoints", [])]
+        if got != EXPECTED_CHECKPOINTS:
+            problems.append(f"pass {p['pass_index']}: checkpoints {got}, expected {EXPECTED_CHECKPOINTS}")
+        for c in p.get("checkpoints", []):
+            if not c.get("settled"):
+                # tests/AGENTS.md: a missed pump deadline is a failure that names what never
+                # became true, never a silent pass.
+                problems.append(f"pass {p['pass_index']} {c['checkpoint']}: "
+                                f"{c['settle_s'].get('reason', 'not settled')} (missing chunks never reached 0)")
     if fl.get("regulator", {}).get("status") != ps.OK:
         problems.append("regulator counters missing")
     rss = world_summary.get("rss", {}).get("peak_rss_bytes", {})
@@ -537,6 +547,9 @@ def summarise_sweep_point(trace: ps.Trace, run: dict, point_id: str, subset_spla
             # The tuned 4M visible cap binds: the renderer drew exactly the cap, so N is the
             # cap, not the subset (the 4M point on the full 4.19M T0 in the overview view).
             "visible_cap_bound": bool(drawn) and max(drawn) >= TUNED_VISIBLE_CAP,
+            # An unsettled view was measured while chunks were still missing: kept for
+            # diagnostics, never F/k evidence (fit_frame_model drops it).
+            "valid_for_fit": bool(settle.get("settled")) and bool(drawn),
             "gpu": gpu,
             "gpu_pipeline_mean_ms": gpu["coherent_total_ms"]["mean"] if "mean" in gpu["coherent_total_ms"]
             else gpu["coherent_total_ms"],
@@ -547,6 +560,39 @@ def summarise_sweep_point(trace: ps.Trace, run: dict, point_id: str, subset_spla
             "settings": ps.settings_drift(trace, rows),
         }
     return views
+
+
+def required_sweep_points(sweep: Dict[str, object]) -> List[str]:
+    """Every SWEEP_POINTS entry must be a complete measurement in every view.
+
+    The fit drops unusable points so that a partial fit stays available for
+    diagnostics, but a missing point is a missing measurement: the run is INVALID.
+    F_small above all, since it is the fixed-cost (F) measurement.
+    """
+    problems: List[str] = []
+    points = {p.get("id"): p for p in sweep.get("points", [])}
+    view_ids = [v["id"] for v in sweep.get("views", [])]
+    for pid, _ in SWEEP_POINTS:
+        p = points.get(pid)
+        if p is None:
+            problems.append(f"point {pid} was not measured")
+            continue
+        views = p.get("views") or {}
+        for vid in view_ids:
+            v = views.get(vid)
+            if v is None:
+                problems.append(f"point {pid} view {vid}: no measurement ({p.get('reason', 'no result')})")
+                continue
+            if not v.get("settled"):
+                problems.append(f"point {pid} view {vid}: settle_deadline_missed (measured with chunks missing)")
+            if not v.get("drawn_mean"):
+                problems.append(f"point {pid} view {vid}: nothing drawn")
+            for key in ("gpu_pipeline_mean_ms", "wall_interval_mean_ms"):
+                rec = v.get(key) or {}
+                if rec.get("status") != ps.OK:
+                    problems.append(f"point {pid} view {vid}: {key} {rec.get('status', ps.MISSING)} "
+                                    f"({rec.get('reason', 'no value')})")
+    return problems
 
 
 def run_sweep(binary: Path, gen_binary: Path, tier_dir: Path, out: Path, measure_s: float, timeout_s: float,
@@ -653,7 +699,9 @@ def parse_worlds(values: Sequence[str]) -> Dict[str, Path]:
         tier, d = v.split("=", 1)
         if tier in worlds:
             raise ProbeError(f"world {tier} given twice", EXIT_NOT_RUN)
-        worlds[tier] = Path(d)
+        # Godot resolves a relative resource path under the temporary project's res://,
+        # so the plan must carry an absolute path.
+        worlds[tier] = Path(d).resolve()
     return worlds
 
 
@@ -777,6 +825,7 @@ def main(argv: Sequence[str]) -> int:
                                args.timeout_s, args.keep_sweep_worlds)
                 summary["sweep"] = sw
                 summary["problems"] += [f"sweep: {f}" for f in sw["failures"]]
+                summary["problems"] += [f"sweep: {p}" for p in required_sweep_points(sw)]
                 for vid, fit in sw["fits"].items():
                     for key in ("gpu_pipeline", "wall_interval"):
                         if fit[key].get("status") != ps.OK:
