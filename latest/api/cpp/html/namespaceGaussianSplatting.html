@@ -228,6 +228,10 @@ Enumerations</h2></td></tr>
 &#160;&#160;<a class="el" href="#ade1f4f101348e3b6b76f059d68c5aa85a192cd196018afeb65764a9e322d7dac7">METADATA_MODIFIED</a> = 4
 <br />
  }</td></tr>
+<tr class="memitem:a00c95599047b9feec787475781225887" id="r_a00c95599047b9feec787475781225887"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a00c95599047b9feec787475781225887">OverlapResizePreflight</a> : uint8_t { <a class="el" href="#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b">FITS</a> = 0
+, <a class="el" href="#a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082">REFUSED</a> = 1
+, <a class="el" href="#a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3">UNVERIFIED</a> = 2
+ }</td></tr>
 <tr class="memitem:ac35d890c929f8b22b35f9fe7e5316fa6" id="r_ac35d890c929f8b22b35f9fe7e5316fa6"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac35d890c929f8b22b35f9fe7e5316fa6">SortFallbackAction</a> : uint8_t { <a class="el" href="#ac35d890c929f8b22b35f9fe7e5316fa6ac15e89be2f9e70d4b4efcd997abfea34">REUSE_PREVIOUS_SORT</a> = 0
 , <a class="el" href="#ac35d890c929f8b22b35f9fe7e5316fa6a98eb587fef5c837d73e05f396589c2d1">RUN_CPU_SORT</a> = 1
 , <a class="el" href="#ac35d890c929f8b22b35f9fe7e5316fa6ac2759effffc94bb9acc71d69fe3e8a1f">FAIL</a> = 2
@@ -286,6 +290,10 @@ Functions</h2></td></tr>
 <tr class="memitem:a1b14825de218568e7550559505c9fbdc" id="r_a1b14825de218568e7550559505c9fbdc"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b14825de218568e7550559505c9fbdc">debug_trace_record_instance_flags</a> (uint32_t p_total, uint32_t p_rotation_identity, uint32_t p_scale_identity, uint32_t p_translation_zero, uint32_t p_fully_identity)</td></tr>
 <tr class="memitem:a0e092045a4ca3ec8d4a66fd6eb62430c" id="r_a0e092045a4ca3ec8d4a66fd6eb62430c"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e092045a4ca3ec8d4a66fd6eb62430c">debug_trace_get_data_flow_snapshot</a> ()</td></tr>
 <tr class="memitem:a9709e486ea9813e8006455627b425551" id="r_a9709e486ea9813e8006455627b425551"><td class="memItemLeft" align="right" valign="top">Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9709e486ea9813e8006455627b425551">debug_trace_get_recent_events</a> ()</td></tr>
+<tr class="memitem:af6ee745c57b6fe48f753f607c2f12d17" id="r_af6ee745c57b6fe48f753f607c2f12d17"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af6ee745c57b6fe48f753f607c2f12d17">overlap_records_per_splat_q8</a> (uint32_t p_raw_records, uint32_t p_visible_splats)</td></tr>
+<tr class="memitem:a486844aac24e3c1f378e4b408cbaeb17" id="r_a486844aac24e3c1f378e4b408cbaeb17"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a486844aac24e3c1f378e4b408cbaeb17">overlap_demand_estimate</a> (uint32_t p_visible_splats, uint32_t p_measured_records_per_splat_q8)</td></tr>
+<tr class="memitem:a0f76538ec79b7081126e86da672e5dca" id="r_a0f76538ec79b7081126e86da672e5dca"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0f76538ec79b7081126e86da672e5dca">overlap_grow_target</a> (uint32_t p_requested_records, uint32_t p_capacity, uint32_t p_hard_cap)</td></tr>
+<tr class="memitem:abd0ef330a2a4296acc9406ce89e50852" id="r_abd0ef330a2a4296acc9406ce89e50852"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a00c95599047b9feec787475781225887">OverlapResizePreflight</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd0ef330a2a4296acc9406ce89e50852">overlap_resize_preflight</a> (uint64_t p_device_used_bytes, uint64_t p_new_bytes, uint64_t p_device_capacity_bytes)</td></tr>
 <tr class="memitem:a497c995445725defeefea081d53a49ef" id="r_a497c995445725defeefea081d53a49ef"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a497c995445725defeefea081d53a49ef">align_up</a> (uint32_t value, uint32_t alignment)</td></tr>
 <tr class="memitem:ad899526860bd9c09e6bce826dcc98fc3" id="r_ad899526860bd9c09e6bce826dcc98fc3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1SortPaddingInfo.html">SortPaddingInfo</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad899526860bd9c09e6bce826dcc98fc3">get_sort_padding</a> (uint32_t count)</td></tr>
 <tr class="memitem:a7aac5145d63d542d11705abda70f261b" id="r_a7aac5145d63d542d11705abda70f261b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7aac5145d63d542d11705abda70f261b">float_to_sortable_uint</a> (float value)</td></tr>
@@ -558,6 +566,33 @@ Variables</h2></td></tr>
 <tr><td class="fieldname"><a id="a320ad77b8254199af4872e6e7894e85aa2542227e2d23e596ef1c61fcabd1207d" name="a320ad77b8254199af4872e6e7894e85aa2542227e2d23e596ef1c61fcabd1207d"></a>CUBIC_BEZIER&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a320ad77b8254199af4872e6e7894e85aaef1ea416f0f07657aaf892b3a250d933" name="a320ad77b8254199af4872e6e7894e85aaef1ea416f0f07657aaf892b3a250d933"></a>SMOOTH_STEP&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a320ad77b8254199af4872e6e7894e85aa9474868dd1cebf985201a2437f5b5394" name="a320ad77b8254199af4872e6e7894e85aa9474868dd1cebf985201a2437f5b5394"></a>SMOOTHER_STEP&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a00c95599047b9feec787475781225887" name="a00c95599047b9feec787475781225887"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a00c95599047b9feec787475781225887">&#9670;&#160;</a></span>OverlapResizePreflight</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum class <a class="el" href="#a00c95599047b9feec787475781225887">GaussianSplatting::OverlapResizePreflight</a> : uint8_t</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel strong">strong</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b" name="a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b"></a>FITS&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082" name="a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082"></a>REFUSED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3" name="a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3"></a>UNVERIFIED&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -1279,6 +1314,132 @@ Variables</h2></td></tr>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>count</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a486844aac24e3c1f378e4b408cbaeb17" name="a486844aac24e3c1f378e4b408cbaeb17"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a486844aac24e3c1f378e4b408cbaeb17">&#9670;&#160;</a></span>overlap_demand_estimate()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::overlap_demand_estimate </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_visible_splats</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_measured_records_per_splat_q8</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0f76538ec79b7081126e86da672e5dca" name="a0f76538ec79b7081126e86da672e5dca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0f76538ec79b7081126e86da672e5dca">&#9670;&#160;</a></span>overlap_grow_target()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::overlap_grow_target </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_requested_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_capacity</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_hard_cap</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af6ee745c57b6fe48f753f607c2f12d17" name="af6ee745c57b6fe48f753f607c2f12d17"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af6ee745c57b6fe48f753f607c2f12d17">&#9670;&#160;</a></span>overlap_records_per_splat_q8()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::overlap_records_per_splat_q8 </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_raw_records</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_visible_splats</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abd0ef330a2a4296acc9406ce89e50852" name="abd0ef330a2a4296acc9406ce89e50852"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abd0ef330a2a4296acc9406ce89e50852">&#9670;&#160;</a></span>overlap_resize_preflight()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="#a00c95599047b9feec787475781225887">OverlapResizePreflight</a> GaussianSplatting::overlap_resize_preflight </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_device_used_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_new_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_device_capacity_bytes</em></span>&#160;)</td>
         </tr>
       </table>
   </td>

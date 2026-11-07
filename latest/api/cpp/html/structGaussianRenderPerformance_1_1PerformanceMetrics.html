@@ -133,6 +133,11 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:af5e7783e221b96a52eb8c8ddb9e8b3fe" id="r_af5e7783e221b96a52eb8c8ddb9e8b3fe"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af5e7783e221b96a52eb8c8ddb9e8b3fe">raster_overlap_record_budget</a> = 0</td></tr>
 <tr class="memitem:a5f6d95802b3af97921036888e56f2973" id="r_a5f6d95802b3af97921036888e56f2973"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5f6d95802b3af97921036888e56f2973">raster_overlap_record_budget_effective</a> = 0</td></tr>
 <tr class="memitem:aed44686615bff1d01f2b9a42fbc872f8" id="r_aed44686615bff1d01f2b9a42fbc872f8"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aed44686615bff1d01f2b9a42fbc872f8">raster_overlap_record_budget_configured</a> = 0</td></tr>
+<tr class="memitem:ae70de2fbec349a744bb9ed80bbc904dc" id="r_ae70de2fbec349a744bb9ed80bbc904dc"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae70de2fbec349a744bb9ed80bbc904dc">raster_overlap_sort_capacity</a> = 0</td></tr>
+<tr class="memitem:af9d3a8fa710aa045c05e67177c61f2e9" id="r_af9d3a8fa710aa045c05e67177c61f2e9"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af9d3a8fa710aa045c05e67177c61f2e9">raster_overlap_sort_capacity_high_water</a> = 0</td></tr>
+<tr class="memitem:ab665525a413171ffe643b864bd387b5f" id="r_ab665525a413171ffe643b864bd387b5f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab665525a413171ffe643b864bd387b5f">raster_overlap_sort_bytes</a> = 0</td></tr>
+<tr class="memitem:a2ee2a11fba01277dd702efde34a96dd1" id="r_a2ee2a11fba01277dd702efde34a96dd1"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ee2a11fba01277dd702efde34a96dd1">raster_overlap_sort_resize_peak_bytes</a> = 0</td></tr>
+<tr class="memitem:af393948fcc0f63e6911c2dadd2939b03" id="r_af393948fcc0f63e6911c2dadd2939b03"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af393948fcc0f63e6911c2dadd2939b03">raster_overlap_sort_resize_preflight_refusals</a> = 0</td></tr>
 <tr class="memitem:abe1d24ab3136ba611b4034d394c9a482" id="r_abe1d24ab3136ba611b4034d394c9a482"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe1d24ab3136ba611b4034d394c9a482">raster_overlap_thinning_keep_ratio</a> = 1.0f</td></tr>
 <tr class="memitem:a18e471d71f2a7c79ad7e79b365e82869" id="r_a18e471d71f2a7c79ad7e79b365e82869"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18e471d71f2a7c79ad7e79b365e82869">raster_feature_global_sort</a> = false</td></tr>
 <tr class="memitem:a74fb182791bf0b63fa130ad9f246afc9" id="r_a74fb182791bf0b63fa130ad9f246afc9"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a74fb182791bf0b63fa130ad9f246afc9">raster_feature_packed_stage_data</a> = false</td></tr>
@@ -1265,6 +1270,76 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianRenderPerformance::PerformanceMetrics::raster_overlap_records = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab665525a413171ffe643b864bd387b5f" name="ab665525a413171ffe643b864bd387b5f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab665525a413171ffe643b864bd387b5f">&#9670;&#160;</a></span>raster_overlap_sort_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderPerformance::PerformanceMetrics::raster_overlap_sort_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae70de2fbec349a744bb9ed80bbc904dc" name="ae70de2fbec349a744bb9ed80bbc904dc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae70de2fbec349a744bb9ed80bbc904dc">&#9670;&#160;</a></span>raster_overlap_sort_capacity</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianRenderPerformance::PerformanceMetrics::raster_overlap_sort_capacity = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af9d3a8fa710aa045c05e67177c61f2e9" name="af9d3a8fa710aa045c05e67177c61f2e9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af9d3a8fa710aa045c05e67177c61f2e9">&#9670;&#160;</a></span>raster_overlap_sort_capacity_high_water</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianRenderPerformance::PerformanceMetrics::raster_overlap_sort_capacity_high_water = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2ee2a11fba01277dd702efde34a96dd1" name="a2ee2a11fba01277dd702efde34a96dd1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2ee2a11fba01277dd702efde34a96dd1">&#9670;&#160;</a></span>raster_overlap_sort_resize_peak_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderPerformance::PerformanceMetrics::raster_overlap_sort_resize_peak_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af393948fcc0f63e6911c2dadd2939b03" name="af393948fcc0f63e6911c2dadd2939b03"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af393948fcc0f63e6911c2dadd2939b03">&#9670;&#160;</a></span>raster_overlap_sort_resize_preflight_refusals</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianRenderPerformance::PerformanceMetrics::raster_overlap_sort_resize_preflight_refusals = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

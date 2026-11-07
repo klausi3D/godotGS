@@ -1,5 +1,16 @@
 var NAVTREEINDEX28 =
 {
+"structGaussian.html#a70302f3f7c29a5f27c916f37aa62cfe9":[1,0,70,8],
+"structGaussian.html#a7315428323f8d78b6d3d5b20357a0b65":[1,0,70,13],
+"structGaussian.html#a88c88742b91ed0ceffe9367d76298941":[1,0,70,2],
+"structGaussian.html#aa2ddbacfa449e810c59e9d8baec5b8d2":[1,0,70,10],
+"structGaussian.html#aa6ab92903873493ed6755a67dbd7ca5a":[1,0,70,11],
+"structGaussian.html#ab201ff5be83cf946b451acf41a33a51a":[1,0,70,1],
+"structGaussian.html#af7551f4811b9a24d22e0a8df9ee687fe":[1,0,70,9],
+"structGaussian.html#afb765308d33f5a282e4d9feea509e80b":[1,0,70,0],
+"structGaussian.html#afba1cd0eb326366cbaff14ee4f3dd2fc":[1,0,70,12],
+"structGaussian.html#afdba8d5121e0577b45e7bd558f421f04":[1,0,70,6],
+"structGaussianAtlasAllocator_1_1PageRun.html":[1,0,71,0],
 "structGaussianAtlasAllocator_1_1PageRun.html#a067d92dee389b4566b514362d3304e73":[1,0,71,0,0],
 "structGaussianAtlasAllocator_1_1PageRun.html#a4e58441879775619877dd6b393b7944c":[1,0,71,0,1],
 "structGaussianCloudData.html":[1,0,72],
@@ -238,16 +249,5 @@ var NAVTREEINDEX28 =
 "structGaussianRenderDebug_1_1DebugState.html#a683605bec446f4e754841134d355e995":[0,0,3,4,25],
 "structGaussianRenderDebug_1_1DebugState.html#a683605bec446f4e754841134d355e995":[1,0,2,4,25],
 "structGaussianRenderDebug_1_1DebugState.html#a733ba4c3fa7828bf5dcec5ac1bca5232":[0,0,3,4,26],
-"structGaussianRenderDebug_1_1DebugState.html#a733ba4c3fa7828bf5dcec5ac1bca5232":[1,0,2,4,26],
-"structGaussianRenderDebug_1_1DebugState.html#a73c87645a7a1f2f90715d38e54364612":[0,0,3,4,13],
-"structGaussianRenderDebug_1_1DebugState.html#a73c87645a7a1f2f90715d38e54364612":[1,0,2,4,13],
-"structGaussianRenderDebug_1_1DebugState.html#a748e3cc77894cea8942236abf54ca755":[0,0,3,4,39],
-"structGaussianRenderDebug_1_1DebugState.html#a748e3cc77894cea8942236abf54ca755":[1,0,2,4,39],
-"structGaussianRenderDebug_1_1DebugState.html#a760fcd176534c0ece2481d4ed7806e90":[0,0,3,4,47],
-"structGaussianRenderDebug_1_1DebugState.html#a760fcd176534c0ece2481d4ed7806e90":[1,0,2,4,47],
-"structGaussianRenderDebug_1_1DebugState.html#a7641820c3b8fdbfe63a7b6ee87083dfa":[0,0,3,4,29],
-"structGaussianRenderDebug_1_1DebugState.html#a7641820c3b8fdbfe63a7b6ee87083dfa":[1,0,2,4,29],
-"structGaussianRenderDebug_1_1DebugState.html#a76dd37e09bebf88350f90bdedd9d485f":[0,0,3,4,22],
-"structGaussianRenderDebug_1_1DebugState.html#a76dd37e09bebf88350f90bdedd9d485f":[1,0,2,4,22],
-"structGaussianRenderDebug_1_1DebugState.html#a891b80fdffe408f9415ebbb6f47271c3":[0,0,3,4,30]
+"structGaussianRenderDebug_1_1DebugState.html#a733ba4c3fa7828bf5dcec5ac1bca5232":[1,0,2,4,26]
 };

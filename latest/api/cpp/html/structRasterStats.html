@@ -106,6 +106,11 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a9ab94fbb0c5a7ab15449c9e584019ad4" id="r_a9ab94fbb0c5a7ab15449c9e584019ad4"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ab94fbb0c5a7ab15449c9e584019ad4">overlap_record_budget</a> = 0</td></tr>
 <tr class="memitem:a43e916bf5190489bad895f3227e41f6b" id="r_a43e916bf5190489bad895f3227e41f6b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a43e916bf5190489bad895f3227e41f6b">overlap_record_budget_effective</a> = 0</td></tr>
 <tr class="memitem:afc93ce6c92498181eacbe8f54bc4c633" id="r_afc93ce6c92498181eacbe8f54bc4c633"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afc93ce6c92498181eacbe8f54bc4c633">overlap_record_budget_configured</a> = 0</td></tr>
+<tr class="memitem:a5fa3beb18e03e102254aed6a724b9778" id="r_a5fa3beb18e03e102254aed6a724b9778"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5fa3beb18e03e102254aed6a724b9778">overlap_sort_capacity</a> = 0</td></tr>
+<tr class="memitem:a3221baf8e9b52ba04f901bc7dba48d65" id="r_a3221baf8e9b52ba04f901bc7dba48d65"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3221baf8e9b52ba04f901bc7dba48d65">overlap_sort_capacity_high_water</a> = 0</td></tr>
+<tr class="memitem:aebbbdbdcbeaebb5ccd04af2caffc4562" id="r_aebbbdbdcbeaebb5ccd04af2caffc4562"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aebbbdbdcbeaebb5ccd04af2caffc4562">overlap_sort_bytes</a> = 0</td></tr>
+<tr class="memitem:aeb644f520a89a8cbe2484436d15a2f84" id="r_aeb644f520a89a8cbe2484436d15a2f84"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeb644f520a89a8cbe2484436d15a2f84">overlap_sort_resize_peak_bytes</a> = 0</td></tr>
+<tr class="memitem:a24cb0ea2f3de65f897fffbb4abf31a37" id="r_a24cb0ea2f3de65f897fffbb4abf31a37"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a24cb0ea2f3de65f897fffbb4abf31a37">overlap_sort_resize_preflight_refusals</a> = 0</td></tr>
 <tr class="memitem:ae325a160dce4fb4019ab5e3d418acfc8" id="r_ae325a160dce4fb4019ab5e3d418acfc8"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae325a160dce4fb4019ab5e3d418acfc8">overlap_thinning_keep_ratio</a> = 1.0f</td></tr>
 <tr class="memitem:afd4bf85cec9e310c463b17d89632ce4e" id="r_afd4bf85cec9e310c463b17d89632ce4e"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afd4bf85cec9e310c463b17d89632ce4e">occupancy_ratio</a> = 0.0f</td></tr>
 <tr class="memitem:a3427686d4c92f38a739d9e77dc6e5827" id="r_a3427686d4c92f38a739d9e77dc6e5827"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3427686d4c92f38a739d9e77dc6e5827">dense_ratio</a> = 0.0f</td></tr>
@@ -460,6 +465,76 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t RasterStats::overlap_records = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aebbbdbdcbeaebb5ccd04af2caffc4562" name="aebbbdbdcbeaebb5ccd04af2caffc4562"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aebbbdbdcbeaebb5ccd04af2caffc4562">&#9670;&#160;</a></span>overlap_sort_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t RasterStats::overlap_sort_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5fa3beb18e03e102254aed6a724b9778" name="a5fa3beb18e03e102254aed6a724b9778"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5fa3beb18e03e102254aed6a724b9778">&#9670;&#160;</a></span>overlap_sort_capacity</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t RasterStats::overlap_sort_capacity = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3221baf8e9b52ba04f901bc7dba48d65" name="a3221baf8e9b52ba04f901bc7dba48d65"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3221baf8e9b52ba04f901bc7dba48d65">&#9670;&#160;</a></span>overlap_sort_capacity_high_water</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t RasterStats::overlap_sort_capacity_high_water = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aeb644f520a89a8cbe2484436d15a2f84" name="aeb644f520a89a8cbe2484436d15a2f84"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aeb644f520a89a8cbe2484436d15a2f84">&#9670;&#160;</a></span>overlap_sort_resize_peak_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t RasterStats::overlap_sort_resize_peak_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a24cb0ea2f3de65f897fffbb4abf31a37" name="a24cb0ea2f3de65f897fffbb4abf31a37"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a24cb0ea2f3de65f897fffbb4abf31a37">&#9670;&#160;</a></span>overlap_sort_resize_preflight_refusals</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t RasterStats::overlap_sort_resize_preflight_refusals = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

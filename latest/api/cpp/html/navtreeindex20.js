@@ -231,11 +231,12 @@ var NAVTREEINDEX20 =
 "namespaceFloat16Utils.html#ae94e3aaedc72714f65e0ddef18b30f08":[0,0,0,7],
 "namespaceFloat16Utils.html#afbd8cadebbee8d40ded6edf3a4196859":[0,0,0,8],
 "namespaceGPUSortingConstants.html":[0,0,15],
+"namespaceGPUSortingConstants.html#a275b1787bebeb947be42da11d9fcf2b6":[0,0,15,1],
 "namespaceGPUSortingConstants.html#a4f06ef675f58099e57864a2ff554232e":[0,0,15,0],
-"namespaceGPUSortingConstants.html#a71a65d19d1b332d57880c962ce201ee8":[0,0,15,2],
-"namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729":[0,0,15,3],
-"namespaceGPUSortingConstants.html#abb04a6e7836b1cee8774df6774487e2a":[0,0,15,4],
-"namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb":[0,0,15,1],
+"namespaceGPUSortingConstants.html#a71a65d19d1b332d57880c962ce201ee8":[0,0,15,3],
+"namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729":[0,0,15,4],
+"namespaceGPUSortingConstants.html#abb04a6e7836b1cee8774df6774487e2a":[0,0,15,5],
+"namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb":[0,0,15,2],
 "namespaceGaussianEffectiveConfig.html":[0,0,1],
 "namespaceGaussianRenderConfig.html":[0,0,2],
 "namespaceGaussianRenderDebug.html":[0,0,3],
@@ -248,6 +249,5 @@ var NAVTREEINDEX20 =
 "namespaceGaussianRenderPipeline.html#a4bd1cc5fa164adf2a04b5eb2bcbad715":[0,0,7,15],
 "namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57":[0,0,7,16],
 "namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57ab50339a10e1de285ac99d4c3990b8693":[0,0,7,16,0],
-"namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57ab8f87bd0ae829f0fa0fcaa1a0a2bf91e":[0,0,7,16,1],
-"namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57ac2ad83c56e43f0a0fd6e5d9e9d97ddcb":[0,0,7,16,2]
+"namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57ab8f87bd0ae829f0fa0fcaa1a0a2bf91e":[0,0,7,16,1]
 };

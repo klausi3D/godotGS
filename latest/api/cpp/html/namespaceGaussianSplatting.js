@@ -134,6 +134,11 @@ var namespaceGaussianSplatting =
       [ "SMOOTH_STEP", "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aaef1ea416f0f07657aaf892b3a250d933", null ],
       [ "SMOOTHER_STEP", "namespaceGaussianSplatting.html#a320ad77b8254199af4872e6e7894e85aa9474868dd1cebf985201a2437f5b5394", null ]
     ] ],
+    [ "OverlapResizePreflight", "namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887", [
+      [ "FITS", "namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b", null ],
+      [ "REFUSED", "namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a392253eaea22aafdb199bc238bafc082", null ],
+      [ "UNVERIFIED", "namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a0dda3249de3efdf2a6a33708ec5aa1c3", null ]
+    ] ],
     [ "SortFallbackAction", "namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6", [
       [ "REUSE_PREVIOUS_SORT", "namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6ac15e89be2f9e70d4b4efcd997abfea34", null ],
       [ "RUN_CPU_SORT", "namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6a98eb587fef5c837d73e05f396589c2d1", null ],
@@ -185,6 +190,10 @@ var namespaceGaussianSplatting =
     [ "fill_sort_padding", "namespaceGaussianSplatting.html#abcb1a8c67d061f28743591cb2ee38286", null ],
     [ "float_to_sortable_uint", "namespaceGaussianSplatting.html#a7aac5145d63d542d11705abda70f261b", null ],
     [ "get_sort_padding", "namespaceGaussianSplatting.html#ad899526860bd9c09e6bce826dcc98fc3", null ],
+    [ "overlap_demand_estimate", "namespaceGaussianSplatting.html#a486844aac24e3c1f378e4b408cbaeb17", null ],
+    [ "overlap_grow_target", "namespaceGaussianSplatting.html#a0f76538ec79b7081126e86da672e5dca", null ],
+    [ "overlap_records_per_splat_q8", "namespaceGaussianSplatting.html#af6ee745c57b6fe48f753f607c2f12d17", null ],
+    [ "overlap_resize_preflight", "namespaceGaussianSplatting.html#abd0ef330a2a4296acc9406ce89e50852", null ],
     [ "pack_sort_key_64", "namespaceGaussianSplatting.html#a7c9c2c2393b5cf1251727801a859605a", null ],
     [ "report_lock_held_at_boundary", "namespaceGaussianSplatting.html#adb2e893bbbfc9444061967b7a793945c", null ],
     [ "tile_cluster_grid_viewport", "namespaceGaussianSplatting.html#a4f7929ed7f1a020f06a5fde510ccd73c", null ],

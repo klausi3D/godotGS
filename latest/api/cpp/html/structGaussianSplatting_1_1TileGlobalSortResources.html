@@ -104,8 +104,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a44b5ebe3e04cabfba77c77b937fca17f" id="r_a44b5ebe3e04cabfba77c77b937fca17f"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a44b5ebe3e04cabfba77c77b937fca17f">TileGlobalSortResources</a> (<a class="el" href="classTileRenderer.html">TileRenderer</a> &amp;p_owner)</td></tr>
 <tr class="memitem:afb87a32d4b42b9a2fa5b4449f00e4397" id="r_afb87a32d4b42b9a2fa5b4449f00e4397"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afb87a32d4b42b9a2fa5b4449f00e4397">release</a> (RenderingDevice *p_default_device)</td></tr>
 <tr class="memitem:a04a9f28bb8b666d5d60ffce723a77570" id="r_a04a9f28bb8b666d5d60ffce723a77570"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04a9f28bb8b666d5d60ffce723a77570">reset_state</a> (bool p_clear_sorter)</td></tr>
-<tr class="memitem:a53fe9057e80e0b27a5762906e2b75751" id="r_a53fe9057e80e0b27a5762906e2b75751"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a53fe9057e80e0b27a5762906e2b75751">ensure_resources</a> (uint32_t p_visible_count)</td></tr>
+<tr class="memitem:a9802e93eec2ebe1699d23501995f1325" id="r_a9802e93eec2ebe1699d23501995f1325"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9802e93eec2ebe1699d23501995f1325">ensure_resources</a> (uint32_t p_visible_count, bool p_growth_headroom=false)</td></tr>
 <tr class="memitem:a028b9ecde5ff4e304ff2f7fc2fa52db9" id="r_a028b9ecde5ff4e304ff2f7fc2fa52db9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a028b9ecde5ff4e304ff2f7fc2fa52db9">note_sorted_frame_published</a> ()</td></tr>
+<tr class="memitem:aef57e38f2593fa3935e426d99824770c" id="r_aef57e38f2593fa3935e426d99824770c"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aef57e38f2593fa3935e426d99824770c">allocated_sort_bytes</a> () const</td></tr>
 <tr class="memitem:a8a97d49048624d19b3860d3bc1a4bf3d" id="r_a8a97d49048624d19b3860d3bc1a4bf3d"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8a97d49048624d19b3860d3bc1a4bf3d">get_tile_counts_buffer</a> () const</td></tr>
 <tr class="memitem:a18ed8836e753befef28a044fcef692d4" id="r_a18ed8836e753befef28a044fcef692d4"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18ed8836e753befef28a044fcef692d4">get_previous_tile_counts_buffer</a> () const</td></tr>
 <tr class="memitem:abdac7f3c1bdbd528c8cb6c9cbbde4383" id="r_abdac7f3c1bdbd528c8cb6c9cbbde4383"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abdac7f3c1bdbd528c8cb6c9cbbde4383">advance_tile_counts_buffer</a> ()</td></tr>
@@ -131,6 +132,12 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ad1b161af6ce9696e51056e6c3c3cc5f1" id="r_ad1b161af6ce9696e51056e6c3c3cc5f1"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad1b161af6ce9696e51056e6c3c3cc5f1">capacity</a> = 0</td></tr>
 <tr class="memitem:a4fb3bb3c746f283cb59e37e5e4d79f90" id="r_a4fb3bb3c746f283cb59e37e5e4d79f90"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4fb3bb3c746f283cb59e37e5e4d79f90">shrink_candidate_frames</a> = 0</td></tr>
 <tr class="memitem:a8dd09fd9918f0fbf2660a6916a7ffbfe" id="r_a8dd09fd9918f0fbf2660a6916a7ffbfe"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8dd09fd9918f0fbf2660a6916a7ffbfe">last_observed_demand</a> = 0</td></tr>
+<tr class="memitem:a265f17e04286a6e4a1c2b8920fd4934e" id="r_a265f17e04286a6e4a1c2b8920fd4934e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a265f17e04286a6e4a1c2b8920fd4934e">measured_records_per_splat_q8</a> = 0</td></tr>
+<tr class="memitem:a061160aba2c23d4aa4ffce7a61bc8542" id="r_a061160aba2c23d4aa4ffce7a61bc8542"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a061160aba2c23d4aa4ffce7a61bc8542">overlap_bootstrap_sampled</a> = false</td></tr>
+<tr class="memitem:a5e84216df72f24604e5a2a7f15841ec0" id="r_a5e84216df72f24604e5a2a7f15841ec0"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e84216df72f24604e5a2a7f15841ec0">capacity_high_water</a> = 0</td></tr>
+<tr class="memitem:af79b8cfef07abedba649caa8c84d0e62" id="r_af79b8cfef07abedba649caa8c84d0e62"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af79b8cfef07abedba649caa8c84d0e62">resize_peak_bytes</a> = 0</td></tr>
+<tr class="memitem:a9d31f28b63cf47d13b3a5c21a10e5900" id="r_a9d31f28b63cf47d13b3a5c21a10e5900"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d31f28b63cf47d13b3a5c21a10e5900">resize_preflight_refusals</a> = 0</td></tr>
+<tr class="memitem:a35b16e8f0068dfad0b5a54e81aa64c64" id="r_a35b16e8f0068dfad0b5a54e81aa64c64"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a35b16e8f0068dfad0b5a54e81aa64c64">resize_preflight_unverified_logged</a> = false</td></tr>
 <tr class="memitem:a5ac34572cdcbc047a26a0fa234a675d0" id="r_a5ac34572cdcbc047a26a0fa234a675d0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structSortKeyConfig.html">SortKeyConfig</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5ac34572cdcbc047a26a0fa234a675d0">key_config</a></td></tr>
 <tr class="memitem:a956c45e5183e38da3579f863358cbbe0" id="r_a956c45e5183e38da3579f863358cbbe0"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a956c45e5183e38da3579f863358cbbe0">keys_buffer</a></td></tr>
 <tr class="memitem:a9f0126cca2c6d0c521701856dd68f685" id="r_a9f0126cca2c6d0c521701856dd68f685"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9f0126cca2c6d0c521701856dd68f685">values_buffer</a></td></tr>
@@ -190,8 +197,25 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a53fe9057e80e0b27a5762906e2b75751" name="a53fe9057e80e0b27a5762906e2b75751"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a53fe9057e80e0b27a5762906e2b75751">&#9670;&#160;</a></span>ensure_resources()</h2>
+<a id="aef57e38f2593fa3935e426d99824770c" name="aef57e38f2593fa3935e426d99824770c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aef57e38f2593fa3935e426d99824770c">&#9670;&#160;</a></span>allocated_sort_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileGlobalSortResources::allocated_sort_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9802e93eec2ebe1699d23501995f1325" name="a9802e93eec2ebe1699d23501995f1325"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9802e93eec2ebe1699d23501995f1325">&#9670;&#160;</a></span>ensure_resources()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -199,8 +223,12 @@ Public Attributes</h2></td></tr>
         <tr>
           <td class="memname">void GaussianSplatting::TileGlobalSortResources::ensure_resources </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_visible_count</em></span></td><td>)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_visible_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_growth_headroom</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -388,6 +416,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a5e84216df72f24604e5a2a7f15841ec0" name="a5e84216df72f24604e5a2a7f15841ec0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5e84216df72f24604e5a2a7f15841ec0">&#9670;&#160;</a></span>capacity_high_water</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileGlobalSortResources::capacity_high_water = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a59fe55ea1123625994568cf93730b7d0" name="a59fe55ea1123625994568cf93730b7d0"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a59fe55ea1123625994568cf93730b7d0">&#9670;&#160;</a></span>indirect_dispatch_buffer</h2>
 
@@ -472,6 +514,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a265f17e04286a6e4a1c2b8920fd4934e" name="a265f17e04286a6e4a1c2b8920fd4934e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a265f17e04286a6e4a1c2b8920fd4934e">&#9670;&#160;</a></span>measured_records_per_splat_q8</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileGlobalSortResources::measured_records_per_splat_q8 = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a061160aba2c23d4aa4ffce7a61bc8542" name="a061160aba2c23d4aa4ffce7a61bc8542"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a061160aba2c23d4aa4ffce7a61bc8542">&#9670;&#160;</a></span>overlap_bootstrap_sampled</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatting::TileGlobalSortResources::overlap_bootstrap_sampled = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a0fc150753009bb4735d3f4a1e9f2800a" name="a0fc150753009bb4735d3f4a1e9f2800a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a0fc150753009bb4735d3f4a1e9f2800a">&#9670;&#160;</a></span>owner</h2>
 
@@ -494,6 +564,48 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">RID GaussianSplatting::TileGlobalSortResources::prefix_total_buffer</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af79b8cfef07abedba649caa8c84d0e62" name="af79b8cfef07abedba649caa8c84d0e62"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af79b8cfef07abedba649caa8c84d0e62">&#9670;&#160;</a></span>resize_peak_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileGlobalSortResources::resize_peak_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9d31f28b63cf47d13b3a5c21a10e5900" name="a9d31f28b63cf47d13b3a5c21a10e5900"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9d31f28b63cf47d13b3a5c21a10e5900">&#9670;&#160;</a></span>resize_preflight_refusals</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileGlobalSortResources::resize_preflight_refusals = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a35b16e8f0068dfad0b5a54e81aa64c64" name="a35b16e8f0068dfad0b5a54e81aa64c64"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a35b16e8f0068dfad0b5a54e81aa64c64">&#9670;&#160;</a></span>resize_preflight_unverified_logged</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatting::TileGlobalSortResources::resize_preflight_unverified_logged = false</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -31,6 +31,7 @@ var namespaces_dup =
     [ "GaussianStreamingTypes", "namespaceGaussianStreamingTypes.html", "namespaceGaussianStreamingTypes" ],
     [ "GPUSortingConstants", "namespaceGPUSortingConstants.html", [
       [ "is_supported_radix_bits", "namespaceGPUSortingConstants.html#a4f06ef675f58099e57864a2ff554232e", null ],
+      [ "overlap_sort_total_bytes", "namespaceGPUSortingConstants.html#a275b1787bebeb947be42da11d9fcf2b6", null ],
       [ "radix_scatter_shared_memory_bytes", "namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb", null ],
       [ "radix_workgroup_size_for_device", "namespaceGPUSortingConstants.html#a71a65d19d1b332d57880c962ce201ee8", null ],
       [ "sort_path_allocation_fits_device_size", "namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729", null ],

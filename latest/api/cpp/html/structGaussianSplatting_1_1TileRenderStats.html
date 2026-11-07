@@ -112,6 +112,11 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ab6b9fc5ecac9b5d8256b1bd6e056d6a3" id="r_ab6b9fc5ecac9b5d8256b1bd6e056d6a3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab6b9fc5ecac9b5d8256b1bd6e056d6a3">overlap_record_budget</a> = 0</td></tr>
 <tr class="memitem:af1589c3b9b2aa46436bb085151531928" id="r_af1589c3b9b2aa46436bb085151531928"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af1589c3b9b2aa46436bb085151531928">overlap_record_budget_effective</a> = 0</td></tr>
 <tr class="memitem:a053139660dc1eea07eae9b7e73899bbf" id="r_a053139660dc1eea07eae9b7e73899bbf"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a053139660dc1eea07eae9b7e73899bbf">overlap_record_budget_configured</a> = 0</td></tr>
+<tr class="memitem:a3c20b2217386efdd63a6d4e50f748a63" id="r_a3c20b2217386efdd63a6d4e50f748a63"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c20b2217386efdd63a6d4e50f748a63">overlap_sort_capacity</a> = 0</td></tr>
+<tr class="memitem:aae26542b1092b0a32916cb8428a89330" id="r_aae26542b1092b0a32916cb8428a89330"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aae26542b1092b0a32916cb8428a89330">overlap_sort_capacity_high_water</a> = 0</td></tr>
+<tr class="memitem:a95342760850f9b93619b389b9a54e0b6" id="r_a95342760850f9b93619b389b9a54e0b6"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a95342760850f9b93619b389b9a54e0b6">overlap_sort_bytes</a> = 0</td></tr>
+<tr class="memitem:a4157c115a71f5d272cb318ba65932fce" id="r_a4157c115a71f5d272cb318ba65932fce"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4157c115a71f5d272cb318ba65932fce">overlap_sort_resize_peak_bytes</a> = 0</td></tr>
+<tr class="memitem:ae31ca57170eb82173679492108baf8ae" id="r_ae31ca57170eb82173679492108baf8ae"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae31ca57170eb82173679492108baf8ae">overlap_sort_resize_preflight_refusals</a> = 0</td></tr>
 <tr class="memitem:a6ad1214d835fb89df64b4580dd4f88e1" id="r_a6ad1214d835fb89df64b4580dd4f88e1"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6ad1214d835fb89df64b4580dd4f88e1">overlap_thinning_keep_ratio</a> = 1.0f</td></tr>
 <tr class="memitem:ae45b4deaf737a39e7da199b145f72b2d" id="r_ae45b4deaf737a39e7da199b145f72b2d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae45b4deaf737a39e7da199b145f72b2d">compute_raster_frames</a> = 0</td></tr>
 <tr class="memitem:a114db7bc6a5ca3134035b06c0d4afc38" id="r_a114db7bc6a5ca3134035b06c0d4afc38"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a114db7bc6a5ca3134035b06c0d4afc38">fragment_raster_frames</a> = 0</td></tr>
@@ -435,6 +440,76 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianSplatting::TileRenderStats::overlap_records = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a95342760850f9b93619b389b9a54e0b6" name="a95342760850f9b93619b389b9a54e0b6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a95342760850f9b93619b389b9a54e0b6">&#9670;&#160;</a></span>overlap_sort_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileRenderStats::overlap_sort_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3c20b2217386efdd63a6d4e50f748a63" name="a3c20b2217386efdd63a6d4e50f748a63"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3c20b2217386efdd63a6d4e50f748a63">&#9670;&#160;</a></span>overlap_sort_capacity</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileRenderStats::overlap_sort_capacity = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aae26542b1092b0a32916cb8428a89330" name="aae26542b1092b0a32916cb8428a89330"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aae26542b1092b0a32916cb8428a89330">&#9670;&#160;</a></span>overlap_sort_capacity_high_water</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileRenderStats::overlap_sort_capacity_high_water = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4157c115a71f5d272cb318ba65932fce" name="a4157c115a71f5d272cb318ba65932fce"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4157c115a71f5d272cb318ba65932fce">&#9670;&#160;</a></span>overlap_sort_resize_peak_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileRenderStats::overlap_sort_resize_peak_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae31ca57170eb82173679492108baf8ae" name="ae31ca57170eb82173679492108baf8ae"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae31ca57170eb82173679492108baf8ae">&#9670;&#160;</a></span>overlap_sort_resize_preflight_refusals</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileRenderStats::overlap_sort_resize_preflight_refusals = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

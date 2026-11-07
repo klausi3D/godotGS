@@ -39,7 +39,7 @@ var searchData=
   ['ensure_5fresolve_5fpipeline_36',['ensure_resolve_pipeline',['../structTileResolveStage.html#afbe555ddc49a32b01cc05d3bf25c10a6',1,'TileResolveStage']]],
   ['ensure_5fresolve_5fresources_37',['ensure_resolve_resources',['../structGaussianSplatting_1_1TileRenderTargets.html#a973ea48fac0330787e4804da19c90f79',1,'GaussianSplatting::TileRenderTargets::ensure_resolve_resources()'],['../structTileResolveStage.html#a2145a9ab9e2791973fb510da83efca51',1,'TileResolveStage::ensure_resolve_resources(const Vector2i &amp;p_size, RD::DataFormat p_format)']]],
   ['ensure_5fresolve_5fsampler_38',['ensure_resolve_sampler',['../structTileResolveStage.html#a3a5e19784c92e59d4de65828d68b7497',1,'TileResolveStage']]],
-  ['ensure_5fresources_39',['ensure_resources',['../structGaussianSplatting_1_1TileGlobalSortResources.html#a53fe9057e80e0b27a5762906e2b75751',1,'GaussianSplatting::TileGlobalSortResources']]],
+  ['ensure_5fresources_39',['ensure_resources',['../structGaussianSplatting_1_1TileGlobalSortResources.html#a9802e93eec2ebe1699d23501995f1325',1,'GaussianSplatting::TileGlobalSortResources']]],
   ['ensure_5fshadow_5fsampler_40',['ensure_shadow_sampler',['../structTileResolveStage.html#ab0e7d01e49b509d9f40ca7fe378aa28c',1,'TileResolveStage']]],
   ['ensure_5fsingleton_41',['ensure_singleton',['../classGaussianRenderingDiagnostics.html#a16b3602a8ba395d2ec249a5b13ea865f',1,'GaussianRenderingDiagnostics']]],
   ['ensure_5fsort_5fbuffers_42',['ensure_sort_buffers',['../classGPUSortingPipeline.html#ad53fcf5ca89212da8040e2b47c96bb2d',1,'GPUSortingPipeline']]],

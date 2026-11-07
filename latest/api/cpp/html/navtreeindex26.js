@@ -1,5 +1,16 @@
 var NAVTREEINDEX26 =
 {
+"structAssetMetadata.html#a756b75ee89c2360cc9facd9c8922f5b4":[1,0,37,1],
+"structAssetMetadata.html#a8382f9c87f75e2a37abb15239bae85bc":[1,0,37,11],
+"structAssetMetadata.html#a8cfd2aa64aa14cce1abf9804a17aee86":[1,0,37,5],
+"structAssetMetadata.html#a982820f05211ef6420ec213b9bb02fad":[1,0,37,8],
+"structAssetMetadata.html#aae682a94e801019863fb9407c779fdb6":[1,0,37,9],
+"structAssetMetadata.html#ab74eef54455d3758252e7817211ba7d6":[1,0,37,2],
+"structAssetMetadata.html#afa6ce90958297613c30fc4a0c02d3dcb":[1,0,37,4],
+"structAttachmentValidationInfo.html":[1,0,39],
+"structAttachmentValidationInfo.html#a0910c15e1e8d99ece719a5712f950a4e":[1,0,39,2],
+"structAttachmentValidationInfo.html#a4f22f0fd76e8209182fb8808382c8689":[1,0,39,1],
+"structAttachmentValidationInfo.html#a538facd340fc17047f2a1ff779d74c54":[1,0,39,0],
 "structAutoTuneResult.html":[1,0,40],
 "structAutoTuneResult.html#a6e3268f6712aef26ca71bd2dcf58c4bf":[1,0,40,4],
 "structAutoTuneResult.html#a740bf391b3dd4ac10eafefd2cb7b1768":[1,0,40,2],
@@ -238,16 +249,5 @@ var NAVTREEINDEX26 =
 "structFloat16Utils_1_1QuantizationChunk.html#a96550803efa5f0119e1fc078231728d6":[1,0,0,0,2],
 "structFloat16Utils_1_1QuantizationChunk.html#aaabb18c195aa41dfb306a0fd0a48cf22":[0,0,0,0,3],
 "structFloat16Utils_1_1QuantizationChunk.html#aaabb18c195aa41dfb306a0fd0a48cf22":[1,0,0,0,3],
-"structFloat16Utils_1_1QuantizationChunk.html#af0567445cc3d13b9762ed7d652a3ff99":[0,0,0,0,1],
-"structFloat16Utils_1_1QuantizationChunk.html#af0567445cc3d13b9762ed7d652a3ff99":[1,0,0,0,1],
-"structFramebufferCopyParams.html":[1,0,67],
-"structFramebufferCopyParams.html#a238b10a2815e836b284dabefe4278a75":[1,0,67,3],
-"structFramebufferCopyParams.html#a3161062bd6b1ba7f2954f487d2fc4dbd":[1,0,67,2],
-"structFramebufferCopyParams.html#a51f42a9882c03dfa2ea282f7f884ecf5":[1,0,67,5],
-"structFramebufferCopyParams.html#a6e886765374b69f60b04e95fdb82c74f":[1,0,67,1],
-"structFramebufferCopyParams.html#ad647a9f991ce27472f03a4f6c3871cbf":[1,0,67,4],
-"structFramebufferCopyParams.html#af215529a1edac9297abc23dd778cd6e6":[1,0,67,0],
-"structFrustumCullParamsGPU.html":[1,0,69],
-"structFrustumCullParamsGPU.html#a0be88b7d3d30a4e42874b1b67b7d35c3":[1,0,69,7],
-"structFrustumCullParamsGPU.html#a1a284e8a2873374d6f30113b1713c186":[1,0,69,11]
+"structFloat16Utils_1_1QuantizationChunk.html#af0567445cc3d13b9762ed7d652a3ff99":[0,0,0,0,1]
 };

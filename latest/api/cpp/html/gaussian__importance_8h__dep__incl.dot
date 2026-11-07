@@ -12,7 +12,12 @@ digraph "gaussian_importance.h"
   Node1 -> Node4 [id="edge3_Node000001_Node000004",dir="back",color="steelblue1",style="solid",tooltip=" "];
   Node4 [id="Node000004",label="resident_atlas_budget.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$resident__atlas__budget_8h.html",tooltip=" "];
   Node4 -> Node5 [id="edge4_Node000004_Node000005",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node5 [id="Node000005",label="resident_instance_contract\l_publisher.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$resident__instance__contract__publisher_8cpp.html",tooltip=" "];
-  Node4 -> Node6 [id="edge5_Node000004_Node000006",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node6 [id="Node000006",label="tile_renderer.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$tile__renderer_8cpp.html",tooltip=" "];
+  Node5 [id="Node000005",label="overlap_bootstrap_policy.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$overlap__bootstrap__policy_8h.html",tooltip=" "];
+  Node5 -> Node6 [id="edge5_Node000005_Node000006",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node6 [id="Node000006",label="tile_render_resources.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$tile__render__resources_8cpp.html",tooltip=" "];
+  Node5 -> Node7 [id="edge6_Node000005_Node000007",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node7 [id="Node000007",label="tile_renderer.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$tile__renderer_8cpp.html",tooltip=" "];
+  Node4 -> Node8 [id="edge7_Node000004_Node000008",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node8 [id="Node000008",label="resident_instance_contract\l_publisher.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$resident__instance__contract__publisher_8cpp.html",tooltip=" "];
+  Node4 -> Node7 [id="edge8_Node000004_Node000007",dir="back",color="steelblue1",style="solid",tooltip=" "];
 }

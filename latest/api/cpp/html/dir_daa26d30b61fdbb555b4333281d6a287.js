@@ -38,6 +38,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "hlod_shadow_caster_plan.h", "hlod__shadow__caster__plan_8h.html", "hlod__shadow__caster__plan_8h" ],
     [ "hlod_world_instances.h", "hlod__world__instances_8h.html", "hlod__world__instances_8h" ],
     [ "instance_pipeline_contract.h", "instance__pipeline__contract_8h.html", "instance__pipeline__contract_8h" ],
+    [ "overlap_bootstrap_policy.h", "overlap__bootstrap__policy_8h.html", "overlap__bootstrap__policy_8h" ],
     [ "painterly_pass_graph.cpp", "painterly__pass__graph_8cpp.html", null ],
     [ "painterly_pass_graph.h", "painterly__pass__graph_8h.html", "painterly__pass__graph_8h" ],
     [ "pipeline_feature_set.cpp", "pipeline__feature__set_8cpp.html", "pipeline__feature__set_8cpp" ],
