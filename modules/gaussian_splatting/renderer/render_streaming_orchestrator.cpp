@@ -434,6 +434,25 @@ static String _streaming_not_ready_reason(StreamingReadinessState p_state) {
 	}
 }
 
+// The fallback counters as they stood at the end of a frame, for the analytics overlay.
+struct StaticLayoutFallbackSnapshot {
+	uint64_t total = 0;
+	uint64_t io_total = 0;
+	uint64_t primary_total = 0;
+	HashMap<String, uint64_t> reason_counts;
+	HashMap<String, uint64_t> category_counts;
+	String last_usage;
+	String last_reason;
+	String last_reason_category;
+	String last_context;
+	String last_detail;
+
+	void apply(Dictionary &r_streaming_metrics) const {
+		_apply_static_layout_fallback_diagnostics(r_streaming_metrics, total, io_total, primary_total, reason_counts,
+				category_counts, last_usage, last_reason, last_reason_category, last_context, last_detail);
+	}
+};
+
 static void _apply_streaming_render_readiness_diagnostics(Dictionary &r_streaming_metrics,
 		StreamingReadinessState p_state,
 		const String &p_detail = String()) {
@@ -1507,10 +1526,10 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 	if (!streaming_state.current_streaming_system.is_valid()) {
 		const StreamingReadinessState readiness_state = StreamingReadinessState::MISSING_STREAMING_SYSTEM;
 		publish_not_ready_route(readiness_state);
-		Dictionary streaming_metrics = performance_state.metrics.streaming_state;
+		Dictionary streaming_metrics = performance_state.resolve_streaming_state();
 		_apply_streaming_render_readiness_diagnostics(streaming_metrics, readiness_state,
 				"current_streaming_system invalid");
-		performance_state.metrics.streaming_state = streaming_metrics;
+		performance_state.set_streaming_state(streaming_metrics);
 		return false;
 	}
 	const uint32_t desired_runtime_splats = p_backend_plan.runtime_policy.runtime_budget_splats;
@@ -1527,10 +1546,10 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 			if (!rd) {
 				const StreamingReadinessState readiness_state = StreamingReadinessState::RUNTIME_BOOTSTRAP_PENDING;
 				publish_not_ready_route(readiness_state);
-				Dictionary streaming_metrics = performance_state.metrics.streaming_state;
+				Dictionary streaming_metrics = performance_state.resolve_streaming_state();
 				_apply_streaming_render_readiness_diagnostics(streaming_metrics, readiness_state,
 						"rendering_device unavailable for streaming capacity rebuild");
-				performance_state.metrics.streaming_state = streaming_metrics;
+				performance_state.set_streaming_state(streaming_metrics);
 				return false;
 			}
 
@@ -1541,10 +1560,10 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 			if (resize_err != OK) {
 				const StreamingReadinessState readiness_state = StreamingReadinessState::RUNTIME_BOOTSTRAP_PENDING;
 				publish_not_ready_route(readiness_state);
-				Dictionary streaming_metrics = performance_state.metrics.streaming_state;
+				Dictionary streaming_metrics = performance_state.resolve_streaming_state();
 				_apply_streaming_render_readiness_diagnostics(streaming_metrics, readiness_state,
 						vformat("streaming capacity rebuild failed: %d", resize_err));
-				performance_state.metrics.streaming_state = streaming_metrics;
+				performance_state.set_streaming_state(streaming_metrics);
 				return false;
 			}
 			streaming_state.memory_stream->set_async_upload(async_upload_enabled);
@@ -1563,10 +1582,10 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 			if (!ensure_instance_streaming_system(p_backend_plan)) {
 				const StreamingReadinessState readiness_state = StreamingReadinessState::RUNTIME_BOOTSTRAP_PENDING;
 				publish_not_ready_route(readiness_state);
-				Dictionary streaming_metrics = performance_state.metrics.streaming_state;
+				Dictionary streaming_metrics = performance_state.resolve_streaming_state();
 				_apply_streaming_render_readiness_diagnostics(streaming_metrics, readiness_state,
 						"streaming system rebuild after capacity resize failed");
-				performance_state.metrics.streaming_state = streaming_metrics;
+				performance_state.set_streaming_state(streaming_metrics);
 				return false;
 			}
 		}
@@ -1601,29 +1620,30 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 
 	auto finalize_streaming_frame = [&](StreamingReadinessState p_readiness_state = StreamingReadinessState::READY,
 			const String &p_readiness_detail = String()) {
-		streaming_state.current_streaming_system->end_frame();
-		Dictionary streaming_metrics = streaming_state.current_streaming_system->get_streaming_analytics();
-		_apply_static_layout_fallback_diagnostics(streaming_metrics,
-				static_layout_fallback_total,
-				static_layout_fallback_io_total,
-				static_layout_fallback_primary_total,
-				static_layout_fallback_reason_counts,
-				static_layout_fallback_category_counts,
-				static_layout_fallback_last_usage,
-				static_layout_fallback_last_reason,
-				static_layout_fallback_last_reason_category,
-				static_layout_fallback_last_context,
-				static_layout_fallback_last_detail);
-		_apply_streaming_render_readiness_diagnostics(streaming_metrics, p_readiness_state, p_readiness_detail);
-		streaming_metrics["instance_pipeline_invariant_route"] = instance_invariant_route;
-		streaming_metrics["instance_pipeline_invariant_class"] = instance_invariant_class;
-		streaming_metrics["instance_pipeline_invariant_reason"] = instance_invariant_reason;
-		streaming_metrics["instance_pipeline_invariant_failed"] = instance_invariant_failed;
-		streaming_metrics["instance_pipeline_owner_mismatch_detected"] =
-				static_cast<int64_t>(owner_mismatch_detected_count);
-		streaming_metrics["instance_pipeline_owner_mismatch_forced_invalidation"] =
-				static_cast<int64_t>(owner_mismatch_forced_invalidation_count);
-		performance_state.metrics.streaming_state = streaming_metrics;
+		// Copies only: the overlay runs when something reads the metrics, which can be after this frame and on
+		// another thread. Nothing on the frame path builds the Dictionary.
+		const StaticLayoutFallbackSnapshot layout_fallback{ static_layout_fallback_total, static_layout_fallback_io_total,
+				static_layout_fallback_primary_total, static_layout_fallback_reason_counts,
+				static_layout_fallback_category_counts, static_layout_fallback_last_usage, static_layout_fallback_last_reason,
+				static_layout_fallback_last_reason_category, static_layout_fallback_last_context,
+				static_layout_fallback_last_detail };
+		streaming_state.current_streaming_system->end_frame_with_overlay(
+				[layout_fallback, p_readiness_state, readiness_detail = p_readiness_detail,
+						invariant_route = instance_invariant_route, invariant_class = instance_invariant_class,
+						invariant_reason = instance_invariant_reason, invariant_failed = instance_invariant_failed,
+						mismatch_detected = owner_mismatch_detected_count,
+						mismatch_forced = owner_mismatch_forced_invalidation_count](Dictionary &r_streaming_metrics) {
+					layout_fallback.apply(r_streaming_metrics);
+					_apply_streaming_render_readiness_diagnostics(r_streaming_metrics, p_readiness_state, readiness_detail);
+					r_streaming_metrics["instance_pipeline_invariant_route"] = invariant_route;
+					r_streaming_metrics["instance_pipeline_invariant_class"] = invariant_class;
+					r_streaming_metrics["instance_pipeline_invariant_reason"] = invariant_reason;
+					r_streaming_metrics["instance_pipeline_invariant_failed"] = invariant_failed;
+					r_streaming_metrics["instance_pipeline_owner_mismatch_detected"] = static_cast<int64_t>(mismatch_detected);
+					r_streaming_metrics["instance_pipeline_owner_mismatch_forced_invalidation"] =
+							static_cast<int64_t>(mismatch_forced);
+				});
+		performance_state.streaming_state_frame = streaming_state.current_streaming_system->get_analytics_frame();
 	};
 
 	streaming_state.current_streaming_system->begin_frame();
@@ -1695,6 +1715,7 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 	streaming_state.current_streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 
 	streaming_state.current_streaming_system->update_streaming(streaming_camera_transform, cull_projection);
+	renderer->report_chunk_route_to_device_vram_ledger(streaming_state.current_streaming_system->get_vram_usage());
 
 	uint64_t instance_generation = 0;
 	uint64_t instance_asset_generation = 0;
@@ -2434,22 +2455,9 @@ void RenderStreamingOrchestrator::tick_streaming_only(const Transform3D &p_camer
 	(renderer->*runtime_ports.validate_cull_projection_contract)(nullptr, p_projection, cull_projection,
 			"render_streaming_orchestrator::tick_streaming_only");
 	streaming_system->update_streaming(p_camera_to_world_transform, cull_projection);
+	renderer->report_chunk_route_to_device_vram_ledger(streaming_system->get_vram_usage());
 	frame_state_mut.visible_splat_count.store(streaming_system->get_visible_count(), std::memory_order_release);
 
-	streaming_system->end_frame();
-
-	Dictionary streaming_metrics = streaming_system->get_streaming_analytics();
-	_apply_static_layout_fallback_diagnostics(streaming_metrics,
-			static_layout_fallback_total,
-			static_layout_fallback_io_total,
-			static_layout_fallback_primary_total,
-			static_layout_fallback_reason_counts,
-			static_layout_fallback_category_counts,
-			static_layout_fallback_last_usage,
-			static_layout_fallback_last_reason,
-			static_layout_fallback_last_reason_category,
-			static_layout_fallback_last_context,
-			static_layout_fallback_last_detail);
 	auto &perf_metrics = performance_state.metrics;
 	const auto &frame_state = state_view.get_frame_state_view();
 	const auto &debug_state = state_view.get_debug_state_view();
@@ -2469,54 +2477,67 @@ void RenderStreamingOrchestrator::tick_streaming_only(const Transform3D &p_camer
 		stage_composite_executed = stage_metrics.composite_executed;
 	}
 
-	streaming_metrics["stage_metrics_valid"] = stage_metrics_valid;
-	streaming_metrics["stage_cull_time_ms"] = stage_cull_time_ms;
-	streaming_metrics["stage_sort_time_ms"] = stage_sort_time_ms;
-	streaming_metrics["stage_raster_time_ms"] = stage_raster_time_ms;
-	streaming_metrics["stage_composite_time_ms"] = stage_composite_time_ms;
-	streaming_metrics["stage_composite_executed"] = stage_composite_executed;
-	streaming_metrics["cull_ms"] = stage_cull_time_ms;
-	streaming_metrics["sort_ms"] = stage_sort_time_ms;
-	streaming_metrics["raster_ms"] = stage_raster_time_ms;
-	streaming_metrics["composite_ms"] = stage_composite_time_ms;
-	streaming_metrics["frame_sort_time_ms"] = frame_state.sort_time_ms;
-	streaming_metrics["frame_render_time_ms"] = frame_state.render_time_ms;
+	// Copies only, as in finalize_streaming_frame.
+	GaussianSplatRenderer::PerformanceMetrics metrics_at_frame_end = perf_metrics;
+	const StaticLayoutFallbackSnapshot layout_fallback{ static_layout_fallback_total, static_layout_fallback_io_total,
+			static_layout_fallback_primary_total, static_layout_fallback_reason_counts,
+			static_layout_fallback_category_counts, static_layout_fallback_last_usage, static_layout_fallback_last_reason,
+			static_layout_fallback_last_reason_category, static_layout_fallback_last_context,
+			static_layout_fallback_last_detail };
+	streaming_system->end_frame_with_overlay(
+			[layout_fallback, metrics_at_frame_end, stage_metrics_valid, stage_cull_time_ms, stage_sort_time_ms,
+					stage_raster_time_ms, stage_composite_time_ms, stage_composite_executed,
+					frame_sort_time_ms = frame_state.sort_time_ms,
+					frame_render_time_ms = frame_state.render_time_ms](Dictionary &streaming_metrics) {
+				layout_fallback.apply(streaming_metrics);
+streaming_metrics["stage_metrics_valid"] = stage_metrics_valid;
+				streaming_metrics["stage_cull_time_ms"] = stage_cull_time_ms;
+				streaming_metrics["stage_sort_time_ms"] = stage_sort_time_ms;
+				streaming_metrics["stage_raster_time_ms"] = stage_raster_time_ms;
+				streaming_metrics["stage_composite_time_ms"] = stage_composite_time_ms;
+				streaming_metrics["stage_composite_executed"] = stage_composite_executed;
+				streaming_metrics["cull_ms"] = stage_cull_time_ms;
+				streaming_metrics["sort_ms"] = stage_sort_time_ms;
+				streaming_metrics["raster_ms"] = stage_raster_time_ms;
+				streaming_metrics["composite_ms"] = stage_composite_time_ms;
+				streaming_metrics["frame_sort_time_ms"] = frame_sort_time_ms;
+				streaming_metrics["frame_render_time_ms"] = frame_render_time_ms;
 
-	streaming_metrics["gpu_frame_time_ms"] = perf_metrics.gpu_frame_time_ms;
-	streaming_metrics["gpu_frame_time_valid"] = perf_metrics.gpu_frame_time_valid;
-	streaming_metrics["gpu_tile_overlap_count_time_ms"] = perf_metrics.gpu_tile_overlap_count_time_ms;
-	streaming_metrics["gpu_tile_overlap_count_time_valid"] = perf_metrics.gpu_tile_overlap_count_time_valid;
-	streaming_metrics["gpu_tile_binning_time_ms"] = perf_metrics.gpu_tile_binning_time_ms;
-	streaming_metrics["gpu_tile_binning_time_valid"] = perf_metrics.gpu_tile_binning_time_valid;
-	streaming_metrics["gpu_tile_overlap_emit_time_ms"] = perf_metrics.gpu_tile_overlap_emit_time_ms;
-	streaming_metrics["gpu_tile_overlap_emit_time_valid"] = perf_metrics.gpu_tile_overlap_emit_time_valid;
-	streaming_metrics["gpu_tile_overlap_sort_time_ms"] = perf_metrics.gpu_tile_overlap_sort_time_ms;
-	streaming_metrics["gpu_tile_overlap_sort_time_valid"] = perf_metrics.gpu_tile_overlap_sort_time_valid;
-	streaming_metrics["tile_overlap_sort_cpu_dispatch_ms"] = perf_metrics.tile_overlap_sort_cpu_dispatch_ms;
-	streaming_metrics["tile_overlap_sort_cpu_dispatch_valid"] = perf_metrics.tile_overlap_sort_cpu_dispatch_valid;
-	streaming_metrics["gpu_tile_prefix_time_ms"] = perf_metrics.gpu_tile_prefix_time_ms;
-	streaming_metrics["gpu_tile_prefix_time_valid"] = perf_metrics.gpu_tile_prefix_time_valid;
-	streaming_metrics["tile_prefix_cpu_sync_fallback_ms"] = perf_metrics.tile_prefix_cpu_sync_fallback_ms;
-	streaming_metrics["tile_prefix_cpu_sync_fallback_valid"] = perf_metrics.tile_prefix_cpu_sync_fallback_valid;
-	streaming_metrics["gpu_tile_raster_time_ms"] = perf_metrics.gpu_tile_raster_time_ms;
-	streaming_metrics["gpu_tile_raster_time_valid"] = perf_metrics.gpu_tile_raster_time_valid;
-	streaming_metrics["gpu_tile_resolve_time_ms"] = perf_metrics.gpu_tile_resolve_time_ms;
-	streaming_metrics["gpu_tile_resolve_time_valid"] = perf_metrics.gpu_tile_resolve_time_valid;
-	streaming_metrics["gpu_timing_frame_serial"] = static_cast<int64_t>(perf_metrics.gpu_timing_frame_serial);
-	streaming_metrics["gpu_timing_frames_behind"] = static_cast<int64_t>(perf_metrics.gpu_timing_frames_behind);
-	GaussianSplatting::GpuPassTiming::append_to_dictionary(streaming_metrics, perf_metrics.gpu_pass_timing);
-	streaming_metrics["gpu_pass_breakdown_available"] = perf_metrics.gpu_tile_overlap_count_time_valid ||
-			perf_metrics.gpu_tile_overlap_emit_time_valid ||
-			perf_metrics.gpu_tile_overlap_sort_time_valid ||
-			perf_metrics.tile_overlap_sort_cpu_dispatch_valid ||
-			perf_metrics.gpu_tile_prefix_time_valid ||
-			perf_metrics.tile_prefix_cpu_sync_fallback_valid ||
-			perf_metrics.gpu_tile_raster_time_valid ||
-			perf_metrics.gpu_tile_resolve_time_valid ||
-			perf_metrics.gpu_tile_binning_time_valid ||
-			perf_metrics.gpu_tile_prefix_time_ms > 0.0f ||
-			perf_metrics.gpu_tile_raster_time_ms > 0.0f ||
-			perf_metrics.gpu_tile_resolve_time_ms > 0.0f;
-
-	perf_metrics.streaming_state = streaming_metrics;
+				streaming_metrics["gpu_frame_time_ms"] = metrics_at_frame_end.gpu_frame_time_ms;
+				streaming_metrics["gpu_frame_time_valid"] = metrics_at_frame_end.gpu_frame_time_valid;
+				streaming_metrics["gpu_tile_overlap_count_time_ms"] = metrics_at_frame_end.gpu_tile_overlap_count_time_ms;
+				streaming_metrics["gpu_tile_overlap_count_time_valid"] = metrics_at_frame_end.gpu_tile_overlap_count_time_valid;
+				streaming_metrics["gpu_tile_binning_time_ms"] = metrics_at_frame_end.gpu_tile_binning_time_ms;
+				streaming_metrics["gpu_tile_binning_time_valid"] = metrics_at_frame_end.gpu_tile_binning_time_valid;
+				streaming_metrics["gpu_tile_overlap_emit_time_ms"] = metrics_at_frame_end.gpu_tile_overlap_emit_time_ms;
+				streaming_metrics["gpu_tile_overlap_emit_time_valid"] = metrics_at_frame_end.gpu_tile_overlap_emit_time_valid;
+				streaming_metrics["gpu_tile_overlap_sort_time_ms"] = metrics_at_frame_end.gpu_tile_overlap_sort_time_ms;
+				streaming_metrics["gpu_tile_overlap_sort_time_valid"] = metrics_at_frame_end.gpu_tile_overlap_sort_time_valid;
+				streaming_metrics["tile_overlap_sort_cpu_dispatch_ms"] = metrics_at_frame_end.tile_overlap_sort_cpu_dispatch_ms;
+				streaming_metrics["tile_overlap_sort_cpu_dispatch_valid"] = metrics_at_frame_end.tile_overlap_sort_cpu_dispatch_valid;
+				streaming_metrics["gpu_tile_prefix_time_ms"] = metrics_at_frame_end.gpu_tile_prefix_time_ms;
+				streaming_metrics["gpu_tile_prefix_time_valid"] = metrics_at_frame_end.gpu_tile_prefix_time_valid;
+				streaming_metrics["tile_prefix_cpu_sync_fallback_ms"] = metrics_at_frame_end.tile_prefix_cpu_sync_fallback_ms;
+				streaming_metrics["tile_prefix_cpu_sync_fallback_valid"] = metrics_at_frame_end.tile_prefix_cpu_sync_fallback_valid;
+				streaming_metrics["gpu_tile_raster_time_ms"] = metrics_at_frame_end.gpu_tile_raster_time_ms;
+				streaming_metrics["gpu_tile_raster_time_valid"] = metrics_at_frame_end.gpu_tile_raster_time_valid;
+				streaming_metrics["gpu_tile_resolve_time_ms"] = metrics_at_frame_end.gpu_tile_resolve_time_ms;
+				streaming_metrics["gpu_tile_resolve_time_valid"] = metrics_at_frame_end.gpu_tile_resolve_time_valid;
+				streaming_metrics["gpu_timing_frame_serial"] = static_cast<int64_t>(metrics_at_frame_end.gpu_timing_frame_serial);
+				streaming_metrics["gpu_timing_frames_behind"] = static_cast<int64_t>(metrics_at_frame_end.gpu_timing_frames_behind);
+				GaussianSplatting::GpuPassTiming::append_to_dictionary(streaming_metrics, metrics_at_frame_end.gpu_pass_timing);
+				streaming_metrics["gpu_pass_breakdown_available"] = metrics_at_frame_end.gpu_tile_overlap_count_time_valid ||
+						metrics_at_frame_end.gpu_tile_overlap_emit_time_valid ||
+						metrics_at_frame_end.gpu_tile_overlap_sort_time_valid ||
+						metrics_at_frame_end.tile_overlap_sort_cpu_dispatch_valid ||
+						metrics_at_frame_end.gpu_tile_prefix_time_valid ||
+						metrics_at_frame_end.tile_prefix_cpu_sync_fallback_valid ||
+						metrics_at_frame_end.gpu_tile_raster_time_valid ||
+						metrics_at_frame_end.gpu_tile_resolve_time_valid ||
+						metrics_at_frame_end.gpu_tile_binning_time_valid ||
+						metrics_at_frame_end.gpu_tile_prefix_time_ms > 0.0f ||
+						metrics_at_frame_end.gpu_tile_raster_time_ms > 0.0f ||
+						metrics_at_frame_end.gpu_tile_resolve_time_ms > 0.0f;
+			});
+	performance_state.streaming_state_frame = streaming_system->get_analytics_frame();
 }

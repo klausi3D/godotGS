@@ -395,6 +395,15 @@ if env.get("tests", False):
 # Register module classes
 env_gaussian_splatting.add_source_files(module_sources, "register_types.cpp")
 
+# GSQ page codec (BV-C1a, D-12). Calls zstd directly with one ZSTD_DCtx per worker, against the
+# header of whichever zstd the build links (risk K11; a system-zstd build stays unverified).
+# Cloned here, before the optimization flags below: the digests must not depend on -ffast-math
+# (risk K10).
+env_gsq = env_gaussian_splatting.Clone()
+if env["builtin_zstd"]:
+    env_gsq.Append(CPPPATH=["#thirdparty/zstd"])
+env_gsq.add_source_files(module_sources, "io/gsq/*.cpp")
+
 if generated_shader_headers:
     env_gaussian_splatting.Depends(module_sources, generated_shader_headers)
 

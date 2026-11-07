@@ -2370,7 +2370,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] radius validation accepts isotropi
 	for (int axis = 0; axis < 3; axis++) {
 		CHECK(double(leaf.radius) >= 0.5 * (double(leaf.aabb_max[axis]) - double(leaf.aabb_min[axis])));
 	}
-	const Vector<GaussianSplatRenderer::StaticChunk> &chunks = world->get_static_chunks();
+	const Vector<StaticChunk> &chunks = world->get_static_chunks();
 	if (chunks.size() != 1) {
 		FAIL("resident world must have one HLOD leaf chunk");
 		return;
@@ -2398,7 +2398,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] resident chunk radius survives far
 		FAIL("far-offset pair must bake to one leaf chunk");
 		return;
 	}
-	const GaussianSplatRenderer::StaticChunk &chunk = world->get_static_chunks()[0];
+	const StaticChunk &chunk = world->get_static_chunks()[0];
 	const Plane boundary(Vector3(-1, 0, 0), -g[1].position.x);
 	CHECK(boundary.distance_to(g[1].position) == 0.0f);
 	CHECK(boundary.distance_to(chunk.center) <= chunk.radius);
@@ -2846,8 +2846,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r4 editor reimport reloads 
 		CHECK(cached->get_bounds() == fresh->get_bounds());
 		CHECK(cached->get_metadata() == fresh->get_metadata());
 		// Leaf chunks.
-		const Vector<GaussianSplatRenderer::StaticChunk> &cached_chunks = cached->get_static_chunks();
-		const Vector<GaussianSplatRenderer::StaticChunk> &fresh_chunks = fresh->get_static_chunks();
+		const Vector<StaticChunk> &cached_chunks = cached->get_static_chunks();
+		const Vector<StaticChunk> &fresh_chunks = fresh->get_static_chunks();
 		CHECK_GT(fresh_chunks.size(), 1);
 		if (cached_chunks.size() != fresh_chunks.size()) {
 			FAIL_CHECK("reloaded leaf chunk count ", cached_chunks.size(), " != fresh ", fresh_chunks.size());

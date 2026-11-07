@@ -1,5 +1,6 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_streaming.h"
+#include "../core/streaming_analytics_frame.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/quantization_config.h"
 #include "../renderer/gpu_debug_utils.h"
@@ -124,6 +125,47 @@ void _advance_frames_until_upload_retired(Ref<GaussianStreamingSystem> p_system)
 }
 
 } // namespace
+
+TEST_CASE("[Streaming Pipeline] end_frame publishes analytics that are built on the first read") {
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    CHECK(system->get_streaming_analytics().is_empty());
+
+    int overlay_runs = 0;
+    system->end_frame_with_overlay([&overlay_runs](Dictionary &r_metrics) {
+        overlay_runs++;
+        r_metrics["overlay_key"] = true;
+    });
+    CHECK(overlay_runs == 0);
+
+    Dictionary first = system->get_streaming_analytics();
+    CHECK(overlay_runs == 1);
+    CHECK(first.has("overlay_key"));
+
+    // Later readers get the same Dictionary, so a key one reader adds stays visible to the next.
+    Dictionary again = system->get_streaming_analytics();
+    CHECK(overlay_runs == 1);
+    again["reader_key"] = true;
+    CHECK(first.has("reader_key"));
+
+    // The Dictionary keeps its insertion order, and the keys around the two table splits are in place.
+    const Array keys = first.keys();
+    CHECK(String(keys[0]) == "vram_mb");
+    CHECK(keys.find("queue_pressure_active") == keys.find("sync_promoted_pack_jobs_total") + 1);
+    CHECK(keys.find("cap_sources") == keys.find("queue_pressure_sync_source_active") + 1);
+    const Dictionary diagnostics = first.get("diagnostics", Dictionary());
+    const Array diagnostics_keys = diagnostics.keys();
+    CHECK(String(diagnostics_keys[0]) == "category");
+    CHECK(diagnostics_keys.find("queue_pressure_active") == diagnostics_keys.find("visible_eviction_active") + 1);
+    CHECK(String(first.get("diagnostics_category", String())) == String(diagnostics.get("category", String("missing"))));
+    CHECK(Dictionary(first.get("cap_sources", Dictionary())).has("max_upload_mb_per_frame"));
+
+    // A frame a reader still holds does not change when the next frame is published.
+    const std::shared_ptr<StreamingAnalyticsFrame> held = system->get_analytics_frame();
+    system->end_frame();
+    CHECK_FALSE(system->get_streaming_analytics().has("overlay_key"));
+    CHECK(held->resolve().has("overlay_key"));
+}
 
 TEST_CASE("[Streaming Pipeline] stop_pack_threads clears partial lifecycle state") {
     GaussianStreamingSystem system;

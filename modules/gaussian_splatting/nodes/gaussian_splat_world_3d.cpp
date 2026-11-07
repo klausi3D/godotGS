@@ -4,6 +4,7 @@
 #include "../core/gs_project_settings.h"
 #include "../core/quality_tier_config.h"
 #include "../lod/hlod_auto_route.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/quantization_config.h"
 #include "../logger/gs_logger.h"
 
@@ -26,6 +27,13 @@ static bool _is_world_debug_enabled() {
 }
 
 } // namespace
+
+GaussianSplatWorld3D::GaussianSplatWorld3D() = default;
+GaussianSplatWorld3D::~GaussianSplatWorld3D() = default;
+
+Ref<GaussianSplatRenderer> GaussianSplatWorld3D::get_renderer() const {
+    return renderer;
+}
 
 void GaussianSplatWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_world", "world"), &GaussianSplatWorld3D::set_world);

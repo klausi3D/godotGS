@@ -16,6 +16,9 @@
  */
 
 #include "gaussian_splat_scene_director.h"
+#include "scene_director_world_registry.h"
+
+#include "../renderer/gaussian_splat_renderer.h"
 
 #include "scene_director_internal.h"
 #include "core/math/math_funcs.h"
