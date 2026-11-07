@@ -348,6 +348,7 @@ var annotated_dup =
     [ "DebugOverlaySystem", "classDebugOverlaySystem.html", "classDebugOverlaySystem" ],
     [ "DependencyNode", "structDependencyNode.html", "structDependencyNode" ],
     [ "DeviceContext", "structDeviceContext.html", "structDeviceContext" ],
+    [ "DeviceVramLedger", "classDeviceVramLedger.html", "classDeviceVramLedger" ],
     [ "DrawnNodeGPU", "structDrawnNodeGPU.html", "structDrawnNodeGPU" ],
     [ "FramebufferCopyParams", "structFramebufferCopyParams.html", "structFramebufferCopyParams" ],
     [ "FrameCompletionTracker", "classFrameCompletionTracker.html", "classFrameCompletionTracker" ],

@@ -65,6 +65,7 @@ var classTileRenderer =
     [ "get_gpu_timing_frames_behind", "classTileRenderer.html#ada9ad5bb619209b17e63670a64bc0a5a", null ],
     [ "get_hlod_level_record_sample", "classTileRenderer.html#aa1a578f81275c39ada72eca629db8f18", null ],
     [ "get_hlod_overlap_bytes_per_record", "classTileRenderer.html#a4423da28a8be2a9947c0e862d2640209", null ],
+    [ "get_hlod_scratch_live_bytes", "classTileRenderer.html#a1b2b508c225a8743eac0b5e75d0be7b6", null ],
     [ "get_hlod_scratch_outstanding_bytes", "classTileRenderer.html#a1d3d985793f817c14961374c9aa7a889", null ],
     [ "get_hlod_texture_byte_upper_bound", "classTileRenderer.html#aa48ad9b03ee61099811c4e2d251d422c", null ],
     [ "get_index_mismatch_count", "classTileRenderer.html#ad2481bfaabd885b6f59ed661705fa014", null ],

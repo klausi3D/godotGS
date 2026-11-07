@@ -28,8 +28,9 @@ var searchData=
   ['pipeline_5fcreate_5ffailed_25',['PIPELINE_CREATE_FAILED',['../namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66ae41d2bb3cc851f91f4aa4ed715ba274b',1,'GaussianSplatting::ComputeInfrastructure']]],
   ['pipeline_5funavailable_26',['PIPELINE_UNAVAILABLE',['../namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39aa5e68c5033ce2551442fa7d32facb920',1,'gs_shadow_caster']]],
   ['plain_5fv3_27',['PLAIN_V3',['../namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3aecc316988635a087c91e9999d65b1f46',1,'gs_world_writer']]],
-  ['positions_28',['Positions',['../namespacespz.html#a96226cbb1e742a06bd39b9ca66f5aaf0a3160eb21973806e4291c3979d4aa242e',1,'spz']]],
-  ['primary_29',['PRIMARY',['../namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407da428429ba9ea83e4841036fb0508fd6dc',1,'gs_layout_hint::PRIMARY'],['../render__streaming__orchestrator_8cpp.html#a4c2404175eb3c3e43d1d8767e42cab4ca428429ba9ea83e4841036fb0508fd6dc',1,'PRIMARY:&#160;render_streaming_orchestrator.cpp']]],
-  ['publish_30',['PUBLISH',['../classGaussianSplatRenderer.html#ad801730a70db42af2115a33da7309193a155fe93b6325d234ef591bc6a7915a32',1,'GaussianSplatRenderer::PUBLISH'],['../namespacegs__hlod__auto__route.html#a0aaf9173c339d854241848338cb671c0a155fe93b6325d234ef591bc6a7915a32',1,'gs_hlod_auto_route::PUBLISH']]],
-  ['publish_5fwithout_5fedited_5fworld_31',['PUBLISH_WITHOUT_EDITED_WORLD',['../classGaussianSplatRenderer.html#ad801730a70db42af2115a33da7309193a4d1cf868976157c9bcf8f41306824be6',1,'GaussianSplatRenderer']]]
+  ['pool_28',['POOL',['../classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6a1943ef380f0669a9e14cb15a51898cb3',1,'DeviceVramLedger']]],
+  ['positions_29',['Positions',['../namespacespz.html#a96226cbb1e742a06bd39b9ca66f5aaf0a3160eb21973806e4291c3979d4aa242e',1,'spz']]],
+  ['primary_30',['PRIMARY',['../namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407da428429ba9ea83e4841036fb0508fd6dc',1,'gs_layout_hint::PRIMARY'],['../render__streaming__orchestrator_8cpp.html#a4c2404175eb3c3e43d1d8767e42cab4ca428429ba9ea83e4841036fb0508fd6dc',1,'PRIMARY:&#160;render_streaming_orchestrator.cpp']]],
+  ['publish_31',['PUBLISH',['../classGaussianSplatRenderer.html#ad801730a70db42af2115a33da7309193a155fe93b6325d234ef591bc6a7915a32',1,'GaussianSplatRenderer::PUBLISH'],['../namespacegs__hlod__auto__route.html#a0aaf9173c339d854241848338cb671c0a155fe93b6325d234ef591bc6a7915a32',1,'gs_hlod_auto_route::PUBLISH']]],
+  ['publish_5fwithout_5fedited_5fworld_32',['PUBLISH_WITHOUT_EDITED_WORLD',['../classGaussianSplatRenderer.html#ad801730a70db42af2115a33da7309193a4d1cf868976157c9bcf8f41306824be6',1,'GaussianSplatRenderer']]]
 ];

@@ -23,7 +23,8 @@ var searchData=
   ['desiredrecord_20',['DesiredRecord',['../structgs__hlod__runtime_1_1DesiredRecord.html',1,'gs_hlod_runtime']]],
   ['devicecontext_21',['DeviceContext',['../structDeviceContext.html',1,'']]],
   ['devicestate_22',['DeviceState',['../structGaussianRenderFacadeState_1_1DeviceState.html',1,'GaussianRenderFacadeState']]],
-  ['diagnosticsstate_23',['DiagnosticsState',['../structGaussianRenderFrame_1_1DiagnosticsState.html',1,'GaussianRenderFrame::DiagnosticsState'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html',1,'GaussianStreamingTypes::DiagnosticsState']]],
-  ['drawnnodegpu_24',['DrawnNodeGPU',['../structDrawnNodeGPU.html',1,'']]],
-  ['drawrecord_25',['DrawRecord',['../structgs__hlod__runtime_1_1DrawRecord.html',1,'gs_hlod_runtime']]]
+  ['devicevramledger_23',['DeviceVramLedger',['../classDeviceVramLedger.html',1,'']]],
+  ['diagnosticsstate_24',['DiagnosticsState',['../structGaussianRenderFrame_1_1DiagnosticsState.html',1,'GaussianRenderFrame::DiagnosticsState'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html',1,'GaussianStreamingTypes::DiagnosticsState']]],
+  ['drawnnodegpu_25',['DrawnNodeGPU',['../structDrawnNodeGPU.html',1,'']]],
+  ['drawrecord_26',['DrawRecord',['../structgs__hlod__runtime_1_1DrawRecord.html',1,'gs_hlod_runtime']]]
 ];

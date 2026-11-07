@@ -9,5 +9,6 @@ var searchData=
   ['hint_5frange_5fout_5fof_5frange_6',['HINT_RANGE_OUT_OF_RANGE',['../namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa6ef5cd84fea744c7d44a9400659e5cd4',1,'gs_layout_hint']]],
   ['hint_5fstart_5fout_5fof_5frange_7',['HINT_START_OUT_OF_RANGE',['../namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aae29cef79e6b7ab007556e1cf097ac1b3',1,'gs_layout_hint']]],
   ['hints_5fempty_8',['HINTS_EMPTY',['../namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa6e8939c6a006b0d2439e54b9e90db1de',1,'gs_layout_hint::HINTS_EMPTY'],['../render__streaming__orchestrator_8cpp.html#af7eb2001e84ee3c7f4cdbe534efb9975a6e8939c6a006b0d2439e54b9e90db1de',1,'HINTS_EMPTY:&#160;render_streaming_orchestrator.cpp']]],
-  ['hovered_9',['HOVERED',['../interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffa823d52d4c987a4bd0d42ca6f2a6cf58f',1,'interactive_state_interfaces.h']]]
+  ['hlod_5fscratch_9',['HLOD_SCRATCH',['../classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6a07fce97e1013d0cfbf5526d9b323a4e9',1,'DeviceVramLedger']]],
+  ['hovered_10',['HOVERED',['../interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffa823d52d4c987a4bd0d42ca6f2a6cf58f',1,'interactive_state_interfaces.h']]]
 ];

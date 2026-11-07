@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['category_0',['Category',['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180',1,'RenderingError::Category'],['../namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106',1,'gs_logger::Category']]],
+  ['category_0',['Category',['../classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6',1,'DeviceVramLedger::Category'],['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180',1,'RenderingError::Category'],['../namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106',1,'gs_logger::Category']]],
   ['changetype_1',['ChangeType',['../namespaceGaussianSplatting.html#ade1f4f101348e3b6b76f059d68c5aa85',1,'GaussianSplatting']]],
   ['chunktype_2',['ChunkType',['../namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396',1,'GaussianSplatting']]],
   ['compressionflags_3',['CompressionFlags',['../classGaussianSplatAsset.html#a72d17f2a151a45e089a7ff2596c49bfe',1,'GaussianSplatAsset']]],

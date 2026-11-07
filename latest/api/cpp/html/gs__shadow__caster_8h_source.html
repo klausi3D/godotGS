@@ -145,30 +145,32 @@ $(function(){initNavTree('gs__shadow__caster_8h_source.html','',''); });
 <div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span>    <span class="keywordtype">bool</span> <a class="code hl_function" href="classGsSplatShadowCaster.html#a6080b5716a165a69ea9d6bb0256206b9">draw</a>(RenderingDevice *p_device, RID p_shadow_framebuffer, <span class="keyword">const</span> Rect2i &amp;p_atlas_rect,</div>
 <div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span>            <span class="keyword">const</span> Projection &amp;p_light_from_frame, <span class="keyword">const</span> <a class="code hl_struct" href="structGsSplatShadowCaster_1_1Inputs.html">Inputs</a> &amp;p_inputs, String &amp;r_error);</div>
 <div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGsSplatShadowCaster.html#a9ca502926ace144791c78d63a1dad792">clear</a>();</div>
-<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span> </div>
-<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span><span class="keyword">private</span>:</div>
-<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>    <span class="keywordtype">bool</span> _ensure_shader(RenderingDevice *p_device, String &amp;r_error);</div>
-<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span>    <span class="keywordtype">bool</span> _upload_row_casts(RenderingDevice *p_device, <span class="keyword">const</span> LocalVector&lt;uint32_t&gt; &amp;p_row_casts, String &amp;r_error);</div>
-<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>    <span class="keywordtype">void</span> _free_row_cast_buffer();</div>
-<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span> </div>
-<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>    std::unique_ptr&lt;GsShadowCasterShaderRD&gt; shader_source;</div>
-<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>    <span class="keywordtype">bool</span> shader_source_initialized = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>    RID shader;</div>
-<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>    <a class="code hl_struct" href="structGaussianSplatting_1_1BufferOwnership.html">GaussianSplatting::BufferOwnership</a> shader_owner;</div>
-<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>    PipelineCacheRD pipeline_cache;</div>
-<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>    <span class="comment">// Row cast flags (uint per row), re-uploaded only when they change. Freed by clear() through its owner.</span></div>
-<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>    RID row_cast_buffer;</div>
-<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>    uint32_t row_cast_capacity = 0;</div>
-<div class="line"><a id="l00066" name="l00066"></a><span class="lineno">   66</span>    LocalVector&lt;uint32_t&gt; row_cast_uploaded;</div>
-<div class="line"><a id="l00067" name="l00067"></a><span class="lineno">   67</span>    <a class="code hl_struct" href="structGaussianSplatting_1_1BufferOwnership.html">GaussianSplatting::BufferOwnership</a> row_cast_owner;</div>
-<div class="line"><a id="l00068" name="l00068"></a><span class="lineno">   68</span>};</div>
+<div class="line"><a id="l00052" name="l00052"></a><span class="lineno"><a class="line" href="classGsSplatShadowCaster.html#af746d1a94aadda65ff425e4f7cfce68e">   52</a></span>    uint64_t <a class="code hl_function" href="classGsSplatShadowCaster.html#af746d1a94aadda65ff425e4f7cfce68e">get_owned_buffer_bytes</a>()<span class="keyword"> const </span>{ <span class="keywordflow">return</span> uint64_t(row_cast_capacity) * <span class="keyword">sizeof</span>(uint32_t); }</div>
+<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span> </div>
+<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span><span class="keyword">private</span>:</div>
+<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span>    <span class="keywordtype">bool</span> _ensure_shader(RenderingDevice *p_device, String &amp;r_error);</div>
+<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>    <span class="keywordtype">bool</span> _upload_row_casts(RenderingDevice *p_device, <span class="keyword">const</span> LocalVector&lt;uint32_t&gt; &amp;p_row_casts, String &amp;r_error);</div>
+<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>    <span class="keywordtype">void</span> _free_row_cast_buffer();</div>
+<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span> </div>
+<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>    std::unique_ptr&lt;GsShadowCasterShaderRD&gt; shader_source;</div>
+<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>    <span class="keywordtype">bool</span> shader_source_initialized = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>    RID shader;</div>
+<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>    <a class="code hl_struct" href="structGaussianSplatting_1_1BufferOwnership.html">GaussianSplatting::BufferOwnership</a> shader_owner;</div>
+<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>    PipelineCacheRD pipeline_cache;</div>
+<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>    <span class="comment">// Row cast flags (uint per row), re-uploaded only when they change. Freed by clear() through its owner.</span></div>
+<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>    RID row_cast_buffer;</div>
+<div class="line"><a id="l00066" name="l00066"></a><span class="lineno">   66</span>    uint32_t row_cast_capacity = 0;</div>
+<div class="line"><a id="l00067" name="l00067"></a><span class="lineno">   67</span>    LocalVector&lt;uint32_t&gt; row_cast_uploaded;</div>
+<div class="line"><a id="l00068" name="l00068"></a><span class="lineno">   68</span>    <a class="code hl_struct" href="structGaussianSplatting_1_1BufferOwnership.html">GaussianSplatting::BufferOwnership</a> row_cast_owner;</div>
+<div class="line"><a id="l00069" name="l00069"></a><span class="lineno">   69</span>};</div>
 </div>
-<div class="line"><a id="l00069" name="l00069"></a><span class="lineno">   69</span> </div>
-<div class="line"><a id="l00070" name="l00070"></a><span class="lineno">   70</span><span class="preprocessor">#endif </span><span class="comment">// GS_SHADOW_CASTER_H</span></div>
+<div class="line"><a id="l00070" name="l00070"></a><span class="lineno">   70</span> </div>
+<div class="line"><a id="l00071" name="l00071"></a><span class="lineno">   71</span><span class="preprocessor">#endif </span><span class="comment">// GS_SHADOW_CASTER_H</span></div>
 <div class="ttc" id="aclassGsSplatShadowCaster_html_a6080b5716a165a69ea9d6bb0256206b9"><div class="ttname"><a href="classGsSplatShadowCaster.html#a6080b5716a165a69ea9d6bb0256206b9">GsSplatShadowCaster::draw</a></div><div class="ttdeci">bool draw(RenderingDevice *p_device, RID p_shadow_framebuffer, const Rect2i &amp;p_atlas_rect, const Projection &amp;p_light_from_frame, const Inputs &amp;p_inputs, String &amp;r_error)</div><div class="ttdef"><b>Definition</b> gs_shadow_caster.cpp:151</div></div>
 <div class="ttc" id="aclassGsSplatShadowCaster_html_a9ca502926ace144791c78d63a1dad792"><div class="ttname"><a href="classGsSplatShadowCaster.html#a9ca502926ace144791c78d63a1dad792">GsSplatShadowCaster::clear</a></div><div class="ttdeci">void clear()</div><div class="ttdef"><b>Definition</b> gs_shadow_caster.cpp:92</div></div>
 <div class="ttc" id="aclassGsSplatShadowCaster_html_a9f04ffb62fa256ec8fe5695b4369b300"><div class="ttname"><a href="classGsSplatShadowCaster.html#a9f04ffb62fa256ec8fe5695b4369b300">GsSplatShadowCaster::~GsSplatShadowCaster</a></div><div class="ttdeci">~GsSplatShadowCaster()</div><div class="ttdef"><b>Definition</b> gs_shadow_caster.cpp:36</div></div>
 <div class="ttc" id="aclassGsSplatShadowCaster_html_aa8de58da9199b6efea5d9c8ec48e69a1"><div class="ttname"><a href="classGsSplatShadowCaster.html#aa8de58da9199b6efea5d9c8ec48e69a1">GsSplatShadowCaster::GsSplatShadowCaster</a></div><div class="ttdeci">GsSplatShadowCaster()</div></div>
+<div class="ttc" id="aclassGsSplatShadowCaster_html_af746d1a94aadda65ff425e4f7cfce68e"><div class="ttname"><a href="classGsSplatShadowCaster.html#af746d1a94aadda65ff425e4f7cfce68e">GsSplatShadowCaster::get_owned_buffer_bytes</a></div><div class="ttdeci">uint64_t get_owned_buffer_bytes() const</div><div class="ttdef"><b>Definition</b> gs_shadow_caster.h:52</div></div>
 <div class="ttc" id="astructGaussianSplatting_1_1BufferOwnership_html"><div class="ttname"><a href="structGaussianSplatting_1_1BufferOwnership.html">GaussianSplatting::BufferOwnership</a></div><div class="ttdef"><b>Definition</b> tile_render_types.h:778</div></div>
 <div class="ttc" id="astructGsSplatShadowCaster_1_1Inputs_html"><div class="ttname"><a href="structGsSplatShadowCaster_1_1Inputs.html">GsSplatShadowCaster::Inputs</a></div><div class="ttdef"><b>Definition</b> gs_shadow_caster.h:29</div></div>
 <div class="ttc" id="astructGsSplatShadowCaster_1_1Inputs_html_a1d91c203917731feca8e1d5704bf35a2"><div class="ttname"><a href="structGsSplatShadowCaster_1_1Inputs.html#a1d91c203917731feca8e1d5704bf35a2">GsSplatShadowCaster::Inputs::row_casts</a></div><div class="ttdeci">const LocalVector&lt; uint32_t &gt; * row_casts</div><div class="ttdef"><b>Definition</b> gs_shadow_caster.h:41</div></div>

@@ -779,6 +779,7 @@ Internal State Access</h2></td></tr>
 <tr class="memitem:a4510a613e1ddf15ad18eb5d714497e05" id="r_a4510a613e1ddf15ad18eb5d714497e05"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4510a613e1ddf15ad18eb5d714497e05">provision_paged_hlod_route</a> (RenderSceneBuffersRD *p_render_buffers, String &amp;r_reason)</td></tr>
 <tr class="memitem:a1f317102714da2bf2286b7476c613f0b" id="r_a1f317102714da2bf2286b7476c613f0b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1f317102714da2bf2286b7476c613f0b">prepare_hlod_frame</a> (const <a class="el" href="structGaussianSplatRenderer_1_1RenderFrameContext.html">RenderFrameContext</a> &amp;p_context)</td></tr>
 <tr class="memitem:acfb79a17c96a8a5fae28aee6feca1b24" id="r_acfb79a17c96a8a5fae28aee6feca1b24"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acfb79a17c96a8a5fae28aee6feca1b24">get_hlod_owned_byte_upper_bound</a> (uint64_t &amp;r_bytes) const</td></tr>
+<tr class="memitem:aaa5f4c14685a592c6ded21855b583d76" id="r_aaa5f4c14685a592c6ded21855b583d76"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaa5f4c14685a592c6ded21855b583d76">report_chunk_route_to_device_vram_ledger</a> (uint64_t p_chunk_bytes)</td></tr>
 <tr class="memitem:a7f4a84dce240f80931ed6dc346bbed04" id="r_a7f4a84dce240f80931ed6dc346bbed04"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f4a84dce240f80931ed6dc346bbed04">release_hlod_resources</a> ()</td></tr>
 <tr class="memitem:a04ee6be0d3da557ef107ef51ca6ed945" id="r_a04ee6be0d3da557ef107ef51ca6ed945"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04ee6be0d3da557ef107ef51ca6ed945">release_hlod_bundle</a> (<a class="el" href="structGaussianRenderFacadeState_1_1HlodBundle.html">GaussianRenderFacadeState::HlodBundle</a> &amp;r_bundle)</td></tr>
 <tr class="memitem:a7005972d9281105a82c770d58cd8b839" id="r_a7005972d9281105a82c770d58cd8b839"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7005972d9281105a82c770d58cd8b839">is_hlod_prepared_contract_current</a> () const</td></tr>
@@ -9015,6 +9016,23 @@ Usage</h2>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype"><a class="el" href="#ae54af27b94801611f42f281b28c052ec">RasterStageOutput</a> *</td>          <td class="paramname"><span class="paramname"><em>r_raster_output</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaa5f4c14685a592c6ded21855b583d76" name="aaa5f4c14685a592c6ded21855b583d76"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaa5f4c14685a592c6ded21855b583d76">&#9670;&#160;</a></span>report_chunk_route_to_device_vram_ledger()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatRenderer::report_chunk_route_to_device_vram_ledger </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_chunk_bytes</em></span></td><td>)</td>
+          <td></td>
         </tr>
       </table>
 </div><div class="memdoc">

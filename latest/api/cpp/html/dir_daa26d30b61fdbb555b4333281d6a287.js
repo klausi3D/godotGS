@@ -4,6 +4,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "batched_async_readback.cpp", "batched__async__readback_8cpp.html", null ],
     [ "batched_async_readback.h", "batched__async__readback_8h.html", "batched__async__readback_8h" ],
     [ "debug_overlay_methods.cpp", "debug__overlay__methods_8cpp.html", null ],
+    [ "device_vram_ledger.h", "device__vram__ledger_8h.html", "device__vram__ledger_8h" ],
     [ "float16_utils.cpp", "float16__utils_8cpp.html", "float16__utils_8cpp" ],
     [ "float16_utils.h", "float16__utils_8h.html", "float16__utils_8h" ],
     [ "gaussian_gpu_layout.cpp", "gaussian__gpu__layout_8cpp.html", "gaussian__gpu__layout_8cpp" ],
