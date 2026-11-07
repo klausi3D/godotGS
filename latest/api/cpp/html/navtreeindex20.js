@@ -1,5 +1,12 @@
 var NAVTREEINDEX20 =
 {
+"interactive__state__interfaces_8h.html":[2,0,0,0,5,12],
+"interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ff":[2,0,0,0,5,12,5],
+"interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffa055c1a591abb0e8cd86dc969727bcc0b":[2,0,0,0,5,12,5,3],
+"interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffa1e23852820b9154316c7c06e2b7ba051":[2,0,0,0,5,12,5,0],
+"interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffa823d52d4c987a4bd0d42ca6f2a6cf58f":[2,0,0,0,5,12,5,1],
+"interactive__state__interfaces_8h.html#a60857e28827d566a08d46bf9bbb059ffac841881b7f65d9e69aa9c932ca4427c8":[2,0,0,0,5,12,5,2],
+"interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4":[2,0,0,0,5,12,6],
 "interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4a1252c45651289c0b553a30d27bb5ae9b":[2,0,0,0,5,12,6,3],
 "interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4a78baf367c4626442174307cdf41c6538":[2,0,0,0,5,12,6,2],
 "interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4a8c52684db8f49511e9b44471716bf164":[2,0,0,0,5,12,6,0],
@@ -8,8 +15,8 @@ var NAVTREEINDEX20 =
 "interactive__state__manager_8cpp.html":[2,0,0,0,5,13],
 "interactive__state__manager_8h.html":[2,0,0,0,5,14],
 "interactive__state__manager_8h_source.html":[2,0,0,0,5,14],
-"io__settings__utils_8h.html":[2,0,0,0,6,17],
-"io__settings__utils_8h_source.html":[2,0,0,0,6,17],
+"io__settings__utils_8h.html":[2,0,0,0,6,21],
+"io__settings__utils_8h_source.html":[2,0,0,0,6,21],
 "keyframe__interpolator_8cpp.html":[2,0,0,0,0,2],
 "keyframe__interpolator_8h.html":[2,0,0,0,0,3],
 "keyframe__interpolator_8h_source.html":[2,0,0,0,0,3],
@@ -242,12 +249,5 @@ var NAVTREEINDEX20 =
 "namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9a68b3434545536be2c3310cd8c714aa6f":[0,0,12,78,1],
 "namespaceGaussianSplatting.html#af38952716e555574435dbe8b2c7debb9ae8febcf6d969e4bd372c3ff45caef9e1":[0,0,12,78,4],
 "namespaceGaussianSplatting.html#afc01a00c5315206a7e1dab7ce59941b3":[0,0,12,102],
-"namespaceGaussianSplattingIO.html":[0,0,13],
-"namespaceGaussianSplattingIO.html#a543006a6b849d6d5c7b07deac485a3b8":[0,0,13,1],
-"namespaceGaussianSplattingIO.html#ab99eaf4d677f37252588a8f72c1f8337":[0,0,13,0],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html":[0,0,12,0],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a0feb2341a0bdb6b56436b2f0c9041dc0":[0,0,12,0,16],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a1ca67e799d099560930113bcfa1e342a":[0,0,12,0,10],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a3e14ff5ee9422f2c27d924383ca77956":[0,0,12,0,13],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a6f5ae7595f89777668ab2446d38be9b1":[0,0,12,0,14]
+"namespaceGaussianSplattingIO.html":[0,0,13]
 };

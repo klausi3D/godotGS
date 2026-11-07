@@ -83,6 +83,7 @@ var namespaces_dup =
     [ "gs_tier_cap", "namespacegs__tier__cap.html", "namespacegs__tier__cap" ],
     [ "gs_world_format", "namespacegs__world__format.html", "namespacegs__world__format" ],
     [ "gs_world_frame", "namespacegs__world__frame.html", "namespacegs__world__frame" ],
+    [ "gs_world_generator", "namespacegs__world__generator.html", "namespacegs__world__generator" ],
     [ "gs_world_paged", "namespacegs__world__paged.html", "namespacegs__world__paged" ],
     [ "gs_world_writer", "namespacegs__world__writer.html", "namespacegs__world__writer" ],
     [ "QualitySH", "namespaceQualitySH.html", null ],

@@ -1,5 +1,6 @@
 var NAVTREEINDEX18 =
 {
+"functions_vars_i.html":[1,3,2,9],
 "functions_vars_j.html":[1,3,2,10],
 "functions_vars_k.html":[1,3,2,11],
 "functions_vars_l.html":[1,3,2,12],
@@ -241,13 +242,12 @@ var NAVTREEINDEX18 =
 "gaussian__splat__world__frame_8cpp.html":[2,0,0,0,3,38],
 "gaussian__splat__world__frame_8h.html":[2,0,0,0,3,39],
 "gaussian__splat__world__frame_8h_source.html":[2,0,0,0,3,39],
-"gaussian__splat__world__io_8cpp.html":[2,0,0,0,6,5],
-"gaussian__splat__world__io_8cpp.html#a17cc2633e50d05074348d805af831f7e":[2,0,0,0,6,5,0],
-"gaussian__splat__world__io_8h.html":[2,0,0,0,6,6],
-"gaussian__splat__world__io_8h.html#a17cc2633e50d05074348d805af831f7e":[2,0,0,0,6,6,3],
-"gaussian__splat__world__io_8h_source.html":[2,0,0,0,6,6],
-"gaussian__splat__world__paged_8cpp.html":[2,0,0,0,6,7],
-"gaussian__splat__world__paged_8h.html":[2,0,0,0,6,8],
-"gaussian__splat__world__paged_8h_source.html":[2,0,0,0,6,8],
-"gaussian__streaming_8cpp.html":[2,0,0,0,3,40]
+"gaussian__splat__world__generator_8cpp.html":[2,0,0,0,6,5],
+"gaussian__splat__world__generator_8h.html":[2,0,0,0,6,6],
+"gaussian__splat__world__generator_8h_source.html":[2,0,0,0,6,6],
+"gaussian__splat__world__io_8cpp.html":[2,0,0,0,6,7],
+"gaussian__splat__world__io_8cpp.html#a17cc2633e50d05074348d805af831f7e":[2,0,0,0,6,7,0],
+"gaussian__splat__world__io_8h.html":[2,0,0,0,6,8],
+"gaussian__splat__world__io_8h.html#a17cc2633e50d05074348d805af831f7e":[2,0,0,0,6,8,3],
+"gaussian__splat__world__io_8h_source.html":[2,0,0,0,6,8]
 };

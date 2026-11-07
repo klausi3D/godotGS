@@ -267,6 +267,18 @@ var annotated_dup =
       [ "OriginShiftHook", "classgs__world__frame_1_1OriginShiftHook.html", "classgs__world__frame_1_1OriginShiftHook" ],
       [ "WorldOriginContext", "classgs__world__frame_1_1WorldOriginContext.html", "classgs__world__frame_1_1WorldOriginContext" ]
     ] ],
+    [ "gs_world_generator", "namespacegs__world__generator.html", [
+      [ "ClassStyle", "structgs__world__generator_1_1ClassStyle.html", "structgs__world__generator_1_1ClassStyle" ],
+      [ "Params", "structgs__world__generator_1_1Params.html", "structgs__world__generator_1_1Params" ],
+      [ "IRect", "structgs__world__generator_1_1IRect.html", "structgs__world__generator_1_1IRect" ],
+      [ "Feature", "structgs__world__generator_1_1Feature.html", "structgs__world__generator_1_1Feature" ],
+      [ "ChunkPart", "structgs__world__generator_1_1ChunkPart.html", "structgs__world__generator_1_1ChunkPart" ],
+      [ "ChunkPlan", "structgs__world__generator_1_1ChunkPlan.html", "structgs__world__generator_1_1ChunkPlan" ],
+      [ "Plan", "structgs__world__generator_1_1Plan.html", "structgs__world__generator_1_1Plan" ],
+      [ "ChunkBuffers", "structgs__world__generator_1_1ChunkBuffers.html", "structgs__world__generator_1_1ChunkBuffers" ],
+      [ "GenerateOptions", "structgs__world__generator_1_1GenerateOptions.html", "structgs__world__generator_1_1GenerateOptions" ],
+      [ "Report", "structgs__world__generator_1_1Report.html", "structgs__world__generator_1_1Report" ]
+    ] ],
     [ "gs_world_paged", "namespacegs__world__paged.html", [
       [ "NodeMetrics", "structgs__world__paged_1_1NodeMetrics.html", "structgs__world__paged_1_1NodeMetrics" ]
     ] ],
@@ -373,6 +385,7 @@ var annotated_dup =
     [ "GaussianSplattingPerformanceMonitors", "classGaussianSplattingPerformanceMonitors.html", "classGaussianSplattingPerformanceMonitors" ],
     [ "GaussianSplatWorld", "classGaussianSplatWorld.html", "classGaussianSplatWorld" ],
     [ "GaussianSplatWorld3D", "classGaussianSplatWorld3D.html", "classGaussianSplatWorld3D" ],
+    [ "GaussianSplatWorldGenerator", "classGaussianSplatWorldGenerator.html", null ],
     [ "GaussianStreamingSystem", "classGaussianStreamingSystem.html", "classGaussianStreamingSystem" ],
     [ "GlobalAtlasState", "structGlobalAtlasState.html", "structGlobalAtlasState" ],
     [ "GPUBuffer", "classGPUBuffer.html", "classGPUBuffer" ],

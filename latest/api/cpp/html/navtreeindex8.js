@@ -1,5 +1,6 @@
 var NAVTREEINDEX8 =
 {
+"classGaussianSplatting_1_1GaussianIncrementalSaver.html#a1d6befcabc3a1a53bd336c56928ee7f9":[0,0,12,24,11],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a1d6befcabc3a1a53bd336c56928ee7f9":[1,0,9,23,11],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a2b56e77c282455528275b6e05c8d8dbb":[0,0,12,24,5],
 "classGaussianSplatting_1_1GaussianIncrementalSaver.html#a2b56e77c282455528275b6e05c8d8dbb":[1,0,9,23,5],
@@ -239,15 +240,14 @@ var NAVTREEINDEX8 =
 "classGaussianSplatting_1_1ThreadOwnedMutexLock.html#ade75dd50b080c6ac60fd396e782ce1ec":[1,0,9,14,3],
 "classGaussianSplatting_1_1ThreadOwnedMutexLock.html#af426d1541ba2bdea2677faf47751cd02":[0,0,12,15,0],
 "classGaussianSplatting_1_1ThreadOwnedMutexLock.html#af426d1541ba2bdea2677faf47751cd02":[1,0,9,14,0],
-"classGaussianStreamingSystem.html":[1,0,105],
-"classGaussianStreamingSystem.html#a00789389cb6237850ec5c07944e8de2c":[1,0,105,65],
-"classGaussianStreamingSystem.html#a02a72be5a7366c4ff368a32792adcb1f":[1,0,105,12],
-"classGaussianStreamingSystem.html#a0833aef28ea30537bf12b8bafcf8ca5a":[1,0,105,0],
-"classGaussianStreamingSystem.html#a08f498a4096803913c9cb2331dce0517":[1,0,105,9],
-"classGaussianStreamingSystem.html#a0e875a0bd06022a9d522f21f896abd57":[1,0,105,80],
-"classGaussianStreamingSystem.html#a112d791bb9f016b19bef546e3758dc2f":[1,0,105,34],
-"classGaussianStreamingSystem.html#a11a80bb889ef41cc9338915e25f8169a":[1,0,105,22],
-"classGaussianStreamingSystem.html#a141ac105431aceab1ad9a3cd38967eb4":[1,0,105,76],
-"classGaussianStreamingSystem.html#a142faaa3c6877c3038c1001a6b1dcf63":[1,0,105,91],
-"classGaussianStreamingSystem.html#a1842d9df92b7c4ffb1c1633b3e9ffca9":[1,0,105,47]
+"classGaussianStreamingSystem.html":[1,0,107],
+"classGaussianStreamingSystem.html#a00789389cb6237850ec5c07944e8de2c":[1,0,107,65],
+"classGaussianStreamingSystem.html#a02a72be5a7366c4ff368a32792adcb1f":[1,0,107,12],
+"classGaussianStreamingSystem.html#a0833aef28ea30537bf12b8bafcf8ca5a":[1,0,107,0],
+"classGaussianStreamingSystem.html#a08f498a4096803913c9cb2331dce0517":[1,0,107,9],
+"classGaussianStreamingSystem.html#a0e875a0bd06022a9d522f21f896abd57":[1,0,107,80],
+"classGaussianStreamingSystem.html#a112d791bb9f016b19bef546e3758dc2f":[1,0,107,34],
+"classGaussianStreamingSystem.html#a11a80bb889ef41cc9338915e25f8169a":[1,0,107,22],
+"classGaussianStreamingSystem.html#a141ac105431aceab1ad9a3cd38967eb4":[1,0,107,76],
+"classGaussianStreamingSystem.html#a142faaa3c6877c3038c1001a6b1dcf63":[1,0,107,91]
 };
