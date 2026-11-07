@@ -83,6 +83,8 @@ BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_ben
 # runner actually reaches these contract-test files.
 RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+# BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
+BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -2125,6 +2127,31 @@ def _run_gpu_contention_contract_guard() -> tuple[bool, list[str]]:
     return True, ["GPU contention contract guard passed."]
 
 
+def _run_beyond_vram_dispatch_lane_guard() -> tuple[bool, list[str]]:
+    """Guard (BV-06a): the beyond-VRAM dispatch lane fails closed, and its workflow wires it so.
+
+    Static, headless, no GPU, no engine binary: `df`, `dd`, `fio`, `vulkaninfo`,
+    the generator and the probe are replaced by fakes, and
+    `.github/workflows/beyond_vram_flythrough.yml` is read as text. It pins the
+    ADR section 5.3 disk refusal (one byte below the budget refuses), that an
+    absent generator/probe entry point is NOT_RUN and never OK, that a zero exit
+    without a manifest/summary fails, that cleanup deletes only a world root the
+    lane created, and that the disk preflight gates every later lane step.
+    """
+    script = BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing beyond-VRAM dispatch lane test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Beyond-VRAM dispatch lane guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Beyond-VRAM dispatch lane guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -3959,6 +3986,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gpu_contention_contract_guard,
             "GPU contention contract guard failed.",
             "GPU contention contract guard passed.",
+        ),
+        (
+            True,
+            _run_beyond_vram_dispatch_lane_guard,
+            "Beyond-VRAM dispatch lane guard failed.",
+            "Beyond-VRAM dispatch lane guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

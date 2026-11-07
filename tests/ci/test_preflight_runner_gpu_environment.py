@@ -115,6 +115,12 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
         "tests/runtime/prepare_synthetic_assets.py"
     ),
     ("release_ci_runtime.yml", "runtime-release-ci"): "tests/runtime/run_runtime_validation.py",
+    # BV-06a: every measuring/generating/probing step is a subcommand of this
+    # lane helper; the binary is launched only through it (build-info,
+    # generate, probe) and vulkaninfo runs through it too. Its first invocation
+    # is the disk preflight, which precedes all of them, so anchoring on it is
+    # at least as strict as anchoring on the first binary launch.
+    ("beyond_vram_flythrough.yml", "flythrough"): "tests/runtime/flythrough/dispatch_lane.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step
