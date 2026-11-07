@@ -585,8 +585,8 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	r_metrics["sort_route_uid"] = debug_state.sort_route_uid;
 	_append_raster_specialization_metrics(perf, r_metrics);
 
-	if (!perf.streaming_state.is_empty()) {
-		const Dictionary streaming_state = perf.streaming_state;
+	const Dictionary streaming_state = state_view.get_performance_state_view().resolve_streaming_state();
+	if (!streaming_state.is_empty()) {
 		r_metrics["streaming_state"] = streaming_state;
 		Dictionary streaming_diagnostics;
 		if (streaming_state.has("diagnostics")) {

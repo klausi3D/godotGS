@@ -104,6 +104,7 @@ LayoutHintValidationFailure _layout_hint_get_last_failure(const GaussianStreamin
 String _layout_hint_record_failure(const GaussianStreamingSystem *p_system, LayoutHintUsage p_usage,
         const String &p_context, bool p_strict_mode);
 Dictionary _layout_hint_build_snapshot(const GaussianStreamingSystem *p_system, bool p_strict_mode_enabled);
+Dictionary _layout_hint_build_snapshot_from_counters(const LayoutHintFailureCounters *p_counters, bool p_strict_mode_enabled);
 bool _validate_layout_hint_ranges(const Vector<GaussianStreamingSystem::ChunkLayoutHint> &p_hints,
         uint32_t p_index_space_count, bool p_use_source_offsets, bool p_require_remapped,
         bool p_forbid_remapped, bool p_allow_oversized_hints, LayoutHintValidationFailure &r_failure,

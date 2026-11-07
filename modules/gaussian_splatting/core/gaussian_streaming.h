@@ -6,6 +6,7 @@
 #include "core/error/error_list.h"
 #include "core/math/plane.h"
 #include "core/math/transform_3d.h"
+#include "core/os/mutex.h"
 #include "core/string/string_name.h"
 #include "servers/rendering/rendering_device.h"
 
@@ -188,7 +189,10 @@ private:
 
     // Streaming orchestration hooks
     Ref<GaussianMemoryStream> memory_stream_proxy;
-    Dictionary analytics_snapshot;
+    // Published by end_frame(), built into a Dictionary by the first reader (streaming_analytics_frame.h).
+    // analytics_frame_mutex guards the pointer only: end_frame() and readers run on different threads.
+    mutable BinaryMutex analytics_frame_mutex;
+    std::shared_ptr<StreamingAnalyticsFrame> analytics_frame;
     RenderingDevice *last_upload_device = nullptr;
 
     // Per-chunk quantization (Unity technique for 4x compression)
@@ -261,6 +265,10 @@ public:
     // Frame management
     void begin_frame();
     void end_frame();
+    // end_frame() with an overlay that runs on the Dictionary when it is first read. p_overlay is part of the
+    // published frame, so no reader can see the frame without it.
+    void end_frame_with_overlay(AnalyticsOverlay p_overlay);
+    std::shared_ptr<StreamingAnalyticsFrame> get_analytics_frame() const;
 
     // Memory management
     uint64_t get_vram_usage() const;
@@ -781,7 +789,7 @@ private:
             int &max_skip_factor,
             float &min_opacity,
             uint32_t &chunks_in_transition) const;
-    Dictionary _build_streaming_diagnostics_snapshot(uint32_t pack_queue_depth, uint32_t upload_queue_depth,
+    void _capture_streaming_diagnostics(StreamingAnalyticsFrame &r_frame, uint32_t pack_queue_depth, uint32_t upload_queue_depth,
             uint32_t sync_fallback_queue_depth);
 };
 
