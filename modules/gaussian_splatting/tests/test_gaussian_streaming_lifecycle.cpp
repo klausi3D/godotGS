@@ -2030,6 +2030,44 @@ TEST_CASE("[Streaming Pipeline] A visible refetch is a visible chunk reloaded in
     CHECK(evict_then_reload_after(2, false, window / 2) == 1); // not for the view
 }
 
+TEST_CASE("[Streaming Pipeline] A reload after a stride change is no visible refetch (BV-08a)") {
+    GaussianStreamingSystem system;
+    GaussianStreamingSystem::ConfigOverrides overrides;
+    overrides.override_vram_budget = true;
+    overrides.vram_budget_config.auto_regulate_enabled = false;
+    overrides.vram_budget_config.budget_mb = 512;
+    overrides.vram_budget_config.min_chunks = 1;
+    overrides.vram_budget_config.max_chunks = 32;
+    system.set_config_overrides(overrides);
+    system.initialize_empty(nullptr); // no device: creates the regulator
+    if (!system.get_vram_regulator().is_valid()) {
+        FAIL("fixture precondition: initialize_empty must create the VRAM regulator");
+        return;
+    }
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks.resize(1);
+    chunks[0].count = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    chunks[0].effective_count = chunks[0].count;
+    system._test_register_primary_asset_for_chunks();
+    system._test_reset_atlas_allocator(1);
+    system._test_set_wall_clock_usec(1000000);
+    system._test_mark_chunk_loaded_for_eviction(0, 0, true, 0, 1, 1.0f);
+
+    system._test_evict_all_resident_chunks_for_stride_change();
+    if (chunks[0].is_loaded) {
+        FAIL("fixture precondition: the stride change must evict the chunk");
+        return;
+    }
+    uint32_t slot = UINT32_MAX;
+    if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(0, 0), 1, slot) ||
+            !system._test_begin_chunk_upload(0, 0, chunks[0], slot)) {
+        FAIL("fixture precondition: the upload must begin");
+        return;
+    }
+    system._test_update_vram_regulator();
+    CHECK(int64_t(system.get_vram_regulator()->get_debug_stats_dictionary().get("visible_refetches_total", int64_t(-1))) == 0);
+}
+
 TEST_CASE("[Streaming Pipeline] Padding chunks are victims for needed loads only (BV-PRIO)") {
     GaussianStreamingSystem system;
     const bool visible[4] = { true, true, true, true };

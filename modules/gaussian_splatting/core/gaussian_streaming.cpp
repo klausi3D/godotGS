@@ -1590,6 +1590,8 @@ void GaussianStreamingSystem::_evict_all_resident_chunks_for_stride_change() {
         for (uint32_t chunk_idx = 0; chunk_idx < asset_chunks.size(); chunk_idx++) {
             if (asset_chunks[chunk_idx].is_loaded) {
                 _unload_chunk(asset_id, chunk_idx);
+                // BV-08a: a mandatory reload at the new stride is no refetch, and no thrash.
+                asset_chunks[chunk_idx].last_evicted_usec = 0;
             }
         }
     }
