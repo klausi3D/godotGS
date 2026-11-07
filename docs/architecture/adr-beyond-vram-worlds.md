@@ -453,8 +453,18 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
 - **Header.** Each page has a 64 B header plus constants of ≤ 192 B: codec id, count, stored SH
   degree, the sub-block table, per-attribute dequant ranges, and a SHA-256 of the stored
   bytes.
-- **Layout inside a sub-block.** SoA, byte-planed, with positions delta-coded along the spatial
-  order.
+- **Layout inside a sub-block.** SoA, byte-planed, with positions delta-coded in the caller's
+  order. The codec never reorders (`io/gsq/gsq_codec.h:5-6` ✓, `io/gsq/gsq_codec.cpp:559-565`
+  ✓). **Spatial order is the writer's job:** BV-C3 sorts spatially (Morton) before encoding
+  (decision 2026-11-07, #1347). How that sort coexists with the importance-ordered prefix
+  (§6.2 "Per-chunk order") is fixed in BV-C3.
+- **Page constants.** The fields D-12 does not quantize (area, DC alpha, stroke age, brush
+  axes, `painterly_meta`, `render_meta`) are stored once per page. The codec refuses a page
+  whose splats differ in them with `gsq_heterogeneous_field` (`io/gsq/gsq_codec.cpp:361-366`,
+  `:434-438` ✓). Normals are the exception: they take per-splat planes when they differ
+  (header flag bit 1). **The BV-C3 page builder must group splats with equal page constants
+  into pages.** Any remaining failure must be visible, as an error or a counted fallback,
+  never silent, and painterly content must stay encodable (decision 2026-11-07).
 - **Quantization** (pre-registered defaults, frozen in `settings`):
 
 | Attribute | Encoding |
@@ -467,8 +477,16 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
 | SH | bits 6/5/5 by band |
 | Normal | only when flagged |
 
-- **Size.** 20 B of geometry plus DC and 45 B of SH3 give 65 B fixed width, then **≈ 30–38 B
-  after zstd** [E] (BV-C2 measures it).
+- **Accepted error, conditional.** Rotation error ≤ ≈ 0.28° (smallest-three, 3 × 10 bit plus a
+  2-bit index; bound and test in `tests/test_gsq_codec.h:211-213` ✓) and SH stored as 1 B per
+  coefficient (one byte plane per coefficient whatever the band's bit depth,
+  `io/gsq/gsq_codec.h:39` ✓) are accepted (decision 2026-11-07). The condition: the visual
+  real-scan check of #1357 passes before GSQ becomes a default.
+- **Size.** Positions take 21 bits whenever 16 bits would be coarser than the 0.25 mm step,
+  i.e. on any page wider than ≈ 16.4 m (`io/gsq/gsq_codec.cpp:510` ✓), rounded to 3 B per
+  axis. So 23 B of geometry plus DC and 45 B of SH3 give **68 B fixed width**
+  (`io/gsq/gsq_codec.cpp:289-291` ✓; 65 B only on pages narrow enough for 16-bit
+  positions), then **≈ 30–38 B after zstd** [E] (BV-C2 measures it).
 - **Decode location.** The decode runs **in the pack workers**, straight into the existing
   176 B `PackedGaussian` (`renderer/gaussian_gpu_layout.h:340` ✓).
     - Shaders are unchanged and the async path is kept.
@@ -768,10 +786,10 @@ Compressed sizes per tier:
 | Tier / encoding | Size | Label |
 |---|---|---|
 | A plain v3 uncompressed (M1 only) | 54.8 GiB | [D] |
-| **A plain GSQ** | **5.6–7.1 GiB** [12.2] | [E]/[D] |
-| **A V4 GSQ** (interior SH3, D-9: no interior truncation yet) | **7.9–8.7 GiB** [14.6–16.2] | [E]/[D] |
-| **AB V4 GSQ** | **15.8–17.4 GiB** [29–32] | [E]/[D] |
-| **AB-span V4 GSQ** | 15.8–17.4 GiB [29–32] | [E]/[D] |
+| **A plain GSQ** | **5.6–7.1 GiB** [12.75] | [E]/[D] |
+| **A V4 GSQ** (interior SH3, D-9: no interior truncation yet) | **7.9–8.7 GiB** [15.3–16.9] | [E]/[D] |
+| **AB V4 GSQ** | **15.8–17.4 GiB** [30.5–33.9] | [E]/[D] |
+| **AB-span V4 GSQ** | 15.8–17.4 GiB [30.5–33.9] | [E]/[D] |
 | T0 (4.19M): U plain / GSQ plain / GSQ V4 | 1.14 / 0.12–0.15 / 0.16–0.18 GiB | [D]/[E] |
 | T-ref (≤ 12M per checkpoint, uncompressed), **generated per run, one at a time, deleted after use** | ≤ 3.3 GiB transient | [D] |
 | Compressed bake spill (per segment) + assembly | ≈ 1 segment + small | [E] |
@@ -788,8 +806,8 @@ Compressed sizes per tier:
 | Enforced free margin (25 GiB) | 26.8 | proposal |
 | **Subtotal without worlds** | **146.6** | |
 | **During M1:** A uncompressed + T0 | 58.8 + 1.5 → **207 GB total** | fits (21 GB slack beyond the margin) |
-| **Steady from M1c:** A plain GSQ + A V4 GSQ + T0 + T-ref transient + spill | 7.6 + 9.3 + 1.5 + 3.5 + 1 → **≈ 169.5 GB total** (worst case fixed width: ≈ 184 GB) | fits |
-| **World cache** | ≈ 21.5 GiB steady (≤ 33 GiB worst); 56 GiB during M1 | **within the approved ≈ 60 GiB** |
+| **Steady from M1c:** A plain GSQ + A V4 GSQ + T0 + T-ref transient + spill | 7.6 + 9.3 + 1.5 + 3.5 + 1 → **≈ 169.5 GB total** (worst case fixed width at 68 B: ≈ 185 GB) | fits |
+| **World cache** | ≈ 21.5 GiB steady (≤ 34 GiB worst); 56 GiB during M1 | **within the approved ≈ 60 GiB** |
 
 **Result: no VM disk growth and no new cache approval.**
 
