@@ -531,8 +531,8 @@ public:
         persistent_buffer_size = 0;
         streaming_initialized = false;
     }
-    uint32_t _test_load_visible_chunks(uint32_t p_effective_max) {
-        uint32_t evictions_left = 0;
+    uint32_t _test_load_visible_chunks(uint32_t p_effective_max, uint32_t p_evictions = 0) {
+        uint32_t evictions_left = p_evictions;
         bool eviction_blocked = false;
         _load_visible_chunks(p_effective_max, evictions_left, eviction_blocked);
         return scheduler.last_load_candidate_count;
@@ -694,7 +694,8 @@ private:
     void _finalize_chunk_load(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, uint32_t buffer_slot, uint32_t asset_chunk_count);
     void _unload_chunk(uint32_t chunk_idx);
     void _unload_chunk(uint32_t asset_id, uint32_t chunk_idx);
-    EvictionResult _evict_least_recently_used(bool p_allow_visible_eviction, uint32_t p_visible_fit_pages = 0);
+    EvictionResult _evict_least_recently_used(bool p_allow_visible_eviction, uint32_t p_visible_fit_pages = 0,
+            bool p_allow_padding_eviction = false);
     bool _is_chunk_in_frustum(const AABB &p_bounds, const Vector<Plane> &p_frustum_planes) const;
     void _reload_debug_logging_config();
     void _load_streaming_tuning_config_from_project_settings();

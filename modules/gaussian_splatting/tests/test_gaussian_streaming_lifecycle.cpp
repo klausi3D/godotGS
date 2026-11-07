@@ -2030,6 +2030,24 @@ TEST_CASE("[Streaming Pipeline] A visible refetch is a visible chunk reloaded in
     CHECK(evict_then_reload_after(2, false, window / 2) == 1); // not for the view
 }
 
+TEST_CASE("[Streaming Pipeline] Padding chunks are victims for needed loads only (BV-PRIO)") {
+    GaussianStreamingSystem system;
+    const bool visible[4] = { true, true, true, true };
+    _setup_fragmented_atlas(system, visible);
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks[2].padding_only = true; // younger than the needed chunk A
+    system.begin_frame(); // rebuilds the candidate lists from the flags above
+
+    // Padding and prefetch evict off-screen chunks only, so they cannot displace each other.
+    CHECK(system._test_evict_least_recently_used(false) == StreamingEvictionController::EvictionResult::SkippedAllVisible);
+    CHECK(system.get_loaded_chunks() == 4);
+
+    // A needed load takes the padding chunk, not the least recently used chunk on screen.
+    CHECK(system._test_evict_least_recently_used(true) == StreamingEvictionController::EvictionResult::EvictedNonVisible);
+    CHECK_FALSE(chunks[2].is_loaded);
+    CHECK(chunks[0].is_loaded);
+}
+
 TEST_CASE("[Streaming Pipeline] A zero-page request never evicts (#1088)") {
     GaussianStreamingSystem system;
     _setup_fragmented_atlas(system);
@@ -2639,6 +2657,101 @@ int _count_payload_read_failure_logs(const ScopedStreamingErrorCapture &p_captur
 }
 
 } // namespace
+
+TEST_CASE("[Streaming Pipeline] A full chunk cap under padding pressure serves every needed chunk and goes quiet (BV-PRIO)") {
+    // M1 (run 42375402519): 420..489 padded chunks against a cap of 320, with the strict frustum
+    // at 233..258. Near padding chunks went first, every chunk evicted another one for ever
+    // (86 uploads/s at a static camera) and the view never settled.
+    const uint32_t needed_count = 8;
+    const uint32_t padding_count = 8;
+    const uint32_t chunk_cap = needed_count;
+    const uint32_t splats_per_chunk = 128;
+    const uint32_t chunk_count = needed_count + padding_count;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(2.0f, 2.0f, 2.0f);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * splats_per_chunk;
+        chunk.count = splats_per_chunk;
+        chunk.effective_count = splats_per_chunk;
+        // Needed chunks sit far down the view axis. Padding chunks are nearer, in a column just
+        // outside the 60 degree frustum, so the 1.5 padding pulls them in.
+        chunk.center = i < needed_count
+                ? Vector3(0.0f, 0.0f, -(100.0f + 10.0f * float(i)))
+                : Vector3(15.0f, -7.0f + 2.0f * float(i - needed_count), -20.0f);
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    const Ref<GaussianData> data = _create_streaming_phase_order_test_data(chunk_count * splats_per_chunk);
+    system->_test_begin_device_free_load_scan(data, 1);
+    system->_test_set_atlas_page_ceiling(0); // the chunk cap binds here, as in M1
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // the load scan takes queue_chunk_load()
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    auto run_frames = [&](uint32_t p_frames, uint32_t p_cap) {
+        for (uint32_t frame = 0; frame < p_frames; frame++) {
+            system->begin_frame();
+            system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+            system->_test_load_visible_chunks(p_cap, 4);
+            uploads._test_complete_pack_jobs();
+            uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+            system->_test_build_visible_chunk_list();
+            system->end_frame();
+        }
+    };
+    auto uploads_begun = [&]() -> uint64_t {
+        uint64_t total = 0;
+        for (uint32_t i = 0; i < chunk_count; i++) {
+            total += chunks[i].upload_sequence;
+        }
+        return total;
+    };
+
+    run_frames(1, chunk_cap);
+    uint32_t padding_seen = 0;
+    for (uint32_t i = needed_count; i < chunk_count; i++) {
+        padding_seen += chunks[i].padding_only ? 1 : 0;
+    }
+    if (padding_seen != padding_count || !chunks[0].is_needed_for_view() || !chunks[needed_count - 1].is_needed_for_view()) {
+        system->_test_end_device_free_load_scan();
+        FAIL("fixture precondition: the near column must be padding only and the far row needed, got ", padding_seen);
+        return;
+    }
+
+    run_frames(60, chunk_cap);
+    for (uint32_t i = 0; i < needed_count; i++) {
+        CAPTURE(i);
+        CHECK(chunks[i].is_loaded);
+    }
+    Dictionary analytics = system->get_streaming_analytics();
+    CHECK(int64_t(analytics.get("needed_chunks", int64_t(-1))) == needed_count);
+    CHECK(int64_t(analytics.get("needed_unserved_chunks", int64_t(-1))) == 0);
+    CHECK(int64_t(analytics.get("padding_chunks", int64_t(-1))) == padding_count);
+    CHECK(int64_t(analytics.get("padding_resident_chunks", int64_t(-1))) == 0);
+
+    // A static camera at a full cap uploads nothing more.
+    const uint64_t settled_uploads = uploads_begun();
+    run_frames(60, chunk_cap);
+    CHECK(uploads_begun() == settled_uploads);
+
+    // Free capacity goes to padding, and a needed chunk is never displaced for it.
+    run_frames(60, chunk_cap + 3);
+    CHECK(int64_t(system->get_streaming_analytics().get("padding_resident_chunks", int64_t(-1))) == 3);
+    for (uint32_t i = 0; i < needed_count; i++) {
+        CAPTURE(i);
+        CHECK(chunks[i].is_loaded);
+    }
+
+    system->_test_end_device_free_load_scan();
+}
 
 TEST_CASE("[Streaming Pipeline] A chunk whose payload read keeps failing backs off, is counted and logged once (#1178)") {
     const uint32_t chunk_count = 4;

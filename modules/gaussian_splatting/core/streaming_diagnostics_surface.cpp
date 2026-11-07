@@ -433,6 +433,8 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["needed_chunks"] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
     analytics_snapshot["needed_resident_chunks"] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
     analytics_snapshot["needed_unserved_chunks"] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);
+    analytics_snapshot["padding_chunks"] = static_cast<int64_t>(scheduler.last_padding_chunk_count);
+    analytics_snapshot["padding_resident_chunks"] = static_cast<int64_t>(scheduler.last_padding_resident_chunk_count);
     analytics_snapshot["needed_set_stall_seconds"] = scheduler.needed_set_stall_seconds;
     analytics_snapshot["needed_set_stalled"] = scheduler.needed_set_stall_seconds >=
             StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;

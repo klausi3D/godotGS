@@ -606,6 +606,8 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_padding_chunk_count = 0;
+    scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_visible_scan_had_capacity = false;
     scheduler.last_visible_scan_starvation_eligible = false;
     scheduler.last_visible_scan_starved = false;
@@ -2928,6 +2930,8 @@ void GaussianStreamingSystem::_reset_per_frame_counters() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_padding_chunk_count = 0;
+    scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_visible_scan_had_capacity = false;
     scheduler.last_visible_scan_starvation_eligible = false;
     scheduler.last_visible_scan_starved = false;
@@ -2986,7 +2990,9 @@ void GaussianStreamingSystem::_evict_for_vram_budget(uint32_t &evictions_left, b
             continue;
         }
 
-        EvictionResult result = _evict_least_recently_used(force_visible_eviction);
+        // BV-PRIO: padding goes before the frame's needed loads are blocked. Padding admission
+        // stops at the occupancy target, so this cannot feed on itself.
+        EvictionResult result = _evict_least_recently_used(force_visible_eviction, 0, /*p_allow_padding_eviction*/ true);
         if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {
             eviction_controller.record_eviction_result(result);
             evictions_left--;
@@ -3028,7 +3034,8 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
         return non_primary_result;
     }
 
-    EvictionResult result = _evict_least_recently_used(false);
+    // BV-PRIO: a needed load displaces padding at any pressure; padding and prefetch do not.
+    EvictionResult result = _evict_least_recently_used(false, 0, p_admission_gate.context.allow_visible_eviction);
     if (result == EvictionResult::NoEviction && non_primary_result == EvictionResult::SkippedAllVisible) {
         result = EvictionResult::SkippedAllVisible;
     }
@@ -3194,14 +3201,20 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
     // the budget can't cover the full list we always restart at 0 to prefer the
     // near field. Only fall back to the cursor when the budget can scan the whole
     // visible list in one frame (the fairness case).
-    const bool restart_from_nearest = scan_budget < visible_count;
+    // BV-PRIO: padding chunks sort last and must stay behind the needed ones, so a list that
+    // holds any is always scanned from the start.
+    const uint32_t last_visible_chunk = visible_chunks[visible_count - 1];
+    const bool padding_in_list = last_visible_chunk < chunks.size() && chunks[last_visible_chunk].padding_only;
+    const bool restart_from_nearest = scan_budget < visible_count || padding_in_list;
     const uint32_t scan_origin = restart_from_nearest ? 0u : scheduler.visible_scan_cursor;
 
     ResidencyBudgetController::AdmissionFrameBudget admission_budget =
             ResidencyBudgetController::make_frame_budget(effective_max, evictions_left, eviction_blocked);
     const float load_threshold = _get_needed_set_load_threshold();
     uint32_t load_candidates = 0;
+    uint32_t needed_queued = 0;
     bool blocked_by_chunk_cap = false;
+    const uint32_t padding_occupancy_limit = _atlas_occupancy_target_pages();
 
     uint32_t scanned_chunks = 0;
     // Complexity: bounded by the effective throttled scan budget under queue pressure.
@@ -3226,18 +3239,30 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         if (_is_chunk_load_backing_off(chunk)) {
             continue; // #1178: its payload read failed recently; not a load candidate yet
         }
-        load_candidates++;
+        // BV-PRIO: padding is what is left after the needed set. It takes free capacity only:
+        // no slot while a needed load is still waiting, no eviction of anything visible, and
+        // nothing past the occupancy target, where _evict_for_vram_budget() would remove it.
+        const bool padding = chunk.padding_only;
+        const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
+        if (padding && (load_candidates > needed_queued ||
+                               (padding_occupancy_limit > 0 &&
+                                       atlas_allocator.get_used_page_count() + required_pages > padding_occupancy_limit))) {
+            break;
+        }
+        if (!padding) {
+            load_candidates++;
+        }
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         // Sync fallback visible path can still make forward progress via drain-time replacement.
         admission_policy.can_replace_without_eviction = !can_async_pack;
+        admission_policy.allow_visible_eviction = !padding;
         admission_policy.enforce_vram_regulator_gate = budget.vram_regulator.is_valid();
         const uint32_t reserved_chunks = _get_reserved_chunk_count();
         admission_policy.vram_regulator_allows_load =
                 !admission_policy.enforce_vram_regulator_gate ||
                 budget.vram_regulator->can_load_more_chunks(reserved_chunks);
         // #1088: the atlas is "full" for this chunk when no contiguous run of its pages is free.
-        const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
         _try_grow_persistent_buffer_for_atlas_pressure(
                 required_pages,
                 reserved_chunks,
@@ -3253,6 +3278,9 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                         admission_policy);
         const ResidencyBudgetController::AdmissionDecision decision = admission_gate.decision;
         if (decision == ResidencyBudgetController::AdmissionDecision::Skip) {
+            if (padding) {
+                break; // the other padding chunks meet the same full cap
+            }
             if (admission_gate.context.atlas_slots_full ||
                     admission_gate.context.loaded_chunks >= admission_gate.context.effective_max ||
                     (admission_gate.context.enforce_vram_regulator_gate &&
@@ -3262,7 +3290,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
             continue;
         }
         if (decision == ResidencyBudgetController::AdmissionDecision::EvictThenLoad) {
-            blocked_by_chunk_cap = true;
+            blocked_by_chunk_cap = blocked_by_chunk_cap || !padding;
             bool visible_fallback_attempted = false;
             EvictionResult result = _evict_for_admission_gate(admission_gate, visible_fallback_attempted,
                     admission_gate.context.atlas_slots_full ? required_pages : 0u);
@@ -3275,6 +3303,8 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
             if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {
                 eviction_controller.record_eviction_result(result);
                 ResidencyBudgetController::note_successful_eviction(admission_budget);
+            } else if (padding) {
+                break; // nothing off screen left: no free capacity for any padding chunk
             } else {
                 ResidencyBudgetController::note_blocked_eviction(admission_budget);
                 continue;
@@ -3285,9 +3315,12 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         }
 
         const bool queued = _enqueue_chunk_load_request(
-                PRIMARY_ASSET_ID, chunk_idx, can_async_pack, prioritize_sync_visible_enqueue);
+                PRIMARY_ASSET_ID, chunk_idx, can_async_pack, prioritize_sync_visible_enqueue && !padding, !padding);
         if (!queued && !can_async_pack) {
             scheduler.last_sync_fallback_stalled_count++;
+        }
+        if (queued && !padding) {
+            needed_queued++;
         }
     }
     // If we restarted from the nearest prefix this frame, the cursor stays where
@@ -3324,8 +3357,8 @@ void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_or
                 continue;
             }
             const StreamingChunk &chunk = chunks[chunk_idx];
-            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending &&
-                    !_is_chunk_load_backing_off(chunk)) {
+            if (!chunk.padding_only && _is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded &&
+                    !chunk.upload_pending && !_is_chunk_load_backing_off(chunk)) {
                 unscanned_unserved++;
             }
         }
@@ -3366,6 +3399,8 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_padding_chunk_count = 0;
+    scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_needed_set_measured = true;
 
     const LocalVector<uint32_t> &visible_chunks = visibility.visible_chunk_indices;
@@ -3377,8 +3412,13 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     // needed set here is exactly the set the scheduler is trying to make resident.
     const float visible_threshold = _get_needed_set_load_threshold();
 
+    // BV-PRIO: padding chunks draw when resident but are not demand: a view is served once its
+    // frustum chunks are, whatever the padding around them holds.
     uint32_t needed_chunks = 0;
+    uint32_t needed_resident_chunks = 0;
     uint32_t needed_unserved_chunks = 0;
+    uint32_t padding_chunks = 0;
+    uint32_t padding_resident_chunks = 0;
     for (uint32_t chunk_idx : visible_chunks) {
         if (chunk_idx >= chunks.size()) {
             continue;
@@ -3387,11 +3427,19 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
         if (!_is_chunk_within_load_distance(chunk, visible_threshold)) {
             continue;
         }
-        needed_chunks++;
-        if (chunk.is_loaded && chunk.gpu_resident) {
+        const bool resident = chunk.is_loaded && chunk.gpu_resident;
+        if (resident) {
             frame.visible_chunks.push_back(chunk_idx);
             eviction_controller.touch_chunk_use(chunk.last_used_frame, total_frame_count);
-        } else if (!chunk.is_loaded && !chunk.upload_pending) {
+        }
+        if (chunk.padding_only) {
+            padding_chunks++;
+            padding_resident_chunks += resident ? 1 : 0;
+            continue;
+        }
+        needed_chunks++;
+        needed_resident_chunks += resident ? 1 : 0;
+        if (!resident && !chunk.is_loaded && !chunk.upload_pending) {
             needed_unserved_chunks++;
         }
     }
@@ -3399,8 +3447,10 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     // #1086: publish the needed set so the proof lane can measure how complete the
     // working set is (resident-needed / needed), not visible splats over the world.
     scheduler.last_needed_chunk_count = needed_chunks;
-    scheduler.last_needed_resident_chunk_count = frame.visible_chunks.size();
+    scheduler.last_needed_resident_chunk_count = needed_resident_chunks;
     scheduler.last_needed_unserved_chunk_count = needed_unserved_chunks;
+    scheduler.last_padding_chunk_count = padding_chunks;
+    scheduler.last_padding_resident_chunk_count = padding_resident_chunks;
 }
 
 void GaussianStreamingSystem::_handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max) {
@@ -3583,7 +3633,8 @@ bool GaussianStreamingSystem::_begin_chunk_upload(uint32_t asset_id, uint32_t ch
     // BV-08a: visible-set refetch, judged once per eviction, also when this upload fails later.
     if (chunk.last_evicted_usec != 0) {
         const uint64_t now_usec = _wall_clock_usec();
-        if (chunk.is_visible && now_usec - chunk.last_evicted_usec <= VRAMBudgetRegulator::THRASH_REFETCH_WINDOW_USEC) {
+        if (chunk.is_needed_for_view() &&
+                now_usec - chunk.last_evicted_usec <= VRAMBudgetRegulator::THRASH_REFETCH_WINDOW_USEC) {
             budget.visible_refetches_this_frame++;
         }
         chunk.last_evicted_usec = 0;
@@ -3848,7 +3899,7 @@ void GaussianStreamingSystem::_process_upload_retirements() {
                 last_completed_upload_ticket_id, last_upload_completion_mode, ticket);
         // #1086: only a needed chunk (primary, visible, inside the load distance)
         // completing is needed-set progress; prefetch completions are not.
-        if (ticket.asset_id == PRIMARY_ASSET_ID && chunk.is_visible &&
+        if (ticket.asset_id == PRIMARY_ASSET_ID && chunk.is_needed_for_view() &&
                 _is_chunk_within_load_distance(chunk, _get_needed_set_load_threshold())) {
             scheduler.last_needed_chunks_completed++;
         }
@@ -4310,8 +4361,9 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
 }
 
 GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_least_recently_used(bool p_allow_visible_eviction,
-        uint32_t p_visible_fit_pages) {
-    return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages);
+        uint32_t p_visible_fit_pages, bool p_allow_padding_eviction) {
+    return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages,
+            p_allow_padding_eviction);
 }
 
 GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru(bool p_allow_visible_eviction) {
@@ -4745,7 +4797,12 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const float primary_prefetch_threshold_sq = visibility.prefetch_lookahead_distance *
             visibility.prefetch_lookahead_distance * 2.25f;
     const auto is_primary_chunk_needed = [&](const StreamingChunk &p_chunk) -> bool {
-        return p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
+        return p_chunk.is_needed_for_view() && _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
+    };
+    // BV-PRIO: padding drains like prefetch, with allow_visible_eviction = false below.
+    const auto is_primary_chunk_padding = [&](const StreamingChunk &p_chunk) -> bool {
+        return p_chunk.is_visible && p_chunk.padding_only &&
+                _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
     };
     // #1176: relevant only through the camera prediction (the prefetch branch). Such a chunk
     // is admitted with allow_visible_eviction = false below.
@@ -4800,7 +4857,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         bool allow_visible_eviction = true;
         if (asset_id == PRIMARY_ASSET_ID) {
             const bool needed = explicitly_requested || is_primary_chunk_needed(chunk);
-            if (!needed && !is_primary_chunk_predicted(chunk)) {
+            if (!needed && !is_primary_chunk_padding(chunk) && !is_primary_chunk_predicted(chunk)) {
                 scheduler.last_sync_fallback_stalled_count++;
                 continue;
             }
