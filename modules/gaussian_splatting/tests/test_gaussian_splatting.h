@@ -78,6 +78,7 @@
 #include "test_sorter_metrics_metadata.h"
 #include "test_gaussian_splat_world_io.h"
 #include "test_gs_atomic_file_writer.h"
+#include "test_gs_payload_read_service.h"
 #include "test_gs_atomic_file_transaction.h"
 #include "test_gs_world_writer.h"
 #include "test_view_transform.h"
