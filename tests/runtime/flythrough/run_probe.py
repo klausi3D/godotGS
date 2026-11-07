@@ -592,6 +592,11 @@ def required_sweep_points(sweep: Dict[str, object]) -> List[str]:
                 if rec.get("status") != ps.OK:
                     problems.append(f"point {pid} view {vid}: {key} {rec.get('status', ps.MISSING)} "
                                     f"({rec.get('reason', 'no value')})")
+            # ADR V7 / D-6: the sweep aggregate reads an unevaluable view as "not drifted".
+            settings = v.get("settings") or {}
+            if settings.get("status") != ps.OK:
+                problems.append(f"point {pid} view {vid}: settings status {settings.get('status', ps.MISSING)} "
+                                f"({settings.get('reason', 'no value')})")
     return problems
 
 
