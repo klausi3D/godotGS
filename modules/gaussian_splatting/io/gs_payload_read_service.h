@@ -61,7 +61,7 @@ public:
 		SUBMIT_OK,
 		SUBMIT_BUSY, // Budget is full right now; retrying later can succeed.
 		SUBMIT_TOO_LARGE, // Longer than max_bytes_in_flight; retrying can never succeed.
-		SUBMIT_INVALID, // Empty path, zero length, or offset + length overflows.
+		SUBMIT_INVALID, // Empty path, zero length, or offset + length past INT64_MAX.
 		SUBMIT_DUPLICATE_TICKET, // That ticket is still live.
 		SUBMIT_NOT_RUNNING, // Not started, or shut down.
 	};

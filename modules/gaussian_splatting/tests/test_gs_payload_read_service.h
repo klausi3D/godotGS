@@ -286,6 +286,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][PayloadReadService] a failed read delive
 	CHECK(service.submit(String(), 0, 1, 1) == PRS::SUBMIT_INVALID);
 	CHECK(service.submit(file.path, 0, 0, 1) == PRS::SUBMIT_INVALID);
 	CHECK(service.submit(file.path, UINT64_MAX, 2, 1) == PRS::SUBMIT_INVALID);
+	CHECK(service.submit(file.path, uint64_t(1) << 63, 1, 1) == PRS::SUBMIT_INVALID);
 
 	PRS::Completion completion;
 	CHECK(service.submit(file.path + ".missing", 0, 16, 1) == PRS::SUBMIT_OK);

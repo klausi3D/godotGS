@@ -74,7 +74,9 @@ void PayloadReadService::shutdown() {
 }
 
 PayloadReadService::SubmitResult PayloadReadService::submit(const String &p_file, uint64_t p_offset, uint64_t p_length, uint64_t p_ticket) {
-	if (p_file.is_empty() || p_length == 0 || p_length > UINT64_MAX - p_offset) {
+	// FileAccess seeks through a signed position: past INT64_MAX a seek fails silently and
+	// the read would return bytes from the old cursor.
+	if (p_file.is_empty() || p_length == 0 || p_offset > uint64_t(INT64_MAX) || p_length > uint64_t(INT64_MAX) - p_offset) {
 		return SUBMIT_INVALID;
 	}
 
@@ -299,6 +301,9 @@ void PayloadReadService::_reader_loop() {
 				idle.file = request->file;
 				idle.handle = handle;
 				idle_handles.push_back(idle);
+				// The pool owns it now. release_handles() must be able to close it the moment
+				// this completion is taken, so no reference may outlive the lock.
+				handle.unref();
 			} else {
 				counters.open_handles--;
 				// `handle` outlives the lock (it is declared before it) and closes after.
@@ -306,6 +311,7 @@ void PayloadReadService::_reader_loop() {
 		}
 
 		if (request->cancelled.is_set()) {
+			bytes.clear(); // The budget comes back only once the buffer is really gone.
 			counters.bytes_in_flight -= request->length;
 			memdelete(request);
 			continue;
