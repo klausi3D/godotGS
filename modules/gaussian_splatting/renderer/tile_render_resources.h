@@ -191,7 +191,9 @@ struct TileGlobalSortResources {
 
 	void release(RenderingDevice *p_default_device);
 	void reset_state(bool p_clear_sorter);
-	void ensure_resources(uint32_t p_visible_count);
+	// p_growth_headroom lets a capacity grow pad past the request when the padded size fits (BV-10).
+	// Callers that charged an exact size against a budget leave it off.
+	void ensure_resources(uint32_t p_visible_count, bool p_growth_headroom = false);
 	// #586 PR 2: called by the frame executor once a frame whose translucent content was
 	// SORTED by this sorter has been PUBLISHED (valid output RID). Closes an open failure
 	// episode: failure count -> 0, sorter_recoveries + 1, one WARN. This is the only place
@@ -243,6 +245,17 @@ struct TileGlobalSortResources {
 	uint32_t capacity = 0;
 	uint32_t shrink_candidate_frames = 0; // consecutive low-demand frames, for bounded shrink hysteresis
 	uint32_t last_observed_demand = 0; // last frame's MEASURED overlap demand (post-count), drives shrink hysteresis
+	// BV-10 E3: the latest real measurement (8.8 fixed point, 0 = none yet), and whether a
+	// synchronous overlap sample of this resource generation has run.
+	uint32_t measured_records_per_splat_q8 = 0;
+	bool overlap_bootstrap_sampled = false;
+	// BV-10 E4 telemetry. The peak of one resize is old + new (I-6); refusals count pre-flights that
+	// kept the live sorter because the replacement would not have fit next to it.
+	uint32_t capacity_high_water = 0;
+	uint64_t resize_peak_bytes = 0;
+	uint64_t resize_preflight_refusals = 0;
+	bool resize_preflight_unverified_logged = false;
+	uint64_t allocated_sort_bytes() const;
 	SortKeyConfig key_config;
 	RID keys_buffer;
 	RID values_buffer;

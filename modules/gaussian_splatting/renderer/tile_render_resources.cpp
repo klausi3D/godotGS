@@ -6,6 +6,7 @@
 #include "pipeline_io_contracts.h"
 #include "gpu_sorting_config.h"
 #include "gpu_sorting_constants.h"
+#include "overlap_bootstrap_policy.h"
 #include "sort_fallback_policy.h"
 #include "../interfaces/render_device_manager.h"
 #include "../interfaces/sync_policy.h"
@@ -1125,6 +1126,12 @@ void TileGlobalSortResources::reset_state(bool p_clear_sorter) {
 	capacity = 0;
 	shrink_candidate_frames = 0;
 	last_observed_demand = 0;
+	measured_records_per_splat_q8 = 0;
+	overlap_bootstrap_sampled = false;
+	capacity_high_water = 0;
+	resize_peak_bytes = 0;
+	resize_preflight_refusals = 0;
+	resize_preflight_unverified_logged = false;
 	key_config = SortKeyConfig();
 	keys_buffer = RID();
 	values_buffer = RID();
@@ -1179,7 +1186,12 @@ void TileGlobalSortResources::prepare_next_tile_counts_buffer(RenderingDevice *p
 	tile_counts_ready[next_index] = false;
 }
 
-void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
+uint64_t TileGlobalSortResources::allocated_sort_bytes() const {
+	return GPUSortingConstants::overlap_sort_total_bytes(uint64_t(capacity), g_gpu_sorting_config.radix_bits,
+			g_gpu_sorting_config.workgroup_size, key_config.key_bits);
+}
+
+void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_growth_headroom) {
 	RenderingDevice *device = owner._get_resource_device();
 	if (!device) {
 		return;
@@ -1483,7 +1495,38 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			// triggers (it requires capacity > effective_demand >= attempt_elements).
 			// effective_demand is already clamped to the overlap cap above, so the
 			// shrink target never recreates above max_overlap_records.
-			const uint32_t resize_elements = wants_shrink ? effective_demand : attempt_elements;
+			uint32_t resize_elements = wants_shrink ? effective_demand : attempt_elements;
+
+			// I-6 (BV-10): the old sorter and buffers stay live through the replacement, and their
+			// free is deferred past the frames in flight, so the replacement must fit NEXT to them.
+			// Only a live replacement can peak at old + new.
+			// RadixSort may fall back to a narrower workgroup on this device (down to
+			// DEFAULT_WORKGROUP_SIZE), which grows its histograms. Charge the narrowest, so
+			// the pre-flight never approves less than the replacement can allocate.
+			const uint32_t preflight_workgroup_size = MIN(g_gpu_sorting_config.workgroup_size, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
+			auto preflight_elements = [&](uint32_t p_elements) {
+				return GaussianSplatting::overlap_resize_preflight(device->get_memory_usage(RD::MEMORY_TOTAL),
+						GPUSortingConstants::overlap_sort_total_bytes(uint64_t(p_elements), g_gpu_sorting_config.radix_bits,
+								preflight_workgroup_size, config_to_use.key_bits),
+						device->get_device_memory_budget());
+			};
+			const uint32_t exact_resize_elements = resize_elements;
+			if (capacity_grow && p_growth_headroom) {
+				const uint32_t padded = GaussianSplatting::overlap_grow_target(resize_elements, capacity, overlap_hard_cap);
+				if (padded > resize_elements &&
+						GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(padded),
+								g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, config_to_use.key_bits) &&
+						preflight_elements(padded) != GaussianSplatting::OverlapResizePreflight::REFUSED) {
+					resize_elements = padded;
+				}
+			}
+			const GaussianSplatting::OverlapResizePreflight resize_preflight = replacing_live_sorter
+					? preflight_elements(resize_elements)
+					: GaussianSplatting::OverlapResizePreflight::FITS;
+			if (resize_preflight == GaussianSplatting::OverlapResizePreflight::UNVERIFIED && !resize_preflight_unverified_logged) {
+				resize_preflight_unverified_logged = true;
+				GS_LOG_WARN_DEFAULT("[TileRenderer] Global composite sort resize pre-flight has no usable device capacity or usage figure; old + new is NOT verified on this device");
+			}
 
 			// A failure with NO live sorter, or a failed key-layout change, leaves none:
 			// every translucent frame is rejected at the choke point until the retry
@@ -1517,6 +1560,12 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			// predict; see the deferral note in sort_fallback_policy.h).
 			if (!GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, device)) {
 				handle_recreate_failure("Global composite sort requires RadixSort indirect support");
+			} else if (resize_preflight == GaussianSplatting::OverlapResizePreflight::REFUSED) {
+				resize_preflight_refusals++;
+				handle_recreate_failure(vformat(
+						"Global composite sort replacement at capacity %d does not fit next to the live sorter and buffers (old + new pre-flight, device used %s of %s bytes)",
+						int(resize_elements), String::num_uint64(device->get_memory_usage(RD::MEMORY_TOTAL)),
+						String::num_uint64(device->get_device_memory_budget())));
 			} else if (!GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(resize_elements),
 							   g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, config_to_use.key_bits)) {
 				handle_recreate_failure(vformat(
@@ -1525,6 +1574,13 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			} else {
 				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
 						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+				if (!created_sorter.is_valid() && resize_elements > exact_resize_elements) {
+					// The padding is optional (BV-10): a device limit it crosses (dispatch width,
+					// allocation) must not cost the grow itself. Retry at the exact request.
+					resize_elements = exact_resize_elements;
+					created_sorter = GPUSorterFactory::create_sorter(
+							GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+				}
 				if (!created_sorter.is_valid()) {
 					handle_recreate_failure("Failed to create the global composite GPU sorter");
 				} else if (!created_sorter->supports_indirect()) {
@@ -1538,10 +1594,12 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 						sorter.unref();
 					}
 					sorter = created_sorter;
+					const uint64_t previous_bytes = replacing_live_sorter ? allocated_sort_bytes() : 0u;
 					key_config = desired_key_config;
 					const uint32_t previous_capacity = capacity;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
+					resize_peak_bytes = MAX(resize_peak_bytes, previous_bytes + allocated_sort_bytes());
 					if (!capacity_grow) {
 						// A replacement that is not a same-layout capacity grow -- a layout
 						// change, a shrink, a first creation -- retires (or never had) the sorter
@@ -1782,6 +1840,7 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		}
 
 		buffer_owner.set(device);
+		capacity_high_water = MAX(capacity_high_water, capacity);
 
 		if (buffers_recreated) {
 			owner._invalidate_descriptor_cache();
