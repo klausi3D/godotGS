@@ -1594,6 +1594,8 @@ void GaussianStreamingSystem::_evict_all_resident_chunks_for_stride_change() {
         for (uint32_t chunk_idx = 0; chunk_idx < asset_chunks.size(); chunk_idx++) {
             if (asset_chunks[chunk_idx].is_loaded) {
                 _unload_chunk(asset_id, chunk_idx);
+                // BV-08a: a mandatory reload at the new stride is no refetch, and no thrash.
+                asset_chunks[chunk_idx].last_evicted_usec = 0;
             }
         }
     }
@@ -3516,7 +3518,18 @@ void GaussianStreamingSystem::_update_vram_regulator() {
     // can be freed); but the overlay must still show the true footprint. (Codex #411)
     budget.vram_regulator->update(_get_total_vram_usage_bytes(), _get_regulator_decision_usage_bytes(),
             budget.loaded_chunks_count, budget.chunks_loaded_this_frame,
-            eviction_controller.get_chunks_evicted_this_frame(), total_frame_count);
+            eviction_controller.get_chunks_evicted_this_frame(), total_frame_count,
+            budget.visible_refetches_this_frame, _wall_clock_usec());
+    budget.visible_refetches_this_frame = 0;
+}
+
+uint64_t GaussianStreamingSystem::_wall_clock_usec() const {
+#if defined(TESTS_ENABLED)
+    if (test_wall_clock_usec != 0) {
+        return test_wall_clock_usec;
+    }
+#endif
+    return OS::get_singleton()->get_ticks_usec();
 }
 
 void GaussianStreamingSystem::_update_chunk_visibility(const Transform3D &camera_transform, const Projection &projection) {
@@ -3575,6 +3588,14 @@ bool GaussianStreamingSystem::_begin_chunk_upload(uint32_t asset_id, uint32_t ch
             vformat("[Streaming] Begin upload rejected: allocator slot mismatch asset=%d chunk=%d expected=%d mapped=%d.",
                     asset_id, chunk_idx, buffer_slot, mapped_slot == UINT32_MAX ? -1 : int(mapped_slot)));
 
+    // BV-08a: visible-set refetch, judged once per eviction, also when this upload fails later.
+    if (chunk.last_evicted_usec != 0) {
+        const uint64_t now_usec = _wall_clock_usec();
+        if (chunk.is_visible && now_usec - chunk.last_evicted_usec <= VRAMBudgetRegulator::THRASH_REFETCH_WINDOW_USEC) {
+            budget.visible_refetches_this_frame++;
+        }
+        chunk.last_evicted_usec = 0;
+    }
     chunk.buffer_slot = buffer_slot;
     chunk.upload_pending = true;
     chunk.gpu_resident = false;
@@ -4276,6 +4297,7 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
     }
 
     chunk.is_loaded = false;
+    chunk.last_evicted_usec = _wall_clock_usec();
     chunk.gpu_resident = false;
     chunk.upload_pending = false;
     chunk.upload_lifecycle_state = GaussianStreamingTypes::STREAMING_UPLOAD_STATE_NONE;

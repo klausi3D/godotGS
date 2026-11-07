@@ -66,6 +66,7 @@ struct VRAMDebugStats {
     bool device_capacity_known = false;    // True when true VRAM capacity is known
     uint32_t regulation_adjustments = 0;   // Total adjustments made this session
     uint32_t thrashing_events = 0;         // Detected thrashing occurrences
+    uint64_t visible_refetches_total = 0;  // BV-08a: visible chunks reloaded within the thrash window of their eviction
     // BV-04a (ADR adr-beyond-vram-worlds.md D-6): regulator events by kind, so a probe can tell
     // whether and why the regulator fired. regulation_adjustments is their sum.
     uint32_t thrash_reductions = 0;        // Thrash ratchet: chunk cap cut by 10 %
@@ -98,11 +99,20 @@ private:
     uint64_t decision_usage_bytes = 0;
     float decision_usage_percent = 0.0f;
 
-    // Thrashing prevention state
-    static constexpr uint32_t THRASHING_HISTORY_SIZE = 16;
-    uint32_t load_history[THRASHING_HISTORY_SIZE] = {};
-    uint32_t evict_history[THRASHING_HISTORY_SIZE] = {};
-    uint32_t history_index = 0;
+public:
+    // BV-08a (ADR D-6): thrash is visible-set refetch inside a wall-clock window, never a frame
+    // count. A chunk that was evicted and has to come back for the view within this window was
+    // evicted for nothing; a chunk left behind by a moving camera does not come back.
+    static constexpr uint64_t THRASH_REFETCH_WINDOW_USEC = 2000000;
+    // Fires when the refetches inside the window reach a quarter of the chunk cap, at least this many.
+    static constexpr uint32_t THRASH_REFETCH_MIN_COUNT = 8;
+
+private:
+    // Refetches per wall-clock bucket, so the window costs the same at every frame rate.
+    static constexpr uint32_t THRASH_REFETCH_BUCKETS = 32;
+    static constexpr uint64_t THRASH_REFETCH_BUCKET_USEC = THRASH_REFETCH_WINDOW_USEC / THRASH_REFETCH_BUCKETS;
+    uint32_t refetch_bucket_counts[THRASH_REFETCH_BUCKETS] = {};
+    uint64_t refetch_bucket_ids[THRASH_REFETCH_BUCKETS] = {};
     uint64_t last_adjustment_frame = 0;
     static constexpr uint32_t MIN_FRAMES_BETWEEN_ADJUSTMENTS = 30;
 
@@ -114,9 +124,10 @@ private:
 
     // Internal methods
     void _query_device_memory();
-    void _update_regulation(uint64_t current_usage, uint64_t current_frame);
-    bool _detect_thrashing() const;
-    void _record_activity(uint32_t loads, uint32_t evictions);
+    void _update_regulation(uint64_t current_usage, uint64_t current_frame, uint64_t now_usec);
+    bool _detect_thrashing(uint64_t now_usec) const;
+    void _record_refetches(uint32_t refetches, uint64_t now_usec);
+    void _clear_refetch_window();
     void _capture_requested_budget();
     void _apply_config();
 
@@ -136,9 +147,11 @@ public:
     // Called each frame with current usage stats. p_reported_usage is the
     // allocation-inclusive footprint (overlay + warning); p_decision_usage is the
     // reclaimable/evictable subset that admission + auto-regulation act on. (Codex #411)
+    // p_refetches_this_frame counts visible chunks reloaded within THRASH_REFETCH_WINDOW_USEC of
+    // their eviction; p_now_usec is the wall clock of this update (BV-08a).
     void update(uint64_t p_reported_usage, uint64_t p_decision_usage, uint32_t loaded_chunks,
                 uint32_t loads_this_frame, uint32_t evictions_this_frame,
-                uint64_t current_frame);
+                uint64_t current_frame, uint32_t p_refetches_this_frame = 0, uint64_t p_now_usec = 0);
 
     // Get current regulated limits
     uint32_t get_current_max_chunks() const { return current_max_chunks; }

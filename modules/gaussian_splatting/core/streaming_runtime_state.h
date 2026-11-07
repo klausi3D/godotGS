@@ -21,6 +21,8 @@ struct BudgetState {
     uint64_t vram_usage = 0;
     uint64_t evicted_bytes_total = 0;
     uint32_t chunks_loaded_this_frame = 0;
+    // BV-08a: visible chunks whose upload began within the regulator's thrash window of their eviction.
+    uint32_t visible_refetches_this_frame = 0;
     bool vram_chunk_cap_hit_this_frame = false;
     uint64_t pending_upload_bytes = 0;
     uint32_t pending_upload_slots = 0;

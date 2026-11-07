@@ -337,7 +337,8 @@ Decisions:
    labelled `settings_drifted`, which is a finding and not a baseline.
 3. **BV-08a lands before M1c.** It measures thrash as visible-set refetch within a
    **wall-clock window of K ms**, never a frame count. It has a live negative control at two
-   frame rates: a starved budget must trip it at both 60 and 200 fps.
+   frame rates: a starved budget must trip it at both 60 and 200 fps. As built: K = 2000 ms, and
+   it trips at a quarter of the chunk cap (at least 8) refetched inside the window.
 4. Production auto-regulation stays on. This changes production behaviour: the detector no
    longer fires on legitimate fly-through churn. It is a defect fix (false positives), proven
    by the negative control, so it is decided here rather than asked.

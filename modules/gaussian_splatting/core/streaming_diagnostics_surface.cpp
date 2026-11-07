@@ -224,6 +224,7 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
         analytics[AK::vram_auto_regulate_enabled] = active_budget_config.auto_regulate_enabled;
         analytics[AK::vram_regulated_max_chunks] = static_cast<int64_t>(budget.vram_regulator->get_current_max_chunks());
         analytics[AK::vram_thrash_reductions] = static_cast<int64_t>(vram_stats.thrash_reductions);
+        analytics[AK::vram_visible_refetches_total] = static_cast<int64_t>(vram_stats.visible_refetches_total);
         analytics[AK::vram_budget_reductions] = static_cast<int64_t>(vram_stats.budget_reductions);
         analytics[AK::vram_headroom_increases] = static_cast<int64_t>(vram_stats.headroom_increases);
         analytics[AK::vram_lod_multiplier_adjustments] = static_cast<int64_t>(vram_stats.lod_multiplier_adjustments);

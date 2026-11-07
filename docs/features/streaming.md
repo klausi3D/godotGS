@@ -186,6 +186,7 @@ slice, never per splat, and none reads anything back from the GPU.
 | `diagnostics.upload_stall_wall_ms` | How long, in wall-clock time, the upload-stall predicate behind `upload_stall_frames` has held. |
 | `vram_regulated_max_chunks`, `vram_auto_regulate_enabled` | The regulator's current chunk cap, and whether auto-regulation is on. |
 | `vram_thrash_reductions`, `vram_budget_reductions`, `vram_headroom_increases` | Regulator adjustments, counted by kind. They add up to `vram_regulation_adjustments`. |
+| `vram_visible_refetches_total` | Visible chunks whose upload began within 2 s of their eviction. This is the thrash signal: the regulator cuts the chunk cap when a quarter of the cap (at least 8) is refetched inside that wall-clock window. |
 | `vram_lod_multiplier_adjustments`, `vram_last_regulation_frame`, `vram_last_regulation_reason` | How many times `lod_distance_multiplier` changed, plus the frame and the reason of the last adjustment. The reason is `none`, `thrash_reduction`, `budget_reduction` or `headroom_increase`. |
 | `lod_effective_load_distance` | The chunk load distance that the LOD multiplier produces. |
 | `effective_settings_revision` | Goes up by one at every `end_frame()` in which the effective VRAM budget, the regulated or effective chunk cap, the LOD multiplier or the auto-regulation flag differs from the previous frame. If two samples show the same revision, none of these settings changed between them. |

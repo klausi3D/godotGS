@@ -237,10 +237,10 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a the thrash ratchet is
     CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 0);
 
     // 70 % usage sits between the step-up (< 59.5 %) and step-down (> 85 %) bands, so only
-    // the thrash detector (a load and an eviction in more than half of 16 frames) can fire.
+    // the thrash detector (visible refetches inside its wall-clock window) can fire.
     const uint64_t usage = _bv04a_usage_at_percent(regulator, 70);
     for (uint64_t frame = 1; frame <= 35; frame++) {
-        regulator->update(usage, usage, 10, 1, 1, frame);
+        regulator->update(usage, usage, 10, 1, 1, frame, 1, frame * 16667);
     }
     stats = regulator->get_debug_stats_dictionary();
     CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 1);
@@ -252,6 +252,38 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a the thrash ratchet is
     CHECK(String(stats.get("last_regulation_reason", String())) == String("thrash_reduction"));
     CHECK(regulator->get_current_max_chunks() == 18u);
     CHECK(regulator->get_lod_distance_multiplier() == doctest::Approx(1.1f));
+}
+
+// Drives the regulator at p_fps for p_seconds with p_refetches_per_second visible refetches,
+// spread evenly in wall-clock time, and a load plus an eviction in every frame.
+int64_t _bv08a_thrash_reductions(uint32_t p_fps, double p_seconds, double p_refetches_per_second) {
+    Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+    const uint64_t usage = _bv04a_usage_at_percent(regulator, 70); // no budget step in either direction
+    const uint64_t frames = uint64_t(p_seconds * p_fps);
+    double owed = 0.0;
+    for (uint64_t frame = 1; frame <= frames; frame++) {
+        owed += p_refetches_per_second / p_fps;
+        const uint32_t refetches = uint32_t(owed);
+        owed -= refetches;
+        regulator->update(usage, usage, 10, 1, 1, frame, refetches, frame * 1000000u / p_fps);
+    }
+    return int64_t(regulator->get_debug_stats_dictionary().get("thrash_reductions", int64_t(-1)));
+}
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-08a thrash is visible-set refetch in a wall-clock window (C-thrash)") {
+    // Cap 20 trips at 8 refetches inside 2 s. Both frame rates must give the same answer for
+    // the same wall-clock behaviour.
+    const uint32_t frame_rates[2] = { 60, 200 };
+    for (uint32_t fps : frame_rates) {
+        CAPTURE(fps);
+        // Negative control: a starved budget refetches what it just evicted, and it must trip.
+        CHECK(_bv08a_thrash_reductions(fps, 3.0, 30.0) >= 1);
+        // A fly-through at a full cap loads and evicts every frame, but nothing comes back.
+        CHECK(_bv08a_thrash_reductions(fps, 3.0, 0.0) == 0);
+        // Refetches too sparse to reach 8 in any 2 s window: a frame-count window would see
+        // fewer at 200 fps than at 60 fps, and one counting all history would trip here.
+        CHECK(_bv08a_thrash_reductions(fps, 20.0, 2.0) == 0);
+    }
 }
 
 TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a budget step-down and headroom step-up are published by kind") {

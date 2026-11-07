@@ -86,6 +86,7 @@
     X(vram_auto_regulate_enabled) \
     X(vram_regulated_max_chunks) \
     X(vram_thrash_reductions) \
+    X(vram_visible_refetches_total) \
     X(vram_budget_reductions) \
     X(vram_headroom_increases) \
     X(vram_lod_multiplier_adjustments) \
