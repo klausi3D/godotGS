@@ -58,7 +58,7 @@ var searchData=
   ['evaluate_5finstance_5fpipeline_5freadiness_55',['evaluate_instance_pipeline_readiness',['../classRenderInstancingOrchestrator.html#a7ccbb4df9f87cf193586ce5dfeb443cd',1,'RenderInstancingOrchestrator']]],
   ['evaluate_5fstreaming_5factivation_56',['evaluate_streaming_activation',['../namespaceGaussianSplatting_1_1InstancePipelineContract.html#ada38369ba4eccbd766aeaf6d3bd78972',1,'GaussianSplatting::InstancePipelineContract']]],
   ['evict_57',['evict',['../classgs__hlod__runtime_1_1NodeResidency.html#a87d94c66e7eea51a2e5dc8efd77aad0c',1,'gs_hlod_runtime::NodeResidency::evict()'],['../classNodeResidency.html#a87d94c66e7eea51a2e5dc8efd77aad0c',1,'NodeResidency::evict()']]],
-  ['evict_5fleast_5frecently_5fused_58',['evict_least_recently_used',['../classStreamingEvictionController.html#acc76e3bc587885592c6c8a48353c84a2',1,'StreamingEvictionController']]],
+  ['evict_5fleast_5frecently_5fused_58',['evict_least_recently_used',['../classStreamingEvictionController.html#acc598cb28f46d931acf93416ead4c5a6',1,'StreamingEvictionController']]],
   ['evict_5fnon_5fprimary_5flru_59',['evict_non_primary_lru',['../classStreamingEvictionController.html#a28a5bfe334a03c6b0347cf0d2020ea09',1,'StreamingEvictionController']]],
   ['evict_5fstale_5fhlod_5fbindings_60',['evict_stale_hlod_bindings',['../classRenderFrameContextManager.html#a9e683dfa57f248777819202d681146c1',1,'RenderFrameContextManager']]],
   ['exchange_5fand_5freset_61',['exchange_and_reset',['../structStreamingUploadPipeline_1_1PackTelemetry.html#a8363c6c694658359f251ab953059f306',1,'StreamingUploadPipeline::PackTelemetry']]],

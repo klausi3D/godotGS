@@ -5157,7 +5157,7 @@ residency table above.</p>
 </tr>
 </tbody>
 </table></div>
-<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/1d434ddd642e574ae5210d810f9aa358e476b53b/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
+<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/4c3b587960ac3f1afcd5b131aceb91fc68235c41/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
 <h2 id="chunk-lod-behavior">Chunk LOD behavior<a class="headerlink" href="#chunk-lod-behavior" title="Permanent link">¶</a></h2>
 <p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces the SH band level and raises the splat skip factor as distance grows. What the GPU draw path actually honours is listed per parameter below.</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
@@ -5375,6 +5375,14 @@ slice, never per splat, and none reads anything back from the GPU.</p>
 <tr>
 <td><code>diagnostics.upload_stall_wall_ms</code></td>
 <td>How long, in wall-clock time, the upload-stall predicate behind <code>upload_stall_frames</code> has held.</td>
+</tr>
+<tr>
+<td><code>needed_chunks</code>, <code>needed_resident_chunks</code>, <code>needed_unserved_chunks</code></td>
+<td>The chunks this view needs: inside the frustum without <code>chunk_frustum_padding</code>, and inside the load distance. A view is served once <code>needed_unserved_chunks</code> is 0.</td>
+</tr>
+<tr>
+<td><code>padding_chunks</code>, <code>padding_resident_chunks</code></td>
+<td>Chunks visible only through <code>chunk_frustum_padding</code>. They load into free capacity, are displaced by any needed load, and never displace a needed chunk.</td>
 </tr>
 <tr>
 <td><code>vram_regulated_max_chunks</code>, <code>vram_auto_regulate_enabled</code></td>

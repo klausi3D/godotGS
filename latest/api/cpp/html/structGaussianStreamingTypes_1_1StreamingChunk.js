@@ -1,5 +1,6 @@
 var structGaussianStreamingTypes_1_1StreamingChunk =
 [
+    [ "is_needed_for_view", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7fc0be96263ff74354354a5c6fa302a1", null ],
     [ "bounds", "structGaussianStreamingTypes_1_1StreamingChunk.html#a783997bd1de0e1658765dfc00e81e500", null ],
     [ "buffer_slot", "structGaussianStreamingTypes_1_1StreamingChunk.html#ab173be8b060883dd8f0359d633274ee4", null ],
     [ "center", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7d825000f8227be31da2aa42fe4629cc", null ],
@@ -19,6 +20,7 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "max_radius", "structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f", null ],
     [ "near_distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#a69c4e1bab10aeacc7307b4303731c10d", null ],
     [ "opacity_multiplier", "structGaussianStreamingTypes_1_1StreamingChunk.html#ab40d60d839071e51f90dd3d8728f7035", null ],
+    [ "padding_only", "structGaussianStreamingTypes_1_1StreamingChunk.html#aaf9c64e85892729bd1a864cb2456ddb0", null ],
     [ "pending_upload_bytes", "structGaussianStreamingTypes_1_1StreamingChunk.html#a546ddc6497f3a02b36ebaf74f30560a2", null ],
     [ "previous_distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#ad9463a627702c637dfa5eee5b11aeda1", null ],
     [ "quantization", "structGaussianStreamingTypes_1_1StreamingChunk.html#a89ff588aabc57a1f9938e6a096ea5462", null ],

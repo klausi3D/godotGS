@@ -1,5 +1,13 @@
 var NAVTREEINDEX47 =
 {
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#aeb039d18a77cd8857ad5b29c5ff8ffa2":[1,0,169,1,4],
+"structOutputCompositor_1_1LastCompositeStats.html":[1,0,169,3],
+"structOutputCompositor_1_1LastCompositeStats.html#a3fd5a5f38bc90de37f495ca2a12cc770":[1,0,169,3,1],
+"structOutputCompositor_1_1LastCompositeStats.html#a489b7765ff75b0ccaf3ef12b031c2b44":[1,0,169,3,4],
+"structOutputCompositor_1_1LastCompositeStats.html#a621dde5aac6908a55fe2f5e3464f6ca0":[1,0,169,3,5],
+"structOutputCompositor_1_1LastCompositeStats.html#a6c640d07da5f7ee831ba0359de793ea2":[1,0,169,3,0],
+"structOutputCompositor_1_1LastCompositeStats.html#ab7935d5afd56ad3e09a2026c1fe8f5f0":[1,0,169,3,3],
+"structOutputCompositor_1_1LastCompositeStats.html#acfdd7db995c9b32b29b4a130f0f2ed17":[1,0,169,3,2],
 "structOutputCompositor_1_1OutputCacheState.html":[1,0,169,2],
 "structOutputCompositor_1_1OutputCacheState.html#a0071e24d12c777bed6cc5150fd1b4df7":[1,0,169,2,6],
 "structOutputCompositor_1_1OutputCacheState.html#a00c29d971e47da84efb8162c7304af00":[1,0,169,2,5],
@@ -241,13 +249,5 @@ var NAVTREEINDEX47 =
 "structQualityTierConfig.html#a25d73436646a93a82ec28ecb031aef23":[1,0,194,12],
 "structQualityTierConfig.html#a28336f088bbb36fe0ef550a597b9d0eb":[1,0,194,10],
 "structQualityTierConfig.html#a36fc5816cd4266237f49496d809eb5b8":[1,0,194,20],
-"structQualityTierConfig.html#a43c70e6ce301870bd74f2ffbe9dc59c0":[1,0,194,0],
-"structQualityTierConfig.html#a56fd65a9be7f0a2a38e5d17faa61d08b":[1,0,194,3],
-"structQualityTierConfig.html#a5b2b4ab0207bb24a027c27a9692ed3f7":[1,0,194,23],
-"structQualityTierConfig.html#a62fbd4ec208b77092e6e1cdbb45e6bc1":[1,0,194,21],
-"structQualityTierConfig.html#a631605141e286198ba1e5a750f8bd64a":[1,0,194,2],
-"structQualityTierConfig.html#a65255271fda7ca88a9457470243ade3d":[1,0,194,11],
-"structQualityTierConfig.html#a66790be8db44058dc55d65d693066feb":[1,0,194,6],
-"structQualityTierConfig.html#a6cc2fb933c684b1337390cb38f6550f9":[1,0,194,5],
-"structQualityTierConfig.html#a71e2a5204692487e5ec95906bec497c2":[1,0,194,14]
+"structQualityTierConfig.html#a43c70e6ce301870bd74f2ffbe9dc59c0":[1,0,194,0]
 };

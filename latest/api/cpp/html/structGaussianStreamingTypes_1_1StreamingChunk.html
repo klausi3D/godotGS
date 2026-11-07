@@ -99,6 +99,10 @@ Collaboration diagram for GaussianStreamingTypes::StreamingChunk:</div>
 <div class="center"><img src="structGaussianStreamingTypes_1_1StreamingChunk__coll__graph.png" border="0" usemap="#aGaussianStreamingTypes_1_1StreamingChunk_coll__map" loading="lazy" alt="Collaboration graph"/></div>
 <center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
+Public Member Functions</h2></td></tr>
+<tr class="memitem:a7fc0be96263ff74354354a5c6fa302a1" id="r_a7fc0be96263ff74354354a5c6fa302a1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7fc0be96263ff74354354a5c6fa302a1">is_needed_for_view</a> () const</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
 <tr class="memitem:a30766a96c88e7b7df64b9f15f44402e7" id="r_a30766a96c88e7b7df64b9f15f44402e7"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a30766a96c88e7b7df64b9f15f44402e7">start_idx</a> = 0</td></tr>
@@ -112,6 +116,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ab55ce51f005ea60afe844836b20be053" id="r_ab55ce51f005ea60afe844836b20be053"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab55ce51f005ea60afe844836b20be053">is_loaded</a> = false</td></tr>
 <tr class="memitem:a6f8dac1fc7af0d83009175d6b1f1bf7a" id="r_a6f8dac1fc7af0d83009175d6b1f1bf7a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6f8dac1fc7af0d83009175d6b1f1bf7a">gpu_resident</a> = false</td></tr>
 <tr class="memitem:a964a1bdc0efe34e0d6a6a53792e06436" id="r_a964a1bdc0efe34e0d6a6a53792e06436"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a964a1bdc0efe34e0d6a6a53792e06436">is_visible</a> = true</td></tr>
+<tr class="memitem:aaf9c64e85892729bd1a864cb2456ddb0" id="r_aaf9c64e85892729bd1a864cb2456ddb0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf9c64e85892729bd1a864cb2456ddb0">padding_only</a> = false</td></tr>
 <tr class="memitem:a34d3426d418ce3fe02278ef296742fa6" id="r_a34d3426d418ce3fe02278ef296742fa6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a34d3426d418ce3fe02278ef296742fa6">upload_pending</a> = false</td></tr>
 <tr class="memitem:a519887d8c2c8b997a3a0877cf637452d" id="r_a519887d8c2c8b997a3a0877cf637452d"><td class="memItemLeft" align="right" valign="top">RenderingDevice *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a519887d8c2c8b997a3a0877cf637452d">upload_device</a> = nullptr</td></tr>
 <tr class="memitem:a23e3ef346b348ccd6a675105fb87cd1b" id="r_a23e3ef346b348ccd6a675105fb87cd1b"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a23e3ef346b348ccd6a675105fb87cd1b">upload_lifecycle_state</a> = <a class="el" href="namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa0cb609e6658fdeb7eb5f1c3034fad34d">STREAMING_UPLOAD_STATE_NONE</a></td></tr>
@@ -139,6 +144,32 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a89ff588aabc57a1f9938e6a096ea5462" id="r_a89ff588aabc57a1f9938e6a096ea5462"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structChunkQuantizationInfo.html">ChunkQuantizationInfo</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a89ff588aabc57a1f9938e6a096ea5462">quantization</a></td></tr>
 <tr class="memitem:ab15d3a3bae8e3c5debf2e8a61d422ec1" id="r_ab15d3a3bae8e3c5debf2e8a61d422ec1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab15d3a3bae8e3c5debf2e8a61d422ec1">quantization_computed</a> = false</td></tr>
 </table>
+<a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="a7fc0be96263ff74354354a5c6fa302a1" name="a7fc0be96263ff74354354a5c6fa302a1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7fc0be96263ff74354354a5c6fa302a1">&#9670;&#160;</a></span>is_needed_for_view()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingTypes::StreamingChunk::is_needed_for_view </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="a783997bd1de0e1658765dfc00e81e500" name="a783997bd1de0e1658765dfc00e81e500"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a783997bd1de0e1658765dfc00e81e500">&#9670;&#160;</a></span>bounds</h2>
@@ -400,6 +431,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">float GaussianStreamingTypes::StreamingChunk::opacity_multiplier = 1.0f</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaf9c64e85892729bd1a864cb2456ddb0" name="aaf9c64e85892729bd1a864cb2456ddb0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaf9c64e85892729bd1a864cb2456ddb0">&#9670;&#160;</a></span>padding_only</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianStreamingTypes::StreamingChunk::padding_only = false</td>
         </tr>
       </table>
 </div><div class="memdoc">

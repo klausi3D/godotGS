@@ -1,5 +1,13 @@
 var NAVTREEINDEX53 =
 {
+"structVRAMDebugStats.html#aa0df1d901a615301e2e5729e5e191a91":[1,0,287,11],
+"structVRAMDebugStats.html#abdc39f849ec3d2561a54227204cff19f":[1,0,287,9],
+"structVRAMDebugStats.html#adebf84b22655f38643110abb7580c110":[1,0,287,7],
+"structVRAMDebugStats.html#ae25cec83b41066e6277a095fdc9cb71d":[1,0,287,2],
+"structVRAMDebugStats.html#ae9f1944734f52f12fab9ffde2453fbd6":[1,0,287,0],
+"structVRAMDebugStats.html#aee200bf57600bb063f1386971c866728":[1,0,287,3],
+"structVRAMDebugStats.html#af0f06aff415c274d8a2558dbf0a9d6cb":[1,0,287,4],
+"structVRAMDebugStats.html#af7ea32371b4e28176ffb14f2deead9ec":[1,0,287,21],
 "structVisibleChunkRefGPU.html":[1,0,284],
 "structVisibleChunkRefGPU.html#a67ee8f6ceb3c9405ebf3e5a9e5a1cea0":[1,0,284,1],
 "structVisibleChunkRefGPU.html#ae6ac66c291c3c8fc0dc1817920f91bf2":[1,0,284,0],
@@ -241,13 +249,5 @@ var NAVTREEINDEX53 =
 "structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[1,0,13,3,3],
 "structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08":[0,0,20,3,8],
 "structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08":[1,0,13,3,8],
-"structgs__hlod_1_1OfflineJob.html#a76c74e412a6fec3e680c5554429f09b3":[0,0,20,3,0],
-"structgs__hlod_1_1OfflineJob.html#a76c74e412a6fec3e680c5554429f09b3":[1,0,13,3,0],
-"structgs__hlod_1_1OfflineJob.html#a7fdf172c54569eaec62023da8d634eda":[0,0,20,3,11],
-"structgs__hlod_1_1OfflineJob.html#a7fdf172c54569eaec62023da8d634eda":[1,0,13,3,11],
-"structgs__hlod_1_1OfflineJob.html#a96efccdd9b8d963850c5ac7d5b40312b":[0,0,20,3,6],
-"structgs__hlod_1_1OfflineJob.html#a96efccdd9b8d963850c5ac7d5b40312b":[1,0,13,3,6],
-"structgs__hlod_1_1OfflineJob.html#aaabfb0307b4e96c72c4ff26534c3b847":[0,0,20,3,10],
-"structgs__hlod_1_1OfflineJob.html#aaabfb0307b4e96c72c4ff26534c3b847":[1,0,13,3,10],
-"structgs__hlod_1_1OfflineJob.html#aca68087c9de6277d5b31c8638d55109f":[0,0,20,3,5]
+"structgs__hlod_1_1OfflineJob.html#a76c74e412a6fec3e680c5554429f09b3":[0,0,20,3,0]
 };

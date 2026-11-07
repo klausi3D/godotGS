@@ -14,6 +14,8 @@ var structGaussianStreamingTypes_1_1SchedulerState =
     [ "last_needed_unserved_chunk_count", "structGaussianStreamingTypes_1_1SchedulerState.html#ab7bd105c5b0dbfd546375faaa74f22ff", null ],
     [ "last_non_primary_eviction_candidate_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a5223980f89c61e17f3bf20265fc798ec", null ],
     [ "last_non_primary_scan_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a7a1780d9ff8360525ba2e98bddb51757", null ],
+    [ "last_padding_chunk_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a744781fe9942083e04fabb1e8746d582", null ],
+    [ "last_padding_resident_chunk_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a59589925208a89d4abd2b7da5bbdc042", null ],
     [ "last_prefetch_candidate_count", "structGaussianStreamingTypes_1_1SchedulerState.html#ac56f6f3240d52301fc1a2c2c52f68c63", null ],
     [ "last_prefetch_cpu_ms", "structGaussianStreamingTypes_1_1SchedulerState.html#a338d88ad49a3815ad55797d89414039c", null ],
     [ "last_prefetch_enqueue_headroom_stall_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a7421ceeda0cee63bb72b860f63a2d971", null ],

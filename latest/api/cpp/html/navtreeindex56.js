@@ -1,5 +1,13 @@
 var NAVTREEINDEX56 =
 {
+"structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#aecf39d146e1c2ce519f55e936ac967ee":[1,0,17,1,5,0],
+"structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#aee8dcd54ccf07567120e17f9b8d4dbd2":[0,0,25,1,5,5],
+"structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#aee8dcd54ccf07567120e17f9b8d4dbd2":[1,0,17,1,5,5],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html":[0,0,25,1,3],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html":[1,0,17,1,3],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a1761d7b69e53e47080cb84d787f05ae9":[0,0,25,1,3,22],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a1761d7b69e53e47080cb84d787f05ae9":[1,0,17,1,3,22],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a1f312e89b27ee6c1adff93eac4b992d7":[0,0,25,1,3,1],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a1f312e89b27ee6c1adff93eac4b992d7":[1,0,17,1,3,1],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a20d219ce3ddeee825ce23db675ccd986":[0,0,25,1,3,26],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#a20d219ce3ddeee825ce23db675ccd986":[1,0,17,1,3,26],
@@ -241,13 +249,5 @@ var NAVTREEINDEX56 =
 "structgs__layout__hint_1_1LayoutHintIndexRange.html#a02d97168f5852a2e2e44153465355e39":[1,0,18,3,1],
 "structgs__layout__hint_1_1LayoutHintIndexRange.html#a61fc300dc94d87fa44ea6fd6845f3155":[0,0,26,3,0],
 "structgs__layout__hint_1_1LayoutHintIndexRange.html#a61fc300dc94d87fa44ea6fd6845f3155":[1,0,18,3,0],
-"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[0,0,26,3,2],
-"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[1,0,18,3,2],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html":[0,0,26,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html":[1,0,18,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a1adefadfc09f2507b423620e1c2549b7":[0,0,26,0,1],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a1adefadfc09f2507b423620e1c2549b7":[1,0,18,0,1],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a4220a6b7742387d69def5520d8f589ee":[0,0,26,0,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a4220a6b7742387d69def5520d8f589ee":[1,0,18,0,0],
-"structgs__layout__hint_1_1LayoutHintValidationFailure.html#ab015966e431b670c3b39e03fd241e681":[0,0,26,0,3]
+"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[0,0,26,3,2]
 };

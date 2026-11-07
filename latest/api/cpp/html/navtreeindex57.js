@@ -1,5 +1,13 @@
 var NAVTREEINDEX57 =
 {
+"structgs__layout__hint_1_1LayoutHintIndexRange.html#a8a948208dde75222b198132e758b41c7":[1,0,18,3,2],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html":[0,0,26,0],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html":[1,0,18,0],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a1adefadfc09f2507b423620e1c2549b7":[0,0,26,0,1],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a1adefadfc09f2507b423620e1c2549b7":[1,0,18,0,1],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a4220a6b7742387d69def5520d8f589ee":[0,0,26,0,0],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html#a4220a6b7742387d69def5520d8f589ee":[1,0,18,0,0],
+"structgs__layout__hint_1_1LayoutHintValidationFailure.html#ab015966e431b670c3b39e03fd241e681":[0,0,26,0,3],
 "structgs__layout__hint_1_1LayoutHintValidationFailure.html#ab015966e431b670c3b39e03fd241e681":[1,0,18,0,3],
 "structgs__layout__hint_1_1LayoutHintValidationFailure.html#ae7540cd0169d28b8bc84e10ee12c39d3":[0,0,26,0,2],
 "structgs__layout__hint_1_1LayoutHintValidationFailure.html#ae7540cd0169d28b8bc84e10ee12c39d3":[1,0,18,0,2],
@@ -241,13 +249,5 @@ var NAVTREEINDEX57 =
 "structgs__world__generator_1_1IRect.html#a799793aa08246a398f51beb91d3e6a4b":[1,0,24,2,5],
 "structgs__world__generator_1_1IRect.html#a7e9fcf885df2e5260e2724160fd15272":[0,0,34,2,0],
 "structgs__world__generator_1_1IRect.html#a7e9fcf885df2e5260e2724160fd15272":[1,0,24,2,0],
-"structgs__world__generator_1_1IRect.html#a8a429abf7bc6c5f23f6295cd917f53b4":[0,0,34,2,3],
-"structgs__world__generator_1_1IRect.html#a8a429abf7bc6c5f23f6295cd917f53b4":[1,0,24,2,3],
-"structgs__world__generator_1_1IRect.html#aa544624a778f3a8651a92b769dbb3e20":[0,0,34,2,6],
-"structgs__world__generator_1_1IRect.html#aa544624a778f3a8651a92b769dbb3e20":[1,0,24,2,6],
-"structgs__world__generator_1_1IRect.html#ad179309f7261a7543958f674fe3d57fb":[0,0,34,2,8],
-"structgs__world__generator_1_1IRect.html#ad179309f7261a7543958f674fe3d57fb":[1,0,24,2,8],
-"structgs__world__generator_1_1IRect.html#ae9c7c5b6b2848486399c0235c8169da8":[0,0,34,2,7],
-"structgs__world__generator_1_1IRect.html#ae9c7c5b6b2848486399c0235c8169da8":[1,0,24,2,7],
-"structgs__world__generator_1_1IRect.html#af0c4b138fa2d15759b2c8817b18c6f16":[0,0,34,2,2]
+"structgs__world__generator_1_1IRect.html#a8a429abf7bc6c5f23f6295cd917f53b4":[0,0,34,2,3]
 };

@@ -7527,6 +7527,13 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.</p>
 <td>until Step C</td>
 </tr>
 <tr>
+<td>BV-PRIO</td>
+<td>Residency priority: strict-frustum chunks first; padding and prefetch only in free capacity</td>
+<td>R2</td>
+<td>1</td>
+<td>until Step C</td>
+</tr>
+<tr>
 <td>BV-08b</td>
 <td><code>PayloadReadService</code> (positional reads, pool, pooled handles, cancellation)</td>
 <td>R3</td>
@@ -7542,6 +7549,24 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.</p>
 </tr>
 </tbody>
 </table></div>
+<p><strong>BV-PRIO (added after M1, run 42375402519).</strong> C0, C1, C6 and C7 never settled in either pass.
+The strict frustum needs 233–258 chunks at those poses and the cap is 320, but the route's needed
+set was the frustum <strong>with <code>chunk_frustum_padding</code> 1.5</strong>: 420–489 chunks. At each of the four
+poses <code>needed_unserved_chunks</code> is exactly that set minus the cap (100, 169, 121, 100); the four
+poses that settled have a padded set ≤ 260. Nothing told padding from demand, so:</p>
+<ul>
+<li>near padding chunks were admitted before far frustum chunks;</li>
+<li>the padded set could never be served, so <code>missing chunks = 0</code> (§7.3) could not become true;</li>
+<li>each load evicted another needed chunk for ever: 80–86 uploads/s at a static camera, 53 % of
+  all M1 uploads (23,407 of 44,060) fell in settle waits.</li>
+</ul>
+<p>Decision: a chunk is <strong>needed</strong> when it is inside the frustum without the padding and inside the
+load distance. Needed chunks rank first at admission and last at eviction. A padding chunk draws
+when resident but is not demand: it and prefetch take free capacity only (off-screen victims are
+free capacity), never evict a needed chunk or each other, and any needed load displaces them.
+<code>needed_chunks</code>, <code>needed_unserved_chunks</code>, and through them the §7.3 settle, now
+count the needed set, which is the set §6.4 ground truth computes. A needed set larger than the
+cap still evicts itself; the BV-08a detector reports that as thrash.</p>
 <h3 id="p2-compressed-chunk-world-m1c-then-hard-correctness-gates-m2">P2: compressed chunk world → <strong>M1c</strong>, then hard correctness gates → <strong>M2</strong><a class="headerlink" href="#p2-compressed-chunk-world-m1c-then-hard-correctness-gates-m2" title="Permanent link">¶</a></h3>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
