@@ -245,8 +245,8 @@ jobs:
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "${{ steps.godot_bin.outputs.path }}" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$BVW_OUT"
 
-      # BV-05 (not merged yet): exits 3 "NOT_RUN: generator entry point ... not
-      # available yet" until tests/runtime/flythrough/generate_world.py exists.
+      # BV-05 generator (tests/runtime/flythrough/generate_world.py). Exits 3
+      # "NOT_RUN: generator entry point ... not available yet" if it is absent.
       - name: Generate world(s) (BV-05 generator)
         id: generate
         if: ${{ !cancelled() && steps.build_info.outcome == 'success' }}
@@ -254,10 +254,11 @@ jobs:
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py generate --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
 
-      # BV-07 (not written yet): exits 3 "NOT_RUN: probe entry point ... not
-      # available yet" until tests/runtime/flythrough/run_probe.py exists. Runs
-      # even when generation failed, so its own absence is reported too; with
-      # no generated world it exits 3 for that reason instead.
+      # BV-07 probe lane (tests/runtime/flythrough/run_probe.py): fly-through,
+      # binary trace, settle pumps and the F/k drawn sweep on T0; its exit code
+      # (0 OK, 1 FAIL, 2 INVALID, 3 NOT_RUN) is passed on. Exits 3 "NOT_RUN:
+      # probe entry point ... not available yet" if the entry point is absent.
+      # Runs even when generation failed; with no generated world it exits 3.
       - name: Probe (BV-07 probe lane)
         if: ${{ !cancelled() && steps.build_info.outcome == 'success' }}
         timeout-minutes: 120

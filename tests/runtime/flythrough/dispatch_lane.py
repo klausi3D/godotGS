@@ -18,8 +18,8 @@ into a pass:
   space ``df`` reports for the world filesystem is below the worlds this run
   will generate, plus the disk-probe file, plus the ADR's enforced 25 GiB free
   margin. An unreadable ``df`` fails (exit 1); it is never read as "enough".
-* ``generate`` and ``probe`` call the BV-05 generator and the BV-07 probe. Both
-  are not merged yet. While their entry point is absent the step exits 3 with
+* ``generate`` and ``probe`` call the BV-05 generator and the BV-07 probe.
+  Should an entry point be absent, the step exits 3 with
   ``NOT_RUN: ... not available yet`` -- red in the run, never green. When the
   entry point exists, a zero exit that left no manifest / summary behind is a
   failure, not a pass.
@@ -31,8 +31,8 @@ into a pass:
 
 Exit codes follow ADR section 9.1: 0 OK, 1 FAIL, 3 NOT_RUN.
 
-Entry-point contract for the packages that are not merged yet (they may change
-it, but must change this file and its tests in the same PR):
+Entry-point contract of the generator and the probe (a change to either must
+change this file and its tests in the same PR):
 
 * BV-05: ``python3 tests/runtime/flythrough/generate_world.py --godot-binary B
   --tier {T0,A} --encoding plain_v3_uncompressed --out DIR`` writes the world
