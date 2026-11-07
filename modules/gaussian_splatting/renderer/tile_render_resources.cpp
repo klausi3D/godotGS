@@ -1500,12 +1500,17 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 			// I-6 (BV-10): the old sorter and buffers stay live through the replacement, and their
 			// free is deferred past the frames in flight, so the replacement must fit NEXT to them.
 			// Only a live replacement can peak at old + new.
+			// RadixSort may fall back to a narrower workgroup on this device (down to
+			// DEFAULT_WORKGROUP_SIZE), which grows its histograms. Charge the narrowest, so
+			// the pre-flight never approves less than the replacement can allocate.
+			const uint32_t preflight_workgroup_size = MIN(g_gpu_sorting_config.workgroup_size, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
 			auto preflight_elements = [&](uint32_t p_elements) {
 				return GaussianSplatting::overlap_resize_preflight(device->get_memory_usage(RD::MEMORY_TOTAL),
 						GPUSortingConstants::overlap_sort_total_bytes(uint64_t(p_elements), g_gpu_sorting_config.radix_bits,
-								g_gpu_sorting_config.workgroup_size, config_to_use.key_bits),
+								preflight_workgroup_size, config_to_use.key_bits),
 						device->get_device_memory_budget());
 			};
+			const uint32_t exact_resize_elements = resize_elements;
 			if (capacity_grow && p_growth_headroom) {
 				const uint32_t padded = GaussianSplatting::overlap_grow_target(resize_elements, capacity, overlap_hard_cap);
 				if (padded > resize_elements &&
@@ -1569,6 +1574,13 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 			} else {
 				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
 						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+				if (!created_sorter.is_valid() && resize_elements > exact_resize_elements) {
+					// The padding is optional (BV-10): a device limit it crosses (dispatch width,
+					// allocation) must not cost the grow itself. Retry at the exact request.
+					resize_elements = exact_resize_elements;
+					created_sorter = GPUSorterFactory::create_sorter(
+							GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
+				}
 				if (!created_sorter.is_valid()) {
 					handle_recreate_failure("Failed to create the global composite GPU sorter");
 				} else if (!created_sorter->supports_indirect()) {
