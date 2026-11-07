@@ -159,6 +159,13 @@ public:
 		}
 	}
 
+	// The HLOD bundles were released: their categories explain nothing any more. The chunk route keeps its own report.
+	void clear_hlod_reports() {
+		for (uint32_t i = 0; i < CATEGORY_COUNT; ++i) {
+			if (is_enforced(Category(i))) { live[i].store(0, std::memory_order_relaxed); }
+		}
+	}
+
 	// Pre-flight `p_bytes` not yet allocated. Replaces the category's own reservation, so a retry never stacks. True when
 	// it fits next to the measurement and the other categories' reservations. A refused reservation changes nothing but
 	// the refusal counter. An unconfigured ledger has limit 0 and refuses (fail closed). A report-only category always

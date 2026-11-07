@@ -1553,6 +1553,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     }
     release_hlod_bundle(state.hlod_canonical);
     release_hlod_bundle(state.hlod_relative);
+    state.device_vram_ledger.clear_hlod_reports();
     if (state.hlod_streamer.is_valid()) {
         state.hlod_streamer->shutdown(); // Waits for in-flight packers; nothing references the freed buffers.
         state.hlod_streamer.unref();

@@ -2,6 +2,9 @@
 
 #include "test_macros.h"
 
+// [VRAMBudgetRegulator] is the strict lane of run_module_tests.py: a case only under an unlisted tag lands in the advisory
+// [untagged] net, where a failure cannot fail CI.
+
 #include "../renderer/device_vram_ledger.h"
 #include "../renderer/resident_atlas_budget.h"
 
@@ -16,7 +19,7 @@ static void configure_1000(DeviceVramLedger &r_ledger) {
     REQUIRE(r_ledger.limit() == 1000);
 }
 
-TEST_CASE("[GaussianSplatting][DeviceVramLedger] limits are the published 0.60 share, floor and fallback") {
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] limits are the published 0.60 share, floor and fallback") {
     // 3080: 10 GiB of heap. 6 GiB of GS share, 2 GiB of atlas (the staging ceiling binds), 4 GiB of reserve.
     DeviceVramLedger ledger;
     const uint64_t heap = 10240 * kMiB;
@@ -39,7 +42,7 @@ TEST_CASE("[GaussianSplatting][DeviceVramLedger] limits are the published 0.60 s
     CHECK(ledger.limit() == uint64_t(double(heap) * 0.60));
 }
 
-TEST_CASE("[GaussianSplatting][DeviceVramLedger] the publication decision equals hlod_candidate_fits at the boundary") {
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] the publication decision equals hlod_candidate_fits at the boundary") {
     for (uint64_t device_bytes : { uint64_t(0), uint64_t(899), uint64_t(900), uint64_t(901), uint64_t(1000), uint64_t(1001) }) {
         for (uint64_t candidate : { uint64_t(0), uint64_t(99), uint64_t(100), uint64_t(101), uint64_t(1001) }) {
             DeviceVramLedger ledger;
@@ -51,7 +54,7 @@ TEST_CASE("[GaussianSplatting][DeviceVramLedger] the publication decision equals
     }
 }
 
-TEST_CASE("[GaussianSplatting][DeviceVramLedger] nothing is counted twice") {
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] nothing is counted twice") {
     DeviceVramLedger ledger;
     configure_1000(ledger);
 
@@ -82,7 +85,7 @@ TEST_CASE("[GaussianSplatting][DeviceVramLedger] nothing is counted twice") {
     CHECK(ledger.snapshot().unattributed_bytes == 150);
 }
 
-TEST_CASE("[GaussianSplatting][DeviceVramLedger] a release gives the bytes back on every path") {
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] a release gives the bytes back on every path") {
     DeviceVramLedger ledger;
     configure_1000(ledger);
     ledger.observe_device_bytes(400);
@@ -113,9 +116,16 @@ TEST_CASE("[GaussianSplatting][DeviceVramLedger] a release gives the bytes back 
     CHECK(ledger.headroom() == 0);
     ledger.observe_device_bytes(0);
     CHECK(ledger.headroom() == 1000);
+
+    // Released HLOD bundles leave no stale category behind; the chunk route keeps its report.
+    ledger.report(DeviceVramLedger::POOL, 100);
+    ledger.report(DeviceVramLedger::CHUNK_POOL, 50);
+    ledger.clear_hlod_reports();
+    CHECK(ledger.snapshot().live[DeviceVramLedger::POOL] == 0);
+    CHECK(ledger.snapshot().attributed_bytes == 50);
 }
 
-TEST_CASE("[GaussianSplatting][DeviceVramLedger] enforced on the HLOD route, report-only on the chunk route, fail closed") {
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][DeviceVramLedger] enforced on the HLOD route, report-only on the chunk route, fail closed") {
     DeviceVramLedger unconfigured;
     CHECK_FALSE(unconfigured.reserve(DeviceVramLedger::POOL, 1));
     unconfigured.report(DeviceVramLedger::CHUNK_POOL, 1000);
