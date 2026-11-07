@@ -3,8 +3,6 @@ var classGaussianSplatRenderer =
     [ "PipelineState", "structGaussianSplatRenderer_1_1PipelineState.html", "structGaussianSplatRenderer_1_1PipelineState" ],
     [ "RuntimeFidelityPolicy", "structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html", "structGaussianSplatRenderer_1_1RuntimeFidelityPolicy" ],
     [ "FrameBackendPlan", "structGaussianSplatRenderer_1_1FrameBackendPlan.html", "structGaussianSplatRenderer_1_1FrameBackendPlan" ],
-    [ "WorldSubmissionContract", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html", "structGaussianSplatRenderer_1_1WorldSubmissionContract" ],
-    [ "WorldSubmissionRuntimeStateSnapshot", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot" ],
     [ "ShadowRenderResult", "structGaussianSplatRenderer_1_1ShadowRenderResult.html", "structGaussianSplatRenderer_1_1ShadowRenderResult" ],
     [ "RenderFrameContext", "structGaussianSplatRenderer_1_1RenderFrameContext.html", "structGaussianSplatRenderer_1_1RenderFrameContext" ],
     [ "IFrameStateView", "classGaussianSplatRenderer_1_1IFrameStateView.html", "classGaussianSplatRenderer_1_1IFrameStateView" ],
@@ -68,6 +66,8 @@ var classGaussianSplatRenderer =
     [ "TextureTraceEntry", "classGaussianSplatRenderer.html#a76d2c91d0afb5238c663651ab25f7dd2", null ],
     [ "TileRendererState", "classGaussianSplatRenderer.html#abf084fae745bb3c4137d493ed0356ff3", null ],
     [ "ViewState", "classGaussianSplatRenderer.html#a5c763fd7cecdd53d0ba238818fabe6d7", null ],
+    [ "WorldSubmissionContract", "classGaussianSplatRenderer.html#a6860e9928bfe7b996cdc5249232e90e6", null ],
+    [ "WorldSubmissionRuntimeStateSnapshot", "classGaussianSplatRenderer.html#a8209d671452f1b1ea3bf8ccfa100eb11", null ],
     [ "DebugPreviewMode", "classGaussianSplatRenderer.html#a0f584f81c672dd61508c424ec60b1480", [
       [ "DEBUG_PREVIEW_OFF", "classGaussianSplatRenderer.html#a0f584f81c672dd61508c424ec60b1480a55cff3cb16474d1fd56142b69945895a", null ],
       [ "DEBUG_PREVIEW_WIREFRAME", "classGaussianSplatRenderer.html#a0f584f81c672dd61508c424ec60b1480a028cd897105e6529c58beba173bd774e", null ],

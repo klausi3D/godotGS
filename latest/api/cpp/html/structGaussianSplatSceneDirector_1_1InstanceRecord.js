@@ -1,0 +1,28 @@
+var structGaussianSplatSceneDirector_1_1InstanceRecord =
+[
+    [ "asset_id", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ae23dbc7687b3bde6d04dc308c2ed6b00", null ],
+    [ "casts_shadow", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#af859605b37bbb5e62df3eda661541321", null ],
+    [ "color_grading", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ac1e12b9823104543bbd41fa1e4be6eed", null ],
+    [ "desired_residency_hint", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ab5b68141d8275ddb6de30bf97ec6e460", null ],
+    [ "dirty", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a6136f6ef8394f0e3b29a3daecc5739d3", null ],
+    [ "effect_opacity_scale", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ad804c2c35bb8c7a7dc9c8b5a38b8f652", null ],
+    [ "effect_position_scale", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#aa02a4627825be0a45c6256d551da6e6e", null ],
+    [ "flags", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ab641d759e3b37adc6203f95dbfa527c1", null ],
+    [ "has_desired_residency_hint", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a5a376df7b643504e34ad5b6115f41ccb", null ],
+    [ "last_lod", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#aeabec469ddeaf1973d529909073e1bda", null ],
+    [ "lod_bias", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a51e877eec8599d9e463a19eb04f1165a", null ],
+    [ "node_id", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ac35de490fd7dc1ed76e9c8064c7a0fd7", null ],
+    [ "opacity", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a38b7af18c4e76e892abaf4392d0f9600", null ],
+    [ "scene_effector_layer_mask", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a699269292baae1551bbdda7f90d22fb0", null ],
+    [ "scene_effector_scope_filter_present", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a042700f9e9d20120cedfcbe28644cade", null ],
+    [ "scene_effector_scope_filter_valid", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#af88ae90f4fd12a28c814ada14b81f44f", null ],
+    [ "scene_effector_scope_root_id", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a730eb67349f4edae2a3c03e453ff8f04", null ],
+    [ "scene_effectors_enabled", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#abc12cdfc8dcad504a3afac03f26c3fea", null ],
+    [ "scene_tree_ancestor_ids", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a72725ce381edb81cf52f242865d156af", null ],
+    [ "transform", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a46ef0c6a4e3c160340e9c42383511a83", null ],
+    [ "visible", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a1afa8eb853bae6b763edb55cf1ffe59d", null ],
+    [ "wind_direction", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a7603a1533742f1553ee0216dce48c148", null ],
+    [ "wind_frequency", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#aa50c996abadfaae6f7f75f9d586bf387", null ],
+    [ "wind_intensity", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a4437c7659a41923ff82c884128e1ab1c", null ],
+    [ "wind_mode", "structGaussianSplatSceneDirector_1_1InstanceRecord.html#af99cf878bec4fce5d46818c24efe7743", null ]
+];

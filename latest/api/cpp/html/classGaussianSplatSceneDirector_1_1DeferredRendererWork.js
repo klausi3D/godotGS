@@ -14,9 +14,9 @@ var classGaussianSplatSceneDirector_1_1DeferredRendererWork =
     [ "get_entry_kind", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a40a4443b15f65b4007dc5aee52188d84", null ],
     [ "is_empty", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a72c2d1ffaf309cc394d099c6616abb85", null ],
     [ "operator=", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a62afebc538feca5b67973a9c13a7e044", null ],
-    [ "queue_apply", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a9624b8d174150162b956ade988f5c3ca", null ],
+    [ "queue_apply", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#ad87e95b6c17040873c3e79af1f1f0e6a", null ],
     [ "queue_initialize", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a2e87bfbac07eaa573d127f3647defcdc", null ],
-    [ "queue_restore", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#adfe954706efda76a4436c43341ee090b", null ],
-    [ "queue_restore_first", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a57ae8546d8fb1894964c725d6f7e0a77", null ],
+    [ "queue_restore", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a507cb3d2c4878ce4937ed3b00f9c3943", null ],
+    [ "queue_restore_first", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a18349cc3a863509ebe8210cc2d1f8d09", null ],
     [ "size", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#a3629874163aad2ee1d3f920a63f914ca", null ]
 ];

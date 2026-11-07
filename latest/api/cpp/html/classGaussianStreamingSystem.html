@@ -108,6 +108,7 @@ Collaboration diagram for GaussianStreamingSystem:</div>
 Public Types</h2></td></tr>
 <tr class="memitem:a88ab617b6312a13613cf8d99202ead4a" id="r_a88ab617b6312a13613cf8d99202ead4a"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a88ab617b6312a13613cf8d99202ead4a">ConfigOverrides</a> = <a class="el" href="structGaussianStreamingTypes_1_1ConfigOverrides.html">GaussianStreamingTypes::ConfigOverrides</a></td></tr>
 <tr class="memitem:a0833aef28ea30537bf12b8bafcf8ca5a" id="r_a0833aef28ea30537bf12b8bafcf8ca5a"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0833aef28ea30537bf12b8bafcf8ca5a">ChunkLayoutHint</a> = <a class="el" href="structGaussianStreamingTypes_1_1ChunkLayoutHint.html">GaussianStreamingTypes::ChunkLayoutHint</a></td></tr>
+<tr class="memitem:afa3ce57f51690b694d16a0b33cab48d6" id="r_afa3ce57f51690b694d16a0b33cab48d6"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afa3ce57f51690b694d16a0b33cab48d6">AnalyticsOverlay</a> = std::function&lt;void(Dictionary &amp;)&gt;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
@@ -136,6 +137,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ac1f2473e0099f0f392f216cced5edc4b" id="r_ac1f2473e0099f0f392f216cced5edc4b"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1f2473e0099f0f392f216cced5edc4b">get_visible_indices</a> () const</td></tr>
 <tr class="memitem:a7e813450c68df6cf8edebe647d41e36c" id="r_a7e813450c68df6cf8edebe647d41e36c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7e813450c68df6cf8edebe647d41e36c">begin_frame</a> ()</td></tr>
 <tr class="memitem:aaf777df34d4beeab0722d448f7b87afa" id="r_aaf777df34d4beeab0722d448f7b87afa"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf777df34d4beeab0722d448f7b87afa">end_frame</a> ()</td></tr>
+<tr class="memitem:a0d5ec2f3fbc4dd4049159d33114091f1" id="r_a0d5ec2f3fbc4dd4049159d33114091f1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0d5ec2f3fbc4dd4049159d33114091f1">end_frame_with_overlay</a> (<a class="el" href="#afa3ce57f51690b694d16a0b33cab48d6">AnalyticsOverlay</a> p_overlay)</td></tr>
+<tr class="memitem:a65e2123e05892093b2e185287243a682" id="r_a65e2123e05892093b2e185287243a682"><td class="memItemLeft" align="right" valign="top">std::shared_ptr&lt; <a class="el" href="classStreamingAnalyticsFrame.html">StreamingAnalyticsFrame</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a65e2123e05892093b2e185287243a682">get_analytics_frame</a> () const</td></tr>
 <tr class="memitem:a217730ba2716c395aa8c6a4279adcf20" id="r_a217730ba2716c395aa8c6a4279adcf20"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a217730ba2716c395aa8c6a4279adcf20">get_vram_usage</a> () const</td></tr>
 <tr class="memitem:afb0df4cf53fc5fd78801d0f38f94ead6" id="r_afb0df4cf53fc5fd78801d0f38f94ead6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afb0df4cf53fc5fd78801d0f38f94ead6">get_loaded_chunks</a> () const</td></tr>
 <tr class="memitem:ac0c086e6d4e4b7de67f98bba505d2540" id="r_ac0c086e6d4e4b7de67f98bba505d2540"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac0c086e6d4e4b7de67f98bba505d2540">get_pending_pack_jobs</a> ()</td></tr>
@@ -236,6 +239,20 @@ Friends</h2></td></tr>
 <tr class="memitem:ab15b3b32c3bab0c54f734c824290d718" id="r_ab15b3b32c3bab0c54f734c824290d718"><td class="memItemLeft" align="right" valign="top">class&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab15b3b32c3bab0c54f734c824290d718">StreamingGlobalAtlasRegistry</a></td></tr>
 </table>
 <a name="doc-typedef-members" id="doc-typedef-members"></a><h2 id="header-doc-typedef-members" class="groupheader">Member Typedef Documentation</h2>
+<a id="afa3ce57f51690b694d16a0b33cab48d6" name="afa3ce57f51690b694d16a0b33cab48d6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afa3ce57f51690b694d16a0b33cab48d6">&#9670;&#160;</a></span>AnalyticsOverlay</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="#afa3ce57f51690b694d16a0b33cab48d6">GaussianStreamingSystem::AnalyticsOverlay</a> = std::function&lt;void(Dictionary &amp;)&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a0833aef28ea30537bf12b8bafcf8ca5a" name="a0833aef28ea30537bf12b8bafcf8ca5a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a0833aef28ea30537bf12b8bafcf8ca5a">&#9670;&#160;</a></span>ChunkLayoutHint</h2>
 
@@ -498,6 +515,23 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a0d5ec2f3fbc4dd4049159d33114091f1" name="a0d5ec2f3fbc4dd4049159d33114091f1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0d5ec2f3fbc4dd4049159d33114091f1">&#9670;&#160;</a></span>end_frame_with_overlay()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianStreamingSystem::end_frame_with_overlay </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="#afa3ce57f51690b694d16a0b33cab48d6">AnalyticsOverlay</a></td>          <td class="paramname"><span class="paramname"><em>p_overlay</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a02a72be5a7366c4ff368a32792adcb1f" name="a02a72be5a7366c4ff368a32792adcb1f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a02a72be5a7366c4ff368a32792adcb1f">&#9670;&#160;</a></span>finalize_residency_requests()</h2>
 
@@ -509,6 +543,23 @@ Friends</h2></td></tr>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a65e2123e05892093b2e185287243a682" name="a65e2123e05892093b2e185287243a682"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a65e2123e05892093b2e185287243a682">&#9670;&#160;</a></span>get_analytics_frame()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::shared_ptr&lt; <a class="el" href="classStreamingAnalyticsFrame.html">StreamingAnalyticsFrame</a> &gt; GaussianStreamingSystem::get_analytics_frame </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">

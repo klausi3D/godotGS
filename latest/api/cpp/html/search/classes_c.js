@@ -9,7 +9,8 @@ var searchData=
   ['leafedit_6',['LeafEdit',['../structgs__hlod__runtime_1_1LeafEdit.html',1,'gs_hlod_runtime']]],
   ['ledger_7',['Ledger',['../structgs__hlod__runtime_1_1ViewSet_1_1Ledger.html',1,'gs_hlod_runtime::ViewSet']]],
   ['lodblendconfig_8',['LODBlendConfig',['../structLODBlendConfig.html',1,'']]],
-  ['lodconfig_9',['LODConfig',['../structLODConfig.html',1,'']]],
-  ['loddebugstats_10',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
-  ['lodstats_11',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]]
+  ['lodcacheowner_9',['LODCacheOwner',['../classGaussianSplatSceneDirector_1_1LODCacheOwner.html',1,'GaussianSplatSceneDirector']]],
+  ['lodconfig_10',['LODConfig',['../structLODConfig.html',1,'']]],
+  ['loddebugstats_11',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
+  ['lodstats_12',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]]
 ];

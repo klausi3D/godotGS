@@ -159,6 +159,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a098b22662c1da1f579a90ba4096ab9ec" id="r_a098b22662c1da1f579a90ba4096ab9ec"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__layout__hint_1_1LayoutHintValidationFailure.html">LayoutHintValidationFailure</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a098b22662c1da1f579a90ba4096ab9ec">_layout_hint_get_last_failure</a> (const <a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> *p_system, <a class="el" href="#a651c26a81d5b9e7ab63a9a4c31d1407d">LayoutHintUsage</a> p_usage)</td></tr>
 <tr class="memitem:a842df3b6af232c2369066af323749fe6" id="r_a842df3b6af232c2369066af323749fe6"><td class="memItemLeft" align="right" valign="top">String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a842df3b6af232c2369066af323749fe6">_layout_hint_record_failure</a> (const <a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> *p_system, <a class="el" href="#a651c26a81d5b9e7ab63a9a4c31d1407d">LayoutHintUsage</a> p_usage, const String &amp;p_context, bool p_strict_mode)</td></tr>
 <tr class="memitem:a1b739f39ae81fb00581876e8b117a8f7" id="r_a1b739f39ae81fb00581876e8b117a8f7"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b739f39ae81fb00581876e8b117a8f7">_layout_hint_build_snapshot</a> (const <a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> *p_system, bool p_strict_mode_enabled)</td></tr>
+<tr class="memitem:af34c6793ab2e0d74d4591a4bc7032631" id="r_af34c6793ab2e0d74d4591a4bc7032631"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af34c6793ab2e0d74d4591a4bc7032631">_layout_hint_build_snapshot_from_counters</a> (const <a class="el" href="structgs__layout__hint_1_1LayoutHintFailureCounters.html">LayoutHintFailureCounters</a> *p_counters, bool p_strict_mode_enabled)</td></tr>
 <tr class="memitem:ab1afb2243095c1eaa0e1ad1f872e4ebf" id="r_ab1afb2243095c1eaa0e1ad1f872e4ebf"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab1afb2243095c1eaa0e1ad1f872e4ebf">_validate_layout_hint_ranges</a> (const Vector&lt; <a class="el" href="classGaussianStreamingSystem.html#a0833aef28ea30537bf12b8bafcf8ca5a">GaussianStreamingSystem::ChunkLayoutHint</a> &gt; &amp;p_hints, uint32_t p_index_space_count, bool p_use_source_offsets, bool p_require_remapped, bool p_forbid_remapped, bool p_allow_oversized_hints, <a class="el" href="structgs__layout__hint_1_1LayoutHintValidationFailure.html">LayoutHintValidationFailure</a> &amp;r_failure, uint64_t &amp;r_total_hint_count, uint64_t &amp;r_required_chunk_count, bool &amp;r_saw_oversized_hint)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
@@ -277,6 +278,27 @@ Variables</h2></td></tr>
           <td class="memname">Dictionary gs_layout_hint::_layout_hint_build_snapshot </td>
           <td>(</td>
           <td class="paramtype">const <a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> *</td>          <td class="paramname"><span class="paramname"><em>p_system</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_strict_mode_enabled</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af34c6793ab2e0d74d4591a4bc7032631" name="af34c6793ab2e0d74d4591a4bc7032631"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af34c6793ab2e0d74d4591a4bc7032631">&#9670;&#160;</a></span>_layout_hint_build_snapshot_from_counters()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Dictionary gs_layout_hint::_layout_hint_build_snapshot_from_counters </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__layout__hint_1_1LayoutHintFailureCounters.html">LayoutHintFailureCounters</a> *</td>          <td class="paramname"><span class="paramname"><em>p_counters</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>

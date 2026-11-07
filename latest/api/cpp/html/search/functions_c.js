@@ -38,5 +38,7 @@ var searchData=
   ['merge_5fchildren_5fto_5fnode_35',['merge_children_to_node',['../classGaussianSplatContainer.html#a359dd9bdf0b3e89bbda8d53be6f02924',1,'GaussianSplatContainer']]],
   ['merge_5fincremental_5ffiles_36',['merge_incremental_files',['../classGaussianSplatting_1_1GaussianIncrementalSaver.html#a621edfe9eacfd33a7c1198e910410991',1,'GaussianSplatting::GaussianIncrementalSaver']]],
   ['merged_5fcount_5fat_5feps_37',['merged_count_at_eps',['../namespacegs__hlod.html#a5febf4bb4df59dc14cc51315d8749c30',1,'gs_hlod']]],
-  ['mode_5fname_38',['mode_name',['../namespacegs__sort__policy.html#a20ac2f4740864fb94f1631ddeb8640fc',1,'gs_sort_policy']]]
+  ['mode_5fname_38',['mode_name',['../namespacegs__sort__policy.html#a20ac2f4740864fb94f1631ddeb8640fc',1,'gs_sort_policy']]],
+  ['mutable_5frecord_39',['mutable_record',['../classGaussianSplatSceneDirector_1_1SubmissionStore.html#a19e59063f565ff11ccfa17346c0c82b7',1,'GaussianSplatSceneDirector::SubmissionStore']]],
+  ['mutable_5frecords_40',['mutable_records',['../classGaussianSplatSceneDirector_1_1InstanceStore.html#a6a2b813e939fff857ed5dce6d9d59f05',1,'GaussianSplatSceneDirector::InstanceStore']]]
 ];

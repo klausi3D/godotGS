@@ -28,7 +28,7 @@ var searchData=
   ['upload_5fframe_5fcap_5fhit_25',['upload_frame_cap_hit',['../structStreamingQueuePressureController_1_1PressureSample.html#a46a1c1aea2b9ae6fa780ed3220443f85',1,'StreamingQueuePressureController::PressureSample']]],
   ['upload_5fframe_5fcap_5fhit_5fthis_5fframe_26',['upload_frame_cap_hit_this_frame',['../classStreamingUploadPipeline.html#aea89512b294e464bd656f5e99634e378',1,'StreamingUploadPipeline']]],
   ['upload_5fframe_5fdelay_27',['upload_frame_delay',['../structGaussianMemoryStream_1_1StreamBuffer.html#a94497968af26bfd4b6f3ceb3308367a3',1,'GaussianMemoryStream::StreamBuffer']]],
-  ['upload_5flatency_28',['upload_latency',['../structStreamingUploadPipeline_1_1PackTelemetry.html#a6515f94313a9013d5d156591b9c00a9c',1,'StreamingUploadPipeline::PackTelemetry']]],
+  ['upload_5flatency_28',['upload_latency',['../classStreamingAnalyticsFrame.html#aeb72d48d0eb03904b4c6965aad916c83',1,'StreamingAnalyticsFrame::upload_latency'],['../structStreamingUploadPipeline_1_1PackTelemetry.html#a6515f94313a9013d5d156591b9c00a9c',1,'StreamingUploadPipeline::PackTelemetry::upload_latency']]],
   ['upload_5flifecycle_5fstate_29',['upload_lifecycle_state',['../structGaussianStreamingTypes_1_1StreamingChunk.html#a23e3ef346b348ccd6a675105fb87cd1b',1,'GaussianStreamingTypes::StreamingChunk']]],
   ['upload_5fmb_5fper_5fframe_30',['upload_mb_per_frame',['../structgs__tier__cap_1_1StreamingTierCapPolicy.html#ad79aa19395b1594579d1a2a1a1b7af74',1,'gs_tier_cap::StreamingTierCapPolicy']]],
   ['upload_5fmb_5fper_5fsecond_31',['upload_mb_per_second',['../structgs__tier__cap_1_1StreamingTierCapPolicy.html#aaa411225d1339f8f12b5d0945739072f',1,'gs_tier_cap::StreamingTierCapPolicy']]],

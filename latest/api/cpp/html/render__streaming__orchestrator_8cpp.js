@@ -1,5 +1,6 @@
 var render__streaming__orchestrator_8cpp =
 [
+    [ "StaticLayoutFallbackSnapshot", "structStaticLayoutFallbackSnapshot.html", "structStaticLayoutFallbackSnapshot" ],
     [ "OwnerMismatchRemediationResult", "structOwnerMismatchRemediationResult.html", "structOwnerMismatchRemediationResult" ],
     [ "InstanceBackendPolicy", "render__streaming__orchestrator_8cpp.html#af806bb02c3384ecc939b8842025323b9", null ],
     [ "InstancePipelineBuffers", "render__streaming__orchestrator_8cpp.html#a52cbb0a7c6d45306dc309d41c3c989e4", null ],

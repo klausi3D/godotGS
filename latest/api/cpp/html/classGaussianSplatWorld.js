@@ -5,7 +5,7 @@ var classGaussianSplatWorld =
     [ "bake_hlod", "classGaussianSplatWorld.html#a759414d234b410db3dfa189842b9a230", null ],
     [ "bake_hlod_offline", "classGaussianSplatWorld.html#a36ef3a9a8284c034f63d1e1f47d64340", null ],
     [ "capture_hlod_runtime_snapshot", "classGaussianSplatWorld.html#abd2ad5c3ef475d9c4ec20e591422f1cc", null ],
-    [ "capture_render_input", "classGaussianSplatWorld.html#ad0863506899c5af9ea5b37c1f88861f2", null ],
+    [ "capture_render_input", "classGaussianSplatWorld.html#ad9aed3e23c79004eb6632afb1dbadc6d", null ],
     [ "clear", "classGaussianSplatWorld.html#acbc5efe173e7d3dadca6cf2137856569", null ],
     [ "copy_from", "classGaussianSplatWorld.html#a6e9fe19e2518e3d32dd4d3d85bb86d31", null ],
     [ "get_2d_mode", "classGaussianSplatWorld.html#a03686ecae8ef19c968a36adc51a4d19b", null ],
@@ -27,7 +27,7 @@ var classGaussianSplatWorld =
     [ "get_sh_first_order_count", "classGaussianSplatWorld.html#a247f1583c5d71910cae69462371d2f22", null ],
     [ "get_sh_high_order_count", "classGaussianSplatWorld.html#a2ae7efdaa2b4966e73463d3a5182cb57", null ],
     [ "get_splat_count", "classGaussianSplatWorld.html#a59ec530eccc905922d44bdef272a35ec", null ],
-    [ "get_static_chunks", "classGaussianSplatWorld.html#a1e3ed57a795991b7efc1b7b8f0f09beb", null ],
+    [ "get_static_chunks", "classGaussianSplatWorld.html#a6810948383154cc06e648c37deb59a51", null ],
     [ "has_chunk_payload_source", "classGaussianSplatWorld.html#ac9560e6f948a80cb9f60f051686e65db", null ],
     [ "has_hlod_paged_source", "classGaussianSplatWorld.html#af46cf2e34472ae17cf4a8b033e965ce3", null ],
     [ "has_hlod_tree", "classGaussianSplatWorld.html#a0c02d079673915d694bf2d07d540441c", null ],
@@ -48,5 +48,5 @@ var classGaussianSplatWorld =
     [ "set_hlod_tree", "classGaussianSplatWorld.html#a6ef04a7a32fa2283f352210345bec52d", null ],
     [ "set_metadata", "classGaussianSplatWorld.html#a7b04e560ed87faa07003739fa1ecf629", null ],
     [ "set_payload_metadata", "classGaussianSplatWorld.html#a8daa3127255ef55a1e128f13fc67f4f0", null ],
-    [ "set_static_chunks", "classGaussianSplatWorld.html#a87ef60d1918a3fce39165c88e84f74dc", null ]
+    [ "set_static_chunks", "classGaussianSplatWorld.html#ad702da791498b7270b64a22c51b3ff9f", null ]
 ];

@@ -39,6 +39,7 @@ var namespacegs__layout__hint =
       [ "PRIMARY", "namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407da428429ba9ea83e4841036fb0508fd6dc", null ]
     ] ],
     [ "_layout_hint_build_snapshot", "namespacegs__layout__hint.html#a1b739f39ae81fb00581876e8b117a8f7", null ],
+    [ "_layout_hint_build_snapshot_from_counters", "namespacegs__layout__hint.html#af34c6793ab2e0d74d4591a4bc7032631", null ],
     [ "_layout_hint_category_code", "namespacegs__layout__hint.html#a4de1afb753919ec9e1e8859b388573fd", null ],
     [ "_layout_hint_clear_last_failure", "namespacegs__layout__hint.html#a92ce0d634db6e438aa54ad8fe4396c52", null ],
     [ "_layout_hint_failure_detail", "namespacegs__layout__hint.html#aa151eea2f9a5b774b34edeab1fe505bc", null ],

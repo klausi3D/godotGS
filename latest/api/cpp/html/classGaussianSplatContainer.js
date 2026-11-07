@@ -12,7 +12,7 @@ var classGaussianSplatContainer =
     [ "get_hide_children_after_merge", "classGaussianSplatContainer.html#a121e39bf71bd9a47c42ab1c99b1c2b80", null ],
     [ "get_merged_bounds", "classGaussianSplatContainer.html#ad7fab994b681d514adbac0b7fdc337d0", null ],
     [ "get_merged_data", "classGaussianSplatContainer.html#a577c3470da5fa1818362fc15400b240d", null ],
-    [ "get_static_chunks", "classGaussianSplatContainer.html#aa6bcd155a932d5108a5af46228fe00f6", null ],
+    [ "get_static_chunks", "classGaussianSplatContainer.html#a1bf55fc73b54a1a5dd94cf4d5f17a526", null ],
     [ "get_target_node_path", "classGaussianSplatContainer.html#a1b20baac5b4a9125d7d641ca01dddabf", null ],
     [ "is_apply_to_target_on_merge", "classGaussianSplatContainer.html#a56a7b7ad5f690f35694e085191d7bcba", null ],
     [ "is_merge_on_ready", "classGaussianSplatContainer.html#a9a39a7e436df5c3f99c49f6835890916", null ],

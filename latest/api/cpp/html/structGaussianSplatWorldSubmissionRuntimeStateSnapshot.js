@@ -1,0 +1,27 @@
+var structGaussianSplatWorldSubmissionRuntimeStateSnapshot =
+[
+    [ "async_upload_enabled", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a9e14fa67b9a708b1ab7ec23e3d71382c", null ],
+    [ "desired_residency_hint", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#afd624019d019e53b320393d7c85531d4", null ],
+    [ "frustum_culling", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a19425691ad33c33071a0e45f470e6f78", null ],
+    [ "gaussian_data", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a444dc7b4184948c5496e46cc193251ab", null ],
+    [ "has_active_world_submission", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a5df852f2c9c460cc377425a015c20fc5", null ],
+    [ "has_desired_residency_hint", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a283f9c0bacce58674c99c80e49c4f666", null ],
+    [ "hlod_owner_key", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a9c147b28433e7ab1d15c33da9b390626", null ],
+    [ "hlod_reason", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a339be0277dc67580206edfef31e3b1a9", null ],
+    [ "hlod_snapshot", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a3585a56b89ea52f88300686d78ff764c", null ],
+    [ "hlod_tau_px", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a9e733d86da31732ef9f20b11305efab4", null ],
+    [ "hlod_world_key", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a8d22c7dad5d70ceba48da6a5ecf58057", null ],
+    [ "lod_bias", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a019a03346968d689a745f767cd8d31b2", null ],
+    [ "lod_enabled", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a95312665138221a03fd55e2072e60a11", null ],
+    [ "lod_max_distance", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a93604dddb00c06d7d92086f17a7d743b", null ],
+    [ "max_splats", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a7996d82523692a10cb68633b87cdecc3", null ],
+    [ "opacity_multiplier", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#aaca7a0087450bab1f95692fbadb19e64", null ],
+    [ "payload_source", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#af6f3cdc8be9f57bd7f462dfd31ca4da6", null ],
+    [ "payload_source_bounds", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a8b10ae273687175ed6a9f6ab997bd41e", null ],
+    [ "payload_source_sh_degree", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#aa48664f39b79c319533ff9f3ff062370", null ],
+    [ "payload_source_splat_count", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#aae4b01d3176615fd7698e0474b46b8e8", null ],
+    [ "static_chunks", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#ab77b896f68857d726fb0dc9497f00278", null ],
+    [ "streaming_overrides", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#aa64f4f326a1f860b298e274a2e5275ec", null ],
+    [ "valid", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a15c40d1598e523bb10c4b53e598da4aa", null ],
+    [ "view_max_splats", "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a5fb72aa63ceb453581f3fa327fe1615d", null ]
+];

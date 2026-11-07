@@ -29,7 +29,7 @@ var searchData=
   ['node_5fcenter_5fy_26',['node_center_y',['../structChunkMetaGPU.html#a14b72333c9fec7d738683c88b46eb597',1,'ChunkMetaGPU']]],
   ['node_5fcenter_5fz_27',['node_center_z',['../structChunkMetaGPU.html#a58444848be4234f18b34a77843c364c0',1,'ChunkMetaGPU']]],
   ['node_5fcount_28',['node_count',['../structGaussianSplatHlodPagedSource_1_1Info.html#a149e4fa8b2885d9c447b9bbc0cc5cadd',1,'GaussianSplatHlodPagedSource::Info']]],
-  ['node_5fid_29',['node_id',['../structGaussianSplatSceneDirector_1_1InstanceSubmission.html#a72b83d2fbc68fabbbfe589d8c6f68b20',1,'GaussianSplatSceneDirector::InstanceSubmission']]],
+  ['node_5fid_29',['node_id',['../structGaussianSplatSceneDirector_1_1InstanceSubmission.html#a72b83d2fbc68fabbbfe589d8c6f68b20',1,'GaussianSplatSceneDirector::InstanceSubmission::node_id'],['../structGaussianSplatSceneDirector_1_1InstanceRecord.html#ac35de490fd7dc1ed76e9c8064c7a0fd7',1,'GaussianSplatSceneDirector::InstanceRecord::node_id']]],
   ['node_5flast_5fupdate_5fms_30',['node_last_update_ms',['../structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a82a73660310b69f9591a904cec93e37f',1,'GaussianSplatPerformanceOverlay::ReportInputs']]],
   ['node_5fmax_5fsplats_31',['node_max_splats',['../structgs__hlod_1_1InteriorBakeParams.html#aa19f6cb231cdbc21309cb5e349558f9f',1,'gs_hlod::InteriorBakeParams']]],
   ['node_5ftotal_5fsplats_32',['node_total_splats',['../structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a6bfc3b3db14924b0bf002facffce0465',1,'GaussianSplatPerformanceOverlay::ReportInputs']]],

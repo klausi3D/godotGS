@@ -1,5 +1,6 @@
 var classGaussianStreamingSystem =
 [
+    [ "AnalyticsOverlay", "classGaussianStreamingSystem.html#afa3ce57f51690b694d16a0b33cab48d6", null ],
     [ "ChunkLayoutHint", "classGaussianStreamingSystem.html#a0833aef28ea30537bf12b8bafcf8ca5a", null ],
     [ "ConfigOverrides", "classGaussianStreamingSystem.html#a88ab617b6312a13613cf8d99202ead4a", null ],
     [ "GaussianStreamingSystem", "classGaussianStreamingSystem.html#ae355d42ab246f1f7e4f1f6f04c104bd5", null ],
@@ -12,7 +13,9 @@ var classGaussianStreamingSystem =
     [ "clear_config_overrides", "classGaussianStreamingSystem.html#a08f498a4096803913c9cb2331dce0517", null ],
     [ "detach_source_data", "classGaussianStreamingSystem.html#a4d35097da2a9c973021e6c4d0af3809c", null ],
     [ "end_frame", "classGaussianStreamingSystem.html#aaf777df34d4beeab0722d448f7b87afa", null ],
+    [ "end_frame_with_overlay", "classGaussianStreamingSystem.html#a0d5ec2f3fbc4dd4049159d33114091f1", null ],
     [ "finalize_residency_requests", "classGaussianStreamingSystem.html#a02a72be5a7366c4ff368a32792adcb1f", null ],
+    [ "get_analytics_frame", "classGaussianStreamingSystem.html#a65e2123e05892093b2e185287243a682", null ],
     [ "get_asset_chunk_index_buffer", "classGaussianStreamingSystem.html#ab0bf438c66a1fed9b46b4cade22034a3", null ],
     [ "get_asset_meta_buffer", "classGaussianStreamingSystem.html#aee19395cb48bbf56b60397a89f1115e7", null ],
     [ "get_atlas_gaussian_buffer", "classGaussianStreamingSystem.html#a270e8e6f658dfbdc82f6471130c350f2", null ],

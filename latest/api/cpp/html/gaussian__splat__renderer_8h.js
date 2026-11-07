@@ -5,8 +5,6 @@ var gaussian__splat__renderer_8h =
     [ "GaussianSplatRenderer::PipelineState", "structGaussianSplatRenderer_1_1PipelineState.html", "structGaussianSplatRenderer_1_1PipelineState" ],
     [ "GaussianSplatRenderer::RuntimeFidelityPolicy", "structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html", "structGaussianSplatRenderer_1_1RuntimeFidelityPolicy" ],
     [ "GaussianSplatRenderer::FrameBackendPlan", "structGaussianSplatRenderer_1_1FrameBackendPlan.html", "structGaussianSplatRenderer_1_1FrameBackendPlan" ],
-    [ "GaussianSplatRenderer::WorldSubmissionContract", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html", "structGaussianSplatRenderer_1_1WorldSubmissionContract" ],
-    [ "GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html", "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot" ],
     [ "GaussianSplatRenderer::ShadowRenderResult", "structGaussianSplatRenderer_1_1ShadowRenderResult.html", "structGaussianSplatRenderer_1_1ShadowRenderResult" ],
     [ "GaussianSplatRenderer::RenderFrameContext", "structGaussianSplatRenderer_1_1RenderFrameContext.html", "structGaussianSplatRenderer_1_1RenderFrameContext" ],
     [ "GaussianSplatRenderer::RenderFrameContext::FrameDeps", "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html", "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps" ],

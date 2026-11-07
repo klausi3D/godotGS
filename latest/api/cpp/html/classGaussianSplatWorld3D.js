@@ -1,5 +1,7 @@
 var classGaussianSplatWorld3D =
 [
+    [ "GaussianSplatWorld3D", "classGaussianSplatWorld3D.html#a5b11f711df4b599db7d91b35a80bad5a", null ],
+    [ "~GaussianSplatWorld3D", "classGaussianSplatWorld3D.html#a00f5df37fa6d5b6a5c2a6dc8db3eb193", null ],
     [ "_notification", "classGaussianSplatWorld3D.html#a0ae6821f6aba613ecc5495f82f17b3b5", null ],
     [ "apply_world", "classGaussianSplatWorld3D.html#a98fd0175989cbfb7b0163eef7b5127cf", null ],
     [ "clear_world", "classGaussianSplatWorld3D.html#a2b98b71f7837ba9cd3fa9ed84b06ef69", null ],
