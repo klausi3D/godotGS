@@ -600,6 +600,11 @@ RasterStats TileRasterizer::get_render_stats() const {
     stats.overlap_record_budget = renderer_stats.overlap_record_budget;
     stats.overlap_record_budget_effective = renderer_stats.overlap_record_budget_effective;
     stats.overlap_record_budget_configured = renderer_stats.overlap_record_budget_configured;
+    stats.overlap_sort_capacity = renderer_stats.overlap_sort_capacity;
+    stats.overlap_sort_capacity_high_water = renderer_stats.overlap_sort_capacity_high_water;
+    stats.overlap_sort_bytes = renderer_stats.overlap_sort_bytes;
+    stats.overlap_sort_resize_peak_bytes = renderer_stats.overlap_sort_resize_peak_bytes;
+    stats.overlap_sort_resize_preflight_refusals = renderer_stats.overlap_sort_resize_preflight_refusals;
     stats.overlap_thinning_keep_ratio = renderer_stats.overlap_thinning_keep_ratio;
     stats.occupancy_ratio = renderer_stats.density_metrics.occupancy_ratio;
     stats.dense_ratio = renderer_stats.density_metrics.dense_ratio;

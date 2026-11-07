@@ -181,6 +181,11 @@ static Array _production_metrics_contract() {
 	keys.push_back("raster_overlap_record_budget");
 	keys.push_back("raster_overlap_record_budget_effective");
 	keys.push_back("raster_overlap_record_budget_configured");
+	keys.push_back("raster_overlap_sort_capacity");
+	keys.push_back("raster_overlap_sort_capacity_high_water");
+	keys.push_back("raster_overlap_sort_bytes");
+	keys.push_back("raster_overlap_sort_resize_peak_bytes");
+	keys.push_back("raster_overlap_sort_resize_preflight_refusals");
 	keys.push_back("raster_overlap_thinning_keep_ratio");
 	keys.push_back("raster_feature_global_sort");
 	keys.push_back("raster_feature_packed_stage_data");
@@ -240,6 +245,11 @@ static void _append_raster_specialization_metrics(const GaussianSplatRenderer::P
 	r_metrics["raster_overlap_record_budget"] = static_cast<int64_t>(p_perf.raster_overlap_record_budget);
 	r_metrics["raster_overlap_record_budget_effective"] = static_cast<int64_t>(p_perf.raster_overlap_record_budget_effective);
 	r_metrics["raster_overlap_record_budget_configured"] = static_cast<int64_t>(p_perf.raster_overlap_record_budget_configured);
+	r_metrics["raster_overlap_sort_capacity"] = static_cast<int64_t>(p_perf.raster_overlap_sort_capacity);
+	r_metrics["raster_overlap_sort_capacity_high_water"] = static_cast<int64_t>(p_perf.raster_overlap_sort_capacity_high_water);
+	r_metrics["raster_overlap_sort_bytes"] = static_cast<int64_t>(p_perf.raster_overlap_sort_bytes);
+	r_metrics["raster_overlap_sort_resize_peak_bytes"] = static_cast<int64_t>(p_perf.raster_overlap_sort_resize_peak_bytes);
+	r_metrics["raster_overlap_sort_resize_preflight_refusals"] = static_cast<int64_t>(p_perf.raster_overlap_sort_resize_preflight_refusals);
 	r_metrics["raster_overlap_thinning_keep_ratio"] = p_perf.raster_overlap_thinning_keep_ratio;
 	r_metrics["raster_feature_global_sort"] = p_perf.raster_feature_global_sort;
 	r_metrics["raster_feature_packed_stage_data"] = p_perf.raster_feature_packed_stage_data;
