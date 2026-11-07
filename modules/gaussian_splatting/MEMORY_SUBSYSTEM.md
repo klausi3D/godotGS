@@ -61,9 +61,16 @@ Streaming path
 
 ### GaussianStreamingSystem + VRAMBudgetRegulator (budgeting)
 - **Files**: `core/gaussian_streaming.h`, `core/gaussian_streaming.cpp`
-- **Role**: Owns VRAM budget policy and eviction/LOD decisions. This is the **only** place that regulates VRAM budgets.
+- **Role**: Owns the chunk route's budget policy and eviction/LOD decisions. This is the **only** place that regulates the chunk budget. It reports its footprint to the `DeviceVramLedger` below, which does not act on it yet.
 - **Key structs**: `VRAMBudgetConfig`, `VRAMBudgetRegulator`, `BudgetState`.
 - **Persistent buffer sizing**: see [Persistent Buffer Right-Sizing](#persistent-buffer-right-sizing) below.
+
+### DeviceVramLedger (the device ledger, BV-11)
+- **Files**: `renderer/device_vram_ledger.h`; one instance in the renderer's resource state, fed by `renderer/resident_instance_contract_publisher.cpp`.
+- **Role**: The only owner of the GS share of the device heap (0.60), the resident atlas limit, the measured device bytes the HLOD route is admitted against, and their split by category. ADR `docs/architecture/adr-beyond-vram-worlds.md` D-11.
+- **Counting**: `observe_device_bytes()` is the admission basis. `report(cat, bytes)` replaces and only explains that measurement. `reserve(cat, bytes)` pre-flights what is not allocated yet. Nothing is counted twice.
+- **Enforcement**: Enforced on the HLOD route. Report-only on the chunk route until Step C: `CHUNK_POOL` never refuses and only counts `report_only_overruns`.
+- **Diagnostics**: `device_vram_ledger` in the debug stats. `hlod_owned_byte_upper_bound` and its aliases read the ledger.
 
 ## Budget Configuration Flow
 

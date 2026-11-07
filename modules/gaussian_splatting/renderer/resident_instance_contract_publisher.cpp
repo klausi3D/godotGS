@@ -18,6 +18,7 @@
 #include "tile_renderer.h"
 #include "core/os/os.h"
 #include "../resources/color_grading_resource.h"
+#include "gs_shadow_caster.h"
 #include "resident_atlas_budget.h"
 #include "../core/gs_project_settings.h"
 #include "core/config/project_settings.h"
@@ -199,6 +200,12 @@ static bool _upload_typed_storage_buffer(GaussianSplatRenderer *p_renderer, Rend
 	return true;
 }
 
+// The one read of the device heap for the budgets of this file. The ledger owns the limits (renderer/device_vram_ledger.h).
+DeviceVramLedger &refresh_device_vram_ledger(GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd, uint64_t p_limit_clamp = 0) {
+    p_state.device_vram_ledger.configure(p_rd->get_device_memory_budget(), GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, p_limit_clamp);
+    return p_state.device_vram_ledger;
+}
+
 } // namespace
 
 namespace ResidentInstanceContractPublisher {
@@ -293,11 +300,10 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 	// budget (or an explicit project override) and pack an importance-ordered subset below
 	// instead. Unknown/UMA budgets and capable GPUs resolve to the 2 GB staging ceiling, so
 	// the effective cap == the staging ceiling and nothing below changes.
-	const uint64_t device_budget_bytes = rd->get_device_memory_budget();
 	const uint32_t resident_atlas_override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(),
 			"rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
 	const uint64_t effective_atlas_cap_bytes =
-			ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget_bytes, resident_atlas_override_mb);
+			refresh_device_vram_ledger(p_renderer->get_resource_state(), rd).atlas_limit(resident_atlas_override_mb);
 
 	// The edited world's own data is the UNEDITED one: omitted from the canonical atlas (F-2), the rest of the scene stays.
 	const Ref<GaussianData> primary_data = omit_edited_world ? Ref<GaussianData>() : p_renderer->get_scene_state().gaussian_data;
@@ -1547,6 +1553,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     }
     release_hlod_bundle(state.hlod_canonical);
     release_hlod_bundle(state.hlod_relative);
+    state.device_vram_ledger.clear_hlod_reports();
     if (state.hlod_streamer.is_valid()) {
         state.hlod_streamer->shutdown(); // Waits for in-flight packers; nothing references the freed buffers.
         state.hlod_streamer.unref();
@@ -1644,9 +1651,9 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
                 GaussianSplatting::InstancePipelineContract::first_raster_violation(ready) != InvariantViolationReason::NONE) { return false; }
     }
     const uint64_t budget = rd->get_device_memory_budget();
-    const uint64_t limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+    const uint64_t limit = DeviceVramLedger::gs_limit_for_device(budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
-    const uint64_t atlas_limit = ResidentAtlasBudget::compute_effective_atlas_cap_bytes(budget, override_mb);
+    const uint64_t atlas_limit = DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
     uint64_t bytes = 0;
     return ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + region.records) *
                     (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
@@ -1870,16 +1877,49 @@ static uint64_t hlod_view_reservation_bytes(uint32_t p_world_nodes, uint32_t p_v
     return one != 0 && p_views > UINT64_MAX / one ? UINT64_MAX : one * p_views;
 }
 
+// The HLOD frame route's limit. Only the frame route honours the test override; a publication does not.
 static uint64_t hlod_route_limit_bytes(GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd) {
-    uint64_t limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(p_rd->get_device_memory_budget(),
-            GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+    uint64_t limit_clamp = 0;
 #ifdef TESTS_ENABLED
-    const uint64_t limit_override = p_state.hlod_test_route_limit_override.load(std::memory_order_acquire);
-    if (limit_override != 0) { limit = MIN(limit, limit_override); }
-#else
-    (void)p_state;
+    limit_clamp = p_state.hlod_test_route_limit_override.load(std::memory_order_acquire);
 #endif
-    return limit;
+    return refresh_device_vram_ledger(p_state, p_rd, limit_clamp).limit();
+}
+
+// The category split of the measured device bytes, once the frame is admitted. It only explains the measurement: what it
+// misses stays unattributed, and no admission reads it.
+static void report_hlod_ledger_categories(GaussianRenderFacadeState::ResourceState &p_state, const GaussianSplatHlodRuntimeData &p_input,
+        const TileRenderer &p_tile, uint64_t p_textures, const SortBufferHandles &p_sort, uint64_t p_shadow_caster_bytes) {
+    DeviceVramLedger &ledger = p_state.device_vram_ledger;
+    const uint64_t stride = g_quantization_config.per_chunk_quantization ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+    const bool has_canonical = p_state.hlod_canonical.bytes != 0;
+    const uint64_t relative_world_records = p_state.hlod_streaming ? uint64_t(p_state.hlod_stream_atlas_records) :
+            uint64_t(p_input.leaf_count) + p_input.parent_count;
+    const uint64_t pool_bytes = (relative_world_records + (has_canonical ? uint64_t(p_input.leaf_count) : 0u)) * stride;
+    const uint64_t region_bytes = uint64_t(p_state.hlod_instance_region.records) * stride * (has_canonical ? 2u : 1u);
+    const uint64_t bundle_bytes = p_state.hlod_canonical.bytes + p_state.hlod_relative.bytes;
+    const uint64_t atlas_bytes = pool_bytes + region_bytes;
+    const uint64_t overlap_per_record = p_tile.get_hlod_overlap_bytes_per_record();
+    ledger.report(DeviceVramLedger::POOL, pool_bytes);
+    ledger.report(DeviceVramLedger::INSTANCE_REGION, region_bytes);
+    ledger.report(DeviceVramLedger::VIEW, bundle_bytes > atlas_bytes ? bundle_bytes - atlas_bytes : 0u);
+    ledger.report(DeviceVramLedger::OVERLAP, uint64_t(p_tile.get_allocated_overlap_capacity()) * overlap_per_record);
+    // One sort record costs one overlap record without the sorter's alternate buffer (same key width).
+    ledger.report(DeviceVramLedger::SORT, uint64_t(p_sort.capacity) * (overlap_per_record / 2u));
+    ledger.report(DeviceVramLedger::HLOD_SCRATCH, p_tile.get_hlod_scratch_live_bytes());
+    ledger.report(DeviceVramLedger::TARGET_TEXTURES, p_textures);
+    ledger.report(DeviceVramLedger::OBJECT_ATLAS, p_state.resident_atlas_gaussian_buffer_size);
+    ledger.report(DeviceVramLedger::SHADOW_CASTER, p_shadow_caster_bytes);
+}
+
+void GaussianSplatRenderer::report_chunk_route_to_device_vram_ledger(uint64_t p_chunk_bytes) {
+    RenderingDevice *rd = get_device_state().rd;
+    if (!rd) { return; }
+    // Report-only until Step C (D-11): nothing on the chunk route reads this ledger. MEMORY_BUFFERS is a counter read; the
+    // HLOD upper bound would also reconcile the tile texture ledger, which the chunk route does not need.
+    DeviceVramLedger &ledger = refresh_device_vram_ledger(get_resource_state(), rd);
+    ledger.observe_device_bytes(rd->get_memory_usage(RD::MEMORY_BUFFERS));
+    ledger.report(DeviceVramLedger::CHUNK_POOL, p_chunk_bytes);
 }
 
 bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_render_buffers, String &r_reason) {
@@ -1924,12 +1964,13 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
             state.hlod_paged_provision_reason = r_reason;
             return false;
         }
-        const uint64_t route_limit = hlod_route_limit_bytes(state, rd);
+        hlod_route_limit_bytes(state, rd);
+        state.device_vram_ledger.observe_device_bytes(route_bytes);
         const Vector2i grid = tile->get_provisioned_viewport();
         const uint64_t wanted_bytes = tile->estimate_hlod_texture_bytes_for_viewport(size) +
                 uint64_t(overlap) * tile->get_hlod_overlap_bytes_per_record();
         if (ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, size.x, size.y, 0u, live_textures, wanted_bytes,
-                    route_bytes < route_limit ? route_limit - route_bytes : 0) == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) {
+                    state.device_vram_ledger.headroom()) == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) {
             r_reason = "hlod_paged_overlap_seed_memory_limit";
             state.hlod_paged_provision_reason = r_reason;
             return false;
@@ -2079,10 +2120,10 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     }
     const bool prepared = is_hlod_prepared_contract_current();
     if (!prepared) {
-        const uint64_t device_budget = rd->get_device_memory_budget();
-        const uint64_t route_limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+        DeviceVramLedger &ledger = refresh_device_vram_ledger(state, rd);
+        const uint64_t route_limit = ledger.limit();
         const uint32_t atlas_override = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
-        const uint64_t atlas_limit = ResidentAtlasBudget::compute_effective_atlas_cap_bytes(device_budget, atlas_override);
+        const uint64_t atlas_limit = ledger.atlas_limit(atlas_override);
         const uint64_t record_stride = quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
         // The bundle's rows (row 0 the world, rows 1..N the node instances) and their packed assets were built above. A
         // prepared bundle that stopped being current in between cannot lend its rows to a rebuild: release, rebuild next frame.
@@ -2193,12 +2234,15 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         } else if (whole_atlas_bytes > atlas_limit) {
             state.hlod_reason = "hlod_existing_atlas_limit"; return 0;
         }
-        state.hlod_device_byte_upper_bound = device_bytes + candidate_bytes;
+        // Same decision as hlod_candidate_fits(): the HLOD-owned cap on the candidate, then the ledger. The reservation holds
+        // until this block ends, on every path; the measurement after the build carries whatever was allocated.
+        ledger.observe_device_bytes(device_bytes);
+        DeviceVramLedger::ScopedReservation candidate_reservation(ledger, DeviceVramLedger::POOL);
         if (
 #ifdef TESTS_ENABLED
                 test_hlod_publication_refuses(3) ||
 #endif
-                !ResidentAtlasBudget::hlod_candidate_fits(candidate_bytes, device_bytes, route_limit, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) ||
+                candidate_bytes > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT || !candidate_reservation.acquire(candidate_bytes) ||
                 (state.hlod_prepared_snapshot.is_valid() && state.hlod_prepared_snapshot != input &&
                         input->owned_cpu_bytes > GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - state.hlod_prepared_snapshot->owned_cpu_bytes)) {
             state.hlod_reason = "hlod_candidate_memory_limit";
@@ -2283,7 +2327,6 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         state.hlod_position_bits = position_bits;
         state.hlod_scale_bits = scale_bits;
         state.hlod_quantize_scales = quantize_scales;
-        state.hlod_device_byte_upper_bound = after_bytes;
     }
     if (!publish_hlod_bundle(false)) { return 0; } // Recheck after allocation before publication.
     state.hlod_frame_active = false;
@@ -2400,17 +2443,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             director->get_sphere_effector_count_for_renderer(this) != 0) { return fallback(input->is_paged() ? hlod_paged_reason_key("deformation_or_instance_domain", false) : "deformation_or_instance_domain"); }
     Ref<TileRenderer> tile = tile_renderer_state.renderer;
     if (tile.is_null() || tile->get_active_device() != get_device_state().rd) { return fallback("tile_device_unavailable"); }
-    const uint64_t device_budget = get_device_state().rd->get_device_memory_budget();
-    uint64_t route_limit = ResidentAtlasBudget::compute_hlod_device_ledger_limit_bytes(device_budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
-#ifdef TESTS_ENABLED
-    {
-        const uint64_t limit_override = state.hlod_test_route_limit_override.load(std::memory_order_acquire);
-        if (limit_override != 0) { route_limit = MIN(route_limit, limit_override); }
-    }
-#endif
+    const uint64_t route_limit = hlod_route_limit_bytes(state, get_device_state().rd);
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
-    state.hlod_owned_byte_upper_bound = route_bytes;
+    state.device_vram_ledger.admit_device_bytes(route_bytes);
     // The frame's scratch request (admitted by prepare_hlod_scratch below). The scratch covers the atlas the frame draws
     // from (its total_gaussians), not the tree's splat count; PR1b: plus the instance region at the atlas tail.
     const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
@@ -2454,7 +2490,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     // from the headroom the mandatory allocations leave (an over-limit route grows nothing and is refused below).
     if (tile->grow_hlod_overlap_storage(ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes))) {
         if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
-        state.hlod_owned_byte_upper_bound = route_bytes;
+        state.device_vram_ledger.admit_device_bytes(route_bytes);
     }
     // PR1b: this view's visible node instances and their demand (ADR 4.5), computed here, at the same safe point, from
     // the same camera, frustum, focal length and tile area the world's ViewSpec uses below. Their overlap-record estimate
@@ -2516,7 +2552,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
                             tile->ensure_hlod_overlap_capacity(wanted, headroom))) {
                 ++state.hlod_instance_overlap_growths;
                 if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
-                state.hlod_owned_byte_upper_bound = route_bytes;
+                state.device_vram_ledger.admit_device_bytes(route_bytes);
             }
         }
         state.hlod_overlap_world_need.world_records = world_need;
@@ -2541,12 +2577,12 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         const uint64_t seed_bytes = uint64_t(seed) * tile->get_hlod_overlap_bytes_per_record();
         const uint64_t wanted_bytes = tile->estimate_hlod_texture_bytes_for_viewport(view_size) + seed_bytes;
         const auto action = ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, view_size.x, view_size.y, overlap_now, live_textures,
-                wanted_bytes, route_bytes < route_limit ? route_limit - route_bytes : 0);
+                wanted_bytes, state.device_vram_ledger.headroom());
         if (action == ResidentAtlasBudget::HlodViewGridAction::REFUSE_MEMORY) { return fallback("hlod_view_size_memory_limit"); }
         if (action == ResidentAtlasBudget::HlodViewGridAction::RESIZE) {
             if (tile->provision_hlod_route(view_size, RD::DATA_FORMAT_MAX, seed) != OK) { return fallback("hlod_view_provisioning_failed"); }
             if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
-            state.hlod_owned_byte_upper_bound = route_bytes;
+            state.device_vram_ledger.admit_device_bytes(route_bytes);
             // Over the limit after the resize: refuse this view. The targets stay, but the next smaller view shrinks them above.
             if (route_bytes > route_limit) { return fallback("hlod_view_size_memory_limit"); }
         }
@@ -2556,7 +2592,13 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (!tile->prepare_hlod_scratch(scratch_params,
                 route_limit - route_bytes)) { return fallback("tile_capacity_warmup_or_memory_limit"); }
     if (!get_hlod_owned_byte_upper_bound(route_bytes) || route_bytes > route_limit) { return fallback("prepared_route_memory_limit"); }
-    state.hlod_owned_byte_upper_bound = route_bytes;
+    state.device_vram_ledger.admit_device_bytes(route_bytes);
+    {
+        uint64_t ledger_textures = 0;
+        if (!tile->get_hlod_texture_byte_upper_bound(ledger_textures)) { ledger_textures = 0; } // Attribution only.
+        report_hlod_ledger_categories(state, *input.ptr(), *tile.ptr(), ledger_textures, subsystem_state.sorting_pipeline->get_buffer_handles(),
+                splat_shadow_caster ? splat_shadow_caster->get_owned_buffer_bytes() : 0u);
+    }
     const uint32_t records = tile->get_allocated_overlap_capacity();
     if (records == 0) { return fallback("overlap_capacity_unavailable"); }
     state.hlod_overlap_capacity_records = records;
@@ -2712,7 +2754,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     }
 #endif
     snapshot.budget = gs_hlod_runtime::ResidencyBudget();
-    snapshot.budget.physical_bytes = route_limit - route_bytes;
+    snapshot.budget.physical_bytes = state.device_vram_ledger.headroom();
     snapshot.assets.resize(1);
     snapshot.instances.resize(1);
     gs_hlod_runtime::SnapshotAsset &asset = snapshot.assets.write[0];

@@ -98,11 +98,11 @@ Vector<Gaussian> build_gaussians() {
     return gaussians;
 }
 
-Vector<GaussianSplatRenderer::StaticChunk> build_chunks() {
-    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+Vector<StaticChunk> build_chunks() {
+    Vector<StaticChunk> chunks;
     chunks.resize(2);
 
-    GaussianSplatRenderer::StaticChunk first;
+    StaticChunk first;
     first.bounds = AABB(Vector3(-0.5f, -0.5f, -0.5f), Vector3(1.5f, 1.5f, 1.0f));
     first.center = first.bounds.get_center();
     first.radius = 1.5f;
@@ -111,7 +111,7 @@ Vector<GaussianSplatRenderer::StaticChunk> build_chunks() {
     first.indices.write[1] = 1;
     chunks.write[0] = first;
 
-    GaussianSplatRenderer::StaticChunk second;
+    StaticChunk second;
     second.bounds = AABB(Vector3(-0.5f, 0.5f, -0.5f), Vector3(1.5f, 1.5f, 1.0f));
     second.center = second.bounds.get_center();
     second.radius = 1.5f;
@@ -438,7 +438,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld direct format saver/loader")
     CHECK(loaded->has_renderable_payload());
     CHECK_EQ(loaded->get_splat_count(), 4);
 
-    const Vector<GaussianSplatRenderer::StaticChunk> &chunks = loaded->get_static_chunks();
+    const Vector<StaticChunk> &chunks = loaded->get_static_chunks();
     MESSAGE("Loaded chunk count: ", chunks.size());
     CHECK_EQ(chunks.size(), 2);
     CHECK_EQ(loaded->get_sh_first_order_count(), 1);
@@ -610,7 +610,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld save/load round-trip") {
         CHECK_EQ(gaussian_get_brush_override_id(g0.painterly_meta), 300);
     }
 
-    const Vector<GaussianSplatRenderer::StaticChunk> &chunks = loaded->get_static_chunks();
+    const Vector<StaticChunk> &chunks = loaded->get_static_chunks();
     MESSAGE("Loaded chunk count via ResourceLoader: ", chunks.size());
     CHECK_EQ(chunks.size(), 2);
     if (chunks.size() >= 2) {
@@ -642,11 +642,11 @@ void _check_vec3_exact(const char *p_label, const Vector3 &p_got, const Vector3 
 // Every component differs from the other two in each vector, and the world is long
 // in Z like a corridor. A symmetric or near-cubic vector round-trips "correctly"
 // under an X/Z swap and would prove nothing.
-Vector<GaussianSplatRenderer::StaticChunk> build_asymmetric_chunks() {
-    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+Vector<StaticChunk> build_asymmetric_chunks() {
+    Vector<StaticChunk> chunks;
     chunks.resize(2);
 
-    GaussianSplatRenderer::StaticChunk first;
+    StaticChunk first;
     first.bounds = AABB(Vector3(-3.25f, 0.5f, 11.75f), Vector3(2.5f, 0.75f, 17.0f));
     first.center = Vector3(-2.0f, 0.875f, 20.25f);
     first.radius = 9.5f;
@@ -655,7 +655,7 @@ Vector<GaussianSplatRenderer::StaticChunk> build_asymmetric_chunks() {
     first.indices.write[1] = 1;
     chunks.write[0] = first;
 
-    GaussianSplatRenderer::StaticChunk second;
+    StaticChunk second;
     second.bounds = AABB(Vector3(1.0f, -0.25f, 30.5f), Vector3(0.5f, 1.75f, 21.25f));
     second.center = Vector3(1.25f, 0.625f, 41.125f);
     second.radius = 10.75f;
@@ -668,12 +668,12 @@ Vector<GaussianSplatRenderer::StaticChunk> build_asymmetric_chunks() {
 }
 
 void _check_world_vectors_exact(const char *p_route, const Ref<GaussianSplatWorld> &p_loaded,
-        const AABB &p_expected_bounds, const Vector<GaussianSplatRenderer::StaticChunk> &p_expected_chunks) {
+        const AABB &p_expected_bounds, const Vector<StaticChunk> &p_expected_chunks) {
     MESSAGE("route: ", p_route);
     _check_vec3_exact("world bounds.position", p_loaded->get_bounds().position, p_expected_bounds.position);
     _check_vec3_exact("world bounds.size", p_loaded->get_bounds().size, p_expected_bounds.size);
 
-    const Vector<GaussianSplatRenderer::StaticChunk> &chunks = p_loaded->get_static_chunks();
+    const Vector<StaticChunk> &chunks = p_loaded->get_static_chunks();
     if (chunks.size() != p_expected_chunks.size()) {
         FAIL("expected ", p_expected_chunks.size(), " chunks, got ", chunks.size());
         return;
@@ -697,7 +697,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld round-trip preserves Vector3
     gaussian_data->set_gaussians(build_gaussians());
 
     const AABB expected_bounds(Vector3(-3.25f, -0.25f, 11.75f), Vector3(4.75f, 2.25f, 40.0f));
-    const Vector<GaussianSplatRenderer::StaticChunk> expected_chunks = build_asymmetric_chunks();
+    const Vector<StaticChunk> expected_chunks = build_asymmetric_chunks();
 
     Ref<GaussianSplatWorld> world;
     world.instantiate();
@@ -1560,7 +1560,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] clear notifies consumers after resetting
     source.instantiate();
     source->set_data(data);
     world->set_chunk_payload_source(source);
-    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+    Vector<StaticChunk> chunks;
     chunks.resize(1);
     world->set_static_chunks(chunks);
     world->set_bounds(AABB(Vector3(1, 2, 3), Vector3(4, 5, 6)));

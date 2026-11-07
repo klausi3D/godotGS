@@ -255,6 +255,11 @@ String _layout_hint_record_failure(const GaussianStreamingSystem *p_system, Layo
 }
 
 Dictionary _layout_hint_build_snapshot(const GaussianStreamingSystem *p_system, bool p_strict_mode_enabled) {
+    const LayoutHintFailureState *state = _layout_hint_get_state(p_system);
+    return _layout_hint_build_snapshot_from_counters(state ? &state->counters : nullptr, p_strict_mode_enabled);
+}
+
+Dictionary _layout_hint_build_snapshot_from_counters(const LayoutHintFailureCounters *p_counters, bool p_strict_mode_enabled) {
     Dictionary snapshot;
     snapshot["strict_mode_enabled"] = p_strict_mode_enabled;
     snapshot["fallback_total"] = static_cast<int64_t>(0);
@@ -279,14 +284,13 @@ Dictionary _layout_hint_build_snapshot(const GaussianStreamingSystem *p_system, 
         reason_counts[_layout_hint_reason_code(reason)] = static_cast<int64_t>(0);
     }
 
-    const LayoutHintFailureState *state = _layout_hint_get_state(p_system);
-    if (!state) {
+    if (!p_counters) {
         snapshot["category_counts"] = category_counts;
         snapshot["reason_counts"] = reason_counts;
         return snapshot;
     }
 
-    const LayoutHintFailureCounters &counters = state->counters;
+    const LayoutHintFailureCounters &counters = *p_counters;
     snapshot["fallback_total"] = static_cast<int64_t>(counters.fallback_total);
     snapshot["fallback_io_total"] = static_cast<int64_t>(counters.fallback_io_total);
     snapshot["fallback_primary_total"] = static_cast<int64_t>(counters.fallback_primary_total);

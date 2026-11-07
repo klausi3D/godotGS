@@ -3,6 +3,7 @@ extern "C" int test_hlod_world_instances_cpp_force_link() { return 0; }
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/hlod_world_instances.h"
 #include "core/math/random_pcg.h"
 #include "scene/3d/node_3d.h"

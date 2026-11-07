@@ -521,7 +521,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldGenerator] the content table matche
 		FAIL("the generated world did not load resident");
 		return;
 	}
-	const Vector<GaussianSplatRenderer::StaticChunk> &chunks = world->get_static_chunks();
+	const Vector<StaticChunk> &chunks = world->get_static_chunks();
 	if (uint32_t(chunks.size()) != plan.chunks.size()) {
 		FAIL("loaded ", chunks.size(), " chunks, the plan has ", plan.chunks.size());
 		return;

@@ -2,6 +2,7 @@
 
 #include "gs_project_settings.h"
 #include "residency_budget_controller.h"
+#include "streaming_analytics_frame.h"
 #include "streaming_chunk_invariants.h"
 #include "streaming_layout_hint.h"
 #include "streaming_queue_pressure_controller.h"
@@ -18,6 +19,8 @@
 #include "../logger/gs_logger.h"
 #include "../lod/lod_config.h"
 #include <cstdint>
+#include <memory>
+#include <utility>
 
 // Streaming diagnostics surface: telemetry logging, end-of-frame analytics
 // assembly, the diagnostics snapshot, and the public debug/analytics/culling/
@@ -101,10 +104,18 @@ void GaussianStreamingSystem::_log_streaming_frame_stats(uint32_t effective_max)
 }
 
 void GaussianStreamingSystem::end_frame() {
+    end_frame_with_overlay(AnalyticsOverlay());
+}
+
+void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay) {
     if (memory_stream_proxy.is_valid()) {
         memory_stream_proxy->end_frame();
     }
-    analytics_snapshot = memory_stream_proxy.is_valid() ? memory_stream_proxy->get_task_debug_state() : Dictionary();
+    std::shared_ptr<StreamingAnalyticsFrame> frame = std::make_shared<StreamingAnalyticsFrame>();
+    frame->task_debug_state = memory_stream_proxy.is_valid() ? memory_stream_proxy->get_task_debug_state() : Dictionary();
+    frame->overlay = std::move(p_overlay);
+    StreamingAnalyticsFrame::AnalyticsValues &analytics = frame->analytics;
+    using AK = StreamingAnalyticsFrame::AnalyticsKey;
 
     // Add VRAM usage stats to analytics. vram_mb mirrors the regulator-facing
     // total (full persistent buffer allocation + auxiliary overhead), so the
@@ -117,18 +128,18 @@ void GaussianStreamingSystem::end_frame() {
     // (gated) and vram_persistent_buffer_mb (ungated) would disagree on the
     // allocation-failure path. (Codex #411)
     const uint64_t allocated_persistent_bytes = persistent_buffer.is_valid() ? uint64_t(persistent_buffer_size) : 0;
-    analytics_snapshot["vram_mb"] = double(_get_total_vram_usage_bytes()) / (1024.0 * 1024.0);
-    analytics_snapshot["vram_payload_mb"] = double(payload_vram_bytes) / (1024.0 * 1024.0);
-    analytics_snapshot["vram_overhead_mb"] = double(overhead_vram_bytes) / (1024.0 * 1024.0);
-    analytics_snapshot["vram_persistent_buffer_mb"] = double(allocated_persistent_bytes) / (1024.0 * 1024.0);
-    analytics_snapshot["loaded_chunks"] = get_loaded_chunks();
-    analytics_snapshot["atlas_published_chunks"] = global_atlas_registry.get_atlas_published_chunks();
-    analytics_snapshot["atlas_generation"] = static_cast<int64_t>(global_atlas_registry.get_atlas_generation());
-    analytics_snapshot["visible_splats"] = get_visible_count();
-    analytics_snapshot["effective_max_chunks"] = get_effective_max_chunks();
-    analytics_snapshot["streaming_initial_capacity"] = static_cast<int64_t>(streaming_initial_capacity);
-    analytics_snapshot["streaming_current_capacity"] = static_cast<int64_t>(streaming_current_capacity);
-    analytics_snapshot["streaming_grow_count"] = static_cast<int64_t>(streaming_grow_count);
+    analytics[AK::vram_mb] = double(_get_total_vram_usage_bytes()) / (1024.0 * 1024.0);
+    analytics[AK::vram_payload_mb] = double(payload_vram_bytes) / (1024.0 * 1024.0);
+    analytics[AK::vram_overhead_mb] = double(overhead_vram_bytes) / (1024.0 * 1024.0);
+    analytics[AK::vram_persistent_buffer_mb] = double(allocated_persistent_bytes) / (1024.0 * 1024.0);
+    analytics[AK::loaded_chunks] = get_loaded_chunks();
+    analytics[AK::atlas_published_chunks] = global_atlas_registry.get_atlas_published_chunks();
+    analytics[AK::atlas_generation] = static_cast<int64_t>(global_atlas_registry.get_atlas_generation());
+    analytics[AK::visible_splats] = get_visible_count();
+    analytics[AK::effective_max_chunks] = get_effective_max_chunks();
+    analytics[AK::streaming_initial_capacity] = static_cast<int64_t>(streaming_initial_capacity);
+    analytics[AK::streaming_current_capacity] = static_cast<int64_t>(streaming_current_capacity);
+    analytics[AK::streaming_grow_count] = static_cast<int64_t>(streaming_grow_count);
     // #1088: page-granular atlas occupancy. Capacity fields above are in pages too.
     {
         uint64_t resident_splats = 0;
@@ -144,98 +155,98 @@ void GaussianStreamingSystem::end_frame() {
             }
         }
         const uint32_t used_pages = atlas_allocator.get_used_page_count();
-        analytics_snapshot["atlas_page_splats"] = static_cast<int64_t>(ATLAS_PAGE_SPLATS);
-        analytics_snapshot["atlas_page_bytes"] = static_cast<int64_t>(_atlas_page_bytes());
-        analytics_snapshot["atlas_pages_capacity"] = static_cast<int64_t>(atlas_allocator.get_capacity());
-        analytics_snapshot["atlas_pages_used"] = static_cast<int64_t>(used_pages);
-        analytics_snapshot["atlas_occupancy_target_pages"] = static_cast<int64_t>(_atlas_occupancy_target_pages());
-        analytics_snapshot["atlas_largest_free_run_pages"] = static_cast<int64_t>(atlas_allocator.get_largest_free_run());
-        analytics_snapshot["atlas_free_run_count"] = static_cast<int64_t>(atlas_allocator.get_free_run_count());
-        analytics_snapshot["atlas_resident_splats"] = static_cast<int64_t>(resident_splats);
+        analytics[AK::atlas_page_splats] = static_cast<int64_t>(ATLAS_PAGE_SPLATS);
+        analytics[AK::atlas_page_bytes] = static_cast<int64_t>(_atlas_page_bytes());
+        analytics[AK::atlas_pages_capacity] = static_cast<int64_t>(atlas_allocator.get_capacity());
+        analytics[AK::atlas_pages_used] = static_cast<int64_t>(used_pages);
+        analytics[AK::atlas_occupancy_target_pages] = static_cast<int64_t>(_atlas_occupancy_target_pages());
+        analytics[AK::atlas_largest_free_run_pages] = static_cast<int64_t>(atlas_allocator.get_largest_free_run());
+        analytics[AK::atlas_free_run_count] = static_cast<int64_t>(atlas_allocator.get_free_run_count());
+        analytics[AK::atlas_resident_splats] = static_cast<int64_t>(resident_splats);
         // Resident splats over the splats the allocated runs could hold (1.0 = no tail waste).
         // Pending uploads hold runs too, so this is a lower bound while uploads are in flight.
-        analytics_snapshot["atlas_fill_ratio"] = used_pages > 0
+        analytics[AK::atlas_fill_ratio] = used_pages > 0
                 ? double(resident_splats) / (double(used_pages) * double(ATLAS_PAGE_SPLATS))
                 : 0.0;
-        analytics_snapshot["atlas_fit_extra_evictions"] = static_cast<int64_t>(diagnostics.atlas_fit_extra_evictions);
+        analytics[AK::atlas_fit_extra_evictions] = static_cast<int64_t>(diagnostics.atlas_fit_extra_evictions);
     }
-    analytics_snapshot["chunks_loaded_this_frame"] = budget.chunks_loaded_this_frame;
-    analytics_snapshot["chunks_evicted_this_frame"] = eviction_controller.get_chunks_evicted_this_frame();
-    analytics_snapshot["pending_upload_reserved_bytes"] = static_cast<int64_t>(_get_pending_upload_bytes_for_diagnostics());
-    analytics_snapshot["pending_upload_reserved_slots"] = static_cast<int64_t>(get_pending_upload_retirement_slots());
-    analytics_snapshot["pending_upload_retirement_tickets"] = static_cast<int64_t>(pending_upload_retirements.size());
-    analytics_snapshot["retired_upload_bytes_this_frame"] = static_cast<int64_t>(budget.retired_upload_bytes_this_frame);
-    analytics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
-    analytics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
-    analytics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    analytics[AK::chunks_loaded_this_frame] = budget.chunks_loaded_this_frame;
+    analytics[AK::chunks_evicted_this_frame] = eviction_controller.get_chunks_evicted_this_frame();
+    analytics[AK::pending_upload_reserved_bytes] = static_cast<int64_t>(_get_pending_upload_bytes_for_diagnostics());
+    analytics[AK::pending_upload_reserved_slots] = static_cast<int64_t>(get_pending_upload_retirement_slots());
+    analytics[AK::pending_upload_retirement_tickets] = static_cast<int64_t>(pending_upload_retirements.size());
+    analytics[AK::retired_upload_bytes_this_frame] = static_cast<int64_t>(budget.retired_upload_bytes_this_frame);
+    analytics[AK::retired_upload_slots_this_frame] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
+    analytics[AK::failed_upload_retirements] = static_cast<int64_t>(budget.failed_upload_retirements);
+    analytics[AK::stride_flip_dropped_upload_retirements] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
     // #1177: stale (cancelled-then-superseded) uploads dropped at pack completion and retirement.
-    analytics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
-    analytics_snapshot["stale_sequence_dropped_upload_retirements"] =
+    analytics[AK::stale_sequence_dropped_uploads] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
+    analytics[AK::stale_sequence_dropped_upload_retirements] =
             static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
-    analytics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
+    analytics[AK::last_upload_completion_mode] = last_upload_completion_mode;
     // #1087: the distance bound on chunk demand (0 = unbounded) and what it removed this frame.
-    analytics_snapshot["load_distance_limit"] = visibility.load_distance_limit;
-    analytics_snapshot["distance_culled_chunks"] = static_cast<int64_t>(visibility.culling_stats.distance_culled_chunks);
-    analytics_snapshot["zero_visible_consecutive_frames"] = visibility.zero_visible_recovery.zero_visible_consecutive_frames;
-    analytics_snapshot["zero_visible_recoveries_triggered"] = (int)visibility.zero_visible_recovery.recoveries_triggered;
-    analytics_snapshot["zero_visible_stall_detections"] = (int)visibility.zero_visible_recovery.stall_detections;
-    analytics_snapshot["zero_visible_recovery_mode"] =
+    analytics[AK::load_distance_limit] = visibility.load_distance_limit;
+    analytics[AK::distance_culled_chunks] = static_cast<int64_t>(visibility.culling_stats.distance_culled_chunks);
+    analytics[AK::zero_visible_consecutive_frames] = visibility.zero_visible_recovery.zero_visible_consecutive_frames;
+    analytics[AK::zero_visible_recoveries_triggered] = (int)visibility.zero_visible_recovery.recoveries_triggered;
+    analytics[AK::zero_visible_stall_detections] = (int)visibility.zero_visible_recovery.stall_detections;
+    analytics[AK::zero_visible_recovery_mode] =
             visibility.zero_visible_recovery.mode == ZeroVisibleRecoveryMode::PERSISTENT ? "persistent" : "startup_only";
-    analytics_snapshot["runtime_ready"] = is_runtime_ready();
-    analytics_snapshot["runtime_capacity_zero"] = is_runtime_capacity_zero();
-    analytics_snapshot["runtime_buffer_invalid"] = is_persistent_buffer_invalid();
-    analytics_snapshot["invalid_camera_input_events"] = (int)invalid_camera_input_events;
-    analytics_snapshot["cap_tier_preset"] = upload_pipeline.cap_tier_preset;
-    analytics_snapshot["cap_tier_active"] = upload_pipeline.cap_tier_active;
-    analytics_snapshot["effective_upload_cap_mb_per_frame"] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_frame);
-    analytics_snapshot["effective_upload_cap_mb_per_slice"] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_slice);
-    analytics_snapshot["effective_upload_cap_mb_per_second"] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_second);
-    analytics_snapshot["cap_source_upload_mb_per_frame"] = upload_pipeline.cap_source_upload_mb_per_frame;
-    analytics_snapshot["cap_source_upload_mb_per_slice"] = upload_pipeline.cap_source_upload_mb_per_slice;
-    analytics_snapshot["cap_source_upload_mb_per_second"] = upload_pipeline.cap_source_upload_mb_per_second;
-    analytics_snapshot["upload_frame_cap_hit"] = upload_pipeline.upload_frame_cap_hit_this_frame;
-    analytics_snapshot["upload_slice_cap_hit"] = upload_pipeline.upload_slice_cap_hit_this_frame;
-    analytics_snapshot["upload_bandwidth_cap_hit"] = upload_pipeline.upload_bandwidth_cap_hit_this_frame;
-    analytics_snapshot["chunk_load_cap_hit"] = upload_pipeline.chunk_load_cap_hit_this_frame;
-    analytics_snapshot["vram_chunk_cap_hit"] = budget.vram_chunk_cap_hit_this_frame;
+    analytics[AK::runtime_ready] = is_runtime_ready();
+    analytics[AK::runtime_capacity_zero] = is_runtime_capacity_zero();
+    analytics[AK::runtime_buffer_invalid] = is_persistent_buffer_invalid();
+    analytics[AK::invalid_camera_input_events] = (int)invalid_camera_input_events;
+    analytics[AK::cap_tier_preset] = upload_pipeline.cap_tier_preset;
+    analytics[AK::cap_tier_active] = upload_pipeline.cap_tier_active;
+    analytics[AK::effective_upload_cap_mb_per_frame] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_frame);
+    analytics[AK::effective_upload_cap_mb_per_slice] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_slice);
+    analytics[AK::effective_upload_cap_mb_per_second] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_second);
+    analytics[AK::cap_source_upload_mb_per_frame] = upload_pipeline.cap_source_upload_mb_per_frame;
+    analytics[AK::cap_source_upload_mb_per_slice] = upload_pipeline.cap_source_upload_mb_per_slice;
+    analytics[AK::cap_source_upload_mb_per_second] = upload_pipeline.cap_source_upload_mb_per_second;
+    analytics[AK::upload_frame_cap_hit] = upload_pipeline.upload_frame_cap_hit_this_frame;
+    analytics[AK::upload_slice_cap_hit] = upload_pipeline.upload_slice_cap_hit_this_frame;
+    analytics[AK::upload_bandwidth_cap_hit] = upload_pipeline.upload_bandwidth_cap_hit_this_frame;
+    analytics[AK::chunk_load_cap_hit] = upload_pipeline.chunk_load_cap_hit_this_frame;
+    analytics[AK::vram_chunk_cap_hit] = budget.vram_chunk_cap_hit_this_frame;
 
     // Add VRAM regulator stats if available
     if (budget.vram_regulator.is_valid()) {
         VRAMDebugStats vram_stats = budget.vram_regulator->get_debug_stats();
         const VRAMBudgetConfig &active_budget_config = budget.vram_regulator->get_config();
-        analytics_snapshot["vram_budget_mb"] = float(vram_stats.budget_bytes) / (1024.0f * 1024.0f);
-        analytics_snapshot["vram_usage_percent"] = vram_stats.usage_percent;
-        analytics_snapshot["vram_budget_warning"] = vram_stats.budget_warning_active;
-        analytics_snapshot["vram_regulation_adjustments"] = vram_stats.regulation_adjustments;
-        analytics_snapshot["vram_thrashing_events"] = vram_stats.thrashing_events;
-        analytics_snapshot["lod_distance_multiplier"] = budget.vram_regulator->get_lod_distance_multiplier();
+        analytics[AK::vram_budget_mb] = float(vram_stats.budget_bytes) / (1024.0f * 1024.0f);
+        analytics[AK::vram_usage_percent] = vram_stats.usage_percent;
+        analytics[AK::vram_budget_warning] = vram_stats.budget_warning_active;
+        analytics[AK::vram_regulation_adjustments] = vram_stats.regulation_adjustments;
+        analytics[AK::vram_thrashing_events] = vram_stats.thrashing_events;
+        analytics[AK::lod_distance_multiplier] = budget.vram_regulator->get_lod_distance_multiplier();
         // BV-04a (ADR D-6): regulator events by kind.
-        analytics_snapshot["vram_auto_regulate_enabled"] = active_budget_config.auto_regulate_enabled;
-        analytics_snapshot["vram_regulated_max_chunks"] = static_cast<int64_t>(budget.vram_regulator->get_current_max_chunks());
-        analytics_snapshot["vram_thrash_reductions"] = static_cast<int64_t>(vram_stats.thrash_reductions);
-        analytics_snapshot["vram_visible_refetches_total"] = static_cast<int64_t>(vram_stats.visible_refetches_total);
-        analytics_snapshot["vram_budget_reductions"] = static_cast<int64_t>(vram_stats.budget_reductions);
-        analytics_snapshot["vram_headroom_increases"] = static_cast<int64_t>(vram_stats.headroom_increases);
-        analytics_snapshot["vram_lod_multiplier_adjustments"] = static_cast<int64_t>(vram_stats.lod_multiplier_adjustments);
-        analytics_snapshot["vram_last_regulation_frame"] = static_cast<int64_t>(vram_stats.last_regulation_frame);
-        analytics_snapshot["vram_last_regulation_reason"] = String(vram_stats.last_regulation_reason);
-        analytics_snapshot["effective_vram_budget_mb"] = static_cast<int64_t>(active_budget_config.budget_mb);
-        analytics_snapshot["effective_vram_min_chunks"] = static_cast<int64_t>(active_budget_config.min_chunks);
-        analytics_snapshot["effective_vram_max_chunks"] = static_cast<int64_t>(active_budget_config.max_chunks);
-        analytics_snapshot["requested_vram_budget_mb"] = static_cast<int64_t>(active_budget_config.requested_budget_mb);
-        analytics_snapshot["cap_source_vram_budget_mb"] = active_budget_config.source_budget_mb;
-        analytics_snapshot["requested_cap_source_vram_budget_mb"] = active_budget_config.requested_source_budget_mb;
-        analytics_snapshot["cap_source_vram_min_chunks"] = active_budget_config.source_min_chunks;
-        analytics_snapshot["cap_source_vram_max_chunks"] = active_budget_config.source_max_chunks;
-        analytics_snapshot["vram_budget_capacity_verified"] = active_budget_config.budget_capacity_verified;
-        analytics_snapshot["vram_budget_unknown_capacity_fallback"] = active_budget_config.budget_uses_unknown_capacity_fallback;
-        analytics_snapshot["vram_budget_unverified"] = active_budget_config.budget_unverified;
-        analytics_snapshot["cap_tier_preset"] = active_budget_config.cap_tier_preset;
-        analytics_snapshot["cap_tier_active"] = active_budget_config.cap_tier_active;
+        analytics[AK::vram_auto_regulate_enabled] = active_budget_config.auto_regulate_enabled;
+        analytics[AK::vram_regulated_max_chunks] = static_cast<int64_t>(budget.vram_regulator->get_current_max_chunks());
+        analytics[AK::vram_thrash_reductions] = static_cast<int64_t>(vram_stats.thrash_reductions);
+        analytics[AK::vram_visible_refetches_total] = static_cast<int64_t>(vram_stats.visible_refetches_total);
+        analytics[AK::vram_budget_reductions] = static_cast<int64_t>(vram_stats.budget_reductions);
+        analytics[AK::vram_headroom_increases] = static_cast<int64_t>(vram_stats.headroom_increases);
+        analytics[AK::vram_lod_multiplier_adjustments] = static_cast<int64_t>(vram_stats.lod_multiplier_adjustments);
+        analytics[AK::vram_last_regulation_frame] = static_cast<int64_t>(vram_stats.last_regulation_frame);
+        analytics[AK::vram_last_regulation_reason] = String(vram_stats.last_regulation_reason);
+        analytics[AK::effective_vram_budget_mb] = static_cast<int64_t>(active_budget_config.budget_mb);
+        analytics[AK::effective_vram_min_chunks] = static_cast<int64_t>(active_budget_config.min_chunks);
+        analytics[AK::effective_vram_max_chunks] = static_cast<int64_t>(active_budget_config.max_chunks);
+        analytics[AK::requested_vram_budget_mb] = static_cast<int64_t>(active_budget_config.requested_budget_mb);
+        analytics[AK::cap_source_vram_budget_mb] = active_budget_config.source_budget_mb;
+        analytics[AK::requested_cap_source_vram_budget_mb] = active_budget_config.requested_source_budget_mb;
+        analytics[AK::cap_source_vram_min_chunks] = active_budget_config.source_min_chunks;
+        analytics[AK::cap_source_vram_max_chunks] = active_budget_config.source_max_chunks;
+        analytics[AK::vram_budget_capacity_verified] = active_budget_config.budget_capacity_verified;
+        analytics[AK::vram_budget_unknown_capacity_fallback] = active_budget_config.budget_uses_unknown_capacity_fallback;
+        analytics[AK::vram_budget_unverified] = active_budget_config.budget_unverified;
+        analytics[AK::cap_tier_preset] = active_budget_config.cap_tier_preset;
+        analytics[AK::cap_tier_active] = active_budget_config.cap_tier_active;
     }
     // BV-04a: the chunk load distance the LOD multiplier produces (base / multiplier), and the
     // revision of the effective settings a measured run freezes (see DiagnosticsState).
-    analytics_snapshot["lod_effective_load_distance"] = _get_needed_set_load_threshold();
+    analytics[AK::lod_effective_load_distance] = _get_needed_set_load_threshold();
     {
         DiagnosticsState::EffectiveSettingsSample settings_sample;
         if (budget.vram_regulator.is_valid()) {
@@ -247,16 +258,16 @@ void GaussianStreamingSystem::end_frame() {
         }
         settings_sample.effective_max_chunks = get_effective_max_chunks();
         diagnostics.observe_effective_settings(settings_sample);
-        analytics_snapshot["effective_settings_revision"] = static_cast<int64_t>(diagnostics.effective_settings_revision);
+        analytics[AK::effective_settings_revision] = static_cast<int64_t>(diagnostics.effective_settings_revision);
     }
 
     // Add distance-based LOD stats (Octree-GS)
     const LODConfig &lod_config = _get_lod_config();
-    analytics_snapshot["lod_enabled"] = lod_config.enabled;
-    analytics_snapshot["effective_splat_count"] = get_effective_splat_count();
+    analytics[AK::lod_enabled] = lod_config.enabled;
+    analytics[AK::effective_splat_count] = get_effective_splat_count();
     if (lod_config.enabled) {
         Dictionary lod_stats = get_lod_debug_stats();
-        analytics_snapshot["lod_reduction_ratio"] = lod_stats.get("reduction_ratio", 0.0f);
+        analytics[AK::lod_reduction_ratio] = lod_stats.get("reduction_ratio", 0.0f);
     }
 
     // Sample pack/upload timing metrics (every frame for performance monitors).
@@ -293,69 +304,59 @@ void GaussianStreamingSystem::end_frame() {
     upload_pipeline.last_thread_snapshots = tsnap.thread_snapshots;
     upload_pipeline.last_thread_enqueue_uploads = tsnap.thread_enqueue_uploads;
 
-    analytics_snapshot["pack_avg_ms"] = upload_pipeline.last_pack_avg_ms;
-    analytics_snapshot["pack_max_ms"] = upload_pipeline.last_pack_max_ms;
-    analytics_snapshot["pack_jobs_completed"] = (int)upload_pipeline.last_pack_jobs;
-    analytics_snapshot["upload_mb_this_frame"] = upload_pipeline.last_upload_mb;
-    analytics_snapshot["upload_chunks_this_frame"] = (int)upload_pipeline.last_upload_chunks;
+    analytics[AK::pack_avg_ms] = upload_pipeline.last_pack_avg_ms;
+    analytics[AK::pack_max_ms] = upload_pipeline.last_pack_max_ms;
+    analytics[AK::pack_jobs_completed] = (int)upload_pipeline.last_pack_jobs;
+    analytics[AK::upload_mb_this_frame] = upload_pipeline.last_upload_mb;
+    analytics[AK::upload_chunks_this_frame] = (int)upload_pipeline.last_upload_chunks;
     // BV-04a: release-build byte counters (per frame, and cumulative for diffing) plus the
     // cumulative read/decode/pack/upload latency histograms. See PackTelemetry.
-    analytics_snapshot["upload_bytes_this_frame"] = static_cast<int64_t>(upload_pipeline.last_upload_bytes);
-    analytics_snapshot["read_bytes_this_frame"] = static_cast<int64_t>(upload_pipeline.last_read_bytes);
-    analytics_snapshot["decode_bytes_this_frame"] = static_cast<int64_t>(upload_pipeline.last_decode_bytes);
-    analytics_snapshot["upload_bytes_total"] = static_cast<int64_t>(upload_pipeline.upload_bytes_cumulative);
-    analytics_snapshot["upload_chunks_total"] = static_cast<int64_t>(upload_pipeline.upload_chunks_cumulative);
-    analytics_snapshot["read_bytes_total"] = static_cast<int64_t>(upload_pipeline.read_bytes_cumulative);
-    analytics_snapshot["decode_bytes_total"] = static_cast<int64_t>(upload_pipeline.decode_bytes_cumulative);
+    analytics[AK::upload_bytes_this_frame] = static_cast<int64_t>(upload_pipeline.last_upload_bytes);
+    analytics[AK::read_bytes_this_frame] = static_cast<int64_t>(upload_pipeline.last_read_bytes);
+    analytics[AK::decode_bytes_this_frame] = static_cast<int64_t>(upload_pipeline.last_decode_bytes);
+    analytics[AK::upload_bytes_total] = static_cast<int64_t>(upload_pipeline.upload_bytes_cumulative);
+    analytics[AK::upload_chunks_total] = static_cast<int64_t>(upload_pipeline.upload_chunks_cumulative);
+    analytics[AK::read_bytes_total] = static_cast<int64_t>(upload_pipeline.read_bytes_cumulative);
+    analytics[AK::decode_bytes_total] = static_cast<int64_t>(upload_pipeline.decode_bytes_cumulative);
     {
         const StreamingUploadPipeline::PackTelemetry &telemetry = upload_pipeline.telemetry;
-        Dictionary latency_histograms;
-        latency_histograms["bucket_upper_usec"] = StreamingLatencyHistogram::bucket_upper_bounds_usec();
-        latency_histograms["read"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.read_latency.read());
-        latency_histograms["decode"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.decode_latency.read());
-        latency_histograms["pack"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.pack_latency.read());
-        latency_histograms["upload"] = StreamingLatencyHistogram::snapshot_to_dictionary(telemetry.upload_latency.read());
-        analytics_snapshot["streaming_latency_histograms"] = latency_histograms;
+        frame->read_latency = telemetry.read_latency.read();
+        frame->decode_latency = telemetry.decode_latency.read();
+        frame->pack_latency = telemetry.pack_latency.read();
+        frame->upload_latency = telemetry.upload_latency.read();
     }
-    analytics_snapshot["pack_queue_latency_avg_ms"] = upload_pipeline.last_pack_queue_latency_avg_ms;
-    analytics_snapshot["pack_queue_latency_max_ms"] = upload_pipeline.last_pack_queue_latency_max_ms;
-    analytics_snapshot["upload_queue_latency_avg_ms"] = upload_pipeline.last_upload_queue_latency_avg_ms;
-    analytics_snapshot["upload_queue_latency_max_ms"] = upload_pipeline.last_upload_queue_latency_max_ms;
-    analytics_snapshot["pack_mutex_wait_avg_ms"] = upload_pipeline.last_pack_mutex_wait_avg_ms;
-    analytics_snapshot["pack_mutex_wait_max_ms"] = upload_pipeline.last_pack_mutex_wait_max_ms;
-    analytics_snapshot["pack_thread_wakes"] = (int)upload_pipeline.last_thread_wakes;
-    analytics_snapshot["pack_thread_dequeues"] = (int)upload_pipeline.last_thread_dequeues;
-    analytics_snapshot["pack_thread_snapshots"] = (int)upload_pipeline.last_thread_snapshots;
-    analytics_snapshot["pack_thread_enqueue_uploads"] = (int)upload_pipeline.last_thread_enqueue_uploads;
-    analytics_snapshot["pack_jobs_in_flight"] = (int)upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed);
-    analytics_snapshot["avg_chunk_load_time_ms"] = upload_pipeline.last_pack_avg_ms;
-    analytics_snapshot["camera_velocity"] = visibility.camera_tracker.velocity.length();
-    analytics_snapshot["prefetch_hits"] = (int)scheduler.last_prefetch_enqueued_count;
+    analytics[AK::pack_queue_latency_avg_ms] = upload_pipeline.last_pack_queue_latency_avg_ms;
+    analytics[AK::pack_queue_latency_max_ms] = upload_pipeline.last_pack_queue_latency_max_ms;
+    analytics[AK::upload_queue_latency_avg_ms] = upload_pipeline.last_upload_queue_latency_avg_ms;
+    analytics[AK::upload_queue_latency_max_ms] = upload_pipeline.last_upload_queue_latency_max_ms;
+    analytics[AK::pack_mutex_wait_avg_ms] = upload_pipeline.last_pack_mutex_wait_avg_ms;
+    analytics[AK::pack_mutex_wait_max_ms] = upload_pipeline.last_pack_mutex_wait_max_ms;
+    analytics[AK::pack_thread_wakes] = (int)upload_pipeline.last_thread_wakes;
+    analytics[AK::pack_thread_dequeues] = (int)upload_pipeline.last_thread_dequeues;
+    analytics[AK::pack_thread_snapshots] = (int)upload_pipeline.last_thread_snapshots;
+    analytics[AK::pack_thread_enqueue_uploads] = (int)upload_pipeline.last_thread_enqueue_uploads;
+    analytics[AK::pack_jobs_in_flight] = (int)upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed);
+    analytics[AK::avg_chunk_load_time_ms] = upload_pipeline.last_pack_avg_ms;
+    analytics[AK::camera_velocity] = visibility.camera_tracker.velocity.length();
+    analytics[AK::prefetch_hits] = (int)scheduler.last_prefetch_enqueued_count;
     const int64_t prefetch_miss_count =
             int64_t(scheduler.last_prefetch_candidate_count) - int64_t(scheduler.last_prefetch_enqueued_count);
-    analytics_snapshot["prefetch_misses"] = (int)(prefetch_miss_count > 0 ? prefetch_miss_count : 0);
-    analytics_snapshot["evicted_bytes_total_mb"] = double(budget.evicted_bytes_total) / (1024.0 * 1024.0);
+    analytics[AK::prefetch_misses] = (int)(prefetch_miss_count > 0 ? prefetch_miss_count : 0);
+    analytics[AK::evicted_bytes_total_mb] = double(budget.evicted_bytes_total) / (1024.0 * 1024.0);
     const float cull_effectiveness = visibility.culling_stats.total_chunks > 0
             ? float(visibility.culling_stats.frustum_culled_chunks) / float(visibility.culling_stats.total_chunks)
             : 0.0f;
-    analytics_snapshot["cull_effectiveness"] = cull_effectiveness;
-    analytics_snapshot["primary_spatial_chunking_enabled"] = primary_chunk_layout_metrics.spatial_partition_enabled;
-    analytics_snapshot["primary_chunk_source_index_count"] = static_cast<int64_t>(primary_chunk_layout_metrics.source_index_count);
-    analytics_snapshot["primary_chunk_avg_radius_ratio"] = primary_chunk_layout_metrics.avg_chunk_radius_ratio;
-    analytics_snapshot["primary_chunk_max_radius_ratio"] = primary_chunk_layout_metrics.max_chunk_radius_ratio;
-    analytics_snapshot["primary_chunk_bounds_volume_ratio"] = primary_chunk_layout_metrics.bounds_volume_ratio;
-    const bool strict_layout_validation = _layout_hint_strict_validation_enabled();
-    const Dictionary layout_hint_validation = _layout_hint_build_snapshot(this, strict_layout_validation);
-    analytics_snapshot["layout_hint_validation"] = layout_hint_validation;
-    analytics_snapshot["layout_hint_strict_mode_enabled"] = strict_layout_validation;
-    analytics_snapshot["layout_hint_fallback_total"] = layout_hint_validation.get("fallback_total", int64_t(0));
-    analytics_snapshot["layout_hint_fallback_io_total"] = layout_hint_validation.get("fallback_io_total", int64_t(0));
-    analytics_snapshot["layout_hint_fallback_primary_total"] = layout_hint_validation.get("fallback_primary_total", int64_t(0));
-    analytics_snapshot["layout_hint_strict_failure_total"] = layout_hint_validation.get("strict_failure_total", int64_t(0));
-    analytics_snapshot["layout_hint_last_reason"] = layout_hint_validation.get("last_reason", String("none"));
-    analytics_snapshot["layout_hint_last_reason_category"] = layout_hint_validation.get("last_reason_category", String("other"));
-    analytics_snapshot["layout_hint_last_context"] = layout_hint_validation.get("last_context", String("none"));
-    analytics_snapshot["layout_hint_last_usage"] = layout_hint_validation.get("last_usage", String("none"));
+    analytics[AK::cull_effectiveness] = cull_effectiveness;
+    analytics[AK::primary_spatial_chunking_enabled] = primary_chunk_layout_metrics.spatial_partition_enabled;
+    analytics[AK::primary_chunk_source_index_count] = static_cast<int64_t>(primary_chunk_layout_metrics.source_index_count);
+    analytics[AK::primary_chunk_avg_radius_ratio] = primary_chunk_layout_metrics.avg_chunk_radius_ratio;
+    analytics[AK::primary_chunk_max_radius_ratio] = primary_chunk_layout_metrics.max_chunk_radius_ratio;
+    analytics[AK::primary_chunk_bounds_volume_ratio] = primary_chunk_layout_metrics.bounds_volume_ratio;
+    frame->layout_hint_strict_mode = _layout_hint_strict_validation_enabled();
+    if (const LayoutHintFailureState *layout_hint_state = _layout_hint_get_state(this)) {
+        frame->layout_hint_counters = layout_hint_state->counters;
+        frame->layout_hint_counters_valid = true;
+    }
 
     uint32_t pack_queue_depth = 0;
     uint32_t upload_queue_depth = 0;
@@ -387,23 +388,23 @@ void GaussianStreamingSystem::end_frame() {
     StreamingQueuePressureController::validate_latched_state(
             upload_pipeline.queue_pressure_active, upload_pipeline.queue_pressure_source, upload_pipeline.queue_pressure_reason,
             "GaussianStreamingSystem::end_frame.analytics");
-    analytics_snapshot["scheduler_pack_queue_depth"] = (int)pack_queue_depth;
-    analytics_snapshot["scheduler_upload_queue_depth"] = (int)upload_queue_depth;
-    analytics_snapshot["pending_uploads"] = (int)upload_queue_depth;
-    analytics_snapshot["pending_upload_reserved_bytes"] = static_cast<int64_t>(_get_pending_upload_bytes_for_diagnostics());
-    analytics_snapshot["pending_upload_reserved_slots"] = static_cast<int64_t>(get_pending_upload_retirement_slots());
-    analytics_snapshot["pending_upload_retirement_tickets"] = static_cast<int64_t>(pending_upload_retirements.size());
-    analytics_snapshot["scheduler_visible_scan_chunks"] = (int)scheduler.last_visible_scan_count;
-    analytics_snapshot["scheduler_load_candidates"] = (int)scheduler.last_load_candidate_count;
-    analytics_snapshot["scheduler_primary_eviction_scan_chunks"] = (int)scheduler.last_primary_eviction_scan_count;
-    analytics_snapshot["scheduler_primary_eviction_candidates"] = (int)scheduler.last_primary_eviction_candidate_count;
-    analytics_snapshot["scheduler_non_primary_scan_chunks"] = (int)scheduler.last_non_primary_scan_count;
-    analytics_snapshot["scheduler_non_primary_eviction_candidates"] = (int)scheduler.last_non_primary_eviction_candidate_count;
-    analytics_snapshot["scheduler_prefetch_scan_chunks"] = (int)scheduler.last_prefetch_scan_count;
-    analytics_snapshot["scheduler_prefetch_candidates"] = (int)scheduler.last_prefetch_candidate_count;
-    analytics_snapshot["scheduler_prefetch_upload_pending_skips"] =
+    analytics[AK::scheduler_pack_queue_depth] = (int)pack_queue_depth;
+    analytics[AK::scheduler_upload_queue_depth] = (int)upload_queue_depth;
+    analytics[AK::pending_uploads] = (int)upload_queue_depth;
+    analytics[AK::pending_upload_reserved_bytes] = static_cast<int64_t>(_get_pending_upload_bytes_for_diagnostics());
+    analytics[AK::pending_upload_reserved_slots] = static_cast<int64_t>(get_pending_upload_retirement_slots());
+    analytics[AK::pending_upload_retirement_tickets] = static_cast<int64_t>(pending_upload_retirements.size());
+    analytics[AK::scheduler_visible_scan_chunks] = (int)scheduler.last_visible_scan_count;
+    analytics[AK::scheduler_load_candidates] = (int)scheduler.last_load_candidate_count;
+    analytics[AK::scheduler_primary_eviction_scan_chunks] = (int)scheduler.last_primary_eviction_scan_count;
+    analytics[AK::scheduler_primary_eviction_candidates] = (int)scheduler.last_primary_eviction_candidate_count;
+    analytics[AK::scheduler_non_primary_scan_chunks] = (int)scheduler.last_non_primary_scan_count;
+    analytics[AK::scheduler_non_primary_eviction_candidates] = (int)scheduler.last_non_primary_eviction_candidate_count;
+    analytics[AK::scheduler_prefetch_scan_chunks] = (int)scheduler.last_prefetch_scan_count;
+    analytics[AK::scheduler_prefetch_candidates] = (int)scheduler.last_prefetch_candidate_count;
+    analytics[AK::scheduler_prefetch_upload_pending_skips] =
             static_cast<int64_t>(scheduler.last_prefetch_upload_pending_skip_count);
-    analytics_snapshot["scheduler_prefetch_enqueue_headroom_stalls"] =
+    analytics[AK::scheduler_prefetch_enqueue_headroom_stalls] =
             static_cast<int64_t>(scheduler.last_prefetch_enqueue_headroom_stall_count);
     scheduler.last_cpu_total_attributed_ms =
             scheduler.last_visibility_cpu_ms +
@@ -412,53 +413,53 @@ void GaussianStreamingSystem::end_frame() {
             scheduler.last_prefetch_cpu_ms;
     scheduler.last_cpu_unattributed_ms = MAX(
             0.0, scheduler.last_update_cpu_ms - scheduler.last_cpu_total_attributed_ms);
-    analytics_snapshot["scheduler_update_cpu_ms"] = scheduler.last_update_cpu_ms;
-    analytics_snapshot["scheduler_visibility_cpu_ms"] = scheduler.last_visibility_cpu_ms;
-    analytics_snapshot["scheduler_load_cpu_ms"] = scheduler.last_load_cpu_ms;
-    analytics_snapshot["scheduler_build_visible_cpu_ms"] = scheduler.last_build_visible_cpu_ms;
-    analytics_snapshot["scheduler_prefetch_cpu_ms"] = scheduler.last_prefetch_cpu_ms;
-    analytics_snapshot["scheduler_cpu_total_attributed_ms"] = scheduler.last_cpu_total_attributed_ms;
-    analytics_snapshot["scheduler_cpu_unattributed_ms"] = scheduler.last_cpu_unattributed_ms;
-    analytics_snapshot["scheduler_visible_scan_budget_effective"] =
+    analytics[AK::scheduler_update_cpu_ms] = scheduler.last_update_cpu_ms;
+    analytics[AK::scheduler_visibility_cpu_ms] = scheduler.last_visibility_cpu_ms;
+    analytics[AK::scheduler_load_cpu_ms] = scheduler.last_load_cpu_ms;
+    analytics[AK::scheduler_build_visible_cpu_ms] = scheduler.last_build_visible_cpu_ms;
+    analytics[AK::scheduler_prefetch_cpu_ms] = scheduler.last_prefetch_cpu_ms;
+    analytics[AK::scheduler_cpu_total_attributed_ms] = scheduler.last_cpu_total_attributed_ms;
+    analytics[AK::scheduler_cpu_unattributed_ms] = scheduler.last_cpu_unattributed_ms;
+    analytics[AK::scheduler_visible_scan_budget_effective] =
             static_cast<int64_t>(scheduler.last_visible_scan_budget_effective);
     // #1086 needed-set / forward-progress telemetry (see streaming_queue_pressure_controller.h).
-    analytics_snapshot["needed_set_measured"] = scheduler.last_needed_set_measured;
-    analytics_snapshot["needed_chunks_completed"] = static_cast<int64_t>(scheduler.last_needed_chunks_completed);
-    analytics_snapshot["needed_set_net_progress"] = static_cast<int64_t>(scheduler.last_needed_set_net_progress);
-    analytics_snapshot["needed_set_displacement_debt"] = static_cast<int64_t>(scheduler.needed_set_displacement_debt);
+    analytics[AK::needed_set_measured] = scheduler.last_needed_set_measured;
+    analytics[AK::needed_chunks_completed] = static_cast<int64_t>(scheduler.last_needed_chunks_completed);
+    analytics[AK::needed_set_net_progress] = static_cast<int64_t>(scheduler.last_needed_set_net_progress);
+    analytics[AK::needed_set_displacement_debt] = static_cast<int64_t>(scheduler.needed_set_displacement_debt);
     // #1178: failed chunk payload reads (cumulative). A failing chunk stays needed and unserved
     // while it backs off, so this names the cause when needed_unserved_chunks does not drain.
-    analytics_snapshot["chunk_payload_read_failures"] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
-    analytics_snapshot["scheduler_visible_scan_starvation_eligible"] = scheduler.last_visible_scan_starvation_eligible;
-    analytics_snapshot["needed_chunks"] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
-    analytics_snapshot["needed_resident_chunks"] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
-    analytics_snapshot["needed_unserved_chunks"] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);
-    analytics_snapshot["padding_chunks"] = static_cast<int64_t>(scheduler.last_padding_chunk_count);
-    analytics_snapshot["padding_resident_chunks"] = static_cast<int64_t>(scheduler.last_padding_resident_chunk_count);
-    analytics_snapshot["needed_set_stall_seconds"] = scheduler.needed_set_stall_seconds;
-    analytics_snapshot["needed_set_stalled"] = scheduler.needed_set_stall_seconds >=
+    analytics[AK::chunk_payload_read_failures] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
+    analytics[AK::scheduler_visible_scan_starvation_eligible] = scheduler.last_visible_scan_starvation_eligible;
+    analytics[AK::needed_chunks] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
+    analytics[AK::needed_resident_chunks] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
+    analytics[AK::needed_unserved_chunks] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);
+    analytics[AK::padding_chunks] = static_cast<int64_t>(scheduler.last_padding_chunk_count);
+    analytics[AK::padding_resident_chunks] = static_cast<int64_t>(scheduler.last_padding_resident_chunk_count);
+    analytics[AK::needed_set_stall_seconds] = scheduler.needed_set_stall_seconds;
+    analytics[AK::needed_set_stalled] = scheduler.needed_set_stall_seconds >=
             StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;
-    analytics_snapshot["scheduler_visible_scan_had_capacity"] = scheduler.last_visible_scan_had_capacity;
-    analytics_snapshot["scheduler_visible_scan_starved"] = scheduler.last_visible_scan_starved;
-    analytics_snapshot["scheduler_prefetch_scan_budget_effective"] =
+    analytics[AK::scheduler_visible_scan_had_capacity] = scheduler.last_visible_scan_had_capacity;
+    analytics[AK::scheduler_visible_scan_starved] = scheduler.last_visible_scan_starved;
+    analytics[AK::scheduler_prefetch_scan_budget_effective] =
             static_cast<int64_t>(scheduler.last_prefetch_scan_budget_effective);
-    analytics_snapshot["scheduler_queue_pressure_scan_throttle_active"] =
+    analytics[AK::scheduler_queue_pressure_scan_throttle_active] =
             scheduler.queue_pressure_candidate_scan_throttle_active;
-    analytics_snapshot["scheduler_queue_pressure_scan_throttle_queue_depth"] =
+    analytics[AK::scheduler_queue_pressure_scan_throttle_queue_depth] =
             static_cast<int64_t>(scheduler.queue_pressure_candidate_scan_throttle_queue_depth);
-    analytics_snapshot["scheduler_queue_pressure_scan_throttle_enabled"] =
+    analytics[AK::scheduler_queue_pressure_scan_throttle_enabled] =
             scheduler.queue_pressure_candidate_scan_throttle_enabled;
-    analytics_snapshot["scheduler_force_sync_fallback_due_to_async_stall"] =
+    analytics[AK::scheduler_force_sync_fallback_due_to_async_stall] =
             scheduler.force_sync_fallback_due_to_async_stall;
-    analytics_snapshot["scheduler_sync_fallback_queue_depth"] = (int)sync_fallback_queue_depth;
-    analytics_snapshot["scheduler_sync_fallback_enqueued"] = (int)scheduler.last_sync_fallback_enqueued_count;
-    analytics_snapshot["scheduler_sync_fallback_drained"] = (int)scheduler.last_sync_fallback_drained_count;
-    analytics_snapshot["scheduler_sync_fallback_dropped"] = (int)scheduler.last_sync_fallback_dropped_count;
-    analytics_snapshot["scheduler_sync_fallback_stalled"] = (int)scheduler.last_sync_fallback_stalled_count;
-    analytics_snapshot["scheduler_sync_fallback_load_budget"] = (int)scheduler.max_sync_fallback_loads_per_frame;
-    analytics_snapshot["scheduler_sync_fallback_cpu_ms"] = scheduler.last_sync_fallback_cpu_ms;
-    analytics_snapshot["sync_promoted_pack_jobs_this_frame"] = (int)upload_pipeline.last_sync_promoted_pack_jobs;
-    analytics_snapshot["sync_promoted_pack_jobs_total"] = static_cast<int64_t>(upload_pipeline.sync_promoted_pack_jobs_total);
+    analytics[AK::scheduler_sync_fallback_queue_depth] = (int)sync_fallback_queue_depth;
+    analytics[AK::scheduler_sync_fallback_enqueued] = (int)scheduler.last_sync_fallback_enqueued_count;
+    analytics[AK::scheduler_sync_fallback_drained] = (int)scheduler.last_sync_fallback_drained_count;
+    analytics[AK::scheduler_sync_fallback_dropped] = (int)scheduler.last_sync_fallback_dropped_count;
+    analytics[AK::scheduler_sync_fallback_stalled] = (int)scheduler.last_sync_fallback_stalled_count;
+    analytics[AK::scheduler_sync_fallback_load_budget] = (int)scheduler.max_sync_fallback_loads_per_frame;
+    analytics[AK::scheduler_sync_fallback_cpu_ms] = scheduler.last_sync_fallback_cpu_ms;
+    analytics[AK::sync_promoted_pack_jobs_this_frame] = (int)upload_pipeline.last_sync_promoted_pack_jobs;
+    analytics[AK::sync_promoted_pack_jobs_total] = static_cast<int64_t>(upload_pipeline.sync_promoted_pack_jobs_total);
     StreamingTelemetryAdapter::QueuePressureSnapshot queue_pressure_snapshot;
     queue_pressure_snapshot.active = upload_pipeline.queue_pressure_active;
     queue_pressure_snapshot.source = upload_pipeline.queue_pressure_source;
@@ -468,35 +469,25 @@ void GaussianStreamingSystem::end_frame() {
     queue_pressure_snapshot.pack_source_active = queue_pressure_summary.pack_source_active;
     queue_pressure_snapshot.upload_source_active = queue_pressure_summary.upload_source_active;
     queue_pressure_snapshot.sync_source_active = queue_pressure_summary.sync_source_active;
-    StreamingTelemetryAdapter::apply_queue_pressure_analytics(analytics_snapshot, queue_pressure_snapshot);
+    frame->analytics_queue_pressure = queue_pressure_snapshot;
 
-    Dictionary cap_sources;
-    cap_sources["max_upload_mb_per_frame"] = upload_pipeline.cap_source_upload_mb_per_frame;
-    cap_sources["max_upload_mb_per_slice"] = upload_pipeline.cap_source_upload_mb_per_slice;
-    cap_sources["max_upload_mb_per_second"] = upload_pipeline.cap_source_upload_mb_per_second;
-    cap_sources["vram_budget_mb"] = analytics_snapshot.get("cap_source_vram_budget_mb", String("project_default"));
-    cap_sources["min_chunks_in_vram"] = analytics_snapshot.get("cap_source_vram_min_chunks", String("project_default"));
-    cap_sources["max_chunks_in_vram"] = analytics_snapshot.get("cap_source_vram_max_chunks", String("project_default"));
-    analytics_snapshot["cap_sources"] = cap_sources;
-    analytics_snapshot["visible_evict_fallback_attempts"] =
+    analytics[AK::visible_evict_fallback_attempts] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_attempts);
-    analytics_snapshot["visible_evict_fallback_successes"] =
+    analytics[AK::visible_evict_fallback_successes] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_successes);
-    analytics_snapshot["prefetch_visible_eviction_refusals"] =
+    analytics[AK::prefetch_visible_eviction_refusals] =
             static_cast<int64_t>(diagnostics.prefetch_visible_eviction_refusals);
 
-    Dictionary streaming_diagnostics = _build_streaming_diagnostics_snapshot(
-            pack_queue_depth, upload_queue_depth, sync_fallback_queue_depth);
-    analytics_snapshot["diagnostics"] = streaming_diagnostics;
-    analytics_snapshot["diagnostics_category"] = streaming_diagnostics.get("category", "ok");
-    analytics_snapshot["diagnostics_reason"] = streaming_diagnostics.get("reason", "healthy");
-    analytics_snapshot["diagnostics_fingerprint"] = streaming_diagnostics.get("fingerprint", "ok");
-    analytics_snapshot["diagnostics_has_failure"] = streaming_diagnostics.get("has_failure", false);
+    _capture_streaming_diagnostics(*frame, pack_queue_depth, upload_queue_depth, sync_fallback_queue_depth);
+
+    MutexLock lock(analytics_frame_mutex);
+    analytics_frame = std::move(frame);
 }
 
-Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
+void GaussianStreamingSystem::_capture_streaming_diagnostics(StreamingAnalyticsFrame &r_frame,
         uint32_t pack_queue_depth, uint32_t upload_queue_depth, uint32_t sync_fallback_queue_depth) {
-    Dictionary diagnostics_snapshot;
+    StreamingAnalyticsFrame::DiagnosticsValues &diagnostics_values = r_frame.diagnostics;
+    using DK = StreamingAnalyticsFrame::DiagnosticsKey;
 
     String runtime_reason;
     const bool runtime_ready = is_runtime_ready(&runtime_reason);
@@ -538,12 +529,12 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     queue_pressure_sample.visible_eviction_active = visible_eviction_active;
     const StreamingQueuePressureController::PressureSummary queue_pressure_summary =
             StreamingQueuePressureController::summarize_checked(queue_pressure_sample,
-                    "GaussianStreamingSystem::_build_streaming_diagnostics_snapshot");
+                    "GaussianStreamingSystem::_capture_streaming_diagnostics");
     StreamingQueuePressureController::latch_summary(queue_pressure_summary,
             upload_pipeline.queue_pressure_active, upload_pipeline.queue_pressure_source, upload_pipeline.queue_pressure_reason);
     StreamingQueuePressureController::validate_latched_state(
             upload_pipeline.queue_pressure_active, upload_pipeline.queue_pressure_source, upload_pipeline.queue_pressure_reason,
-            "GaussianStreamingSystem::_build_streaming_diagnostics_snapshot");
+            "GaussianStreamingSystem::_capture_streaming_diagnostics");
     const bool queue_pressure_active = upload_pipeline.queue_pressure_active;
     const String queue_pressure_source = upload_pipeline.queue_pressure_source;
     const String queue_pressure_reason = upload_pipeline.queue_pressure_reason;
@@ -761,51 +752,39 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     diagnostics.last_visible_chunks = visible_chunks;
     diagnostics.last_loaded_chunks = loaded_chunks;
 
-    diagnostics_snapshot["category"] = category;
-    diagnostics_snapshot["reason"] = reason;
-    diagnostics_snapshot["fingerprint"] = fingerprint;
-    diagnostics_snapshot["has_failure"] = has_failure;
-    diagnostics_snapshot["runtime_ready"] = runtime_ready;
-    diagnostics_snapshot["total_chunks"] = static_cast<int64_t>(total_chunks);
-    diagnostics_snapshot["visible_chunks"] = static_cast<int64_t>(visible_chunks);
-    diagnostics_snapshot["loaded_chunks"] = static_cast<int64_t>(loaded_chunks);
-    diagnostics_snapshot["visible_splats"] = static_cast<int64_t>(visible_splats);
-    diagnostics_snapshot["cull_effectiveness"] = cull_effectiveness;
-    diagnostics_snapshot["primary_spatial_chunking_enabled"] = primary_chunk_layout_metrics.spatial_partition_enabled;
-    diagnostics_snapshot["primary_chunk_source_index_count"] = static_cast<int64_t>(primary_chunk_layout_metrics.source_index_count);
-    diagnostics_snapshot["primary_chunk_avg_radius_ratio"] = primary_chunk_layout_metrics.avg_chunk_radius_ratio;
-    diagnostics_snapshot["primary_chunk_max_radius_ratio"] = primary_chunk_layout_metrics.max_chunk_radius_ratio;
-    diagnostics_snapshot["primary_chunk_bounds_volume_ratio"] = primary_chunk_layout_metrics.bounds_volume_ratio;
-    const bool strict_layout_validation = _layout_hint_strict_validation_enabled();
-    const Dictionary layout_hint_validation = _layout_hint_build_snapshot(this, strict_layout_validation);
-    diagnostics_snapshot["layout_hint_validation"] = layout_hint_validation;
-    diagnostics_snapshot["layout_hint_strict_mode_enabled"] = strict_layout_validation;
-    diagnostics_snapshot["layout_hint_fallback_total"] = layout_hint_validation.get("fallback_total", int64_t(0));
-    diagnostics_snapshot["layout_hint_fallback_io_total"] = layout_hint_validation.get("fallback_io_total", int64_t(0));
-    diagnostics_snapshot["layout_hint_fallback_primary_total"] = layout_hint_validation.get("fallback_primary_total", int64_t(0));
-    diagnostics_snapshot["layout_hint_strict_failure_total"] = layout_hint_validation.get("strict_failure_total", int64_t(0));
-    diagnostics_snapshot["layout_hint_last_reason"] = layout_hint_validation.get("last_reason", String("none"));
-    diagnostics_snapshot["layout_hint_last_reason_category"] = layout_hint_validation.get("last_reason_category", String("other"));
-    diagnostics_snapshot["layout_hint_last_context"] = layout_hint_validation.get("last_context", String("none"));
-    diagnostics_snapshot["layout_hint_last_usage"] = layout_hint_validation.get("last_usage", String("none"));
-    diagnostics_snapshot["load_candidates"] = static_cast<int64_t>(load_candidates);
-    diagnostics_snapshot["scheduler_primary_eviction_scan_chunks"] =
+    diagnostics_values[DK::category] = category;
+    diagnostics_values[DK::reason] = reason;
+    diagnostics_values[DK::fingerprint] = fingerprint;
+    diagnostics_values[DK::has_failure] = has_failure;
+    diagnostics_values[DK::runtime_ready] = runtime_ready;
+    diagnostics_values[DK::total_chunks] = static_cast<int64_t>(total_chunks);
+    diagnostics_values[DK::visible_chunks] = static_cast<int64_t>(visible_chunks);
+    diagnostics_values[DK::loaded_chunks] = static_cast<int64_t>(loaded_chunks);
+    diagnostics_values[DK::visible_splats] = static_cast<int64_t>(visible_splats);
+    diagnostics_values[DK::cull_effectiveness] = cull_effectiveness;
+    diagnostics_values[DK::primary_spatial_chunking_enabled] = primary_chunk_layout_metrics.spatial_partition_enabled;
+    diagnostics_values[DK::primary_chunk_source_index_count] = static_cast<int64_t>(primary_chunk_layout_metrics.source_index_count);
+    diagnostics_values[DK::primary_chunk_avg_radius_ratio] = primary_chunk_layout_metrics.avg_chunk_radius_ratio;
+    diagnostics_values[DK::primary_chunk_max_radius_ratio] = primary_chunk_layout_metrics.max_chunk_radius_ratio;
+    diagnostics_values[DK::primary_chunk_bounds_volume_ratio] = primary_chunk_layout_metrics.bounds_volume_ratio;
+    diagnostics_values[DK::load_candidates] = static_cast<int64_t>(load_candidates);
+    diagnostics_values[DK::scheduler_primary_eviction_scan_chunks] =
             static_cast<int64_t>(scheduler.last_primary_eviction_scan_count);
-    diagnostics_snapshot["scheduler_primary_eviction_candidates"] =
+    diagnostics_values[DK::scheduler_primary_eviction_candidates] =
             static_cast<int64_t>(scheduler.last_primary_eviction_candidate_count);
-    diagnostics_snapshot["scheduler_non_primary_scan_chunks"] =
+    diagnostics_values[DK::scheduler_non_primary_scan_chunks] =
             static_cast<int64_t>(scheduler.last_non_primary_scan_count);
-    diagnostics_snapshot["scheduler_non_primary_eviction_candidates"] =
+    diagnostics_values[DK::scheduler_non_primary_eviction_candidates] =
             static_cast<int64_t>(scheduler.last_non_primary_eviction_candidate_count);
-    diagnostics_snapshot["pack_queue_depth"] = static_cast<int64_t>(pack_queue_depth);
-    diagnostics_snapshot["upload_queue_depth"] = static_cast<int64_t>(upload_queue_depth);
-    diagnostics_snapshot["pending_upload_reserved_slots"] = static_cast<int64_t>(reserved_upload_slots);
-    diagnostics_snapshot["pending_upload_reserved_bytes"] = static_cast<int64_t>(reserved_upload_bytes);
-    diagnostics_snapshot["pending_upload_retirement_tickets"] = static_cast<int64_t>(pending_upload_retirements.size());
-    diagnostics_snapshot["sync_fallback_queue_depth"] = static_cast<int64_t>(sync_fallback_queue_depth);
-    diagnostics_snapshot["pack_jobs_in_flight"] = static_cast<int64_t>(current_pack_jobs_in_flight);
-    diagnostics_snapshot["total_pending_chunks"] = static_cast<int64_t>(queue_pressure_summary.total_pending_chunks);
-    diagnostics_snapshot["visible_eviction_active"] = visible_eviction_active;
+    diagnostics_values[DK::pack_queue_depth] = static_cast<int64_t>(pack_queue_depth);
+    diagnostics_values[DK::upload_queue_depth] = static_cast<int64_t>(upload_queue_depth);
+    diagnostics_values[DK::pending_upload_reserved_slots] = static_cast<int64_t>(reserved_upload_slots);
+    diagnostics_values[DK::pending_upload_reserved_bytes] = static_cast<int64_t>(reserved_upload_bytes);
+    diagnostics_values[DK::pending_upload_retirement_tickets] = static_cast<int64_t>(pending_upload_retirements.size());
+    diagnostics_values[DK::sync_fallback_queue_depth] = static_cast<int64_t>(sync_fallback_queue_depth);
+    diagnostics_values[DK::pack_jobs_in_flight] = static_cast<int64_t>(current_pack_jobs_in_flight);
+    diagnostics_values[DK::total_pending_chunks] = static_cast<int64_t>(queue_pressure_summary.total_pending_chunks);
+    diagnostics_values[DK::visible_eviction_active] = visible_eviction_active;
     StreamingTelemetryAdapter::QueuePressureSnapshot queue_pressure_snapshot;
     queue_pressure_snapshot.active = queue_pressure_active;
     queue_pressure_snapshot.source = queue_pressure_source;
@@ -815,130 +794,128 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     queue_pressure_snapshot.pack_source_active = queue_pressure_summary.pack_source_active;
     queue_pressure_snapshot.upload_source_active = queue_pressure_summary.upload_source_active;
     queue_pressure_snapshot.sync_source_active = queue_pressure_summary.sync_source_active;
-    StreamingTelemetryAdapter::apply_queue_pressure_diagnostics(diagnostics_snapshot, queue_pressure_snapshot);
-    diagnostics_snapshot["scheduler_visible_scan_budget_effective"] =
+    r_frame.diagnostics_queue_pressure = queue_pressure_snapshot;
+    diagnostics_values[DK::scheduler_visible_scan_budget_effective] =
             static_cast<int64_t>(scheduler.last_visible_scan_budget_effective);
-    diagnostics_snapshot["scheduler_prefetch_scan_budget_effective"] =
+    diagnostics_values[DK::scheduler_prefetch_scan_budget_effective] =
             static_cast<int64_t>(scheduler.last_prefetch_scan_budget_effective);
-    diagnostics_snapshot["scheduler_prefetch_upload_pending_skips"] =
+    diagnostics_values[DK::scheduler_prefetch_upload_pending_skips] =
             static_cast<int64_t>(scheduler.last_prefetch_upload_pending_skip_count);
-    diagnostics_snapshot["scheduler_prefetch_enqueue_headroom_stalls"] =
+    diagnostics_values[DK::scheduler_prefetch_enqueue_headroom_stalls] =
             static_cast<int64_t>(scheduler.last_prefetch_enqueue_headroom_stall_count);
-    diagnostics_snapshot["scheduler_queue_pressure_scan_throttle_active"] =
+    diagnostics_values[DK::scheduler_queue_pressure_scan_throttle_active] =
             scheduler.queue_pressure_candidate_scan_throttle_active;
-    diagnostics_snapshot["scheduler_queue_pressure_scan_throttle_queue_depth"] =
+    diagnostics_values[DK::scheduler_queue_pressure_scan_throttle_queue_depth] =
             static_cast<int64_t>(scheduler.queue_pressure_candidate_scan_throttle_queue_depth);
-    diagnostics_snapshot["scheduler_queue_pressure_scan_throttle_enabled"] =
+    diagnostics_values[DK::scheduler_queue_pressure_scan_throttle_enabled] =
             scheduler.queue_pressure_candidate_scan_throttle_enabled;
-    diagnostics_snapshot["scheduler_force_sync_fallback_due_to_async_stall"] =
+    diagnostics_values[DK::scheduler_force_sync_fallback_due_to_async_stall] =
             scheduler.force_sync_fallback_due_to_async_stall;
-    diagnostics_snapshot["chunks_loaded_this_frame"] = static_cast<int64_t>(loaded_this_frame);
-    diagnostics_snapshot["chunks_uploaded_this_frame"] = static_cast<int64_t>(upload_chunks_this_frame);
-    diagnostics_snapshot["retired_upload_bytes_this_frame"] = static_cast<int64_t>(budget.retired_upload_bytes_this_frame);
-    diagnostics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
-    diagnostics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
-    diagnostics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
-    diagnostics_snapshot["chunk_payload_read_failures"] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
-    diagnostics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
-    diagnostics_snapshot["stale_sequence_dropped_upload_retirements"] =
+    diagnostics_values[DK::chunks_loaded_this_frame] = static_cast<int64_t>(loaded_this_frame);
+    diagnostics_values[DK::chunks_uploaded_this_frame] = static_cast<int64_t>(upload_chunks_this_frame);
+    diagnostics_values[DK::retired_upload_bytes_this_frame] = static_cast<int64_t>(budget.retired_upload_bytes_this_frame);
+    diagnostics_values[DK::retired_upload_slots_this_frame] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
+    diagnostics_values[DK::failed_upload_retirements] = static_cast<int64_t>(budget.failed_upload_retirements);
+    diagnostics_values[DK::stride_flip_dropped_upload_retirements] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    diagnostics_values[DK::chunk_payload_read_failures] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
+    diagnostics_values[DK::stale_sequence_dropped_uploads] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
+    diagnostics_values[DK::stale_sequence_dropped_upload_retirements] =
             static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
-    diagnostics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
-    diagnostics_snapshot["last_completed_upload_ticket_id"] = static_cast<int64_t>(last_completed_upload_ticket_id);
-    diagnostics_snapshot["sync_promoted_pack_jobs_this_frame"] = static_cast<int64_t>(upload_pipeline.last_sync_promoted_pack_jobs);
-    diagnostics_snapshot["sync_promoted_pack_jobs_total"] = static_cast<int64_t>(upload_pipeline.sync_promoted_pack_jobs_total);
-    diagnostics_snapshot["pack_thread_wakes"] = static_cast<int64_t>(upload_pipeline.last_thread_wakes);
-    diagnostics_snapshot["pack_thread_dequeues"] = static_cast<int64_t>(upload_pipeline.last_thread_dequeues);
-    diagnostics_snapshot["pack_thread_snapshots"] = static_cast<int64_t>(upload_pipeline.last_thread_snapshots);
-    diagnostics_snapshot["pack_thread_enqueue_uploads"] = static_cast<int64_t>(upload_pipeline.last_thread_enqueue_uploads);
-    diagnostics_snapshot["cap_tier_preset"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::last_upload_completion_mode] = last_upload_completion_mode;
+    diagnostics_values[DK::last_completed_upload_ticket_id] = static_cast<int64_t>(last_completed_upload_ticket_id);
+    diagnostics_values[DK::sync_promoted_pack_jobs_this_frame] = static_cast<int64_t>(upload_pipeline.last_sync_promoted_pack_jobs);
+    diagnostics_values[DK::sync_promoted_pack_jobs_total] = static_cast<int64_t>(upload_pipeline.sync_promoted_pack_jobs_total);
+    diagnostics_values[DK::pack_thread_wakes] = static_cast<int64_t>(upload_pipeline.last_thread_wakes);
+    diagnostics_values[DK::pack_thread_dequeues] = static_cast<int64_t>(upload_pipeline.last_thread_dequeues);
+    diagnostics_values[DK::pack_thread_snapshots] = static_cast<int64_t>(upload_pipeline.last_thread_snapshots);
+    diagnostics_values[DK::pack_thread_enqueue_uploads] = static_cast<int64_t>(upload_pipeline.last_thread_enqueue_uploads);
+    diagnostics_values[DK::cap_tier_preset] = budget.vram_regulator.is_valid()
             ? active_vram_caps.cap_tier_preset
             : upload_pipeline.cap_tier_preset;
-    diagnostics_snapshot["cap_tier_active"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::cap_tier_active] = budget.vram_regulator.is_valid()
             ? active_vram_caps.cap_tier_active
             : upload_pipeline.cap_tier_active;
-    diagnostics_snapshot["effective_upload_cap_mb_per_frame"] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_frame);
-    diagnostics_snapshot["effective_upload_cap_mb_per_slice"] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_slice);
-    diagnostics_snapshot["effective_upload_cap_mb_per_second"] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_second);
-    diagnostics_snapshot["effective_vram_budget_mb"] = effective_vram_budget_mb;
-    diagnostics_snapshot["effective_vram_min_chunks"] = effective_vram_min_chunks;
-    diagnostics_snapshot["effective_vram_max_chunks"] = effective_vram_max_chunks;
-    diagnostics_snapshot["requested_vram_budget_mb"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::effective_upload_cap_mb_per_frame] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_frame);
+    diagnostics_values[DK::effective_upload_cap_mb_per_slice] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_slice);
+    diagnostics_values[DK::effective_upload_cap_mb_per_second] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_second);
+    diagnostics_values[DK::effective_vram_budget_mb] = effective_vram_budget_mb;
+    diagnostics_values[DK::effective_vram_min_chunks] = effective_vram_min_chunks;
+    diagnostics_values[DK::effective_vram_max_chunks] = effective_vram_max_chunks;
+    diagnostics_values[DK::requested_vram_budget_mb] = budget.vram_regulator.is_valid()
             ? static_cast<int64_t>(active_vram_caps.requested_budget_mb)
             : int64_t(0);
-    diagnostics_snapshot["cap_source_upload_mb_per_frame"] = upload_pipeline.cap_source_upload_mb_per_frame;
-    diagnostics_snapshot["cap_source_upload_mb_per_slice"] = upload_pipeline.cap_source_upload_mb_per_slice;
-    diagnostics_snapshot["cap_source_upload_mb_per_second"] = upload_pipeline.cap_source_upload_mb_per_second;
-    diagnostics_snapshot["cap_source_vram_budget_mb"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::cap_source_upload_mb_per_frame] = upload_pipeline.cap_source_upload_mb_per_frame;
+    diagnostics_values[DK::cap_source_upload_mb_per_slice] = upload_pipeline.cap_source_upload_mb_per_slice;
+    diagnostics_values[DK::cap_source_upload_mb_per_second] = upload_pipeline.cap_source_upload_mb_per_second;
+    diagnostics_values[DK::cap_source_vram_budget_mb] = budget.vram_regulator.is_valid()
             ? active_vram_caps.source_budget_mb
             : String("project_default");
-    diagnostics_snapshot["requested_cap_source_vram_budget_mb"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::requested_cap_source_vram_budget_mb] = budget.vram_regulator.is_valid()
             ? active_vram_caps.requested_source_budget_mb
             : String("project_default");
-    diagnostics_snapshot["cap_source_vram_min_chunks"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::cap_source_vram_min_chunks] = budget.vram_regulator.is_valid()
             ? active_vram_caps.source_min_chunks
             : String("project_default");
-    diagnostics_snapshot["cap_source_vram_max_chunks"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::cap_source_vram_max_chunks] = budget.vram_regulator.is_valid()
             ? active_vram_caps.source_max_chunks
             : String("project_default");
-    diagnostics_snapshot["vram_budget_capacity_verified"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::vram_budget_capacity_verified] = budget.vram_regulator.is_valid()
             ? active_vram_caps.budget_capacity_verified
             : false;
-    diagnostics_snapshot["vram_budget_unknown_capacity_fallback"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::vram_budget_unknown_capacity_fallback] = budget.vram_regulator.is_valid()
             ? active_vram_caps.budget_uses_unknown_capacity_fallback
             : false;
-    diagnostics_snapshot["vram_budget_unverified"] = budget.vram_regulator.is_valid()
+    diagnostics_values[DK::vram_budget_unverified] = budget.vram_regulator.is_valid()
             ? active_vram_caps.budget_unverified
             : false;
-    diagnostics_snapshot["upload_frame_cap_hit"] = upload_frame_cap_hit;
-    diagnostics_snapshot["upload_slice_cap_hit"] = upload_slice_cap_hit;
-    diagnostics_snapshot["upload_bandwidth_cap_hit"] = upload_bandwidth_cap_hit;
-    diagnostics_snapshot["chunk_load_cap_hit"] = chunk_load_cap_hit;
-    diagnostics_snapshot["vram_chunk_cap_hit"] = vram_chunk_cap_hit;
-    diagnostics_snapshot["queue_pressure_frames"] = static_cast<int64_t>(diagnostics.queue_pressure_frames);
-    diagnostics_snapshot["vram_cap_hit_frames"] = static_cast<int64_t>(diagnostics.vram_cap_hit_frames);
-    diagnostics_snapshot["init_invalid_frames"] = static_cast<int64_t>(diagnostics.init_invalid_frames);
-    diagnostics_snapshot["culling_empty_frames"] = static_cast<int64_t>(diagnostics.culling_empty_frames);
-    diagnostics_snapshot["scheduler_stall_frames"] = static_cast<int64_t>(diagnostics.scheduler_stall_frames);
-    diagnostics_snapshot["upload_stall_frames"] = static_cast<int64_t>(diagnostics.upload_stall_frames);
-    diagnostics_snapshot["upload_stall_wall_ms"] = double(diagnostics.upload_stall_wall_usec) / 1000.0;
-    diagnostics_snapshot["sync_fallback_stall_frames"] = static_cast<int64_t>(diagnostics.sync_fallback_stall_frames);
-    diagnostics_snapshot["sustained_pressure_frames"] = static_cast<int64_t>(diagnostics.sustained_pressure_frames);
-    diagnostics_snapshot["pressure_category"] = diagnostics.pressure_category;
-    diagnostics_snapshot["scheduler_update_cpu_ms"] = scheduler.last_update_cpu_ms;
-    diagnostics_snapshot["scheduler_visibility_cpu_ms"] = scheduler.last_visibility_cpu_ms;
-    diagnostics_snapshot["scheduler_load_cpu_ms"] = scheduler.last_load_cpu_ms;
-    diagnostics_snapshot["scheduler_build_visible_cpu_ms"] = scheduler.last_build_visible_cpu_ms;
-    diagnostics_snapshot["scheduler_prefetch_cpu_ms"] = scheduler.last_prefetch_cpu_ms;
-    diagnostics_snapshot["scheduler_sync_fallback_cpu_ms"] = scheduler.last_sync_fallback_cpu_ms;
-    diagnostics_snapshot["scheduler_cpu_total_attributed_ms"] = scheduler.last_cpu_total_attributed_ms;
-    diagnostics_snapshot["scheduler_cpu_unattributed_ms"] = scheduler.last_cpu_unattributed_ms;
-    diagnostics_snapshot["pack_queue_latency_avg_ms"] = upload_pipeline.last_pack_queue_latency_avg_ms;
-    diagnostics_snapshot["pack_queue_latency_max_ms"] = upload_pipeline.last_pack_queue_latency_max_ms;
-    diagnostics_snapshot["upload_queue_latency_avg_ms"] = upload_pipeline.last_upload_queue_latency_avg_ms;
-    diagnostics_snapshot["upload_queue_latency_max_ms"] = upload_pipeline.last_upload_queue_latency_max_ms;
-    diagnostics_snapshot["pack_mutex_wait_avg_ms"] = upload_pipeline.last_pack_mutex_wait_avg_ms;
-    diagnostics_snapshot["pack_mutex_wait_max_ms"] = upload_pipeline.last_pack_mutex_wait_max_ms;
-    diagnostics_snapshot["visible_evict_fallback_attempts"] =
+    diagnostics_values[DK::upload_frame_cap_hit] = upload_frame_cap_hit;
+    diagnostics_values[DK::upload_slice_cap_hit] = upload_slice_cap_hit;
+    diagnostics_values[DK::upload_bandwidth_cap_hit] = upload_bandwidth_cap_hit;
+    diagnostics_values[DK::chunk_load_cap_hit] = chunk_load_cap_hit;
+    diagnostics_values[DK::vram_chunk_cap_hit] = vram_chunk_cap_hit;
+    diagnostics_values[DK::queue_pressure_frames] = static_cast<int64_t>(diagnostics.queue_pressure_frames);
+    diagnostics_values[DK::vram_cap_hit_frames] = static_cast<int64_t>(diagnostics.vram_cap_hit_frames);
+    diagnostics_values[DK::init_invalid_frames] = static_cast<int64_t>(diagnostics.init_invalid_frames);
+    diagnostics_values[DK::culling_empty_frames] = static_cast<int64_t>(diagnostics.culling_empty_frames);
+    diagnostics_values[DK::scheduler_stall_frames] = static_cast<int64_t>(diagnostics.scheduler_stall_frames);
+    diagnostics_values[DK::upload_stall_frames] = static_cast<int64_t>(diagnostics.upload_stall_frames);
+    diagnostics_values[DK::upload_stall_wall_ms] = double(diagnostics.upload_stall_wall_usec) / 1000.0;
+    diagnostics_values[DK::sync_fallback_stall_frames] = static_cast<int64_t>(diagnostics.sync_fallback_stall_frames);
+    diagnostics_values[DK::sustained_pressure_frames] = static_cast<int64_t>(diagnostics.sustained_pressure_frames);
+    diagnostics_values[DK::pressure_category] = diagnostics.pressure_category;
+    diagnostics_values[DK::scheduler_update_cpu_ms] = scheduler.last_update_cpu_ms;
+    diagnostics_values[DK::scheduler_visibility_cpu_ms] = scheduler.last_visibility_cpu_ms;
+    diagnostics_values[DK::scheduler_load_cpu_ms] = scheduler.last_load_cpu_ms;
+    diagnostics_values[DK::scheduler_build_visible_cpu_ms] = scheduler.last_build_visible_cpu_ms;
+    diagnostics_values[DK::scheduler_prefetch_cpu_ms] = scheduler.last_prefetch_cpu_ms;
+    diagnostics_values[DK::scheduler_sync_fallback_cpu_ms] = scheduler.last_sync_fallback_cpu_ms;
+    diagnostics_values[DK::scheduler_cpu_total_attributed_ms] = scheduler.last_cpu_total_attributed_ms;
+    diagnostics_values[DK::scheduler_cpu_unattributed_ms] = scheduler.last_cpu_unattributed_ms;
+    diagnostics_values[DK::pack_queue_latency_avg_ms] = upload_pipeline.last_pack_queue_latency_avg_ms;
+    diagnostics_values[DK::pack_queue_latency_max_ms] = upload_pipeline.last_pack_queue_latency_max_ms;
+    diagnostics_values[DK::upload_queue_latency_avg_ms] = upload_pipeline.last_upload_queue_latency_avg_ms;
+    diagnostics_values[DK::upload_queue_latency_max_ms] = upload_pipeline.last_upload_queue_latency_max_ms;
+    diagnostics_values[DK::pack_mutex_wait_avg_ms] = upload_pipeline.last_pack_mutex_wait_avg_ms;
+    diagnostics_values[DK::pack_mutex_wait_max_ms] = upload_pipeline.last_pack_mutex_wait_max_ms;
+    diagnostics_values[DK::visible_evict_fallback_attempts] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_attempts);
-    diagnostics_snapshot["visible_evict_fallback_successes"] =
+    diagnostics_values[DK::visible_evict_fallback_successes] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_successes);
-    diagnostics_snapshot["prefetch_visible_eviction_refusals"] =
+    diagnostics_values[DK::prefetch_visible_eviction_refusals] =
             static_cast<int64_t>(diagnostics.prefetch_visible_eviction_refusals);
-    diagnostics_snapshot["invariant_slot_ownership_violations"] =
+    diagnostics_values[DK::invariant_slot_ownership_violations] =
             static_cast<int64_t>(diagnostics.invariant_slot_ownership_violations);
-    diagnostics_snapshot["invariant_upload_lifecycle_violations"] =
+    diagnostics_values[DK::invariant_upload_lifecycle_violations] =
             static_cast<int64_t>(diagnostics.invariant_upload_lifecycle_violations);
-    diagnostics_snapshot["invariant_generation_violations"] =
+    diagnostics_values[DK::invariant_generation_violations] =
             static_cast<int64_t>(diagnostics.invariant_generation_violations);
-    diagnostics_snapshot["integrity_mismatch_count"] =
+    diagnostics_values[DK::integrity_mismatch_count] =
             static_cast<int64_t>(diagnostics.integrity_mismatch_count);
-    diagnostics_snapshot["last_invariant_context"] = diagnostics.last_invariant_context;
-    diagnostics_snapshot["last_invariant_message"] = diagnostics.last_invariant_message;
-    diagnostics_snapshot["last_integrity_mismatch_message"] = diagnostics.last_integrity_mismatch_message;
-    diagnostics_snapshot["atlas_generation"] = static_cast<int64_t>(global_atlas_registry.get_atlas_generation());
-    diagnostics_snapshot["request_generation"] = static_cast<int64_t>(asset_registry.request_generation);
-
-    return diagnostics_snapshot;
+    diagnostics_values[DK::last_invariant_context] = diagnostics.last_invariant_context;
+    diagnostics_values[DK::last_invariant_message] = diagnostics.last_invariant_message;
+    diagnostics_values[DK::last_integrity_mismatch_message] = diagnostics.last_integrity_mismatch_message;
+    diagnostics_values[DK::atlas_generation] = static_cast<int64_t>(global_atlas_registry.get_atlas_generation());
+    diagnostics_values[DK::request_generation] = static_cast<int64_t>(asset_registry.request_generation);
 }
 
 Dictionary GaussianStreamingSystem::get_task_debug_state() const {
@@ -949,7 +926,13 @@ Dictionary GaussianStreamingSystem::get_task_debug_state() const {
 }
 
 Dictionary GaussianStreamingSystem::get_streaming_analytics() const {
-    return analytics_snapshot;
+    const std::shared_ptr<StreamingAnalyticsFrame> frame = get_analytics_frame();
+    return frame ? frame->resolve() : Dictionary();
+}
+
+std::shared_ptr<StreamingAnalyticsFrame> GaussianStreamingSystem::get_analytics_frame() const {
+    MutexLock lock(analytics_frame_mutex);
+    return analytics_frame;
 }
 
 Dictionary GaussianStreamingSystem::get_chunk_culling_stats() const {

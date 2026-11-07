@@ -6,7 +6,7 @@
 #include "core/templates/vector.h"
 #include "gaussian_data.h"
 #include "gaussian_splat_asset.h"
-#include "../renderer/gaussian_splat_renderer.h"
+#include "../interfaces/gpu_culler.h"
 
 struct GaussianSplatMergeSource {
     Ref<GaussianSplatAsset> asset;
@@ -16,7 +16,7 @@ struct GaussianSplatMergeSource {
 
 struct GaussianSplatMergeResult {
     Ref<GaussianData> data;
-    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+    Vector<StaticChunk> chunks;
     AABB bounds;
 };
 
