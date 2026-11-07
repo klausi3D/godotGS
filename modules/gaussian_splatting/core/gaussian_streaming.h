@@ -464,6 +464,7 @@ public:
 	void _test_set_atlas_page_ceiling(uint32_t p_pages) { streaming_max_capacity = p_pages; }
 	uint32_t _test_atlas_occupancy_target_pages() const { return _atlas_occupancy_target_pages(); }
 	void _test_update_vram_regulator() { _update_vram_regulator(); }
+	void _test_evict_all_resident_chunks_for_stride_change() { _evict_all_resident_chunks_for_stride_change(); }
 	void _test_set_wall_clock_usec(uint64_t p_usec) { test_wall_clock_usec = p_usec; }
 	bool _test_regulator_allows_load() const {
 		return budget.vram_regulator.is_valid() && budget.vram_regulator->can_load_more_chunks(_get_reserved_chunk_count());
