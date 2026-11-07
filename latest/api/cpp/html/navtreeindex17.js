@@ -1,5 +1,9 @@
 var NAVTREEINDEX17 =
 {
+"classTileRenderer_1_1RenderFrameExecutor.html#ab580af09cd72c357d7f9e1dec35523f9":[1,0,279,2,2],
+"classVRAMBudgetRegulator.html":[1,0,286],
+"classVRAMBudgetRegulator.html#a1e963e55eba70fa0eedf9720a9c8e584":[1,0,286,13],
+"classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e":[1,0,286,0],
 "classVRAMBudgetRegulator.html#a537c768394145aa9d3d2d73eb745698f":[1,0,286,4],
 "classVRAMBudgetRegulator.html#a7174dac664d7694bfc8c55e943e1ecda":[1,0,286,8],
 "classVRAMBudgetRegulator.html#a78078b1db5f8bd1652b72a47988daf64":[1,0,286,11],
@@ -245,9 +249,5 @@ var NAVTREEINDEX17 =
 "classgs__world__frame_1_1WorldOriginContext.html#aefc4288597889086e6b9f7a61b945b1b":[1,0,23,3,0],
 "classgs__world__writer_1_1Writer.html":[0,0,36,3],
 "classgs__world__writer_1_1Writer.html":[1,0,26,3],
-"classgs__world__writer_1_1Writer.html#a0e1f13ca858afc3dbb7209837413355c":[0,0,36,3,5],
-"classgs__world__writer_1_1Writer.html#a0e1f13ca858afc3dbb7209837413355c":[1,0,26,3,5],
-"classgs__world__writer_1_1Writer.html#a0f40b501fb432f0e148f1f71bd589cf1":[0,0,36,3,9],
-"classgs__world__writer_1_1Writer.html#a0f40b501fb432f0e148f1f71bd589cf1":[1,0,26,3,9],
-"classgs__world__writer_1_1Writer.html#a11338e9bac65a12690482f3d15890a14":[0,0,36,3,0]
+"classgs__world__writer_1_1Writer.html#a0e1f13ca858afc3dbb7209837413355c":[0,0,36,3,5]
 };

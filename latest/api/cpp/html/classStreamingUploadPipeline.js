@@ -11,6 +11,8 @@ var classStreamingUploadPipeline =
     [ "cancel_asset_jobs", "classStreamingUploadPipeline.html#a92c360e217cd2c13763998e8cc57318e", null ],
     [ "cancel_chunk_jobs", "classStreamingUploadPipeline.html#a855532fbe7c049eac4b9627a4312a303", null ],
     [ "clear_pending_uploads", "classStreamingUploadPipeline.html#a823010cda18586dbb2cd613cb150f10c", null ],
+    [ "get_frame_upload_limit_bytes", "classStreamingUploadPipeline.html#ae6eec1fbf96c3e126169548b18535e90", null ],
+    [ "get_pack_jobs_in_flight_for_admission", "classStreamingUploadPipeline.html#afb65847b8ba5ba0afd2f1b85893eca0f", null ],
     [ "get_pack_queue_depth_cached", "classStreamingUploadPipeline.html#a079ae5aeb5aeec813e2954113e183efe", null ],
     [ "get_pending_queue_depths_cached", "classStreamingUploadPipeline.html#a64d1dcafd1b4c42ccb6282c3b05f4b64", null ],
     [ "get_upload_queue_depth_cached", "classStreamingUploadPipeline.html#a7f9302ec1cb15a9037d042000d61c073", null ],
@@ -53,6 +55,7 @@ var classStreamingUploadPipeline =
     [ "last_upload_queue_latency_max_ms", "classStreamingUploadPipeline.html#acc40e56bbae72bdc7cd5f9adafc091e6", null ],
     [ "max_chunk_loads_per_frame", "classStreamingUploadPipeline.html#a56ea4f39fd597c6571bd2af0f4924dab", null ],
     [ "max_pack_jobs_in_flight", "classStreamingUploadPipeline.html#aca28eb0e29d4f01450e343f67bea57ac", null ],
+    [ "max_ready_upload_jobs", "classStreamingUploadPipeline.html#a3ced5bc5819cd2ac5755cf018897d486", null ],
     [ "max_upload_bytes_per_frame", "classStreamingUploadPipeline.html#ae87b70560e0ec5ca5856dd4a8d61f7d8", null ],
     [ "max_upload_bytes_per_second", "classStreamingUploadPipeline.html#a732f2da986089c8c22a53f57533f912d", null ],
     [ "max_upload_bytes_per_slice", "classStreamingUploadPipeline.html#a3cb4534cada293e78df95e0559a15dd1", null ],
@@ -86,5 +89,6 @@ var classStreamingUploadPipeline =
     [ "upload_queue_depth_cached", "classStreamingUploadPipeline.html#a14834906163ce20181ac9e97cac8ee0f", null ],
     [ "upload_queue_read_idx", "classStreamingUploadPipeline.html#af731f1d21f448518950ec5cff977f021", null ],
     [ "upload_slice_cap_hit_this_frame", "classStreamingUploadPipeline.html#aa6bb51a28e3a784f8c4a0e390fa724ef", null ],
+    [ "upload_staging_clamp_bytes_per_frame", "classStreamingUploadPipeline.html#aa3f9024f0acf191949cbfff8bf089374", null ],
     [ "validate_upload_payload_checksums", "classStreamingUploadPipeline.html#adf61c31724031d344e5141a94fcc8699", null ]
 ];

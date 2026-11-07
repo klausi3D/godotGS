@@ -1,5 +1,9 @@
 var NAVTREEINDEX48 =
 {
+"structQualityTierConfig.html#a25d73436646a93a82ec28ecb031aef23":[1,0,194,12],
+"structQualityTierConfig.html#a28336f088bbb36fe0ef550a597b9d0eb":[1,0,194,10],
+"structQualityTierConfig.html#a36fc5816cd4266237f49496d809eb5b8":[1,0,194,20],
+"structQualityTierConfig.html#a43c70e6ce301870bd74f2ffbe9dc59c0":[1,0,194,0],
 "structQualityTierConfig.html#a56fd65a9be7f0a2a38e5d17faa61d08b":[1,0,194,3],
 "structQualityTierConfig.html#a5b2b4ab0207bb24a027c27a9692ed3f7":[1,0,194,23],
 "structQualityTierConfig.html#a62fbd4ec208b77092e6e1cdbb45e6bc1":[1,0,194,21],
@@ -245,9 +249,5 @@ var NAVTREEINDEX48 =
 "structRenderDeviceManager_1_1TextureTraceEntry.html#af971d43449f8baee85db325c67f8758b":[1,0,208,0,3],
 "structRenderDiagnosticsOrchestrator_1_1Dependencies.html":[1,0,210,1],
 "structRenderDiagnosticsOrchestrator_1_1Dependencies.html#a40d598dbbe18bef58cc5aaee4148fe83":[1,0,210,1,2],
-"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#a5ffc2508881779e0f4198f2fa0290a83":[1,0,210,1,0],
-"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#aabd2b706a8a40f1f244b9f6161fe5dd9":[1,0,210,1,1],
-"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#afaa61da114bfd9fb102844f70d0b5df7":[1,0,210,1,3],
-"structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html":[1,0,210,0],
-"structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html#a37870e0243762b1624a7f543b118b349":[1,0,210,0,3]
+"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#a5ffc2508881779e0f4198f2fa0290a83":[1,0,210,1,0]
 };

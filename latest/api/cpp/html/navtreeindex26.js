@@ -1,5 +1,9 @@
 var NAVTREEINDEX26 =
 {
+"structAssetMetadata.html#a2dc877ee2edd782f3da1ac0dbd270b33":[1,0,37,0],
+"structAssetMetadata.html#a352d9b14488406ab6c181acfced6a9d4":[1,0,37,3],
+"structAssetMetadata.html#a4a9f409960f7077532f0abbf614bf3ad":[1,0,37,7],
+"structAssetMetadata.html#a53af648d369d552ed1ae8c5718e986be":[1,0,37,10],
 "structAssetMetadata.html#a756b75ee89c2360cc9facd9c8922f5b4":[1,0,37,1],
 "structAssetMetadata.html#a8382f9c87f75e2a37abb15239bae85bc":[1,0,37,11],
 "structAssetMetadata.html#a8cfd2aa64aa14cce1abf9804a17aee86":[1,0,37,5],
@@ -245,9 +249,5 @@ var NAVTREEINDEX26 =
 "structFloat16Utils_1_1QuantizationChunk.html":[1,0,0,0],
 "structFloat16Utils_1_1QuantizationChunk.html#a6fa413ba5ec5c598224d5432b5e359a5":[0,0,0,0,0],
 "structFloat16Utils_1_1QuantizationChunk.html#a6fa413ba5ec5c598224d5432b5e359a5":[1,0,0,0,0],
-"structFloat16Utils_1_1QuantizationChunk.html#a96550803efa5f0119e1fc078231728d6":[0,0,0,0,2],
-"structFloat16Utils_1_1QuantizationChunk.html#a96550803efa5f0119e1fc078231728d6":[1,0,0,0,2],
-"structFloat16Utils_1_1QuantizationChunk.html#aaabb18c195aa41dfb306a0fd0a48cf22":[0,0,0,0,3],
-"structFloat16Utils_1_1QuantizationChunk.html#aaabb18c195aa41dfb306a0fd0a48cf22":[1,0,0,0,3],
-"structFloat16Utils_1_1QuantizationChunk.html#af0567445cc3d13b9762ed7d652a3ff99":[0,0,0,0,1]
+"structFloat16Utils_1_1QuantizationChunk.html#a96550803efa5f0119e1fc078231728d6":[0,0,0,0,2]
 };

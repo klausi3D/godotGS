@@ -1,5 +1,9 @@
 var NAVTREEINDEX25 =
 {
+"render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa54c24b3d004412ab62f3bdc51eb1bee4":[2,0,0,0,12,72,14,7],
+"render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa5fa4ac6be91ff18797f3344be2808205":[2,0,0,0,12,72,14,1],
+"render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fa6a8430109dc743504ca3b458f0a1c98a":[2,0,0,0,12,72,14,6],
+"render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97fafc09d0a4b6ccfb7f4839a64fc1499ba3":[2,0,0,0,12,72,14,2],
 "render__streaming__orchestrator_8cpp.html#a88958f1a30737454cd46d6e0109c0134":[2,0,0,0,12,72,11],
 "render__streaming__orchestrator_8cpp.html#a88958f1a30737454cd46d6e0109c0134a03570470bad94692ce93e32700d2e1cb":[2,0,0,0,12,72,11,4],
 "render__streaming__orchestrator_8cpp.html#a88958f1a30737454cd46d6e0109c0134aa84cc046d48610b05c21fd3670d0c829":[2,0,0,0,12,72,11,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX25 =
 "structAssetMetaGPU.html#acbb0ee3cac5b7a7be6641c99301d0092":[1,0,38,8],
 "structAssetMetaGPU.html#ae30af43e1d7de28d95fb73c759cc4a11":[1,0,38,7],
 "structAssetMetadata.html":[1,0,37],
-"structAssetMetadata.html#a03bada33d233a5805f0867ab52b408d3":[1,0,37,6],
-"structAssetMetadata.html#a2dc877ee2edd782f3da1ac0dbd270b33":[1,0,37,0],
-"structAssetMetadata.html#a352d9b14488406ab6c181acfced6a9d4":[1,0,37,3],
-"structAssetMetadata.html#a4a9f409960f7077532f0abbf614bf3ad":[1,0,37,7],
-"structAssetMetadata.html#a53af648d369d552ed1ae8c5718e986be":[1,0,37,10]
+"structAssetMetadata.html#a03bada33d233a5805f0867ab52b408d3":[1,0,37,6]
 };

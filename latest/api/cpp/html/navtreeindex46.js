@@ -1,5 +1,9 @@
 var NAVTREEINDEX46 =
 {
+"structGsSplatShadowCaster_1_1Inputs.html#a69f75bf16a090277793a8fb58e7d5392":[1,0,123,0,6],
+"structGsSplatShadowCaster_1_1Inputs.html#a780decaf4951dfdfa935a26e31eab038":[1,0,123,0,1],
+"structGsSplatShadowCaster_1_1Inputs.html#a9055ac89a0320a3b4876f9b83c1678b8":[1,0,123,0,5],
+"structGsSplatShadowCaster_1_1Inputs.html#a9fbfa7a12729e558a9d843c6014157f3":[1,0,123,0,4],
 "structGsSplatShadowCaster_1_1Inputs.html#aa5652053e89d63be4506de56abb92e53":[1,0,123,0,3],
 "structGsSplatShadowCaster_1_1Inputs.html#ab8a5c83ec2bee76acc71454a36c985cd":[1,0,123,0,9],
 "structHlodFallback.html":[1,0,127],
@@ -245,9 +249,5 @@ var NAVTREEINDEX46 =
 "structOutputCompositor_1_1CachedFramebuffer.html#a3e8d6eacfca383b79adc380c84267a70":[1,0,169,0,0],
 "structOutputCompositor_1_1CachedFramebuffer.html#a8bdc32ddda8fb7103c773e3954021cce":[1,0,169,0,1],
 "structOutputCompositor_1_1CachedFramebuffer.html#affb4e1937d868fc88fb64c116d813a65":[1,0,169,0,2],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html":[1,0,169,1],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a169115204dd51be0c50c1c07e4ffd845":[1,0,169,1,1],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a5b94e19d42cd0929b994656545add366":[1,0,169,1,3],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a9a4265891f0e91a388422ca7004a268f":[1,0,169,1,2],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#aada19b75415704e1caaff853b056eae1":[1,0,169,1,0]
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html":[1,0,169,1]
 };

@@ -1,5 +1,9 @@
 var NAVTREEINDEX27 =
 {
+"structFloat16Utils_1_1QuantizationChunk.html#a96550803efa5f0119e1fc078231728d6":[1,0,0,0,2],
+"structFloat16Utils_1_1QuantizationChunk.html#aaabb18c195aa41dfb306a0fd0a48cf22":[0,0,0,0,3],
+"structFloat16Utils_1_1QuantizationChunk.html#aaabb18c195aa41dfb306a0fd0a48cf22":[1,0,0,0,3],
+"structFloat16Utils_1_1QuantizationChunk.html#af0567445cc3d13b9762ed7d652a3ff99":[0,0,0,0,1],
 "structFloat16Utils_1_1QuantizationChunk.html#af0567445cc3d13b9762ed7d652a3ff99":[1,0,0,0,1],
 "structFramebufferCopyParams.html":[1,0,67],
 "structFramebufferCopyParams.html#a238b10a2815e836b284dabefe4278a75":[1,0,67,3],
@@ -245,9 +249,5 @@ var NAVTREEINDEX27 =
 "structGSStartupTraceSnapshot.html#a7b97ad5c2faa77a4e7bec8b09306e250":[1,0,126,0],
 "structGSStartupTraceSnapshot.html#ab448a1eadb8a1f41be799c131714fa3f":[1,0,126,1],
 "structGSStartupTraceSnapshot.html#ae4e74f2c143787f1a9eac5bc75001bae":[1,0,126,2],
-"structGaussian.html":[1,0,70],
-"structGaussian.html#a188ec6841b6fbac05fe7420dbdd33157":[1,0,70,3],
-"structGaussian.html#a289d33d9a7ec2038dc8c66038d93a7dc":[1,0,70,7],
-"structGaussian.html#a4572a3bdd045f048d01e9b27814e1c91":[1,0,70,5],
-"structGaussian.html#a66aa515b3549ef8892dbc9f2fa6b19ca":[1,0,70,4]
+"structGaussian.html":[1,0,70]
 };

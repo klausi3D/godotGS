@@ -1,5 +1,9 @@
 var NAVTREEINDEX45 =
 {
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#af7561f3014fecf03ca5dd11ff4146c7c":[1,0,10,9,0,6],
+"structGaussianStreamingTypes_1_1FrameData.html":[0,0,14,6],
+"structGaussianStreamingTypes_1_1FrameData.html":[1,0,10,6],
+"structGaussianStreamingTypes_1_1FrameData.html#a27a2589408baacab3f6b2c9c6e576356":[0,0,14,6,0],
 "structGaussianStreamingTypes_1_1FrameData.html#a27a2589408baacab3f6b2c9c6e576356":[1,0,10,6,0],
 "structGaussianStreamingTypes_1_1FrameData.html#a6ced7b206629a9de97c2077586c26a18":[0,0,14,6,1],
 "structGaussianStreamingTypes_1_1FrameData.html#a6ced7b206629a9de97c2077586c26a18":[1,0,10,6,1],
@@ -245,9 +249,5 @@ var NAVTREEINDEX45 =
 "structGsSplatShadowCaster_1_1Inputs.html#a1d91c203917731feca8e1d5704bf35a2":[1,0,123,0,8],
 "structGsSplatShadowCaster_1_1Inputs.html#a2e06a3257a6d36e07b978791e34f10ec":[1,0,123,0,2],
 "structGsSplatShadowCaster_1_1Inputs.html#a5fa413e7b7dc39f10479e9c717386a25":[1,0,123,0,0],
-"structGsSplatShadowCaster_1_1Inputs.html#a63d6aa029bc2ff65c7b22ea2dc522a99":[1,0,123,0,7],
-"structGsSplatShadowCaster_1_1Inputs.html#a69f75bf16a090277793a8fb58e7d5392":[1,0,123,0,6],
-"structGsSplatShadowCaster_1_1Inputs.html#a780decaf4951dfdfa935a26e31eab038":[1,0,123,0,1],
-"structGsSplatShadowCaster_1_1Inputs.html#a9055ac89a0320a3b4876f9b83c1678b8":[1,0,123,0,5],
-"structGsSplatShadowCaster_1_1Inputs.html#a9fbfa7a12729e558a9d843c6014157f3":[1,0,123,0,4]
+"structGsSplatShadowCaster_1_1Inputs.html#a63d6aa029bc2ff65c7b22ea2dc522a99":[1,0,123,0,7]
 };

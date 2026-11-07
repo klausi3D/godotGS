@@ -1,5 +1,9 @@
 var NAVTREEINDEX53 =
 {
+"structVRAMDebugStats.html#a5d8f388586c2499728e8849af3ced097":[1,0,287,5],
+"structVRAMDebugStats.html#a672aeb6d789a88d58b7544893556c6a3":[1,0,287,1],
+"structVRAMDebugStats.html#a67bb6a4bcda68adc9e713a867241e006":[1,0,287,19],
+"structVRAMDebugStats.html#a99a5b1ab40969f5d5250604843bb64db":[1,0,287,12],
 "structVRAMDebugStats.html#aa0df1d901a615301e2e5729e5e191a91":[1,0,287,11],
 "structVRAMDebugStats.html#abdc39f849ec3d2561a54227204cff19f":[1,0,287,9],
 "structVRAMDebugStats.html#adebf84b22655f38643110abb7580c110":[1,0,287,7],
@@ -245,9 +249,5 @@ var NAVTREEINDEX53 =
 "structgs__hlod_1_1OfflineJob.html#a3ed657a9d49901e8bb4c43d5cafcd86f":[1,0,13,3,2],
 "structgs__hlod_1_1OfflineJob.html#a626da269ddab9ac0ba1c612f3e682072":[0,0,20,3,13],
 "structgs__hlod_1_1OfflineJob.html#a626da269ddab9ac0ba1c612f3e682072":[1,0,13,3,13],
-"structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[0,0,20,3,3],
-"structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[1,0,13,3,3],
-"structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08":[0,0,20,3,8],
-"structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08":[1,0,13,3,8],
-"structgs__hlod_1_1OfflineJob.html#a76c74e412a6fec3e680c5554429f09b3":[0,0,20,3,0]
+"structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[0,0,20,3,3]
 };

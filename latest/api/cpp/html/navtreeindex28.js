@@ -1,5 +1,9 @@
 var NAVTREEINDEX28 =
 {
+"structGaussian.html#a188ec6841b6fbac05fe7420dbdd33157":[1,0,70,3],
+"structGaussian.html#a289d33d9a7ec2038dc8c66038d93a7dc":[1,0,70,7],
+"structGaussian.html#a4572a3bdd045f048d01e9b27814e1c91":[1,0,70,5],
+"structGaussian.html#a66aa515b3549ef8892dbc9f2fa6b19ca":[1,0,70,4],
 "structGaussian.html#a70302f3f7c29a5f27c916f37aa62cfe9":[1,0,70,8],
 "structGaussian.html#a7315428323f8d78b6d3d5b20357a0b65":[1,0,70,13],
 "structGaussian.html#a88c88742b91ed0ceffe9367d76298941":[1,0,70,2],
@@ -245,9 +249,5 @@ var NAVTREEINDEX28 =
 "structGaussianRenderDebug_1_1DebugState.html#a630235636ee6ed3cc84ce7c12e2f1446":[0,0,3,4,12],
 "structGaussianRenderDebug_1_1DebugState.html#a630235636ee6ed3cc84ce7c12e2f1446":[1,0,2,4,12],
 "structGaussianRenderDebug_1_1DebugState.html#a67c657d8795b3928db49f1179c9bde8b":[0,0,3,4,10],
-"structGaussianRenderDebug_1_1DebugState.html#a67c657d8795b3928db49f1179c9bde8b":[1,0,2,4,10],
-"structGaussianRenderDebug_1_1DebugState.html#a683605bec446f4e754841134d355e995":[0,0,3,4,25],
-"structGaussianRenderDebug_1_1DebugState.html#a683605bec446f4e754841134d355e995":[1,0,2,4,25],
-"structGaussianRenderDebug_1_1DebugState.html#a733ba4c3fa7828bf5dcec5ac1bca5232":[0,0,3,4,26],
-"structGaussianRenderDebug_1_1DebugState.html#a733ba4c3fa7828bf5dcec5ac1bca5232":[1,0,2,4,26]
+"structGaussianRenderDebug_1_1DebugState.html#a67c657d8795b3928db49f1179c9bde8b":[1,0,2,4,10]
 };

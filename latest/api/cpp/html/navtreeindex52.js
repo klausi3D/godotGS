@@ -1,5 +1,9 @@
 var NAVTREEINDEX52 =
 {
+"structTileRasterizerStage.html#a35f388e810575e4c986d8a56c7a61de0":[1,0,278,22],
+"structTileRasterizerStage.html#a3763bf992a126860630872b76f56367b":[1,0,278,38],
+"structTileRasterizerStage.html#a3df44563630a60707acfbf089e1bad0b":[1,0,278,43],
+"structTileRasterizerStage.html#a46de7fcf064b2c91df11ba1698c78342":[1,0,278,42],
 "structTileRasterizerStage.html#a4819e750614e74cb2d26a27af5019e12":[1,0,278,23],
 "structTileRasterizerStage.html#a48d3eedb7af66e21d12c53a64b8359d9":[1,0,278,5],
 "structTileRasterizerStage.html#a4d9dbf716b85cb7e95955a29b930cf55":[1,0,278,36],
@@ -245,9 +249,5 @@ var NAVTREEINDEX52 =
 "structVRAMDebugStats.html#a3bf911272ffcf4bd88aa87513b5096e2":[1,0,287,13],
 "structVRAMDebugStats.html#a46da5450ac83b086319fdd86c07e9a2a":[1,0,287,16],
 "structVRAMDebugStats.html#a4dc8021682c203b949114a8710926cfd":[1,0,287,18],
-"structVRAMDebugStats.html#a5a667d3ee422c5b73b8e453abd8097c1":[1,0,287,15],
-"structVRAMDebugStats.html#a5d8f388586c2499728e8849af3ced097":[1,0,287,5],
-"structVRAMDebugStats.html#a672aeb6d789a88d58b7544893556c6a3":[1,0,287,1],
-"structVRAMDebugStats.html#a67bb6a4bcda68adc9e713a867241e006":[1,0,287,19],
-"structVRAMDebugStats.html#a99a5b1ab40969f5d5250604843bb64db":[1,0,287,12]
+"structVRAMDebugStats.html#a5a667d3ee422c5b73b8e453abd8097c1":[1,0,287,15]
 };

@@ -5157,7 +5157,7 @@ residency table above.</p>
 </tr>
 </tbody>
 </table></div>
-<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/4c3b587960ac3f1afcd5b131aceb91fc68235c41/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
+<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/4167ade74998c8d3a28229dd1f3fc080e6a933ec/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
 <h2 id="chunk-lod-behavior">Chunk LOD behavior<a class="headerlink" href="#chunk-lod-behavior" title="Permanent link">¶</a></h2>
 <p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces the SH band level and raises the splat skip factor as distance grows. What the GPU draw path actually honours is listed per parameter below.</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
@@ -5379,6 +5379,10 @@ slice, never per splat, and none reads anything back from the GPU.</p>
 <tr>
 <td><code>needed_chunks</code>, <code>needed_resident_chunks</code>, <code>needed_unserved_chunks</code></td>
 <td>The chunks this view needs: inside the frustum without <code>chunk_frustum_padding</code>, and inside the load distance. A view is served once <code>needed_unserved_chunks</code> is 0.</td>
+</tr>
+<tr>
+<td><code>upload_staging_clamp_bytes_per_frame</code>, <code>max_ready_upload_jobs</code></td>
+<td>The upload limit per frame that the staging ring allows (<code>staging_buffer/max_size_mb</code> / <code>vsync/frame_queue_size</code>), applied on top of <code>max_upload_mb_per_frame</code>, and the bound on packed chunks waiting for upload, counted with those still packing.</td>
 </tr>
 <tr>
 <td><code>padding_chunks</code>, <code>padding_resident_chunks</code></td>
