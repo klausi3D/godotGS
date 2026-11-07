@@ -1715,6 +1715,7 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 	streaming_state.current_streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 
 	streaming_state.current_streaming_system->update_streaming(streaming_camera_transform, cull_projection);
+	renderer->report_chunk_route_to_device_vram_ledger(streaming_state.current_streaming_system->get_vram_usage());
 
 	uint64_t instance_generation = 0;
 	uint64_t instance_asset_generation = 0;
@@ -2454,6 +2455,7 @@ void RenderStreamingOrchestrator::tick_streaming_only(const Transform3D &p_camer
 	(renderer->*runtime_ports.validate_cull_projection_contract)(nullptr, p_projection, cull_projection,
 			"render_streaming_orchestrator::tick_streaming_only");
 	streaming_system->update_streaming(p_camera_to_world_transform, cull_projection);
+	renderer->report_chunk_route_to_device_vram_ledger(streaming_system->get_vram_usage());
 	frame_state_mut.visible_splat_count.store(streaming_system->get_visible_count(), std::memory_order_release);
 
 	auto &perf_metrics = performance_state.metrics;

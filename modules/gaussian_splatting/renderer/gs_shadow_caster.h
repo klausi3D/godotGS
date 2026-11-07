@@ -49,6 +49,7 @@ public:
 	bool draw(RenderingDevice *p_device, RID p_shadow_framebuffer, const Rect2i &p_atlas_rect,
 			const Projection &p_light_from_frame, const Inputs &p_inputs, String &r_error);
 	void clear();
+	uint64_t get_owned_buffer_bytes() const { return uint64_t(row_cast_capacity) * sizeof(uint32_t); }
 
 private:
 	bool _ensure_shader(RenderingDevice *p_device, String &r_error);

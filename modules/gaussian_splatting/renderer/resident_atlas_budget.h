@@ -14,6 +14,7 @@
 #include "../core/gaussian_importance.h" // ResidentAtlasBudget::gaussian_importance(), select_top_k_indices()
 
 #include "../core/gaussian_data.h" // Gaussian
+#include "device_vram_ledger.h"
 
 #include "core/math/math_funcs.h"
 #include "core/math/vector3.h"
@@ -24,59 +25,24 @@
 
 namespace ResidentAtlasBudget {
 
-// Static device-local VRAM capacity below which RenderingDevice::get_device_memory_budget()
-// is treated as unknown. Mirrors streaming_vram_regulator.cpp's
-// MIN_TRUSTED_DEVICE_CAPACITY_BYTES (#321): a degenerate small-positive value would
-// otherwise clamp the atlas to nonsense.
-static constexpr uint64_t kMinTrustedDeviceBudgetBytes = uint64_t(256) * 1024 * 1024;
+// The device budget constants and the limit math live in the device ledger (renderer/device_vram_ledger.h, ADR D-11).
+// These names stay for the pure helpers below and for the boundary tests; production code asks the ledger.
+static constexpr uint64_t kMinTrustedDeviceBudgetBytes = DeviceVramLedger::kMinTrustedDeviceBytes;
+static constexpr uint64_t kResidentStagingCeilingBytes = DeviceVramLedger::kResidentStagingCeilingBytes;
+static constexpr double kResidentAtlasHeadroomFraction = DeviceVramLedger::kGsDeviceShare;
 
-// Absolute single-upload staging ceiling, shared with the resident publisher's
-// kMaxResidentUploadBytes. Datasets above this still hard-reject (streaming is the
-// right answer); the budget cap below only ever tightens beneath it.
-static constexpr uint64_t kResidentStagingCeilingBytes = uint64_t(2) * 1024 * 1024 * 1024;
-
-// Fraction of device-local VRAM the resident atlas may occupy. The remainder is
-// reserved for the same frame's sort / splat-ref / visible-chunk buffers, engine
-// framebuffers, and driver reserve (get_device_memory_budget() is the device heap,
-// not net of this app's non-atlas allocations). The 0.60 * budget term only binds
-// below ~3.3 GB device VRAM (0.60 * budget < 2 GB); at/above that, the staging
-// ceiling dominates and capable GPUs are byte-identical to today.
-static constexpr double kResidentAtlasHeadroomFraction = 0.60;
-
-// Effective byte cap for the packed resident atlas.
-//  - device_budget_bytes == 0 or below the sane floor => capacity unknown =>
-//    cap stays at the staging ceiling (do-no-harm on UMA/iGPU/software/non-Vulkan).
-//  - override_mb > 0 pins an explicit cap (low-end clamp + on-capable-GPU validation).
 inline uint64_t compute_effective_atlas_cap_bytes(uint64_t device_budget_bytes, uint32_t override_mb,
         uint64_t staging_ceiling_bytes = kResidentStagingCeilingBytes,
         double headroom_fraction = kResidentAtlasHeadroomFraction,
         uint64_t min_trusted_budget_bytes = kMinTrustedDeviceBudgetBytes) {
-    uint64_t cap = staging_ceiling_bytes;
-    if (device_budget_bytes >= min_trusted_budget_bytes) {
-        const uint64_t budget_cap = uint64_t(double(device_budget_bytes) * headroom_fraction);
-        cap = MIN(cap, budget_cap);
-    }
-    if (override_mb > 0) {
-        const uint64_t override_bytes = uint64_t(override_mb) * 1024u * 1024u;
-        cap = MIN(cap, override_bytes);
-    }
-    return cap;
+    return DeviceVramLedger::atlas_limit_for_device(device_budget_bytes, override_mb, staging_ceiling_bytes, headroom_fraction,
+            min_trusted_budget_bytes);
 }
 
-// Byte limit for the HLOD route's device-wide ledger (every RenderingDevice buffer plus the tile and
-// compositor textures, get_hlod_owned_byte_upper_bound()). The ledger includes the canonical
-// route's own sort / tile / atlas buffers (819 MB on the 252k-leaf holzbank scan), so it cannot be
-// bounded by the HLOD-owned byte cap; that cap bounds the HLOD bundle on its own. The ledger is
-// bounded by the same documented device-heap fraction as the atlas (kResidentAtlasHeadroomFraction;
-// ADR 6.5 / 14.1: budget checks use allocated bytes against one physical budget). An unknown or
-// untrusted heap size keeps the fixed hlod_owned_cap (fail closed, as before).
 inline uint64_t compute_hlod_device_ledger_limit_bytes(uint64_t device_budget_bytes, uint64_t hlod_owned_cap_bytes,
         double headroom_fraction = kResidentAtlasHeadroomFraction,
         uint64_t min_trusted_budget_bytes = kMinTrustedDeviceBudgetBytes) {
-    if (device_budget_bytes >= min_trusted_budget_bytes) {
-        return uint64_t(double(device_budget_bytes) * headroom_fraction);
-    }
-    return device_budget_bytes ? MIN(device_budget_bytes, hlod_owned_cap_bytes) : hlod_owned_cap_bytes;
+    return DeviceVramLedger::gs_limit_for_device(device_budget_bytes, hlod_owned_cap_bytes, headroom_fraction, min_trusted_budget_bytes);
 }
 
 // Admission of a candidate HLOD bundle: its own bytes must fit the HLOD-owned cap, and the

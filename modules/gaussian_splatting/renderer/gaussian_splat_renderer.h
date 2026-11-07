@@ -888,6 +888,8 @@ public:
     bool provision_paged_hlod_route(RenderSceneBuffersRD *p_render_buffers, String &r_reason);
     bool prepare_hlod_frame(const RenderFrameContext &p_context);
     bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
+    // The chunk route's frame report into the device ledger (report-only until Step C, ADR D-11). Render thread.
+    void report_chunk_route_to_device_vram_ledger(uint64_t p_chunk_bytes);
     void release_hlod_resources();
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
     bool is_hlod_prepared_contract_current() const;

@@ -7,6 +7,7 @@
 #define GAUSSIAN_RENDER_FACADE_STATE_TYPES_H
 
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
+#include "../device_vram_ledger.h"
 #include "../hlod_node_streamer.h"
 #include "../hlod_world_instances.h"
 #include "../hlod_shadow_caster_plan.h"
@@ -115,7 +116,6 @@ struct ResourceState {
     uint64_t hlod_root_dropped_frames = 0;
     uint64_t hlod_cpu_cut_usec = 0;
     uint64_t hlod_cpu_prepare_usec = 0; // View admission, selection and draw-list upload; CPU elapsed only.
-    uint64_t hlod_device_byte_upper_bound = 0;
     uint64_t hlod_view_epoch = 0;
     uint32_t hlod_visited_nodes = 0;
     uint32_t hlod_selected_nodes = 0;
@@ -125,7 +125,7 @@ struct ResourceState {
     bool hlod_active = false;
     bool hlod_frame_active = false;
     uint64_t hlod_tile_stage_refused_frames = 0; // Admitted as active, then refused by the tile stage (drew nothing).
-    uint64_t hlod_owned_byte_upper_bound = 0;
+    DeviceVramLedger device_vram_ledger; // The one device VRAM ledger (D-11). Render thread writes; snapshots from any thread.
     uint64_t hlod_retired_bytes = 0;
     // The prepared bundle's director generations (renderer/hlod_bundle_rows.h): the row generation names the uploaded row
     // content (a change re-uploads the rows), the asset-set generation what the bundle packs (a change rebuilds it).
