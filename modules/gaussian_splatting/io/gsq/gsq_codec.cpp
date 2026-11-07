@@ -112,6 +112,10 @@ inline int64_t bits_to_fixed(uint32_t p_bits, int p_frac) {
 	return (p_bits >> 31u) != 0u ? -int64_t(magnitude) : int64_t(magnitude);
 }
 
+inline uint64_t magnitude64(int64_t p_value) {
+	return p_value < 0 ? uint64_t(-p_value) : uint64_t(p_value);
+}
+
 inline int highest_bit(uint64_t p_value) {
 	int bit = 0;
 	for (int step = 32; step > 0; step >>= 1) {
@@ -130,7 +134,7 @@ inline float fixed_to_float(int64_t p_value, int p_frac) {
 		return 0.0f;
 	}
 	const uint32_t sign = p_value < 0 ? 0x80000000u : 0u;
-	const uint64_t magnitude = p_value < 0 ? uint64_t(-p_value) : uint64_t(p_value);
+	const uint64_t magnitude = magnitude64(p_value);
 	const int top = highest_bit(magnitude);
 	uint32_t biased = uint32_t(top - p_frac + 127);
 	uint64_t mantissa;
@@ -257,7 +261,7 @@ bool quaternion_to_smallest_three(const Quaternion &p_rotation, uint32_t r_store
 	r_index = 0u;
 	for (uint32_t i = 0u; i < 4u; i++) {
 		c[i] = c[i] * (int64_t(1) << kQuatFrac) / norm;
-		if (ABS(c[i]) > ABS(c[r_index])) {
+		if (magnitude64(c[i]) > magnitude64(c[r_index])) {
 			r_index = i;
 		}
 	}
@@ -268,7 +272,7 @@ bool quaternion_to_smallest_three(const Quaternion &p_rotation, uint32_t r_store
 			continue;
 		}
 		const int64_t value = flip ? -c[i] : c[i];
-		const uint64_t magnitude = uint64_t(ABS(value));
+		const uint64_t magnitude = magnitude64(value);
 		const uint32_t q = MIN(uint32_t((magnitude * kQuatMaxQ + uint64_t(kSqrtHalfQ30) / 2u) / uint64_t(kSqrtHalfQ30)), kQuatMaxQ);
 		r_stored[out++] = value < 0 ? kQuatMaxQ - q : kQuatMaxQ + q;
 	}
