@@ -3,6 +3,7 @@
 
 #include "gpu_sorting_pipeline.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "../core/gs_vector_alloc.h"
 #include "../core/gs_project_settings.h"
 #include "sync_policy.h"

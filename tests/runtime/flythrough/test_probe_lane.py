@@ -541,9 +541,15 @@ class EntryPoint(unittest.TestCase):
         self.assertIn('PROBE_SUMMARY_NAME = "summary.json"', lane)
         self.assertEqual(rp.SUMMARY_NAME, "summary.json")
 
-    def _sweep_runs(self, held_point=None, unsettled_point=None):
+    def _sweep_runs(self, held_point=None, unsettled_point=None, spread_drawn=False, blind=None):
         """run_godot replacement for run_sweep: every point replays the captured sweep run;
-        held_point gets a trace whose coherent GPU sample never refreshes."""
+        held_point gets a trace whose coherent GPU sample never refreshes.
+
+        spread_drawn gives each point its own drawn count, so that the fits are OK and the
+        exit code rests on the per-point checks alone. blind = (point, view, column) also
+        writes column as -1, what the driver records when the signal is absent, in that
+        view's measured rows.
+        """
         trace, result = captured("tsmoke_sweep", self.tmp)
         held = self.tmp / "held_sweep.bin"
         tr = ps.read_trace(trace)
@@ -555,6 +561,22 @@ class EntryPoint(unittest.TestCase):
 
         rewrite_rows(trace, held, hold)
 
+        def spread(pid):
+            factor = 1 + [p for p, _ in rp.SWEEP_POINTS].index(pid)
+            window = range(0)
+            if blind and blind[0] == pid:
+                entry = next(e for e in result["sweep"] if e["view"] == blind[1])
+                window = range(entry["first_row"], entry["last_row"] + 1)
+
+            def edit(i, v, ix):
+                v[ix["drawn_splats"]] *= factor
+                if i in window:
+                    v[ix[blind[2]]] = -1
+
+            dst = self.tmp / f"spread_{pid}.bin"
+            rewrite_rows(trace, dst, edit)
+            return dst
+
         def fake(binary, plan, workdir, timeout_s):
             pid = Path(workdir).name
             res = copy.deepcopy(result)
@@ -563,7 +585,7 @@ class EntryPoint(unittest.TestCase):
                     e["settle"] = {"settled": False, "settle_usec": -1, "reason": "settle_deadline_missed"}
             return {"exit_code": 0, "timed_out": False, "wall_s": 1.0, "result": res,
                     "rss": {"peak_rss_bytes": ps.metric(1, unit="bytes")}, "log": "",
-                    "trace": str(held if pid == held_point else trace)}
+                    "trace": str(spread(pid) if spread_drawn else held if pid == held_point else trace)}
 
         return fake
 
@@ -594,6 +616,19 @@ class EntryPoint(unittest.TestCase):
         code, s = self._run_sweep_main(unsettled_point="1M")
         self.assertEqual(code, rp.EXIT_INVALID)
         self.assertTrue(any("1M" in p and "settle_deadline_missed" in p for p in s["problems"]), s["problems"])
+
+    def test_sweep_view_without_settings_signal_is_invalid(self) -> None:
+        """#1334: drift that cannot be evaluated is not "no drift". The control is a run the
+        lane calls OK, so the verdict below can only come from the removed signal."""
+        code, s = self._run_sweep_main(spread_drawn=True)
+        self.assertEqual(code, rp.EXIT_OK, s["problems"])
+        for column in ("effective_settings_revision", "vram_regulation_adjustments"):
+            with self.subTest(column=column):
+                code, s = self._run_sweep_main(spread_drawn=True, blind=("1M", "overview", column))
+                self.assertEqual(code, rp.EXIT_INVALID, s["problems"])
+                self.assertEqual(len(s["problems"]), 1, s["problems"])
+                self.assertIn("point 1M view overview: settings status MISSING", s["problems"][0])
+                self.assertIn("absent from every measured row", s["problems"][0])
 
     def test_relative_world_dir_reaches_godot_as_an_absolute_path(self) -> None:
         plans = []

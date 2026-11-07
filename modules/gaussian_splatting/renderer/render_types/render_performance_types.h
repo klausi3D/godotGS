@@ -16,7 +16,9 @@
 #include "core/variant/dictionary.h"
 #include "render_pipeline_io_types.h"
 #include "../gpu_pass_timing.h"
+#include "../../core/streaming_analytics_frame.h"
 #include <cstdint>
+#include <memory>
 
 namespace GaussianRenderPerformance {
 
@@ -108,6 +110,7 @@ struct PerformanceMetrics {
 	String cull_route_uid;
 	String cull_route_reason;
 	bool used_hierarchical_culling = false;
+	// Read through PerformanceState::resolve_streaming_state(): the render path leaves it to the frame.
 	Dictionary streaming_state;
 	uint64_t sort_cache_hits = 0;
 	uint64_t sort_cache_misses = 0;
@@ -255,6 +258,17 @@ inline void PerformanceMetrics::reset_gpu_readback_state() {
 struct PerformanceState {
 	PerformanceMetrics metrics;
 	LocalVector<SortFrameMetrics> sort_metrics_history;
+	// The streaming stage's per-frame state. While this is set it wins over metrics.streaming_state, and its
+	// Dictionary is only built when something reads it.
+	std::shared_ptr<StreamingAnalyticsFrame> streaming_state_frame;
+
+	Dictionary resolve_streaming_state() const {
+		return streaming_state_frame ? streaming_state_frame->resolve() : metrics.streaming_state;
+	}
+	void set_streaming_state(const Dictionary &p_state) {
+		metrics.streaming_state = p_state;
+		streaming_state_frame.reset();
+	}
 };
 
 } // namespace GaussianRenderPerformance

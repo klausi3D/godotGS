@@ -5,11 +5,12 @@
 #include "core/math/aabb.h"
 
 #include "../core/gaussian_splat_world.h"
-#include "../renderer/gaussian_splat_renderer.h"
 
 // #862: the coalescing latch below is armed from whichever thread emitted
 // `changed` and cleared from the main thread, so it must be atomic.
 #include <atomic>
+
+class GaussianSplatRenderer;
 
 class GaussianSplatWorld3D : public Node3D {
     GDCLASS(GaussianSplatWorld3D, Node3D);
@@ -148,6 +149,10 @@ protected:
     void _notification(int p_what);
 
 public:
+    // Out of line: the Ref<GaussianSplatRenderer> member needs the complete type.
+    GaussianSplatWorld3D();
+    ~GaussianSplatWorld3D();
+
     void set_world(const Ref<GaussianSplatWorld> &p_world);
     Ref<GaussianSplatWorld> get_world() const { return world; }
 
@@ -183,7 +188,7 @@ public:
     void apply_world();
     void clear_world();
 
-    Ref<GaussianSplatRenderer> get_renderer() const { return renderer; }
+    Ref<GaussianSplatRenderer> get_renderer() const;
 
 #ifdef TESTS_ENABLED
     // See world_resource_resubmit_run_count above. Test-only.

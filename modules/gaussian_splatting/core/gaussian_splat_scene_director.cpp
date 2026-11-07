@@ -1,5 +1,7 @@
 #include "gaussian_splat_scene_director.h"
+#include "scene_director_world_registry.h"
 
+#include "../renderer/gaussian_splat_renderer.h"
 #include "gs_project_settings.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -749,6 +751,10 @@ void GaussianSplatSceneDirector::RendererLifecycleOwner::create(RenderingDevice 
 	// acquisition. No GPU work happens here -- initialize() stays on the director's
 	// instrumented _initialize_world_renderer.
 	renderer = Ref<GaussianSplatRenderer>(memnew(GaussianSplatRenderer(p_device)));
+}
+
+int GaussianSplatSceneDirector::RendererLifecycleOwner::reference_count() const {
+    return renderer.is_null() ? 0 : renderer->get_reference_count();
 }
 
 Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::RendererLifecycleOwner::release() {

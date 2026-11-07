@@ -587,7 +587,10 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
     last_upload_completion_mode = "none";
-    analytics_snapshot.clear();
+    {
+        MutexLock analytics_lock(analytics_frame_mutex);
+        analytics_frame.reset();
+    }
     scheduler.visible_scan_cursor = 0;
     scheduler.prefetch_scan_cursor = 0;
     scheduler.last_visible_scan_count = 0;
@@ -985,7 +988,10 @@ void GaussianStreamingSystem::update_primary_asset_data(Ref<::GaussianData> p_da
 
 void GaussianStreamingSystem::attach_memory_stream(const Ref<GaussianMemoryStream> &p_stream) {
     memory_stream_proxy = p_stream;
-    analytics_snapshot.clear();
+    {
+        MutexLock analytics_lock(analytics_frame_mutex);
+        analytics_frame.reset();
+    }
 }
 
 void GaussianStreamingSystem::set_config_overrides(const ConfigOverrides &p_overrides) {

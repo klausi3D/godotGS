@@ -131,6 +131,11 @@ public:
 
     // Physical texture-allocation deltas, retained conservatively through deferred release.
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
+    // The frame scratch held now (device ledger attribution, BV-11).
+    uint64_t get_hlod_scratch_live_bytes() const {
+        return uint64_t(projection_buffers.projection_buffer_size) + subpixel_history_buffers.subpixel_history_size +
+                subpixel_visibility_buffers.subpixel_visibility_size + sh_cache_buffers.sh_color_cache_size;
+    }
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
     // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already

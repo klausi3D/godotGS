@@ -81,7 +81,7 @@ static GaussianDCEncoding _resolve_asset_dc_encoding(const Ref<GaussianSplatAsse
 }
 
 static void _rebuild_chunk_cache(const Ref<GaussianData> &p_data, float p_chunk_size,
-        Vector<GaussianSplatRenderer::StaticChunk> &r_chunks, AABB &r_bounds) {
+        Vector<StaticChunk> &r_chunks, AABB &r_bounds) {
     r_chunks.clear();
     r_bounds = AABB();
 
@@ -99,7 +99,7 @@ static void _rebuild_chunk_cache(const Ref<GaussianData> &p_data, float p_chunk_
     r_bounds = bounds;
 
     if (bounds.size == Vector3()) {
-        GaussianSplatRenderer::StaticChunk chunk;
+        StaticChunk chunk;
         chunk.bounds = bounds;
         chunk.center = bounds.get_center();
         chunk.radius = 0.0f;
@@ -148,7 +148,7 @@ static void _rebuild_chunk_cache(const Ref<GaussianData> &p_data, float p_chunk_
                     continue;
                 }
 
-                GaussianSplatRenderer::StaticChunk chunk;
+                StaticChunk chunk;
                 chunk.bounds = cell_bounds;
                 chunk.center = cell_bounds.get_center();
                 chunk.radius = cell_bounds.get_longest_axis_size() * 0.5f;
@@ -177,7 +177,7 @@ static void _rebuild_chunk_cache(const Ref<GaussianData> &p_data, float p_chunk_
     }
 
     if (assigned.size() < (uint32_t)total) {
-        GaussianSplatRenderer::StaticChunk catch_all;
+        StaticChunk catch_all;
         catch_all.bounds = bounds;
         catch_all.center = bounds.get_center();
         catch_all.radius = bounds.get_longest_axis_size() * 0.5f;
@@ -193,7 +193,7 @@ static void _rebuild_chunk_cache(const Ref<GaussianData> &p_data, float p_chunk_
     }
 
     if (r_chunks.is_empty()) {
-        GaussianSplatRenderer::StaticChunk fallback;
+        StaticChunk fallback;
         fallback.bounds = bounds;
         fallback.center = bounds.get_center();
         fallback.radius = bounds.get_longest_axis_size() * 0.5f;
