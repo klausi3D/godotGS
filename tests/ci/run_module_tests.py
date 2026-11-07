@@ -86,6 +86,8 @@ RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_run
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 # BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
 BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
+# BV-07: the probe lane's path, ground truth, trace parser and summary arithmetic.
+BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_probe_lane.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -2171,6 +2173,30 @@ def _run_beyond_vram_dispatch_lane_guard() -> tuple[bool, list[str]]:
     return True, ["Beyond-VRAM dispatch lane guard passed."]
 
 
+def _run_beyond_vram_probe_lane_tests() -> tuple[bool, list[str]]:
+    """Guard (BV-07): the probe lane never turns an absent signal into a number.
+
+    Static, headless, no GPU, no engine binary. Runs on captured producer output
+    (a BV-05 T-smoke manifest; a real probe_world.gd trace and result). Pins the
+    arc-length path and its `path_sha256`, the frustum ground truth, that a torn
+    trace / skipped frame / rows != frames is INVALID, that a held GPU sample is
+    never counted as fresh, that a settings change labels `settings_drifted`,
+    the F/k fit, and the entry point's NOT_RUN / FAIL / INVALID exits.
+    """
+    script = BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing beyond-VRAM probe lane test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Beyond-VRAM probe lane tests failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Beyond-VRAM probe lane tests passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -4016,6 +4042,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_beyond_vram_dispatch_lane_guard,
             "Beyond-VRAM dispatch lane guard failed.",
             "Beyond-VRAM dispatch lane guard passed.",
+        ),
+        (
+            True,
+            _run_beyond_vram_probe_lane_tests,
+            "Beyond-VRAM probe lane tests failed.",
+            "Beyond-VRAM probe lane tests passed (captured traces; no GPU run).",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:
