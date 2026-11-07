@@ -199,6 +199,8 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
     analytics[AK::cap_tier_preset] = upload_pipeline.cap_tier_preset;
     analytics[AK::cap_tier_active] = upload_pipeline.cap_tier_active;
     analytics[AK::effective_upload_cap_mb_per_frame] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_frame);
+    analytics[AK::upload_staging_clamp_bytes_per_frame] = static_cast<int64_t>(upload_pipeline.upload_staging_clamp_bytes_per_frame);
+    analytics[AK::max_ready_upload_jobs] = static_cast<int64_t>(upload_pipeline.max_ready_upload_jobs);
     analytics[AK::effective_upload_cap_mb_per_slice] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_slice);
     analytics[AK::effective_upload_cap_mb_per_second] = static_cast<int64_t>(upload_pipeline.effective_upload_cap_mb_per_second);
     analytics[AK::cap_source_upload_mb_per_frame] = upload_pipeline.cap_source_upload_mb_per_frame;

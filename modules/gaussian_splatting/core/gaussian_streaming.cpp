@@ -3167,7 +3167,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         enqueue_headroom = _compute_async_enqueue_headroom(
                 upload_pipeline.queued_chunk_loads_this_frame,
                 upload_pipeline.max_chunk_loads_per_frame,
-                upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                 upload_pipeline.max_pack_jobs_in_flight);
     }
     StreamingQueuePressureController::ScanBudgetInput throttle_input;
@@ -3231,7 +3231,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                 _compute_async_enqueue_headroom(
                         upload_pipeline.queued_chunk_loads_this_frame,
                         upload_pipeline.max_chunk_loads_per_frame,
-                        upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                        upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                         upload_pipeline.max_pack_jobs_in_flight) == 0) {
             break;
         }
@@ -3496,7 +3496,7 @@ void GaussianStreamingSystem::_handle_predictive_prefetch(const Vector3 &camera_
 
     upload_pipeline.get_pending_queue_depths_cached(pack_queue_depth, upload_queue_depth);
     const bool pack_inflight_saturated = upload_pipeline.max_pack_jobs_in_flight > 0 &&
-            upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed) >= upload_pipeline.max_pack_jobs_in_flight;
+            upload_pipeline.get_pack_jobs_in_flight_for_admission() >= upload_pipeline.max_pack_jobs_in_flight;
     const bool visible_backlog_exists =
             scheduler.last_load_candidate_count > 0 || scheduler.last_sync_fallback_stalled_count > 0;
     const bool pack_upload_pressure_high = pack_queue_depth > 0 ||

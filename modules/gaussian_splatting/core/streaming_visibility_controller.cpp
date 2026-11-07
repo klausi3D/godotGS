@@ -1050,7 +1050,7 @@ void StreamingVisibilityController::collect_prefetch_candidates(
         enqueue_headroom = _compute_visibility_async_enqueue_headroom(
                 system.upload_pipeline.queued_chunk_loads_this_frame,
                 system.upload_pipeline.max_chunk_loads_per_frame,
-                system.upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                system.upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                 system.upload_pipeline.max_pack_jobs_in_flight);
     }
     StreamingQueuePressureController::ScanBudgetInput throttle_input;
@@ -1165,7 +1165,7 @@ uint32_t StreamingVisibilityController::schedule_prefetch_loads(
                 _compute_visibility_async_enqueue_headroom(
                         system.upload_pipeline.queued_chunk_loads_this_frame,
                         system.upload_pipeline.max_chunk_loads_per_frame,
-                        system.upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                        system.upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                         system.upload_pipeline.max_pack_jobs_in_flight) == 0) {
             system.scheduler.last_prefetch_enqueue_headroom_stall_count++;
             break;
@@ -1186,7 +1186,7 @@ uint32_t StreamingVisibilityController::schedule_prefetch_loads(
                     _compute_visibility_async_enqueue_headroom(
                             system.upload_pipeline.queued_chunk_loads_this_frame,
                             system.upload_pipeline.max_chunk_loads_per_frame,
-                            system.upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                            system.upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                             system.upload_pipeline.max_pack_jobs_in_flight) == 0) {
                 system.scheduler.last_prefetch_enqueue_headroom_stall_count++;
                 break;

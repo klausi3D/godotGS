@@ -67,6 +67,8 @@
     X(cap_tier_preset) \
     X(cap_tier_active) \
     X(effective_upload_cap_mb_per_frame) \
+    X(upload_staging_clamp_bytes_per_frame) \
+    X(max_ready_upload_jobs) \
     X(effective_upload_cap_mb_per_slice) \
     X(effective_upload_cap_mb_per_second) \
     X(cap_source_upload_mb_per_frame) \
