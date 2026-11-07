@@ -109,6 +109,7 @@ def get_doc_classes():
         "GaussianSplatSceneDirector",
         "GaussianSplatWorld",
         "GaussianSplatWorld3D",
+        "GaussianSplatWorldGenerator",
         "GaussianStreamingSystem",
         "IGPUSorter",
         "IGaussianLoader",
