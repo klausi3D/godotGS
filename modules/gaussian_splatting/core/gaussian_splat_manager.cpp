@@ -1004,7 +1004,8 @@ void GaussianSplatManager::initialize_module() {
     GLOBAL_DEF("rendering/gaussian_splatting/composite/scene_depth_policy", 0);
     // Streaming route policy: 0=resident (no streaming overhead), 1=streaming (current default).
     // Scope: GaussianSplatWorld3D submissions only. GaussianSplatNode3D direct
-    // instances always register as resident regardless of this setting.
+    // instances always register as resident regardless of this setting. A world
+    // that takes the automatic HLOD route (lod/hlod_auto_route.h) is resident too.
     GLOBAL_DEF("rendering/gaussian_splatting/streaming/route_policy", 1);
     // When true, GaussianSplatWorld3D rejects (ERR_PRINT + no submission) any
     // non-identity global transform instead of warning once and continuing.

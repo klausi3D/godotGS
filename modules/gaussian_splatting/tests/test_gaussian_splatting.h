@@ -78,6 +78,8 @@
 #include "test_sorter_metrics_metadata.h"
 #include "test_gaussian_splat_world_io.h"
 #include "test_gs_atomic_file_writer.h"
+#include "test_gs_atomic_file_transaction.h"
+#include "test_gs_world_writer.h"
 #include "test_view_transform.h"
 #include "test_memory_leak_detection.h"
 #include "test_renderer_lifetime_proof.h"
@@ -126,6 +128,30 @@
 	static const volatile int test_asset_dependency_manager_cpp_force_link_anchor = test_asset_dependency_manager_cpp_force_link();
 	extern "C" int test_gaussian_splatting_cpp_force_link();
 	static const volatile int test_gaussian_splatting_cpp_force_link_anchor = test_gaussian_splatting_cpp_force_link();
+	extern "C" int test_hlod_runtime_gpu_identity_cpp_force_link();
+	static const volatile int test_hlod_runtime_gpu_identity_cpp_force_link_anchor = test_hlod_runtime_gpu_identity_cpp_force_link();
+	extern "C" int test_hlod_runtime_publication_cpp_force_link();
+	static const volatile int test_hlod_runtime_publication_cpp_force_link_anchor = test_hlod_runtime_publication_cpp_force_link();
+	extern "C" int test_hlod_runtime_selection_cpp_force_link();
+	static const volatile int test_hlod_runtime_selection_cpp_force_link_anchor = test_hlod_runtime_selection_cpp_force_link();
+	extern "C" int test_hlod_paged_package_cpp_force_link();
+	static const volatile int test_hlod_paged_package_cpp_force_link_anchor = test_hlod_paged_package_cpp_force_link();
+	extern "C" int test_hlod_node_residency_cpp_force_link();
+	static const volatile int test_hlod_node_residency_cpp_force_link_anchor = test_hlod_node_residency_cpp_force_link();
+	extern "C" int test_hlod_editable_regions_cpp_force_link();
+	static const volatile int test_hlod_editable_regions_cpp_force_link_anchor = test_hlod_editable_regions_cpp_force_link();
+	extern "C" int test_hlod_view_set_cpp_force_link();
+	static const volatile int test_hlod_view_set_cpp_force_link_anchor = test_hlod_view_set_cpp_force_link();
+	extern "C" int test_hlod_world_frame_cpp_force_link();
+	static const volatile int test_hlod_world_frame_cpp_force_link_anchor = test_hlod_world_frame_cpp_force_link();
+	extern "C" int test_hlod_bundle_rows_cpp_force_link();
+	static const volatile int test_hlod_bundle_rows_cpp_force_link_anchor = test_hlod_bundle_rows_cpp_force_link();
+	extern "C" int test_hlod_world_instances_cpp_force_link();
+	static const volatile int test_hlod_world_instances_cpp_force_link_anchor = test_hlod_world_instances_cpp_force_link();
+	extern "C" int test_hlod_shadow_casters_cpp_force_link();
+	static const volatile int test_hlod_shadow_casters_cpp_force_link_anchor = test_hlod_shadow_casters_cpp_force_link();
+	extern "C" int test_hlod_auto_route_cpp_force_link();
+	static const volatile int test_hlod_auto_route_cpp_force_link_anchor = test_hlod_auto_route_cpp_force_link();
 	extern "C" int test_integration_cpp_force_link();
 	static const volatile int test_integration_cpp_force_link_anchor = test_integration_cpp_force_link();
 	extern "C" int test_lod_system_cpp_force_link();

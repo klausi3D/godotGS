@@ -6,6 +6,7 @@
 #include "../core/gs_vector_alloc.h"
 #include "../core/gs_project_settings.h"
 #include "sync_policy.h"
+#include "../renderer/hlod_drawn_node.h"
 #include "../logger/gs_logger.h"
 #include "../logger/gs_debug_trace.h"
 #include "../core/gaussian_data.h"
@@ -13,6 +14,7 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/quantization_config.h"
 #include "../renderer/gpu_sorting_config.h"
+#include "../renderer/gpu_pass_timing.h"
 #include "../renderer/sorting_contract.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../compute/compute_infrastructure.h"
@@ -1396,7 +1398,7 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
     }
 
     const bool quantized_storage = g_quantization_config.per_chunk_quantization;
-    if (depth_compute_shader.is_valid() && quantized_storage != depth_quantization_enabled) {
+    if (depth_compute_shader.is_valid() && (quantized_storage != depth_quantization_enabled || instance_inputs.hlod_relative != depth_hlod_relative_enabled)) {
         RenderingDevice *resource_device = sort_resource_device ? sort_resource_device : device;
         _free_owned_resource(resource_device, depth_uniform_set, true);
         _free_owned_resource(resource_device, depth_compute_pipeline, true);
@@ -1406,6 +1408,7 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
         depth_compute_shader = RID();
     }
     depth_quantization_enabled = quantized_storage;
+    depth_hlod_relative_enabled = instance_inputs.hlod_relative;
 
     if (!depth_compute_shader.is_valid()) {
         static DepthComputeShaderRD depth_shader_source;
@@ -1449,6 +1452,11 @@ void GPUSortingPipeline::ensure_depth_resources(RenderingDevice *p_device) {
 
         compute_source = _inject_sort_pad_depth_define(compute_source);
         compute_source = _inject_quantization_define(compute_source, quantized_storage);
+        if (depth_hlod_relative_enabled) {
+            const int version_end = compute_source.find("\n", compute_source.find("#version"));
+            if (version_end < 0) { last_compute_error = "HLOD depth source lacks version"; return; }
+            compute_source = compute_source.insert(version_end + 1, "#define GS_HLOD_RELATIVE_PAYLOAD 1\n");
+        }
 
         GaussianSplatting::ComputeInfrastructure::StageResult compile_result =
                 GaussianSplatting::ComputeInfrastructure::compile_compute_shader_from_source(
@@ -2360,6 +2368,11 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         return false;
     }
 
+    if (inputs.hlod_relative && (!inputs.hlod_draw_entry_buffer.is_valid() ||
+            inputs.hlod_source_generation == 0 || inputs.hlod_content_generation == 0)) {
+        last_compute_error = "HLOD depth contract is incomplete";
+        return false;
+    }
     uint32_t max_visible_splats = inputs.max_visible_splats;
     // Use the pipeline's own gpu_sorter capacity (rebuilt to full multi-instance
     // budget), not sorting_state.gpu_sorter (single-instance perf_settings.max_splats).
@@ -2573,7 +2586,11 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         frustum_plane_slack = MAX(cull_config.cull_frustum_plane_slack, 1.0f);
         enable_frustum = cull_config.frustum_culling ? 1.0f : 0.0f;
         if (cull_config.frustum_culling) {
-            frustum_planes = projection.get_projection_planes(camera_transform);
+            // HLOD camera-relative frame (gs_camera_relative.glsl): positions are relative to the camera, so the planes
+            // of the camera-translated frustum are used (all pass through the origin; no large-offset plane.d).
+            frustum_planes = inputs.hlod_relative ?
+                    gs_hlod_gpu::camera_relative_frustum_planes(projection, camera_transform) :
+                    projection.get_projection_planes(camera_transform);
         }
     }
     if (viewport_size.x <= 0 || viewport_size.y <= 0) {
@@ -2634,6 +2651,8 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         params.cull_frustum_radius[3] = float(inputs.sh_lod_policy);
     }
 
+    if (inputs.hlod_relative) { params.cull_frustum_radius[3] = 4.0f; }
+
     Vector<uint8_t> param_bytes;
     // #798 exclusion rule 2: sizeof(InstanceDepthParamsGPU) is a compile-time constant that
     // does not scale with scene, asset or file data.
@@ -2672,6 +2691,9 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 7, inputs.sort_value_buffer, "sort_value_buffer");
     append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 8, inputs.counter_buffer, "counter_buffer");
     append_binding(depth_bindings, RD::UNIFORM_TYPE_UNIFORM_BUFFER, 9, instance_param_buffer, "instance_param_buffer");
+    if (inputs.hlod_relative) {
+        append_binding(depth_bindings, RD::UNIFORM_TYPE_STORAGE_BUFFER, 10, inputs.hlod_draw_entry_buffer, "hlod_draw_entry_buffer");
+    }
 
     GaussianSplatting::ComputeInfrastructure::StageValidationHarness stage_validation_harness;
     GaussianSplatting::ComputeInfrastructure::StageValidationInput stage_validation_input;
@@ -2773,6 +2795,11 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         return false;
     }
 
+    // BV-04b: GPU timestamp bracket of the depth-key projection (instance chunk dispatch + depth
+    // compute + count clamp; was untimed, part of the fixed cost F). An early return below leaves
+    // the _Begin unpaired, which reads as "not measured".
+    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp projection_timestamp(compute_rd,
+            GaussianSplatting::GpuPassTiming::PASS_PROJECTION, g_gpu_sorting_config.enable_stage_timestamps);
     RD::ComputeListID compute_list = compute_rd->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {
         last_compute_error = "[GPU Sort] Failed to begin instance chunk dispatch compute list";
@@ -2835,6 +2862,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     compute_rd->compute_list_dispatch(compute_list, 1, 1, 1);
     compute_rd->compute_list_add_barrier(compute_list);
     compute_rd->compute_list_end();
+    projection_timestamp.finish();
     // C4b (G4): the clamp above consumed this frame's consume_overflow_flag request. Clear it so
     // a subsequent frame accumulates the sticky flag unless it, too, samples the buffer (which
     // re-arms the reset via the async enqueue / sync capture below).
@@ -2883,6 +2911,13 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         GaussianSplatting::debug_trace_record_event("sort",
                 "InstancePipeline calling sort_async() with instance count buffer",
                 false);
+    }
+    // BV-04b: the depth pre-sort brackets itself (RadixSort indirect path) with this frame's
+    // GPU-timing serial under its own label, never the overlap sort's.
+    if (gpu_sorter.is_valid()) {
+        gpu_sorter->set_timestamp_label_prefix(GaussianSplatting::GpuPassTiming::label_prefix(
+                GaussianSplatting::GpuPassTiming::PASS_PRESORT));
+        gpu_sorter->set_pending_frame_label_serial(GaussianSplatting::GpuPassTiming::current_frame_serial());
     }
     SortOperationResult sort_result = sort_async(sort_params);
     if (!sort_result.success) {
@@ -3240,4 +3275,26 @@ SortingMetrics GPUSortingPipeline::get_metrics() const {
         return metrics;
     }
     return SortingMetrics();
+}
+
+
+bool GPUSortingPipeline::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0;
+    if (gpu_sorter.is_valid() && !gpu_sorter->get_allocated_buffer_bytes(r_bytes)) { return false; }
+    // Reject cross-device legacy staging for this bounded resident route.
+    if (local_depth_keys_buffer.is_valid() || local_splat_indices_buffer.is_valid() || local_visible_indices_buffer.is_valid() ||
+            culled_position_buffer.is_valid() || !rd) { return false; }
+    if (sort_keys_buffer.is_valid() && !sort_keys_external) {
+        if (!rd->buffer_is_valid(sort_keys_buffer)) { return false; }
+        r_bytes += uint64_t(sort_buffer_capacity) * sizeof(uint32_t) * 2u;
+    }
+    if (sort_indices_buffer.is_valid() && !sort_indices_external) {
+        if (!rd->buffer_is_valid(sort_indices_buffer)) { return false; }
+        r_bytes += uint64_t(sort_buffer_capacity) * sizeof(uint32_t);
+    }
+    if (instance_param_buffer.is_valid()) {
+        if (!rd->buffer_is_valid(instance_param_buffer)) { return false; }
+        r_bytes += sizeof(InstanceDepthParamsGPU);
+    }
+    return true;
 }

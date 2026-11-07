@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `189` documented functions, `21` undocumented functions, `75` documented uniform fields, `113` undocumented uniform fields.
+Coverage summary: `190` documented functions, `29` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -176,6 +176,42 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 </table>
 
 
+## gs_shadow_caster.glsl
+
+`modules/gaussian_splatting/shaders/gs_shadow_caster.glsl`
+
+### Uniform Blocks
+
+#### Params (params)
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>light_from_frame</code></pre></td>
+      <td><pre><code>mat4</code></pre></td>
+      <td>Godot directional shadow clip transform of a camera-relative position</td>
+    </tr>
+    <tr>
+      <td><pre><code>viewport</code></pre></td>
+      <td><pre><code>vec4</code></pre></td>
+      <td>xy = atlas rect size in texels, z = alpha threshold, w = low-pass dilation (texels^2)</td>
+    </tr>
+    <tr>
+      <td><pre><code>counts</code></pre></td>
+      <td><pre><code>uvec4</code></pre></td>
+      <td>x = draw records, y = slot stride (max_chunk_splats), z = pancake (1/0), w = opacity multiplier (float bits)</td>
+    </tr>
+  </tbody>
+</table>
+
+
 ## color_grading_binning.glsl
 
 `modules/gaussian_splatting/shaders/includes/color_grading_binning.glsl`
@@ -326,6 +362,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>misc</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
       <td>x: sigma multiplier override, y: gaussian count, z,w: unused</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_camera_relative.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_camera_relative.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_cr_quat_rotate(vec4 q, vec3 v)</code></pre></td>
+      <td>Rotate `v` by the unit quaternion `q` (x, y, z, w). Same arithmetic as quat_rotate in depth_compute.glsl and gs_quat_rotate in tile_binning.glsl.</td>
     </tr>
   </tbody>
 </table>

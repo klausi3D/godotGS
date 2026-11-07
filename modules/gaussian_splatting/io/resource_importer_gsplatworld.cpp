@@ -47,7 +47,7 @@ struct GSplatWorldHeaderInfo {
 
 static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWorldHeaderInfo *r_info = nullptr) {
 	constexpr uint32_t world_magic = 0x57505347u; // 'GSPW' little-endian.
-	constexpr uint32_t max_sh_degree = 3u;
+	constexpr uint32_t max_sh_degree = 4u;
 	constexpr uint32_t max_sh_first_order = 3u;
 	constexpr uint32_t flag_has_metadata = 1u << 0u;
 	constexpr uint32_t flag_has_chunks = 1u << 2u;

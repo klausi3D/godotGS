@@ -18,6 +18,11 @@ must (1) exist, (2) be referenced by at least one runner helper function, and
 (3) have at least one of those helpers referenced OUTSIDE its own `def` line —
 i.e. from the registry (or any other call site) — in the runner's source.
 
+A guard may be registered ahead of the PR that adds it with a wildcard glob in
+`tests/ci/` (`tests/ci/check_flythrough_*.py`, BV-01). Such a glob does not
+require a file to exist, but every file it matches on disk must satisfy (2)
+and (3): a glob registration is never a way to land an unwired guard.
+
 Out of scope, by design: removing the script from `.agentic/policy.json`
 itself is a risk-policy diff, which the classifier force-escalates to the top
 risk class (self-referential rule) and human review controls; and an
@@ -37,17 +42,38 @@ POLICY_PATH = REPO_ROOT / ".agentic" / "policy.json"
 RUNNER_PATH = REPO_ROOT / "tests" / "ci" / "run_module_tests.py"
 
 _CHECK_SCRIPT_PATTERN = re.compile(r"^tests/ci/check_[A-Za-z0-9_]+\.py$")
+_CHECK_SCRIPT_GLOB_PATTERN = re.compile(r"^tests/ci/check_[A-Za-z0-9_*?]*[*?][A-Za-z0-9_*?]*\.py$")
+
+
+def _policy_globs() -> list[str]:
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    return [
+        glob
+        for rule in policy.get("classification", {}).get("rules", [])
+        for glob in rule.get("path_globs", [])
+    ]
 
 
 def _machinery_check_scripts() -> list[str]:
     """Every literal tests/ci/check_*.py path named in classification path_globs."""
-    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
-    scripts: list[str] = []
-    for rule in policy.get("classification", {}).get("rules", []):
-        for glob in rule.get("path_globs", []):
-            if _CHECK_SCRIPT_PATTERN.match(glob):
-                scripts.append(glob)
-    return sorted(set(scripts))
+    return sorted({glob for glob in _policy_globs() if _CHECK_SCRIPT_PATTERN.match(glob)})
+
+
+def _expand_check_script_globs(globs: list[str], root: Path) -> list[str]:
+    """Existing tests/ci/check_*.py files matched by wildcard check-script globs."""
+    scripts: set[str] = set()
+    for glob in globs:
+        if not _CHECK_SCRIPT_GLOB_PATTERN.match(glob):
+            continue
+        directory, pattern = glob.rsplit("/", 1)
+        for path in (root / directory).glob(pattern):
+            if path.is_file():
+                scripts.add(f"{directory}/{path.name}")
+    return sorted(scripts)
+
+
+def _globbed_machinery_check_scripts() -> list[str]:
+    return _expand_check_script_globs(_policy_globs(), REPO_ROOT)
 
 
 def _strip_comments(source: str) -> str:
@@ -107,7 +133,7 @@ class GuardWiringTest(unittest.TestCase):
                 )
 
     def test_every_machinery_check_script_is_wired_into_the_runner(self):
-        for rel in self.scripts:
+        for rel in sorted(set(self.scripts) | set(_globbed_machinery_check_scripts())):
             basename = rel.rsplit("/", 1)[-1]
             with self.subTest(script=rel):
                 helpers = _runner_helpers_referencing(self.runner_source, basename)
@@ -123,6 +149,32 @@ class GuardWiringTest(unittest.TestCase):
                     "but never referenced outside their own def — the guard registry "
                     "entry was removed, so --guard-only silently skips this check",
                 )
+
+
+class CheckScriptGlobExpansionTest(unittest.TestCase):
+    """The glob expansion must find files, or the wiring test above is vacuous for
+    glob-registered guards."""
+
+    def test_glob_expands_to_matching_existing_files_only(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ci = root / "tests" / "ci"
+            ci.mkdir(parents=True)
+            (ci / "check_flythrough_thresholds.py").write_text("", encoding="utf-8")
+            (ci / "check_other.py").write_text("", encoding="utf-8")
+            (ci / "flythrough_helper.py").write_text("", encoding="utf-8")
+            found = _expand_check_script_globs(
+                ["tests/ci/check_flythrough_*.py", "tests/ci/check_other.py", "tests/runtime/**"],
+                root,
+            )
+            self.assertEqual(found, ["tests/ci/check_flythrough_thresholds.py"])
+
+    def test_policy_registers_the_flythrough_guard_glob(self):
+        # BV-01: the fly-through guard is registered ahead of BV-09 by glob; if the
+        # glob disappears, this wiring coverage disappears with it.
+        self.assertIn("tests/ci/check_flythrough_*.py", _policy_globs())
 
 
 if __name__ == "__main__":

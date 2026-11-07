@@ -140,6 +140,19 @@ static Array _production_metrics_contract() {
 	keys.push_back("overlap_sort_cpu_dispatch_ms");
 	keys.push_back("overlap_sort_cpu_dispatch_valid");
 	keys.push_back("gpu_binning_ms");
+	keys.push_back("gpu_binning_valid");
+	// BV-04b: the passes that were untimed before (part of the fixed cost F).
+	keys.push_back("gpu_cull_ms");
+	keys.push_back("gpu_cull_valid");
+	keys.push_back("gpu_projection_ms");
+	keys.push_back("gpu_projection_valid");
+	keys.push_back("gpu_presort_ms");
+	keys.push_back("gpu_presort_valid");
+	keys.push_back("gpu_composite_ms");
+	keys.push_back("gpu_composite_valid");
+	keys.push_back("gpu_coherent_frame_serial");
+	keys.push_back("gpu_coherent_pass_mask");
+	keys.push_back("gpu_coherent_total_ms");
 	keys.push_back("gpu_prefix_ms");
 	keys.push_back("gpu_prefix_valid");
 	keys.push_back("prefix_cpu_sync_fallback_ms");
@@ -282,13 +295,17 @@ static bool _has_gpu_pass_breakdown(const GaussianSplatRenderer::PerformanceMetr
 		}
 	}
 
+	// BV-04b binning validity: binning counts through its valid flag, never through a bare
+	// non-zero value (absence of a flag is not a measurement).
+	if (p_perf.gpu_tile_binning_time_valid) {
+		return true;
+	}
 	const float timing_values[] = {
-		p_perf.gpu_tile_binning_time_ms,
 		p_perf.gpu_tile_prefix_time_ms,
 		p_perf.gpu_tile_raster_time_ms,
 		p_perf.gpu_tile_resolve_time_ms,
 	};
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < 3; i++) {
 		if (timing_values[i] > 0.0f) {
 			return true;
 		}
@@ -325,6 +342,22 @@ static void _append_production_gpu_metrics(Dictionary &r_metrics,
 	r_metrics["overlap_sort_cpu_dispatch_ms"] = p_perf.tile_overlap_sort_cpu_dispatch_ms;
 	r_metrics["overlap_sort_cpu_dispatch_valid"] = p_perf.tile_overlap_sort_cpu_dispatch_valid;
 	r_metrics["gpu_binning_ms"] = p_perf.gpu_tile_binning_time_ms;
+	r_metrics["gpu_binning_valid"] = p_perf.gpu_tile_binning_time_valid;
+	{
+		using namespace GaussianSplatting::GpuPassTiming;
+		const PassTimingSnapshot &pt = p_perf.gpu_pass_timing;
+		r_metrics["gpu_cull_ms"] = pt.ms[PASS_CULL];
+		r_metrics["gpu_cull_valid"] = pt.valid[PASS_CULL];
+		r_metrics["gpu_projection_ms"] = pt.ms[PASS_PROJECTION];
+		r_metrics["gpu_projection_valid"] = pt.valid[PASS_PROJECTION];
+		r_metrics["gpu_presort_ms"] = pt.ms[PASS_PRESORT];
+		r_metrics["gpu_presort_valid"] = pt.valid[PASS_PRESORT];
+		r_metrics["gpu_composite_ms"] = pt.ms[PASS_COMPOSITE];
+		r_metrics["gpu_composite_valid"] = pt.valid[PASS_COMPOSITE];
+		r_metrics["gpu_coherent_frame_serial"] = static_cast<int64_t>(pt.coherent_frame_serial);
+		r_metrics["gpu_coherent_pass_mask"] = static_cast<int64_t>(pt.coherent_pass_mask);
+		r_metrics["gpu_coherent_total_ms"] = pt.coherent_total_ms;
+	}
 	r_metrics["gpu_prefix_ms"] = p_perf.gpu_tile_prefix_time_ms;
 	r_metrics["gpu_prefix_valid"] = p_perf.gpu_tile_prefix_time_valid;
 	r_metrics["prefix_cpu_sync_fallback_ms"] = p_perf.tile_prefix_cpu_sync_fallback_ms;
@@ -425,6 +458,9 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 
 	r_metrics["frame_count"] = static_cast<int64_t>(frame_state.frame_counter);
 	r_metrics["sorted_splats"] = static_cast<int64_t>(sorting_state.sorted_splat_count);
+	// Depth sorts executed in renderer frame sort_dispatch_frame (-1: none yet). The frame just drawn is frame_count - 1.
+	r_metrics["sort_dispatch_frame"] = sorting_state.sort_dispatch_frame == UINT64_MAX ? int64_t(-1) : static_cast<int64_t>(sorting_state.sort_dispatch_frame);
+	r_metrics["sort_dispatches_frame"] = static_cast<int64_t>(sorting_state.sort_dispatches_frame);
 	r_metrics["instance_sort_buffer_republishes"] = static_cast<int64_t>(sorting_state.instance_sort_buffer_republishes);
 	r_metrics["render_time_ms"] = frame_state.render_time_ms;
 	r_metrics["sort_time_ms"] = frame_state.sort_time_ms;
@@ -478,6 +514,7 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	r_metrics["gpu_tile_overlap_count_time_ms"] = perf.gpu_tile_overlap_count_time_ms;
 	r_metrics["gpu_tile_overlap_count_time_valid"] = perf.gpu_tile_overlap_count_time_valid;
 	r_metrics["gpu_tile_binning_time_ms"] = perf.gpu_tile_binning_time_ms;
+	r_metrics["gpu_tile_binning_time_valid"] = perf.gpu_tile_binning_time_valid;
 	r_metrics["gpu_tile_overlap_emit_time_ms"] = perf.gpu_tile_overlap_emit_time_ms;
 	r_metrics["gpu_tile_overlap_emit_time_valid"] = perf.gpu_tile_overlap_emit_time_valid;
 	r_metrics["gpu_tile_overlap_sort_time_ms"] = perf.gpu_tile_overlap_sort_time_ms;
@@ -494,6 +531,7 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	r_metrics["gpu_tile_resolve_time_valid"] = perf.gpu_tile_resolve_time_valid;
 	r_metrics["gpu_timing_frame_serial"] = static_cast<int64_t>(perf.gpu_timing_frame_serial);
 	r_metrics["gpu_timing_frames_behind"] = static_cast<int64_t>(perf.gpu_timing_frames_behind);
+	GaussianSplatting::GpuPassTiming::append_to_dictionary(r_metrics, perf.gpu_pass_timing);
 	r_metrics["gpu_timeline_inflight_frames"] = static_cast<int64_t>(perf.gpu_timeline_inflight_frames);
 	r_metrics["gpu_timeline_completed_frames"] = static_cast<int64_t>(perf.gpu_timeline_completed_frames);
 	r_metrics["gpu_timeline_stall_count"] = static_cast<int64_t>(perf.gpu_timeline_stall_count);
@@ -1488,6 +1526,176 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	// Resident atlas VRAM-budget LOD clamp telemetry (#321 follow-up). `reduced` is true when
 	// the atlas was thinned by importance to fit the device VRAM budget; surfaced so the
 	// degradation is observable in the residency HUD / debug stats rather than silent.
+    stats["hlod_active"] = resource_state.hlod_frame_active;
+    stats["hlod_tile_stage_refused_frames"] = int64_t(resource_state.hlod_tile_stage_refused_frames);
+    stats["hlod_route_owned_bytes"] = int64_t(resource_state.hlod_owned_byte_upper_bound); // ledger + device buffers, as last admitted
+    // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
+    stats["hlod_streaming"] = resource_state.hlod_streaming;
+    if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
+        const HlodNodeStreamer::Telemetry &t = resource_state.hlod_streamer->get_telemetry();
+        stats["hlod_stream_frames"] = int64_t(resource_state.hlod_stream_frames);
+        stats["hlod_stream_ready_frames"] = resource_state.hlod_stream_ready_frames;
+        stats["hlod_stream_loading_frames"] = resource_state.hlod_stream_loading_frames;
+        stats["hlod_stream_first_ready_frame"] = resource_state.hlod_stream_first_ready_frame;
+        stats["hlod_stream_nonresident_drawn"] = resource_state.hlod_stream_nonresident_drawn;
+        stats["hlod_stream_desired_nodes"] = t.desired;
+        stats["hlod_stream_resident_nodes"] = t.resident;
+        stats["hlod_stream_loading_nodes"] = t.loading;
+        stats["hlod_stream_failed_nodes"] = t.failed;
+        stats["hlod_stream_permanently_failed_nodes"] = t.permanently_failed;
+        stats["hlod_stream_drawn_nodes"] = t.drawn;
+        stats["hlod_stream_requested_this_frame"] = t.requested_this_frame;
+        stats["hlod_stream_uploaded_this_frame"] = t.uploaded_this_frame;
+        stats["hlod_stream_uploaded_bytes_this_frame"] = int64_t(t.uploaded_bytes_this_frame);
+        stats["hlod_stream_uploaded_bytes_total"] = int64_t(t.uploaded_bytes_total);
+        stats["hlod_stream_pages_capacity"] = t.pages_capacity;
+        stats["hlod_stream_pages_resident"] = t.pages_resident;
+        stats["hlod_stream_pages_in_flight"] = t.pages_in_flight;
+        stats["hlod_stream_pages_retiring"] = t.pages_retiring;
+        stats["hlod_stream_atlas_records"] = resource_state.hlod_stream_atlas_records;
+        // Real loss (zero rule) and the harmless cancelled-then-late completions are kept apart.
+        stats["hlod_stream_late_dropped_total"] = int64_t(t.late_dropped_total);
+        stats["hlod_stream_late_dropped_cancelled_total"] = int64_t(t.late_dropped_cancelled_total);
+        stats["hlod_stream_cancelled_total"] = int64_t(t.cancelled_total);
+        stats["hlod_stream_evicted_total"] = int64_t(t.evicted_total);
+        stats["hlod_stream_failed_total"] = int64_t(t.failed_total);
+        stats["hlod_stream_skipped_groups_total"] = int64_t(t.skipped_groups_total);
+        stats["hlod_stream_stall_frames"] = t.stall_frames;
+        stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;
+        stats["hlod_stream_fragmented_groups"] = t.fragmented_groups_this_frame;
+        // Package E1: V4 paged package reads (0 for a resident snapshot).
+        stats["hlod_stream_paged"] = resource_state.hlod_snapshot.is_valid() && resource_state.hlod_snapshot->is_paged();
+        stats["hlod_stream_payload_reads_total"] = int64_t(t.payload_reads_total);
+        stats["hlod_stream_payload_bytes_read_total"] = int64_t(t.payload_bytes_read_total);
+        stats["hlod_stream_payload_read_failures_total"] = int64_t(t.payload_read_failures_total);
+        stats["hlod_stream_payload_reads_in_flight"] = t.payload_reads_in_flight;
+        stats["hlod_stream_payload_in_flight_bytes_peak"] = int64_t(t.payload_in_flight_bytes_peak);
+        stats["hlod_stream_payload_largest_read_bytes"] = int64_t(t.payload_largest_read_bytes);
+        stats["hlod_stream_payload_ready_bytes_peak"] = int64_t(t.payload_ready_bytes_peak);
+    }
+    // Package F1: editable regions.
+    stats["hlod_edit_event"] = resource_state.hlod_edit_event;
+    stats["hlod_edit_probe"] = resource_state.hlod_edit_probe_result;
+    stats["hlod_edit_forced_frames"] = int64_t(resource_state.hlod_edit_forced_frames);
+    stats["hlod_edit_legacy_bootstrap_attempts"] = int64_t(resource_state.hlod_edit_legacy_bootstrap_attempts);
+    stats["hlod_edit_rebuilds"] = int64_t(resource_state.hlod_edit_rebuilds);
+    stats["hlod_edit_blank_frames"] = int64_t(resource_state.hlod_edit_blank_frames);
+    stats["hlod_edit_committed_revision"] = resource_state.hlod_committed_edit.is_valid() ? int64_t(resource_state.hlod_committed_edit->edit_revision) : int64_t(0);
+    if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
+        const HlodNodeStreamer::Telemetry &et = resource_state.hlod_streamer->get_telemetry();
+        stats["hlod_edit_staged"] = et.edit_staged;
+        stats["hlod_edit_waiting_for_space"] = et.edit_waiting_for_space;
+        stats["hlod_edit_shadow_ready"] = et.edit_shadow_ready;
+        stats["hlod_edit_commits_total"] = int64_t(et.edits_committed_total);
+        stats["hlod_edit_rejected_total"] = int64_t(et.edits_rejected_total);
+        stats["hlod_edit_rejected_infeasible_total"] = int64_t(et.edits_rejected_infeasible_total);
+        stats["hlod_edit_timeouts_total"] = int64_t(et.edit_timeouts_total);
+        stats["hlod_edit_commit_failures_total"] = int64_t(et.edit_commit_failures_total);
+        stats["hlod_edit_stale_nodes"] = et.stale_nodes;
+    }
+    // PR1b: world + node instances on the HLOD route (one draw list, one sort, one ledger). Draw records per producer and
+    // the budget rule's outcome of the last main view (renderer frame hlod_instance_view_frame).
+    stats["hlod_instance_rows"] = int64_t(resource_state.hlod_instance_rows);
+    stats["hlod_instance_assets"] = int64_t(resource_state.hlod_instance_region.assets.size());
+    stats["hlod_instance_region_records"] = int64_t(resource_state.hlod_instance_region.records);
+    stats["hlod_world_draw_records"] = int64_t(resource_state.hlod_world_draw_records);
+    stats["hlod_instance_draw_records"] = int64_t(resource_state.hlod_instance_draw_records);
+    stats["hlod_instance_visible_objects"] = int64_t(resource_state.hlod_instance_visible_objects);
+    stats["hlod_instance_admitted_objects"] = int64_t(resource_state.hlod_instance_admitted_objects);
+    stats["hlod_instance_refused_objects"] = int64_t(resource_state.hlod_instance_refused_objects);
+    stats["hlod_instance_reserve_refusal_frames"] = int64_t(resource_state.hlod_instance_reserve_refusal_frames);
+    stats["hlod_instance_reserve_splats"] = int64_t(resource_state.hlod_instance_reserve_splats);
+    stats["hlod_instance_reserve_records"] = resource_state.hlod_instance_reserve_records;
+    stats["hlod_instance_view_frame"] = int64_t(resource_state.hlod_instance_view_frame);
+    stats["hlod_overlap_capacity_records"] = int64_t(resource_state.hlod_overlap_capacity_records);
+    stats["hlod_instance_overlap_growths"] = int64_t(resource_state.hlod_instance_overlap_growths);
+    stats["hlod_bundle_builds"] = int64_t(resource_state.hlod_bundle_builds);
+    stats["hlod_instance_row_reuploads"] = int64_t(resource_state.hlod_instance_row_reuploads);
+    // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h), per renderer frame shadow_caster_frame (the
+    // shadow passes of a frame run before its main view, so a fresh value is frame_count - 1). shadow_casters_rastered:
+    // splats submitted to the light-view raster draws of that frame, summed over its cast passes (one per cascade); a CPU
+    // count of what was drawn, not a GPU fragment count. Refused passes (other light types, no active HLOD view) count
+    // in shadow_caster_passes_refused with shadow_caster_last_refusal.
+    {
+        const gs_shadow_caster::FrameStats &sc = resource_state.hlod_shadow_caster_stats;
+        stats["shadow_caster_frame"] = sc.frame == UINT64_MAX ? int64_t(-1) : int64_t(sc.frame);
+        stats["shadow_casters_rastered"] = int64_t(sc.casters);
+        stats["shadow_caster_instance_slots"] = int64_t(sc.instance_slots);
+        stats["shadow_caster_passes_cast"] = int64_t(sc.passes_cast);
+        stats["shadow_caster_passes_refused"] = int64_t(sc.passes_refused);
+        stats["shadow_caster_last_refusal"] = String(gs_shadow_caster::refusal_reason(sc.last_refusal));
+        stats["shadow_caster_total_passes_cast"] = int64_t(sc.total_passes_cast);
+        stats["shadow_caster_total_passes_refused"] = int64_t(sc.total_passes_refused);
+        stats["shadow_caster_source"] = "hlod_main_view_draw_list";
+    }
+    stats["hlod_reason"] = resource_state.hlod_reason;
+    stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;
+    stats["hlod_refused_views"] = int64_t(resource_state.hlod_refused_views);
+    stats["hlod_auto_route_demotions"] = int64_t(resource_state.hlod_auto_route_demotions);
+    stats["hlod_auto_route_demotion_cause"] = resource_state.hlod_auto_route_demotion.cause;
+    stats["hlod_owned_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
+    stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
+    stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;
+    stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);
+    // BV-04b: records per splat per HLOD level. Slot i = level (node height) i, slot
+    // GS_HLOD_LEVEL_STAT_DEEPEST_SLOT = that level and above, the last slot = object (instance) records.
+    // GPU (tile_binning EMIT, last SAMPLED HLOD frame hlod_level_stats_frame_serial; 0 = never sampled):
+    // records emitted and splats that reached the emit loop. CPU (last main view): world draw records
+    // and their payload splats. records_per_emitted_splat is -1 where no splat reached the emit loop.
+    {
+        const GaussianSplatting::HlodLevelRecordSample &level_sample = perf.gpu_hlod_level_records;
+        Array level_records;
+        Array level_emitted_splats;
+        Array level_records_per_splat;
+        Array level_drawn_nodes;
+        Array level_drawn_splats;
+        for (uint32_t i = 0; i < GS_HLOD_LEVEL_STAT_SLOTS; i++) {
+            level_records.push_back(int64_t(level_sample.records[i]));
+            level_emitted_splats.push_back(int64_t(level_sample.splats[i]));
+            level_records_per_splat.push_back(level_sample.splats[i] > 0
+                            ? double(level_sample.records[i]) / double(level_sample.splats[i])
+                            : -1.0);
+            level_drawn_nodes.push_back(int64_t(resource_state.hlod_level_drawn_nodes[i]));
+            level_drawn_splats.push_back(int64_t(resource_state.hlod_level_drawn_splats[i]));
+        }
+        stats["hlod_level_stat_slots"] = int64_t(GS_HLOD_LEVEL_STAT_SLOTS);
+        stats["hlod_level_stats_frame_serial"] = int64_t(level_sample.frame_serial);
+        stats["hlod_level_stats_samples"] = int64_t(level_sample.sample_count);
+        stats["hlod_level_records"] = level_records;
+        stats["hlod_level_emitted_splats"] = level_emitted_splats;
+        stats["hlod_level_records_per_emitted_splat"] = level_records_per_splat;
+        stats["hlod_level_drawn_nodes"] = level_drawn_nodes;
+        stats["hlod_level_drawn_splats"] = level_drawn_splats;
+    }
+    stats["hlod_visited_nodes"] = resource_state.hlod_visited_nodes;
+    stats["hlod_cpu_cut_usec"] = int64_t(resource_state.hlod_cpu_cut_usec);
+    stats["hlod_cpu_prepare_usec"] = int64_t(resource_state.hlod_cpu_prepare_usec);
+    stats["hlod_cpu_prepare_timing_scope"] = "cpu_view_admission_selection_draw_upload";
+    stats["hlod_preparation_usec"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->preparation_usec) : int64_t(0);
+    stats["hlod_budget_bound_frames"] = int64_t(resource_state.hlod_budget_bound_frames);
+    stats["hlod_root_dropped_frames"] = int64_t(resource_state.hlod_root_dropped_frames);
+    stats["hlod_estimated_records"] = resource_state.hlod_estimated_records;
+    stats["hlod_gpu_byte_upper_bound"] = int64_t(resource_state.hlod_owned_byte_upper_bound);
+    stats["hlod_gpu_byte_accounting"] = "buffer_device_superset_plus_owned_textures";
+    stats["hlod_source_generation"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->get_instance_id()) : int64_t(0);
+    stats["hlod_content_generation"] = int64_t(resource_state.hlod_content_serial);
+    stats["hlod_origin_revision"] = int64_t(resource_state.hlod_origin_revision);
+    stats["hlod_view_epoch"] = int64_t(resource_state.hlod_view_epoch);
+    // Actual post-pass bindings, not admission-success proxies. ObjectID/RID
+    // bit patterns may be negative when exposed through Variant's signed int.
+    const auto &hlod_bound = const_renderer->get_instance_pipeline_buffers();
+    const RID hlod_bound_atlas = hlod_bound.atlas_gaussian_buffer;
+    const RID hlod_canonical_atlas = resource_state.hlod_canonical.buffers.atlas_gaussian_buffer;
+    stats["hlod_bound_atlas_valid"] = hlod_bound_atlas.is_valid();
+    stats["hlod_canonical_atlas_valid"] = hlod_canonical_atlas.is_valid();
+    stats["hlod_bound_atlas_rid"] = int64_t(hlod_bound_atlas.get_id());
+    stats["hlod_canonical_atlas_rid"] = int64_t(hlod_canonical_atlas.get_id());
+    stats["hlod_bound_relative"] = hlod_bound.hlod_relative;
+    stats["hlod_bound_source_generation"] = int64_t(hlod_bound.hlod_source_generation);
+    stats["hlod_canonical_world_submission_active"] = resource_state.hlod_canonical.buffers.world_submission_active;
+    stats["hlod_relative_world_submission_active"] = resource_state.hlod_relative.buffers.world_submission_active;
+    stats["renderer_device_object_id"] = rendering_device ? int64_t(rendering_device->get_instance_id()) : int64_t(0);
+    stats["stage_cull_route_uid"] = debug_state.last_stage_metrics_valid ? debug_state.last_stage_metrics.cull_result.route_uid : String();
 	stats["resident_atlas_reduced"] = resource_state.resident_atlas_reduced;
 	stats["resident_atlas_source_count"] = static_cast<int64_t>(resource_state.resident_atlas_source_count);
 	stats["resident_atlas_packed_count"] = static_cast<int64_t>(resource_state.resident_atlas_gaussian_count);
@@ -1837,6 +2045,7 @@ Dictionary RenderDiagnosticsOrchestrator::get_runtime_diagnostic_snapshot() cons
 	gpu_performance["overlap_count_gpu_ms"] = perf.gpu_tile_overlap_count_time_ms;
 	gpu_performance["overlap_count_gpu_valid"] = perf.gpu_tile_overlap_count_time_valid;
 	gpu_performance["binning_gpu_ms"] = perf.gpu_tile_binning_time_ms;
+	gpu_performance["binning_gpu_valid"] = perf.gpu_tile_binning_time_valid;
 	gpu_performance["overlap_emit_gpu_ms"] = perf.gpu_tile_overlap_emit_time_ms;
 	gpu_performance["overlap_emit_gpu_valid"] = perf.gpu_tile_overlap_emit_time_valid;
 	gpu_performance["overlap_sort_gpu_ms"] = perf.gpu_tile_overlap_sort_time_ms;

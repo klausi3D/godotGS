@@ -95,6 +95,18 @@ struct SHCompressionMetrics {
 // (the sum of every SHCompressionMetrics::non_finite_rejected ever produced).
 uint64_t gs_get_non_finite_pack_rejection_count();
 
+// #1300: process-wide count of ProjectSettings reads made by the per-splat debug trace in the
+// non-quantized packer. It must stay O(1), not O(splats): the trace runs on the streaming pack
+// workers, and each read takes engine-wide locks. Test-only (absent from release builds); it counts
+// calls of the packer's own wrapper, not arbitrary ProjectSettings reads.
+#ifdef TESTS_ENABLED
+uint64_t gs_get_pack_data_log_probe_count();
+// #1300: number of debug-trace samples the packers' one-shot latch has let through, and a seam to
+// force the latch counters (e.g. to the state the old signed counter wrapped to).
+uint64_t gs_get_pack_trace_slots_taken();
+void gs_set_pack_trace_counters_for_test(uint32_t p_sh_counter, uint32_t p_range_counter);
+#endif
+
 // ============================================================================
 // Instance Pipeline GPU Layout (std430)
 // ============================================================================
@@ -218,9 +230,11 @@ struct alignas(16) ChunkMetaGPU {
     uint32_t lod_level;
     uint32_t flags;
     uint32_t sh_limit;           // per-chunk SH band limit (optional)
-    uint32_t pad0;
-    uint32_t pad1;
-    uint32_t pad2;
+    // Node cell centre in asset space. Unread by every shader since HLOD C2 (DrawnNodeGPU.camera_offset places the
+    // node); kept so the 64 B layout does not move.
+    float node_center_x;
+    float node_center_y;
+    float node_center_z;
 };
 
 static_assert(alignof(ChunkMetaGPU) == 16, "ChunkMetaGPU must be 16-byte aligned");
@@ -229,7 +243,7 @@ static_assert(offsetof(ChunkMetaGPU, atlas_base) == 0, "ChunkMetaGPU.atlas_base 
 static_assert(offsetof(ChunkMetaGPU, bounds_center_local) == 16, "ChunkMetaGPU.bounds_center_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, bounds_radius_local) == 28, "ChunkMetaGPU.bounds_radius_local offset mismatch");
 static_assert(offsetof(ChunkMetaGPU, asset_id) == 32, "ChunkMetaGPU.asset_id offset mismatch");
-static_assert(offsetof(ChunkMetaGPU, pad2) == 56, "ChunkMetaGPU.pad2 offset mismatch");
+static_assert(offsetof(ChunkMetaGPU, node_center_z) == 56, "ChunkMetaGPU.node_center_z offset mismatch");
 
 // Global chunk index indirection (dense).
 struct AssetChunkIndexGPU {
@@ -248,6 +262,49 @@ struct VisibleChunkRefGPU {
 static_assert(sizeof(VisibleChunkRefGPU) == 8, "VisibleChunkRefGPU must be 8 bytes");
 static_assert(offsetof(VisibleChunkRefGPU, instance_id) == 0, "VisibleChunkRefGPU.instance_id offset mismatch");
 static_assert(offsetof(VisibleChunkRefGPU, chunk_id) == 4, "VisibleChunkRefGPU.chunk_id offset mismatch");
+
+// Per-draw record of the HLOD route: replaces VisibleChunkRefGPU there and is written by the CPU. The first two
+// words keep VisibleChunkRefGPU's order. camera_offset (= R s c + T - camera, formed in double, float last) is view
+// dependent, so it lives here and never in the shared ChunkMetaGPU payload. 32 B so the S6 fade needs no relayout.
+struct alignas(16) DrawnNodeGPU {
+    uint32_t instance_id;
+    uint32_t chunk_id;
+    float fade;                  // Reserved for the S6 cross-fade; written as 1.0 and not read yet
+    uint32_t level;              // BV-04b: HLOD level (node height, 0 = leaf); GS_DRAWN_NODE_LEVEL_NONE for object records
+    float camera_offset[4];      // xyz = camera-relative node offset, w = 0
+};
+
+static_assert(alignof(DrawnNodeGPU) == 16, "DrawnNodeGPU must be 16-byte aligned");
+static_assert(sizeof(DrawnNodeGPU) == 32, "DrawnNodeGPU must be 32 bytes");
+static_assert(offsetof(DrawnNodeGPU, instance_id) == 0, "DrawnNodeGPU.instance_id offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, chunk_id) == 4, "DrawnNodeGPU.chunk_id offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, fade) == 8, "DrawnNodeGPU.fade offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, level) == 12, "DrawnNodeGPU.level offset mismatch");
+
+// BV-04b: records per splat per HLOD level. The tile_binning EMIT pass of the HLOD route adds, per
+// splat that reaches it, its emitted overlap records and 1 to the slot of its draw record's level
+// (binding 24, HlodLevelRecordStats in tile_binning.glsl). Levels 0..GS_HLOD_LEVEL_STAT_SLOTS-3 have
+// their own slot, deeper levels share slot GS_HLOD_LEVEL_STAT_SLOTS-2 ("this level and above"), and
+// object (instance) records use the last slot. Mirrors GS_HLOD_LEVEL_STAT_SLOTS /
+// GS_DRAWN_NODE_LEVEL_NONE in shaders/includes/gs_instance_layout.glsl.
+static constexpr uint32_t GS_HLOD_LEVEL_STAT_SLOTS = 16;
+static constexpr uint32_t GS_DRAWN_NODE_LEVEL_NONE = 0xFFFFFFFFu;
+static constexpr uint32_t GS_HLOD_LEVEL_STAT_OBJECT_SLOT = GS_HLOD_LEVEL_STAT_SLOTS - 1u;
+static constexpr uint32_t GS_HLOD_LEVEL_STAT_DEEPEST_SLOT = GS_HLOD_LEVEL_STAT_SLOTS - 2u;
+
+inline uint32_t gs_hlod_level_stat_slot(uint32_t p_level) {
+    if (p_level == GS_DRAWN_NODE_LEVEL_NONE) {
+        return GS_HLOD_LEVEL_STAT_OBJECT_SLOT;
+    }
+    return p_level < GS_HLOD_LEVEL_STAT_DEEPEST_SLOT ? p_level : GS_HLOD_LEVEL_STAT_DEEPEST_SLOT;
+}
+
+struct HlodLevelRecordStatsGPU {
+    uint32_t records[GS_HLOD_LEVEL_STAT_SLOTS]; // overlap records emitted (incl. ones dropped at capacity)
+    uint32_t splats[GS_HLOD_LEVEL_STAT_SLOTS];  // splats that reached the emit loop
+};
+static_assert(sizeof(HlodLevelRecordStatsGPU) == 128, "HlodLevelRecordStatsGPU must be 128 bytes (std430, 2 x 16 uint)");
+static_assert(offsetof(DrawnNodeGPU, camera_offset) == 16, "DrawnNodeGPU.camera_offset offset mismatch");
 
 // Visible splat list emitted by Stage B.
 struct SplatRefGPU {

@@ -18,6 +18,14 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
     $PSNativeCommandUseErrorActionPreference = $false
 }
 
+# `windows` on Windows, `x11` elsewhere (the Linux GPU runner renders on the real
+# Xorg of the NVIDIA GPU at DISPLAY=:0). PowerShell 5.1 has no $IsWindows, hence
+# the explicit platform test.
+$GodotDisplayDriver = "x11"
+if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $GodotDisplayDriver = "windows"
+}
+
 function Resolve-RepoRoot {
     param([string]$ExplicitRoot)
 
@@ -26,7 +34,7 @@ function Resolve-RepoRoot {
     }
 
     $scriptDir = Split-Path -Parent $PSCommandPath
-    return (Resolve-Path -LiteralPath (Join-Path $scriptDir "..\..")).Path
+    return (Resolve-Path -LiteralPath (Join-Path $scriptDir "../..")).Path
 }
 
 function Resolve-GodotBinaryPath {
@@ -40,10 +48,12 @@ function Resolve-GodotBinaryPath {
     }
 
     $candidates = @(
-        (Join-Path $RepoRoot "bin\godot.windows.editor.dev.x86_64.console.exe"),
-        (Join-Path $RepoRoot "bin\godot.windows.editor.dev.x86_64.exe"),
-        (Join-Path $RepoRoot "bin\godot.windows.editor.x86_64.console.exe"),
-        (Join-Path $RepoRoot "bin\godot.windows.editor.x86_64.exe")
+        (Join-Path $RepoRoot "bin/godot.windows.editor.dev.x86_64.console.exe"),
+        (Join-Path $RepoRoot "bin/godot.windows.editor.dev.x86_64.exe"),
+        (Join-Path $RepoRoot "bin/godot.windows.editor.x86_64.console.exe"),
+        (Join-Path $RepoRoot "bin/godot.windows.editor.x86_64.exe"),
+        (Join-Path $RepoRoot "bin/godot.linuxbsd.editor.dev.x86_64"),
+        (Join-Path $RepoRoot "bin/godot.linuxbsd.editor.x86_64")
     )
 
     foreach ($candidate in $candidates) {
@@ -330,7 +340,7 @@ $GodotBinary = Resolve-GodotBinaryPath -ExplicitBinary $GodotBinary -RepoRoot $R
 $PythonCommand = @(Resolve-PythonCommand)
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = Join-Path $Root "artifacts\evidence"
+    $OutputRoot = Join-Path $Root "artifacts/evidence"
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -377,7 +387,7 @@ foreach ($runtimeScript in $runtimeScripts) {
     $cmd = @(
         $GodotBinary,
         "--path", $Root,
-        "--display-driver", "windows",
+        "--display-driver", $GodotDisplayDriver,
         "--rendering-driver", "vulkan",
         "--rendering-method", "forward_plus",
         "--render-thread", "safe",
@@ -395,7 +405,7 @@ if ($RuntimeLoops -gt 0) {
             $cmd = @(
                 $GodotBinary,
                 "--path", $Root,
-                "--display-driver", "windows",
+                "--display-driver", $GodotDisplayDriver,
                 "--rendering-driver", "vulkan",
                 "--rendering-method", "forward_plus",
                 "--render-thread", "safe",

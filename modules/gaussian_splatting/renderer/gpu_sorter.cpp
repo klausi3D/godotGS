@@ -2761,7 +2761,10 @@ uint64_t RadixSort::_sort_indirect_internal(RID keys_buffer, RID values_buffer, 
     // captured after the radix passes finish but before the safe_submit, so
     // the full duration brackets every dispatch in the sort.
     last_sort_gpu_timestamp = {};
-    const String sort_timestamp_label = "TileOverlapSort_" + String::num_uint64(pending_frame_label_serial);
+    // Labelled "<prefix><serial>": the overlap sorter uses TileOverlapSort_, the depth pre-sort
+    // sorter GSPreSort_ (BV-04b). Before BV-04b the pre-sort also wrote TileOverlapSort_0, which the
+    // parser could pick as the overlap-sort time on a frame where only it survived.
+    const String sort_timestamp_label = timestamp_label_prefix + String::num_uint64(pending_frame_label_serial);
     const uint32_t sort_timestamp_base = compute_rd->get_captured_timestamps_count();
     compute_rd->capture_timestamp(sort_timestamp_label + String("_Begin"));
 
@@ -3776,4 +3779,43 @@ bool GPUSorterFactory::probe_supports_indirect(SortingAlgorithm algorithm, Rende
 
 SorterCapabilities GPUSorterFactory::probe_capabilities(SortingAlgorithm algorithm) {
     return _probe_algorithm(algorithm, nullptr).capabilities;
+}
+
+
+bool BitonicSort::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0; // Bitonic owns no storage/uniform buffers; parameters use push constants.
+    return !resource_device || (_device_is_active(resource_device) &&
+            resource_device->get_device_instance_id() == resource_device_generation);
+}
+
+bool RadixSort::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0;
+    const RID ids[] = { histogram_buffer, wg_prefix_buffer, bin_counts_buffer, bin_prefix_buffer,
+        temp_keys_buffer, temp_values_buffer, indirect_count_buffer, indirect_dispatch_args_buffer };
+    const uint64_t sizes[] = { uint64_t(histogram_stride) * max_num_passes * 4u,
+        uint64_t(histogram_stride) * max_num_passes * 4u, uint64_t(max_num_passes) * max_radix_size * 4u,
+        uint64_t(max_num_passes) * max_radix_size * 4u, uint64_t(max_elements) * key_stride_bytes,
+        uint64_t(max_elements) * 4u, GaussianSplatting::kIndirectDispatchHeaderSize, GaussianSplatting::kIndirectDispatchHeaderSize };
+    for (uint32_t i = 0; i < 8; ++i) {
+        if (!ids[i].is_valid()) { continue; }
+        if (!_device_is_active(resource_device) || resource_device->get_device_instance_id() != resource_device_generation ||
+                !resource_device->buffer_is_valid(ids[i]) || sizes[i] == 0) { r_bytes = 0; return false; }
+        r_bytes += sizes[i];
+    }
+    return true;
+}
+
+bool OneSweepSort::get_allocated_buffer_bytes(uint64_t &r_bytes) const {
+    r_bytes = 0;
+    const uint64_t groups = (uint64_t(max_elements) + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+    const RID ids[] = { global_histogram_buffer, digit_histogram_buffer, chained_scan_buffer, temp_keys_buffer, temp_values_buffer };
+    const uint64_t sizes[] = { uint64_t(RADIX_SIZE) * 4u, groups * RADIX_SIZE * 4u, groups * RADIX_SIZE * 4u,
+        uint64_t(max_elements) * sizeof(float), uint64_t(max_elements) * sizeof(uint32_t) };
+    for (uint32_t i = 0; i < 5; ++i) {
+        if (!ids[i].is_valid()) { continue; }
+        if (!_device_is_active(resource_device) || resource_device->get_device_instance_id() != resource_device_generation ||
+                !resource_device->buffer_is_valid(ids[i]) || sizes[i] == 0) { r_bytes = 0; return false; }
+        r_bytes += sizes[i];
+    }
+    return true;
 }

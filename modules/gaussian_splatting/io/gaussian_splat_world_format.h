@@ -9,14 +9,26 @@
 // explicit format identity; payload contents never select a different schema.
 namespace gs_world_format {
 
+static constexpr uint32_t kMagic = 0x57505347u; // 'GSPW' little-endian.
 static constexpr uint32_t kVersionV1 = 1u;
 static constexpr uint32_t kVersionV2 = 2u;
 static constexpr uint32_t kVersion = 3u;
+// Plain-v3 header flag bits (bits 0-5), shared by the in-core saver/loader
+// (gaussian_splat_world_io.cpp) and the streaming writer (gs_world_writer.cpp).
+static constexpr uint32_t kFlagHasMetadata = 1u << 0u;
+static constexpr uint32_t kFlagIs2D = 1u << 1u;
+static constexpr uint32_t kFlagHasChunks = 1u << 2u;
+static constexpr uint32_t kFlagHasHighSh = 1u << 3u;
+static constexpr uint32_t kFlagCompressed = 1u << 4u;
+static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
 static constexpr uint32_t kFlagHasHlod = 1u << 6u;
 static constexpr uint32_t kPlainFlags = (1u << 6u) - 1u;
 static constexpr uint64_t kLegacyPrefixBytes = 104u;
 static constexpr uint64_t kPrefixBytes = 112u;
 static constexpr uint64_t kHlodExtensionBytes = 80u;
+// One plain chunk-table record: bounds position, bounds size, centre (3 x vec3 f32),
+// radius f32, indices_offset u64 (in indices, not bytes), index_count u32, reserved u32.
+static constexpr uint64_t kChunkRecordBytes = 56u;
 
 struct HeaderLayout {
 	uint64_t prefix_bytes = 0u;

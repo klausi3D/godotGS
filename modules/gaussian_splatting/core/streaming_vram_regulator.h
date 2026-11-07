@@ -66,6 +66,14 @@ struct VRAMDebugStats {
     bool device_capacity_known = false;    // True when true VRAM capacity is known
     uint32_t regulation_adjustments = 0;   // Total adjustments made this session
     uint32_t thrashing_events = 0;         // Detected thrashing occurrences
+    // BV-04a (ADR adr-beyond-vram-worlds.md D-6): regulator events by kind, so a probe can tell
+    // whether and why the regulator fired. regulation_adjustments is their sum.
+    uint32_t thrash_reductions = 0;        // Thrash ratchet: chunk cap cut by 10 %
+    uint32_t budget_reductions = 0;        // Over the warning threshold: chunk cap stepped down
+    uint32_t headroom_increases = 0;       // Well under the threshold: chunk cap stepped up
+    uint32_t lod_multiplier_adjustments = 0; // Times lod_distance_multiplier changed value
+    uint64_t last_regulation_frame = 0;    // Frame of the last adjustment (valid when regulation_adjustments > 0)
+    const char *last_regulation_reason = "none"; // none, thrash_reduction, budget_reduction, headroom_increase
 };
 
 // VRAM budget auto-regulator for graceful degradation (H3DGS-style)

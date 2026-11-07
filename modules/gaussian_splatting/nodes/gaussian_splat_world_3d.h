@@ -46,6 +46,15 @@ private:
     // a re-entry after reparenting (exit+enter), where the prior submission
     // must be restored unconditionally -- see issue #517.
     bool was_world_submission_active = false;
+    // The last reason the automatic HLOD route was not taken that this node warned about (one warning per cause).
+    String hlod_auto_route_warned_reason;
+    // Sticky demotion (lod/hlod_auto_route.h): non-empty once the automatic HLOD route demoted this world; it then keeps
+    // the route it had without the automatic route until apply_world() runs again. Main thread.
+    String hlod_auto_route_demoted_cause;
+    // Bumped by every submission this node makes; the demotion callback is bound to the value of the submission that
+    // carries it, so a request queued for an older submission (set_world()/apply_world() ran before it was delivered)
+    // is dropped instead of demoting its replacement. Main thread.
+    uint64_t hlod_auto_route_submission_generation = 0;
 
     // #862 coalescing latch. True from the moment a `changed` emission from the
     // assigned GaussianSplatWorld has queued a deferred resubmit until that
@@ -86,6 +95,7 @@ private:
     // Renderer parity settings (matches the core controls on GaussianSplatNode3D).
     bool lod_enabled = true;
     float lod_bias = 1.0f;
+    float hlod_tau_px = 0.0f;
     float max_render_distance = 1000.0f;
     int max_splat_count = 1000000;
     bool use_frustum_culling = true;
@@ -94,6 +104,14 @@ private:
 
     void _ensure_renderer();
     Dictionary _build_desired_renderer_overrides() const;
+    // A setup of this world the HLOD route never serves, as far as it is known at submission (nullptr if none); the
+    // domain_refusal input of gs_hlod_auto_route::plan_world().
+    const char *_hlod_auto_route_refusal() const;
+    // The renderer's demotion request, delivered deferred on the main thread through the director (callable_mp bound to
+    // the submission generation). Dropped unless p_generation is the current submission's.
+    void _on_hlod_auto_route_demoted(const String &p_cause, uint64_t p_generation);
+    // Records the demotion and warns once; false when already demoted or not applicable.
+    bool _mark_hlod_auto_route_demoted(const String &p_cause);
     // Returns true when this node held a live director submission and the
     // re-registration was therefore run. It does NOT report whether the director
     // accepted the resubmission -- _register_shared_renderer() can still lose
@@ -142,6 +160,8 @@ public:
     void set_lod_enabled(bool p_enabled);
     bool is_lod_enabled() const { return lod_enabled; }
 
+    void set_hlod_tau_px(float p_tau);
+    float get_hlod_tau_px() const { return hlod_tau_px; }
     void set_lod_bias(float p_bias);
     float get_lod_bias() const { return lod_bias; }
 

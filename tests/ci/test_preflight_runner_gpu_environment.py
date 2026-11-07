@@ -103,6 +103,24 @@ BUILD_MARKER = "python -m SCons"
 GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     # Runs the exported binary (a live RenderingDevice and a window read-back).
     ("release_builds.yml", "export_smoke_windows"): "tests/runtime/run_export_smoke.py",
+    ("release_builds.yml", "export_smoke_linux"): "tests/runtime/run_export_smoke.py",
+    # The jobs below test a binary their workflow's `build-linux-editor` job
+    # compiled (a job WITHOUT the `gpu` label) and downloaded as an artifact, so
+    # they have no SCons step. Each anchor is the job's first step that launches
+    # that binary.
+    ("baseline_qa.yml", "gpu-tests"): "tests/ci/run_baseline_qa.py",
+    ("baseline_qa.yml", "gpu-harness"): "tests/ci/run_gpu_harness.py",
+    ("gaussian_production_gates.yml", "module-validation"): "tests/ci/run_baseline_qa.py",
+    ("gaussian_production_gates.yml", "openworld-proof-evidence"): (
+        "tests/runtime/prepare_synthetic_assets.py"
+    ),
+    ("release_ci_runtime.yml", "runtime-release-ci"): "tests/runtime/run_runtime_validation.py",
+    # BV-06a: every measuring/generating/probing step is a subcommand of this
+    # lane helper; the binary is launched only through it (build-info,
+    # generate, probe) and vulkaninfo runs through it too. Its first invocation
+    # is the disk preflight, which precedes all of them, so anchoring on it is
+    # at least as strict as anchoring on the first binary launch.
+    ("beyond_vram_flythrough.yml", "flythrough"): "tests/runtime/flythrough/dispatch_lane.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step
@@ -111,6 +129,9 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
 # parser the new command shape must be part of the workflow change.
 _PYTHON_COMMAND = r"(?:python(?:3(?:\.exe)?|\.exe)?|py(?:\.exe)?(?:\s+-3)?)"
 _SAFE_COMMAND_TOKEN = r"[A-Za-z0-9_./:\\=-]+"
+# An argument of a declared GPU-work anchor only (see _anchor_command): a safe
+# token that may also contain commas, or one double-quoted string.
+_ANCHOR_ARGUMENT_TOKEN = r'(?:[A-Za-z0-9_./:\\=,-]+|"[^"]*")'
 _PREFLIGHT_COMMAND = re.compile(
     rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+"
     rf"[\"']?{re.escape(PREFLIGHT_SCRIPT)}[\"']?[ \t]*$",
@@ -583,11 +604,19 @@ def _anchor_command(script: str) -> re.Pattern[str]:
     Deliberately LOOSER than _PREFLIGHT_COMMAND / _BUILD_COMMAND in one respect
     and no other: leading indentation is allowed, and the invocation may be
     followed by PowerShell backtick continuations.
+
+    Its ARGUMENTS may also be double-quoted (`--godot "$GODOT_BINARY"`) or carry
+    a comma (`--categories sorting,renderer`): that is how the GPU jobs that test
+    a prebuilt binary hand it over, and those steps are their first GPU work. The
+    script itself must still be the invoked command at the start of the line.
+    Recognizing MORE invocations of a declared anchor can only move the anchor
+    EARLIER (the anchor is the first matching step), which makes the
+    preflight-before-anchor assertion stricter, never looser.
     """
     return re.compile(
         rf"^[ 	]*(?:&[ 	]*)?{_PYTHON_COMMAND}[ 	]+"
         rf"[\"']?{re.escape(script)}[\"']?"
-        rf"(?:[ 	]+{_SAFE_COMMAND_TOKEN})*(?:[ 	]+`)?[ 	]*$",
+        rf"(?:[ 	]+{_ANCHOR_ARGUMENT_TOKEN})*(?:[ 	]+(?:`|\\))?[ 	]*$",
         re.IGNORECASE,
     )
 
@@ -722,28 +751,32 @@ class GatedImageSetCoversWhatCIExecutesTests(unittest.TestCase):
     the two must stay in step, and a hand-copied name is how they would not.
     """
 
-    #: The line in run_export_smoke.py that names the exported binary.
-    EXPORTED_BINARY_RE = re.compile(r'exported\s*=\s*output_dir\s*/\s*"([^"]+)"')
+    #: The lines in run_export_smoke.py that name the exported binaries (one per target).
+    EXPORTED_BINARY_RE = re.compile(r'exported_name="([^"]+)"')
 
-    def _exported_binary_name(self) -> str:
+    def _exported_binary_names(self) -> List[str]:
         source = (ROOT / "tests" / "runtime" / "run_export_smoke.py").read_text(encoding="utf-8")
         matches = self.EXPORTED_BINARY_RE.findall(source)
-        self.assertEqual(
+        self.assertGreaterEqual(
             len(matches),
-            1,
-            "could not read a single exported-binary name out of run_export_smoke.py; "
+            2,
+            "could not read the per-target exported-binary names out of run_export_smoke.py; "
             f"found {matches}. This guard cannot check what it cannot find.",
         )
-        return matches[0]
+        return matches
+
+    def _exported_binary_name(self) -> str:
+        return self._exported_binary_names()[0]
 
     def test_the_exported_game_is_a_gated_image(self) -> None:
-        name = self._exported_binary_name()
-        self.assertTrue(
-            preflight._is_ci_image(name),
-            f"the export smoke lane launches {name!r} on the GPU pool, but the IFEO "
-            "gate does not treat it as an image CI executes: page heap on that name "
-            "would be recorded and passed",
-        )
+        for name in self._exported_binary_names():
+            with self.subTest(image=name):
+                self.assertTrue(
+                    preflight._is_ci_image(name),
+                    f"the export smoke lane launches {name!r} on the GPU pool, but the IFEO "
+                    "gate does not treat it as an image CI executes: page heap on that name "
+                    "would be recorded and passed",
+                )
 
     def test_the_engine_is_still_a_gated_image(self) -> None:
         """Discrimination: widening the set must not have replaced what it covered."""
@@ -771,6 +804,54 @@ class GatedImageSetCoversWhatCIExecutesTests(unittest.TestCase):
         for spelling in (name, name.upper(), name.replace(".exe", ".EXE")):
             with self.subTest(spelling=spelling):
                 self.assertTrue(preflight._is_ci_image(spelling))
+
+
+class DeclaredAnchorArgumentParsing(unittest.TestCase):
+    """A declared anchor is found with the arguments the prebuilt-binary jobs pass.
+
+    The GPU jobs that test a binary handed over as an artifact have no SCons step,
+    so their ordering anchor is the first script that launches that binary, and
+    those invocations quote the binary path and list categories with commas.
+    """
+
+    SCRIPT = "tests/ci/run_baseline_qa.py"
+
+    def _anchors(self, step_text: str) -> List[WorkflowStep]:
+        return anchor_steps(workflow_steps(_job_lines(step_text)), self.SCRIPT)
+
+    def test_quoted_and_comma_arguments_are_an_invocation(self) -> None:
+        for run in (
+            'python tests/ci/run_baseline_qa.py --categories sorting,renderer --godot "$GODOT_BINARY"',
+            'python tests/ci/run_baseline_qa.py --category pipeline --godot "${{ steps.godot_bin.outputs.path }}"',
+        ):
+            with self.subTest(run=run):
+                self.assertEqual(
+                    len(self._anchors(f"    - name: Run\n      run: |\n        {run}\n")), 1
+                )
+
+    def test_a_mention_with_quoted_arguments_is_still_not_an_invocation(self) -> None:
+        """Discrimination: the widening is in the ARGUMENTS only."""
+        for run in (
+            'echo python tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"',
+            '# python tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"',
+            'python other.py tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"',
+            'python tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"; rm -rf bin',
+        ):
+            with self.subTest(run=run):
+                self.assertEqual(
+                    self._anchors(f"    - name: Run\n      run: |\n        {run}\n"), []
+                )
+
+    def test_every_prebuilt_binary_job_declares_an_anchor_its_job_executes(self) -> None:
+        """Each GPU job without a build resolves to a declared anchor, not an error."""
+        jobs = gpu_jobs()
+        for key, lines in jobs.items():
+            steps = workflow_steps(lines)
+            if command_steps(steps, _BUILD_COMMAND, BUILD_MARKER):
+                continue
+            with self.subTest(job=key):
+                self.assertIn(key, GPU_WORK_ANCHORS)
+                self.assertTrue(anchor_steps(steps, GPU_WORK_ANCHORS[key]))
 
 
 class WorkflowStepExecutionParsing(unittest.TestCase):
@@ -1068,15 +1149,26 @@ class GpuJobEnvironmentContract(unittest.TestCase):
                     "overlay + graphics hook, and any newly installed one) inject into every "
                     "GPU process this job starts (#875).",
                 )
-                self.assertEqual(
-                    env.get(preflight.LOADER_LAYERS_ENABLE_VAR),
-                    preflight.LOADER_LAYERS_ENABLE_VALUE,
-                    f"{workflow}: job {job!r} must re-enable the GPU driver's own implicit "
-                    f"layers with {preflight.LOADER_LAYERS_ENABLE_VAR}="
-                    f"{preflight.LOADER_LAYERS_ENABLE_VALUE!r}. `~implicit~` alone removes "
-                    "those too, which changes the driver stack rather than only removing "
-                    "third-party instrumentation.",
-                )
+                if any(re.search(r"runs-on:.*\bLinux\b", line, re.IGNORECASE) for line in lines):
+                    # Linux: the driver's layers are not implicit, so re-enabling
+                    # them would ADD layers to the chain (measured on the runner).
+                    self.assertNotIn(
+                        preflight.LOADER_LAYERS_ENABLE_VAR,
+                        env,
+                        f"{workflow}: Linux GPU job {job!r} must not export "
+                        f"{preflight.LOADER_LAYERS_ENABLE_VAR}: it force-enables the NVIDIA "
+                        "layers onto a chain the driver does not put them on by itself.",
+                    )
+                else:
+                    self.assertEqual(
+                        env.get(preflight.LOADER_LAYERS_ENABLE_VAR),
+                        preflight.LOADER_LAYERS_ENABLE_VALUE,
+                        f"{workflow}: job {job!r} must re-enable the GPU driver's own implicit "
+                        f"layers with {preflight.LOADER_LAYERS_ENABLE_VAR}="
+                        f"{preflight.LOADER_LAYERS_ENABLE_VALUE!r}. `~implicit~` alone removes "
+                        "those too, which changes the driver stack rather than only removing "
+                        "third-party instrumentation.",
+                    )
 
     def test_every_gpu_job_sets_the_per_layer_disable_variables(self) -> None:
         """The half that actually works on this runner (#878).
@@ -1435,6 +1527,21 @@ class LoaderReportParsing(unittest.TestCase):
             {},
             "unprefixed stdout/stderr text impersonated Vulkan loader chain evidence",
         )
+
+
+_WINDOWS_POLICY_PATCH = mock.patch.object(preflight, "_is_windows", return_value=True)
+
+
+def setUpModule() -> None:
+    # The pre-existing gate scenarios are Windows-shaped recordings; they must
+    # keep asserting the Windows policy whichever host runs them (this file also
+    # runs on ubuntu-latest in agentic-pr-gate). The Linux scenarios below patch
+    # the policy back to Linux explicitly.
+    _WINDOWS_POLICY_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _WINDOWS_POLICY_PATCH.stop()
 
 
 class VulkanLayerGate(unittest.TestCase):
@@ -2024,6 +2131,110 @@ class GpuOccupancyRecordsFailure(unittest.TestCase):
         # It is a record, not a gate: a failed query must still not fail the run.
         _lines, record = self._record(9)
         self.assertEqual(record["status"], "error")
+
+
+# --------------------------------------------------------------------------
+# Linux GPU runner (gpu-linux-3080)
+# --------------------------------------------------------------------------
+
+#: Recorded from the runner's own loader (Vulkan Loader 1.3.275, Ubuntu 24.04)
+#: via `VK_LOADER_DEBUG=layer,info vulkaninfo --summary`: the Linux format has no
+#: `[Vulkan Loader]` marker and puts the message type in front instead.
+_LINUX_CONTROL_TEXT = (
+    "INFO:              Vulkan Loader Version 1.3.275\n"
+    "LAYER:             Searching for implicit layer manifest files\n"
+    "LAYER:                Found the following files:\n"
+    "LAYER:                   /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json\n"
+    'INFO | LAYER:      Insert instance layer "VK_LAYER_MESA_device_select" (libVkLayer_MESA_device_select.so)\n'
+    "LAYER:                            Disable Env Var:  NODEVICE_SELECT\n"
+)
+_LINUX_CLEAN_TEXT = (
+    "INFO:              Vulkan Loader Version 1.3.275\n"
+    "LAYER:             Searching for implicit layer manifest files\n"
+)
+
+
+class LinuxLoaderFormat(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.object(preflight, "_is_windows", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_wider_linux_anchor_does_not_apply_under_the_windows_policy(self) -> None:
+        # The Windows gate keeps its reviewed provenance anchor: Linux-shaped
+        # lines must not influence a Windows verdict.
+        with mock.patch.object(preflight, "_is_windows", return_value=True):
+            self.assertEqual(preflight.parse_layer_report(_LINUX_CONTROL_TEXT), {})
+
+    def test_the_linux_insert_line_is_parsed(self) -> None:
+        layers = preflight.parse_layer_report(_LINUX_CONTROL_TEXT)
+        self.assertEqual(list(layers), ["VK_LAYER_MESA_device_select"])
+        self.assertEqual(layers["VK_LAYER_MESA_device_select"].chains, ("instance",))
+        self.assertEqual(
+            layers["VK_LAYER_MESA_device_select"].modules,
+            ("libVkLayer_MESA_device_select.so",),
+        )
+
+    def test_unprefixed_text_still_cannot_spoof_a_linux_layer(self) -> None:
+        spoof = 'Insert instance layer "VK_LAYER_EVIL" (evil.so)\n'
+        self.assertEqual(preflight.parse_layer_report(spoof), {})
+
+    def test_linux_debug_lines_count_as_loader_output(self) -> None:
+        def fake_run(command, **kwargs):
+            return _probe(_LINUX_CLEAN_TEXT)
+
+        with mock.patch.object(preflight.subprocess, "run", side_effect=fake_run):
+            result = preflight.run_probe("fake-probe", strip_disable=False)
+        self.assertTrue(result.ok, result.error)
+        self.assertGreater(result.loader_debug_lines, 0)
+
+
+class LinuxVulkanLayerGate(unittest.TestCase):
+    """On Linux the driver registers no implicit layers: the effective chain must be empty."""
+
+    def _run(self, control: str, effective: str):
+        def fake_run(command, **kwargs):
+            env = kwargs.get("env") or {}
+            stripped = preflight.LOADER_LAYERS_DISABLE_VAR not in env
+            return _probe(control if stripped else effective)
+
+        with mock.patch.object(preflight, "_is_windows", return_value=False):
+            with mock.patch.object(preflight, "resolve_probe", return_value="fake-probe"):
+                with mock.patch.dict(
+                    preflight.os.environ,
+                    {preflight.LOADER_LAYERS_DISABLE_VAR: preflight.LOADER_LAYERS_DISABLE_VALUE},
+                ):
+                    with mock.patch.object(preflight.subprocess, "run", side_effect=fake_run):
+                        return preflight.check_vulkan_layers()
+
+    def test_the_mesa_layer_stripped_by_its_opt_out_passes(self) -> None:
+        ok, lines, _record = self._run(_LINUX_CONTROL_TEXT, _LINUX_CLEAN_TEXT)
+        self.assertTrue(ok, "\n".join(lines))
+        self.assertIn("VK_LAYER_MESA_device_select", "\n".join(lines))
+
+    def test_a_layer_that_survives_the_disable_fails_and_is_named(self) -> None:
+        ok, lines, _record = self._run(_LINUX_CONTROL_TEXT, _LINUX_CONTROL_TEXT)
+        self.assertFalse(ok)
+        self.assertIn("VK_LAYER_MESA_device_select", "\n".join(lines))
+
+    def test_an_empty_control_still_fails_rather_than_passing_vacuously(self) -> None:
+        ok, lines, _record = self._run(_LINUX_CLEAN_TEXT, _LINUX_CLEAN_TEXT)
+        self.assertFalse(ok)
+        self.assertIn("cannot discriminate", "\n".join(lines))
+
+    def test_the_mesa_opt_out_is_part_of_the_declared_disable_set(self) -> None:
+        self.assertIn(
+            ("VK_LAYER_MESA_device_select", "NODEVICE_SELECT", "1"),
+            preflight.LAYER_DISABLE_ENV,
+        )
+
+    def test_linux_expects_no_driver_layers_and_windows_still_does(self) -> None:
+        with mock.patch.object(preflight, "_is_windows", return_value=False):
+            self.assertEqual(preflight.expected_layers(), ())
+            self.assertEqual(preflight.required_control_chains(), ("instance",))
+        with mock.patch.object(preflight, "_is_windows", return_value=True):
+            self.assertEqual(preflight.expected_layers(), preflight.EXPECTED_LAYERS)
+            self.assertEqual(preflight.required_control_chains(), ("device", "instance"))
 
 
 if __name__ == "__main__":

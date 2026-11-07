@@ -18,7 +18,39 @@
 #include <cstring>
 
 namespace {
-static bool _is_data_log_enabled() { return gs::settings::is_data_log_enabled(); }
+#ifdef TESTS_ENABLED
+// #1300: counts calls of the _is_data_log_enabled() wrapper below (the per-splat debug trace in
+// _pack_gaussian_finite()). It does NOT see a direct gs::settings:: or ProjectSettings read.
+static std::atomic<uint64_t> g_pack_data_log_probe_count{ 0 };
+// #1300: counts debug-trace samples let through by _take_pack_trace_slot().
+static std::atomic<uint64_t> g_pack_trace_slots_taken{ 0 };
+#endif
+static bool _is_data_log_enabled() {
+#ifdef TESTS_ENABLED
+    g_pack_data_log_probe_count.fetch_add(1, std::memory_order_relaxed);
+#endif
+    return gs::settings::is_data_log_enabled();
+}
+
+// #1300: one-shot debug-trace latch shared by every pack worker. It saturates at p_limit and never
+// re-enters: the old `static int` counter was a data race, and after 2^31 splats it wrapped
+// negative so `++n <= 5` was true again for the next 2^31 splats, each paying two
+// ProjectSettings reads in debug_trace_record_pack_*().
+static bool _take_pack_trace_slot(std::atomic<uint32_t> &r_counter, uint32_t p_limit) {
+    uint32_t current = r_counter.load(std::memory_order_relaxed);
+    while (current < p_limit) {
+        if (r_counter.compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {
+#ifdef TESTS_ENABLED
+            g_pack_trace_slots_taken.fetch_add(1, std::memory_order_relaxed);
+#endif
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::atomic<uint32_t> g_pack_sh_trace_counter{ 0 };
+static std::atomic<uint32_t> g_pack_range_trace_counter{ 0 };
 
 // #1175: the GPU boundary's non-finite gate. Every upload route -- the resident
 // atlas publisher, GPUBufferManager, GPUMemoryStream, the streaming upload
@@ -158,6 +190,21 @@ void PackedSphericalHarmonics::clear() {
     }
 }
 
+#ifdef TESTS_ENABLED
+uint64_t gs_get_pack_data_log_probe_count() {
+    return g_pack_data_log_probe_count.load(std::memory_order_relaxed);
+}
+
+uint64_t gs_get_pack_trace_slots_taken() {
+    return g_pack_trace_slots_taken.load(std::memory_order_relaxed);
+}
+
+void gs_set_pack_trace_counters_for_test(uint32_t p_sh_counter, uint32_t p_range_counter) {
+    g_pack_sh_trace_counter.store(p_sh_counter, std::memory_order_relaxed);
+    g_pack_range_trace_counter.store(p_range_counter, std::memory_order_relaxed);
+}
+#endif
+
 uint64_t gs_get_non_finite_pack_rejection_count() {
     return g_non_finite_pack_rejections.load(std::memory_order_relaxed);
 }
@@ -193,8 +240,7 @@ static void _pack_gaussian_finite(const Gaussian &src,
     dst.rotation[2] = src.rotation.z;
     dst.rotation[3] = src.rotation.w;
     // Sample a few SH DC values for debug trace (avoids per-gaussian logging).
-    static int pack_debug_count = 0;
-    if (++pack_debug_count <= 5) {
+    if (_take_pack_trace_slot(g_pack_sh_trace_counter, 5)) {
         GaussianSplatting::debug_trace_record_pack_sh(src.sh_dc, src.opacity);
     }
 
@@ -217,8 +263,16 @@ static void _pack_gaussian_finite(const Gaussian &src,
 
 
     // DEBUG: Log first gaussian packing.
-    static bool logged_once = false;
-    if (_is_data_log_enabled() && !logged_once) {
+    //
+    // #1300: this runs once per splat on the streaming pack workers. _is_data_log_enabled() is
+    // several ProjectSettings/StringName lookups (each takes an engine-wide lock), and
+    // `logged_once` stays false whenever data logging is off, so the old
+    // `_is_data_log_enabled() && !logged_once` paid them for EVERY splat (2x), serialising the
+    // workers against the main thread and stretching one 65536-splat chunk pack to ~1 s on the
+    // Linux GPU runner. The "first gaussian" trace is a one-shot, so resolve the setting once.
+    static const bool log_first_gaussian = _is_data_log_enabled();
+    static std::atomic<bool> logged_once{ false };
+    if (log_first_gaussian && !logged_once.load(std::memory_order_relaxed)) {
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] First gaussian: first_order_count=%d, stored_first=%d, stored_high=%d, encoded_total=%d",
             first_order_count, stored_first, stored_high, encoded_total));
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] First gaussian: src.sh_1[0] = (%f, %f, %f)",
@@ -232,9 +286,8 @@ static void _pack_gaussian_finite(const Gaussian &src,
             gaussian_get_dc_encoding(src.render_meta),
             GS_SH_ENCODING_SNORM10_SPLAT_SCALE);
 
-    if (_is_data_log_enabled() && !logged_once) {
+    if (log_first_gaussian && !logged_once.exchange(true, std::memory_order_relaxed)) {
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] sh_metadata = 0x%08X", dst.sh_metadata));
-        logged_once = true;
     }
 
     metrics.raw_bytes += sizeof(Color);
@@ -502,8 +555,7 @@ bool pack_gaussians_range(const LocalVector<Gaussian> &src,
         uint32_t first_order_count,
         uint32_t higher_order_count,
         uint32_t coefficient_limit) {
-    static int pack_range_call_count = 0;
-    if (++pack_range_call_count <= 3) {
+    if (_take_pack_trace_slot(g_pack_range_trace_counter, 3)) {
         if (src.size() > 0 && start < src.size()) {
             const Gaussian &g0 = src[start];
             GaussianSplatting::debug_trace_record_pack_range(count, start, src.size(), g0.sh_dc, g0.opacity);

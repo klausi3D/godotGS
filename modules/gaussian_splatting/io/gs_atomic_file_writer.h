@@ -38,6 +38,8 @@
 
 // Internals (defined in gs_atomic_file_writer.cpp). Not part of the public API;
 // call gs_atomic_file_write below.
+// Unique sibling temp name for p_final_path; shared with GSAtomicFileTransaction.
+String _gs_atomic_temp_path(const String &p_final_path);
 Ref<FileAccess> _gs_atomic_open_temp(const String &p_final_path, String &r_temp_path, Error *r_error);
 void _gs_atomic_remove_temp(const String &p_temp_path);
 Error _gs_atomic_rename_temp(const String &p_temp_path, const String &p_final_path);

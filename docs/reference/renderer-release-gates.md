@@ -106,6 +106,10 @@ for `release_builds.yml` (historically implemented under closed issue #593):
   fails unless both `build_linux` and `build_windows` succeeded, so a Windows
   runner outage blocks a stable publish instead of silently shipping a
   Linux-only release. Nightly prereleases keep the Linux-only tolerance.
+- **Recorded exception: the Windows archives are not executed.** The gating export smoke is
+  `export_smoke_linux`. `export_smoke_windows` is skipped unless the repository variable
+  `GODOTGS_WINDOWS_GPU_RUNNER` is `true` and gates nothing (user decision 2026-11-01; owner,
+  reason and retirement path in [review policy](../governance/review-policy.md)).
 - **No unmatched release files.** `publish_release` sets
   `fail_on_unmatched_files: true` for the stable channel, so a missing asset
   fails the publish rather than shipping a partial release. Nightly keeps the

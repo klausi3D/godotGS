@@ -638,6 +638,9 @@ RasterPerformance TileRasterizer::get_performance() const {
     perf.overlap_count_gpu_ms = tile_renderer->get_last_gpu_overlap_count_time_ms();
     perf.overlap_count_gpu_valid = tile_renderer->is_last_gpu_overlap_count_time_valid();
     perf.binning_gpu_ms = tile_renderer->get_last_gpu_binning_time_ms();
+    perf.binning_gpu_valid = tile_renderer->is_last_gpu_binning_time_valid();
+    perf.pass_timing = tile_renderer->get_gpu_pass_timing_snapshot();
+    perf.hlod_level_records = tile_renderer->get_hlod_level_record_sample();
     perf.overlap_emit_gpu_ms = tile_renderer->get_last_gpu_overlap_emit_time_ms();
     perf.overlap_emit_gpu_valid = tile_renderer->is_last_gpu_overlap_emit_time_valid();
     perf.overlap_sort_gpu_ms = tile_renderer->get_last_gpu_overlap_sort_time_ms();

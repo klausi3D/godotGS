@@ -22,6 +22,7 @@
 #include "io/spz_loader.h"
 #include "io/i_gaussian_loader.h"
 #include "io/gaussian_splat_world_io.h"
+#include "io/gaussian_splat_world_generator.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "resources/color_grading_resource.h"
@@ -100,6 +101,7 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             GDREGISTER_CLASS(InMemoryChunkPayloadSource);
             GDREGISTER_CLASS(StagedFileChunkPayloadSource);
             GDREGISTER_CLASS(VRAMBudgetRegulator);
+            GDREGISTER_CLASS(GaussianSplatWorldGenerator);
 
             // Node classes
             GDREGISTER_CLASS(GaussianSplatNode3D);

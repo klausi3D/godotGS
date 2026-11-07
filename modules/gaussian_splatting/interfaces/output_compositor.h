@@ -24,6 +24,14 @@ class OutputCompositor : public RefCounted, public IOutputCompositor {
     friend class GaussianSplatRenderer;
 
 public:
+    // Package E1 (paged worlds): creates the composite's destination-copy scratch (and thereby the scratch ledger the HLOD
+    // route waits for) for a destination of `p_destination_format` and `p_extent`, without drawing. A composite whose real
+    // destination differs allocates its own scratch, which the ledger counts too.
+    bool ensure_hlod_scratch(RenderingDevice *p_device, const RD::TextureFormat &p_destination_format, const Size2i &p_extent);
+    // Live bytes of the destination-copy scratch textures on `p_device` (reconciled against the device: freed textures
+    // are subtracted). False when none exists yet or the ledger is invalid for that device.
+    bool get_hlod_scratch_byte_upper_bound(RenderingDevice *p_device, uint64_t &r_bytes) const;
+
     OutputCompositor();
     ~OutputCompositor();
 
@@ -269,6 +277,20 @@ private:
     static constexpr uint32_t MAX_CACHED_FRAMEBUFFER_FORMATS = 8;
     uint64_t cached_framebuffer_next_id = 0;
     uint64_t framebuffer_validation_next_id = 0;
+
+    // Physical bytes of the scratch textures still owned, one entry per live texture (measured delta at creation).
+    // A texture no longer valid on the device is subtracted when the ledger is read, so resizes do not accumulate. Memory
+    // the device retires lazily after a free is not counted again (a frame or two of undercount). Mutable: reading reconciles.
+    struct HlodScratchEntry {
+        RenderingDevice *device = nullptr;
+        uint64_t device_id = 0;
+        uint64_t bytes = 0;
+    };
+    mutable HashMap<RID, HlodScratchEntry> hlod_scratch_live;
+    mutable uint64_t hlod_scratch_texture_bytes = 0;
+    mutable uint64_t hlod_scratch_device = 0;
+    mutable bool hlod_scratch_ledger_valid = true;
+    void _reconcile_hlod_scratch_ledger(RenderingDevice *p_current) const;
 
     // State
     bool initialized = false;

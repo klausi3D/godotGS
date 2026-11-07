@@ -1582,3 +1582,223 @@ TEST_CASE("[GaussianSplatting][WorldIO] clear notifies consumers after resetting
     world->disconnect(SNAME("changed"), callback);
     memdelete(probe);
 }
+
+namespace WorldSHAdmissionTest {
+Ref<GaussianSplatWorld> make_world(uint32_t degree)
+{
+	LocalVector<Gaussian> gaussians;
+	LocalVector<Vector3> sh;
+	const uint32_t first = degree ? 3u : 0u;
+	const uint32_t high = degree >= 2u ? (degree + 1u) * (degree + 1u) - 4u : 0u;
+	gaussians.resize(3u);
+	sh.resize(3u * high);
+	for (uint32_t i = 0; i < 3u; ++i) {
+		Gaussian &g = gaussians[i];
+		g.position = Vector3(real_t(i), 1, 2);
+		g.scale = Vector3(0.0625f, 0.125f, 0.25f);
+		g.rotation = Quaternion();
+		g.opacity = 0.25f * (i + 1u);
+		g.sh_dc = Color(0.125f, -0.25f, 0.5f, 1);
+		g.render_meta = gaussian_set_dc_encoding(0u, i == 1u ? GAUSSIAN_DC_ENCODING_LINEAR_RGB
+		                                                     : GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
+		for (uint32_t j = 0; j < first; ++j) {
+			g.sh_1[j] = Vector3(0.03125f, -0.015625f, 0.0625f) * real_t(1u + i * 3u + j);
+		}
+		for (uint32_t j = 0; j < high; ++j) {
+			sh[i * high + j] = Vector3(0.00390625f, -0.0078125f, 0.015625f) * real_t(1u + i * high + j);
+		}
+	}
+	Ref<GaussianData> data;
+	data.instantiate();
+	data->set_gaussian_payload(gaussians, sh, first, high, false, false);
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_gaussian_data(data);
+	return world;
+}
+
+void check_capture(const LocalVector<Gaussian> &gaussians, const LocalVector<Vector3> &sh, uint32_t first,
+                   uint32_t high, const uint32_t *indices, uint32_t count, const GaussianData::SaveSnapshot &expected)
+{
+	CHECK(first == expected.get_sh_first_order_count());
+	CHECK(high == expected.get_sh_high_order_count());
+	if (high != expected.get_sh_high_order_count() || gaussians.size() != count ||
+	    sh.size() != count * expected.get_sh_high_order_count()) {
+		FAIL("complete SH capture lengths");
+		return;
+	}
+	for (uint32_t i = 0; i < count; ++i) {
+		if (indices[i] >= uint64_t(expected.get_gaussians().size())) {
+			FAIL("capture oracle index");
+			return;
+		}
+		CHECK(memcmp(&gaussians[i], &expected.get_gaussians()[indices[i]], sizeof(Gaussian)) == 0);
+		for (uint32_t j = 0; j < high; ++j) {
+			CHECK(sh[i * high + j] == expected.get_sh_high_order()[indices[i] * high + j]);
+		}
+	}
+}
+} // namespace WorldSHAdmissionTest
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldSH4] authentic SH0-4 saver roundtrips plain and HLOD in all payload modes")
+{
+	using namespace WorldSHAdmissionTest;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (uint32_t degree = 0u; degree <= 4u; ++degree) {
+		for (bool hlod : {false, true}) {
+			Ref<GaussianSplatWorld> world = make_world(degree);
+			if (hlod && world->bake_hlod() != OK) {
+				FAIL("authentic public HLOD producer");
+				return;
+			}
+			const Ref<GaussianData> data = world->get_gaussian_data();
+			GaussianData::SaveSnapshot expected;
+			if (data.is_null() || data->capture_save_snapshot(expected) != OK) {
+				FAIL("producer snapshot");
+				return;
+			}
+			CHECK(expected.get_sh_degree() == degree);
+			CHECK(world->has_hlod_tree() == hlod);
+			if (expected.get_gaussians().size() != 3 ||
+			    expected.get_sh_high_order().size() != 3 * int(expected.get_sh_high_order_count())) {
+				FAIL("authentic SH producer lengths");
+				return;
+			}
+			if (degree == 4u) {
+				if (expected.get_sh_high_order_count() != 21u || expected.get_sh_high_order().size() != 63) {
+					FAIL("full SH4 sidecar");
+					return;
+				}
+				CHECK(expected.get_sh_high_order()[62] != Vector3());
+			}
+			for (int mode = 0; mode < 3; ++mode) {
+				INFO(degree, hlod, mode);
+				const auto save_mode =
+				        mode == 0   ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED
+				        : mode == 1 ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED
+				                    : ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED;
+				const String path = _make_world_io_fixture_path("authentic_sh");
+				if (saver.save_with_payload_mode(world, path, save_mode) != OK) {
+					FAIL("authentic SH saver output");
+					return;
+				}
+				for (bool resident : {false, true}) {
+					Error error = ERR_BUG;
+					Ref<GaussianSplatWorld> loaded = resident ? loader.load_resident(path, &error)
+					                                          : Ref<GaussianSplatWorld>(loader.load(path, "", &error));
+					if (error != OK || loaded.is_null()) {
+						FAIL("supported SH world must load");
+						return;
+					}
+					CHECK(loaded->get_sh_degree() == degree);
+					CHECK(loaded->has_hlod_tree() == hlod);
+					CHECK(loaded->get_sh_first_order_count() == expected.get_sh_first_order_count());
+					CHECK(loaded->get_sh_high_order_count() == expected.get_sh_high_order_count());
+					CHECK(loaded->has_resident_gaussian_data() == (resident || mode != 0));
+					LocalVector<Gaussian> got;
+					LocalVector<Vector3> got_sh;
+					uint32_t first = 0u, high = 0u;
+					const uint32_t range[] = {1u, 2u};
+					const uint32_t indexed[] = {2u, 0u, 2u}; // duplication and reordering are observable
+					const Ref<ChunkPayloadSource> source = loaded->get_chunk_payload_source();
+					const Ref<GaussianData> loaded_data = loaded->get_gaussian_data();
+					if (mode == 0 && !resident && (source.is_null() || !source->is_valid())) {
+						FAIL("actual staged source required");
+						return;
+					}
+					if (source.is_null() && loaded_data.is_null()) {
+						FAIL("loaded payload owner");
+						return;
+					}
+					const bool range_ok =
+					        source.is_valid() ? source->capture_chunk_snapshot(1u, 2u, got, got_sh, first, high)
+					                          : loaded_data->capture_chunk_snapshot(1u, 2u, got, got_sh, first, high);
+					if (!range_ok) {
+						FAIL("actual contiguous SH capture");
+						return;
+					}
+					check_capture(got, got_sh, first, high, range, 2u, expected);
+					const bool indexed_ok =
+					        source.is_valid()
+					                ? source->capture_indexed_chunk_snapshot(indexed, 3u, got, got_sh, first, high)
+					                : loaded_data->capture_indexed_chunk_snapshot(indexed, 3u, got, got_sh, first,
+					                                                              high);
+					if (!indexed_ok) {
+						FAIL("actual indexed SH capture");
+						return;
+					}
+					check_capture(got, got_sh, first, high, indexed, 3u, expected);
+				}
+				_remove_world_io_fixture(path);
+			}
+		}
+	}
+}
+
+TEST_CASE(
+        "[GaussianSplatting][WorldIO][WorldSH4][MalformedCorpus] degree5 and UINT32_MAX reject authentic SH4 siblings")
+{
+	using namespace WorldSHAdmissionTest;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (bool hlod : {false, true}) {
+		Ref<GaussianSplatWorld> world = make_world(4u);
+		if (hlod && world->bake_hlod() != OK) {
+			FAIL("negative-control HLOD producer");
+			return;
+		}
+		for (int mode = 0; mode < 3; ++mode) {
+			const auto save_mode =
+			        mode == 0   ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED
+			        : mode == 1 ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED
+			                    : ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED;
+			const String path = _make_world_io_fixture_path("degree_bound");
+			if (saver.save_with_payload_mode(world, path, save_mode) != OK) {
+				FAIL("negative-control authentic save");
+				return;
+			}
+			const PackedByteArray original = FileAccess::get_file_as_bytes(path);
+			if (original.size() < 20) {
+				FAIL("degree header present");
+				return;
+			}
+			Error error = ERR_BUG;
+			Ref<GaussianSplatWorld> positive = loader.load_resident(path, &error);
+			if (error != OK || positive.is_null()) {
+				FAIL("positive sibling must load before mutation");
+				return;
+			}
+			positive.unref();
+			for (uint32_t degree : {5u, UINT32_MAX}) {
+				PackedByteArray mutated = original;
+				uint8_t *bytes = mutated.ptrw();
+				for (uint32_t b = 0; b < 4u; ++b) {
+					bytes[16u + b] = uint8_t(degree >> (8u * b));
+				}
+				const String bad_path = _make_world_io_fixture_path("degree_invalid");
+				Ref<FileAccess> file = FileAccess::open(bad_path, FileAccess::WRITE);
+				if (file.is_null()) {
+					FAIL("write degree-only mutation");
+					return;
+				}
+				file->store_buffer(mutated.ptr(), mutated.size());
+				file.unref();
+				for (bool resident : {false, true}) {
+					error = OK;
+					ERR_PRINT_OFF;
+					Ref<GaussianSplatWorld> rejected =
+					        resident ? loader.load_resident(bad_path, &error)
+					                 : Ref<GaussianSplatWorld>(loader.load(bad_path, "", &error));
+					ERR_PRINT_ON;
+					CHECK(rejected.is_null());
+					CHECK(error == ERR_FILE_CORRUPT);
+				}
+				CHECK(FileAccess::get_file_as_bytes(bad_path) == mutated);
+				CHECK(FileAccess::get_file_as_bytes(path) == original);
+				_remove_world_io_fixture(bad_path);
+			}
+			_remove_world_io_fixture(path);
+		}
+	}
+}
