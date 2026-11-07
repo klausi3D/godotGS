@@ -1,0 +1,294 @@
+name: Beyond-VRAM Fly-through (dispatch probe)
+
+# BV-06a of docs/architecture/adr-beyond-vram-worlds.md (section 9.1): the
+# minimal dispatch-only version of the beyond-VRAM fly-through workflow --
+# optimized build, `df`, `dd` with O_DIRECT (`fio` only if present), vulkaninfo,
+# generate, probe, upload -- so that M1 does not wait for the full workflow
+# (BV-06b adds the schedule, watchdog, world cache, quarantine, cold-cache method
+# and verdict). REPORT-ONLY: no job here is a required check and nothing gates.
+# It is not report-only in the sense of "green when nothing happened": a step
+# with no signal fails (exit 3 = NOT_RUN, ADR section 9.1 exit mapping), so a
+# run whose generator or probe has not landed yet ends red, with the reason in
+# the step log and in dispatch_summary.json.
+#
+# The steps' logic lives in tests/runtime/flythrough/dispatch_lane.py, which
+# tests/runtime/flythrough/test_dispatch_lane.py unit-tests (wired into the
+# guard-only lane of tests/ci/run_module_tests.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "World tier: T0 (4.19M splats, smoke) or A (201M splats, the M1 probe; also generates T0)"
+        required: true
+        default: "T0"
+        type: choice
+        options:
+          - "T0"
+          - "A"
+      disk_probe_gib:
+        description: "Size in GiB of the O_DIRECT disk-throughput probe file (1-64)"
+        required: false
+        default: "8"
+        type: string
+
+permissions:
+  contents: read
+
+# ADR section 9.1: per-event group, never cancelled. No other workflow uses a
+# `bvw-` group, so nothing else can replace a queued run of this one; pending
+# dispatches can replace each other (GitHub keeps one pending run per group).
+concurrency:
+  group: bvw-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # ADR D-10: the producer binary. Optimized (dev_build=no, speed_trace), not the
+  # dev_build the other lanes test. Own object cache, budgeted in the ADR
+  # section 5.3 disk table as "Optimized scons cache (cache_limit=15)", so this
+  # build never evicts the dev lanes' cache. One definition, read by the build
+  # step and recorded verbatim in build_info.json by the GPU job.
+  BVW_SCONS_ARGS: "platform=linuxbsd target=editor optimize=speed_trace dev_build=no tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache-opt cache_limit=15 -j16"
+
+jobs:
+  # Same split as #1319: compile on a runner WITHOUT the `gpu` label, hand the
+  # binary to the GPU job as an artifact pinned to github.sha
+  # (tests/ci/linux_gpu_runner.sh stage-binary / install-binary).
+  build-linux-editor:
+    name: Build optimized Linux editor (Self-Hosted CPU)
+    # workflow_dispatch only, so the fork guard is trivially satisfied; it is
+    # carried so the job stays fail-closed if a pull_request trigger is added.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      - name: Check Linux runner build toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools --build-only
+
+      - name: Install SCons
+        run: bash tests/ci/linux_gpu_runner.sh venv
+
+      # Word splitting of BVW_SCONS_ARGS is intended: it is a list of SCons
+      # arguments with no spaces inside any one of them.
+      - name: Build optimized Godot editor with tests
+        run: |
+          # shellcheck disable=SC2086
+          python -m SCons $BVW_SCONS_ARGS
+
+      # Only the optimized name: a dev_build binary would be godot.*.dev.x86_64
+      # and is not what this lane measures.
+      - name: Resolve Godot binary
+        id: godot_bin
+        run: |
+          candidate=bin/godot.linuxbsd.editor.x86_64
+          if [ ! -x "$candidate" ]; then
+            echo "::error::Could not find the optimized editor binary $candidate."
+            ls -la bin || true
+            exit 1
+          fi
+          resolved="$(realpath "$candidate")"
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Stage binary with commit provenance
+        run: bash tests/ci/linux_gpu_runner.sh stage-binary "${{ steps.godot_bin.outputs.path }}" "$RUNNER_TEMP/godot-build"
+
+      - name: Upload binary for the GPU job
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build/
+          if-no-files-found: error
+          retention-days: 7
+
+  flythrough:
+    name: Beyond-VRAM dispatch probe (report-only)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64, gpu]
+    needs: build-linux-editor
+    # Generation of Tier A (58.8 GB) plus the probe; per-step timeouts below.
+    timeout-minutes: 330
+    # #875 -- see the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md. Mirrored in
+    # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
+      BVW_TIER: ${{ inputs.tier }}
+      BVW_DISK_PROBE_GIB: ${{ inputs.disk_probe_gib }}
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      # Per-job paths under RUNNER_TEMP, which the runner also empties between
+      # jobs (the `runner` context is not available in job-level env). The world
+      # root is created by the disk preflight and deleted by the cleanup step.
+      - name: Set lane paths
+        run: |
+          echo "BVW_WORLD_ROOT=$RUNNER_TEMP/bvw-worlds" >> "$GITHUB_ENV"
+          echo "BVW_OUT=$RUNNER_TEMP/bvw-out" >> "$GITHUB_ENV"
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      # #875: wait for a free GPU, leave a sampler running for the postflight.
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      # ADR section 5.3: refuses with "DID NOT RUN: disk" (exit 3) unless `df`
+      # leaves the worlds of this tier + the disk probe file + the 25 GiB
+      # enforced free margin. Also records the measured OS/tools/runner and
+      # SCons-cache usage that replaces the ADR's [E] lines. Every later step
+      # that writes to the world root requires the marker this step creates.
+      - name: Disk preflight (df, ADR section 5.3 budget)
+        id: disk_preflight
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py disk-preflight --tier "$BVW_TIER" --probe-gib "$BVW_DISK_PROBE_GIB" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+
+      # ADR section 5.4 / D-14 item 4: O_DIRECT read of a never-read region and
+      # a re-read; fio only if installed (no sudo on this runner).
+      - name: Disk throughput (dd O_DIRECT, fio if present)
+        timeout-minutes: 30
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py disk-throughput --probe-gib "$BVW_DISK_PROBE_GIB" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+
+      # ADR K8: maxStorageBufferRange / maxBufferSize logged before the first
+      # > 2 GiB single buffer runs on the GPU.
+      - name: Driver limits (vulkaninfo)
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py vulkan-limits --out "$BVW_OUT"
+
+      - name: Download binary built for this commit
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        id: install_binary
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        if: ${{ !cancelled() && steps.install_binary.outcome == 'success' }}
+        run: |
+          candidate=bin/godot.linuxbsd.editor.x86_64
+          if [ ! -x "$candidate" ]; then
+            echo "::error::Could not find the optimized editor binary $candidate."
+            ls -la bin || true
+            exit 1
+          fi
+          resolved="$(realpath "$candidate")"
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      # The ADR's `build_info` assert: optimized editor_tests producer binary,
+      # sha256 equal to the build provenance, and it starts.
+      - name: Build info (assert optimized producer binary)
+        id: build_info
+        if: ${{ !cancelled() && steps.godot_bin.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "${{ steps.godot_bin.outputs.path }}" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$BVW_OUT"
+
+      # BV-05 (not merged yet): exits 3 "NOT_RUN: generator entry point ... not
+      # available yet" until tests/runtime/flythrough/generate_world.py exists.
+      - name: Generate world(s) (BV-05 generator)
+        id: generate
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' }}
+        timeout-minutes: 180
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py generate --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+
+      # BV-07 (not written yet): exits 3 "NOT_RUN: probe entry point ... not
+      # available yet" until tests/runtime/flythrough/run_probe.py exists. Runs
+      # even when generation failed, so its own absence is reported too; with
+      # no generated world it exits 3 for that reason instead.
+      - name: Probe (BV-07 probe lane)
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' }}
+        timeout-minutes: 120
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py probe --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+
+      - name: Summarize (every step, MISSING when it wrote no record)
+        if: always()
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT"
+
+      # Reports, logs, driver limits, disk measurements, build_info and the
+      # world manifests. The world data itself is not uploaded (58.8 GB).
+      - name: Upload dispatch outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beyond-vram-dispatch-${{ inputs.tier }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bvw-out/
+          if-no-files-found: error
+          retention-days: 30
+
+      # After the upload, whatever happened above: the generated worlds must not
+      # outlive the run (no world cache before BV-06b). Fails if any remain.
+      - name: Clean up generated worlds
+        if: always()
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py cleanup --world-root "$BVW_WORLD_ROOT"
+          df -P -B1 "$RUNNER_TEMP"
+
+      # #875 -- exits 75 (not 1) when the run is void.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
