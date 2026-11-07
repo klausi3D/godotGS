@@ -1,5 +1,9 @@
 var NAVTREEINDEX52 =
 {
+"structTileRasterizerStage.html#a665a71e11bfe0dc7a7503f5db1209a78":[1,0,278,19],
+"structTileRasterizerStage.html#a7ae9b05f01aaa34a809f55a4d57d544c":[1,0,278,20],
+"structTileRasterizerStage.html#a8129bd942ba7cc4bada2f24bb492715f":[1,0,278,27],
+"structTileRasterizerStage.html#a818f50051890522955c5538ae474c58c":[1,0,278,17],
 "structTileRasterizerStage.html#a8e9ff85bf276524ffdb4ef985680bfd3":[1,0,278,4],
 "structTileRasterizerStage.html#a90c41b0b404434b31bb183f4700eb303":[1,0,278,37],
 "structTileRasterizerStage.html#a91522d92dff4f606ac1e21875c161d88":[1,0,278,32],
@@ -245,9 +249,5 @@ var NAVTREEINDEX52 =
 "structVRAMDebugStats.html#ae9f1944734f52f12fab9ffde2453fbd6":[1,0,287,0],
 "structVRAMDebugStats.html#aee200bf57600bb063f1386971c866728":[1,0,287,3],
 "structVRAMDebugStats.html#af0f06aff415c274d8a2558dbf0a9d6cb":[1,0,287,4],
-"structVisibleChunkRefGPU.html":[1,0,284],
-"structVisibleChunkRefGPU.html#a67ee8f6ceb3c9405ebf3e5a9e5a1cea0":[1,0,284,1],
-"structVisibleChunkRefGPU.html#ae6ac66c291c3c8fc0dc1817920f91bf2":[1,0,284,0],
-"struct__GSAtomicNoRenameGuard.html":[1,0,30],
-"struct__GSAtomicNoRenameGuard.html#a7582b0c51cb6fe8e7408f751f1fe7b56":[1,0,30,0]
+"structVRAMDebugStats.html#af7ea32371b4e28176ffb14f2deead9ec":[1,0,287,21]
 };

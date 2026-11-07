@@ -1,5 +1,10 @@
 var NAVTREEINDEX53 =
 {
+"structVisibleChunkRefGPU.html":[1,0,284],
+"structVisibleChunkRefGPU.html#a67ee8f6ceb3c9405ebf3e5a9e5a1cea0":[1,0,284,1],
+"structVisibleChunkRefGPU.html#ae6ac66c291c3c8fc0dc1817920f91bf2":[1,0,284,0],
+"struct__GSAtomicNoRenameGuard.html":[1,0,30],
+"struct__GSAtomicNoRenameGuard.html#a7582b0c51cb6fe8e7408f751f1fe7b56":[1,0,30,0],
 "structgs_1_1ModuleStringNames.html":[0,0,16,2],
 "structgs_1_1ModuleStringNames.html":[1,0,11,1],
 "structgs_1_1ModuleStringNames.html#a14fcd82dc9649a73331c0bd7a39dc7e5":[0,0,16,2,1],
@@ -244,10 +249,5 @@ var NAVTREEINDEX53 =
 "structgs__hlod_1_1OfflineJob.html#a96efccdd9b8d963850c5ac7d5b40312b":[1,0,13,3,6],
 "structgs__hlod_1_1OfflineJob.html#aaabfb0307b4e96c72c4ff26534c3b847":[0,0,20,3,10],
 "structgs__hlod_1_1OfflineJob.html#aaabfb0307b4e96c72c4ff26534c3b847":[1,0,13,3,10],
-"structgs__hlod_1_1OfflineJob.html#aca68087c9de6277d5b31c8638d55109f":[0,0,20,3,5],
-"structgs__hlod_1_1OfflineJob.html#aca68087c9de6277d5b31c8638d55109f":[1,0,13,3,5],
-"structgs__hlod_1_1OfflineJob.html#acda63d1204c4af5f72b310a7695e9330":[0,0,20,3,7],
-"structgs__hlod_1_1OfflineJob.html#acda63d1204c4af5f72b310a7695e9330":[1,0,13,3,7],
-"structgs__hlod_1_1OfflineJob.html#ad66620c7ee67423e8752ea007c4a2aa1":[0,0,20,3,9],
-"structgs__hlod_1_1OfflineJob.html#ad66620c7ee67423e8752ea007c4a2aa1":[1,0,13,3,9]
+"structgs__hlod_1_1OfflineJob.html#aca68087c9de6277d5b31c8638d55109f":[0,0,20,3,5]
 };

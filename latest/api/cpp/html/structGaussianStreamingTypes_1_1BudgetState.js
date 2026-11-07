@@ -15,6 +15,7 @@ var structGaussianStreamingTypes_1_1BudgetState =
     [ "stale_sequence_dropped_uploads", "structGaussianStreamingTypes_1_1BudgetState.html#ae05fb0675e7c59b8d4c69674d56a2107", null ],
     [ "stride_flip_dropped_prewrite_uploads", "structGaussianStreamingTypes_1_1BudgetState.html#a1b9baf54d86721ef8634511a7118be66", null ],
     [ "stride_flip_dropped_upload_retirements", "structGaussianStreamingTypes_1_1BudgetState.html#af0d046ed88c9db7bb15d0c1a6a570a7b", null ],
+    [ "visible_refetches_this_frame", "structGaussianStreamingTypes_1_1BudgetState.html#a71ce07f906c04d25cfd31125257344bf", null ],
     [ "vram_chunk_cap_hit_this_frame", "structGaussianStreamingTypes_1_1BudgetState.html#ab1c7bb137cbf4481d93f9d7bf9c6d2ec", null ],
     [ "vram_regulator", "structGaussianStreamingTypes_1_1BudgetState.html#a2b342be6dfd955f2d2896115908bd728", null ],
     [ "vram_usage", "structGaussianStreamingTypes_1_1BudgetState.html#a6c91ee15b8857aa5fd156c4f1290cf5a", null ]

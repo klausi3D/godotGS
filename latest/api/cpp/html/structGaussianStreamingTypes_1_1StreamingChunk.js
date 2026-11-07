@@ -11,6 +11,7 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "gpu_resident", "structGaussianStreamingTypes_1_1StreamingChunk.html#a6f8dac1fc7af0d83009175d6b1f1bf7a", null ],
     [ "is_loaded", "structGaussianStreamingTypes_1_1StreamingChunk.html#ab55ce51f005ea60afe844836b20be053", null ],
     [ "is_visible", "structGaussianStreamingTypes_1_1StreamingChunk.html#a964a1bdc0efe34e0d6a6a53792e06436", null ],
+    [ "last_evicted_usec", "structGaussianStreamingTypes_1_1StreamingChunk.html#aa1a58f921889fe4c7dc3db69f1389c48", null ],
     [ "last_loaded_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#a178d3296200985fc85b3cfcf553412f0", null ],
     [ "last_used_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93", null ],
     [ "load_failures", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7f440cf81281fda377380c676a1acbc6", null ],
