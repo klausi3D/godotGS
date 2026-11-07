@@ -212,7 +212,7 @@ inline WWFixture ww_make(uint32_t p_seed, ShCase p_sh, bool p_chunks, bool p_met
 	// Partition into 5 + seed contiguous chunks; chunk 2 is empty.
 	const uint32_t chunk_count = 5u + p_seed;
 	uint32_t cursor = 0;
-	Vector<GaussianSplatRenderer::StaticChunk> chunks;
+	Vector<StaticChunk> chunks;
 	for (uint32_t c = 0; c < chunk_count; c++) {
 		uint32_t n = 0;
 		if (c == chunk_count - 1u) {
@@ -220,7 +220,7 @@ inline WWFixture ww_make(uint32_t p_seed, ShCase p_sh, bool p_chunks, bool p_met
 		} else if (c != 2u) {
 			n = MIN(count - cursor, 200u + (rng.next() % (count / chunk_count)));
 		}
-		GaussianSplatRenderer::StaticChunk chunk;
+		StaticChunk chunk;
 		AABB box;
 		for (uint32_t i = 0; i < n; i++) {
 			if (i == 0) {

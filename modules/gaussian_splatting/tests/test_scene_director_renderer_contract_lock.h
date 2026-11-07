@@ -35,6 +35,8 @@
 #include "core/templates/safe_refcount.h"
 
 #include "../core/gaussian_splat_scene_director.h"
+#include "../core/scene_director_deferred_work.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "../core/thread_owned_mutex.h"
 
 namespace TestSceneDirectorRendererContractLock {
