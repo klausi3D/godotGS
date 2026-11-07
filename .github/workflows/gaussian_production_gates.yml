@@ -1,54 +1,21 @@
 name: Gaussian Production Gates
 
+# Weekly open-world proof evidence only (CI diet, maintainer approval 2026-11-07).
+#
+# This workflow used to run on every PR, merge-queue entry and master push:
+#   * `guards` (the full --guard-only phase on the self-hosted runner) was an exact
+#     duplicate of the required agentic-pr-gate's last step. Removed; the guard
+#     phase runs once per PR there and in full nightly (baseline_qa.yml cpu-tests).
+#   * `gpu-evidence-requirement` + `module-validation` (pipeline smoke, module
+#     doctest lanes, headless-ci runtime, streaming-gpu-ci, production evidence and
+#     readiness enforcement) moved into baseline_qa.yml: the CPU-only lanes to its
+#     hosted `cpu-tests` job, the GPU lanes to its single `gpu-tests` job, which
+#     builds once instead of downloading a second build's artifact.
+# What remains is the non-blocking open-world proof surface, weekly and on demand.
+
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    branches: [master]
-    paths:
-      - "core/**"
-      - "drivers/**"
-      - "editor/**"
-      - "main/**"
-      - "modules/**"
-      - "platform/**"
-      - "scene/**"
-      - "servers/**"
-      - "thirdparty/**"
-      - "*.py"
-      - "SConstruct"
-      - "tests/**"
-      - ".github/workflows/gaussian_production_gates.yml"
-      - ".github/workflows/README.md"
-      - "docs/reference/renderer-release-gates.md"
-      - "docs/reference/renderer_release_gate_manifest.json"
-      - "docs/development/known-public-alpha-limitations.md"
-  push:
-    branches: [master, develop]
-    paths:
-      - "core/**"
-      - "drivers/**"
-      - "editor/**"
-      - "main/**"
-      - "modules/**"
-      - "platform/**"
-      - "scene/**"
-      - "servers/**"
-      - "thirdparty/**"
-      - "*.py"
-      - "SConstruct"
-      - "tests/**"
-      - ".github/workflows/gaussian_production_gates.yml"
-      - ".github/workflows/README.md"
-      - "docs/reference/renderer-release-gates.md"
-      - "docs/reference/renderer_release_gate_manifest.json"
-      - "docs/development/known-public-alpha-limitations.md"
   workflow_dispatch:
     inputs:
-      run_gpu_lane:
-        description: "Run self-hosted GPU evidence lane"
-        required: false
-        default: false
-        type: boolean
       run_openworld_proof_dev:
         description: "Run non-blocking openworld-proof-dev benchmark evidence surface"
         required: false
@@ -59,218 +26,38 @@ on:
         required: false
         default: false
         type: boolean
-      # #1164: enforcement is the default on EVERY event that produced evidence.
-      # This input exists only so a maintainer can run a manual, diagnostic
-      # dispatch that collects without enforcing; it cannot switch enforcement
-      # off for pull_request, push or merge_group runs.
-      enforce_gpu_readiness:
-        description: "Fail if summary.json readiness booleans are not all true (set false only for a diagnostic manual run)"
-        required: false
-        default: true
-        type: boolean
-      runtime_loops:
-        description: "Runtime loop count for evidence collection"
-        required: false
-        default: "3"
-        type: string
   schedule:
+    # Monday 03:30 UTC. The other self-hosted nightlies (baseline_qa.yml 00:30,
+    # release_builds.yml 02:30, release_ci_runtime.yml 06:00) are staggered
+    # around it; see .github/workflows/README.md.
     - cron: "30 3 * * 1"
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: gaussian-production-gates-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: gaussian-production-gates-${{ github.ref }}
+  # Scheduled evidence is never cut short; a second run waits.
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  guards:
-    name: Guards (Render Path + Static Safety)
-    # Never run self-hosted code on untrusted fork PR code. Same-repo
-    # branches (maintainer PRs) still trigger the gate; fork PRs are skipped.
-    # Mirrors the guard already used in baseline_qa.yml / release_builds.yml and
-    # protects the persistent runner's scons cache, credential store, and Actions
-    # runner token from arbitrary code in `tests/ci/*.py`, `SConstruct`,
-    # `methods.py`, or any `SCsub` checked out from a fork. (merge_group is
-    # maintainer-gated — see the README runner trust boundary.)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
-    # The only self-hosted runner is the Linux RTX 3080 box. No `gpu` label: this
-    # job renders nothing and builds nothing, so it is not part of the GPU pool
-    # that the contention/environment preflights guard.
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: repo
-        shell: bash
-    steps:
-      - name: Configure Git safe.directory for self-hosted workspace
-        working-directory: ${{ github.workspace }}
-        run: |
-          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: repo
-          fetch-depth: 0
-          submodules: recursive
-          set-safe-directory: false
-
-      - name: Verify Python on runner
-        run: |
-          python3 --version
-
-      # GAP-403: the guard phase runs the S1b quality harness unit tests, which
-      # import numpy. Nothing is installed into the runner's global interpreter
-      # (and it has no sudo), so numpy goes into a per-job venv from the
-      # hash-locked tests/ci/requirements-test-data.txt; its bin/ is prepended
-      # to PATH through GITHUB_PATH, so `python3` below is the venv interpreter.
-      # A missing numpy fails this step instead of the guard lane.
-      - name: Install guard dependencies (numpy)
-        run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
-
-      - name: Run guard checks
-        # GS_CI_BASE_REF is the review base the shrink-only ratchets in
-        # tests/ci/check_environment_skip_marker.py compare against (#595). The
-        # guard fails closed without one on any base-bearing event, so it must
-        # be exported for BOTH pull_request and merge_group -- omitting it would
-        # block this required gate. push / workflow_dispatch have no review base
-        # and are exempt in the wrapper, so the empty value there is correct.
-        env:
-          GS_CI_BASE_REF: >-
-            ${{ github.event_name == 'merge_group'
-                && github.event.merge_group.base_sha
-                || github.event.pull_request.base.sha }}
-        run: |
-          python3 tests/ci/run_module_tests.py --guard-only
-
-  gpu-evidence-requirement:
-    name: GPU Evidence Requirement
-    if: ${{ github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
-    runs-on: ubuntu-latest
-    needs: guards
-    outputs:
-      run_windows_gpu: ${{ steps.decide.outputs.run_windows_gpu }}
-      reason: ${{ steps.decide.outputs.reason }}
-    steps:
-      - name: Decide whether Windows GPU evidence is required
-        id: decide
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fallbackLabel = "ci/gpu-runner-unavailable";
-            let runWindowsGpu = false;
-            let reason = "not-required";
-
-            if (context.eventName === "workflow_dispatch") {
-              const requested = String(context.payload.inputs?.run_gpu_lane || "false").toLowerCase();
-              runWindowsGpu = requested === "true";
-              reason = runWindowsGpu ? "manual-dispatch" : "manual-dispatch-disabled";
-            } else if (context.eventName === "pull_request" || context.eventName === "merge_group") {
-              const owner = context.repo.owner;
-              const repo = context.repo.repo;
-              const renderStreamingPrefixes = [
-                "modules/gaussian_splatting/renderer/",
-                "modules/gaussian_splatting/shaders/",
-                "modules/gaussian_splatting/core/gaussian_streaming",
-              ];
-
-              let changedPaths = [];
-              if (context.eventName === "pull_request") {
-                const pullNumber = context.payload.pull_request.number;
-                const files = await github.paginate(github.rest.pulls.listFiles, {
-                  owner,
-                  repo,
-                  pull_number: pullNumber,
-                  per_page: 100,
-                });
-                changedPaths = files.map((file) => String(file.filename || ""));
-              } else {
-                // merge_group: compare head against base using the merge group refs.
-                // Note: compareCommitsWithBasehead caps at 300 files without pagination.
-                // Acceptable for this repo's typical PR size; revisit if merge-queue
-                // batches routinely exceed 300 changed files.
-                const base = context.payload.merge_group.base_sha;
-                const head = context.payload.merge_group.head_sha;
-                const compare = await github.rest.repos.compareCommitsWithBasehead({
-                  owner,
-                  repo,
-                  basehead: `${base}...${head}`,
-                  per_page: 100,
-                });
-                changedPaths = (compare.data.files || []).map((file) => String(file.filename || ""));
-              }
-
-              runWindowsGpu = changedPaths.some((path) =>
-                renderStreamingPrefixes.some((prefix) => path.startsWith(prefix))
-              );
-              reason = runWindowsGpu ? "render-streaming-path-change" : "no-render-streaming-changes";
-
-              // Honor the fallback label for both pull_request and merge_group events.
-              // merge_group doesn't carry PR labels directly, so look them up via
-              // the head_ref which encodes the PR number (e.g. "gh-readonly-queue/main/pr-123/...").
-              let labels = [];
-              if (context.eventName === "pull_request") {
-                labels = (context.payload.pull_request.labels || []).map((label) => label.name);
-              } else if (context.eventName === "merge_group") {
-                const headRef = context.payload.merge_group.head_ref || "";
-                const prMatch = headRef.match(/\/pr-(\d+)\//);
-                if (prMatch) {
-                  try {
-                    const { data: pr } = await github.rest.pulls.get({
-                      owner, repo, pull_number: parseInt(prMatch[1]),
-                    });
-                    labels = (pr.labels || []).map((label) => label.name);
-                  } catch (e) {
-                    core.warning(`Could not fetch PR labels from merge_group head_ref: ${e.message}`);
-                  }
-                }
-              }
-              if (runWindowsGpu && labels.includes(fallbackLabel)) {
-                runWindowsGpu = false;
-                reason = `fallback-label:${fallbackLabel}`;
-              }
-            }
-
-            core.info(`run_windows_gpu=${runWindowsGpu} reason=${reason}`);
-            core.setOutput("run_windows_gpu", runWindowsGpu ? "true" : "false");
-            core.setOutput("reason", reason);
-
-      - name: Report decision
-        shell: pwsh
-        run: |
-          echo "run_windows_gpu=${{ steps.decide.outputs.run_windows_gpu }}"
-          echo "reason=${{ steps.decide.outputs.reason }}"
-
-  # Compiles the tests=yes editor for the two GPU jobs below (module-validation,
-  # openworld-proof-evidence; both used these exact args), on a runner that does
-  # NOT need the `gpu` label, so the GPU sits idle for no compile and a CPU-only
-  # runner can take this job. The binary travels as an artifact pinned to
-  # github.sha: `stage-binary` refuses a checkout that is not github.sha and
-  # records commit, run id and sha256; `install-binary` in each GPU job refuses
-  # anything that does not match its own github.sha, run id and checkout
-  # (tests/ci/linux_gpu_runner.sh).
+  # Compiles the tests=yes editor for openworld-proof-evidence on a runner that
+  # does NOT need the `gpu` label, so a CPU-only runner can take this job. The
+  # binary travels as an artifact pinned to github.sha: `stage-binary` refuses a
+  # checkout that is not github.sha and records commit, run id and sha256;
+  # `install-binary` in the GPU job refuses anything that does not match its own
+  # github.sha, run id and checkout (tests/ci/linux_gpu_runner.sh).
   build-linux-editor:
     name: Build Linux Editor for GPU Gates (Self-Hosted CPU)
-    # Runs exactly when one of its two consumers can run:
-    #   * module-validation's events: only after `guards` succeeded, as that
-    #     job's own compile did (it `needs: guards`);
-    #   * openworld-proof-evidence's events (schedule, or a dispatch asking for
-    #     an openworld surface), on which `guards` is skipped by design.
-    # `!cancelled()` is what lets the second branch run past a skipped `guards`;
-    # the fork guard leads the conjunction like every self-hosted job's.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !cancelled() && (needs.guards.result == 'success' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true))) }}
+    # The fork guard leads the conjunction like every self-hosted job's, although
+    # neither trigger of this workflow can carry fork code.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true))) }}
     # No `gpu` label: this job renders nothing, so it is not part of the GPU pool
     # that the contention/environment preflights guard.
     runs-on: [self-hosted, Linux, X64]
-    needs: guards
     timeout-minutes: 120
     defaults:
       run:
@@ -305,8 +92,7 @@ jobs:
       - name: Install SCons
         run: bash tests/ci/linux_gpu_runner.sh venv
 
-      # The args module-validation and openworld-proof-evidence each used to
-      # run, unchanged. -j16, not nproc (32): the box has 24 GB of RAM.
+      # -j16, not nproc (32): the box has 24 GB of RAM.
       - name: Build Godot editor with tests
         run: |
           python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
@@ -342,309 +128,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  module-validation:
-    name: Module Build + Runtime Harness (Windows Self-Hosted)
-    # Same fork-PR guard as the guards job above: never build/run untrusted
-    # fork PR code (SConstruct, methods.py, tests/ci/*.py, SCsub) on the
-    # persistent self-hosted GPU runner. `needs: guards` already
-    # cascades the skip, but the explicit guard keeps each job self-describing.
-    # The job NAME above still says "Windows Self-Hosted" on purpose: it is a
-    # status-check context and renaming it is a separate decision. The only
-    # self-hosted runner is now the Linux RTX 3080 box.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
-    runs-on: [self-hosted, Linux, X64, gpu]
-    # The job NAME still says "Module Build"; it is a status-check context. The
-    # build itself is build-linux-editor's; this job tests that binary.
-    needs:
-      - guards
-      - gpu-evidence-requirement
-      - build-linux-editor
-    timeout-minutes: 120
-    # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
-    # of this job's GPU processes. Rationale and the measured loader behaviour:
-    # the "Self-hosted GPU runner environment" section of
-    # .github/workflows/README.md. Setting these proves nothing on its own, which
-    # is why the preflight step below reads back the chain the loader actually
-    # built.
-    env:
-      # Loader-side filter. Honoured only in a NON-elevated process; the Linux
-      # runner is not elevated, so on Linux this alone strips implicit layers.
-      VK_LOADER_LAYERS_DISABLE: '~implicit~'
-      # VK_LOADER_LAYERS_ENABLE is deliberately NOT set on Linux: the NVIDIA Linux
-      # driver's layers are not implicit, and force-enabling them would put layers
-      # into the chain that no run outside CI has (measured: the preflight failed).
-      # Each layer's own opt-out, declared in its own manifest under
-      # `disable_environment`. Mirrored in
-      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
-      # VK_LAYER_OBS_HOOK
-      DISABLE_VULKAN_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OBS_HOOK
-      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
-      # VK_LAYER_OW_OVERLAY
-      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
-      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
-      NODEVICE_SELECT: '1'
-    defaults:
-      run:
-        working-directory: repo
-        shell: bash
-    steps:
-      - name: Configure Git safe.directory for self-hosted workspace
-        working-directory: ${{ github.workspace }}
-        run: |
-          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: repo
-          fetch-depth: 0
-          submodules: recursive
-          set-safe-directory: false
-
-      - name: Verify Python on runner
-        run: |
-          python3 --version
-
-      # This runner has no sudo, so no job installs system packages. This step
-      # fails closed and names exactly what is missing. PowerShell 7 is only
-      # required when the evidence collector (a .ps1) will run.
-      - name: Check Linux GPU runner toolchain
-        run: bash tests/ci/linux_gpu_runner.sh check-tools ${{ needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && '--need-pwsh' || '' }}
-
-      # Must precede the build and every GPU step: it decides whether anything
-      # measured afterwards is a measurement of the renderer (#875).
-      # #875 -- unrelated GPU work landing on the box while CI runs turns
-      # wall-clock budgets into failures that read like renderer regressions
-      # (#867, #881). This waits for the GPU to be free, then leaves a background
-      # sampler running so the postflight below can say whether contention began
-      # mid-job. It never relaxes a budget: a contended run is void, not passed.
-      - name: Preflight - GPU contention, wait for a free runner (#875)
-        run: python3 tests/ci/runner_gpu_contention.py preflight
-
-      - name: Preflight - runner GPU environment (#875)
-        run: python3 tests/ci/preflight_runner_gpu_environment.py
-
-      # GAP-403: nothing is installed into the runner's global interpreter.
-      # SCons goes into a per-job venv from the version-and-hash-locked
-      # tests/ci/requirements-scons.txt, and the venv's bin/ is prepended to PATH
-      # (via GITHUB_PATH, for every later step), so each later `python`,
-      # including `python -m SCons`, runs in the venv. The only other third-party
-      # import is numpy, used by the S1b quality harness tests that
-      # run_module_tests.py runs; `--with-test-data` installs it from the
-      # hash-locked tests/ci/requirements-test-data.txt into the same venv, so a
-      # missing numpy fails this step instead of the test lane.
-      - name: Install SCons
-        run: bash tests/ci/linux_gpu_runner.sh venv --with-test-data
-
-      # The binary comes from build-linux-editor, never from a compile here.
-      # install-binary fails closed unless its provenance names this run and
-      # this job's own checkout (github.sha) and the sha256 matches; then it
-      # places the binary in bin/, where the resolver below finds it.
-      - name: Download binary built for this commit
-        uses: actions/download-artifact@v4
-        with:
-          name: godot-linuxbsd-editor-tests-${{ github.sha }}
-          path: ${{ runner.temp }}/godot-build
-
-      - name: Verify and install binary (pinned to github.sha)
-        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
-
-      - name: Resolve Godot binary
-        id: godot_bin
-        run: |
-          resolved=""
-          for candidate in \
-            bin/godot.linuxbsd.editor.dev.x86_64 \
-            bin/godot.linuxbsd.editor.x86_64; do
-            if [ -x "$candidate" ]; then
-              resolved="$(realpath "$candidate")"
-              break
-            fi
-          done
-          if [ -z "$resolved" ]; then
-            echo "::error::Could not find built Godot binary in expected bin/ paths."
-            ls -la bin || true
-            exit 1
-          fi
-          echo "Resolved Godot binary: $resolved"
-          echo "path=$resolved" >> "$GITHUB_OUTPUT"
-
-      - name: Run Gaussian pipeline smoke tests
-        env:
-          # run_baseline_qa.py can reach tests/ci/run_module_tests.py (its
-          # `module` category), which fails closed on a base-bearing event
-          # without a review base (#595). Exported per SCRIPT rather than per
-          # category: the category list is an argument that can change, and a
-          # base that is present-but-unused costs nothing.
-          GS_CI_BASE_REF: >-
-            ${{ github.event_name == 'merge_group'
-                && github.event.merge_group.base_sha
-                || github.event.pull_request.base.sha }}
-        run: |
-          python tests/ci/run_baseline_qa.py --category pipeline --godot "${{ steps.godot_bin.outputs.path }}"
-
-      - name: Run module tests
-        env:
-          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-          # Same review base as the guard step above: this is a FULL run, so it
-          # executes the same guard phase and fails closed identically without
-          # one (#595).
-          GS_CI_BASE_REF: >-
-            ${{ github.event_name == 'merge_group'
-                && github.event.merge_group.base_sha
-                || github.event.pull_request.base.sha }}
-        run: |
-          python tests/ci/run_module_tests.py --godot-binary "$GODOT_BINARY"
-
-      # T3 (#891, ADR section 4.6): the two invocations below write DISTINCT
-      # report paths. They used to share the default
-      # tests/runtime/runtime_validation_report.json in the same workspace, so
-      # the streaming-gpu-ci write truncated the headless-ci report and the
-      # upload shipped only the survivor -- evidence produced and then
-      # destroyed. Preserving both per-profile reports is a precondition of the
-      # completion-marker soak counting at all.
-      - name: Run runtime validation harness (headless structural gate)
-        env:
-          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-        run: |
-          python tests/runtime/run_runtime_validation.py \
-            --godot-binary "$GODOT_BINARY" \
-            --profile headless-ci \
-            --gd-mode headless \
-            --skip-cpp \
-            --fail-on-skip \
-            --report-path tests/runtime/runtime_validation_report_headless_ci.json
-
-      - name: Run streaming GPU runtime gate (canonical blocking profile, gpu-vulkan)
-        env:
-          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
-        run: |
-          python tests/runtime/run_runtime_validation.py \
-            --godot-binary "$GODOT_BINARY" \
-            --profile streaming-gpu-ci \
-            --skip-cpp \
-            --fail-on-skip \
-            --report-path tests/runtime/runtime_validation_report_streaming_gpu_ci.json
-
-      - name: Upload runtime validation reports
-        if: ${{ always() && steps.godot_bin.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-validation-report
-          # if-no-files-found stays fail-loud: a soak that reads a silently
-          # absent report would count absence as evidence.
-          if-no-files-found: error
-          path: |
-            repo/tests/runtime/runtime_validation_report_headless_ci.json
-            repo/tests/runtime/runtime_validation_report_streaming_gpu_ci.json
-
-      # The collector is PowerShell (tests/ci/collect_production_evidence.ps1) and
-      # is OS-aware: it picks the `x11` display driver and the linuxbsd binary names
-      # here. PowerShell 7 on the Linux runner is checked by the toolchain step.
-      - name: Collect production evidence
-        id: evidence
-        if: ${{ always() && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.godot_bin.outcome == 'success' }}
-        shell: pwsh
-        env:
-          RUNTIME_LOOPS: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_loops || '3' }}
-        run: |
-          $runtimeLoops = [int]$env:RUNTIME_LOOPS
-          ./tests/ci/collect_production_evidence.ps1 `
-            -Root $PWD `
-            -GodotBinary "${{ steps.godot_bin.outputs.path }}" `
-            -OutputRoot (Join-Path $PWD "artifacts/evidence") `
-            -RuntimeLoops $runtimeLoops
-          # #1164: the script exits non-zero when any recorded sub-command did
-          # not pass. Capture it before anything else runs, publish the evidence
-          # directory so the upload step still ships the logs, then fail.
-          $evidenceExit = $LASTEXITCODE
-
-          $latest = Get-ChildItem (Join-Path $PWD "artifacts/evidence") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-          if (-not $latest) {
-            throw "Evidence directory not found after run."
-          }
-          "dir=$($latest.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          if ($null -eq $evidenceExit -or $evidenceExit -ne 0) {
-            throw "collect_production_evidence.ps1 exited '$evidenceExit': at least one recorded sub-command did not pass (see results[].passed in summary.json)."
-          }
-
-      - name: Upload evidence artifact
-        if: ${{ always() && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.evidence.outputs.dir != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-gpu-production-evidence
-          path: ${{ steps.evidence.outputs.dir }}
-
-      # #1164: this used to run only on a workflow_dispatch with
-      # enforce_gpu_readiness=true (default false), so on pull_request, push and
-      # merge_group the booleans were collected, uploaded and never compared.
-      # It now runs on every event that produced evidence; the only way to skip
-      # it is an explicit enforce_gpu_readiness=false on a manual dispatch.
-      # Careful when editing: for non-dispatch events `inputs.*` is null, and in
-      # Actions expressions null == false is TRUE, so a bare
-      # `inputs.enforce_gpu_readiness != false` would silently skip every PR.
-      # tests/ci/test_production_readiness_enforcement.py evaluates this
-      # condition per event and fails if any non-dispatch event can skip it.
-      - name: Enforce readiness booleans
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.enforce_gpu_readiness == false || inputs.enforce_gpu_readiness == 'false')) && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.evidence.outcome == 'success' && steps.evidence.outputs.dir != '' }}
-        shell: pwsh
-        run: |
-          $summaryPath = Join-Path "${{ steps.evidence.outputs.dir }}" "summary.json"
-          if (-not (Test-Path -LiteralPath $summaryPath)) {
-            throw "Missing summary.json at $summaryPath"
-          }
-
-          $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
-          # Ratchet (#1164, maintainer decision 2026-10-13): enforce the booleans
-          # that pass today. The other summary.json keys are REPORTED, NOT
-          # ENFORCED until #1241 makes them pass: 943_ready (tier_1m baseline,
-          # including the #883 advisory ratio), 871_ready (needs an executed,
-          # un-quarantined streaming QA scene; all are quarantined, #786) and
-          # 902_ready (their conjunction). These are legacy tracker labels, not
-          # GitHub issues #943/#871/#902. Moving a key from $reported into
-          # $required is the only allowed direction;
-          # tests/ci/test_production_readiness_enforcement.py fails if the
-          # reported set grows.
-          $required = @("897_907_ready", "900_ready", "815_ready")
-          $reported = @("943_ready", "871_ready", "902_ready")
-          $missing = @()
-          foreach ($key in $required) {
-            if (-not $summary.issues.$key) {
-              $missing += $key
-            }
-          }
-
-          $reportLines = @("### Readiness booleans reported, not enforced (#1241)", "")
-          foreach ($key in $reported) {
-            $value = $summary.issues.$key
-            $state = if ($null -eq $value) { "MISSING" } elseif ($value) { "true" } else { "false" }
-            $reportLines += "- ``$key`` = $state (reported, not enforced; tracked in #1241)"
-            if ($state -ne "true") {
-              Write-Host "::warning title=Readiness reported, not enforced::$key = $state (tracked in #1241)"
-            }
-          }
-          if ($env:GITHUB_STEP_SUMMARY) {
-            $reportLines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-          }
-          $reportLines | ForEach-Object { Write-Host $_ }
-
-          if ($missing.Count -gt 0) {
-            throw ("Production readiness checks failed: " + ($missing -join ", "))
-          }
-      # #875 -- must run even when the job failed: a timing failure above is
-      # exactly the result whose attribution this decides. Exits 75 (not 1) when
-      # the run is void, so it cannot be read as a test failure.
-      - name: Postflight - GPU contention verdict (#875)
-        if: always()
-        run: python3 tests/ci/runner_gpu_contention.py postflight
-
-
   openworld-proof-evidence:
     name: Open-World Proof Evidence (non-blocking)
-    # `guards` is skipped on these events; the skip propagates through
-    # build-linux-editor unless this job overrides it with !cancelled() and
-    # requires the build explicitly.
+    # Requires the build explicitly; `!cancelled()` keeps a cancelled run from
+    # starting it.
     if: ${{ !cancelled() && needs.build-linux-editor.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true))) }}
     continue-on-error: true
     runs-on: [self-hosted, Linux, X64, gpu]
@@ -653,8 +140,8 @@ jobs:
     # now shows as a red run instead of being absorbed by this evidence job.
     needs: build-linux-editor
     timeout-minutes: 120
-    # #875 -- see the module-validation job above and the "Self-hosted GPU
-    # runner environment" section of .github/workflows/README.md.
+    # #875 -- see the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md.
     env:
       # Loader-side filter. Honoured only in a NON-elevated process; the Linux
       # runner is not elevated, so on Linux this alone strips implicit layers.
@@ -714,11 +201,11 @@ jobs:
         run: python3 tests/ci/preflight_runner_gpu_environment.py
 
       # GAP-403: per-job venv from the hash-locked file, never the runner's
-      # global interpreter. See the module-validation job above.
+      # global interpreter.
       - name: Install SCons
         run: bash tests/ci/linux_gpu_runner.sh venv
 
-      # The binary comes from build-linux-editor; see module-validation above.
+      # The binary comes from build-linux-editor, never from a compile here.
       - name: Download binary built for this commit
         uses: actions/download-artifact@v4
         with:

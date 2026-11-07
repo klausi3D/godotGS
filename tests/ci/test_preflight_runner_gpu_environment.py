@@ -104,13 +104,11 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     # Runs the exported binary (a live RenderingDevice and a window read-back).
     ("release_builds.yml", "export_smoke_windows"): "tests/runtime/run_export_smoke.py",
     ("release_builds.yml", "export_smoke_linux"): "tests/runtime/run_export_smoke.py",
-    # The jobs below test a binary their workflow's `build-linux-editor` job
+    # The job below tests a binary its workflow's `build-linux-editor` job
     # compiled (a job WITHOUT the `gpu` label) and downloaded as an artifact, so
-    # they have no SCons step. Each anchor is the job's first step that launches
-    # that binary.
-    ("baseline_qa.yml", "gpu-tests"): "tests/ci/run_baseline_qa.py",
-    ("baseline_qa.yml", "gpu-harness"): "tests/ci/run_gpu_harness.py",
-    ("gaussian_production_gates.yml", "module-validation"): "tests/ci/run_baseline_qa.py",
+    # it has no SCons step. The anchor is the job's first step that launches
+    # that binary. (baseline_qa.yml `gpu-tests` builds in-job since the CI diet,
+    # 2026-11-07, so its SCons step is the anchor and it needs no entry here.)
     ("gaussian_production_gates.yml", "openworld-proof-evidence"): (
         "tests/runtime/prepare_synthetic_assets.py"
     ),

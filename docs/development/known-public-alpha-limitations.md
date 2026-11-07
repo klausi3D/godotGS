@@ -726,8 +726,8 @@ absent. It is strictly narrower than what #982 fixed.
 
 **Status: Active.**
 
-The Linux CI lane (the `cpu-tests` job in `baseline_qa.yml`, which does not run on pull
-requests) runs the `ply`, `pipeline`, `runtime` and `module` categories headless
+The Linux CI lane (the GitHub-hosted `cpu-tests` job in `baseline_qa.yml`, which runs on
+every code PR and nightly since 2026-11-07) runs the `ply`, `pipeline`, `runtime` and `module` categories headless
 under xvfb on a GPU-less hosted runner. It runs neither `qa` nor `sorting`, so no QA-scene
 and no GPU-sorting evidence exists for Linux at all; every GPU-backed lane in this project
 is Windows. See the [compatibility matrix](../reference/compatibility-matrix.md).

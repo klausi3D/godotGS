@@ -40,6 +40,7 @@ python3 tests/runtime/run_runtime_validation.py --godot-binary "$GODOT_BINARY" -
 
 ## Production Workflow
 
-Canonical GitHub Actions gate:
+Canonical GitHub Actions gates (CI diet, 2026-11-07):
 
-- `.github/workflows/gaussian_production_gates.yml`
+- `.github/workflows/agentic_pr_gate.yml` (required; the per-PR guard phase)
+- `.github/workflows/baseline_qa.yml` (per-PR `cpu-tests` + `gpu-tests`, nightly full run)

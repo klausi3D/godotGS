@@ -367,8 +367,11 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
             # #522: the GPU job also selects `qa`, which is what makes the
             # QA-skip path reachable from CI at all.
             ("baseline_qa.yml", frozenset({"qa"})),
-            ("baseline_qa.yml", frozenset({"ply", "pipeline", "runtime", "module"})),
-            ("gaussian_production_gates.yml", frozenset({"pipeline"})),
+            # CI diet (2026-11-07): the hosted cpu-tests job runs on every PR now.
+            # `module` left this selector because the job calls
+            # run_module_tests.py directly (with --skip-guards on PRs); the
+            # Production Gates `pipeline` invocation moved into this one.
+            ("baseline_qa.yml", frozenset({"ply", "pipeline", "runtime"})),
         ],
         key=lambda entry: (entry[0], sorted(entry[1])),
     )

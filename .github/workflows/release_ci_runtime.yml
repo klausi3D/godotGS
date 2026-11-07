@@ -7,12 +7,12 @@ name: Release-CI Runtime Evidence
 # Linux GPU runner — it is intentionally NOT a required PR gate:
 #   - baseline QA CI runs `headless-ci`;
 #   - the blocking GPU streaming gate is `streaming-gpu-ci`
-#     (gaussian_production_gates.yml);
+#     (baseline_qa.yml gpu-tests);
 #   - this lane produces non-blocking release-ready runtime + renderer-proof
 #     evidence on a schedule and on demand.
 on:
   schedule:
-    # Nightly at 06:00 UTC — offset from baseline_qa (03:30) and release_builds
+    # Nightly at 06:00 UTC — offset from baseline_qa (00:30) and release_builds
     # (02:30) so the three lanes do not contend for the single self-hosted runner.
     - cron: "0 6 * * *"
   workflow_dispatch: {}
@@ -240,7 +240,7 @@ jobs:
         # on Linux, against the real Xorg at DISPLAY=:0) so the release-ci
         # profile's `requires_renderer_proof` is satisfied by real GPU rendering.
         # `--skip-cpp` mirrors the other self-hosted GPU jobs (baseline_qa
-        # gpu-tests / production-gates module-validation). The GDScript runtime
+        # gpu-tests). The GDScript runtime
         # suite plus the renderer proof is the release-ready evidence this lane
         # exists to collect.
         env:
