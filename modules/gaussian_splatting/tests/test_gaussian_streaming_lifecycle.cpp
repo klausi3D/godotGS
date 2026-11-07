@@ -2753,6 +2753,80 @@ TEST_CASE("[Streaming Pipeline] A full chunk cap under padding pressure serves e
     system->_test_end_device_free_load_scan();
 }
 
+TEST_CASE("[Streaming Pipeline] The upload budget is clamped to staging ring over frames in flight (BV-08c)") {
+    CHECK(StreamingUploadPipeline::compute_staging_upload_clamp_bytes(128, 2) == 64u * 1024 * 1024);
+    CHECK(StreamingUploadPipeline::compute_staging_upload_clamp_bytes(0, 2) == 0);
+
+    GaussianStreamingSystem system;
+    StreamingUploadPipeline &uploads = system._internal_get_upload_pipeline();
+    uploads.max_upload_bytes_per_frame = 128u * 1024 * 1024;
+    uploads.upload_staging_clamp_bytes_per_frame = 64u * 1024 * 1024;
+    CHECK(uploads.get_frame_upload_limit_bytes() == 64u * 1024 * 1024);
+    CHECK(uploads._test_frame_upload_budget() == 64u * 1024 * 1024);
+    uploads.max_upload_bytes_per_frame = 8u * 1024 * 1024; // a tighter setting still wins
+    CHECK(uploads._test_frame_upload_budget() == 8u * 1024 * 1024);
+    uploads.max_upload_bytes_per_frame = 0; // "unlimited" is limited by the ring
+    CHECK(uploads._test_frame_upload_budget() == 64u * 1024 * 1024);
+
+    const uint64_t full_chunk = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+    CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(10 * full_chunk, 4) == 20);
+    CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(full_chunk, 4) == 4); // never below the pack limit
+    CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(UINT64_MAX, 4) == 0);
+}
+
+TEST_CASE("[Streaming Pipeline] A stalled upload stops the load scan at the ready bound without evicting (BV-08c)") {
+    const uint32_t chunk_count = 24;
+    const uint32_t ready_bound = 6;
+    const uint32_t splats_per_chunk = 128;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(2.0f, 2.0f, 2.0f);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * splats_per_chunk;
+        chunk.count = splats_per_chunk;
+        chunk.effective_count = splats_per_chunk;
+        chunk.center = Vector3(0.0f, 0.0f, -(10.0f + 10.0f * float(i)));
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    const Ref<GaussianData> data = _create_streaming_phase_order_test_data(chunk_count * splats_per_chunk);
+    system->_test_begin_device_free_load_scan(data, 1);
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // the load scan takes queue_chunk_load()
+    uploads.max_pack_jobs_in_flight = 4;
+    uploads.max_ready_upload_jobs = ready_bound;
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    // Packing keeps up and the GPU write never runs: the frames of a stalled upload.
+    uint32_t peak_ready = 0;
+    for (uint32_t frame = 0; frame < 16; frame++) {
+        system->begin_frame();
+        system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+        system->_test_load_visible_chunks(chunk_count, 4);
+        uploads._test_complete_pack_jobs();
+        peak_ready = MAX(peak_ready, uploads.get_upload_queue_depth_cached());
+        system->end_frame();
+    }
+    CHECK(peak_ready == ready_bound);
+
+    // Nothing was admitted past the bound: the rest of the view is still a clean load candidate.
+    uint32_t pending = 0;
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        pending += chunks[i].upload_pending ? 1 : 0;
+    }
+    CHECK(pending == ready_bound);
+    uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+    CHECK(uploads.get_upload_queue_depth_cached() == 0);
+    system->_test_end_device_free_load_scan();
+}
+
 TEST_CASE("[Streaming Pipeline] A chunk whose payload read keeps failing backs off, is counted and logged once (#1178)") {
     const uint32_t chunk_count = 4;
     const uint32_t splats_per_chunk = 128;

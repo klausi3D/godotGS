@@ -236,6 +236,13 @@ public:
     uint64_t max_upload_bytes_per_frame = 128 * 1024 * 1024;
     uint64_t max_upload_bytes_per_slice = 16 * 1024 * 1024;
     uint64_t max_upload_bytes_per_second = 0;
+    // BV-08c (ADR 3.4 step 4, 7.1): the per-frame upload never exceeds staging ring / frames in
+    // flight, whatever max_upload_mb_per_frame asks for. 0 = no staging limit known.
+    uint64_t upload_staging_clamp_bytes_per_frame = 0;
+    // BV-08c: packed payloads waiting for upload, counted with the jobs still packing. Twice the
+    // clamped frame of full-size chunks, so the queue never holds more than two frames of work.
+    // 0 = unbounded.
+    uint32_t max_ready_upload_jobs = 0;
     uint64_t upload_budget_tokens = 0;
     uint64_t upload_budget_last_update_usec = 0;
     uint32_t queued_chunk_loads_this_frame = 0;
@@ -316,8 +323,16 @@ public:
     bool has_pending_uploads();
     uint32_t get_pack_queue_depth_cached() const;
     uint32_t get_upload_queue_depth_cached() const;
+    // BV-08c: pack_jobs_in_flight as admission must read it. Reports saturation while the ready
+    // queue is at max_ready_upload_jobs, so a scan stops before it evicts for a load that could
+    // not be queued. A max_pack_jobs_in_flight of 0 asks for no backpressure and gets none.
+    uint32_t get_pack_jobs_in_flight_for_admission() const;
+    static uint64_t compute_staging_upload_clamp_bytes(uint32_t p_staging_max_mb, uint32_t p_frames_in_flight);
+    static uint32_t compute_max_ready_upload_jobs(uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight);
+    uint64_t get_frame_upload_limit_bytes() const;
     void get_pending_queue_depths_cached(uint32_t &r_pack_queue_depth, uint32_t &r_upload_queue_depth) const;
 #if defined(TESTS_ENABLED)
+    uint64_t _test_frame_upload_budget() { return prepare_upload_budget_state().upload_budget; }
     void _test_set_async_pack_queue_owner(bool p_has_owner) {
         async_pack_enabled = true;
         pack_thread_running.store(p_has_owner, std::memory_order_release);

@@ -756,7 +756,7 @@ if F ≤ ≈ 7 ms".
 | RAM | Flat, M1 probe (uncompressed) | Flat, GSQ (M1c+) | HLOD, A | HLOD, AB | Label |
 |---|---|---|---|---|---|
 | Index / topology | 3.0 GiB steady (4 × u32 per splat), 3.9 GiB load peak | **≈ 2–4 MB** (chunk table only; pages are chunks) | ≈ 36 MB | ≈ 72 MB | [D] |
-| I/O, decode, pack in flight | ≈ 90 MB + unbounded ready queue (bounded after BV-08c) | ≈ 4 × (1.9 MB stored + 8.65 MB packed) ≈ 42 MB | ≈ 16 × (0.6 + 2.9 MB) ≈ 56 MB | same | [D] |
+| I/O, decode, pack in flight | ≈ 90 MB; ready queue bounded by BV-08c to 2 clamped frames, ≤ 128 MiB at the default 128 MB ring and 2 frames | ≈ 4 × (1.9 MB stored + 8.65 MB packed) ≈ 42 MB | ≈ 16 × (0.6 + 2.9 MB) ≈ 56 MB | same | [D] |
 | Godot and the rest | 1.5–2.5 GiB | 1.5–2.5 GiB | 1.5–2.5 GiB | same | [E] |
 | Page cache (OS) | world ≫ RAM | world ≈ 7 GiB: **can be fully cached** (D-14) | ≈ 8 GiB, likewise | ≈ 16 GiB | [D] |
 | G4 limit | ≤ 12 GiB | ≤ 12 GiB | ≤ 12 GiB | ≤ 16 GiB | kept |

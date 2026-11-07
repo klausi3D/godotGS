@@ -245,6 +245,36 @@ uint64_t StreamingUploadPipeline::_test_get_payload_checksum_hash_calls() {
 #endif
 
 
+uint64_t StreamingUploadPipeline::compute_staging_upload_clamp_bytes(uint32_t p_staging_max_mb, uint32_t p_frames_in_flight) {
+    if (p_staging_max_mb == 0 || p_frames_in_flight == 0) {
+        return 0;
+    }
+    return uint64_t(p_staging_max_mb) * 1024 * 1024 / p_frames_in_flight;
+}
+
+uint32_t StreamingUploadPipeline::compute_max_ready_upload_jobs(uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight) {
+    if (p_frame_upload_limit_bytes == 0 || p_frame_upload_limit_bytes == UINT64_MAX) {
+        return 0;
+    }
+    static constexpr uint64_t FULL_CHUNK_PACKED_BYTES = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+    const uint64_t two_frames = p_frame_upload_limit_bytes * 2 / FULL_CHUNK_PACKED_BYTES;
+    return MAX(p_max_pack_jobs_in_flight, uint32_t(MIN<uint64_t>(two_frames, UINT32_MAX)));
+}
+
+uint64_t StreamingUploadPipeline::get_frame_upload_limit_bytes() const {
+    const uint64_t configured = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
+    return upload_staging_clamp_bytes_per_frame == 0 ? configured : MIN(configured, upload_staging_clamp_bytes_per_frame);
+}
+
+uint32_t StreamingUploadPipeline::get_pack_jobs_in_flight_for_admission() const {
+    const uint32_t in_flight = pack_jobs_in_flight.load(std::memory_order_relaxed);
+    if (max_ready_upload_jobs > 0 && max_pack_jobs_in_flight > 0 &&
+            in_flight + get_upload_queue_depth_cached() >= max_ready_upload_jobs) {
+        return MAX(in_flight, max_pack_jobs_in_flight);
+    }
+    return in_flight;
+}
+
 void StreamingUploadPipeline::load_streaming_tuning_config_from_project_settings(GaussianStreamingSystem &system) {
     ProjectSettings *ps = ProjectSettings::get_singleton();
     if (!ps) {
@@ -323,6 +353,11 @@ void StreamingUploadPipeline::load_streaming_tuning_config_from_project_settings
     max_upload_bytes_per_frame = upload_mb == 0 ? 0 : uint64_t(upload_mb) * 1024 * 1024;
     max_upload_bytes_per_slice = slice_mb == 0 ? 0 : uint64_t(slice_mb) * 1024 * 1024;
     max_upload_bytes_per_second = upload_mbps == 0 ? 0 : uint64_t(upload_mbps) * 1024 * 1024;
+    // BV-08c: same settings RenderingDevice::initialize() sizes the staging ring and its frames from.
+    upload_staging_clamp_bytes_per_frame = compute_staging_upload_clamp_bytes(
+            gs::settings::get_uint(ps, "rendering/rendering_device/staging_buffer/max_size_mb", 128u),
+            MAX<uint32_t>(2u, gs::settings::get_uint(ps, "rendering/rendering_device/vsync/frame_queue_size", 2u)));
+    max_ready_upload_jobs = compute_max_ready_upload_jobs(get_frame_upload_limit_bytes(), max_pack_jobs_in_flight);
     if (max_upload_bytes_per_second == 0) {
         upload_budget_tokens = 0;
         upload_budget_last_update_usec = 0;
@@ -541,7 +576,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
         return false;
     }
 
-    if (max_pack_jobs_in_flight > 0 && pack_jobs_in_flight.load() >= max_pack_jobs_in_flight) {
+    if (max_pack_jobs_in_flight > 0 && get_pack_jobs_in_flight_for_admission() >= max_pack_jobs_in_flight) {
         StreamingQueuePressureController::mark_latched_state(
                 queue_pressure_active,
                 queue_pressure_source,
@@ -1037,7 +1072,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
 
     UploadBudgetState upload_budget_state = prepare_upload_budget_state();
     const uint64_t upload_budget_start = upload_budget_state.upload_budget;
-    const uint64_t frame_budget_limit = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
+    const uint64_t frame_budget_limit = get_frame_upload_limit_bytes();
     const uint64_t bandwidth_budget_limit = max_upload_bytes_per_second == 0 ? UINT64_MAX : upload_budget_tokens;
     bool submitted = false;
     uint32_t sync_promoted_pack_jobs = 0;
@@ -1263,7 +1298,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
     pressure_sample.sync_fallback_queue_depth = 0;
     pressure_sample.pack_inflight_saturated =
             max_pack_jobs_in_flight > 0 &&
-            pack_jobs_in_flight.load(std::memory_order_relaxed) >= max_pack_jobs_in_flight;
+            get_pack_jobs_in_flight_for_admission() >= max_pack_jobs_in_flight;
     pressure_sample.upload_frame_cap_hit = upload_frame_cap_hit_this_frame;
     pressure_sample.upload_bandwidth_cap_hit = upload_bandwidth_cap_hit_this_frame;
     pressure_sample.chunk_load_cap_hit = chunk_load_cap_hit_this_frame;
@@ -1633,7 +1668,7 @@ uint32_t StreamingUploadPipeline::consume_upload_jobs(uint32_t p_count) {
 StreamingUploadPipeline::UploadBudgetState
 StreamingUploadPipeline::prepare_upload_budget_state() {
     UploadBudgetState result;
-    uint64_t upload_budget_limit = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
+    uint64_t upload_budget_limit = get_frame_upload_limit_bytes();
     if (max_upload_bytes_per_second > 0) {
         OS *os = OS::get_singleton();
         const uint64_t now_usec = os ? os->get_ticks_usec() : 0;
