@@ -269,9 +269,11 @@ var searchData=
   ['log_5finterval_5fframes_266',['log_interval_frames',['../structSortingStrategyConfig.html#a729f51a8c7f9430c763aaec07dc0fcf3',1,'SortingStrategyConfig']]],
   ['log_5finterval_5fpath_267',['LOG_INTERVAL_PATH',['../structGPUSortingConfig.html#ae29dcc828899b861ab7299609502c7b6',1,'GPUSortingConfig']]],
   ['log_5fmetrics_268',['log_metrics',['../structSortingStrategyConfig.html#a9f344c865269beb0f1b9dc34bc176a98',1,'SortingStrategyConfig']]],
-  ['log_5fthrottle_5fframes_269',['LOG_THROTTLE_FRAMES',['../structGaussianRenderState_1_1StreamingState.html#aa523e911d4c815e7d0865ca936672b17',1,'GaussianRenderState::StreamingState']]],
-  ['looping_270',['looping',['../structGaussianSplatting_1_1AnimationClip.html#ae068571e82a5ebf9cfadc0d6b20bf2a6',1,'GaussianSplatting::AnimationClip']]],
-  ['low_5fend_5fmode_271',['low_end_mode',['../structPainterlyConfig.html#ab6f384a75c97d650bd68ef28b7fa831e',1,'PainterlyConfig::low_end_mode'],['../structGaussianRenderConfig_1_1PainterlyConfig.html#a32056404258797195761263c266c67ba',1,'GaussianRenderConfig::PainterlyConfig::low_end_mode']]],
-  ['low_5fpass_5ffilter_272',['low_pass_filter',['../structRasterParams.html#a76defabf206601e65cf4de6ee4cb32d0',1,'RasterParams::low_pass_filter'],['../structTileRenderParamsGPU.html#a9949b7b64bd54ece12c5bd943d8cd090',1,'TileRenderParamsGPU::low_pass_filter'],['../structGaussianSplatting_1_1TileRenderParams.html#a7a2ad5917b9fb18ba275966cea6486cc',1,'GaussianSplatting::TileRenderParams::low_pass_filter']]],
-  ['low_5futilization_5fframes_273',['low_utilization_frames',['../structTileRenderer_1_1AdaptiveOverlapBudgetRuntimeState.html#ada7d2dcbe2ee9961a724626066171334',1,'TileRenderer::AdaptiveOverlapBudgetRuntimeState']]]
+  ['log_5fscale_5fmax_269',['log_scale_max',['../structgs__gsq_1_1PageInfo.html#a9bffb576b592acf44d00c1d5f00b29cd',1,'gs_gsq::PageInfo']]],
+  ['log_5fscale_5fmin_270',['log_scale_min',['../structgs__gsq_1_1PageInfo.html#a83f3ba2a313907aa1b68e0277bef2b82',1,'gs_gsq::PageInfo']]],
+  ['log_5fthrottle_5fframes_271',['LOG_THROTTLE_FRAMES',['../structGaussianRenderState_1_1StreamingState.html#aa523e911d4c815e7d0865ca936672b17',1,'GaussianRenderState::StreamingState']]],
+  ['looping_272',['looping',['../structGaussianSplatting_1_1AnimationClip.html#ae068571e82a5ebf9cfadc0d6b20bf2a6',1,'GaussianSplatting::AnimationClip']]],
+  ['low_5fend_5fmode_273',['low_end_mode',['../structPainterlyConfig.html#ab6f384a75c97d650bd68ef28b7fa831e',1,'PainterlyConfig::low_end_mode'],['../structGaussianRenderConfig_1_1PainterlyConfig.html#a32056404258797195761263c266c67ba',1,'GaussianRenderConfig::PainterlyConfig::low_end_mode']]],
+  ['low_5fpass_5ffilter_274',['low_pass_filter',['../structRasterParams.html#a76defabf206601e65cf4de6ee4cb32d0',1,'RasterParams::low_pass_filter'],['../structTileRenderParamsGPU.html#a9949b7b64bd54ece12c5bd943d8cd090',1,'TileRenderParamsGPU::low_pass_filter'],['../structGaussianSplatting_1_1TileRenderParams.html#a7a2ad5917b9fb18ba275966cea6486cc',1,'GaussianSplatting::TileRenderParams::low_pass_filter']]],
+  ['low_5futilization_5fframes_275',['low_utilization_frames',['../structTileRenderer_1_1AdaptiveOverlapBudgetRuntimeState.html#ada7d2dcbe2ee9961a724626066171334',1,'TileRenderer::AdaptiveOverlapBudgetRuntimeState']]]
 ];

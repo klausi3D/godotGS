@@ -176,6 +176,11 @@ var annotated_dup =
       ] ],
       [ "ModuleStringNames", "structgs_1_1ModuleStringNames.html", "structgs_1_1ModuleStringNames" ]
     ] ],
+    [ "gs_gsq", "namespacegs__gsq.html", [
+      [ "EncodeParams", "structgs__gsq_1_1EncodeParams.html", "structgs__gsq_1_1EncodeParams" ],
+      [ "PageInfo", "structgs__gsq_1_1PageInfo.html", "structgs__gsq_1_1PageInfo" ],
+      [ "DecodeContext", "classgs__gsq_1_1DecodeContext.html", "classgs__gsq_1_1DecodeContext" ]
+    ] ],
     [ "gs_hlod", "namespacegs__hlod.html", [
       [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
       [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],

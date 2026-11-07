@@ -55,6 +55,7 @@ var namespaces_dup =
       [ "safe_texture_get_data", "namespacegs__device__utils.html#ac68f17389f188703848b534c1945632f", null ],
       [ "settle_outstanding_submit", "namespacegs__device__utils.html#a0790a6bd67a8deb285f07b44110b5256", null ]
     ] ],
+    [ "gs_gsq", "namespacegs__gsq.html", "namespacegs__gsq" ],
     [ "gs_hlod", "namespacegs__hlod.html", "namespacegs__hlod" ],
     [ "gs_hlod_auto_route", "namespacegs__hlod__auto__route.html", "namespacegs__hlod__auto__route" ],
     [ "gs_hlod_bundle", "namespacegs__hlod__bundle.html", "namespacegs__hlod__bundle" ],

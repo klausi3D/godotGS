@@ -9,5 +9,7 @@ var searchData=
   ['zerovisiblerecoverymode_6',['ZeroVisibleRecoveryMode',['../classStreamingVisibilityController.html#aabd7df95102825eff5057879c2926d88',1,'StreamingVisibilityController']]],
   ['zerovisiblerecoverystate_7',['ZeroVisibleRecoveryState',['../structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html',1,'StreamingVisibilityController']]],
   ['zstd_8',['ZSTD',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70a8406cc2302e19183037b61249546b234',1,'GaussianSplatting']]],
-  ['zstd_5flevel_9',['zstd_level',['../structgs__world__writer_1_1CodecParams.html#aafb7ea6f5ef8f0677a224e0b1c05ee0f',1,'gs_world_writer::CodecParams']]]
+  ['zstd_5fheader_5fversion_9',['zstd_header_version',['../namespacegs__gsq.html#a0700dee7821f7c4295fac1f7e77b7860',1,'gs_gsq']]],
+  ['zstd_5flevel_10',['zstd_level',['../structgs__world__writer_1_1CodecParams.html#aafb7ea6f5ef8f0677a224e0b1c05ee0f',1,'gs_world_writer::CodecParams::zstd_level'],['../structgs__gsq_1_1EncodeParams.html#a00121d7ba09375cba3d97e5daae226ba',1,'gs_gsq::EncodeParams::zstd_level']]],
+  ['zstd_5flibrary_5fversion_11',['zstd_library_version',['../namespacegs__gsq.html#a0eca6558ebe0772ad9a864e26871cd43',1,'gs_gsq']]]
 ];

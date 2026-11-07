@@ -24,11 +24,12 @@ var searchData=
   ['vec3f_21',['vec3f',['../namespacespz.html#a2bd8c7a7ab8b630af7b0295b2f09eaee',1,'spz']]],
   ['verify_22',['verify',['../classGaussianSplatWorldGenerator.html#ae0873e3ed2ddb40faefbcbb61732d5db',1,'GaussianSplatWorldGenerator']]],
   ['verify_5fbuffer_5fdevice_5fownership_23',['verify_buffer_device_ownership',['../classResourceOwnerMismatchContract.html#a0560c24cd5fc08d8bcc796380dcd4c29',1,'ResourceOwnerMismatchContract']]],
-  ['verify_5ftexture_5fdevice_5fownership_24',['verify_texture_device_ownership',['../classResourceOwnerMismatchContract.html#a75a775bc84fc248022b0a363957fab54',1,'ResourceOwnerMismatchContract']]],
-  ['verify_5fworld_25',['verify_world',['../namespacegs__world__generator.html#ac87523f6b3cc4d39e9c8940963821fb5',1,'gs_world_generator']]],
-  ['view_5fcost_26',['view_cost',['../classgs__hlod__runtime_1_1ViewSet.html#a9685fce806abb03efeedbef9f0e23ed8',1,'gs_hlod_runtime::ViewSet']]],
-  ['view_5fcount_27',['view_count',['../classgs__hlod__runtime_1_1ViewSet.html#ad54974aad4ba4e1da994e9b84e4ee180',1,'gs_hlod_runtime::ViewSet']]],
-  ['visible_5fchunk_5fcapacity_28',['visible_chunk_capacity',['../namespacegs__hlod__bundle.html#a782ff555991399b5f13b051316db12a6',1,'gs_hlod_bundle::visible_chunk_capacity(uint64_t p_node_count, bool p_relative, uint32_t p_rows)'],['../namespacegs__hlod__bundle.html#a461196fc677f4afb6399acc8052ef838',1,'gs_hlod_bundle::visible_chunk_capacity(uint64_t p_node_count, bool p_relative, const InstanceRegion &amp;p_region)']]],
-  ['visible_5fscan_5fhad_5fcapacity_29',['visible_scan_had_capacity',['../classStreamingQueuePressureController.html#a5f2da5bc4d832bc100366b751284a423',1,'StreamingQueuePressureController']]],
-  ['vrambudgetregulator_30',['VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e',1,'VRAMBudgetRegulator']]]
+  ['verify_5fpage_24',['verify_page',['../namespacegs__gsq.html#ade26980767342bc4e2a4169e6ee40972',1,'gs_gsq']]],
+  ['verify_5ftexture_5fdevice_5fownership_25',['verify_texture_device_ownership',['../classResourceOwnerMismatchContract.html#a75a775bc84fc248022b0a363957fab54',1,'ResourceOwnerMismatchContract']]],
+  ['verify_5fworld_26',['verify_world',['../namespacegs__world__generator.html#ac87523f6b3cc4d39e9c8940963821fb5',1,'gs_world_generator']]],
+  ['view_5fcost_27',['view_cost',['../classgs__hlod__runtime_1_1ViewSet.html#a9685fce806abb03efeedbef9f0e23ed8',1,'gs_hlod_runtime::ViewSet']]],
+  ['view_5fcount_28',['view_count',['../classgs__hlod__runtime_1_1ViewSet.html#ad54974aad4ba4e1da994e9b84e4ee180',1,'gs_hlod_runtime::ViewSet']]],
+  ['visible_5fchunk_5fcapacity_29',['visible_chunk_capacity',['../namespacegs__hlod__bundle.html#a782ff555991399b5f13b051316db12a6',1,'gs_hlod_bundle::visible_chunk_capacity(uint64_t p_node_count, bool p_relative, uint32_t p_rows)'],['../namespacegs__hlod__bundle.html#a461196fc677f4afb6399acc8052ef838',1,'gs_hlod_bundle::visible_chunk_capacity(uint64_t p_node_count, bool p_relative, const InstanceRegion &amp;p_region)']]],
+  ['visible_5fscan_5fhad_5fcapacity_30',['visible_scan_had_capacity',['../classStreamingQueuePressureController.html#a5f2da5bc4d832bc100366b751284a423',1,'StreamingQueuePressureController']]],
+  ['vrambudgetregulator_31',['VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e',1,'VRAMBudgetRegulator']]]
 ];
