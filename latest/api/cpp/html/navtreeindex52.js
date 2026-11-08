@@ -242,12 +242,12 @@ var NAVTREEINDEX52 =
 "structVRAMDebugStats.html":[1,0,287],
 "structVRAMDebugStats.html#a0b3ec860b318c4ece77931d95aa8eb22":[1,0,287,14],
 "structVRAMDebugStats.html#a18759b1d490974cc29a620a1c36ce744":[1,0,287,17],
-"structVRAMDebugStats.html#a1cd130cc9fe8307c88b8d5c6db568bde":[1,0,287,20],
+"structVRAMDebugStats.html#a1cd130cc9fe8307c88b8d5c6db568bde":[1,0,287,21],
 "structVRAMDebugStats.html#a2ce45af3db2f989d44fb6b2dd2a5e71e":[1,0,287,8],
 "structVRAMDebugStats.html#a319c404fb66949b272161fe9d60ca52d":[1,0,287,6],
 "structVRAMDebugStats.html#a31d82d0ea57d7c46b7a32998652e0f8d":[1,0,287,10],
 "structVRAMDebugStats.html#a3bf911272ffcf4bd88aa87513b5096e2":[1,0,287,13],
 "structVRAMDebugStats.html#a46da5450ac83b086319fdd86c07e9a2a":[1,0,287,16],
-"structVRAMDebugStats.html#a4dc8021682c203b949114a8710926cfd":[1,0,287,18],
+"structVRAMDebugStats.html#a4dc8021682c203b949114a8710926cfd":[1,0,287,19],
 "structVRAMDebugStats.html#a5a667d3ee422c5b73b8e453abd8097c1":[1,0,287,15]
 };

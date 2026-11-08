@@ -15,5 +15,5 @@ var classVRAMBudgetRegulator =
     [ "reload_config", "classVRAMBudgetRegulator.html#abc189a5eeb7b01fa5371ebd211156966", null ],
     [ "set_config_override", "classVRAMBudgetRegulator.html#a1e963e55eba70fa0eedf9720a9c8e584", null ],
     [ "should_trigger_eviction", "classVRAMBudgetRegulator.html#ad465abe78ea315ef8a2a4d7a09b2dbdf", null ],
-    [ "update", "classVRAMBudgetRegulator.html#adf2170ebe55f63cde5991df388dfd3fb", null ]
+    [ "update", "classVRAMBudgetRegulator.html#a7aaa86c4929f547cb4eb66208f210699", null ]
 ];

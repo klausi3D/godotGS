@@ -1,5 +1,6 @@
 var NAVTREEINDEX56 =
 {
+"structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#aa1f8db7b002d51bb1102c8c398d12c10":[0,0,25,1,5,2],
 "structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#aa1f8db7b002d51bb1102c8c398d12c10":[1,0,17,1,5,2],
 "structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#ac2ef2c3e9fe3d80450d05d6b68b5291e":[0,0,25,1,5,7],
 "structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html#ac2ef2c3e9fe3d80450d05d6b68b5291e":[1,0,17,1,5,7],
@@ -248,6 +249,5 @@ var NAVTREEINDEX56 =
 "structgs__layout__hint_1_1LayoutHintFailureState.html#aff7654e2af1934b1aa77b3bcf7e32194":[0,0,26,2,2],
 "structgs__layout__hint_1_1LayoutHintFailureState.html#aff7654e2af1934b1aa77b3bcf7e32194":[1,0,18,2,2],
 "structgs__layout__hint_1_1LayoutHintIndexRange.html":[0,0,26,3],
-"structgs__layout__hint_1_1LayoutHintIndexRange.html":[1,0,18,3],
-"structgs__layout__hint_1_1LayoutHintIndexRange.html#a02d97168f5852a2e2e44153465355e39":[0,0,26,3,1]
+"structgs__layout__hint_1_1LayoutHintIndexRange.html":[1,0,18,3]
 };

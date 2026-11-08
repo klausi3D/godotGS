@@ -5157,7 +5157,7 @@ residency table above.</p>
 </tr>
 </tbody>
 </table></div>
-<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/3c37ab315cda67b4d8460d386e00e19c2073b1b3/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
+<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/91a4589ab773d28204d28f5ed597e8af2f3a0a62/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
 <h2 id="chunk-lod-behavior">Chunk LOD behavior<a class="headerlink" href="#chunk-lod-behavior" title="Permanent link">¶</a></h2>
 <p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces the SH band level and raises the splat skip factor as distance grows. What the GPU draw path actually honours is listed per parameter below.</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
@@ -5398,7 +5398,7 @@ slice, never per splat, and none reads anything back from the GPU.</p>
 </tr>
 <tr>
 <td><code>vram_visible_refetches_total</code></td>
-<td>Visible chunks whose upload began within 2 s of their eviction. This is the thrash signal: the regulator cuts the chunk cap when a quarter of the cap (at least 8) is refetched inside that wall-clock window.</td>
+<td>Visible chunks whose upload began within 2 s of their eviction. This is the thrash signal: the regulator cuts the chunk cap when a quarter of the cap (at least 8) is refetched inside that wall-clock window. A cut never goes below the strict-frustum needed set, and thrash at a cap that does not exceed the needed set cuts nothing (<code>vram_thrashing_events</code> minus <code>vram_thrash_reductions</code>). After a cut the cap neither cuts again nor steps up (unless it is below the needed set) for a hold of 2 s that doubles per back-to-back cut, up to 32 s (BV-REG).</td>
 </tr>
 <tr>
 <td><code>vram_lod_multiplier_adjustments</code>, <code>vram_last_regulation_frame</code>, <code>vram_last_regulation_reason</code></td>

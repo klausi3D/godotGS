@@ -18,6 +18,7 @@ var structVRAMDebugStats =
     [ "loaded_this_frame", "structVRAMDebugStats.html#a5a667d3ee422c5b73b8e453abd8097c1", null ],
     [ "lod_multiplier_adjustments", "structVRAMDebugStats.html#a46da5450ac83b086319fdd86c07e9a2a", null ],
     [ "regulation_adjustments", "structVRAMDebugStats.html#a18759b1d490974cc29a620a1c36ce744", null ],
+    [ "thrash_cuts_withheld", "structVRAMDebugStats.html#ad56277abf4be03b1cc55361f303af932", null ],
     [ "thrash_reductions", "structVRAMDebugStats.html#a4dc8021682c203b949114a8710926cfd", null ],
     [ "thrashing_events", "structVRAMDebugStats.html#a67bb6a4bcda68adc9e713a867241e006", null ],
     [ "usage_percent", "structVRAMDebugStats.html#a1cd130cc9fe8307c88b8d5c6db568bde", null ],
