@@ -544,6 +544,10 @@ class ScopedProjectSetting {
     ProjectSettings *settings = nullptr;
     String setting_path;
     Variant previous_value;
+    // The registered (GLOBAL_DEF) default. ProjectSettings::clear() erases it with the value, and set_setting() on a
+    // cleared key re-adds it with a nil default, so a case that clears a registered key must restore it too: otherwise
+    // every later case in the process reads property_get_revert() == nil (#1371).
+    Variant previous_initial;
     bool had_previous_value = false;
 
 public:
@@ -552,6 +556,7 @@ public:
             setting_path(p_setting_path) {
         if (settings && settings->has_setting(setting_path)) {
             previous_value = settings->get_setting(setting_path);
+            previous_initial = settings->property_get_revert(setting_path);
             had_previous_value = true;
         }
     }
@@ -563,6 +568,7 @@ public:
 
         if (had_previous_value) {
             settings->set_setting(setting_path, previous_value);
+            settings->set_initial_value(setting_path, previous_initial);
         } else {
             settings->clear(setting_path);
         }
