@@ -139,7 +139,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] fuzz: every mutated page is refused
 	wide_params.sh_bits[2] = 8;
 	if (encode(sh3, bases[0], &reason) != OK || encode(normals, bases[1], &reason) != OK ||
 			encode_page(wide_sh.gaussians.ptr(), nullptr, wide_sh.gaussians.size(), 1, wide_params, bases[2], reason) != OK) {
-		FAIL("a base page did not encode: ", reason.utf8().get_data());
+		FAIL("a base page did not encode: ", reason);
 		return;
 	}
 
@@ -350,8 +350,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] golden digests: fixed integer-built
 		const char *stored_sha256;
 	};
 	const Golden goldens[] = {
-		{ "SH3, 21-bit positions, two sub-blocks", 4500u, 3u, 40, false, 0xB1C1u, 21u, 0u, "unpinned", "unpinned" },
-		{ "SH1, 16-bit positions, per-splat normals", 700u, 1u, 12, true, 0xB1C2u, 16u, 0u, "unpinned", "unpinned" },
+		{ "SH3, 21-bit positions, two sub-blocks", 4500u, 3u, 40, false, 0xB1C1u, 21u, 221979u,
+			"57e5d9ad998d6d975671a8d75da71c96d36a6ed6ddc76b8565b0c60c58ad103c",
+			"55f494fc3d3dbc7cf396de677376498e06d43ba80425acf5db9628d649beb10f" },
+		{ "SH1, 16-bit positions, per-splat normals", 700u, 1u, 12, true, 0xB1C2u, 16u, 23527u,
+			"0ceeaa8e145e217bc4eb368313e750bfc5da8f88f48c07ddb5618a58eae925ed",
+			"a5dcef6d70783bf73f9e29af89c4fcfdc70b965639fcc8d7961ca9a4a3638fa6" },
 	};
 	const bool zstd_pinned = zstd_library_version() == kGoldenZstdVersion;
 	if (!zstd_pinned) {
@@ -360,12 +364,13 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] golden digests: fixed integer-built
 	}
 	DecodeContext ctx;
 	for (const Golden &g : goldens) {
-		CAPTURE(g.name);
+		const String name = String(g.name);
+		CAPTURE(name);
 		const Fixture src = make_golden_fixture(g.count, g.degree, g.extent_m, g.normals, g.seed);
 		LocalVector<uint8_t> page;
 		String reason;
 		if (encode(src, page, &reason) != OK) {
-			FAIL("encode refused: ", reason.utf8().get_data());
+			FAIL("encode refused: ", reason);
 			continue;
 		}
 		PageInfo info;
@@ -374,7 +379,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] golden digests: fixed integer-built
 		CHECK(info.has_normals == g.normals);
 		Fixture out;
 		if (decode_all(page, ctx, out, true, &reason) != OK) {
-			FAIL("decode refused: ", reason.utf8().get_data());
+			FAIL("decode refused: ", reason);
 			continue;
 		}
 		uint8_t digest[kDigestBytes];
@@ -382,12 +387,11 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] golden digests: fixed integer-built
 		const String decoded_hex = digest_hex(digest);
 		const String stored_hex = digest_hex(info.stored_digest);
 		// Printed on every run, so a re-pin and a cross-compiler comparison read them from the log.
-		MESSAGE("GSQ golden '", g.name, "': page_bytes=", page.size(), " decoded_sha256=", decoded_hex.utf8().get_data(),
-				" stored_sha256=", stored_hex.utf8().get_data());
-		CHECK_MESSAGE(decoded_hex == String(g.decoded_sha256), "decoded digest moved: ", decoded_hex.utf8().get_data());
+		MESSAGE("GSQ golden '", name, "': page_bytes=", page.size(), " decoded_sha256=", decoded_hex, " stored_sha256=", stored_hex);
+		CHECK_MESSAGE(decoded_hex == String(g.decoded_sha256), "decoded digest moved");
 		if (zstd_pinned) {
 			CHECK(page.size() == g.page_bytes);
-			CHECK_MESSAGE(stored_hex == String(g.stored_sha256), "stored digest moved: ", stored_hex.utf8().get_data());
+			CHECK_MESSAGE(stored_hex == String(g.stored_sha256), "stored digest moved");
 		}
 	}
 }
@@ -427,7 +431,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] rotation: smallest-three agrees wit
 	DecodeContext ctx;
 	Fixture out;
 	if (encode(src, page, &reason) != OK || decode_all(page, ctx, out, true, &reason) != OK) {
-		FAIL("round trip refused: ", reason.utf8().get_data());
+		FAIL("round trip refused: ", reason);
 		return;
 	}
 
@@ -505,7 +509,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] D-12 error bounds: 0.25 mm position
 		LocalVector<uint8_t> page;
 		Fixture out;
 		if (encode(src, page, &reason) != OK || decode_all(page, ctx, out, true, &reason) != OK) {
-			FAIL("round trip refused: ", reason.utf8().get_data());
+			FAIL("round trip refused: ", reason);
 			continue;
 		}
 		PageInfo info;
@@ -558,7 +562,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][GSQ] D-12 error bounds: 0.25 mm position
 		Fixture out;
 		if (encode_page(src.gaussians.ptr(), src.sh_high.ptr(), src.gaussians.size(), 3, params, page, reason) != OK ||
 				decode_all(page, ctx, out, true, &reason) != OK) {
-			FAIL("round trip refused: ", reason.utf8().get_data());
+			FAIL("round trip refused: ", reason);
 			continue;
 		}
 		const Errors e = measure(src, out);
