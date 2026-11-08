@@ -5011,8 +5011,8 @@ The corridor lane has never produced a result: every reachable scheduled run of
 </tr>
 <tr>
 <td>G-c</td>
-<td>Run the fly-through at the <strong>tuned settings</strong>: 4M visible cap, 400 m far plane, 4096 MB budget, 320 chunks. Production defaults are reported separately.</td>
-<td>maintainer requirement</td>
+<td>Run the fly-through at the <strong>tuned settings</strong>: 4M visible cap, 400 m far plane, 4096 MB budget, 480 chunks. Production defaults are reported separately. The cap was 320 until M1 tier A (run 42427296940) met needed sets of up to 449 chunks: 480 is that maximum plus ≈ 7 % headroom (BV-M1CAP, §5.2).</td>
+<td>maintainer requirement; cap from M1 evidence</td>
 </tr>
 <tr>
 <td>G-d</td>
@@ -6188,7 +6188,7 @@ if F ≤ ≈ 7 ms".</p>
 <tbody>
 <tr>
 <td>Pool / atlas</td>
-<td>3,520 MiB (320 × 64 pages × 180,224 B)</td>
+<td>≤ 4,092 MiB: 23,808 pages × 180,224 B, the 32-bit buffer-addressing ceiling (<code>_compute_atlas_page_ceiling</code>), below 480 × 64 pages and below the 23,829 pages the 4096 MB budget allows. Tier A chunks average 40.6 pages: 449 needed chunks take ≈ 18,200 pages, the world's densest 449 take 22,501, both under the occupancy target of 23,744 pages (ceiling − 1 chunk). Was 3,520 MiB [D] / 2,816 MiB measured at the 320 cap</td>
 <td>≤ 4,095 MiB (streaming budget; staging ceiling exempt per D-3; ledger-clamped)</td>
 <td>[D]</td>
 </tr>
@@ -6224,13 +6224,13 @@ if F ≤ ≈ 7 ms".</p>
 </tr>
 <tr>
 <td><strong>Total, 3080</strong></td>
-<td>≈ 5.6–5.9 steady; ≈ 7.4–7.7 bootstrap before E3</td>
+<td>≈ 6.2–6.5 steady; ≈ 8.0–8.3 bootstrap before E3 (pool + 0.56 GiB for the 480 cap)</td>
 <td>≈ 5.5–6.1 GiB</td>
 <td>[E]</td>
 </tr>
 <tr>
 <td><strong>Total, 3090</strong></td>
-<td>≈ 5.8–6.8 GiB</td>
+<td>≈ 6.4–7.4 GiB</td>
 <td>≈ 5.7–7.0 GiB</td>
 <td>[E]</td>
 </tr>
@@ -6739,7 +6739,8 @@ frozen in the thresholds file.</strong></p>
    route on plain GSQ).
 3. <strong>Pass B, settle</strong> at C0–C7. The run pumps until a condition holds or a wall-clock deadline
    passes:
-    - flat: missing chunks = 0;
+    - flat: missing chunks = 0, where the needed set fits the chunk cap; where it does not,
+      a priority proof replaces the settle (M1 criterion in §10, INVALID until that check exists);
     - HLOD: <strong>the drawn cut equals the manifest's oracle cut at the frozen drawn budget</strong>, with
       no "or budget-bound" escape.</p>
 <pre><code>Then it captures, generates that checkpoint's T-ref, renders the references in fresh
@@ -7528,10 +7529,23 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.</p>
 <li>RSS stays bounded; real eviction;</li>
 <li>disk throughput measured;</li>
 <li>release-build latencies;</li>
-<li>the first &gt; 2 GiB single atlas buffer (3.5 GiB) on GPU;</li>
+<li>the first &gt; 2 GiB single atlas buffer (≤ 4.0 GiB at the 480-chunk cap) on GPU;</li>
 <li><strong>measured F and k</strong>;</li>
 <li>whether the regulator fires (labelled <code>settings_drifted</code> if it does).</li>
 </ul>
+<p><strong>M1 checkpoint criterion: settle where the needed set fits (BV-M1CAP, maintainer decision
+2026-11-08).</strong> At each checkpoint the probe compares the engine's <code>needed_chunks</code> with the
+chunk cap enforced in the same frame:</p>
+<ul>
+<li><strong>needed ≤ cap:</strong> the checkpoint must settle (§7.3: missing chunks = 0 before the deadline).
+  A missed deadline makes the run INVALID, as before.</li>
+<li><strong>needed &gt; cap:</strong> the needed set can never be resident at once, so settle is not defined.
+  The checkpoint instead requires a <strong>priority proof</strong>: the most important needed chunks are
+  resident and drawn first. That check does not exist yet. Until it does, such a checkpoint is
+  <strong>INVALID</strong> with a reason naming needed and cap, settled or not; it never passes silently.</li>
+<li>needed or cap absent: INVALID (MISSING), never a pass.</li>
+</ul>
+<p>With the cap at 480, every needed set M1 tier A met (≤ 449) is in the first case.</p>
 <p><strong>M1 does not prove</strong> targets, compression, far quality or HLOD.</p>
 <h3 id="p1b-probe-proven-blockers-budget-69-d">P1b: probe-proven blockers (budget 6–9 d)<a class="headerlink" href="#p1b-probe-proven-blockers-budget-69-d" title="Permanent link">¶</a></h3>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
