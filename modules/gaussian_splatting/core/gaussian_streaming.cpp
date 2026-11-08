@@ -3569,7 +3569,10 @@ void GaussianStreamingSystem::_update_vram_regulator() {
     budget.vram_regulator->update(_get_total_vram_usage_bytes(), _get_regulator_decision_usage_bytes(),
             budget.loaded_chunks_count, budget.chunks_loaded_this_frame,
             eviction_controller.get_chunks_evicted_this_frame(), total_frame_count,
-            budget.visible_refetches_this_frame, _wall_clock_usec());
+            budget.visible_refetches_this_frame, _wall_clock_usec(),
+            // BV-REG: the strict-frustum needed set of this frame (_build_visible_chunk_list ran
+            // first) floors any thrash cut; padding is not demand (BV-PRIO).
+            scheduler.last_needed_chunk_count);
     budget.visible_refetches_this_frame = 0;
 }
 

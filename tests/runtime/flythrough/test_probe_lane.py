@@ -406,10 +406,43 @@ class CapturedTrace(unittest.TestCase):
         d = ps.settings_drift(ps.read_trace(drift), rows)
         self.assertTrue(d["settings_drifted"])
         self.assertEqual(d["label"], "settings_drifted")
+        # ADR V7 / C-settings: drift in a measured frame is INVALID, never a labelled OK.
+        self.assertEqual(d["status"], ps.INVALID)
+        self.assertIn("V7 INVALID settings_drifted", d["reason"])
         absent = self.tmp / "absent.bin"
         rewrite_rows(self.sweep_trace, absent,
                      lambda i, v, ix: v.__setitem__(ix["effective_settings_revision"], -1))
         self.assertEqual(ps.settings_drift(ps.read_trace(absent), rows)["status"], ps.MISSING)
+
+    def test_v7_cap_change_without_a_revision_change_is_invalid(self) -> None:
+        """V7 names the chunk cap itself: a cap that moves while the revision holds still drifted."""
+        tr = ps.read_trace(self.sweep_trace)
+        rows = ps.rows_where(tr, state=ps.STATE_MEASURE)
+        last = rows[-1]
+        cap = self.tmp / "cap.bin"
+        rewrite_rows(self.sweep_trace, cap,
+                     lambda i, v, ix: v.__setitem__(ix["effective_max_chunks"],
+                                                    v[ix["effective_max_chunks"]] - (1 if i == last else 0)))
+        d = ps.settings_drift(ps.read_trace(cap), rows)
+        self.assertEqual(d["revision_changes"], 0)
+        self.assertTrue(d["settings_drifted"])
+        self.assertEqual(d["status"], ps.INVALID)
+        self.assertIn("chunk cap", d["reason"])
+
+    def test_v7_measured_row_without_signal_is_no_plain_ok(self) -> None:
+        """#1356: a measured row V7 could not see is INVALID even when the others hold still."""
+        tr = ps.read_trace(self.sweep_trace)
+        rows = ps.rows_where(tr, state=ps.STATE_MEASURE)
+        blind_row = rows[len(rows) // 2]
+        blind = self.tmp / "blind.bin"
+        rewrite_rows(self.sweep_trace, blind,
+                     lambda i, v, ix: v.__setitem__(ix["effective_settings_revision"],
+                                                    -1 if i == blind_row else v[ix["effective_settings_revision"]]))
+        d = ps.settings_drift(ps.read_trace(blind), rows)
+        self.assertFalse(d["settings_drifted"])
+        self.assertEqual(d["rows_without_signal"], 1)
+        self.assertEqual(d["status"], ps.INVALID)
+        self.assertIn("V7 INVALID rows_without_signal", d["reason"])
 
     def test_sweep_point_summary_from_a_real_run(self) -> None:
         tr = ps.read_trace(self.sweep_trace)
@@ -533,6 +566,35 @@ class EntryPoint(unittest.TestCase):
         self.assertEqual(code, rp.EXIT_OK, s["problems"])
         self.assertEqual(s["worlds"]["T-smoke"]["trace"]["status"], ps.OK)
         self.assertFalse(s["settings_drifted"])
+
+    def test_regulator_drift_in_moving_frames_makes_the_run_invalid(self) -> None:
+        """ADR V7 / C-settings: the M1 Tier A repeat (run 42427296940) labelled settings_drifted
+        while every V7 status said OK and no problems line named it."""
+        trace, result = captured("tsmoke_path", self.tmp)
+        tr = ps.read_trace(trace)
+        moving = ps.rows_where(tr, state=ps.STATE_MOVING)
+        self.assertTrue(moving)
+        cut = moving[len(moving) // 2]
+
+        def regulate(i, v, ix):
+            if i >= cut:
+                v[ix["effective_settings_revision"]] += 1
+                v[ix["vram_regulation_adjustments"]] += 1
+                v[ix["effective_max_chunks"]] -= 1
+
+        drifted = self.tmp / "drifted.bin"
+        rewrite_rows(trace, drifted, regulate)
+        run = {"exit_code": 0, "timed_out": False, "wall_s": 1.0, "result": result,
+               "rss": {"peak_rss_bytes": ps.metric(123, unit="bytes"), "samples": 1}, "log": "", "trace": str(drifted)}
+        out = self.tmp / "out"
+        with mock.patch.object(rp, "run_godot", return_value=run):
+            code = rp.main(["--godot-binary", str(self.binary), "--world", f"T-smoke={self.world}",
+                            "--out", str(out), "--no-sweep", "--passes", "1"])
+        s = self.summary(out)
+        self.assertEqual(code, rp.EXIT_INVALID, s["problems"])
+        self.assertTrue(s["settings_drifted"])
+        self.assertEqual(s["worlds"]["T-smoke"]["flythrough"]["passes"][0]["settings"]["status"], ps.INVALID)
+        self.assertTrue(any("V7 INVALID settings_drifted" in p for p in s["problems"]), s["problems"])
 
     def test_dispatch_lane_contract(self) -> None:
         """BV-06a calls exactly this entry point with --godot-binary, --world TIER=DIR, --out."""
