@@ -424,7 +424,9 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["latency_histograms"] = fs.get("streaming_latency_histograms", ps.missing("no latency histograms"))
     out["expected_unique_upload_flat"] = groundtruth["expected_unique_upload"]["flat"]
     ub = out["streaming_whole_run"].get("upload_bytes", {})
-    exp_b = out["expected_unique_upload_flat"]["stored_bytes"]
+    # Upload bytes are decoded bytes, so the oracle side is too: on a GSQ world the stored
+    # page bytes are the read volume, not the upload (BV-C7).
+    exp_b = out["expected_unique_upload_flat"].get("decoded_bytes")
     out["uploaded_vs_expected_unique"] = (
         ps.metric(ub["value"] / exp_b) if ub.get("status") == ps.OK and exp_b else ps.missing("no upload bytes or no oracle")
     )

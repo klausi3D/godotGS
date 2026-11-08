@@ -216,6 +216,17 @@ class GroundTruth(unittest.TestCase):
         upload = truth["expected_unique_upload"]["flat"]
         self.assertLessEqual(upload["splats"], m["world"]["splat_count"])
         self.assertGreater(upload["stored_bytes"], 0)
+        # Flat: the stored sections are the decoded bytes.
+        self.assertEqual(upload["decoded_bytes"], upload["stored_bytes"])
+
+    def test_gsq_chunks_count_their_page_run_and_their_decoded_bytes(self) -> None:
+        # BV-C7: a GSQ chunk has no section byte counts; stored is its page run, the upload
+        # oracle is the decoded size.
+        chunk = {"count": 10, "pages_bytes": 700}
+        self.assertEqual(gt.chunk_stored_bytes(chunk), 700)
+        self.assertEqual(gt.chunk_decoded_bytes(chunk, 12), 10 * (144 + 12 * 12))
+        flat = {"count": 10, "gaussian_bytes": 1440, "sh_bytes": 1440}
+        self.assertEqual(gt.chunk_stored_bytes(flat), gt.chunk_decoded_bytes(flat, 12))
 
     def test_chunk_behind_the_camera_is_out(self) -> None:
         m = {"chunks": [
