@@ -81,9 +81,16 @@ V10_MIN_READ_FRACTION = 0.9
 #: is never claimed beyond guest-cold without evidence.
 HOST_CACHE_REREAD_RATIO = 1.25
 
-#: Inputs of the world bytes that `gen_sha` does not cover. A change to any of
-#: them makes every cached world stale. A missing file fails closed.
+#: Inputs of the world bytes that `gen_sha` does not cover: the generator, the
+#: writer it delegates serialization to (gs_world_writer::Writer) and the format
+#: and codec sources the writer encodes with. A change to any of them makes every
+#: cached world stale. A missing file fails closed.
 GENERATOR_SOURCES: Tuple[str, ...] = (
+    "modules/gaussian_splatting/io/gaussian_splat_world_format.h",
+    "modules/gaussian_splatting/io/gs_world_writer.cpp",
+    "modules/gaussian_splatting/io/gs_world_writer.h",
+    "modules/gaussian_splatting/io/gsq/gsq_codec.cpp",
+    "modules/gaussian_splatting/io/gsq/gsq_codec.h",
     "modules/gaussian_splatting/io/gs_world_generator.cpp",
     "modules/gaussian_splatting/io/gs_world_generator.h",
     "modules/gaussian_splatting/io/gaussian_splat_world_generator.cpp",

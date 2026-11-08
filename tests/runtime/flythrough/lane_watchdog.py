@@ -115,21 +115,20 @@ def fetch_runs(api: Api, repo: str, workflow: str, events: Sequence[str]) -> Lis
 
 
 def fetch_verdict(api: Api, repo: str, run: Dict[str, object]) -> Optional[str]:
-    """The verdict of the run's latest attempt, or None when it uploaded none."""
+    """The verdict of the run's CURRENT attempt, or None when that attempt uploaded none.
+
+    An earlier attempt's verdict never stands in for a rerun that wrote none.
+    """
     try:
         listed = json.loads(api(f"repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100"))
         artifacts = listed["artifacts"]
     except (ValueError, KeyError, TypeError) as exc:
         raise WatchdogError(f"the artifact list of run {run['id']} is unreadable: {exc}") from exc
-    candidates = []
-    for artifact in artifacts:
-        name = str(artifact.get("name", ""))
-        prefix = f"{VERDICT_ARTIFACT_PREFIX}{run['id']}-"
-        if name.startswith(prefix) and name[len(prefix):].isdigit() and not artifact.get("expired"):
-            candidates.append((int(name[len(prefix):]), artifact["id"]))
-    if not candidates:
+    wanted = f"{VERDICT_ARTIFACT_PREFIX}{run['id']}-{int(run.get('run_attempt') or 1)}"
+    matches = [a["id"] for a in artifacts if a.get("name") == wanted and not a.get("expired")]
+    if not matches:
         return None
-    _, artifact_id = max(candidates)
+    artifact_id = matches[0]
     blob = api(f"repos/{repo}/actions/artifacts/{artifact_id}/zip")
     try:
         with zipfile.ZipFile(io.BytesIO(blob)) as archive:

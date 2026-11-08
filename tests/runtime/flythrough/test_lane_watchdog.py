@@ -132,15 +132,23 @@ class ReadsTheApi(unittest.TestCase):
     def report(self) -> dict:
         return json.loads((self.out / "watchdog.json").read_text(encoding="utf-8"))
 
-    def test_the_latest_attempts_verdict_is_read(self) -> None:
+    def test_the_current_attempts_verdict_is_read(self) -> None:
+        current = dict(_api_run(10), run_attempt=2)
         api = FakeApi(
-            {"schedule": [_api_run(10)]},
+            {"schedule": [current]},
             {10: [{"id": 1, "name": "bvw-verdict-10-1"}, {"id": 2, "name": "bvw-verdict-10-2"},
                   {"id": 3, "name": "beyond-vram-flythrough-A-10-2"}]},
             {1: _zip({"verdict": "VOID"}), 2: _zip({"verdict": "FAIL"})},
         )
         self.assertEqual(self.watch(api), 0)
         self.assertEqual(self.report()["runs"][0]["verdict"], "FAIL")
+
+    def test_an_earlier_attempts_verdict_never_stands_in_for_a_rerun(self) -> None:
+        rerun = dict(_api_run(10), run_attempt=2)
+        api = FakeApi({"schedule": [rerun]}, {10: [{"id": 1, "name": "bvw-verdict-10-1"}]},
+                      {1: _zip({"verdict": "PASS"})})
+        self.assertEqual(self.watch(api), 1)
+        self.assertIsNone(self.report()["runs"][0]["verdict"])
 
     def test_a_run_without_a_verdict_artifact_is_not_alive(self) -> None:
         api = FakeApi({"schedule": [_api_run(10)]}, {10: []}, {})
