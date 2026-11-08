@@ -7328,12 +7328,16 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
 <h2 id="9-ci-and-evidence">9. CI and evidence<a class="headerlink" href="#9-ci-and-evidence" title="Permanent link">¶</a></h2>
 <h3 id="91-workflow-githubworkflowsbeyond_vram_flythroughyml-r3">9.1 Workflow <code>.github/workflows/beyond_vram_flythrough.yml</code> (R3)<a class="headerlink" href="#91-workflow-githubworkflowsbeyond_vram_flythroughyml-r3" title="Permanent link">¶</a></h3>
 <ul>
-<li><strong>Triggers:</strong> <code>schedule "0 9 * * 0"</code> and <code>workflow_dispatch</code> (<code>tier</code>, <code>arm</code>,
-  <code>prime_world_cache</code>, <code>controls_only</code>). No PR or push triggers.</li>
+<li><strong>Triggers:</strong> <code>schedule "0 22 * * 6"</code> (the lane; at night, so the single GPU runner is free
+  during the day; BV-06b moved it from Sunday 09:00 UTC), <code>schedule "0 6 * * 1"</code> (the watchdog)
+  and <code>workflow_dispatch</code> (<code>mode</code>, <code>tier</code>, <code>prime_world_cache</code>; <code>arm</code> and <code>controls_only</code> land
+  with the arms and controls they select, BV-13a/BV-C6). No PR or push triggers.</li>
 <li><strong>Permissions:</strong> <code>contents: read</code>, with <code>actions: read</code> <strong>on the watchdog job only</strong>. Fork
   guard. No <code>continue-on-error</code>.</li>
 <li><strong>Concurrency:</strong><ul>
-<li><code>group: bvw-${{ github.event_name }}</code>, <code>cancel-in-progress: false</code>.</li>
+<li><code>group: bvw-${{ github.event_name }}-&lt;lane|watchdog&gt;</code>, <code>cancel-in-progress: false</code>. The
+  watchdog has its own group, so a Monday watchdog can never replace the scheduled run it
+  reports on; it skips its own runs by their <code>run-name</code>.</li>
 <li>The real protection against master pushes is that <strong>no other workflow uses this group</strong>.
   The existing groups are per-workflow (<code>.github/workflows/gaussian_production_gates.yml:85</code>,
   <code>.github/workflows/release_builds.yml:151</code> ✓, …).</li>
@@ -7363,8 +7367,9 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
 </ul>
 </li>
 <li><code>liveness-watchdog</code> (Mondays): before M2 it keys on "a terminal verdict that is not
-   VOID"; from M2, on PASS within 9 days, two consecutive VOIDs, or a run queued &gt; 20 h,
-   cancelled or replaced.</li>
+   VOID" (BV-06b: PASS, FAIL or INVALID within 9 days; NOT_RUN and a run without a verdict
+   artifact do not count, because a lane that did not run is not alive); from M2, on PASS within
+   9 days, two consecutive VOIDs, or a run queued &gt; 20 h, cancelled or replaced.</li>
 </ol>
 </li>
 <li><strong>BV-06a</strong> is a minimal dispatch-only version (build, <code>df</code>, <code>dd</code> with <code>O_DIRECT</code>, vulkaninfo,
