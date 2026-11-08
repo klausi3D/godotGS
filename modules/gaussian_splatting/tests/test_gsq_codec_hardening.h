@@ -302,26 +302,49 @@ inline Fixture make_golden_fixture(uint32_t p_count, uint32_t p_degree, int32_t 
 	const uint32_t high_order = sh_high_order_for_degree(p_degree);
 	f.sh_high.resize(p_count * high_order);
 	IntRng r(p_seed);
+	// The draws are sequenced one statement each: the evaluation order of constructor arguments
+	// is unspecified and differs between GCC, Clang and MSVC. The order is last component first,
+	// the order GCC used when the digests below were pinned.
+	const auto draw = [&r](int32_t p_lo, int32_t p_hi, int p_shift) {
+		return dyadic(r.in(p_lo, p_hi), p_shift);
+	};
+	const auto draw3 = [&draw](int32_t p_lo, int32_t p_hi, int p_shift) {
+		const float z = draw(p_lo, p_hi, p_shift);
+		const float y = draw(p_lo, p_hi, p_shift);
+		const float x = draw(p_lo, p_hi, p_shift);
+		return Vector3(x, y, z);
+	};
 	for (uint32_t i = 0u; i < p_count; i++) {
 		Gaussian g;
-		g.position = Vector3(dyadic(r.in(0, p_extent_m * 1024), 10), dyadic(r.in(-4096, 4096), 10), dyadic(r.in(-p_extent_m * 1024, 0), 10));
-		g.scale = Vector3(dyadic(r.in(16, 1023), 11), dyadic(r.in(16, 1023), 11), dyadic(r.in(1, 64), 12));
-		g.opacity = dyadic(r.in(0, 65536), 16);
-		g.rotation = Quaternion(dyadic(r.in(-1024, 1024), 10), dyadic(r.in(-1024, 1024), 10), dyadic(r.in(-1024, 1024), 10), dyadic(r.in(-1024, 1024), 10));
+		const float pz = draw(-p_extent_m * 1024, 0, 10);
+		const float py = draw(-4096, 4096, 10);
+		const float px = draw(0, p_extent_m * 1024, 10);
+		g.position = Vector3(px, py, pz);
+		const float sz = draw(1, 64, 12);
+		const float sy = draw(16, 1023, 11);
+		const float sx = draw(16, 1023, 11);
+		g.scale = Vector3(sx, sy, sz);
+		g.opacity = draw(0, 65536, 16);
+		const float qw = draw(-1024, 1024, 10);
+		const float qz = draw(-1024, 1024, 10);
+		const float qy = draw(-1024, 1024, 10);
+		const float qx = draw(-1024, 1024, 10);
+		g.rotation = Quaternion(qx, qy, qz, qw);
 		if (g.rotation.x == 0.0f && g.rotation.y == 0.0f && g.rotation.z == 0.0f && g.rotation.w == 0.0f) {
 			g.rotation.w = 1.0f;
 		}
-		g.sh_dc = Color(dyadic(r.in(-3072, 3072), 11), dyadic(r.in(-3072, 3072), 11), dyadic(r.in(-3072, 3072), 11), 1.0f);
+		const Vector3 dc = draw3(-3072, 3072, 11);
+		g.sh_dc = Color(dc.x, dc.y, dc.z, 1.0f);
 		const bool flat = i % 3u == 0u;
 		if (p_degree > 0u) {
 			for (Vector3 &v : g.sh_1) {
-				v = flat ? Vector3() : Vector3(dyadic(r.in(-1024, 1024), 12), dyadic(r.in(-1024, 1024), 12), dyadic(r.in(-1024, 1024), 12));
+				v = flat ? Vector3() : draw3(-1024, 1024, 12);
 			}
 		}
 		for (uint32_t k = 0u; k < high_order; k++) {
-			f.sh_high[i * high_order + k] = flat ? Vector3() : Vector3(dyadic(r.in(-512, 512), 12), dyadic(r.in(-512, 512), 12), dyadic(r.in(-512, 512), 12));
+			f.sh_high[i * high_order + k] = flat ? Vector3() : draw3(-512, 512, 12);
 		}
-		g.normal = p_normals ? Vector3(dyadic(r.in(-1024, 1024), 10), dyadic(r.in(-1024, 1024), 10), dyadic(r.in(-1024, 1024), 10)) : Vector3(0, 1, 0);
+		g.normal = p_normals ? draw3(-1024, 1024, 10) : Vector3(0, 1, 0);
 		g.area = 1.0f;
 		g.stroke_age = 0.25f;
 		g.brush_axes = Vector2(1.0f, 2.0f);
