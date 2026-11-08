@@ -4,8 +4,8 @@
 //
 // Round trip within the per-attribute error bound, digest determinism, range decode that
 // touches only its sub-blocks, a corrupt page refused without a crash, one context per thread,
-// explicit refusals, and the zstd link check of risk K11. Fuzzing, golden digests and the SPZ
-// oracle are BV-C1b.
+// explicit refusals, and the zstd link check of risk K11. Fuzzing, golden digests, the SPZ
+// oracle and the bit-depth error bounds are BV-C1b, in test_gsq_codec_hardening.h.
 
 #include "test_macros.h"
 
