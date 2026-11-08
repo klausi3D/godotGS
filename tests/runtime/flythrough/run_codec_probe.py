@@ -130,6 +130,14 @@ def verdict(report: Dict[str, Any], exit_code: int) -> tuple[str, int]:
         return f"FAIL: synthetic data sets not OK: {bad}", 1
     if report.get("real_scan", {}).get("status") != "OK":
         return "PARTIAL: synthetic OK, real scans MISSING", 0
+    # The aggregate counts only OK scans; one measured scan must not hide another that is
+    # MISSING or INVALID (Codex on #1363).
+    not_ok = [
+        f"{d.get('name', '?')}={d.get('status')}" for d in report.get("data_sets", [])
+        if d.get("kind") == "real_scan" and d.get("status") != "OK"
+    ]
+    if not_ok:
+        return f"PARTIAL: synthetic OK, some real scans not measured: {not_ok}", 0
     return "OK", 0
 
 
