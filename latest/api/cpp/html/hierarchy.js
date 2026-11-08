@@ -44,6 +44,7 @@ var hierarchy =
     [ "GaussianSplatting::BufferOwnership", "structGaussianSplatting_1_1BufferOwnership.html", null ],
     [ "HlodNodeStreamer::Buffers", "structHlodNodeStreamer_1_1Buffers.html", null ],
     [ "GaussianSplatting::HierarchicalSplatStructure::BuildParams", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html", null ],
+    [ "gs_gsq::BuiltPage", "structgs__gsq_1_1BuiltPage.html", null ],
     [ "OutputCompositor::CachedFramebuffer", "structOutputCompositor_1_1CachedFramebuffer.html", null ],
     [ "StreamingVisibilityController::CameraVelocityTracker", "structStreamingVisibilityController_1_1CameraVelocityTracker.html", null ],
     [ "CanvasLayer", null, [
@@ -375,7 +376,10 @@ var hierarchy =
     [ "StreamingUploadPipeline::PackSnapshotScratch", "structStreamingUploadPipeline_1_1PackSnapshotScratch.html", null ],
     [ "StreamingUploadPipeline::PackTelemetry", "structStreamingUploadPipeline_1_1PackTelemetry.html", null ],
     [ "StreamingUploadPipeline::PackThreadContext", "structStreamingUploadPipeline_1_1PackThreadContext.html", null ],
+    [ "gs_gsq::PageBuilder", "classgs__gsq_1_1PageBuilder.html", null ],
+    [ "gs_gsq::PageBuildStats", "structgs__gsq_1_1PageBuildStats.html", null ],
     [ "gs_gsq::PageInfo", "structgs__gsq_1_1PageInfo.html", null ],
+    [ "gs_gsq::PageRecord", "structgs__gsq_1_1PageRecord.html", null ],
     [ "GaussianAtlasAllocator::PageRun", "structGaussianAtlasAllocator_1_1PageRun.html", null ],
     [ "GaussianRenderPipeline::PainterlyCompositePushConstant", "structGaussianRenderPipeline_1_1PainterlyCompositePushConstant.html", null ],
     [ "GaussianRenderConfig::PainterlyConfig", "structGaussianRenderConfig_1_1PainterlyConfig.html", null ],

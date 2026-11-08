@@ -11,5 +11,6 @@ var searchData=
   ['bufferhandle_8',['BufferHandle',['../structGPUBufferManager_1_1BufferHandle.html',1,'GPUBufferManager']]],
   ['bufferownership_9',['BufferOwnership',['../structGaussianSplatting_1_1BufferOwnership.html',1,'GaussianSplatting']]],
   ['buffers_10',['Buffers',['../structHlodNodeStreamer_1_1Buffers.html',1,'HlodNodeStreamer']]],
-  ['buildparams_11',['BuildParams',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html',1,'GaussianSplatting::HierarchicalSplatStructure']]]
+  ['buildparams_11',['BuildParams',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html',1,'GaussianSplatting::HierarchicalSplatStructure']]],
+  ['builtpage_12',['BuiltPage',['../structgs__gsq_1_1BuiltPage.html',1,'gs_gsq']]]
 ];

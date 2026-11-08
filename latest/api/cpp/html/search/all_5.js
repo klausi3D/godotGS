@@ -117,7 +117,7 @@ var searchData=
   ['decode_5frange_114',['decode_range',['../classgs__gsq_1_1DecodeContext.html#a557bfdb32c8f4ded48fa74fdb14ef574',1,'gs_gsq::DecodeContext']]],
   ['decode_5frecord_115',['decode_record',['../namespaceGaussianSplatting_1_1ScenePayload.html#a59ddd16a71c25074f21dcdfd5585742c',1,'GaussianSplatting::ScenePayload']]],
   ['decodecontext_116',['DecodeContext',['../classgs__gsq_1_1DecodeContext.html',1,'gs_gsq::DecodeContext'],['../classgs__gsq_1_1DecodeContext.html#a6bdba53d4b8d2d9db92e3fcd74efb2a3',1,'gs_gsq::DecodeContext::DecodeContext()'],['../classgs__gsq_1_1DecodeContext.html#ac8cf4c19a6be67f50e1595085a322676',1,'gs_gsq::DecodeContext::DecodeContext(const DecodeContext &amp;)=delete']]],
-  ['decoded_5fdigest_117',['decoded_digest',['../namespacegs__gsq.html#aec753884c93c0421f046b4efe8d62712',1,'gs_gsq']]],
+  ['decoded_5fdigest_117',['decoded_digest',['../structgs__gsq_1_1PageRecord.html#a72a1de4d2a07fc8312c5506fd7c3f337',1,'gs_gsq::PageRecord::decoded_digest'],['../namespacegs__gsq.html#aec753884c93c0421f046b4efe8d62712',1,'gs_gsq::decoded_digest()']]],
   ['default_118',['Default',['../namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a7a1920d61156abc05a60135aefe8bc67',1,'GaussianSplatting']]],
   ['default_5fasset_5ftype_119',['default_asset_type',['../structGaussianImportPresetDefinition.html#ae50a83435cfd0bc7b7b9a63984770386',1,'GaussianImportPresetDefinition']]],
   ['default_5fdevice_120',['default_device',['../structSortPublicationPayload.html#a65f8295bf5d2228207be2a7816e5ff7a',1,'SortPublicationPayload']]],

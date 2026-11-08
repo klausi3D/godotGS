@@ -20,7 +20,7 @@ var dir_7647312eaffe3fbde22451c27808fddd =
     [ "gs_payload_read_service.h", "gs__payload__read__service_8h.html", "gs__payload__read__service_8h" ],
     [ "gs_world_generator.cpp", "gs__world__generator_8cpp.html", "gs__world__generator_8cpp" ],
     [ "gs_world_generator.h", "gs__world__generator_8h.html", "gs__world__generator_8h" ],
-    [ "gs_world_writer.cpp", "gs__world__writer_8cpp.html", null ],
+    [ "gs_world_writer.cpp", "gs__world__writer_8cpp.html", "gs__world__writer_8cpp" ],
     [ "gs_world_writer.h", "gs__world__writer_8h.html", "gs__world__writer_8h" ],
     [ "i_gaussian_loader.cpp", "i__gaussian__loader_8cpp.html", null ],
     [ "i_gaussian_loader.h", "i__gaussian__loader_8h.html", "i__gaussian__loader_8h" ],

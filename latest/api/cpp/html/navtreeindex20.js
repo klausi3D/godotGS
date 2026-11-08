@@ -1,5 +1,13 @@
 var NAVTREEINDEX20 =
 {
+"gpu__sorter_8h_source.html":[2,0,0,0,12,23],
+"gpu__sorting__config_8cpp.html":[2,0,0,0,12,24],
+"gpu__sorting__config_8cpp.html#a405f86939da44cb7049e6a8d2dbd5e9a":[2,0,0,0,12,24,0],
+"gpu__sorting__config_8cpp.html#ab80e3b613837a1bc02b2125c66f43d58":[2,0,0,0,12,24,2],
+"gpu__sorting__config_8cpp.html#afc1909bf6398a99870722f1cdd4193ab":[2,0,0,0,12,24,1],
+"gpu__sorting__config_8h.html":[2,0,0,0,12,25],
+"gpu__sorting__config_8h.html#a405f86939da44cb7049e6a8d2dbd5e9a":[2,0,0,0,12,25,1],
+"gpu__sorting__config_8h.html#ab80e3b613837a1bc02b2125c66f43d58":[2,0,0,0,12,25,3],
 "gpu__sorting__config_8h.html#afc1909bf6398a99870722f1cdd4193ab":[2,0,0,0,12,25,2],
 "gpu__sorting__config_8h_source.html":[2,0,0,0,12,25],
 "gpu__sorting__constants_8h.html":[2,0,0,0,12,26],
@@ -121,6 +129,9 @@ var NAVTREEINDEX20 =
 "gsq__codec_8cpp.html":[2,0,0,0,6,0,0],
 "gsq__codec_8h.html":[2,0,0,0,6,0,1],
 "gsq__codec_8h_source.html":[2,0,0,0,6,0,1],
+"gsq__page__builder_8cpp.html":[2,0,0,0,6,0,2],
+"gsq__page__builder_8h.html":[2,0,0,0,6,0,3],
+"gsq__page__builder_8h_source.html":[2,0,0,0,6,0,3],
 "hierarchical__splat__structure_8cpp.html":[2,0,0,0,7,0],
 "hierarchical__splat__structure_8h.html":[2,0,0,0,7,1],
 "hierarchical__splat__structure_8h_source.html":[2,0,0,0,7,1],
@@ -238,16 +249,5 @@ var NAVTREEINDEX20 =
 "namespaceGPUSortingConstants.html#a275b1787bebeb947be42da11d9fcf2b6":[0,0,15,1],
 "namespaceGPUSortingConstants.html#a4f06ef675f58099e57864a2ff554232e":[0,0,15,0],
 "namespaceGPUSortingConstants.html#a71a65d19d1b332d57880c962ce201ee8":[0,0,15,3],
-"namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729":[0,0,15,4],
-"namespaceGPUSortingConstants.html#abb04a6e7836b1cee8774df6774487e2a":[0,0,15,5],
-"namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb":[0,0,15,2],
-"namespaceGaussianEffectiveConfig.html":[0,0,1],
-"namespaceGaussianRenderConfig.html":[0,0,2],
-"namespaceGaussianRenderDebug.html":[0,0,3],
-"namespaceGaussianRenderFacadeState.html":[0,0,4],
-"namespaceGaussianRenderFacadeState.html#aa8b0a25cbbf13eaed8838b1c97b8b964":[0,0,4,7],
-"namespaceGaussianRenderFrame.html":[0,0,5],
-"namespaceGaussianRenderPerformance.html":[0,0,6],
-"namespaceGaussianRenderPipeline.html":[0,0,7],
-"namespaceGaussianRenderPipeline.html#a10afbcc8d75b1ef8362c10f3ea77f3b5":[0,0,7,20]
+"namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729":[0,0,15,4]
 };

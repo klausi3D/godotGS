@@ -11,5 +11,9 @@ var gs__world__writer_8h =
     [ "gs_world_writer::Target", "namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3", [
       [ "gs_world_writer::Target::PLAIN_V3", "namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3aecc316988635a087c91e9999d65b1f46", null ],
       [ "gs_world_writer::Target::PAGED_V4", "namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3a0cf54c36daf17b7cd9938db0de5f62b8", null ]
-    ] ]
+    ] ],
+    [ "gs_world_writer::gsq_encode_params", "namespacegs__world__writer.html#a45977eea3cd5af514e7034db72ae9bb4", null ],
+    [ "gs_world_writer::gsq_v1_codec_params", "namespacegs__world__writer.html#ada361ea93d7678c5267ad41e583414f5", null ],
+    [ "gs_world_writer::kCodecGsqV1", "namespacegs__world__writer.html#ad77f9ae40d8df80734e1b93d34520d2d", null ],
+    [ "gs_world_writer::kCodecNone", "namespacegs__world__writer.html#ae7bc0321423f7c3100461e0453e0ea54", null ]
 ];

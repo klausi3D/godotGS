@@ -179,7 +179,11 @@ var annotated_dup =
     [ "gs_gsq", "namespacegs__gsq.html", [
       [ "EncodeParams", "structgs__gsq_1_1EncodeParams.html", "structgs__gsq_1_1EncodeParams" ],
       [ "PageInfo", "structgs__gsq_1_1PageInfo.html", "structgs__gsq_1_1PageInfo" ],
-      [ "DecodeContext", "classgs__gsq_1_1DecodeContext.html", "classgs__gsq_1_1DecodeContext" ]
+      [ "DecodeContext", "classgs__gsq_1_1DecodeContext.html", "classgs__gsq_1_1DecodeContext" ],
+      [ "PageRecord", "structgs__gsq_1_1PageRecord.html", "structgs__gsq_1_1PageRecord" ],
+      [ "BuiltPage", "structgs__gsq_1_1BuiltPage.html", "structgs__gsq_1_1BuiltPage" ],
+      [ "PageBuildStats", "structgs__gsq_1_1PageBuildStats.html", "structgs__gsq_1_1PageBuildStats" ],
+      [ "PageBuilder", "classgs__gsq_1_1PageBuilder.html", "classgs__gsq_1_1PageBuilder" ]
     ] ],
     [ "gs_hlod", "namespacegs__hlod.html", [
       [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],

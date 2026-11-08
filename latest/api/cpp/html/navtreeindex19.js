@@ -1,5 +1,13 @@
 var NAVTREEINDEX19 =
 {
+"gaussian__gpu__layout_8cpp.html#aab4eb255b15552150f26952cdd7f26dc":[2,0,0,0,12,7,5],
+"gaussian__gpu__layout_8cpp.html#ab23a830e3fd4cdde8de536b81bf038bb":[2,0,0,0,12,7,4],
+"gaussian__gpu__layout_8cpp.html#ad7d55777e7afe8b86865dc8d8f82ce7c":[2,0,0,0,12,7,3],
+"gaussian__gpu__layout_8cpp.html#ada42a0470fc7122440dc8b3c1b498c21":[2,0,0,0,12,7,6],
+"gaussian__gpu__layout_8cpp.html#ae085573af4c2320e148f668b3079fe44":[2,0,0,0,12,7,0],
+"gaussian__gpu__layout_8cpp.html#afdce846213d95df791d219ac465cc808":[2,0,0,0,12,7,1],
+"gaussian__gpu__layout_8h.html":[2,0,0,0,12,8],
+"gaussian__gpu__layout_8h.html#a178c9cc5e58f97a6568a7805f9552d0d":[2,0,0,0,12,8,30],
 "gaussian__gpu__layout_8h.html#a18c54481e5877366c4600676be58b964":[2,0,0,0,12,8,24],
 "gaussian__gpu__layout_8h.html#a206bb123d6e2813ddf6b3e3e37d30774":[2,0,0,0,12,8,33],
 "gaussian__gpu__layout_8h.html#a207132aa2f88034dc8b8d02b97f9171b":[2,0,0,0,12,8,28],
@@ -241,13 +249,5 @@ var NAVTREEINDEX19 =
 "gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1ad37e92613a3b852e829476831beb2872":[2,0,0,0,12,23,14,2],
 "gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1aeb0b89b81dc9525c531e5cb6fc70d67a":[2,0,0,0,12,23,14,5],
 "gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1af083c7f17a7110a20b865f9e6c6316ca":[2,0,0,0,12,23,14,7],
-"gpu__sorter_8h.html#aa139fd6eaeeff072ac68ab138269f25c":[2,0,0,0,12,23,15],
-"gpu__sorter_8h_source.html":[2,0,0,0,12,23],
-"gpu__sorting__config_8cpp.html":[2,0,0,0,12,24],
-"gpu__sorting__config_8cpp.html#a405f86939da44cb7049e6a8d2dbd5e9a":[2,0,0,0,12,24,0],
-"gpu__sorting__config_8cpp.html#ab80e3b613837a1bc02b2125c66f43d58":[2,0,0,0,12,24,2],
-"gpu__sorting__config_8cpp.html#afc1909bf6398a99870722f1cdd4193ab":[2,0,0,0,12,24,1],
-"gpu__sorting__config_8h.html":[2,0,0,0,12,25],
-"gpu__sorting__config_8h.html#a405f86939da44cb7049e6a8d2dbd5e9a":[2,0,0,0,12,25,1],
-"gpu__sorting__config_8h.html#ab80e3b613837a1bc02b2125c66f43d58":[2,0,0,0,12,25,3]
+"gpu__sorter_8h.html#aa139fd6eaeeff072ac68ab138269f25c":[2,0,0,0,12,23,15]
 };

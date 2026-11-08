@@ -97,6 +97,10 @@ Classes</h2></td></tr>
 <tr class="memitem:EncodeParams" id="r_EncodeParams"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__gsq_1_1EncodeParams.html">EncodeParams</a></td></tr>
 <tr class="memitem:PageInfo" id="r_PageInfo"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__gsq_1_1PageInfo.html">PageInfo</a></td></tr>
 <tr class="memitem:DecodeContext" id="r_DecodeContext"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__gsq_1_1DecodeContext.html">DecodeContext</a></td></tr>
+<tr class="memitem:PageRecord" id="r_PageRecord"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__gsq_1_1PageRecord.html">PageRecord</a></td></tr>
+<tr class="memitem:BuiltPage" id="r_BuiltPage"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__gsq_1_1BuiltPage.html">BuiltPage</a></td></tr>
+<tr class="memitem:PageBuildStats" id="r_PageBuildStats"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__gsq_1_1PageBuildStats.html">PageBuildStats</a></td></tr>
+<tr class="memitem:PageBuilder" id="r_PageBuilder"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__gsq_1_1PageBuilder.html">PageBuilder</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -107,6 +111,7 @@ Functions</h2></td></tr>
 <tr class="memitem:ade26980767342bc4e2a4169e6ee40972" id="r_ade26980767342bc4e2a4169e6ee40972"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade26980767342bc4e2a4169e6ee40972">verify_page</a> (const uint8_t *p_page, uint64_t p_page_bytes, <a class="el" href="structgs__gsq_1_1PageInfo.html">PageInfo</a> &amp;r_info, String &amp;r_reason)</td></tr>
 <tr class="memitem:aec753884c93c0421f046b4efe8d62712" id="r_aec753884c93c0421f046b4efe8d62712"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec753884c93c0421f046b4efe8d62712">decoded_digest</a> (const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, uint32_t p_sh_degree, uint8_t r_digest[<a class="el" href="#a37dba5533b8fd2963deb7f0310a2c9d7">kDigestBytes</a>])</td></tr>
 <tr class="memitem:a9cd48d18441817c345cc8097864ff38d" id="r_a9cd48d18441817c345cc8097864ff38d"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9cd48d18441817c345cc8097864ff38d">sh_high_order_for_degree</a> (uint32_t p_degree)</td></tr>
+<tr class="memitem:ad768129b6f032c903317043a7afed7cd" id="r_ad768129b6f032c903317043a7afed7cd"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad768129b6f032c903317043a7afed7cd">validate_encode_params</a> (const <a class="el" href="structgs__gsq_1_1EncodeParams.html">EncodeParams</a> &amp;p_params, String &amp;r_reason)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
@@ -119,6 +124,7 @@ Variables</h2></td></tr>
 <tr class="memitem:a86c17f09a3e02e27c11ef96a3553f4d8" id="r_a86c17f09a3e02e27c11ef96a3553f4d8"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a86c17f09a3e02e27c11ef96a3553f4d8">kPageHeaderBytes</a> = <a class="el" href="#addd1d6eba541e8d34c23045af4bf4797">kHeaderBytes</a> + <a class="el" href="#afa000ff606d181646b1cc98ad8351c5a">kConstantsBytes</a></td></tr>
 <tr class="memitem:a04cbf0f49fa561b812f855ed3a82353d" id="r_a04cbf0f49fa561b812f855ed3a82353d"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04cbf0f49fa561b812f855ed3a82353d">kMaxShDegree</a> = 3u</td></tr>
 <tr class="memitem:a37dba5533b8fd2963deb7f0310a2c9d7" id="r_a37dba5533b8fd2963deb7f0310a2c9d7"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a37dba5533b8fd2963deb7f0310a2c9d7">kDigestBytes</a> = 32u</td></tr>
+<tr class="memitem:a05b56c5258926352d5ec62a37ead0a23" id="r_a05b56c5258926352d5ec62a37ead0a23"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a05b56c5258926352d5ec62a37ead0a23">kWriterPageSplats</a> = <a class="el" href="#a2f4ee698286efdf1aac3a0d608d474d4">kSubBlockSplats</a></td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
 <a id="aec753884c93c0421f046b4efe8d62712" name="aec753884c93c0421f046b4efe8d62712"></a>
@@ -255,6 +261,27 @@ Variables</h2></td></tr>
 <span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad768129b6f032c903317043a7afed7cd" name="ad768129b6f032c903317043a7afed7cd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad768129b6f032c903317043a7afed7cd">&#9670;&#160;</a></span>validate_encode_params()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error gs_gsq::validate_encode_params </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__gsq_1_1EncodeParams.html">EncodeParams</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_params</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -512,6 +539,28 @@ Variables</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_gsq::kSubBlockSplats = 4096u</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a05b56c5258926352d5ec62a37ead0a23" name="a05b56c5258926352d5ec62a37ead0a23"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a05b56c5258926352d5ec62a37ead0a23">&#9670;&#160;</a></span>kWriterPageSplats</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_gsq::kWriterPageSplats = <a class="el" href="#a2f4ee698286efdf1aac3a0d608d474d4">kSubBlockSplats</a></td>
         </tr>
       </table>
   </td>
