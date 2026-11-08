@@ -932,7 +932,6 @@ Error Writer::finalize() {
 	if (err != OK) {
 		return _fail(err, "io: " + output.get_error_message());
 	}
-	// Last chance to stop: after this the replace is attempted.
 	err = _check_stop();
 	if (err != OK) {
 		return err;
@@ -950,6 +949,12 @@ Error Writer::finalize() {
 #endif
 		if (!drained) {
 			return _fail(ERR_BUSY, "readers_busy: a streaming reader still holds the destination open; the replace was not attempted and the destination is unchanged");
+		}
+		// Last chance to stop, after the (up to bounded-wait) drain: a cancel or deadline that
+		// arrived while readers drained is still honoured; after this the replace is attempted.
+		err = _check_stop();
+		if (err != OK) {
+			return err;
 		}
 		err = output.commit();
 	}

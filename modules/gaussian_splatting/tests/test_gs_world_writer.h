@@ -1185,6 +1185,41 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] deadline: exceeded mid-writ
 	CHECK(ww_only_prior(dir, path, prior));
 	ww_remove_dir(dir);
 }
+
+// Codex on #1377: the reader drain can wait (bounded); a cancel that arrives while it drains
+// must still stop the replace.
+struct WWCancelInDrain {
+	Writer *writer = nullptr;
+	uint32_t calls = 0;
+	static bool hook(void *p_userdata) {
+		WWCancelInDrain *self = static_cast<WWCancelInDrain *>(p_userdata);
+		self->calls++;
+		self->writer->request_cancel();
+		return true; // drained
+	}
+};
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] cancel: requested while readers drain still stops the replace") {
+	const String dir = ww_dir("cancel_drain");
+	const WWFixture fx = ww_make(1, ShCase::SH1, true, false);
+	const String path = dir.path_join("world.gsplatworld");
+	const PackedByteArray prior = String("prior good world").to_utf8_buffer();
+	REQUIRE(ww_write_raw(path, prior));
+	Writer w;
+	WWCancelInDrain hook;
+	hook.writer = &w;
+	Writer::drain_test_hook = &WWCancelInDrain::hook;
+	Writer::drain_test_userdata = &hook;
+	const Error err = ww_drive(w, fx, SourceMode::SINGLE_PASS, path, Limits::unbounded());
+	Writer::drain_test_hook = nullptr;
+	Writer::drain_test_userdata = nullptr;
+	CHECK(hook.calls == 1u);
+	CHECK(err == ERR_SKIP);
+	CHECK(w.get_report().reason == "cancelled");
+	CHECK_FALSE(w.get_report().committed);
+	CHECK(ww_only_prior(dir, path, prior));
+	ww_remove_dir(dir);
+}
 #endif // TESTS_ENABLED
 
 } // namespace TestGSWorldWriter

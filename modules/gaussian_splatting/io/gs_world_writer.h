@@ -153,6 +153,9 @@ struct PlainSpec {
 //                 smaller than output + scratch + min_free_disk_margin. With GSQ v1 the
 //                 output size is unknown at begin: the need is the smaller of
 //                 max_output_bytes and the uncompressed plain v3 size of the same world.
+//                 That size is an ESTIMATE, not a bound (page alignment and many small
+//                 pages can exceed it); the enforced bound is max_output_bytes, so a GSQ
+//                 caller that needs a disk guarantee sets it (follow-up: #1379).
 // While writing, every slice (<= 1 MiB) re-checks the output and scratch caps (GSQ
 // output is only known as it grows), the RAM cap after each chunk (GSQ page table and
 // the chunk's pages), the deadline ("deadline", ERR_TIMEOUT, wall time since
@@ -219,7 +222,10 @@ struct Report {
 	uint64_t output_bytes = 0; // size of the published file, or of the temp when it stopped
 	uint64_t scratch_peak_bytes = 0;
 	uint64_t bytes_written = 0;
-	uint64_t ram_peak_bytes = 0; // held per-world tables + pages + one slice
+	// Held per-world tables + the chunk's pages + one slice. NOT counted: the GSQ page
+	// builder's own working buffers (encode/decode scratch, > 2 MiB per degree-3 page),
+	// so max_ram_bytes does not bound them yet (follow-up: #1379).
+	uint64_t ram_peak_bytes = 0;
 	uint32_t page_count = 0;
 	uint64_t elapsed_usec = 0;
 };
