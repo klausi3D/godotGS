@@ -31,6 +31,11 @@ on:
         required: false
         default: "8"
         type: string
+      scan_dir:
+        description: "Runner directory of real-scan *.ply files for the BV-C2 codec probe (empty: $GS_REAL_SCAN_DIR; none found: MISSING)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -293,3 +298,66 @@ jobs:
       - name: Postflight - GPU contention verdict (#875)
         if: always()
         run: python3 tests/ci/runner_gpu_contention.py postflight
+
+  # BV-C2 (ADR section 10 row BV-C2, sections 5.3/5.4, risks K3/K9): GSQ codec
+  # ratio and single-core decode/pack throughput of the optimized producer
+  # binary, on generator subsets and on the real scans in `scan_dir`. CPU only,
+  # so it runs on a runner without the `gpu` label requirement and does not
+  # wait for the fly-through. Report-only: tests/runtime/flythrough/
+  # run_codec_probe.py exits 0 with verdict PARTIAL when real scans are
+  # MISSING, 1 on a failed or crashed case, 3 when no report was written.
+  codec-probe:
+    name: BV-C2 GSQ codec probe (Self-Hosted CPU, report-only)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64]
+    needs: build-linux-editor
+    timeout-minutes: 45
+    env:
+      BVW_SCAN_DIR: ${{ inputs.scan_dir }}
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 1
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+      - name: Codec probe (BV-C2)
+        timeout-minutes: 30
+        run: |
+          if [ -n "$BVW_SCAN_DIR" ]; then
+            python3 tests/runtime/flythrough/run_codec_probe.py --godot-binary bin/godot.linuxbsd.editor.x86_64 --out "$RUNNER_TEMP/gsq-probe" --scan-dir "$BVW_SCAN_DIR"
+          else
+            python3 tests/runtime/flythrough/run_codec_probe.py --godot-binary bin/godot.linuxbsd.editor.x86_64 --out "$RUNNER_TEMP/gsq-probe"
+          fi
+
+      - name: Upload codec probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsq-codec-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gsq-probe/
+          if-no-files-found: error
+          retention-days: 30

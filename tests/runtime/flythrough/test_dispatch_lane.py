@@ -696,7 +696,8 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("linux_gpu_runner.sh stage-binary", build_runs)
         gpu_runs = "".join(s.get("run", "") for s in self.steps)
         self.assertIn("linux_gpu_runner.sh install-binary", gpu_runs)
-        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 2)
+        # build upload, flythrough download, codec-probe download (BV-C2)
+        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 3)
 
     def test_every_lane_step_is_wired(self) -> None:
         for subcommand in (
