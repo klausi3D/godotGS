@@ -115,6 +115,7 @@ var hierarchy =
     [ "GaussianRenderDebug::DebugState&lt; PreviewModeT, StageMetricsT, PipelineEventT &gt;", "structGaussianRenderDebug_1_1DebugState.html", null ],
     [ "ResourceOwnerMismatchContract::Decision", "structResourceOwnerMismatchContract_1_1Decision.html", null ],
     [ "gs_gsq::DecodeContext", "classgs__gsq_1_1DecodeContext.html", null ],
+    [ "GsqPagedChunkPayloadSource::DecodeStats", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html", null ],
     [ "GPUBufferManager::DeferredDeletionQueue", "classGPUBufferManager_1_1DeferredDeletionQueue.html", null ],
     [ "GaussianSplatSceneDirector::DeferredRendererWork", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html", null ],
     [ "gs_hlod_auto_route::DemotionLatch", "structgs__hlod__auto__route_1_1DemotionLatch.html", null ],
@@ -377,6 +378,7 @@ var hierarchy =
     [ "StreamingUploadPipeline::PackSnapshotScratch", "structStreamingUploadPipeline_1_1PackSnapshotScratch.html", null ],
     [ "StreamingUploadPipeline::PackTelemetry", "structStreamingUploadPipeline_1_1PackTelemetry.html", null ],
     [ "StreamingUploadPipeline::PackThreadContext", "structStreamingUploadPipeline_1_1PackThreadContext.html", null ],
+    [ "GsqPagedChunkPayloadSource::Page", "structGsqPagedChunkPayloadSource_1_1Page.html", null ],
     [ "gs_gsq::PageBuilder", "classgs__gsq_1_1PageBuilder.html", null ],
     [ "gs_gsq::PageBuildStats", "structgs__gsq_1_1PageBuildStats.html", null ],
     [ "gs_gsq::PageInfo", "structgs__gsq_1_1PageInfo.html", null ],
@@ -469,6 +471,7 @@ var hierarchy =
       [ "AssetDependencyManager", "classAssetDependencyManager.html", null ],
       [ "BatchedAsyncReadback", "classBatchedAsyncReadback.html", null ],
       [ "ChunkPayloadSource", "classChunkPayloadSource.html", [
+        [ "GsqPagedChunkPayloadSource", "classGsqPagedChunkPayloadSource.html", null ],
         [ "InMemoryChunkPayloadSource", "classInMemoryChunkPayloadSource.html", null ],
         [ "StagedFileChunkPayloadSource", "classStagedFileChunkPayloadSource.html", null ]
       ] ],

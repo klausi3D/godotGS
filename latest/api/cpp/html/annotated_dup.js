@@ -412,6 +412,7 @@ var annotated_dup =
     [ "GPUSortingPipeline", "classGPUSortingPipeline.html", "classGPUSortingPipeline" ],
     [ "GSAtomicFileTransaction", "classGSAtomicFileTransaction.html", "classGSAtomicFileTransaction" ],
     [ "GsOverlayStatsDispatcher", "classGsOverlayStatsDispatcher.html", "classGsOverlayStatsDispatcher" ],
+    [ "GsqPagedChunkPayloadSource", "classGsqPagedChunkPayloadSource.html", "classGsqPagedChunkPayloadSource" ],
     [ "GSSceneDepthLinearize", "structGSSceneDepthLinearize.html", "structGSSceneDepthLinearize" ],
     [ "GsSplatShadowCaster", "classGsSplatShadowCaster.html", "classGsSplatShadowCaster" ],
     [ "GSStartupTrace", "classGSStartupTrace.html", "classGSStartupTrace" ],

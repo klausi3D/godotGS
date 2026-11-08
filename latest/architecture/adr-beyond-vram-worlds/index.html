@@ -5725,7 +5725,17 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
   block and the page directory; pages start on 4 KiB boundaries; a 56 B chunk record names
   its run of pages and a 112 B page record carries offset, stored size, extent and both
   digests (layout in <code>io/gaussian_splat_world_format.h</code>). The reader verifies and decodes
-  every page and loads the world resident; the staged source and async decode are BV-C5b.</li>
+  every page and loads the world resident; the staged source and async decode are BV-C5b.
+  <strong>Fixed in BV-C5b:</strong> <code>load_resident()</code> keeps that path; every other load keeps only the
+  validated directory in a <code>GsqPagedChunkPayloadSource</code>
+  (<code>core/streaming_gsq_chunk_payload_source.h</code>). A capture reads its pages through the
+  source's <code>PayloadReadService</code>, verifies them (table entry, stored and decoded digests) and
+  decodes them on the capturing thread with a leased per-thread <code>DecodeContext</code>; on the
+  streaming route that thread is an async pack worker, which packs the 176 B
+  <code>PackedGaussian</code>. A failing page fails its capture with the <code>gsq_*</code> reason (counted, and
+  retried by the streaming system as a payload read failure). Release counters
+  (<code>get_decode_stats()</code>: pages and splats decoded, decode ns, pages decoded on worker vs main
+  threads, failures) prove which path ran.</li>
 </ul>
 </li>
 <li><strong>Determinism.</strong> Encoding uses integer-exact quantization with <code>-ffp-contract=off</code>-safe code.
