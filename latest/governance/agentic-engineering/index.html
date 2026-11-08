@@ -4885,7 +4885,7 @@ machine-readable mirror lives under <code>.agentic/</code> (<code>policy.json</c
 schemas, templates, roles), validated by <code>scripts/agentic/</code>. Most of what this
 page describes is process, not tooling: see
 <a href="#what-is-enforced-and-what-is-process">What is enforced and what is process</a>. See
-also <a href="https://github.com/klausi3D/godotGS/blob/4167ade74998c8d3a28229dd1f3fc080e6a933ec/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
+also <a href="https://github.com/klausi3D/godotGS/blob/3c37ab315cda67b4d8460d386e00e19c2073b1b3/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
 and the <a href="../review-policy/">review policy</a>.</p>
 <h2 id="principles">Principles<a class="headerlink" href="#principles" title="Permanent link">¶</a></h2>
 <ul>
@@ -5104,7 +5104,7 @@ checks that the class's evidence or reviews were produced.</p>
 higher-of-the-two rule is implemented in <code>check_pr_contract.py</code>, but that script only
 runs against the shipped fixture <code>.agentic/templates/task.json</code>, because the
 repository has no per-PR contract source (a task-contract instance is a local agent
-artifact and <a href="https://github.com/klausi3D/godotGS/blob/4167ade74998c8d3a28229dd1f3fc080e6a933ec/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
+artifact and <a href="https://github.com/klausi3D/godotGS/blob/3c37ab315cda67b4d8460d386e00e19c2073b1b3/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
 class is a review-time convention, not an enforced one, and per-PR scope
 (<code>owned_paths</code> / <code>forbidden_paths</code>) and evidence contracts are not enforced at all.
 Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
