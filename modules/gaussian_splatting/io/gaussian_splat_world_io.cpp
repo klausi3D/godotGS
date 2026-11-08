@@ -16,6 +16,7 @@
 #include "../core/gaussian_splat_hlod_merge.h"
 #include "../core/gaussian_splat_hlod_tree.h"
 #include "../core/gaussian_splat_world.h"
+#include "../core/streaming_gsq_chunk_payload_source.h"
 #include "../interfaces/gpu_culler.h"
 #include "../logger/gs_logger.h"
 #include "gs_atomic_file_writer.h"
@@ -1438,17 +1439,20 @@ static Ref<Resource> _load_gsplatworld_paged(const String &p_path, Error *r_erro
 }
 
 // Plain v3 + bit 7, paged GSQ chunks (BV-C5a; docs/architecture/adr-beyond-vram-worlds.md D-12
-// "Containers", §4.1; layout in gaussian_splat_world_format.h). Validates the whole directory,
-// then reads, verifies and decodes every page into a resident payload. Each page must match its
-// table entry (size, count, extent, stored SHA-256) and its decoded splats the recorded decoded
-// digest; any mismatch refuses the world with a gsq_* reason. Nothing is skipped or repaired.
-// The file-backed staged source and the async decode in the pack workers are BV-C5b, so this
-// container loads resident, like the whole-section gzip of bit 4.
+// "Containers", §4.1; layout in gaussian_splat_world_format.h). Validates the whole directory.
+// Resident (load_resident): then reads, verifies and decodes every page into a resident payload.
+// Each page must match its table entry (size, count, extent, stored SHA-256) and its decoded
+// splats the recorded decoded digest; any mismatch refuses the world with a gsq_* reason.
+// Nothing is skipped or repaired.
+// Staged (every other load, BV-C5b): no page is read here. The validated directory goes to a
+// GsqPagedChunkPayloadSource, which makes the same per-page checks when a pack worker captures a
+// chunk and fails that capture visibly with the gsq_* reason.
 static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
 		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
 		uint64_t p_sh_offset, uint64_t p_chunk_table_offset, uint64_t p_indices_offset, uint64_t p_metadata_offset,
-		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, Error *r_error, float *r_progress) {
+		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, Error *r_error, float *r_progress,
+		bool p_force_resident) {
 	auto refuse = [&](Error p_err, const String &p_why) {
 		if (r_error) {
 			*r_error = p_err;
@@ -1557,14 +1561,7 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 
 	// Page table. Offsets are canonical (each page on the next alignment boundary after the
 	// previous one, the chunk table right after the last page), so the directory admits one layout.
-	struct PageEntry {
-		uint64_t offset = 0;
-		uint32_t stored_bytes = 0;
-		uint32_t splat_count = 0;
-		uint8_t stored_digest[gs_gsq::kDigestBytes] = {};
-		uint8_t decoded_digest[gs_gsq::kDigestBytes] = {};
-		uint32_t extent[6] = {};
-	};
+	using PageEntry = GsqPagedChunkPayloadSource::Page; // the staged source takes the directory as read
 	if (!_allocation_probe(uint64_t(page_count) * sizeof(PageEntry))) {
 		return refuse(ERR_OUT_OF_MEMORY, "cannot allocate the page table");
 	}
@@ -1613,64 +1610,74 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 		*r_progress = 0.1f;
 	}
 
-	// Resident payload (fallible probe first, as on the plain resident path).
-	const uint64_t gaussian_bytes = uint64_t(p_splat_count) * sizeof(Gaussian);
-	uint64_t sh_count = 0;
-	if (!checked_mul_u64(uint64_t(p_splat_count), uint64_t(p_sh_high_order), sh_count) || sh_count > uint64_t(UINT32_MAX)) {
-		return refuse(ERR_FILE_CORRUPT, "the declared SH extent exceeds the 32-bit container capacity");
-	}
-	const uint64_t payload_bytes = gaussian_bytes + sh_count * sizeof(Vector3);
-	if (!_allocation_probe(payload_bytes)) {
-		return refuse(ERR_OUT_OF_MEMORY, vformat("cannot allocate the declared resident payload (%d MiB)", int(payload_bytes / (1024 * 1024))));
-	}
-	LocalVector<Gaussian> gaussians;
-	gaussians.resize(p_splat_count);
-	LocalVector<Vector3> sh_high_coeffs;
-	sh_high_coeffs.resize(uint32_t(sh_count));
-
-	gs_gsq::DecodeContext decoder;
-	LocalVector<uint8_t> page_bytes;
-	uint64_t cursor = 0;
-	for (uint32_t p = 0; p < page_count; p++) {
-		const PageEntry &page = pages[p];
-		page_bytes.resize(page.stored_bytes);
-		p_file->seek(page.offset);
-		if (!_read_exact(p_file, page_bytes.ptr(), page.stored_bytes)) {
-			return refuse(ERR_FILE_CORRUPT, vformat("page %d: short read", p));
-		}
-		gs_gsq::PageInfo info;
-		if (gs_gsq::verify_page(page_bytes.ptr(), page.stored_bytes, info, reason) != OK) {
-			return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
-		}
-		bool matches = info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes && info.sh_degree == p_sh_degree &&
-				info.opacity_bits == params.opacity_bits && memcmp(info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
-				memcmp(info.position_min, page.extent, sizeof(float) * 3u) == 0 && memcmp(info.position_max, page.extent + 3, sizeof(float) * 3u) == 0;
-		for (int i = 0; i < 3; i++) {
-			matches = matches && info.sh_bits[i] == params.sh_bits[i];
-		}
-		if (!matches) {
-			return refuse(ERR_FILE_CORRUPT, vformat("gsq_page_mismatch: page %d differs from its page-table entry or the codec block", p));
-		}
-		Gaussian *dst = gaussians.ptr() + cursor;
-		Vector3 *dst_sh = p_sh_high_order > 0u ? sh_high_coeffs.ptr() + cursor * p_sh_high_order : nullptr;
-		// The stored digest was verified above; each frame still checks its zstd checksum.
-		if (decoder.decode_range(page_bytes.ptr(), page.stored_bytes, 0, page.splat_count, dst, dst_sh, reason, false) != OK) {
-			return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
-		}
-		uint8_t digest[gs_gsq::kDigestBytes];
-		gs_gsq::decoded_digest(dst, dst_sh, page.splat_count, p_sh_degree, digest);
-		if (memcmp(digest, page.decoded_digest, gs_gsq::kDigestBytes) != 0) {
-			return refuse(ERR_FILE_CORRUPT, vformat("gsq_decoded_digest_mismatch: page %d", p));
-		}
-		cursor += page.splat_count;
-		if (r_progress) {
-			*r_progress = 0.1f + 0.8f * float(cursor) / float(p_splat_count);
-		}
-	}
-
 	Ref<GaussianData> gaussian_data;
-	gaussian_data.instantiate();
-	gaussian_data->set_gaussian_payload(gaussians, sh_high_coeffs, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u, false);
+	Ref<GsqPagedChunkPayloadSource> staged_source;
+	if (!p_force_resident) {
+		// Staged (BV-C5b): the pack workers read and decode the pages on demand.
+		staged_source.instantiate();
+		if (!staged_source->configure(p_path, p_splat_count, p_sh_degree, p_sh_first_order, p_sh_high_order,
+					AABB(p_bounds_pos, p_bounds_size), params, pages)) {
+			return refuse(ERR_FILE_CORRUPT, "gsq_bad_container: the page directory does not tile the splats");
+		}
+	} else {
+		// Resident payload (fallible probe first, as on the plain resident path).
+		const uint64_t gaussian_bytes = uint64_t(p_splat_count) * sizeof(Gaussian);
+		uint64_t sh_count = 0;
+		if (!checked_mul_u64(uint64_t(p_splat_count), uint64_t(p_sh_high_order), sh_count) || sh_count > uint64_t(UINT32_MAX)) {
+			return refuse(ERR_FILE_CORRUPT, "the declared SH extent exceeds the 32-bit container capacity");
+		}
+		const uint64_t payload_bytes = gaussian_bytes + sh_count * sizeof(Vector3);
+		if (!_allocation_probe(payload_bytes)) {
+			return refuse(ERR_OUT_OF_MEMORY, vformat("cannot allocate the declared resident payload (%d MiB)", int(payload_bytes / (1024 * 1024))));
+		}
+		LocalVector<Gaussian> gaussians;
+		gaussians.resize(p_splat_count);
+		LocalVector<Vector3> sh_high_coeffs;
+		sh_high_coeffs.resize(uint32_t(sh_count));
+
+		gs_gsq::DecodeContext decoder;
+		LocalVector<uint8_t> page_bytes;
+		uint64_t cursor = 0;
+		for (uint32_t p = 0; p < page_count; p++) {
+			const PageEntry &page = pages[p];
+			page_bytes.resize(page.stored_bytes);
+			p_file->seek(page.offset);
+			if (!_read_exact(p_file, page_bytes.ptr(), page.stored_bytes)) {
+				return refuse(ERR_FILE_CORRUPT, vformat("page %d: short read", p));
+			}
+			gs_gsq::PageInfo info;
+			if (gs_gsq::verify_page(page_bytes.ptr(), page.stored_bytes, info, reason) != OK) {
+				return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
+			}
+			bool matches = info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes && info.sh_degree == p_sh_degree &&
+					info.opacity_bits == params.opacity_bits && memcmp(info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
+					memcmp(info.position_min, page.extent, sizeof(float) * 3u) == 0 && memcmp(info.position_max, page.extent + 3, sizeof(float) * 3u) == 0;
+			for (int i = 0; i < 3; i++) {
+				matches = matches && info.sh_bits[i] == params.sh_bits[i];
+			}
+			if (!matches) {
+				return refuse(ERR_FILE_CORRUPT, vformat("gsq_page_mismatch: page %d differs from its page-table entry or the codec block", p));
+			}
+			Gaussian *dst = gaussians.ptr() + cursor;
+			Vector3 *dst_sh = p_sh_high_order > 0u ? sh_high_coeffs.ptr() + cursor * p_sh_high_order : nullptr;
+			// The stored digest was verified above; each frame still checks its zstd checksum.
+			if (decoder.decode_range(page_bytes.ptr(), page.stored_bytes, 0, page.splat_count, dst, dst_sh, reason, false) != OK) {
+				return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
+			}
+			uint8_t digest[gs_gsq::kDigestBytes];
+			gs_gsq::decoded_digest(dst, dst_sh, page.splat_count, p_sh_degree, digest);
+			if (memcmp(digest, page.decoded_digest, gs_gsq::kDigestBytes) != 0) {
+				return refuse(ERR_FILE_CORRUPT, vformat("gsq_decoded_digest_mismatch: page %d", p));
+			}
+			cursor += page.splat_count;
+			if (r_progress) {
+				*r_progress = 0.1f + 0.8f * float(cursor) / float(p_splat_count);
+			}
+		}
+
+		gaussian_data.instantiate();
+		gaussian_data->set_gaussian_payload(gaussians, sh_high_coeffs, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u, false);
+	}
 
 	// A chunk's splats are the contiguous run of its pages; its in-memory index list is that range.
 	Vector<StaticChunk> chunks;
@@ -1710,13 +1717,18 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 	Ref<GaussianSplatWorld> world;
 	world.instantiate();
 	world->set_payload_metadata(p_splat_count, p_sh_degree, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u);
-	world->set_gaussian_data(gaussian_data);
+	if (gaussian_data.is_valid()) {
+		world->set_gaussian_data(gaussian_data);
+	}
 	world->set_bounds(AABB(p_bounds_pos, p_bounds_size));
 	world->set_metadata(file_metadata);
 	world->set_static_chunks(chunks);
+	if (staged_source.is_valid()) {
+		world->set_chunk_payload_source(staged_source);
+	}
 	if (GaussianSplattingIO::is_data_log_enabled()) {
-		GS_LOG_STREAMING_INFO(vformat("[GaussianSplatWorld] Loaded paged-GSQ world: %d splats, %d chunks, %d pages",
-				p_splat_count, p_chunk_count, page_count));
+		GS_LOG_STREAMING_INFO(vformat("[GaussianSplatWorld] Loaded paged-GSQ world (%s): %d splats, %d chunks, %d pages",
+				staged_source.is_valid() ? "staged" : "resident", p_splat_count, p_chunk_count, page_count));
 	}
 	if (r_error) {
 		*r_error = OK;
@@ -1826,7 +1838,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	if (header.has_paged_chunks) {
 		return _load_gsplatworld_gsq_chunks(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
 				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
-				metadata_offset, metadata_size, header, r_error, r_progress);
+				metadata_offset, metadata_size, header, r_error, r_progress, p_force_resident);
 	}
 	if (header.has_hlod) {
 		return _load_gsplatworld_hlod(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,

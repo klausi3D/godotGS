@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GsqPagedChunkPayloadSource" inherits="ChunkPayloadSource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		File-backed [ChunkPayloadSource] for worlds stored as compressed GSQ pages.
+	</brief_description>
+	<description>
+		A [ChunkPayloadSource] for [code].gsplatworld[/code] files whose chunks are runs of GSQ v1 pages. Only the page directory is kept resident. A capture reads the pages it needs on a reader pool, checks each page against its directory entry and digests, and decodes it on the calling thread, which on the streaming route is a pack worker. A page that fails a check fails the capture with a reason; nothing is skipped or repaired.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_decode_stats" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the source's counters: captures, failed captures, pages and splats decoded, decode time in nanoseconds, pages decoded on worker threads and on the main thread, page failures with the last failure reason, and the read pool's request and byte counters.
+			</description>
+		</method>
+	</methods>
+</class>

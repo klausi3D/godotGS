@@ -485,16 +485,16 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	}
 
 	if (r_metadata) {
-		// Paged GSQ chunks decode resident until the staged source and async decode land (BV-C5b).
-		const bool resident_only = header_info.compressed || header_info.resident_payload || header_info.paged_chunks;
+		// Paged GSQ chunks (bit 7) stream: the pack workers read and decode their pages (BV-C5b).
+		const bool resident_only = header_info.compressed || header_info.resident_payload;
 		const String resident_only_reason = header_info.compressed
 				? String("compressed_world_has_no_random_access_chunks")
-				: header_info.paged_chunks ? String("paged_gsq_chunks_decode_resident")
 				: (header_info.resident_payload ? String("explicit_resident_payload") : String());
 		Dictionary import_metadata;
 		import_metadata[StringName("source_path")] = p_source_file;
 		import_metadata[StringName("resource_path")] = save_path;
 		import_metadata[StringName("compressed")] = header_info.compressed;
+		import_metadata[StringName("paged_gsq_chunks")] = header_info.paged_chunks;
 		import_metadata[StringName("payload_mode")] = resident_only
 				? String("resident_only")
 				: String("streamable_uncompressed");

@@ -11,6 +11,7 @@
 #include "core/gaussian_streaming.h"
 #include "core/module_string_names.h"
 #include "core/streaming_chunk_payload_source.h"
+#include "core/streaming_gsq_chunk_payload_source.h"
 #include "renderer/gaussian_splat_renderer.h"
 #include "renderer/gpu_buffer_manager.h"
 #include "renderer/pipeline_feature_set.h"
@@ -100,6 +101,7 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             GDREGISTER_ABSTRACT_CLASS(ChunkPayloadSource);
             GDREGISTER_CLASS(InMemoryChunkPayloadSource);
             GDREGISTER_CLASS(StagedFileChunkPayloadSource);
+            GDREGISTER_CLASS(GsqPagedChunkPayloadSource);
             GDREGISTER_CLASS(VRAMBudgetRegulator);
             GDREGISTER_CLASS(GaussianSplatWorldGenerator);
 
