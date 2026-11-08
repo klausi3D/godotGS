@@ -50,8 +50,11 @@ cold-cache method; the cache helpers live in ``world_cache.py``:
 * ``summarize`` maps the step records to one lane verdict (VOID > FAIL >
   INVALID > NOT_RUN > PASS; a missing record is NOT_RUN, never PASS), writes
   ``verdict.json`` for the liveness watchdog and exits with the section 9.1
-  code. This is the lane's liveness verdict, report-only; the gate verdict is
-  BV-09's verdict module.
+  code. This is the lane's liveness verdict, report-only. It then runs BV-09's
+  gate verdict (``flythrough_verdict.py``) against the frozen thresholds,
+  writes ``gate_verdict.json`` and copies its verdict into ``verdict.json``
+  under ``gate_verdict``. Until BV-14 makes gates hard that verdict is
+  report-only: it never changes the lane's exit code.
 
 Entry-point contract of the generator and the probe (a change to either must
 change this file and its tests in the same PR):
@@ -80,6 +83,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import flythrough_verdict as fv  # noqa: E402
 import world_cache as wc  # noqa: E402
 
 EXIT_OK = 0
@@ -1082,6 +1086,20 @@ def lane_verdict(statuses: Sequence[str]) -> str:
     return "PASS"
 
 
+def gate_verdict(out: Path, tier: Optional[str], sha: Optional[str]) -> dict:
+    """BV-09's gate verdict for this run; a crash or a missing tier is a verdict, never a pass."""
+    if not tier:
+        result: dict = {"verdict": "NOT_RUN", "reason": "summarize got no --tier", "enforced_verdict": "NOT_RUN"}
+    else:
+        try:
+            return fv.evaluate_out_dir(out, tier, "flat", sha)
+        except Exception as exc:  # noqa: BLE001 -- the lane verdict must still be written
+            result = {"verdict": "INVALID", "reason": f"gate verdict crashed: {type(exc).__name__}: {exc}",
+                      "enforced_verdict": "INVALID"}
+    (out / fv.GATE_VERDICT_FILE).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return result
+
+
 def summarize(
     out: Path,
     step_summary: Optional[Path] = None,
@@ -1130,6 +1148,14 @@ def summarize(
         "steps": summary["steps"],
     }
     verdict_record.update(meta or {})
+    gates = gate_verdict(out, (meta or {}).get("tier"), (meta or {}).get("sha"))
+    verdict_record["gate_verdict"] = {
+        "verdict": gates.get("verdict"),
+        "reason": gates.get("reason"),
+        "enforced_verdict": gates.get("enforced_verdict"),
+        "report_only": True,
+        "file": fv.GATE_VERDICT_FILE,
+    }
     (out / VERDICT_FILE).write_text(json.dumps(verdict_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     lines = [
         "## Beyond-VRAM fly-through (BV-06b, report-only)",
@@ -1141,6 +1167,10 @@ def summarize(
     ]
     lines += [f"| `{s}` | {st} | {r.replace('|', '/')} |" for s, st, r in rows]
     text = "\n".join(lines) + "\n"
+    if "entries" in gates:
+        text += "\n" + fv.markdown(gates)
+    else:
+        text += f"\nGate verdict (BV-09, report-only): **{gates.get('verdict')}** ({gates.get('reason')})\n"
     print(text)
     if step_summary is not None:
         with step_summary.open("a", encoding="utf-8") as handle:

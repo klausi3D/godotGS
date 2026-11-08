@@ -1,0 +1,11 @@
+{
+  "data": {
+    "probe_exit_code": 0,
+    "summary_written": true,
+    "tier": "A"
+  },
+  "exit_code": 0,
+  "reason": "probe finished; summary at probe/summary.json",
+  "status": "OK",
+  "step": "probe"
+}
