@@ -878,8 +878,8 @@ class HostCacheLabel(_TempCase):
         with mock.patch.object(lane, "_fill_probe_file", _fake_fill):
             lane.disk_throughput(self.world_root, self.out, 1, FakeRunner(), _tools_except("fio"))
         data = self.record("disk_throughput")["data"]
-        self.assertIn(data["host_cache"], ("present", "absent"))
-        self.assertEqual(data["host_cache"], wc.host_cache_label(data["reread_over_first_read"]))
+        # The probe file was just written by this step: absence is unprovable.
+        self.assertEqual(data["host_cache"], "present")
 
     def test_cached_worlds_budget_only_the_probe_and_the_margin(self) -> None:
         required, parts = lane.required_free_bytes("A", 8, include_worlds=False)

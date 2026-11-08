@@ -472,15 +472,14 @@ def disk_throughput(
             float(second["mb_per_s"]) / float(first["mb_per_s"]), 3
         ) if first["mb_per_s"] else None
         # D-14 item 4: the label every cold result of this run carries.
-        data["host_cache"] = wc.host_cache_label(data["reread_over_first_read"])
+        # The probe file was written by this step, so absence is unprovable here.
+        data["host_cache"] = wc.host_cache_label(data["reread_over_first_read"], first_read_follows_own_write=True)
         data["host_cache_note"] = (
             "Both reads bypass the guest page cache (O_DIRECT). A re-read much faster "
             "than the first read means a host-side cache serves the VM disk (ADR D-14 "
-            "item 4). The label is `absent` only when the re-read is less than "
-            f"{wc.HOST_CACHE_REREAD_RATIO}x the first read; anything else, including no "
-            "measurement, is `present`, so a cold result never claims more than guest-cold. "
-            "The first read follows this step's own write, which a write-back host cache may "
-            "still hold. A label, not a gate."
+            "item 4). The first read follows this step's own write, which a write-back host "
+            "cache may still hold, so the label is always `present`: a cold result never "
+            "claims more than guest-cold. A label, not a gate."
         )
         if which("fio") is None:
             data["fio"] = {"present": False, "note": "fio is optional (ADR section 5.4)"}

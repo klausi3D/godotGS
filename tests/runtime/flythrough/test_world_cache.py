@@ -132,6 +132,7 @@ class Labels(unittest.TestCase):
         self.assertEqual(wc.host_cache_label(1.249), "absent")
         self.assertEqual(wc.host_cache_label(1.25), "present")
         self.assertEqual(wc.host_cache_label(8.0), "present")
+        self.assertEqual(wc.host_cache_label(1.0, first_read_follows_own_write=True), "present")
         for unknown in (None, 0, -1.0, "fast", True):
             self.assertEqual(wc.host_cache_label(unknown), "present", unknown)
 

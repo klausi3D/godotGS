@@ -327,8 +327,17 @@ def residency(paths: Sequence[Path], probe: Optional[Callable[[Path], Tuple[int,
     }
 
 
-def host_cache_label(reread_over_first_read: object) -> str:
-    """D-14 item 4. `present` unless a measurement shows the re-read is not served faster."""
+def host_cache_label(reread_over_first_read: object, first_read_follows_own_write: bool = False) -> str:
+    """D-14 item 4. `present` unless a measurement shows the re-read is not served faster.
+
+    When the "never-read" region was written by the same step just before, a
+    write-back host cache holds it and serves the first read too: both reads are
+    fast, the ratio is about 1, and absence is unprovable. Measured on the RTX
+    3080 runner (run 42482681830): 5.59 GB/s first read, 5.30 GB/s re-read over
+    1 GiB. Such a measurement is always labelled `present`.
+    """
+    if first_read_follows_own_write:
+        return "present"
     if isinstance(reread_over_first_read, (int, float)) and not isinstance(reread_over_first_read, bool):
         if 0 < reread_over_first_read < HOST_CACHE_REREAD_RATIO:
             return "absent"
