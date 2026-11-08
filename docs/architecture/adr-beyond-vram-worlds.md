@@ -518,6 +518,11 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
       chunks), which removes 4 B/splat on disk and 16 B/splat of RAM (four per-splat `u32`
       index copies, for example `core/streaming_asset_types.h:153-155` ✓). The SH section, and
       with it the 357.9M SH3 cap, does not exist in this container.
+      **Fixed in BV-C5a:** a 64 B paged extension behind the 112 B prefix carries the W16 codec
+      block and the page directory; pages start on 4 KiB boundaries; a 56 B chunk record names
+      its run of pages and a 112 B page record carries offset, stored size, extent and both
+      digests (layout in `io/gaussian_splat_world_format.h`). The reader verifies and decodes
+      every page and loads the world resident; the staged source and async decode are BV-C5b.
 - **Determinism.** Encoding uses integer-exact quantization with `-ffp-contract=off`-safe code.
   A cross-platform golden decoded digest is checked on Windows/MSVC and Linux/GCC.
 - **Semantic read validation stays:** counts, sizes, finite ranges, decoded positions within the

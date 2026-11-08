@@ -117,6 +117,12 @@ void Writer::_cleanup() {
 	chunk_records.clear();
 	chunk_counts.clear();
 	metadata_bytes.clear();
+	page_records.clear();
+	built_pages.clear();
+	if (page_builder != nullptr) {
+		memdelete(page_builder);
+		page_builder = nullptr;
+	}
 	pass = kNoPass;
 }
 
@@ -158,6 +164,16 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 	pass_count = 0;
 	chunks_this_pass = 0;
 	splats_this_pass = 0;
+	gsq = false;
+	codec = p_codec;
+	page_records.clear();
+	built_pages.clear();
+	page_count = 0;
+	page_stats = gs_gsq::PageBuildStats();
+	if (page_builder != nullptr) {
+		memdelete(page_builder);
+		page_builder = nullptr;
+	}
 
 	if (p_final_path.is_empty()) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: empty final path");
@@ -165,8 +181,8 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 	if (p_mode != SourceMode::REITERABLE && p_mode != SourceMode::SINGLE_PASS) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: unknown source mode");
 	}
+	gs_gsq::EncodeParams gsq_params;
 	if (p_codec.codec_id == kCodecGsqV1) {
-		gs_gsq::EncodeParams gsq_params;
 		String reason;
 		if (gsq_encode_params(p_codec, gsq_params, reason) != OK) {
 			return _fail(ERR_INVALID_PARAMETER, "invalid_spec: " + reason);
@@ -175,13 +191,14 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 			return _fail(ERR_INVALID_PARAMETER, vformat("invalid_spec: GSQ v1 carries SH degree <= %d with its full high-order layout (degree %d, %d high-order)",
 														gs_gsq::kMaxShDegree, p_spec.sh_degree, p_spec.sh_high_order));
 		}
-		// W11: the pages exist (gs_gsq::PageBuilder), the container a reader loads does not yet.
-		return _fail(ERR_UNAVAILABLE, "container_unavailable: GSQ v1 pages need the plain v3 bit-7 paged container (BV-C5a)");
-	}
-	if (p_codec.codec_id != kCodecNone) {
+		if (!p_spec.write_chunk_table) {
+			// Bit 7 always carries its chunk table: it is the page directory (W11).
+			return _fail(ERR_INVALID_PARAMETER, "invalid_spec: GSQ v1 (plain v3 bit 7) needs write_chunk_table");
+		}
+		gsq = true;
+	} else if (p_codec.codec_id != kCodecNone) {
 		return _fail(ERR_UNAVAILABLE, vformat("codec_unavailable: codec_id %d", p_codec.codec_id));
-	}
-	if (p_codec.sh_bits[0] != 0u || p_codec.sh_bits[1] != 0u || p_codec.sh_bits[2] != 0u || p_codec.opacity_bits != 0u ||
+	} else if (p_codec.sh_bits[0] != 0u || p_codec.sh_bits[1] != 0u || p_codec.sh_bits[2] != 0u || p_codec.opacity_bits != 0u ||
 			p_codec.pos_step_m != 0.0f || p_codec.zstd_level != 0) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: codec parameters are set but codec_id is 0 (none)");
 	}
@@ -214,6 +231,51 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 	// makes the bytes independent of the dictionary's insertion order (W7).
 	if (!p_spec.metadata.is_empty()) {
 		metadata_bytes = JSON::stringify(p_spec.metadata, "", true, false).to_utf8_buffer();
+	}
+
+	if (gsq) {
+		// Plain v3 + bit 7 (gaussian_splat_world_format.h). Only the first page offset is
+		// known now; the tables, the metadata and the file size follow from the pages and are
+		// fixed in _write_tail().
+		Layout l;
+		l.flags = gs_world_format::kFlagHasChunks | gs_world_format::kFlagPagedChunks;
+		if (!p_spec.metadata.is_empty()) {
+			l.flags |= gs_world_format::kFlagHasMetadata;
+		}
+		if (p_spec.is_2d) {
+			l.flags |= gs_world_format::kFlagIs2D;
+		}
+		if (p_spec.sh_high_order > 0u) {
+			l.flags |= gs_world_format::kFlagHasHighSh;
+		}
+		l.header_chunk_count = p_spec.chunk_count;
+		const uint64_t header_bytes = gs_world_format::kPrefixBytes + gs_world_format::kPagedExtensionBytes;
+		l.gaussian_offset = (header_bytes + gs_world_format::kPagedPageAlignment - 1u) / gs_world_format::kPagedPageAlignment *
+				gs_world_format::kPagedPageAlignment;
+		l.metadata_size = metadata_bytes.size();
+		layout = l;
+		page_builder = memnew(gs_gsq::PageBuilder);
+		String reason;
+		if (page_builder->configure(gsq_params, p_spec.sh_degree, reason) != OK) {
+			return _fail(ERR_INVALID_PARAMETER, "invalid_spec: " + reason);
+		}
+		pass_count = 1u; // the SH travels inside the pages
+		Error err = output.begin(p_final_path);
+		if (err != OK) {
+			return _fail(err, "io: cannot create the output temp: " + output.get_error_message());
+		}
+		// Placeholder header, extension and padding up to the first page; the real header is
+		// written last (W2's one rewrite).
+		uint8_t zeros[gs_world_format::kPagedPageAlignment] = {};
+		err = output.append(zeros, layout.gaussian_offset);
+		if (err != OK) {
+			return _fail(err, "io: header placeholder: " + output.get_error_message());
+		}
+		chunk_counts.reserve(p_spec.chunk_count);
+		chunk_records.reserve(uint32_t(uint64_t(p_spec.chunk_count) * gs_world_format::kPagedChunkRecordBytes));
+		pass = 1u;
+		state = State::OPEN;
+		return OK;
 	}
 
 	// Plain v3 layout, offset for offset as _build_world_save_layout computes it:
@@ -309,7 +371,7 @@ void Writer::_encode_chunk_record(const ChunkDesc &p_desc, uint64_t p_first_inde
 	_put_u32(r_record + 52, 0u);
 }
 
-void Writer::_encode_header(uint8_t *r_header) const {
+uint32_t Writer::_encode_header(uint8_t *r_header) const {
 	// Field for field as _write_world_save_header in gaussian_splat_world_io.cpp.
 	_put_u32(r_header + 0, gs_world_format::kMagic);
 	_put_u32(r_header + 4, gs_world_format::kVersion);
@@ -329,6 +391,23 @@ void Writer::_encode_header(uint8_t *r_header) const {
 	_put_u64(r_header + 96, layout.metadata_size);
 	_put_u32(r_header + 104, GAUSSIAN_STRUCT_LAYOUT_VERSION);
 	_put_u32(r_header + 108, 0u); // reserved, must be zero
+	if (!gsq) {
+		return uint32_t(gs_world_format::kPrefixBytes);
+	}
+	// Paged extension: the W16 codec block as given, then the page directory.
+	uint8_t *ext = r_header + gs_world_format::kPrefixBytes;
+	memset(ext, 0, gs_world_format::kPagedExtensionBytes);
+	_put_u32(ext + 0, codec.codec_id);
+	ext[4] = codec.sh_bits[0];
+	ext[5] = codec.sh_bits[1];
+	ext[6] = codec.sh_bits[2];
+	ext[7] = codec.opacity_bits;
+	_put_f32(ext + 8, codec.pos_step_m);
+	_put_u32(ext + 12, uint32_t(codec.zstd_level));
+	_put_u32(ext + 16, page_count);
+	_put_u32(ext + 20, uint32_t(gs_world_format::kPagedPageAlignment));
+	_put_u64(ext + 24, layout.page_table_offset);
+	return uint32_t(gs_world_format::kPrefixBytes + gs_world_format::kPagedExtensionBytes);
 }
 
 Error Writer::append_chunk(const ChunkDesc &p_desc, const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count) {
@@ -340,6 +419,9 @@ Error Writer::append_chunk(const ChunkDesc &p_desc, const Gaussian *p_gaussians,
 	}
 	if (uint64_t(p_count) > uint64_t(spec.splat_count) - splats_this_pass) {
 		return _fail(ERR_INVALID_DATA, vformat("count_mismatch: pass %d appends past the declared splat_count %d", pass, spec.splat_count));
+	}
+	if (gsq) {
+		return _append_chunk_gsq(p_desc, p_gaussians, p_sh_high, p_count);
 	}
 	const bool takes_gaussians = pass == 1u;
 	const bool takes_sh = layout.sh_bytes > 0u && (mode == SourceMode::SINGLE_PASS || pass == 2u);
@@ -397,6 +479,87 @@ Error Writer::append_chunk(const ChunkDesc &p_desc, const Gaussian *p_gaussians,
 	return OK;
 }
 
+Error Writer::_append_chunk_gsq(const ChunkDesc &p_desc, const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count) {
+	const uint32_t chunk = chunks_this_pass;
+	if (p_count > 0u && p_gaussians == nullptr) {
+		return _fail(ERR_INVALID_PARAMETER, vformat("invalid_chunk: chunk %d has %d splats but no gaussians", chunk, p_count));
+	}
+	if (p_count > 0u && spec.sh_high_order > 0u && p_sh_high == nullptr) {
+		return _fail(ERR_INVALID_PARAMETER, vformat("invalid_chunk: chunk %d has %d splats but no high-order SH", chunk, p_count));
+	}
+	// W12 / W15: the builder encodes, decodes and validates every page and records both digests.
+	built_pages.clear();
+	String reason;
+	const Error build_err = page_builder->build_chunk(chunk, p_gaussians, p_sh_high, p_count, built_pages, reason);
+	if (build_err != OK) {
+		return _fail(build_err, vformat("chunk %d: %s", chunk, reason));
+	}
+	if (uint64_t(page_count) + built_pages.size() > uint64_t(UINT32_MAX) ||
+			uint64_t(page_records.size()) + uint64_t(built_pages.size()) * gs_world_format::kPagedPageRecordBytes > uint64_t(UINT32_MAX)) {
+		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: the page table exceeds its in-memory bound");
+	}
+
+	uint8_t record[gs_world_format::kPagedChunkRecordBytes];
+	_put_vec3(record + 0, p_desc.bounds.position);
+	_put_vec3(record + 12, p_desc.bounds.size);
+	_put_vec3(record + 24, p_desc.center);
+	_put_f32(record + 36, p_desc.radius);
+	_put_u32(record + 40, page_count);
+	_put_u32(record + 44, built_pages.size());
+	_put_u32(record + 48, p_count);
+	_put_u32(record + 52, 0u);
+	for (uint32_t i = 0; i < gs_world_format::kPagedChunkRecordBytes; i++) {
+		chunk_records.push_back(record[i]);
+	}
+	chunk_counts.push_back(p_count);
+
+	static const uint8_t zeros[gs_world_format::kPagedPageAlignment] = {};
+	for (const gs_gsq::BuiltPage &page : built_pages) {
+		// Every page starts on an alignment boundary; the gap is zero.
+		const uint64_t at = output.get_size();
+		const uint64_t aligned = (at + gs_world_format::kPagedPageAlignment - 1u) / gs_world_format::kPagedPageAlignment *
+				gs_world_format::kPagedPageAlignment;
+		if (aligned > at) {
+			const Error pad_err = _append_sliced(output, zeros, aligned - at);
+			if (pad_err != OK) {
+				return pad_err;
+			}
+		}
+		gs_gsq::PageInfo info;
+		if (gs_gsq::parse_page_header(page.bytes.ptr(), page.bytes.size(), info, reason) != OK) {
+			return _fail(ERR_BUG, vformat("chunk %d: a validated page no longer parses: %s", chunk, reason));
+		}
+		const Error err = _append_sliced(output, page.bytes.ptr(), page.bytes.size());
+		if (err != OK) {
+			return err;
+		}
+		uint8_t entry[gs_world_format::kPagedPageRecordBytes];
+		_put_u64(entry + 0, aligned);
+		_put_u32(entry + 8, page.bytes.size());
+		_put_u32(entry + 12, page.record.splat_count);
+		memcpy(entry + 16, page.record.stored_digest, gs_gsq::kDigestBytes);
+		memcpy(entry + 48, page.record.decoded_digest, gs_gsq::kDigestBytes);
+		for (int axis = 0; axis < 3; axis++) {
+			_put_f32(entry + 80 + 4 * axis, info.position_min[axis]);
+			_put_f32(entry + 92 + 4 * axis, info.position_max[axis]);
+		}
+		_put_u32(entry + 104, chunk);
+		_put_u32(entry + 108, 0u);
+		for (uint32_t i = 0; i < gs_world_format::kPagedPageRecordBytes; i++) {
+			page_records.push_back(entry[i]);
+		}
+		page_count++;
+	}
+	built_pages.clear();
+
+	chunks_this_pass++;
+	splats_this_pass += p_count;
+	if (chunks_this_pass == spec.chunk_count) {
+		return _end_pass();
+	}
+	return OK;
+}
+
 Error Writer::_end_pass() {
 	if (splats_this_pass != uint64_t(spec.splat_count)) {
 		return _fail(ERR_INVALID_DATA, vformat("count_mismatch: pass %d ended with %s of %d declared splats", pass,
@@ -404,8 +567,9 @@ Error Writer::_end_pass() {
 	}
 	// Structural self-check: the stream so far must sit exactly where the layout
 	// says the next section starts.
+	// (GSQ v1: the page section ends where its pages end; _write_tail() places the tables there.)
 	const uint64_t expected_end = pass == 1u ? layout.sh_offset : layout.chunk_table_offset;
-	if (output.get_size() != expected_end) {
+	if (!gsq && output.get_size() != expected_end) {
 		return _fail(ERR_BUG, vformat("layout: pass %d ended at byte %s, expected %s", pass,
 									  String::num_uint64(output.get_size()), String::num_uint64(expected_end)));
 	}
@@ -444,6 +608,28 @@ Error Writer::_copy_scratch_sh() {
 }
 
 Error Writer::_write_tail() {
+	if (gsq) {
+		// Paged chunk table, page table, metadata; the header records where each landed.
+		layout.chunk_table_offset = output.get_size();
+		Error err = _append_sliced(output, chunk_records.ptr(), chunk_records.size());
+		if (err != OK) {
+			return err;
+		}
+		layout.page_table_offset = output.get_size();
+		err = _append_sliced(output, page_records.ptr(), page_records.size());
+		if (err != OK) {
+			return err;
+		}
+		layout.metadata_offset = metadata_bytes.is_empty() ? 0u : output.get_size();
+		if (!metadata_bytes.is_empty()) {
+			err = _append_sliced(output, metadata_bytes.ptr(), metadata_bytes.size());
+			if (err != OK) {
+				return err;
+			}
+		}
+		layout.file_size = output.get_size();
+		return OK;
+	}
 	if (spec.write_chunk_table) {
 		Error err = _append_sliced(output, chunk_records.ptr(), chunk_records.size());
 		if (err != OK) {
@@ -501,9 +687,9 @@ Error Writer::finalize() {
 		return _fail(ERR_BUG, vformat("layout: wrote %s bytes, expected %s",
 									  String::num_uint64(output.get_size()), String::num_uint64(layout.file_size)));
 	}
-	uint8_t header[gs_world_format::kPrefixBytes];
-	_encode_header(header);
-	err = output.write_at(0, header, sizeof(header));
+	uint8_t header[gs_world_format::kPrefixBytes + gs_world_format::kPagedExtensionBytes];
+	const uint32_t header_size = _encode_header(header);
+	err = output.write_at(0, header, header_size);
 	if (err != OK) {
 		return _fail(err, "io: header rewrite: " + output.get_error_message());
 	}
@@ -535,6 +721,12 @@ Error Writer::finalize() {
 	chunk_records.clear();
 	chunk_counts.clear();
 	metadata_bytes.clear();
+	page_records.clear();
+	if (page_builder != nullptr) {
+		page_stats = page_builder->get_stats();
+		memdelete(page_builder);
+		page_builder = nullptr;
+	}
 	state = State::COMMITTED;
 	return OK;
 }

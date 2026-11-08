@@ -2,6 +2,7 @@
 
 #include "gs_atomic_file_transaction.h"
 #include "gsq/gsq_codec.h"
+#include "gsq/gsq_page_builder.h"
 
 #include "../core/gaussian_data.h"
 
@@ -24,16 +25,21 @@
 // doctests).
 //
 // Not here yet (later packages, per §10): Limits, preflight, cancel, progress and
-// the Report (BV-03b); the plain v3 bit-7 paged-GSQ container (BV-C5a); PAGED_V4
-// (BV-18a). The API grows into the §4.3 signature as those land.
+// the Report (BV-03b); PAGED_V4 (BV-18a). The API grows into the §4.3 signature as
+// those land.
 //
-// Codec GSQ v1 (BV-C3). The codec stage is gs_gsq::PageBuilder (io/gsq/
-// gsq_page_builder.h): it turns each appended chunk into importance-ordered,
+// Codec GSQ v1 (BV-C3, container BV-C5a). The codec stage is gs_gsq::PageBuilder
+// (io/gsq/gsq_page_builder.h): it turns each appended chunk into importance-ordered,
 // Morton-inside, constant-grouped pages that are encoded, decoded and validated
-// before use (W12) and carry their stored and decoded digests (W15). begin_plain()
-// validates a GSQ codec block (gsq_encode_params()) and then refuses with
-// container_unavailable until BV-C5a gives the pages a container the reader loads
-// (W11: the writer never produces a file its reader refuses).
+// before use (W12) and carry their stored and decoded digests (W15). With
+// codec_id 1 the writer produces plain v3 with flag bit 7 (paged GSQ chunks; layout
+// in gaussian_splat_world_format.h): one run of pages per chunk, in page order, then
+// the paged chunk table, the page table (offset, size, extent, both digests per page)
+// and the metadata. The codec block is written into the file's paged extension as
+// given (W16). It needs write_chunk_table (the chunk table is the page directory)
+// and SH degree <= 3 with the full high-order layout. Every source mode takes a
+// single pass: the SH travels inside the pages. The file size is known only once
+// finalize() returns OK.
 //
 // Usage. Declare the world up front in a PlainSpec; then feed it chunk by chunk in
 // chunk order (W3). One "chunk" is one append unit: with write_chunk_table it is
@@ -178,8 +184,12 @@ public:
 	bool is_open() const { return state == State::OPEN; }
 	Error get_error() const { return error; }
 	const String &get_error_message() const { return error_message; }
-	// Size the finished file will have (valid after begin_plain()).
+	// Size the finished file will have: valid after begin_plain() with codec none; with
+	// GSQ v1 only after finalize() returned OK (0 before).
 	uint64_t get_expected_file_size() const { return layout.file_size; }
+	// GSQ v1: pages written so far, and the page builder's counters (valid after finalize()).
+	uint32_t get_page_count() const { return page_count; }
+	const gs_gsq::PageBuildStats &get_page_stats() const { return page_stats; }
 
 #ifdef TESTS_ENABLED
 	// Called once the real reader-suspend guard has been taken, immediately before
@@ -204,6 +214,7 @@ private:
 		uint64_t indices_bytes = 0;
 		uint64_t metadata_offset = 0;
 		uint64_t metadata_size = 0;
+		uint64_t page_table_offset = 0; // GSQ v1 only
 		uint64_t file_size = 0;
 	};
 
@@ -212,7 +223,9 @@ private:
 	Error _end_pass();
 	Error _copy_scratch_sh();
 	Error _write_tail();
-	void _encode_header(uint8_t *r_header) const;
+	Error _append_chunk_gsq(const ChunkDesc &p_desc, const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count);
+	// Writes the plain prefix and, with GSQ v1, the paged extension behind it; returns the bytes written.
+	uint32_t _encode_header(uint8_t *r_header) const;
 	void _encode_chunk_record(const ChunkDesc &p_desc, uint64_t p_first_index, uint32_t p_count, uint8_t *r_record) const;
 	void _cleanup();
 
@@ -238,6 +251,15 @@ private:
 
 	GSAtomicFileTransaction output;
 	GSAtomicFileTransaction sh_scratch; // SINGLE_PASS with high-order SH only
+
+	// GSQ v1 (bit 7). W5: the page table is held like the chunk table, 112 B per page.
+	bool gsq = false;
+	CodecParams codec;
+	gs_gsq::PageBuilder *page_builder = nullptr;
+	LocalVector<gs_gsq::BuiltPage> built_pages; // one chunk's pages, reused
+	LocalVector<uint8_t> page_records;
+	uint32_t page_count = 0;
+	gs_gsq::PageBuildStats page_stats;
 };
 
 } // namespace gs_world_writer
