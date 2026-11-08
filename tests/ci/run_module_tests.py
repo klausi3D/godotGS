@@ -86,6 +86,12 @@ RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_run
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 # BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
 BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
+# BV-06b: the world cache / D-14 cold-cache helpers and the liveness watchdog.
+BEYOND_VRAM_LANE_TEST_SCRIPTS = (
+    BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT,
+    ROOT / "tests" / "runtime" / "flythrough" / "test_world_cache.py",
+    ROOT / "tests" / "runtime" / "flythrough" / "test_lane_watchdog.py",
+)
 # BV-07: the probe lane's path, ground truth, trace parser and summary arithmetic.
 BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_probe_lane.py"
 SOURCE_TREES = (ROOT,)
@@ -2284,17 +2290,21 @@ def _run_beyond_vram_dispatch_lane_guard() -> tuple[bool, list[str]]:
     absent generator/probe entry point is NOT_RUN and never OK, that a zero exit
     without a manifest/summary fails, that cleanup deletes only a world root the
     lane created, and that the disk preflight gates every later lane step.
-    """
-    script = BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT
-    if not script.is_file():
-        return False, [f"Missing beyond-VRAM dispatch lane test: {script.relative_to(ROOT)}"]
 
-    code, out, err = _run_command([sys.executable, str(script)])
-    if code != 0:
-        output_lines = [line for line in (out + err).splitlines() if line.strip()]
-        if not output_lines:
-            output_lines = [f"Beyond-VRAM dispatch lane guard failed with exit code {code}."]
-        return False, output_lines
+    BV-06b adds the world cache and the D-14 cold-cache method
+    (`test_world_cache.py`: on Linux it runs the real fadvise, mincore and
+    flock) and the liveness watchdog (`test_lane_watchdog.py`).
+    """
+    for script in BEYOND_VRAM_LANE_TEST_SCRIPTS:
+        if not script.is_file():
+            return False, [f"Missing beyond-VRAM dispatch lane test: {script.relative_to(ROOT)}"]
+
+        code, out, err = _run_command([sys.executable, str(script)])
+        if code != 0:
+            output_lines = [line for line in (out + err).splitlines() if line.strip()]
+            if not output_lines:
+                output_lines = [f"Beyond-VRAM dispatch lane guard {script.name} failed with exit code {code}."]
+            return False, output_lines
 
     return True, ["Beyond-VRAM dispatch lane guard passed."]
 

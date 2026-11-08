@@ -29,7 +29,29 @@ into a pass:
 * ``cleanup`` deletes only a world root that carries this lane's marker, and
   fails if anything is left behind.
 
-Exit codes follow ADR section 9.1: 0 OK, 1 FAIL, 3 NOT_RUN.
+Exit codes follow ADR section 9.1: 0 OK, 1 FAIL, 2 INVALID, 3 NOT_RUN, 75 VOID.
+
+BV-06b (the full workflow) adds the world cache of section 9.2 and the D-14
+cold-cache method; the cache helpers live in ``world_cache.py``:
+
+* ``prime-cache`` (dispatch only, job ``prime-world-cache``) sweeps orphans,
+  clears the quarantine, deletes the old key of each world delete-first, refuses
+  ``DID NOT RUN: disk`` below the world's budget plus the margin, generates,
+  then fdatasync + ``POSIX_FADV_DONTNEED`` on every file and writes
+  ``.complete`` last.
+* ``cache-check`` (every fly-through) refuses ``NOT_RUN: cache absent`` /
+  ``cache_stale``, verifies every digest (V2 against the world's own manifest;
+  a mismatch moves the key to ``quarantine/`` and is INVALID), then drops the
+  world from the page cache again.
+* ``probe --cache-worlds`` measures ``mincore`` residency first: above 1 % the
+  run is INVALID ``cache_warm`` and the probe does not start. It runs the probe
+  under a shared cache lock, records the probe tree's block-read bytes for V10
+  and the ``host_cache`` label of the disk step.
+* ``summarize`` maps the step records to one lane verdict (VOID > FAIL >
+  INVALID > NOT_RUN > PASS; a missing record is NOT_RUN, never PASS), writes
+  ``verdict.json`` for the liveness watchdog and exits with the section 9.1
+  code. This is the lane's liveness verdict, report-only; the gate verdict is
+  BV-09's verdict module.
 
 Entry-point contract of the generator and the probe (a change to either must
 change this file and its tests in the same PR):
@@ -56,6 +78,9 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import world_cache as wc  # noqa: E402
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -123,14 +148,24 @@ MEASURED_CACHE_DIRS = (
     "/opt/actions-runner/godotgs-scons-cache-opt",
 )
 
+#: The fly-through job's steps (BV-06b). Generation moved to the prime job.
 STEP_NAMES = (
     "build_info",
     "disk_preflight",
     "disk_throughput",
     "vulkan_limits",
-    "generate",
+    "cache_check",
     "probe",
+    "contention",
 )
+
+#: Section 9.1 exit mapping and the lane verdict's precedence (first wins).
+VERDICT_EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "NOT_RUN": 3, "VOID": 75}
+VERDICT_PRECEDENCE = ("VOID", "FAIL", "INVALID", "NOT_RUN")
+VERDICT_SCHEMA = "godotgs-beyond-vram-lane-verdict/1"
+VERDICT_FILE = "verdict.json"
+CACHE_WORLDS_FILE = "cache_worlds.json"
+WORLD_FILE_NAME = "world.gsplatworld"
 
 Runner = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], Optional[str]]
@@ -220,10 +255,12 @@ def run_df(path: Path, runner: Runner = subprocess.run) -> Dict[str, object]:
     return parsed
 
 
-def required_free_bytes(tier: str, probe_gib: int) -> Tuple[int, Dict[str, int]]:
+def required_free_bytes(tier: str, probe_gib: int, include_worlds: bool = True) -> Tuple[int, Dict[str, int]]:
+    """`include_worlds=False`: the worlds already sit in the world cache (BV-06b), so
+    only the disk-probe file and the margin are new bytes for this run."""
     if tier not in TIER_WORLDS:
         raise LaneError(f"unknown tier {tier!r}; expected one of {sorted(TIER_WORLDS)}")
-    parts = {f"world_{w}": WORLD_BUDGET_BYTES[w] for w in TIER_WORLDS[tier]}
+    parts = {f"world_{w}": WORLD_BUDGET_BYTES[w] for w in TIER_WORLDS[tier]} if include_worlds else {}
     parts["disk_probe_file"] = probe_gib * GIB
     parts["free_margin"] = FREE_MARGIN_BYTES
     return sum(parts.values()), parts
@@ -260,13 +297,14 @@ def disk_preflight(
     run_id: str,
     runner: Runner = subprocess.run,
     which: Which = shutil.which,
+    include_worlds: bool = True,
 ) -> int:
     """Create the world root, then refuse unless df leaves the ADR budget free."""
     step = "disk_preflight"
-    data: Dict[str, object] = {"tier": tier, "world_root": str(world_root)}
+    data: Dict[str, object] = {"tier": tier, "world_root": str(world_root), "worlds_cached": not include_worlds}
     try:
         _validate_probe_gib(probe_gib)
-        required, parts = required_free_bytes(tier, probe_gib)
+        required, parts = required_free_bytes(tier, probe_gib, include_worlds)
         data["required_free_bytes"] = required
         data["required_parts_bytes"] = parts
         if which("df") is None:
@@ -297,7 +335,8 @@ def disk_preflight(
             raise LaneError(
                 f"DID NOT RUN: disk -- df reports {avail / GB:.1f} GB free on "
                 f"{df['mounted_on']} ({world_root}), this run needs {required / GB:.1f} GB "
-                f"(worlds {', '.join(TIER_WORLDS[tier])} + {probe_gib} GiB disk probe + "
+                f"({'worlds ' + ', '.join(TIER_WORLDS[tier]) + ' + ' if include_worlds else ''}"
+                f"{probe_gib} GiB disk probe + "
                 f"{FREE_MARGIN_BYTES // GIB} GiB enforced free margin, ADR section 5.3)",
                 EXIT_NOT_RUN,
             )
@@ -432,11 +471,15 @@ def disk_throughput(
         data["reread_over_first_read"] = round(
             float(second["mb_per_s"]) / float(first["mb_per_s"]), 3
         ) if first["mb_per_s"] else None
+        # D-14 item 4: the label every cold result of this run carries.
+        # The probe file was written by this step, so absence is unprovable here.
+        data["host_cache"] = wc.host_cache_label(data["reread_over_first_read"], first_read_follows_own_write=True)
         data["host_cache_note"] = (
             "Both reads bypass the guest page cache (O_DIRECT). A re-read much faster "
             "than the first read means a host-side cache serves the VM disk (ADR D-14 "
-            "item 4); report-only, no threshold is applied here. The first read follows "
-            "this step's own write, which a write-back host cache may still hold."
+            "item 4). The first read follows this step's own write, which a write-back host "
+            "cache may still hold, so the label is always `present`: a cold result never "
+            "claims more than guest-cold. A label, not a gate."
         )
         if which("fio") is None:
             data["fio"] = {"present": False, "note": "fio is optional (ADR section 5.4)"}
@@ -689,6 +732,47 @@ def generate(
     return code
 
 
+def _children_read_bytes() -> Optional[int]:
+    """Block-input bytes of every reaped descendant (Linux `ru_inblock` is in 512 B units).
+
+    The probe's Godot process is a grandchild that run_probe.py waits for, so its
+    reads accumulate here. Page-cache hits are not block input, which is what
+    makes this the V10 signal. None where `resource` does not exist.
+    """
+    try:
+        import resource  # noqa: PLC0415 - POSIX only
+    except ImportError:
+        return None
+    return int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_inblock) * 512
+
+
+def _host_cache_from_disk_step(out: Path) -> str:
+    try:
+        record = json.loads((out / "steps" / "disk_throughput.json").read_text(encoding="utf-8"))
+        return str(record["data"]["host_cache"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return wc.host_cache_label(None)
+
+
+def _cached_worlds(tier: str, cache_worlds: Path) -> Tuple[Dict[str, Path], Path]:
+    try:
+        mapping = json.loads(cache_worlds.read_text(encoding="utf-8"))
+        worlds = {k: Path(v) for k, v in mapping["worlds"].items()}
+        root = Path(mapping["cache_root"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise LaneError(
+            f"NOT_RUN: no usable {cache_worlds.name} ({exc}); cache-check did not admit a world",
+            EXIT_NOT_RUN,
+        ) from exc
+    for world in TIER_WORLDS[tier]:
+        if world not in worlds or not (worlds[world] / MANIFEST_NAME).is_file():
+            raise LaneError(
+                f"NOT_RUN: cache-check admitted no world {world}; there is nothing to probe",
+                EXIT_NOT_RUN,
+            )
+    return worlds, root
+
+
 def probe(
     repo: Path,
     godot_binary: Path,
@@ -696,27 +780,69 @@ def probe(
     world_root: Path,
     out: Path,
     runner: Runner = subprocess.run,
+    cache_worlds: Optional[Path] = None,
+    residency_probe: Optional[Callable[[Path], Tuple[int, int]]] = None,
+    lock: Callable[..., object] = wc.cache_lock,
+    read_bytes: Callable[[], Optional[int]] = _children_read_bytes,
 ) -> int:
+    """Run the BV-07 probe. With `cache_worlds` (BV-06b): on the cached worlds, cold.
+
+    D-14 item 2 is checked first: above the residency limit the run is INVALID
+    `cache_warm` and the probe does not start.
+    """
     step = "probe"
     data: Dict[str, object] = {"tier": tier}
     try:
         if tier not in TIER_WORLDS:
             raise LaneError(f"unknown tier {tier!r}")
         entry = _entry_point(repo, PROBE_ENTRY, PROBE_PACKAGE, "probe")
-        _require_world_root(world_root)
-        worlds: List[str] = []
-        for world in TIER_WORLDS[tier]:
-            if not (world_root / world / MANIFEST_NAME).is_file():
+        cache_root: Optional[Path] = None
+        if cache_worlds is not None:
+            dirs, cache_root = _cached_worlds(tier, cache_worlds)
+            dirs = {w: dirs[w] for w in TIER_WORLDS[tier]}
+            files = [f for d in dirs.values() for f in wc.world_files(d)]
+            cache: Dict[str, object] = {"host_cache": _host_cache_from_disk_step(out), "cold_proven": False}
+            data["cache"] = cache
+            res = wc.residency(files, residency_probe)
+            cache["residency"] = {k: v for k, v in res.items() if k != "per_file"}
+            if not res["cold"]:
+                cache["invalid_reason"] = "cache_warm"
                 raise LaneError(
-                    f"NOT_RUN: world {world} was not generated (no {MANIFEST_NAME} under "
-                    f"{world_root / world}); there is nothing to probe",
-                    EXIT_NOT_RUN,
+                    f"INVALID: cache_warm -- {res['resident_fraction']:.2%} of the world pages are "
+                    f"resident before the cold pass, limit {wc.RESIDENCY_MAX_FRACTION:.0%} (ADR D-14 "
+                    "item 2); the probe did not start",
+                    EXIT_INVALID,
                 )
-            worlds += ["--world", f"{world}={world_root / world}"]
+        else:
+            _require_world_root(world_root)
+            dirs = {}
+            for world in TIER_WORLDS[tier]:
+                if not (world_root / world / MANIFEST_NAME).is_file():
+                    raise LaneError(
+                        f"NOT_RUN: world {world} was not generated (no {MANIFEST_NAME} under "
+                        f"{world_root / world}); there is nothing to probe",
+                        EXIT_NOT_RUN,
+                    )
+                dirs[world] = world_root / world
+        worlds: List[str] = []
+        for world, directory in dirs.items():
+            worlds += ["--world", f"{world}={directory}"]
         probe_out = out / "probe"
         probe_out.mkdir(parents=True, exist_ok=True)
         cmd = [sys.executable, str(entry), "--godot-binary", str(godot_binary), *worlds, "--out", str(probe_out)]
-        rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
+        if cache_root is not None:
+            with lock(cache_root, False):  # type: ignore[operator]
+                before = read_bytes()
+                rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
+                after = read_bytes()
+            delta = after - before if before is not None and after is not None else None
+            # The path oracle (ADR section 6.4) that supplies the expected unique
+            # stored bytes is BV-13a's; until then V10 is NOT_EVALUATED, never OK.
+            v10 = wc.v10(delta, None)
+            cache["v10"] = v10
+            cache["cold_proven"] = v10["status"] == "OK"
+        else:
+            rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
         data["probe_exit_code"] = rc
         summary = probe_out / PROBE_SUMMARY_NAME
         data["summary_written"] = summary.is_file()
@@ -727,10 +853,205 @@ def probe(
             raise LaneError(f"probe exited 0 but wrote no {PROBE_SUMMARY_NAME}; a silent probe is not a pass")
         reason = f"probe finished; summary at {summary.relative_to(out).as_posix()}"
         code = EXIT_OK
-    except LaneError as exc:
+    except (LaneError, wc.CacheError) as exc:
         reason, code = str(exc), exc.code
     except (OSError, subprocess.TimeoutExpired) as exc:
         reason, code = f"probe could not run: {exc}", EXIT_FAIL
+    write_record(out, step, code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+# --------------------------------------------------------------------------
+# world cache (BV-06b, ADR section 9.2 and D-14)
+# --------------------------------------------------------------------------
+
+
+def _fsync_write(path: Path, text: str) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def prime_cache(
+    repo: Path,
+    godot_binary: Path,
+    tier: str,
+    cache_root: Path,
+    out: Path,
+    run_id: str,
+    runner: Runner = subprocess.run,
+    which: Which = shutil.which,
+    fadvise: Optional[wc.Fadvise] = None,
+    lock: Callable[..., object] = wc.cache_lock,
+) -> int:
+    """Section 9.1 job 1: sweep orphans, delete the old key, generate, fadvise, `.complete`."""
+    step = "prime_cache"
+    data: Dict[str, object] = {"tier": tier, "cache_root": str(cache_root), "worlds": {}}
+    try:
+        if tier not in TIER_WORLDS:
+            raise LaneError(f"unknown tier {tier!r}")
+        if not cache_root.is_absolute():
+            raise LaneError(f"cache root {cache_root} is not an absolute path")
+        entry = _entry_point(repo, GENERATOR_ENTRY, GENERATOR_PACKAGE, "generator")
+        if which("df") is None:
+            raise LaneError("df is not on PATH; free space is unmeasured, so nothing may be generated")
+        fingerprint = wc.source_fingerprint(repo)
+        data["source_fingerprint"] = fingerprint
+        with lock(cache_root, True):  # type: ignore[operator]
+            wc.ensure_format(cache_root, create=True)
+            data["swept_orphans"] = wc.sweep_orphans(cache_root)
+            data["quarantine_deleted"] = wc.clear_quarantine(cache_root)
+            for world in TIER_WORLDS[tier]:
+                wid = wc.world_id(world, ENCODING)
+                base = cache_root / wid
+                base.mkdir(parents=True, exist_ok=True)
+                # Delete-first (section 5.3): the lane reports NOT_RUN: cache absent meanwhile.
+                deleted = []
+                for old in sorted(p for p in base.iterdir() if p.is_dir()):
+                    shutil.rmtree(old)
+                    deleted.append(old.name)
+                df = run_df(cache_root, runner)
+                need = WORLD_BUDGET_BYTES[world] + FREE_MARGIN_BYTES
+                if int(df["avail_bytes"]) < need:
+                    raise LaneError(
+                        f"DID NOT RUN: disk -- df reports {int(df['avail_bytes']) / GB:.1f} GB free "
+                        f"on {df['mounted_on']}, world {world} needs {WORLD_BUDGET_BYTES[world] / GB:.1f} GB "
+                        f"+ the {FREE_MARGIN_BYTES // GIB} GiB enforced free margin (ADR section 5.3)",
+                        EXIT_NOT_RUN,
+                    )
+                incoming = base / f"{wc.INCOMING_PREFIX}{run_id}"
+                cmd = [
+                    sys.executable, str(entry), "--godot-binary", str(godot_binary),
+                    "--tier", world, "--encoding", ENCODING, "--out", str(incoming),
+                ]
+                rc = _run_logged(cmd, out / "logs" / f"prime_{world}.log", runner, None)
+                if rc != 0:
+                    raise LaneError(f"generator for {world} exited {rc}; the partial key stays an orphan")
+                try:
+                    manifest = json.loads((incoming / MANIFEST_NAME).read_text(encoding="utf-8"))
+                    gen_sha = str(manifest["gen_sha"])
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    raise LaneError(
+                        f"generator for {world} exited 0 without a readable gen_sha in {MANIFEST_NAME}: {exc}"
+                    ) from exc
+                if not re.fullmatch(r"[0-9a-f]{64}", gen_sha):
+                    raise LaneError(f"{MANIFEST_NAME} of {world} has a malformed gen_sha {gen_sha!r}")
+                meta = {
+                    "schema": wc.KEY_SCHEMA,
+                    "world": world,
+                    "encoding": ENCODING,
+                    "gen_sha": gen_sha,
+                    "source_fingerprint": fingerprint,
+                    "run_id": run_id,
+                }
+                _fsync_write(incoming / wc.KEY_META_FILE, json.dumps(meta, indent=2, sort_keys=True) + "\n")
+                key = base / gen_sha[:12]
+                os.replace(incoming, key)
+                # D-14 item 1: after generation (the wrapper already verified every digest).
+                dropped = wc.drop_from_page_cache(wc.world_files(key), fadvise)
+                _fsync_write(key / wc.COMPLETE_FILE, f"run_id={run_id}\n")
+                (out / "worlds").mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(key / MANIFEST_NAME, out / "worlds" / f"{world}.{MANIFEST_NAME}")
+                data["worlds"][world] = {  # type: ignore[index]
+                    "key": str(key.relative_to(cache_root)),
+                    "deleted_keys": deleted,
+                    "bytes_dropped_from_page_cache": dropped,
+                }
+        reason = f"primed {', '.join(TIER_WORLDS[tier])} into {cache_root}"
+        code = EXIT_OK
+    except (LaneError, wc.CacheError) as exc:
+        reason, code = str(exc), exc.code
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        reason, code = f"prime could not complete: {exc}", EXIT_FAIL
+    write_record(out, step, code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+def _verify_world(world_file: Path) -> dict:
+    import verify_world_manifest  # noqa: PLC0415 - sibling module, imported on use
+
+    return verify_world_manifest.verify(world_file)
+
+
+def cache_check(
+    repo: Path,
+    tier: str,
+    cache_root: Path,
+    out: Path,
+    run_id: str,
+    fadvise: Optional[wc.Fadvise] = None,
+    verify: Callable[[Path], dict] = _verify_world,
+    lock: Callable[..., object] = wc.cache_lock,
+) -> int:
+    """Per-run verify (V2 against the world's own manifest), quarantine, fadvise."""
+    step = "cache_check"
+    data: Dict[str, object] = {"tier": tier, "cache_root": str(cache_root), "worlds": {}}
+    try:
+        if tier not in TIER_WORLDS:
+            raise LaneError(f"unknown tier {tier!r}")
+        fingerprint = wc.source_fingerprint(repo)
+        data["source_fingerprint"] = fingerprint
+        wc.ensure_format(cache_root, create=False)
+        resolved: Dict[str, str] = {}
+        with lock(cache_root, True):  # type: ignore[operator]
+            for world in TIER_WORLDS[tier]:
+                wid = wc.world_id(world, ENCODING)
+                keys = wc.complete_keys(cache_root, wid)
+                if not keys:
+                    raise wc.CacheError(
+                        f"NOT_RUN: cache absent -- no complete key for {wid}; dispatch this "
+                        "workflow with prime_world_cache=true",
+                        EXIT_NOT_RUN,
+                        "cache_absent",
+                    )
+                if len(keys) > 1:
+                    raise LaneError(
+                        f"{wid} has {len(keys)} complete keys ({[k.name for k in keys]}); the prime "
+                        "deletes the old key first, so something else wrote this cache"
+                    )
+                key = keys[0]
+                meta = wc.read_key_meta(key)
+                if meta.get("source_fingerprint") != fingerprint:
+                    raise wc.CacheError(
+                        f"NOT_RUN: cache_stale -- {wid}/{key.name} was generated from other "
+                        "generator sources than this checkout; dispatch with prime_world_cache=true",
+                        EXIT_NOT_RUN,
+                        "cache_stale",
+                    )
+                result = verify(key / WORLD_FILE_NAME)
+                entry: Dict[str, object] = {"key": key.name, "gen_sha": meta.get("gen_sha"), "verify_ok": bool(result.get("ok"))}
+                data["worlds"][world] = entry  # type: ignore[index]
+                if not result.get("ok"):
+                    problems = list(result.get("problems") or [])[:20]
+                    entry["problems"] = problems
+                    moved = wc.quarantine(cache_root, key, run_id)
+                    entry["quarantined_to"] = str(moved)
+                    raise wc.CacheError(
+                        f"INVALID: V2 -- {wid}/{key.name} does not match its manifest ({problems[:3]}); "
+                        f"moved to {moved}, which only a prime deletes",
+                        EXIT_INVALID,
+                        "manifest_mismatch",
+                    )
+                # D-14 item 1: after every per-run verify.
+                entry["bytes_dropped_from_page_cache"] = wc.drop_from_page_cache(wc.world_files(key), fadvise)
+                resolved[world] = str(key)
+        (out / CACHE_WORLDS_FILE).write_text(
+            json.dumps({"cache_root": str(cache_root), "worlds": resolved}, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        reason = f"cache verified and dropped from the page cache: {resolved}"
+        code = EXIT_OK
+    except wc.CacheError as exc:
+        reason, code = str(exc), exc.code
+        if exc.reason_code:
+            data["reason_code"] = exc.reason_code
+    except LaneError as exc:
+        reason, code = str(exc), exc.code
+    except OSError as exc:
+        reason, code = f"cache check could not complete: {exc}", EXIT_FAIL
     write_record(out, step, code, reason, data)
     _announce(code, reason)
     return code
@@ -741,29 +1062,79 @@ def probe(
 # --------------------------------------------------------------------------
 
 
-def summarize(out: Path, step_summary: Optional[Path] = None) -> int:
-    """Collect every step record. A step without one is MISSING, never OK."""
+def lane_verdict(statuses: Sequence[str]) -> str:
+    """VOID > FAIL > INVALID > NOT_RUN > PASS. MISSING counts as NOT_RUN, anything unknown as FAIL."""
+    mapped = []
+    for status in statuses:
+        if status == "OK":
+            mapped.append("PASS")
+        elif status == "MISSING":
+            mapped.append("NOT_RUN")
+        elif status in VERDICT_EXIT:
+            mapped.append(status)
+        else:
+            mapped.append("FAIL")
+    if not mapped:
+        return "NOT_RUN"
+    for verdict in VERDICT_PRECEDENCE:
+        if verdict in mapped:
+            return verdict
+    return "PASS"
+
+
+def summarize(
+    out: Path,
+    step_summary: Optional[Path] = None,
+    contention_outcome: Optional[str] = None,
+    meta: Optional[Dict[str, str]] = None,
+) -> int:
+    """Collect every step record into one lane verdict. A step without one is MISSING, never OK.
+
+    `contention_outcome` is the GitHub outcome of the contention postflight
+    step, which exits 75 to void a run and writes no record of its own:
+    success -> OK, failure -> VOID, anything else (skipped, cancelled, absent)
+    -> no record -> MISSING.
+    """
+    if contention_outcome == "success":
+        write_record(out, "contention", EXIT_OK, "contention postflight CLEAN")
+    elif contention_outcome == "failure":
+        write_record(out, "contention", EXIT_VOID, "contention postflight failed: the run is VOID (#875)")
     rows = []
+    cache: object = None
     for step in STEP_NAMES:
         path = out / "steps" / f"{step}.json"
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             rows.append((step, str(record.get("status", "UNREADABLE")), str(record.get("reason", ""))))
+            if step == "probe" and isinstance(record.get("data"), dict):
+                cache = record["data"].get("cache")
         except (OSError, ValueError):
             rows.append((step, "MISSING", "the step wrote no record (skipped, cancelled or crashed)"))
+    verdict = lane_verdict([status for _, status, _ in rows])
     complete = all(status == "OK" for _, status, _ in rows)
     summary = {
-        "schema": "godotgs-beyond-vram-dispatch/1",
+        "schema": "godotgs-beyond-vram-dispatch/2",
         "report_only": True,
         "overall": "COMPLETE" if complete else "INCOMPLETE",
+        "verdict": verdict,
         "steps": [{"step": s, "status": st, "reason": r} for s, st, r in rows],
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "dispatch_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    verdict_record = {
+        "schema": VERDICT_SCHEMA,
+        "verdict": verdict,
+        "exit_code": VERDICT_EXIT[verdict],
+        "report_only": True,
+        "cache": cache,
+        "steps": summary["steps"],
+    }
+    verdict_record.update(meta or {})
+    (out / VERDICT_FILE).write_text(json.dumps(verdict_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     lines = [
-        "## Beyond-VRAM dispatch (BV-06a, report-only)",
+        "## Beyond-VRAM fly-through (BV-06b, report-only)",
         "",
-        f"Overall: **{summary['overall']}**",
+        f"Lane verdict: **{verdict}** (overall {summary['overall']})",
         "",
         "| Step | Status | Detail |",
         "| --- | --- | --- |",
@@ -774,7 +1145,7 @@ def summarize(out: Path, step_summary: Optional[Path] = None) -> int:
     if step_summary is not None:
         with step_summary.open("a", encoding="utf-8") as handle:
             handle.write(text)
-    return EXIT_OK
+    return VERDICT_EXIT[verdict]
 
 
 def cleanup(world_root: Path) -> int:
@@ -819,6 +1190,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--tier", required=True, choices=sorted(TIER_WORLDS))
     p.add_argument("--probe-gib", type=int, required=True)
     p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
+    p.add_argument("--worlds-cached", action="store_true",
+                   help="the worlds sit in the world cache; budget only the disk probe and the margin")
 
     p = sub.add_parser("disk-throughput")
     common(p)
@@ -839,9 +1212,30 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--godot-binary", type=Path, required=True)
         p.add_argument("--tier", required=True, choices=sorted(TIER_WORLDS))
         p.add_argument("--repo", type=Path, default=ROOT)
+        if name == "probe":
+            p.add_argument("--cache-worlds", type=Path,
+                           help=f"the {CACHE_WORLDS_FILE} cache-check wrote: probe the cached worlds, cold")
+
+    p = sub.add_parser("prime-cache")
+    common(p, world=False)
+    p.add_argument("--godot-binary", type=Path, required=True)
+    p.add_argument("--tier", required=True, choices=sorted(TIER_WORLDS))
+    p.add_argument("--cache-root", type=Path, required=True)
+    p.add_argument("--repo", type=Path, default=ROOT)
+    p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
+
+    p = sub.add_parser("cache-check")
+    common(p, world=False)
+    p.add_argument("--tier", required=True, choices=sorted(TIER_WORLDS))
+    p.add_argument("--cache-root", type=Path, required=True)
+    p.add_argument("--repo", type=Path, default=ROOT)
+    p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
 
     p = sub.add_parser("summarize")
     common(p, world=False)
+    p.add_argument("--contention-outcome", default=None,
+                   help="outcome of the contention postflight step (success, failure, ...)")
+    p.add_argument("--tier", default=None)
 
     p = sub.add_parser("cleanup")
     common(p, out=False)
@@ -853,7 +1247,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if getattr(args, "out", None) is not None:
         args.out.mkdir(parents=True, exist_ok=True)
     if args.command == "disk-preflight":
-        return disk_preflight(args.tier, args.world_root, args.out, args.probe_gib, args.run_id)
+        return disk_preflight(
+            args.tier, args.world_root, args.out, args.probe_gib, args.run_id,
+            include_worlds=not args.worlds_cached,
+        )
+    if args.command == "prime-cache":
+        return prime_cache(args.repo, args.godot_binary, args.tier, args.cache_root, args.out, args.run_id)
+    if args.command == "cache-check":
+        return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id)
     if args.command == "disk-throughput":
         return disk_throughput(args.world_root, args.out, args.probe_gib)
     if args.command == "vulkan-limits":
@@ -863,10 +1264,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "generate":
         return generate(args.repo, args.godot_binary, args.tier, args.world_root, args.out)
     if args.command == "probe":
-        return probe(args.repo, args.godot_binary, args.tier, args.world_root, args.out)
+        return probe(args.repo, args.godot_binary, args.tier, args.world_root, args.out,
+                     cache_worlds=args.cache_worlds)
     if args.command == "summarize":
         env = os.environ.get("GITHUB_STEP_SUMMARY")
-        return summarize(args.out, Path(env) if env else None)
+        meta = {
+            key: os.environ[name]
+            for key, name in (
+                ("run_id", "GITHUB_RUN_ID"), ("run_attempt", "GITHUB_RUN_ATTEMPT"),
+                ("event", "GITHUB_EVENT_NAME"), ("sha", "GITHUB_SHA"), ("ref", "GITHUB_REF"),
+            )
+            if os.environ.get(name)
+        }
+        if args.tier:
+            meta["tier"] = args.tier
+        return summarize(args.out, Path(env) if env else None, args.contention_outcome, meta)
     if args.command == "cleanup":
         return cleanup(args.world_root)
     raise AssertionError(args.command)
