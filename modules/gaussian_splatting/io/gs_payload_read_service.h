@@ -17,8 +17,8 @@
 // Positional payload reads on a bounded reader pool
 // (docs/architecture/adr-beyond-vram-worlds.md §3.1, §3.2, §3.4 step 5; BV-08b).
 //
-// BV-08b ships the service alone: nothing in the runtime calls it yet. BV-C5b wires it
-// into the staged source.
+// BV-08b shipped the service alone. Its first runtime caller is the paged-GSQ staged source
+// (BV-C5b, core/streaming_gsq_chunk_payload_source.h).
 //
 // Contract:
 //

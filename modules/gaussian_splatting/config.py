@@ -111,6 +111,7 @@ def get_doc_classes():
         "GaussianSplatWorld3D",
         "GaussianSplatWorldGenerator",
         "GaussianStreamingSystem",
+        "GsqPagedChunkPayloadSource",
         "IGPUSorter",
         "IGaussianLoader",
         "InMemoryChunkPayloadSource",
