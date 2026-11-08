@@ -20,6 +20,7 @@
 #include "../logger/gs_logger.h"
 #include "gs_atomic_file_writer.h"
 #include "gsq/gsq_codec.h"
+#include "gsq/gsq_page_builder.h"
 #include "io_settings_utils.h"
 
 #include <algorithm>
