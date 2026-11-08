@@ -646,8 +646,28 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] begin_plain refuses specs t
 	};
 	LocalVector<Case> cases;
 	{
-		Case c{ "codec GSQ before BV-C3", good, CodecParams(), ERR_UNAVAILABLE };
+		// The D-12 block is valid; the plain v3 bit-7 container is BV-C5a (W11).
+		Case c{ "codec GSQ v1 before its container", good, gs_world_writer::gsq_v1_codec_params(), ERR_UNAVAILABLE };
+		cases.push_back(c);
+	}
+	{
+		Case c{ "codec GSQ v1 with an out-of-range field", good, gs_world_writer::gsq_v1_codec_params(), ERR_INVALID_PARAMETER };
+		c.codec.sh_bits[2] = 9;
+		cases.push_back(c);
+	}
+	{
+		Case c{ "codec GSQ v1 with fields left zero", good, CodecParams(), ERR_INVALID_PARAMETER };
 		c.codec.codec_id = 1;
+		cases.push_back(c);
+	}
+	{
+		Case c{ "codec GSQ v1 at SH degree 4", good, gs_world_writer::gsq_v1_codec_params(), ERR_INVALID_PARAMETER };
+		c.spec.sh_degree = 4;
+		cases.push_back(c);
+	}
+	{
+		Case c{ "unknown codec", good, CodecParams(), ERR_UNAVAILABLE };
+		c.codec.codec_id = 2;
 		cases.push_back(c);
 	}
 	{

@@ -456,15 +456,22 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
 - **Layout inside a sub-block.** SoA, byte-planed, with positions delta-coded in the caller's
   order. The codec never reorders (`io/gsq/gsq_codec.h:5-6` ✓, `io/gsq/gsq_codec.cpp:559-565`
   ✓). **Spatial order is the writer's job:** BV-C3 sorts spatially (Morton) before encoding
-  (decision 2026-11-07, #1347). How that sort coexists with the importance-ordered prefix
-  (§6.2 "Per-chunk order") is fixed in BV-C3.
+  (decision 2026-11-07, #1347). **Fixed in BV-C3 (decision 2026-11-08):** the writer cuts a
+  chunk's importance order into pages of 4,096 splats (`gs_gsq::kWriterPageSplats`, one
+  sub-block each), orders the pages by their first splat and sorts Morton order only inside a
+  page. A prefix of pages is a prefix of the importance order, so §6.2 prefix LOD truncates in
+  whole pages (`io/gsq/gsq_page_builder.h`). A chunk is therefore a run of pages, not one page;
+  the container change is BV-C5a.
 - **Page constants.** The fields D-12 does not quantize (area, DC alpha, stroke age, brush
   axes, `painterly_meta`, `render_meta`) are stored once per page. The codec refuses a page
   whose splats differ in them with `gsq_heterogeneous_field` (`io/gsq/gsq_codec.cpp:361-366`,
   `:434-438` ✓). Normals are the exception: they take per-splat planes when they differ
   (header flag bit 1). **The BV-C3 page builder must group splats with equal page constants
   into pages.** Any remaining failure must be visible, as an error or a counted fallback,
-  never silent, and painterly content must stay encodable (decision 2026-11-07).
+  never silent, and painterly content must stay encodable (decision 2026-11-07). BV-C3 groups
+  bit-identical page constants, cuts each group into importance-ordered pages and counts the
+  split (`constant_groups`, `heterogeneous_chunks`); a field the codec still refuses fails the
+  chunk with its `gsq_*` reason.
 - **Quantization** (pre-registered defaults, frozen in `settings`):
 
 | Attribute | Encoding |

@@ -1,6 +1,7 @@
 #include "gs_world_writer.h"
 
 #include "gaussian_splat_world_format.h"
+#include "gsq/gsq_page_builder.h"
 
 #include "../core/streaming_chunk_payload_source.h"
 
@@ -73,6 +74,39 @@ bool _add_u64(uint64_t p_a, uint64_t p_b, uint64_t &r_out) {
 
 } // namespace
 
+CodecParams gsq_v1_codec_params() {
+	const gs_gsq::EncodeParams defaults;
+	CodecParams codec;
+	codec.codec_id = kCodecGsqV1;
+	for (int i = 0; i < 3; i++) {
+		codec.sh_bits[i] = defaults.sh_bits[i];
+	}
+	codec.opacity_bits = defaults.opacity_bits;
+	codec.pos_step_m = defaults.pos_step_m;
+	codec.zstd_level = defaults.zstd_level;
+	return codec;
+}
+
+Error gsq_encode_params(const CodecParams &p_codec, gs_gsq::EncodeParams &r_params, String &r_reason) {
+	if (p_codec.codec_id != kCodecGsqV1) {
+		r_reason = vformat("gsq_invalid_params: codec_id %d is not GSQ v1", p_codec.codec_id);
+		return ERR_INVALID_PARAMETER;
+	}
+	gs_gsq::EncodeParams params;
+	for (int i = 0; i < 3; i++) {
+		params.sh_bits[i] = p_codec.sh_bits[i];
+	}
+	params.opacity_bits = p_codec.opacity_bits;
+	params.pos_step_m = p_codec.pos_step_m;
+	params.zstd_level = p_codec.zstd_level;
+	const Error err = gs_gsq::validate_encode_params(params, r_reason);
+	if (err != OK) {
+		return err;
+	}
+	r_params = params;
+	return OK;
+}
+
 Writer::~Writer() {
 	abort();
 }
@@ -131,8 +165,21 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 	if (p_mode != SourceMode::REITERABLE && p_mode != SourceMode::SINGLE_PASS) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: unknown source mode");
 	}
-	if (p_codec.codec_id != 0u) {
-		return _fail(ERR_UNAVAILABLE, vformat("codec_unavailable: codec_id %d (GSQ arrives with BV-C3)", p_codec.codec_id));
+	if (p_codec.codec_id == kCodecGsqV1) {
+		gs_gsq::EncodeParams gsq_params;
+		String reason;
+		if (gsq_encode_params(p_codec, gsq_params, reason) != OK) {
+			return _fail(ERR_INVALID_PARAMETER, "invalid_spec: " + reason);
+		}
+		if (p_spec.sh_degree > gs_gsq::kMaxShDegree || p_spec.sh_high_order != gs_gsq::sh_high_order_for_degree(p_spec.sh_degree)) {
+			return _fail(ERR_INVALID_PARAMETER, vformat("invalid_spec: GSQ v1 carries SH degree <= %d with its full high-order layout (degree %d, %d high-order)",
+														gs_gsq::kMaxShDegree, p_spec.sh_degree, p_spec.sh_high_order));
+		}
+		// W11: the pages exist (gs_gsq::PageBuilder), the container a reader loads does not yet.
+		return _fail(ERR_UNAVAILABLE, "container_unavailable: GSQ v1 pages need the plain v3 bit-7 paged container (BV-C5a)");
+	}
+	if (p_codec.codec_id != kCodecNone) {
+		return _fail(ERR_UNAVAILABLE, vformat("codec_unavailable: codec_id %d", p_codec.codec_id));
 	}
 	if (p_codec.sh_bits[0] != 0u || p_codec.sh_bits[1] != 0u || p_codec.sh_bits[2] != 0u || p_codec.opacity_bits != 0u ||
 			p_codec.pos_step_m != 0.0f || p_codec.zstd_level != 0) {
