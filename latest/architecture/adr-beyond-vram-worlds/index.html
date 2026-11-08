@@ -5031,7 +5031,7 @@ The corridor lane has never produced a result: every reachable scheduled run of
 </tr>
 <tr>
 <td><strong>G-g</strong></td>
-<td><strong>A shippable, compressed, streamable world format</strong> shared by plain chunks and V4 HLOD nodes: about 30–38 B/splat at SH3 [E], against 288–292 B today.</td>
+<td><strong>A shippable, compressed, streamable world format</strong> shared by plain chunks and V4 HLOD nodes: 36.5–37.9 B/splat at SH3 on generator content [M] (BV-C2, #1363; real scans UNVERIFIED), against 288–292 B today.</td>
 <td>new requirement</td>
 </tr>
 <tr>
@@ -5687,7 +5687,10 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
   i.e. on any page wider than ≈ 16.4 m (<code>io/gsq/gsq_codec.cpp:510</code> ✓), rounded to 3 B per
   axis. So 23 B of geometry plus DC and 45 B of SH3 give <strong>68 B fixed width</strong>
   (<code>io/gsq/gsq_codec.cpp:289-291</code> ✓; 65 B only on pages narrow enough for 16-bit
-  positions), then <strong>≈ 30–38 B after zstd</strong> [E] (BV-C2 measures it).</li>
+  positions), then <strong>36.5 B (T0, whole tier) and 37.9 B (Tier A, every 32nd chunk) after zstd</strong>,
+  page headers included [M] (BV-C2, #1363, ci-cpu-1, generator content with correlated SH). The
+  hash-noise SH control takes 44.7 B [M]. <strong>Real scans are not measured</strong> (no scan on the CI
+  runners; the probe reports them MISSING): their ratio is UNVERIFIED.</li>
 <li><strong>Decode location.</strong> The decode runs <strong>in the pack workers</strong>, straight into the existing
   176 B <code>PackedGaussian</code> (<code>renderer/gaussian_gpu_layout.h:340</code> ✓).<ul>
 <li>Shaders are unchanged and the async path is kept.</li>
@@ -6294,7 +6297,7 @@ if F ≤ ≈ 7 ms".</p>
 </tr>
 </tbody>
 </table></div>
-<h3 id="53-disk-compressed-sizes-are-e-until-bv-c2-the-fixed-width-upper-bound-with-no-zstd-gain-is-in-brackets">5.3 Disk (compressed sizes are [E] until BV-C2; the fixed-width upper bound with no zstd gain is in brackets)<a class="headerlink" href="#53-disk-compressed-sizes-are-e-until-bv-c2-the-fixed-width-upper-bound-with-no-zstd-gain-is-in-brackets" title="Permanent link">¶</a></h3>
+<h3 id="53-disk-compressed-sizes-derive-from-bv-c2s-measured-365379-bsplat-on-generator-content-m-real-scan-ratio-unverified-the-fixed-width-upper-bound-with-no-zstd-gain-is-in-brackets">5.3 Disk (compressed sizes derive from BV-C2's measured 36.5–37.9 B/splat on generator content [M]; real-scan ratio UNVERIFIED; the fixed-width upper bound with no zstd gain is in brackets)<a class="headerlink" href="#53-disk-compressed-sizes-derive-from-bv-c2s-measured-365379-bsplat-on-generator-content-m-real-scan-ratio-unverified-the-fixed-width-upper-bound-with-no-zstd-gain-is-in-brackets" title="Permanent link">¶</a></h3>
 <p>Compressed sizes per tier:</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
@@ -6312,28 +6315,28 @@ if F ≤ ≈ 7 ms".</p>
 </tr>
 <tr>
 <td><strong>A plain GSQ</strong></td>
-<td><strong>5.6–7.1 GiB</strong> [12.75]</td>
-<td>[E]/[D]</td>
+<td><strong>6.8–7.1 GiB</strong> [12.75] (201.3M × 36.5–37.9 B)</td>
+<td>[D] from [M]</td>
 </tr>
 <tr>
 <td><strong>A V4 GSQ</strong> (interior SH3, D-9: no interior truncation yet)</td>
-<td><strong>7.9–8.7 GiB</strong> [15.3–16.9]</td>
-<td>[E]/[D]</td>
+<td><strong>8.2–9.4 GiB</strong> [15.3–16.9] (plain × 1.20–1.33, interior nodes assumed to compress like leaves)</td>
+<td>[D] from [M]</td>
 </tr>
 <tr>
 <td><strong>AB V4 GSQ</strong></td>
-<td><strong>15.8–17.4 GiB</strong> [30.5–33.9]</td>
-<td>[E]/[D]</td>
+<td><strong>16.4–18.8 GiB</strong> [30.5–33.9]</td>
+<td>[D] from [M]</td>
 </tr>
 <tr>
 <td><strong>AB-span V4 GSQ</strong></td>
-<td>15.8–17.4 GiB [30.5–33.9]</td>
-<td>[E]/[D]</td>
+<td>16.4–18.8 GiB [30.5–33.9]</td>
+<td>[D] from [M]</td>
 </tr>
 <tr>
 <td>T0 (4.19M): U plain / GSQ plain / GSQ V4</td>
-<td>1.14 / 0.12–0.15 / 0.16–0.18 GiB</td>
-<td>[D]/[E]</td>
+<td>1.14 / <strong>0.143</strong> (153,137,905 B) / 0.17–0.19 GiB</td>
+<td>[D]/[M]/[D]</td>
 </tr>
 <tr>
 <td>T-ref (≤ 12M per checkpoint, uncompressed), <strong>generated per run, one at a time, deleted after use</strong></td>
@@ -6399,12 +6402,12 @@ if F ≤ ≈ 7 ms".</p>
 </tr>
 <tr>
 <td><strong>Steady from M1c:</strong> A plain GSQ + A V4 GSQ + T0 + T-ref transient + spill</td>
-<td>7.6 + 9.3 + 1.5 + 3.5 + 1 → <strong>≈ 169.5 GB total</strong> (worst case fixed width at 68 B: ≈ 185 GB)</td>
+<td>7.6 + 10.1 + 1.5 + 3.5 + 1 → <strong>≈ 170.3 GB total</strong> (worst case fixed width at 68 B: ≈ 185 GB)</td>
 <td>fits</td>
 </tr>
 <tr>
 <td><strong>World cache</strong></td>
-<td>≈ 21.5 GiB steady (≤ 34 GiB worst); 56 GiB during M1</td>
+<td>≈ 22 GiB steady (≤ 34 GiB worst); 56 GiB during M1</td>
 <td><strong>within the approved ≈ 60 GiB</strong></td>
 </tr>
 </tbody>
@@ -6418,9 +6421,11 @@ if F ≤ ≈ 7 ms".</p>
 </ul>
 <p><strong>Workstation data drive (93 GB free [M], <code>df</code> on 2026-11-03):</strong></p>
 <ul>
-<li>Planned use: AB V4 GSQ 17–19 GB, A plain + V4 GSQ ≈ 17 GB, T-ref transient 3.5 GB, spill
-  ≈ 2 GB → ≈ 40 GB.</li>
-<li>AB-span (+17–19 GB) <strong>replaces</strong> AB when it runs.</li>
+<li>Planned use (from the BV-C2 ratio [M]): AB V4 GSQ 17.6–20.2 GB, A plain + V4 GSQ 16.1–17.7 GB,
+  T-ref transient 3.5 GB, spill ≈ 2 GB → ≈ 39–44 GB.</li>
+<li>The fixed-width upper bound (no zstd gain) is ≈ 73.8 GB and does <strong>not</strong> fit the ≈ 66 GB
+  usable (#1360); see K3.</li>
+<li>AB-span (+17.6–20.2 GB) <strong>replaces</strong> AB when it runs.</li>
 <li>With the 25 GiB margin the usable space is ≈ 66 GB, so it fits.</li>
 <li>The same "DID NOT RUN: disk" preflight applies on the workstation.</li>
 <li>The workstation's system drive is never used.</li>
@@ -6436,8 +6441,8 @@ at 400 m) [D]; both bounds are carried.</p>
 <th>Case</th>
 <th>New splats/s</th>
 <th>Disk, uncompressed (292 B)</th>
-<th><strong>Disk, GSQ (35 B)</strong></th>
-<th>Decode + pack CPU (2 workers)</th>
+<th><strong>Disk, GSQ (37.9 B [M])</strong></th>
+<th>Decode + pack CPU (1.37M splats/s per core [M])</th>
 <th>Upload (176 B)</th>
 </tr>
 </thead>
@@ -6446,32 +6451,35 @@ at 400 m) [D]; both bounds are carried.</p>
 <td>60 m/s</td>
 <td>1.67–2.82M</td>
 <td>0.49–0.82 GB/s</td>
-<td><strong>58–99 MB/s</strong></td>
-<td>≈ 0.2–0.5 core decode + pack (pack 6–16M/s per worker [E])</td>
+<td><strong>63–107 MB/s</strong></td>
+<td><strong>≈ 1.2–2.1 cores</strong> (decode 2.3M/s with page SHA-256, pack 3.3–3.5M/s per core [M])</td>
 <td>0.29–0.50 GB/s</td>
 </tr>
 <tr>
 <td>120 m/s</td>
 <td>3.33–5.64M</td>
 <td>0.97–1.65 GB/s</td>
-<td><strong>117–197 MB/s</strong></td>
-<td>≈ 0.4–1.0 core + pack; pack may bind</td>
+<td><strong>126–214 MB/s</strong></td>
+<td><strong>≈ 2.4–4.1 cores: 2 workers bind</strong></td>
 <td>0.59–0.99 GB/s</td>
 </tr>
 <tr>
 <td>Teleport refill (≤ 14.6M splats, 2.4 GiB resident)</td>
 <td>once</td>
 <td>4.3 GB → ≈ 6–9 s at 0.5–0.7 GB/s</td>
-<td><strong>0.51 GB → ≈ 0.5–1.7 s at 0.3–1 GB/s</strong></td>
-<td>≈ 0.5–1.2 s pack (2 workers)</td>
+<td><strong>0.55 GB → ≈ 0.6–1.8 s at 0.3–1 GB/s</strong></td>
+<td><strong>≈ 5.3 s decode + pack (2 workers) [D from M]</strong></td>
 <td>2.57 GB at ≤ 128 MB/frame ≈ 0.35 s at 60 fps</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>Consequence:</strong> disk stops being the binding resource; <strong>pack and decode CPU binds</strong> at
-120 m/s. G6t ≤ 6 s (3080) becomes plausible even on a slow VM disk, but it is still
-statistical (§8.3). BV-06a measures disk (<code>dd</code> with <code>O_DIRECT</code>; <code>fio</code> only if present), and
-BV-C2 measures decode and pack MB/s per core.</p>
+<p><strong>Consequence:</strong> disk stops being the binding resource; <strong>decode and pack CPU binds</strong>. BV-C2
+measured one core of ci-cpu-1 (AMD Threadripper PRO 3975WX, VM; BV-C2, #1363, generator content,
+median of 3): decode 2.27–2.34M splats/s (83–89 MB/s of stored bytes) with the page SHA-256,
+3.15–3.29M splats/s without it; pack into the 176 B <code>PackedGaussian</code> 3.33–3.46M splats/s;
+decode + pack 1.37M splats/s. With 2 workers that binds at 120 m/s and at the upper end of
+60 m/s, and a teleport refill costs ≈ 5.3 s of CPU against G6t ≤ 6 s (3080): <strong>K9 is real</strong>,
+not hypothetical. BV-06a measures disk (<code>dd</code> with <code>O_DIRECT</code>; <code>fio</code> only if present).</p>
 <hr>
 <h2 id="6-test-world-specification">6. Test world specification<a class="headerlink" href="#6-test-world-specification" title="Permanent link">¶</a></h2>
 <h3 id="61-tiers">6.1 Tiers<a class="headerlink" href="#61-tiers" title="Permanent link">¶</a></h3>
@@ -8202,7 +8210,7 @@ approver at ≈ 3–4 R3 dispositions per week (≈ 45 R3 PRs) and one runner.</
 <tr>
 <td>K3</td>
 <td>Codec ratio worse than estimated</td>
-<td>The fixed-width upper bound still fits every disk budget (§5.3); BV-C2 measures before freezing.</td>
+<td>BV-C2 [M]: 36.5–37.9 B/splat on generator content, inside the 30–38 B estimate; real scans UNVERIFIED (none on CI). The fixed-width upper bound fits the runner and the world cache, <strong>not the workstation</strong> (≈ 73.8 GB &gt; ≈ 66 GB usable, #1360); at the measured ratio the workstation plan is ≈ 39–44 GB and fits. Workstation mitigation if the real-scan ratio is worse: generate tiers one at a time, delete T-ref after use, keep one AB variant on disk.</td>
 </tr>
 <tr>
 <td>K4</td>
@@ -8232,7 +8240,7 @@ approver at ≈ 3–4 R3 dispositions per week (≈ 45 R3 PRs) and one runner.</
 <tr>
 <td>K9</td>
 <td>Codec decode CPU binds at 120 m/s</td>
-<td>Per-worker DCtx; decode straight to 176 B; pack worker count is a frozen setting; measured in BV-C2.</td>
+<td><strong>Materialized</strong> [M] (BV-C2): decode + pack 1.37M splats/s per core, so 120 m/s needs ≈ 2.4–4.1 cores and a teleport refill ≈ 5.3 s with 2 workers. Per-worker DCtx; decode straight to 176 B; the pack worker count is a frozen setting and must be sized from this measurement; the SHA-256 (≈ 30 % of decode) and the pack are the levers.</td>
 </tr>
 <tr>
 <td>K10</td>
@@ -8576,7 +8584,8 @@ but a manual VM run was rejected for the reason given in §9.1.</p>
 </tr>
 </tbody>
 </table></div>
-<p><strong>Still UNVERIFIED:</strong> all codec ratios and decode speeds (BV-C2 measures them), the
+<p><strong>Still UNVERIFIED:</strong> the codec ratio and decode speed on real scans (BV-C2 measured generator
+content only; no real scan is on the CI runners), the
 frame-time split beyond sort and total frame (D-4), runner <code>df</code> and disk throughput, host
 caching of the VM disk, 3080 Vulkan limits, the present-gap cause, records per splat at
 benchmark density, system-zstd linking, and template binaries loading absolute-path worlds.</p>

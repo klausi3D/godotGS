@@ -4862,7 +4862,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/91a4589ab773d28204d28f5ed597e8af2f3a0a62/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/91a4589ab773d28204d28f5ed597e8af2f3a0a62/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/ce9f1cd17ee4142fe1c2ec4be099c3ac783b287a/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/ce9f1cd17ee4142fe1c2ec4be099c3ac783b287a/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
@@ -4907,7 +4907,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Refresh QA baseline snapshot from current run</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --update-qa-baseline</code></td>
-<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/91a4589ab773d28204d28f5ed597e8af2f3a0a62/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
+<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/ce9f1cd17ee4142fe1c2ec4be099c3ac783b287a/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
 </tr>
 <tr>
 <td>Run renderer/static guards without Godot tests</td>
