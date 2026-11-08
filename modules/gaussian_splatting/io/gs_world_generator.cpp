@@ -1932,7 +1932,9 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 	spec.metadata["gs_generator"] = gen_meta;
 
 	gs_world_writer::Writer writer;
-	err = writer.begin_plain(p_world_path, spec, codec, gs_world_writer::SourceMode::REITERABLE);
+	// The tier fixes the world's size; the writer's preflight still refuses a disk that cannot
+	// hold it plus the default margin (BV-03b) before the first byte.
+	err = writer.begin_plain(p_world_path, spec, codec, gs_world_writer::SourceMode::REITERABLE, gs_world_writer::Limits::unbounded());
 	if (err != OK) {
 		return fail(err, writer.get_error_message());
 	}

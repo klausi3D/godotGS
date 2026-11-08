@@ -11,6 +11,7 @@
 #include "core/math/vector3.h"
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 
@@ -24,9 +25,8 @@
 // ResourceSaver::save of the same world (§4.5; proven by the [WorldWriter]
 // doctests).
 //
-// Not here yet (later packages, per §10): Limits, preflight, cancel, progress and
-// the Report (BV-03b); PAGED_V4 (BV-18a). The API grows into the §4.3 signature as
-// those land.
+// BV-03b: Limits, preflight, cancel, progress and the Report (§4.3, W10, W11); see
+// the Limits block below. Not here yet: PAGED_V4 (BV-18a).
 //
 // Codec GSQ v1 (BV-C3, container BV-C5a). The codec stage is gs_gsq::PageBuilder
 // (io/gsq/gsq_page_builder.h): it turns each appended chunk into importance-ordered,
@@ -47,7 +47,7 @@
 // of splats that chunk appended. Without it the units only frame the stream.
 //
 //     Writer w;
-//     w.begin_plain(path, spec, CodecParams(), SourceMode::REITERABLE);
+//     w.begin_plain(path, spec, CodecParams(), SourceMode::REITERABLE, limits);
 //     for (uint32_t pass = w.current_pass(); pass != Writer::kNoPass; pass = w.current_pass()) {
 //         for (each chunk c, in the same order every pass) {
 //             w.append_chunk(desc[c], gaussians[c], sh_high[c], count[c]);
@@ -88,7 +88,8 @@
 // leaves the destination as it was. (On POSIX the guard is a no-op: rename()
 // replaces a file readers still hold open.)
 //
-// Not thread-safe: one writer is driven by one thread.
+// Not thread-safe: one writer is driven by one thread. Only request_cancel() and
+// get_progress() may be called from another thread.
 namespace gs_world_writer {
 
 enum class Target : uint8_t {
@@ -138,6 +139,91 @@ struct PlainSpec {
 	Dictionary metadata;
 };
 
+// §4.3 Limits (BV-03b). Every field is required: a field left at 0 makes begin_plain()
+// refuse with "limits_unset", so no caller writes without stating its bounds. kUnbounded
+// is an explicit "no cap" (for the deadline: no deadline).
+//
+// Preflight. begin_plain() checks the limits and the free disk space BEFORE it creates
+// any file (the first byte), and refuses with a reason code:
+//   limit_ram     the per-world state it will hold (chunk table, chunk counts, metadata,
+//                 one 1 MiB slice) exceeds max_ram_bytes;
+//   limit_scratch the SINGLE_PASS SH scratch exceeds max_scratch_bytes;
+//   limit_output  the file it will write exceeds max_output_bytes (codec none: exact);
+//   preflight_disk the free space of the destination's directory is unknown (0), or is
+//                 smaller than output + scratch + min_free_disk_margin. With GSQ v1 the
+//                 output size is unknown at begin: the need is the smaller of
+//                 max_output_bytes and the uncompressed plain v3 size of the same world.
+// While writing, every slice (<= 1 MiB) re-checks the output and scratch caps (GSQ
+// output is only known as it grows), the RAM cap after each chunk (GSQ page table and
+// the chunk's pages), the deadline ("deadline", ERR_TIMEOUT, wall time since
+// begin_plain()) and the cancel flag ("cancelled", ERR_SKIP). Any refusal goes through
+// the normal failure path, so W1 holds: temp and scratch are removed, nothing appears at
+// the final path, and a pre-existing final file stays byte-intact.
+constexpr uint64_t kDefaultFreeDiskMargin = uint64_t(64) << 20u;
+
+struct Limits {
+	static constexpr uint64_t kUnbounded = UINT64_MAX;
+
+	uint64_t max_ram_bytes = 0;
+	uint64_t max_scratch_bytes = 0;
+	uint64_t max_output_bytes = 0;
+	uint64_t deadline_usec = 0;
+	uint64_t min_free_disk_margin = 0;
+
+	// Every cap kUnbounded and no deadline; the free-disk margin is still required.
+	static Limits unbounded(uint64_t p_min_free_disk_margin = kDefaultFreeDiskMargin);
+};
+
+enum class Phase : uint8_t {
+	IDLE,
+	WRITING,
+	FINALIZING,
+	COMMITTED,
+	STOPPED, // failed, refused, cancelled or aborted
+};
+
+// W10. Counters are cumulative over every pass of one begin_plain() and never go back,
+// including across a failure. get_progress() and request_cancel() may be called from
+// another thread; everything else belongs to the driving thread.
+struct Progress {
+	Phase phase = Phase::IDLE;
+	uint32_t pass = 0;
+	uint32_t pass_count = 0;
+	uint64_t chunks_done = 0;
+	uint64_t chunks_total = 0; // chunk_count * pass_count
+	uint64_t splats_done = 0;
+	uint64_t splats_total = 0; // splat_count * pass_count
+	uint64_t bytes_written = 0; // every byte handed to the output and the scratch
+};
+
+// The measured outcome of one begin_plain(). The preflight fields are set by
+// begin_plain(); the rest is final once the writer leaves OPEN (commit, failure, abort).
+struct Report {
+	Error error = OK;
+	// Empty after a commit; otherwise the reason code (limits_unset, limit_ram,
+	// limit_scratch, limit_output, preflight_disk, deadline, cancelled, aborted,
+	// invalid_spec, count_mismatch, io, ...).
+	String reason;
+	bool committed = false;
+	Limits limits;
+	// Preflight.
+	uint64_t ram_estimate_bytes = 0;
+	uint64_t scratch_estimate_bytes = 0;
+	uint64_t output_estimate_bytes = 0; // codec none: exact; GSQ: the disk-need bound
+	uint64_t free_disk_bytes = 0;
+	uint64_t disk_need_bytes = 0; // output + scratch + margin
+	// Measured.
+	uint32_t pass_count = 0;
+	uint64_t chunks_appended = 0; // over all passes
+	uint64_t splats_appended = 0; // over all passes
+	uint64_t output_bytes = 0; // size of the published file, or of the temp when it stopped
+	uint64_t scratch_peak_bytes = 0;
+	uint64_t bytes_written = 0;
+	uint64_t ram_peak_bytes = 0; // held per-world tables + pages + one slice
+	uint32_t page_count = 0;
+	uint64_t elapsed_usec = 0;
+};
+
 // One chunk-table record's geometry. The index range is implied by the stream.
 struct ChunkDesc {
 	AABB bounds;
@@ -163,7 +249,7 @@ public:
 	Writer(const Writer &) = delete;
 	Writer &operator=(const Writer &) = delete;
 
-	Error begin_plain(const String &p_final_path, const PlainSpec &p_spec, const CodecParams &p_codec, SourceMode p_mode);
+	Error begin_plain(const String &p_final_path, const PlainSpec &p_spec, const CodecParams &p_codec, SourceMode p_mode, const Limits &p_limits);
 
 	// count may be 0 (an empty chunk). Pointers the current pass consumes must be
 	// non-null when count > 0.
@@ -179,6 +265,13 @@ public:
 	Error finalize();
 	// Removes the temp and scratch; never touches the final path. Idempotent.
 	void abort();
+	// Thread-safe. The driving thread observes it within one slice (<= 1 MiB of I/O), at
+	// the next append_chunk() or before finalize()'s replace, and fails with "cancelled"
+	// (ERR_SKIP). begin_plain() clears a pending request. No effect once committed.
+	void request_cancel() { cancel_requested.set(); }
+	// Thread-safe snapshot (W10).
+	Progress get_progress() const;
+	const Report &get_report() const { return report; }
 
 	State get_state() const { return state; }
 	bool is_open() const { return state == State::OPEN; }
@@ -198,6 +291,14 @@ public:
 	using DrainTestHook = bool (*)(void *p_userdata);
 	static DrainTestHook drain_test_hook;
 	static void *drain_test_userdata;
+	// Replaces the free-space query of the preflight (the destination's directory).
+	using FreeSpaceTestHook = uint64_t (*)(const String &p_dir, void *p_userdata);
+	static FreeSpaceTestHook free_space_test_hook;
+	static void *free_space_test_userdata;
+	// Replaces the microsecond clock the deadline is measured on.
+	using ClockTestHook = uint64_t (*)(void *p_userdata);
+	static ClockTestHook clock_test_hook;
+	static void *clock_test_userdata;
 #endif
 
 private:
@@ -219,6 +320,13 @@ private:
 	};
 
 	Error _fail(Error p_error, const String &p_message);
+	void _seal_report(Error p_error, const String &p_reason);
+	uint64_t _now_usec() const;
+	// Cancel and deadline; OK or the failure it raised.
+	Error _check_stop();
+	uint64_t _ram_held() const;
+	Error _check_ram();
+	Error _preflight(const Layout &p_plain_layout);
 	Error _append_sliced(GSAtomicFileTransaction &p_txn, const uint8_t *p_data, uint64_t p_size);
 	Error _end_pass();
 	Error _copy_scratch_sh();
@@ -260,6 +368,23 @@ private:
 	LocalVector<uint8_t> page_records;
 	uint32_t page_count = 0;
 	gs_gsq::PageBuildStats page_stats;
+
+	// BV-03b.
+	Limits limits;
+	Report report;
+	uint64_t begin_usec = 0;
+	uint64_t ram_peak = 0;
+	uint64_t scratch_peak = 0;
+	bool output_begun = false; // output.begin() ran for this job (its size is ours)
+	SafeFlag cancel_requested;
+	SafeNumeric<uint32_t> progress_phase;
+	SafeNumeric<uint32_t> progress_pass;
+	SafeNumeric<uint32_t> progress_pass_count;
+	SafeNumeric<uint64_t> progress_chunks;
+	SafeNumeric<uint64_t> progress_chunks_total;
+	SafeNumeric<uint64_t> progress_splats;
+	SafeNumeric<uint64_t> progress_splats_total;
+	SafeNumeric<uint64_t> progress_bytes;
 };
 
 } // namespace gs_world_writer

@@ -35,6 +35,7 @@ namespace TestGSWorldWriter {
 
 using gs_world_writer::ChunkDesc;
 using gs_world_writer::CodecParams;
+using gs_world_writer::Limits;
 using gs_world_writer::PlainSpec;
 using gs_world_writer::SourceMode;
 using gs_world_writer::Writer;
@@ -292,7 +293,7 @@ inline Error ww_write(const WWFixture &p_fx, SourceMode p_mode, const String &p_
 	}
 
 	Writer w;
-	Error err = w.begin_plain(p_path, spec, CodecParams(), p_mode);
+	Error err = w.begin_plain(p_path, spec, CodecParams(), p_mode, Limits::unbounded());
 	for (uint32_t pass = w.current_pass(); err == OK && pass != Writer::kNoPass; pass = w.current_pass()) {
 		uint32_t base = 0;
 		for (uint32_t c = 0; c < p_fx.counts.size() && err == OK; c++) {
@@ -517,7 +518,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 
 		{ // a pass that ends short of splat_count
 			Writer w;
-			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode) == OK);
+			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
 			Error err = OK;
 			uint32_t base = 0;
 			for (uint32_t c = 0; c < fx.counts.size() && err == OK; c++) {
@@ -530,7 +531,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 		}
 		{ // a chunk past splat_count
 			Writer w;
-			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode) == OK);
+			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
 			LocalVector<Gaussian> big;
 			big.resize(fx.spec.splat_count + 1u);
 			LocalVector<Vector3> big_sh;
@@ -545,7 +546,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 			one.write_chunk_table = false;
 			one.sh_high_order = 0;
 			Writer w;
-			REQUIRE(w.begin_plain(path, one, CodecParams(), mode) == OK);
+			REQUIRE(w.begin_plain(path, one, CodecParams(), mode, Limits::unbounded()) == OK);
 			REQUIRE(w.append_chunk(fx.descs[0], fx.gaussians.ptr(), nullptr, one.splat_count) == OK);
 			CHECK(w.current_pass() == Writer::kNoPass);
 			const Error err = w.append_chunk(fx.descs[0], fx.gaussians.ptr(), nullptr, 0);
@@ -554,7 +555,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 		}
 		{ // finalize mid-pass
 			Writer w;
-			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode) == OK);
+			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
 			REQUIRE(w.append_chunk(fx.descs[0], fx.gaussians.ptr(), fx.sh_high.ptr(), fx.counts[0]) == OK);
 			// W1: the final path still holds the prior file while the writer is open.
 			CHECK(ww_read(path) == prior);
@@ -565,7 +566,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 		}
 		{ // a null payload pointer
 			Writer w;
-			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode) == OK);
+			REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
 			const Error err = w.append_chunk(fx.descs[0], nullptr, fx.sh_high.ptr(), fx.counts[0]);
 			CHECK(err == ERR_INVALID_PARAMETER);
 			expect_refused(w, err, "invalid_chunk");
@@ -573,7 +574,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 		{ // abort and the destructor
 			{
 				Writer w;
-				REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode) == OK);
+				REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
 				REQUIRE(w.append_chunk(fx.descs[0], fx.gaussians.ptr(), fx.sh_high.ptr(), fx.counts[0]) == OK);
 				w.abort();
 				CHECK(w.get_state() == Writer::State::ABORTED);
@@ -582,7 +583,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] declared counts are exact (
 			}
 			{
 				Writer w;
-				REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode) == OK);
+				REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
 				REQUIRE(w.append_chunk(fx.descs[0], fx.gaussians.ptr(), fx.sh_high.ptr(), fx.counts[0]) == OK);
 			}
 			CHECK(ww_read(path) == prior);
@@ -602,7 +603,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] a REITERABLE pass 2 that di
 
 	auto run = [&](const WWFixture &fx, bool p_change_count) {
 		Writer w;
-		REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), SourceMode::REITERABLE) == OK);
+		REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), SourceMode::REITERABLE, Limits::unbounded()) == OK);
 		Error err = OK;
 		for (uint32_t pass = w.current_pass(); err == OK && pass != Writer::kNoPass; pass = w.current_pass()) {
 			uint32_t base = 0;
@@ -704,7 +705,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] begin_plain refuses specs t
 	for (const Case &c : cases) {
 		INFO(c.name);
 		Writer w;
-		const Error err = w.begin_plain(path, c.spec, c.codec, SourceMode::SINGLE_PASS);
+		const Error err = w.begin_plain(path, c.spec, c.codec, SourceMode::SINGLE_PASS, Limits::unbounded());
 		CHECK(err == c.expected);
 		CHECK(w.get_state() == Writer::State::FAILED);
 		CHECK(w.current_pass() == Writer::kNoPass);
@@ -712,7 +713,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] begin_plain refuses specs t
 	}
 	// The baseline spec itself is accepted (so the refusals above are about the field).
 	Writer w;
-	CHECK(w.begin_plain(path, good, CodecParams(), SourceMode::SINGLE_PASS) == OK);
+	CHECK(w.begin_plain(path, good, CodecParams(), SourceMode::SINGLE_PASS, Limits::unbounded()) == OK);
 	w.abort();
 	CHECK(ww_list(dir).size() == 0);
 	ww_remove_dir(dir);
@@ -723,7 +724,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] SINGLE_PASS spills SH to a 
 	const WWFixture fx = ww_make(1, ShCase::SH3, false, false);
 	const String path = dir.path_join("world.gsplatworld");
 	Writer w;
-	REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), SourceMode::SINGLE_PASS) == OK);
+	REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), SourceMode::SINGLE_PASS, Limits::unbounded()) == OK);
 	CHECK(w.get_pass_count() == 1u);
 	uint32_t base = 0;
 	for (uint32_t c = 0; c < fx.counts.size(); c++) {
@@ -748,7 +749,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] SINGLE_PASS spills SH to a 
 
 	// REITERABLE needs no scratch: two passes over the source instead.
 	Writer r;
-	REQUIRE(r.begin_plain(dir.path_join("r.gsplatworld"), fx.spec, CodecParams(), SourceMode::REITERABLE) == OK);
+	REQUIRE(r.begin_plain(dir.path_join("r.gsplatworld"), fx.spec, CodecParams(), SourceMode::REITERABLE, Limits::unbounded()) == OK);
 	CHECK(r.get_pass_count() == 2u);
 	CHECK(ww_list(dir).size() == 2); // world + r's temp
 	r.abort();
@@ -874,5 +875,316 @@ TEST_CASE("[GaussianSplatting][AtomicWrite] transaction read_at and flush_to_sto
 	CHECK(ww_list(dir).size() == 0);
 	ww_remove_dir(dir);
 }
+
+// ---------------------------------------------------------------------------
+// BV-03b: Limits, preflight, cancel, deadline, progress, Report (ADR §4.3, W10, W11).
+// ---------------------------------------------------------------------------
+
+using gs_world_writer::Phase;
+using gs_world_writer::Progress;
+using gs_world_writer::Report;
+
+// Drives one writer through every pass; records a progress snapshot after each append.
+inline Error ww_drive(Writer &w, const WWFixture &p_fx, SourceMode p_mode, const String &p_path, const Limits &p_limits,
+		LocalVector<Progress> *r_snapshots = nullptr) {
+	Error err = w.begin_plain(p_path, p_fx.spec, CodecParams(), p_mode, p_limits);
+	for (uint32_t pass = w.current_pass(); err == OK && pass != Writer::kNoPass; pass = w.current_pass()) {
+		uint32_t base = 0;
+		for (uint32_t c = 0; c < p_fx.counts.size() && err == OK; c++) {
+			const uint32_t n = p_fx.counts[c];
+			const Vector3 *sh = p_fx.sh_high.is_empty() ? nullptr : p_fx.sh_high.ptr() + uint64_t(base) * p_fx.spec.sh_high_order;
+			err = w.append_chunk(p_fx.descs[c], p_fx.gaussians.ptr() + base, sh, n);
+			base += n;
+			if (r_snapshots) {
+				r_snapshots->push_back(w.get_progress());
+			}
+		}
+	}
+	if (err == OK) {
+		err = w.finalize();
+	}
+	if (r_snapshots) {
+		r_snapshots->push_back(w.get_progress());
+	}
+	return err;
+}
+
+// Every refusal must leave the directory as it was: only the prior world, byte-intact.
+inline bool ww_only_prior(const String &p_dir, const String &p_path, const PackedByteArray &p_prior) {
+	const PackedStringArray names = ww_list(p_dir);
+	return names.size() == 1 && names[0] == p_path.get_file() && ww_read(p_path) == p_prior;
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] limits: a field left at 0 refuses at begin_plain with limits_unset, creating nothing") {
+	const String dir = ww_dir("limits_unset");
+	const WWFixture fx = ww_make(1, ShCase::SH1, true, false);
+	const String path = dir.path_join("world.gsplatworld");
+	for (int field = 0; field < 5; field++) {
+		Limits l = Limits::unbounded();
+		uint64_t *fields[5] = { &l.max_ram_bytes, &l.max_scratch_bytes, &l.max_output_bytes, &l.deadline_usec, &l.min_free_disk_margin };
+		*fields[field] = 0u;
+		Writer w;
+		INFO("field ", field);
+		CHECK(w.begin_plain(path, fx.spec, CodecParams(), SourceMode::SINGLE_PASS, l) == ERR_INVALID_PARAMETER);
+		CHECK(w.get_report().reason == "limits_unset");
+		CHECK_FALSE(w.get_report().committed);
+		CHECK(w.get_progress().phase == Phase::STOPPED);
+		CHECK(ww_list(dir).size() == 0);
+	}
+	ww_remove_dir(dir);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] Report carries the measured numbers; preflight refuses RAM, scratch, output and disk one byte short") {
+	const String dir = ww_dir("preflight");
+	const WWFixture fx = ww_make(1, ShCase::SH3, true, true);
+	const String path = dir.path_join("world.gsplatworld");
+
+	// The reference: an unbounded SINGLE_PASS write (gaussians to the output, SH to the scratch).
+	Report ref;
+	{
+		Writer w;
+		REQUIRE(ww_drive(w, fx, SourceMode::SINGLE_PASS, path, Limits::unbounded()) == OK);
+		ref = w.get_report();
+		const uint64_t file_size = uint64_t(ww_read(path).size());
+		const uint64_t sh_bytes = uint64_t(fx.spec.splat_count) * fx.spec.sh_high_order * sizeof(Vector3);
+		CHECK(ref.committed);
+		CHECK(ref.error == OK);
+		CHECK(ref.reason.is_empty());
+		CHECK(ref.pass_count == 1u);
+		CHECK(ref.chunks_appended == fx.spec.chunk_count);
+		CHECK(ref.splats_appended == fx.spec.splat_count);
+		CHECK(ref.output_bytes == file_size);
+		CHECK(ref.output_estimate_bytes == file_size); // codec none: exact
+		CHECK(ref.scratch_peak_bytes == sh_bytes);
+		CHECK(ref.scratch_estimate_bytes == sh_bytes);
+		// Every output byte once, the scratch once, plus the one header rewrite (W2).
+		CHECK(ref.bytes_written == file_size + sh_bytes + gs_world_format::kPrefixBytes);
+		CHECK(ref.ram_peak_bytes > (uint64_t(1) << 20u));
+		CHECK(ref.ram_peak_bytes <= ref.ram_estimate_bytes);
+		CHECK(ref.free_disk_bytes > 0u);
+		CHECK(ref.disk_need_bytes == file_size + sh_bytes + gs_world_writer::kDefaultFreeDiskMargin);
+	}
+	const PackedByteArray prior = ww_read(path); // the published world is now the prior file
+
+	struct Case {
+		const char *reason;
+		Limits limits;
+	};
+	Limits ram = Limits::unbounded();
+	ram.max_ram_bytes = ref.ram_estimate_bytes - 1u;
+	Limits scratch = Limits::unbounded();
+	scratch.max_scratch_bytes = ref.scratch_estimate_bytes - 1u;
+	Limits out = Limits::unbounded();
+	out.max_output_bytes = ref.output_estimate_bytes - 1u;
+	const Case cases[] = { { "limit_ram", ram }, { "limit_scratch", scratch }, { "limit_output", out } };
+	for (const Case &c : cases) {
+		INFO(c.reason);
+		Writer w;
+		CHECK(w.begin_plain(path, fx.spec, CodecParams(), SourceMode::SINGLE_PASS, c.limits) == ERR_PARAMETER_RANGE_ERROR);
+		CHECK(w.get_report().reason == c.reason);
+		CHECK(w.get_error_message().contains(c.reason));
+		CHECK(w.get_report().output_bytes == 0u); // refused before the first byte
+		CHECK(ww_only_prior(dir, path, prior));
+	}
+
+	// At the exact estimates the same limits pass.
+	{
+		Limits exact = Limits::unbounded();
+		exact.max_ram_bytes = ref.ram_estimate_bytes;
+		exact.max_scratch_bytes = ref.scratch_estimate_bytes;
+		exact.max_output_bytes = ref.output_estimate_bytes;
+		Writer w;
+		CHECK(ww_drive(w, fx, SourceMode::SINGLE_PASS, path, exact) == OK);
+		CHECK(ww_read(path) == prior); // same world, same bytes (W7)
+	}
+
+#ifdef TESTS_ENABLED
+	// Disk: the free space is injected. Unknown (0) and one byte short both refuse.
+	struct FreeSpace {
+		uint64_t free_bytes = 0;
+		String seen_dir;
+		static uint64_t hook(const String &p_dir, void *p_userdata) {
+			FreeSpace *self = static_cast<FreeSpace *>(p_userdata);
+			self->seen_dir = p_dir;
+			return self->free_bytes;
+		}
+	};
+	FreeSpace fs;
+	Writer::free_space_test_hook = &FreeSpace::hook;
+	Writer::free_space_test_userdata = &fs;
+	const uint64_t frees[3] = { 0u, ref.disk_need_bytes - 1u, ref.disk_need_bytes };
+	Error results[3] = { OK, OK, OK };
+	String reasons[3];
+	for (int i = 0; i < 3; i++) {
+		fs.free_bytes = frees[i];
+		Writer w;
+		results[i] = ww_drive(w, fx, SourceMode::SINGLE_PASS, path, Limits::unbounded());
+		reasons[i] = w.get_report().reason;
+	}
+	Writer::free_space_test_hook = nullptr;
+	Writer::free_space_test_userdata = nullptr;
+	CHECK(fs.seen_dir == dir);
+	CHECK(results[0] == ERR_FILE_CANT_WRITE);
+	CHECK(reasons[0] == "preflight_disk");
+	CHECK(results[1] == ERR_FILE_CANT_WRITE);
+	CHECK(reasons[1] == "preflight_disk");
+	CHECK(results[2] == OK);
+	CHECK(reasons[2].is_empty());
+	CHECK(ww_only_prior(dir, path, prior));
+#endif // TESTS_ENABLED
+	ww_remove_dir(dir);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] progress is monotonic over both passes and ends at the totals") {
+	const String dir = ww_dir("progress");
+	const WWFixture fx = ww_make(2, ShCase::SH3, true, false);
+	const String path = dir.path_join("world.gsplatworld");
+	Writer w;
+	LocalVector<Progress> snaps;
+	REQUIRE(ww_drive(w, fx, SourceMode::REITERABLE, path, Limits::unbounded(), &snaps) == OK);
+	if (snaps.size() != fx.counts.size() * 2u + 1u) {
+		FAIL("expected one snapshot per append plus one, got ", snaps.size());
+		return;
+	}
+	bool monotonic = true;
+	bool saw_pass_2 = false;
+	for (uint32_t i = 1; i < snaps.size(); i++) {
+		const Progress &a = snaps[i - 1];
+		const Progress &b = snaps[i];
+		monotonic = monotonic && b.chunks_done >= a.chunks_done && b.splats_done >= a.splats_done &&
+				b.bytes_written >= a.bytes_written && uint32_t(b.phase) >= uint32_t(a.phase);
+		saw_pass_2 = saw_pass_2 || b.pass == 2u;
+	}
+	CHECK(monotonic);
+	CHECK(saw_pass_2);
+	const Progress &last = snaps[snaps.size() - 1];
+	CHECK(last.phase == Phase::COMMITTED);
+	CHECK(last.pass_count == 2u);
+	CHECK(last.chunks_total == uint64_t(fx.spec.chunk_count) * 2u);
+	CHECK(last.chunks_done == last.chunks_total);
+	CHECK(last.splats_total == uint64_t(fx.spec.splat_count) * 2u);
+	CHECK(last.splats_done == last.splats_total);
+	const Report &rep = w.get_report();
+	CHECK(last.bytes_written == rep.bytes_written);
+	// REITERABLE: no scratch; every output byte once plus the header rewrite.
+	CHECK(rep.scratch_peak_bytes == 0u);
+	CHECK(rep.bytes_written == uint64_t(ww_read(path).size()) + gs_world_format::kPrefixBytes);
+	ww_remove_dir(dir);
+}
+
+#ifdef TESTS_ENABLED
+// A clock the test controls; it can also request a cancel from inside the writer's
+// own per-slice check (as another thread would), recording the bytes written then.
+struct WWClock {
+	uint64_t now = 1000u;
+	uint32_t calls = 0;
+	uint32_t cancel_at_call = 0; // 0 = never
+	uint64_t advance_at_call = 0; // 0 = never
+	uint64_t advance_by = 0;
+	Writer *writer = nullptr;
+	uint64_t bytes_at_cancel = 0;
+	static uint64_t hook(void *p_userdata) {
+		WWClock *self = static_cast<WWClock *>(p_userdata);
+		self->calls++;
+		if (self->cancel_at_call != 0u && self->calls == self->cancel_at_call && self->writer != nullptr) {
+			self->bytes_at_cancel = self->writer->get_progress().bytes_written;
+			self->writer->request_cancel();
+		}
+		if (self->advance_at_call != 0u && self->calls == self->advance_at_call) {
+			self->now += self->advance_by;
+		}
+		return self->now;
+	}
+};
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] cancel: observed within one slice, publishes nothing, keeps the prior world, distinct reason") {
+	const String dir = ww_dir("cancel");
+	const WWFixture fx = ww_make(1, ShCase::SH3, true, false);
+	const String path = dir.path_join("world.gsplatworld");
+	const PackedByteArray prior = String("prior good world").to_utf8_buffer();
+	REQUIRE(ww_write_raw(path, prior));
+
+	// Between chunks, in both modes: SINGLE_PASS leaves a scratch that must go too.
+	for (SourceMode mode : { SourceMode::REITERABLE, SourceMode::SINGLE_PASS }) {
+		Writer w;
+		REQUIRE(w.begin_plain(path, fx.spec, CodecParams(), mode, Limits::unbounded()) == OK);
+		uint32_t base = 0;
+		for (uint32_t c = 0; c < 2u; c++) {
+			REQUIRE(w.append_chunk(fx.descs[c], fx.gaussians.ptr() + base, fx.sh_high.ptr() + uint64_t(base) * 12u, fx.counts[c]) == OK);
+			base += fx.counts[c];
+		}
+		const Progress before = w.get_progress();
+		w.request_cancel();
+		CHECK(w.append_chunk(fx.descs[2], fx.gaussians.ptr() + base, fx.sh_high.ptr() + uint64_t(base) * 12u, fx.counts[2]) == ERR_SKIP);
+		CHECK(w.get_report().reason == "cancelled");
+		CHECK(w.get_error_message().contains("cancelled"));
+		const Progress after = w.get_progress();
+		CHECK(after.phase == Phase::STOPPED);
+		CHECK(after.chunks_done == before.chunks_done);
+		CHECK(after.bytes_written == before.bytes_written);
+		CHECK(w.finalize() == ERR_SKIP);
+		CHECK(ww_only_prior(dir, path, prior));
+	}
+
+	// Inside a chunk: the cancel lands during chunk 0's gaussian slice (raised from the
+	// writer's own per-slice clock read, as another thread would) and is honoured at the
+	// next slice, chunk 0's SH, after at most one further slice (<= 1 MiB).
+	WWClock clock;
+	Writer w;
+	clock.writer = &w;
+	Writer::clock_test_hook = &WWClock::hook;
+	Writer::clock_test_userdata = &clock;
+	Limits l = Limits::unbounded();
+	l.deadline_usec = uint64_t(1) << 40u; // finite, so every slice reads the clock
+	// Clock reads: 1 begin_plain, 2 the header placeholder slice, 3 append_chunk's entry
+	// check, 4 chunk 0's gaussian slice (cancel requested here; that slice is written).
+	clock.cancel_at_call = 4u;
+	const Error err = ww_drive(w, fx, SourceMode::SINGLE_PASS, path, l);
+	Writer::clock_test_hook = nullptr;
+	Writer::clock_test_userdata = nullptr;
+	CHECK(err == ERR_SKIP);
+	CHECK(w.get_report().reason == "cancelled");
+	CHECK(clock.bytes_at_cancel == gs_world_format::kPrefixBytes); // only the placeholder header before
+	CHECK(w.get_report().bytes_written > clock.bytes_at_cancel); // the in-flight slice completed
+	CHECK(w.get_report().bytes_written - clock.bytes_at_cancel <= (uint64_t(1) << 20u));
+	CHECK(w.get_report().chunks_appended == 0u); // stopped inside chunk 0, before its SH
+	CHECK(ww_only_prior(dir, path, prior));
+	ww_remove_dir(dir);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] deadline: exceeded mid-write refuses with ERR_TIMEOUT and publishes nothing") {
+	const String dir = ww_dir("deadline");
+	const WWFixture fx = ww_make(1, ShCase::SH1, true, false);
+	const String path = dir.path_join("world.gsplatworld");
+	const PackedByteArray prior = String("prior good world").to_utf8_buffer();
+	REQUIRE(ww_write_raw(path, prior));
+
+	WWClock clock;
+	Writer::clock_test_hook = &WWClock::hook;
+	Writer::clock_test_userdata = &clock;
+	Limits l = Limits::unbounded();
+	l.deadline_usec = 5000u;
+	// Within the deadline the write commits (the clock never moves).
+	Writer ok_writer;
+	const Error ok_err = ww_drive(ok_writer, fx, SourceMode::SINGLE_PASS, dir.path_join("other.gsplatworld"), l);
+	// Then the clock jumps past the deadline after a few checks.
+	clock.calls = 0;
+	clock.advance_at_call = 4u;
+	clock.advance_by = 5001u;
+	Writer w;
+	const Error err = ww_drive(w, fx, SourceMode::SINGLE_PASS, path, l);
+	Writer::clock_test_hook = nullptr;
+	Writer::clock_test_userdata = nullptr;
+
+	CHECK(ok_err == OK);
+	CHECK(ok_writer.get_report().elapsed_usec == 0u);
+	CHECK(err == ERR_TIMEOUT);
+	CHECK(w.get_report().reason == "deadline");
+	CHECK(w.get_report().elapsed_usec == 5001u);
+	DirAccess::remove_absolute(dir.path_join("other.gsplatworld"));
+	CHECK(ww_only_prior(dir, path, prior));
+	ww_remove_dir(dir);
+}
+#endif // TESTS_ENABLED
 
 } // namespace TestGSWorldWriter

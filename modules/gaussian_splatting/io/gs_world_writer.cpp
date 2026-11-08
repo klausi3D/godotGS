@@ -5,7 +5,9 @@
 
 #include "../core/streaming_chunk_payload_source.h"
 
+#include "core/io/dir_access.h"
 #include "core/io/json.h"
+#include "core/os/os.h"
 #include "core/variant/variant.h"
 
 #include <cstring>
@@ -13,6 +15,10 @@
 #ifdef TESTS_ENABLED
 gs_world_writer::Writer::DrainTestHook gs_world_writer::Writer::drain_test_hook = nullptr;
 void *gs_world_writer::Writer::drain_test_userdata = nullptr;
+gs_world_writer::Writer::FreeSpaceTestHook gs_world_writer::Writer::free_space_test_hook = nullptr;
+void *gs_world_writer::Writer::free_space_test_userdata = nullptr;
+gs_world_writer::Writer::ClockTestHook gs_world_writer::Writer::clock_test_hook = nullptr;
+void *gs_world_writer::Writer::clock_test_userdata = nullptr;
 #endif
 
 namespace gs_world_writer {
@@ -107,8 +113,144 @@ Error gsq_encode_params(const CodecParams &p_codec, gs_gsq::EncodeParams &r_para
 	return OK;
 }
 
+Limits Limits::unbounded(uint64_t p_min_free_disk_margin) {
+	Limits l;
+	l.max_ram_bytes = kUnbounded;
+	l.max_scratch_bytes = kUnbounded;
+	l.max_output_bytes = kUnbounded;
+	l.deadline_usec = kUnbounded;
+	l.min_free_disk_margin = p_min_free_disk_margin;
+	return l;
+}
+
 Writer::~Writer() {
 	abort();
+}
+
+Progress Writer::get_progress() const {
+	Progress p;
+	p.phase = Phase(progress_phase.get());
+	p.pass = progress_pass.get();
+	p.pass_count = progress_pass_count.get();
+	p.chunks_done = progress_chunks.get();
+	p.chunks_total = progress_chunks_total.get();
+	p.splats_done = progress_splats.get();
+	p.splats_total = progress_splats_total.get();
+	p.bytes_written = progress_bytes.get();
+	return p;
+}
+
+uint64_t Writer::_now_usec() const {
+#ifdef TESTS_ENABLED
+	if (clock_test_hook != nullptr) {
+		return clock_test_hook(clock_test_userdata);
+	}
+#endif
+	return OS::get_singleton()->get_ticks_usec();
+}
+
+Error Writer::_check_stop() {
+	if (cancel_requested.is_set()) {
+		return _fail(ERR_SKIP, "cancelled: cancel was requested; nothing was published");
+	}
+	if (limits.deadline_usec != Limits::kUnbounded) {
+		const uint64_t now = _now_usec();
+		const uint64_t elapsed = now > begin_usec ? now - begin_usec : 0u;
+		if (elapsed > limits.deadline_usec) {
+			return _fail(ERR_TIMEOUT, vformat("deadline: %s usec elapsed, deadline %s usec", String::num_uint64(elapsed),
+											  String::num_uint64(limits.deadline_usec)));
+		}
+	}
+	return OK;
+}
+
+uint64_t Writer::_ram_held() const {
+	uint64_t held = uint64_t(chunk_records.size()) + uint64_t(chunk_counts.size()) * sizeof(uint32_t) + uint64_t(page_records.size()) +
+			uint64_t(metadata_bytes.size()) + kSliceBytes;
+	for (const gs_gsq::BuiltPage &page : built_pages) {
+		held += uint64_t(page.bytes.size()) + uint64_t(page.source_index.size()) * sizeof(uint32_t);
+	}
+	return held;
+}
+
+Error Writer::_check_ram() {
+	const uint64_t held = _ram_held();
+	ram_peak = MAX(ram_peak, held);
+	if (held > limits.max_ram_bytes) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, vformat("limit_ram: holding %s bytes, max_ram_bytes %s", String::num_uint64(held),
+														String::num_uint64(limits.max_ram_bytes)));
+	}
+	return OK;
+}
+
+// Runs before the first byte: every refusal here leaves no file behind.
+Error Writer::_preflight(const Layout &p_plain_layout) {
+	const uint64_t chunk_record_bytes = gsq ? gs_world_format::kPagedChunkRecordBytes
+											: (spec.write_chunk_table ? gs_world_format::kChunkRecordBytes : 0u);
+	const uint64_t ram = uint64_t(spec.chunk_count) * (chunk_record_bytes + sizeof(uint32_t)) + uint64_t(metadata_bytes.size()) + kSliceBytes;
+	const uint64_t scratch = (!gsq && mode == SourceMode::SINGLE_PASS) ? p_plain_layout.sh_bytes : 0u;
+	const uint64_t out = gsq ? MIN(limits.max_output_bytes, p_plain_layout.file_size) : p_plain_layout.file_size;
+	report.ram_estimate_bytes = ram;
+	report.scratch_estimate_bytes = scratch;
+	report.output_estimate_bytes = out;
+
+	if (ram > limits.max_ram_bytes) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, vformat("limit_ram: the writer would hold %s bytes, max_ram_bytes %s",
+														String::num_uint64(ram), String::num_uint64(limits.max_ram_bytes)));
+	}
+	if (scratch > limits.max_scratch_bytes) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, vformat("limit_scratch: the SH scratch needs %s bytes, max_scratch_bytes %s",
+														String::num_uint64(scratch), String::num_uint64(limits.max_scratch_bytes)));
+	}
+	if (!gsq && out > limits.max_output_bytes) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, vformat("limit_output: the file needs %s bytes, max_output_bytes %s",
+														String::num_uint64(out), String::num_uint64(limits.max_output_bytes)));
+	}
+
+	uint64_t need = 0;
+	bool need_ok = _add_u64(out, scratch, need);
+	need_ok = need_ok && _add_u64(need, limits.min_free_disk_margin, need);
+	const String dir = final_path.get_base_dir();
+	uint64_t free_bytes = 0;
+#ifdef TESTS_ENABLED
+	if (free_space_test_hook != nullptr) {
+		free_bytes = free_space_test_hook(dir, free_space_test_userdata);
+	} else
+#endif
+	{
+		Ref<DirAccess> da = DirAccess::open(dir);
+		if (da.is_valid()) {
+			free_bytes = da->get_space_left();
+		}
+	}
+	report.free_disk_bytes = free_bytes;
+	report.disk_need_bytes = need_ok ? need : UINT64_MAX;
+	if (free_bytes == 0u) {
+		// DirAccess reports 0 when the query fails: unknown is refused, never assumed to fit.
+		return _fail(ERR_FILE_CANT_WRITE, "preflight_disk: the free space of '" + dir + "' is unknown or 0");
+	}
+	if (!need_ok || free_bytes < need) {
+		return _fail(ERR_FILE_CANT_WRITE, vformat("preflight_disk: %s bytes free in '%s', need %s (output %s + scratch %s + margin %s)",
+												  String::num_uint64(free_bytes), dir, need_ok ? String::num_uint64(need) : String("> 2^64"),
+												  String::num_uint64(out), String::num_uint64(scratch), String::num_uint64(limits.min_free_disk_margin)));
+	}
+	return OK;
+}
+
+void Writer::_seal_report(Error p_error, const String &p_reason) {
+	report.error = p_error;
+	report.reason = p_reason;
+	report.committed = p_error == OK && p_reason.is_empty();
+	report.pass_count = pass_count;
+	report.chunks_appended = progress_chunks.get();
+	report.splats_appended = progress_splats.get();
+	report.output_bytes = output_begun ? output.get_size() : 0u;
+	report.scratch_peak_bytes = scratch_peak;
+	report.bytes_written = progress_bytes.get();
+	report.ram_peak_bytes = ram_peak;
+	report.page_count = page_count;
+	const uint64_t now = _now_usec();
+	report.elapsed_usec = now > begin_usec ? now - begin_usec : 0u;
 }
 
 void Writer::_cleanup() {
@@ -127,10 +269,17 @@ void Writer::_cleanup() {
 }
 
 Error Writer::_fail(Error p_error, const String &p_message) {
+	// The reason code is the message's leading token ("limit_output: ..." -> "limit_output").
+	String reason = p_message.get_slicec(':', 0).strip_edges();
+	if (reason.is_empty() || reason.contains(" ")) {
+		reason = "error";
+	}
+	_seal_report(p_error, reason); // before _cleanup(): it measures the temp
 	_cleanup();
 	error = p_error;
 	error_message = "gs_world_writer: " + p_message + (final_path.is_empty() ? String() : " ('" + final_path + "')");
 	state = State::FAILED;
+	progress_phase.set(uint32_t(Phase::STOPPED));
 	return p_error;
 }
 
@@ -138,18 +287,36 @@ void Writer::abort() {
 	if (state != State::OPEN) {
 		return;
 	}
+	_seal_report(OK, "aborted");
 	_cleanup();
 	state = State::ABORTED;
+	progress_phase.set(uint32_t(Phase::STOPPED));
 }
 
 uint32_t Writer::current_pass() const {
 	return state == State::OPEN ? pass : kNoPass;
 }
 
-Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, const CodecParams &p_codec, SourceMode p_mode) {
+Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, const CodecParams &p_codec, SourceMode p_mode, const Limits &p_limits) {
 	if (state == State::OPEN) {
 		return ERR_ALREADY_IN_USE;
 	}
+	begin_usec = _now_usec();
+	limits = p_limits;
+	report = Report();
+	report.limits = p_limits;
+	ram_peak = 0;
+	scratch_peak = 0;
+	output_begun = false;
+	cancel_requested.clear();
+	progress_phase.set(uint32_t(Phase::IDLE));
+	progress_pass.set(0u);
+	progress_pass_count.set(0u);
+	progress_chunks.set(0u);
+	progress_chunks_total.set(0u);
+	progress_splats.set(0u);
+	progress_splats_total.set(0u);
+	progress_bytes.set(0u);
 	state = State::IDLE;
 	error = OK;
 	error_message = String();
@@ -180,6 +347,16 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 	}
 	if (p_mode != SourceMode::REITERABLE && p_mode != SourceMode::SINGLE_PASS) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: unknown source mode");
+	}
+	// §4.3: 0 = refuse. A limit nobody set is not a limit nobody needs.
+	const char *unset = p_limits.max_ram_bytes == 0u   ? "max_ram_bytes"
+			: p_limits.max_scratch_bytes == 0u         ? "max_scratch_bytes"
+			: p_limits.max_output_bytes == 0u          ? "max_output_bytes"
+			: p_limits.deadline_usec == 0u             ? "deadline_usec"
+			: p_limits.min_free_disk_margin == 0u      ? "min_free_disk_margin"
+													   : nullptr;
+	if (unset != nullptr) {
+		return _fail(ERR_INVALID_PARAMETER, vformat("limits_unset: %s is 0 (0 refuses; use Limits::kUnbounded for no cap)", unset));
 	}
 	gs_gsq::EncodeParams gsq_params;
 	if (p_codec.codec_id == kCodecGsqV1) {
@@ -233,6 +410,52 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 		metadata_bytes = JSON::stringify(p_spec.metadata, "", true, false).to_utf8_buffer();
 	}
 
+	// Plain v3 layout, offset for offset as _build_world_save_layout computes it:
+	// header | gaussians | high-order SH | chunk table | chunk indices | metadata.
+	// With codec none it is the layout written; with GSQ v1 it sizes the preflight.
+	Layout plain;
+	if (!p_spec.metadata.is_empty()) {
+		plain.flags |= gs_world_format::kFlagHasMetadata;
+	}
+	if (p_spec.is_2d) {
+		plain.flags |= gs_world_format::kFlagIs2D;
+	}
+	if (p_spec.write_chunk_table) {
+		plain.flags |= gs_world_format::kFlagHasChunks;
+		plain.header_chunk_count = p_spec.chunk_count;
+	}
+	if (p_spec.sh_high_order > 0u) {
+		plain.flags |= gs_world_format::kFlagHasHighSh;
+	}
+	plain.gaussian_offset = gs_world_format::kPrefixBytes;
+	bool ok = _mul_u64(uint64_t(p_spec.splat_count), uint64_t(sizeof(Gaussian)), plain.gaussian_bytes);
+	ok = ok && _mul_u64(sh_coefficients, uint64_t(sizeof(Vector3)), plain.sh_bytes);
+	if (p_spec.write_chunk_table) {
+		ok = ok && _mul_u64(uint64_t(p_spec.chunk_count), gs_world_format::kChunkRecordBytes, plain.chunk_table_bytes);
+		// Chunks tile the stream, so the index lists cover every splat exactly once.
+		ok = ok && _mul_u64(uint64_t(p_spec.splat_count), uint64_t(sizeof(uint32_t)), plain.indices_bytes);
+	}
+	ok = ok && _add_u64(plain.gaussian_offset, plain.gaussian_bytes, plain.sh_offset);
+	ok = ok && _add_u64(plain.sh_offset, plain.sh_bytes, plain.chunk_table_offset);
+	ok = ok && _add_u64(plain.chunk_table_offset, plain.chunk_table_bytes, plain.indices_offset);
+	uint64_t metadata_start = 0;
+	ok = ok && _add_u64(plain.indices_offset, plain.indices_bytes, metadata_start);
+	plain.metadata_size = metadata_bytes.size();
+	plain.metadata_offset = metadata_bytes.is_empty() ? 0u : metadata_start;
+	ok = ok && _add_u64(metadata_start, plain.metadata_size, plain.file_size);
+	if (!ok) {
+		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: declared sizes overflow 64 bits");
+	}
+
+	// GSQ v1: the SH travels inside the pages; plain REITERABLE with SH takes two passes.
+	pass_count = gsq ? 1u : ((p_mode == SourceMode::REITERABLE && plain.sh_bytes > 0u) ? 2u : 1u);
+
+	// BV-03b preflight: limits and free disk space, before the first byte.
+	Error err = _preflight(plain);
+	if (err != OK) {
+		return err;
+	}
+
 	if (gsq) {
 		// Plain v3 + bit 7 (gaussian_splat_world_format.h). Only the first page offset is
 		// known now; the tables, the metadata and the file size follow from the pages and are
@@ -259,103 +482,84 @@ Error Writer::begin_plain(const String &p_final_path, const PlainSpec &p_spec, c
 		if (page_builder->configure(gsq_params, p_spec.sh_degree, reason) != OK) {
 			return _fail(ERR_INVALID_PARAMETER, "invalid_spec: " + reason);
 		}
-		pass_count = 1u; // the SH travels inside the pages
-		Error err = output.begin(p_final_path);
+		err = output.begin(p_final_path);
+		output_begun = true;
 		if (err != OK) {
 			return _fail(err, "io: cannot create the output temp: " + output.get_error_message());
 		}
 		// Placeholder header, extension and padding up to the first page; the real header is
 		// written last (W2's one rewrite).
-		uint8_t zeros[gs_world_format::kPagedPageAlignment] = {};
-		err = output.append(zeros, layout.gaussian_offset);
+		static const uint8_t zeros[gs_world_format::kPagedPageAlignment] = {};
+		err = _append_sliced(output, zeros, layout.gaussian_offset);
 		if (err != OK) {
-			return _fail(err, "io: header placeholder: " + output.get_error_message());
+			return err;
 		}
 		chunk_counts.reserve(p_spec.chunk_count);
 		chunk_records.reserve(uint32_t(uint64_t(p_spec.chunk_count) * gs_world_format::kPagedChunkRecordBytes));
-		pass = 1u;
-		state = State::OPEN;
-		return OK;
-	}
-
-	// Plain v3 layout, offset for offset as _build_world_save_layout computes it:
-	// header | gaussians | high-order SH | chunk table | chunk indices | metadata.
-	Layout l;
-	if (!p_spec.metadata.is_empty()) {
-		l.flags |= gs_world_format::kFlagHasMetadata;
-	}
-	if (p_spec.is_2d) {
-		l.flags |= gs_world_format::kFlagIs2D;
-	}
-	if (p_spec.write_chunk_table) {
-		l.flags |= gs_world_format::kFlagHasChunks;
-		l.header_chunk_count = p_spec.chunk_count;
-	}
-	if (p_spec.sh_high_order > 0u) {
-		l.flags |= gs_world_format::kFlagHasHighSh;
-	}
-	l.gaussian_offset = gs_world_format::kPrefixBytes;
-	bool ok = _mul_u64(uint64_t(p_spec.splat_count), uint64_t(sizeof(Gaussian)), l.gaussian_bytes);
-	ok = ok && _mul_u64(sh_coefficients, uint64_t(sizeof(Vector3)), l.sh_bytes);
-	if (p_spec.write_chunk_table) {
-		ok = ok && _mul_u64(uint64_t(p_spec.chunk_count), gs_world_format::kChunkRecordBytes, l.chunk_table_bytes);
-		// Chunks tile the stream, so the index lists cover every splat exactly once.
-		ok = ok && _mul_u64(uint64_t(p_spec.splat_count), uint64_t(sizeof(uint32_t)), l.indices_bytes);
-	}
-	ok = ok && _add_u64(l.gaussian_offset, l.gaussian_bytes, l.sh_offset);
-	ok = ok && _add_u64(l.sh_offset, l.sh_bytes, l.chunk_table_offset);
-	ok = ok && _add_u64(l.chunk_table_offset, l.chunk_table_bytes, l.indices_offset);
-	uint64_t metadata_start = 0;
-	ok = ok && _add_u64(l.indices_offset, l.indices_bytes, metadata_start);
-	l.metadata_size = metadata_bytes.size();
-	l.metadata_offset = metadata_bytes.is_empty() ? 0u : metadata_start;
-	ok = ok && _add_u64(metadata_start, l.metadata_size, l.file_size);
-	if (!ok) {
-		return _fail(ERR_INVALID_PARAMETER, "invalid_spec: declared sizes overflow 64 bits");
-	}
-	layout = l;
-
-	pass_count = (p_mode == SourceMode::REITERABLE && layout.sh_bytes > 0u) ? 2u : 1u;
-
-	Error err = output.begin(p_final_path);
-	if (err != OK) {
-		return _fail(err, "io: cannot create the output temp: " + output.get_error_message());
-	}
-	if (p_mode == SourceMode::SINGLE_PASS && layout.sh_bytes > 0u) {
-		// Scratch sibling of the destination (same filesystem); it is a transaction
-		// that is read back and aborted, never committed, so its own "final" name
-		// is never created.
-		err = sh_scratch.begin(p_final_path + ".sh_scratch");
+	} else {
+		layout = plain;
+		err = output.begin(p_final_path);
+		output_begun = true;
 		if (err != OK) {
-			return _fail(err, "io: cannot create the SH scratch: " + sh_scratch.get_error_message());
+			return _fail(err, "io: cannot create the output temp: " + output.get_error_message());
 		}
-	}
-	// Placeholder header; the real one is written last (W2's one rewrite), so an
-	// abandoned temp never carries a valid header.
-	uint8_t zero_header[gs_world_format::kPrefixBytes] = {};
-	err = output.append(zero_header, sizeof(zero_header));
-	if (err != OK) {
-		return _fail(err, "io: header placeholder: " + output.get_error_message());
-	}
-
-	chunk_counts.reserve(p_spec.chunk_count);
-	if (p_spec.write_chunk_table) {
-		chunk_records.reserve(uint32_t(layout.chunk_table_bytes));
+		if (p_mode == SourceMode::SINGLE_PASS && layout.sh_bytes > 0u) {
+			// Scratch sibling of the destination (same filesystem); it is a transaction
+			// that is read back and aborted, never committed, so its own "final" name
+			// is never created.
+			err = sh_scratch.begin(p_final_path + ".sh_scratch");
+			if (err != OK) {
+				return _fail(err, "io: cannot create the SH scratch: " + sh_scratch.get_error_message());
+			}
+		}
+		// Placeholder header; the real one is written last (W2's one rewrite), so an
+		// abandoned temp never carries a valid header.
+		static const uint8_t zero_header[gs_world_format::kPrefixBytes] = {};
+		err = _append_sliced(output, zero_header, sizeof(zero_header));
+		if (err != OK) {
+			return err;
+		}
+		chunk_counts.reserve(p_spec.chunk_count);
+		if (p_spec.write_chunk_table) {
+			chunk_records.reserve(uint32_t(layout.chunk_table_bytes));
+		}
 	}
 	pass = 1u;
 	state = State::OPEN;
+	progress_pass.set(pass);
+	progress_pass_count.set(pass_count);
+	progress_chunks_total.set(uint64_t(p_spec.chunk_count) * pass_count);
+	progress_splats_total.set(uint64_t(p_spec.splat_count) * pass_count);
+	progress_phase.set(uint32_t(Phase::WRITING));
 	return OK;
 }
 
+// W10 / §4.3: every payload write goes through here, one slice (<= 1 MiB) at a time.
+// Before each slice: cancel, deadline, and the output or scratch cap.
 Error Writer::_append_sliced(GSAtomicFileTransaction &p_txn, const uint8_t *p_data, uint64_t p_size) {
+	const bool to_output = &p_txn == &output;
+	const uint64_t cap = to_output ? limits.max_output_bytes : limits.max_scratch_bytes;
 	uint64_t done = 0;
 	while (done < p_size) {
+		Error err = _check_stop();
+		if (err != OK) {
+			return err;
+		}
 		const uint64_t slice = MIN(kSliceBytes, p_size - done);
-		const Error err = p_txn.append(p_data + done, slice);
+		const uint64_t at = p_txn.get_size();
+		if (at > cap || slice > cap - at) {
+			return _fail(ERR_PARAMETER_RANGE_ERROR, vformat(to_output ? "limit_output: the file would grow past max_output_bytes %s" : "limit_scratch: the SH scratch would grow past max_scratch_bytes %s",
+															String::num_uint64(cap)));
+		}
+		err = p_txn.append(p_data + done, slice);
 		if (err != OK) {
 			return _fail(err, "io: " + p_txn.get_error_message());
 		}
 		done += slice;
+		progress_bytes.add(slice);
+		if (!to_output) {
+			scratch_peak = MAX(scratch_peak, p_txn.get_size());
+		}
 	}
 	return OK;
 }
@@ -413,6 +617,13 @@ uint32_t Writer::_encode_header(uint8_t *r_header) const {
 Error Writer::append_chunk(const ChunkDesc &p_desc, const Gaussian *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count) {
 	if (state != State::OPEN) {
 		return state == State::FAILED ? error : ERR_UNCONFIGURED;
+	}
+	{
+		// Also covers empty chunks, which write nothing.
+		const Error stop = _check_stop();
+		if (stop != OK) {
+			return stop;
+		}
 	}
 	if (pass == kNoPass || chunks_this_pass >= spec.chunk_count) {
 		return _fail(ERR_INVALID_DATA, vformat("count_mismatch: chunk beyond the declared chunk_count %d", spec.chunk_count));
@@ -473,6 +684,12 @@ Error Writer::append_chunk(const ChunkDesc &p_desc, const Gaussian *p_gaussians,
 
 	chunks_this_pass++;
 	splats_this_pass += p_count;
+	progress_chunks.increment();
+	progress_splats.add(p_count);
+	const Error ram_err = _check_ram();
+	if (ram_err != OK) {
+		return ram_err;
+	}
 	if (chunks_this_pass == spec.chunk_count) {
 		return _end_pass();
 	}
@@ -492,7 +709,14 @@ Error Writer::_append_chunk_gsq(const ChunkDesc &p_desc, const Gaussian *p_gauss
 	String reason;
 	const Error build_err = page_builder->build_chunk(chunk, p_gaussians, p_sh_high, p_count, built_pages, reason);
 	if (build_err != OK) {
-		return _fail(build_err, vformat("chunk %d: %s", chunk, reason));
+		return _fail(build_err, vformat("invalid_chunk: chunk %d: %s", chunk, reason));
+	}
+	{
+		// The chunk's pages are held now: the measured peak of a GSQ chunk.
+		const Error ram_err = _check_ram();
+		if (ram_err != OK) {
+			return ram_err;
+		}
 	}
 	if (uint64_t(page_count) + built_pages.size() > uint64_t(UINT32_MAX) ||
 			uint64_t(page_records.size()) + uint64_t(built_pages.size()) * gs_world_format::kPagedPageRecordBytes > uint64_t(UINT32_MAX)) {
@@ -554,6 +778,12 @@ Error Writer::_append_chunk_gsq(const ChunkDesc &p_desc, const Gaussian *p_gauss
 
 	chunks_this_pass++;
 	splats_this_pass += p_count;
+	progress_chunks.increment();
+	progress_splats.add(p_count);
+	const Error ram_err = _check_ram(); // the page table grows with every chunk
+	if (ram_err != OK) {
+		return ram_err;
+	}
 	if (chunks_this_pass == spec.chunk_count) {
 		return _end_pass();
 	}
@@ -577,6 +807,7 @@ Error Writer::_end_pass() {
 		pass++;
 		chunks_this_pass = 0;
 		splats_this_pass = 0;
+		progress_pass.set(pass);
 	} else {
 		pass = kNoPass;
 	}
@@ -673,6 +904,7 @@ Error Writer::finalize() {
 		return _fail(ERR_INVALID_DATA, vformat("count_mismatch: finalize() before pass %d of %d completed (%d of %d chunks)",
 											   pass, pass_count, chunks_this_pass, spec.chunk_count));
 	}
+	progress_phase.set(uint32_t(Phase::FINALIZING));
 	if (mode == SourceMode::SINGLE_PASS && layout.sh_bytes > 0u) {
 		const Error err = _copy_scratch_sh();
 		if (err != OK) {
@@ -693,11 +925,17 @@ Error Writer::finalize() {
 	if (err != OK) {
 		return _fail(err, "io: header rewrite: " + output.get_error_message());
 	}
+	progress_bytes.add(header_size);
 	// Pay the long flush before readers are suspended; commit() then has (almost)
 	// nothing left to flush inside the guard.
 	err = output.flush_to_storage();
 	if (err != OK) {
 		return _fail(err, "io: " + output.get_error_message());
+	}
+	// Last chance to stop: after this the replace is attempted.
+	err = _check_stop();
+	if (err != OK) {
+		return err;
 	}
 
 	{
@@ -728,6 +966,8 @@ Error Writer::finalize() {
 		page_builder = nullptr;
 	}
 	state = State::COMMITTED;
+	_seal_report(OK, String());
+	progress_phase.set(uint32_t(Phase::COMMITTED));
 	return OK;
 }
 

@@ -37,6 +37,7 @@ namespace TestGSWorldPagedChunks {
 
 using gs_world_writer::ChunkDesc;
 using gs_world_writer::CodecParams;
+using gs_world_writer::Limits;
 using gs_world_writer::PlainSpec;
 using gs_world_writer::SourceMode;
 using gs_world_writer::Writer;
@@ -111,7 +112,7 @@ inline PCWorld pc_make(uint32_t p_degree) {
 
 inline Error pc_write(const PCWorld &p_w, SourceMode p_mode, const String &p_path, uint32_t *r_pages = nullptr, String *r_message = nullptr) {
 	Writer writer;
-	Error err = writer.begin_plain(p_path, p_w.spec, gs_world_writer::gsq_v1_codec_params(), p_mode);
+	Error err = writer.begin_plain(p_path, p_w.spec, gs_world_writer::gsq_v1_codec_params(), p_mode, Limits::unbounded());
 	if (err == OK && writer.get_pass_count() != 1u) {
 		err = ERR_BUG; // the SH travels inside the pages: one pass in every mode
 	}
@@ -433,8 +434,64 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): w
 	PCWorld no_table = pc_make(0u);
 	no_table.spec.write_chunk_table = false;
 	Writer writer;
-	CHECK(writer.begin_plain(path, no_table.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS) == ERR_INVALID_PARAMETER);
+	CHECK(writer.begin_plain(path, no_table.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded()) == ERR_INVALID_PARAMETER);
 	CHECK(writer.get_error_message().contains("write_chunk_table"));
 	CHECK(ww_list(dir).size() == 0);
+	ww_remove_dir(dir);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] paged GSQ chunks (bit 7): output and RAM caps hold while writing (BV-03b), publishing nothing") {
+	using namespace TestGSWorldPagedChunks;
+	const String dir = ww_dir("paged_limits");
+	const String path = dir.path_join("world.gsplatworld");
+	const PCWorld w = pc_make(1u);
+	const uint32_t high = w.spec.sh_high_order;
+
+	// GSQ output is unknown at begin; preflight sizes the disk need by the cap, and the cap
+	// is enforced per slice as the pages land.
+	Limits out = Limits::unbounded();
+	out.max_output_bytes = 16384u;
+	Writer ow;
+	REQUIRE(ow.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, out) == OK);
+	CHECK(ow.get_report().output_estimate_bytes == 16384u);
+	CHECK(ow.append_chunk(w.descs[0], w.src.gaussians.ptr(), w.src.sh_high.ptr(), w.counts[0]) == ERR_PARAMETER_RANGE_ERROR);
+	CHECK(ow.get_report().reason == "limit_output");
+	CHECK(ow.get_report().output_bytes <= 16384u);
+	CHECK(ww_list(dir).size() == 0);
+
+	// RAM: exactly the preflight estimate passes begin; holding chunk 0's pages exceeds it.
+	Writer probe;
+	REQUIRE(probe.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded()) == OK);
+	const uint64_t ram_estimate = probe.get_report().ram_estimate_bytes;
+	probe.abort();
+	CHECK(probe.get_report().reason == "aborted");
+	Limits ram = Limits::unbounded();
+	ram.max_ram_bytes = ram_estimate;
+	Writer rw;
+	REQUIRE(rw.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, ram) == OK);
+	CHECK(rw.append_chunk(w.descs[0], w.src.gaussians.ptr(), high > 0u ? w.src.sh_high.ptr() : nullptr, w.counts[0]) == ERR_PARAMETER_RANGE_ERROR);
+	CHECK(rw.get_report().reason == "limit_ram");
+	CHECK(rw.get_report().ram_peak_bytes > ram_estimate);
+	CHECK(ww_list(dir).size() == 0);
+
+	// Unbounded, the same world commits and the Report counts its pages.
+	uint32_t pages = 0;
+	Writer cw;
+	Error err = cw.begin_plain(path, w.spec, gs_world_writer::gsq_v1_codec_params(), SourceMode::SINGLE_PASS, Limits::unbounded());
+	uint32_t base = 0;
+	for (uint32_t c = 0; err == OK && c < w.counts.size(); c++) {
+		err = cw.append_chunk(w.descs[c], w.src.gaussians.ptr() + base, high > 0u ? w.src.sh_high.ptr() + uint64_t(base) * high : nullptr, w.counts[c]);
+		base += w.counts[c];
+	}
+	if (err == OK) {
+		err = cw.finalize();
+	}
+	pages = cw.get_page_count();
+	CHECK(err == OK);
+	CHECK(cw.get_report().committed);
+	CHECK(cw.get_report().page_count == pages);
+	CHECK(pages == 5u); // 4096 + 4096 + 808, then 4096 + 904
+	CHECK(cw.get_report().output_bytes == uint64_t(ww_read(path).size()));
+	CHECK(cw.get_report().splats_appended == 14000u);
 	ww_remove_dir(dir);
 }
