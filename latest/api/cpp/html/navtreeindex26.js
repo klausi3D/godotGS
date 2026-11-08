@@ -1,5 +1,9 @@
 var NAVTREEINDEX26 =
 {
+"structAssetID.html#ab0083301c6aba8ca10e064eed6db94c3":[1,0,34,7],
+"structAssetID.html#ae112b92e65ff1f22b608b576e702429c":[1,0,34,4],
+"structAssetID.html#aed2b5ac36938df1142fdb5c69225df90":[1,0,34,1],
+"structAssetIDHasher.html":[1,0,35],
 "structAssetLodRangeGPU.html":[1,0,36],
 "structAssetLodRangeGPU.html#a31d2ab4dcbfaacd4ed405b5659c1be2e":[1,0,36,1],
 "structAssetLodRangeGPU.html#a5d8c261d34f16ee134633e87c05f237c":[1,0,36,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX26 =
 "structDrawnNodeGPU.html":[1,0,66],
 "structDrawnNodeGPU.html#a30b1ebc78929a2e5800af9a7b2721bfb":[1,0,66,2],
 "structDrawnNodeGPU.html#ad3a7df88c1f97c530a9bb770b25f6b92":[1,0,66,1],
-"structDrawnNodeGPU.html#ad3f498133ae685fa8a93ba763f1f9504":[1,0,66,3],
-"structDrawnNodeGPU.html#ad4b09c10224e8d5bda65efbf00bf2c5f":[1,0,66,4],
-"structDrawnNodeGPU.html#aee4af8e6e1df5ad6d1a7cd548c017fed":[1,0,66,0],
-"structFloat16Utils_1_1Float16ConversionStats.html":[0,0,0,1],
-"structFloat16Utils_1_1Float16ConversionStats.html":[1,0,0,1]
+"structDrawnNodeGPU.html#ad3f498133ae685fa8a93ba763f1f9504":[1,0,66,3]
 };

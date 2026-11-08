@@ -1,5 +1,9 @@
 var NAVTREEINDEX53 =
 {
+"structVRAMBudgetConfig.html#a85f2b805cff6a5aa5baca1cdcbc0ae61":[1,0,285,17],
+"structVRAMBudgetConfig.html#a8dde1be8236e3a0645573b4d0b2ca2db":[1,0,285,15],
+"structVRAMBudgetConfig.html#a8de261b1602f1aef3d518c8bb81fcc0b":[1,0,285,3],
+"structVRAMBudgetConfig.html#a8ed4781d72484798df1cc8076a73c31f":[1,0,285,2],
 "structVRAMBudgetConfig.html#aac2da1e09140f1b92e61325f8cbe980d":[1,0,285,16],
 "structVRAMBudgetConfig.html#ac0a6b471f8ac0636d3229b9cdac2c90b":[1,0,285,4],
 "structVRAMBudgetConfig.html#ac9a75bb4ebbeecdef4828e0527bb83ba":[1,0,285,12],
@@ -245,9 +249,5 @@ var NAVTREEINDEX53 =
 "structgs__hlod_1_1CellMergeMoments.html#ae51f5753288bb2d162241cf0534dd4a8":[1,0,13,7,6],
 "structgs__hlod_1_1CellMergeMoments.html#af866ccb38358a3369fb7b3f352f602d6":[0,0,20,7,5],
 "structgs__hlod_1_1CellMergeMoments.html#af866ccb38358a3369fb7b3f352f602d6":[1,0,13,7,5],
-"structgs__hlod_1_1InteriorBakeParams.html":[0,0,20,10],
-"structgs__hlod_1_1InteriorBakeParams.html":[1,0,13,10],
-"structgs__hlod_1_1InteriorBakeParams.html#a365c16158502843dd76adde1cf4307a7":[0,0,20,10,4],
-"structgs__hlod_1_1InteriorBakeParams.html#a365c16158502843dd76adde1cf4307a7":[1,0,13,10,4],
-"structgs__hlod_1_1InteriorBakeParams.html#a8c21be1a78e1945a2218ea2a4172a75b":[0,0,20,10,2]
+"structgs__hlod_1_1InteriorBakeParams.html":[0,0,20,10]
 };

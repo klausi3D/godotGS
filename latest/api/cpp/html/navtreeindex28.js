@@ -1,5 +1,9 @@
 var NAVTREEINDEX28 =
 {
+"structGPUSortingPipeline_1_1InstancePipelineInputs.html#a8f822b520e7817531b806ee6b468b269":[1,0,119,0,11],
+"structGPUSortingPipeline_1_1InstancePipelineInputs.html#a97969fd1be7b7f7674dfab55c9230d16":[1,0,119,0,5],
+"structGPUSortingPipeline_1_1InstancePipelineInputs.html#a9875ec51b2d1ce4a21a501ae993cad99":[1,0,119,0,6],
+"structGPUSortingPipeline_1_1InstancePipelineInputs.html#a9dbbe4edb5fa7d5de69709931c37d373":[1,0,119,0,22],
 "structGPUSortingPipeline_1_1InstancePipelineInputs.html#aa54d36449a89f61e322439491c5ead8c":[1,0,119,0,0],
 "structGPUSortingPipeline_1_1InstancePipelineInputs.html#ab3a1cb8f2127e269e96d94eb29c4618f":[1,0,119,0,17],
 "structGPUSortingPipeline_1_1InstancePipelineInputs.html#abbea455c9c58ce82f30a2bf59b531852":[1,0,119,0,12],
@@ -245,9 +249,5 @@ var NAVTREEINDEX28 =
 "structGaussianRenderDebug_1_1DebugState.html#a080681ade5dc396602b4b97ad8b37361":[1,0,2,4,18],
 "structGaussianRenderDebug_1_1DebugState.html#a0a6b3c3b950cc0e5ea101f59a17ebf26":[0,0,3,4,32],
 "structGaussianRenderDebug_1_1DebugState.html#a0a6b3c3b950cc0e5ea101f59a17ebf26":[1,0,2,4,32],
-"structGaussianRenderDebug_1_1DebugState.html#a257361ad15c943d85d061f65e897ab93":[0,0,3,4,8],
-"structGaussianRenderDebug_1_1DebugState.html#a257361ad15c943d85d061f65e897ab93":[1,0,2,4,8],
-"structGaussianRenderDebug_1_1DebugState.html#a27945415bb29d885c728cb3747c7661f":[0,0,3,4,1],
-"structGaussianRenderDebug_1_1DebugState.html#a27945415bb29d885c728cb3747c7661f":[1,0,2,4,1],
-"structGaussianRenderDebug_1_1DebugState.html#a2c100dccc1489f8b6f0dcc39758f0701":[0,0,3,4,19]
+"structGaussianRenderDebug_1_1DebugState.html#a257361ad15c943d85d061f65e897ab93":[0,0,3,4,8]
 };

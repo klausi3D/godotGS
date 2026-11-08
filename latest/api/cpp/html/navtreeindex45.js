@@ -1,5 +1,9 @@
 var NAVTREEINDEX45 =
 {
+"structGaussianStreamingTypes_1_1DiagnosticsState.html#ad828e04ee07cbc47e7ab7500d9b99983":[0,0,14,9,8],
+"structGaussianStreamingTypes_1_1DiagnosticsState.html#ad828e04ee07cbc47e7ab7500d9b99983":[1,0,10,9,8],
+"structGaussianStreamingTypes_1_1DiagnosticsState.html#aea70436af27e876f65efcd40c1a0d029":[0,0,14,9,1],
+"structGaussianStreamingTypes_1_1DiagnosticsState.html#aea70436af27e876f65efcd40c1a0d029":[1,0,10,9,1],
 "structGaussianStreamingTypes_1_1DiagnosticsState.html#afe86c07d11e53bd60812bf9a2436364e":[0,0,14,9,18],
 "structGaussianStreamingTypes_1_1DiagnosticsState.html#afe86c07d11e53bd60812bf9a2436364e":[1,0,10,9,18],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html":[0,0,14,9,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX45 =
 "structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f":[0,0,14,1,17],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f":[1,0,10,1,17],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93":[0,0,14,1,14],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93":[1,0,10,1,14],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ad9463a627702c637dfa5eee5b11aeda1":[0,0,14,1,22],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ad9463a627702c637dfa5eee5b11aeda1":[1,0,10,1,22],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ae6b7347cbde609df50f0100bdb2a2420":[0,0,14,1,36],
-"structGaussianStreamingTypes_1_1StreamingChunk.html#ae6b7347cbde609df50f0100bdb2a2420":[1,0,10,1,36]
+"structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93":[1,0,10,1,14]
 };

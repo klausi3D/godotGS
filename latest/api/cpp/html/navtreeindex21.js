@@ -1,5 +1,9 @@
 var NAVTREEINDEX21 =
 {
+"namespaceGPUSortingConstants.html#a275b1787bebeb947be42da11d9fcf2b6":[0,0,15,1],
+"namespaceGPUSortingConstants.html#a4f06ef675f58099e57864a2ff554232e":[0,0,15,0],
+"namespaceGPUSortingConstants.html#a71a65d19d1b332d57880c962ce201ee8":[0,0,15,3],
+"namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729":[0,0,15,4],
 "namespaceGPUSortingConstants.html#abb04a6e7836b1cee8774df6774487e2a":[0,0,15,5],
 "namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb":[0,0,15,2],
 "namespaceGaussianEffectiveConfig.html":[0,0,1],
@@ -245,9 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a17bfea837cf592e41c2e4326677c27c6":[0,0,12,3,11],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a190f4582d08f6988fd8c4f1fe3dfdb07":[0,0,12,3,13],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76":[0,0,12,3,2],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a03f13e6a21812b4f7df059387afbdb96":[0,0,12,3,2,25],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0532b05e5f872b9d091dd6328d150a40":[0,0,12,3,2,10],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0655e58d7fc477d87b9250bf10fbb5f7":[0,0,12,3,2,7],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0abd865d39d8914bb155444cea9d6813":[0,0,12,3,2,41],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a1225fc1e3e2ef46de394b10fa5068f16":[0,0,12,3,2,32]
+"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a03f13e6a21812b4f7df059387afbdb96":[0,0,12,3,2,25]
 };

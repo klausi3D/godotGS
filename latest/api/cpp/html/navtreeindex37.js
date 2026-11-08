@@ -1,5 +1,9 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatting_1_1AssetReference.html#a0ca5c5dbe11da5b16557721e3a06eddc":[0,0,12,19,3],
+"structGaussianSplatting_1_1AssetReference.html#a0ca5c5dbe11da5b16557721e3a06eddc":[1,0,9,18,3],
+"structGaussianSplatting_1_1AssetReference.html#a150f035e6bb905b1708ad7bfd34ad835":[0,0,12,19,4],
+"structGaussianSplatting_1_1AssetReference.html#a150f035e6bb905b1708ad7bfd34ad835":[1,0,9,18,4],
 "structGaussianSplatting_1_1AssetReference.html#a3626889b1c9b8e23215004d262542d49":[0,0,12,19,1],
 "structGaussianSplatting_1_1AssetReference.html#a3626889b1c9b8e23215004d262542d49":[1,0,9,18,1],
 "structGaussianSplatting_1_1AssetReference.html#adb385630631e39ecd55e42e7b85f6cc4":[0,0,12,19,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#add751689064ccf4fa8747f9edca212d0":[0,0,12,2,4,8],
 "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#add751689064ccf4fa8747f9edca212d0":[1,0,9,1,4,8],
 "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html":[0,0,12,2,1],
-"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html":[1,0,9,1,1],
-"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a250683ca1fa43ac35b9b4a5e7684f1ec":[0,0,12,2,1,0],
-"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a250683ca1fa43ac35b9b4a5e7684f1ec":[1,0,9,1,1,0],
-"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a5261cb735fe015a51da0186ce1005b5c":[0,0,12,2,1,1],
-"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a5261cb735fe015a51da0186ce1005b5c":[1,0,9,1,1,1]
+"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html":[1,0,9,1,1]
 };

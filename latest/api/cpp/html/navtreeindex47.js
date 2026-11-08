@@ -1,5 +1,9 @@
 var NAVTREEINDEX47 =
 {
+"structNodeResidency_1_1Stats.html#ac7fbac507d1b25d115d09916fa65b2a3":[1,0,167,3,9],
+"structNodeResidency_1_1Stats.html#acb58b377145f0c9bdbd8511e55a8ba10":[1,0,167,3,8],
+"structNodeResidency_1_1Stats.html#acc387676084b37ad031448c68be87790":[1,0,167,3,2],
+"structNodeResidency_1_1Stats.html#ad435ed7537f9ab64c8e3f721e51f488a":[1,0,167,3,25],
 "structNodeResidency_1_1Stats.html#adc31b055b54c5e0ba68fc2e6eaba548c":[1,0,167,3,23],
 "structNodeResidency_1_1Stats.html#af510dc64c7846a85c66feee46d7b428b":[1,0,167,3,5],
 "structNodeResidency_1_1Stats.html#af974d7d5a80561e5d9e37a436d3bea0b":[1,0,167,3,18],
@@ -245,9 +249,5 @@ var NAVTREEINDEX47 =
 "structPickResult.html#a9fc58942790e26a9b0ab69705b8a7995":[1,0,191,2],
 "structPickResult.html#acd1c0e67c4e7b2750c60f94258f77206":[1,0,191,0],
 "structPipelineFeatureSet.html":[1,0,192],
-"structPipelineFeatureSet.html#a1434e748092895a16a66179dba03c51c":[1,0,192,15],
-"structPipelineFeatureSet.html#a16aaae6edca6dd1896c0be0f3dc54439":[1,0,192,8],
-"structPipelineFeatureSet.html#a2125c470ed12810d0cb52043866fdd19":[1,0,192,14],
-"structPipelineFeatureSet.html#a271b934ec332a641e9c3178e58fe76e5":[1,0,192,12],
-"structPipelineFeatureSet.html#a277a2c11ac74321d343554bbe8d1accc":[1,0,192,5]
+"structPipelineFeatureSet.html#a1434e748092895a16a66179dba03c51c":[1,0,192,15]
 };

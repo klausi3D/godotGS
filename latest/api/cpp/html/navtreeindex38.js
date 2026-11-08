@@ -1,5 +1,9 @@
 var NAVTREEINDEX38 =
 {
+"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a250683ca1fa43ac35b9b4a5e7684f1ec":[0,0,12,2,1,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a250683ca1fa43ac35b9b4a5e7684f1ec":[1,0,9,1,1,0],
+"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a5261cb735fe015a51da0186ce1005b5c":[0,0,12,2,1,1],
+"structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#a5261cb735fe015a51da0186ce1005b5c":[1,0,9,1,1,1],
 "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#ab9bad9c27a520324639347cd52814aa2":[0,0,12,2,1,2],
 "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#ab9bad9c27a520324639347cd52814aa2":[1,0,9,1,1,2],
 "structGaussianSplatting_1_1GpuPassTiming_1_1StageTimes.html#acf172398e39b0b74d42c54f07988b4bd":[0,0,12,2,1,3],
@@ -245,9 +249,5 @@ var NAVTREEINDEX38 =
 "structGaussianSplatting_1_1SphereEffectorRenderData.html":[0,0,12,52],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html":[1,0,9,51],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a0e7f94d85527fe10e7171a5ccbf29444":[0,0,12,52,5],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a0e7f94d85527fe10e7171a5ccbf29444":[1,0,9,51,5],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a117604ab964a3133594b09448298b608":[0,0,12,52,7],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a117604ab964a3133594b09448298b608":[1,0,9,51,7],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a1c4f1812b6b69e130764400781d8840d":[0,0,12,52,9],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a1c4f1812b6b69e130764400781d8840d":[1,0,9,51,9]
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a0e7f94d85527fe10e7171a5ccbf29444":[1,0,9,51,5]
 };

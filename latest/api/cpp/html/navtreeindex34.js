@@ -1,5 +1,9 @@
 var NAVTREEINDEX34 =
 {
+"structGaussianRenderState_1_1SceneState.html#a4e8df0b11fdb1c6dcf1fbe17686b4aa2":[1,0,7,0,1],
+"structGaussianRenderState_1_1SceneState.html#a8874c549170a1ba448e1e5f95e64486a":[0,0,9,0,3],
+"structGaussianRenderState_1_1SceneState.html#a8874c549170a1ba448e1e5f95e64486a":[1,0,7,0,3],
+"structGaussianRenderState_1_1SceneState.html#ae644d119ca82f609774e359362c7dadd":[0,0,9,0,0],
 "structGaussianRenderState_1_1SceneState.html#ae644d119ca82f609774e359362c7dadd":[1,0,7,0,0],
 "structGaussianRenderState_1_1SortStageSummary.html":[0,0,9,2],
 "structGaussianRenderState_1_1SortStageSummary.html":[1,0,7,2],
@@ -245,9 +249,5 @@ var NAVTREEINDEX34 =
 "structGaussianSplatHlodRuntimeData_1_1EditedLeaf.html#aca375bafd19c898922f041cca9d0bf2e":[1,0,89,1,3],
 "structGaussianSplatHlodRuntimeData_1_1EditedLeaf.html#af3eb1d1621a9070b921c807b4473e50b":[1,0,89,1,5],
 "structGaussianSplatHlodRuntimeData_1_1EditedLeaf.html#afc257563e3ecf4d00e0c19569a042991":[1,0,89,1,1],
-"structGaussianSplatHlodRuntimeData_1_1Node.html":[1,0,89,0],
-"structGaussianSplatHlodRuntimeData_1_1Node.html#a2b3558799be10d543ed05fece7e88946":[1,0,89,0,6],
-"structGaussianSplatHlodRuntimeData_1_1Node.html#a3f8bc60ec8b6573715057eaf8816157e":[1,0,89,0,4],
-"structGaussianSplatHlodRuntimeData_1_1Node.html#a6ca33447591b36ba72ec17eb77121175":[1,0,89,0,7],
-"structGaussianSplatHlodRuntimeData_1_1Node.html#a7c5386399bd376675f6dd49647d24bf0":[1,0,89,0,2]
+"structGaussianSplatHlodRuntimeData_1_1Node.html":[1,0,89,0]
 };

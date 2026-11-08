@@ -1,5 +1,9 @@
 var NAVTREEINDEX50 =
 {
+"structSortExternalBufferState.html#ad1fa4b5a33f6ef3aa56a749bd32247bf":[1,0,238,1],
+"structSortExternalBufferState.html#ae142f086c9609425ed98c7a373839c50":[1,0,238,4],
+"structSortFrameContext.html":[1,0,239],
+"structSortFrameContext.html#a181d2e51f004255e25d697c93172a99d":[1,0,239,4],
 "structSortFrameContext.html#a5f1a1c5139736e22fea4d2feba05a9ea":[1,0,239,1],
 "structSortFrameContext.html#a6caec7194c7c1664b6ee041414a08766":[1,0,239,2],
 "structSortFrameContext.html#a6dfa5681e7a1f938fbb7af292a5ef93a":[1,0,239,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX50 =
 "structStreamingStats.html#a5c508b95807be37e0153f14ef675e46b":[1,0,268,5],
 "structStreamingStats.html#a86acc46a1920c998035acfc8d7bb0043":[1,0,268,9],
 "structStreamingStats.html#aa1b6cfae855d8d1b5785a4f7c8421ab4":[1,0,268,4],
-"structStreamingStats.html#aaba462709071c153084b85d649efb931":[1,0,268,12],
-"structStreamingStats.html#ab0b40de7092a605ae679f1e51ff9ddbc":[1,0,268,10],
-"structStreamingStats.html#ac7d5b7dea005481ca585a8b0f8499ad0":[1,0,268,2],
-"structStreamingStats.html#ade39d56f669a1d8b5b4fe7818c0b5270":[1,0,268,1],
-"structStreamingStats.html#ae64a4e24b8ced82868ba4fa4c2d8b065":[1,0,268,3]
+"structStreamingStats.html#aaba462709071c153084b85d649efb931":[1,0,268,12]
 };

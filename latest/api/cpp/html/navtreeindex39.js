@@ -1,5 +1,9 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a117604ab964a3133594b09448298b608":[0,0,12,52,7],
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a117604ab964a3133594b09448298b608":[1,0,9,51,7],
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a1c4f1812b6b69e130764400781d8840d":[0,0,12,52,9],
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a1c4f1812b6b69e130764400781d8840d":[1,0,9,51,9],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a2330e745c3dc138a6f8ee981d478511b":[0,0,12,52,0],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a2330e745c3dc138a6f8ee981d478511b":[1,0,9,51,0],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a2ac3e8ecd791ff507a22f141cd8ccef5":[0,0,12,52,4],
@@ -245,9 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a028b9ecde5ff4e304ff2f7fc2fa52db9":[0,0,12,46,8],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a028b9ecde5ff4e304ff2f7fc2fa52db9":[1,0,9,45,8],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a04a9f28bb8b666d5d60ffce723a77570":[0,0,12,46,11],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a04a9f28bb8b666d5d60ffce723a77570":[1,0,9,45,11],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a061160aba2c23d4aa4ffce7a61bc8542":[0,0,12,46,22],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a061160aba2c23d4aa4ffce7a61bc8542":[1,0,9,45,22],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a0b79beab1891a0385e8f45b8edc6714f":[0,0,12,46,41],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a0b79beab1891a0385e8f45b8edc6714f":[1,0,9,45,41]
+"structGaussianSplatting_1_1TileGlobalSortResources.html#a04a9f28bb8b666d5d60ffce723a77570":[1,0,9,45,11]
 };

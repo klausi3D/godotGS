@@ -18,6 +18,8 @@ var classgs__world__writer_1_1Writer =
     [ "get_error", "classgs__world__writer_1_1Writer.html#a0f40b501fb432f0e148f1f71bd589cf1", null ],
     [ "get_error_message", "classgs__world__writer_1_1Writer.html#aacced5380cc35cffeeb614934893a6d3", null ],
     [ "get_expected_file_size", "classgs__world__writer_1_1Writer.html#ac6bb534e2e0b3f911d36de1d0bb20f43", null ],
+    [ "get_page_count", "classgs__world__writer_1_1Writer.html#a06f1946f62e3e70ce2bdbfe1acba6826", null ],
+    [ "get_page_stats", "classgs__world__writer_1_1Writer.html#a09d6057d0ee4cb203683113f59201add", null ],
     [ "get_pass_count", "classgs__world__writer_1_1Writer.html#a7091c1665e7b83b3e76d05acacd49c76", null ],
     [ "get_state", "classgs__world__writer_1_1Writer.html#afb6a7ed5221f55c841767868855675e6", null ],
     [ "is_open", "classgs__world__writer_1_1Writer.html#a7bb558412d9a31feeb1558195323e5e8", null ],
