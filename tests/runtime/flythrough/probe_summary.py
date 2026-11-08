@@ -321,6 +321,36 @@ def settings_drift(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     return rec
 
 
+def checkpoint_cap_fit(needed: object, cap: object) -> Dict[str, object]:
+    """ADR M1 settle-where-fits criterion: does a checkpoint's needed set fit the chunk cap?
+
+    ``needed`` is the engine's ``needed_chunks`` at the checkpoint, ``cap`` the chunk cap
+    the engine enforced in the same frame (trace ``effective_max_chunks``).
+
+    - needed <= cap: OK; the checkpoint must settle (missing chunks = 0, section 7.3).
+    - needed > cap: the needed set can never be resident at once, so settle is undefined.
+      The checkpoint needs a priority proof instead (the most important chunks resident
+      and drawn first). No such check exists yet, so the verdict is INVALID, never a pass.
+    - either number absent (or not positive): MISSING. Absence of a signal is no pass.
+    """
+    ok_needed = isinstance(needed, int) and not isinstance(needed, bool) and needed > 0
+    ok_cap = isinstance(cap, int) and not isinstance(cap, bool) and cap > 0
+    rec: Dict[str, object] = {"needed_chunks": needed if ok_needed else None,
+                              "chunk_cap": cap if ok_cap else None}
+    if not ok_needed or not ok_cap:
+        absent = [n for n, ok in (("needed_chunks", ok_needed), ("chunk cap", ok_cap)) if not ok]
+        rec.update(status=MISSING, settle_required=None,
+                   reason=f"{' and '.join(absent)} absent at the checkpoint: cannot tell whether it must settle")
+        return rec
+    if needed > cap:
+        rec.update(status=INVALID, settle_required=False,
+                   reason=f"needed {needed} > cap {cap}: the needed set cannot be resident at once; "
+                          "the checkpoint requires a priority proof, which does not exist yet")
+        return rec
+    rec.update(status=OK, settle_required=True)
+    return rec
+
+
 #: The cumulative streaming counters start at 0 when the process starts and are never
 #: reset (docs/features/streaming.md, BV-04a).
 COUNTER_INITIAL_VALUE = 0

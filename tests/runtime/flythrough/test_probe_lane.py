@@ -337,6 +337,55 @@ class CapturedTrace(unittest.TestCase):
         problems = rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}})
         self.assertTrue(any("expected" in p for p in problems), problems)
 
+    def _replay_checkpoints(self, edit) -> tuple:
+        """Replay the captured run with edit(cp, cap) applied to each checkpoint record."""
+        result = copy.deepcopy(self.path_result)
+        tr = ps.read_trace(self.path_trace)
+        for cp in result["checkpoints"]:
+            edit(cp, tr.get(tr.rows[cp["row"]], "effective_max_chunks"))
+        m = manifest()
+        path = pp.resolve_path(m)
+        truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+        s = rp.summarise_path(tr, self.run_of(self.path_trace, result), path, truth, 1)
+        return s, rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}})
+
+    def test_needed_within_cap_and_settled_is_ok(self) -> None:
+        """ADR M1 settle-where-fits: needed <= cap (boundary needed == cap) and settled passes."""
+        s, problems = self._replay_checkpoints(lambda cp, cap: cp.__setitem__("needed_chunks", cap))
+        self.assertEqual(problems, [])
+        fits = [c["cap_fit"] for c in s["passes"][0]["checkpoints"]]
+        self.assertEqual(len(fits), 8)
+        self.assertTrue(all(f["status"] == ps.OK and f["settle_required"] for f in fits), fits)
+        self.assertTrue(all(f["needed_chunks"] == f["chunk_cap"] > 0 for f in fits), fits)
+
+    def test_needed_over_cap_is_invalid_even_when_settled(self) -> None:
+        """needed > cap needs a priority proof that does not exist yet: INVALID, never a silent pass."""
+        def over(cp, cap):
+            if cp["checkpoint"] == "C3":
+                cp["needed_chunks"] = cap + 1
+        s, problems = self._replay_checkpoints(over)
+        c3 = s["passes"][0]["checkpoints"][3]
+        self.assertTrue(c3["settled"], "the replayed checkpoint settled; the cap rule alone must fire")
+        self.assertEqual(c3["cap_fit"]["status"], ps.INVALID)
+        cap = c3["cap_fit"]["chunk_cap"]
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn(f"C3: needed {cap + 1} > cap {cap}", problems[0])
+        self.assertIn("priority proof", problems[0])
+
+    def test_absent_needed_or_cap_is_not_a_pass(self) -> None:
+        s, problems = self._replay_checkpoints(lambda cp, cap: cp.pop("needed_chunks"))
+        self.assertEqual(len(problems), 8, problems)
+        self.assertTrue(all("needed_chunks absent" in p for p in problems), problems)
+        self.assertEqual(ps.checkpoint_cap_fit(10, -1)["status"], ps.MISSING)
+        self.assertEqual(ps.checkpoint_cap_fit(10, None)["status"], ps.MISSING)
+        self.assertEqual(ps.checkpoint_cap_fit(449, 480)["status"], ps.OK)
+        self.assertEqual(ps.checkpoint_cap_fit(481, 480)["status"], ps.INVALID)
+
+    def test_tuned_cap_fits_the_largest_m1_needed_set(self) -> None:
+        """The tuned cap admits the largest needed set M1 tier A met (449, run 42427296940)."""
+        key = "rendering/gaussian_splatting/streaming/max_chunks_in_vram"
+        self.assertGreaterEqual(rp.TUNED_SETTINGS[key], 449)
+
     def test_unsettled_sweep_view_is_not_fk_evidence(self) -> None:
         result = copy.deepcopy(self.sweep_result)
         result["sweep"][0]["settle"] = {"settled": False, "settle_usec": -1, "reason": "settle_deadline_missed"}
