@@ -85,6 +85,7 @@
 #include "test_gs_world_writer.h"
 #include "test_gsq_codec.h"
 #include "test_gsq_codec_hardening.h"
+#include "test_gsq_page_builder.h"
 #include "test_view_transform.h"
 #include "test_memory_leak_detection.h"
 #include "test_renderer_lifetime_proof.h"

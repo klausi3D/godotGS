@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gs_atomic_file_transaction.h"
+#include "gsq/gsq_codec.h"
 
 #include "../core/gaussian_data.h"
 
@@ -23,8 +24,16 @@
 // doctests).
 //
 // Not here yet (later packages, per §10): Limits, preflight, cancel, progress and
-// the Report (BV-03b); the GSQ codec (BV-C3); PAGED_V4 (BV-18a). The API grows
-// into the §4.3 signature as those land.
+// the Report (BV-03b); the plain v3 bit-7 paged-GSQ container (BV-C5a); PAGED_V4
+// (BV-18a). The API grows into the §4.3 signature as those land.
+//
+// Codec GSQ v1 (BV-C3). The codec stage is gs_gsq::PageBuilder (io/gsq/
+// gsq_page_builder.h): it turns each appended chunk into importance-ordered,
+// Morton-inside, constant-grouped pages that are encoded, decoded and validated
+// before use (W12) and carry their stored and decoded digests (W15). begin_plain()
+// validates a GSQ codec block (gsq_encode_params()) and then refuses with
+// container_unavailable until BV-C5a gives the pages a container the reader loads
+// (W11: the writer never produces a file its reader refuses).
 //
 // Usage. Declare the world up front in a PlainSpec; then feed it chunk by chunk in
 // chunk order (W3). One "chunk" is one append unit: with write_chunk_table it is
@@ -86,15 +95,26 @@ enum class SourceMode : uint8_t {
 	SINGLE_PASS,
 };
 
-// §4.3. Only codec_id 0 ("none") is accepted until BV-C3; the other fields are
-// then required to be zero so a caller cannot believe a codec was applied.
+// §4.3. With codec_id 0 ("none") the other fields must be zero so a caller cannot
+// believe a codec was applied. With codec_id 1 (GSQ v1) every field is required
+// and range-checked; gsq_v1_codec_params() returns the D-12 pre-registered block.
 struct CodecParams {
-	uint32_t codec_id = 0; // 0 none, 1 GSQ v1 (BV-C3)
+	uint32_t codec_id = 0; // 0 none, 1 GSQ v1
 	uint8_t sh_bits[3] = { 0, 0, 0 };
 	uint8_t opacity_bits = 0;
 	float pos_step_m = 0.0f;
 	int zstd_level = 0;
 };
+
+constexpr uint32_t kCodecNone = 0u;
+constexpr uint32_t kCodecGsqV1 = 1u;
+
+// The D-12 pre-registered GSQ v1 parameters (sh bits 6/5/5, opacity 16, 0.25 mm, zstd 3).
+CodecParams gsq_v1_codec_params();
+
+// codec_id 1 only: the encoder parameters of a GSQ codec block, or ERR_INVALID_PARAMETER
+// with a gsq_invalid_params reason. No field defaults: W16 compares the block as given.
+Error gsq_encode_params(const CodecParams &p_codec, gs_gsq::EncodeParams &r_params, String &r_reason);
 
 struct PlainSpec {
 	uint32_t splat_count = 0;
