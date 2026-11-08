@@ -119,6 +119,9 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     # is the disk preflight, which precedes all of them, so anchoring on it is
     # at least as strict as anchoring on the first binary launch.
     ("beyond_vram_flythrough.yml", "flythrough"): "tests/runtime/flythrough/dispatch_lane.py",
+    # BV-06b: the prime job launches the binary only through the same helper
+    # (build-info, then prime-cache, which runs the generator), after the preflight.
+    ("beyond_vram_flythrough.yml", "prime-world-cache"): "tests/runtime/flythrough/dispatch_lane.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step

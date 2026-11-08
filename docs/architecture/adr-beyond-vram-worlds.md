@@ -1190,12 +1190,16 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
 
 ### 9.1 Workflow `.github/workflows/beyond_vram_flythrough.yml` (R3)
 
-- **Triggers:** `schedule "0 9 * * 0"` and `workflow_dispatch` (`tier`, `arm`,
-  `prime_world_cache`, `controls_only`). No PR or push triggers.
+- **Triggers:** `schedule "0 22 * * 6"` (the lane; at night, so the single GPU runner is free
+  during the day; BV-06b moved it from Sunday 09:00 UTC), `schedule "0 6 * * 1"` (the watchdog)
+  and `workflow_dispatch` (`mode`, `tier`, `prime_world_cache`; `arm` and `controls_only` land
+  with the arms and controls they select, BV-13a/BV-C6). No PR or push triggers.
 - **Permissions:** `contents: read`, with `actions: read` **on the watchdog job only**. Fork
   guard. No `continue-on-error`.
 - **Concurrency:**
-    - `group: bvw-${{ github.event_name }}`, `cancel-in-progress: false`.
+    - `group: bvw-${{ github.event_name }}-<lane|watchdog>`, `cancel-in-progress: false`. The
+      watchdog has its own group, so a Monday watchdog can never replace the scheduled run it
+      reports on; it skips its own runs by their `run-name`.
     - The real protection against master pushes is that **no other workflow uses this group**.
       The existing groups are per-workflow (`.github/workflows/gaussian_production_gates.yml:85`,
       `.github/workflows/release_builds.yml:151` ✓, …).
@@ -1219,8 +1223,9 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
         - postflight, verdict, upload (all `if: always()`);
         - exit mapping: PASS 0, FAIL 1, INVALID 2, NOT_RUN 3, VOID 75.
     3. `liveness-watchdog` (Mondays): before M2 it keys on "a terminal verdict that is not
-       VOID"; from M2, on PASS within 9 days, two consecutive VOIDs, or a run queued > 20 h,
-       cancelled or replaced.
+       VOID" (BV-06b: PASS, FAIL or INVALID within 9 days; NOT_RUN and a run without a verdict
+       artifact do not count, because a lane that did not run is not alive); from M2, on PASS within
+       9 days, two consecutive VOIDs, or a run queued > 20 h, cancelled or replaced.
 - **BV-06a** is a minimal dispatch-only version (build, `df`, `dd` with `O_DIRECT`, vulkaninfo,
   generate, probe, upload) so that M1 does not wait for the full workflow. A manual VM run is
   rejected: no interactive VM access is assumed (UNVERIFIED), and runner work must be

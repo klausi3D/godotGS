@@ -24,6 +24,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,8 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 
 import dispatch_lane as lane  # noqa: E402
+import lane_watchdog as watchdog  # noqa: E402
+import world_cache as wc  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "beyond_vram_flythrough.yml"
 ADR = ROOT / "docs" / "architecture" / "adr-beyond-vram-worlds.md"
@@ -548,7 +551,7 @@ class Summarize(_TempCase):
         self.assertEqual(summary["overall"], "INCOMPLETE")
         statuses = {row["step"]: row["status"] for row in summary["steps"]}
         self.assertEqual(statuses["disk_preflight"], "OK")
-        self.assertEqual(statuses["generate"], "MISSING")
+        self.assertEqual(statuses["cache_check"], "MISSING")
         self.assertEqual(set(statuses), set(lane.STEP_NAMES))
 
     def test_complete_only_when_every_step_is_ok(self) -> None:
@@ -590,6 +593,298 @@ class Cleanup(_TempCase):
         self.admit()
         with mock.patch.object(lane.shutil, "rmtree"):
             self.assertEqual(lane.cleanup(self.world_root), lane.EXIT_FAIL)
+
+
+# --------------------------------------------------------------------------
+# World cache steps (BV-06b)
+# --------------------------------------------------------------------------
+
+GEN_SHA = "ab" * 32
+
+
+class _Lock:
+    """Records lock use; the real flock is tested on Linux in test_world_cache.py."""
+
+    def __init__(self) -> None:
+        self.calls: List[Tuple[Path, bool]] = []
+
+    def __call__(self, root: Path, exclusive: bool):
+        self.calls.append((root, exclusive))
+        import contextlib
+
+        return contextlib.nullcontext()
+
+
+def _no_fadvise(fd: int, offset: int, length: int, advice: int) -> None:
+    pass
+
+
+class _CacheCase(_EntryCase):
+    def setUp(self) -> None:
+        super().setUp()
+        for relative in wc.GENERATOR_SOURCES:
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"// {relative}\n", encoding="utf-8")
+        self.cache = self.tmp / "cache"
+        self.lock = _Lock()
+        self.fadvised: List[int] = []
+
+    def fadvise(self, fd: int, offset: int, length: int, advice: int) -> None:
+        self.fadvised.append(fd)
+
+    def generator(self, rc: int = 0, gen_sha: Optional[str] = GEN_SHA) -> FakeRunner:
+        def run(cmd, **kw):
+            out = Path(self.arg(cmd, "--out"))
+            out.mkdir(parents=True, exist_ok=True)
+            (out / lane.WORLD_FILE_NAME).write_bytes(b"\1" * 4096)
+            manifest = {"schema": "godotgs-world-manifest/1"}
+            if gen_sha is not None:
+                manifest["gen_sha"] = gen_sha
+            (out / lane.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+            return _proc(cmd, rc)
+
+        return FakeRunner(**{lane.GENERATOR_ENTRY.name: run})
+
+    def prime(self, tier: str = "T0", runner: Optional[FakeRunner] = None, run_id: str = "11") -> int:
+        self.install(lane.GENERATOR_ENTRY)
+        return lane.prime_cache(
+            self.repo, self.binary, tier, self.cache, self.out, run_id,
+            runner or self.generator(), _all_tools, self.fadvise, self.lock,
+        )
+
+    def key(self, world: str = "T0") -> Path:
+        return self.cache / wc.world_id(world, lane.ENCODING) / GEN_SHA[:12]
+
+    def check(self, tier: str = "T0", ok: bool = True) -> int:
+        def verify(world_file: Path) -> dict:
+            self.assertTrue(world_file.is_file(), world_file)
+            return {"ok": ok, "problems": [] if ok else ["chunk_sha_mismatch: 3"]}
+
+        return lane.cache_check(self.repo, tier, self.cache, self.out, "12", self.fadvise, verify, self.lock)
+
+
+class PrimeCache(_CacheCase):
+    def test_prime_writes_the_section_9_2_layout_complete_last(self) -> None:
+        self.assertEqual(self.prime("A"), lane.EXIT_OK, self.record("prime_cache"))
+        self.assertEqual((self.cache / wc.CACHE_FORMAT_FILE).read_text(encoding="utf-8").strip(), wc.CACHE_FORMAT)
+        for world in ("T0", "A"):
+            key = self.key(world)
+            self.assertTrue((key / wc.COMPLETE_FILE).is_file())
+            meta = wc.read_key_meta(key)
+            self.assertEqual(meta["gen_sha"], GEN_SHA)
+            self.assertEqual(meta["source_fingerprint"], wc.source_fingerprint(self.repo))
+        self.assertEqual(self.lock.calls, [(self.cache, True)])
+        # D-14 item 1: every world file (world + manifest) of both worlds was dropped.
+        self.assertEqual(len(self.fadvised), 4)
+
+    def test_old_keys_orphans_and_quarantine_are_deleted_first(self) -> None:
+        stale = self.cache / wc.world_id("T0", lane.ENCODING) / "000000000000"
+        stale.mkdir(parents=True)
+        (stale / wc.COMPLETE_FILE).write_text("x", encoding="utf-8")
+        orphan = self.cache / wc.world_id("T0", lane.ENCODING) / ".incoming-3"
+        orphan.mkdir()
+        (self.cache / wc.QUARANTINE_DIR / "T0-x-1").mkdir(parents=True)
+        self.assertEqual(self.prime(), lane.EXIT_OK)
+        self.assertFalse(stale.exists())
+        self.assertFalse(orphan.exists())
+        self.assertFalse((self.cache / wc.QUARANTINE_DIR).exists())
+        data = self.record("prime_cache")["data"]
+        self.assertEqual(data["worlds"]["T0"]["deleted_keys"], ["000000000000"])
+
+    def test_disk_below_world_plus_margin_is_did_not_run_and_generates_nothing(self) -> None:
+        need = lane.WORLD_BUDGET_BYTES["T0"] + lane.FREE_MARGIN_BYTES
+        runner = self.generator()
+        runner.avail = need - 1
+        self.assertEqual(self.prime(runner=runner), lane.EXIT_NOT_RUN)
+        self.assertIn("DID NOT RUN: disk", self.record("prime_cache")["reason"])
+        self.assertFalse(any(Path(c[1]).name == lane.GENERATOR_ENTRY.name for c in runner.calls if len(c) > 1))
+        runner = self.generator()
+        runner.avail = need
+        self.assertEqual(self.prime(runner=runner), lane.EXIT_OK)
+
+    def test_a_failed_generation_leaves_no_complete_key(self) -> None:
+        self.assertEqual(self.prime(runner=self.generator(rc=1)), lane.EXIT_FAIL)
+        self.assertEqual(wc.complete_keys(self.cache, wc.world_id("T0", lane.ENCODING)), [])
+        self.assertEqual(self.check(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_absent")
+
+    def test_a_manifest_without_gen_sha_fails(self) -> None:
+        self.assertEqual(self.prime(runner=self.generator(gen_sha=None)), lane.EXIT_FAIL)
+        self.assertEqual(wc.complete_keys(self.cache, wc.world_id("T0", lane.ENCODING)), [])
+
+    def test_a_cache_of_another_format_is_refused(self) -> None:
+        self.cache.mkdir()
+        (self.cache / wc.CACHE_FORMAT_FILE).write_text("other/9\n", encoding="utf-8")
+        self.assertEqual(self.prime(), lane.EXIT_FAIL)
+
+
+class CacheCheck(_CacheCase):
+    def test_no_cache_is_not_run_cache_absent(self) -> None:
+        self.assertEqual(self.check(), lane.EXIT_NOT_RUN)
+        self.assertIn("cache absent", self.record("cache_check")["reason"])
+        self.assertFalse(self.cache.exists(), "a check must not create the cache")
+
+    def test_a_verified_cache_is_admitted_and_dropped_again(self) -> None:
+        self.assertEqual(self.prime("A"), lane.EXIT_OK)
+        self.fadvised.clear()
+        self.assertEqual(self.check("A"), lane.EXIT_OK, self.record("cache_check"))
+        mapping = json.loads((self.out / lane.CACHE_WORLDS_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(set(mapping["worlds"]), {"T0", "A"})
+        self.assertEqual(Path(mapping["worlds"]["A"]), self.key("A"))
+        self.assertEqual(len(self.fadvised), 4, "D-14 item 1: after every per-run verify")
+
+    def test_a_digest_mismatch_quarantines_the_key_and_is_invalid(self) -> None:
+        self.assertEqual(self.prime(), lane.EXIT_OK)
+        self.assertEqual(self.check(ok=False), lane.EXIT_INVALID)
+        record = self.record("cache_check")
+        self.assertEqual(record["data"]["reason_code"], "manifest_mismatch")
+        self.assertFalse(self.key().exists())
+        moved = Path(record["data"]["worlds"]["T0"]["quarantined_to"])
+        self.assertTrue((moved / lane.WORLD_FILE_NAME).is_file(), "quarantine keeps the bytes")
+        self.assertFalse((self.out / lane.CACHE_WORLDS_FILE).exists())
+        # The next run finds no key: NOT_RUN, never a probe of a bad world.
+        self.assertEqual(self.check(), lane.EXIT_NOT_RUN)
+
+    def test_changed_generator_sources_make_the_cache_stale(self) -> None:
+        self.assertEqual(self.prime(), lane.EXIT_OK)
+        (self.repo / wc.GENERATOR_SOURCES[0]).write_text("// changed\n", encoding="utf-8")
+        self.assertEqual(self.check(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_stale")
+
+    def test_two_complete_keys_fail(self) -> None:
+        self.assertEqual(self.prime(), lane.EXIT_OK)
+        other = self.key().parent / "ffffffffffff"
+        shutil.copytree(self.key(), other)
+        self.assertEqual(self.check(), lane.EXIT_FAIL)
+
+    def test_an_incomplete_key_is_never_read(self) -> None:
+        self.assertEqual(self.prime(), lane.EXIT_OK)
+        (self.key() / wc.COMPLETE_FILE).unlink()
+        self.assertEqual(self.check(), lane.EXIT_NOT_RUN)
+
+
+class ProbeCold(_CacheCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.assertEqual(self.prime(), lane.EXIT_OK)
+        self.assertEqual(self.check(), lane.EXIT_OK)
+        self.install(lane.PROBE_ENTRY)
+        lane.write_record(self.out, "disk_throughput", lane.EXIT_OK, "ok", {"host_cache": "absent"})
+
+    def prober(self) -> FakeRunner:
+        def run(cmd, **kw):
+            (Path(self.arg(cmd, "--out")) / lane.PROBE_SUMMARY_NAME).write_text("{}", encoding="utf-8")
+            return _proc(cmd, 0)
+
+        return FakeRunner(**{lane.PROBE_ENTRY.name: run})
+
+    def run_probe(self, resident: Tuple[int, int], runner: Optional[FakeRunner] = None) -> Tuple[int, FakeRunner]:
+        runner = runner or self.prober()
+        reads = iter([1000, 1000 + 512 * 10])
+        code = lane.probe(
+            self.repo, self.binary, "T0", self.world_root, self.out, runner,
+            cache_worlds=self.out / lane.CACHE_WORLDS_FILE,
+            residency_probe=lambda path: resident,
+            lock=self.lock,
+            read_bytes=lambda: next(reads),
+        )
+        return code, runner
+
+    def test_a_cold_cache_runs_the_probe_under_a_shared_lock(self) -> None:
+        self.lock.calls.clear()
+        code, runner = self.run_probe((1, 100))  # exactly 1 %
+        self.assertEqual(code, lane.EXIT_OK, self.record("probe"))
+        self.assertEqual(self.lock.calls, [(self.cache, False)])
+        self.assertIn(f"T0={self.key()}", runner.calls[0])
+        cache = self.record("probe")["data"]["cache"]
+        self.assertEqual(cache["host_cache"], "absent")
+        self.assertTrue(cache["residency"]["cold"])
+        self.assertEqual(cache["v10"]["read_bytes"], 5120)
+        self.assertEqual(cache["v10"]["status"], "NOT_EVALUATED")
+        self.assertFalse(cache["cold_proven"], "V10 not evaluated is never proven cold")
+
+    def test_a_warm_cache_is_invalid_and_the_probe_never_starts(self) -> None:
+        code, runner = self.run_probe((2, 100))  # 2 % > 1 %
+        self.assertEqual(code, lane.EXIT_INVALID)
+        self.assertEqual(runner.calls, [])
+        record = self.record("probe")
+        self.assertIn("cache_warm", record["reason"])
+        self.assertEqual(record["data"]["cache"]["invalid_reason"], "cache_warm")
+
+    def test_without_a_cache_check_there_is_nothing_to_probe(self) -> None:
+        (self.out / lane.CACHE_WORLDS_FILE).unlink()
+        code, runner = self.run_probe((0, 100))
+        self.assertEqual(code, lane.EXIT_NOT_RUN)
+        self.assertEqual(runner.calls, [])
+
+    def test_unmeasurable_residency_is_never_cold(self) -> None:
+        def broken(path: Path) -> Tuple[int, int]:
+            raise wc.CacheError("mincore residency is only implemented for Linux")
+
+        runner = self.prober()
+        code = lane.probe(
+            self.repo, self.binary, "T0", self.world_root, self.out, runner,
+            cache_worlds=self.out / lane.CACHE_WORLDS_FILE, residency_probe=broken, lock=self.lock,
+        )
+        self.assertEqual(code, lane.EXIT_FAIL)
+        self.assertEqual(runner.calls, [])
+
+
+class LaneVerdict(_TempCase):
+    def all_ok(self) -> None:
+        for step in lane.STEP_NAMES:
+            if step != "contention":
+                lane.write_record(self.out, step, lane.EXIT_OK, "ok")
+
+    def verdict(self) -> dict:
+        return json.loads((self.out / lane.VERDICT_FILE).read_text(encoding="utf-8"))
+
+    def test_pass_only_when_every_step_including_contention_is_ok(self) -> None:
+        self.all_ok()
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success", meta={"run_id": "5"}), 0)
+        self.assertEqual(self.verdict()["verdict"], "PASS")
+        self.assertEqual(self.verdict()["run_id"], "5")
+
+    def test_a_missing_contention_record_is_not_run(self) -> None:
+        self.all_ok()
+        self.assertEqual(lane.summarize(self.out, contention_outcome="skipped"), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.verdict()["verdict"], "NOT_RUN")
+
+    def test_a_failed_postflight_voids_the_run(self) -> None:
+        self.all_ok()
+        lane.write_record(self.out, "probe", lane.EXIT_FAIL, "probe exited 1")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="failure"), lane.EXIT_VOID)
+        self.assertEqual(self.verdict()["verdict"], "VOID")
+
+    def test_precedence(self) -> None:
+        self.assertEqual(lane.lane_verdict(["OK", "NOT_RUN", "INVALID"]), "INVALID")
+        self.assertEqual(lane.lane_verdict(["OK", "FAIL", "INVALID"]), "FAIL")
+        self.assertEqual(lane.lane_verdict(["OK", "MISSING"]), "NOT_RUN")
+        self.assertEqual(lane.lane_verdict(["OK", "UNREADABLE"]), "FAIL")
+        self.assertEqual(lane.lane_verdict([]), "NOT_RUN")
+        self.assertEqual(lane.lane_verdict(["OK", "OK"]), "PASS")
+
+    def test_the_probe_cache_block_reaches_the_verdict(self) -> None:
+        self.all_ok()
+        lane.write_record(self.out, "probe", lane.EXIT_OK, "ok", {"cache": {"host_cache": "present"}})
+        lane.summarize(self.out, contention_outcome="success")
+        self.assertEqual(self.verdict()["cache"], {"host_cache": "present"})
+
+
+class HostCacheLabel(_TempCase):
+    def test_disk_throughput_records_the_label(self) -> None:
+        self.admit()
+        with mock.patch.object(lane, "_fill_probe_file", _fake_fill):
+            lane.disk_throughput(self.world_root, self.out, 1, FakeRunner(), _tools_except("fio"))
+        data = self.record("disk_throughput")["data"]
+        self.assertIn(data["host_cache"], ("present", "absent"))
+        self.assertEqual(data["host_cache"], wc.host_cache_label(data["reread_over_first_read"]))
+
+    def test_cached_worlds_budget_only_the_probe_and_the_margin(self) -> None:
+        required, parts = lane.required_free_bytes("A", 8, include_worlds=False)
+        self.assertEqual(parts, {"disk_probe_file": 8 * GIB, "free_margin": lane.FREE_MARGIN_BYTES})
+        self.assertEqual(required, 8 * GIB + lane.FREE_MARGIN_BYTES)
 
 
 # --------------------------------------------------------------------------
@@ -645,39 +940,91 @@ def _steps(job_lines: List[str]) -> List[Dict[str, str]]:
     return steps
 
 
+WATCHDOG_CRON = "0 6 * * 1"
+LANE_CRON = "0 22 * * 6"
+
+
 class WorkflowContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
         cls.build = _job_block(cls.text, "build-linux-editor")
+        cls.prime = _job_block(cls.text, "prime-world-cache")
         cls.gpu = _job_block(cls.text, "flythrough")
+        cls.codec = _job_block(cls.text, "codec-probe")
+        cls.watchdog = _job_block(cls.text, "liveness-watchdog")
         cls.steps = _steps(cls.gpu)
+        cls.prime_steps = _steps(cls.prime)
         cls.by_id = {s["id"]: i for i, s in enumerate(cls.steps) if "id" in s}
 
-    def index_of(self, subcommand: str) -> int:
+    @staticmethod
+    def job_if(job_lines: List[str]) -> str:
+        hits = [line.split("if:", 1)[1].strip() for line in job_lines if line.startswith("    if:")]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    def index_of(self, subcommand: str, steps: Optional[List[Dict[str, str]]] = None) -> int:
+        steps = self.steps if steps is None else steps
         hits = [
-            i for i, s in enumerate(self.steps)
+            i for i, s in enumerate(steps)
             if re.search(rf"^python3 {re.escape(_LANE)} {subcommand}\b", s.get("run", ""), re.M)
         ]
         self.assertEqual(len(hits), 1, f"expected one step running {subcommand}, found {hits}")
         return hits[0]
 
-    def test_dispatch_only(self) -> None:
-        on_block = self.text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    def test_triggers_are_the_weekly_lane_the_watchdog_and_dispatch(self) -> None:
+        on_block = self.text.split("\non:\n", 1)[1].split("\nrun-name:", 1)[0]
         events = re.findall(r"^  ([a-z_]+):", on_block, re.M)
-        self.assertEqual(events, ["workflow_dispatch"])
+        self.assertEqual(events, ["schedule", "workflow_dispatch"])
+        self.assertEqual(re.findall(r'^    - cron: "([^"]+)"$', on_block, re.M), [LANE_CRON, WATCHDOG_CRON])
+
+    def test_every_watchdog_cron_copy_matches_the_schedule(self) -> None:
+        """A drifted copy would run the GPU lane on Mondays or never run the watchdog."""
+        copies = re.findall(r"github\.event\.schedule (?:==|!=) '([^']+)'", self.text)
+        self.assertGreaterEqual(len(copies), 5)
+        self.assertEqual(set(copies), {WATCHDOG_CRON})
+
+    def test_lane_jobs_never_run_for_the_watchdog_and_the_watchdog_only_for_it(self) -> None:
+        exclude = f"github.event.schedule != '{WATCHDOG_CRON}' && inputs.mode != 'watchdog'"
+        for job in (self.build, self.gpu):
+            self.assertIn(exclude, self.job_if(job))
+        for job in (self.prime, self.codec):
+            condition = self.job_if(job)
+            self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+            self.assertIn("inputs.mode != 'watchdog'", condition)
+        self.assertIn("inputs.prime_world_cache", self.job_if(self.prime))
+        self.assertEqual(
+            self.job_if(self.watchdog),
+            f"${{{{ github.event.schedule == '{WATCHDOG_CRON}' || inputs.mode == 'watchdog' }}}}",
+        )
 
     def test_least_privilege_and_never_cancelled(self) -> None:
         self.assertIn("\npermissions:\n  contents: read\n\n", self.text)
-        self.assertIn("  group: bvw-${{ github.event_name }}\n  cancel-in-progress: false\n", self.text)
+        self.assertIn(
+            "  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || "
+            "inputs.mode == 'watchdog') && 'watchdog' || 'lane' }}\n  cancel-in-progress: false\n",
+            self.text,
+        )
+        # actions: read on the watchdog job only (ADR section 9.1).
+        self.assertEqual(len(re.findall(r"^ +actions: read$", self.text, re.M)), 1)
+        self.assertIn("      actions: read", self.watchdog)
 
     def test_nothing_may_swallow_a_failure(self) -> None:
         self.assertNotIn("continue-on-error", self.text)
 
     def test_runner_routing(self) -> None:
-        self.assertIn("    runs-on: [self-hosted, Linux, X64]\n", "\n".join(self.build) + "\n")
-        self.assertIn("    runs-on: [self-hosted, Linux, X64, gpu]", self.gpu)
-        self.assertIn("    needs: build-linux-editor", self.gpu)
+        self.assertIn("    runs-on: [self-hosted, Linux, X64]", self.build)
+        # The cache lives on the 3080's disk: both jobs that touch it are pinned to it.
+        for job in (self.prime, self.gpu):
+            self.assertIn("    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]", job)
+        self.assertIn("    runs-on: ubuntu-latest", self.watchdog)
+        self.assertIn("    needs: [build-linux-editor, prime-world-cache]", self.gpu)
+        gpu_if = self.job_if(self.gpu)
+        self.assertIn("needs.build-linux-editor.result == 'success'", gpu_if)
+        self.assertIn(
+            "(needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped')",
+            gpu_if,
+        )
 
     def test_the_build_is_the_optimized_producer_build(self) -> None:
         match = re.search(r'^  BVW_SCONS_ARGS: "([^"]+)"$', self.text, re.M)
@@ -689,86 +1036,132 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("cache_path=/opt/actions-runner/godotgs-scons-cache-opt", args)
         build_runs = "".join(s.get("run", "") for s in _steps(self.build))
         self.assertIn("python -m SCons $BVW_SCONS_ARGS\n", build_runs)
-        self.assertIn('--scons-args "$BVW_SCONS_ARGS"', self.steps[self.index_of("build-info")]["run"])
+        for steps in (self.steps, self.prime_steps):
+            self.assertIn('--scons-args "$BVW_SCONS_ARGS"', steps[self.index_of("build-info", steps)]["run"])
 
     def test_the_binary_handoff_is_pinned(self) -> None:
         build_runs = "".join(s.get("run", "") for s in _steps(self.build))
         self.assertIn("linux_gpu_runner.sh stage-binary", build_runs)
-        gpu_runs = "".join(s.get("run", "") for s in self.steps)
-        self.assertIn("linux_gpu_runner.sh install-binary", gpu_runs)
-        # build upload, flythrough download, codec-probe download (BV-C2)
-        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 3)
+        for steps in (self.steps, self.prime_steps):
+            self.assertIn("linux_gpu_runner.sh install-binary", "".join(s.get("run", "") for s in steps))
+        # build upload; prime, flythrough and codec-probe download
+        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 4)
+
+    def test_the_cache_root_is_the_section_9_2_path(self) -> None:
+        self.assertIn(f"  BVW_CACHE_ROOT: {wc.DEFAULT_CACHE_ROOT.as_posix()}\n", self.text)
+        prime = self.prime_steps[self.index_of("prime-cache", self.prime_steps)]
+        self.assertIn('--cache-root "$BVW_CACHE_ROOT"', prime["run"])
+        self.assertIn('--cache-root "$BVW_CACHE_ROOT"', self.steps[self.index_of("cache-check")]["run"])
 
     def test_every_lane_step_is_wired(self) -> None:
         for subcommand in (
             "disk-preflight", "disk-throughput", "vulkan-limits", "build-info",
-            "generate", "probe", "summarize", "cleanup",
+            "cache-check", "probe", "summarize", "cleanup",
         ):
             with self.subTest(subcommand=subcommand):
                 self.index_of(subcommand)
+        # Generation is the prime job's alone: the fly-through never writes a world.
+        self.assertFalse(
+            any(re.search(rf"{re.escape(_LANE)} (generate|prime-cache)\b", s.get("run", "")) for s in self.steps)
+        )
 
-    def _reaches_disk_preflight(self, index: int) -> bool:
-        """True when step `index` can only run after the disk preflight succeeded."""
-        preflight = self.by_id["disk_preflight"]
+    def _reaches(self, index: int, gate: str) -> bool:
+        """True when step `index` can only run after step id `gate` succeeded."""
+        target = self.by_id[gate]
         seen = set()
         while index not in seen:
             seen.add(index)
-            if index == preflight:
+            if index == target:
                 return True
             condition = self.steps[index].get("if")
             if condition is None:
                 # Implicit success(): runs only if every earlier step succeeded.
-                return index > preflight
+                return index > target
             if re.search(r"\b(always|failure)\s*\(", condition):
                 return False
             ids = re.findall(r"steps\.([a-z_]+)\.outcome == 'success'", condition)
             if not ids:
                 return False
+            if gate in ids:
+                return True
             index = self.by_id[ids[0]]
         return False
 
     def test_the_disk_preflight_gates_everything_that_writes_or_measures(self) -> None:
         preflight = self.index_of("disk-preflight")
         self.assertIsNone(self.steps[preflight].get("if"), "the refusal step itself is unconditional")
-        for subcommand in ("disk-throughput", "vulkan-limits", "build-info", "generate", "probe"):
+        self.assertIn("--worlds-cached", self.steps[preflight]["run"])
+        for subcommand in ("disk-throughput", "vulkan-limits", "build-info", "cache-check", "probe"):
             with self.subTest(subcommand=subcommand):
                 index = self.index_of(subcommand)
                 self.assertGreater(index, preflight)
                 self.assertTrue(
-                    self._reaches_disk_preflight(index),
+                    self._reaches(index, "disk_preflight"),
                     f"{subcommand} can run without a successful disk preflight",
                 )
 
+    def test_the_probe_runs_only_on_a_checked_cache(self) -> None:
+        probe = self.index_of("probe")
+        self.assertGreater(probe, self.index_of("cache-check"))
+        self.assertTrue(self._reaches(probe, "cache_check"))
+        self.assertTrue(self._reaches(probe, "build_info"))
+        self.assertIn(f'--cache-worlds "$BVW_OUT/{lane.CACHE_WORLDS_FILE}"', self.steps[probe]["run"])
+
     def test_preflights_precede_the_lane(self) -> None:
-        first_lane = self.index_of("disk-preflight")
-        runs = [s.get("run", "") for s in self.steps]
-        for script in ("tests/ci/runner_gpu_contention.py preflight", "tests/ci/preflight_runner_gpu_environment.py"):
-            index = next(i for i, r in enumerate(runs) if script in r)
-            self.assertLess(index, first_lane)
+        for steps, first in ((self.steps, "disk-preflight"), (self.prime_steps, "build-info")):
+            first_lane = self.index_of(first, steps)
+            runs = [s.get("run", "") for s in steps]
+            for script in ("tests/ci/runner_gpu_contention.py preflight", "tests/ci/preflight_runner_gpu_environment.py"):
+                index = next(i for i, r in enumerate(runs) if script in r)
+                self.assertLess(index, first_lane)
+        self.assertLess(
+            self.index_of("build-info", self.prime_steps), self.index_of("prime-cache", self.prime_steps)
+        )
 
-    def test_upload_then_cleanup_always_run(self) -> None:
-        upload = next(i for i, s in enumerate(self.steps) if s.get("uses", "").startswith("actions/upload-artifact"))
-        cleanup = self.index_of("cleanup")
+    def test_postflight_verdict_upload_then_cleanup_always_run(self) -> None:
+        postflight = self.by_id["postflight"]
         summarize = self.index_of("summarize")
-        for index in (summarize, upload, cleanup):
+        uploads = [i for i, s in enumerate(self.steps) if s.get("uses", "").startswith("actions/upload-artifact")]
+        cleanup = self.index_of("cleanup")
+        for index in (postflight, summarize, *uploads, cleanup):
             self.assertEqual(self.steps[index].get("if"), "always()")
-        self.assertLess(summarize, upload)
-        self.assertLess(upload, cleanup, "worlds must be deleted after the upload")
+        self.assertIn("tests/ci/runner_gpu_contention.py postflight", self.steps[postflight]["run"])
+        self.assertIn('--contention-outcome "${{ steps.postflight.outcome }}"', self.steps[summarize]["run"])
+        self.assertEqual(len(uploads), 2)
+        self.assertLess(postflight, summarize, "the verdict must see the contention outcome")
+        self.assertLess(summarize, min(uploads))
+        self.assertLess(max(uploads), cleanup)
         self.assertEqual(cleanup, max(i for i, s in enumerate(self.steps) if _LANE in s.get("run", "")))
-        upload_block = self.text.split("- name: Upload dispatch outputs", 1)[1].split("- name:", 1)[0]
-        self.assertIn("if-no-files-found: error", upload_block)
 
-    def test_the_world_root_and_outputs_are_job_temp_paths(self) -> None:
+    def test_the_verdict_artifact_is_what_the_watchdog_reads(self) -> None:
+        block = self.text.split("- name: Upload lane verdict", 1)[1].split("- name:", 1)[0]
+        self.assertIn(
+            f"name: {watchdog.VERDICT_ARTIFACT_PREFIX}${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}", block
+        )
+        self.assertIn(f"path: ${{{{ runner.temp }}}}/bvw-out/{lane.VERDICT_FILE}", block)
+        self.assertIn("if-no-files-found: error", block)
+        self.assertIn(f"&& '{watchdog.WATCHDOG_TITLE}' ||", self.text, "the watchdog skips its own runs by run-name")
+
+    def test_the_watchdog_job_runs_the_watchdog(self) -> None:
+        runs = "".join(s.get("run", "") for s in _steps(self.watchdog))
+        self.assertIn('python3 tests/runtime/flythrough/lane_watchdog.py --repo "$GITHUB_REPOSITORY"', runs)
+        self.assertIn("--workflow beyond_vram_flythrough.yml", runs)
+        self.assertIn("      BVW_WATCHDOG_MODE: pre-m2", self.watchdog)
+        self.assertIn("      GH_TOKEN: ${{ github.token }}", self.watchdog)
+
+    def test_the_scratch_root_and_outputs_are_job_temp_paths(self) -> None:
         runs = "".join(s.get("run", "") for s in self.steps)
-        self.assertIn('echo "BVW_WORLD_ROOT=$RUNNER_TEMP/bvw-worlds" >> "$GITHUB_ENV"', runs)
+        self.assertIn('echo "BVW_WORLD_ROOT=$RUNNER_TEMP/bvw-scratch" >> "$GITHUB_ENV"', runs)
         self.assertIn('echo "BVW_OUT=$RUNNER_TEMP/bvw-out" >> "$GITHUB_ENV"', runs)
         self.assertIn("path: ${{ runner.temp }}/bvw-out/", self.text)
 
+    def test_the_schedule_runs_tier_a(self) -> None:
+        self.assertIn("      BVW_TIER: ${{ inputs.tier || 'A' }}", self.gpu)
+
     def test_tier_choices_match_the_lane(self) -> None:
-        tier_block = self.text.split("      tier:\n", 1)[1].split("      disk_probe_gib:", 1)[0]
+        tier_block = self.text.split("      tier:\n", 1)[1].split("      prime_world_cache:", 1)[0]
         options = re.findall(r'^          - "([^"]+)"$', tier_block, re.M)
         self.assertEqual(sorted(options), sorted(lane.TIER_WORLDS))
-
 
 if __name__ == "__main__":
     unittest.main()

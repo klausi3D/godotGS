@@ -1,31 +1,61 @@
-name: Beyond-VRAM Fly-through (dispatch probe)
+name: Beyond-VRAM Fly-through
 
-# BV-06a of docs/architecture/adr-beyond-vram-worlds.md (section 9.1): the
-# minimal dispatch-only version of the beyond-VRAM fly-through workflow --
-# optimized build, `df`, `dd` with O_DIRECT (`fio` only if present), vulkaninfo,
-# generate, probe, upload -- so that M1 does not wait for the full workflow
-# (BV-06b adds the schedule, watchdog, world cache, quarantine, cold-cache method
-# and verdict). REPORT-ONLY: no job here is a required check and nothing gates.
-# It is not report-only in the sense of "green when nothing happened": a step
-# with no signal fails (exit 3 = NOT_RUN, ADR section 9.1 exit mapping), so a
-# run whose generator or probe has not landed yet ends red, with the reason in
-# the step log and in dispatch_summary.json.
+# BV-06b of docs/architecture/adr-beyond-vram-worlds.md (sections 9.1, 9.2 and
+# D-14): the full beyond-VRAM fly-through workflow, grown from BV-06a's minimal
+# dispatch probe. A weekly scheduled run at night (Saturday 22:00 UTC, after the
+# day and before the nightly lanes at 00:15/00:30 UTC), a dispatch with an
+# optional world-cache prime, a persistent world cache on the RTX 3080 runner
+# (section 9.2) with quarantine on a V2 digest mismatch, the D-14 cold-cache
+# method (fdatasync + POSIX_FADV_DONTNEED after generation and after every
+# per-run verify; mincore <= 1 % before the cold pass, else INVALID cache_warm;
+# the host_cache label), a lane verdict with the section 9.1 exit mapping, and a
+# Monday liveness watchdog (GitHub-hosted).
 #
-# The steps' logic lives in tests/runtime/flythrough/dispatch_lane.py, which
-# tests/runtime/flythrough/test_dispatch_lane.py unit-tests (wired into the
-# guard-only lane of tests/ci/run_module_tests.py).
+# REPORT-ONLY: no job here is a required check and nothing gates a merge. The
+# gate verdict and the thresholds file are BV-09; hard correctness gates are
+# BV-14. Still, no step turns an absent signal into a pass: a step with no
+# signal is NOT_RUN (exit 3), a missing step record is NOT_RUN, and the lane
+# verdict is PASS only when every step of the fly-through job is OK.
+#
+# The steps' logic lives in tests/runtime/flythrough/dispatch_lane.py,
+# world_cache.py and lane_watchdog.py, unit-tested by test_dispatch_lane.py,
+# test_world_cache.py and test_lane_watchdog.py (all wired into the guard-only
+# lane of tests/ci/run_module_tests.py).
+#
+# The watchdog cron '0 6 * * 1' is written out in run-name, concurrency and the
+# job conditions below (no context carries it); test_dispatch_lane.py pins that
+# every copy equals the one under `on.schedule`.
 
 on:
+  schedule:
+    # Weekly lane (M2): Saturday 22:00 UTC, at night, so the single GPU runner
+    # is not held during the day. Schedules run on master only.
+    - cron: "0 22 * * 6"
+    # Liveness watchdog (ADR section 9.1 job 3): Mondays, GitHub-hosted.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
+      mode:
+        description: "flythrough (the lane) or watchdog (run only the liveness watchdog)"
+        required: false
+        default: "flythrough"
+        type: choice
+        options:
+          - "flythrough"
+          - "watchdog"
       tier:
-        description: "World tier: T0 (4.19M splats, smoke) or A (201M splats, the M1 probe; also generates T0)"
+        description: "World tier: T0 (4.19M splats, smoke) or A (201M splats; also uses T0). The weekly schedule runs A."
         required: true
         default: "T0"
         type: choice
         options:
           - "T0"
           - "A"
+      prime_world_cache:
+        description: "Regenerate this tier's worlds into the runner's world cache first (delete-first; job prime-world-cache)"
+        required: false
+        default: false
+        type: boolean
       disk_probe_gib:
         description: "Size in GiB of the O_DIRECT disk-throughput probe file (1-64)"
         required: false
@@ -36,15 +66,29 @@ on:
         required: false
         default: ""
         type: string
+      watchdog_include_dispatch:
+        description: "mode=watchdog only: also count workflow_dispatch runs (evidence runs), not only scheduled ones"
+        required: false
+        default: false
+        type: boolean
+
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || format('Beyond-VRAM fly-through {0}', inputs.tier || 'A') }}
 
 permissions:
   contents: read
 
 # ADR section 9.1: per-event group, never cancelled. No other workflow uses a
-# `bvw-` group, so nothing else can replace a queued run of this one; pending
+# `bvw-` group, so nothing else can replace a queued run of this one. Per-event
+# groups mean a dispatch can never replace a queued scheduled run; pending
 # dispatches can replace each other (GitHub keeps one pending run per group).
+# The watchdog has its own group, so a Monday watchdog can never replace a
+# scheduled fly-through still queued from Saturday -- the very run it reports.
+# A scheduled and a dispatched run can be queued together; the single GPU
+# runner runs one job at a time, the cache is serialised by flock, and the
+# mincore check right before each probe turns any warming by the other run into
+# INVALID cache_warm, never into a cold result.
 concurrency:
-  group: bvw-${{ github.event_name }}
+  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || 'lane' }}
   cancel-in-progress: false
 
 env:
@@ -53,18 +97,20 @@ env:
   # dev_build the other lanes test. Own object cache, budgeted in the ADR
   # section 5.3 disk table as "Optimized scons cache (cache_limit=15)", so this
   # build never evicts the dev lanes' cache. One definition, read by the build
-  # step and recorded verbatim in build_info.json by the GPU job.
+  # step and recorded verbatim in build_info.json by the GPU jobs.
   BVW_SCONS_ARGS: "platform=linuxbsd target=editor optimize=speed_trace dev_build=no tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache-opt cache_limit=15 -j16"
+  # ADR section 9.2: the persistent world cache on the RTX 3080 runner.
+  BVW_CACHE_ROOT: /opt/actions-runner/godotgs-world-cache
 
 jobs:
   # Same split as #1319: compile on a runner WITHOUT the `gpu` label, hand the
-  # binary to the GPU job as an artifact pinned to github.sha
+  # binary to the GPU jobs as an artifact pinned to github.sha
   # (tests/ci/linux_gpu_runner.sh stage-binary / install-binary).
   build-linux-editor:
     name: Build optimized Linux editor (Self-Hosted CPU)
-    # workflow_dispatch only, so the fork guard is trivially satisfied; it is
-    # carried so the job stays fail-closed if a pull_request trigger is added.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # No pull_request trigger, so the fork guard is trivially satisfied; it is
+    # carried so the job stays fail-closed if one is added.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' }}
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     defaults:
@@ -128,13 +174,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  flythrough:
-    name: Beyond-VRAM dispatch probe (report-only)
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, Linux, X64, gpu]
+  # ADR section 9.1 job 1 (dispatch only): sweep orphans, clear the quarantine,
+  # delete the old key, generate, fdatasync + fadvise, write `.complete`. Pinned
+  # to the RTX 3080 runner (`rtx3080`), because the cache lives on its disk.
+  prime-world-cache:
+    name: Prime world cache (RTX 3080 runner)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.prime_world_cache }}
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
-    # Generation of Tier A (58.8 GB) plus the probe; per-step timeouts below.
-    timeout-minutes: 330
+    timeout-minutes: 240
     # #875 -- see the "Self-hosted GPU runner environment" section of
     # .github/workflows/README.md. Mirrored in
     # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
@@ -149,7 +197,117 @@ jobs:
       # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
       NODEVICE_SELECT: '1'
       BVW_TIER: ${{ inputs.tier }}
-      BVW_DISK_PROBE_GIB: ${{ inputs.disk_probe_gib }}
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 1
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      - name: Set lane paths
+        run: |
+          echo "BVW_OUT=$RUNNER_TEMP/bvw-prime-out" >> "$GITHUB_ENV"
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      # #875: wait for a free GPU, leave a sampler running for the postflight.
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        run: |
+          candidate=bin/godot.linuxbsd.editor.x86_64
+          if [ ! -x "$candidate" ]; then
+            echo "::error::Could not find the optimized editor binary $candidate."
+            ls -la bin || true
+            exit 1
+          fi
+          resolved="$(realpath "$candidate")"
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Build info (assert optimized producer binary)
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "${{ steps.godot_bin.outputs.path }}" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$BVW_OUT"
+
+      # Holds the cache's exclusive flock for the whole prime. A failure leaves
+      # the old key deleted and the new one without `.complete`: the lane then
+      # reports NOT_RUN cache absent until the next prime (ADR section 5.3).
+      - name: Prime world cache (BV-05 generator, D-14 fadvise)
+        timeout-minutes: 225
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py prime-cache --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
+
+      - name: Upload prime outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beyond-vram-prime-${{ inputs.tier }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bvw-prime-out/
+          if-no-files-found: error
+          retention-days: 30
+
+      # #875 -- exits 75 (not 1) when the run is void.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+
+  # ADR section 9.1 job 2. Runs on the schedule and on every lane dispatch, after
+  # the prime when one was requested. Pinned to the RTX 3080 runner (`rtx3080`):
+  # the world cache it reads lives on that runner's disk.
+  flythrough:
+    name: Beyond-VRAM fly-through (report-only)
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
+    needs: [build-linux-editor, prime-world-cache]
+    # ADR section 9.1: 150 min, per-step timeouts below. Generation is the prime
+    # job's, so this job no longer holds the runner for it.
+    timeout-minutes: 150
+    # #875 -- see the "Self-hosted GPU runner environment" section of
+    # .github/workflows/README.md. Mirrored in
+    # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
+      NODEVICE_SELECT: '1'
+      # The schedule has no inputs: it runs Tier A with the default probe size.
+      BVW_TIER: ${{ inputs.tier || 'A' }}
+      BVW_DISK_PROBE_GIB: ${{ inputs.disk_probe_gib || '8' }}
     defaults:
       run:
         working-directory: repo
@@ -173,11 +331,11 @@ jobs:
           python3 --version
 
       # Per-job paths under RUNNER_TEMP, which the runner also empties between
-      # jobs (the `runner` context is not available in job-level env). The world
-      # root is created by the disk preflight and deleted by the cleanup step.
+      # jobs (the `runner` context is not available in job-level env). The
+      # scratch root holds only the disk-probe file; the worlds are in the cache.
       - name: Set lane paths
         run: |
-          echo "BVW_WORLD_ROOT=$RUNNER_TEMP/bvw-worlds" >> "$GITHUB_ENV"
+          echo "BVW_WORLD_ROOT=$RUNNER_TEMP/bvw-scratch" >> "$GITHUB_ENV"
           echo "BVW_OUT=$RUNNER_TEMP/bvw-out" >> "$GITHUB_ENV"
 
       - name: Check Linux GPU runner toolchain
@@ -191,17 +349,18 @@ jobs:
         run: python3 tests/ci/preflight_runner_gpu_environment.py
 
       # ADR section 5.3: refuses with "DID NOT RUN: disk" (exit 3) unless `df`
-      # leaves the worlds of this tier + the disk probe file + the 25 GiB
-      # enforced free margin. Also records the measured OS/tools/runner and
-      # SCons-cache usage that replaces the ADR's [E] lines. Every later step
-      # that writes to the world root requires the marker this step creates.
+      # leaves the disk probe file + the 25 GiB enforced free margin (the cached
+      # worlds already occupy their bytes). Also records the measured
+      # OS/tools/runner and SCons-cache usage. Every later step that writes or
+      # measures requires the marker this step creates.
       - name: Disk preflight (df, ADR section 5.3 budget)
         id: disk_preflight
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py disk-preflight --tier "$BVW_TIER" --probe-gib "$BVW_DISK_PROBE_GIB" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+          python3 tests/runtime/flythrough/dispatch_lane.py disk-preflight --tier "$BVW_TIER" --probe-gib "$BVW_DISK_PROBE_GIB" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT" --worlds-cached
 
       # ADR section 5.4 / D-14 item 4: O_DIRECT read of a never-read region and
-      # a re-read; fio only if installed (no sudo on this runner).
+      # a re-read; the host_cache label every cold result carries. fio only if
+      # installed (no sudo on this runner).
       - name: Disk throughput (dd O_DIRECT, fio if present)
         timeout-minutes: 30
         run: |
@@ -250,65 +409,79 @@ jobs:
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "${{ steps.godot_bin.outputs.path }}" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$BVW_OUT"
 
-      # BV-05 generator (tests/runtime/flythrough/generate_world.py). Exits 3
-      # "NOT_RUN: generator entry point ... not available yet" if it is absent.
-      - name: Generate world(s) (BV-05 generator)
-        id: generate
-        if: ${{ !cancelled() && steps.build_info.outcome == 'success' }}
-        timeout-minutes: 180
+      # ADR section 9.2 + V2 + D-14 item 1: NOT_RUN cache absent / cache_stale,
+      # verify every digest (a mismatch quarantines the key: INVALID), then
+      # fdatasync + POSIX_FADV_DONTNEED on every world file.
+      - name: World cache check (verify, quarantine, fadvise)
+        id: cache_check
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
+        timeout-minutes: 30
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py generate --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+          python3 tests/runtime/flythrough/dispatch_lane.py cache-check --tier "$BVW_TIER" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
 
-      # BV-07 probe lane (tests/runtime/flythrough/run_probe.py): fly-through,
-      # binary trace, settle pumps and the F/k drawn sweep on T0; its exit code
-      # (0 OK, 1 FAIL, 2 INVALID, 3 NOT_RUN) is passed on. Exits 3 "NOT_RUN:
-      # probe entry point ... not available yet" if the entry point is absent.
-      # Runs even when generation failed; with no generated world it exits 3.
-      - name: Probe (BV-07 probe lane)
-        if: ${{ !cancelled() && steps.build_info.outcome == 'success' }}
-        timeout-minutes: 120
+      # BV-07 probe lane on the cached worlds. D-14 item 2 first: mincore above
+      # 1 % is INVALID cache_warm and the probe does not start. The probe's exit
+      # code (0 OK, 1 FAIL, 2 INVALID, 3 NOT_RUN) is passed on.
+      - name: Probe (BV-07 probe lane, cold)
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' }}
+        timeout-minutes: 105
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py probe --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --out "$BVW_OUT"
+          python3 tests/runtime/flythrough/dispatch_lane.py probe --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --cache-worlds "$BVW_OUT/cache_worlds.json" --out "$BVW_OUT"
 
-      - name: Summarize (every step, MISSING when it wrote no record)
+      # #875 -- exits 75 (not 1) when the run is void. Its outcome feeds the
+      # lane verdict below (failure -> VOID).
+      - name: Postflight - GPU contention verdict (#875)
+        id: postflight
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+
+      # Every step's record -> one lane verdict, verdict.json, the section 9.1
+      # exit code (PASS 0, FAIL 1, INVALID 2, NOT_RUN 3, VOID 75).
+      - name: Lane verdict (every step, MISSING when it wrote no record)
         if: always()
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT"
+          python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT" --tier "$BVW_TIER" --contention-outcome "${{ steps.postflight.outcome }}"
 
       # Reports, logs, driver limits, disk measurements, build_info and the
-      # world manifests. The world data itself is not uploaded (58.8 GB).
-      - name: Upload dispatch outputs
+      # verdict. The world data itself is never uploaded.
+      - name: Upload fly-through outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: beyond-vram-dispatch-${{ inputs.tier }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: beyond-vram-flythrough-${{ inputs.tier || 'A' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/bvw-out/
           if-no-files-found: error
           retention-days: 30
 
-      # After the upload, whatever happened above: the generated worlds must not
-      # outlive the run (no world cache before BV-06b). Fails if any remain.
-      - name: Clean up generated worlds
+      # What the liveness watchdog reads. A run that never reached this step
+      # has no verdict artifact and does not count as alive.
+      - name: Upload lane verdict (read by the liveness watchdog)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bvw-verdict-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bvw-out/verdict.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # The scratch root holds only the disk-probe file; the cache stays.
+      - name: Clean up the scratch root
         if: always()
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py cleanup --world-root "$BVW_WORLD_ROOT"
-          df -P -B1 "$RUNNER_TEMP"
-
-      # #875 -- exits 75 (not 1) when the run is void.
-      - name: Postflight - GPU contention verdict (#875)
-        if: always()
-        run: python3 tests/ci/runner_gpu_contention.py postflight
+          df -P -B1 "$RUNNER_TEMP" "$BVW_CACHE_ROOT" || df -P -B1 "$RUNNER_TEMP"
 
   # BV-C2 (ADR section 10 row BV-C2, sections 5.3/5.4, risks K3/K9): GSQ codec
   # ratio and single-core decode/pack throughput of the optimized producer
   # binary, on generator subsets and on the real scans in `scan_dir`. CPU only,
   # so it runs on a runner without the `gpu` label requirement and does not
-  # wait for the fly-through. Report-only: tests/runtime/flythrough/
-  # run_codec_probe.py exits 0 with verdict PARTIAL when real scans are
-  # MISSING, 1 on a failed or crashed case, 3 when no report was written.
+  # wait for the fly-through. Dispatch only: the weekly lane does not repeat it.
+  # Report-only: tests/runtime/flythrough/run_codec_probe.py exits 0 with
+  # verdict PARTIAL when real scans are MISSING, 1 on a failed or crashed case,
+  # 3 when no report was written.
   codec-probe:
     name: BV-C2 GSQ codec probe (Self-Hosted CPU, report-only)
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' }}
     runs-on: [self-hosted, Linux, X64]
     needs: build-linux-editor
     timeout-minutes: 45
@@ -359,5 +532,41 @@ jobs:
         with:
           name: gsq-codec-probe-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/gsq-probe/
+          if-no-files-found: error
+          retention-days: 30
+
+  # ADR section 9.1 job 3: the liveness watchdog. GitHub-hosted, so it never
+  # waits for the GPU runner it reports on. `actions: read` on this job only.
+  # Mode pre-m2 until BV-14 (M2) switches it to m2 (tests/runtime/flythrough/
+  # lane_watchdog.py states both rule sets).
+  liveness-watchdog:
+    name: Beyond-VRAM lane liveness watchdog (GitHub-hosted)
+    if: ${{ github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BVW_WATCHDOG_MODE: pre-m2
+      BVW_WATCHDOG_EVENTS: ${{ inputs.watchdog_include_dispatch && '--include-dispatch' || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Liveness watchdog
+        run: |
+          # shellcheck disable=SC2086
+          python3 tests/runtime/flythrough/lane_watchdog.py --repo "$GITHUB_REPOSITORY" --workflow beyond_vram_flythrough.yml --mode "$BVW_WATCHDOG_MODE" --out "$RUNNER_TEMP/bvw-watchdog" $BVW_WATCHDOG_EVENTS
+
+      - name: Upload watchdog report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bvw-watchdog-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bvw-watchdog/
           if-no-files-found: error
           retention-days: 30
