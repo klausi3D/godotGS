@@ -69,7 +69,11 @@ public:
 	// Reader pool of the source's PayloadReadService (started on the first capture).
 	static constexpr uint32_t kReaderCount = 2;
 	static constexpr uint64_t kMaxBytesInFlight = 64ull * 1024ull * 1024ull;
-	static constexpr uint32_t kMaxIdleHandles = 4;
+	// No idle handles: a reader closes its handle after each page read, so no handle stays open
+	// on the world file between captures. On Windows an open handle denies replacing the file,
+	// and ScopedReaderSuspend (#714) does not know this source, so a cached handle would make a
+	// reimport of a streamed world fail. A read in flight during the rename still can (follow-up).
+	static constexpr uint32_t kMaxIdleHandles = 0;
 
 protected:
 	static void _bind_methods();

@@ -224,6 +224,8 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(stats.reads.submitted == uint64_t(expected_pages));
 	CHECK(stats.reads.completed_ok == uint64_t(expected_pages));
 	CHECK(stats.reads.bytes_read == expected_stored_bytes);
+	// No handle stays open on the world file once the reads are taken (Windows reimport, #714).
+	CHECK(stats.reads.open_handles == 0u);
 	CHECK(stats.stored_bytes_read == expected_stored_bytes);
 	CHECK(stats.last_failure_reason.is_empty());
 	const Dictionary exported = source->get_decode_stats();
