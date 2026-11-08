@@ -21,8 +21,8 @@ void GaussianSplatWorldGenerator::_bind_methods() {
 	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("apply_overrides", "params", "overrides"), &GaussianSplatWorldGenerator::apply_overrides);
 	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("get_params_sha", "params"), &GaussianSplatWorldGenerator::get_params_sha);
 	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("plan", "params"), &GaussianSplatWorldGenerator::plan);
-	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("generate", "params", "world_path", "chunk_selection", "print_progress"),
-			&GaussianSplatWorldGenerator::generate, DEFVAL(PackedInt64Array()), DEFVAL(false));
+	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("generate", "params", "world_path", "chunk_selection", "print_progress", "codec"),
+			&GaussianSplatWorldGenerator::generate, DEFVAL(PackedInt64Array()), DEFVAL(false), DEFVAL("none"));
 	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("verify", "world_path"), &GaussianSplatWorldGenerator::verify);
 	ClassDB::bind_static_method("GaussianSplatWorldGenerator", D_METHOD("get_manifest_path", "world_path"), &GaussianSplatWorldGenerator::get_manifest_path);
 }
@@ -89,7 +89,7 @@ Dictionary GaussianSplatWorldGenerator::plan(const Dictionary &p_params) {
 	return d;
 }
 
-Dictionary GaussianSplatWorldGenerator::generate(const Dictionary &p_params, const String &p_world_path, const PackedInt64Array &p_chunk_selection, bool p_print_progress) {
+Dictionary GaussianSplatWorldGenerator::generate(const Dictionary &p_params, const String &p_world_path, const PackedInt64Array &p_chunk_selection, bool p_print_progress, const String &p_codec) {
 	gs_world_generator::Params params;
 	String err;
 	if (gs_world_generator::params_from_dict(p_params, params, err) != OK) {
@@ -97,6 +97,11 @@ Dictionary GaussianSplatWorldGenerator::generate(const Dictionary &p_params, con
 	}
 	gs_world_generator::GenerateOptions options;
 	options.print_progress = p_print_progress;
+	if (p_codec == "gsq_v1") {
+		options.codec_id = gs_world_writer::kCodecGsqV1;
+	} else if (p_codec != "none") {
+		return error_dict("codec must be \"none\" or \"gsq_v1\"");
+	}
 	for (int64_t i = 0; i < p_chunk_selection.size(); i++) {
 		const int64_t c = p_chunk_selection[i];
 		if (c < 0 || c > int64_t(UINT32_MAX)) {

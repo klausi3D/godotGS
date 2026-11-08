@@ -14,6 +14,11 @@ world cache needs before trusting a world:
   * the plain v3 header (magic, version, flags, counts, layout word, section offsets) and
     the embedded generator metadata;
   * every chunk's gaussian and SH section digests, byte range by byte range;
+  * for a GSQ v1 world (plain v3 + bit 7, BV-C7): the paged extension's codec block against
+    the manifest's writer codec, the chunk and page tables (contiguous, aligned page runs),
+    every chunk's page-run digest, the zero padding before each run, the stored bytes and
+    the decoded digest set of the manifest's ``codec`` block (the pages themselves are not
+    decoded here: that is the C++ verify, gs_world_generator::verify_world);
   * every chunk-table record (count, index range, AABB, centre, radius, bit for bit) and
     the identity index lists;
   * the content table: per-chunk class counts sum to the table, the table to the splat
@@ -45,6 +50,13 @@ LAYOUT_VERSION = 1
 FLAG_HAS_METADATA = 1 << 0
 FLAG_HAS_CHUNKS = 1 << 2
 FLAG_HAS_HIGH_SH = 1 << 3
+FLAG_PAGED_CHUNKS = 1 << 7
+PAGED_EXTENSION_BYTES = 64
+PAGED_CHUNK_RECORD_BYTES = 56
+PAGED_PAGE_RECORD_BYTES = 112
+PAGE_ALIGNMENT = 4096
+CODEC_NONE = 0
+CODEC_GSQ_V1 = 1
 CLASSES = ("plain", "town", "wall", "foliage", "beacon")
 READ_SLICE = 4 << 20
 
@@ -125,10 +137,168 @@ class Verifier:
                 self.fail(f"content_table: Tier A differs from ADR §6.2: {got}")
             else:
                 self.checked.append("tier A content table equals ADR §6.2")
+        codec_id = m["writer"]["codec"]["codec_id"]
+        if codec_id not in (CODEC_NONE, CODEC_GSQ_V1) or (codec_id == CODEC_GSQ_V1) != ("codec" in m):
+            self.fail(f"codec_mismatch: writer codec {codec_id} and the manifest's codec block disagree")
         self.checked.append("manifest digests and content-table sums")
+
+    def is_gsq(self) -> bool:
+        return self.m["writer"]["codec"]["codec_id"] == CODEC_GSQ_V1
+
+    # -- GSQ v1 file checks (plain v3 + bit 7, BV-C7) ---------------------------
+    def check_paged_file(self) -> None:
+        """Layout from modules/gaussian_splatting/io/gaussian_splat_world_format.h (bit 7)."""
+        m = self.m
+        world = m["world"]
+        codec = m["codec"]
+        wcodec = m["writer"]["codec"]
+        size = self.world.stat().st_size
+        if size != world["file_bytes"]:
+            self.fail(f"file_bytes_mismatch: {size} on disk, {world['file_bytes']} in the manifest")
+            return
+        chunks = m["chunks"]
+        sh_high = world["sh_high_order"]
+        header_bytes = PREFIX_BYTES + PAGED_EXTENSION_BYTES
+        with self.world.open("rb") as f:
+            header = f.read(header_bytes)
+            if len(header) != header_bytes:
+                self.fail("short_read")
+                return
+            (magic, version, flags, splat_count, sh_degree, sh_first, sh_high_h) = struct.unpack_from("<7I", header, 0)
+            chunk_count = struct.unpack_from("<I", header, 52)[0]
+            g_off, sh_off, ct_off, idx_off, md_off, md_size = struct.unpack_from("<6Q", header, 56)
+            layout, reserved = struct.unpack_from("<2I", header, 104)
+            codec_id, b0, b1, b2, op_bits, pos_step, zstd, page_count, align, pt_off = struct.unpack_from(
+                "<I4BfiIIQ", header, PREFIX_BYTES
+            )
+            if magic != MAGIC or version != VERSION:
+                self.fail("header: magic/version")
+            want_flags = FLAG_HAS_METADATA | FLAG_HAS_CHUNKS | FLAG_PAGED_CHUNKS | (FLAG_HAS_HIGH_SH if sh_high else 0)
+            if flags != want_flags:
+                self.fail(f"header: unexpected flags {flags:#x}")
+            if (splat_count, chunk_count, sh_degree, sh_first, sh_high_h) != (
+                world["splat_count"], world["chunk_count"], world["sh_degree"], world["sh_first_order"], sh_high
+            ):
+                self.fail("header: counts differ from the manifest")
+            if layout != LAYOUT_VERSION or reserved != 0 or sh_off != 0 or idx_off != 0:
+                self.fail("header: layout word / reserved / unused section offsets")
+            if header[PREFIX_BYTES + 32:] != bytes(32):
+                self.fail("header: paged extension reserved bytes")
+            if (codec_id, [b0, b1, b2], op_bits, zstd) != (
+                wcodec["codec_id"], wcodec["sh_bits"], wcodec["opacity_bits"], wcodec["zstd_level"]
+            ) or pos_step != f32(wcodec["pos_step_m"]):
+                self.fail("codec_params_mismatch: the file's codec block differs from the manifest's writer codec")
+            if codec_id != CODEC_GSQ_V1 or align != PAGE_ALIGNMENT:
+                self.fail("header: codec id / page alignment")
+            if page_count != codec["page_count"]:
+                self.fail("codec_block_mismatch: page_count")
+            ct_bytes = chunk_count * PAGED_CHUNK_RECORD_BYTES
+            pt_bytes = page_count * PAGED_PAGE_RECORD_BYTES
+            if pt_off != ct_off + ct_bytes or md_off != pt_off + pt_bytes or md_off + md_size != size:
+                self.fail("layout: chunk table, page table and metadata are not contiguous to the end")
+                return
+            f.seek(ct_off)
+            tables = f.read(ct_bytes + pt_bytes)
+            if len(tables) != ct_bytes + pt_bytes:
+                self.fail("short_read")
+                return
+            md = json.loads(f.read(md_size).decode("utf-8"))
+            gen = md.get("gs_generator", {})
+            if gen.get("generator_params_sha") != m["generator_params_sha"] or gen.get("gen_sha") != m["gen_sha"]:
+                self.fail("metadata: embedded generator identity differs from the manifest")
+
+            def page(p: int) -> tuple:
+                return struct.unpack_from("<QII32s32s6fII", tables, ct_bytes + p * PAGED_PAGE_RECORD_BYTES)
+
+            if g_off != (page(0)[0] if page_count else g_off):
+                self.fail("header: gaussian offset is not the first page")
+            next_page = 0
+            prev_end = header_bytes
+            stored_total = 0
+            decoded_set = hashlib.sha256()
+            for i, c in enumerate(chunks):
+                rec = tables[i * PAGED_CHUNK_RECORD_BYTES:(i + 1) * PAGED_CHUNK_RECORD_BYTES]
+                px, py, pz, sx, sy, sz, cx, cy, cz, radius = struct.unpack_from("<10f", rec, 0)
+                first, npages, count, rsv = struct.unpack_from("<4I", rec, 40)
+                end = [f32(px + sx), f32(py + sy), f32(pz + sz)]
+                aabb = [f32(v) for v in c["aabb"]]
+                if [px, py, pz] != aabb[:3] or end != aabb[3:]:
+                    self.fail(f"chunk_record_mismatch: chunk {i} aabb")
+                if [cx, cy, cz] != [f32(v) for v in c["center"]] or radius != f32(c["radius"]):
+                    self.fail(f"chunk_record_mismatch: chunk {i} centre/radius")
+                if count != c["count"] or rsv != 0:
+                    self.fail(f"chunk_record_mismatch: chunk {i} count")
+                if first != next_page or first != c["first_page"] or npages != c["page_count"]:
+                    self.fail(f"chunk_pages_mismatch: chunk {i} page run")
+                    return
+                splats = 0
+                span_start = None
+                for p in range(first, first + npages):
+                    off, stored, n, _sd, dd, *_ext, chunk_index, prsv = page(p)
+                    if chunk_index != i or prsv != 0 or off % PAGE_ALIGNMENT or off < prev_end or stored == 0:
+                        self.fail(f"page {p}: record inconsistent")
+                        return
+                    span_start = off if span_start is None else span_start
+                    prev_end = off + stored
+                    splats += n
+                    stored_total += stored
+                    decoded_set.update(dd)
+                if splats != count:
+                    self.fail(f"chunk {i}: its pages hold {splats} splats, not {count}")
+                span = (span_start or 0, (prev_end - span_start) if span_start is not None else 0)
+                if [c["pages_offset"], c["pages_bytes"]] != list(span):
+                    self.fail(f"chunk_pages_mismatch: chunk {i} byte span")
+                    return
+                next_page += npages
+            if next_page != page_count or prev_end != ct_off:
+                self.fail("layout: the pages do not end at the chunk table")
+                return
+            if stored_total != codec["pages_stored_bytes"]:
+                self.fail("codec_block_mismatch: pages_stored_bytes")
+            if decoded_set.hexdigest() != codec["decoded_digest_set_sha256"]:
+                self.fail("codec_block_mismatch: decoded_digest_set_sha256")
+
+            # One sequential pass: the whole-file digest, every page run, zero padding.
+            f.seek(0)
+            file_sha = hashlib.sha256()
+            pos = 0
+
+            def read_to(to: int, extra=None, zero: bool = False) -> bool:
+                nonlocal pos
+                while pos < to:
+                    data = f.read(min(to - pos, READ_SLICE))
+                    if not data:
+                        raise EOFError
+                    file_sha.update(data)
+                    if extra is not None:
+                        extra.update(data)
+                    if zero and data.count(0) != len(data):
+                        self.fail("layout: the padding between pages is not zero")
+                    pos += len(data)
+                return True
+
+            try:
+                read_to(header_bytes)
+                for i, c in enumerate(chunks):
+                    h = hashlib.sha256()
+                    if c["page_count"]:
+                        read_to(c["pages_offset"], zero=True)
+                        read_to(c["pages_offset"] + c["pages_bytes"], extra=h)
+                    if h.hexdigest() != c["pages_sha256"]:
+                        self.fail(f"chunk_digest_mismatch: chunk {i} pages_sha256")
+                read_to(size)
+            except EOFError:
+                self.fail("short_read")
+                return
+        if file_sha.hexdigest() != world["file_sha256"]:
+            self.fail("file_sha256_mismatch")
+        self.checked.append("GSQ file, header, codec block, chunk and page tables, every page-run digest")
 
     # -- file checks ----------------------------------------------------------
     def check_file(self) -> None:
+        if self.is_gsq():
+            self.check_paged_file()
+            return
         m = self.m
         world = m["world"]
         size = self.world.stat().st_size
@@ -228,6 +398,9 @@ class Verifier:
 
     # -- content re-classification ---------------------------------------------
     def check_splats(self) -> None:
+        if self.is_gsq():
+            self.fail("--content re-reads raw splats; a GSQ world holds none (decode it with the C++ verify)")
+            return
         try:
             import numpy as np
         except ImportError:

@@ -19,7 +19,7 @@ public:
 	static Dictionary apply_overrides(const Dictionary &p_params, const Dictionary &p_overrides);
 	static String get_params_sha(const Dictionary &p_params);
 	static Dictionary plan(const Dictionary &p_params);
-	static Dictionary generate(const Dictionary &p_params, const String &p_world_path, const PackedInt64Array &p_chunk_selection, bool p_print_progress);
+	static Dictionary generate(const Dictionary &p_params, const String &p_world_path, const PackedInt64Array &p_chunk_selection, bool p_print_progress, const String &p_codec);
 	static Dictionary verify(const String &p_world_path);
 	static String get_manifest_path(const String &p_world_path);
 };

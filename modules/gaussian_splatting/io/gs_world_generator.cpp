@@ -1685,6 +1685,206 @@ struct ShaCtx {
 
 } // namespace
 
+namespace {
+
+// ---------------------------------------------------------------------------
+// GSQ v1 read-back (plain v3 + bit 7; layout in gaussian_splat_world_format.h).
+// ---------------------------------------------------------------------------
+
+uint32_t le_u32(const uint8_t *p) {
+	uint32_t v;
+	memcpy(&v, p, 4);
+	return v;
+}
+
+uint64_t le_u64(const uint8_t *p) {
+	uint64_t v;
+	memcpy(&v, p, 8);
+	return v;
+}
+
+// One chunk of a paged world as read back from disk.
+struct PagedChunkRead {
+	float record_floats[10] = {}; // bounds position, bounds size, centre, radius
+	uint32_t first_page = 0;
+	uint32_t page_count = 0;
+	uint32_t splat_count = 0;
+	// The chunk's page run: from its first page's offset to its last page's end, the zero
+	// padding between its pages included. Empty (0, 0) for a chunk without pages.
+	uint64_t pages_offset = 0;
+	uint64_t pages_bytes = 0;
+	String pages_sha256;
+};
+
+struct PagedRead {
+	uint8_t extension[gs_world_format::kPagedExtensionBytes] = {};
+	uint32_t page_count = 0;
+	uint64_t pages_stored_bytes = 0;
+	String decoded_digest_set_sha256; // SHA-256 over every page's decoded digest, in page order
+	String file_sha256;
+	LocalVector<PagedChunkRead> chunks;
+	// p_verify_pages: every page whose stored digest fails, as "page_invalid: chunk C page P: why".
+	PackedStringArray page_problems;
+};
+
+// Reads a paged world sequentially once. Checks the table structure (contiguous page runs,
+// aligned, ascending pages that end at the chunk table, zero padding, splat counts) and, with
+// p_verify_pages, every page's stored digest against its bytes and its page-table record. A
+// structural failure stops the read (an error); a page that fails its digest is listed in
+// page_problems and the read goes on, so the caller still gets every page-run digest.
+Error read_paged_world(const Ref<FileAccess> &p_file, uint64_t p_file_bytes, bool p_verify_pages, PagedRead &r_read, String &r_error) {
+	constexpr uint64_t kHeaderBytes = gs_world_format::kPrefixBytes + gs_world_format::kPagedExtensionBytes;
+	constexpr uint64_t kAlign = gs_world_format::kPagedPageAlignment;
+	auto corrupt = [&](const String &p_msg) {
+		r_error = p_msg;
+		return ERR_FILE_CORRUPT;
+	};
+	uint8_t header[kHeaderBytes];
+	p_file->seek(0);
+	if (p_file_bytes < kHeaderBytes || p_file->get_buffer(header, kHeaderBytes) != kHeaderBytes) {
+		return corrupt("paged: short read in the header");
+	}
+	if ((le_u32(header + 8) & gs_world_format::kFlagPagedChunks) == 0u) {
+		return corrupt("paged: flag bit 7 is not set");
+	}
+	const uint32_t chunk_count = le_u32(header + 52);
+	const uint64_t chunk_table_offset = le_u64(header + 72);
+	const uint8_t *ext = header + gs_world_format::kPrefixBytes;
+	memcpy(r_read.extension, ext, gs_world_format::kPagedExtensionBytes);
+	const uint32_t page_count = le_u32(ext + 16);
+	const uint64_t page_table_offset = le_u64(ext + 24);
+	const uint64_t ct_bytes = uint64_t(chunk_count) * gs_world_format::kPagedChunkRecordBytes;
+	const uint64_t pt_bytes = uint64_t(page_count) * gs_world_format::kPagedPageRecordBytes;
+	if (le_u32(ext + 20) != kAlign || chunk_table_offset < kHeaderBytes || chunk_table_offset > p_file_bytes ||
+			ct_bytes > p_file_bytes - chunk_table_offset || page_table_offset != chunk_table_offset + ct_bytes ||
+			pt_bytes > p_file_bytes - page_table_offset || ct_bytes + pt_bytes > uint64_t(UINT32_MAX)) {
+		return corrupt("paged: the chunk or page table lies outside the file");
+	}
+	LocalVector<uint8_t> tables;
+	tables.resize(uint32_t(ct_bytes + pt_bytes));
+	p_file->seek(chunk_table_offset);
+	if (p_file->get_buffer(tables.ptr(), ct_bytes + pt_bytes) != ct_bytes + pt_bytes) {
+		return corrupt("paged: short read in the chunk or page table");
+	}
+	const uint8_t *pt = tables.ptr() + ct_bytes;
+
+	r_read.chunks.resize(chunk_count);
+	uint32_t next_page = 0;
+	uint64_t prev_end = kHeaderBytes;
+	for (uint32_t c = 0; c < chunk_count; c++) {
+		const uint8_t *rec = tables.ptr() + uint64_t(c) * gs_world_format::kPagedChunkRecordBytes;
+		PagedChunkRead &out = r_read.chunks[c];
+		memcpy(out.record_floats, rec, sizeof(out.record_floats));
+		out.first_page = le_u32(rec + 40);
+		out.page_count = le_u32(rec + 44);
+		out.splat_count = le_u32(rec + 48);
+		if (out.first_page != next_page || out.page_count > page_count - next_page || le_u32(rec + 52) != 0u) {
+			return corrupt(vformat("paged: chunk %d's page run is not contiguous", c));
+		}
+		uint64_t splats = 0;
+		for (uint32_t p = out.first_page; p < out.first_page + out.page_count; p++) {
+			const uint8_t *e = pt + uint64_t(p) * gs_world_format::kPagedPageRecordBytes;
+			const uint64_t off = le_u64(e);
+			const uint32_t stored = le_u32(e + 8);
+			if (le_u32(e + 104) != c || le_u32(e + 108) != 0u || off % kAlign != 0u || off < prev_end || stored == 0u ||
+					off > chunk_table_offset || uint64_t(stored) > chunk_table_offset - off) {
+				return corrupt(vformat("paged: page %d's record is inconsistent", p));
+			}
+			if (p == out.first_page) {
+				out.pages_offset = off;
+			}
+			prev_end = off + stored;
+			splats += le_u32(e + 12);
+		}
+		if (out.page_count > 0u) {
+			out.pages_bytes = prev_end - out.pages_offset;
+		}
+		if (splats != out.splat_count) {
+			return corrupt(vformat("paged: chunk %d's pages hold %s splats, its record %d", c, String::num_uint64(splats), out.splat_count));
+		}
+		next_page += out.page_count;
+	}
+	if (next_page != page_count) {
+		return corrupt("paged: the page table holds pages of no chunk");
+	}
+	if (prev_end != chunk_table_offset) {
+		return corrupt("paged: the pages do not end at the chunk table");
+	}
+
+	// One sequential pass: file digest, page-run digests, padding, page digests.
+	p_file->seek(0);
+	ShaCtx file_sha;
+	ShaCtx decoded_set;
+	LocalVector<uint8_t> buf;
+	uint64_t pos = 0;
+	auto read_into = [&](uint64_t n, ShaCtx *p_extra) -> bool {
+		if (buf.size() < n) {
+			buf.resize(uint32_t(n));
+		}
+		if (p_file->get_buffer(buf.ptr(), n) != n) {
+			return false;
+		}
+		file_sha.update(buf.ptr(), n);
+		if (p_extra != nullptr) {
+			p_extra->update(buf.ptr(), n);
+		}
+		pos += n;
+		return true;
+	};
+	// Reads up to p_to; with p_zero every byte read must be zero (the padding between pages).
+	bool nonzero_padding = false;
+	auto read_to = [&](uint64_t p_to, ShaCtx *p_extra, bool p_zero) -> bool {
+		while (pos < p_to) {
+			const uint64_t n = MIN(p_to - pos, kReadSlice);
+			if (!read_into(n, p_extra)) {
+				return false;
+			}
+			for (uint64_t i = 0; p_zero && i < n; i++) {
+				nonzero_padding = nonzero_padding || buf[uint32_t(i)] != 0u;
+			}
+		}
+		return true;
+	};
+	if (!read_to(kHeaderBytes, nullptr, false)) {
+		return corrupt("paged: short read in the header");
+	}
+	for (uint32_t c = 0; c < chunk_count; c++) {
+		PagedChunkRead &out = r_read.chunks[c];
+		ShaCtx span;
+		for (uint32_t p = out.first_page; p < out.first_page + out.page_count; p++) {
+			const uint8_t *e = pt + uint64_t(p) * gs_world_format::kPagedPageRecordBytes;
+			const uint32_t stored = le_u32(e + 8);
+			if (!read_to(le_u64(e), p == out.first_page ? nullptr : &span, true) || !read_into(stored, &span)) {
+				return corrupt(vformat("paged: short read in page %d", p));
+			}
+			if (p_verify_pages) {
+				gs_gsq::PageInfo info;
+				String reason;
+				if (gs_gsq::verify_page(buf.ptr(), stored, info, reason) != OK) {
+					r_read.page_problems.push_back(vformat("page_invalid: chunk %d page %d: %s", c, p, reason));
+				} else if (memcmp(info.stored_digest, e + 16, gs_gsq::kDigestBytes) != 0) {
+					r_read.page_problems.push_back(vformat("page_invalid: chunk %d page %d: the page-table stored digest differs from the page's", c, p));
+				}
+			}
+			decoded_set.update(e + 48, gs_gsq::kDigestBytes);
+			r_read.pages_stored_bytes += stored;
+		}
+		out.pages_sha256 = span.finish();
+	}
+	if (nonzero_padding) {
+		return corrupt("paged: the padding between pages is not zero");
+	}
+	if (!read_to(p_file_bytes, nullptr, false)) {
+		return corrupt("paged: short read in the tables or the metadata");
+	}
+	r_read.page_count = page_count;
+	r_read.file_sha256 = file_sha.finish();
+	r_read.decoded_digest_set_sha256 = decoded_set.finish();
+	return OK;
+}
+
+} // namespace
+
 Error compute_content_digest(const Params &p_params, String &r_hex, String &r_error) {
 	Plan plan;
 	const Error err = build_plan(p_params, plan, r_error);
@@ -1728,6 +1928,9 @@ Dictionary Report::to_dict() const {
 	d["finalize_usec"] = int64_t(finalize_usec);
 	d["verify_usec"] = int64_t(verify_usec);
 	d["total_usec"] = int64_t(total_usec);
+	d["codec_id"] = int64_t(codec_id);
+	d["page_count"] = int64_t(page_count);
+	d["pages_stored_bytes"] = int64_t(pages_stored_bytes);
 	return d;
 }
 
@@ -1898,7 +2101,12 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 	}
 	const String selection_sha = is_ref ? sha256_of_string(canonical_json(sel_ids)) : String();
 
-	const gs_world_writer::CodecParams codec;
+	if (p_options.codec_id != gs_world_writer::kCodecNone && p_options.codec_id != gs_world_writer::kCodecGsqV1) {
+		return fail(ERR_INVALID_PARAMETER, vformat("codec_id %d is neither none (0) nor GSQ v1 (1)", p_options.codec_id));
+	}
+	const bool gsq = p_options.codec_id == gs_world_writer::kCodecGsqV1;
+	const gs_world_writer::CodecParams codec = gsq ? gs_world_writer::gsq_v1_codec_params() : gs_world_writer::CodecParams();
+	r_report.codec_id = codec.codec_id;
 	Dictionary gen_inputs;
 	gen_inputs["generator_id"] = kGeneratorId;
 	gen_inputs["generator_version"] = int64_t(kGeneratorVersion);
@@ -1955,9 +2163,12 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 					writer.abort();
 					return fail(ERR_BUG, vformat("chunk %d's AABB leaves the declared world bounds", sel[i]));
 				}
-				ShaCtx g;
-				g.update(buf.gaussians.ptr(), uint64_t(buf.gaussians.size()) * sizeof(Gaussian));
-				rec.gaussian_sha = g.finish();
+				// GSQ is lossy: its read-back checks the pages, not the generated bytes.
+				if (!gsq) {
+					ShaCtx g;
+					g.update(buf.gaussians.ptr(), uint64_t(buf.gaussians.size()) * sizeof(Gaussian));
+					rec.gaussian_sha = g.finish();
+				}
 			} else {
 				ShaCtx s;
 				s.update(buf.sh_high.ptr(), uint64_t(buf.sh_high.size()) * sizeof(Vector3));
@@ -1995,49 +2206,70 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 	if (file_bytes != writer.get_expected_file_size()) {
 		return fail(ERR_FILE_CORRUPT, "read-back: the file size differs from the writer's layout");
 	}
-	ShaCtx file_sha;
-	LocalVector<uint8_t> slice;
-	slice.resize(uint32_t(kReadSlice));
-	auto read_hash = [&](uint64_t n, ShaCtx *p_extra) -> bool {
-		while (n > 0) {
-			const uint64_t s = MIN(n, kReadSlice);
-			if (f->get_buffer(slice.ptr(), s) != s) {
-				return false;
-			}
-			file_sha.update(slice.ptr(), s);
-			if (p_extra != nullptr) {
-				p_extra->update(slice.ptr(), s);
-			}
-			n -= s;
+	PagedRead paged;
+	if (gsq) {
+		String perr;
+		if (read_paged_world(f, file_bytes, p_options.verify_readback, paged, perr) != OK) {
+			return fail(ERR_FILE_CORRUPT, "read-back: " + perr);
 		}
-		return true;
-	};
-	if (!read_hash(gs_world_format::kPrefixBytes, nullptr)) {
-		return fail(ERR_FILE_CORRUPT, "read-back: short read in the header");
-	}
-	const bool check = p_options.verify_readback;
-	for (int section = 0; section < (plan.sh_high_order > 0u ? 2 : 1); section++) {
+		if (!paged.page_problems.is_empty()) {
+			return fail(ERR_FILE_CORRUPT, "read-back: " + paged.page_problems[0]);
+		}
+		if (paged.chunks.size() != sel.size()) {
+			return fail(ERR_FILE_CORRUPT, "read-back: the paged chunk table lists another chunk count");
+		}
 		for (uint32_t i = 0; i < sel.size(); i++) {
-			const uint64_t n = uint64_t(plan.chunks[sel[i]].count) * (section == 0 ? sizeof(Gaussian) : plan.sh_high_order * sizeof(Vector3));
-			ShaCtx chunk_sha;
-			if (!read_hash(n, check ? &chunk_sha : nullptr)) {
-				return fail(ERR_FILE_CORRUPT, "read-back: short read in a payload section");
+			if (paged.chunks[i].splat_count != plan.chunks[sel[i]].count) {
+				return fail(ERR_FILE_CORRUPT, vformat("read-back: chunk %d's pages hold another splat count than generated", sel[i]));
 			}
-			if (check) {
-				const String got = chunk_sha.finish();
-				const String &want = section == 0 ? records[i].gaussian_sha : records[i].sh_sha;
-				if (got != want) {
-					return fail(ERR_FILE_CORRUPT, vformat("read-back: chunk %d %s digest differs from the generated bytes", sel[i],
-														  section == 0 ? "gaussian" : "SH"));
+		}
+		r_report.file_sha256 = paged.file_sha256;
+		r_report.page_count = paged.page_count;
+		r_report.pages_stored_bytes = paged.pages_stored_bytes;
+	} else {
+		ShaCtx file_sha;
+		LocalVector<uint8_t> slice;
+		slice.resize(uint32_t(kReadSlice));
+		auto read_hash = [&](uint64_t n, ShaCtx *p_extra) -> bool {
+			while (n > 0) {
+				const uint64_t s = MIN(n, kReadSlice);
+				if (f->get_buffer(slice.ptr(), s) != s) {
+					return false;
+				}
+				file_sha.update(slice.ptr(), s);
+				if (p_extra != nullptr) {
+					p_extra->update(slice.ptr(), s);
+				}
+				n -= s;
+			}
+			return true;
+		};
+		if (!read_hash(gs_world_format::kPrefixBytes, nullptr)) {
+			return fail(ERR_FILE_CORRUPT, "read-back: short read in the header");
+		}
+		const bool check = p_options.verify_readback;
+		for (int section = 0; section < (plan.sh_high_order > 0u ? 2 : 1); section++) {
+			for (uint32_t i = 0; i < sel.size(); i++) {
+				const uint64_t n = uint64_t(plan.chunks[sel[i]].count) * (section == 0 ? sizeof(Gaussian) : plan.sh_high_order * sizeof(Vector3));
+				ShaCtx chunk_sha;
+				if (!read_hash(n, check ? &chunk_sha : nullptr)) {
+					return fail(ERR_FILE_CORRUPT, "read-back: short read in a payload section");
+				}
+				if (check) {
+					const String got = chunk_sha.finish();
+					const String &want = section == 0 ? records[i].gaussian_sha : records[i].sh_sha;
+					if (got != want) {
+						return fail(ERR_FILE_CORRUPT, vformat("read-back: chunk %d %s digest differs from the generated bytes", sel[i], section == 0 ? "gaussian" : "SH"));
+					}
 				}
 			}
 		}
-	}
-	if (!read_hash(file_bytes - f->get_position(), nullptr)) {
-		return fail(ERR_FILE_CORRUPT, "read-back: short read in the tail");
+		if (!read_hash(file_bytes - f->get_position(), nullptr)) {
+			return fail(ERR_FILE_CORRUPT, "read-back: short read in the tail");
+		}
+		r_report.file_sha256 = file_sha.finish();
 	}
 	f.unref();
-	r_report.file_sha256 = file_sha.finish();
 	r_report.file_bytes = file_bytes;
 	r_report.splat_count = splats;
 	r_report.chunk_count = sel.size();
@@ -2104,10 +2336,19 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 		center.push_back(double(float(records[i].desc.center.z)));
 		d["center"] = center;
 		d["radius"] = double(records[i].desc.radius);
-		d["gaussian_offset"] = int64_t(g_base + first * sizeof(Gaussian));
-		d["gaussian_bytes"] = int64_t(uint64_t(cp.count) * sizeof(Gaussian));
-		d["gaussian_sha256"] = records[i].gaussian_sha;
-		if (plan.sh_high_order > 0u) {
+		if (gsq) {
+			const PagedChunkRead &pc = paged.chunks[i];
+			d["first_page"] = int64_t(pc.first_page);
+			d["page_count"] = int64_t(pc.page_count);
+			d["pages_offset"] = int64_t(pc.pages_offset);
+			d["pages_bytes"] = int64_t(pc.pages_bytes);
+			d["pages_sha256"] = pc.pages_sha256;
+		} else {
+			d["gaussian_offset"] = int64_t(g_base + first * sizeof(Gaussian));
+			d["gaussian_bytes"] = int64_t(uint64_t(cp.count) * sizeof(Gaussian));
+			d["gaussian_sha256"] = records[i].gaussian_sha;
+		}
+		if (!gsq && plan.sh_high_order > 0u) {
 			d["sh_offset"] = int64_t(sh_base + first * plan.sh_high_order * sizeof(Vector3));
 			d["sh_bytes"] = int64_t(uint64_t(cp.count) * plan.sh_high_order * sizeof(Vector3));
 			d["sh_sha256"] = records[i].sh_sha;
@@ -2122,8 +2363,27 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 	}
 	m["class_order"] = class_names;
 	Dictionary digest_rules;
-	digest_rules["gaussian_sha256"] = "sha256 of the chunk's bytes in the gaussian section (codec none: stored == decoded)";
-	digest_rules["sh_sha256"] = "sha256 of the chunk's bytes in the high-order SH section (codec none: stored == decoded)";
+	if (gsq) {
+		// BV-C7: the codec block of a GSQ world. Only integers and digests, so the manifest stays
+		// byte-deterministic; bytes per splat is file_bytes / splat_count.
+		const gs_gsq::PageBuildStats &stats = writer.get_page_stats();
+		Dictionary cb;
+		cb["codec_id"] = int64_t(codec.codec_id);
+		cb["name"] = "gsq_v1";
+		cb["container"] = "plain_v3_paged_chunks";
+		cb["page_count"] = int64_t(paged.page_count);
+		cb["page_alignment"] = int64_t(gs_world_format::kPagedPageAlignment);
+		cb["pages_stored_bytes"] = int64_t(paged.pages_stored_bytes);
+		cb["decoded_digest_set_sha256"] = paged.decoded_digest_set_sha256;
+		cb["constant_groups"] = int64_t(stats.constant_groups);
+		cb["heterogeneous_chunks"] = int64_t(stats.heterogeneous_chunks);
+		m["codec"] = cb;
+		digest_rules["pages_sha256"] = "sha256 of the file bytes [pages_offset, pages_offset + pages_bytes): the chunk's page run, the zero padding between its pages included";
+		digest_rules["decoded_digest_set_sha256"] = "sha256 of the concatenated 32-byte decoded digests of the page table, in page order";
+	} else {
+		digest_rules["gaussian_sha256"] = "sha256 of the chunk's bytes in the gaussian section (codec none: stored == decoded)";
+		digest_rules["sh_sha256"] = "sha256 of the chunk's bytes in the high-order SH section (codec none: stored == decoded)";
+	}
 	digest_rules["file_sha256"] = "sha256 of the whole world file";
 	digest_rules["generator_params_sha"] = "sha256 of canonical_json(generator_params): sorted keys, no whitespace";
 	digest_rules["gen_sha"] = "sha256 of canonical_json(gen_sha_inputs)";
@@ -2145,6 +2405,78 @@ Error generate_world(const Params &p_params, const String &p_world_path, const G
 	r_report.total_usec = OS::get_singleton()->get_ticks_usec() - t_start;
 	return OK;
 }
+
+namespace {
+
+int64_t dict_int(const Dictionary &p_d, const char *p_key, int64_t p_default = -1) {
+	int64_t v = p_default;
+	if (!variant_to_int(p_d.get(p_key, Variant()), v)) {
+		return p_default;
+	}
+	return v;
+}
+
+// verify_world() for a GSQ v1 world (BV-C7): the page runs, every page's stored digest, the
+// chunk records, the codec block and the extension's codec parameters against the manifest.
+void verify_paged_world(const Ref<FileAccess> &p_file, uint64_t p_file_bytes, const Dictionary &p_manifest, Array &r_problems) {
+	PagedRead pr;
+	String err;
+	if (read_paged_world(p_file, p_file_bytes, true, pr, err) != OK) {
+		r_problems.push_back(err);
+		return;
+	}
+	for (const String &problem : pr.page_problems) {
+		r_problems.push_back(problem);
+	}
+	const Array chunks = p_manifest.get("chunks", Array());
+	if (int64_t(pr.chunks.size()) != int64_t(chunks.size())) {
+		r_problems.push_back("chunk_count_mismatch: the paged chunk table lists another number of chunks");
+		return;
+	}
+	for (int i = 0; i < chunks.size(); i++) {
+		const Dictionary c = chunks[i];
+		const PagedChunkRead &pc = pr.chunks[uint32_t(i)];
+		if (String(c.get("pages_sha256", "")) != pc.pages_sha256) {
+			r_problems.push_back(vformat("chunk_digest_mismatch: chunk %d pages_sha256", i));
+		}
+		if (dict_int(c, "first_page") != int64_t(pc.first_page) || dict_int(c, "page_count") != int64_t(pc.page_count) ||
+				dict_int(c, "pages_offset") != int64_t(pc.pages_offset) || dict_int(c, "pages_bytes") != int64_t(pc.pages_bytes)) {
+			r_problems.push_back(vformat("chunk_pages_mismatch: chunk %d", i));
+		}
+		const Array aabb = c.get("aabb", Array());
+		bool geom_ok = aabb.size() == 6;
+		for (int a = 0; a < 3 && geom_ok; a++) {
+			geom_ok = float(double(aabb[a])) == pc.record_floats[a] &&
+					float(double(aabb[a + 3])) == float(pc.record_floats[a] + pc.record_floats[a + 3]);
+		}
+		if (dict_int(c, "count") != int64_t(pc.splat_count) || !geom_ok || float(double(c.get("radius", 0.0))) != pc.record_floats[9]) {
+			r_problems.push_back(vformat("chunk_record_mismatch: chunk %d", i));
+		}
+	}
+	const Dictionary cb = p_manifest.get("codec", Dictionary());
+	if (dict_int(cb, "page_count") != int64_t(pr.page_count) || dict_int(cb, "pages_stored_bytes") != int64_t(pr.pages_stored_bytes) ||
+			String(cb.get("decoded_digest_set_sha256", "")) != pr.decoded_digest_set_sha256) {
+		r_problems.push_back("codec_block_mismatch: page count, stored bytes or decoded digest set");
+	}
+	// The W16 codec block in the extension must be the manifest's writer codec block.
+	const Dictionary wc = Dictionary(p_manifest.get("writer", Dictionary())).get("codec", Dictionary());
+	const Array sh_bits = wc.get("sh_bits", Array());
+	bool params_ok = sh_bits.size() == 3 && dict_int(wc, "codec_id") == int64_t(le_u32(pr.extension + 0)) &&
+			dict_int(wc, "opacity_bits") == int64_t(pr.extension[7]) && dict_int(wc, "zstd_level") == int64_t(int32_t(le_u32(pr.extension + 12)));
+	for (int b = 0; b < 3 && params_ok; b++) {
+		params_ok = int64_t(sh_bits[b]) == int64_t(pr.extension[4 + b]);
+	}
+	float pos_step;
+	memcpy(&pos_step, pr.extension + 8, 4);
+	if (!params_ok || float(double(wc.get("pos_step_m", -1.0))) != pos_step) {
+		r_problems.push_back("codec_params_mismatch: the file's codec block differs from the manifest's writer codec");
+	}
+	if (pr.file_sha256 != String(Dictionary(p_manifest.get("world", Dictionary())).get("file_sha256", ""))) {
+		r_problems.push_back("file_sha256_mismatch");
+	}
+}
+
+} // namespace
 
 Error verify_world(const String &p_world_path, Dictionary &r_report) {
 	Array problems;
@@ -2260,6 +2592,17 @@ Error verify_world(const String &p_world_path, Dictionary &r_report) {
 	}
 	if (u32(104) != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
 		problems.push_back("header_layout_version");
+	}
+	// BV-C7: the manifest's writer codec must be the file's encoding.
+	const bool file_paged = (u32(8) & gs_world_format::kFlagPagedChunks) != 0u;
+	const int64_t manifest_codec = dict_int(Dictionary(Dictionary(m.get("writer", Dictionary())).get("codec", Dictionary())), "codec_id");
+	if (file_paged != (manifest_codec == int64_t(gs_world_writer::kCodecGsqV1))) {
+		problems.push_back("codec_mismatch: the manifest's writer codec is not the file's encoding");
+		return done();
+	}
+	if (file_paged) {
+		verify_paged_world(f, uint64_t(file_bytes), m, problems);
+		return done();
 	}
 	const uint64_t chunk_table_offset = u64(72);
 	ShaCtx file_sha;
