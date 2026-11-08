@@ -90,7 +90,8 @@ TEST_CASE("[GaussianSplatting][HLOD] automatic route: the plan over tree x paylo
 	CHECK(residency_hint_resident(false, false));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD] automatic route: the runtime cut is on by default and the getter reads it so") {
+// [Config]: the strict Config lane. In the advisory [untagged] lane this case failed from #1309 on and CI stayed green (#1371).
+TEST_CASE("[GaussianSplatting][HLOD][Config] automatic route: the runtime cut is on by default and the getter reads it so") {
 	ProjectSettings *ps = ProjectSettings::get_singleton();
 	if (!ps) { FAIL("ProjectSettings singleton required"); return; }
 	if (!ps->has_setting(CUT_KEY)) { FAIL("lod/hlod_runtime_cut_enabled is not registered"); return; }
