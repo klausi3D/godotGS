@@ -9,7 +9,7 @@ var searchData=
   ['idebugoverlaysystem_6',['IDebugOverlaySystem',['../classIDebugOverlaySystem.html',1,'']]],
   ['identity_7',['identity',['../structGaussianSHRotation_1_1Rotation.html#aa3e8d49b74d5f29e0c85c127481addf2',1,'GaussianSHRotation::Rotation']]],
   ['identity_5ftransform_8',['identity_transform',['../structgs__hlod__auto__route_1_1WorldInputs.html#acc3ab4833ea61b93bef4f84d4305212a',1,'gs_hlod_auto_route::WorldInputs']]],
-  ['idle_9',['IDLE',['../classGSAtomicFileTransaction.html#aeed58611bb5ab01eb0f118d07d5e842baa5daf7f2ebbba4975d61dab1c40188c7',1,'GSAtomicFileTransaction::IDLE'],['../classgs__world__writer_1_1Writer.html#a11338e9bac65a12690482f3d15890a14aa5daf7f2ebbba4975d61dab1c40188c7',1,'gs_world_writer::Writer::IDLE']]],
+  ['idle_9',['IDLE',['../classGSAtomicFileTransaction.html#aeed58611bb5ab01eb0f118d07d5e842baa5daf7f2ebbba4975d61dab1c40188c7',1,'GSAtomicFileTransaction::IDLE'],['../classgs__world__writer_1_1Writer.html#a11338e9bac65a12690482f3d15890a14aa5daf7f2ebbba4975d61dab1c40188c7',1,'gs_world_writer::Writer::IDLE'],['../namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6aa5daf7f2ebbba4975d61dab1c40188c7',1,'gs_world_writer::IDLE']]],
   ['idle_5fhlod_5fstreaming_5fbundle_10',['idle_hlod_streaming_bundle',['../classGaussianSplatRenderer.html#a6bc10cc38decf63ab2c91d4128214daf',1,'GaussianSplatRenderer']]],
   ['ids_11',['ids',['../structInstanceDataGPU.html#a3807d78365ae8f594e5306abc297e358',1,'InstanceDataGPU']]],
   ['iframemutationaccess_12',['IFrameMutationAccess',['../classGaussianSplatRenderer_1_1IFrameMutationAccess.html',1,'GaussianSplatRenderer']]],

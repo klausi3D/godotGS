@@ -294,6 +294,9 @@ var annotated_dup =
     [ "gs_world_writer", "namespacegs__world__writer.html", [
       [ "CodecParams", "structgs__world__writer_1_1CodecParams.html", "structgs__world__writer_1_1CodecParams" ],
       [ "PlainSpec", "structgs__world__writer_1_1PlainSpec.html", "structgs__world__writer_1_1PlainSpec" ],
+      [ "Limits", "structgs__world__writer_1_1Limits.html", "structgs__world__writer_1_1Limits" ],
+      [ "Progress", "structgs__world__writer_1_1Progress.html", "structgs__world__writer_1_1Progress" ],
+      [ "Report", "structgs__world__writer_1_1Report.html", "structgs__world__writer_1_1Report" ],
       [ "ChunkDesc", "structgs__world__writer_1_1ChunkDesc.html", "structgs__world__writer_1_1ChunkDesc" ],
       [ "Writer", "classgs__world__writer_1_1Writer.html", "classgs__world__writer_1_1Writer" ]
     ] ],

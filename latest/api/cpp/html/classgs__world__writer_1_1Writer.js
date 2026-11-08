@@ -12,7 +12,7 @@ var classgs__world__writer_1_1Writer =
     [ "Writer", "classgs__world__writer_1_1Writer.html#a964f9757b716b89b55a3d0291596257f", null ],
     [ "abort", "classgs__world__writer_1_1Writer.html#ae9ab2c038f155a0e9e510f0ca1207b3c", null ],
     [ "append_chunk", "classgs__world__writer_1_1Writer.html#a0e1f13ca858afc3dbb7209837413355c", null ],
-    [ "begin_plain", "classgs__world__writer_1_1Writer.html#adafaeb8d74aaa70cb679061cc54fbc25", null ],
+    [ "begin_plain", "classgs__world__writer_1_1Writer.html#ab9e54b48dfa187de70e5ff97bf4d73ab", null ],
     [ "current_pass", "classgs__world__writer_1_1Writer.html#a47fd5c8650f7465bf9fca6991009973a", null ],
     [ "finalize", "classgs__world__writer_1_1Writer.html#aefd48590249f3c170bfa46bf5a4e2543", null ],
     [ "get_error", "classgs__world__writer_1_1Writer.html#a0f40b501fb432f0e148f1f71bd589cf1", null ],
@@ -21,7 +21,10 @@ var classgs__world__writer_1_1Writer =
     [ "get_page_count", "classgs__world__writer_1_1Writer.html#a06f1946f62e3e70ce2bdbfe1acba6826", null ],
     [ "get_page_stats", "classgs__world__writer_1_1Writer.html#a09d6057d0ee4cb203683113f59201add", null ],
     [ "get_pass_count", "classgs__world__writer_1_1Writer.html#a7091c1665e7b83b3e76d05acacd49c76", null ],
+    [ "get_progress", "classgs__world__writer_1_1Writer.html#add23bd668db2f06544a017a9a0b3f9b1", null ],
+    [ "get_report", "classgs__world__writer_1_1Writer.html#afc031a67e97b47a564309277ce2b7a59", null ],
     [ "get_state", "classgs__world__writer_1_1Writer.html#afb6a7ed5221f55c841767868855675e6", null ],
     [ "is_open", "classgs__world__writer_1_1Writer.html#a7bb558412d9a31feeb1558195323e5e8", null ],
-    [ "operator=", "classgs__world__writer_1_1Writer.html#a2da979146c9d6e85caf3614f2144bcaf", null ]
+    [ "operator=", "classgs__world__writer_1_1Writer.html#a2da979146c9d6e85caf3614f2144bcaf", null ],
+    [ "request_cancel", "classgs__world__writer_1_1Writer.html#a2a25f10b0515c604aa4cc115a118cebe", null ]
 ];

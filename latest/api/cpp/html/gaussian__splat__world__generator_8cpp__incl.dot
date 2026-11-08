@@ -124,16 +124,17 @@ digraph "gaussian_splat_world_generator.cpp"
   Node7 -> Node25 [id="edge77_Node000007_Node000025",color="steelblue1",style="solid",tooltip=" "];
   Node7 -> Node10 [id="edge78_Node000007_Node000010",color="steelblue1",style="solid",tooltip=" "];
   Node7 -> Node28 [id="edge79_Node000007_Node000028",color="steelblue1",style="solid",tooltip=" "];
-  Node7 -> Node4 [id="edge80_Node000007_Node000004",color="steelblue1",style="solid",tooltip=" "];
-  Node7 -> Node19 [id="edge81_Node000007_Node000019",color="steelblue1",style="solid",tooltip=" "];
-  Node7 -> Node11 [id="edge82_Node000007_Node000011",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node13 [id="edge83_Node000006_Node000013",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node9 [id="edge84_Node000006_Node000009",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node27 [id="edge85_Node000006_Node000027",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node10 [id="edge86_Node000006_Node000010",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node28 [id="edge87_Node000006_Node000028",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node4 [id="edge88_Node000006_Node000004",color="steelblue1",style="solid",tooltip=" "];
-  Node6 -> Node11 [id="edge89_Node000006_Node000011",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node42 [id="edge90_Node000001_Node000042",color="steelblue1",style="solid",tooltip=" "];
+  Node7 -> Node36 [id="edge80_Node000007_Node000036",color="steelblue1",style="solid",tooltip=" "];
+  Node7 -> Node4 [id="edge81_Node000007_Node000004",color="steelblue1",style="solid",tooltip=" "];
+  Node7 -> Node19 [id="edge82_Node000007_Node000019",color="steelblue1",style="solid",tooltip=" "];
+  Node7 -> Node11 [id="edge83_Node000007_Node000011",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node13 [id="edge84_Node000006_Node000013",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node9 [id="edge85_Node000006_Node000009",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node27 [id="edge86_Node000006_Node000027",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node10 [id="edge87_Node000006_Node000010",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node28 [id="edge88_Node000006_Node000028",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node4 [id="edge89_Node000006_Node000004",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node11 [id="edge90_Node000006_Node000011",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node42 [id="edge91_Node000001_Node000042",color="steelblue1",style="solid",tooltip=" "];
   Node42 [id="Node000042",label="core/object/class_db.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

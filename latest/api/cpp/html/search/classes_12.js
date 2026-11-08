@@ -44,7 +44,7 @@ var searchData=
   ['renderstreamingorchestrator_41',['RenderStreamingOrchestrator',['../classRenderStreamingOrchestrator.html',1,'']]],
   ['renderstreamingorchestratordependencies_42',['RenderStreamingOrchestratorDependencies',['../structRenderStreamingOrchestratorDependencies.html',1,'']]],
   ['renderthreaddispatcher_43',['RenderThreadDispatcher',['../classRenderThreadDispatcher.html',1,'']]],
-  ['report_44',['Report',['../structgs__world__generator_1_1Report.html',1,'gs_world_generator']]],
+  ['report_44',['Report',['../structgs__world__generator_1_1Report.html',1,'gs_world_generator::Report'],['../structgs__world__writer_1_1Report.html',1,'gs_world_writer::Report']]],
   ['reportinputs_45',['ReportInputs',['../structGaussianSplatPerformanceOverlay_1_1ReportInputs.html',1,'GaussianSplatPerformanceOverlay']]],
   ['requestedchunkstate_46',['RequestedChunkState',['../structGaussianStreamingTypes_1_1RequestedChunkState.html',1,'GaussianStreamingTypes']]],
   ['requestresult_47',['RequestResult',['../structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html',1,'gs_hlod_runtime::NodeResidency::RequestResult'],['../structNodeResidency_1_1RequestResult.html',1,'NodeResidency::RequestResult']]],

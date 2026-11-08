@@ -96,6 +96,9 @@ $(function(){initNavTree('namespacegs__world__writer.html','',''); });
 Classes</h2></td></tr>
 <tr class="memitem:CodecParams" id="r_CodecParams"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__world__writer_1_1CodecParams.html">CodecParams</a></td></tr>
 <tr class="memitem:PlainSpec" id="r_PlainSpec"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__world__writer_1_1PlainSpec.html">PlainSpec</a></td></tr>
+<tr class="memitem:Limits" id="r_Limits"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__world__writer_1_1Limits.html">Limits</a></td></tr>
+<tr class="memitem:Progress" id="r_Progress"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__world__writer_1_1Progress.html">Progress</a></td></tr>
+<tr class="memitem:Report" id="r_Report"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__world__writer_1_1Report.html">Report</a></td></tr>
 <tr class="memitem:ChunkDesc" id="r_ChunkDesc"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__world__writer_1_1ChunkDesc.html">ChunkDesc</a></td></tr>
 <tr class="memitem:Writer" id="r_Writer"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__world__writer_1_1Writer.html">Writer</a></td></tr>
 </table><table class="memberdecls">
@@ -107,6 +110,15 @@ Enumerations</h2></td></tr>
 <tr class="memitem:adc52b2dcc2862b5bc18113b929072021" id="r_adc52b2dcc2862b5bc18113b929072021"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc52b2dcc2862b5bc18113b929072021">SourceMode</a> : uint8_t { <a class="el" href="#adc52b2dcc2862b5bc18113b929072021a2140505f68b32275f7c9d1acf2162d13">REITERABLE</a>
 , <a class="el" href="#adc52b2dcc2862b5bc18113b929072021a5602b71a1f0b65fe46435e2a02ccee33">SINGLE_PASS</a>
  }</td></tr>
+<tr class="memitem:af2f092b0d82a0132fb9ec7afd85671e6" id="r_af2f092b0d82a0132fb9ec7afd85671e6"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6">Phase</a> : uint8_t { <br />
+&#160;&#160;<a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6aa5daf7f2ebbba4975d61dab1c40188c7">IDLE</a>
+, <a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6aa8ae3f8747543dc53054e6ccbb5fcb1b">WRITING</a>
+, <a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6a4766d063d62e2112da80412f36c3ed07">FINALIZING</a>
+, <a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6a1c372d13f50af5ca9a935ebc78006e82">COMMITTED</a>
+, <br />
+&#160;&#160;<a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6a09d4d696b4e935115b9313e3c412509a">STOPPED</a>
+<br />
+ }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -117,8 +129,38 @@ Functions</h2></td></tr>
 Variables</h2></td></tr>
 <tr class="memitem:ae7bc0321423f7c3100461e0453e0ea54" id="r_ae7bc0321423f7c3100461e0453e0ea54"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae7bc0321423f7c3100461e0453e0ea54">kCodecNone</a> = 0u</td></tr>
 <tr class="memitem:ad77f9ae40d8df80734e1b93d34520d2d" id="r_ad77f9ae40d8df80734e1b93d34520d2d"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad77f9ae40d8df80734e1b93d34520d2d">kCodecGsqV1</a> = 1u</td></tr>
+<tr class="memitem:afc0969532fd5b4bc30f22a6464590e50" id="r_afc0969532fd5b4bc30f22a6464590e50"><td class="memItemLeft" align="right" valign="top">constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afc0969532fd5b4bc30f22a6464590e50">kDefaultFreeDiskMargin</a> = uint64_t(64) &lt;&lt; 20u</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Enumeration Type Documentation</h2>
+<a id="af2f092b0d82a0132fb9ec7afd85671e6" name="af2f092b0d82a0132fb9ec7afd85671e6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af2f092b0d82a0132fb9ec7afd85671e6">&#9670;&#160;</a></span>Phase</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum class <a class="el" href="#af2f092b0d82a0132fb9ec7afd85671e6">gs_world_writer::Phase</a> : uint8_t</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel strong">strong</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="af2f092b0d82a0132fb9ec7afd85671e6aa5daf7f2ebbba4975d61dab1c40188c7" name="af2f092b0d82a0132fb9ec7afd85671e6aa5daf7f2ebbba4975d61dab1c40188c7"></a>IDLE&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="af2f092b0d82a0132fb9ec7afd85671e6aa8ae3f8747543dc53054e6ccbb5fcb1b" name="af2f092b0d82a0132fb9ec7afd85671e6aa8ae3f8747543dc53054e6ccbb5fcb1b"></a>WRITING&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="af2f092b0d82a0132fb9ec7afd85671e6a4766d063d62e2112da80412f36c3ed07" name="af2f092b0d82a0132fb9ec7afd85671e6a4766d063d62e2112da80412f36c3ed07"></a>FINALIZING&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="af2f092b0d82a0132fb9ec7afd85671e6a1c372d13f50af5ca9a935ebc78006e82" name="af2f092b0d82a0132fb9ec7afd85671e6a1c372d13f50af5ca9a935ebc78006e82"></a>COMMITTED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="af2f092b0d82a0132fb9ec7afd85671e6a09d4d696b4e935115b9313e3c412509a" name="af2f092b0d82a0132fb9ec7afd85671e6a09d4d696b4e935115b9313e3c412509a"></a>STOPPED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a id="adc52b2dcc2862b5bc18113b929072021" name="adc52b2dcc2862b5bc18113b929072021"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#adc52b2dcc2862b5bc18113b929072021">&#9670;&#160;</a></span>SourceMode</h2>
 
@@ -249,6 +291,28 @@ Variables</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_world_writer::kCodecNone = 0u</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afc0969532fd5b4bc30f22a6464590e50" name="afc0969532fd5b4bc30f22a6464590e50"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afc0969532fd5b4bc30f22a6464590e50">&#9670;&#160;</a></span>kDefaultFreeDiskMargin</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_writer::kDefaultFreeDiskMargin = uint64_t(64) &lt;&lt; 20u</td>
         </tr>
       </table>
   </td>
