@@ -302,7 +302,7 @@ void VRAMBudgetRegulator::_query_device_memory() {
 void VRAMBudgetRegulator::update(uint64_t p_reported_usage, uint64_t p_decision_usage, uint32_t loaded_chunks,
                                   uint32_t loads_this_frame, uint32_t evictions_this_frame,
                                   uint64_t current_frame, uint32_t p_refetches_this_frame,
-                                  uint64_t p_now_usec) {
+                                  uint64_t p_now_usec, uint32_t p_needed_chunks) {
     // p_reported_usage is the allocation-inclusive footprint (persistent buffer + payload +
     // auxiliary overhead) — it mirrors get_vram_usage()/end-frame vram_mb and is what the debug
     // overlay and the budget warning must show. p_decision_usage is the reclaimable/evictable
@@ -314,6 +314,7 @@ void VRAMBudgetRegulator::update(uint64_t p_reported_usage, uint64_t p_decision_
     stats.loaded_this_frame = loads_this_frame;
     stats.evicted_this_frame = evictions_this_frame;
     stats.current_max_chunks = current_max_chunks;
+    needed_chunks = p_needed_chunks;
 
     decision_usage_bytes = p_decision_usage;
     if (stats.budget_bytes > 0) {
@@ -358,19 +359,32 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
             ? (float(current_usage) / float(stats.budget_bytes)) * 100.0f
             : 0.0f;
 
-    // Check for thrashing - if detected, reduce chunks more aggressively
+    // BV-REG: the needed set is the floor of every thrash cut. Thrash at a cap that does not
+    // exceed it is the needed set evicting itself (ADR BV-PRIO): it is reported, never cut,
+    // since a smaller cap would only raise the refetches that triggered it (positive feedback).
+    const uint32_t demand_floor = MAX(config.min_chunks, MIN(needed_chunks, config.max_chunks));
     if (_detect_thrashing(now_usec)) {
         stats.thrashing_events++;
         _clear_refetch_window(); // the next cut needs refetches of its own
-        uint32_t reduction = MAX(1u, current_max_chunks / 10); // 10% reduction on thrashing
-        uint32_t new_max = MAX(config.min_chunks, current_max_chunks - reduction);
-        if (new_max != current_max_chunks) {
+        thrash_seen = true;
+        last_thrash_usec = now_usec;
+        if (current_max_chunks <= demand_floor || now_usec < thrash_hold_until_usec) {
+            stats.thrash_cuts_withheld++;
+        } else {
+            uint32_t reduction = MAX(1u, current_max_chunks / 10); // 10% reduction on thrashing
+            uint32_t new_max = MAX(demand_floor, current_max_chunks - MIN(reduction, current_max_chunks));
             current_max_chunks = new_max;
             last_adjustment_frame = current_frame;
             stats.regulation_adjustments++;
             stats.thrash_reductions++;
             stats.last_regulation_frame = current_frame;
             stats.last_regulation_reason = "thrash_reduction";
+            // Backoff: a cut that follows the previous hold within one window doubles the hold.
+            if (now_usec >= thrash_hold_until_usec + THRASH_REFETCH_WINDOW_USEC) {
+                thrash_backoff_shift = 0;
+            }
+            thrash_hold_until_usec = now_usec + (THRASH_REFETCH_WINDOW_USEC << thrash_backoff_shift);
+            thrash_backoff_shift = MIN(thrash_backoff_shift + 1u, THRASH_BACKOFF_MAX_SHIFT);
 
             // Also increase LOD distance to reduce quality demands
             const float previous_lod_multiplier = lod_distance_multiplier;
@@ -379,10 +393,11 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
                 stats.lod_multiplier_adjustments++;
             }
 
-            GS_LOG_STREAMING_INFO(vformat("[VRAM Regulator] Thrashing detected! Reduced max chunks to %d, LOD multiplier: %.2f",
-                    current_max_chunks, lod_distance_multiplier));
+            GS_LOG_STREAMING_INFO(vformat("[VRAM Regulator] Thrashing detected! Reduced max chunks to %d (needed %d), LOD multiplier: %.2f",
+                    current_max_chunks, needed_chunks, lod_distance_multiplier));
+            stats.current_max_chunks = current_max_chunks;
+            return;
         }
-        return;
     }
 
     // Calculate step size based on config
@@ -405,7 +420,12 @@ void VRAMBudgetRegulator::_update_regulation(uint64_t current_usage, uint64_t cu
     }
     // If well under budget and not at max, increase chunks
     else if (decision_percent < float(config.warning_threshold_percent) * 0.7f) {
-        if (current_max_chunks < config.max_chunks) {
+        // BV-REG hysteresis: at or above the needed set, no step-up during a thrash hold or while
+        // thrash persists. Below the needed set the step-up is the remedy and stays allowed.
+        const bool thrash_hold = now_usec < thrash_hold_until_usec;
+        const bool thrash_recent = thrash_seen && now_usec < last_thrash_usec + THRASH_REFETCH_WINDOW_USEC;
+        const bool step_up_blocked = current_max_chunks >= demand_floor && (thrash_hold || thrash_recent);
+        if (current_max_chunks < config.max_chunks && !step_up_blocked) {
             uint32_t new_max = MIN(config.max_chunks, current_max_chunks + step_size);
             if (new_max != current_max_chunks) {
                 current_max_chunks = new_max;
@@ -521,6 +541,7 @@ Dictionary VRAMBudgetRegulator::get_debug_stats_dictionary() const {
     d["regulation_adjustments"] = stats.regulation_adjustments;
     d["thrashing_events"] = stats.thrashing_events;
     d["thrash_reductions"] = stats.thrash_reductions;
+    d["thrash_cuts_withheld"] = stats.thrash_cuts_withheld;
     d["visible_refetches_total"] = stats.visible_refetches_total;
     d["budget_reductions"] = stats.budget_reductions;
     d["headroom_increases"] = stats.headroom_increases;

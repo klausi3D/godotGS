@@ -70,6 +70,9 @@ struct VRAMDebugStats {
     // BV-04a (ADR adr-beyond-vram-worlds.md D-6): regulator events by kind, so a probe can tell
     // whether and why the regulator fired. regulation_adjustments is their sum.
     uint32_t thrash_reductions = 0;        // Thrash ratchet: chunk cap cut by 10 %
+    // BV-REG: thrash detected but no cut, because the cap does not exceed the needed set (the
+    // refetches are the cap's own doing) or a backoff hold from the previous cut is running.
+    uint32_t thrash_cuts_withheld = 0;
     uint32_t budget_reductions = 0;        // Over the warning threshold: chunk cap stepped down
     uint32_t headroom_increases = 0;       // Well under the threshold: chunk cap stepped up
     uint32_t lod_multiplier_adjustments = 0; // Times lod_distance_multiplier changed value
@@ -116,6 +119,22 @@ private:
     uint64_t last_adjustment_frame = 0;
     static constexpr uint32_t MIN_FRAMES_BETWEEN_ADJUSTMENTS = 30;
 
+    // BV-REG: the strict-frustum needed set of the latest update (BV-PRIO, padding excluded).
+    // A thrash cut never takes the cap below it, and thrash at a cap that does not exceed it
+    // cuts nothing: the refetches come from the cap itself, so a smaller cap would only feed
+    // them (the M1 Tier A repeat collapsed 320 -> 4 that way). 0 = unknown, floor = min_chunks.
+    uint32_t needed_chunks = 0;
+    // Hysteresis: after a thrash cut, neither another cut nor a headroom step-up at or above the
+    // needed set until the hold ends. The hold doubles for each cut that follows the previous hold within one thrash
+    // window, up to THRASH_WINDOW << THRASH_BACKOFF_MAX_SHIFT (32 s).
+    static constexpr uint32_t THRASH_BACKOFF_MAX_SHIFT = 4;
+    uint64_t thrash_hold_until_usec = 0;
+    uint32_t thrash_backoff_shift = 0;
+    // Wall clock of the latest thrash detection. While thrash persists the cap does not step up
+    // above the needed set; below it, stepping up is the remedy and stays allowed.
+    uint64_t last_thrash_usec = 0;
+    bool thrash_seen = false;
+
     // LOD distance multiplier for quality degradation
     float lod_distance_multiplier = 1.0f;
 
@@ -149,9 +168,11 @@ public:
     // reclaimable/evictable subset that admission + auto-regulation act on. (Codex #411)
     // p_refetches_this_frame counts visible chunks reloaded within THRASH_REFETCH_WINDOW_USEC of
     // their eviction; p_now_usec is the wall clock of this update (BV-08a).
+    // p_needed_chunks is the strict-frustum needed set (BV-PRIO), the floor of a thrash cut (BV-REG).
     void update(uint64_t p_reported_usage, uint64_t p_decision_usage, uint32_t loaded_chunks,
                 uint32_t loads_this_frame, uint32_t evictions_this_frame,
-                uint64_t current_frame, uint32_t p_refetches_this_frame = 0, uint64_t p_now_usec = 0);
+                uint64_t current_frame, uint32_t p_refetches_this_frame = 0, uint64_t p_now_usec = 0,
+                uint32_t p_needed_chunks = 0);
 
     // Get current regulated limits
     uint32_t get_current_max_chunks() const { return current_max_chunks; }

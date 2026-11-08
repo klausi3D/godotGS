@@ -265,10 +265,17 @@ def _signal_rows(trace: Trace, rows: Sequence[int], name: str) -> List[int]:
 
 
 def settings_drift(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
-    """ADR D-6 / V7: any change of the effective settings in the measured rows.
+    """ADR V7 / D-6: the frozen settings must hold in every measured frame.
 
-    Rows written before the streaming state existed carry -1; they are counted, not
-    evaluated. If no measured row carries the signal the result is MISSING.
+    ``rows`` are the measured rows. The verdict is INVALID, never a bare OK, when
+
+    - the effective settings changed: the settings revision or the regulator adjustment
+      count moved, or the effective budget, chunk cap or ``lod_distance_multiplier`` took
+      more than one value (``settings_drifted``, ADR section 8.3 C-settings);
+    - any measured row lacks the signal (the driver writes -1): V7 could not see that
+      frame, and absence of a signal is no pass (#1356).
+
+    If no measured row carries the signal the result is MISSING.
     """
     if not rows:
         return {"settings_drifted": None, "status": MISSING, "reason": "no measured rows"}
@@ -279,23 +286,39 @@ def settings_drift(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
                 "reason": "effective_settings_revision / vram_regulation_adjustments absent from every measured row"}
     rev = [trace.get(trace.rows[i], "effective_settings_revision") for i in have]
     adj = [trace.get(trace.rows[i], "vram_regulation_adjustments") for i in have]
-    budget = [trace.get(trace.rows[i], "effective_vram_budget_mb") for i in have]
-    cap = [trace.get(trace.rows[i], "effective_max_chunks") for i in have]
-    lod = [trace.get(trace.rows[i], "lod_distance_multiplier") for i in have]
-    drifted = (max(rev) != min(rev)) or (max(adj) != min(adj))
-    return {
-        "status": OK,
+    budget = sorted(set(trace.get(trace.rows[i], "effective_vram_budget_mb") for i in have))
+    cap = sorted(set(trace.get(trace.rows[i], "effective_max_chunks") for i in have))
+    lod = sorted(set(trace.get(trace.rows[i], "lod_distance_multiplier") for i in have))
+    changed = [name for name, values in (("budget", budget), ("chunk cap", cap), ("lod_distance_multiplier", lod))
+               if len(values) > 1]
+    if max(rev) != min(rev):
+        changed.append("settings revision")
+    if max(adj) != min(adj):
+        changed.append("regulator adjustments")
+    drifted = bool(changed)
+    without = len(rows) - len(have)
+    reasons = []
+    if drifted:
+        reasons.append(f"V7 INVALID settings_drifted: {', '.join(changed)} changed in the measured rows")
+    if without:
+        reasons.append(f"V7 INVALID rows_without_signal: {without} of {len(rows)} measured rows "
+                       "carry no settings signal")
+    rec: Dict[str, object] = {
+        "status": INVALID if reasons else OK,
         "settings_drifted": drifted,
         "label": "settings_drifted" if drifted else "",
         "rows": len(rows),
-        "rows_without_signal": len(rows) - len(have),
+        "rows_without_signal": without,
         "revision_first": rev[0], "revision_last": rev[-1],
         "revision_changes": sum(1 for a, b in zip(rev, rev[1:]) if a != b),
         "regulation_adjustments_delta": adj[-1] - adj[0],
-        "effective_vram_budget_mb": sorted(set(budget)),
-        "effective_max_chunks": sorted(set(cap)),
-        "lod_distance_multiplier": sorted(set(lod)),
+        "effective_vram_budget_mb": budget,
+        "effective_max_chunks": cap,
+        "lod_distance_multiplier": lod,
     }
+    if reasons:
+        rec["reason"] = "; ".join(reasons)
+    return rec
 
 
 #: The cumulative streaming counters start at 0 when the process starts and are never

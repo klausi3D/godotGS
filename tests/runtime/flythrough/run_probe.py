@@ -45,7 +45,8 @@ Report-only: nothing here gates. But absence of a signal is never a pass: every
 metric in the summary carries ``status`` OK / MISSING / INVALID and a reason
 (probe_summary.metric). If any regulator event fires, or the effective settings
 change, inside measured frames, the numbers are labelled ``settings_drifted``
-(ADR D-6 item 2): a finding, not a baseline.
+(ADR D-6 item 2): a finding, not a baseline,
+and V7 makes the run INVALID with a problems line (ADR section 8.3 C-settings).
 
 Exit codes (ADR section 9.1 mapping): 0 every phase ran and every required metric
 is present; 1 a Godot process failed (crash, non-zero exit, timeout, no result);
@@ -430,7 +431,9 @@ def required_path_metrics(world_summary: dict) -> List[str]:
         if p["moving_frame_interval"].get("frames", 0) == 0:
             problems.append(f"pass {p['pass_index']}: no moving frame")
         if p["settings"].get("status") != ps.OK:
-            problems.append(f"pass {p['pass_index']}: settings drift not evaluable")
+            # ADR V7: drift or an unsignalled measured row is INVALID, named by its reason.
+            problems.append(f"pass {p['pass_index']}: settings {p['settings'].get('status', ps.MISSING)} "
+                            f"({p['settings'].get('reason', 'no value')})")
         if p["moving_gpu"]["coherent_total_ms"].get("status") == ps.MISSING:
             problems.append(f"pass {p['pass_index']}: no fresh GPU breakdown while moving")
         got = [c["checkpoint"] for c in p.get("checkpoints", [])]
