@@ -77,7 +77,7 @@ Two partial systems exist:
 |---|---|---|
 | G-a | Render a physically stored, deterministic SH3 world several times larger than VRAM, on the 3080 runner and the 3090 workstation. | maintainer requirement |
 | G-b | Chunk streaming and HLOD form **one design**: one residency contract, one byte ledger, one page pool. | maintainer requirement; HLOD ADR §14 |
-| G-c | Run the fly-through at the **tuned settings**: 4M visible cap, 400 m far plane, 4096 MB budget, 320 chunks. Production defaults are reported separately. | maintainer requirement |
+| G-c | Run the fly-through at the **tuned settings**: 4M visible cap, 400 m far plane, 4096 MB budget, 480 chunks. Production defaults are reported separately. The cap was 320 until M1 tier A (run 42427296940) met needed sets of up to 449 chunks: 480 is that maximum plus ≈ 7 % headroom (BV-M1CAP, §5.2). | maintainer requirement; cap from M1 evidence |
 | G-d | Frame targets: 3080 p95 ≤ 25 ms and p99 ≤ 33.3 ms; 3090 p95 ≤ 16.7 ms and p99 ≤ 20 ms. **Never loosened.** §5.1 states plainly what reaching them takes, and §10 schedules calibration and gating **for both devices**. | maintainer requirement |
 | G-e | The out-of-core writer is a reusable `io/` API, and it **carries the page codec**. | maintainer requirement |
 | G-f | Use an optimized build and a persistent world cache on the VM. The approved cache of about 60 GiB **is sufficient**; no VM disk growth is needed (§5.3). | maintainer requirement |
@@ -762,14 +762,14 @@ if F ≤ ≈ 7 ms".
 
 | Item | Flat arm (chunk route) | HLOD arm (drawn budget N_frozen ≤ 1.0M) | Label |
 |---|---|---|---|
-| Pool / atlas | 3,520 MiB (320 × 64 pages × 180,224 B) | ≤ 4,095 MiB (streaming budget; staging ceiling exempt per D-3; ledger-clamped) | [D] |
+| Pool / atlas | ≤ 4,092 MiB: 23,808 pages × 180,224 B, the 32-bit buffer-addressing ceiling (`_compute_atlas_page_ceiling`), below 480 × 64 pages and below the 23,829 pages the 4096 MB budget allows. Tier A chunks average 40.6 pages: 449 needed chunks take ≈ 18,200 pages, the world's densest 449 take 22,501, both under the occupancy target of 23,744 pages (ceiling − 1 chunk). Was 3,520 MiB [D] / 2,816 MiB measured at the 320 cap | ≤ 4,095 MiB (streaming budget; staging ceiling exempt per D-3; ledger-clamped) | [D] |
 | Per-visible buffers (refs, depth sort, projection, visibility) | ≈ 318 MiB (4M) | ≈ 80 MiB (pow2 of 1M) | [D] |
 | SH cache + subpixel history (per pool record ≈ 9 B) | ≈ 180 MiB | ≈ 216 MiB at 24M records | [D] |
 | Overlap sort, steady / bootstrap | 855 / 2,670 MiB before E3; demand-driven after BV-10 | ≈ 340 MiB at ≈ 12 records/splat (interior) | [D]/[E] |
 | Textures, tiles, staging, engine | ≈ 0.5 GiB | ≈ 0.5 GiB | [E] |
 | Driver and others | 3080 VM 0.3–0.6; 3090 0.5–1.5 GiB | same | [E] |
-| **Total, 3080** | ≈ 5.6–5.9 steady; ≈ 7.4–7.7 bootstrap before E3 | ≈ 5.5–6.1 GiB | [E] |
-| **Total, 3090** | ≈ 5.8–6.8 GiB | ≈ 5.7–7.0 GiB | [E] |
+| **Total, 3080** | ≈ 6.2–6.5 steady; ≈ 8.0–8.3 bootstrap before E3 (pool + 0.56 GiB for the 480 cap) | ≈ 5.5–6.1 GiB | [E] |
+| **Total, 3090** | ≈ 6.4–7.4 GiB | ≈ 5.7–7.0 GiB | [E] |
 | With BV-C8 (144 B) | pool holds 22 % more records | same | [D] |
 
 "E3" is the demand-driven overlap bootstrap delivered by BV-10.
@@ -974,7 +974,8 @@ frozen in the thresholds file.**
    route on plain GSQ).
 3. **Pass B, settle** at C0–C7. The run pumps until a condition holds or a wall-clock deadline
    passes:
-    - flat: missing chunks = 0;
+    - flat: missing chunks = 0, where the needed set fits the chunk cap; where it does not,
+      a priority proof replaces the settle (M1 criterion in §10, INVALID until that check exists);
     - HLOD: **the drawn cut equals the manifest's oracle cut at the frozen drawn budget**, with
       no "or budget-bound" escape.
 
@@ -1306,9 +1307,23 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 - RSS stays bounded; real eviction;
 - disk throughput measured;
 - release-build latencies;
-- the first > 2 GiB single atlas buffer (3.5 GiB) on GPU;
+- the first > 2 GiB single atlas buffer (≤ 4.0 GiB at the 480-chunk cap) on GPU;
 - **measured F and k**;
 - whether the regulator fires (labelled `settings_drifted` if it does).
+
+**M1 checkpoint criterion: settle where the needed set fits (BV-M1CAP, maintainer decision
+2026-11-08).** At each checkpoint the probe compares the engine's `needed_chunks` with the
+chunk cap enforced in the same frame:
+
+- **needed ≤ cap:** the checkpoint must settle (§7.3: missing chunks = 0 before the deadline).
+  A missed deadline makes the run INVALID, as before.
+- **needed > cap:** the needed set can never be resident at once, so settle is not defined.
+  The checkpoint instead requires a **priority proof**: the most important needed chunks are
+  resident and drawn first. That check does not exist yet. Until it does, such a checkpoint is
+  **INVALID** with a reason naming needed and cap, settled or not; it never passes silently.
+- needed or cap absent: INVALID (MISSING), never a pass.
+
+With the cap at 480, every needed set M1 tier A met (≤ 449) is in the first case.
 
 **M1 does not prove** targets, compression, far quality or HLOD.
 

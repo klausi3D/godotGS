@@ -22,10 +22,12 @@ What runs:
 
 1. **Fly-through, per world** (one Godot process): the ADR section 7.2 path,
    resolved against the world's manifest by probe_path.py, at the tuned settings
-   (G-c: 4M visible cap, 400 m far plane, 4096 MB budget, 320 chunks; 1920x1080,
+   (G-c: 4M visible cap, 400 m far plane, 4096 MB budget, 480 chunks; 1920x1080,
    vsync off, chunk-streaming route, quantized streaming off). Moving segments are
    paced by wall clock (pass A); stops and teleports pump until missing chunks = 0
-   or a wall-clock deadline (pass B settle) and capture a checkpoint. ``--passes 2``
+   or a wall-clock deadline (pass B settle) and capture a checkpoint. A checkpoint
+   whose needed set exceeds the chunk cap cannot settle; it needs a priority proof
+   (ADR M1 settle-where-fits), which does not exist yet, so it is INVALID. ``--passes 2``
    (default) flies the path twice in the same process: a first and a repeat pass.
    The host page cache is not controlled here (V10 is BV-06b), so neither pass is
    labelled cold.
@@ -101,7 +103,9 @@ TUNED_SETTINGS: Dict[str, object] = {
     "rendering/gaussian_splatting/streaming/route_policy": 1,
     "rendering/gaussian_splatting/instance_pipeline/enabled": True,
     "rendering/gaussian_splatting/streaming/vram_budget_mb": 4096,
-    "rendering/gaussian_splatting/streaming/max_chunks_in_vram": 320,
+    # 480 >= the largest needed set M1 tier A met (449, run 42427296940); the atlas pages
+    # still fit the 4096 MB budget (ADR G-c).
+    "rendering/gaussian_splatting/streaming/max_chunks_in_vram": 480,
     "rendering/gaussian_splatting/compression/per_chunk_quantization": 0,
 }
 TUNED_VISIBLE_CAP = 4_000_000
@@ -370,6 +374,9 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             truth = groundtruth["checkpoints"].get(cp["checkpoint"], {})
             exp = truth.get("expected_drawn_upper_bound")
             settle = cp.get("settle", {})
+            row = cp.get("row")
+            cap = (trace.get(trace.rows[row], "effective_max_chunks")
+                   if isinstance(row, int) and 0 <= row < len(trace.rows) else None)
             checkpoints.append({
                 "checkpoint": cp["checkpoint"],
                 "segment": cp["segment"],
@@ -382,6 +389,8 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
                 "needed_unserved_chunks": cp.get("needed_unserved_chunks"),
                 "loaded_chunks": cp.get("loaded_chunks"),
                 "frustum_chunks_expected": truth.get("frustum_chunk_count"),
+                # ADR M1 settle-where-fits: needed vs the cap enforced at the checkpoint row.
+                "cap_fit": ps.checkpoint_cap_fit(cp.get("needed_chunks"), cap),
             })
         out["passes"].append({
             "pass_index": pass_index,
@@ -440,6 +449,15 @@ def required_path_metrics(world_summary: dict) -> List[str]:
         if got != EXPECTED_CHECKPOINTS:
             problems.append(f"pass {p['pass_index']}: checkpoints {got}, expected {EXPECTED_CHECKPOINTS}")
         for c in p.get("checkpoints", []):
+            fit = c.get("cap_fit") or ps.missing("no needed/cap record")
+            if fit.get("status") == ps.INVALID:
+                # ADR M1: needed > cap needs a priority proof, not a settle. Until that check
+                # exists the checkpoint is INVALID, settled or not.
+                problems.append(f"pass {p['pass_index']} {c['checkpoint']}: {fit['reason']}")
+                continue
+            if fit.get("status") != ps.OK:
+                problems.append(f"pass {p['pass_index']} {c['checkpoint']}: "
+                                f"{fit.get('reason', 'no needed/cap record')}")
             if not c.get("settled"):
                 # tests/AGENTS.md: a missed pump deadline is a failure that names what never
                 # became true, never a silent pass.
