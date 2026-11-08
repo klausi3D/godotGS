@@ -19,6 +19,8 @@
 #include "../interfaces/gpu_culler.h"
 #include "../logger/gs_logger.h"
 #include "gs_atomic_file_writer.h"
+#include "gsq/gsq_codec.h"
+#include "gsq/gsq_page_builder.h"
 #include "io_settings_utils.h"
 
 #include <algorithm>
@@ -1435,6 +1437,296 @@ static Ref<Resource> _load_gsplatworld_paged(const String &p_path, Error *r_erro
 	return world;
 }
 
+// Plain v3 + bit 7, paged GSQ chunks (BV-C5a; docs/architecture/adr-beyond-vram-worlds.md D-12
+// "Containers", §4.1; layout in gaussian_splat_world_format.h). Validates the whole directory,
+// then reads, verifies and decodes every page into a resident payload. Each page must match its
+// table entry (size, count, extent, stored SHA-256) and its decoded splats the recorded decoded
+// digest; any mismatch refuses the world with a gsq_* reason. Nothing is skipped or repaired.
+// The file-backed staged source and the async decode in the pack workers are BV-C5b, so this
+// container loads resident, like the whole-section gzip of bit 4.
+static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
+		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
+		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
+		uint64_t p_sh_offset, uint64_t p_chunk_table_offset, uint64_t p_indices_offset, uint64_t p_metadata_offset,
+		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, Error *r_error, float *r_progress) {
+	auto refuse = [&](Error p_err, const String &p_why) {
+		if (r_error) {
+			*r_error = p_err;
+		}
+		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load paged-GSQ world %s: %s", p_path, p_why));
+		return Ref<Resource>();
+	};
+	// Paged extension (the W16 codec block and the page directory).
+	p_file->seek(gs_world_format::kPrefixBytes);
+	const uint32_t codec_id = p_file->get_32();
+	if (codec_id != gs_gsq::kCodecId) {
+		// A codec this build does not know: refused like an unknown flag, never guessed.
+		return refuse(ERR_FILE_UNRECOGNIZED, vformat("gsq_unknown_codec: codec id %d", codec_id));
+	}
+	gs_gsq::EncodeParams params;
+	for (int i = 0; i < 3; i++) {
+		params.sh_bits[i] = p_file->get_8();
+	}
+	params.opacity_bits = p_file->get_8();
+	params.pos_step_m = p_file->get_float();
+	params.zstd_level = int32_t(p_file->get_32());
+	const uint32_t page_count = p_file->get_32();
+	const uint32_t page_alignment = p_file->get_32();
+	const uint64_t page_table_offset = p_file->get_64();
+	uint64_t ext_reserved = 0;
+	for (int i = 0; i < 4; i++) {
+		ext_reserved |= p_file->get_64();
+	}
+	String reason;
+	if (gs_gsq::validate_encode_params(params, reason) != OK) {
+		return refuse(ERR_FILE_CORRUPT, reason);
+	}
+	if (page_alignment != gs_world_format::kPagedPageAlignment || ext_reserved != 0u) {
+		return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: page alignment %d (expected %d) or reserved extension bytes set",
+												page_alignment, uint32_t(gs_world_format::kPagedPageAlignment)));
+	}
+
+	// Header fields under bit 7.
+	if (p_splat_count == 0u || p_chunk_count == 0u || page_count == 0u || page_count > p_splat_count) {
+		return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: %d splats, %d chunks, %d pages", p_splat_count, p_chunk_count, page_count));
+	}
+	if (p_sh_degree > gs_gsq::kMaxShDegree || p_sh_high_order != gs_gsq::sh_high_order_for_degree(p_sh_degree) ||
+			((p_flags & kFlagHasHighSh) != 0u) != (p_sh_high_order > 0u)) {
+		return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: SH degree %d with %d high-order coefficients", p_sh_degree, p_sh_high_order));
+	}
+	if (p_sh_offset != 0u || p_indices_offset != 0u) {
+		return refuse(ERR_FILE_CORRUPT, "gsq_bad_container: SH section or index lists present (paged chunks have neither)");
+	}
+	const uint64_t first_page_offset = (p_header.header_bytes + gs_world_format::kPagedPageAlignment - 1u) / gs_world_format::kPagedPageAlignment * gs_world_format::kPagedPageAlignment;
+	if (p_gaussian_offset != first_page_offset) {
+		return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: first page at %s, expected %s",
+												String::num_uint64(p_gaussian_offset), String::num_uint64(first_page_offset)));
+	}
+	const uint64_t chunk_table_bytes = uint64_t(p_chunk_count) * gs_world_format::kPagedChunkRecordBytes;
+	const uint64_t page_table_bytes = uint64_t(page_count) * gs_world_format::kPagedPageRecordBytes;
+	if (p_chunk_table_offset < p_gaussian_offset || !fits_within(p_chunk_table_offset, chunk_table_bytes, p_file_len) ||
+			page_table_offset != p_chunk_table_offset + chunk_table_bytes || !fits_within(page_table_offset, page_table_bytes, p_file_len)) {
+		return refuse(ERR_FILE_CORRUPT, "gsq_bad_container: chunk or page table outside the file");
+	}
+	if ((p_flags & kFlagHasMetadata) != 0u && p_metadata_size > 0u &&
+			(p_metadata_offset < page_table_offset + page_table_bytes || !fits_within(p_metadata_offset, p_metadata_size, p_file_len))) {
+		return refuse(ERR_FILE_CORRUPT, "gsq_bad_container: metadata outside the file");
+	}
+
+	// Paged chunk table.
+	struct PagedChunk {
+		Vector3 bounds_pos;
+		Vector3 bounds_size;
+		Vector3 center;
+		float radius = 0.0f;
+		uint32_t first_page = 0;
+		uint32_t page_count = 0;
+		uint32_t splat_count = 0;
+	};
+	if (!_allocation_probe(uint64_t(p_chunk_count) * sizeof(PagedChunk))) {
+		return refuse(ERR_OUT_OF_MEMORY, "cannot allocate the chunk table");
+	}
+	LocalVector<PagedChunk> chunk_table;
+	chunk_table.resize(p_chunk_count);
+	p_file->seek(p_chunk_table_offset);
+	uint64_t pages_seen = 0;
+	uint64_t splats_seen = 0;
+	for (uint32_t c = 0; c < p_chunk_count; c++) {
+		PagedChunk &chunk = chunk_table[c];
+		chunk.bounds_pos = _read_vec3(p_file);
+		chunk.bounds_size = _read_vec3(p_file);
+		chunk.center = _read_vec3(p_file);
+		chunk.radius = p_file->get_float();
+		chunk.first_page = p_file->get_32();
+		chunk.page_count = p_file->get_32();
+		chunk.splat_count = p_file->get_32();
+		const uint32_t reserved = p_file->get_32();
+		// Chunks tile the pages in order: chunk c owns pages [first_page, first_page + page_count).
+		if (reserved != 0u || uint64_t(chunk.first_page) != pages_seen || uint64_t(chunk.page_count) > uint64_t(page_count) - pages_seen ||
+				(chunk.page_count == 0u) != (chunk.splat_count == 0u)) {
+			return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: chunk %d record (first page %d, %d pages, %d splats)",
+													c, chunk.first_page, chunk.page_count, chunk.splat_count));
+		}
+		pages_seen += chunk.page_count;
+		splats_seen += chunk.splat_count;
+	}
+	if (pages_seen != page_count || splats_seen != uint64_t(p_splat_count)) {
+		return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: chunks cover %s pages and %s splats, the header declares %d and %d",
+												String::num_uint64(pages_seen), String::num_uint64(splats_seen), page_count, p_splat_count));
+	}
+
+	// Page table. Offsets are canonical (each page on the next alignment boundary after the
+	// previous one, the chunk table right after the last page), so the directory admits one layout.
+	struct PageEntry {
+		uint64_t offset = 0;
+		uint32_t stored_bytes = 0;
+		uint32_t splat_count = 0;
+		uint8_t stored_digest[gs_gsq::kDigestBytes] = {};
+		uint8_t decoded_digest[gs_gsq::kDigestBytes] = {};
+		uint32_t extent[6] = {};
+	};
+	if (!_allocation_probe(uint64_t(page_count) * sizeof(PageEntry))) {
+		return refuse(ERR_OUT_OF_MEMORY, "cannot allocate the page table");
+	}
+	LocalVector<PageEntry> pages;
+	pages.resize(page_count);
+	p_file->seek(page_table_offset);
+	uint64_t next_offset = p_gaussian_offset;
+	uint32_t owner = 0;
+	uint64_t owner_splats = 0;
+	for (uint32_t p = 0; p < page_count; p++) {
+		while (owner < p_chunk_count && uint64_t(p) >= uint64_t(chunk_table[owner].first_page) + chunk_table[owner].page_count) {
+			owner++;
+		}
+		PageEntry &page = pages[p];
+		page.offset = p_file->get_64();
+		page.stored_bytes = p_file->get_32();
+		page.splat_count = p_file->get_32();
+		const bool digests_read = p_file->get_buffer(page.stored_digest, gs_gsq::kDigestBytes) == gs_gsq::kDigestBytes &&
+				p_file->get_buffer(page.decoded_digest, gs_gsq::kDigestBytes) == gs_gsq::kDigestBytes;
+		for (int i = 0; i < 6; i++) {
+			page.extent[i] = p_file->get_32();
+		}
+		const uint32_t chunk_index = p_file->get_32();
+		const uint32_t reserved = p_file->get_32();
+		if (!digests_read || reserved != 0u || owner >= p_chunk_count || chunk_index != owner || page.offset != next_offset ||
+				page.stored_bytes < gs_gsq::kPageHeaderBytes || page.splat_count == 0u || page.splat_count > gs_gsq::kMaxPageSplats ||
+				page.offset > p_chunk_table_offset || uint64_t(page.stored_bytes) > p_chunk_table_offset - page.offset) {
+			return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: page %d record (offset %s, %d bytes, %d splats, chunk %d)",
+													p, String::num_uint64(page.offset), page.stored_bytes, page.splat_count, chunk_index));
+		}
+		owner_splats += page.splat_count;
+		if (uint64_t(p) + 1u == uint64_t(chunk_table[owner].first_page) + chunk_table[owner].page_count) {
+			if (owner_splats != chunk_table[owner].splat_count) {
+				return refuse(ERR_FILE_CORRUPT, vformat("gsq_bad_container: the pages of chunk %d hold %s splats, its record %d",
+														owner, String::num_uint64(owner_splats), chunk_table[owner].splat_count));
+			}
+			owner_splats = 0;
+		}
+		const uint64_t end = page.offset + page.stored_bytes;
+		next_offset = p + 1u < page_count ? (end + gs_world_format::kPagedPageAlignment - 1u) / gs_world_format::kPagedPageAlignment * gs_world_format::kPagedPageAlignment : end;
+	}
+	if (next_offset != p_chunk_table_offset) {
+		return refuse(ERR_FILE_CORRUPT, "gsq_bad_container: the chunk table does not follow the last page");
+	}
+	if (r_progress) {
+		*r_progress = 0.1f;
+	}
+
+	// Resident payload (fallible probe first, as on the plain resident path).
+	const uint64_t gaussian_bytes = uint64_t(p_splat_count) * sizeof(Gaussian);
+	uint64_t sh_count = 0;
+	if (!checked_mul_u64(uint64_t(p_splat_count), uint64_t(p_sh_high_order), sh_count) || sh_count > uint64_t(UINT32_MAX)) {
+		return refuse(ERR_FILE_CORRUPT, "the declared SH extent exceeds the 32-bit container capacity");
+	}
+	const uint64_t payload_bytes = gaussian_bytes + sh_count * sizeof(Vector3);
+	if (!_allocation_probe(payload_bytes)) {
+		return refuse(ERR_OUT_OF_MEMORY, vformat("cannot allocate the declared resident payload (%d MiB)", int(payload_bytes / (1024 * 1024))));
+	}
+	LocalVector<Gaussian> gaussians;
+	gaussians.resize(p_splat_count);
+	LocalVector<Vector3> sh_high_coeffs;
+	sh_high_coeffs.resize(uint32_t(sh_count));
+
+	gs_gsq::DecodeContext decoder;
+	LocalVector<uint8_t> page_bytes;
+	uint64_t cursor = 0;
+	for (uint32_t p = 0; p < page_count; p++) {
+		const PageEntry &page = pages[p];
+		page_bytes.resize(page.stored_bytes);
+		p_file->seek(page.offset);
+		if (!_read_exact(p_file, page_bytes.ptr(), page.stored_bytes)) {
+			return refuse(ERR_FILE_CORRUPT, vformat("page %d: short read", p));
+		}
+		gs_gsq::PageInfo info;
+		if (gs_gsq::verify_page(page_bytes.ptr(), page.stored_bytes, info, reason) != OK) {
+			return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
+		}
+		bool matches = info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes && info.sh_degree == p_sh_degree &&
+				info.opacity_bits == params.opacity_bits && memcmp(info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
+				memcmp(info.position_min, page.extent, sizeof(float) * 3u) == 0 && memcmp(info.position_max, page.extent + 3, sizeof(float) * 3u) == 0;
+		for (int i = 0; i < 3; i++) {
+			matches = matches && info.sh_bits[i] == params.sh_bits[i];
+		}
+		if (!matches) {
+			return refuse(ERR_FILE_CORRUPT, vformat("gsq_page_mismatch: page %d differs from its page-table entry or the codec block", p));
+		}
+		Gaussian *dst = gaussians.ptr() + cursor;
+		Vector3 *dst_sh = p_sh_high_order > 0u ? sh_high_coeffs.ptr() + cursor * p_sh_high_order : nullptr;
+		// The stored digest was verified above; each frame still checks its zstd checksum.
+		if (decoder.decode_range(page_bytes.ptr(), page.stored_bytes, 0, page.splat_count, dst, dst_sh, reason, false) != OK) {
+			return refuse(ERR_FILE_CORRUPT, vformat("page %d: %s", p, reason));
+		}
+		uint8_t digest[gs_gsq::kDigestBytes];
+		gs_gsq::decoded_digest(dst, dst_sh, page.splat_count, p_sh_degree, digest);
+		if (memcmp(digest, page.decoded_digest, gs_gsq::kDigestBytes) != 0) {
+			return refuse(ERR_FILE_CORRUPT, vformat("gsq_decoded_digest_mismatch: page %d", p));
+		}
+		cursor += page.splat_count;
+		if (r_progress) {
+			*r_progress = 0.1f + 0.8f * float(cursor) / float(p_splat_count);
+		}
+	}
+
+	Ref<GaussianData> gaussian_data;
+	gaussian_data.instantiate();
+	gaussian_data->set_gaussian_payload(gaussians, sh_high_coeffs, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u, false);
+
+	// A chunk's splats are the contiguous run of its pages; its in-memory index list is that range.
+	Vector<StaticChunk> chunks;
+	if (!gs_resize_or_fail(chunks, int64_t(p_chunk_count), "GaussianSplatWorldIO::load paged chunk table")) {
+		return refuse(ERR_OUT_OF_MEMORY, "cannot allocate the chunk list");
+	}
+	uint32_t first_splat = 0;
+	for (uint32_t c = 0; c < p_chunk_count; c++) {
+		const PagedChunk &record = chunk_table[c];
+		StaticChunk chunk;
+		chunk.bounds = AABB(record.bounds_pos, record.bounds_size);
+		chunk.center = record.center;
+		chunk.radius = record.radius;
+		if (record.splat_count > 0u) {
+			if (!gs_resize_or_fail(chunk.indices, int64_t(record.splat_count), "GaussianSplatWorldIO::load paged chunk indices")) {
+				return refuse(ERR_OUT_OF_MEMORY, "cannot allocate the chunk indices");
+			}
+			uint32_t *indices = chunk.indices.ptrw();
+			for (uint32_t i = 0; i < record.splat_count; i++) {
+				indices[i] = first_splat + i;
+			}
+		}
+		first_splat += record.splat_count;
+		chunks.write[c] = chunk;
+	}
+
+	Dictionary file_metadata;
+	if ((p_flags & kFlagHasMetadata) != 0u && p_metadata_size > 0u) {
+		p_file->seek(p_metadata_offset);
+		PackedByteArray metadata_bytes = p_file->get_buffer(p_metadata_size);
+		Variant parsed = JSON::parse_string(String::utf8((const char *)metadata_bytes.ptr(), metadata_bytes.size()));
+		if (parsed.get_type() == Variant::DICTIONARY) {
+			file_metadata = parsed;
+		}
+	}
+
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_payload_metadata(p_splat_count, p_sh_degree, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u);
+	world->set_gaussian_data(gaussian_data);
+	world->set_bounds(AABB(p_bounds_pos, p_bounds_size));
+	world->set_metadata(file_metadata);
+	world->set_static_chunks(chunks);
+	if (GaussianSplattingIO::is_data_log_enabled()) {
+		GS_LOG_STREAMING_INFO(vformat("[GaussianSplatWorld] Loaded paged-GSQ world: %d splats, %d chunks, %d pages",
+				p_splat_count, p_chunk_count, page_count));
+	}
+	if (r_error) {
+		*r_error = OK;
+	}
+	if (r_progress) {
+		*r_progress = 1.0f;
+	}
+	return world;
+}
+
 static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
 	if (r_progress) {
 		*r_progress = 0.0f;
@@ -1530,6 +1822,11 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 			*r_error = ERR_FILE_CORRUPT;
 		}
 		return Ref<Resource>();
+	}
+	if (header.has_paged_chunks) {
+		return _load_gsplatworld_gsq_chunks(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
+				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
+				metadata_offset, metadata_size, header, r_error, r_progress);
 	}
 	if (header.has_hlod) {
 		return _load_gsplatworld_hlod(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,

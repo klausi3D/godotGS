@@ -646,8 +646,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldWriter] begin_plain refuses specs t
 	};
 	LocalVector<Case> cases;
 	{
-		// The D-12 block is valid; the plain v3 bit-7 container is BV-C5a (W11).
-		Case c{ "codec GSQ v1 before its container", good, gs_world_writer::gsq_v1_codec_params(), ERR_UNAVAILABLE };
+		// The D-12 block is valid, but bit 7 needs the chunk table: it is the page directory (W11).
+		Case c{ "codec GSQ v1 without the chunk table", good, gs_world_writer::gsq_v1_codec_params(), ERR_INVALID_PARAMETER };
 		cases.push_back(c);
 	}
 	{

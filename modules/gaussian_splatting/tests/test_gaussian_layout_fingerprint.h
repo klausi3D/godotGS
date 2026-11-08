@@ -226,7 +226,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld refuses uns
 	CHECK_EQ(err, OK);
 	control.unref();
 	const uint32_t flags = read_u32_at(path, 8u);
-	for (uint32_t extension : {1u << 7u, 1u << 31u}) {
+	// Bit 7 is the paged-GSQ container since BV-C5a (test_gs_world_paged_chunks.h); bit 8 is the
+	// lowest flag still unknown.
+	for (uint32_t extension : {1u << 8u, 1u << 31u}) {
 		if (!write_u32_at(path, 8u, flags | extension)) {
 			FAIL("patch unsupported extension flag");
 			return;
