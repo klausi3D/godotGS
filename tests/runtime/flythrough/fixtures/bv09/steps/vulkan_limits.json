@@ -1,0 +1,18 @@
+{
+  "data": {
+    "atlas_3_5_gib_within_limits": true,
+    "limits": {
+      "maxBufferSize": [
+        1099511627776
+      ],
+      "maxStorageBufferRange": [
+        4294967295
+      ]
+    },
+    "smallest_limit_bytes": 4294967295
+  },
+  "exit_code": 0,
+  "reason": "maxStorageBufferRange [4294967295], maxBufferSize [1099511627776]",
+  "status": "OK",
+  "step": "vulkan_limits"
+}

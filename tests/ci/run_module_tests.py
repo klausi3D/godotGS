@@ -91,7 +91,13 @@ BEYOND_VRAM_LANE_TEST_SCRIPTS = (
     BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT,
     ROOT / "tests" / "runtime" / "flythrough" / "test_world_cache.py",
     ROOT / "tests" / "runtime" / "flythrough" / "test_lane_watchdog.py",
+    # BV-09: the gate verdict module, on the captured M1 run; it also pins the
+    # thresholds guard's wiring below, through this separate wire.
+    ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_verdict.py",
 )
+# BV-09: the no-loosening guard of the beyond-VRAM thresholds file (ADR section 8.4).
+FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_flythrough_thresholds.py"
+FLYTHROUGH_THRESHOLDS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_flythrough_thresholds.py"
 # BV-07: the probe lane's path, ground truth, trace parser and summary arithmetic.
 BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_probe_lane.py"
 SOURCE_TREES = (ROOT,)
@@ -1471,6 +1477,50 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
             output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
         return False, output_lines
     return True, [f"Unchecked-resize guard self-test passed ({case_count})."] + output_lines
+
+
+def _run_flythrough_thresholds_guard() -> tuple[bool, list[str]]:
+    """Guard (BV-09, ADR section 8.4): the beyond-VRAM thresholds never loosen.
+
+    Compares `tests/runtime/flythrough/flythrough_thresholds.json` with the same
+    file at the review base and fails on a loosened value, a removed entry, tier
+    or key, a changed op / arm / window / exclusion / percentile method /
+    source field, a hard -> report_only or correctness -> statistical change, a
+    lowered `min_vram_ratio`, a world digest changed without a re-prime record,
+    and a settings edit outside the direction allowlist. The ADR makes the
+    guard, not the risk class, the control, and wires it here because this lane
+    runs in the required `agentic-pr-gate`.
+
+    The base is the one review base every base-anchored guard gets
+    (`_environment_skip_base_ref()`); without one in CI this fails closed.
+    Without a base event (schedule, dispatch) the guard falls back to
+    origin/master, which on master is HEAD itself: it says the comparison is
+    vacuous ("informational") and still validates the file. Its self-tests run
+    first, in the same lane, so the guard passing shows it can still fail.
+    """
+    missing = [
+        path.relative_to(ROOT)
+        for path in (FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT, FLYTHROUGH_THRESHOLDS_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing beyond-VRAM thresholds guard file: {path}" for path in missing]
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
+    output_lines: list[str] = []
+    extra = ["--base-ref", base_ref] if base_ref else []
+    for args in (
+        [sys.executable, str(FLYTHROUGH_THRESHOLDS_TEST_SCRIPT)],
+        [sys.executable, str(FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT), *extra],
+    ):
+        code, out, err = _run_command(args)
+        lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            return False, lines or [f"Beyond-VRAM thresholds guard failed with exit code {code}."]
+        if args[1] == str(FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT):
+            output_lines.extend(lines)
+    return True, output_lines
 
 
 def _run_shipped_project_scripts_guard() -> tuple[bool, list[str]]:
@@ -4016,6 +4066,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_unchecked_resize_guard,
             "Unchecked-resize guard failed.",
             "Unchecked-resize guard passed.",
+        ),
+        (
+            True,
+            _run_flythrough_thresholds_guard,
+            "Beyond-VRAM thresholds guard failed.",
+            "Beyond-VRAM thresholds guard passed.",
         ),
         (
             True,

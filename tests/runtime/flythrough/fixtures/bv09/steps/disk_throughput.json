@@ -1,0 +1,34 @@
+{
+  "data": {
+    "dd_o_direct_first_read": {
+      "bytes": 8589934592,
+      "command": "dd if=/opt/actions-runner/_work/_temp/bvw-worlds/.bvw-disk-probe.bin of=/dev/null bs=16M iflag=direct",
+      "dd_stderr": "512+0 records in\n512+0 records out\n8589934592 bytes (8.6 GB, 8.0 GiB) copied, 2.2639 s, 3.8 GB/s",
+      "mb_per_s": 3783.4,
+      "seconds": 2.2704
+    },
+    "dd_o_direct_reread": {
+      "bytes": 8589934592,
+      "command": "dd if=/opt/actions-runner/_work/_temp/bvw-worlds/.bvw-disk-probe.bin of=/dev/null bs=16M iflag=direct",
+      "dd_stderr": "512+0 records in\n512+0 records out\n8589934592 bytes (8.6 GB, 8.0 GiB) copied, 1.68504 s, 5.1 GB/s",
+      "mb_per_s": 5087.4,
+      "seconds": 1.6885
+    },
+    "fill": {
+      "bytes": 8589934592,
+      "mb_per_s": 193.0,
+      "method": "buffered write of a repeated 64 MiB random block + fdatasync + POSIX_FADV_DONTNEED",
+      "seconds": 44.5078
+    },
+    "fio": {
+      "note": "fio is optional (ADR section 5.4)",
+      "present": false
+    },
+    "host_cache_note": "Both reads bypass the guest page cache (O_DIRECT). A re-read much faster than the first read means a host-side cache serves the VM disk (ADR D-14 item 4); report-only, no threshold is applied here. The first read follows this step's own write, which a write-back host cache may still hold.",
+    "reread_over_first_read": 1.345
+  },
+  "exit_code": 0,
+  "reason": "dd O_DIRECT read 3783.4 MB/s, re-read 5087.4 MB/s over 8 GiB",
+  "status": "OK",
+  "step": "disk_throughput"
+}

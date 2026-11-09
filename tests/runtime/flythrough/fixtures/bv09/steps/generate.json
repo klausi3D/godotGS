@@ -1,0 +1,22 @@
+{
+  "data": {
+    "encoding": "plain_v3_uncompressed",
+    "tier": "A",
+    "worlds": {
+      "A": {
+        "budget_bytes": 58800000000,
+        "bytes_on_disk": 58790403320,
+        "exceeds_budget": false
+      },
+      "T0": {
+        "budget_bytes": 1500000000,
+        "bytes_on_disk": 1224947375,
+        "exceeds_budget": false
+      }
+    }
+  },
+  "exit_code": 0,
+  "reason": "generated T0, A (plain_v3_uncompressed)",
+  "status": "OK",
+  "step": "generate"
+}
