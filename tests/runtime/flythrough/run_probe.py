@@ -103,7 +103,9 @@ ASPECT = RESOLUTION[0] / RESOLUTION[1]
 TUNED_SETTINGS: Dict[str, object] = {
     "rendering/gaussian_splatting/streaming/route_policy": 1,
     "rendering/gaussian_splatting/instance_pipeline/enabled": True,
-    "rendering/gaussian_splatting/streaming/vram_budget_mb": 4096,
+    # DIAGNOSTIC ONLY (BV-POOL A/B arm B, never merge): the pool cannot grow past 2816 MB.
+    # V7 reports this as settings drift against the frozen 4096; that is expected.
+    "rendering/gaussian_splatting/streaming/vram_budget_mb": 2816,
     # 480 >= the largest needed set M1 tier A met (449, run 42427296940); the atlas pages
     # still fit the 4096 MB budget (ADR G-c).
     "rendering/gaussian_splatting/streaming/max_chunks_in_vram": 480,
