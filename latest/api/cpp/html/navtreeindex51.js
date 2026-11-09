@@ -1,5 +1,6 @@
 var NAVTREEINDEX51 =
 {
+"structStreamingQueuePressureController_1_1NeededSetProgressInput.html#a3d91d499d385a2437f0284756d564fc4":[1,0,268,5,2],
 "structStreamingQueuePressureController_1_1NeededSetProgressInput.html#a95d08d0e88e86f6c04cfebee81ef3b0f":[1,0,268,5,0],
 "structStreamingQueuePressureController_1_1NeededSetProgressInput.html#aa9e8c777ab176984b32c6ee3c206b8db":[1,0,268,5,4],
 "structStreamingQueuePressureController_1_1NeededSetProgressInput.html#ab278ed81b3352e2848aa20e0ac5a14f3":[1,0,268,5,3],
@@ -248,6 +249,5 @@ var NAVTREEINDEX51 =
 "structTileBinningStage.html#a0ff30bc8ee4619bdb0e351d3b8dee6c6":[1,0,275,27],
 "structTileBinningStage.html#a212f931e82d4b91aeb0eea5c148599c7":[1,0,275,9],
 "structTileBinningStage.html#a23763dc5d9fa36ddee6b8beedc2a7f46":[1,0,275,18],
-"structTileBinningStage.html#a2ce8d454528d8c0398a48588a60ed905":[1,0,275,1],
-"structTileBinningStage.html#a319e56c8103806932b2113f52e2094c0":[1,0,275,3]
+"structTileBinningStage.html#a2ce8d454528d8c0398a48588a60ed905":[1,0,275,1]
 };

@@ -1,5 +1,6 @@
 var NAVTREEINDEX50 =
 {
+"structResidentAtlasBudget_1_1SubsetPlan.html#a905a021f8a62abb8aade9fb3355bfa41":[1,0,27,0,2],
 "structResidentAtlasBudget_1_1SubsetPlan.html#af82c2d86af33ef3c813b5a166f33fc80":[0,0,39,0,0],
 "structResidentAtlasBudget_1_1SubsetPlan.html#af82c2d86af33ef3c813b5a166f33fc80":[1,0,27,0,0],
 "structResidentAtlasBudget_1_1SubsetPlan.html#afe8b386b282b861e4a5ec9ee9eefb70d":[0,0,39,0,4],
@@ -248,6 +249,5 @@ var NAVTREEINDEX50 =
 "structStreamingLatencyHistogram_1_1Snapshot.html#ab70b0ca913b1be4aaffd983d86c22d2c":[1,0,266,0,0],
 "structStreamingQueuePressureController_1_1NeededSetProgressInput.html":[1,0,268,5],
 "structStreamingQueuePressureController_1_1NeededSetProgressInput.html#a1590fa33fa2af20d67b137c6b6e4e17b":[1,0,268,5,5],
-"structStreamingQueuePressureController_1_1NeededSetProgressInput.html#a26794d632834ad8459943dc1a820e169":[1,0,268,5,1],
-"structStreamingQueuePressureController_1_1NeededSetProgressInput.html#a3d91d499d385a2437f0284756d564fc4":[1,0,268,5,2]
+"structStreamingQueuePressureController_1_1NeededSetProgressInput.html#a26794d632834ad8459943dc1a820e169":[1,0,268,5,1]
 };

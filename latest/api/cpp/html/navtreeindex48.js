@@ -1,5 +1,6 @@
 var NAVTREEINDEX48 =
 {
+"structPainterlyRenderInput.html#ae21201f83c13650e39a807086553a37d":[1,0,186,5],
 "structPainterlyRenderInput.html#af4f383202834248ee162ec148547597f":[1,0,186,0],
 "structPainterlyRenderResult.html":[1,0,187],
 "structPainterlyRenderResult.html#a6fdc5ae414851792322da1d1a3662d70":[1,0,187,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX48 =
 "structRasterStats.html":[1,0,205],
 "structRasterStats.html#a0841ae39711a5c7e932f24ba396a5346":[1,0,205,4],
 "structRasterStats.html#a0d6704562b0f9a5b13be87e85f5a0205":[1,0,205,8],
-"structRasterStats.html#a15b38056305375cc1cfce438cb38520c":[1,0,205,10],
-"structRasterStats.html#a1b6068515d690d0ebc031c6ea51a3976":[1,0,205,34]
+"structRasterStats.html#a15b38056305375cc1cfce438cb38520c":[1,0,205,10]
 };

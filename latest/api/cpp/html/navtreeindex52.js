@@ -1,5 +1,6 @@
 var NAVTREEINDEX52 =
 {
+"structTileBinningStage.html#a319e56c8103806932b2113f52e2094c0":[1,0,275,3],
 "structTileBinningStage.html#a36c007bb8940ae5b9cc627c7a8a5741f":[1,0,275,12],
 "structTileBinningStage.html#a494f9afa3bc274c441477c2d0dc72abd":[1,0,275,5],
 "structTileBinningStage.html#a55cd848054fa4ec798dc188b8b3cd2f8":[1,0,275,16],
@@ -248,6 +249,5 @@ var NAVTREEINDEX52 =
 "structTileResolveStage.html#a74ddac2525421772704c598c42b5e464":[1,0,284,13],
 "structTileResolveStage.html#a873c036097df69fb604e428d16979256":[1,0,284,30],
 "structTileResolveStage.html#a9e908c94ca3ec5b602c0cc7158e0e800":[1,0,284,4],
-"structTileResolveStage.html#aa3db5689ce0a10c6a5f6554e9923e87a":[1,0,284,5],
-"structTileResolveStage.html#aa86fca6e5aa6fdf8a594f65a5eb24ff0":[1,0,284,15]
+"structTileResolveStage.html#aa3db5689ce0a10c6a5f6554e9923e87a":[1,0,284,5]
 };

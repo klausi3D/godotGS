@@ -11,5 +11,6 @@ var structGsqPagedChunkPayloadSource_1_1DecodeStats =
     [ "pages_decoded_on_worker_threads", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a54804ca46ba8dd01cec9f68df1c9e340", null ],
     [ "reads", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a294dae9fac7b24388d758d6e04937190", null ],
     [ "splats_decoded", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1c013988f2f7f0bfe5d76bf73ee89a9f", null ],
-    [ "stored_bytes_read", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ad42c2682c582727fe88b526af4b01053", null ]
+    [ "stored_bytes_read", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ad42c2682c582727fe88b526af4b01053", null ],
+    [ "verify_nsec", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1786d8283033e9b5727ffe16946b6b85", null ]
 ];
