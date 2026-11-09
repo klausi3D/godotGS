@@ -424,14 +424,20 @@ def v9_peak_resident(entry: dict, limit: Any, ctx: Ctx) -> Result:
 
 
 def m1_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
-    problems, seen = [], 0
+    # #1390: a checkpoint without its needed/cap evidence is MISSING (raised below, so the
+    # entry carries evidence "missing"), never a judged INVALID. A cap_fit of INVALID is
+    # present evidence: the needed set was measured and does not fit the cap.
+    problems, absent, seen = [], [], 0
     for p in ctx.passes():
         for c in p.get("checkpoints") or []:
             seen += 1
             label = f"pass {p.get('pass_index')} {c.get('checkpoint')}"
             fit = c.get("cap_fit")
             if not isinstance(fit, dict):
-                problems.append(f"{label}: no needed/cap record")
+                absent.append(f"{label}: no needed/cap record")
+                continue
+            if fit.get("status") not in (OK, INVALID):
+                absent.append(f"{label}: cap_fit {fit.get('status')!r} ({fit.get('reason', 'no reason')})")
                 continue
             if fit.get("status") != OK:
                 problems.append(f"{label}: cap_fit {fit.get('status')!r} ({fit.get('reason', 'no reason')})")
@@ -440,7 +446,7 @@ def m1_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
                 needed = _int(fit.get("needed_chunks"), "needed_chunks")
                 cap = _int(fit.get("chunk_cap"), "chunk_cap")
             except Missing as exc:
-                problems.append(f"{label}: {exc}")
+                absent.append(f"{label}: {exc}")
                 continue
             if needed > cap:
                 problems.append(f"{label}: priority_proof_missing (needed {needed} > cap {cap})")
@@ -448,6 +454,8 @@ def m1_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
                 problems.append(f"{label}: settle_deadline_missed (needed {needed} <= cap {cap})")
     if seen == 0:
         raise Missing("no checkpoint in any repetition")
+    if absent:
+        raise Missing("; ".join(absent + problems))
     if problems:
         return INVALID, seen, "; ".join(problems)
     return PASS, seen, f"{seen} checkpoints: needed <= cap and settled"
@@ -564,8 +572,16 @@ def _limit(entry: dict, tier: str, glob: dict) -> Any:
     return value
 
 
+#: `row["evidence"]` (#1390): whether the entry's signals were present. "missing" for every
+#: row the module could not judge (absent or unreadable signal, no evaluator, no value for
+#: the tier, unknown arm or status); "present" when an evaluator judged present signals,
+#: whatever the status; "not_applicable" for an entry of another arm. Consumers (the
+#: BV-13a controls) read this field, never the wording of `reason`.
+EVIDENCE_PRESENT, EVIDENCE_MISSING, EVIDENCE_NOT_APPLICABLE = "present", "missing", "not_applicable"
+
+
 def _evaluate_entry(section: str, gid: str, entry: Any, ctx: Ctx) -> dict:
-    row: Dict[str, Any] = {"id": gid, "section": section}
+    row: Dict[str, Any] = {"id": gid, "section": section, "evidence": EVIDENCE_MISSING}
     if not isinstance(entry, dict):
         row.update(status=INVALID, reason="entry is not an object")
         return row
@@ -575,26 +591,28 @@ def _evaluate_entry(section: str, gid: str, entry: Any, ctx: Ctx) -> dict:
         row.update(status=INVALID, reason=f"unknown arm {arm!r}")
         return row
     if arm not in ("both", ctx.arm):
-        row.update(status=NOT_APPLICABLE, reason=f"arm {arm}, run arm {ctx.arm}")
+        row.update(status=NOT_APPLICABLE, reason=f"arm {arm}, run arm {ctx.arm}", evidence=EVIDENCE_NOT_APPLICABLE)
         return row
     evaluator = EVALUATORS.get(gid)
     if evaluator is None:
         row.update(status=INVALID, reason=f"no evaluator for {gid}: an entry the module cannot judge never passes")
         return row
+    evidence = EVIDENCE_MISSING
     try:
         limit = _limit(entry, ctx.tier, ctx.glob)
         row["limit"] = limit if not isinstance(limit, (dict, list)) else entry["tiers"][ctx.tier]
         status, observed, reason = evaluator(entry, limit, ctx)
+        evidence = EVIDENCE_PRESENT
     except Missing as exc:
         status, observed, reason = INVALID, None, f"MISSING: {exc}"
     except (TypeError, ValueError, KeyError, AttributeError) as exc:
         status, observed, reason = INVALID, None, f"unreadable signal: {type(exc).__name__}: {exc}"
     if status not in (PASS, FAIL, INVALID, VOID):
         reason = f"unknown status {status!r}: {reason}"
-        status = INVALID
+        status, evidence = INVALID, EVIDENCE_MISSING
     if section == "validity" and status == FAIL:
         status = INVALID  # ADR 8.2: a validity failure is INVALID, never FAIL
-    row.update(status=status, observed=observed, reason=reason)
+    row.update(status=status, observed=observed, reason=reason, evidence=evidence)
     return row
 
 

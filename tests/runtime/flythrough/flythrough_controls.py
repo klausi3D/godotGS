@@ -10,9 +10,11 @@ whose expected verdict is INVALID passes when it ends with exactly that INVALID
 and reason: it proves the validity check fires.
 
 ADR 8.5 also asks that every *other* entry in the control process be evaluable.
-Here that means its signal was present: an entry whose reason says MISSING,
-unreadable, no evaluator, no tier value or an unknown status is not evaluable and
-the control is INVALID. A FAIL or an INVALID the module computed from present
+Here that means its signal was present: the verdict module classifies every entry
+(`evidence`, #1390), and an entry whose evidence is not "present" (an absent or
+unreadable signal, a checkpoint without its cap_fit record, no evaluator, no tier
+value, an unknown status, or no classification at all) is not evaluable and the
+control is INVALID. A FAIL or an INVALID the module computed from present
 signals is evaluable (the forced setting itself makes V7 INVALID, for example).
 V1 is exempt: contention is judged once for the whole job, at postflight.
 
@@ -49,9 +51,6 @@ CONTROL_WORLD = "T0"
 CONTROL_PASSES = 1
 #: Contention is one record for the whole job, written at postflight, after the controls.
 EXEMPT_FROM_EVALUABLE = ("V1",)
-#: Reasons that say a signal was absent: the entry was not evaluated.
-NOT_EVALUATED_MARKERS = ("MISSING", "unreadable signal", "no evaluator", "no value for tier", "unknown status",
-                         "unknown arm", "entry is not an object")
 
 BUDGET_KEY = "rendering/gaussian_splatting/streaming/vram_budget_mb"
 CAP_KEY = "rendering/gaussian_splatting/streaming/max_chunks_in_vram"
@@ -112,8 +111,8 @@ def reason_code(reason: Any) -> str:
 
 
 def _evaluated(row: dict) -> bool:
-    reason = str(row.get("reason", ""))
-    return not any(reason.startswith(m) for m in NOT_EVALUATED_MARKERS)
+    """#1390: the module's structured classification, never the wording of the reason. Fails closed."""
+    return row.get("evidence") == fv.EVIDENCE_PRESENT
 
 
 def judge(control_id: str, result: Optional[dict], harness_problem: Optional[str] = None) -> Dict[str, Any]:

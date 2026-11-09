@@ -465,7 +465,7 @@ jobs:
       - name: Lane verdict (every step, MISSING when it wrote no record)
         if: always()
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT" --tier "$BVW_TIER" --contention-outcome "${{ steps.postflight.outcome }}"
+          python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT" --tier "$BVW_TIER" --contention-outcome "${{ steps.postflight.outcome }}" --mode "${{ inputs.controls_only && 'controls_only' || 'full' }}"
 
       # Reports, logs, driver limits, disk measurements, build_info and the
       # verdict. The world data itself is never uploaded.
