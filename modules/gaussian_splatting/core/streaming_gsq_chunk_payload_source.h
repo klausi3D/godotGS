@@ -58,6 +58,7 @@ public:
 		uint64_t pages_decoded = 0;
 		uint64_t splats_decoded = 0;
 		uint64_t decode_nsec = 0; // verify + decode + decoded digest, summed over pages
+		uint64_t digest_nsec = 0; // the decoded-digest share of decode_nsec (BV-K9)
 		uint64_t pages_decoded_on_worker_threads = 0;
 		uint64_t pages_decoded_on_main_thread = 0;
 		uint64_t page_failures = 0;
@@ -109,6 +110,7 @@ private:
 	mutable SafeNumeric<uint64_t> stat_pages_decoded;
 	mutable SafeNumeric<uint64_t> stat_splats_decoded;
 	mutable SafeNumeric<uint64_t> stat_decode_nsec;
+	mutable SafeNumeric<uint64_t> stat_digest_nsec;
 	mutable SafeNumeric<uint64_t> stat_pages_on_workers;
 	mutable SafeNumeric<uint64_t> stat_pages_on_main;
 	mutable SafeNumeric<uint64_t> stat_page_failures;
@@ -151,6 +153,7 @@ public:
 	uint32_t get_sh_degree() const override { return sh_degree; }
 	AABB get_bounds() const override { return bounds; }
 	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0 && !pages.is_empty(); }
+	uint64_t take_thread_last_capture_decode_nsec() const override;
 
 	const String &get_file_path() const { return file_path; }
 	uint32_t get_page_count() const { return pages.size(); }

@@ -8,6 +8,18 @@
 #include <chrono>
 #include <cstring>
 
+namespace {
+// BV-K9 (#1387): decode time of the last capture on this thread, taken by the pack worker right
+// after the capture so the pipeline can record decode apart from the read.
+thread_local uint64_t tls_last_capture_decode_nsec = 0;
+} // namespace
+
+uint64_t GsqPagedChunkPayloadSource::take_thread_last_capture_decode_nsec() const {
+	const uint64_t nsec = tls_last_capture_decode_nsec;
+	tls_last_capture_decode_nsec = 0;
+	return nsec;
+}
+
 void GsqPagedChunkPayloadSource::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_decode_stats"), &GsqPagedChunkPayloadSource::get_decode_stats);
 }
@@ -166,6 +178,7 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 	r_sh_high_order.clear();
 	r_sh_first_order_count = sh_first_order;
 	r_sh_high_order_count = sh_high_order;
+	tls_last_capture_decode_nsec = 0;
 	stat_captures.increment();
 	if (!is_valid()) {
 		return _fail("gsq_source_not_configured");
@@ -308,9 +321,14 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 				ok = false;
 			}
 		}
+		uint64_t digest_nsec = 0;
 		if (ok) {
 			uint8_t digest[gs_gsq::kDigestBytes];
+			const std::chrono::steady_clock::time_point digest_begin = std::chrono::steady_clock::now();
 			gs_gsq::decoded_digest(page_gaussians.ptr(), sh_high_order > 0u ? page_sh.ptr() : nullptr, page.splat_count, sh_degree, digest);
+			digest_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - digest_begin)
+							.count());
 			if (memcmp(digest, page.decoded_digest, gs_gsq::kDigestBytes) != 0) {
 				reason = vformat("gsq_decoded_digest_mismatch: page %d", page_index);
 				ok = false;
@@ -326,6 +344,8 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 		stat_pages_decoded.increment();
 		stat_splats_decoded.add(page.splat_count);
 		stat_decode_nsec.add(decode_nsec);
+		stat_digest_nsec.add(digest_nsec);
+		tls_last_capture_decode_nsec += decode_nsec;
 		if (on_main_thread) {
 			stat_pages_on_main.increment();
 		} else {
@@ -394,6 +414,7 @@ GsqPagedChunkPayloadSource::DecodeStats GsqPagedChunkPayloadSource::get_decode_s
 	stats.pages_decoded = stat_pages_decoded.get();
 	stats.splats_decoded = stat_splats_decoded.get();
 	stats.decode_nsec = stat_decode_nsec.get();
+	stats.digest_nsec = stat_digest_nsec.get();
 	stats.pages_decoded_on_worker_threads = stat_pages_on_workers.get();
 	stats.pages_decoded_on_main_thread = stat_pages_on_main.get();
 	stats.page_failures = stat_page_failures.get();
@@ -415,6 +436,7 @@ Dictionary GsqPagedChunkPayloadSource::get_decode_stats() const {
 	d["pages_decoded"] = int64_t(stats.pages_decoded);
 	d["splats_decoded"] = int64_t(stats.splats_decoded);
 	d["decode_nsec"] = int64_t(stats.decode_nsec);
+	d["digest_nsec"] = int64_t(stats.digest_nsec);
 	d["pages_decoded_on_worker_threads"] = int64_t(stats.pages_decoded_on_worker_threads);
 	d["pages_decoded_on_main_thread"] = int64_t(stats.pages_decoded_on_main_thread);
 	d["page_failures"] = int64_t(stats.page_failures);

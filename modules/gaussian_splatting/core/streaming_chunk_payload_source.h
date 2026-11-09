@@ -40,6 +40,11 @@ public:
 	virtual uint32_t get_sh_degree() const = 0;
 	virtual AABB get_bounds() const = 0;
 	virtual bool is_valid() const = 0;
+
+	// BV-K9 (#1387): payload decode wall time, in nanoseconds, of the last capture made on the
+	// calling thread, and clears it. The pack worker calls this right after its capture so the
+	// pipeline records decode apart from the file read. Sources without a decode stage report 0.
+	virtual uint64_t take_thread_last_capture_decode_nsec() const { return 0; }
 };
 
 // Wraps an in-memory GaussianData. This is the default path for small

@@ -1421,10 +1421,19 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     {
         // BV-04a: the read stage is the payload source capture (file read on the staged-file
         // route, a copy on the in-memory route). Only successful reads are recorded.
+        // BV-K9 (#1387): a decoding source (GSQ) decodes inside the capture; that share is
+        // recorded as the decode stage and taken out of the read span.
         const uint64_t read_end_usec = _ticks_usec_now();
         const uint64_t read_bytes = uint64_t(r_scratch.gaussian_snapshot.size()) * sizeof(Gaussian) +
                 uint64_t(r_scratch.sh_high_order_snapshot.size()) * sizeof(Vector3);
-        telemetry.add_read(read_bytes, read_end_usec >= read_start_usec ? (read_end_usec - read_start_usec) : 0);
+        const uint64_t capture_usec = read_end_usec >= read_start_usec ? (read_end_usec - read_start_usec) : 0;
+        const uint64_t decode_nsec = has_payload_source ? p_job.payload_source->take_thread_last_capture_decode_nsec() : 0;
+        uint64_t decode_usec = 0;
+        if (decode_nsec > 0) {
+            decode_usec = MIN(decode_nsec / 1000u, capture_usec);
+            telemetry.add_decode(read_bytes, decode_usec);
+        }
+        telemetry.add_read(read_bytes, capture_usec - decode_usec);
     }
 
     const Vector3 *sh_coeffs =

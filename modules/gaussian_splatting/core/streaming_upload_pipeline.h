@@ -106,7 +106,7 @@ public:
         // Bytes the chunk payload source delivered into the pack snapshot (gaussians + SH).
         SafeNumeric<uint64_t> read_bytes_total;
         // Bytes produced by a payload decode stage. The uncompressed (PLAIN) chunk route has no
-        // decode stage, so nothing records here yet; the compressed codec (BV-C1) does.
+        // decode stage; a GSQ source (BV-C5b) records its decoded snapshot here (BV-K9).
         SafeNumeric<uint64_t> decode_bytes_total;
         SafeNumeric<uint64_t> pack_queue_latency_usec_total;
         SafeNumeric<uint64_t> pack_queue_latency_usec_max;
@@ -123,8 +123,9 @@ public:
         SafeNumeric<uint32_t> pack_thread_enqueue_upload_count;
 
         // Cumulative stage latency histograms (see StreamingLatencyHistogram):
-        //  read   - payload source capture (capture_*_chunk_snapshot) wall time, successful reads;
-        //  decode - payload decode wall time (no producer on the uncompressed route, see above);
+        //  read   - payload source capture (capture_*_chunk_snapshot) wall time, successful reads,
+        //           minus the source's decode share;
+        //  decode - payload decode wall time inside the capture (GSQ; none on the uncompressed route);
         //  pack   - pack_gaussians_range wall time;
         //  upload - pack completion to dequeue for the GPU write (upload queue latency).
         StreamingLatencyHistogram read_latency;
