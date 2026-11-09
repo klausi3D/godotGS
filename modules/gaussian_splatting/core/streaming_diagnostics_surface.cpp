@@ -140,6 +140,45 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
     analytics[AK::streaming_initial_capacity] = static_cast<int64_t>(streaming_initial_capacity);
     analytics[AK::streaming_current_capacity] = static_cast<int64_t>(streaming_current_capacity);
     analytics[AK::streaming_grow_count] = static_cast<int64_t>(streaming_grow_count);
+    // BV-POOL: where the pool lives and the device-local heap. The heap is sampled every
+    // kPoolHeapSampleFrames frames (a driver query), and the last grow keeps its own snapshot.
+    {
+        // Counted in end_frame() calls, not engine frames (frame pacing is measured in one place, #1084).
+        if (last_upload_device && pool_placement.end_frames_since_heap_sample == 0) {
+            pool_placement.heap = last_upload_device->get_device_local_heap_usage();
+        }
+        pool_placement.end_frames_since_heap_sample = (pool_placement.end_frames_since_heap_sample + 1u) % kPoolHeapSampleFrames;
+        const double mib = 1024.0 * 1024.0;
+        const RenderingDeviceDriver::BufferMemoryPlacement &placement = pool_placement.placement;
+        analytics[AK::pool_placement_known] = placement.known;
+        // -1 = unknown, so a lost signal never reads as "device-local".
+        analytics[AK::pool_device_local] = placement.known ? int64_t(placement.device_local ? 1 : 0) : int64_t(-1);
+        analytics[AK::pool_memory_type_index] = placement.known ? int64_t(placement.memory_type_index) : int64_t(-1);
+        analytics[AK::pool_memory_heap_index] = placement.known ? int64_t(placement.memory_heap_index) : int64_t(-1);
+        analytics[AK::pool_memory_property_flags] = placement.known ? int64_t(placement.memory_property_flags) : int64_t(-1);
+        analytics[AK::pool_allocations] = int64_t(pool_placement.allocations);
+        analytics[AK::pool_non_device_local_allocations] = int64_t(pool_placement.non_device_local_allocations);
+        analytics[AK::pool_last_grow_old_mb] = double(pool_placement.last_grow_old_bytes) / mib;
+        analytics[AK::pool_last_grow_new_mb] = double(pool_placement.last_grow_new_bytes) / mib;
+        analytics[AK::pool_last_grow_ms] = double(pool_placement.last_grow_usec) / 1000.0;
+        const RenderingDeviceDriver::DeviceLocalHeapUsage &pre = pool_placement.last_grow_pre;
+        const RenderingDeviceDriver::DeviceLocalHeapUsage &post = pool_placement.last_grow_post;
+        analytics[AK::pool_last_grow_pre_device_local_ext_usage_mb] = pre.ext_known ? double(pre.ext_usage_bytes) / mib : -1.0;
+        analytics[AK::pool_last_grow_pre_device_local_ext_budget_mb] = pre.ext_known ? double(pre.ext_budget_bytes) / mib : -1.0;
+        analytics[AK::pool_last_grow_pre_device_local_allocator_mb] = pre.known ? double(pre.allocator_block_bytes) / mib : -1.0;
+        analytics[AK::pool_last_grow_post_device_local_ext_usage_mb] = post.ext_known ? double(post.ext_usage_bytes) / mib : -1.0;
+        analytics[AK::pool_last_grow_post_device_local_allocator_mb] = post.known ? double(post.allocator_block_bytes) / mib : -1.0;
+        analytics[AK::pool_last_grow_post_host_allocator_mb] = post.known ? double(post.host_allocator_block_bytes) / mib : -1.0;
+        const RenderingDeviceDriver::DeviceLocalHeapUsage &heap = pool_placement.heap;
+        analytics[AK::device_local_heap_known] = heap.known;
+        analytics[AK::device_local_heap_mb] = heap.known ? double(heap.heap_size_bytes) / mib : -1.0;
+        analytics[AK::device_local_allocator_block_mb] = heap.known ? double(heap.allocator_block_bytes) / mib : -1.0;
+        analytics[AK::device_local_allocator_allocation_mb] = heap.known ? double(heap.allocator_allocation_bytes) / mib : -1.0;
+        analytics[AK::host_allocator_block_mb] = heap.known ? double(heap.host_allocator_block_bytes) / mib : -1.0;
+        analytics[AK::device_local_ext_known] = heap.ext_known;
+        analytics[AK::device_local_ext_usage_mb] = heap.ext_known ? double(heap.ext_usage_bytes) / mib : -1.0;
+        analytics[AK::device_local_ext_budget_mb] = heap.ext_known ? double(heap.ext_budget_bytes) / mib : -1.0;
+    }
     // #1088: page-granular atlas occupancy. Capacity fields above are in pages too.
     {
         uint64_t resident_splats = 0;

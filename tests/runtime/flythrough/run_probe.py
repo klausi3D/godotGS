@@ -361,6 +361,43 @@ def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: O
     return plan
 
 
+#: BV-POOL: final-state fields that say where the streaming pool lives (module end_frame analytics).
+POOL_PLACEMENT_KEYS = (
+    "pool_placement_known", "pool_device_local", "pool_memory_type_index", "pool_memory_heap_index",
+    "pool_memory_property_flags", "pool_allocations", "pool_non_device_local_allocations",
+    "vram_persistent_buffer_mb", "streaming_grow_count",
+    "pool_last_grow_old_mb", "pool_last_grow_new_mb", "pool_last_grow_ms",
+    "pool_last_grow_pre_device_local_ext_usage_mb", "pool_last_grow_pre_device_local_ext_budget_mb",
+    "pool_last_grow_pre_device_local_allocator_mb", "pool_last_grow_post_device_local_ext_usage_mb",
+    "pool_last_grow_post_device_local_allocator_mb", "pool_last_grow_post_host_allocator_mb",
+    "device_local_heap_known", "device_local_heap_mb", "device_local_allocator_block_mb",
+    "device_local_allocator_allocation_mb", "host_allocator_block_mb",
+    "device_local_ext_known", "device_local_ext_usage_mb", "device_local_ext_budget_mb",
+)
+
+
+def pool_placement(final_streaming: dict) -> Dict[str, object]:
+    """Report-only: where the final streaming pool lives (BV-POOL). Never judged by a gate.
+
+    `device_local` is True or False only when the backend reported the placement; an absent
+    key or an unknown placement is MISSING, never read as device-local.
+    """
+    out: Dict[str, object] = {k: final_streaming.get(k) for k in POOL_PLACEMENT_KEYS}
+    missing_keys = [k for k, v in out.items() if v is None]
+    if missing_keys:
+        out["status"] = ps.MISSING
+        out["reason"] = f"absent from the final streaming state: {missing_keys}"
+        out["device_local"] = None
+    elif out["pool_placement_known"] is not True or out["pool_device_local"] not in (0, 1):
+        out["status"] = ps.MISSING
+        out["reason"] = "the backend did not report the pool's memory placement"
+        out["device_local"] = None
+    else:
+        out["status"] = ps.OK
+        out["device_local"] = out["pool_device_local"] == 1
+    return out
+
+
 def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, passes: int) -> Dict[str, object]:
     result = run["result"] or {}
     segs = path["segments"]
@@ -436,6 +473,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     if missing_keys:
         out["regulator"]["reason"] = f"absent from the final streaming state: {missing_keys}"
     out["regulator"]["fired"] = bool(fs.get("vram_regulation_adjustments")) if not missing_keys else None
+    out["pool_placement"] = pool_placement(fs)
     out["latency_histograms"] = fs.get("streaming_latency_histograms", ps.missing("no latency histograms"))
     out["gsq_decode"] = ps.gsq_decode_split(result.get("gsq_decode_stats"))
     out["expected_unique_upload_flat"] = groundtruth["expected_unique_upload"]["flat"]

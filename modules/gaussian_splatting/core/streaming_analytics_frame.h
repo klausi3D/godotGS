@@ -32,6 +32,30 @@
     X(streaming_initial_capacity) \
     X(streaming_current_capacity) \
     X(streaming_grow_count) \
+    X(pool_placement_known) \
+    X(pool_device_local) \
+    X(pool_memory_type_index) \
+    X(pool_memory_heap_index) \
+    X(pool_memory_property_flags) \
+    X(pool_allocations) \
+    X(pool_non_device_local_allocations) \
+    X(pool_last_grow_old_mb) \
+    X(pool_last_grow_new_mb) \
+    X(pool_last_grow_ms) \
+    X(pool_last_grow_pre_device_local_ext_usage_mb) \
+    X(pool_last_grow_pre_device_local_ext_budget_mb) \
+    X(pool_last_grow_pre_device_local_allocator_mb) \
+    X(pool_last_grow_post_device_local_ext_usage_mb) \
+    X(pool_last_grow_post_device_local_allocator_mb) \
+    X(pool_last_grow_post_host_allocator_mb) \
+    X(device_local_heap_known) \
+    X(device_local_heap_mb) \
+    X(device_local_allocator_block_mb) \
+    X(device_local_allocator_allocation_mb) \
+    X(host_allocator_block_mb) \
+    X(device_local_ext_known) \
+    X(device_local_ext_usage_mb) \
+    X(device_local_ext_budget_mb) \
     X(atlas_page_splats) \
     X(atlas_page_bytes) \
     X(atlas_pages_capacity) \

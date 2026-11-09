@@ -313,7 +313,22 @@ class CapturedTrace(unittest.TestCase):
         self.assertEqual([c["checkpoint"] for c in p0["checkpoints"]], [f"C{i}" for i in range(8)])
         self.assertTrue(all(c["settled"] for c in p0["checkpoints"]))
         self.assertEqual(s["records_per_splat"]["status"], ps.MISSING)
+        # The fixture predates BV-POOL: the absent placement is MISSING, never device-local.
+        self.assertEqual(s["pool_placement"]["status"], ps.MISSING)
+        self.assertIsNone(s["pool_placement"]["device_local"])
         self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
+
+    def test_pool_placement_reports_only_a_known_placement(self) -> None:
+        full = {k: 0 for k in rp.POOL_PLACEMENT_KEYS}
+        full.update(pool_placement_known=True, pool_device_local=1)
+        self.assertEqual(rp.pool_placement(full)["status"], ps.OK)
+        self.assertIs(rp.pool_placement(full)["device_local"], True)
+        self.assertIs(rp.pool_placement(dict(full, pool_device_local=0))["device_local"], False)
+        unknown = rp.pool_placement(dict(full, pool_placement_known=False, pool_device_local=-1))
+        self.assertEqual((unknown["status"], unknown["device_local"]), (ps.MISSING, None))
+        partial = dict(full)
+        del partial["device_local_ext_usage_mb"]
+        self.assertEqual(rp.pool_placement(partial)["status"], ps.MISSING)
 
     def test_measured_rows_are_moving_plus_holds_without_the_load_settle(self) -> None:
         """#1383 item 2: V7's measured rows include every checkpoint settle and hold, not the load."""

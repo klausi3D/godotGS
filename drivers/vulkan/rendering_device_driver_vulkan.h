@@ -667,6 +667,8 @@ public:
 	virtual uint64_t get_total_memory_used() override final;
 	virtual uint64_t get_lazily_memory_used() override final;
 	virtual uint64_t get_device_memory_budget() override final;
+	virtual BufferMemoryPlacement buffer_get_memory_placement(BufferID p_buffer) override final;
+	virtual DeviceLocalHeapUsage get_device_local_heap_usage() override final;
 	virtual uint64_t limit_get(Limit p_limit) override final;
 	virtual uint64_t api_trait_get(ApiTrait p_trait) override final;
 	virtual bool has_feature(Features p_feature) override final;

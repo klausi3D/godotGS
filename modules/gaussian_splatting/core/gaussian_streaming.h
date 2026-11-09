@@ -112,6 +112,24 @@ private:
     uint32_t streaming_max_capacity = 0;         // Growth ceiling (_compute_atlas_page_ceiling at init).
     uint32_t streaming_grow_count = 0;           // Number of successful grow operations.
 
+    // BV-POOL: where the persistent buffer lives and the device-local heap around its grows.
+    // The allocator only prefers device-local memory, so a pool can land in host memory without
+    // an error. Render thread only (the persistent buffer's own thread); read via end_frame().
+    struct PoolPlacementTelemetry {
+        RenderingDeviceDriver::BufferMemoryPlacement placement;
+        uint32_t allocations = 0; // Persistent-buffer allocations whose placement was queried.
+        uint32_t non_device_local_allocations = 0; // Of those, known to be outside device-local memory.
+        RenderingDeviceDriver::DeviceLocalHeapUsage heap; // Sampled at end_frame() (every kHeapSampleFrames).
+        RenderingDeviceDriver::DeviceLocalHeapUsage last_grow_pre; // Before the last grow's allocation.
+        RenderingDeviceDriver::DeviceLocalHeapUsage last_grow_post; // After it (old buffer still alive).
+        uint64_t last_grow_old_bytes = 0;
+        uint64_t last_grow_new_bytes = 0;
+        uint64_t last_grow_usec = 0; // Wall time of the whole grow (allocate, copy, sync, swap).
+        uint64_t end_frames_since_heap_sample = 0; // 0 = sample at the next end_frame().
+    };
+    static constexpr uint64_t kPoolHeapSampleFrames = 30;
+    PoolPlacementTelemetry pool_placement;
+
     // Source data reference
     Ref<::GaussianData> source_data;
 
@@ -742,6 +760,10 @@ private:
     void _process_upload_queue();
     void _clear_pending_uploads();
     void _release_persistent_buffer(RenderingDevice *p_rd, const char *p_context);
+    // BV-POOL: queries where p_buffer lives, counts it and reports a non-device-local pool
+    // loudly. Returns the placement (known == false when the backend cannot tell).
+    RenderingDeviceDriver::BufferMemoryPlacement _record_persistent_buffer_placement(RenderingDevice *p_rd, RID p_buffer,
+            uint64_t p_bytes, const char *p_context);
     // Grow the persistent buffer to p_new_capacity atlas pages, preserving currently
     // resident chunks. Returns false on any failure without corrupting state.
     bool _grow_persistent_buffer(uint32_t p_new_capacity);
