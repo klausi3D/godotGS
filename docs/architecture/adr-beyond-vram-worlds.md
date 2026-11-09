@@ -1241,7 +1241,9 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
         - **driver limits logged** (`vulkaninfo`: `maxStorageBufferRange`, `maxBufferSize`);
         - build(s), `build_info` assert;
         - disk/cache preflight + verify + fadvise + mincore;
-        - controls → main → codec arms;
+        - controls → main → codec arms (BV-13a runs the T0 controls **after** the cold main
+          pass: a control reads T0 and would warm its pages, so D-14 item 2 would refuse the
+          cold pass; the verdict is unchanged, any differing control tuple makes the run INVALID);
         - postflight, verdict, upload (all `if: always()`);
         - exit mapping: PASS 0, FAIL 1, INVALID 2, NOT_RUN 3, VOID 75.
     3. `liveness-watchdog` (Mondays): before M2 it keys on "a terminal verdict that is not

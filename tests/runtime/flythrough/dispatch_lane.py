@@ -93,6 +93,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import flythrough_controls as fc  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
 import world_cache as wc  # noqa: E402
 
@@ -179,6 +180,7 @@ STEP_NAMES = (
     "vulkan_limits",
     "cache_check",
     "probe",
+    "controls",
     "contention",
 )
 
@@ -906,6 +908,52 @@ def probe(
     return code
 
 
+def controls(
+    repo: Path,
+    godot_binary: Path,
+    out: Path,
+    cache_worlds: Path,
+    runner: Runner = subprocess.run,
+    only: Optional[Sequence[str]] = None,
+    lock: Callable[..., object] = wc.cache_lock,
+    sha: Optional[str] = None,
+) -> int:
+    """BV-13a: the ADR 8.5 forcing controls on the cached T0, after the cold probe.
+
+    They run after the main probe, not before it as ADR 7.3 lists them: a control
+    reads T0 and would warm its pages, and D-14 item 2 then refuses the cold pass.
+    The order changes nothing in the verdict: any control whose tuple differs makes
+    the lane INVALID. Exit: 0 every control fired as expected, 2 INVALID, 3 NOT_RUN.
+    """
+    step = "controls"
+    data: Dict[str, object] = {}
+    try:
+        entry = _entry_point(repo, PROBE_ENTRY, PROBE_PACKAGE, "probe")
+        dirs, cache_root = _cached_worlds(fc.CONTROL_WORLD, cache_worlds)
+        base = fv.load_inputs(out, sha)
+        with lock(cache_root, False):  # type: ignore[operator]
+            rep = fc.run_controls(entry, godot_binary, dirs[fc.CONTROL_WORLD], out / "controls", base,
+                                  runner=runner, only=only)
+        data = {
+            "verdict": rep["verdict"],
+            "controls": [{k: r.get(k) for k in ("control", "expected", "observed", "status", "reason")}
+                         for r in rep["controls"]],
+            "absent": sorted(rep["absent"]),
+            "doctest": sorted(rep["doctest"]),
+            "file": f"controls/{fc.CONTROLS_FILE}",
+        }
+        reason = f"controls {rep['verdict']}: {rep['reason']}"
+        code = {"PASS": EXIT_OK, fv.NOT_RUN: EXIT_NOT_RUN}.get(rep["verdict"], EXIT_INVALID)
+        print(fc.markdown(rep))
+    except (LaneError, wc.CacheError) as exc:
+        reason, code = str(exc), exc.code
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        reason, code = f"controls could not run: {exc}", EXIT_INVALID
+    write_record(out, step, code, reason, data)
+    _announce(code, reason)
+    return code
+
+
 # --------------------------------------------------------------------------
 # world cache (BV-06b, ADR section 9.2 and D-14)
 # --------------------------------------------------------------------------
@@ -1327,6 +1375,15 @@ def _parser() -> argparse.ArgumentParser:
             p.add_argument("--cache-worlds", type=Path,
                            help=f"the {CACHE_WORLDS_FILE} cache-check wrote: probe the cached worlds, cold")
 
+    p = sub.add_parser("controls")
+    common(p, world=False)
+    p.add_argument("--godot-binary", type=Path, required=True)
+    p.add_argument("--cache-worlds", type=Path, required=True,
+                   help=f"the {CACHE_WORLDS_FILE} cache-check wrote; the controls run on its T0")
+    p.add_argument("--repo", type=Path, default=ROOT)
+    p.add_argument("--only", action="append", choices=sorted(fc.CONTROLS), default=None,
+                   help="run only this control (repeatable; default: every control)")
+
     p = sub.add_parser("prime-cache")
     common(p, world=False)
     p.add_argument("--godot-binary", type=Path, required=True)
@@ -1380,6 +1437,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "probe":
         return probe(args.repo, args.godot_binary, args.tier, args.world_root, args.out,
                      cache_worlds=args.cache_worlds)
+    if args.command == "controls":
+        return controls(args.repo, args.godot_binary, args.out, args.cache_worlds, only=args.only,
+                        sha=os.environ.get("GITHUB_SHA"))
     if args.command == "summarize":
         env = os.environ.get("GITHUB_STEP_SUMMARY")
         meta = {

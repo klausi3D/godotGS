@@ -29,7 +29,13 @@ V7 is judged on the measured rows of each repetition
 (`settings_whole_run`) are reported under `startup_rows` and never counted:
 M1 run 42512864344 has them INVALID (cap 256 -> 480 while loading, one row
 without a signal) while every measured row is OK, and the verdict keeps the
-two apart instead of blending them.
+two apart instead of blending them. Since BV-13a (#1383) V7 also judges
+`passes[].settings_measured` (moving rows plus every checkpoint settle and
+hold, without the load interval) and the node's own readback of the visible
+cap and far plane. G6/G6t report a checkpoint that never settled within a
+deadline at or above the limit as FAIL `settle_deadline_missed` (C-starve).
+`inputs["gate_world"]` judges another world than the tier's gate world: the
+BV-13a controls (`flythrough_controls.py`) run on T0.
 
 CLI: ``python3 tests/runtime/flythrough/flythrough_verdict.py --out DIR --tier A``
 writes ``DIR/gate_verdict.json`` and exits with the section 9.1 code of the
@@ -126,8 +132,12 @@ class Ctx:
         self.sha: Optional[str] = inputs.get("sha")
         self.glob = thresholds.get("globals") or {}
         self.tier_cfg = (self.glob.get("tiers") or {}).get(tier)
+        # BV-13a controls (ADR 8.5) run on T0 and are judged against tier A's frozen values.
+        self.gate_world_override: Optional[str] = inputs.get("gate_world")
 
     def gate_world_name(self) -> str:
+        if self.gate_world_override:
+            return str(self.gate_world_override)
         if not isinstance(self.tier_cfg, dict) or not self.tier_cfg.get("gate_world"):
             raise Missing(f"thresholds: no gate world for tier {self.tier}")
         return str(self.tier_cfg["gate_world"])
@@ -191,6 +201,9 @@ def v2_committed_digests(entry: dict, limit: Any, ctx: Ctx) -> Result:
     if not isinstance(committed_all, dict):
         raise Missing("thresholds: globals.worlds absent")
     names = (ctx.tier_cfg or {}).get("worlds") or []
+    if ctx.gate_world_override:
+        # A control process (BV-13a) loads its one world only.
+        names = [ctx.gate_world_override]
     if not names:
         raise Missing(f"thresholds: no worlds for tier {ctx.tier}")
     problems, observed = [], {}
@@ -278,6 +291,10 @@ def _same_setting(observed: Any, frozen: Any) -> bool:
     return observed == frozen
 
 
+#: #1383 item 1: (key in `driver.node_readback`, key in `globals.settings`).
+NODE_READBACK_KEYS = (("max_splat_count", "visible_cap"), ("max_render_distance", "far_m"))
+
+
 def v7_settings(entry: dict, limit: Any, ctx: Ctx) -> Result:
     frozen = ctx.glob.get("settings")
     if not isinstance(frozen, dict) or not isinstance(frozen.get("tuned"), dict):
@@ -294,29 +311,51 @@ def v7_settings(entry: dict, limit: Any, ctx: Ctx) -> Result:
     for key in ("visible_cap", "far_m"):
         if not _same_setting(run_settings.get(key), frozen.get(key)):
             problems.append(f"{key}: run {run_settings.get(key)!r}, frozen {frozen.get(key)!r}")
+    # #1383 item 1: the cap and far plane the node reports back, not only the requested ones.
+    node = _get(ctx.world(), "driver.node_readback")
+    if not isinstance(node, dict):
+        raise Missing("driver.node_readback: not an object")
+    absent: List[str] = []
+    for key, frozen_key in NODE_READBACK_KEYS:
+        if key not in node:
+            absent.append(f"node readback {key}: absent")
+        elif not _same_setting(node[key], frozen.get(frozen_key)):
+            problems.append(f"node readback {key}: {node.get(key)!r}, frozen {frozen_key} {frozen.get(frozen_key)!r}")
     readback = _get(ctx.world(), "driver.project_settings_readback")
     for key, value in tuned.items():
-        if key not in readback or not _same_setting(readback[key], value):
+        if key not in readback:
+            absent.append(f"readback {key}: absent")
+        elif not _same_setting(readback[key], value):
             problems.append(f"readback {key}: {readback.get(key)!r}, frozen {value!r}")
     cap = tuned.get("rendering/gaussian_splatting/streaming/max_chunks_in_vram")
     budget = tuned.get("rendering/gaussian_splatting/streaming/vram_budget_mb")
     lod = frozen.get("lod_distance_multiplier")
     for p in ctx.passes():
-        s = p.get("settings")
-        label = f"pass {p.get('pass_index')}"
-        if not isinstance(s, dict):
-            raise Missing(f"{label}: settings absent")
-        if s.get("status") != OK:
-            problems.append(f"{label}: measured rows {s.get('status')!r} ({s.get('reason', 'no reason')})")
-            continue
-        if s.get("settings_drifted") is not False or s.get("rows_without_signal") != 0:
-            problems.append(f"{label}: settings_drifted {s.get('settings_drifted')!r}, "
-                            f"rows_without_signal {s.get('rows_without_signal')!r}")
-        for key, want in (("effective_max_chunks", cap), ("effective_vram_budget_mb", budget),
-                          ("lod_distance_multiplier", lod)):
-            got = s.get(key)
-            if not isinstance(got, list) or len(got) != 1 or not _same_setting(got[0], want):
-                problems.append(f"{label}: {key} {got!r}, frozen [{want!r}]")
+        # `settings`: the moving rows. `settings_measured` (#1383 item 2, BV-13a): the moving
+        # rows plus every checkpoint settle and hold, without the load interval. Both are
+        # judged. Without the second the holds go unjudged, which is INVALID, never a pass.
+        # Absent evidence is never reported as drift: `settings_drifted` is C-settings'
+        # expected reason, so a lost signal must not satisfy that control (Codex on #1388).
+        for field in ("settings", "settings_measured"):
+            s = p.get(field)
+            label = f"pass {p.get('pass_index')} {field}"
+            if not isinstance(s, dict):
+                absent.append(f"{label}: absent, the rows it covers were not judged")
+                continue
+            if s.get("rows_without_signal") != 0 or (s.get("status") != OK and s.get("settings_drifted") is not True):
+                absent.append(f"{label}: measured rows {s.get('status')!r}, rows_without_signal "
+                              f"{s.get('rows_without_signal')!r} ({s.get('reason', 'no reason')})")
+                continue
+            if s.get("status") != OK:
+                problems.append(f"{label}: measured rows {s.get('status')!r} ({s.get('reason', 'no reason')})")
+                continue
+            if s.get("settings_drifted") is not False:
+                problems.append(f"{label}: settings_drifted {s.get('settings_drifted')!r}")
+            for key, want in (("effective_max_chunks", cap), ("effective_vram_budget_mb", budget),
+                              ("lod_distance_multiplier", lod)):
+                got = s.get(key)
+                if not isinstance(got, list) or len(got) != 1 or not _same_setting(got[0], want):
+                    problems.append(f"{label}: {key} {got!r}, frozen [{want!r}]")
     startup = ctx.world().get("flythrough", {}).get("settings_whole_run")
     observed = {
         "startup_rows": {
@@ -326,6 +365,8 @@ def v7_settings(entry: dict, limit: Any, ctx: Ctx) -> Result:
             "why": "ADR V7 applies to measured frames; the load rows before the first pass are reported, never counted",
         }
     }
+    if absent:
+        raise Missing("; ".join(absent))
     if problems:
         return INVALID, observed, "settings_drifted: " + "; ".join(problems)
     return PASS, observed, "measured rows of every repetition carry the frozen settings"
@@ -449,24 +490,44 @@ def g4_rss(entry: dict, limit: Any, ctx: Ctx) -> Result:
     return status, round(rss, 3), f"peak RSS {rss:.2f} GiB"
 
 
+SETTLE_DEADLINE_MISSED = "settle_deadline_missed"
+
+
 def g6_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
     wanted = entry.get("checkpoints")
     if not isinstance(wanted, list) or not wanted:
         raise Missing("entry lists no checkpoints")
-    worst, worst_at, found = None, "", set()
+    if entry.get("op") != "<=":
+        raise Missing(f"op {entry.get('op')!r}: a settle gate is an upper bound")
+    bound = _finite(limit, "limit")
+    worst, worst_at, found, missed = None, "", set(), []
     for p in ctx.passes():
         for c in p.get("checkpoints") or []:
             if c.get("checkpoint") not in wanted:
                 continue
             label = f"pass {p.get('pass_index')} {c.get('checkpoint')}"
             found.add(c.get("checkpoint"))
-            value = _metric(c.get("settle_s"), f"{label} settle_s")
+            settle = c.get("settle_s")
+            if (c.get("settled") is False and isinstance(settle, dict)
+                    and settle.get("reason") == SETTLE_DEADLINE_MISSED):
+                # BV-13a (C-starve, ADR 8.5): never settled within a deadline at or above the
+                # limit is a measured failure. A deadline inside the limit proves nothing.
+                deadline = _finite(c.get("settle_deadline_s"), f"{label} settle_deadline_s")
+                if deadline < bound:
+                    raise Missing(f"{label}: deadline {deadline:g} s is inside the limit {bound:g} s")
+                missed.append(f"{label} (deadline {deadline:g} s)")
+                continue
+            value = _metric(settle, f"{label} settle_s")
             if worst is None or value > worst:
                 worst, worst_at = value, label
     absent = [cp for cp in wanted if cp not in found]
-    if absent or worst is None:
+    if absent:
         raise Missing(f"checkpoints {absent} absent")
-    status = PASS if _compare(entry["op"], worst, _finite(limit, "limit")) else FAIL
+    if missed:
+        return FAIL, None, f"{SETTLE_DEADLINE_MISSED}: never settled at {', '.join(missed)}"
+    if worst is None:
+        raise Missing("no settle time")
+    status = PASS if _compare(entry["op"], worst, bound) else FAIL
     return status, round(worst, 3), f"worst settle {worst:.2f} s at {worst_at}"
 
 

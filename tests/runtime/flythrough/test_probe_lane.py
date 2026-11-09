@@ -315,6 +315,26 @@ class CapturedTrace(unittest.TestCase):
         self.assertEqual(s["records_per_splat"]["status"], ps.MISSING)
         self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
 
+    def test_measured_rows_are_moving_plus_holds_without_the_load_settle(self) -> None:
+        """#1383 item 2: V7's measured rows include every checkpoint settle and hold, not the load."""
+        tr = ps.read_trace(self.path_trace)
+        seg, state = tr.index["segment"], tr.index["state"]
+        measured = set(ps.measured_rows(tr, 0))
+        pass_rows = ps.rows_where(tr, phase=0, pass_index=0)
+        load = {i for i in pass_rows if tr.rows[i][seg] == 0 and tr.rows[i][state] == ps.STATE_SETTLING}
+        self.assertTrue(load, "the fixture has a load settle")
+        self.assertEqual(measured, set(pass_rows) - load)
+        self.assertTrue(set(ps.rows_where(tr, phase=0, pass_index=0, state=ps.STATE_MOVING)) < measured)
+        holds = {i for i in measured if tr.rows[i][state] in (ps.STATE_SETTLING, ps.STATE_HOLD)}
+        self.assertTrue(holds, "the later checkpoints' settles and holds are measured")
+        m = manifest()
+        path = pp.resolve_path(m)
+        truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+        s = rp.summarise_path(tr, self.run_of(self.path_trace, self.path_result), path, truth, 1)
+        self.assertEqual(s["passes"][0]["settings_measured"]["rows"], len(measured))
+        self.assertEqual({c["settle_deadline_s"] for c in s["passes"][0]["checkpoints"]} - {None},
+                         {c["settle"]["deadline_s"] for c in self.path_result["checkpoints"]} - {None})
+
     def test_counter_totals_keep_activity_before_the_first_sample(self) -> None:
         """Whole run: last value minus the initial 0. A later window: minus the last sample
         before it. Never minus the window's own first sample."""

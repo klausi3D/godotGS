@@ -56,6 +56,12 @@ class _Case(unittest.TestCase):
         self.inputs = copy.deepcopy(_INPUTS)
         # The M1 run predates the contention record (BV-06b); add the one the lane writes now.
         self.inputs["steps"]["contention"] = dict(CONTENTION_OK)
+        # The M1 run also predates `settings_measured` (#1383 item 2, BV-13a). Its moving-row
+        # record stands in; CapturedRun.test_the_pre_bv13a_producer_leaves_the_holds_unjudged
+        # shows the captured run without it is INVALID.
+        for world in self.inputs["summary"]["worlds"].values():
+            for p in world["flythrough"]["passes"]:
+                p["settings_measured"] = copy.deepcopy(p["settings"])
         self.th = copy.deepcopy(_THRESHOLDS)
 
     @property
@@ -109,6 +115,11 @@ class CapturedRun(_Case):
         self.assertEqual(startup["status"], "INVALID")
         self.assertIn("settings_drifted", startup["reason"])
         self.assertIs(startup["counted_in_verdict"], False)
+
+    def test_the_pre_bv13a_producer_leaves_the_holds_unjudged(self) -> None:
+        for p in self.passes():
+            del p["settings_measured"]
+        self.assert_entry("V7", fv.INVALID, "settings_measured: absent")
 
     def test_report_only_until_a_hard_entry_exists(self) -> None:
         result = self.run_verdict()
@@ -178,6 +189,28 @@ class Validity(_Case):
     def test_v7_measured_rows_not_ok(self) -> None:
         self.passes()[0]["settings"]["status"] = "INVALID"
         self.assert_entry("V7", fv.INVALID, "measured rows")
+
+    def test_v7_drift_during_a_hold_only(self) -> None:
+        """#1383 item 2: the moving rows are clean, a checkpoint hold is not."""
+        held = self.passes()[0]["settings_measured"]
+        held.update(status="INVALID", settings_drifted=True, effective_max_chunks=[400, 480],
+                    reason="V7 INVALID settings_drifted: chunk cap changed in the measured rows")
+        self.assertEqual(self.passes()[0]["settings"]["status"], "OK")
+        self.assert_entry("V7", fv.INVALID, "pass 0 settings_measured: measured rows 'INVALID'")
+        self.setUp()
+        self.passes()[1]["settings_measured"]["effective_vram_budget_mb"] = [256.0]
+        self.assert_entry("V7", fv.INVALID, "settings_measured: effective_vram_budget_mb [256.0]")
+
+    def test_v7_node_readback_of_cap_and_far(self) -> None:
+        """#1383 item 1: the node's readback, not the request, must equal the frozen cap and far plane."""
+        self.a["driver"]["node_readback"]["max_splat_count"] = 3_999_999
+        self.assert_entry("V7", fv.INVALID, "node readback max_splat_count: 3999999")
+        self.setUp()
+        del self.a["driver"]["node_readback"]["max_render_distance"]
+        self.assert_entry("V7", fv.INVALID, "MISSING: node readback max_render_distance: absent")
+        self.setUp()
+        self.a["driver"]["node_readback"] = None
+        self.assert_entry("V7", fv.INVALID, "MISSING")
 
     def test_v7_tuned_setting_or_readback_differs(self) -> None:
         key = "rendering/gaussian_splatting/streaming/max_chunks_in_vram"
@@ -260,6 +293,44 @@ class Gates(_Case):
         self.passes()[0]["checkpoints"][2]["settle_s"] = {"status": "MISSING", "value": None}
         self.assert_entry("G6", fv.INVALID, "MISSING")
 
+    def _miss(self, checkpoint: str, deadline) -> None:
+        for p in self.passes():
+            for c in p["checkpoints"]:
+                if c["checkpoint"] == checkpoint:
+                    c["settled"] = False
+                    c["settle_s"] = {"status": "MISSING", "value": None, "reason": fv.SETTLE_DEADLINE_MISSED}
+                    if deadline is not None:
+                        c["settle_deadline_s"] = deadline
+
+    def test_g6_a_missed_deadline_is_a_measured_fail(self) -> None:
+        """C-starve (ADR 8.5): never settled within a deadline >= the limit is FAIL settle_deadline_missed."""
+        for p in self.passes():
+            for c in p["checkpoints"]:
+                c["settle_s"]["value"] = min(c["settle_s"]["value"], 2.9)
+        self._miss("C2", 15.0)
+        self.assert_entry("G6", fv.FAIL, "settle_deadline_missed: never settled at pass 0 C2 (deadline 15 s)")
+        self.assert_entry("G6t", fv.PASS)
+
+    def test_g6_a_deadline_inside_the_limit_or_unknown_proves_nothing(self) -> None:
+        self._miss("C2", 2.0)
+        self.assert_entry("G6", fv.INVALID, "inside the limit")
+        self.setUp()
+        self._miss("C2", None)
+        self.assert_entry("G6", fv.INVALID, "settle_deadline_s")
+        self.setUp()
+        self._miss("C2", 15.0)
+        self.passes()[0]["checkpoints"][2]["settle_s"]["reason"] = "pose never matched"
+        self.assert_entry("G6", fv.INVALID, "MISSING")
+
+    def test_gate_world_override_judges_that_world_alone(self) -> None:
+        """BV-13a controls judge T0 against tier A's frozen values."""
+        self.inputs["gate_world"] = "T0"
+        del self.inputs["summary"]["worlds"]["A"]
+        result = self.run_verdict()
+        self.assertEqual(self.row(result, "V2")["status"], fv.PASS)
+        self.assertIn("world_too_small", self.row(result, "V3")["reason"])
+        self.assertIn("not_streaming: 0 evictions", self.row(result, "V9-evictions")["reason"])
+
     def test_g6t_only_reads_its_checkpoints(self) -> None:
         for p in self.passes():
             for c in p["checkpoints"]:
@@ -334,8 +405,11 @@ class Wiring(unittest.TestCase):
                 lane.summarize(out, contention_outcome="success", meta={"tier": "A", "sha": COMMIT})
             verdict = json.loads((out / lane.VERDICT_FILE).read_text(encoding="utf-8"))
             gates = json.loads((out / fv.GATE_VERDICT_FILE).read_text(encoding="utf-8"))
-        self.assertEqual(gates["verdict"], fv.FAIL)
-        self.assertEqual(verdict["gate_verdict"]["verdict"], fv.FAIL)
+        # The captured summary predates `settings_measured` (BV-13a), so V7 makes it INVALID.
+        self.assertEqual(gates["verdict"], fv.INVALID)
+        self.assertEqual(verdict["gate_verdict"]["verdict"], fv.INVALID)
+        v7 = [r for r in gates["entries"] if r["id"] == "V7"][0]
+        self.assertIn("settings_measured: absent", v7["reason"])
         self.assertTrue(verdict["gate_verdict"]["report_only"])
         self.assertEqual(gates["thresholds_source_run"], "42512864344")
 
