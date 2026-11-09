@@ -48,6 +48,21 @@ def _fixture_inputs() -> dict:
 
 _INPUTS = _fixture_inputs()
 _THRESHOLDS = fv.load_thresholds()
+
+
+def _flat_m1_world_a(thresholds: dict) -> dict:
+    """Tier A's committed digests before the GSQ re-prime (#1389), from the record's `replaces`.
+
+    The captured M1 run is the uncompressed world. Since BV-C7 the committed digests are the GSQ
+    world, so the fixture is judged against the digests it was captured with; the record keeps
+    them. Built from the committed file, never hand-typed.
+    """
+    record = next(r for r in thresholds["reprime_records"] if r["world"] == "A" and "replaces" in r)
+    world = dict(thresholds["globals"]["worlds"]["A"])
+    world.update({k: v for k, v in record["replaces"].items() if k in world})
+    return world
+
+
 CONTENTION_OK = {"step": "contention", "status": "OK", "exit_code": 0, "reason": "contention postflight CLEAN"}
 
 
@@ -63,6 +78,9 @@ class _Case(unittest.TestCase):
             for p in world["flythrough"]["passes"]:
                 p["settings_measured"] = copy.deepcopy(p["settings"])
         self.th = copy.deepcopy(_THRESHOLDS)
+        # The M1 run predates the GSQ re-prime of Tier A (#1389); Reprime proves the committed
+        # GSQ digests and that this flat run is INVALID against them.
+        self.th["globals"]["worlds"]["A"] = _flat_m1_world_a(_THRESHOLDS)
 
     @property
     def a(self) -> dict:
@@ -255,7 +273,20 @@ class Validity(_Case):
         self.assert_entry("M1-settle", fv.INVALID, "settle_deadline_missed")
         self.setUp()
         del self.passes()[1]["checkpoints"][2]["cap_fit"]
-        self.assert_entry("M1-settle", fv.INVALID, "no needed/cap record")
+        result = self.assert_entry("M1-settle", fv.INVALID, "no needed/cap record")
+        self.assertEqual(self.row(result, "M1-settle")["evidence"], fv.EVIDENCE_MISSING)
+        self.setUp()
+        self.passes()[0]["checkpoints"][0]["cap_fit"] = {"status": "MISSING", "needed_chunks": None,
+                                                          "chunk_cap": None, "reason": "needed_chunks absent"}
+        result = self.assert_entry("M1-settle", fv.INVALID, "MISSING")
+        self.assertEqual(self.row(result, "M1-settle")["evidence"], fv.EVIDENCE_MISSING)
+
+    def test_m1_measured_overflow_is_present_evidence(self) -> None:
+        cp = self.passes()[0]["checkpoints"][1]
+        cp["cap_fit"] = {"status": "INVALID", "chunk_cap": 320, "needed_chunks": 399, "settle_required": False,
+                         "reason": "needed 399 > cap 320: priority proof missing"}
+        result = self.assert_entry("M1-settle", fv.INVALID, "needed 399 > cap 320")
+        self.assertEqual(self.row(result, "M1-settle")["evidence"], fv.EVIDENCE_PRESENT)
 
 
 class Gates(_Case):
@@ -388,6 +419,34 @@ class Combination(_Case):
         self.assertFalse(result["report_only"])
         self.a["rss"]["peak_rss_bytes"]["value"] = 13 * GIB
         self.assertEqual(self.run_verdict()["enforced_verdict"], fv.FAIL)
+
+
+class Reprime(_Case):
+    """#1389: Tier A's committed digests are the GSQ world (ADR 8.4 re-prime path)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.th = copy.deepcopy(_THRESHOLDS)  # the committed digests, not the flat M1 ones
+        self.record = next(r for r in _THRESHOLDS["reprime_records"] if r["world"] == "A")
+
+    def test_the_committed_digests_are_the_record(self) -> None:
+        committed = _THRESHOLDS["globals"]["worlds"]["A"]
+        self.assertEqual(self.record["encoding"], "plain_v3_gsq")
+        for key in ("gen_sha", "file_sha256", "file_bytes"):
+            self.assertEqual(committed[key], self.record[key], key)
+        # `replaces` is the captured M1 world, so the flat run is still traceable.
+        self.assertEqual(self.record["replaces"]["file_sha256"], self.a["world_file_sha256"])
+        self.assertEqual(self.record["replaces"]["file_bytes"], self.a["file_bytes"])
+
+    def test_the_flat_m1_world_is_invalid_against_the_gsq_digests(self) -> None:
+        self.assert_entry("V2", fv.INVALID, "A.file_sha256")
+
+    def test_a_world_with_the_recorded_gsq_digests_passes_v2(self) -> None:
+        self.a["world_file_sha256"] = self.record["file_sha256"]
+        self.a["file_bytes"] = self.record["file_bytes"]
+        self.assert_entry("V2", fv.PASS, "every world matches")
+        self.a["file_bytes"] += 1
+        self.assert_entry("V2", fv.INVALID, "A.file_bytes")
 
 
 class Wiring(unittest.TestCase):

@@ -923,6 +923,51 @@ class LaneVerdict(_TempCase):
         self.assertEqual(lane.summarize(self.out, contention_outcome="failure"), lane.EXIT_VOID)
         self.assertEqual(self.verdict()["verdict"], "VOID")
 
+    def test_controls_only_excludes_the_skipped_probe(self) -> None:
+        """#1390 P2: the probe is skipped on purpose in controls_only; that is EXCLUDED, not MISSING."""
+        for step in lane.STEP_NAMES:
+            if step not in ("contention", "probe"):
+                lane.write_record(self.out, step, lane.EXIT_OK, "ok")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success", mode="controls_only"), 0)
+        steps = {s["step"]: s["status"] for s in self.verdict()["steps"]}
+        self.assertEqual(steps["probe"], lane.EXCLUDED)
+        self.assertEqual(self.verdict()["mode"], "controls_only")
+        summary = json.loads((self.out / "dispatch_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["overall"], "COMPLETE")
+
+    def test_a_missing_probe_in_a_full_run_stays_not_run(self) -> None:
+        for step in lane.STEP_NAMES:
+            if step not in ("contention", "probe"):
+                lane.write_record(self.out, step, lane.EXIT_OK, "ok")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success"), lane.EXIT_NOT_RUN)
+        self.assertEqual({s["step"]: s["status"] for s in self.verdict()["steps"]}["probe"], "MISSING")
+
+    def test_controls_only_excludes_nothing_else(self) -> None:
+        for step in lane.STEP_NAMES:
+            if step not in ("contention", "probe", "controls"):
+                lane.write_record(self.out, step, lane.EXIT_OK, "ok")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success", mode="controls_only"),
+                         lane.EXIT_NOT_RUN)
+        steps = {s["step"]: s["status"] for s in self.verdict()["steps"]}
+        self.assertEqual(steps["controls"], "MISSING")
+        # A record the excluded step did write is still judged.
+        lane.write_record(self.out, "controls", lane.EXIT_OK, "ok")
+        lane.write_record(self.out, "probe", lane.EXIT_FAIL, "probe exited 1")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success", mode="controls_only"),
+                         lane.EXIT_FAIL)
+        # A truncated record of the excluded step is not excluded (Codex on #1391).
+        (self.out / "steps" / "probe.json").write_text('{"status": "OK"', encoding="utf-8")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success", mode="controls_only"),
+                         lane.EXIT_NOT_RUN)
+        self.assertEqual({s["step"]: s["status"] for s in self.verdict()["steps"]}["probe"], "MISSING")
+        with self.assertRaises(ValueError):
+            lane.summarize(self.out, mode="probe_only")
+
+    def test_the_workflow_passes_the_run_mode(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "beyond_vram_flythrough.yml").read_text(encoding="utf-8")
+        line = next(ln for ln in text.splitlines() if "dispatch_lane.py summarize " in ln)
+        self.assertIn("--mode \"${{ inputs.controls_only && 'controls_only' || 'full' }}\"", line)
+
     def test_precedence(self) -> None:
         self.assertEqual(lane.lane_verdict(["OK", "NOT_RUN", "INVALID"]), "INVALID")
         self.assertEqual(lane.lane_verdict(["OK", "FAIL", "INVALID"]), "FAIL")

@@ -120,6 +120,33 @@ class Tuples(unittest.TestCase):
         self.assertEqual(rec["status"], fv.INVALID)
         self.assertTrue(any(n.startswith("G4") for n in rec["not_evaluable"]), rec)
 
+    def test_missing_checkpoint_cap_fit_never_lets_c_off_pass(self) -> None:
+        """#1390 P1 mutation: without the checkpoint cap_fit records M1-settle has no evidence."""
+        for mutate in ("delete", "missing_status"):
+            summary = _t0_summary()
+            for c in summary["worlds"]["T0"]["flythrough"]["passes"][0]["checkpoints"]:
+                if mutate == "delete":
+                    del c["cap_fit"]
+                else:
+                    c["cap_fit"] = {"status": "MISSING", "needed_chunks": None, "chunk_cap": None,
+                                    "reason": "needed_chunks absent at the checkpoint"}
+            rec = _judge("C-off", summary)
+            self.assertEqual(rec["observed"], ["V9-evictions", fv.INVALID, "not_streaming"], mutate)
+            self.assertEqual(rec["status"], fv.INVALID, (mutate, rec))
+            self.assertTrue(any(n.startswith("M1-settle") for n in rec["not_evaluable"]), (mutate, rec))
+
+    def test_an_entry_without_a_classification_is_not_evaluable(self) -> None:
+        """The controls read the structured field, never the reason text; no field fails closed."""
+        result = fv.evaluate(_THRESHOLDS, fc.THRESHOLDS_TIER, "flat",
+                             dict(_base(), summary=_t0_summary(), gate_world=fc.CONTROL_WORLD))
+        self.assertEqual(fc.judge("C-off", result)["status"], "PASS")
+        g4 = next(r for r in result["entries"] if r["id"] == "G4")
+        self.assertEqual(g4["evidence"], fv.EVIDENCE_PRESENT)
+        del g4["evidence"]
+        rec = fc.judge("C-off", result)
+        self.assertEqual(rec["status"], fv.INVALID)
+        self.assertTrue(any(n.startswith("G4") for n in rec["not_evaluable"]), rec)
+
     def test_reason_code(self) -> None:
         self.assertEqual(fc.reason_code("not_streaming: 0 evictions"), "not_streaming")
         self.assertEqual(fc.reason_code("MISSING: x"), "MISSING")

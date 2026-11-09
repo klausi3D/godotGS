@@ -114,9 +114,9 @@
       "A": {
         "path_sha256": "2d18b9de04e527abba8f32351ab2e383fed01b8a9c00dc5f8bdcb2a3af54f4d6",
         "generator_params_sha": "404e9cc0104b2cb7ebeb7fa374d8888ced9a387e25e51c2b5fafd704577bd759",
-        "gen_sha": "ee9f601efc52da31d23f1c2eb388a36a7e50479e59da5e148c97102ea1985072",
-        "file_sha256": "c17ed181e0e8514001a50a9cbd21f96b7a1a1ddaa497e8459acf7acd3d8a08f2",
-        "file_bytes": 58787641824,
+        "gen_sha": "77b570207233d6e8aca48f23a3054daeea077744d58d4bbd02511b560f36f649",
+        "file_sha256": "fb73dec1263250af77f3f5d21e8a46e06b7edb782ade6e009537e7eba7247f8e",
+        "file_bytes": 7579247737,
         "splat_count": 201326592,
         "chunk_count": 4939
       },
@@ -150,7 +150,27 @@
       }
     }
   },
-  "reprime_records": [],
+  "reprime_records": [
+    {
+      "world": "A",
+      "run_id": "42629658168",
+      "date": "2026-11-09",
+      "reason": "BV-C7 (#1381) primes Tier A as plain GSQ (encoding plain_v3_gsq); the committed digests were the uncompressed M1 world, so V2 was INVALID on every GSQ run (#1389). Same generator: path_sha256, generator_params_sha, splat_count and chunk_count are unchanged; only the encoded file (file_sha256, file_bytes) and its cache key (gen_sha) change.",
+      "encoding": "plain_v3_gsq",
+      "gen_sha": "77b570207233d6e8aca48f23a3054daeea077744d58d4bbd02511b560f36f649",
+      "file_sha256": "fb73dec1263250af77f3f5d21e8a46e06b7edb782ade6e009537e7eba7247f8e",
+      "file_bytes": 7579247737,
+      "source": "probe/summary.json worlds.A and steps/cache_check.json worlds.A.gen_sha (verify_ok true) of artifacts beyond-vram-flythrough-A-42629658168-1 (branch bv-13a, 9cf16a03a9e2bf22f13cc8da9cf4d3760210d7e9) and beyond-vram-flythrough-A-42626103664-1 (branch bv-lat, cee13648fd256a202bde1aae75c3f61f5cf1147e); both runs agree on every field",
+      "confirming_run_id": "42626103664",
+      "replaces": {
+        "gen_sha": "ee9f601efc52da31d23f1c2eb388a36a7e50479e59da5e148c97102ea1985072",
+        "file_sha256": "c17ed181e0e8514001a50a9cbd21f96b7a1a1ddaa497e8459acf7acd3d8a08f2",
+        "file_bytes": 58787641824,
+        "encoding": "flat (uncompressed M1 world, run 42512864344)"
+      },
+      "calibration_record": "No gate value changes: the gate values are the ADR 8.3 pre-registered values and were never calibrated from a world digest (provenance.method). No tightening proposal is applied from two runs. V2 stays an exact comparison; a flat Tier A run is INVALID on V2 from now on, because V2 keys the committed digests by world name and the lane's Tier A is GSQ."
+    }
+  ],
   "waivers": [],
   "validity": {
     "V1": {

@@ -184,6 +184,16 @@ STEP_NAMES = (
     "contention",
 )
 
+#: Run modes of the fly-through job (#1390). `controls_only` (workflow input) runs the
+#: ADR 8.5 controls without the main fly-through: the probe step is skipped on purpose.
+#: Only the steps a mode lists are EXCLUDED when they wrote no record; any other step
+#: without a record stays MISSING, and a normal run excludes nothing.
+RUN_MODES: Dict[str, Tuple[str, ...]] = {
+    "full": (),
+    "controls_only": ("probe",),
+}
+EXCLUDED = "EXCLUDED"
+
 #: Section 9.1 exit mapping and the lane verdict's precedence (first wins).
 VERDICT_EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "NOT_RUN": 3, "VOID": 75}
 VERDICT_PRECEDENCE = ("VOID", "FAIL", "INVALID", "NOT_RUN")
@@ -1232,6 +1242,7 @@ def summarize(
     step_summary: Optional[Path] = None,
     contention_outcome: Optional[str] = None,
     meta: Optional[Dict[str, str]] = None,
+    mode: str = "full",
 ) -> int:
     """Collect every step record into one lane verdict. A step without one is MISSING, never OK.
 
@@ -1239,7 +1250,14 @@ def summarize(
     step, which exits 75 to void a run and writes no record of its own:
     success -> OK, failure -> VOID, anything else (skipped, cancelled, absent)
     -> no record -> MISSING.
+
+    `mode` (#1390, `RUN_MODES`): a step the mode skips on purpose and that wrote no
+    record is EXCLUDED, not MISSING, and does not count toward the verdict. A record
+    it did write is judged as usual. At least one counted step must remain.
     """
+    if mode not in RUN_MODES:
+        raise ValueError(f"unknown run mode {mode!r}")
+    excluded_steps = RUN_MODES[mode]
     if contention_outcome == "success":
         write_record(out, "contention", EXIT_OK, "contention postflight CLEAN")
     elif contention_outcome == "failure":
@@ -1248,6 +1266,11 @@ def summarize(
     cache: object = None
     for step in STEP_NAMES:
         path = out / "steps" / f"{step}.json"
+        if step in excluded_steps and not os.path.lexists(path):
+            # Only a genuinely absent record is excluded. A record the step did write is
+            # judged; an unreadable or truncated one stays MISSING (Codex on #1391).
+            rows.append((step, EXCLUDED, f"skipped on purpose by run mode {mode}"))
+            continue
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             rows.append((step, str(record.get("status", "UNREADABLE")), str(record.get("reason", ""))))
@@ -1255,11 +1278,13 @@ def summarize(
                 cache = record["data"].get("cache")
         except (OSError, ValueError):
             rows.append((step, "MISSING", "the step wrote no record (skipped, cancelled or crashed)"))
-    verdict = lane_verdict([status for _, status, _ in rows])
-    complete = all(status == "OK" for _, status, _ in rows)
+    counted = [status for _, status, _ in rows if status != EXCLUDED]
+    verdict = lane_verdict(counted)
+    complete = bool(counted) and all(status == "OK" for status in counted)
     summary = {
         "schema": "godotgs-beyond-vram-dispatch/2",
         "report_only": True,
+        "mode": mode,
         "overall": "COMPLETE" if complete else "INCOMPLETE",
         "verdict": verdict,
         "steps": [{"step": s, "status": st, "reason": r} for s, st, r in rows],
@@ -1271,6 +1296,7 @@ def summarize(
         "verdict": verdict,
         "exit_code": VERDICT_EXIT[verdict],
         "report_only": True,
+        "mode": mode,
         "cache": cache,
         "steps": summary["steps"],
     }
@@ -1287,7 +1313,7 @@ def summarize(
     lines = [
         "## Beyond-VRAM fly-through (BV-06b, report-only)",
         "",
-        f"Lane verdict: **{verdict}** (overall {summary['overall']})",
+        f"Lane verdict: **{verdict}** (overall {summary['overall']}, mode {mode})",
         "",
         "| Step | Status | Detail |",
         "| --- | --- | --- |",
@@ -1406,6 +1432,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--contention-outcome", default=None,
                    help="outcome of the contention postflight step (success, failure, ...)")
     p.add_argument("--tier", default=None)
+    p.add_argument("--mode", choices=sorted(RUN_MODES), default="full",
+                   help="run mode: controls_only skips the probe on purpose (EXCLUDED, not MISSING)")
 
     p = sub.add_parser("cleanup")
     common(p, out=False)
@@ -1452,7 +1480,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         }
         if args.tier:
             meta["tier"] = args.tier
-        return summarize(args.out, Path(env) if env else None, args.contention_outcome, meta)
+        return summarize(args.out, Path(env) if env else None, args.contention_outcome, meta, mode=args.mode)
     if args.command == "cleanup":
         return cleanup(args.world_root)
     raise AssertionError(args.command)
