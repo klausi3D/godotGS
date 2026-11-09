@@ -1266,16 +1266,18 @@ def summarize(
     cache: object = None
     for step in STEP_NAMES:
         path = out / "steps" / f"{step}.json"
+        if step in excluded_steps and not os.path.lexists(path):
+            # Only a genuinely absent record is excluded. A record the step did write is
+            # judged; an unreadable or truncated one stays MISSING (Codex on #1391).
+            rows.append((step, EXCLUDED, f"skipped on purpose by run mode {mode}"))
+            continue
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             rows.append((step, str(record.get("status", "UNREADABLE")), str(record.get("reason", ""))))
             if step == "probe" and isinstance(record.get("data"), dict):
                 cache = record["data"].get("cache")
         except (OSError, ValueError):
-            if step in excluded_steps:
-                rows.append((step, EXCLUDED, f"skipped on purpose by run mode {mode}"))
-            else:
-                rows.append((step, "MISSING", "the step wrote no record (skipped, cancelled or crashed)"))
+            rows.append((step, "MISSING", "the step wrote no record (skipped, cancelled or crashed)"))
     counted = [status for _, status, _ in rows if status != EXCLUDED]
     verdict = lane_verdict(counted)
     complete = bool(counted) and all(status == "OK" for status in counted)

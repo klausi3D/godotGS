@@ -955,6 +955,11 @@ class LaneVerdict(_TempCase):
         lane.write_record(self.out, "probe", lane.EXIT_FAIL, "probe exited 1")
         self.assertEqual(lane.summarize(self.out, contention_outcome="success", mode="controls_only"),
                          lane.EXIT_FAIL)
+        # A truncated record of the excluded step is not excluded (Codex on #1391).
+        (self.out / "steps" / "probe.json").write_text('{"status": "OK"', encoding="utf-8")
+        self.assertEqual(lane.summarize(self.out, contention_outcome="success", mode="controls_only"),
+                         lane.EXIT_NOT_RUN)
+        self.assertEqual({s["step"]: s["status"] for s in self.verdict()["steps"]}["probe"], "MISSING")
         with self.assertRaises(ValueError):
             lane.summarize(self.out, mode="probe_only")
 
