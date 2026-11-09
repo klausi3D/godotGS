@@ -6,5 +6,6 @@ var classChunkPayloadSource =
     [ "get_bounds", "classChunkPayloadSource.html#aaaa5196f761d79521b39f75cc5ab92fb", null ],
     [ "get_count", "classChunkPayloadSource.html#a64eed01321b41dc6ebff682ff8a8cd2a", null ],
     [ "get_sh_degree", "classChunkPayloadSource.html#a7ef7be4edbd95210a1f9cfb5f1bbf9ee", null ],
-    [ "is_valid", "classChunkPayloadSource.html#aa9fb3172563bfb5c9099f43d4041fddb", null ]
+    [ "is_valid", "classChunkPayloadSource.html#aa9fb3172563bfb5c9099f43d4041fddb", null ],
+    [ "take_thread_last_capture_decode_nsec", "classChunkPayloadSource.html#a391e3c168235c6fb2fa686172162681e", null ]
 ];

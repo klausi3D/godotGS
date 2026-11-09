@@ -1,5 +1,7 @@
 var NAVTREEINDEX26 =
 {
+"streaming__telemetry__adapter_8h.html":[2,0,0,0,3,91],
+"streaming__telemetry__adapter_8h_source.html":[2,0,0,0,3,91],
 "streaming__tier__cap__policy_8h.html":[2,0,0,0,3,92],
 "streaming__tier__cap__policy_8h_source.html":[2,0,0,0,3,92],
 "streaming__upload__pipeline_8cpp.html":[2,0,0,0,3,93],
@@ -247,7 +249,5 @@ var NAVTREEINDEX26 =
 "structDebugOverlayOptions.html#aaa8d8bdc51983dc08ef61137b3a52510":[1,0,60,14],
 "structDebugOverlayOptions.html#aac112949296762f2775a06b5796b240f":[1,0,60,8],
 "structDebugOverlayOptions.html#ab2aa717d657b69445e3a43b06b3018db":[1,0,60,15],
-"structDebugOverlayOptions.html#ab367e79d88603bbcff913bb8a9820174":[1,0,60,10],
-"structDebugOverlayOptions.html#acc8682a17eddd42caa653eda7bc114e6":[1,0,60,5],
-"structDebugOverlayOptions.html#ad14487bdb0867c9738cf9efb8e6ed866":[1,0,60,0]
+"structDebugOverlayOptions.html#ab367e79d88603bbcff913bb8a9820174":[1,0,60,10]
 };

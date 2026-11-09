@@ -1,5 +1,6 @@
 var NAVTREEINDEX3 =
 {
+"classGaussianSplatDebugHUD.html#a0f2a96dced5ec055eae4da11db032517":[1,0,82,11],
 "classGaussianSplatDebugHUD.html#a0f68fa88388a7bd168e40f6fefb8364c":[1,0,82,4],
 "classGaussianSplatDebugHUD.html#a4d37ad690321aa612f700392ed11ccf6":[1,0,82,3],
 "classGaussianSplatDebugHUD.html#a5e247cf2c0790f7c413c0455930e886c":[1,0,82,2],
@@ -248,6 +249,5 @@ var NAVTREEINDEX3 =
 "classGaussianSplatNode3D.html#ae40813fb0f9b28d05b7acd792a1a8378":[1,0,94,101],
 "classGaussianSplatNode3D.html#ae52444c4a527a7053c151fc90029bdff":[1,0,94,110],
 "classGaussianSplatNode3D.html#aea577d7c480670e1f045f6ac2fb497d4":[1,0,94,80],
-"classGaussianSplatNode3D.html#aeb07835ba918683703a77f1084b4bbcf":[1,0,94,3],
-"classGaussianSplatNode3D.html#aeb07835ba918683703a77f1084b4bbcfa3932eab1dc85dc60454592d7f8b64820":[1,0,94,3,3]
+"classGaussianSplatNode3D.html#aeb07835ba918683703a77f1084b4bbcf":[1,0,94,3]
 };

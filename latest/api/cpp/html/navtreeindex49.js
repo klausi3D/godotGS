@@ -1,5 +1,8 @@
 var NAVTREEINDEX49 =
 {
+"structRasterStats.html#a228ce2e58253d23cf78b73dda3f0180c":[1,0,205,17],
+"structRasterStats.html#a24cb0ea2f3de65f897fffbb4abf31a37":[1,0,205,28],
+"structRasterStats.html#a3164451a0c9609875a7912a18485cf6d":[1,0,205,1],
 "structRasterStats.html#a3221baf8e9b52ba04f901bc7dba48d65":[1,0,205,26],
 "structRasterStats.html#a32348d6d8b91fe8b1bfe9b3172bf077c":[1,0,205,33],
 "structRasterStats.html#a32d914b585f3bdac5e541c3eb4a9a57f":[1,0,205,11],
@@ -246,8 +249,5 @@ var NAVTREEINDEX49 =
 "structResidentAtlasBudget_1_1SubsetPlan.html#a2b883c5ca4386d5977a8cc3b9a292aeb":[0,0,39,0,3],
 "structResidentAtlasBudget_1_1SubsetPlan.html#a2b883c5ca4386d5977a8cc3b9a292aeb":[1,0,27,0,3],
 "structResidentAtlasBudget_1_1SubsetPlan.html#a905a021f8a62abb8aade9fb3355bfa41":[0,0,39,0,2],
-"structResidentAtlasBudget_1_1SubsetPlan.html#a905a021f8a62abb8aade9fb3355bfa41":[1,0,27,0,2],
-"structResidentAtlasBudget_1_1SubsetPlan.html#af82c2d86af33ef3c813b5a166f33fc80":[0,0,39,0,0],
-"structResidentAtlasBudget_1_1SubsetPlan.html#af82c2d86af33ef3c813b5a166f33fc80":[1,0,27,0,0],
-"structResidentAtlasBudget_1_1SubsetPlan.html#afe8b386b282b861e4a5ec9ee9eefb70d":[0,0,39,0,4]
+"structResidentAtlasBudget_1_1SubsetPlan.html#a905a021f8a62abb8aade9fb3355bfa41":[1,0,27,0,2]
 };

@@ -5157,7 +5157,7 @@ residency table above.</p>
 </tr>
 </tbody>
 </table></div>
-<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/dcffbde66adfe0d49bd85cc1f09bb5c59d4f2cf6/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
+<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/1cfcf3c1ccbb2494b717da808db36f71085bcede/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
 <h2 id="chunk-lod-behavior">Chunk LOD behavior<a class="headerlink" href="#chunk-lod-behavior" title="Permanent link">¶</a></h2>
 <p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces the SH band level and raises the splat skip factor as distance grows. What the GPU draw path actually honours is listed per parameter below.</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
@@ -5362,7 +5362,7 @@ slice, never per splat, and none reads anything back from the GPU.</p>
 <tbody>
 <tr>
 <td><code>upload_bytes_this_frame</code>, <code>read_bytes_this_frame</code>, <code>decode_bytes_this_frame</code></td>
-<td>Bytes written to the atlas, read from the chunk payload source into the pack snapshot, and produced by a decode stage, this frame. The uncompressed chunk route has no decode stage, so the decode bytes are 0.</td>
+<td>Bytes written to the atlas, read from the chunk payload source into the pack snapshot, and produced by a decode stage, this frame. The uncompressed chunk route has no decode stage, so the decode bytes are 0; on a GSQ world they equal the read bytes (the decoded snapshot).</td>
 </tr>
 <tr>
 <td><code>upload_bytes_total</code>, <code>upload_chunks_total</code>, <code>read_bytes_total</code>, <code>decode_bytes_total</code></td>
@@ -5370,7 +5370,7 @@ slice, never per splat, and none reads anything back from the GPU.</p>
 </tr>
 <tr>
 <td><code>streaming_latency_histograms</code></td>
-<td>Cumulative log2 histograms in microseconds for <code>read</code> (payload capture), <code>decode</code>, <code>pack</code> (<code>pack_gaussians_range</code>) and <code>upload</code> (time from pack completion until the job is dequeued for the GPU write). Each stage has <code>bucket_counts</code>, <code>samples</code>, <code>total_usec</code> and <code>max_usec</code>. <code>bucket_upper_usec</code> lists the exclusive upper bound of each bucket. The last bucket has no upper bound and is marked <code>-1</code>.</td>
+<td>Cumulative log2 histograms in microseconds for <code>read</code> (payload capture without its decode share), <code>decode</code> (GSQ page verify, decode and decoded digest inside the capture; no samples on the uncompressed route), <code>pack</code> (<code>pack_gaussians_range</code>) and <code>upload</code> (time from pack completion until the job is dequeued for the GPU write). Each stage has <code>bucket_counts</code>, <code>samples</code>, <code>total_usec</code> and <code>max_usec</code>. <code>bucket_upper_usec</code> lists the exclusive upper bound of each bucket. The last bucket has no upper bound and is marked <code>-1</code>.</td>
 </tr>
 <tr>
 <td><code>diagnostics.upload_stall_wall_ms</code></td>
@@ -5483,7 +5483,7 @@ slice, never per splat, and none reads anything back from the GPU.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-11-08
+    Source updated: 2026-11-09
   </span>
 
     

@@ -1,5 +1,7 @@
 var NAVTREEINDEX27 =
 {
+"structDebugOverlayOptions.html#acc8682a17eddd42caa653eda7bc114e6":[1,0,60,5],
+"structDebugOverlayOptions.html#ad14487bdb0867c9738cf9efb8e6ed866":[1,0,60,0],
 "structDependencyNode.html":[1,0,63],
 "structDependencyNode.html#a01957271ea77320539a8c043e86d4581":[1,0,63,4],
 "structDependencyNode.html#aa8bee09d226b430976f18331d6b2dc65":[1,0,63,3],
@@ -247,7 +249,5 @@ var NAVTREEINDEX27 =
 "structGPUSortingConfig.html#a83891c246039e76eaad2074c7f2c3ec4":[1,0,118,3],
 "structGPUSortingConfig.html#a86a358015d8b3552810bdee20f623b17":[1,0,118,32],
 "structGPUSortingConfig.html#a88d2b3f61f250a3a40f95077d27ea790":[1,0,118,29],
-"structGPUSortingConfig.html#a8bf07a28f8454b4dcb904f37e2642666":[1,0,118,33],
-"structGPUSortingConfig.html#aa6591f8dcb64dec6d7154400f390ee00":[1,0,118,19],
-"structGPUSortingConfig.html#aa9511064680c8760d46758f5f39ab7fb":[1,0,118,20]
+"structGPUSortingConfig.html#a8bf07a28f8454b4dcb904f37e2642666":[1,0,118,33]
 };

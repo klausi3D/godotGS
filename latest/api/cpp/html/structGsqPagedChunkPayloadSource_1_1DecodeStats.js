@@ -3,6 +3,7 @@ var structGsqPagedChunkPayloadSource_1_1DecodeStats =
     [ "captures", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a62e04e2679b6eb89ee4eafa6d603eba1", null ],
     [ "captures_failed", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a2b5d1f9eaf820c97e439fee2974e03ce", null ],
     [ "decode_nsec", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#aac1d026725b065c3e64dfcd2a42ac9f5", null ],
+    [ "digest_nsec", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a05fca9e1698f0214fa7adbf3ae3a5ebc", null ],
     [ "last_failure_reason", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ac63403ce0f3b3b6d4c753425b6920675", null ],
     [ "page_failures", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1a660b8d3541bfcea5009e0ded60acd7", null ],
     [ "pages_decoded", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a21b153f16dc2ac6c4a9f0d0b16ef78e7", null ],

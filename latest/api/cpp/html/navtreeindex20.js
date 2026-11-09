@@ -1,5 +1,7 @@
 var NAVTREEINDEX20 =
 {
+"gpu__performance__monitor_8cpp.html":[2,0,0,0,12,19],
+"gpu__performance__monitor_8h.html":[2,0,0,0,12,20],
 "gpu__performance__monitor_8h.html#a2ae3e31b633ca4f86a4c0c2b90014f44":[2,0,0,0,12,20,4],
 "gpu__performance__monitor_8h_source.html":[2,0,0,0,12,20],
 "gpu__record__sizes_8h.html":[2,0,0,0,12,21],
@@ -247,7 +249,5 @@ var NAVTREEINDEX20 =
 "lod__config_8h.html#adfe19497858a41051e02b130fddd44a3":[2,0,0,0,7,16,3],
 "lod__config_8h.html#aedc36535a86406be45587ed80ef65e98":[2,0,0,0,7,16,6],
 "lod__config_8h.html#afab55a48724c5469a0acbd0c63b75f63":[2,0,0,0,7,16,15],
-"lod__config_8h_source.html":[2,0,0,0,7,16],
-"logging__config_8h.html":[2,0,0,0,8,4],
-"logging__config_8h_source.html":[2,0,0,0,8,4]
+"lod__config_8h_source.html":[2,0,0,0,7,16]
 };

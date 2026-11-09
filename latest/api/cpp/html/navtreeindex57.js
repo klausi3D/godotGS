@@ -1,5 +1,8 @@
 var NAVTREEINDEX57 =
 {
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a6d056c6b68230758300feb0cb47b625a":[0,0,25,8,2],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a6d056c6b68230758300feb0cb47b625a":[1,0,17,8,2],
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a85f4af039524b8cdc04abf9663323ac8":[0,0,25,8,0],
 "structgs__hlod__runtime_1_1SnapshotInstance.html#a85f4af039524b8cdc04abf9663323ac8":[1,0,17,8,0],
 "structgs__hlod__runtime_1_1SnapshotInstance.html#ae04e9b4a12f22387836c7c234833535d":[0,0,25,8,1],
 "structgs__hlod__runtime_1_1SnapshotInstance.html#ae04e9b4a12f22387836c7c234833535d":[1,0,17,8,1],
@@ -246,8 +249,5 @@ var NAVTREEINDEX57 =
 "structgs__world__format_1_1HeaderLayout.html#a5e40cc0af3f1aaebdfb1bb2cf2fc3ed2":[0,0,32,0,1],
 "structgs__world__format_1_1HeaderLayout.html#a5e40cc0af3f1aaebdfb1bb2cf2fc3ed2":[1,0,22,0,1],
 "structgs__world__format_1_1HeaderLayout.html#a763b66aec277310122e817e305645679":[0,0,32,0,2],
-"structgs__world__format_1_1HeaderLayout.html#a763b66aec277310122e817e305645679":[1,0,22,0,2],
-"structgs__world__frame_1_1PreciseCoord.html":[0,0,33,0],
-"structgs__world__frame_1_1PreciseCoord.html":[1,0,23,0],
-"structgs__world__frame_1_1PreciseCoord.html#a02a8c842af41b1ba3df537a25a8037d6":[0,0,33,0,0]
+"structgs__world__format_1_1HeaderLayout.html#a763b66aec277310122e817e305645679":[1,0,22,0,2]
 };

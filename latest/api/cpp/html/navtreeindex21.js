@@ -1,5 +1,7 @@
 var NAVTREEINDEX21 =
 {
+"logging__config_8h.html":[2,0,0,0,8,4],
+"logging__config_8h_source.html":[2,0,0,0,8,4],
 "module__string__names_8cpp.html":[2,0,0,0,3,45],
 "module__string__names_8h.html":[2,0,0,0,3,46],
 "module__string__names_8h_source.html":[2,0,0,0,3,46],
@@ -247,7 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3315c8a1690c4c48efaeab9526bdc0e5":[0,0,12,2,6,11],
 "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3492d880bcf33d50cf5d8cfdfac8d235":[0,0,12,2,6,6],
 "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba353a216c4ad11a22fc6f81b0f3da4649":[0,0,12,2,6,7],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3d0662b106d915ae28b9405ade35bd5c":[0,0,12,2,6,5],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba4c6604951a5bfdd01e5bf6535fc1a1a1":[0,0,12,2,6,4],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba77a1b8f96651a40cd34ee34b572a266e":[0,0,12,2,6,8]
+"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3d0662b106d915ae28b9405ade35bd5c":[0,0,12,2,6,5]
 };

@@ -14,5 +14,6 @@ var classGsqPagedChunkPayloadSource =
     [ "get_file_path", "classGsqPagedChunkPayloadSource.html#a6f3d5b5fd9e133b1a9d060e6961f88d8", null ],
     [ "get_page_count", "classGsqPagedChunkPayloadSource.html#a008d31d6aa9cdfea357d1733c3e2b173", null ],
     [ "get_sh_degree", "classGsqPagedChunkPayloadSource.html#abd37d3f8025cac7914da1fd087a798f4", null ],
-    [ "is_valid", "classGsqPagedChunkPayloadSource.html#a78bb3f446227ad3c96dbd1c24f9225cf", null ]
+    [ "is_valid", "classGsqPagedChunkPayloadSource.html#a78bb3f446227ad3c96dbd1c24f9225cf", null ],
+    [ "take_thread_last_capture_decode_nsec", "classGsqPagedChunkPayloadSource.html#a2481b65034ea3b5bde29fe6836c9763a", null ]
 ];

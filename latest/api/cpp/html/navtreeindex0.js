@@ -98,6 +98,7 @@ var NAVTREEINDEX0 =
 "classBitonicSort.html#ae400ae15df603e32e73617297d23738b":[1,0,42,12],
 "classBitonicSort.html#aebfaa8b0bc3367019ad7aff0ee283306":[1,0,42,0],
 "classChunkPayloadSource.html":[1,0,46],
+"classChunkPayloadSource.html#a391e3c168235c6fb2fa686172162681e":[1,0,46,7],
 "classChunkPayloadSource.html#a5d29e152281134ad7d3ad30585c49aae":[1,0,46,2],
 "classChunkPayloadSource.html#a64eed01321b41dc6ebff682ff8a8cd2a":[1,0,46,4],
 "classChunkPayloadSource.html#a7ef7be4edbd95210a1f9cfb5f1bbf9ee":[1,0,46,5],
@@ -248,6 +249,5 @@ var NAVTREEINDEX0 =
 "classDeviceVramLedger.html#ac81b158d1b3119f68f80fb9da120c5a4":[1,0,65,13],
 "classDeviceVramLedger.html#ad017e732fc79007da46126fbeb06de57":[1,0,65,5],
 "classDeviceVramLedger.html#ad4b6f5aeabcbd3dfd7bc0a8c4e9db8f6":[1,0,65,6],
-"classDeviceVramLedger.html#ae959c064081bc19a0fc3afb5e540cfd4":[1,0,65,3],
-"classDeviceVramLedger.html#af151b5f82a39fd1a2c08722b03ae96f6":[1,0,65,2]
+"classDeviceVramLedger.html#ae959c064081bc19a0fc3afb5e540cfd4":[1,0,65,3]
 };
