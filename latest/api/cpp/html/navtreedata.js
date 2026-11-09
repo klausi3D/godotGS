@@ -83,7 +83,7 @@ var NAVTREEINDEX =
 "classPainterlyRenderer.html#a4abe3cd189b616518dc9c959181d7e07",
 "classRenderDiagnosticsOrchestrator.html#a9d128477740279287134ce845f3c4f38",
 "classScopedGpuMarkerEx.html",
-"classStreamingUploadPipeline.html#ab6a16f30f3df569486a1177896fb4466",
+"classStreamingUploadPipeline.html#aaacdca27402ce4c1022400e259213bba",
 "classTileRenderer.html#af397f05f5bf9f443d2cc5a609b8d1fc6",
 "classgs__world__frame_1_1OriginShiftHook.html",
 "gaussian__data__edits_8cpp.html",
@@ -119,15 +119,15 @@ var NAVTREEINDEX =
 "structRasterStats.html#a3221baf8e9b52ba04f901bc7dba48d65",
 "structResidentAtlasBudget_1_1SubsetPlan.html#afe8b386b282b861e4a5ec9ee9eefb70d",
 "structStreamingQueuePressureController_1_1NeededSetProgressState.html",
-"structTileBinningStage.html#a606d933f0a5944bc8dcd6f624ac73bf6",
-"structTileResolveStage.html#ac6a491d38df4e1b983891169641166e9",
-"structgs__hlod_1_1BakeInput.html#a83b1e1c52104d33d0082d775a04762c9",
-"structgs__hlod_1_1QualityViewResult.html",
-"structgs__hlod__runtime_1_1CutRequest.html#aa058004ed6f80833f12dfbbc8139ce31",
-"structgs__hlod__runtime_1_1SnapshotInstance.html#ae04e9b4a12f22387836c7c234833535d",
-"structgs__world__frame_1_1PreciseCoord.html#a28f7b20ee9d307d7e03927b82da6e155",
-"structgs__world__generator_1_1Plan.html#acbd7594024774815044e74d478ce617e",
-"structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06"
+"structTileBinningStage.html#a59ab51cb7f4595f482aab4be17ec8360",
+"structTileResolveStage.html#ac3b46e76f19102455e62b98e9799da51",
+"structgs__hlod_1_1BakeInput.html#a4d44c53626bd3a1fa20240508a70f16c",
+"structgs__hlod_1_1QualityView.html#aee652bb8bc540c43d096aab53e0ebeaf",
+"structgs__hlod__runtime_1_1CutRequest.html#a893bd02ef563158de727d001075e5b57",
+"structgs__hlod__runtime_1_1SnapshotInstance.html#a85f4af039524b8cdc04abf9663323ac8",
+"structgs__world__frame_1_1PreciseCoord.html#a02a8c842af41b1ba3df537a25a8037d6",
+"structgs__world__generator_1_1Plan.html#ab68115b978c4f489a2395286c4411a85",
+"structspz_1_1PackedGaussians.html#a686e59ea4b1244dccf0e513b460aab94"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronization';

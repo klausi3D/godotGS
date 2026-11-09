@@ -1,5 +1,6 @@
 var NAVTREEINDEX60 =
 {
+"structspz_1_1PackedGaussians.html#a686e59ea4b1244dccf0e513b460aab94":[1,0,28,3,1],
 "structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06":[0,0,41,3,2],
 "structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06":[1,0,28,3,2],
 "structspz_1_1PackedGaussians.html#a739a8c11b2369a054a951b0f420cda95":[0,0,41,3,13],

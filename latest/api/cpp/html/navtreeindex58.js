@@ -1,5 +1,6 @@
 var NAVTREEINDEX58 =
 {
+"structgs__world__frame_1_1PreciseCoord.html#a02a8c842af41b1ba3df537a25a8037d6":[1,0,23,0,0],
 "structgs__world__frame_1_1PreciseCoord.html#a28f7b20ee9d307d7e03927b82da6e155":[0,0,33,0,3],
 "structgs__world__frame_1_1PreciseCoord.html#a28f7b20ee9d307d7e03927b82da6e155":[1,0,23,0,3],
 "structgs__world__frame_1_1PreciseCoord.html#a4a1abd0ce2b0cde752181b9aa0e988b1":[0,0,33,0,5],
@@ -248,6 +249,5 @@ var NAVTREEINDEX58 =
 "structgs__world__generator_1_1Plan.html#a8164d32d121d4199942f681a1ca78231":[1,0,24,6,8],
 "structgs__world__generator_1_1Plan.html#aa269008f8869f3d6202df1ff1625a9eb":[0,0,34,6,3],
 "structgs__world__generator_1_1Plan.html#aa269008f8869f3d6202df1ff1625a9eb":[1,0,24,6,3],
-"structgs__world__generator_1_1Plan.html#ab68115b978c4f489a2395286c4411a85":[0,0,34,6,7],
-"structgs__world__generator_1_1Plan.html#ab68115b978c4f489a2395286c4411a85":[1,0,24,6,7]
+"structgs__world__generator_1_1Plan.html#ab68115b978c4f489a2395286c4411a85":[0,0,34,6,7]
 };

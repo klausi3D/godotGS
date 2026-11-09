@@ -115,7 +115,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a3f2982806450f4e19354d932e7d73bc0" id="r_a3f2982806450f4e19354d932e7d73bc0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3f2982806450f4e19354d932e7d73bc0">load_streaming_tuning_config_from_project_settings</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="memitem:a3bd8188df540b4d88138d1b405d7383a" id="r_a3bd8188df540b4d88138d1b405d7383a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3bd8188df540b4d88138d1b405d7383a">start_pack_threads</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="memitem:a2b64ec44ba6311b128b2c4293f53bfbd" id="r_a2b64ec44ba6311b128b2c4293f53bfbd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2b64ec44ba6311b128b2c4293f53bfbd">stop_pack_threads</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
-<tr class="memitem:abf8fb88570a472ba526ce763e75736e8" id="r_abf8fb88570a472ba526ce763e75736e8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abf8fb88570a472ba526ce763e75736e8">pack_thread_func</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t p_thread_index)</td></tr>
+<tr class="memitem:aa43f01f5e7d80791dfbc7bba4fa39d4e" id="r_aa43f01f5e7d80791dfbc7bba4fa39d4e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa43f01f5e7d80791dfbc7bba4fa39d4e">pack_thread_func</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t p_thread_index, uint32_t p_dequeue_batch)</td></tr>
 <tr class="memitem:ac5b8a4f3e91ecfcf522adf2fee06c3ee" id="r_ac5b8a4f3e91ecfcf522adf2fee06c3ee"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac5b8a4f3e91ecfcf522adf2fee06c3ee">queue_chunk_load</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t asset_id, uint32_t chunk_idx, bool p_allow_visible_eviction=true)</td></tr>
 <tr class="memitem:a6f9733a2eb96d31cd3b29fcc7f3d7bbe" id="r_a6f9733a2eb96d31cd3b29fcc7f3d7bbe"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6f9733a2eb96d31cd3b29fcc7f3d7bbe">process_upload_queue</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="memitem:a823010cda18586dbb2cd613cb150f10c" id="r_a823010cda18586dbb2cd613cb150f10c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a823010cda18586dbb2cd613cb150f10c">clear_pending_uploads</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
@@ -133,11 +133,12 @@ Static Public Member Functions</h2></td></tr>
 <tr class="memitem:ab852c1d56cbfe6ad61679caa4dd33401" id="r_ab852c1d56cbfe6ad61679caa4dd33401"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab852c1d56cbfe6ad61679caa4dd33401">pack_thread_entry</a> (void *p_userdata)</td></tr>
 <tr class="memitem:afe20da15fa115af62057cc51ce53b256" id="r_afe20da15fa115af62057cc51ce53b256"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afe20da15fa115af62057cc51ce53b256">compute_staging_upload_clamp_bytes</a> (uint32_t p_staging_max_mb, uint32_t p_frames_in_flight)</td></tr>
 <tr class="memitem:a5699863ea2d7aa26928bae8ff53f6637" id="r_a5699863ea2d7aa26928bae8ff53f6637"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5699863ea2d7aa26928bae8ff53f6637">compute_max_ready_upload_jobs</a> (uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight)</td></tr>
+<tr class="memitem:af3387d8d42ac52d76cfbd42233b87592" id="r_af3387d8d42ac52d76cfbd42233b87592"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af3387d8d42ac52d76cfbd42233b87592">compute_pack_dequeue_batch</a> (uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
 <tr class="memitem:ae8311be4f921a68c35891c663871e3e4" id="r_ae8311be4f921a68c35891c663871e3e4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae8311be4f921a68c35891c663871e3e4">async_pack_enabled</a> = true</td></tr>
-<tr class="memitem:a2ea87444f8300a75e1637bfa68bd95ee" id="r_a2ea87444f8300a75e1637bfa68bd95ee"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ea87444f8300a75e1637bfa68bd95ee">pack_worker_threads</a> = 2</td></tr>
+<tr class="memitem:a2ea87444f8300a75e1637bfa68bd95ee" id="r_a2ea87444f8300a75e1637bfa68bd95ee"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ea87444f8300a75e1637bfa68bd95ee">pack_worker_threads</a> = 4</td></tr>
 <tr class="memitem:aca28eb0e29d4f01450e343f67bea57ac" id="r_aca28eb0e29d4f01450e343f67bea57ac"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca28eb0e29d4f01450e343f67bea57ac">max_pack_jobs_in_flight</a> = 4</td></tr>
 <tr class="memitem:a56ea4f39fd597c6571bd2af0f4924dab" id="r_a56ea4f39fd597c6571bd2af0f4924dab"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56ea4f39fd597c6571bd2af0f4924dab">max_chunk_loads_per_frame</a> = 16</td></tr>
 <tr class="memitem:ae87b70560e0ec5ca5856dd4a8d61f7d8" id="r_ae87b70560e0ec5ca5856dd4a8d61f7d8"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae87b70560e0ec5ca5856dd4a8d61f7d8">max_upload_bytes_per_frame</a> = 128 * 1024 * 1024</td></tr>
@@ -208,6 +209,7 @@ Public Attributes</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
 <tr class="memitem:abe91aecdf9d390b855c41439535c30eb" id="r_abe91aecdf9d390b855c41439535c30eb"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe91aecdf9d390b855c41439535c30eb">QUEUE_COMPACT_MIN_PREFIX</a> = 128</td></tr>
+<tr class="memitem:a56c0852a0cb172a233c7e9ae68004bc9" id="r_a56c0852a0cb172a233c7e9ae68004bc9"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56c0852a0cb172a233c7e9ae68004bc9">PACK_DEQUEUE_BATCH_MAX</a> = 4</td></tr>
 </table>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
 <a id="a92c360e217cd2c13763998e8cc57318e" name="a92c360e217cd2c13763998e8cc57318e"></a>
@@ -292,6 +294,35 @@ Static Public Attributes</h2></td></tr>
           <td class="memname">uint32_t StreamingUploadPipeline::compute_max_ready_upload_jobs </td>
           <td>(</td>
           <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_frame_upload_limit_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_max_pack_jobs_in_flight</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af3387d8d42ac52d76cfbd42233b87592" name="af3387d8d42ac52d76cfbd42233b87592"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af3387d8d42ac52d76cfbd42233b87592">&#9670;&#160;</a></span>compute_pack_dequeue_batch()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t StreamingUploadPipeline::compute_pack_dequeue_batch </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_worker_threads</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -485,8 +516,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="abf8fb88570a472ba526ce763e75736e8" name="abf8fb88570a472ba526ce763e75736e8"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abf8fb88570a472ba526ce763e75736e8">&#9670;&#160;</a></span>pack_thread_func()</h2>
+<a id="aa43f01f5e7d80791dfbc7bba4fa39d4e" name="aa43f01f5e7d80791dfbc7bba4fa39d4e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa43f01f5e7d80791dfbc7bba4fa39d4e">&#9670;&#160;</a></span>pack_thread_func()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -499,7 +530,12 @@ Static Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_thread_index</em></span>&#160;)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_thread_index</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_dequeue_batch</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1093,6 +1129,28 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a56c0852a0cb172a233c7e9ae68004bc9" name="a56c0852a0cb172a233c7e9ae68004bc9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a56c0852a0cb172a233c7e9ae68004bc9">&#9670;&#160;</a></span>PACK_DEQUEUE_BATCH_MAX</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t StreamingUploadPipeline::PACK_DEQUEUE_BATCH_MAX = 4</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a801f6e6e8dc986104fa6309594a7e652" name="a801f6e6e8dc986104fa6309594a7e652"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a801f6e6e8dc986104fa6309594a7e652">&#9670;&#160;</a></span>pack_jobs_in_flight</h2>
 
@@ -1240,7 +1298,7 @@ Static Public Attributes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t StreamingUploadPipeline::pack_worker_threads = 2</td>
+          <td class="memname">uint32_t StreamingUploadPipeline::pack_worker_threads = 4</td>
         </tr>
       </table>
 </div><div class="memdoc">
