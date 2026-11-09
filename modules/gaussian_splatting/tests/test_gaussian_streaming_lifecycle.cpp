@@ -2854,6 +2854,27 @@ TEST_CASE("[Streaming Pipeline] The upload budget is clamped to staging ring ove
     CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(UINT64_MAX, 4) == 0);
 }
 
+TEST_CASE("[Streaming Pipeline] A pack worker claims only its share of the in-flight window (BV-LAT)") {
+    // Tier A refill (run 42512864344): a fixed dequeue batch of 4 with 4 jobs in flight let the
+    // first worker claim all of them while the second slept, so refill ran at one worker's rate.
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(4, 4) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(2, 4) == 2);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(3, 4) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(8, 4) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(2, 0) == 1); // unbounded window
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(2, 64) == StreamingUploadPipeline::PACK_DEQUEUE_BATCH_MAX);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(1, 4) == StreamingUploadPipeline::PACK_DEQUEUE_BATCH_MAX);
+
+    // With the shipped defaults every worker can hold a job of the full in-flight window at once.
+    GaussianStreamingSystem system;
+    const StreamingUploadPipeline &uploads = system._internal_get_upload_pipeline();
+    CHECK(uploads.pack_worker_threads == 4);
+    CHECK(uploads.max_pack_jobs_in_flight == 4);
+    const uint32_t batch = StreamingUploadPipeline::compute_pack_dequeue_batch(uploads.pack_worker_threads,
+            uploads.max_pack_jobs_in_flight);
+    CHECK((uploads.max_pack_jobs_in_flight + batch - 1) / batch >= uploads.pack_worker_threads);
+}
+
 TEST_CASE("[Streaming Pipeline] A stalled upload stops the load scan at the ready bound without evicting (BV-08c)") {
     const uint32_t chunk_count = 24;
     const uint32_t ready_bound = 6;

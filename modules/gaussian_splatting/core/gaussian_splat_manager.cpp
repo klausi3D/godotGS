@@ -1176,8 +1176,10 @@ void GaussianSplatManager::initialize_module() {
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/prefetch_lookahead_distance", 10.0f);
 	// Async chunk packing (background CPU packing)
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/async_pack_enabled", true);
-	// Worker threads for async chunk packing (minimum 1).
-	GLOBAL_DEF("rendering/gaussian_splatting/streaming/pack_worker_threads", 2);
+	// Worker threads for async chunk packing (minimum 1). Each job reads and packs one chunk
+	// (~30 ms for a 41k-splat chunk); 4 workers serve the default 4 jobs in flight in parallel
+	// (BV-LAT: 2 workers held beyond-VRAM refill to ~32 chunks/s).
+	GLOBAL_DEF("rendering/gaussian_splatting/streaming/pack_worker_threads", 4);
 	// Max async pack jobs queued/processing at once (0 = unlimited).
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_pack_jobs_in_flight", 4);
 	// Limit chunk uploads per frame to avoid stalls (0 = unlimited).

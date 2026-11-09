@@ -261,6 +261,17 @@ uint32_t StreamingUploadPipeline::compute_max_ready_upload_jobs(uint64_t p_frame
     return MAX(p_max_pack_jobs_in_flight, uint32_t(MIN<uint64_t>(two_frames, UINT32_MAX)));
 }
 
+uint32_t StreamingUploadPipeline::compute_pack_dequeue_batch(uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight) {
+    if (p_worker_threads <= 1) {
+        // One worker: batching only saves mutex round trips, nobody else could take the work.
+        return PACK_DEQUEUE_BATCH_MAX;
+    }
+    if (p_max_pack_jobs_in_flight == 0) {
+        return 1; // unbounded window: no share to compute, never starve the other workers
+    }
+    return CLAMP(p_max_pack_jobs_in_flight / p_worker_threads, 1u, PACK_DEQUEUE_BATCH_MAX);
+}
+
 uint64_t StreamingUploadPipeline::get_frame_upload_limit_bytes() const {
     const uint64_t configured = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
     return upload_staging_clamp_bytes_per_frame == 0 ? configured : MIN(configured, upload_staging_clamp_bytes_per_frame);
@@ -399,9 +410,11 @@ void StreamingUploadPipeline::start_pack_threads(GaussianStreamingSystem &system
 
     PackThreadContext *contexts = pack_thread_contexts.ptr();
     uint32_t started_count = 0;
+    const uint32_t dequeue_batch = compute_pack_dequeue_batch(thread_count, max_pack_jobs_in_flight);
     for (uint32_t i = 0; i < thread_count; i++) {
         contexts[i].system = &system;
         contexts[i].thread_index = i;
+        contexts[i].dequeue_batch = dequeue_batch;
         pack_threads[i] = memnew(Thread);
         Thread::ID tid = pack_threads[i]->start(StreamingUploadPipeline::pack_thread_entry, &contexts[i]);
         if (tid == Thread::UNASSIGNED_ID) {
@@ -477,12 +490,14 @@ void StreamingUploadPipeline::pack_thread_entry(void *p_userdata) {
     if (!context || !context->system) {
         return;
     }
-    context->system->upload_pipeline.pack_thread_func(*context->system, context->thread_index);
+    context->system->upload_pipeline.pack_thread_func(*context->system, context->thread_index, context->dequeue_batch);
 }
 
-void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index) {
+void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index, uint32_t p_dequeue_batch) {
     (void)p_thread_index;
-    static constexpr uint32_t PACK_DEQUEUE_BATCH = 4;
+    // Fixed at thread start (start_pack_threads); a later max_pack_jobs_in_flight change keeps the
+    // old share until the workers restart, which only affects fairness, never correctness.
+    const uint32_t dequeue_batch = CLAMP(p_dequeue_batch, 1u, PACK_DEQUEUE_BATCH_MAX);
     PackSnapshotScratch thread_scratch;
     while (!pack_thread_exit.load()) {
         pack_semaphore.wait();
@@ -491,7 +506,7 @@ void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, 
         }
         telemetry.record_pack_thread_wake();
 
-        PackJob jobs[PACK_DEQUEUE_BATCH];
+        PackJob jobs[PACK_DEQUEUE_BATCH_MAX];
         uint32_t job_count = 0;
         {
             const uint64_t lock_wait_start_usec = _ticks_usec_now();
@@ -502,7 +517,7 @@ void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, 
             // of pending work. Semaphore wakeups may be stale if the main
             // thread synchronously promotes a job after enqueue; in that case
             // the worker simply observes no queued jobs and sleeps again.
-            while (job_count < PACK_DEQUEUE_BATCH && pack_queue_read_idx < pack_queue.size()) {
+            while (job_count < dequeue_batch && pack_queue_read_idx < pack_queue.size()) {
                 jobs[job_count++] = std::move(pack_queue[pack_queue_read_idx++]);
                 const PackJob &dequeued_job = jobs[job_count - 1];
                 if (dequeue_usec > 0 && dequeued_job.enqueue_usec > 0 && dequeue_usec >= dequeued_job.enqueue_usec) {

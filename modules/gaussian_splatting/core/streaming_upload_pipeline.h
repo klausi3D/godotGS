@@ -85,6 +85,8 @@ public:
     struct PackThreadContext {
         GaussianStreamingSystem *system = nullptr;
         uint32_t thread_index = 0;
+        // BV-LAT: most pack jobs one wakeup of this worker may claim (compute_pack_dequeue_batch()).
+        uint32_t dequeue_batch = 1;
     };
 
     // BV-04a (ADR adr-beyond-vram-worlds.md D-5): every counter here is a lock-free atomic in
@@ -230,7 +232,9 @@ public:
     static constexpr uint32_t QUEUE_COMPACT_MIN_PREFIX = 128;
 
     bool async_pack_enabled = true;
-    uint32_t pack_worker_threads = 2;
+    // BV-LAT: matches the GLOBAL_DEF default (4) so every job of the default in-flight window
+    // has its own worker.
+    uint32_t pack_worker_threads = 4;
     uint32_t max_pack_jobs_in_flight = 4;
     uint32_t max_chunk_loads_per_frame = 16;
     uint64_t max_upload_bytes_per_frame = 128 * 1024 * 1024;
@@ -311,7 +315,7 @@ public:
     void start_pack_threads(GaussianStreamingSystem &system);
     void stop_pack_threads(GaussianStreamingSystem &system);
     static void pack_thread_entry(void *p_userdata);
-    void pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index);
+    void pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index, uint32_t p_dequeue_batch);
     // #1176: p_allow_visible_eviction = false (predictive prefetch) never takes the
     // visible-eviction fallback when the atlas has no run for the chunk; the load is skipped.
     bool queue_chunk_load(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx,
@@ -329,6 +333,12 @@ public:
     uint32_t get_pack_jobs_in_flight_for_admission() const;
     static uint64_t compute_staging_upload_clamp_bytes(uint32_t p_staging_max_mb, uint32_t p_frames_in_flight);
     static uint32_t compute_max_ready_upload_jobs(uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight);
+    // BV-LAT: most jobs one pack-worker wakeup may claim: its fair share of the in-flight window
+    // (max_pack_jobs_in_flight / workers, at least 1, at most PACK_DEQUEUE_BATCH_MAX). A fixed batch
+    // of 4 with 4 jobs in flight let the first worker take every job and run them serially while
+    // the others slept: beyond-VRAM refill ran at one worker's rate (~32 chunks/s on tier A).
+    static constexpr uint32_t PACK_DEQUEUE_BATCH_MAX = 4;
+    static uint32_t compute_pack_dequeue_batch(uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight);
     uint64_t get_frame_upload_limit_bytes() const;
     void get_pending_queue_depths_cached(uint32_t &r_pack_queue_depth, uint32_t &r_upload_queue_depth) const;
 #if defined(TESTS_ENABLED)
