@@ -633,35 +633,40 @@ class _CacheCase(_EntryCase):
     def fadvise(self, fd: int, offset: int, length: int, advice: int) -> None:
         self.fadvised.append(fd)
 
-    def generator(self, rc: int = 0, gen_sha: Optional[str] = GEN_SHA) -> FakeRunner:
+    def generator(self, rc: int = 0, gen_sha: Optional[str] = GEN_SHA, honour_encoding: bool = True,
+                  fail_tier: Optional[str] = None) -> FakeRunner:
         def run(cmd, **kw):
             out = Path(self.arg(cmd, "--out"))
             out.mkdir(parents=True, exist_ok=True)
             (out / lane.WORLD_FILE_NAME).write_bytes(b"\1" * 4096)
-            manifest = {"schema": "godotgs-world-manifest/1"}
+            codec_id = lane.CODEC_ID_FOR_ENCODING[self.arg(cmd, "--encoding")] if honour_encoding else 0
+            manifest = {"schema": "godotgs-world-manifest/1", "writer": {"codec": {"codec_id": codec_id}},
+                        "world": {"splat_count": 1024}}
             if gen_sha is not None:
                 manifest["gen_sha"] = gen_sha
             (out / lane.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
-            return _proc(cmd, rc)
+            return _proc(cmd, 1 if self.arg(cmd, "--tier") == fail_tier else rc)
 
         return FakeRunner(**{lane.GENERATOR_ENTRY.name: run})
 
-    def prime(self, tier: str = "T0", runner: Optional[FakeRunner] = None, run_id: str = "11") -> int:
+    def prime(self, tier: str = "T0", runner: Optional[FakeRunner] = None, run_id: str = "11",
+              encoding: str = lane.ENCODING) -> int:
         self.install(lane.GENERATOR_ENTRY)
         return lane.prime_cache(
             self.repo, self.binary, tier, self.cache, self.out, run_id,
-            runner or self.generator(), _all_tools, self.fadvise, self.lock,
+            runner or self.generator(), _all_tools, self.fadvise, self.lock, encoding=encoding,
         )
 
-    def key(self, world: str = "T0") -> Path:
-        return self.cache / wc.world_id(world, lane.ENCODING) / GEN_SHA[:12]
+    def key(self, world: str = "T0", encoding: str = lane.ENCODING) -> Path:
+        return self.cache / wc.world_id(world, encoding) / GEN_SHA[:12]
 
-    def check(self, tier: str = "T0", ok: bool = True) -> int:
+    def check(self, tier: str = "T0", ok: bool = True, encoding: str = lane.ENCODING) -> int:
         def verify(world_file: Path) -> dict:
             self.assertTrue(world_file.is_file(), world_file)
             return {"ok": ok, "problems": [] if ok else ["chunk_sha_mismatch: 3"]}
 
-        return lane.cache_check(self.repo, tier, self.cache, self.out, "12", self.fadvise, verify, self.lock)
+        return lane.cache_check(self.repo, tier, self.cache, self.out, "12", self.fadvise, verify, self.lock,
+                                encoding=encoding)
 
 
 class PrimeCache(_CacheCase):
@@ -717,6 +722,67 @@ class PrimeCache(_CacheCase):
         self.cache.mkdir()
         (self.cache / wc.CACHE_FORMAT_FILE).write_text("other/9\n", encoding="utf-8")
         self.assertEqual(self.prime(), lane.EXIT_FAIL)
+
+
+class CompressedTierA(_CacheCase):
+    """BV-C7 (ADR D-12/D-13, section 5.3): Tier A primed as plain GSQ, the M1 file deleted."""
+
+    def test_gsq_budget_is_the_steady_m1c_line(self) -> None:
+        adr = ADR.read_text(encoding="utf-8")
+        self.assertIn("**Steady from M1c:** A plain GSQ + A V4 GSQ + T0 + T-ref transient + spill | 7.6 + ", adr)
+        self.assertEqual(lane.WORLD_BUDGET_GSQ_BYTES["A"], int(7.6 * 10**9))
+        self.assertEqual(lane.world_budget("A", lane.ENCODING_GSQ), int(7.6 * 10**9))
+        self.assertEqual(lane.world_budget("T0", lane.ENCODING_GSQ), lane.WORLD_BUDGET_BYTES["T0"])
+
+    def test_only_tier_a_is_compressed(self) -> None:
+        runner = self.generator()
+        self.assertEqual(self.prime("A", runner, encoding=lane.ENCODING_GSQ), lane.EXIT_OK, self.record("prime_cache"))
+        encodings = {self.arg(c, "--tier"): self.arg(c, "--encoding") for c in runner.calls if "--tier" in c}
+        self.assertEqual(encodings, {"T0": lane.ENCODING, "A": lane.ENCODING_GSQ})
+        self.assertTrue((self.key("A", lane.ENCODING_GSQ) / wc.COMPLETE_FILE).is_file())
+        self.assertTrue((self.key("T0") / wc.COMPLETE_FILE).is_file())
+        self.assertEqual(wc.read_key_meta(self.key("A", lane.ENCODING_GSQ))["encoding"], lane.ENCODING_GSQ)
+        self.assertEqual(self.check("A", encoding=lane.ENCODING_GSQ), lane.EXIT_OK, self.record("cache_check"))
+        mapping = json.loads((self.out / lane.CACHE_WORLDS_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(Path(mapping["worlds"]["A"]), self.key("A", lane.ENCODING_GSQ))
+
+    def test_the_m1_world_is_deleted_once_compressed_a_is_complete(self) -> None:
+        self.assertEqual(self.prime("A"), lane.EXIT_OK)
+        m1 = self.key("A").parent
+        self.assertTrue(m1.is_dir())
+        self.assertEqual(self.prime("A", encoding=lane.ENCODING_GSQ), lane.EXIT_OK, self.record("prime_cache"))
+        self.assertFalse(m1.exists())
+        data = self.record("prime_cache")["data"]
+        self.assertEqual(data["deleted_m1_world"], {"world_id": m1.name, "entries": [GEN_SHA[:12]]})
+        self.assertEqual(data["worlds"]["A"]["bytes_per_splat"], 4.0)
+        # The flat Tier A check now finds nothing: NOT_RUN, never a probe of the deleted world.
+        self.assertEqual(self.check("A"), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_absent")
+
+    def test_a_failed_compressed_prime_keeps_the_m1_world(self) -> None:
+        self.assertEqual(self.prime("A"), lane.EXIT_OK)
+        self.assertEqual(self.prime("A", self.generator(fail_tier="A"), encoding=lane.ENCODING_GSQ), lane.EXIT_FAIL)
+        self.assertIn("generator for A exited 1", self.record("prime_cache")["reason"])
+        self.assertTrue((self.key("A") / wc.COMPLETE_FILE).is_file())
+
+    def test_a_generator_that_ignores_the_encoding_fails(self) -> None:
+        runner = self.generator(honour_encoding=False)
+        self.assertEqual(self.prime("A", runner, encoding=lane.ENCODING_GSQ), lane.EXIT_FAIL)
+        self.assertIn("ignored the encoding", self.record("prime_cache")["reason"])
+        self.assertEqual(wc.complete_keys(self.cache, wc.world_id("A", lane.ENCODING_GSQ)), [])
+
+    def test_a_key_recording_another_encoding_is_stale(self) -> None:
+        self.assertEqual(self.prime("A", encoding=lane.ENCODING_GSQ), lane.EXIT_OK)
+        meta_path = self.key("A", lane.ENCODING_GSQ) / wc.KEY_META_FILE
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["encoding"] = lane.ENCODING
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        self.assertEqual(self.check("A", encoding=lane.ENCODING_GSQ), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_stale")
+
+    def test_an_unknown_encoding_touches_nothing(self) -> None:
+        self.assertEqual(self.prime("A", encoding="spz"), lane.EXIT_FAIL)
+        self.assertFalse(self.cache.exists())
 
 
 class CacheCheck(_CacheCase):
@@ -1173,6 +1239,16 @@ class WorkflowContract(unittest.TestCase):
         tier_block = self.text.split("      tier:\n", 1)[1].split("      prime_world_cache:", 1)[0]
         options = re.findall(r'^          - "([^"]+)"$', tier_block, re.M)
         self.assertEqual(sorted(options), sorted(lane.TIER_WORLDS))
+
+    def test_encoding_choices_match_the_lane_and_reach_prime_and_check(self) -> None:
+        # BV-C7: Tier A's encoding; the schedule (no inputs) and the default are compressed (D-13).
+        block = self.text.split("      encoding:\n", 1)[1].split("      disk_probe_gib:", 1)[0]
+        options = re.findall(r'^          - "([^"]+)"$', block, re.M)
+        self.assertEqual(sorted(options), sorted(lane.ENCODINGS))
+        self.assertIn('        default: "plain_v3_gsq"', block)
+        self.assertEqual(self.text.count("BVW_ENCODING: ${{ inputs.encoding || 'plain_v3_gsq' }}"), 2)
+        self.assertIn('prime-cache --tier "$BVW_TIER" --encoding "$BVW_ENCODING"', self.text)
+        self.assertIn('cache-check --tier "$BVW_TIER" --encoding "$BVW_ENCODING"', self.text)
 
 if __name__ == "__main__":
     unittest.main()

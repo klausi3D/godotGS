@@ -13,7 +13,7 @@ Layout (section 9.2)::
     <root>/.lock                             flock: prime exclusive, check exclusive, probe shared
     <root>/<world_id>/<gen_sha12>/           one key per world id; prime deletes the old one first
         world.gsplatworld, world.manifest.json
-        .key.json                            gen_sha, generator source fingerprint, run id
+        .key.json                            gen_sha, encoding, generator source fingerprint, run id
         .complete                            written last, after verify + fdatasync + fadvise
     <root>/<world_id>/.incoming-<run_id>/    a prime in progress (an orphan if no prime runs)
     <root>/quarantine/<world_id>-<key>-<run_id>/   moved here on a V2 mismatch; deleted only by prime
@@ -91,6 +91,9 @@ GENERATOR_SOURCES: Tuple[str, ...] = (
     "modules/gaussian_splatting/io/gs_world_writer.h",
     "modules/gaussian_splatting/io/gsq/gsq_codec.cpp",
     "modules/gaussian_splatting/io/gsq/gsq_codec.h",
+    # BV-C7: the GSQ writer delegates page building (grouping, order, page cuts) here.
+    "modules/gaussian_splatting/io/gsq/gsq_page_builder.cpp",
+    "modules/gaussian_splatting/io/gsq/gsq_page_builder.h",
     "modules/gaussian_splatting/io/gs_world_generator.cpp",
     "modules/gaussian_splatting/io/gs_world_generator.h",
     "modules/gaussian_splatting/io/gaussian_splat_world_generator.cpp",

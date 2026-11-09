@@ -20,11 +20,16 @@
 //     hash-noise control (field off) is not (near |r| <= 0.15), so the check can fail;
 //   - verify_world() accepts the generated world and names the chunk, section or field
 //     a single corrupted byte, a truncation or an edited manifest breaks;
-//   - a T-ref selection reproduces the parent's chunks byte for byte and is bounded.
+//   - a T-ref selection reproduces the parent's chunks byte for byte and is bounded;
+//   - GSQ v1 (BV-C7): the compressed world is bit 7, deterministic, at most a quarter of the
+//     flat size, has another gen_sha than the flat world, carries the codec block, loads
+//     resident, and verify_world() names the chunk whose page run a flipped byte breaks and a
+//     manifest whose codec is not the file's.
 
 #include "test_macros.h"
 
 #include "../core/gaussian_splat_world.h"
+#include "../io/gaussian_splat_world_format.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/gs_world_generator.h"
 
@@ -905,6 +910,104 @@ TEST_CASE("[GaussianSplatting][WorldIO][WorldGenerator] refusals: res:// paths, 
 	f.unref();
 	REQUIRE(gen::generate_world(tiny, path, opt, rep) == OK);
 	CHECK_FALSE(FileAccess::get_file_as_string(gen::manifest_path_for(path)).contains("stale"));
+	wg_remove_dir(dir);
+}
+
+// BV-C7: the same world as GSQ v1 (plain v3 + bit 7). The codec block enters gen_sha, the
+// manifest carries the codec block and per-chunk page runs, the engine loads the world, and
+// verify_world() names the chunk whose page run a flipped byte breaks.
+TEST_CASE("[GaussianSplatting][WorldIO][WorldGenerator] GSQ v1 world: codec in manifest and gen_sha, loads, verify names a corrupted page run") {
+	const gen::Params tiny = wg_tiny();
+	const String dir = wg_dir("gsq");
+	const String flat_path = dir.path_join("flat.gsplatworld");
+	const String path = dir.path_join("world.gsplatworld");
+	gen::GenerateOptions flat_opt;
+	gen::Report flat_rep;
+	REQUIRE(gen::generate_world(tiny, flat_path, flat_opt, flat_rep) == OK);
+	gen::GenerateOptions opt;
+	opt.codec_id = gs_world_writer::kCodecGsqV1;
+	gen::Report rep;
+	REQUIRE(gen::generate_world(tiny, path, opt, rep) == OK);
+
+	CHECK(rep.codec_id == gs_world_writer::kCodecGsqV1);
+	CHECK(rep.params_sha == flat_rep.params_sha);
+	CHECK_MESSAGE(rep.gen_sha != flat_rep.gen_sha, "the codec block must separate the two encodings' cache keys");
+	CHECK(rep.splat_count == flat_rep.splat_count);
+	CHECK(rep.page_count > 0u);
+	CHECK_MESSAGE(rep.file_bytes * 4u < flat_rep.file_bytes, "GSQ ", rep.file_bytes, " B vs flat ", flat_rep.file_bytes, " B");
+
+	const PackedByteArray pristine = wg_read(path);
+	if (pristine.size() <= 12) {
+		FAIL("the GSQ world could not be read back");
+		return;
+	}
+	uint32_t flags = 0;
+	memcpy(&flags, pristine.ptr() + 8, 4);
+	CHECK((flags & gs_world_format::kFlagPagedChunks) != 0u);
+
+	const Dictionary manifest = wg_manifest(path);
+	const Dictionary codec = Dictionary(manifest.get("writer", Dictionary())).get("codec", Dictionary());
+	CHECK(int64_t(codec.get("codec_id", -1)) == int64_t(gs_world_writer::kCodecGsqV1));
+	const Dictionary block = manifest.get("codec", Dictionary());
+	CHECK(int64_t(block.get("page_count", -1)) == int64_t(rep.page_count));
+	CHECK(int64_t(block.get("pages_stored_bytes", -1)) == int64_t(rep.pages_stored_bytes));
+	CHECK(String(block.get("decoded_digest_set_sha256", "")).length() == 64);
+	CHECK_FALSE(wg_manifest(flat_path).has("codec"));
+	const Array chunks = manifest.get("chunks", Array());
+	if (chunks.size() <= 4) {
+		FAIL("the GSQ world needs more than 4 chunks, got ", chunks.size());
+		return;
+	}
+	CHECK(Dictionary(chunks[3]).has("pages_sha256"));
+	CHECK_FALSE(Dictionary(chunks[3]).has("gaussian_offset"));
+
+	// Byte determinism holds for the compressed world too.
+	gen::Report again;
+	REQUIRE(gen::generate_world(tiny, dir.path_join("again.gsplatworld"), opt, again) == OK);
+	CHECK(again.file_sha256 == rep.file_sha256);
+
+	// The engine reads what the generator wrote: every page decodes, counts match.
+	{
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		Error lerr = FAILED;
+		Ref<GaussianSplatWorld> world = loader.load_resident(path, &lerr);
+		CHECK(lerr == OK);
+		if (world.is_null()) {
+			FAIL("the GSQ world did not load resident");
+			return;
+		}
+		CHECK(uint64_t(world->get_splat_count()) == rep.splat_count);
+		CHECK(world->get_static_chunks().size() == chunks.size());
+	}
+
+	Dictionary v;
+	CHECK(gen::verify_world(path, v) == OK);
+	CHECK(bool(v["ok"]));
+	// One flipped byte inside chunk 3's page run.
+	{
+		PackedByteArray b = pristine;
+		// The last byte of the run is the last byte of its last page (never padding).
+		const int64_t off = int64_t(Dictionary(chunks[3])["pages_offset"]) + int64_t(Dictionary(chunks[3])["pages_bytes"]) - 1;
+		b.write[off] ^= 0x40u;
+		REQUIRE(wg_write(path, b));
+		CHECK(gen::verify_world(path, v) != OK);
+		CHECK(wg_problems_contain(v, "chunk_digest_mismatch: chunk 3 pages_sha256"));
+		CHECK(wg_problems_contain(v, "page_invalid: chunk 3 "));
+		CHECK(wg_problems_contain(v, "file_sha256_mismatch"));
+		CHECK_FALSE(wg_problems_contain(v, "chunk 2 "));
+	}
+	// A manifest that claims the flat codec for a paged file.
+	{
+		REQUIRE(wg_write(path, pristine));
+		const String mpath = gen::manifest_path_for(path);
+		const String text = FileAccess::get_file_as_string(mpath);
+		REQUIRE(text.contains("\"codec_id\":1"));
+		Ref<FileAccess> f = FileAccess::open(mpath, FileAccess::WRITE);
+		f->store_string(text.replace("\"codec_id\":1", "\"codec_id\":0"));
+		f.unref();
+		CHECK(gen::verify_world(path, v) != OK);
+		CHECK(wg_problems_contain(v, "codec_mismatch"));
+	}
 	wg_remove_dir(dir);
 }
 

@@ -129,8 +129,22 @@ def frustum_chunks(manifest: dict, pose: Sequence[float], camera: dict, aspect: 
     return out
 
 
+#: The decoded record the streaming route uploads per splat: one Gaussian (144 B) plus
+#: the high-order SH, 12 B per Vector3 (io/gaussian_splat_world_format.h).
+GAUSSIAN_BYTES = 144
+VECTOR3_BYTES = 12
+
+
 def chunk_stored_bytes(chunk: dict) -> int:
+    """Bytes the chunk occupies in the world file: its page run (GSQ, BV-C7) or its sections."""
+    if "pages_bytes" in chunk:
+        return int(chunk["pages_bytes"])
     return int(chunk.get("gaussian_bytes", 0)) + int(chunk.get("sh_bytes", 0))
+
+
+def chunk_decoded_bytes(chunk: dict, sh_high_order: int) -> int:
+    """Bytes the chunk's decoded splats take on upload, whatever the file's codec."""
+    return int(chunk["count"]) * (GAUSSIAN_BYTES + int(sh_high_order) * VECTOR3_BYTES)
 
 
 def checkpoint_truth(manifest: dict, pose: Sequence[float], camera: dict, aspect: float) -> Dict[str, object]:
@@ -172,6 +186,7 @@ def path_poses(path: dict) -> Iterable[Sequence[float]]:
 
 
 def expected_unique_upload(manifest: dict, path: dict, camera: dict, aspect: float) -> Dict[str, object]:
+    sh_high = int(manifest.get("world", {}).get("sh_high_order", 0))
     seen: Dict[int, dict] = {}
     poses = 0
     for pose in path_poses(path):
@@ -184,6 +199,7 @@ def expected_unique_upload(manifest: dict, path: dict, camera: dict, aspect: flo
         "poses": poses,
         "chunks": len(seen),
         "stored_bytes": sum(chunk_stored_bytes(c) for c in seen.values()),
+        "decoded_bytes": sum(chunk_decoded_bytes(c, sh_high) for c in seen.values()),
         "splats": sum(int(c["count"]) for c in seen.values()),
     }
 

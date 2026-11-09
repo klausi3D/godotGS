@@ -62,6 +62,13 @@
 // every feature (towns, walls, foliage, beacons with their codes), and per chunk:
 // cell, Morton key, counts per class, the chunk-table AABB/centre/radius, byte ranges
 // and SHA-256 digests. The manifest holds no timing, so its bytes are deterministic too.
+//
+// GSQ v1 (GenerateOptions::codec_id, BV-C7). The writer encodes, decodes and validates every
+// page (W12). The read-back verifies every page's stored digest and records per chunk its page
+// run (first page, page count, byte span and the SHA-256 of that span); the manifest's "codec"
+// block carries the page count, the stored bytes and the SHA-256 of the decoded digest set
+// (every page's decoded digest in page order). A lossy codec has no "generated == stored"
+// identity, so no per-chunk generated-bytes digest is recorded for it.
 namespace gs_world_generator {
 
 static constexpr const char *kGeneratorId = "godotgs.bv05.synthetic_world";
@@ -270,6 +277,11 @@ struct GenerateOptions {
 	// file digest is always computed from disk.
 	bool verify_readback = true;
 	bool print_progress = false;
+	// gs_world_writer::kCodecNone writes the uncompressed plain v3 world (the M1 probe and the
+	// identity references); kCodecGsqV1 writes plain v3 + bit 7, paged GSQ v1 chunks with the
+	// D-12 pre-registered codec block (gs_world_writer::gsq_v1_codec_params(); ADR D-12, BV-C7).
+	// The codec block is part of gen_sha, so the two encodings of one world never share a key.
+	uint32_t codec_id = gs_world_writer::kCodecNone;
 };
 
 struct Report {
@@ -288,6 +300,11 @@ struct Report {
 	uint64_t finalize_usec = 0;
 	uint64_t verify_usec = 0;
 	uint64_t total_usec = 0;
+	// GSQ v1 only: pages written and their stored bytes (page headers included, alignment
+	// padding not).
+	uint32_t codec_id = 0;
+	uint64_t page_count = 0;
+	uint64_t pages_stored_bytes = 0;
 	Dictionary to_dict() const;
 };
 
@@ -300,7 +317,8 @@ String manifest_path_for(const String &p_world_path);
 Error generate_world(const Params &p_params, const String &p_world_path, const GenerateOptions &p_options, Report &r_report);
 
 // Re-reads the world and checks it against its manifest: file size and SHA-256, header
-// fields, chunk table records, every chunk's gaussian and SH digests, the content-table
+// fields, chunk table records, every chunk's gaussian and SH digests (GSQ v1: every chunk's
+// page-run digest, every page's stored digest and the decoded digest set), the content-table
 // sums and generator_params_sha. r_report lists every mismatch; OK only when none.
 Error verify_world(const String &p_world_path, Dictionary &r_report);
 

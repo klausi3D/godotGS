@@ -56,6 +56,14 @@ on:
         required: false
         default: false
         type: boolean
+      encoding:
+        description: "Tier A encoding: plain_v3_gsq (BV-C7, M1c on; priming it deletes the uncompressed M1 world) or plain_v3_uncompressed (the M1 probe). T0 stays uncompressed. The schedule uses plain_v3_gsq."
+        required: false
+        default: "plain_v3_gsq"
+        type: choice
+        options:
+          - "plain_v3_gsq"
+          - "plain_v3_uncompressed"
       disk_probe_gib:
         description: "Size in GiB of the O_DIRECT disk-throughput probe file (1-64)"
         required: false
@@ -72,7 +80,7 @@ on:
         default: false
         type: boolean
 
-run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || format('Beyond-VRAM fly-through {0}', inputs.tier || 'A') }}
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
 permissions:
   contents: read
@@ -197,6 +205,7 @@ jobs:
       # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
       NODEVICE_SELECT: '1'
       BVW_TIER: ${{ inputs.tier }}
+      BVW_ENCODING: ${{ inputs.encoding || 'plain_v3_gsq' }}
     defaults:
       run:
         working-directory: repo
@@ -265,13 +274,13 @@ jobs:
       - name: Prime world cache (BV-05 generator, D-14 fadvise)
         timeout-minutes: 225
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py prime-cache --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
+          python3 tests/runtime/flythrough/dispatch_lane.py prime-cache --tier "$BVW_TIER" --encoding "$BVW_ENCODING" --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
 
       - name: Upload prime outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: beyond-vram-prime-${{ inputs.tier }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: beyond-vram-prime-${{ inputs.tier }}-${{ inputs.encoding || 'plain_v3_gsq' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/bvw-prime-out/
           if-no-files-found: error
           retention-days: 30
@@ -305,8 +314,10 @@ jobs:
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
       # VK_LAYER_MESA_device_select (Linux; the ICD is pinned to NVIDIA by the runner .env)
       NODEVICE_SELECT: '1'
-      # The schedule has no inputs: it runs Tier A with the default probe size.
+      # The schedule has no inputs: it runs Tier A, compressed (ADR D-13: every
+      # gated run from M1c on is compressed), with the default probe size.
       BVW_TIER: ${{ inputs.tier || 'A' }}
+      BVW_ENCODING: ${{ inputs.encoding || 'plain_v3_gsq' }}
       BVW_DISK_PROBE_GIB: ${{ inputs.disk_probe_gib || '8' }}
     defaults:
       run:
@@ -417,7 +428,7 @@ jobs:
         if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
         timeout-minutes: 30
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py cache-check --tier "$BVW_TIER" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
+          python3 tests/runtime/flythrough/dispatch_lane.py cache-check --tier "$BVW_TIER" --encoding "$BVW_ENCODING" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
 
       # BV-07 probe lane on the cached worlds. D-14 item 2 first: mincore above
       # 1 % is INVALID cache_warm and the probe does not start. The probe's exit

@@ -60,8 +60,18 @@ Entry-point contract of the generator and the probe (a change to either must
 change this file and its tests in the same PR):
 
 * BV-05: ``python3 tests/runtime/flythrough/generate_world.py --godot-binary B
-  --tier {T0,A} --encoding plain_v3_uncompressed --out DIR`` writes the world
-  and ``DIR/world.manifest.json``.
+  --tier {T0,A} --encoding {plain_v3_uncompressed,plain_v3_gsq} --out DIR`` writes
+  the world and ``DIR/world.manifest.json`` (BV-C7: ``plain_v3_gsq`` is plain v3 +
+  bit 7, paged GSQ v1 chunks, and its manifest carries the ``codec`` block).
+
+Encoding (BV-C7, ADR D-12/D-13): ``--encoding`` of ``generate``, ``prime-cache`` and
+``cache-check`` selects Tier A's encoding; T0 always stays uncompressed, because the
+BV-07 F/k sweep regenerates T0 subsets uncompressed and one sweep must not mix codecs.
+The encoding is part of the world id (``A-plain_v3_gsq``), and the codec block is part
+of ``gen_sha``, so the two encodings never share a cache key. A prime of compressed
+Tier A deletes the uncompressed M1 world (``A-plain_v3_uncompressed``) once the
+compressed key is complete (D-13: "the file is deleted when compressed Tier A is
+primed").
 * BV-07: ``python3 tests/runtime/flythrough/run_probe.py --godot-binary B
   --world TIER=DIR [--world ...] --out DIR`` writes ``DIR/summary.json``.
 """
@@ -115,6 +125,15 @@ TIER_WORLDS: Dict[str, Tuple[str, ...]] = {
 }
 
 ENCODING = "plain_v3_uncompressed"
+#: BV-C7: Tier A as plain v3 + paged GSQ v1 chunks (ADR D-12), from M1c on.
+ENCODING_GSQ = "plain_v3_gsq"
+ENCODINGS = (ENCODING, ENCODING_GSQ)
+#: The writer codec id each encoding's manifest must name (`writer.codec.codec_id`).
+CODEC_ID_FOR_ENCODING: Dict[str, int] = {ENCODING: 0, ENCODING_GSQ: 1}
+#: ADR section 5.3 runner table, "Steady from M1c: A plain GSQ ... 7.6" (decimal GB).
+WORLD_BUDGET_GSQ_BYTES: Dict[str, int] = {
+    "A": int(7.6 * GB),
+}
 
 GENERATOR_ENTRY = Path("tests/runtime/flythrough/generate_world.py")
 PROBE_ENTRY = Path("tests/runtime/flythrough/run_probe.py")
@@ -257,6 +276,26 @@ def run_df(path: Path, runner: Runner = subprocess.run) -> Dict[str, object]:
     parsed = parse_df(proc.stdout)
     parsed["raw"] = proc.stdout
     return parsed
+
+
+def world_encoding(world: str, encoding: str) -> str:
+    """The encoding `world` is generated in: the requested one for Tier A, T0 always flat."""
+    if encoding not in ENCODINGS:
+        raise LaneError(f"unknown encoding {encoding!r}; expected one of {list(ENCODINGS)}")
+    return encoding if world == "A" else ENCODING
+
+
+def world_budget(world: str, encoding: str) -> int:
+    if world_encoding(world, encoding) == ENCODING_GSQ:
+        return WORLD_BUDGET_GSQ_BYTES[world]
+    return WORLD_BUDGET_BYTES[world]
+
+
+def _manifest_codec_id(manifest: object) -> object:
+    try:
+        return manifest["writer"]["codec"]["codec_id"]  # type: ignore[index]
+    except (KeyError, TypeError):
+        return None
 
 
 def required_free_bytes(tier: str, probe_gib: int, include_worlds: bool = True) -> Tuple[int, Dict[str, int]]:
@@ -685,9 +724,10 @@ def generate(
     world_root: Path,
     out: Path,
     runner: Runner = subprocess.run,
+    encoding: str = ENCODING,
 ) -> int:
     step = "generate"
-    data: Dict[str, object] = {"tier": tier, "encoding": ENCODING, "worlds": {}}
+    data: Dict[str, object] = {"tier": tier, "encoding": encoding, "worlds": {}}
     try:
         if tier not in TIER_WORLDS:
             raise LaneError(f"unknown tier {tier!r}")
@@ -697,7 +737,7 @@ def generate(
             world_dir = world_root / world
             cmd = [
                 sys.executable, str(entry), "--godot-binary", str(godot_binary),
-                "--tier", world, "--encoding", ENCODING, "--out", str(world_dir),
+                "--tier", world, "--encoding", world_encoding(world, encoding), "--out", str(world_dir),
             ]
             rc = _run_logged(cmd, out / "logs" / f"generate_{world}.log", runner, None)
             if rc != 0:
@@ -714,7 +754,7 @@ def generate(
             (out / "worlds").mkdir(parents=True, exist_ok=True)
             shutil.copyfile(manifest, out / "worlds" / f"{world}.{MANIFEST_NAME}")
             on_disk = _tree_bytes(world_dir)
-            budget = WORLD_BUDGET_BYTES[world]
+            budget = world_budget(world, encoding)
             data["worlds"][world] = {
                 "bytes_on_disk": on_disk,
                 "budget_bytes": budget,
@@ -725,7 +765,7 @@ def generate(
                     f"::warning::world {world} occupies {on_disk / GB:.2f} GB, above the ADR "
                     f"section 5.3 budget of {budget / GB:.2f} GB the disk preflight reserved"
                 )
-        reason = f"generated {', '.join(TIER_WORLDS[tier])} ({ENCODING})"
+        reason = f"generated {', '.join(TIER_WORLDS[tier])} (Tier A encoding {encoding})"
         code = EXIT_OK
     except LaneError as exc:
         reason, code = str(exc), exc.code
@@ -889,13 +929,19 @@ def prime_cache(
     which: Which = shutil.which,
     fadvise: Optional[wc.Fadvise] = None,
     lock: Callable[..., object] = wc.cache_lock,
+    encoding: str = ENCODING,
 ) -> int:
-    """Section 9.1 job 1: sweep orphans, delete the old key, generate, fadvise, `.complete`."""
+    """Section 9.1 job 1: sweep orphans, delete the old key, generate, fadvise, `.complete`.
+
+    With Tier A compressed (BV-C7), the uncompressed M1 world is deleted after the
+    compressed key is complete, never before: a failed prime keeps it.
+    """
     step = "prime_cache"
-    data: Dict[str, object] = {"tier": tier, "cache_root": str(cache_root), "worlds": {}}
+    data: Dict[str, object] = {"tier": tier, "encoding": encoding, "cache_root": str(cache_root), "worlds": {}}
     try:
         if tier not in TIER_WORLDS:
             raise LaneError(f"unknown tier {tier!r}")
+        world_encoding("A", encoding)  # refuses an unknown encoding before anything is touched
         if not cache_root.is_absolute():
             raise LaneError(f"cache root {cache_root} is not an absolute path")
         entry = _entry_point(repo, GENERATOR_ENTRY, GENERATOR_PACKAGE, "generator")
@@ -908,7 +954,8 @@ def prime_cache(
             data["swept_orphans"] = wc.sweep_orphans(cache_root)
             data["quarantine_deleted"] = wc.clear_quarantine(cache_root)
             for world in TIER_WORLDS[tier]:
-                wid = wc.world_id(world, ENCODING)
+                enc = world_encoding(world, encoding)
+                wid = wc.world_id(world, enc)
                 base = cache_root / wid
                 base.mkdir(parents=True, exist_ok=True)
                 # Delete-first (section 5.3): the lane reports NOT_RUN: cache absent meanwhile.
@@ -917,20 +964,23 @@ def prime_cache(
                     shutil.rmtree(old)
                     deleted.append(old.name)
                 df = run_df(cache_root, runner)
-                need = WORLD_BUDGET_BYTES[world] + FREE_MARGIN_BYTES
+                budget = world_budget(world, encoding)
+                need = budget + FREE_MARGIN_BYTES
                 if int(df["avail_bytes"]) < need:
                     raise LaneError(
                         f"DID NOT RUN: disk -- df reports {int(df['avail_bytes']) / GB:.1f} GB free "
-                        f"on {df['mounted_on']}, world {world} needs {WORLD_BUDGET_BYTES[world] / GB:.1f} GB "
+                        f"on {df['mounted_on']}, world {world} needs {budget / GB:.1f} GB "
                         f"+ the {FREE_MARGIN_BYTES // GIB} GiB enforced free margin (ADR section 5.3)",
                         EXIT_NOT_RUN,
                     )
                 incoming = base / f"{wc.INCOMING_PREFIX}{run_id}"
                 cmd = [
                     sys.executable, str(entry), "--godot-binary", str(godot_binary),
-                    "--tier", world, "--encoding", ENCODING, "--out", str(incoming),
+                    "--tier", world, "--encoding", enc, "--out", str(incoming),
                 ]
+                t_gen = time.monotonic()
                 rc = _run_logged(cmd, out / "logs" / f"prime_{world}.log", runner, None)
+                generate_s = round(time.monotonic() - t_gen, 1)
                 if rc != 0:
                     raise LaneError(f"generator for {world} exited {rc}; the partial key stays an orphan")
                 try:
@@ -942,10 +992,15 @@ def prime_cache(
                     ) from exc
                 if not re.fullmatch(r"[0-9a-f]{64}", gen_sha):
                     raise LaneError(f"{MANIFEST_NAME} of {world} has a malformed gen_sha {gen_sha!r}")
+                if _manifest_codec_id(manifest) != CODEC_ID_FOR_ENCODING[enc]:
+                    raise LaneError(
+                        f"{MANIFEST_NAME} of {world} names writer codec {_manifest_codec_id(manifest)!r}, "
+                        f"not the {CODEC_ID_FOR_ENCODING[enc]} of {enc}; the generator ignored the encoding"
+                    )
                 meta = {
                     "schema": wc.KEY_SCHEMA,
                     "world": world,
-                    "encoding": ENCODING,
+                    "encoding": enc,
                     "gen_sha": gen_sha,
                     "source_fingerprint": fingerprint,
                     "run_id": run_id,
@@ -958,12 +1013,27 @@ def prime_cache(
                 _fsync_write(key / wc.COMPLETE_FILE, f"run_id={run_id}\n")
                 (out / "worlds").mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(key / MANIFEST_NAME, out / "worlds" / f"{world}.{MANIFEST_NAME}")
+                world_bytes = (key / WORLD_FILE_NAME).stat().st_size
+                splats = int(manifest.get("world", {}).get("splat_count") or 0)
                 data["worlds"][world] = {  # type: ignore[index]
                     "key": str(key.relative_to(cache_root)),
+                    "encoding": enc,
                     "deleted_keys": deleted,
                     "bytes_dropped_from_page_cache": dropped,
+                    "world_bytes": world_bytes,
+                    "splat_count": splats,
+                    "bytes_per_splat": round(world_bytes / splats, 3) if splats else None,
+                    "codec": manifest.get("codec"),
+                    "generate_s": generate_s,
                 }
-        reason = f"primed {', '.join(TIER_WORLDS[tier])} into {cache_root}"
+                if world == "A" and enc == ENCODING_GSQ:
+                    # D-13: the M1 file goes once compressed Tier A is primed.
+                    m1 = cache_root / wc.world_id("A", ENCODING)
+                    removed = sorted(p.name for p in m1.iterdir()) if m1.is_dir() else []
+                    if m1.is_dir():
+                        shutil.rmtree(m1)
+                    data["deleted_m1_world"] = {"world_id": m1.name, "entries": removed}
+        reason = f"primed {', '.join(TIER_WORLDS[tier])} (Tier A encoding {encoding}) into {cache_root}"
         code = EXIT_OK
     except (LaneError, wc.CacheError) as exc:
         reason, code = str(exc), exc.code
@@ -989,10 +1059,11 @@ def cache_check(
     fadvise: Optional[wc.Fadvise] = None,
     verify: Callable[[Path], dict] = _verify_world,
     lock: Callable[..., object] = wc.cache_lock,
+    encoding: str = ENCODING,
 ) -> int:
     """Per-run verify (V2 against the world's own manifest), quarantine, fadvise."""
     step = "cache_check"
-    data: Dict[str, object] = {"tier": tier, "cache_root": str(cache_root), "worlds": {}}
+    data: Dict[str, object] = {"tier": tier, "encoding": encoding, "cache_root": str(cache_root), "worlds": {}}
     try:
         if tier not in TIER_WORLDS:
             raise LaneError(f"unknown tier {tier!r}")
@@ -1002,7 +1073,8 @@ def cache_check(
         resolved: Dict[str, str] = {}
         with lock(cache_root, True):  # type: ignore[operator]
             for world in TIER_WORLDS[tier]:
-                wid = wc.world_id(world, ENCODING)
+                enc = world_encoding(world, encoding)
+                wid = wc.world_id(world, enc)
                 keys = wc.complete_keys(cache_root, wid)
                 if not keys:
                     raise wc.CacheError(
@@ -1018,6 +1090,13 @@ def cache_check(
                     )
                 key = keys[0]
                 meta = wc.read_key_meta(key)
+                if meta.get("encoding") != enc:
+                    raise wc.CacheError(
+                        f"NOT_RUN: cache_stale -- {wid}/{key.name} records encoding "
+                        f"{meta.get('encoding')!r}, not {enc}; dispatch with prime_world_cache=true",
+                        EXIT_NOT_RUN,
+                        "cache_stale",
+                    )
                 if meta.get("source_fingerprint") != fingerprint:
                     raise wc.CacheError(
                         f"NOT_RUN: cache_stale -- {wid}/{key.name} was generated from other "
@@ -1242,6 +1321,8 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--godot-binary", type=Path, required=True)
         p.add_argument("--tier", required=True, choices=sorted(TIER_WORLDS))
         p.add_argument("--repo", type=Path, default=ROOT)
+        if name == "generate":
+            p.add_argument("--encoding", choices=ENCODINGS, default=ENCODING, help="Tier A's encoding (T0 stays flat)")
         if name == "probe":
             p.add_argument("--cache-worlds", type=Path,
                            help=f"the {CACHE_WORLDS_FILE} cache-check wrote: probe the cached worlds, cold")
@@ -1253,6 +1334,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--cache-root", type=Path, required=True)
     p.add_argument("--repo", type=Path, default=ROOT)
     p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
+    p.add_argument("--encoding", choices=ENCODINGS, default=ENCODING, help="Tier A's encoding (T0 stays flat)")
 
     p = sub.add_parser("cache-check")
     common(p, world=False)
@@ -1260,6 +1342,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--cache-root", type=Path, required=True)
     p.add_argument("--repo", type=Path, default=ROOT)
     p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
+    p.add_argument("--encoding", choices=ENCODINGS, default=ENCODING, help="Tier A's encoding (T0 stays flat)")
 
     p = sub.add_parser("summarize")
     common(p, world=False)
@@ -1282,9 +1365,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             include_worlds=not args.worlds_cached,
         )
     if args.command == "prime-cache":
-        return prime_cache(args.repo, args.godot_binary, args.tier, args.cache_root, args.out, args.run_id)
+        return prime_cache(args.repo, args.godot_binary, args.tier, args.cache_root, args.out, args.run_id,
+                           encoding=args.encoding)
     if args.command == "cache-check":
-        return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id)
+        return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id, encoding=args.encoding)
     if args.command == "disk-throughput":
         return disk_throughput(args.world_root, args.out, args.probe_gib)
     if args.command == "vulkan-limits":
@@ -1292,7 +1376,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "build-info":
         return build_info(args.godot_binary, args.provenance, args.scons_args, args.out)
     if args.command == "generate":
-        return generate(args.repo, args.godot_binary, args.tier, args.world_root, args.out)
+        return generate(args.repo, args.godot_binary, args.tier, args.world_root, args.out, encoding=args.encoding)
     if args.command == "probe":
         return probe(args.repo, args.godot_binary, args.tier, args.world_root, args.out,
                      cache_worlds=args.cache_worlds)

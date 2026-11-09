@@ -5,9 +5,11 @@ Entry point of the dispatch lane's ``generate`` step (BV-06a,
 tests/runtime/flythrough/dispatch_lane.py)::
 
     python3 tests/runtime/flythrough/generate_world.py --godot-binary B \\
-        --tier {T0,A,A-mini,T-smoke} --encoding plain_v3_uncompressed --out DIR
+        --tier {T0,A,A-mini,T-smoke} --encoding {plain_v3_uncompressed,plain_v3_gsq} --out DIR
 
-writes ``DIR/world.gsplatworld`` and its sidecar ``DIR/world.manifest.json``. The
+writes ``DIR/world.gsplatworld`` and its sidecar ``DIR/world.manifest.json``.
+``plain_v3_gsq`` (BV-C7, ADR D-12) writes plain v3 + bit 7, paged GSQ v1 chunks with
+the pre-registered codec block; the manifest then carries the ``codec`` block. The
 generation itself is the C++ generator (GaussianSplatWorldGenerator, driven by
 generate_world.gd in this directory) running headless in the given binary; this
 wrapper only supplies a throwaway project, checks the result and, unless
@@ -31,7 +33,9 @@ HERE = Path(__file__).resolve().parent
 GD_SCRIPT = HERE / "generate_world.gd"
 WORLD_NAME = "world.gsplatworld"
 MANIFEST_NAME = "world.manifest.json"
-ENCODINGS = ("plain_v3_uncompressed",)
+ENCODINGS = ("plain_v3_uncompressed", "plain_v3_gsq")
+#: --encoding -> the generator's codec argument (GaussianSplatWorldGenerator.generate).
+CODEC_FOR_ENCODING = {"plain_v3_uncompressed": "none", "plain_v3_gsq": "gsq_v1"}
 TIERS = ("T0", "A", "A-mini", "T-smoke")
 
 sys.path.insert(0, str(HERE))
@@ -66,6 +70,7 @@ def main(argv: list[str]) -> int:
         cmd = [
             str(args.godot_binary), "--headless", "--path", proj, "--script", str(GD_SCRIPT), "--",
             "--tier", args.tier, "--out", world.as_posix(), "--report", report.as_posix(),
+            "--codec", CODEC_FOR_ENCODING[args.encoding],
         ]
         if args.seed is not None:
             cmd += ["--seed", str(args.seed)]
@@ -96,7 +101,10 @@ def main(argv: list[str]) -> int:
             manifest.unlink()
             return 1
     print(f"generate_world: {world} ({rep['splat_count']} splats, {rep['chunk_count']} chunks, "
-          f"{rep['file_bytes']} bytes, generator_params_sha {rep['generator_params_sha']})")
+          f"{rep['file_bytes']} bytes, {args.encoding}, generator_params_sha {rep['generator_params_sha']})")
+    if rep.get("page_count"):
+        print(f"generate_world: {rep['page_count']} GSQ pages, {rep['file_bytes'] / rep['splat_count']:.2f} B/splat "
+              f"on disk, {rep['pages_stored_bytes'] / rep['splat_count']:.2f} B/splat stored")
     return 0
 
 
