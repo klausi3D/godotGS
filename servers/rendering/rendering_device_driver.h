@@ -817,6 +817,33 @@ public:
 	// can answer (currently Vulkan via VMA heap budgets) need to override it; others
 	// degrade to the caller's capacity-unknown fallback path. (GS #321)
 	virtual uint64_t get_device_memory_budget() { return 0; }
+	// GodotGS BV-POOL: where a buffer's memory was placed. The allocator only *prefers*
+	// device-local memory for GPU buffers and falls back to host memory without an error
+	// when VRAM is short, so callers that need VRAM bandwidth must check. `known` is false
+	// when the backend cannot tell; `device_local` is then meaningless.
+	struct BufferMemoryPlacement {
+		bool known = false;
+		bool device_local = false; // The memory type and its heap are both DEVICE_LOCAL.
+		uint32_t memory_type_index = 0;
+		uint32_t memory_heap_index = 0;
+		uint32_t memory_property_flags = 0;
+	};
+	virtual BufferMemoryPlacement buffer_get_memory_placement(BufferID p_buffer) { return BufferMemoryPlacement(); }
+	// GodotGS BV-POOL: device-local heap usage, summed over the DEVICE_LOCAL heaps.
+	// allocator_*: this process's allocator blocks/allocations (always available on Vulkan).
+	// ext_*: VK_EXT_memory_budget (driver-reported process usage and the budget the process
+	// may use, which accounts for other processes); ext_known is false without the extension.
+	struct DeviceLocalHeapUsage {
+		bool known = false;
+		uint64_t heap_size_bytes = 0;
+		uint64_t allocator_block_bytes = 0;
+		uint64_t allocator_allocation_bytes = 0;
+		uint64_t host_allocator_block_bytes = 0; // Same, on the heaps that are NOT device-local.
+		bool ext_known = false;
+		uint64_t ext_usage_bytes = 0;
+		uint64_t ext_budget_bytes = 0;
+	};
+	virtual DeviceLocalHeapUsage get_device_local_heap_usage() { return DeviceLocalHeapUsage(); }
 	virtual uint64_t limit_get(Limit p_limit) = 0;
 	virtual uint64_t api_trait_get(ApiTrait p_trait);
 	virtual bool has_feature(Features p_feature) = 0;

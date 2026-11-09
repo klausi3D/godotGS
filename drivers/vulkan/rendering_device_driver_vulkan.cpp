@@ -548,6 +548,8 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 	}
 #endif
 	_register_requested_device_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME, false);
+	// GodotGS BV-POOL: query-only, read by get_device_local_heap_usage().
+	_register_requested_device_extension(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME, false);
 
 	{
 		// Debug marker extensions.
@@ -5860,6 +5862,86 @@ uint64_t RenderingDeviceDriverVulkan::get_device_memory_budget() {
 		}
 	}
 	return device_local_capacity;
+}
+
+RenderingDeviceDriver::BufferMemoryPlacement RenderingDeviceDriverVulkan::buffer_get_memory_placement(BufferID p_buffer) {
+	// GodotGS BV-POOL. buffer_create() asks VMA for AUTO_PREFER_DEVICE with DEVICE_LOCAL only
+	// *preferred*, so a GPU buffer can land in host memory without an error when VRAM is short.
+	BufferMemoryPlacement placement;
+	const BufferInfo *buf_info = (const BufferInfo *)p_buffer.id;
+	if (allocator == nullptr || buf_info == nullptr || buf_info->allocation.handle == nullptr) {
+		return placement;
+	}
+	VmaAllocationInfo alloc_info = {};
+	vmaGetAllocationInfo(allocator, buf_info->allocation.handle, &alloc_info);
+	const VkPhysicalDeviceMemoryProperties *mem_props = nullptr;
+	vmaGetMemoryProperties(allocator, &mem_props);
+	if (mem_props == nullptr || alloc_info.memoryType >= mem_props->memoryTypeCount) {
+		return placement;
+	}
+	const VkMemoryType &type = mem_props->memoryTypes[alloc_info.memoryType];
+	placement.known = true;
+	placement.memory_type_index = alloc_info.memoryType;
+	placement.memory_heap_index = type.heapIndex;
+	placement.memory_property_flags = type.propertyFlags;
+	placement.device_local = (type.propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+			type.heapIndex < mem_props->memoryHeapCount &&
+			(mem_props->memoryHeaps[type.heapIndex].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT);
+	return placement;
+}
+
+RenderingDeviceDriver::DeviceLocalHeapUsage RenderingDeviceDriverVulkan::get_device_local_heap_usage() {
+	// GodotGS BV-POOL. vmaGetHeapBudgets() is used for the allocator's own block and
+	// allocation bytes only: the allocator is created without the memory-budget flag, so its
+	// budget field is an estimate and is not reported. The driver's own view comes from
+	// VK_EXT_memory_budget when the device has it enabled.
+	DeviceLocalHeapUsage usage;
+	if (allocator == nullptr) {
+		return usage;
+	}
+	const VkPhysicalDeviceMemoryProperties *mem_props = nullptr;
+	vmaGetMemoryProperties(allocator, &mem_props);
+	if (mem_props == nullptr) {
+		return usage;
+	}
+	VmaBudget vma_budgets[VK_MAX_MEMORY_HEAPS] = {};
+	vmaGetHeapBudgets(allocator, vma_budgets);
+
+	VkPhysicalDeviceMemoryBudgetPropertiesEXT ext_budget = {};
+	bool ext_ok = false;
+	if (enabled_device_extension_names.has(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME)) {
+		PFN_vkGetPhysicalDeviceMemoryProperties2 get_props2 = (PFN_vkGetPhysicalDeviceMemoryProperties2)vkGetInstanceProcAddr(
+				context_driver->instance_get(), "vkGetPhysicalDeviceMemoryProperties2");
+		if (get_props2 == nullptr) {
+			get_props2 = (PFN_vkGetPhysicalDeviceMemoryProperties2)vkGetInstanceProcAddr(
+					context_driver->instance_get(), "vkGetPhysicalDeviceMemoryProperties2KHR");
+		}
+		if (get_props2 != nullptr) {
+			ext_budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+			VkPhysicalDeviceMemoryProperties2 props2 = {};
+			props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+			props2.pNext = &ext_budget;
+			get_props2(physical_device, &props2);
+			ext_ok = true;
+		}
+	}
+
+	for (uint32_t i = 0; i < mem_props->memoryHeapCount && i < VK_MAX_MEMORY_HEAPS; i++) {
+		if (!(mem_props->memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) {
+			usage.host_allocator_block_bytes += vma_budgets[i].statistics.blockBytes;
+			continue;
+		}
+		usage.known = true;
+		usage.heap_size_bytes += mem_props->memoryHeaps[i].size;
+		usage.allocator_block_bytes += vma_budgets[i].statistics.blockBytes;
+		usage.allocator_allocation_bytes += vma_budgets[i].statistics.allocationBytes;
+		if (ext_ok) {
+			usage.ext_usage_bytes += ext_budget.heapUsage[i];
+			usage.ext_budget_bytes += ext_budget.heapBudget[i];
+		}
+	}
+	usage.ext_known = ext_ok && usage.known && usage.ext_budget_bytes > 0;
+	return usage;
 }
 
 uint64_t RenderingDeviceDriverVulkan::limit_get(Limit p_limit) {

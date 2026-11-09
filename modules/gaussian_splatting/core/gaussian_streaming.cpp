@@ -338,6 +338,25 @@ void GaussianStreamingSystem::_release_persistent_buffer(RenderingDevice *p_rd, 
     persistent_buffer_size = 0;
 }
 
+RenderingDeviceDriver::BufferMemoryPlacement GaussianStreamingSystem::_record_persistent_buffer_placement(RenderingDevice *p_rd,
+        RID p_buffer, uint64_t p_bytes, const char *p_context) {
+    RenderingDeviceDriver::BufferMemoryPlacement placement;
+    if (!p_rd || !p_buffer.is_valid()) {
+        return placement;
+    }
+    placement = p_rd->buffer_get_memory_placement(p_buffer);
+    pool_placement.allocations++;
+    if (placement.known && !placement.device_local) {
+        pool_placement.non_device_local_allocations++;
+        // Never silent: every atlas-reading pass would read this pool over the bus.
+        ERR_PRINT(vformat("[Streaming][BV-POOL] %s: the persistent buffer (%s bytes) was placed OUTSIDE device-local memory "
+                          "(memory type %d, heap %d, flags 0x%x). Device-local VRAM is short; atlas-reading passes will be bus-bound.",
+                p_context ? p_context : "persistent_buffer", String::num_uint64(p_bytes),
+                int(placement.memory_type_index), int(placement.memory_heap_index), int(placement.memory_property_flags)));
+    }
+    return placement;
+}
+
 bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     if (!streaming_initialized) {
         return false;
@@ -375,6 +394,8 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     }
 
     const uint32_t new_buffer_size = static_cast<uint32_t>(new_bytes64);
+    const uint64_t grow_start_usec = OS::get_singleton()->get_ticks_usec();
+    const RenderingDeviceDriver::DeviceLocalHeapUsage heap_before = rd->get_device_local_heap_usage();
     RID new_buffer = rd->storage_buffer_create(new_buffer_size);
     if (!new_buffer.is_valid()) {
         ERR_PRINT(vformat("[Streaming] _grow_persistent_buffer failed: storage_buffer_create returned invalid RID (size=%u bytes).",
@@ -382,6 +403,9 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
         return false;
     }
     rd->set_resource_name(new_buffer, "GS_Streaming_PersistentBuffer");
+    const RenderingDeviceDriver::BufferMemoryPlacement new_placement =
+            _record_persistent_buffer_placement(rd, new_buffer, new_buffer_size, "_grow_persistent_buffer");
+    const RenderingDeviceDriver::DeviceLocalHeapUsage heap_after = rd->get_device_local_heap_usage();
 
     // Copy currently resident page contents from old buffer to new buffer. The
     // page layout (page index -> byte offset) is identical for old and new
@@ -415,11 +439,18 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
 
     // Swap buffers; release the old one via the existing pattern.
     const uint32_t prev_capacity = streaming_current_capacity;
+    const uint32_t old_buffer_size = persistent_buffer_size;
     _release_persistent_buffer(rd, "_grow_persistent_buffer");
     persistent_buffer = new_buffer;
     persistent_buffer_size = new_buffer_size;
     streaming_current_capacity = new_capacity;
     streaming_grow_count++;
+    pool_placement.placement = new_placement;
+    pool_placement.last_grow_pre = heap_before;
+    pool_placement.last_grow_post = heap_after;
+    pool_placement.last_grow_old_bytes = old_buffer_size;
+    pool_placement.last_grow_new_bytes = new_buffer_size;
+    pool_placement.last_grow_usec = OS::get_singleton()->get_ticks_usec() - grow_start_usec;
 
     // Force a global atlas resync at end-of-frame so downstream descriptor
     // caches (which key on atlas_generation / asset_registry_dirty) rebind to
@@ -428,9 +459,11 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     // directly here would re-enter atlas bookkeeping mid-frame.
     global_atlas_registry.mark_asset_registry_dirty();
 
-    GS_LOG_STREAMING_INFO(vformat("[Streaming] Persistent buffer grew %d -> %d atlas pages (max=%d, grow_count=%d).",
+    GS_LOG_STREAMING_INFO(vformat("[Streaming] Persistent buffer grew %d -> %d atlas pages (max=%d, grow_count=%d, device_local=%s, %d ms).",
             prev_capacity, streaming_current_capacity,
-            streaming_max_capacity, streaming_grow_count));
+            streaming_max_capacity, streaming_grow_count,
+            new_placement.known ? (new_placement.device_local ? "yes" : "NO") : "unknown",
+            int(pool_placement.last_grow_usec / 1000u)));
     return true;
 }
 
@@ -704,6 +737,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     gs_device_utils::safe_submit_and_sync(rd);
     global_atlas_registry.cleanup(rd);
     _release_persistent_buffer(rd, "initialize");
+    pool_placement = PoolPlacementTelemetry();
 
     // Initialize VRAM budget regulator
     budget.vram_regulator.instantiate();
@@ -758,6 +792,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
             persistent_buffer_size = static_cast<uint32_t>(persistent_bytes64);
             persistent_buffer = rd->storage_buffer_create(persistent_buffer_size);
             rd->set_resource_name(persistent_buffer, "GS_Streaming_PersistentBuffer");
+            pool_placement.placement = _record_persistent_buffer_placement(rd, persistent_buffer, persistent_buffer_size, "initialize");
         }
     }
 
@@ -841,6 +876,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     gs_device_utils::safe_submit_and_sync(rd);
     global_atlas_registry.cleanup(rd);
     _release_persistent_buffer(rd, "initialize_empty");
+    pool_placement = PoolPlacementTelemetry();
 
     budget.vram_regulator.instantiate();
     budget.vram_regulator->initialize(rd);
@@ -881,6 +917,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
             persistent_buffer_size = static_cast<uint32_t>(persistent_bytes64);
             persistent_buffer = rd->storage_buffer_create(persistent_buffer_size);
             rd->set_resource_name(persistent_buffer, "GS_Streaming_PersistentBuffer");
+            pool_placement.placement = _record_persistent_buffer_placement(rd, persistent_buffer, persistent_buffer_size, "initialize_empty");
         }
     }
 
