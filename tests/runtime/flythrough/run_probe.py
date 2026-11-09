@@ -437,6 +437,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
         out["regulator"]["reason"] = f"absent from the final streaming state: {missing_keys}"
     out["regulator"]["fired"] = bool(fs.get("vram_regulation_adjustments")) if not missing_keys else None
     out["latency_histograms"] = fs.get("streaming_latency_histograms", ps.missing("no latency histograms"))
+    out["gsq_decode"] = ps.gsq_decode_split(result.get("gsq_decode_stats"))
     out["expected_unique_upload_flat"] = groundtruth["expected_unique_upload"]["flat"]
     ub = out["streaming_whole_run"].get("upload_bytes", {})
     # Upload bytes are decoded bytes, so the oracle side is too: on a GSQ world the stored

@@ -542,6 +542,23 @@ class CapturedTrace(unittest.TestCase):
 
 
 class Statistics(unittest.TestCase):
+    def test_gsq_decode_split_names_the_dominant_part(self) -> None:
+        # Constructed: the split is closed-form arithmetic over four counters.
+        stats = {"pages_decoded": 10, "splats_decoded": 40960, "decode_nsec": 70_000_000,
+                 "verify_nsec": 8_000_000, "zstd_nsec": 3_000_000, "digest_nsec": 50_000_000}
+        s = ps.gsq_decode_split(stats)
+        self.assertEqual(s["status"], ps.OK)
+        self.assertEqual(s["dominant"], "digest")
+        self.assertAlmostEqual(s["ms_per_page"]["dequantise"], 0.9)
+        self.assertAlmostEqual(s["ms_per_page"]["zstd"], 0.3)
+        self.assertAlmostEqual(s["ms_per_page"]["verify"], 0.8)
+        self.assertAlmostEqual(s["share"]["digest"], 50 / 70)
+        self.assertAlmostEqual(sum(s["share"].values()), 1.0)
+        self.assertEqual(ps.gsq_decode_split(None)["status"], ps.MISSING)
+        self.assertEqual(ps.gsq_decode_split({**stats, "verify_nsec": None})["status"], ps.MISSING)
+        self.assertEqual(ps.gsq_decode_split({k: v for k, v in stats.items() if k != "zstd_nsec"})["status"], ps.MISSING)
+        self.assertEqual(ps.gsq_decode_split({**stats, "digest_nsec": 60_000_000})["status"], ps.INVALID)
+
     def test_time_weighted_percentile(self) -> None:
         # 9 frames of 10 ms and one of 100 ms: the long frame is 100/190 = 53 % of the time.
         vals = [10.0] * 9 + [100.0]

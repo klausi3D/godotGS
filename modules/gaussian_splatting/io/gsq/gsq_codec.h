@@ -135,6 +135,7 @@ class DecodeContext {
 	LocalVector<uint8_t> raw;
 	float sh_lut[3][256];
 	float scale_lut[3][1024];
+	uint64_t last_zstd_nsec = 0;
 
 public:
 	DecodeContext();
@@ -149,6 +150,8 @@ public:
 	// content checksum. The outputs are undefined on failure.
 	Error decode_range(const uint8_t *p_page, uint64_t p_page_bytes, uint32_t p_first, uint32_t p_count,
 			Gaussian *r_gaussians, Vector3 *r_sh_high, String &r_reason, bool p_verify_digest = true);
+	// Time the last decode_range() spent in zstd frame decompression (telemetry, BV-K9b).
+	uint64_t get_last_zstd_nsec() const { return last_zstd_nsec; }
 };
 
 } // namespace gs_gsq

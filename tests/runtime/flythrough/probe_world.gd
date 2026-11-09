@@ -107,6 +107,7 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["rows_written"] = _rows
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
+	_result["gsq_decode_stats"] = _gsq_decode_stats()
 	if _trace != null:
 		_trace.flush()
 		_trace.close()
@@ -116,6 +117,16 @@ func _finish(ok: bool, reason: String) -> void:
 	if _node != null:
 		_node.clear_world()
 	quit(0 if ok else 1)
+
+
+# BV-K9b: the GSQ source's decode counters (verify, decode, decoded digest); null on other worlds.
+func _gsq_decode_stats():
+	if _node == null or _node.world == null or not _node.world.has_method("get_chunk_payload_source"):
+		return null
+	var src = _node.world.get_chunk_payload_source()
+	if src == null or not src.has_method("get_decode_stats"):
+		return null
+	return src.get_decode_stats()
 
 
 func _scalars(d: Dictionary) -> Dictionary:
