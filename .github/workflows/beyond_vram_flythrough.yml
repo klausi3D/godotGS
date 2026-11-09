@@ -79,6 +79,11 @@ on:
         required: false
         default: false
         type: boolean
+      controls_only:
+        description: "Run only the ADR 8.5 forcing controls on T0 (BV-13a), not the main fly-through. The schedule runs both."
+        required: false
+        default: false
+        type: boolean
 
 run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
@@ -434,10 +439,19 @@ jobs:
       # 1 % is INVALID cache_warm and the probe does not start. The probe's exit
       # code (0 OK, 1 FAIL, 2 INVALID, 3 NOT_RUN) is passed on.
       - name: Probe (BV-07 probe lane, cold)
-        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' && !inputs.controls_only }}
         timeout-minutes: 105
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py probe --tier "$BVW_TIER" --godot-binary "${{ steps.godot_bin.outputs.path }}" --world-root "$BVW_WORLD_ROOT" --cache-worlds "$BVW_OUT/cache_worlds.json" --out "$BVW_OUT"
+
+      # BV-13a: the ADR 8.5 forcing controls on the cached T0, each asserting its
+      # (gate, verdict, reason) tuple; a differing tuple makes the lane INVALID.
+      # After the cold probe, because a control warms T0's pages (D-14 item 2).
+      - name: Controls (ADR 8.5, after the cold probe)
+        if: ${{ !cancelled() && steps.build_info.outcome == 'success' && steps.cache_check.outcome == 'success' }}
+        timeout-minutes: 40
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py controls --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-worlds "$BVW_OUT/cache_worlds.json" --out "$BVW_OUT"
 
       # #875 -- exits 75 (not 1) when the run is void. Its outcome feeds the
       # lane verdict below (failure -> VOID).

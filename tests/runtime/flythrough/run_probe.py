@@ -80,6 +80,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import flythrough_controls as fc  # noqa: E402
 import probe_groundtruth  # noqa: E402
 import probe_path  # noqa: E402
 import probe_summary as ps  # noqa: E402
@@ -333,13 +334,20 @@ def trace_integrity(run: Dict[str, object]) -> Tuple[Optional[ps.Trace], Dict[st
 # --------------------------------------------------------------------------
 
 
-def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0) -> dict:
-    return {
+def control_settings(control: Optional[str]) -> Dict[str, object]:
+    """The tuned settings with a BV-13a control's overrides (flythrough_controls.CONTROLS)."""
+    if control is None:
+        return dict(TUNED_SETTINGS)
+    return dict(TUNED_SETTINGS, **fc.CONTROLS[control].get("project_settings", {}))
+
+
+def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: Optional[str] = None) -> dict:
+    plan = {
         "schema": "godotgs-bv07-probe-plan/1",
         "mode": "path",
         "world": world.as_posix(),
         "resolution": list(RESOLUTION),
-        "project_settings": TUNED_SETTINGS,
+        "project_settings": control_settings(control),
         "node": {"max_splat_count": TUNED_VISIBLE_CAP, "max_render_distance_m": TUNED_FAR_M},
         "camera": CAMERA,
         "first_pose": path["segments"][0]["pose"],
@@ -348,6 +356,9 @@ def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0) -> dict:
         "settle": SETTLE,
         "max_fps": max_fps,
     }
+    if control is not None and fc.CONTROLS[control].get("inject"):
+        plan["inject"] = fc.CONTROLS[control]["inject"]
+    return plan
 
 
 def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, passes: int) -> Dict[str, object]:
@@ -356,6 +367,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out: Dict[str, object] = {"passes": []}
     for pass_index in range(passes):
         pass_rows = ps.rows_where(trace, phase=0, pass_index=pass_index)
+        measured = ps.measured_rows(trace, pass_index)
         moving = ps.rows_where(trace, phase=0, pass_index=pass_index, state=ps.STATE_MOVING)
         per_seg = {}
         for si, seg in enumerate(segs):
@@ -381,6 +393,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
                 "checkpoint": cp["checkpoint"],
                 "segment": cp["segment"],
                 "settled": settle.get("settled"),
+                "settle_deadline_s": settle.get("deadline_s"),
                 "settle_s": ps.metric(settle["settle_usec"] / 1e6, unit="s") if settle.get("settled")
                 else ps.missing(settle.get("reason", "not settled"), "s"),
                 "drawn_splats": cp.get("drawn_splats"),
@@ -402,6 +415,8 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             "checkpoints": checkpoints,
             "streaming": ps.streaming_counters(trace, pass_rows),
             "settings": ps.settings_drift(trace, moving),
+            # #1383 item 2: moving rows plus every checkpoint settle and hold, no load interval.
+            "settings_measured": ps.settings_drift(trace, measured),
             "settings_all_rows": ps.settings_drift(trace, pass_rows),
         })
     all_rows = ps.rows_where(trace, phase=0)
@@ -762,6 +777,9 @@ def main(argv: Sequence[str]) -> int:
     ap.add_argument("--measure-s", type=float, default=3.0, help="sweep measurement window per view")
     ap.add_argument("--timeout-s", type=float, default=2400.0, help="per Godot process")
     ap.add_argument("--keep-sweep-worlds", action="store_true")
+    ap.add_argument("--control", choices=sorted(fc.CONTROLS), default=None,
+                    help="run one BV-13a forcing control (ADR 8.5, flythrough_controls.py) instead of the "
+                         "tuned fly-through; the summary records it and the settings it changed")
     ap.add_argument("--max-fps", type=int, default=0,
                     help="frame-rate cap for the fly-through (0 = uncapped, the measurement setting; "
                          "a cap is only for capturing a compact test fixture)")
@@ -774,12 +792,16 @@ def main(argv: Sequence[str]) -> int:
         "report_only": True,
         "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "host": {"platform": platform.platform(), "python": platform.python_version()},
-        "settings": {"tuned": TUNED_SETTINGS, "visible_cap": TUNED_VISIBLE_CAP, "far_m": TUNED_FAR_M,
+        "settings": {"tuned": control_settings(args.control), "visible_cap": TUNED_VISIBLE_CAP, "far_m": TUNED_FAR_M,
                      "camera": CAMERA, "resolution": list(RESOLUTION), "settle_deadlines_s": SETTLE},
         "worlds": {},
         "problems": [],
     }
     summary["settings"]["max_fps"] = args.max_fps
+    if args.control is not None:
+        summary["control"] = {"id": args.control, "how": fc.CONTROLS[args.control]["how"],
+                              "project_settings": fc.CONTROLS[args.control].get("project_settings", {}),
+                              "inject": fc.CONTROLS[args.control].get("inject")}
     code = EXIT_OK
     failed = False
     try:
@@ -821,13 +843,13 @@ def main(argv: Sequence[str]) -> int:
             ws["path_moving_length_m"] = round(probe_path.moving_length_m(path), 3)
             ws["groundtruth"] = {"file": f"{tier}/{probe_groundtruth.GROUNDTRUTH_NAME}",
                                  "sha256": gt["groundtruth_sha256"]}
-            run = run_godot(binary, path_plan(d / WORLD_NAME, path, args.passes, args.max_fps), wout / "path_run", args.timeout_s)
+            run = run_godot(binary, path_plan(d / WORLD_NAME, path, args.passes, args.max_fps, args.control), wout / "path_run", args.timeout_s)
             ws["process"] = {k: run[k] for k in ("exit_code", "timed_out", "wall_s", "log")}
             ws["rss"] = run["rss"]
             res = run["result"] or {}
             ws["driver"] = {k: res.get(k) for k in ("adapter", "api_version", "is_debug_build", "display_server",
                                                     "vsync_mode", "load_usec", "node_readback",
-                                                    "project_settings_readback", "reason")}
+                                                    "project_settings_readback", "reason", "injected")}
             fail = process_failure(run)
             if fail:
                 summary["problems"].append(f"{tier} fly-through: {fail}")

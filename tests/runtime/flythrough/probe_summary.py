@@ -420,6 +420,23 @@ def rows_where(trace: Trace, **conds) -> List[int]:
     return out
 
 
+#: The load interval: the first pass's cold settle at the path's first hold (S0), during
+#: which the world loads and the effective settings arrive (M1: cap 256 -> 480 there).
+LOAD_PASS_INDEX = 0
+LOAD_SEGMENT = 0
+
+
+def measured_rows(trace: Trace, pass_index: int) -> List[int]:
+    """#1383 item 2: one pass's measured rows for V7, i.e. its moving rows plus every
+    checkpoint settle and hold, without the load interval (pass 0's S0 settle)."""
+    seg, state = trace.index["segment"], trace.index["state"]
+    return [
+        i for i in rows_where(trace, phase=0, pass_index=pass_index)
+        if not (pass_index == LOAD_PASS_INDEX and trace.rows[i][seg] == LOAD_SEGMENT
+                and trace.rows[i][state] == STATE_SETTLING)
+    ]
+
+
 # --------------------------------------------------------------------------
 # F / k
 # --------------------------------------------------------------------------

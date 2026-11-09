@@ -316,6 +316,24 @@ func _pump_for(seconds: float) -> int:
 	return frames
 
 
+# BV-13a C-settings (ADR 8.5): change project settings at runtime once the named
+# checkpoint of the named pass is captured, then hold for hold_s seconds. Not restored.
+func _maybe_inject(checkpoint: String, pass_index: int) -> void:
+	var inj = _plan.get("inject")
+	if typeof(inj) != TYPE_DICTIONARY:
+		return
+	if str(inj.get("checkpoint", "")) != checkpoint or int(inj.get("pass_index", -1)) != pass_index:
+		return
+	var settings: Dictionary = inj.get("project_settings", {})
+	for key in settings.keys():
+		ProjectSettings.set_setting(key, settings[key])
+	ProjectSettings.emit_signal("settings_changed")
+	_result["injected"] = {"checkpoint": checkpoint, "pass_index": pass_index, "row": _rows,
+			"project_settings": settings}
+	_ctx["state"] = ST_HOLD
+	await _pump_for(float(inj.get("hold_s", 1.0)))
+
+
 func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary:
 	var ss := _last_streaming
 	return {
@@ -385,6 +403,7 @@ func _run_path() -> String:
 					await _pump_for(extra)
 				if seg.get("checkpoint") != null:
 					checkpoints.append(_checkpoint(str(seg["checkpoint"]), str(seg["id"]), settle))
+					await _maybe_inject(str(seg["checkpoint"]), pass_index)
 			entry["end_row"] = _rows - 1
 			entry["end_usec"] = Time.get_ticks_usec()
 			seg_log.append(entry)

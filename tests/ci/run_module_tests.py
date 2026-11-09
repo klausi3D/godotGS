@@ -94,6 +94,8 @@ BEYOND_VRAM_LANE_TEST_SCRIPTS = (
     # BV-09: the gate verdict module, on the captured M1 run; it also pins the
     # thresholds guard's wiring below, through this separate wire.
     ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_verdict.py",
+    # BV-13a: the ADR 8.5 forcing controls and their lane step.
+    ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_controls.py",
 )
 # BV-09: the no-loosening guard of the beyond-VRAM thresholds file (ADR section 8.4).
 FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_flythrough_thresholds.py"
