@@ -207,6 +207,18 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 		}
 		CHECK(memcmp(packed.ptr(), expected.ptr(), sizeof(PackedGaussian) * range.count) == 0);
 	}
+	{
+		// BV-K9 (#1387): the pipeline records the GSQ decode as its own stage, once per capture,
+		// apart from the read; before, decode had no producer and its time sat in "read".
+		const StreamingLatencyHistogram::Snapshot decode_hist = uploads.telemetry.decode_latency.read();
+		const StreamingLatencyHistogram::Snapshot read_hist = uploads.telemetry.read_latency.read();
+		CHECK(read_hist.samples == uint64_t(packed_rounds));
+		CHECK(decode_hist.samples == uint64_t(packed_rounds));
+		// Each capture decodes at least one 808-splat page with SH degree 3, which takes > 1 us.
+		CHECK(decode_hist.total_usec > 0u);
+		// Taken on the pack worker right after its capture: nothing is left for this thread.
+		CHECK(source->take_thread_last_capture_decode_nsec() == 0u);
+	}
 	system->_test_end_device_free_load_scan();
 	system.unref();
 
@@ -221,6 +233,8 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(stats.pages_decoded_on_main_thread == 0u);
 	CHECK(stats.splats_decoded == expected_splats);
 	CHECK(stats.decode_nsec > 0u);
+	CHECK(stats.digest_nsec > 0u);
+	CHECK(stats.digest_nsec <= stats.decode_nsec);
 	CHECK(stats.reads.submitted == uint64_t(expected_pages));
 	CHECK(stats.reads.completed_ok == uint64_t(expected_pages));
 	CHECK(stats.reads.bytes_read == expected_stored_bytes);
