@@ -134,12 +134,13 @@ Static Public Member Functions</h2></td></tr>
 <tr class="memitem:afe20da15fa115af62057cc51ce53b256" id="r_afe20da15fa115af62057cc51ce53b256"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afe20da15fa115af62057cc51ce53b256">compute_staging_upload_clamp_bytes</a> (uint32_t p_staging_max_mb, uint32_t p_frames_in_flight)</td></tr>
 <tr class="memitem:a5699863ea2d7aa26928bae8ff53f6637" id="r_a5699863ea2d7aa26928bae8ff53f6637"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5699863ea2d7aa26928bae8ff53f6637">compute_max_ready_upload_jobs</a> (uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight)</td></tr>
 <tr class="memitem:af3387d8d42ac52d76cfbd42233b87592" id="r_af3387d8d42ac52d76cfbd42233b87592"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af3387d8d42ac52d76cfbd42233b87592">compute_pack_dequeue_batch</a> (uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight)</td></tr>
+<tr class="memitem:af40d7cc68e85809c61cb4a8d8d21be25" id="r_af40d7cc68e85809c61cb4a8d8d21be25"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af40d7cc68e85809c61cb4a8d8d21be25">compute_pack_worker_count</a> (uint32_t p_setting, uint32_t p_logical_cpus)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
 <tr class="memitem:ae8311be4f921a68c35891c663871e3e4" id="r_ae8311be4f921a68c35891c663871e3e4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae8311be4f921a68c35891c663871e3e4">async_pack_enabled</a> = true</td></tr>
-<tr class="memitem:a2ea87444f8300a75e1637bfa68bd95ee" id="r_a2ea87444f8300a75e1637bfa68bd95ee"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ea87444f8300a75e1637bfa68bd95ee">pack_worker_threads</a> = 4</td></tr>
-<tr class="memitem:aca28eb0e29d4f01450e343f67bea57ac" id="r_aca28eb0e29d4f01450e343f67bea57ac"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca28eb0e29d4f01450e343f67bea57ac">max_pack_jobs_in_flight</a> = 4</td></tr>
+<tr class="memitem:a2ea87444f8300a75e1637bfa68bd95ee" id="r_a2ea87444f8300a75e1637bfa68bd95ee"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ea87444f8300a75e1637bfa68bd95ee">pack_worker_threads</a> = 8</td></tr>
+<tr class="memitem:aca28eb0e29d4f01450e343f67bea57ac" id="r_aca28eb0e29d4f01450e343f67bea57ac"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca28eb0e29d4f01450e343f67bea57ac">max_pack_jobs_in_flight</a> = 8</td></tr>
 <tr class="memitem:a56ea4f39fd597c6571bd2af0f4924dab" id="r_a56ea4f39fd597c6571bd2af0f4924dab"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56ea4f39fd597c6571bd2af0f4924dab">max_chunk_loads_per_frame</a> = 16</td></tr>
 <tr class="memitem:ae87b70560e0ec5ca5856dd4a8d61f7d8" id="r_ae87b70560e0ec5ca5856dd4a8d61f7d8"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae87b70560e0ec5ca5856dd4a8d61f7d8">max_upload_bytes_per_frame</a> = 128 * 1024 * 1024</td></tr>
 <tr class="memitem:a3cb4534cada293e78df95e0559a15dd1" id="r_a3cb4534cada293e78df95e0559a15dd1"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3cb4534cada293e78df95e0559a15dd1">max_upload_bytes_per_slice</a> = 16 * 1024 * 1024</td></tr>
@@ -328,6 +329,35 @@ Static Public Attributes</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_max_pack_jobs_in_flight</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af40d7cc68e85809c61cb4a8d8d21be25" name="af40d7cc68e85809c61cb4a8d8d21be25"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af40d7cc68e85809c61cb4a8d8d21be25">&#9670;&#160;</a></span>compute_pack_worker_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t StreamingUploadPipeline::compute_pack_worker_count </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_setting</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_logical_cpus</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -1066,7 +1096,7 @@ Static Public Attributes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t StreamingUploadPipeline::max_pack_jobs_in_flight = 4</td>
+          <td class="memname">uint32_t StreamingUploadPipeline::max_pack_jobs_in_flight = 8</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1298,7 +1328,7 @@ Static Public Attributes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t StreamingUploadPipeline::pack_worker_threads = 4</td>
+          <td class="memname">uint32_t StreamingUploadPipeline::pack_worker_threads = 8</td>
         </tr>
       </table>
 </div><div class="memdoc">
