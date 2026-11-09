@@ -1446,7 +1446,8 @@ static Ref<Resource> _load_gsplatworld_paged(const String &p_path, Error *r_erro
 // Nothing is skipped or repaired.
 // Staged (every other load, BV-C5b): no page is read here. The validated directory goes to a
 // GsqPagedChunkPayloadSource, which makes the same per-page checks when a pack worker captures a
-// chunk and fails that capture visibly with the gsq_* reason.
+// chunk and fails that capture visibly with the gsq_* reason, except the decoded digest, which
+// the staged load turns off (BV-K9c; the stored-page checks still run on every page).
 static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
 		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
@@ -1619,6 +1620,12 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 					AABB(p_bounds_pos, p_bounds_size), params, pages)) {
 			return refuse(ERR_FILE_CORRUPT, "gsq_bad_container: the page directory does not tile the splats");
 		}
+		// BV-K9c: the streaming hot path skips the decoded-digest re-hash (68.5 % of the per-page
+		// decode span on the tier-A flythrough). Each page's header and stored SHA-256, its
+		// page-table entry and every zstd frame checksum are still checked before the decode;
+		// the resident branch below keeps the decoded digest. Rationale in
+		// streaming_gsq_chunk_payload_source.h.
+		staged_source->set_verify_decoded_digest(false);
 	} else {
 		// Resident payload (fallible probe first, as on the plain resident path).
 		const uint64_t gaussian_bytes = uint64_t(p_splat_count) * sizeof(Gaussian);

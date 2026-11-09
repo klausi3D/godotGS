@@ -533,6 +533,13 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
       retried by the streaming system as a payload read failure). Release counters
       (`get_decode_stats()`: pages and splats decoded, decode ns, pages decoded on worker vs main
       threads, failures) prove which path ran.
+      **Changed in BV-K9c:** the streaming load turns the decoded-digest check off
+      (`set_verify_decoded_digest(false)`); it was 68.5 % of the per-page decode span on the
+      tier-A flythrough (run 42687229044). The table entry, the stored SHA-256 and every zstd
+      frame checksum are still checked on every page, so on-disk and transport damage is still
+      refused. The decoded digest re-hashes a deterministic decode of those verified bytes and can
+      only catch a decoder defect; the golden-digest doctests and `load_resident()` still check
+      it. The source reports `decoded_digest_verified` and `pages_decoded_digest_checked`.
 - **Determinism.** Encoding uses integer-exact quantization with `-ffp-contract=off`-safe code.
   A cross-platform golden decoded digest is checked on Windows/MSVC and Linux/GCC.
 - **Semantic read validation stays:** counts, sizes, finite ranges, decoded positions within the

@@ -434,6 +434,13 @@ def gsq_decode_split(stats: object) -> Dict[str, object]:
         "splats_per_s_per_worker": splats / (total / 1e9),
     }
     out["dominant"] = max(parts, key=lambda k: parts[k])
+    # BV-K9c: the streaming load skips the decoded digest, so digest is 0 by design there. The
+    # source says whether it checked, so "skipped" is not read as "free"; None = older probe.
+    verified = stats.get("decoded_digest_verified")
+    checked = stats.get("pages_decoded_digest_checked")
+    out["decoded_digest_verified"] = verified if isinstance(verified, bool) else None
+    out["pages_decoded_digest_checked"] = (
+        int(checked) if isinstance(checked, (int, float)) and not isinstance(checked, bool) else None)
     return out
 
 

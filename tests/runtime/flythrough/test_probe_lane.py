@@ -571,6 +571,22 @@ class Statistics(unittest.TestCase):
         self.assertEqual(ps.gsq_decode_split(None)["status"], ps.MISSING)
         self.assertEqual(ps.gsq_decode_split({**stats, "verify_nsec": None})["status"], ps.MISSING)
         self.assertEqual(ps.gsq_decode_split({**stats, "digest_nsec": 63_000_000})["status"], ps.INVALID)
+        # Older probes carry no flag; the split says so instead of guessing.
+        self.assertIsNone(s["decoded_digest_verified"])
+        self.assertIsNone(s["pages_decoded_digest_checked"])
+
+    def test_gsq_decode_split_reports_a_skipped_decoded_digest(self) -> None:
+        # BV-K9c: on the streaming path the digest is not computed; the split stays OK with a
+        # zero digest share and carries the source's own statement that it was skipped.
+        stats = {"pages_decoded": 10, "splats_decoded": 40960, "decode_nsec": 20_000_000,
+                 "verify_nsec": 8_000_000, "digest_nsec": 0,
+                 "decoded_digest_verified": False, "pages_decoded_digest_checked": 0}
+        s = ps.gsq_decode_split(stats)
+        self.assertEqual(s["status"], ps.OK)
+        self.assertEqual(s["share"]["digest"], 0.0)
+        self.assertEqual(s["dominant"], "decode")
+        self.assertIs(s["decoded_digest_verified"], False)
+        self.assertEqual(s["pages_decoded_digest_checked"], 0)
 
     def test_time_weighted_percentile(self) -> None:
         # 9 frames of 10 ms and one of 100 ms: the long frame is 100/190 = 53 % of the time.
