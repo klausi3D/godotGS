@@ -96,6 +96,18 @@ class Tuples(unittest.TestCase):
         self.assertEqual(rec["observed"], ["V7", fv.INVALID, "settings_drifted"])
         self.assertEqual(rec["status"], "PASS", rec)
 
+    def test_lost_hold_evidence_never_certifies_c_settings(self) -> None:
+        """Codex on #1388: a summary without settings_measured is MISSING, not settings_drifted."""
+        summary = _t0_summary()
+        del summary["worlds"]["T0"]["flythrough"]["passes"][0]["settings_measured"]
+        rec = _judge("C-settings", summary)
+        self.assertEqual(rec["observed"], ["V7", fv.INVALID, "MISSING"])
+        self.assertEqual(rec["status"], fv.INVALID)
+        summary = _t0_summary()
+        summary["worlds"]["T0"]["flythrough"]["passes"][0]["settings_measured"].update(
+            status="INVALID", settings_drifted=False, rows_without_signal=3)
+        self.assertEqual(_judge("C-settings", summary)["observed"], ["V7", fv.INVALID, "MISSING"])
+
     def test_a_wrong_reason_is_a_differing_tuple(self) -> None:
         summary = _drift_in_hold(_t0_summary())
         summary["worlds"]["T0"]["driver"]["node_readback"] = None  # V7 now INVALID MISSING

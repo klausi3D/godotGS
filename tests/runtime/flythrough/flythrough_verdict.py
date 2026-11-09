@@ -315,12 +315,17 @@ def v7_settings(entry: dict, limit: Any, ctx: Ctx) -> Result:
     node = _get(ctx.world(), "driver.node_readback")
     if not isinstance(node, dict):
         raise Missing("driver.node_readback: not an object")
+    absent: List[str] = []
     for key, frozen_key in NODE_READBACK_KEYS:
-        if key not in node or not _same_setting(node[key], frozen.get(frozen_key)):
+        if key not in node:
+            absent.append(f"node readback {key}: absent")
+        elif not _same_setting(node[key], frozen.get(frozen_key)):
             problems.append(f"node readback {key}: {node.get(key)!r}, frozen {frozen_key} {frozen.get(frozen_key)!r}")
     readback = _get(ctx.world(), "driver.project_settings_readback")
     for key, value in tuned.items():
-        if key not in readback or not _same_setting(readback[key], value):
+        if key not in readback:
+            absent.append(f"readback {key}: absent")
+        elif not _same_setting(readback[key], value):
             problems.append(f"readback {key}: {readback.get(key)!r}, frozen {value!r}")
     cap = tuned.get("rendering/gaussian_splatting/streaming/max_chunks_in_vram")
     budget = tuned.get("rendering/gaussian_splatting/streaming/vram_budget_mb")
@@ -329,18 +334,23 @@ def v7_settings(entry: dict, limit: Any, ctx: Ctx) -> Result:
         # `settings`: the moving rows. `settings_measured` (#1383 item 2, BV-13a): the moving
         # rows plus every checkpoint settle and hold, without the load interval. Both are
         # judged. Without the second the holds go unjudged, which is INVALID, never a pass.
+        # Absent evidence is never reported as drift: `settings_drifted` is C-settings'
+        # expected reason, so a lost signal must not satisfy that control (Codex on #1388).
         for field in ("settings", "settings_measured"):
             s = p.get(field)
             label = f"pass {p.get('pass_index')} {field}"
             if not isinstance(s, dict):
-                problems.append(f"{label}: absent, the rows it covers were not judged")
+                absent.append(f"{label}: absent, the rows it covers were not judged")
+                continue
+            if s.get("rows_without_signal") != 0 or (s.get("status") != OK and s.get("settings_drifted") is not True):
+                absent.append(f"{label}: measured rows {s.get('status')!r}, rows_without_signal "
+                              f"{s.get('rows_without_signal')!r} ({s.get('reason', 'no reason')})")
                 continue
             if s.get("status") != OK:
                 problems.append(f"{label}: measured rows {s.get('status')!r} ({s.get('reason', 'no reason')})")
                 continue
-            if s.get("settings_drifted") is not False or s.get("rows_without_signal") != 0:
-                problems.append(f"{label}: settings_drifted {s.get('settings_drifted')!r}, "
-                                f"rows_without_signal {s.get('rows_without_signal')!r}")
+            if s.get("settings_drifted") is not False:
+                problems.append(f"{label}: settings_drifted {s.get('settings_drifted')!r}")
             for key, want in (("effective_max_chunks", cap), ("effective_vram_budget_mb", budget),
                               ("lod_distance_multiplier", lod)):
                 got = s.get(key)
@@ -355,6 +365,8 @@ def v7_settings(entry: dict, limit: Any, ctx: Ctx) -> Result:
             "why": "ADR V7 applies to measured frames; the load rows before the first pass are reported, never counted",
         }
     }
+    if absent:
+        raise Missing("; ".join(absent))
     if problems:
         return INVALID, observed, "settings_drifted: " + "; ".join(problems)
     return PASS, observed, "measured rows of every repetition carry the frozen settings"

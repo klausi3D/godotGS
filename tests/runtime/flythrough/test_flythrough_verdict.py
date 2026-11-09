@@ -207,7 +207,7 @@ class Validity(_Case):
         self.assert_entry("V7", fv.INVALID, "node readback max_splat_count: 3999999")
         self.setUp()
         del self.a["driver"]["node_readback"]["max_render_distance"]
-        self.assert_entry("V7", fv.INVALID, "node readback max_render_distance: None")
+        self.assert_entry("V7", fv.INVALID, "MISSING: node readback max_render_distance: absent")
         self.setUp()
         self.a["driver"]["node_readback"] = None
         self.assert_entry("V7", fv.INVALID, "MISSING")
