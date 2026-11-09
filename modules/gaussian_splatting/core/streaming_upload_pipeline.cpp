@@ -272,6 +272,13 @@ uint32_t StreamingUploadPipeline::compute_pack_dequeue_batch(uint32_t p_worker_t
     return CLAMP(p_max_pack_jobs_in_flight / p_worker_threads, 1u, PACK_DEQUEUE_BATCH_MAX);
 }
 
+uint32_t StreamingUploadPipeline::compute_pack_worker_count(uint32_t p_setting, uint32_t p_logical_cpus) {
+    if (p_setting == 0) {
+        return 0;
+    }
+    return MIN(p_setting, MAX(2u, p_logical_cpus / 2u));
+}
+
 uint64_t StreamingUploadPipeline::get_frame_upload_limit_bytes() const {
     const uint64_t configured = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
     return upload_staging_clamp_bytes_per_frame == 0 ? configured : MIN(configured, upload_staging_clamp_bytes_per_frame);
@@ -385,7 +392,8 @@ void StreamingUploadPipeline::load_streaming_tuning_config_from_project_settings
 
     const bool want_async = async_pack_enabled && pack_worker_threads > 0;
     const bool threads_mismatch = pack_thread_running.load() &&
-            uint32_t(pack_threads.size()) != pack_worker_threads;
+            uint32_t(pack_threads.size()) !=
+                    compute_pack_worker_count(pack_worker_threads, uint32_t(OS::get_singleton()->get_processor_count()));
     if (want_async && (!pack_thread_running.load() || threads_mismatch)) {
         if (pack_thread_running.load()) {
             stop_pack_threads(system);
@@ -402,7 +410,7 @@ void StreamingUploadPipeline::start_pack_threads(GaussianStreamingSystem &system
     }
     pack_thread_exit = false;
 
-    uint32_t thread_count = MAX(1u, pack_worker_threads);
+    uint32_t thread_count = MAX(1u, compute_pack_worker_count(pack_worker_threads, uint32_t(OS::get_singleton()->get_processor_count())));
     pack_threads.clear();
     pack_thread_contexts.clear();
     pack_threads.resize(thread_count);
