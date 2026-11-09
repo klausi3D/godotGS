@@ -2868,11 +2868,26 @@ TEST_CASE("[Streaming Pipeline] A pack worker claims only its share of the in-fl
     // With the shipped defaults every worker can hold a job of the full in-flight window at once.
     GaussianStreamingSystem system;
     const StreamingUploadPipeline &uploads = system._internal_get_upload_pipeline();
-    CHECK(uploads.pack_worker_threads == 4);
-    CHECK(uploads.max_pack_jobs_in_flight == 4);
+    CHECK(uploads.pack_worker_threads == 8);
+    CHECK(uploads.max_pack_jobs_in_flight == 8);
     const uint32_t batch = StreamingUploadPipeline::compute_pack_dequeue_batch(uploads.pack_worker_threads,
             uploads.max_pack_jobs_in_flight);
     CHECK((uploads.max_pack_jobs_in_flight + batch - 1) / batch >= uploads.pack_worker_threads);
+}
+
+TEST_CASE("[Streaming Pipeline] Pack workers scale with the CPU and leave half of it to the game (BV-K9b)") {
+    // The shipped 8 workers start in full only with 16+ logical CPUs (the 32-thread lane runner).
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 32) == 8);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 16) == 8);
+    // Consumer CPUs: never more than half of the logical CPUs, never fewer than 2.
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 12) == 6);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 8) == 4);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 4) == 2);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 1) == 2);
+    // A smaller setting is kept; 0 keeps async packing off.
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(3, 32) == 3);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(1, 2) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(0, 32) == 0);
 }
 
 TEST_CASE("[Streaming Pipeline] A stalled upload stops the load scan at the ready bound without evicting (BV-08c)") {

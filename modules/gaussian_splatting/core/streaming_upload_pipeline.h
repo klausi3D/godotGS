@@ -233,10 +233,10 @@ public:
     static constexpr uint32_t QUEUE_COMPACT_MIN_PREFIX = 128;
 
     bool async_pack_enabled = true;
-    // BV-LAT: matches the GLOBAL_DEF default (4) so every job of the default in-flight window
-    // has its own worker.
-    uint32_t pack_worker_threads = 4;
-    uint32_t max_pack_jobs_in_flight = 4;
+    // BV-K9b: matches the GLOBAL_DEF defaults (8 and 8) so every job of the default in-flight
+    // window has its own worker; the started count is compute_pack_worker_count().
+    uint32_t pack_worker_threads = 8;
+    uint32_t max_pack_jobs_in_flight = 8;
     uint32_t max_chunk_loads_per_frame = 16;
     uint64_t max_upload_bytes_per_frame = 128 * 1024 * 1024;
     uint64_t max_upload_bytes_per_slice = 16 * 1024 * 1024;
@@ -340,6 +340,11 @@ public:
     // the others slept: beyond-VRAM refill ran at one worker's rate (~32 chunks/s on tier A).
     static constexpr uint32_t PACK_DEQUEUE_BATCH_MAX = 4;
     static uint32_t compute_pack_dequeue_batch(uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight);
+    // BV-K9b: pack workers actually started for the pack_worker_threads setting: never more than
+    // max(2, logical CPUs / 2), so the decode/pack burst of a refill leaves at least half of the
+    // CPU to the game's main, render and job threads (16 logical CPUs -> 8, 8 -> 4, 4 -> 2).
+    // 0 stays 0 (async packing off).
+    static uint32_t compute_pack_worker_count(uint32_t p_setting, uint32_t p_logical_cpus);
     uint64_t get_frame_upload_limit_bytes() const;
     void get_pending_queue_depths_cached(uint32_t &r_pack_queue_depth, uint32_t &r_upload_queue_depth) const;
 #if defined(TESTS_ENABLED)
