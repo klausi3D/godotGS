@@ -365,6 +365,7 @@ def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: O
 POOL_PLACEMENT_KEYS = (
     "pool_placement_known", "pool_device_local", "pool_memory_type_index", "pool_memory_heap_index",
     "pool_memory_property_flags", "pool_allocations", "pool_non_device_local_allocations",
+    "pool_grow_refusals_non_device_local", "pool_grow_device_clamps",
     "vram_persistent_buffer_mb", "streaming_grow_count",
     "pool_last_grow_old_mb", "pool_last_grow_new_mb", "pool_last_grow_ms",
     "pool_last_grow_pre_device_local_ext_usage_mb", "pool_last_grow_pre_device_local_ext_budget_mb",
