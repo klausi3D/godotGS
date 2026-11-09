@@ -349,7 +349,6 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 		stat_decode_nsec.add(decode_nsec);
 		stat_digest_nsec.add(digest_nsec);
 		stat_verify_nsec.add(verify_nsec);
-		stat_zstd_nsec.add(decoder->get_last_zstd_nsec());
 		tls_last_capture_decode_nsec += decode_nsec;
 		if (on_main_thread) {
 			stat_pages_on_main.increment();
@@ -421,7 +420,6 @@ GsqPagedChunkPayloadSource::DecodeStats GsqPagedChunkPayloadSource::get_decode_s
 	stats.decode_nsec = stat_decode_nsec.get();
 	stats.digest_nsec = stat_digest_nsec.get();
 	stats.verify_nsec = stat_verify_nsec.get();
-	stats.zstd_nsec = stat_zstd_nsec.get();
 	stats.pages_decoded_on_worker_threads = stat_pages_on_workers.get();
 	stats.pages_decoded_on_main_thread = stat_pages_on_main.get();
 	stats.page_failures = stat_page_failures.get();
@@ -445,7 +443,6 @@ Dictionary GsqPagedChunkPayloadSource::get_decode_stats() const {
 	d["decode_nsec"] = int64_t(stats.decode_nsec);
 	d["digest_nsec"] = int64_t(stats.digest_nsec);
 	d["verify_nsec"] = int64_t(stats.verify_nsec);
-	d["zstd_nsec"] = int64_t(stats.zstd_nsec);
 	d["pages_decoded_on_worker_threads"] = int64_t(stats.pages_decoded_on_worker_threads);
 	d["pages_decoded_on_main_thread"] = int64_t(stats.pages_decoded_on_main_thread);
 	d["page_failures"] = int64_t(stats.page_failures);

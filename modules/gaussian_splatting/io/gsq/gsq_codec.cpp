@@ -5,7 +5,6 @@
 
 #include <zstd.h>
 
-#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -836,7 +835,6 @@ DecodeContext::~DecodeContext() {
 
 Error DecodeContext::decode_range(const uint8_t *p_page, uint64_t p_page_bytes, uint32_t p_first, uint32_t p_count,
 		Gaussian *r_gaussians, Vector3 *r_sh_high, String &r_reason, bool p_verify_digest) {
-	last_zstd_nsec = 0;
 	if (dctx == nullptr) {
 		return fail(r_reason, "gsq_zstd_error", "context");
 	}
@@ -900,11 +898,7 @@ Error DecodeContext::decode_range(const uint8_t *p_page, uint64_t p_page_bytes, 
 		planes.n = n;
 		const uint32_t raw_bytes = n * planes.bytes_per_splat();
 		raw.resize(raw_bytes);
-		const std::chrono::steady_clock::time_point zstd_begin = std::chrono::steady_clock::now();
 		const size_t written = ZSTD_decompressDCtx(dctx, raw.ptr(), raw_bytes, p_page + cursor, frame);
-		last_zstd_nsec += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - zstd_begin)
-						.count());
 		if (ZSTD_isError(written)) {
 			return fail(r_reason, "gsq_frame_corrupt", vformat("sub-block %d: %s", b, ZSTD_getErrorName(written)));
 		}

@@ -240,8 +240,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(stats.decode_nsec > 0u);
 	CHECK(stats.digest_nsec > 0u);
 	CHECK(stats.verify_nsec > 0u);
-	CHECK(stats.zstd_nsec > 0u);
-	CHECK(stats.verify_nsec + stats.zstd_nsec + stats.digest_nsec <= stats.decode_nsec);
+	CHECK(stats.verify_nsec + stats.digest_nsec <= stats.decode_nsec);
 	CHECK(stats.reads.submitted == uint64_t(expected_pages));
 	CHECK(stats.reads.completed_ok == uint64_t(expected_pages));
 	CHECK(stats.reads.bytes_read == expected_stored_bytes);
@@ -254,7 +253,6 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(int64_t(exported.get("pages_decoded_on_main_thread", int64_t(-1))) == 0);
 	CHECK(int64_t(exported.get("verify_nsec", int64_t(-1))) == int64_t(stats.verify_nsec));
 	CHECK(int64_t(exported.get("digest_nsec", int64_t(-1))) == int64_t(stats.digest_nsec));
-	CHECK(int64_t(exported.get("zstd_nsec", int64_t(-1))) == int64_t(stats.zstd_nsec));
 
 	source.unref();
 	world.unref();
