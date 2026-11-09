@@ -122,6 +122,11 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 		TestGSWorldWriter::ww_remove_dir(dir);
 		return;
 	}
+	// BV-K9b: the flythrough probe reads the decode telemetry through the script binding.
+	{
+		const Variant scripted = world->call("get_chunk_payload_source");
+		CHECK(Object::cast_to<GsqPagedChunkPayloadSource>(scripted.get_validated_object()) == source.ptr());
+	}
 	CHECK(world->get_gaussian_data().is_null());
 	CHECK(world->is_streamable_payload());
 	CHECK(source->get_page_count() == 5u);
@@ -234,7 +239,8 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(stats.splats_decoded == expected_splats);
 	CHECK(stats.decode_nsec > 0u);
 	CHECK(stats.digest_nsec > 0u);
-	CHECK(stats.digest_nsec <= stats.decode_nsec);
+	CHECK(stats.verify_nsec > 0u);
+	CHECK(stats.verify_nsec + stats.digest_nsec <= stats.decode_nsec);
 	CHECK(stats.reads.submitted == uint64_t(expected_pages));
 	CHECK(stats.reads.completed_ok == uint64_t(expected_pages));
 	CHECK(stats.reads.bytes_read == expected_stored_bytes);
@@ -245,6 +251,8 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	const Dictionary exported = source->get_decode_stats();
 	CHECK(int64_t(exported.get("pages_decoded_on_worker_threads", int64_t(-1))) == int64_t(expected_pages));
 	CHECK(int64_t(exported.get("pages_decoded_on_main_thread", int64_t(-1))) == 0);
+	CHECK(int64_t(exported.get("verify_nsec", int64_t(-1))) == int64_t(stats.verify_nsec));
+	CHECK(int64_t(exported.get("digest_nsec", int64_t(-1))) == int64_t(stats.digest_nsec));
 
 	source.unref();
 	world.unref();

@@ -59,6 +59,7 @@ public:
 		uint64_t splats_decoded = 0;
 		uint64_t decode_nsec = 0; // verify + decode + decoded digest, summed over pages
 		uint64_t digest_nsec = 0; // the decoded-digest share of decode_nsec (BV-K9)
+		uint64_t verify_nsec = 0; // the stored-page verify share (header + stored SHA-256) of decode_nsec
 		uint64_t pages_decoded_on_worker_threads = 0;
 		uint64_t pages_decoded_on_main_thread = 0;
 		uint64_t page_failures = 0;
@@ -111,6 +112,7 @@ private:
 	mutable SafeNumeric<uint64_t> stat_splats_decoded;
 	mutable SafeNumeric<uint64_t> stat_decode_nsec;
 	mutable SafeNumeric<uint64_t> stat_digest_nsec;
+	mutable SafeNumeric<uint64_t> stat_verify_nsec;
 	mutable SafeNumeric<uint64_t> stat_pages_on_workers;
 	mutable SafeNumeric<uint64_t> stat_pages_on_main;
 	mutable SafeNumeric<uint64_t> stat_page_failures;

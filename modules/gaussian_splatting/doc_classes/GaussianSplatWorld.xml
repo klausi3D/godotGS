@@ -16,6 +16,12 @@
 				Returns the number of static spatial chunks in this world resource.
 			</description>
 		</method>
+		<method name="get_chunk_payload_source" qualifiers="const">
+			<return type="ChunkPayloadSource" />
+			<description>
+				Returns the source the streaming system reads chunk payloads from, or [code]null[/code] if this world has none (a resident world). A paged-GSQ world loaded for streaming returns a [GsqPagedChunkPayloadSource], whose [method GsqPagedChunkPayloadSource.get_decode_stats] reports the decode telemetry.
+			</description>
+		</method>
 		<method name="get_chunk_sizes">
 			<return type="PackedInt32Array" />
 			<description>

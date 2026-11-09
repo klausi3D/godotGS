@@ -12,7 +12,7 @@
 		<method name="get_decode_stats" qualifiers="const">
 			<return type="Dictionary" />
 			<description>
-				Returns the source's counters: captures, failed captures, pages and splats decoded, decode time in nanoseconds, pages decoded on worker threads and on the main thread, page failures with the last failure reason, and the read pool's request and byte counters.
+				Returns the source's counters: captures, failed captures, pages and splats decoded, decode time in nanoseconds ([code]decode_nsec[/code]) with its stored-page verify ([code]verify_nsec[/code]) and decoded-digest ([code]digest_nsec[/code]) shares, pages decoded on worker threads and on the main thread, page failures with the last failure reason, and the read pool's request and byte counters.
 			</description>
 		</method>
 	</methods>

@@ -401,6 +401,42 @@ def streaming_counters(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     }
 
 
+def gsq_decode_split(stats: object) -> Dict[str, object]:
+    """BV-K9b: the GSQ decode span (the pipeline's "decode" stage) split into its parts, as
+    per-page means in ms and shares of the span: the stored-page verify (header + stored
+    SHA-256), decode (the remainder: zstd frame decompression, LUTs, dequantisation and the
+    page-table checks) and the decoded digest (SHA-256 over the decoded splats). zstd is not
+    timed apart: that would change gsq_codec.*, a world-cache generator source.
+    Counters are whole-run totals of the world's source."""
+    if not isinstance(stats, dict):
+        return missing("no GSQ decode counters (not a paged-GSQ world, or an older probe)")
+    keys = ("pages_decoded", "splats_decoded", "decode_nsec", "verify_nsec", "digest_nsec")
+    vals = {k: stats.get(k) for k in keys}
+    absent = [k for k, v in vals.items() if not isinstance(v, (int, float)) or isinstance(v, bool)]
+    if absent:
+        return missing(f"decode counters absent: {absent}")
+    pages, splats, total = int(vals["pages_decoded"]), int(vals["splats_decoded"]), int(vals["decode_nsec"])
+    verify, digest = int(vals["verify_nsec"]), int(vals["digest_nsec"])
+    if pages <= 0 or total <= 0:
+        return missing("no page was decoded")
+    decode = total - verify - digest
+    if verify < 0 or digest < 0 or decode < 0:
+        return {"status": INVALID,
+                "reason": f"parts exceed the span: verify {verify} + digest {digest} > decode {total} ns"}
+    parts = {"verify": verify, "decode": decode, "digest": digest}
+    out: Dict[str, object] = {
+        "status": OK,
+        "pages": pages,
+        "splats": splats,
+        "ms_per_page": {k: v / pages / 1e6 for k, v in parts.items()},
+        "share": {k: v / total for k, v in parts.items()},
+        "decode_span_ms_per_page": total / pages / 1e6,
+        "splats_per_s_per_worker": splats / (total / 1e9),
+    }
+    out["dominant"] = max(parts, key=lambda k: parts[k])
+    return out
+
+
 def rows_where(trace: Trace, **conds) -> List[int]:
     idx = {k: trace.index[k] for k in conds}
     out = []

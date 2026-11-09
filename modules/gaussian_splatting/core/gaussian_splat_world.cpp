@@ -101,6 +101,7 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_metadata", "metadata"), &GaussianSplatWorld::set_metadata);
     ClassDB::bind_method(D_METHOD("get_metadata"), &GaussianSplatWorld::get_metadata);
     ClassDB::bind_method(D_METHOD("has_chunk_payload_source"), &GaussianSplatWorld::has_chunk_payload_source);
+    ClassDB::bind_method(D_METHOD("get_chunk_payload_source"), &GaussianSplatWorld::get_chunk_payload_source);
     ClassDB::bind_method(D_METHOD("is_payload_source_backed"), &GaussianSplatWorld::is_payload_source_backed);
     ClassDB::bind_method(D_METHOD("has_renderable_payload"), &GaussianSplatWorld::has_renderable_payload);
     ClassDB::bind_method(D_METHOD("get_payload_mode"), &GaussianSplatWorld::get_payload_mode);
