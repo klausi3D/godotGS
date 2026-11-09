@@ -326,7 +326,7 @@ var searchData=
   ['coarsesyncpolicy_323',['CoarseSyncPolicy',['../classCoarseSyncPolicy.html',1,'']]],
   ['code_324',['Code',['../structRenderingError_1_1Code.html',1,'RenderingError']]],
   ['code_325',['code',['../structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult.html#a625e73d9d1d06f2918f1f424cf6c803f',1,'GaussianSplatting::ComputeInfrastructure::StageResult::code'],['../structSortPreflightResult.html#a9fd7fc75a5b1f8bd86c1e0c2412fd22e',1,'SortPreflightResult::code']]],
-  ['codec_5fid_326',['codec_id',['../structgs__world__writer_1_1CodecParams.html#a92f047ace4508137be3ef2f65dbf27d4',1,'gs_world_writer::CodecParams']]],
+  ['codec_5fid_326',['codec_id',['../structgs__world__generator_1_1GenerateOptions.html#a0ad9025d6488a6d6af703a2e16b874e6',1,'gs_world_generator::GenerateOptions::codec_id'],['../structgs__world__generator_1_1Report.html#a2e359f9399cd198549c29784376f1da3',1,'gs_world_generator::Report::codec_id'],['../structgs__world__writer_1_1CodecParams.html#a92f047ace4508137be3ef2f65dbf27d4',1,'gs_world_writer::CodecParams::codec_id']]],
   ['codecparams_327',['CodecParams',['../structgs__world__writer_1_1CodecParams.html',1,'gs_world_writer']]],
   ['coefficient_5fcount_328',['coefficient_count',['../structSHCompressionMetrics.html#a7c8a695faa1a0acec1a11b9a411f53d1',1,'SHCompressionMetrics']]],
   ['coherent_5fage_5fresolves_329',['coherent_age_resolves',['../structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html#a74a9efe75e7346ff8f331bc775741833',1,'GaussianSplatting::GpuPassTiming::PassTimingSnapshot']]],

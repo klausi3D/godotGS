@@ -41,7 +41,7 @@ var searchData=
   ['gaussiansplatscenedirector_38',['GaussianSplatSceneDirector',['../classGaussianSplatSceneDirector.html#a6ceb276d98f0eff5bc8ae33c53465945',1,'GaussianSplatSceneDirector']]],
   ['gaussiansplatworld3d_39',['GaussianSplatWorld3D',['../classGaussianSplatWorld3D.html#a5b11f711df4b599db7d91b35a80bad5a',1,'GaussianSplatWorld3D']]],
   ['gaussianstreamingsystem_40',['GaussianStreamingSystem',['../classGaussianStreamingSystem.html#ae355d42ab246f1f7e4f1f6f04c104bd5',1,'GaussianStreamingSystem']]],
-  ['generate_41',['generate',['../classGaussianSplatWorldGenerator.html#a357b058297617fd3057616a510d76604',1,'GaussianSplatWorldGenerator']]],
+  ['generate_41',['generate',['../classGaussianSplatWorldGenerator.html#a864fd0e237130c40a5d075d5e8a07e92',1,'GaussianSplatWorldGenerator']]],
   ['generate_5fchunk_42',['generate_chunk',['../namespacegs__world__generator.html#a824393b12616394929cfb3fa7eb87e81',1,'gs_world_generator']]],
   ['generate_5ffrom_5fpath_43',['generate_from_path',['../structAssetID.html#a886ca4ca2fb5ac9c42a2c6ec3e946ec2',1,'AssetID']]],
   ['generate_5funique_44',['generate_unique',['../structAssetID.html#ae96626332285d630e6494ae0b7e6e382',1,'AssetID']]],

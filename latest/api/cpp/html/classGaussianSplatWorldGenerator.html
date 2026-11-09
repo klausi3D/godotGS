@@ -111,7 +111,7 @@ Static Public Member Functions</h2></td></tr>
 <tr class="memitem:aa21c4530d77cb4950b0460061abcc39a" id="r_aa21c4530d77cb4950b0460061abcc39a"><td class="memItemLeft" align="right" valign="top">static Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa21c4530d77cb4950b0460061abcc39a">apply_overrides</a> (const Dictionary &amp;p_params, const Dictionary &amp;p_overrides)</td></tr>
 <tr class="memitem:a6d456594cf789767ddb9c6df7bb71fec" id="r_a6d456594cf789767ddb9c6df7bb71fec"><td class="memItemLeft" align="right" valign="top">static String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6d456594cf789767ddb9c6df7bb71fec">get_params_sha</a> (const Dictionary &amp;p_params)</td></tr>
 <tr class="memitem:adb86012b9168aa6c318d2b8cd4341f68" id="r_adb86012b9168aa6c318d2b8cd4341f68"><td class="memItemLeft" align="right" valign="top">static Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adb86012b9168aa6c318d2b8cd4341f68">plan</a> (const Dictionary &amp;p_params)</td></tr>
-<tr class="memitem:a357b058297617fd3057616a510d76604" id="r_a357b058297617fd3057616a510d76604"><td class="memItemLeft" align="right" valign="top">static Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a357b058297617fd3057616a510d76604">generate</a> (const Dictionary &amp;p_params, const String &amp;p_world_path, const PackedInt64Array &amp;p_chunk_selection, bool p_print_progress)</td></tr>
+<tr class="memitem:a864fd0e237130c40a5d075d5e8a07e92" id="r_a864fd0e237130c40a5d075d5e8a07e92"><td class="memItemLeft" align="right" valign="top">static Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a864fd0e237130c40a5d075d5e8a07e92">generate</a> (const Dictionary &amp;p_params, const String &amp;p_world_path, const PackedInt64Array &amp;p_chunk_selection, bool p_print_progress, const String &amp;p_codec)</td></tr>
 <tr class="memitem:ae0873e3ed2ddb40faefbcbb61732d5db" id="r_ae0873e3ed2ddb40faefbcbb61732d5db"><td class="memItemLeft" align="right" valign="top">static Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae0873e3ed2ddb40faefbcbb61732d5db">verify</a> (const String &amp;p_world_path)</td></tr>
 <tr class="memitem:ad3fdbc4666e81c37d5e1f07879755b34" id="r_ad3fdbc4666e81c37d5e1f07879755b34"><td class="memItemLeft" align="right" valign="top">static String&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad3fdbc4666e81c37d5e1f07879755b34">get_manifest_path</a> (const String &amp;p_world_path)</td></tr>
 </table><table class="memberdecls">
@@ -174,8 +174,8 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a357b058297617fd3057616a510d76604" name="a357b058297617fd3057616a510d76604"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a357b058297617fd3057616a510d76604">&#9670;&#160;</a></span>generate()</h2>
+<a id="a864fd0e237130c40a5d075d5e8a07e92" name="a864fd0e237130c40a5d075d5e8a07e92"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a864fd0e237130c40a5d075d5e8a07e92">&#9670;&#160;</a></span>generate()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -201,7 +201,12 @@ Static Protected Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_print_progress</em></span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_print_progress</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const String &amp;</td>          <td class="paramname"><span class="paramname"><em>p_codec</em></span>&#160;)</td>
         </tr>
       </table>
   </td>

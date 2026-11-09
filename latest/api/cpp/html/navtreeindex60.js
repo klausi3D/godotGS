@@ -1,5 +1,13 @@
 var NAVTREEINDEX60 =
 {
+"structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06":[0,0,41,3,2],
+"structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06":[1,0,28,3,2],
+"structspz_1_1PackedGaussians.html#a739a8c11b2369a054a951b0f420cda95":[0,0,41,3,13],
+"structspz_1_1PackedGaussians.html#a739a8c11b2369a054a951b0f420cda95":[1,0,28,3,13],
+"structspz_1_1PackedGaussians.html#a860c9de082c443a1cd71a86192ecbb00":[0,0,41,3,4],
+"structspz_1_1PackedGaussians.html#a860c9de082c443a1cd71a86192ecbb00":[1,0,28,3,4],
+"structspz_1_1PackedGaussians.html#a8c9ce9873098b664bbfe26f170eb324d":[0,0,41,3,10],
+"structspz_1_1PackedGaussians.html#a8c9ce9873098b664bbfe26f170eb324d":[1,0,28,3,10],
 "structspz_1_1PackedGaussians.html#abe31b4b4ae1f889ba89078d3468e9e52":[0,0,41,3,8],
 "structspz_1_1PackedGaussians.html#abe31b4b4ae1f889ba89078d3468e9e52":[1,0,28,3,8],
 "structspz_1_1PackedGaussians.html#abfdd10f52eb226ec82876de7fa149565":[0,0,41,3,14],

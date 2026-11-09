@@ -219,7 +219,7 @@ var searchData=
   ['gbuffer_216',['GBUFFER',['../painterly__renderer__interfaces_8h.html#a261e5168ccb18fb524d4073a18250df7ab8ca96a596ee9ceedcf3a3ba9972b41c',1,'painterly_renderer_interfaces.h']]],
   ['gen_5fsha_217',['gen_sha',['../structgs__world__generator_1_1Report.html#a217050f2bbd328734dcdcb93ba054b75',1,'gs_world_generator::Report']]],
   ['general_218',['GENERAL',['../namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106ab61773b9b3968a9988d765d728985862',1,'gs_logger']]],
-  ['generate_219',['generate',['../classGaussianSplatWorldGenerator.html#a357b058297617fd3057616a510d76604',1,'GaussianSplatWorldGenerator']]],
+  ['generate_219',['generate',['../classGaussianSplatWorldGenerator.html#a864fd0e237130c40a5d075d5e8a07e92',1,'GaussianSplatWorldGenerator']]],
   ['generate_5fchunk_220',['generate_chunk',['../namespacegs__world__generator.html#a824393b12616394929cfb3fa7eb87e81',1,'gs_world_generator']]],
   ['generate_5ffrom_5fpath_221',['generate_from_path',['../structAssetID.html#a886ca4ca2fb5ac9c42a2c6ec3e946ec2',1,'AssetID']]],
   ['generate_5funique_222',['generate_unique',['../structAssetID.html#ae96626332285d630e6494ae0b7e6e382',1,'AssetID']]],
