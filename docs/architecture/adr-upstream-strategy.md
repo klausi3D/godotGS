@@ -10,7 +10,7 @@
 - **Related:** the M5 section of the
   [continuation program](../programs/godotgs-continuation-2026-08.md), which planned the
   re-baseline as two stacks, 4.6.3 then 4.7.2.
-- **Verified against:** `b58bbe35d1f` (origin/master). Every `file:line` below was read at
+- **Verified against:** `b58bbe35d1f` (origin/master). Every file claim below was read at
   that commit. Issue titles and states were read with `gh issue view` on 2026-11-10.
 
 ## Problem
@@ -18,15 +18,15 @@
 The fork is based on a Godot release candidate and has no decided target for its next
 upstream move.
 
-- `version.py:3-6` declares 4.5.0 status `rc`. `GODOT_VERSION:11-14` and
-  `ENGINE_PATCHES.md:11` record the base as 4.5.0-rc at `2dd26a027a99` (2025-09-08).
+- `version.py` declares 4.5.0 status `rc`. `GODOT_VERSION` and `ENGINE_PATCHES.md`
+  record the base as 4.5.0-rc at `2dd26a027a99` (2025-09-08).
 - F-09: the base is 17 commits behind 4.5-stable and 341 behind 4.5.2-stable. Some upstream
   stable changes are already in the tree, but nothing records which.
 - F-03: the engine delta is not fully documented. The audit found 264 added lines in 8
   engine files that appear in neither `ENGINE_PATCHES.md` nor `engine_modifications.patch`,
   and the patch's `godot-source/` path prefix makes `git apply` from the checkout root fail.
   No guard reads either file.
-- F-08: the rebase costs more than the 38-file table in `ENGINE_PATCHES.md:12` suggests,
+- F-08: the rebase costs more than the 38-file table in `ENGINE_PATCHES.md` suggests,
   because of re-indented upstream blocks and a changed `render_scene()` signature.
 - K-13: the re-baseline was filed twice, once per target: #944 and #945 for Godot 4.6.3
   (content, then engine hooks) and #946 and #947 for Godot 4.7.2. All four are open.
@@ -45,9 +45,14 @@ and in either case generating the engine patch in CI first (F-03).
 
 - **Chosen:** Option B, hop straight to 4.7. The intermediate 4.6 step is dropped.
 - **Decided by:** the repository owner, 2026-11-10.
-- **Record:** the owner's approving review on the pull request that adds this ADR. No
-  separate owner comment or issue records the answer; if the owner adds one, its URL goes
-  here.
+- **Record:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull request
+  that adds this ADR, and the owner's merge of that pull request. This is the only owner
+  record: no separate owner comment or issue records the answer. When this record was
+  written the pull request had not been opened, so that review did not yet exist.
+- **Acceptance pending:** until that review exists, this record is not accepted. The
+  verifier checks it with `gh pr view <PR> --json reviews` (an `APPROVED` review by
+  `klausi3D`) and `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both
+  outputs into the pull request.
 
 The owner did not adopt the audit's recommendation (A). Option A's freeze rule (which
 upstream commits may be picked before the hop) therefore does not apply.
@@ -68,14 +73,34 @@ upstream commits may be picked before the hop) therefore does not apply.
 
 - **CLN-EN01 comes first.** The engine patch is generated in CI before the hop, so the hop
   starts from a recorded delta (F-03).
-- **CLN-EN03 is re-scoped** from a 4.5.2-stable fast-forward to a 4.7 rebase. Its children
-  keep their roles: CLN-EN03-1 records the cherry-picks already present and the target,
-  CLN-EN03-2 merges the chosen 4.7 stable tag and regenerates the delta records, and
-  CLN-EN03-3 proves the merged base.
+- **CLN-EN03 is re-scoped** from a 4.5.2-stable fast-forward to a 4.7 rebase. It is an
+  epic; its eight children CLN-EN03-1..8 keep their roles as planned in the CLN-EN03 epic,
+  in this dependency order:
+    1. CLN-EN03-1 records the 4.7 base selection, the engine-delta inventory from
+       CLN-EN01's generated patch, and the rebase slice plan.
+    2. CLN-EN03-2 merges the chosen Godot 4.7.x stable tag, with every engine-delta file
+       parked at the upstream version, and moves `GODOT_VERSION`.
+    3. CLN-EN03-4 to CLN-EN03-7 re-apply the engine delta in four rebase slices:
+       non-rendering engine code; RenderingDevice and the Vulkan driver; scene cull and
+       rendering server; the `renderer_rd` delta and `GaussianSplatStorage`.
+    4. CLN-EN03-8 ports the module to the Godot 4.7 engine headers and APIs without a
+       behaviour change.
+    5. CLN-EN03-3 proves the 4.7 base and lands the integration branch. It depends on
+       CLN-EN03-8, not on CLN-EN03-2 directly.
 - **CLN-EN02** (revert the whitespace churn in the scene cull, F-08) stays a predecessor of
-  the rebase; it shrinks the conflict surface.
-- F-09's required action keeps its done-condition: `GODOT_VERSION` names a tagged stable
-  commit, now on the 4.7 line.
+  the rebase; it shrinks the conflict surface. CLN-EN02 covers only the whitespace half of
+  F-08 and does not complete it on its own.
+- **F-08's second half stays open as a follow-up after CLN-EN03:** move the splat plumbing
+  behind a smaller seam, so that `render_scene()` keeps its upstream signature (a struct of
+  extra scene data instead of the mid-signature `p_gaussian_splats` parameter) and
+  `RendererCompositor` gains a non-pure virtual with a forward-declared opaque type instead
+  of a pure virtual returning a `RendererRD::` type. It is filed as the to-file issue
+  "Engine seam: smaller render_scene/compositor seam for splat plumbing (F-08, after
+  CLN-EN03)" and needs its own ADR. F-08 is done only when both halves are.
+- F-09 keeps both parts of its completion condition, now on the 4.7 line:
+    1. `GODOT_VERSION` names the commit of a Godot 4.7.x stable tag.
+    2. `git diff <tag-commit> HEAD` over the engine directories equals the documented
+       engine delta.
 
 ### What does not change
 

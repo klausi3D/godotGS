@@ -10,22 +10,25 @@
   [GitHub settings](../governance/github-settings.md),
   [Phase-1 guard hardening](adr-phase1-guard-hardening.md) §3 (the earlier R3 disposition
   for a sole collaborator).
-- **Verified against:** `b58bbe35d1f` (origin/master). Every `file:line` below was read at
+- **Verified against:** `b58bbe35d1f` (origin/master). Every file claim below was read at
   that commit.
 
 ## Problem
 
 The written review policy asks for more than the repository does.
 
-- `docs/governance/agentic-engineering.md:173` gives R3 the process "ADR before
-  implementation + two reviews + CODEOWNER and human approval".
-  `.agentic/policy.json:72` lists "Two independent reviews and CODEOWNER + human approval."
-  as an R3 evidence requirement, and `.github/CODEOWNERS:9-12` says "That rule stands;
+- The R3 row of the risk-class table in
+  [Agentic engineering](../governance/agentic-engineering.md#risk-classes) gave R3, before
+  this record, the process "ADR before implementation + two reviews + CODEOWNER and human approval".
+  `.agentic/policy.json` lists "Two independent reviews and CODEOWNER + human approval."
+  under `risk_classes.R3.evidence_requirements`, and the header comment of
+  `.github/CODEOWNERS` says "That rule stands;
   GitHub does not enforce it."
 - Branch protection requires 0 approving reviews and no code-owner review
-  (`docs/governance/github-settings.md:27-28`). `docs/governance/review-policy.md:106-110`
-  already says the R3 two-review rule is "upheld by reviewers and the merging human, not by
-  GitHub".
+  ([GitHub settings](../governance/github-settings.md), the live-state table for `master`).
+  The "Repository enforcement" section of
+  [Review policy](../governance/review-policy.md#repository-enforcement) already says the
+  R3 two-review rule is "upheld by reviewers and the merging human, not by GitHub".
 - Audit finding J-14 (audit base `1cfcf3c1ccb`) sampled 14 merged PRs (#1392, #1391, #1388,
   #1386, #1381, #1380, #1378, #1377, #1373, #1372, #1369, #1368, #1365, #1361). All were
   authored and merged by the repository owner's account. The only second party was the
@@ -50,9 +53,14 @@ The audit recommended B now and A when a second human joins.
 
 - **Chosen:** Option B, write down the real policy.
 - **Decided by:** the repository owner, 2026-11-10.
-- **Record:** the owner's approving review on the pull request that adds this ADR. No
-  separate owner comment or issue records the answer; if the owner adds one, its URL goes
-  here.
+- **Record:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull request
+  that adds this ADR, and the owner's merge of that pull request. This is the only owner
+  record: no separate owner comment or issue records the answer. When this record was
+  written the pull request had not been opened, so that review did not yet exist.
+- **Acceptance pending:** until that review exists, this record is not accepted. The
+  verifier checks it with `gh pr view <PR> --json reviews` (an `APPROVED` review by
+  `klausi3D`) and `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both
+  outputs into the pull request.
 
 The policy, as the owner stated it:
 
@@ -76,7 +84,7 @@ The policy, as the owner stated it:
 
 - **No check is weakened.** No required check, branch-protection setting, guard, threshold
   or baseline changes. The two-review and CODEOWNER rule was never enforced
-  (`docs/governance/github-settings.md:27-28`); this record moves the text to match the
+  (see the live-state table in [GitHub settings](../governance/github-settings.md)); this record moves the text to match the
   settings, not the settings to match a looser text.
 - **Which layers are process-only.** As before, the review layers (correctness, domain and
   human disposition) are upheld by reviewers and the merging human, not by GitHub.
@@ -109,12 +117,12 @@ rule, or says agents never merge, and so disagrees with the owner decision above
 
 | File | Old claim | Follow-up |
 | --- | --- | --- |
-| `.github/CODEOWNERS:9-12` | R3 needs "two independent reviews plus CODEOWNER approval"; "That rule stands". | CLN-MS03 |
-| `.agentic/policy.json:72` | R3 evidence: "Two independent reviews and CODEOWNER + human approval." Editing this file is R3. | to-file issue: align R3 review wording with the D-7 ADR (R3 for policy.json) |
-| `.claude/skills/gs-change-evidence/SKILL.md:31` and its mirror `.agents/skills/gs-change-evidence/SKILL.md:31` | R3 needs "two reviews plus human approval". | same to-file issue |
-| `docs/architecture/adr-phase1-guard-hardening.md:293` | Quotes the R3 two-review requirement as the rule its §3 disposition answers. | same to-file issue |
-| `docs/governance/release-acceptance-bar.md:416`, `:620`, `:636` | A manifest-ledger edit needs "two reviews and CODEOWNER approval". | same to-file issue |
-| `AGENTS.md:80` | "Agents never auto-merge". The owner may delegate the merge on fully green CI (owner decision, item 3). | same to-file issue |
+| `.github/CODEOWNERS`, header comment | R3 needs "two independent reviews plus CODEOWNER approval"; "That rule stands". | CLN-MS03 |
+| `.agentic/policy.json`, `risk_classes.R3.evidence_requirements` | R3 evidence: "Two independent reviews and CODEOWNER + human approval." Editing this file is R3. | to-file issue: align R3 review wording with the D-7 ADR (R3 for policy.json) |
+| `.claude/skills/gs-change-evidence/SKILL.md` and its mirror `.agents/skills/gs-change-evidence/SKILL.md`, step 4 "Collect evidence by class" | R3 needs "two reviews plus human approval". | same to-file issue |
+| `docs/architecture/adr-phase1-guard-hardening.md`, §3 "The R3 obligations disposition" | Quotes the R3 two-review requirement as the rule its §3 disposition answers. | same to-file issue |
+| `docs/governance/release-acceptance-bar.md`, §9.1 (one place) and §10.1 (two places) | A manifest-ledger edit needs "two reviews and CODEOWNER approval". | same to-file issue |
+| `AGENTS.md`, "Working rules", "Humans own the merge" | "Agents never auto-merge". The owner may delegate the merge on fully green CI (owner decision, item 3). | same to-file issue |
 
 Older ADRs that describe the R3 process of their time (for example
 `adr-editor-download-picker.md`, `adr-import-importance-pruning.md`,
