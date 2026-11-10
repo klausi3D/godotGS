@@ -36,6 +36,8 @@ cap and far plane. G6/G6t report a checkpoint that never settled within a
 deadline at or above the limit as FAIL `settle_deadline_missed` (C-starve).
 `inputs["gate_world"]` judges another world than the tier's gate world: the
 BV-13a controls (`flythrough_controls.py`) run on T0.
+V10 (BV-13a-2b) judges the D-14 record of the probe step (`steps/probe.json`
+`data.cache`); `inputs["cold_cache"]` replaces it with a control's own record.
 
 CLI: ``python3 tests/runtime/flythrough/flythrough_verdict.py --out DIR --tier A``
 writes ``DIR/gate_verdict.json`` and exits with the section 9.1 code of the
@@ -134,6 +136,17 @@ class Ctx:
         self.tier_cfg = (self.glob.get("tiers") or {}).get(tier)
         # BV-13a controls (ADR 8.5) run on T0 and are judged against tier A's frozen values.
         self.gate_world_override: Optional[str] = inputs.get("gate_world")
+        # V10 (BV-13a-2b): a control process passes its own D-14 record; the lane's is in
+        # the probe step record.
+        self._cold_cache_given = "cold_cache" in inputs
+        self._cold_cache = inputs.get("cold_cache")
+
+    def cold_cache(self) -> Any:
+        if self._cold_cache_given:
+            return self._cold_cache
+        rec = self.steps.get("probe")
+        data = rec.get("data") if isinstance(rec, dict) else None
+        return data.get("cache") if isinstance(data, dict) else None
 
     def gate_world_name(self) -> str:
         if self.gate_world_override:
@@ -461,6 +474,50 @@ def m1_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
     return PASS, seen, f"{seen} checkpoints: needed <= cap and settled"
 
 
+CACHE_WARM = "cache_warm"
+
+
+def v10_cold_cache(entry: dict, limit: Any, ctx: Ctx) -> Result:
+    """ADR V10 / D-14 items 2-4 (BV-13a-2b): the cold pass was proven cold.
+
+    Judged from the D-14 record with the frozen values, not from the record's own
+    `status`: residency <= `residency_max_fraction` before the probe, read bytes
+    >= the limit x the path oracle's expected unique stored bytes, and a recorded
+    `host_cache` label. A record without either number is MISSING (evidence
+    "missing"), never a pass and never a judged cache_warm.
+    """
+    cache = ctx.cold_cache()
+    if not isinstance(cache, dict):
+        raise Missing("no D-14 cold-cache record: the probe did not run on the cached worlds")
+    max_resident = _finite(entry.get("residency_max_fraction"), "residency_max_fraction")
+    resident = _finite(_get(cache, "residency.resident_fraction"), "residency.resident_fraction")
+    rec = cache.get("v10")
+    if not isinstance(rec, dict):
+        raise Missing("cache.v10 absent")
+    if rec.get("read_bytes") is None:
+        raise Missing(f"read_bytes unmeasured ({rec.get('why', 'no reason')})")
+    if rec.get("expected_unique_stored_bytes") is None:
+        raise Missing(f"no expected unique stored bytes ({rec.get('expected_source', rec.get('why', 'no reason'))})")
+    read = _int(rec.get("read_bytes"), "read_bytes")
+    expected = _int(rec.get("expected_unique_stored_bytes"), "expected_unique_stored_bytes")
+    if read < 0 or expected <= 0:
+        raise Missing(f"read_bytes {read} / expected {expected}: not a measurement")
+    host = cache.get("host_cache")
+    if not isinstance(host, str) or not host:
+        raise Missing("host_cache label not recorded (D-14 item 4)")
+    fraction = read / expected
+    observed = {"resident_fraction": resident, "read_fraction": round(fraction, 4), "host_cache": host}
+    problems = []
+    if resident > max_resident:
+        problems.append(f"{resident:.2%} of the world pages resident before the probe > {max_resident:.0%}")
+    if not _compare(entry["op"], fraction, _finite(limit, "limit")):
+        problems.append(f"read {read} B = {fraction:.3f} x the oracle's {expected} B, needs {entry['op']} {limit}")
+    if problems:
+        return INVALID, observed, f"{CACHE_WARM}: " + "; ".join(problems)
+    return PASS, observed, (f"cold: {resident:.2%} resident before, read {fraction:.2f} x the oracle; "
+                            f"host_cache {host} (present: guest-cold only)")
+
+
 # --------------------------------------------------------------------------
 # gates (ADR 8.3)
 # --------------------------------------------------------------------------
@@ -549,6 +606,7 @@ EVALUATORS: Dict[str, Evaluator] = {
     "V9-evictions": v9_evictions,
     "V9-peak-resident": v9_peak_resident,
     "M1-settle": m1_settle,
+    "V10": v10_cold_cache,
     "G1": g1_exit,
     "G2a": g2a_budget,
     "G4": g4_rss,

@@ -29,8 +29,9 @@ What runs:
    whose needed set exceeds the chunk cap cannot settle; it needs a priority proof
    (ADR M1 settle-where-fits), which does not exist yet, so it is INVALID. ``--passes 2``
    (default) flies the path twice in the same process: a first and a repeat pass.
-   The host page cache is not controlled here (V10 is BV-06b), so neither pass is
-   labelled cold.
+   The host page cache is not controlled here, so this script labels neither pass
+   cold; the lane's probe step (dispatch_lane.py) records the D-14 cold proof of the
+   whole process, which the gate verdict's V10 judges.
 2. **F/k drawn sweep on T0** (one Godot process per point): T0 chunk subsets of
    about 32k (the "small drawn count" F point: F cannot be measured at 0 drawn,
    because then no Gaussian pass runs and every timing is held), 0.25, 0.5, 1 and
@@ -446,7 +447,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
         out["passes"].append({
             "pass_index": pass_index,
             "label": "first" if pass_index == 0 else "repeat",
-            "host_cache": "not_controlled (V10 cold-cache proof is BV-06b)",
+            "host_cache": "not_controlled here (the lane's probe step records the D-14 cold proof, V10)",
             "moving_frame_interval": ps.interval_stats(ps.frame_intervals(trace, moving)),
             "moving_gpu": ps.gpu_breakdown(trace, moving),
             "segments": per_seg,

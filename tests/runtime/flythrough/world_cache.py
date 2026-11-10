@@ -367,3 +367,90 @@ def v10(read_bytes: Optional[int], expected_unique_stored_bytes: Optional[int]) 
     result["fraction"] = round(fraction, 4)
     result["status"] = "OK" if fraction >= V10_MIN_READ_FRACTION else "INVALID"
     return result
+
+
+# --------------------------------------------------------------------------
+# V10 inputs (BV-13a-2b, #1376 item 1): read bytes, the path oracle, the record
+# --------------------------------------------------------------------------
+
+
+def children_read_bytes() -> Optional[int]:
+    """Block-input bytes of every reaped descendant (Linux `ru_inblock` is in 512 B units).
+
+    The probe's Godot process is a grandchild that run_probe.py waits for, so its
+    reads accumulate here. On Linux `ru_inblock` is the task's io-accounting
+    `read_bytes` (the `/proc/<pid>/io read_bytes` of D-14 item 3) summed over the
+    waited-for descendants. Page-cache hits are not block input, which is what
+    makes this the V10 signal. It counts every block the probe tree read (the
+    binary, the worlds, anything else), so it bounds the world reads from above:
+    a warm world passes V10 only if something else read about as much. None where
+    `resource` does not exist.
+    """
+    try:
+        import resource  # noqa: PLC0415 - POSIX only
+    except ImportError:
+        return None
+    return int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_inblock) * 512
+
+
+def warm_page_cache(paths: Sequence[Path], block: int = 8 * 1024 * 1024) -> int:
+    """Read every file once through the page cache and leave it there: the per-run verify
+    without the fadvise that follows it (ADR 8.5 C-warm, "fadvise skipped"). Returns bytes read."""
+    total = 0
+    for path in paths:
+        with Path(path).open("rb") as handle:
+            while True:
+                chunk = handle.read(block)
+                if not chunk:
+                    break
+                total += len(chunk)
+    return total
+
+
+def expected_unique_stored_bytes(summary: object, worlds: Sequence[str]) -> Tuple[Optional[int], str]:
+    """The path oracle's expected unique stored bytes (ADR 6.4), summed over every probed world.
+
+    The read-byte signal covers the whole probe tree, so the oracle side covers
+    every world the probe flew. One world without its oracle leaves the sum
+    unknown (None): V10 is then not evaluated, never judged on a partial sum.
+    """
+    if not isinstance(summary, dict) or not isinstance(summary.get("worlds"), dict):
+        return None, "no probe summary with worlds"
+    if not worlds:
+        return None, "no world was probed"
+    total = 0
+    for world in worlds:
+        ws = summary["worlds"].get(world)
+        fl = ws.get("flythrough") if isinstance(ws, dict) else None
+        oracle = fl.get("expected_unique_upload_flat") if isinstance(fl, dict) else None
+        stored = oracle.get("stored_bytes") if isinstance(oracle, dict) else None
+        if isinstance(stored, bool) or not isinstance(stored, int) or stored <= 0:
+            return None, f"worlds.{world}.flythrough.expected_unique_upload_flat.stored_bytes absent or not positive"
+        total += stored
+    return total, f"path oracle stored bytes of {', '.join(worlds)}"
+
+
+def cold_cache_record(
+    residency_record: Dict[str, object],
+    read_bytes: Optional[int],
+    summary: object,
+    worlds: Sequence[str],
+    host_cache: str,
+) -> Dict[str, object]:
+    """The D-14 record of one probe process: residency before it, read bytes during it, the oracle.
+
+    The lane's probe step and every BV-13a control write this record; the verdict
+    module's V10 entry judges it against the frozen thresholds. `cold_proven` is
+    this module's own reading with its constants, for the step record only.
+    """
+    expected, source = expected_unique_stored_bytes(summary, worlds)
+    result = v10(read_bytes, expected)
+    result["expected_source"] = source
+    result["worlds"] = list(worlds)
+    res = {k: v for k, v in residency_record.items() if k != "per_file"}
+    return {
+        "host_cache": host_cache,
+        "residency": res,
+        "v10": result,
+        "cold_proven": bool(res.get("cold")) and result["status"] == "OK",
+    }

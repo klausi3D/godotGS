@@ -19,6 +19,7 @@ import copy
 import gzip
 import io
 import json
+import math
 import re
 import shutil
 import sys
@@ -32,6 +33,7 @@ sys.path.insert(0, str(HERE))
 
 import dispatch_lane as lane  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
+import world_cache as wc  # noqa: E402
 
 FIXTURE = HERE / "fixtures" / "bv09"
 COMMIT = "46e1c556aa0f5980123e22cde6b419df5c9af5d6"
@@ -64,6 +66,16 @@ def _flat_m1_world_a(thresholds: dict) -> dict:
 
 
 CONTENTION_OK = {"step": "contention", "status": "OK", "exit_code": 0, "reason": "contention postflight CLEAN"}
+WORLDS_A = ("T0", "A")
+
+
+def cold_record(summary: dict, resident: tuple = (0, 1000), read_fraction: float = 1.0,
+                host_cache: str = "present") -> dict:
+    """The probe step's D-14 record (dispatch_lane.probe) for this summary, built by world_cache."""
+    expected, _ = wc.expected_unique_stored_bytes(summary, WORLDS_A)
+    res = wc.residency([Path("w")], lambda path: resident)
+    read = None if expected is None else math.ceil(expected * read_fraction)
+    return wc.cold_cache_record(res, read, summary, WORLDS_A, host_cache)
 
 
 class _Case(unittest.TestCase):
@@ -71,6 +83,9 @@ class _Case(unittest.TestCase):
         self.inputs = copy.deepcopy(_INPUTS)
         # The M1 run predates the contention record (BV-06b); add the one the lane writes now.
         self.inputs["steps"]["contention"] = dict(CONTENTION_OK)
+        # It predates the D-14 record of the cached probe as well (BV-06b, V10 BV-13a-2b): add a
+        # proven-cold one, built by its producer. CapturedRun shows the run without it.
+        self.inputs["steps"]["probe"]["data"]["cache"] = cold_record(self.inputs["summary"])
         # The M1 run also predates `settings_measured` (#1383 item 2, BV-13a). Its moving-row
         # record stands in; CapturedRun.test_the_pre_bv13a_producer_leaves_the_holds_unjudged
         # shows the captured run without it is INVALID.
@@ -106,12 +121,19 @@ class _Case(unittest.TestCase):
 
 
 class CapturedRun(_Case):
-    def test_the_captured_run_as_it_is_is_invalid_only_for_want_of_a_contention_record(self) -> None:
-        del self.inputs["steps"]["contention"]
+    def test_the_captured_run_as_it_is_is_invalid_only_for_want_of_contention_and_cold_cache_records(self) -> None:
+        self.inputs = copy.deepcopy(_INPUTS)
+        for world in self.inputs["summary"]["worlds"].values():
+            for p in world["flythrough"]["passes"]:
+                p["settings_measured"] = copy.deepcopy(p["settings"])
         result = self.run_verdict()
         self.assertEqual(result["verdict"], fv.INVALID)
         self.assertEqual(self.row(result, "V1")["status"], fv.INVALID)
-        others = {r["id"]: r["status"] for r in result["entries"] if r["section"] == "validity" and r["id"] != "V1"}
+        v10 = self.row(result, "V10")
+        self.assertEqual((v10["status"], v10["evidence"]), (fv.INVALID, fv.EVIDENCE_MISSING))
+        self.assertIn("no D-14 cold-cache record", v10["reason"])
+        others = {r["id"]: r["status"] for r in result["entries"]
+                  if r["section"] == "validity" and r["id"] not in ("V1", "V10")}
         self.assertEqual(set(others.values()), {fv.PASS}, others)
 
     def test_with_contention_clean_every_validity_holds_and_the_stop_and_teleport_settles_fail(self) -> None:
@@ -119,7 +141,7 @@ class CapturedRun(_Case):
         statuses = {r["id"]: r["status"] for r in result["entries"]}
         self.assertEqual(statuses, {
             "V1": "PASS", "V2": "PASS", "V3": "PASS", "V5": "PASS", "V7": "PASS", "V8": "PASS",
-            "V9-evictions": "PASS", "V9-peak-resident": "PASS", "M1-settle": "PASS",
+            "V9-evictions": "PASS", "V9-peak-resident": "PASS", "M1-settle": "PASS", "V10": "PASS",
             "G1": "PASS", "G2a": "PASS", "G4": "PASS", "G6": "FAIL", "G6t": "FAIL",
         })
         self.assertEqual(result["verdict"], fv.FAIL)
@@ -287,6 +309,67 @@ class Validity(_Case):
                          "reason": "needed 399 > cap 320: priority proof missing"}
         result = self.assert_entry("M1-settle", fv.INVALID, "needed 399 > cap 320")
         self.assertEqual(self.row(result, "M1-settle")["evidence"], fv.EVIDENCE_PRESENT)
+
+    def set_cold(self, **kw) -> dict:
+        self.inputs["steps"]["probe"]["data"]["cache"] = cache = cold_record(self.inputs["summary"], **kw)
+        return cache
+
+    def test_v10_cold_passes_with_the_label(self) -> None:
+        result = self.assert_entry("V10", fv.PASS, "host_cache present")
+        row = self.row(result, "V10")
+        self.assertEqual(row["observed"], {"resident_fraction": 0.0, "read_fraction": 1.0, "host_cache": "present"})
+        self.assertEqual(row["limit"], 0.9)
+
+    def test_v10_resident_pages_before_the_probe(self) -> None:
+        self.set_cold(resident=(10, 1000))  # exactly 1 %
+        self.assert_entry("V10", fv.PASS)
+        self.set_cold(resident=(11, 1000))
+        result = self.assert_entry("V10", fv.INVALID, "cache_warm: 1.10% of the world pages resident")
+        self.assertEqual(self.row(result, "V10")["evidence"], fv.EVIDENCE_PRESENT)
+
+    def test_v10_too_few_bytes_read(self) -> None:
+        self.set_cold(read_fraction=0.9)
+        self.assert_entry("V10", fv.PASS)
+        self.set_cold(read_fraction=0.89)
+        result = self.assert_entry("V10", fv.INVALID, "cache_warm: read")
+        self.assertEqual(result["verdict"], fv.INVALID, "a validity condition, never a FAIL")
+
+    def test_v10_judges_with_the_frozen_values_not_the_records_status(self) -> None:
+        cache = self.set_cold(read_fraction=0.5)
+        cache["v10"]["status"], cache["cold_proven"] = "OK", True
+        self.assert_entry("V10", fv.INVALID, "cache_warm")
+        self.th["validity"]["V10"]["tiers"]["A"] = 0.4
+        self.assert_entry("V10", fv.PASS)
+        self.th["validity"]["V10"]["residency_max_fraction"] = 0.0
+        self.set_cold(resident=(1, 1000))
+        self.assert_entry("V10", fv.INVALID, "cache_warm")
+
+    def test_v10_without_a_measurement_is_missing(self) -> None:
+        mutations = {
+            "no record": lambda c: self.inputs["steps"]["probe"]["data"].pop("cache"),
+            "no oracle": lambda c: c["v10"].update(expected_unique_stored_bytes=None),
+            "no read bytes": lambda c: c["v10"].update(read_bytes=None),
+            "no residency": lambda c: c.pop("residency"),
+            "no label": lambda c: c.pop("host_cache"),
+        }
+        for name, mutate in mutations.items():
+            mutate(self.set_cold())
+            row = self.row(self.run_verdict(), "V10")
+            self.assertEqual((row["status"], row["evidence"]), (fv.INVALID, fv.EVIDENCE_MISSING), name)
+            self.assertTrue(row["reason"].startswith("MISSING"), (name, row["reason"]))
+
+    def test_v10_a_partial_oracle_is_never_summed(self) -> None:
+        del self.inputs["summary"]["worlds"]["T0"]["flythrough"]["expected_unique_upload_flat"]["stored_bytes"]
+        cache = self.set_cold()
+        self.assertEqual(cache["v10"]["status"], "NOT_EVALUATED")
+        self.assert_entry("V10", fv.INVALID, "MISSING: read_bytes unmeasured")
+
+    def test_v10_frozen_values_equal_the_lane_constants(self) -> None:
+        """The lane's own refusal (dispatch_lane probe) and the verdict use one pair of limits."""
+        entry = _THRESHOLDS["validity"]["V10"]
+        self.assertEqual(entry["tiers"]["A"], wc.V10_MIN_READ_FRACTION)
+        self.assertEqual(entry["residency_max_fraction"], wc.RESIDENCY_MAX_FRACTION)
+        self.assertNotIn("V10", (_THRESHOLDS["provenance"].get("absent_until_prerequisite") or {}))
 
 
 class Gates(_Case):

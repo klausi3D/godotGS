@@ -838,9 +838,10 @@ class ProbeCold(_CacheCase):
         self.install(lane.PROBE_ENTRY)
         lane.write_record(self.out, "disk_throughput", lane.EXIT_OK, "ok", {"host_cache": "absent"})
 
-    def prober(self) -> FakeRunner:
+    def prober(self, summary: Optional[dict] = None) -> FakeRunner:
         def run(cmd, **kw):
-            (Path(self.arg(cmd, "--out")) / lane.PROBE_SUMMARY_NAME).write_text("{}", encoding="utf-8")
+            (Path(self.arg(cmd, "--out")) / lane.PROBE_SUMMARY_NAME).write_text(json.dumps(summary or {}),
+                                                                                 encoding="utf-8")
             return _proc(cmd, 0)
 
         return FakeRunner(**{lane.PROBE_ENTRY.name: run})
@@ -869,6 +870,31 @@ class ProbeCold(_CacheCase):
         self.assertEqual(cache["v10"]["read_bytes"], 5120)
         self.assertEqual(cache["v10"]["status"], "NOT_EVALUATED")
         self.assertFalse(cache["cold_proven"], "V10 not evaluated is never proven cold")
+
+    @staticmethod
+    def oracle_summary(stored: int) -> dict:
+        return {"worlds": {"T0": {"flythrough": {"expected_unique_upload_flat": {"stored_bytes": stored}}}}}
+
+    def test_v10_reads_the_path_oracle_of_the_summary(self) -> None:
+        """#1376 item 1: read bytes against the oracle's expected unique stored bytes."""
+        for stored, status in ((5000, "OK"), (5120, "OK"), (5689, "INVALID"), (100000, "INVALID")):
+            code, _ = self.run_probe((0, 100), self.prober(self.oracle_summary(stored)))
+            self.assertEqual(code, lane.EXIT_OK)
+            cache = self.record("probe")["data"]["cache"]
+            self.assertEqual(cache["v10"]["expected_unique_stored_bytes"], stored)
+            self.assertEqual(cache["v10"]["worlds"], ["T0"])
+            self.assertEqual(cache["v10"]["status"], status, (stored, cache))
+            self.assertEqual(cache["cold_proven"], status == "OK")
+            self.assertTrue(cache["residency"]["cold"])
+
+    def test_v10_never_sums_a_partial_oracle(self) -> None:
+        summary = self.oracle_summary(5000)
+        summary["worlds"]["T0"]["flythrough"]["expected_unique_upload_flat"]["stored_bytes"] = None
+        self.run_probe((0, 100), self.prober(summary))
+        cache = self.record("probe")["data"]["cache"]
+        self.assertEqual(cache["v10"]["status"], "NOT_EVALUATED")
+        self.assertIn("T0", cache["v10"]["expected_source"])
+        self.assertFalse(cache["cold_proven"])
 
     def test_a_warm_cache_is_invalid_and_the_probe_never_starts(self) -> None:
         code, runner = self.run_probe((2, 100))  # 2 % > 1 %
