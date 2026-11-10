@@ -97,8 +97,8 @@ BV ADR's roadmap (§10) and their own milestones.
 ### Proposals the findings make that this record does not decide
 
 The owner's answer covers which programs run, not these five proposals. Each proposal below
-is stated in full, as the finding makes it, and stays open. The owner has not accepted or
-rejected any of them.
+is stated in full, as the finding makes it. D-8 did not decide any of them; the owner later
+adopted K-01 and K-12 (ruling below), and the other three stay open.
 
 **Follow-up owner:** the repository owner decides each proposal. Until then, all five are
 carried by one to-file issue, "Owner decision on the audit's K-01, K-02, K-11, K-12 and K-14
@@ -106,13 +106,18 @@ proposals (not decided by D-8)", which this record's pull request names in its n
 issue carries each proposal as the table states it, including its scope and its "done when"
 condition. No agent decides them, and no agent drops part of one.
 
+**Owner ruling, 2026-11-10 (after this record merged):** the owner adopted K-01 and K-12 as
+guards on running both programs in parallel, so that the BV program cannot again starve
+correctness work. The table records their status. K-11, K-02 and K-14 stay open, and the
+to-file issue carries only those three.
+
 | Finding | Proposal, in full | Status |
 | --- | --- | --- |
-| K-01 | Set a per-week budget for user-visible correctness fixes against the 47 open P1s, so that the BV program cannot starve them; done when a weekly merge report shows fix share and P1 count. | Not decided. |
+| K-01 | Set a per-week budget for user-visible correctness fixes against the 47 open P1s, so that the BV program cannot starve them; done when a weekly merge report shows fix share and P1 count. | **Adopted, 2026-11-10** (owner ruling, see below): the weekly merge report starts now. The budget figure is set by the owner from the first report. |
 | K-11 | Freeze runner topology until Public Alpha unless a change fixes a red; done when no CI-structure PR merges for four weeks. | Not decided. |
-| K-12 | Gate further BV test-lane PRs on #1393 and #1364; done when tier A passes valid with no overflow. | Not decided. |
+| K-12 | Gate further BV test-lane PRs on #1393 and #1364; done when tier A passes valid with no overflow. | **Adopted, 2026-11-10** (owner ruling, see below): no further BV test-lane PR merges while #1393 or #1364 is open. PRs that fix #1393 or #1364 are not gated. |
 | K-02 | Add a game-ship scene budget (nodes, splats, lights, painterly) to the status authority, and map each BV milestone to the release-blocker item it retires; done when each open BV issue names the blocker it closes. | Not decided. |
-| K-14 | Land #1315 first, then re-point the plan at a Grandma's House scene budget and at the alpha blockers #1012, #1016 and #842, with an owner and a date for each recorded in #458. | Not decided. Cleanup task CLN-PR03 carries #1315; the scene budget and the owners and dates in #458 are carried by no task. |
+| K-14 | Land #1315 first, then re-point the plan at a Grandma's House scene budget and at the alpha blockers #1012, #1016 and #842, with an owner and a date for each recorded in #458. | Not decided. #1315 merged on 2026-11-10 (`d628a5af625`). The scene budget and the owners and dates in #458 are carried by no task. |
 
 ## Out of scope
 
