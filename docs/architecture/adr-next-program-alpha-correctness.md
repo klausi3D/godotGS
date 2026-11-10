@@ -21,7 +21,7 @@
 The audit (base `1cfcf3c1ccb`) found that recent work had moved away from correctness fixes
 and that the plan of record no longer described what was being built.
 
-- K-01: of the last 100 merges (2026-10-02 to 2026-11-09), correctness fixes were 19 PRs and
+- K-01: of the last 100 merges (2026-10-01 to 2026-11-09), correctness fixes were 19 PRs and
   18.6 % of changed lines; tests, CI and docs were 43.6 % of lines. Since 2026-11-03,
   correctness fixes fell to 3 of 45 PRs. 33 PRs (29 % of lines) belonged to the beyond-VRAM
   (BV) program.
@@ -47,7 +47,7 @@ through its findings. The question for the owner was what runs next.
 
 | Option | What it is | Cost | What it enables | What it limits |
 | --- | --- | --- | --- | --- |
-| **A. Close BV, then alpha correctness** (audit recommendation) | Close BV at M1 plus the frame-time gate (gate P1 in BV ADR §8.3, frozen by the §8.4 thresholds file), then run an "alpha correctness" program: the painterly decision (D-1), the stop-gaps (D-4), F-01 and A-01, then #1012, #1016, #320, #786 and #883. | BV stops after M1; the later BV milestones (M1c to M5 in BV ADR §10) wait. | All capacity, including the single GPU runner, goes to the alpha blockers. | Worlds beyond VRAM do not progress until the alpha program ends. |
+| **A. Close BV, then alpha correctness** (audit recommendation) | Close BV at M1 plus the frame-time gate (gate P1, whose target values BV ADR §8.3 preregisters; the current §8.4 thresholds file lists P1 as absent until its prerequisite lands), then run an "alpha correctness" program: the painterly decision (D-1), the stop-gaps (D-4), F-01 and A-01, then #1012, #1016, #320, #786 and #883. | BV stops after M1; the later BV milestones (M1c to M5 in BV ADR §10) wait. | All capacity, including the single GPU runner, goes to the alpha blockers. | Worlds beyond VRAM do not progress until the alpha program ends. |
 | **B. Run both in parallel** | BV continues alongside the cleanup plan. | Both compete for the GPU runner and for the streaming source files, so each moves more slowly. | Neither program stops; the cleanup plan starts now. | Cleanup tasks that touch files held by open BV PRs wait. |
 
 ## Owner decision

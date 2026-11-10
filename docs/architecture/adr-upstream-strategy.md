@@ -22,8 +22,11 @@ upstream move.
   record the base as 4.5.0-rc at `2dd26a027a99` (2025-09-08).
 - F-09: the base is 17 commits behind 4.5-stable and 341 behind 4.5.2-stable. Some upstream
   stable changes are already in the tree, but nothing records which.
-- F-03: the engine delta is not fully documented. The audit found 264 added lines in 8
-  engine files that appear in neither `ENGINE_PATCHES.md` nor `engine_modifications.patch`,
+- F-03: the engine delta is not fully documented. At its base `1cfcf3c1ccb` the audit recorded
+  264 added lines in 8 engine files. Re-measured for this record with
+  `git diff --numstat 2dd26a027a99 b58bbe35d1f` over the same 8 files, they carry 303 added
+  lines (10 + 150 + 3 + 23 + 71 + 2 + 12 + 32; #1396 added engine lines after the audit).
+  These lines appear in neither `ENGINE_PATCHES.md` nor `engine_modifications.patch`,
   and the patch's `godot-source/` path prefix makes `git apply` from the checkout root fail.
   No guard reads either file.
 - F-08: the rebase costs more than the 38-file table in `ENGINE_PATCHES.md` suggests,
