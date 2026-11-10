@@ -4745,32 +4745,16 @@ bool GaussianStreamingSystem::_should_force_sync_fallback_for_async_stall(
         return false;
     }
 
-    const uint32_t sync_fallback_queue_depth = _get_sync_fallback_queue_depth();
-    if (scheduler.force_sync_fallback_due_to_async_stall &&
-            pack_queue_depth == 0 &&
-            upload_queue_depth == 0 &&
-            sync_fallback_queue_depth == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = false;
-    }
-
-    // Original narrow signature: pack queue has work but nothing reaches
-    // the upload queue — pack thread may be wedged.
-    if (!scheduler.force_sync_fallback_due_to_async_stall &&
-            diagnostics.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
-            pack_queue_depth > 0 &&
-            upload_queue_depth == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = true;
-    }
-
-    // Broader signature: upload queue has work but nothing completes —
-    // GPU upload path may be blocked or starved.
-    if (!scheduler.force_sync_fallback_due_to_async_stall &&
-            diagnostics.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
-            upload_queue_depth > 0 &&
-            upload_pipeline.last_upload_chunks == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = true;
-    }
-
+    GaussianStreamingTypes::AsyncStallFallbackInputs stall_inputs;
+    stall_inputs.currently_forced = scheduler.force_sync_fallback_due_to_async_stall;
+    stall_inputs.pack_queue_depth = pack_queue_depth;
+    stall_inputs.upload_queue_depth = upload_queue_depth;
+    stall_inputs.sync_fallback_queue_depth = _get_sync_fallback_queue_depth();
+    stall_inputs.last_upload_chunks = upload_pipeline.last_upload_chunks;
+    stall_inputs.upload_stall_frames = diagnostics.upload_stall_frames;
+    stall_inputs.upload_stall_wall_usec = diagnostics.upload_stall_wall_usec;
+    scheduler.force_sync_fallback_due_to_async_stall =
+            GaussianStreamingTypes::evaluate_async_stall_sync_fallback(stall_inputs);
     return scheduler.force_sync_fallback_due_to_async_stall;
 }
 
