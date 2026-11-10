@@ -1603,7 +1603,7 @@ void main() {
                         splat_ref.atlas_index, local_offset, range, true);
 #endif
                 atomicAdd(overflow_stats.overflow_splats_clamped, 1u);
-                atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_BINNING); // C4b: resident drop flag (per-tile capacity)
+                atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_BINNING | GS_OVERFLOW_DROP_BINNING_TILE_RANGE); // C4b: resident drop flag (per-tile capacity)
                 continue;
             }
             uint record_idx = range.x + local_offset;
@@ -1615,7 +1615,7 @@ void main() {
 #endif
                 // Global overlap budget exhausted. Do not write past the allocated key/value range.
                 atomicAdd(overflow_stats.overflow_splats_clamped, 1u);
-                atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_BINNING); // C4b: resident drop flag (global overlap budget)
+                atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_BINNING | GS_OVERFLOW_DROP_BINNING_BUDGET); // C4b: resident drop flag (global overlap budget)
                 continue;
             }
             global_sort_keys.keys[record_idx] = gs_pack_sort_key(tile_idx, linear_depth, global_idx);

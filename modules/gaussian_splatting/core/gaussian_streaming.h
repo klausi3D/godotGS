@@ -126,6 +126,9 @@ private:
         uint64_t last_grow_new_bytes = 0;
         uint64_t last_grow_usec = 0; // Wall time of the whole grow (allocate, copy, sync, swap).
         uint64_t end_frames_since_heap_sample = 0; // 0 = sample at the next end_frame().
+        uint32_t grow_refusals_non_device_local = 0; // Grows refused because the new buffer was not device-local.
+        uint32_t grow_device_clamps = 0; // Grows lowered or refused by the free device-local memory.
+        uint32_t device_refusal_backoff = 0; // Admission attempts to skip after a device refusal.
     };
     static constexpr uint64_t kPoolHeapSampleFrames = 30;
     PoolPlacementTelemetry pool_placement;

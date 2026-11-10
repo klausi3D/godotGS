@@ -29,7 +29,7 @@ import dispatch_lane as lane  # noqa: E402
 import flythrough_controls as fc  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
 import run_probe as rp  # noqa: E402
-from test_flythrough_verdict import _INPUTS, _THRESHOLDS, CONTENTION_OK  # noqa: E402
+from test_flythrough_verdict import _INPUTS, _THRESHOLDS, CONTENTION_OK, drop_window  # noqa: E402
 
 CHECKPOINTS_G6 = ("C1", "C2", "C3", "C5", "C6")
 
@@ -41,6 +41,7 @@ def _t0_summary() -> dict:
     fl = summary["worlds"]["T0"]["flythrough"]
     for p in fl["passes"]:
         p["settings_measured"] = copy.deepcopy(p["settings"])  # predates BV-13a, see test_flythrough_verdict
+        p["overlap_drops_checkpoints"] = drop_window()  # predates #1393, see test_flythrough_verdict
     fl["passes"] = fl["passes"][:1]
     return summary
 
@@ -119,6 +120,18 @@ class Tuples(unittest.TestCase):
         rec = _judge("C-off", summary)
         self.assertEqual(rec["status"], fv.INVALID)
         self.assertTrue(any(n.startswith("G4") for n in rec["not_evaluable"]), rec)
+
+    def test_g10_without_drop_telemetry_is_not_evaluable_and_drops_are(self) -> None:
+        """#1393: a control process without the drop telemetry cannot certify a control; one that
+        measured drops (G10 FAIL from present signals) still can."""
+        summary = _t0_summary()
+        del summary["worlds"]["T0"]["flythrough"]["passes"][0]["overlap_drops_checkpoints"]
+        rec = _judge("C-off", summary)
+        self.assertEqual(rec["status"], fv.INVALID)
+        self.assertTrue(any(n.startswith("G10") for n in rec["not_evaluable"]), rec)
+        summary = _t0_summary()
+        summary["worlds"]["T0"]["flythrough"]["passes"][0]["overlap_drops_checkpoints"] = drop_window(drops=1)
+        self.assertEqual(_judge("C-off", summary)["status"], "PASS")
 
     def test_missing_checkpoint_cap_fit_never_lets_c_off_pass(self) -> None:
         """#1390 P1 mutation: without the checkpoint cap_fit records M1-settle has no evidence."""

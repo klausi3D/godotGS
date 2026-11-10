@@ -7,6 +7,7 @@
 #include "residency_budget_controller.h"
 #include "streaming_chunk_invariants.h"
 #include "streaming_layout_hint.h"
+#include "streaming_pool_growth_policy.h"
 #include "streaming_queue_pressure_controller.h"
 #include "streaming_telemetry_adapter.h"
 #include "core/config/project_settings.h"
@@ -406,6 +407,18 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     const RenderingDeviceDriver::BufferMemoryPlacement new_placement =
             _record_persistent_buffer_placement(rd, new_buffer, new_buffer_size, "_grow_persistent_buffer");
     const RenderingDeviceDriver::DeviceLocalHeapUsage heap_after = rd->get_device_local_heap_usage();
+    if (!gs_streaming_pool_growth::grow_keeps_allocation(new_placement.known, new_placement.device_local)) {
+        // BV-POOL: a pool outside VRAM makes every atlas-reading pass bus-bound (run 42644237192:
+        // 9.4 -> 100 ms). Keep the device-local pool and stop growing; the streamer evicts instead.
+        rd->free(new_buffer);
+        pool_placement.grow_refusals_non_device_local++;
+        ERR_PRINT(vformat("[Streaming][BV-POOL] Persistent buffer grow %d -> %d pages refused: the new buffer was not device-local. "
+                          "Growth stops at %d pages (%s bytes); the streamer evicts instead.",
+                streaming_current_capacity, new_capacity, streaming_current_capacity,
+                String::num_uint64(uint64_t(persistent_buffer_size))));
+        streaming_max_capacity = streaming_current_capacity;
+        return false;
+    }
 
     // Copy currently resident page contents from old buffer to new buffer. The
     // page layout (page index -> byte offset) is identical for old and new
@@ -493,8 +506,32 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
         return false;
     }
 
-    uint64_t target64 = MIN<uint64_t>(uint64_t(streaming_current_capacity) * 2u,
-            uint64_t(growth_ceiling));
+    // BV-POOL: a device clamp that left no room is not re-queried on every admission attempt.
+    if (pool_placement.device_refusal_backoff > 0) {
+        pool_placement.device_refusal_backoff--;
+        return false;
+    }
+
+    gs_streaming_pool_growth::GrowInputs grow;
+    grow.current_pages = streaming_current_capacity;
+    grow.ceiling_pages = growth_ceiling;
+    grow.page_bytes = _atlas_page_bytes();
+    // Size for what the registered assets need, as initialize() does, never less than doubling:
+    // a world larger than the pool reaches its final size while the old buffer is still small,
+    // instead of doubling into the ceiling with a large old buffer alive (the BV-POOL cliff).
+    {
+        uint64_t asset_pages = 0;
+        for (uint32_t asset_id : asset_registry.atlas_asset_order) {
+            const AtlasAssetState *asset = _get_asset_state(asset_id);
+            if (!asset) {
+                continue;
+            }
+            for (const StreamingChunk &chunk : _get_asset_chunks(*asset)) {
+                asset_pages += atlas_pages_for_splats(chunk.count);
+            }
+        }
+        grow.needed_pages = gs_streaming_pool_growth::needed_pages_with_headroom(asset_pages, ATLAS_PAGES_PER_MAX_CHUNK);
+    }
 
     // Allocation-inclusive growth gate. The regulator is fed the *evictable* usage so
     // eviction/admission-into-existing-slots ignore the non-reclaimable persistent buffer
@@ -518,14 +555,49 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
             if (budget_max_pages <= uint64_t(streaming_current_capacity)) {
                 return false; // no in-budget headroom to grow into
             }
-            target64 = MIN(target64, budget_max_pages);
+            grow.budget_max_pages = budget_max_pages;
         }
     }
 
-    if (target64 <= uint64_t(streaming_current_capacity)) {
+    // The configured budget is only checked against the static heap size; the new buffer must
+    // fit the device-local memory that is free now, next to the old buffer it is copied from.
+    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
+    RenderingDevice *rd = primary_device_override ? primary_device_override
+            : (last_upload_device ? last_upload_device
+                    : (manager ? manager->get_primary_rendering_device() : nullptr));
+    bool device_free_from_ext = false;
+    if (rd) {
+        const RenderingDeviceDriver::DeviceLocalHeapUsage heap = rd->get_device_local_heap_usage();
+        device_free_from_ext = heap.ext_known;
+        grow.device_free_known = gs_streaming_pool_growth::device_free_bytes(heap.known, heap.heap_size_bytes,
+                heap.allocator_block_bytes, heap.ext_known, heap.ext_budget_bytes, heap.ext_usage_bytes, grow.device_free_bytes);
+    }
+    gs_streaming_pool_growth::GrowInputs unclamped = grow;
+    unclamped.device_free_known = false;
+    const uint32_t unclamped_target = gs_streaming_pool_growth::compute_grow_target(unclamped);
+    const uint32_t target = gs_streaming_pool_growth::compute_grow_target(grow);
+    const bool device_clamped = target < unclamped_target;
+    if (device_clamped) {
+        pool_placement.grow_device_clamps++;
+    }
+    // A clamped grow is the last one; a refusal backs off, so the warning stays rare.
+    if (device_clamped && (target > 0 || pool_placement.grow_device_clamps == 1)) {
+        WARN_PRINT(vformat("[Streaming][BV-POOL] Persistent buffer grow clamped from %d to %d pages: %s MiB of device-local memory free (%s).",
+                unclamped_target, target, String::num_uint64(grow.device_free_bytes / (1024u * 1024u)),
+                device_free_from_ext ? "VK_EXT_memory_budget" : "estimated"));
+    }
+    if (target == 0) {
+        if (unclamped_target != 0) {
+            pool_placement.device_refusal_backoff = uint32_t(kPoolHeapSampleFrames);
+        }
         return false;
     }
-    return _grow_persistent_buffer(static_cast<uint32_t>(target64));
+    const bool grew = _grow_persistent_buffer(target);
+    if (grew && device_clamped) {
+        // The device is close to full: one clamped grow, then no more copies of a large pool.
+        streaming_max_capacity = streaming_current_capacity;
+    }
+    return grew;
 }
 
 void GaussianStreamingSystem::_bind_methods() {
@@ -4673,32 +4745,16 @@ bool GaussianStreamingSystem::_should_force_sync_fallback_for_async_stall(
         return false;
     }
 
-    const uint32_t sync_fallback_queue_depth = _get_sync_fallback_queue_depth();
-    if (scheduler.force_sync_fallback_due_to_async_stall &&
-            pack_queue_depth == 0 &&
-            upload_queue_depth == 0 &&
-            sync_fallback_queue_depth == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = false;
-    }
-
-    // Original narrow signature: pack queue has work but nothing reaches
-    // the upload queue — pack thread may be wedged.
-    if (!scheduler.force_sync_fallback_due_to_async_stall &&
-            diagnostics.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
-            pack_queue_depth > 0 &&
-            upload_queue_depth == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = true;
-    }
-
-    // Broader signature: upload queue has work but nothing completes —
-    // GPU upload path may be blocked or starved.
-    if (!scheduler.force_sync_fallback_due_to_async_stall &&
-            diagnostics.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
-            upload_queue_depth > 0 &&
-            upload_pipeline.last_upload_chunks == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = true;
-    }
-
+    GaussianStreamingTypes::AsyncStallFallbackInputs stall_inputs;
+    stall_inputs.currently_forced = scheduler.force_sync_fallback_due_to_async_stall;
+    stall_inputs.pack_queue_depth = pack_queue_depth;
+    stall_inputs.upload_queue_depth = upload_queue_depth;
+    stall_inputs.sync_fallback_queue_depth = _get_sync_fallback_queue_depth();
+    stall_inputs.last_upload_chunks = upload_pipeline.last_upload_chunks;
+    stall_inputs.upload_stall_frames = diagnostics.upload_stall_frames;
+    stall_inputs.upload_stall_wall_usec = diagnostics.upload_stall_wall_usec;
+    scheduler.force_sync_fallback_due_to_async_stall =
+            GaussianStreamingTypes::evaluate_async_stall_sync_fallback(stall_inputs);
     return scheduler.force_sync_fallback_due_to_async_stall;
 }
 

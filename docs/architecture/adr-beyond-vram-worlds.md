@@ -265,6 +265,9 @@ marks a value above the target (3090 p95 16.7 ms; 3080 p95 25 ms):
     > would be inadequate.
 
     This uses only flat-route and T0 data, never HLOD-arm results, so it is pre-registration.
+    The resolution-scaled product standard of 2026-11-09 (about 0.5M drawn per megapixel at
+    ≥ 30 FPS) does not change this rule; see "User decision recorded 2026-11-09" and its open
+    points.
 3. **τ, the SH read bands (SH3 < 50 m, SH1 50–150 m, SH0 > 150 m) and the codec bit depths**
    are frozen in the same block.
 4. **Lowering the drawn budget, raising τ, moving the SH bands nearer or coarsening codec bits
@@ -786,6 +789,10 @@ See D-4 for the sensitivity table. The decisive measurements are:
 
 Until they exist, **the 3090 targets are "at risk"** and the 3080 targets are "plausible only
 if F ≤ ≈ 7 ms".
+
+The drawn-splat standard per resolution (about 0.5M per megapixel at ≥ 30 FPS) and the 3080
+rate it rests on are recorded in "User decision recorded 2026-11-09". The standard sits
+below G-d and does not replace it.
 
 ### 5.2 VRAM and RAM, tuned settings, 1080p (decode to 176 B, so VRAM is unchanged by the codec)
 
@@ -1635,6 +1642,72 @@ multi-package worlds stay out of scope), the D-1 producer set, the §3.1 produce
 `DrawnNodeGPU.instance_id`, the D-11 ledger scope, the multi-view refusal (D-3, as an interim) together
 with the P6 light-view sub-budget, invariant I-4 (per producer), invariant I-10 (tested with
 ≥ 2 producers), and M3/M4, which are also run in GS-COMBINED-1 variant B. **No threshold or gate in §8 changed.**
+
+## User decision recorded 2026-11-09: drawn-splat budget per resolution
+
+The user (maintainer) set a standard for drawn splats per frame on 2026-11-09:
+
+- **About 0.5M drawn splats per megapixel of output resolution, at ≥ 30 FPS.** That is 4M at
+  4K (8.3 MP), about 1.8M at 1440p (3.7 MP), and about 1M at 1080p (2.1 MP). At 1080p up to
+  2M is also acceptable.
+- This is the standard, not a ceiling on ambition: more drawn splats later are welcome, but
+  they are not the target.
+
+**Basis.**
+
+- **Rate** [M] (GPU run 42644237192, `summary.json`, splat-count sweep including the 2M and 4M
+  points): a linear fit gives gpu_pipeline ≈ 0.79 ms + 6.74 ms per million drawn splats,
+  r² 0.998.
+    - Hardware and pool: RTX 3080, pool ≤ 1408 MB, which is below the VRAM cliff. The frames
+      were healthy.
+    - Timing: the run predates the streaming-pool fix (#1396, #1397).
+    - The fit is in the run summary, not in the repository.
+- **Breakdown at the 4M sweep point** [M] (same run; 3.24M actually drawn): coherent_total
+  21.6 ms. The passes are presort 10.85, binning 3.66, raster 3.33, overlap_sort 1.58,
+  overlap_count 1.49 and projection 0.52 ms.
+- **Separate data point** [M] (not used for the rate): a healthy Tier A frame at 1080p on the
+  3080, 1.57M drawn splats, 9.4 ms GPU frame. It was reported by the maintainer session of
+  2026-11-09 and is not recorded in the repository or an issue, so it is UNVERIFIED as a
+  citation.
+- **Estimates** [E] from 0.79 + 6.74·N:
+    - 1080p: 1M ≈ 7.5 ms, 2M ≈ 14.3 ms;
+    - 1440p: 1.8M ≈ 12.9 ms;
+    - 4K: 4M ≈ 27.8 ms. With D-4's p95 ≈ 1.25 × mean, that is p95 ≈ 35 ms.
+- **The 4K raster and composite cost has not been measured.** The 4K figures carry only the
+  per-splat rate of the sweep above.
+
+**How it relates to decision 2 of 2026-11-03.**
+
+- **Decision 2 stays binding as written.** The gated workload is still the HLOD drawn budget N
+  from the D-4 rule: the largest N ≤ 1.0M that the model, fed with M1/M1c F and k, predicts
+  will meet 3090 p95 ≤ 16.7 ms, frozen by BV-26a before any HLOD-arm data. If N < 0.5M, the
+  user is asked again.
+- **The 2026-11-09 standard is a product baseline, not a gate.** It states what drawn count is
+  good enough at each resolution at ≥ 30 FPS, which is a mean frame ≤ 33.3 ms.
+- **G-d is stricter and is never loosened:** 3080 p95 ≤ 25 ms and p99 ≤ 33.3 ms; 3090 p95
+  ≤ 16.7 ms and p99 ≤ 20 ms. Where the standard and G-d disagree, G-d gates.
+- At 1080p the two agree in order of magnitude: the standard (about 1M) matches the D-4
+  ceiling of 1.0M.
+
+**No threshold or gate in G-d or §8 changed.** The open points below are for the maintainer;
+the program does not resolve them.
+
+**Open points (conflicts with existing gates):**
+
+1. **4K vs G-d on the 3080.** 4M at 4K ≈ 27.8 ms mean [E], p95 ≈ 35 ms [E]. That meets 30 FPS
+   by mean but misses the 3080 p95 ≤ 25 ms target, and is likely above p99 ≤ 33.3 ms, even
+   before the unmeasured 4K raster and composite cost. It misses the 3090 p95 ≤ 16.7 ms
+   unless the 3090 is about 2× faster than the 3080 (D-4 assumes ≈ 1.2× [E]).
+2. **4K vs the 4M visible cap.** A 4M drawn budget equals the 4M visible cap, which must
+   never bind on the HLOD arm (D-4 decision 1; G10h = 0, hard). At 4K the cap would bind or
+   sit at the edge.
+3. **1.0M ceiling of the D-4 rule.** 1440p (about 1.8M), 4K (4M) and the 1080p allowance of
+   up to 2M all exceed the rule's N ≤ 1.0M. Whether the standard raises that ceiling, or only
+   describes ungated product settings, is not decided.
+4. **Resolution of the gated runs.** `drawn_budget_splats` (BV-16c) is one count, and the
+   fly-through (§7) does not fix an output resolution beyond the 1080p budgets of §5.2. A
+   per-megapixel budget would change the setting's shape and the BV-26a freeze; that is not
+   decided.
 
 ---
 

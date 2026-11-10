@@ -144,6 +144,14 @@ struct SchedulerState {
 
 struct DiagnosticsState {
     static constexpr uint32_t STALL_THRESHOLD_FRAMES = 30;
+    // PR #1397: the async-stall sync fallback also needs this much wall clock of the same
+    // upload-stall predicate. 30 frames alone is ~60 ms at the 2-8 ms frames of a VRAM-resident
+    // pool, while the first pack after a teleport measured 270-350 ms; the frame count fired on
+    // a healthy pipeline and pinned the main thread to one ~107 ms GSQ sync load per frame until
+    // the staleness flush. 2 s is ~6x the worst measured post-teleport pack latency, so only a
+    // pipeline that really stopped completing uploads falls back. Diag:upload_stalled keeps
+    // using the frame count alone.
+    static constexpr uint64_t ASYNC_STALL_MIN_WALL_USEC = 2000000;
     static constexpr uint32_t LOG_INTERVAL_FRAMES = 120;
 
     uint32_t init_invalid_frames = 0;
@@ -240,6 +248,55 @@ struct DiagnosticsState {
         effective_settings_sampled = true;
     }
 };
+
+// Inputs of the async-stall sync-fallback decision, one per frame. All values come from the
+// previous end_frame() snapshot (last_upload_chunks, upload_stall_frames and
+// upload_stall_wall_usec are captured together there) plus the live queue depths.
+struct AsyncStallFallbackInputs {
+    bool currently_forced = false;
+    uint32_t pack_queue_depth = 0;
+    uint32_t upload_queue_depth = 0;
+    uint32_t sync_fallback_queue_depth = 0;
+    // Async uploads completed in the last frame (telemetry upload_chunks; the sync path does
+    // not count here).
+    uint32_t last_upload_chunks = 0;
+    uint32_t upload_stall_frames = 0;
+    uint64_t upload_stall_wall_usec = 0;
+};
+
+// Returns the new value of SchedulerState::force_sync_fallback_due_to_async_stall. Pure, so the
+// decision is testable without threads or a GPU.
+inline bool evaluate_async_stall_sync_fallback(const AsyncStallFallbackInputs &p_in) {
+    // An async upload completed: the pipeline is alive. Clear a forced fallback at once instead
+    // of waiting for every queue to drain, and do not force one this frame.
+    if (p_in.last_upload_chunks > 0) {
+        return false;
+    }
+    bool forced = p_in.currently_forced;
+    if (forced && p_in.pack_queue_depth == 0 && p_in.upload_queue_depth == 0 &&
+            p_in.sync_fallback_queue_depth == 0) {
+        forced = false;
+    }
+    if (forced) {
+        return true;
+    }
+    // Both the frame count and the wall clock of the same stall predicate must pass, so the
+    // decision does not depend on the frame rate (DiagnosticsState::ASYNC_STALL_MIN_WALL_USEC).
+    const bool stalled_long_enough =
+            p_in.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
+            p_in.upload_stall_wall_usec >= DiagnosticsState::ASYNC_STALL_MIN_WALL_USEC;
+    if (!stalled_long_enough) {
+        return false;
+    }
+    // Original narrow signature: the pack queue has work but nothing reaches the upload queue,
+    // so the pack thread may be wedged.
+    if (p_in.pack_queue_depth > 0 && p_in.upload_queue_depth == 0) {
+        return true;
+    }
+    // Broader signature: the upload queue has work but nothing completes, so the GPU upload
+    // path may be blocked or starved (last_upload_chunks == 0 is established above).
+    return p_in.upload_queue_depth > 0;
+}
 
 struct PrimaryChunkLayoutMetrics {
     bool spatial_partition_enabled = false;

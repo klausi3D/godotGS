@@ -290,6 +290,14 @@ public:
     uint32_t get_sampled_raster_truncated_tiles() const { return diagnostics.sampled_raster_truncated_tiles; }
     uint64_t get_sampled_drop_frame_serial() const { return diagnostics.sampled_drop_frame_serial; }
     uint32_t get_raster_tile_cap() const { return _get_effective_raster_tile_cap(); }
+    // #1393: cumulative production drop telemetry (TileDiagnosticsState documents each field).
+    uint64_t get_drop_signal_samples() const { return diagnostics.drop_signal_samples; }
+    uint32_t get_binning_drop_events() const { return diagnostics.binning_drop_events; }
+    uint32_t get_binning_tile_range_drop_events() const { return diagnostics.binning_tile_range_drop_events; }
+    uint32_t get_binning_budget_drop_events() const { return diagnostics.binning_budget_drop_events; }
+    uint64_t get_sampled_dropped_records_total() const { return diagnostics.sampled_dropped_records_total; }
+    uint64_t get_sampled_overlap_records_total() const { return diagnostics.sampled_overlap_records_total; }
+    uint64_t get_sampled_overlap_splats_total() const { return diagnostics.sampled_overlap_splats_total; }
 
     void set_debug_log_resolve(bool p_enabled);
     bool get_debug_log_resolve() const { return diagnostics.debug_log_resolve; }

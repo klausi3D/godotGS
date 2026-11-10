@@ -401,6 +401,99 @@ def streaming_counters(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     }
 
 
+#: #1393: the renderer's cumulative overlap-record drop counters, one trace column each
+#: (probe_world.gd DROP_FIELDS; -1 where the renderer did not publish the key).
+DROP_COUNTERS = (
+    "drop_signal_samples", "overflow_drop_events", "binning_drop_events",
+    "binning_tile_range_drop_events", "binning_budget_drop_events", "raster_tile_cap_drop_events",
+    "sampled_dropped_records_total", "sampled_overlap_records_total", "sampled_overlap_splats_total",
+)
+
+
+def _counter_increments(trace: Trace, name: str) -> Tuple[Dict[int, int], List[int]]:
+    """Per-row increments of one cumulative counter: row -> value minus the previous valid sample
+    (the first valid sample counts from 0, the renderer's initial value). Rows without the signal
+    (-1) get no increment. The second list names the rows where the counter went backwards."""
+    inc: Dict[int, int] = {}
+    backwards: List[int] = []
+    prev = 0
+    for i, row in enumerate(trace.rows):
+        v = trace.get(row, name)
+        if v < 0:
+            continue
+        if v < prev:
+            backwards.append(i)
+        inc[i] = v - prev
+        prev = v
+    return inc, backwards
+
+
+def overlap_drops(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
+    """#1393: overlap records the tile renderer dropped (missing splats), over the selected rows.
+
+    The counters are cumulative per renderer and sampled by an async readback, so each row is
+    credited with what its counters advanced since the previous row that carried them: a drop
+    lands in the row whose stats saw the readback, a few frames after the frame that dropped.
+    Statuses:
+
+    - MISSING when the trace has no drop columns (an older probe), no selected row carries them
+      (the renderer did not publish them), or ``drop_signal_samples`` did not advance in the rows:
+      no readback completed, so zero drops would be unproven (absence of a signal is no pass).
+    - INVALID when a counter went backwards (the renderer was recreated): the window cannot be summed.
+    - OK otherwise. ``drop_events`` counts readback intervals with a drop on any channel;
+      ``sampled_dropped_records`` is a lower bound (frames between two samples are not counted).
+      ``records_per_splat`` is the sampled frames' attempted records over their splats.
+    """
+    absent = [n for n in DROP_COUNTERS if n not in trace.index]
+    if absent:
+        return {"status": MISSING, "reason": f"the trace has no drop telemetry columns {absent} (older probe)"}
+    if not rows:
+        return {"status": MISSING, "reason": "no rows"}
+    selected = set(rows)
+    sums: Dict[str, int] = {}
+    with_signal = 0
+    for name in DROP_COUNTERS:
+        inc, backwards = _counter_increments(trace, name)
+        bad = [i for i in backwards if i in selected]
+        if bad:
+            return {"status": INVALID, "reason": f"{name} went backwards at row {bad[0]} (renderer recreated?)"}
+        sums[name] = sum(v for i, v in inc.items() if i in selected)
+        if name == "drop_signal_samples":
+            with_signal = sum(1 for i in selected if i in inc)
+    if with_signal == 0:
+        return {"status": MISSING, "reason": "no selected row carries the drop telemetry (the renderer did not publish it)"}
+    if sums["drop_signal_samples"] <= 0:
+        return {"status": MISSING, "rows_with_signal": with_signal,
+                "reason": "the drop readback did not complete in these rows: zero drops would be unproven"}
+    drop_inc, _ = _counter_increments(trace, "overflow_drop_events")
+    drop_rows = sorted(i for i, v in drop_inc.items() if i in selected and v > 0)
+    records, splats = sums["sampled_overlap_records_total"], sums["sampled_overlap_splats_total"]
+    rec: Dict[str, object] = {
+        "status": OK,
+        "rows": len(rows),
+        "rows_with_signal": with_signal,
+        "readback_samples": sums["drop_signal_samples"],
+        "drop_events": sums["overflow_drop_events"],
+        "binning_drop_events": sums["binning_drop_events"],
+        "binning_tile_range_drop_events": sums["binning_tile_range_drop_events"],
+        "binning_budget_drop_events": sums["binning_budget_drop_events"],
+        "raster_tile_cap_drop_events": sums["raster_tile_cap_drop_events"],
+        "sampled_dropped_records": sums["sampled_dropped_records_total"],
+        "sampled_overlap_records": records,
+        "sampled_splats": splats,
+        "records_per_splat": metric(records / splats) if splats > 0
+        else missing("no sampled frame carried a binning splat count"),
+        "sampled_dropped_fraction": metric(sums["sampled_dropped_records_total"] / records) if records > 0
+        else missing("no sampled frame carried overlap records"),
+        "rows_with_drop": len(drop_rows),
+        "first_drop_row": drop_rows[0] if drop_rows else None,
+    }
+    if drop_rows:
+        r = trace.rows[drop_rows[0]]
+        rec["first_drop"] = {k: trace.get(r, k) for k in ("pass_index", "segment", "view", "state", "s_m")}
+    return rec
+
+
 def gsq_decode_split(stats: object) -> Dict[str, object]:
     """BV-K9b: the GSQ decode span (the pipeline's "decode" stage) split into its parts, as
     per-page means in ms and shares of the span: the stored-page verify (header + stored
