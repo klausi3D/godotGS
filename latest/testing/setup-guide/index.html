@@ -3923,6 +3923,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -4395,6 +4403,62 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/adr-painterly-direction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Painterly Direction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-v1-animation-collision-scope/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.0 Animation and Collision Scope
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/adr-import-importance-pruning/" class="md-nav__link">
         
   
@@ -4640,6 +4704,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-reference-quality-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference Quality Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-v1-platform-targets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.0 Platform Targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4862,7 +4982,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/ebc23fc8b69745e3f7fd90166af9409fd21caa47/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/ebc23fc8b69745e3f7fd90166af9409fd21caa47/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/821c17e4e6c4cfe1901fdd6ae8c0835c5c96486b/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/821c17e4e6c4cfe1901fdd6ae8c0835c5c96486b/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
@@ -4907,7 +5027,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Refresh QA baseline snapshot from current run</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --update-qa-baseline</code></td>
-<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/ebc23fc8b69745e3f7fd90166af9409fd21caa47/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
+<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/821c17e4e6c4cfe1901fdd6ae8c0835c5c96486b/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
 </tr>
 <tr>
 <td>Run renderer/static guards without Godot tests</td>

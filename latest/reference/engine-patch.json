@@ -1974,9 +1974,9 @@
     {
       "deletion_commit": null,
       "display_path": "platform/web/package-lock.json",
-      "last_touch_commit": "28e9873abc94f58c250b18c1b82fb7996bae8096",
-      "lines_added": 42,
-      "lines_deleted": 19,
+      "last_touch_commit": "1bbe57d67ebb3282719ea16787593d24ea806460",
+      "lines_added": 75,
+      "lines_deleted": 42,
       "new_path": "platform/web/package-lock.json",
       "old_path": "platform/web/package-lock.json",
       "pre_deletion_commit": null,
@@ -2456,7 +2456,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "ebc23fc8b69745e3f7fd90166af9409fd21caa47",
+    "head_commit": "821c17e4e6c4cfe1901fdd6ae8c0835c5c96486b",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",

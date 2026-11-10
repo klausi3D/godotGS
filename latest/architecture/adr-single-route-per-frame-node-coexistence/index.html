@@ -3795,6 +3795,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -4267,6 +4275,62 @@
   
   
     <li class="md-nav__item">
+      <a href="../adr-painterly-direction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Painterly Direction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-v1-animation-collision-scope/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.0 Animation and Collision Scope
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../adr-import-importance-pruning/" class="md-nav__link">
         
   
@@ -4598,6 +4662,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-reference-quality-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference Quality Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-v1-platform-targets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.0 Platform Targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4787,6 +4907,9 @@
   <a href="../adr-one-route-many-producers/">One route, many demand producers</a> (maintainer decisions
   2026-11-04). That ADR is the design record §5.2 asks for; it waives the §5.2(3) "#855 first"
   ordering for the HLOD route only, and keeps #855 as a parallel fix for the chunk route.</li>
+<li><strong>Status update (2026-11-10):</strong> the owner chose one route (decision D-2): the chunk-streaming
+  route and the legacy composite are deleted. See
+  <a href="../adr-one-route-many-producers/#12-route-retirement-decision-d-2">Route retirement decision (D-2)</a>.</li>
 <li><strong>Risk class:</strong> this document is R0 (<code>docs/**</code>). The Option 1 implementation it specifies
   lands in <code>modules/gaussian_splatting/nodes/**</code> and <code>modules/gaussian_splatting/tests/**</code>,
   which <code>.agentic/policy.json</code> classifies as <strong>R1</strong> — no ADR is <em>required</em> there, so this
@@ -7276,7 +7399,7 @@ revision deletes the claim instead of replacing it.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-11-04
+    Source updated: 2026-11-10
   </span>
 
     
