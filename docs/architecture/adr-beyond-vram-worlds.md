@@ -1655,16 +1655,26 @@ The user (maintainer) set a standard for drawn splats per frame on 2026-11-09:
 
 **Basis.**
 
-- [M] RTX 3080, 1080p, after the streaming-pool fix (#1396, #1397; `7cdcb46a748`):
-  1.57M drawn splats at a 9.4 ms GPU frame. The run is reported by the maintainer session of
-  2026-11-09 and is not recorded in the repository or an issue: UNVERIFIED as a citation.
-- Rate used for the standard: 6.74 ms per million drawn splats on a healthy 3080. The single
-  point above gives 9.4 / 1.57 ≈ 6.0 ms/M, so 6.74 is not that ratio, and its derivation is
-  not recorded: UNVERIFIED.
-- [E] Linear in N, with no F term: 1080p 1M ≈ 6.7 ms, 2M ≈ 13.5 ms; 1440p 1.8M ≈ 12.1 ms;
-  4K 4M ≈ 27 ms. With D-4's p95 ≈ 1.25 × mean, 4K 4M is p95 ≈ 34 ms.
+- **Rate** [M] (GPU run 42644237192, `summary.json`, splat-count sweep including the 2M and 4M
+  points): a linear fit gives gpu_pipeline ≈ 0.79 ms + 6.74 ms per million drawn splats,
+  r² 0.998.
+    - Hardware and pool: RTX 3080, pool ≤ 1408 MB, which is below the VRAM cliff. The frames
+      were healthy.
+    - Timing: the run predates the streaming-pool fix (#1396, #1397).
+    - The fit is in the run summary, not in the repository.
+- **Breakdown at the 4M sweep point** [M] (same run; 3.24M actually drawn): coherent_total
+  21.6 ms. The passes are presort 10.85, binning 3.66, raster 3.33, overlap_sort 1.58,
+  overlap_count 1.49 and projection 0.52 ms.
+- **Separate data point** [M] (not used for the rate): a healthy Tier A frame at 1080p on the
+  3080, 1.57M drawn splats, 9.4 ms GPU frame. It was reported by the maintainer session of
+  2026-11-09 and is not recorded in the repository or an issue, so it is UNVERIFIED as a
+  citation.
+- **Estimates** [E] from 0.79 + 6.74·N:
+    - 1080p: 1M ≈ 7.5 ms, 2M ≈ 14.3 ms;
+    - 1440p: 1.8M ≈ 12.9 ms;
+    - 4K: 4M ≈ 27.8 ms. With D-4's p95 ≈ 1.25 × mean, that is p95 ≈ 35 ms.
 - **The 4K raster and composite cost has not been measured.** The 4K figures carry only the
-  per-splat rate measured at 1080p.
+  per-splat rate of the sweep above.
 
 **How it relates to decision 2 of 2026-11-03.**
 
@@ -1684,8 +1694,8 @@ the program does not resolve them.
 
 **Open points (conflicts with existing gates):**
 
-1. **4K vs G-d on the 3080.** 4M at 4K ≈ 27 ms mean [E], p95 ≈ 34 ms [E]. That meets 30 FPS
-   by mean but misses the 3080 p95 ≤ 25 ms target, and is at or above p99 ≤ 33.3 ms, even
+1. **4K vs G-d on the 3080.** 4M at 4K ≈ 27.8 ms mean [E], p95 ≈ 35 ms [E]. That meets 30 FPS
+   by mean but misses the 3080 p95 ≤ 25 ms target, and is likely above p99 ≤ 33.3 ms, even
    before the unmeasured 4K raster and composite cost. It misses the 3090 p95 ≤ 16.7 ms
    unless the 3090 is about 2× faster than the 3080 (D-4 assumes ≈ 1.2× [E]).
 2. **4K vs the 4M visible cap.** A 4M drawn budget equals the 4M visible cap, which must
