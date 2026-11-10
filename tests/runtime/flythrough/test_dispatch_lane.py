@@ -39,6 +39,7 @@ sys.path.insert(0, str(HERE))
 
 import dispatch_lane as lane  # noqa: E402
 import lane_watchdog as watchdog  # noqa: E402
+import run_probe as rp  # noqa: E402
 import world_cache as wc  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "beyond_vram_flythrough.yml"
@@ -867,13 +868,22 @@ class ProbeCold(_CacheCase):
         cache = self.record("probe")["data"]["cache"]
         self.assertEqual(cache["host_cache"], "absent")
         self.assertTrue(cache["residency"]["cold"])
-        self.assertEqual(cache["v10"]["read_bytes"], 5120)
+        self.assertEqual(cache["probe_tree_read_bytes"]["value"], 5120, "the whole tree is recorded, as evidence")
+        self.assertIsNone(cache["v10"]["read_bytes"], "a summary without a cold-pass sample is not a measurement")
+        self.assertIn("read_bytes unmeasured", cache["v10"]["why"])
         self.assertEqual(cache["v10"]["status"], "NOT_EVALUATED")
         self.assertFalse(cache["cold_proven"], "V10 not evaluated is never proven cold")
 
     @staticmethod
-    def oracle_summary(stored: int) -> dict:
-        return {"worlds": {"T0": {"flythrough": {"expected_unique_upload_flat": {"stored_bytes": stored}}}}}
+    def oracle_summary(stored: int, cold: Optional[int] = 5120, warm: int = 0) -> dict:
+        """The oracle plus the cold-pass record run_probe derives from the driver's pass_io samples."""
+        passes = [{"pass_index": 0, "read_bytes_start": 0 if cold is None else min(cold, 512),
+                   "read_bytes_end": cold}]
+        if cold is not None:
+            passes.append({"pass_index": 1, "read_bytes_start": cold, "read_bytes_end": cold + warm})
+        driver = {"pass_io": {"source": "/proc/self/io", "passes": passes}}
+        return {"worlds": {"T0": {"flythrough": {"expected_unique_upload_flat": {"stored_bytes": stored}},
+                                  "cold_pass_io": rp.cold_pass_io(driver)}}}
 
     def test_v10_reads_the_path_oracle_of_the_summary(self) -> None:
         """#1376 item 1: read bytes against the oracle's expected unique stored bytes."""
@@ -886,6 +896,34 @@ class ProbeCold(_CacheCase):
             self.assertEqual(cache["v10"]["status"], status, (stored, cache))
             self.assertEqual(cache["cold_proven"], status == "OK")
             self.assertTrue(cache["residency"]["cold"])
+
+    def test_v10_judges_the_cold_pass_alone_never_the_repeat_pass_or_the_sweep(self) -> None:
+        """#1403 / D-14: cold-pass reads at 0.5 x the oracle stay INVALID however much the rest of the
+        probe read. The probe tree (repeat pass, F/k sweep with its whole-world overview) read 1.0 x
+        here; judging that, as the step did before, certified the run cold."""
+        stored = 5120
+        code, _ = self.run_probe((0, 100), self.prober(self.oracle_summary(stored, cold=stored // 2,
+                                                                              warm=stored // 2)))
+        self.assertEqual(code, lane.EXIT_OK)
+        cache = self.record("probe")["data"]["cache"]
+        self.assertEqual(cache["probe_tree_read_bytes"]["value"], stored, "the tree read >= 0.9 x the oracle")
+        self.assertEqual(cache["v10"]["read_bytes"], stored // 2)
+        self.assertEqual(cache["v10"]["status"], "INVALID", cache)
+        self.assertFalse(cache["cold_proven"])
+
+    def test_a_cold_pass_without_its_samples_is_not_evaluated(self) -> None:
+        for passes in (None, [], [{"pass_index": 0, "read_bytes_start": -1, "read_bytes_end": 9000}],
+                       [{"pass_index": 0, "read_bytes_start": 100}],
+                       [{"pass_index": 0, "read_bytes_start": 9000, "read_bytes_end": 100}],
+                       [{"pass_index": 1, "read_bytes_start": 0, "read_bytes_end": 9000}]):
+            summary = self.oracle_summary(5000)
+            driver = {} if passes is None else {"pass_io": {"source": "/proc/self/io", "passes": passes}}
+            summary["worlds"]["T0"]["cold_pass_io"] = rp.cold_pass_io(driver)
+            self.run_probe((0, 100), self.prober(summary))
+            cache = self.record("probe")["data"]["cache"]
+            self.assertEqual(cache["v10"]["status"], "NOT_EVALUATED", passes)
+            self.assertIsNone(cache["v10"]["read_bytes"], passes)
+            self.assertFalse(cache["cold_proven"])
 
     def test_v10_never_sums_a_partial_oracle(self) -> None:
         summary = self.oracle_summary(5000)

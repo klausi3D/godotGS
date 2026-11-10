@@ -890,7 +890,13 @@ def probe(
             # (ADR 6.4, published per world in the summary) over every probed world. A
             # summary without them leaves V10 NOT_EVALUATED, never OK.
             summary_doc, _ = fv._read_json(probe_out / PROBE_SUMMARY_NAME)  # noqa: SLF001
-            data["cache"] = cache = wc.cold_cache_record(res, delta, summary_doc, list(dirs), host_cache)
+            # #1403 (D-14: account cold segments only): V10 judges the reads of each world's
+            # FIRST path pass, sampled by that process before its repeat pass; the sweep runs
+            # later. `delta` spans the whole probe tree (repeat pass, F/k sweep incl. the
+            # whole-world T0 overview) and is kept as warm evidence only, never judged.
+            cold_read, read_source = wc.cold_pass_read_bytes(summary_doc, list(dirs))
+            data["cache"] = cache = wc.cold_cache_record(res, cold_read, summary_doc, list(dirs), host_cache,
+                                                         read_source=read_source, tree_read_bytes=delta)
         else:
             rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
         data["probe_exit_code"] = rc

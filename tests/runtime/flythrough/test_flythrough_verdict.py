@@ -34,6 +34,7 @@ sys.path.insert(0, str(HERE))
 import dispatch_lane as lane  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
 import probe_summary as ps  # noqa: E402
+import run_probe as rp  # noqa: E402
 import world_cache as wc  # noqa: E402
 
 FIXTURE = HERE / "fixtures" / "bv09"
@@ -376,6 +377,25 @@ class Validity(_Case):
         self.set_cold(read_fraction=0.89)
         result = self.assert_entry("V10", fv.INVALID, "cache_warm: read")
         self.assertEqual(result["verdict"], fv.INVALID, "a validity condition, never a FAIL")
+
+    def test_v10_judges_the_cold_pass_not_the_repeat_pass_or_the_sweep(self) -> None:
+        """#1403 / D-14: the probe step judges each world's first-pass reads. Cold reads of 0.5 x the
+        oracle are cache_warm even when the repeat pass and the sweep bring the tree to >= 0.9 x."""
+        summary = self.inputs["summary"]
+        expected, _ = wc.expected_unique_stored_bytes(summary, WORLDS_A)
+        for world in WORLDS_A:
+            stored = summary["worlds"][world]["flythrough"]["expected_unique_upload_flat"]["stored_bytes"]
+            driver = {"pass_io": {"source": "/proc/self/io", "passes": [
+                {"pass_index": 0, "read_bytes_start": 0, "read_bytes_end": stored // 2},
+                {"pass_index": 1, "read_bytes_start": stored // 2, "read_bytes_end": stored}]}}
+            summary["worlds"][world]["cold_pass_io"] = rp.cold_pass_io(driver)
+        cold, source = wc.cold_pass_read_bytes(summary, WORLDS_A)
+        res = wc.residency([Path("w")], lambda path: (0, 1000))
+        self.inputs["steps"]["probe"]["data"]["cache"] = wc.cold_cache_record(
+            res, cold, summary, WORLDS_A, "present", read_source=source, tree_read_bytes=expected)
+        result = self.assert_entry("V10", fv.INVALID, "cache_warm: read")
+        self.assertEqual(self.row(result, "V10")["evidence"], fv.EVIDENCE_PRESENT)
+        self.assertAlmostEqual(self.row(result, "V10")["observed"]["read_fraction"], 0.5, places=3)
 
     def test_v10_judges_with_the_frozen_values_not_the_records_status(self) -> None:
         cache = self.set_cold(read_fraction=0.5)

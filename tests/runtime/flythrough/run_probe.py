@@ -310,6 +310,42 @@ def process_failure(run: Dict[str, object]) -> Optional[str]:
     return None
 
 
+def _io_int(value: object) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def cold_pass_io(result: object) -> Dict[str, object]:
+    """D-14 item 3 / V10 (#1403): the block reads of the path process up to the end of its FIRST pass.
+
+    The driver samples its own `/proc/self/io read_bytes` at every pass boundary
+    (probe_world.gd `pass_io`). `cold_read_bytes` is the first pass's end sample:
+    everything the Godot process read from block devices from its start (binary,
+    world load) through the cold pass, and nothing after it. The repeat passes are
+    reported as `warm_read_bytes`, evidence only: V10 never judges them, and the
+    F/k sweep runs in other processes this record does not see. An absent, negative
+    or non-monotonic sample leaves `cold_read_bytes` None (V10 NOT_EVALUATED).
+    """
+    rec: Dict[str, object] = {"source": None, "cold_read_bytes": None, "warm_read_bytes": None, "passes": []}
+    io = result.get("pass_io") if isinstance(result, dict) else None
+    if not isinstance(io, dict) or not isinstance(io.get("passes"), list) or not io["passes"]:
+        rec["why"] = "the driver recorded no pass_io (an older driver, or the path did not start)"
+        return rec
+    rec["source"] = io.get("source")
+    passes = [p for p in io["passes"] if isinstance(p, dict)]
+    rec["passes"] = passes
+    first = passes[0] if passes else {}
+    start, end = _io_int(first.get("read_bytes_start")), _io_int(first.get("read_bytes_end"))
+    if first.get("pass_index") != 0 or start is None or end is None or end < start:
+        rec["why"] = (f"first-pass read_bytes not measured ({first.get('read_bytes_start')!r} .. "
+                      f"{first.get('read_bytes_end')!r} from {rec['source']!r})")
+        return rec
+    rec["cold_read_bytes"] = end
+    last = _io_int(passes[-1].get("read_bytes_end"))
+    if len(passes) > 1 and last is not None and last >= end:
+        rec["warm_read_bytes"] = last - end
+    return rec
+
+
 def trace_integrity(run: Dict[str, object]) -> Tuple[Optional[ps.Trace], Dict[str, object]]:
     try:
         trace = ps.read_trace(Path(run["trace"]))
@@ -900,6 +936,7 @@ def main(argv: Sequence[str]) -> int:
             ws["process"] = {k: run[k] for k in ("exit_code", "timed_out", "wall_s", "log")}
             ws["rss"] = run["rss"]
             res = run["result"] or {}
+            ws["cold_pass_io"] = cold_pass_io(res)
             ws["driver"] = {k: res.get(k) for k in ("adapter", "api_version", "is_debug_build", "display_server",
                                                     "vsync_mode", "load_usec", "node_readback",
                                                     "project_settings_readback", "reason", "injected")}
