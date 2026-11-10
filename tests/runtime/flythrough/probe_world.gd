@@ -375,6 +375,24 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 
 # ------------------------------------------------------------------ phases
 
+const PROC_IO := "/proc/self/io"
+
+
+# This process's cumulative block-input bytes since it started (`read_bytes` of
+# /proc/self/io: every thread, page-cache hits excluded). -1 where it cannot be read
+# (not Linux): run_probe.py then leaves the cold-pass read unmeasured, never zero.
+func _proc_read_bytes() -> int:
+	var f := FileAccess.open(PROC_IO, FileAccess.READ)
+	if f == null:
+		return -1
+	while not f.eof_reached():
+		var line := f.get_line()
+		if line.begins_with("read_bytes:"):
+			var value := line.substr(11).strip_edges()
+			return int(value) if value.is_valid_int() else -1
+	return -1
+
+
 func _run_path() -> String:
 	var path: Dictionary = _plan["path"]
 	var segs: Array = path["segments"]
@@ -383,8 +401,14 @@ func _run_path() -> String:
 	var seg_log := []
 	var checkpoints := []
 	_ctx["phase"] = 0
+	# D-14 / V10 (#1403): this process's block reads at each pass boundary, so the lane
+	# judges the cold (first) pass alone; the repeat pass and the sweep are warm evidence.
+	var pass_io := []
+	_result["pass_io"] = {"source": PROC_IO, "passes": pass_io}
 	for pass_index in range(passes):
 		_ctx["pass_index"] = pass_index
+		var io_entry := {"pass_index": pass_index, "read_bytes_start": _proc_read_bytes()}
+		pass_io.append(io_entry)
 		for si in range(segs.size()):
 			var seg: Dictionary = segs[si]
 			_ctx["segment"] = si
@@ -430,6 +454,7 @@ func _run_path() -> String:
 			entry["end_row"] = _rows - 1
 			entry["end_usec"] = Time.get_ticks_usec()
 			seg_log.append(entry)
+		io_entry["read_bytes_end"] = _proc_read_bytes()
 	_result["segments"] = seg_log
 	_result["checkpoints"] = checkpoints
 	return ""

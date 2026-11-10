@@ -9,6 +9,9 @@
   [One route, many demand producers](adr-one-route-many-producers.md) (maintainer decisions
   2026-11-04). That ADR is the design record §5.2 asks for; it waives the §5.2(3) "#855 first"
   ordering for the HLOD route only, and keeps #855 as a parallel fix for the chunk route.
+- **Status update (2026-11-10):** the owner chose one route (decision D-2): the chunk-streaming
+  route and the legacy composite are deleted. See
+  [Route retirement decision (D-2)](adr-one-route-many-producers.md#12-route-retirement-decision-d-2).
 - **Risk class:** this document is R0 (`docs/**`). The Option 1 implementation it specifies
   lands in `modules/gaussian_splatting/nodes/**` and `modules/gaussian_splatting/tests/**`,
   which `.agentic/policy.json` classifies as **R1** — no ADR is *required* there, so this

@@ -31,7 +31,6 @@
       "V6": "throttle reasons are not published (nvidia_smi.csv is section 9.3, not yet in the lane)",
       "V9-unique-uploaded": "unique uploaded bytes are not published; the probe publishes total uploads and the oracle's lower bound expected_unique_upload_flat",
       "V9-drawn-floor": "the probe publishes expected_drawn_upper_bound (frustum chunks, no LOD), not the manifest's expected drawn count; the per-segment drawn floor is not pre-registered",
-      "V10": "BV-13a feeds the path oracle's expected stored bytes into world_cache.v10 (#1376 item 1)",
       "G1-log": "DEVICE_LOST / OOM / allocation failure are not published as signals; G1 here is exit 0 plus the final marker",
       "G2b": "external memory.used needs nvidia_smi.csv (section 9.3)",
       "G2c": "BV-10",
@@ -274,6 +273,19 @@
       "window": "every checkpoint of every repetition",
       "exclusions": "none; needed > cap is INVALID until the priority proof exists (ADR section 10, M1)",
       "percentile_method": "none"
+    },
+    "V10": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": ">=",
+      "tiers": {"A": 0.9},
+      "unit": "read bytes / the path oracle's expected unique stored bytes",
+      "residency_max_fraction": 0.01,
+      "source_field": "steps/probe.json data.cache.{residency.resident_fraction, v10.read_bytes, v10.expected_unique_stored_bytes, host_cache}; a BV-13a control judges its own record of the same shape",
+      "window": "the probe process: mincore residency of every world file right before it starts (D-14 item 2, <= residency_max_fraction), block-read bytes of the probe tree while it runs (ru_inblock of the reaped descendants, D-14 item 3); the oracle is summed over every world the probe flew. The repeat pass reads from the page cache and adds no block reads, so the whole process stands for the cold pass",
+      "exclusions": "none; host_cache is recorded, never gated (D-14 item 4)",
+      "percentile_method": "none (ratio)"
     }
   },
   "gates": {

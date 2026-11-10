@@ -425,6 +425,16 @@ jobs:
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "${{ steps.godot_bin.outputs.path }}" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$BVW_OUT"
 
+      # BV-13a-2b: the ADR 8.5 doctest proofs on this release-tests binary (D-10,
+      # dev_build=no tests=yes), each case by exact name. Runs whenever the disk
+      # preflight passed, also in controls_only; without a binary (an empty path)
+      # it records NOT_RUN, never PASS. Report-only like the whole lane.
+      - name: Doctest proofs (ADR 8.5, release-tests binary)
+        if: ${{ !cancelled() && steps.disk_preflight.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py doctest-proofs --godot-binary "${{ steps.godot_bin.outputs.path }}" --out "$BVW_OUT"
+
       # ADR section 9.2 + V2 + D-14 item 1: NOT_RUN cache absent / cache_stale,
       # verify every digest (a mismatch quarantines the key: INVALID), then
       # fdatasync + POSIX_FADV_DONTNEED on every world file.

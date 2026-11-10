@@ -45,8 +45,10 @@ cold-cache method; the cache helpers live in ``world_cache.py``:
   world from the page cache again.
 * ``probe --cache-worlds`` measures ``mincore`` residency first: above 1 % the
   run is INVALID ``cache_warm`` and the probe does not start. It runs the probe
-  under a shared cache lock, records the probe tree's block-read bytes for V10
-  and the ``host_cache`` label of the disk step.
+  under a shared cache lock, records the probe tree's block-read bytes, the path
+  oracle's expected unique stored bytes of every probed world (BV-13a-2b, #1376
+  item 1) and the ``host_cache`` label of the disk step: the D-14 record that
+  the gate verdict's V10 entry judges.
 * ``summarize`` maps the step records to one lane verdict (VOID > FAIL >
   INVALID > NOT_RUN > PASS; a missing record is NOT_RUN, never PASS), writes
   ``verdict.json`` for the liveness watchdog and exits with the section 9.1
@@ -175,6 +177,8 @@ MEASURED_CACHE_DIRS = (
 #: The fly-through job's steps (BV-06b). Generation moved to the prime job.
 STEP_NAMES = (
     "build_info",
+    # BV-13a-2b: ADR 8.5 doctest proofs on the release-tests binary, in every run mode.
+    "doctest_proofs",
     "disk_preflight",
     "disk_throughput",
     "vulkan_limits",
@@ -788,18 +792,7 @@ def generate(
     return code
 
 
-def _children_read_bytes() -> Optional[int]:
-    """Block-input bytes of every reaped descendant (Linux `ru_inblock` is in 512 B units).
-
-    The probe's Godot process is a grandchild that run_probe.py waits for, so its
-    reads accumulate here. Page-cache hits are not block input, which is what
-    makes this the V10 signal. None where `resource` does not exist.
-    """
-    try:
-        import resource  # noqa: PLC0415 - POSIX only
-    except ImportError:
-        return None
-    return int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_inblock) * 512
+_children_read_bytes = wc.children_read_bytes
 
 
 def _host_cache_from_disk_step(out: Path) -> str:
@@ -857,7 +850,8 @@ def probe(
             dirs, cache_root = _cached_worlds(tier, cache_worlds)
             dirs = {w: dirs[w] for w in TIER_WORLDS[tier]}
             files = [f for d in dirs.values() for f in wc.world_files(d)]
-            cache: Dict[str, object] = {"host_cache": _host_cache_from_disk_step(out), "cold_proven": False}
+            host_cache = _host_cache_from_disk_step(out)
+            cache: Dict[str, object] = {"host_cache": host_cache, "cold_proven": False}
             data["cache"] = cache
             res = wc.residency(files, residency_probe)
             cache["residency"] = {k: v for k, v in res.items() if k != "per_file"}
@@ -892,11 +886,17 @@ def probe(
                 rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
                 after = read_bytes()
             delta = after - before if before is not None and after is not None else None
-            # The path oracle (ADR section 6.4) that supplies the expected unique
-            # stored bytes is BV-13a's; until then V10 is NOT_EVALUATED, never OK.
-            v10 = wc.v10(delta, None)
-            cache["v10"] = v10
-            cache["cold_proven"] = v10["status"] == "OK"
+            # BV-13a-2b (#1376 item 1): the path oracle's expected unique stored bytes
+            # (ADR 6.4, published per world in the summary) over every probed world. A
+            # summary without them leaves V10 NOT_EVALUATED, never OK.
+            summary_doc, _ = fv._read_json(probe_out / PROBE_SUMMARY_NAME)  # noqa: SLF001
+            # #1403 (D-14: account cold segments only): V10 judges the reads of each world's
+            # FIRST path pass, sampled by that process before its repeat pass; the sweep runs
+            # later. `delta` spans the whole probe tree (repeat pass, F/k sweep incl. the
+            # whole-world T0 overview) and is kept as warm evidence only, never judged.
+            cold_read, read_source = wc.cold_pass_read_bytes(summary_doc, list(dirs))
+            data["cache"] = cache = wc.cold_cache_record(res, cold_read, summary_doc, list(dirs), host_cache,
+                                                         read_source=read_source, tree_read_bytes=delta)
         else:
             rc = _run_logged(cmd, out / "logs" / "probe.log", runner, None)
         data["probe_exit_code"] = rc
@@ -959,6 +959,48 @@ def controls(
         reason, code = str(exc), exc.code
     except (OSError, subprocess.TimeoutExpired) as exc:
         reason, code = f"controls could not run: {exc}", EXIT_INVALID
+    write_record(out, step, code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+def doctest_proofs(godot_binary: Path, out: Path, runner: Runner = subprocess.run, timeout_s: float = 900.0) -> int:
+    """BV-13a-2b: the ADR 8.5 doctest proofs (`fc.DOCTEST`) on the release-tests binary.
+
+    The binary is the one this job installed and `build-info` asserted (D-10
+    producer, `optimize=speed_trace dev_build=no tests=yes`). Each proof runs its
+    one case by exact name; it passes only when doctest ran exactly that case with
+    assertions and nothing failed or skipped. Exit: 0 PASS, 1 a proof failed,
+    2 a proof did not run (INVALID), 3 no binary (NOT_RUN). The proofs still
+    absent (`fc.DOCTEST_ABSENT`) are listed in the record, never counted.
+    """
+    step = "doctest_proofs"
+    data: Dict[str, object] = {"absent": dict(fc.DOCTEST_ABSENT), "binary": str(godot_binary)}
+    try:
+        if not godot_binary.is_file():
+            raise LaneError(f"NOT_RUN: no release-tests binary at {godot_binary}; the doctest proofs did not run",
+                            EXIT_NOT_RUN)
+        records = []
+        for proof, spec in fc.DOCTEST.items():
+            cmd = [str(godot_binary), "--headless", "--test", f"--test-case={spec['case']}"]
+            log = out / "logs" / f"doctest_{proof}.log"
+            try:
+                rc: Optional[int] = _run_logged(cmd, log, runner, timeout_s)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                rc = None
+                log.parent.mkdir(parents=True, exist_ok=True)
+                with log.open("a", encoding="utf-8") as handle:
+                    handle.write(f"\nharness: {type(exc).__name__}: {exc}\n")
+            output = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+            record = fc.judge_doctest(proof, spec["case"], rc, output)
+            record["log"] = log.relative_to(out).as_posix()
+            records.append(record)
+        verdict, why = fc.combine_doctests(records)
+        data.update(verdict=verdict, proofs=records)
+        reason = f"doctest proofs {verdict}: {why}"
+        code = {"PASS": EXIT_OK, fv.FAIL: EXIT_FAIL, fv.NOT_RUN: EXIT_NOT_RUN}.get(verdict, EXIT_INVALID)
+    except LaneError as exc:
+        reason, code = str(exc), exc.code
     write_record(out, step, code, reason, data)
     _announce(code, reason)
     return code
@@ -1410,6 +1452,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--only", action="append", choices=sorted(fc.CONTROLS), default=None,
                    help="run only this control (repeatable; default: every control)")
 
+    p = sub.add_parser("doctest-proofs")
+    common(p, world=False)
+    p.add_argument("--godot-binary", type=Path, required=True,
+                   help="the release-tests binary build-info asserted (empty or absent: NOT_RUN)")
+
     p = sub.add_parser("prime-cache")
     common(p, world=False)
     p.add_argument("--godot-binary", type=Path, required=True)
@@ -1468,6 +1515,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "controls":
         return controls(args.repo, args.godot_binary, args.out, args.cache_worlds, only=args.only,
                         sha=os.environ.get("GITHUB_SHA"))
+    if args.command == "doctest-proofs":
+        return doctest_proofs(args.godot_binary, args.out)
     if args.command == "summarize":
         env = os.environ.get("GITHUB_STEP_SUMMARY")
         meta = {

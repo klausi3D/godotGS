@@ -367,3 +367,129 @@ def v10(read_bytes: Optional[int], expected_unique_stored_bytes: Optional[int]) 
     result["fraction"] = round(fraction, 4)
     result["status"] = "OK" if fraction >= V10_MIN_READ_FRACTION else "INVALID"
     return result
+
+
+# --------------------------------------------------------------------------
+# V10 inputs (BV-13a-2b, #1376 item 1): read bytes, the path oracle, the record
+# --------------------------------------------------------------------------
+
+
+def children_read_bytes() -> Optional[int]:
+    """Block-input bytes of every reaped descendant (Linux `ru_inblock` is in 512 B units).
+
+    The probe's Godot process is a grandchild that run_probe.py waits for, so its
+    reads accumulate here. On Linux `ru_inblock` is the task's io-accounting
+    `read_bytes` (the `/proc/<pid>/io read_bytes` of D-14 item 3) summed over the
+    waited-for descendants. Page-cache hits are not block input, which is what
+    makes this the V10 signal. It counts every block the probe tree read (the
+    binary, the worlds, anything else), so it bounds the world reads from above:
+    a warm world passes V10 only if something else read about as much. None where
+    `resource` does not exist.
+    """
+    try:
+        import resource  # noqa: PLC0415 - POSIX only
+    except ImportError:
+        return None
+    return int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_inblock) * 512
+
+
+def warm_page_cache(paths: Sequence[Path], block: int = 8 * 1024 * 1024) -> int:
+    """Read every file once through the page cache and leave it there: the per-run verify
+    without the fadvise that follows it (ADR 8.5 C-warm, "fadvise skipped"). Returns bytes read."""
+    total = 0
+    for path in paths:
+        with Path(path).open("rb") as handle:
+            while True:
+                chunk = handle.read(block)
+                if not chunk:
+                    break
+                total += len(chunk)
+    return total
+
+
+def expected_unique_stored_bytes(summary: object, worlds: Sequence[str]) -> Tuple[Optional[int], str]:
+    """The path oracle's expected unique stored bytes (ADR 6.4), summed over every probed world.
+
+    The read-byte signal covers the whole probe tree, so the oracle side covers
+    every world the probe flew. One world without its oracle leaves the sum
+    unknown (None): V10 is then not evaluated, never judged on a partial sum.
+    """
+    if not isinstance(summary, dict) or not isinstance(summary.get("worlds"), dict):
+        return None, "no probe summary with worlds"
+    if not worlds:
+        return None, "no world was probed"
+    total = 0
+    for world in worlds:
+        ws = summary["worlds"].get(world)
+        fl = ws.get("flythrough") if isinstance(ws, dict) else None
+        oracle = fl.get("expected_unique_upload_flat") if isinstance(fl, dict) else None
+        stored = oracle.get("stored_bytes") if isinstance(oracle, dict) else None
+        if isinstance(stored, bool) or not isinstance(stored, int) or stored <= 0:
+            return None, f"worlds.{world}.flythrough.expected_unique_upload_flat.stored_bytes absent or not positive"
+        total += stored
+    return total, f"path oracle stored bytes of {', '.join(worlds)}"
+
+
+def cold_pass_read_bytes(summary: object, worlds: Sequence[str]) -> Tuple[Optional[int], str]:
+    """Block reads of the COLD path pass only (#1403, D-14: account cold segments only), summed per world.
+
+    Each world's path process records its own `/proc/self/io read_bytes` at the end
+    of its first pass (run_probe.cold_pass_io, `worlds.<w>.cold_pass_io`). The
+    repeat pass and the F/k sweep (with its whole-world overview) come after that
+    sample and never enter it. One world without the sample leaves the sum unknown
+    (None): V10 is then not evaluated, never judged on a partial sum or on the
+    whole probe tree's reads.
+    """
+    if not isinstance(summary, dict) or not isinstance(summary.get("worlds"), dict):
+        return None, "no probe summary with worlds"
+    if not worlds:
+        return None, "no world was probed"
+    total = 0
+    for world in worlds:
+        ws = summary["worlds"].get(world)
+        io = ws.get("cold_pass_io") if isinstance(ws, dict) else None
+        value = io.get("cold_read_bytes") if isinstance(io, dict) else None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            why = io.get("why") if isinstance(io, dict) else None
+            return None, f"worlds.{world}.cold_pass_io.cold_read_bytes absent ({why or 'no cold-pass sample'})"
+        total += value
+    return total, f"first-pass /proc/self/io read_bytes of {', '.join(worlds)}"
+
+
+def cold_cache_record(
+    residency_record: Dict[str, object],
+    read_bytes: Optional[int],
+    summary: object,
+    worlds: Sequence[str],
+    host_cache: str,
+    read_source: str = "the probe process tree",
+    tree_read_bytes: Optional[int] = None,
+) -> Dict[str, object]:
+    """The D-14 record of one probe process: residency before it, cold read bytes, the oracle.
+
+    The lane's probe step and every BV-13a control write this record; the verdict
+    module's V10 entry judges it against the frozen thresholds. `cold_proven` is
+    this module's own reading with its constants, for the step record only.
+    `read_bytes` is what V10 judges; `tree_read_bytes` (every pass and the sweep)
+    is warm-pass evidence, recorded and never judged.
+    """
+    expected, source = expected_unique_stored_bytes(summary, worlds)
+    result = v10(read_bytes, expected)
+    result["expected_source"] = source
+    result["read_source"] = read_source
+    if read_bytes is None:
+        result["why"] = f"read_bytes unmeasured: {read_source}"
+    result["worlds"] = list(worlds)
+    res = {k: v for k, v in residency_record.items() if k != "per_file"}
+    record = {
+        "host_cache": host_cache,
+        "residency": res,
+        "v10": result,
+        "cold_proven": bool(res.get("cold")) and result["status"] == "OK",
+    }
+    if tree_read_bytes is not None:
+        record["probe_tree_read_bytes"] = {
+            "value": tree_read_bytes,
+            "note": "every probe process (cold pass, repeat pass, F/k sweep): warm evidence, not judged by V10",
+        }
+    return record
