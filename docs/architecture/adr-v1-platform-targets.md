@@ -8,33 +8,39 @@
 - **Risk:** this document is R0 (`docs/**`). It changes no code, build option, workflow,
   threshold or gate. The CI lanes it calls for are separate tasks ([Follow-up tasks](#follow-up-tasks)).
 - **Refs:** #596, #1160.
-- **Base:** `b58bbe35d1f` (origin/master). Every `file:line` below was read at that commit.
+- **Base:** `b58bbe35d1f` (origin/master). Every source citation below was read at that commit.
   Paths are relative to the repository root.
 
 ## Problem
 
 [Release Acceptance Bar §2](../governance/release-acceptance-bar.md#2-supported-platforms)
 lists a v1.0 rung per operating system but names no graphics API and no GPU vendor. The module
-builds for Windows, Linux and macOS (`SUPPORTED_PLATFORMS = {"linuxbsd", "windows", "macos"}`,
-`modules/gaussian_splatting/config.py:1`). Its compute paths have run only on Vulkan, and
+builds for Windows, Linux and macOS (`SUPPORTED_PLATFORMS = {"linuxbsd", "windows", "macos"}` in
+`modules/gaussian_splatting/config.py`). Its compute paths have run only on Vulkan, and
 nothing records whether D3D12 or Metal belongs in v1.0.
 
-No CI workflow targets a second GPU vendor. The self-hosted GPU jobs target Linux runners
-(`runs-on: [self-hosted, Linux, X64, gpu]` and `[..., gpu, rtx3080]`, for example
-`.github/workflows/baseline_qa.yml:571` and `.github/workflows/beyond_vram_flythrough.yml:196`).
-The one Windows GPU job (`.github/workflows/release_builds.yml:1173`) is skipped unless the
-repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `'true'` (`:1183`). That variable is not
-set, and the only registered runners are two Linux machines, `ci-cpu-1` and `gpu-linux-3080`
-(read with `gh api` on 2026-11-10). So CI has no Windows GPU lane for any vendor. The Windows
-job also requests the runner label `d3d12` (`:1173`). No workflow targets an AMD, Intel or
+No CI workflow targets a second GPU vendor. The self-hosted GPU jobs target Linux runners,
+for example the `gpu-tests` job in `.github/workflows/baseline_qa.yml`
+(`runs-on: [self-hosted, Linux, X64, gpu]`) and the `prime-world-cache` job in
+`.github/workflows/beyond_vram_flythrough.yml` (`[..., gpu, rtx3080]`). The one Windows GPU
+job, `export_smoke_windows` in `.github/workflows/release_builds.yml`, is skipped unless the
+repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `'true'` (the job's `if:`). That variable
+is not set, and the only registered runners are two Linux machines, `ci-cpu-1` and
+`gpu-linux-3080` (read with `gh api` on 2026-11-10). So CI has no Windows GPU lane for any
+vendor. When `export_smoke_windows` does run, it already renders with Vulkan: it calls
+`tests/runtime/run_export_smoke.py`, which launches the export in the runtime harness's
+`gpu-vulkan` mode (`--rendering-driver vulkan`), and the export
+preset disables D3D12 (`application/export_d3d12=0` in
+`tests/runtime/export_smoke_preset.cfg.in`). The `d3d12` entry in its `runs-on` list is a
+label from the runner inventory, not a driver choice. No workflow targets an AMD, Intel or
 Apple runner (audit finding B-06).
 
 The code has vendor-sensitive constructs that no CI lane exercises. When the subgroup size is
-32 or more, the radix scatter takes a ballot branch
-(`modules/gaussian_splatting/renderer/gpu_sorter.cpp:1800`). That branch assumes contiguous
-lane-to-subgroup mapping (`subgroup_index = lid / gl_SubgroupSize`, `:1802`; audit finding
+32 or more, the radix scatter in `modules/gaussian_splatting/renderer/gpu_sorter.cpp` takes
+a ballot branch (the scatter's `gl_SubgroupSize >= 32u` branch). That branch assumes
+contiguous lane-to-subgroup mapping (`subgroup_index = lid / gl_SubgroupSize`; audit finding
 B-05). Subgroups smaller than 32 fall back to a per-invocation bitmask indexed by the local
-ID (`:1820-1823`), which does not use that mapping. Vulkan does not guarantee the
+ID, which does not use that mapping. Vulkan does not guarantee the
 contiguous mapping without subgroup-size control, and a mis-ranked scatter produces a wrong
 sort with no error.
 
@@ -79,8 +85,9 @@ any of the sort-correctness risks it would expose. Only the first game should dr
 This differs from the recommendation: it is Option A widened to Linux. Options B and C are
 rejected for v1.0 for the reasons in [Options considered](#options-considered). Adding Linux means AMD
 validation has to cover Linux as well as Windows, and the bar's existing Linux requirements
-([Consequences](#consequences)) stay. How the AMD runs are arranged across the two operating systems is
-left to CLN-EV12-2.
+([Consequences](#consequences)) stay. CLN-EV12-2's contract defines one AMD lane with
+`baseline_qa.yml`'s harness arguments and does not cover Windows, so the Windows lane is a
+separate follow-up ([Follow-up tasks](#follow-up-tasks)).
 
 The owner's approving review on the pull request that adds this record is the acceptance
 record; there is no separate issue comment.
@@ -106,11 +113,13 @@ unchanged. The owner did not change them; see [Open questions for the owner](#op
 - **An AMD GPU lane is a v1.0 requirement. It does not exist yet.** CLN-EV12-2 creates it,
   inert and visibly skipped until an AMD runner is registered. It needs AMD runner hardware,
   which the owner has to provide.
-- **Windows validation (NVIDIA and AMD) needs a Windows GPU runner and lane. None is
-  registered today** (`.github/workflows/release_builds.yml:1173`, `:1183`; [Problem](#problem)). The
-  existing Windows GPU job requests the `d3d12` runner label, which does not match the
-  Vulkan-only decision; it has to be retargeted or relabelled to a Vulkan run
-  ([Follow-up tasks](#follow-up-tasks)).
+- **Windows validation (NVIDIA and AMD) needs a Windows Vulkan GPU harness lane and a
+  Windows GPU runner. Neither exists today** ([Problem](#problem)). No CLN task creates the
+  lane: CLN-EV12-2 does not cover Windows. A to-file item creates it, inert and visibly
+  skipped until a Windows GPU runner is registered ([Follow-up tasks](#follow-up-tasks)).
+  The existing `export_smoke_windows` job in `.github/workflows/release_builds.yml` is an
+  export smoke test, not that lane. It already runs Vulkan, so the decision needs no change
+  to it.
 - No code changes in this record. `SUPPORTED_PLATFORMS` keeps `macos`; whether the macOS build
   stays supported after v1.0 scoping is open ([Open questions for the owner](#open-questions-for-the-owner)).
 - The Linux requirements already in the bar stay: Linux at `editor-tested` needs the `qa` and
@@ -123,6 +132,7 @@ unchanged. The owner did not change them; see [Open questions for the owner](#op
 | B-05 → CLN-SO02 | Unblocked: remove the radix scatter's dependence on subgroup size. |
 | B-06 → CLN-EV12, CLN-EV12-1, CLN-EV12-2 | Unblocked and committed: forced-variation batches and the AMD lane. |
 | CLN-SH05 (#596) | Unblocked: prove and pin the Linux GPU lanes. |
+| Windows Vulkan GPU harness lane | Required; no CLN task owns it. Filed from this record ([Follow-up tasks](#follow-up-tasks)). |
 | CLN-ST05 | Unblocked: GPU-tier presets and runtime tier detection, for the two vendors above. |
 | CLN-LT09, CLN-LT09-1 to CLN-LT09-4 (#1160) | Void: XR is out of v1.0. This record and bar §2 carry the XR exclusion that CLN-LT09-1 offered as its alternative. |
 | CLN-RT05 | Its dependency on CLN-LT09 no longer holds. |
@@ -143,8 +153,12 @@ unchanged. The owner did not change them; see [Open questions for the owner](#op
 - CLN-SH05: Linux GPU lanes for `qa` and `sorting`.
 - to-file: register an AMD GPU runner (hardware; owner).
 - to-file: register a Windows GPU runner (hardware; owner).
-- to-file: retarget or relabel the Windows GPU job in `.github/workflows/release_builds.yml`
-  from the `d3d12` label to a Vulkan run.
+- to-file: Windows Vulkan GPU harness lane running the REQUIRED batches, on NVIDIA and then
+  AMD; inert and visibly skipped until a Windows GPU runner is registered. Required by this
+  decision.
+- to-file (optional, nit): rename the `d3d12` runner label used by `export_smoke_windows`
+  and listed in the runner inventory (`.github/workflows/README.md`). The job already runs
+  Vulkan; the rename is cosmetic and not required by this decision.
 
 ## Out of scope
 

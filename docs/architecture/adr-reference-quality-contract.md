@@ -12,7 +12,7 @@
   baseline. The shader and settings changes it calls for are separate tasks ([Consequences](#consequences)), each with
   its own risk class and evidence.
 - **Refs:** #1012, #1222, #1223, #1137.
-- **Base:** `b58bbe35d1f` (origin/master). Every `file:line` below was read at that commit.
+- **Base:** `b58bbe35d1f` (origin/master). Every source citation below was read at that commit.
   Paths are relative to `modules/gaussian_splatting/` unless they start with `docs/` or `tests/`.
 
 ## Problem
@@ -29,17 +29,17 @@ base above:
 
 | Stop-gap | Where | Audit finding |
 | --- | --- | --- |
-| 10:1 aspect clamp: the minor radius is raised to major/10 and opacity is multiplied by (max/aspect)². The default `max_conic_aspect` is `10.0`. | `shaders/tile_binning.glsl:1019-1034`; `interfaces/rasterizer_interfaces.h:51` | A-02, #1223 |
-| Eigenvalue cap `MAX_EIGENVALUE = 10000.0` (σ = 100 px), with no compensation. | `shaders/includes/gs_eigen_binning.glsl:99-107` | A-03, #1222 |
-| Large-splat fade to 70 % opacity between 16 × and 32 × `TILE_SIZE` radius (`size_fade`). Production rendering uses the default tile size of 16, so the fade runs from 256 to 512 px. (The shader comments say 128 and 256 px, which assumes a tile size of 8.) | `shaders/tile_binning.glsl:1156-1161`; `renderer/render_pipeline_stages.cpp:2355`; `renderer/tile_renderer.h:36` | A-03, #1222 |
-| Per-tile raster cap `GS_MAX_RASTER_SPLATS_PER_TILE`: records past the cap (the farthest in the tile) are not drawn. The default project setting is the `high` preset, so **at default settings the cap is 12288**. The `low`, `medium` and `ultra` presets set 4096, 8192 and 16384. 65536 applies only when no preset is set. | `shaders/tile_rasterizer_compute.glsl:187-195`; `renderer/gpu_sorting_config.cpp:699` (default preset `high`), `:544` (12288), `:469`, `:510`, `:578`, `:139-141` (65536 without a preset), `:113-117` | A-13 (#1137 is closed; the preset values are unchanged at the base) |
+| 10:1 aspect clamp: the minor radius is raised to major/10 and opacity is multiplied by (max/aspect)². The default `max_conic_aspect` is `10.0`. | `shaders/tile_binning.glsl` (the `aspect > max_aspect` branch that sets `aspect_fade`); `RasterParams::max_conic_aspect` in `interfaces/rasterizer_interfaces.h` | A-02, #1223 |
+| Eigenvalue cap `MAX_EIGENVALUE = 10000.0` (σ = 100 px), with no compensation. | `MAX_EIGENVALUE` in `shaders/includes/gs_eigen_binning.glsl` | A-03, #1222 |
+| Large-splat fade to 70 % opacity between 16 × and 32 × `TILE_SIZE` radius (`size_fade`). Production rendering uses the default tile size of 16, so the fade runs from 256 to 512 px. (The shader comments say 128 and 256 px, which assumes a tile size of 8.) | `size_fade`, `FADE_START_RADIUS` and `FADE_END_RADIUS` in `shaders/tile_binning.glsl`; `TileRenderer::DEFAULT_TILE_SIZE` in `renderer/tile_renderer.h`, which `renderer/render_pipeline_stages.cpp` passes as `render_params.tile_size` | A-03, #1222 |
+| Per-tile raster cap `GS_MAX_RASTER_SPLATS_PER_TILE`: records past the cap (the farthest in the tile) are not drawn. The default project setting is the `high` preset, so **at default settings the cap is 12288**. The `low`, `medium` and `ultra` presets set 4096, 8192 and 16384. 65536 is the automatic fallback when no recognized preset is set. A positive project value of `max_raster_splats_per_tile` overrides the cap under any preset, so an explicit override can also select 65536 under a named preset. | `GS_MAX_RASTER_SPLATS_PER_TILE` in `shaders/tile_rasterizer_compute.glsl`; in `renderer/gpu_sorting_config.cpp`: the `GPU_PRESET_PATH` `GLOBAL_DEF` (default `high`), `GPUSortingConfig::preset_high()` (12288), `preset_low()`, `preset_medium()` and `preset_ultra()`, and `GPUSortingConfig::load_from_project_settings()` (the override rule and the 65536 fallback) | A-13 (#1137 is closed; the preset values are unchanged at the base) |
 
 The audit's further render-math findings that the reference-quality chain (CLN-RQ03 to
 CLN-RQ10) addresses are listed in [Consequences](#consequences).
 
 The image thresholds the audit found (H-11) are the benchmark lane's defaults, SSIM ≥ 0.95 and
-PSNR ≥ 30 dB
-(`tests/examples/godot/test_project/scenes/benchmark_suite/benchmark_suite_lane.gd:13-14`).
+PSNR ≥ 30 dB (`DEFAULT_VISUAL_SSIM_THRESHOLD` and `DEFAULT_VISUAL_PSNR_THRESHOLD` in
+`tests/examples/godot/test_project/scenes/benchmark_suite/benchmark_suite_lane.gd`).
 The lane compares captures against a configurable reference directory; nothing defines
 these values as a tolerance against a reference renderer, so they are not a quality contract.
 
@@ -94,16 +94,20 @@ self-referential baseline cannot show a defect it already contains.
 1. **Default settings render with reference parity.** With every quality setting at its
    default, GodotGS's image of a real scan matches the reference render of the same scan, from
    the same camera, within the tolerance ([Tolerance, reference versions and scenes](#tolerance-reference-versions-and-scenes)).
-2. **Stop-gaps that change the image of in-budget content are off at default settings.**
-   This covers the aspect clamp, the eigenvalue cap, the large-splat fade and the preset
-   raster cap (item 3). Where a stop-gap survives as a setting, it is opt-in and its default
-   is off. The capacity limits that the confirmed chain keeps are not covered by this item;
-   see [Capacity limits the chain keeps](#capacity-limits-the-chain-keeps).
+2. **Clamps, caps and fades are opt-in.** In the owner's words, clamps, caps and fades
+   become opt-in: each is off at default settings, and where one survives as a setting, its
+   default is off. This includes the aspect clamp, the eigenvalue cap, the large-splat fade
+   and the preset raster cap (item 3). The confirmed reference-quality chain keeps three
+   limits on at default settings: the 65536 per-tile raster cap, the over-budget drop and
+   the viewport-cover radius clamp
+   ([Capacity limits the chain keeps](#capacity-limits-the-chain-keeps)). That conflicts with
+   this item. This record does not resolve the conflict and exempts none of them; open
+   question 3 asks the owner to resolve it.
 3. **The default preset's raster cap is a stop-gap at default settings.** The default
    project setting is the `high` preset, whose cap of 12288 drops records
    ([Problem](#problem)). Under item 2, CLN-RQ07-1 is required for parity at default
    settings; it is not optional preset tidying. As written, CLN-RQ07-1 brings every preset
-   to the default cap of 65536. Its one exception: a preset may keep a lower cap if the PR
+   to the 65536 cap. Its one exception: a preset may keep a lower cap if the PR
    measures a raster-time regression beyond runner noise, the drop stays a visible warning,
    and the owner approves that choice on that PR. If the owner approves the exception for
    the `high` preset, the default settings keep a record-dropping cap. That PR then has
@@ -128,23 +132,25 @@ the owner's approval.
 
 ### Capacity limits the chain keeps
 
-The owner's words are that clamps, caps and fades become opt-in. The reference-quality
-chain, which the owner confirmed as written, does not remove every cap from the default
-path. Two limits stay at default settings:
+The owner's words are that clamps, caps and fades become opt-in ([Decision](#decision),
+item 2). The reference-quality chain, which the owner confirmed as written, does not remove
+every limit from the default path. Three limits stay on at default settings:
 
 - **The per-tile raster cap of 65536.** CLN-RQ07-1 stops presets from lowering the cap.
-  Records past 65536 in a tile are still not drawn (`shaders/tile_rasterizer_compute.glsl:187-195`).
+  Records past 65536 in a tile are still not drawn (`GS_MAX_RASTER_SPLATS_PER_TILE` in
+  `shaders/tile_rasterizer_compute.glsl`).
 - **The over-budget drop.** CLN-RQ07-2 makes over-budget drops deterministic. They are
   still drops, counted and warned (#1137).
+- **The viewport-cover radius clamp** (the `viewport_cover_radius` clamp in
+  `shaders/tile_binning.glsl`). CLN-RQ03 keeps it as a bounded-work guard, documents it as
+  reference-absent and files an issue for it.
 
-The chain's CLN-RQ03 also keeps the viewport-cover radius clamp
-(`shaders/tile_binning.glsl:1163-1190`) as a bounded-work guard. It documents the clamp as
-reference-absent and files an issue for it.
-
-No task removes these limits or makes them opt-in. This record does not decide whether
-parity is measured only within these limits, or whether they must also become opt-in. That
-is an open question for the owner ([Open questions for the owner](#open-questions-for-the-owner)), and no task is
-created for it until the owner answers.
+These limits conflict with Decision item 2. The conflict is between the owner's decision and
+the implementation contracts, and it is **unresolved**. This record does not exempt the
+limits from item 2, and it does not decide whether parity is measured only within them or
+whether they must also become opt-in. No task removes them or makes them opt-in. The owner
+resolves the conflict ([Open questions for the owner](#open-questions-for-the-owner),
+question 3); no task is created for it until the owner answers.
 
 ### What CLN-D04 still requires
 
@@ -158,17 +164,23 @@ record, or approves an amendment to the CLN-D04 contract.
 
 ## Consequences
 
-### Tasks this record unblocks now
+### Tasks without a CLN-EV03 dependency, still gated by CLN-D04
 
-These tasks list this record as a dependency and do not depend on CLN-EV03. The
-dependencies are those in each task's contract.
+These tasks list CLN-D04 as a dependency and do not depend on CLN-EV03. CLN-D04 stays
+incomplete after this record merges ([What CLN-D04 still requires](#what-cln-d04-still-requires)),
+and the plan's dispatcher does not dispatch a task with an incomplete dependency. So this
+record does not unblock them: they stay gated until CLN-D04 is complete. Dispatching any of
+them earlier needs an explicit amendment to its contract. The dependencies are those in each
+task's contract.
 
 | Item | What changes | Other dependencies |
 | --- | --- | --- |
 | CLN-LT10 | Transparency ordering contract ([Transparency ordering with Godot transparents](#transparency-ordering-with-godot-transparents)). | CLN-EN01 |
 | CLN-DOC05 | Peer comparison. | CLN-EV05, CLN-DOC08-4 |
 | CLN-DOC08-4 | Release-bar restructure. | CLN-PR05, CLN-DOC02 |
-| CLN-RQ08 (#1168; A-12, A-14) | Quantised payload precision. Its contract does not list this record. | CLN-IO03 |
+
+CLN-RQ08 (#1168; A-12, A-14), quantised payload precision, is independent of this record:
+its contract depends only on CLN-IO03 and does not list CLN-D04.
 
 ### Tasks still blocked on the owner's tolerance values
 
