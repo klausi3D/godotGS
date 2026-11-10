@@ -5134,12 +5134,12 @@
 <p>This document explains how lighting and shadow controls flow from settings and node state into GPU parameters and shader execution.</p>
 <h2 id="canonical-sources">Canonical Sources<a class="headerlink" href="#canonical-sources" title="Permanent link">¶</a></h2>
 <ul>
-<li>Lighting defaults and renderer integration: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a></li>
-<li>Lighting/shadow parameter assembly in stage setup: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
-<li>GPU param packing (<code>TileRenderParamsGPU</code>): <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/tile_render_stages.cpp">../../modules/gaussian_splatting/renderer/tile_render_stages.cpp</a></li>
-<li>GPU param layout contract: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/gaussian_gpu_layout.h">../../modules/gaussian_splatting/renderer/gaussian_gpu_layout.h</a></li>
-<li>Lighting bridge and shadow sampling shaders: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl">../../modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl</a>, <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl">../../modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl</a>, <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl">../../modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl</a></li>
-<li>Resolve pass shader: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/tile_resolve.glsl">../../modules/gaussian_splatting/shaders/tile_resolve.glsl</a></li>
+<li>Lighting defaults and renderer integration: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a></li>
+<li>Lighting/shadow parameter assembly in stage setup: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
+<li>GPU param packing (<code>TileRenderParamsGPU</code>): <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/tile_render_stages.cpp">../../modules/gaussian_splatting/renderer/tile_render_stages.cpp</a></li>
+<li>GPU param layout contract: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/gaussian_gpu_layout.h">../../modules/gaussian_splatting/renderer/gaussian_gpu_layout.h</a></li>
+<li>Lighting bridge and shadow sampling shaders: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl">../../modules/gaussian_splatting/shaders/includes/gs_lighting_bridge.glsl</a>, <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl">../../modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl</a>, <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl">../../modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl</a></li>
+<li>Resolve pass shader: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/tile_resolve.glsl">../../modules/gaussian_splatting/shaders/tile_resolve.glsl</a></li>
 </ul>
 <h2 id="control-surfaces">Control Surfaces<a class="headerlink" href="#control-surfaces" title="Permanent link">¶</a></h2>
 <h3 id="project-settings-global">Project Settings (Global)<a class="headerlink" href="#project-settings-global" title="Permanent link">¶</a></h3>
@@ -5152,7 +5152,7 @@
 <li><code>shadow_receiver_bias_min</code></li>
 <li><code>shadow_receiver_bias_max</code></li>
 </ul>
-<p>Defaults are set by the file-static <code>_initialize_lighting_project_settings_defaults()</code> in <code>gaussian_splat_renderer.cpp</code>. The values are read through <code>gs::settings::get_lighting_settings()</code> in <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a>.</p>
+<p>Defaults are set by the file-static <code>_initialize_lighting_project_settings_defaults()</code> in <code>gaussian_splat_renderer.cpp</code>. The values are read through <code>gs::settings::get_lighting_settings()</code> in <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a>.</p>
 <h3 id="node-controls-per-node">Node Controls (Per-Node)<a class="headerlink" href="#node-controls-per-node" title="Permanent link">¶</a></h3>
 <p>Node-level controls that directly affect lighting/shadow-related behavior:</p>
 <ul>
@@ -5160,17 +5160,17 @@
 <li><code>rendering/color_grading</code></li>
 <li><code>rendering/wind_*</code> override controls for animation deformation inputs</li>
 </ul>
-<p>Source: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">../../modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp</a></p>
+<p>Source: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">../../modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp</a></p>
 <h2 id="data-flow-cpu-to-gpu">Data Flow: CPU to GPU<a class="headerlink" href="#data-flow-cpu-to-gpu" title="Permanent link">¶</a></h2>
 <ol>
-<li>The raster stage in <code>render_pipeline_stages.cpp</code> (<code>RenderPipelineStages::RasterStage</code>) and the painterly producer (<code>PainterlyRenderer::populate_painterly_gbuffer</code>) both fill the lighting, shadow and cluster fields of <code>TileRenderParams</code> through one shared applier, <code>apply_lighting_to_render_params()</code> in <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/tile_render_types.h">tile_render_types.h</a>. It takes the settings from <code>gs::settings::get_lighting_settings()</code> plus the gathered scene-lighting inputs (#851).</li>
+<li>The raster stage in <code>render_pipeline_stages.cpp</code> (<code>RenderPipelineStages::RasterStage</code>) and the painterly producer (<code>PainterlyRenderer::populate_painterly_gbuffer</code>) both fill the lighting, shadow and cluster fields of <code>TileRenderParams</code> through one shared applier, <code>apply_lighting_to_render_params()</code> in <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/tile_render_types.h">tile_render_types.h</a>. It takes the settings from <code>gs::settings::get_lighting_settings()</code> plus the gathered scene-lighting inputs (#851).</li>
 <li><code>tile_render_stages.cpp</code> packs these values into <code>TileRenderParamsGPU</code>.</li>
 <li><code>gaussian_gpu_layout.h</code> defines the authoritative memory layout and semantic fields: <code>lighting_config</code>, <code>shadow_strength</code>, <code>shadow_bias_config</code>, <code>lighting_mode</code>, and <code>light_counts</code>.</li>
 <li>The binning and resolve shaders consume these fields.</li>
 </ol>
 <h2 id="direct-lighting-path">Direct Lighting Path<a class="headerlink" href="#direct-lighting-path" title="Permanent link">¶</a></h2>
 <p>Production direct lighting is per splat and runs in the binning pass,
-<a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/tile_binning.glsl">tile_binning.glsl</a>. Each splat is lit
+<a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/tile_binning.glsl">tile_binning.glsl</a>. Each splat is lit
 at its own position, using scene data, light buffers, shadow helpers and a radius-scaled receiver
 bias. The result is baked into the splat colour before resolve.</p>
 <p><code>lighting_mode.x</code> (<code>direct_lighting_mode</code>) selects which pass adds direct light. The two passes
@@ -5181,7 +5181,7 @@ own disjoint modes, and there is no "both" mode:</p>
   <code>direct_lighting_mode = 1</code>. One dormant caller does not call the applier:
   <code>TileRasterizer::render</code> leaves the struct default <code>0</code>. Its only caller is
   <code>PainterlyRenderer::render</code>, which no production route calls today.</li>
-<li><code>0</code>: resolve-time. <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/tile_resolve.glsl">tile_resolve.glsl</a>
+<li><code>0</code>: resolve-time. <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/tile_resolve.glsl">tile_resolve.glsl</a>
   adds direct light per pixel and binning bakes none. No route selects this mode since #1078, and
   it has known defects. It lights at the blended depth and normal, which gives black silhouette
   contours, and it has no shadow input because its receiver bias is fixed at 0. It is kept only
@@ -5189,19 +5189,19 @@ own disjoint modes, and there is no "both" mode:</p>
   <code>TileRenderParams::direct_lighting_mode</code>, which is why the applier writes the mode explicitly.</li>
 </ul>
 <p>Field semantics are defined on <code>TileRenderParamsGPU::lighting_mode</code> in
-<a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/gaussian_gpu_layout.h">gaussian_gpu_layout.h</a>, and
+<a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/gaussian_gpu_layout.h">gaussian_gpu_layout.h</a>, and
 mirrored in <code>shaders/includes/gs_render_params.glsl</code>. The
-<a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/docs/architecture/resolve_lighting_redesign_spec.md">resolve-mode lighting redesign spec</a> targets mode 0, which
+<a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/docs/architecture/resolve_lighting_redesign_spec.md">resolve-mode lighting redesign spec</a> targets mode 0, which
 production does not run.</p>
 <h2 id="clustered-vs-unclustered-lights">Clustered vs Unclustered Lights<a class="headerlink" href="#clustered-vs-unclustered-lights" title="Permanent link">¶</a></h2>
 <p>Cluster usage is determined by cluster buffer/config availability and <code>light_counts.z</code> semantics in GPU params.</p>
 <ul>
-<li>Cluster decision helper in shader: <code>gs_use_clustered_lights()</code> in <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl">../../modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl</a></li>
-<li>Debug override (force unclustered): <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/gpu_debug_utils.h">../../modules/gaussian_splatting/renderer/gpu_debug_utils.h</a></li>
+<li>Cluster decision helper in shader: <code>gs_use_clustered_lights()</code> in <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl">../../modules/gaussian_splatting/shaders/includes/gs_lighting_common.glsl</a></li>
+<li>Debug override (force unclustered): <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/gpu_debug_utils.h">../../modules/gaussian_splatting/renderer/gpu_debug_utils.h</a></li>
 </ul>
 <h2 id="shadow-system">Shadow System<a class="headerlink" href="#shadow-system" title="Permanent link">¶</a></h2>
 <h3 id="runtime-shadow-sampling">Runtime Shadow Sampling<a class="headerlink" href="#runtime-shadow-sampling" title="Permanent link">¶</a></h3>
-<p>Shadow factors are computed per light type in <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl">../../modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl</a>:</p>
+<p>Shadow factors are computed per light type in <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl">../../modules/gaussian_splatting/shaders/includes/gs_directional_shadow.glsl</a>:</p>
 <ul>
 <li>directional: <code>gs_directional_shadow</code></li>
 <li>omni: <code>gs_omni_shadow_factor</code></li>
@@ -5214,10 +5214,10 @@ production does not run.</p>
 <li>shadow output compositor setup</li>
 <li>shadow blit pipeline resources</li>
 </ul>
-<p>Source: <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a></p>
+<p>Source: <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a></p>
 <p><strong>Fail closed (#1089, #1095 slice 1).</strong> A shadow pass blits only a depth image it rasterized itself: at least one splat (<code>RasterStageOutput::rastered_splat_count</code>), not a cached reuse or painterly output, in the rasterizer's current depth target, at exactly the atlas-rect size. Anything else returns <code>SHADOW_SKIP_NO_CASTER_RASTERED</code> and writes nothing, for directional, spot, omni dual-paraboloid and omni cube passes alike; an omni cube light's cubemap is re-copied into the atlas only if a splat was written for that light. On the canonical routes the shadow raster rasterizes no splats, so <strong>splats cast no shadows there</strong>; before this guard the pass copied the main camera's splat depth into every atlas rect. Splats still receive shadows.</p>
 <h3 id="hlod-route-splat-shadow-casters-1095-1163">HLOD route: splat shadow casters (#1095, #1163)<a class="headerlink" href="#hlod-route-splat-shadow-casters-1095-1163" title="Permanent link">¶</a></h3>
-<p>A renderer that owns an HLOD world submission never runs the colour pipeline for a light view. Its shadow passes draw real casters instead (<code>GaussianSplatRenderer::_render_hlod_shadow_casters</code>, <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/gs_shadow_caster.cpp">gs_shadow_caster.cpp</a>, <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/shaders/gs_shadow_caster.glsl">gs_shadow_caster.glsl</a>, planning in <a href="https://github.com/klausi3D/godotGS/blob/d628a5af625a7f9982624311583da962de1cda56/modules/gaussian_splatting/renderer/hlod_shadow_caster_plan.h">hlod_shadow_caster_plan.h</a>):</p>
+<p>A renderer that owns an HLOD world submission never runs the colour pipeline for a light view. Its shadow passes draw real casters instead (<code>GaussianSplatRenderer::_render_hlod_shadow_casters</code>, <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/gs_shadow_caster.cpp">gs_shadow_caster.cpp</a>, <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/shaders/gs_shadow_caster.glsl">gs_shadow_caster.glsl</a>, planning in <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/modules/gaussian_splatting/renderer/hlod_shadow_caster_plan.h">hlod_shadow_caster_plan.h</a>):</p>
 <ul>
 <li><strong>What casts:</strong> the HLOD draw list the last active main view uploaded: the world cut plus the admitted node instances. Forward+ renders a frame's shadow passes before its GS main view, so a pass draws the previous main view's list, with offsets formed against that view's camera. Rows whose node has <code>cast_shadow</code> off are masked; objects the budget rule refused cast nothing. Nothing outside the main view's cut casts (a light-view cut is a later slice).</li>
 <li><strong>How:</strong> one instanced, depth-only quad per splat, drawn into the atlas rect Godot hands the pass with Godot's own clip transform and depth convention (<code>set_depth_correction(!flip_y)</code> with the pass's <code>flip_y</code>, which is <code>true</code> for directional passes exactly as Godot hands its mesh casters; reverse-Z; <code>GREATER_OR_EQUAL</code> against the mesh casters already there) and the pancake clamp. A fragment occludes where the Gaussian's alpha reaches 0.5; its depth follows the Gaussian's mean depth across the footprint, so a tilted sheet does not shadow itself. No sort, no blit. Mesh receivers sample it unchanged; splat receivers already sample the atlas in binning.</li>
