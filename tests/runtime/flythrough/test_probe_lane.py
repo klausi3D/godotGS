@@ -27,6 +27,7 @@ import json
 import copy
 import math
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -313,6 +314,12 @@ class CapturedTrace(unittest.TestCase):
         self.assertEqual([c["checkpoint"] for c in p0["checkpoints"]], [f"C{i}" for i in range(8)])
         self.assertTrue(all(c["settled"] for c in p0["checkpoints"]))
         self.assertEqual(s["records_per_splat"]["status"], ps.MISSING)
+        # The fixture predates the drop telemetry (#1393): every window is MISSING, never zero drops.
+        for rec in (s["overlap_drops_whole_run"], p0["overlap_drops"], p0["overlap_drops_moving"],
+                    p0["overlap_drops_checkpoints"]):
+            self.assertEqual(rec["status"], ps.MISSING, rec)
+            self.assertIn("older probe", rec["reason"])
+        self.assertIn("older probe", s["records_per_splat"]["reason"])
         # The fixture predates BV-POOL: the absent placement is MISSING, never device-local.
         self.assertEqual(s["pool_placement"]["status"], ps.MISSING)
         self.assertIsNone(s["pool_placement"]["device_local"])
@@ -549,11 +556,99 @@ class CapturedTrace(unittest.TestCase):
             self.assertEqual(v["gpu_pipeline_mean_ms"]["status"], ps.OK)
             self.assertEqual(v["wall_interval_mean_ms"]["status"], ps.OK)
             self.assertEqual(v["gpu"]["passes"]["composite"]["mean"]["status"], ps.OK)
+            self.assertEqual(v["overlap_drops"]["status"], ps.MISSING)  # predates #1393
+            self.assertEqual(v["overlap_drops_whole_run"]["status"], ps.MISSING)
 
 
 # --------------------------------------------------------------------------
 # Statistics
 # --------------------------------------------------------------------------
+
+
+def _drop_trace(increments):
+    """Constructed drop-counter rows (the arithmetic is the point): each entry is that row's
+    counter increments, None a row without the telemetry (the driver's -1)."""
+    fields = ["row", "pass_index", "segment", "view", "state", "s_m", *ps.DROP_COUNTERS]
+    totals = dict.fromkeys(ps.DROP_COUNTERS, 0)
+    rows = []
+    for i, inc in enumerate(increments):
+        if inc is None:
+            values = [-1] * len(ps.DROP_COUNTERS)
+        else:
+            for k, v in inc.items():
+                totals[k] += v
+            values = [totals[k] for k in ps.DROP_COUNTERS]
+        rows.append((i, 0, 3, -1, ps.STATE_MOVING, 1.5 * i, *values))
+    return ps.Trace(fields, "qqqqqd" + "q" * len(ps.DROP_COUNTERS), rows, 0)
+
+
+class OverlapDrops(unittest.TestCase):
+    """#1393: dropped overlap records and records per splat from the renderer's cumulative counters."""
+
+    ROWS = [
+        None,
+        {"drop_signal_samples": 1, "sampled_overlap_records_total": 1000, "sampled_overlap_splats_total": 100},
+        {"drop_signal_samples": 1, "overflow_drop_events": 1, "binning_drop_events": 1,
+         "binning_tile_range_drop_events": 1, "sampled_dropped_records_total": 7,
+         "sampled_overlap_records_total": 1200, "sampled_overlap_splats_total": 100},
+        None,
+        {"drop_signal_samples": 1, "sampled_overlap_records_total": 800, "sampled_overlap_splats_total": 100},
+    ]
+
+    def test_each_row_is_credited_with_its_increment(self) -> None:
+        tr = _drop_trace(self.ROWS)
+        rec = ps.overlap_drops(tr, list(range(5)))
+        self.assertEqual(rec["status"], ps.OK, rec)
+        self.assertEqual((rec["readback_samples"], rec["drop_events"], rec["binning_drop_events"]), (3, 1, 1))
+        self.assertEqual((rec["binning_tile_range_drop_events"], rec["binning_budget_drop_events"]), (1, 0))
+        self.assertEqual((rec["sampled_dropped_records"], rec["sampled_overlap_records"], rec["sampled_splats"]),
+                         (7, 3000, 300))
+        self.assertEqual(rec["records_per_splat"]["value"], 10.0)
+        self.assertAlmostEqual(rec["sampled_dropped_fraction"]["value"], 7 / 3000)
+        self.assertEqual((rec["rows_with_drop"], rec["first_drop_row"]), (1, 2))
+        self.assertEqual(rec["first_drop"]["segment"], 3)
+        # A later window starts after the drop: the cumulative value is not re-counted.
+        later = ps.overlap_drops(tr, [3, 4])
+        self.assertEqual((later["status"], later["drop_events"], later["readback_samples"]), (ps.OK, 0, 1))
+        self.assertEqual(later["records_per_splat"]["value"], 8.0)
+
+    def test_absent_signal_is_missing_never_zero(self) -> None:
+        tr = _drop_trace(self.ROWS)
+        self.assertIn("did not publish", ps.overlap_drops(tr, [0, 3])["reason"])
+        quiet = _drop_trace([{"drop_signal_samples": 1}, {}, {}])
+        rec = ps.overlap_drops(quiet, [1, 2])
+        self.assertEqual(rec["status"], ps.MISSING)
+        self.assertIn("unproven", rec["reason"])
+        self.assertEqual(ps.overlap_drops(tr, [])["status"], ps.MISSING)
+        no_cols = ps.Trace(["row"], "q", [(0,)], 0)
+        self.assertIn("older probe", ps.overlap_drops(no_cols, [0])["reason"])
+
+    def test_a_counter_that_went_backwards_is_invalid(self) -> None:
+        tr = _drop_trace(self.ROWS)
+        idx = tr.index["sampled_overlap_records_total"]
+        rows = list(tr.rows)
+        rows[4] = rows[4][:idx] + (5,) + rows[4][idx + 1:]
+        rec = ps.overlap_drops(ps.Trace(tr.fields, tr.types, rows, 0), list(range(5)))
+        self.assertEqual(rec["status"], ps.INVALID)
+        self.assertIn("went backwards at row 4", rec["reason"])
+
+    def test_the_driver_and_the_renderer_publish_every_counter(self) -> None:
+        """Wiring: probe_world.gd traces exactly DROP_COUNTERS, and the renderer writes each one
+        into get_render_stats() (deleting a key or the call turns this red)."""
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        block = gd[gd.index("const DROP_FIELDS"):]
+        block = block[:block.index("\n]\n")]
+        self.assertEqual(tuple(re.findall(r'\["([a-z_]+)", "q"\]', block)), ps.DROP_COUNTERS)
+        self.assertIn("] + DROP_FIELDS", gd)
+        self.assertRegex(gd, r"for f in DROP_FIELDS:\n\t\tvalues\.append\(int\(_g\(stats, f\[0\], -1\)\)\)")
+        renderer = ROOT / "modules" / "gaussian_splatting" / "renderer"
+        src = (renderer / "render_debug_state_orchestrator.cpp").read_text(encoding="utf-8")
+        body = src[src.index("void RenderDebugStateOrchestrator::append_drop_telemetry"):]
+        body = body[:body.index("\n}\n")]
+        for name in ps.DROP_COUNTERS:
+            self.assertIn(f'r_stats["{name}"]', body, name)
+        stats = (renderer / "render_diagnostics_orchestrator.cpp").read_text(encoding="utf-8")
+        self.assertIn("debug_state_orchestrator->append_drop_telemetry(stats);", stats)
 
 
 class Statistics(unittest.TestCase):

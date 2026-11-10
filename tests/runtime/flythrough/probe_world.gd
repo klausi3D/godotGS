@@ -43,6 +43,16 @@ const ST_MEASURE := 3
 const ST_WARMUP := 4
 const ST_LOADING := 5
 
+# #1393: the renderer's always-on overlap-record drop telemetry (cumulative per renderer, read
+# from get_render_stats() without issuing a readback). -1 when the renderer does not publish the
+# key: an older binary reads as MISSING in probe_summary.overlap_drops, never as zero drops.
+const DROP_FIELDS := [
+	["drop_signal_samples", "q"], ["overflow_drop_events", "q"], ["binning_drop_events", "q"],
+	["binning_tile_range_drop_events", "q"], ["binning_budget_drop_events", "q"],
+	["raster_tile_cap_drop_events", "q"], ["sampled_dropped_records_total", "q"],
+	["sampled_overlap_records_total", "q"], ["sampled_overlap_splats_total", "q"],
+]
+
 # Field name, type ("q" int64 / "d" float64). Order is the row layout.
 var FIELDS := [
 	["row", "q"], ["engine_frame", "q"], ["t_usec", "q"], ["phase", "q"], ["pass_index", "q"],
@@ -62,7 +72,7 @@ var FIELDS := [
 	["prefix_ms", "d"], ["binning_ms", "d"], ["overlap_sort_ms", "d"], ["raster_ms", "d"],
 	["resolve_ms", "d"], ["composite_ms", "d"],
 	["gpu_frame_ms", "d"], ["gpu_frame_valid", "q"], ["stats_usec", "q"], ["static_memory_bytes", "q"],
-]
+] + DROP_FIELDS
 
 var _plan: Dictionary = {}
 var _result: Dictionary = {}
@@ -216,6 +226,8 @@ func _sample_and_write() -> void:
 		float(_g(stats, "gpu_frame_time_ms", 0.0)), 1 if bool(_g(stats, "gpu_frame_time_valid", false)) else 0,
 		stats_usec, OS.get_static_memory_usage(),
 	])
+	for f in DROP_FIELDS:
+		values.append(int(_g(stats, f[0], -1)))
 	for i in range(FIELDS.size()):
 		if FIELDS[i][1] == "q":
 			_trace.store_64(int(values[i]))

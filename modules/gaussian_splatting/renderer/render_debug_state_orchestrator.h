@@ -86,6 +86,9 @@ public:
 	int get_clamped_records() const;
 	int get_aggregated_count() const;
 	Dictionary get_overflow_stats() const;
+	// #1393: writes the always-on drop telemetry (cumulative counters, no readback) into r_stats;
+	// writes nothing when there is no tile renderer.
+	void append_drop_telemetry(Dictionary &r_stats) const;
 	Dictionary get_pipeline_trace_snapshot() const;
 	String get_pipeline_trace_json() const;
 	Error dump_pipeline_trace_to_file(const String &p_path) const;
