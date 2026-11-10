@@ -47,3 +47,5 @@ rather than patching it by hand.
 - [Test quarantine manifest](adr-test-quarantine-manifest.md)
 - [The candidate gate must distinguish measured evidence from defaulted evidence](adr-open-world-proof-content-validation.md)
 - [Widen the public-alpha envelope to streaming open worlds](adr-alpha-envelope-widened-to-streaming.md)
+- [Reference parity at default settings: the quality contract](adr-reference-quality-contract.md) — *Accepted* (owner decision D-4, 2026-11-10; the adding PR's approving owner review and merge confirm the recorded text)
+- [v1.0 platform and graphics-API targets: Vulkan on Windows and Linux, NVIDIA and AMD](adr-v1-platform-targets.md) — *Accepted* (owner decision D-3, 2026-11-10; the adding PR's approving owner review and merge confirm the recorded text)
