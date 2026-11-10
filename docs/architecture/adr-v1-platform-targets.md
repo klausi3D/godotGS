@@ -23,15 +23,20 @@ No CI workflow targets a second GPU vendor. The self-hosted GPU jobs target Linu
 (`runs-on: [self-hosted, Linux, X64, gpu]` and `[..., gpu, rtx3080]`, for example
 `.github/workflows/baseline_qa.yml:571` and `.github/workflows/beyond_vram_flythrough.yml:196`).
 The one Windows GPU job (`.github/workflows/release_builds.yml:1173`) is skipped unless the
-repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `'true'` (`:1183`). No workflow targets an
-AMD, Intel or Apple runner (audit finding B-06).
+repository variable `GODOTGS_WINDOWS_GPU_RUNNER` is `'true'` (`:1183`). That variable is not
+set, and the only registered runners are two Linux machines, `ci-cpu-1` and `gpu-linux-3080`
+(read with `gh api` on 2026-11-10). So CI has no Windows GPU lane for any vendor. The Windows
+job also requests the runner label `d3d12` (`:1173`). No workflow targets an AMD, Intel or
+Apple runner (audit finding B-06).
 
-The code has vendor-sensitive constructs that no CI lane exercises. The default radix scatter
-assumes a constant subgroup size of at least 32 and contiguous lane-to-subgroup mapping
-(`subgroup_index = lid / gl_SubgroupSize`,
-`modules/gaussian_splatting/renderer/gpu_sorter.cpp:1800-1803`; audit finding B-05). Vulkan
-does not guarantee either without subgroup-size control, and a mis-ranked scatter produces a
-wrong sort with no error.
+The code has vendor-sensitive constructs that no CI lane exercises. When the subgroup size is
+32 or more, the radix scatter takes a ballot branch
+(`modules/gaussian_splatting/renderer/gpu_sorter.cpp:1800`). That branch assumes contiguous
+lane-to-subgroup mapping (`subgroup_index = lid / gl_SubgroupSize`, `:1802`; audit finding
+B-05). Subgroups smaller than 32 fall back to a per-invocation bitmask indexed by the local
+ID (`:1820-1823`), which does not use that mapping. Vulkan does not guarantee the
+contiguous mapping without subgroup-size control, and a mis-ranked scatter produces a wrong
+sort with no error.
 
 ## Options considered
 
@@ -39,7 +44,9 @@ These are the options in the audit's decision list (D-3).
 
 ### Option A — Windows Vulkan only, NVIDIA and AMD validated
 
-- **Cost:** one extra GPU lane, on AMD hardware.
+- **Cost:** one extra GPU lane, on AMD hardware. The audit's cost assumed an existing Windows
+  NVIDIA lane. None exists ([Problem](#problem)), so Windows validation also needs a
+  Windows GPU runner and lane.
 - **Enables:** cross-vendor sort correctness (B-05) is tested; one API keeps one set of compute
   assumptions.
 - **Limits:** Linux is not a v1.0 target; no D3D12, Metal, mobile or web.
@@ -70,8 +77,10 @@ any of the sort-correctness risks it would expose. Only the first game should dr
 2026-11-10. D3D12, Metal, mobile, web and XR are out of v1.0.
 
 This differs from the recommendation: it is Option A widened to Linux. Options B and C are
-rejected for v1.0 for the reasons in [Options considered](#options-considered). Adding Linux costs a Linux AMD lane next to the
-Windows one, and the bar's existing Linux requirements ([Consequences](#consequences)) stay.
+rejected for v1.0 for the reasons in [Options considered](#options-considered). Adding Linux means AMD
+validation has to cover Linux as well as Windows, and the bar's existing Linux requirements
+([Consequences](#consequences)) stay. How the AMD runs are arranged across the two operating systems is
+left to CLN-EV12-2.
 
 The owner's approving review on the pull request that adds this record is the acceptance
 record; there is no separate issue comment.
@@ -97,6 +106,11 @@ unchanged. The owner did not change them; see [Open questions for the owner](#op
 - **An AMD GPU lane is a v1.0 requirement. It does not exist yet.** CLN-EV12-2 creates it,
   inert and visibly skipped until an AMD runner is registered. It needs AMD runner hardware,
   which the owner has to provide.
+- **Windows validation (NVIDIA and AMD) needs a Windows GPU runner and lane. None is
+  registered today** (`.github/workflows/release_builds.yml:1173`, `:1183`; [Problem](#problem)). The
+  existing Windows GPU job requests the `d3d12` runner label, which does not match the
+  Vulkan-only decision; it has to be retargeted or relabelled to a Vulkan run
+  ([Follow-up tasks](#follow-up-tasks)).
 - No code changes in this record. `SUPPORTED_PLATFORMS` keeps `macos`; whether the macOS build
   stays supported after v1.0 scoping is open ([Open questions for the owner](#open-questions-for-the-owner)).
 - The Linux requirements already in the bar stay: Linux at `editor-tested` needs the `qa` and
@@ -113,7 +127,7 @@ unchanged. The owner did not change them; see [Open questions for the owner](#op
 | CLN-LT09, CLN-LT09-1 to CLN-LT09-4 (#1160) | Void: XR is out of v1.0. This record and bar §2 carry the XR exclusion that CLN-LT09-1 offered as its alternative. |
 | CLN-RT05 | Its dependency on CLN-LT09 no longer holds. |
 | D3D12 and Metal rows | Out of v1.0. The compatibility matrix gains no row for them. |
-| Runner purchase | An AMD GPU runner. No D3D12-only or Apple runner is needed for v1.0. |
+| Runner hardware | An AMD GPU runner and a Windows GPU runner. No D3D12-only or Apple runner is needed for v1.0. |
 
 ### What stays the same
 
@@ -128,13 +142,17 @@ unchanged. The owner did not change them; see [Open questions for the owner](#op
 - CLN-SO02: subgroup-size-independent radix scatter.
 - CLN-SH05: Linux GPU lanes for `qa` and `sorting`.
 - to-file: register an AMD GPU runner (hardware; owner).
+- to-file: register a Windows GPU runner (hardware; owner).
+- to-file: retarget or relabel the Windows GPU job in `.github/workflows/release_builds.yml`
+  from the `d3d12` label to a Vulkan run.
 
 ## Out of scope
 
 - Any code, build or workflow change; each task in [Follow-up tasks](#follow-up-tasks) cites this record.
 - Which AMD and NVIDIA models count as validated, and driver versions.
 - Performance targets per vendor.
-- Platforms after v1.0: D3D12, Metal, mobile, web and XR come back only through a new ADR.
+- Platforms after v1.0. This record does not decide how D3D12, Metal, mobile, web or XR
+  would be added later.
 
 ## Open questions for the owner
 
