@@ -1,5 +1,7 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1TileRenderParams.html#ac831f169b8a6e4cb723b5695acd57f29":[0,0,12,67,68],
+"structGaussianSplatting_1_1TileRenderParams.html#ac831f169b8a6e4cb723b5695acd57f29":[1,0,9,66,68],
 "structGaussianSplatting_1_1TileRenderParams.html#ac8e8961ea0f503e321e6392821c8251e":[0,0,12,67,97],
 "structGaussianSplatting_1_1TileRenderParams.html#ac8e8961ea0f503e321e6392821c8251e":[1,0,9,66,97],
 "structGaussianSplatting_1_1TileRenderParams.html#ac955f4369cd4ddc9dea0a098d8b30259":[0,0,12,67,79],
@@ -247,7 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1TileSHCacheBuffers.html#a0e01193aa98ef1bed757631eead1ed09":[0,0,12,49,7],
 "structGaussianSplatting_1_1TileSHCacheBuffers.html#a0e01193aa98ef1bed757631eead1ed09":[1,0,9,48,7],
 "structGaussianSplatting_1_1TileSHCacheBuffers.html#a315690e46b6180aad2d0238bb72372bb":[0,0,12,49,3],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a315690e46b6180aad2d0238bb72372bb":[1,0,9,48,3],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a3c7b20ed39935f6b13021441707d945a":[0,0,12,49,5],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a3c7b20ed39935f6b13021441707d945a":[1,0,9,48,5]
+"structGaussianSplatting_1_1TileSHCacheBuffers.html#a315690e46b6180aad2d0238bb72372bb":[1,0,9,48,3]
 };

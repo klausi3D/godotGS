@@ -1,5 +1,8 @@
 var NAVTREEINDEX47 =
 {
+"structLODDebugStats.html#afd5caa6fd086554dfd458d1417a68cda":[1,0,167,2],
+"structLODDebugStats.html#afe77eb7e2d9e7ad0cd89d60a448e6c36":[1,0,167,7],
+"structLastSortGpuTimestamp.html":[1,0,164],
 "structLastSortGpuTimestamp.html#a42721ce53fa3e782fc79f644e6a0b5df":[1,0,164,2],
 "structLastSortGpuTimestamp.html#a8c4fbd2ecab66e4867ec4b1d3363a6f2":[1,0,164,3],
 "structLastSortGpuTimestamp.html#ac7fc85dc5dd821183979234fb97be059":[1,0,164,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX47 =
 "structPainterlyRenderInput.html#a1e8628a110dd06bd80d1d50051ee99ec":[1,0,186,6],
 "structPainterlyRenderInput.html#a2245f412957332d4e5e00694dcfc5d3d":[1,0,186,2],
 "structPainterlyRenderInput.html#a4197caa60d99eb7f133a4308206a7c43":[1,0,186,8],
-"structPainterlyRenderInput.html#a77279e06e3324588d2620da5899e24ec":[1,0,186,1],
-"structPainterlyRenderInput.html#a7fe3bdefdfb64d496a69e9e27f0114a2":[1,0,186,9],
-"structPainterlyRenderInput.html#abca5b34a7eaa7bc28dc18d1eb143dd8e":[1,0,186,7],
-"structPainterlyRenderInput.html#acc59c787c77834bba2171562c6d25dbf":[1,0,186,4]
+"structPainterlyRenderInput.html#a77279e06e3324588d2620da5899e24ec":[1,0,186,1]
 };

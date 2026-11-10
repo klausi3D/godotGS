@@ -1,5 +1,7 @@
 var NAVTREEINDEX22 =
 {
+"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba353a216c4ad11a22fc6f81b0f3da4649":[0,0,12,2,6,7],
+"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3d0662b106d915ae28b9405ade35bd5c":[0,0,12,2,6,5],
 "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba4c6604951a5bfdd01e5bf6535fc1a1a1":[0,0,12,2,6,4],
 "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba77a1b8f96651a40cd34ee34b572a266e":[0,0,12,2,6,8],
 "namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba9cb4f7f6036aac32619986d2d53b142b":[0,0,12,2,6,10],
@@ -247,7 +249,5 @@ var NAVTREEINDEX22 =
 "namespacegs__hlod__bundle.html#a050885f762c72dc642f28e6d3e032984":[0,0,22,8],
 "namespacegs__hlod__bundle.html#a0c5e43a8feeb1cd73cbfc7a708bb438c":[0,0,22,13],
 "namespacegs__hlod__bundle.html#a16414fbf154011e40982799ac0ee909e":[0,0,22,16],
-"namespacegs__hlod__bundle.html#a187a747eac9af29232e87adee362f679":[0,0,22,42],
-"namespacegs__hlod__bundle.html#a32f5ff18d83edeb33e2824e722921222":[0,0,22,24],
-"namespacegs__hlod__bundle.html#a3b584f5a796f2a4fe8de8d645f053a13":[0,0,22,15]
+"namespacegs__hlod__bundle.html#a187a747eac9af29232e87adee362f679":[0,0,22,42]
 };

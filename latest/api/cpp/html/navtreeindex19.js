@@ -1,5 +1,7 @@
 var NAVTREEINDEX19 =
 {
+"gaussian__data_8h.html#af21cfad033b13505fe13a8b638f7ebf7":[2,0,0,0,3,2,29],
+"gaussian__data_8h_source.html":[2,0,0,0,3,2],
 "gaussian__data__animation_8cpp.html":[2,0,0,0,3,3],
 "gaussian__data__color__grading_8cpp.html":[2,0,0,0,3,4],
 "gaussian__data__edits_8cpp.html":[2,0,0,0,3,5],
@@ -247,7 +249,5 @@ var NAVTREEINDEX19 =
 "gpu__debug__utils_8h_source.html":[2,0,0,0,12,15],
 "gpu__memory__stream_8cpp.html":[2,0,0,0,12,16],
 "gpu__memory__stream_8h.html":[2,0,0,0,12,17],
-"gpu__memory__stream_8h_source.html":[2,0,0,0,12,17],
-"gpu__pass__timing_8h.html":[2,0,0,0,12,18],
-"gpu__pass__timing_8h_source.html":[2,0,0,0,12,18]
+"gpu__memory__stream_8h_source.html":[2,0,0,0,12,17]
 };

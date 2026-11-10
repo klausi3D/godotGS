@@ -114,6 +114,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a77d17f062410890ffd631b27cd39e0c9" id="r_a77d17f062410890ffd631b27cd39e0c9"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a77d17f062410890ffd631b27cd39e0c9">GsqPagedChunkPayloadSource</a> ()=default</td></tr>
 <tr class="memitem:a269ee6397faf93f6c3f1184a6fdd00f5" id="r_a269ee6397faf93f6c3f1184a6fdd00f5"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a269ee6397faf93f6c3f1184a6fdd00f5">~GsqPagedChunkPayloadSource</a> () override</td></tr>
 <tr class="memitem:ac58eb449e62b86e362b4869c20d5a4a5" id="r_ac58eb449e62b86e362b4869c20d5a4a5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac58eb449e62b86e362b4869c20d5a4a5">configure</a> (const String &amp;p_path, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order, const AABB &amp;p_bounds, const <a class="el" href="structgs__gsq_1_1EncodeParams.html">gs_gsq::EncodeParams</a> &amp;p_codec_params, const LocalVector&lt; <a class="el" href="structGsqPagedChunkPayloadSource_1_1Page.html">Page</a> &gt; &amp;p_pages)</td></tr>
+<tr class="memitem:a28f2a94d1bb2ed45196f9a7a032449d1" id="r_a28f2a94d1bb2ed45196f9a7a032449d1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a28f2a94d1bb2ed45196f9a7a032449d1">set_verify_decoded_digest</a> (bool p_verify)</td></tr>
+<tr class="memitem:a2322fd7c7f89535a9cfb4c0ce91a7077" id="r_a2322fd7c7f89535a9cfb4c0ce91a7077"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2322fd7c7f89535a9cfb4c0ce91a7077">is_decoded_digest_verified</a> () const</td></tr>
 <tr class="memitem:a2d5c307a1995198bc529d79ae3e250f4" id="r_a2d5c307a1995198bc529d79ae3e250f4"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2d5c307a1995198bc529d79ae3e250f4">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const override</td></tr>
 <tr class="memitem:a9fd8c636e90b033cb815bdeccf202802" id="r_a9fd8c636e90b033cb815bdeccf202802"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9fd8c636e90b033cb815bdeccf202802">capture_indexed_chunk_snapshot</a> (const uint32_t *p_indices, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const override</td></tr>
 <tr class="memitem:aec9ca64d1612dea1e819d174cf5c3805" id="r_aec9ca64d1612dea1e819d174cf5c3805"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aec9ca64d1612dea1e819d174cf5c3805">get_count</a> () const override</td></tr>
@@ -535,6 +537,31 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a2322fd7c7f89535a9cfb4c0ce91a7077" name="a2322fd7c7f89535a9cfb4c0ce91a7077"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2322fd7c7f89535a9cfb4c0ce91a7077">&#9670;&#160;</a></span>is_decoded_digest_verified()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GsqPagedChunkPayloadSource::is_decoded_digest_verified </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a78bb3f446227ad3c96dbd1c24f9225cf" name="a78bb3f446227ad3c96dbd1c24f9225cf"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a78bb3f446227ad3c96dbd1c24f9225cf">&#9670;&#160;</a></span>is_valid()</h2>
 
@@ -559,6 +586,31 @@ Static Protected Member Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Implements <a class="el" href="classChunkPayloadSource.html#aa9fb3172563bfb5c9099f43d4041fddb">ChunkPayloadSource</a>.</p>
+
+</div>
+</div>
+<a id="a28f2a94d1bb2ed45196f9a7a032449d1" name="a28f2a94d1bb2ed45196f9a7a032449d1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a28f2a94d1bb2ed45196f9a7a032449d1">&#9670;&#160;</a></span>set_verify_decoded_digest()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GsqPagedChunkPayloadSource::set_verify_decoded_digest </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_verify</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
 
 </div>
 </div>

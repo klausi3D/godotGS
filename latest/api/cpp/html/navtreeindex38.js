@@ -1,5 +1,7 @@
 var NAVTREEINDEX38 =
 {
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#ac0f6da509aa70eefc53596c2cf1bb20c":[0,0,12,2,3,5],
+"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#ac0f6da509aa70eefc53596c2cf1bb20c":[1,0,9,1,3,5],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#ad72da2aa4909f0b79ef30c1831ed4a70":[0,0,12,2,3,1],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html#ad72da2aa4909f0b79ef30c1831ed4a70":[1,0,9,1,3,1],
 "structGaussianSplatting_1_1GpuPassTiming_1_1FrameStages.html":[0,0,12,2,2],
@@ -247,7 +249,5 @@ var NAVTREEINDEX38 =
 "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a20de16929d7ef75a42909039070b5252":[0,0,12,30,0],
 "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a20de16929d7ef75a42909039070b5252":[1,0,9,29,0],
 "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a3c48deb7264af588d11219a83409adda":[0,0,12,30,1],
-"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a3c48deb7264af588d11219a83409adda":[1,0,9,29,1],
-"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a4e53043a1fe94ce06e01584010bcf5fd":[0,0,12,30,3],
-"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a4e53043a1fe94ce06e01584010bcf5fd":[1,0,9,29,3]
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a3c48deb7264af588d11219a83409adda":[1,0,9,29,1]
 };

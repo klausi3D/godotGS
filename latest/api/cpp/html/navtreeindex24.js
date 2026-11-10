@@ -1,5 +1,7 @@
 var NAVTREEINDEX24 =
 {
+"namespacemembers_a.html":[0,1,0,1],
+"namespacemembers_b.html":[0,1,0,2],
 "namespacemembers_c.html":[0,1,0,3],
 "namespacemembers_d.html":[0,1,0,4],
 "namespacemembers_e.html":[0,1,0,5],
@@ -247,7 +249,5 @@ var NAVTREEINDEX24 =
 "render__debug__types_8h_source.html":[2,0,0,0,12,0,1],
 "render__device__manager_8cpp.html":[2,0,0,0,5,26],
 "render__device__manager_8h.html":[2,0,0,0,5,27],
-"render__device__manager_8h_source.html":[2,0,0,0,5,27],
-"render__device__orchestrator_8cpp.html":[2,0,0,0,12,52],
-"render__device__orchestrator_8h.html":[2,0,0,0,12,53]
+"render__device__manager_8h_source.html":[2,0,0,0,5,27]
 };

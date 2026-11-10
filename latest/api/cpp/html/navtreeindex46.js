@@ -1,5 +1,7 @@
 var NAVTREEINDEX46 =
 {
+"structGaussianStreamingTypes_1_1StreamingChunk.html#a783997bd1de0e1658765dfc00e81e500":[0,0,14,1,1],
+"structGaussianStreamingTypes_1_1StreamingChunk.html#a783997bd1de0e1658765dfc00e81e500":[1,0,10,1,1],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#a79ac586ce8ecefca752bd8a17163871e":[0,0,14,1,31],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#a79ac586ce8ecefca752bd8a17163871e":[1,0,10,1,31],
 "structGaussianStreamingTypes_1_1StreamingChunk.html#a7d825000f8227be31da2aa42fe4629cc":[0,0,14,1,3],
@@ -61,18 +63,19 @@ var NAVTREEINDEX46 =
 "structGsSplatShadowCaster_1_1Inputs.html#ab8a5c83ec2bee76acc71454a36c985cd":[1,0,124,0,9],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html":[1,0,122,1],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a05fca9e1698f0214fa7adbf3ae3a5ebc":[1,0,122,1,3],
-"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1786d8283033e9b5727ffe16946b6b85":[1,0,122,1,12],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1786d8283033e9b5727ffe16946b6b85":[1,0,122,1,13],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1a660b8d3541bfcea5009e0ded60acd7":[1,0,122,1,5],
-"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1c013988f2f7f0bfe5d76bf73ee89a9f":[1,0,122,1,10],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1c013988f2f7f0bfe5d76bf73ee89a9f":[1,0,122,1,11],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a21b153f16dc2ac6c4a9f0d0b16ef78e7":[1,0,122,1,6],
-"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a294dae9fac7b24388d758d6e04937190":[1,0,122,1,9],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a294dae9fac7b24388d758d6e04937190":[1,0,122,1,10],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a2b5d1f9eaf820c97e439fee2974e03ce":[1,0,122,1,1],
-"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a54804ca46ba8dd01cec9f68df1c9e340":[1,0,122,1,8],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a54804ca46ba8dd01cec9f68df1c9e340":[1,0,122,1,9],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a62e04e2679b6eb89ee4eafa6d603eba1":[1,0,122,1,0],
-"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#aab0ffc3569bd94193caa45ee21770983":[1,0,122,1,7],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a92487aa30f16490fa851c361925b41fa":[1,0,122,1,7],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#aab0ffc3569bd94193caa45ee21770983":[1,0,122,1,8],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#aac1d026725b065c3e64dfcd2a42ac9f5":[1,0,122,1,2],
 "structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ac63403ce0f3b3b6d4c753425b6920675":[1,0,122,1,4],
-"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ad42c2682c582727fe88b526af4b01053":[1,0,122,1,11],
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ad42c2682c582727fe88b526af4b01053":[1,0,122,1,12],
 "structGsqPagedChunkPayloadSource_1_1Page.html":[1,0,122,0],
 "structGsqPagedChunkPayloadSource_1_1Page.html#a01ee303d2b7aa841d0c6c31114e07f06":[1,0,122,0,5],
 "structGsqPagedChunkPayloadSource_1_1Page.html#a055aea0fc4df76de4709e20d964e61e8":[1,0,122,0,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX46 =
 "structLODDebugStats.html#a9e96c089c5eb998700548eee2fde3f20":[1,0,167,8],
 "structLODDebugStats.html#aa8678da07d6569bbd40d402c945ee7cc":[1,0,167,11],
 "structLODDebugStats.html#ab8ea44bb0915751cf4db94f1dc4a40c7":[1,0,167,5],
-"structLODDebugStats.html#ae8da235b22876bda60ab3d13d5dc301b":[1,0,167,0],
-"structLODDebugStats.html#afd5caa6fd086554dfd458d1417a68cda":[1,0,167,2],
-"structLODDebugStats.html#afe77eb7e2d9e7ad0cd89d60a448e6c36":[1,0,167,7],
-"structLastSortGpuTimestamp.html":[1,0,164]
+"structLODDebugStats.html#ae8da235b22876bda60ab3d13d5dc301b":[1,0,167,0]
 };
