@@ -121,6 +121,10 @@
          <lastmod>2026-11-10</lastmod>
     </url>
     <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-next-program-alpha-correctness/</loc>
+         <lastmod>2026-11-10</lastmod>
+    </url>
+    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-one-route-many-producers/</loc>
          <lastmod>2026-11-10</lastmod>
     </url>
@@ -145,6 +149,10 @@
          <lastmod>2026-11-10</lastmod>
     </url>
     <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-review-merge-policy/</loc>
+         <lastmod>2026-11-10</lastmod>
+    </url>
+    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-sh-basis-evaluation/</loc>
          <lastmod>2026-11-10</lastmod>
     </url>
@@ -166,6 +174,10 @@
     </url>
     <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-test-quarantine-manifest/</loc>
+         <lastmod>2026-11-10</lastmod>
+    </url>
+    <url>
+         <loc>https://klausi3d.github.io/godotGS/latest/architecture/adr-upstream-strategy/</loc>
          <lastmod>2026-11-10</lastmod>
     </url>
     <url>

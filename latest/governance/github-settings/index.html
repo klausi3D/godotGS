@@ -3970,6 +3970,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -4799,6 +4805,90 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-review-merge-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and Merge Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-upstream-strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upstream Godot Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-next-program-alpha-correctness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Next Program
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -5136,7 +5226,7 @@ dangerous direction: it invited "nothing is enforced anyway" reasoning
   evidence contracts. <code>check_pr_contract.py</code> runs in CI only as a self-test against
   the shipped fixture <code>.agentic/templates/task.json</code>, because this repository has no
   per-PR contract source: a task-contract instance is a local agent artifact, and
-  <a href="https://github.com/klausi3D/godotGS/blob/d844e8c29918bcbc631303a49c2f8b3feafdead7/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those. Choosing a source — a
+  <a href="https://github.com/klausi3D/godotGS/blob/fe3f24783e8a8709fcc578969fef2abbb1da96e8/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those. Choosing a source — a
   PR-body block or a committed contract file — is the <strong>Phase-2 contract-source
   ADR</strong>, tracked separately and deliberately not part of the change that closed the
   gaps above.</li>

@@ -3892,6 +3892,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -4721,6 +4727,90 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-review-merge-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and Merge Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-upstream-strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upstream Godot Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-next-program-alpha-correctness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Next Program
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4907,6 +4997,11 @@ a change advances only when each required layer is satisfied. See
    conflicting findings, and is the only party that can waive a blocker — with a
    written reason recorded on the PR.</li>
 </ol>
+<p>As practised, an agent authors the change, independent agent reviewers (Claude and Codex)
+review it, the repository owner merges it or delegates the merge once CI is fully green, R2
+and R3 changes need the owner's OK, and no second human review is required until a second
+human maintainer joins; see the
+<a href="../../architecture/adr-review-merge-policy/">review and merge policy ADR</a>.</p>
 <h2 id="findings">Findings<a class="headerlink" href="#findings" title="Permanent link">¶</a></h2>
 <p>Reviews are emitted as structured findings (<code>.agentic/schemas/review.schema.json</code>,
 validated by <code>scripts/agentic/validate_review.py</code>). CI runs that validator only
@@ -5011,8 +5106,8 @@ spots</strong>. Each finding has a severity:</p>
 in <a href="../github-settings/">GitHub settings</a>; they are applied manually by a
 maintainer. They enforce less than this page asks for. Branch protection requires
 the <code>agentic-pr-gate</code> and <code>docs-build</code> checks and resolved conversations, but <strong>0 approving reviews</strong>
-and <strong>no code-owner review</strong>. Layers 2 to 4 above, the R3 two-review rule, and the
-blocker and waiver rules are therefore upheld by reviewers and the merging human,
+and <strong>no code-owner review</strong>. Layers 2 to 4 above, the owner's OK for R2 and R3, and
+the blocker and waiver rules are therefore upheld by reviewers and the merging human,
 not by GitHub. The full split is in
 <a href="../agentic-engineering/#what-is-enforced-and-what-is-process">agentic engineering</a>.
 Two mechanical backstops remain. Required conversation resolution: an open review
