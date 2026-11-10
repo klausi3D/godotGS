@@ -21,6 +21,12 @@ a change advances only when each required layer is satisfied. See
    conflicting findings, and is the only party that can waive a blocker — with a
    written reason recorded on the PR.
 
+As practised, an agent authors the change, independent agent reviewers (Claude and Codex)
+review it, the repository owner merges it or delegates the merge once CI is fully green, R2
+and R3 changes need the owner's OK, and no second human review is required until a second
+human maintainer joins; see the
+[review and merge policy ADR](../architecture/adr-review-merge-policy.md).
+
 ## Findings
 
 Reviews are emitted as structured findings (`.agentic/schemas/review.schema.json`,
@@ -110,8 +116,8 @@ The branch-protection and required-check settings that back this policy are list
 in [GitHub settings](github-settings.md); they are applied manually by a
 maintainer. They enforce less than this page asks for. Branch protection requires
 the `agentic-pr-gate` and `docs-build` checks and resolved conversations, but **0 approving reviews**
-and **no code-owner review**. Layers 2 to 4 above, the R3 two-review rule, and the
-blocker and waiver rules are therefore upheld by reviewers and the merging human,
+and **no code-owner review**. Layers 2 to 4 above, the owner's OK for R2 and R3, and
+the blocker and waiver rules are therefore upheld by reviewers and the merging human,
 not by GitHub. The full split is in
 [agentic engineering](agentic-engineering.md#what-is-enforced-and-what-is-process).
 Two mechanical backstops remain. Required conversation resolution: an open review

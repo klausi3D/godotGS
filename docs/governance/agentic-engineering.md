@@ -169,8 +169,8 @@ by tooling; see
 | --- | --- | --- |
 | **R0** | Docs and agentic governance only. | Deterministic checks + one review. |
 | **R1** | Local module/test changes with no GPU/persistence/engine risk. | Guards + targeted tests + correctness review. |
-| **R2** | Renderer, shaders, compute, GPU sort, streaming, performance, VRAM. | R1 + GPU/performance review + runtime/GPU evidence. |
-| **R3** | Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat; any unclassified path. | ADR before implementation + two reviews + CODEOWNER and human approval. None of these is enforced by branch protection (0 required approvals, code-owner review off). |
+| **R2** | Renderer, shaders, compute, GPU sort, streaming, performance, VRAM. | R1 + GPU/performance review + runtime/GPU evidence + the owner's OK. |
+| **R3** | Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat; any unclassified path. | ADR before implementation + independent agent reviews (Claude and Codex) + the owner's OK; no second human review until a second human maintainer joins ([review and merge policy ADR](../architecture/adr-review-merge-policy.md)). None of these is enforced by branch protection (0 required approvals, code-owner review off). |
 
 **What CI actually does with the risk class.** The required `agentic-pr-gate` check
 derives the class from the PR's own diff (`classify_change.py --base-ref <PR base>`)
@@ -224,8 +224,8 @@ not this page, is the source of truth.
 human uphold it):
 
 - Every review requirement in the risk-class table: one review for R0, the
-  correctness review, the GPU/performance review for R2+, and for R3 the two
-  reviews and the CODEOWNER and human approval. With 0 required approvals and
+  correctness review, the GPU/performance review for R2+, the agent reviews for
+  R3, and the owner's OK for R2 and R3. With 0 required approvals and
   code-owner review off, a PR with no approval merges once the gate is green, its
   conversations are resolved, and no "Request changes" review is outstanding.
   `required_pull_request_reviews` is enabled, so such a review from someone with

@@ -129,3 +129,6 @@ nav:
               - Open-World Proof Content Validation: architecture/adr-open-world-proof-content-validation.md
               - Reference Quality Contract: architecture/adr-reference-quality-contract.md
               - v1.0 Platform Targets: architecture/adr-v1-platform-targets.md
+              - Review and Merge Policy: architecture/adr-review-merge-policy.md
+              - Upstream Godot Strategy: architecture/adr-upstream-strategy.md
+              - Next Program: architecture/adr-next-program-alpha-correctness.md

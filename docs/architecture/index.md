@@ -51,3 +51,6 @@ rather than patching it by hand.
 - [Widen the public-alpha envelope to streaming open worlds](adr-alpha-envelope-widened-to-streaming.md)
 - [Reference parity at default settings: the quality contract](adr-reference-quality-contract.md) — *Accepted* (owner decision D-4, 2026-11-10; the adding PR's approving owner review and merge confirm the recorded text)
 - [v1.0 platform and graphics-API targets: Vulkan on Windows and Linux, NVIDIA and AMD](adr-v1-platform-targets.md) — *Accepted* (owner decision D-3, 2026-11-10; the adding PR's approving owner review and merge confirm the recorded text)
+- [Review and merge policy as practised](adr-review-merge-policy.md) — *Accepted* (owner decision D-7, 2026-11-10)
+- [Upstream Godot strategy: hop straight to 4.7](adr-upstream-strategy.md) — *Accepted* (owner decision D-5, 2026-11-10; Refs #943, #946, #947)
+- [Next program: beyond-VRAM and the audit cleanup plan run in parallel](adr-next-program-alpha-correctness.md) — *Accepted* (owner decision D-8, 2026-11-10)
