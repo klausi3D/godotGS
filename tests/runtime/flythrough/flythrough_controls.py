@@ -18,6 +18,17 @@ control is INVALID. A FAIL or an INVALID the module computed from present
 signals is evaluable (the forced setting itself makes V7 INVALID, for example).
 V1 is exempt: contention is judged once for the whole job, at postflight.
 
+V10 (BV-13a-2b): every control process writes its own D-14 record (`mincore`
+residency of T0 right before the probe, the probe tree's block-read bytes, the
+path oracle of the control's summary; `world_cache.cold_cache_record`) and is
+judged on it, so the controls never borrow the main probe's cold proof and run
+alone with `controls_only`. T0 is warm after the main probe, so V10 is usually a
+present-evidence INVALID `cache_warm` for every control; that is evaluable. C-warm
+forces it on purpose: it reads every T0 file through the page cache right before
+its probe (the per-run verify without the fadvise after it, ADR 8.5 "fadvise
+skipped"). A record that cannot be measured (no `mincore`, no `resource`) is
+MISSING, so the control is INVALID, never PASS.
+
 Every control runs the BV-07 probe (`run_probe.py --control ID`) on T0, one
 repetition, no sweep, and is judged against tier A's frozen values with T0 as
 the gate world. The forcing lives in `CONTROLS` below, the only place that
@@ -42,6 +53,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import flythrough_verdict as fv  # noqa: E402
+import world_cache as wc  # noqa: E402
 
 SCHEMA = "godotgs-flythrough-controls/1"
 CONTROLS_FILE = "controls.json"
@@ -75,6 +87,12 @@ CONTROLS: Dict[str, Dict[str, Any]] = {
         "inject": {"pass_index": 0, "checkpoint": "C3", "hold_s": 2.0, "project_settings": {CAP_KEY: 400}},
         "expected": ("V7", fv.INVALID, "settings_drifted"),
     },
+    "C-warm": {
+        "how": "T0 read through the page cache right before the probe and not dropped: the per-run verify "
+               "without its fadvise (ADR 8.5 'fadvise skipped', D-14 items 1-3)",
+        "warm_cache": True,
+        "expected": ("V10", fv.INVALID, fv.CACHE_WARM),
+    },
 }
 
 #: Controls of ADR 8.5 that do not run here, and why. Never counted as passing.
@@ -91,16 +109,76 @@ ABSENT: Dict[str, str] = {
              "100k visible cap forces (instance_count_overflow_events) is not in G10's signal yet",
     "C-cap-h": "HLOD arm, G10h (M3, BV-16c)",
     "C-revisit": "G13 needs pass B captures (BV-13b)",
-    "C-warm": "V10 absent from the thresholds until the cold-pass proof lands (BV-13a-2); the lane's "
-              "cache_warm refusal (dispatch_lane.py probe) exists already",
     "C-codec-D": "codec arms (BV-C6)",
 }
 
-#: Controls proven outside the lane (ADR 8.5): name -> where.
-DOCTEST: Dict[str, str] = {
-    "C-thrash": "modules/gaussian_splatting/tests/test_vram_budget_regulator.h, "
-                "'BV-08a thrash is visible-set refetch in a wall-clock window (C-thrash)'",
+#: ADR 8.5 proofs that are doctests, run by the lane's `doctest_proofs` step on the
+#: release-tests producer binary (D-10: `optimize=speed_trace dev_build=no tests=yes`):
+#: name -> the exact doctest case (no wildcard, so the filter selects that case alone)
+#: and the file that defines it.
+DOCTEST: Dict[str, Dict[str, str]] = {
+    "C-thrash": {
+        "case": "[GaussianSplatting][VRAMBudgetRegulator] BV-08a thrash is visible-set refetch in a "
+                "wall-clock window (C-thrash)",
+        "file": "modules/gaussian_splatting/tests/test_vram_budget_regulator.h",
+    },
 }
+
+#: ADR 8.5 release-build doctest mutation proofs whose counter or fault injection does not
+#: exist yet. Listed, never counted as passing (ADR 8.1: absent until the prerequisite).
+DOCTEST_ABSENT: Dict[str, str] = {
+    "G7": "no retire counter with an injected-fault doctest; G7 is absent from the thresholds (BV-14)",
+    "G8": "no generation counter is published; G8 is absent from the thresholds",
+    "G9": "no invariant / read / decode counter on the flat route; G9 is absent from the thresholds",
+    "G3": "HLOD arm (M3)",
+    "G2a": "no injected budget-overrun doctest yet; G2a is judged live from peak VRAM over the effective budget",
+    "G10h-a": "HLOD arm renderer overflow (BV-16c, M3)",
+}
+
+_DOCTEST_CASES = re.compile(
+    r"\[doctest\] test cases:\s*(\d+)\s*\|\s*(\d+)\s+passed\s*\|\s*(\d+)\s+failed(?:\s*\|\s*(\d+)\s+skipped)?")
+_DOCTEST_ASSERTIONS = re.compile(r"\[doctest\] assertions:\s*(\d+)\s*\|\s*(\d+)\s+passed\s*\|\s*(\d+)\s+failed")
+_DOCTEST_STATUS = re.compile(r"\[doctest\] Status:\s*(\w+)")
+#: A case that skips itself is counted as passed by doctest (#817): never a proof.
+DOCTEST_SKIP_MARKERS = ("GS_ENV_SKIP", "Skipping test")
+
+
+def judge_doctest(proof: str, case: str, exit_code: Optional[int], output: str) -> Dict[str, Any]:
+    """One doctest proof from the binary's output. PASS needs exactly the one case run, with assertions."""
+    rec: Dict[str, Any] = {"proof": proof, "case": case, "exit_code": exit_code}
+    cases, asserts, status = (_DOCTEST_CASES.search(output), _DOCTEST_ASSERTIONS.search(output),
+                              _DOCTEST_STATUS.search(output))
+    if not (cases and asserts and status):
+        rec.update(status=fv.INVALID, reason=f"no doctest summary (exit {exit_code}): the case did not run")
+        return rec
+    run, passed, failed = (int(cases.group(i)) for i in (1, 2, 3))
+    rec.update(cases_run=run, cases_passed=passed, cases_failed=failed,
+               assertions=int(asserts.group(1)), assertions_failed=int(asserts.group(3)), doctest_status=status.group(1))
+    if run != 1:
+        rec.update(status=fv.INVALID, reason=f"the filter selected {run} cases, needs exactly this one")
+    elif any(marker in output for marker in DOCTEST_SKIP_MARKERS):
+        rec.update(status=fv.INVALID, reason="the case skipped itself: a skip is not a proof")
+    elif failed or rec["assertions_failed"] or passed != 1 or status.group(1) != "SUCCESS" or exit_code != 0:
+        rec.update(status=fv.FAIL, reason=f"the proof failed: {failed} case(s), {rec['assertions_failed']} "
+                                          f"assertion(s) failed, status {status.group(1)}, exit {exit_code}")
+    elif rec["assertions"] == 0:
+        rec.update(status=fv.INVALID, reason="the case ran no assertion")
+    else:
+        rec.update(status="PASS", reason=f"{rec['assertions']} assertions passed")
+    return rec
+
+
+def combine_doctests(records: Sequence[dict]) -> Tuple[str, str]:
+    """INVALID (a proof that did not run) > FAIL (a proof that failed) > PASS; nothing run: NOT_RUN."""
+    if not records:
+        return fv.NOT_RUN, "no doctest proof ran"
+    for verdict in (fv.INVALID, fv.FAIL):
+        bad = [r for r in records if r.get("status") == verdict]
+        if bad:
+            return verdict, "; ".join(f"{r['proof']}: {r['reason']}" for r in bad)
+    if any(r.get("status") != "PASS" for r in records):
+        return fv.INVALID, "a proof without a known status"
+    return "PASS", f"{len(records)} doctest proofs passed on the release-tests binary"
 
 _REASON_CODE = re.compile(r"^([A-Za-z0-9_]+)")
 
@@ -166,6 +244,14 @@ def report(records: Sequence[dict]) -> Dict[str, Any]:
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
+def _host_cache(base_inputs: dict) -> str:
+    """D-14 item 4: the disk step's label; without one, `present` (never more than guest-cold)."""
+    rec = (base_inputs.get("steps") or {}).get("disk_throughput")
+    data = rec.get("data") if isinstance(rec, dict) else None
+    label = data.get("host_cache") if isinstance(data, dict) else None
+    return label if isinstance(label, str) and label else wc.host_cache_label(None)
+
+
 def run_controls(
     probe_entry: Path,
     godot_binary: Path,
@@ -176,13 +262,19 @@ def run_controls(
     only: Optional[Sequence[str]] = None,
     thresholds: Any = None,
     timeout_s: float = 2400.0,
+    residency_probe: Optional[Callable[[Path], Tuple[int, int]]] = None,
+    read_bytes: Callable[[], Optional[int]] = wc.children_read_bytes,
+    warm: Callable[[Sequence[Path]], int] = wc.warm_page_cache,
+    world_files: Callable[[Path], List[Path]] = wc.world_files,
 ) -> Dict[str, Any]:
     """Run every control's probe, judge it, write `out/controls.json`. Returns the report.
 
     `base_inputs` are the lane's verdict inputs (build_info, step records, sha); each
-    control's own probe summary replaces the summary in them.
+    control's own probe summary replaces the summary in them, and its own D-14 record
+    (residency before, read bytes during, its oracle) replaces the probe step's for V10.
     """
     thresholds = fv.load_thresholds() if thresholds is None else thresholds
+    host_cache = _host_cache(base_inputs)
     records = []
     for cid in (only or list(CONTROLS)):
         cout = out / cid
@@ -192,11 +284,22 @@ def run_controls(
                "--world", f"{CONTROL_WORLD}={world_dir}", "--out", str(probe_out),
                "--no-sweep", "--passes", str(CONTROL_PASSES), "--control", cid]
         harness = None
+        residency: Optional[Dict[str, object]] = None
+        cache_error: Optional[str] = None
+        try:
+            files = world_files(world_dir)
+            if CONTROLS[cid].get("warm_cache"):
+                warm(files)
+            residency = wc.residency(files, residency_probe)
+        except (OSError, wc.CacheError) as exc:
+            cache_error = f"residency unmeasured: {type(exc).__name__}: {exc}"
+        before = read_bytes()
         try:
             with (cout / "probe.log").open("w", encoding="utf-8") as log:
                 rc = runner(cmd, stdout=log, stderr=subprocess.STDOUT, timeout=timeout_s, check=False).returncode
         except (OSError, subprocess.TimeoutExpired) as exc:
             rc, harness = None, f"harness failure: {type(exc).__name__}: {exc}"
+        after = read_bytes()
         summary, summary_error = fv._read_json(probe_out / "summary.json")  # noqa: SLF001
         if rc not in (0, 2) and harness is None:
             # 2 is INVALID, which a control is meant to provoke; 1 is a crashed or failed Godot
@@ -204,11 +307,17 @@ def run_controls(
             harness = f"harness failure: probe exited {rc}"
         if summary is None and harness is None:
             harness = f"harness failure: {summary_error}"
-        inputs = dict(base_inputs, summary=summary, summary_error=summary_error, gate_world=CONTROL_WORLD)
+        delta = after - before if before is not None and after is not None else None
+        # Unmeasured residency leaves no record: V10 is MISSING and the control INVALID.
+        cold = (wc.cold_cache_record(residency, delta, summary, [CONTROL_WORLD], host_cache)
+                if residency is not None else None)
+        inputs = dict(base_inputs, summary=summary, summary_error=summary_error, gate_world=CONTROL_WORLD,
+                      cold_cache=cold)
         result = fv.evaluate(thresholds, THRESHOLDS_TIER, "flat", inputs)
         (cout / fv.GATE_VERDICT_FILE).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         record = judge(cid, result, harness)
         record["probe_exit_code"] = rc
+        record["cold_cache"] = cold if cold is not None else {"error": cache_error}
         records.append(record)
     rep = report(records)
     out.mkdir(parents=True, exist_ok=True)
