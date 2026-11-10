@@ -307,6 +307,9 @@ public:
     // tile renderer, so it can be driven standalone from a dedicated [RequiresGPU] TEST_CASE.
     TestResult test_overflow_drop_telemetry(RenderingDevice *p_rd);
     TestResult test_overlap_bootstrap_same_frame_grow(RenderingDevice *p_rd);
+    // #1393: the splat data changes between COUNT and EMIT; EMIT must still bin into exactly the
+    // tiles COUNT reserved (no tile-range drop).
+    TestResult test_emit_bins_from_count_footprint(RenderingDevice *p_rd);
     TestResult test_hlod_content_capture(RenderingDevice *p_rd, bool p_capture, bool p_compute);
     // #1137: one 16 px tile holding p_splat_count depth-spread records, rendered through the
     // real instance pipeline under the shipped default gpu_preset with an explicit
@@ -1921,6 +1924,144 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overlap_
         return result;
     }
     print_line(vformat("[BV-10] demand=%d seed=%d first_frame_capacity=%d", int(first_frame_measured), int(seed_capacity), int(first_frame_capacity)));
+    result.passed = true;
+    return result;
+}
+
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_emit_bins_from_count_footprint(RenderingDevice *p_rd) {
+    // #1393: on the beyond-VRAM lanes EMIT wrote records into tiles whose COUNT-reserved range was
+    // already full (drop bit GS_OVERFLOW_DROP_BINNING_TILE_RANGE), because EMIT recomputed each
+    // splat's footprint and the recomputation did not match COUNT's. This test makes the mismatch
+    // certain: every frame COUNT sees small splats, then a hook swaps in 4x larger ones before EMIT.
+    // An EMIT that recomputes covers more tiles than COUNT reserved and drops records; an EMIT that
+    // bins from COUNT's footprint drops none.
+    //   Phase A (calibration, no swap): the small and the large scene each render consistently. The
+    //   large one must emit more records per frame, or the swap could not have caused a drop and
+    //   the test would prove nothing.
+    //   Phase B (swap every frame): tile-range drop events must not move, while the drop telemetry
+    //   keeps sampling (a dead readback would also read as "no drops").
+    TestResult result;
+    const uint32_t splat_count = 1024u;
+    constexpr int FRAMES = 12;
+
+    Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+    if (err != OK) {
+        result.error_message = "Failed to initialize tile renderer for the COUNT/EMIT footprint test";
+        return result;
+    }
+    tile_renderer->set_debug_binning_counters_enabled(true);
+
+    auto pack_scene = [](const Vector<Gaussian> &p_gaussians) {
+        Vector<uint8_t> bytes;
+        bytes.resize(p_gaussians.size() * sizeof(PackedGaussian));
+        SHCompressionMetrics metrics;
+        PackedGaussian *packed = reinterpret_cast<PackedGaussian *>(bytes.ptrw());
+        for (int i = 0; i < p_gaussians.size(); i++) {
+            pack_gaussian(p_gaussians[i], packed[i], metrics);
+        }
+        return bytes;
+    };
+    const Vector<Gaussian> small_gaussians = generate_test_gaussians(splat_count); // scale 0.1
+    Vector<Gaussian> large_gaussians = small_gaussians;
+    for (Gaussian &gaussian : large_gaussians) {
+        gaussian.scale = Vector3(0.4f, 0.4f, 0.4f);
+    }
+    const Vector<uint8_t> small_bytes = pack_scene(small_gaussians);
+    const Vector<uint8_t> large_bytes = pack_scene(large_gaussians);
+
+    RID gaussian_buffer = create_test_gaussian_buffer(p_rd, small_gaussians);
+    RID sorted_indices = create_test_sorted_indices(p_rd, splat_count);
+    InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, splat_count);
+    auto free_scene = [&]() {
+        tile_renderer->test_before_emit_hook = nullptr;
+        tile_renderer->cleanup();
+        if (gaussian_buffer.is_valid()) {
+            p_rd->free(gaussian_buffer);
+        }
+        if (sorted_indices.is_valid()) {
+            p_rd->free(sorted_indices);
+        }
+        instance_inputs.free(p_rd);
+    };
+    if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid() ||
+            small_bytes.size() != large_bytes.size()) {
+        free_scene();
+        result.error_message = "Failed to create COUNT/EMIT footprint scene buffers";
+        return result;
+    }
+
+    TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices, splat_count,
+            TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+    bind_instance_pipeline_inputs(params, instance_inputs, splat_count);
+
+    // Renders FRAMES frames with p_count_bytes uploaded before each frame (COUNT sees them) and,
+    // when p_emit_bytes is set, p_emit_bytes uploaded between COUNT and EMIT. Returns the mean
+    // EMIT records per sampled frame, or -1 on failure.
+    int hook_calls = 0;
+    auto run_phase = [&](const Vector<uint8_t> &p_count_bytes, const Vector<uint8_t> *p_emit_bytes) -> double {
+        tile_renderer->test_before_emit_hook = nullptr;
+        if (p_emit_bytes) {
+            tile_renderer->test_before_emit_hook = [&, p_emit_bytes](RenderingDevice *p_device) {
+                ++hook_calls;
+                p_device->buffer_update(gaussian_buffer, 0, p_emit_bytes->size(), p_emit_bytes->ptr());
+            };
+        }
+        const uint64_t samples_before = tile_renderer->get_drop_signal_samples();
+        const uint64_t records_before = tile_renderer->get_sampled_overlap_records_total();
+        for (int frame = 0; frame < FRAMES; frame++) {
+            if (p_rd->buffer_update(gaussian_buffer, 0, p_count_bytes.size(), p_count_bytes.ptr()) != OK ||
+                    !tile_renderer->render(p_rd, params).is_valid()) {
+                return -1.0;
+            }
+            // Local test RD: flush so the always-on drop signal readback completes.
+            p_rd->buffer_get_data(gaussian_buffer, 0, sizeof(uint32_t));
+        }
+        tile_renderer->test_before_emit_hook = nullptr;
+        const uint64_t samples = tile_renderer->get_drop_signal_samples() - samples_before;
+        if (samples == 0u) {
+            return -1.0;
+        }
+        return double(tile_renderer->get_sampled_overlap_records_total() - records_before) / double(samples);
+    };
+
+    // Large first: its first frames may grow the overlap capacity (and, sticky, report a budget
+    // drop); the small phase after it settles before the swap phase is measured.
+    const double large_records = run_phase(large_bytes, nullptr);
+    const double small_records = run_phase(small_bytes, nullptr);
+    const uint32_t tile_range_before = tile_renderer->get_binning_tile_range_drop_events();
+    const uint32_t budget_before = tile_renderer->get_binning_budget_drop_events();
+    const uint64_t samples_before_swap = tile_renderer->get_drop_signal_samples();
+    const double swapped_records = run_phase(small_bytes, &large_bytes);
+    const uint32_t tile_range_after = tile_renderer->get_binning_tile_range_drop_events();
+    const uint32_t budget_after = tile_renderer->get_binning_budget_drop_events();
+    const uint64_t swap_samples = tile_renderer->get_drop_signal_samples() - samples_before_swap;
+    free_scene();
+
+    if (small_records < 0.0 || large_records < 0.0 || swapped_records < 0.0) {
+        result.error_message = "A footprint test frame failed to render, or no drop-signal readback completed";
+        return result;
+    }
+    if (!(large_records > small_records)) {
+        result.error_message = vformat("The large scene emits %f records per frame, not more than the small scene's %f: "
+                "the swap cannot cause a drop, so this run proves nothing", large_records, small_records);
+        return result;
+    }
+    if (hook_calls < FRAMES) {
+        result.error_message = vformat("The between-pass hook ran %d times in %d swapped frames", hook_calls, FRAMES);
+        return result;
+    }
+    if (swap_samples == 0u) {
+        result.error_message = "No drop-signal readback completed during the swapped frames";
+        return result;
+    }
+    if (tile_range_after != tile_range_before || budget_after != budget_before) {
+        result.error_message = vformat("Swapping splat data between COUNT and EMIT dropped records: tile-range events %d -> %d, "
+                "budget events %d -> %d (records/frame small %f, large %f, swapped %f)",
+                tile_range_before, tile_range_after, budget_before, budget_after, small_records, large_records, swapped_records);
+        return result;
+    }
+    print_line(vformat("[1393] records/frame small=%f large=%f swapped=%f samples=%d", small_records, large_records,
+            swapped_records, int(swap_samples)));
     result.passed = true;
     return result;
 }
@@ -3720,6 +3861,29 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overlap bootstrap grow
     regression_test.instantiate();
 
     TileRendererRegressionTest::TestResult result = regression_test->test_overlap_bootstrap_same_frame_grow(local_device);
+
+    // Release before the ScopedLocalRD guard frees local_device, as in the overflow-drop case above.
+    regression_test.unref();
+
+    if (!result.passed) {
+        MESSAGE(result.error_message.utf8().get_data());
+    }
+    CHECK(result.passed);
+}
+
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] EMIT bins from COUNT's footprint when splat data changes between the passes (#1393)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("The COUNT/EMIT footprint regression requires a real local RenderingDevice from the GPU harness.");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_emit_bins_from_count_footprint(local_device);
 
     // Release before the ScopedLocalRD guard frees local_device, as in the overflow-drop case above.
     regression_test.unref();

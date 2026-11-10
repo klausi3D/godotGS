@@ -278,11 +278,58 @@ layout(set = 0, binding = 2, std430) buffer GlobalSortKeys {
 layout(set = 0, binding = 4, std430) buffer GlobalSortValues {
     uint values[];
 } global_sort_values;
+#endif
 
+#if defined(GS_TILE_GLOBAL_SORT_COUNT_PASS) || defined(GS_TILE_GLOBAL_SORT_EMIT_PASS)
+// EMIT writes the raster payload here. COUNT parks the splat's binning footprint in the same slot
+// first (#1393, gs_store_binning_footprint below), so the binding is in both passes.
 layout(set = 0, binding = 7, std430) buffer ProjectionBuffer {
     ProjectedGaussian projected_gaussians[];
 } projection_buffer;
 
+// #1393: COUNT/EMIT handshake. EMIT used to recompute each splat's tile footprint (centre, conic,
+// iso level, tile bbox) from the atlas on its own, and wrote into the per-tile range COUNT had
+// reserved from ITS computation. On the beyond-VRAM lanes that recomputation did not always match:
+// a few (splat, tile) pairs per moving frame landed in a tile whose range was already full and were
+// dropped (GS_OVERFLOW_DROP_BINNING_TILE_RANGE: 14265 of 24817 readbacks of world A in lane run
+// 42856296220, and all of G10's 53 checkpoint intervals). COUNT now stores the exact footprint it counted with, and
+// EMIT bins from those bits, so EMIT can only emit into tiles COUNT reserved, by construction.
+// subpixel_visibility.visible[] values (the buffer is cleared to 0 before COUNT):
+const uint GS_BINNING_SUBPIXEL_VISIBLE = 1u; // passed the subpixel test (also the hysteresis input)
+const uint GS_BINNING_FOOTPRINT_STORED = 2u; // visible AND counted: the footprint below is this frame's
+
+// Footprint words reuse the first nine words of the splat's ProjectedGaussian slot (9 or 10 words),
+// so the handshake costs no VRAM. EMIT reads them before it overwrites the slot with the payload,
+// in the same invocation. raw_min_radius feeds the hotspot prune, which also decides membership.
+// Not carried: gs_keep_overlap_record's (gaussian, instance) seed. It only matters below a keep
+// ratio of 1, a diagnostics-only setting; at the default every record is kept.
+void gs_store_binning_footprint(uint idx, vec2 center, vec3 conic, float sigma2, float raw_min_radius,
+        ivec2 tile_min, ivec2 tile_max) {
+    projection_buffer.projected_gaussians[idx].data[0] = floatBitsToUint(center.x);
+    projection_buffer.projected_gaussians[idx].data[1] = floatBitsToUint(center.y);
+    projection_buffer.projected_gaussians[idx].data[2] = floatBitsToUint(conic.x);
+    projection_buffer.projected_gaussians[idx].data[3] = floatBitsToUint(conic.y);
+    projection_buffer.projected_gaussians[idx].data[4] = floatBitsToUint(conic.z);
+    projection_buffer.projected_gaussians[idx].data[5] = floatBitsToUint(sigma2);
+    // Tile coordinates are clamped to the grid (< tile_count), far below 2^16.
+    projection_buffer.projected_gaussians[idx].data[6] = (uint(tile_min.x) & 0xFFFFu) | (uint(tile_min.y) << 16u);
+    projection_buffer.projected_gaussians[idx].data[7] = (uint(tile_max.x) & 0xFFFFu) | (uint(tile_max.y) << 16u);
+    projection_buffer.projected_gaussians[idx].data[8] = floatBitsToUint(raw_min_radius);
+}
+
+void gs_load_binning_footprint(uint idx, out vec2 center, out vec3 conic, out float sigma2,
+        out float raw_min_radius, out ivec2 tile_min, out ivec2 tile_max) {
+    uint w[9];
+    for (int i = 0; i < 9; ++i) {
+        w[i] = projection_buffer.projected_gaussians[idx].data[i];
+    }
+    center = vec2(uintBitsToFloat(w[0]), uintBitsToFloat(w[1]));
+    conic = vec3(uintBitsToFloat(w[2]), uintBitsToFloat(w[3]), uintBitsToFloat(w[4]));
+    sigma2 = uintBitsToFloat(w[5]);
+    raw_min_radius = uintBitsToFloat(w[8]);
+    tile_min = ivec2(int(w[6] & 0xFFFFu), int(w[6] >> 16u));
+    tile_max = ivec2(int(w[7] & 0xFFFFu), int(w[7] >> 16u));
+}
 #endif
 
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
@@ -433,8 +480,12 @@ uvec2 gs_pack_sort_key(uint tile_idx, float linear_depth, uint global_idx) {
 #endif
 #endif
 
+// #1393: `precise` forbids FMA contraction here. COUNT and EMIT are separately compiled pipelines
+// that run this test on the same footprint bits; without it a driver may fuse differently in each
+// and a tile-boundary pair could be counted in one pass and not the other.
 float gs_conic_quadratic(vec2 d, vec3 conic) {
-    return conic.x * d.x * d.x + 2.0 * conic.y * d.x * d.y + conic.z * d.y * d.y;
+    precise float q = conic.x * d.x * d.x + 2.0 * conic.y * d.x * d.y + conic.z * d.y * d.y;
+    return q;
 }
 
 // Exact convex-quadratic minimum test against a tile rectangle.
@@ -443,7 +494,7 @@ bool gs_tile_intersects_projected_ellipse(vec2 center, vec3 conic, float sigma2,
     float a = conic.x;
     float b = conic.y;
     float c = conic.z;
-    float det = a * c - b * b;
+    precise float det = a * c - b * b;
     if (a <= 0.0 || c <= 0.0 || det <= 0.0) {
         // Keep conservative behavior for numerically unstable conics.
         return true;
@@ -1133,9 +1184,11 @@ void main() {
 #ifdef GS_TILE_GLOBAL_SORT_COUNT_PASS
     // COUNT computes visibility once and writes it for EMIT to consume.
     is_visible = raw_min_radius_px >= threshold;
-    subpixel_visibility.visible[global_idx] = is_visible ? 1u : 0u;
+    // GS_BINNING_FOOTPRINT_STORED replaces this just before the count loop (#1393).
+    subpixel_visibility.visible[global_idx] = is_visible ? GS_BINNING_SUBPIXEL_VISIBLE : 0u;
 #elif defined(GS_TILE_GLOBAL_SORT_EMIT_PASS)
-    // EMIT consumes COUNT's decision to avoid COUNT/EMIT divergence.
+    // EMIT consumes COUNT's decision to avoid COUNT/EMIT divergence. Both non-zero states are
+    // subpixel-visible, so the hysteresis history below keeps its meaning.
     is_visible = subpixel_visibility.visible[global_idx] != 0u;
 #else
     // Non-global sort path: compute visibility directly.
@@ -1323,6 +1376,11 @@ void main() {
 
 #ifdef GS_TILE_GLOBAL_SORT_COUNT_PASS
     // Pass 1: count overlaps per tile (no keys/values emitted).
+    // #1393: hand EMIT the exact footprint this loop counts with (see gs_store_binning_footprint).
+    // The loop below uses the same local values, which round-trip the stored bits exactly.
+    gs_store_binning_footprint(global_idx, screen_pos, conic, ellipse_sigma2, raw_min_radius_px,
+            ivec2(min_tile_x, min_tile_y), ivec2(max_tile_x, max_tile_y));
+    subpixel_visibility.visible[global_idx] = GS_BINNING_FOOTPRINT_STORED;
     uint hotspot_pressure_threshold = gs_get_hotspot_pressure_threshold();
     float hotspot_min_radius = gs_get_hotspot_min_radius_px();
     for (int ty = min_tile_y; ty <= max_tile_y; ++ty) {
@@ -1569,20 +1627,33 @@ void main() {
     gs_pack_projected_gaussian(payload, screen_pos, linear_depth, base_opacity, sh_color, normal_view, conic, global_idx);
 
 #ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
+    // #1393: bin from COUNT's footprint, read before the payload overwrites the slot. A splat COUNT
+    // did not reach its count loop with reserved nothing, so it emits nothing (it is still shaded
+    // nowhere, as before: without records the raster never visits it).
+    bool counted = subpixel_visibility.visible[global_idx] == GS_BINNING_FOOTPRINT_STORED;
+    vec2 fp_center = vec2(0.0);
+    vec3 fp_conic = vec3(0.0);
+    float fp_sigma2 = 0.0;
+    float fp_raw_min_radius = 0.0;
+    ivec2 fp_tile_min = ivec2(1);
+    ivec2 fp_tile_max = ivec2(0); // empty range unless COUNT stored one
+    if (counted) {
+        gs_load_binning_footprint(global_idx, fp_center, fp_conic, fp_sigma2, fp_raw_min_radius, fp_tile_min, fp_tile_max);
+    }
     projection_buffer.projected_gaussians[global_idx] = payload;
     uint emitted_overlap_count = 0u;
     uint hotspot_pressure_threshold = gs_get_hotspot_pressure_threshold();
     float hotspot_min_radius = gs_get_hotspot_min_radius_px();
 
     // Pass 2: emit one overlap record per covered tile into the global key/value arrays.
-    for (int ty = min_tile_y; ty <= max_tile_y; ++ty) {
-        for (int tx = min_tile_x; tx <= max_tile_x; ++tx) {
-            if (!gs_tile_intersects_projected_ellipse(screen_pos, conic, ellipse_sigma2, tx, ty)) {
+    for (int ty = fp_tile_min.y; ty <= fp_tile_max.y; ++ty) {
+        for (int tx = fp_tile_min.x; tx <= fp_tile_max.x; ++tx) {
+            if (!gs_tile_intersects_projected_ellipse(fp_center, fp_conic, fp_sigma2, tx, ty)) {
                 continue;
             }
             uint tile_idx = uint(ty) * uint(params.tile_count.x) + uint(tx);
             uint prev_count = prev_tile_counts.counts[tile_idx];
-            if (gs_should_hotspot_prune_overlap(prev_count, raw_min_radius_px,
+            if (gs_should_hotspot_prune_overlap(prev_count, fp_raw_min_radius,
                     hotspot_pressure_threshold, hotspot_min_radius)) {
                 continue;
             }

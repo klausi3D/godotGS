@@ -91,6 +91,9 @@ uint64_t TileRenderer::TileBinningStage::dispatch_tile_binning(uint32_t p_gaussi
 #ifdef TESTS_ENABLED
 	owner.debug_stats.membership_before_emit(submission_device, p_buffer_uniform_set, p_param_uniform_set,
 	                                         p_lighting_uniform_set);
+	if (owner.test_before_emit_hook) {
+		owner.test_before_emit_hook(submission_device);
+	}
 #endif
 	String binning_label = "TileBinning_" + String::num_uint64(owner.frame_state.current_frame_serial);
 	submission_device->capture_timestamp(binning_label + String("_Begin"));
@@ -640,6 +643,15 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
 	prev_counts_uniform.binding = 19;
 	prev_counts_uniform.append_id(owner.global_sort_resources.get_previous_tile_counts_buffer());
 	uniforms.push_back(prev_counts_uniform);
+
+	// #1393: COUNT parks each counted splat's binning footprint in its projection slot, and EMIT
+	// bins from it (tile_binning.glsl gs_store_binning_footprint), so EMIT cannot write into a tile
+	// COUNT did not reserve. Same buffer as the EMIT set's binding 7.
+	RD::Uniform projection_uniform;
+	projection_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+	projection_uniform.binding = 7;
+	projection_uniform.append_id(owner.projection_buffers.projection_buffer);
+	uniforms.push_back(projection_uniform);
 
 	RD::Uniform debug_uniform;
 	debug_uniform.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
