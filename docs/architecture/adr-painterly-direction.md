@@ -1,6 +1,6 @@
 # ADR: What painterly is and where it lives (decision D-1)
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted — decided by the owner on 2026-11-10. The owner's approving review and merge of the PR that adds this ADR confirm that the recorded text matches the decision.
 - **Date:** 2026-11-10.
 - **Risk:** this document is R0 (`docs/**`). It changes no code. The work it schedules is R3:
   per-splat stylisation edits binning and raster shaders, and moving the setting off
@@ -87,10 +87,9 @@ Do A now, and B as a v1.0 track with its own ADR.
 - **Option chosen:** **B, per-splat stylisation only.** There is no interim screen-space
   effect at camera or environment level.
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
-  review or other public record is linked yet. **Acceptance is pending:** the decision
-  becomes binding only when the owner approves and merges the pull request that adds this
-  ADR, and that approving review is then the acceptance record.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, recorded in this ADR. The
+  owner's approving review and merge of the pull request that adds this ADR confirm that the
+  recorded text matches the decision.
 - **Rejected:**
   - **A**, because it keeps an edge filter as the product look and leaves the material
     features unimplemented. Its advantage, a look on world plus objects within weeks, is

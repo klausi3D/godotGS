@@ -433,7 +433,7 @@ status of decision 1.
 
 ## 12. Route retirement decision (D-2)
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted — decided by the owner on 2026-11-10. The owner's approving review and merge of the PR that adds this section confirm that the recorded text matches the decision.
 - **Refs:** decision D-2 of the 2026-11 codebase audit; findings I-02, I-03, D-01, D-06, D-07
   and J-19.
 - Claims in this section were re-read at `b58bbe35d1f`.
@@ -484,11 +484,10 @@ the work list.
   resident case as a degenerate cut and a single `TileRenderParams` producer. The
   chunk-streaming route and the legacy composite are deleted.
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
-  review or other public record is linked yet. **Acceptance of this section is pending:**
-  decision D-2 becomes binding only when the owner approves and merges the pull request that
-  adds this section, and that approving review is then the acceptance record. Sections 1 to
-  11 were accepted separately (maintainer decisions, 2026-11-04) and are not affected.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, recorded in this section.
+  The owner's approving review and merge of the pull request that adds this section confirm
+  that the recorded text matches the decision. Sections 1 to 11 were accepted separately
+  (maintainer decisions, 2026-11-04) and are not affected.
 - **Rejected:** B. It keeps every existing path working without a migration, at the cost of
   multiplying every feature by the number of routes.
 

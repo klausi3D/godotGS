@@ -1,6 +1,6 @@
 # ADR: v1.0 scope for splat animation and collision (decision D-6)
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted — decided by the owner on 2026-11-10. The owner's approving review and merge of the PR that adds this ADR confirm that the recorded text matches the decision.
 - **Date:** 2026-11-10.
 - **Risk:** this document is R0 (`docs/**`). It changes no code. The work it schedules is R3:
   animation in the render path touches the instance buffer, sort input, HLOD and
@@ -94,10 +94,9 @@ house.
 
 - **Option chosen:** **A1, keep animation and wire it into the render path.**
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
-  review or other public record is linked yet. **Acceptance is pending:** the decision
-  becomes binding only when the owner approves and merges the pull request that adds this
-  ADR, and that approving review is then the acceptance record.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, recorded in this ADR. The
+  owner's approving review and merge of the pull request that adds this ADR confirm that the
+  recorded text matches the decision.
 - **Rejected:** A2, the audit recommendation. Removal would have deleted about 1,500 lines
   with no consumer and the HLOD refusal clause, at the price of no splat animation in v1.0.
   The owner keeps animation in v1.0 and accepts the R3 render work it needs.
@@ -108,10 +107,9 @@ house.
 
 - **Option chosen:** **C1, bake collision proxies at import.**
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
-  review or other public record is linked yet. **Acceptance is pending:** the decision
-  becomes binding only when the owner approves and merges the pull request that adds this
-  ADR, and that approving review is then the acceptance record.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, recorded in this ADR. The
+  owner's approving review and merge of the pull request that adds this ADR confirm that the
+  recorded text matches the decision.
 - **Rejected:** C2. Hand authoring needs no engine work but does not scale to scanned
   worlds.
 - **Follow-up:** CLN-SH04 (epic). CLN-SH04-1 writes the collision-proxy bake ADR first, then
