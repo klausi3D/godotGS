@@ -158,6 +158,8 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
         analytics[AK::pool_memory_property_flags] = placement.known ? int64_t(placement.memory_property_flags) : int64_t(-1);
         analytics[AK::pool_allocations] = int64_t(pool_placement.allocations);
         analytics[AK::pool_non_device_local_allocations] = int64_t(pool_placement.non_device_local_allocations);
+        analytics[AK::pool_grow_refusals_non_device_local] = int64_t(pool_placement.grow_refusals_non_device_local);
+        analytics[AK::pool_grow_device_clamps] = int64_t(pool_placement.grow_device_clamps);
         analytics[AK::pool_last_grow_old_mb] = double(pool_placement.last_grow_old_bytes) / mib;
         analytics[AK::pool_last_grow_new_mb] = double(pool_placement.last_grow_new_bytes) / mib;
         analytics[AK::pool_last_grow_ms] = double(pool_placement.last_grow_usec) / 1000.0;
