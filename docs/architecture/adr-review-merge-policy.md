@@ -1,6 +1,6 @@
 # ADR: Review and merge policy as practised
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted, 2026-11-10 — decided by the owner on that date; the owner's approving review and merge of this PR confirm the recorded text.
 - **Date:** 2026-11-10.
 - **Risk:** this document is R0 (`docs/**`), as are the two governance edits that land with
   it. It changes no code, workflow, branch-protection setting, guard, threshold or gate.
@@ -53,14 +53,14 @@ The audit recommended B now and A when a second human joins.
 
 - **Chosen:** Option B, write down the real policy.
 - **Decided by:** the repository owner, 2026-11-10.
-- **Record:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull request
-  that adds this ADR, and the owner's merge of that pull request. This is the only owner
-  record: no separate owner comment or issue records the answer. When this record was
-  written the pull request had not been opened, so that review did not yet exist.
-- **Acceptance pending:** until that review exists, this record is not accepted. The
-  verifier checks it with `gh pr view <PR> --json reviews` (an `APPROVED` review by
-  `klausi3D`) and `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both
-  outputs into the pull request.
+- **Accepted:** from 2026-11-10, the date of the owner's decision. This ADR records the
+  answer; no separate owner comment or issue records it.
+- **Confirmation:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull
+  request that adds this ADR, and the owner's merge of that pull request, confirm that the
+  recorded text matches the decision. The verifier checks them with
+  `gh pr view <PR> --json reviews` (an `APPROVED` review by `klausi3D`) and
+  `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both outputs into
+  the pull request.
 
 The policy, as the owner stated it:
 

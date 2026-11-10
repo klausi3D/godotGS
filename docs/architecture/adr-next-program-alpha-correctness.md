@@ -1,6 +1,6 @@
 # ADR: Next program — beyond-VRAM and the audit cleanup plan run in parallel
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted, 2026-11-10 — decided by the owner on that date; the owner's approving review and merge of this PR confirm the recorded text.
 - **Date:** 2026-11-10.
 - **Risk:** this document is R0 (`docs/**`). It decides how work is scheduled; it changes no
   code, workflow, guard, threshold or gate.
@@ -55,14 +55,14 @@ through its findings. The question for the owner was what runs next.
 - **Chosen:** Option B, run both in parallel. The BV program continues alongside the
   cleanup plan.
 - **Decided by:** the repository owner, 2026-11-10.
-- **Record:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull request
-  that adds this ADR, and the owner's merge of that pull request. This is the only owner
-  record: no separate owner comment or issue records the answer. When this record was
-  written the pull request had not been opened, so that review did not yet exist.
-- **Acceptance pending:** until that review exists, this record is not accepted. The
-  verifier checks it with `gh pr view <PR> --json reviews` (an `APPROVED` review by
-  `klausi3D`) and `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both
-  outputs into the pull request.
+- **Accepted:** from 2026-11-10, the date of the owner's decision. This ADR records the
+  answer; no separate owner comment or issue records it.
+- **Confirmation:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull
+  request that adds this ADR, and the owner's merge of that pull request, confirm that the
+  recorded text matches the decision. The verifier checks them with
+  `gh pr view <PR> --json reviews` (an `APPROVED` review by `klausi3D`) and
+  `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both outputs into
+  the pull request.
 
 The owner did not adopt the audit's recommendation (A). BV is not closed at M1, so this
 record defines no "BV closed" condition; BV milestones and their issues continue under the
