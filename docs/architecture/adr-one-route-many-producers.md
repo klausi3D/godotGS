@@ -484,9 +484,11 @@ the work list.
   resident case as a degenerate cut and a single `TileRenderParams` producer. The
   chunk-streaming route and the legacy composite are deleted.
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session, which the owner's approving
-  review on the pull request that adds this section confirms. That review, in the pull
-  request's history, is the acceptance record; this file cannot link it before it exists.
+- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
+  review or other public record is linked yet. **Acceptance of this section is pending:**
+  decision D-2 becomes binding only when the owner approves and merges the pull request that
+  adds this section, and that approving review is then the acceptance record. Sections 1 to
+  11 were accepted separately (maintainer decisions, 2026-11-04) and are not affected.
 - **Rejected:** B. It keeps every existing path working without a migration, at the cost of
   multiplying every feature by the number of routes.
 

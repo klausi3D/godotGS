@@ -5,7 +5,7 @@
 - **Risk:** this document is R0 (`docs/**`). It changes no code. The work it schedules is R3:
   animation in the render path touches the instance buffer, sort input, HLOD and
   persistence; collision proxies add an import output, and a cache version bump if the
-  cache layout changes.
+  proxies go through the PLY import cache.
 - **Refs:** decision D-6 of the 2026-11 codebase audit; finding I-13 (issue #1186); the
   audit capability rows "Keyframe / 4D animation" and "Collision / raycast proxies".
 - **Related ADRs:** [One route, many demand producers](adr-one-route-many-producers.md)
@@ -37,9 +37,10 @@ that nothing renders it. Two engine paths read it only to refuse an animated sou
 
 Two persistence paths read and write it. The scene serializer writes and reads an
 `ANIMATION_DATA` chunk (`persistence/gaussian_scene_serializer.cpp`). The incremental saver
-(`persistence/incremental_saver.cpp`) records animation changes and applies them to a
-`GaussianAnimationStateMachine` through its bound `load_and_apply_changes` and
-`create_baseline` methods.
+(`persistence/incremental_saver.cpp`) records animation changes. Its bound
+`load_and_apply_changes` method applies recorded animation deltas to a
+`GaussianAnimationStateMachine`. Its bound `create_baseline` method serializes the supplied
+animation into a full baseline through the scene serializer.
 
 What moves on screen today is node transforms, a project-wide wind field and at most
 `GS_MAX_SPHERE_EFFECTORS` (4) sphere effectors per renderer. There is no keyframed or
@@ -93,9 +94,10 @@ house.
 
 - **Option chosen:** **A1, keep animation and wire it into the render path.**
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session, which the owner's approving
-  review on the pull request that adds this ADR confirms. That review, in the pull
-  request's history, is the acceptance record; this file cannot link it before it exists.
+- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
+  review or other public record is linked yet. **Acceptance is pending:** the decision
+  becomes binding only when the owner approves and merges the pull request that adds this
+  ADR, and that approving review is then the acceptance record.
 - **Rejected:** A2, the audit recommendation. Removal would have deleted about 1,500 lines
   with no consumer and the HLOD refusal clause, at the price of no splat animation in v1.0.
   The owner keeps animation in v1.0 and accepts the R3 render work it needs.
@@ -106,9 +108,10 @@ house.
 
 - **Option chosen:** **C1, bake collision proxies at import.**
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's answer in the 2026-11-10 session, which the owner's approving
-  review on the pull request that adds this ADR confirms. That review, in the pull
-  request's history, is the acceptance record; this file cannot link it before it exists.
+- **Recorded in:** the owner's answer in the 2026-11-10 session. No owner issue comment,
+  review or other public record is linked yet. **Acceptance is pending:** the decision
+  becomes binding only when the owner approves and merges the pull request that adds this
+  ADR, and that approving review is then the acceptance record.
 - **Rejected:** C2. Hand authoring needs no engine work but does not scale to scanned
   worlds.
 - **Follow-up:** CLN-SH04 (epic). CLN-SH04-1 writes the collision-proxy bake ADR first, then
@@ -123,10 +126,13 @@ house.
 - Every HLOD refusal of animated sources becomes a work item of the animation track
   (CLN-SH06), not a permanent limit: the runtime cut (`lod/hlod_runtime_cut.cpp`) and the
   world's HLOD snapshot capture (`core/gaussian_splat_world.cpp`).
-- Collision proxies become an import output. The PLY import cache is versioned
-  (`PLY_CACHE_VERSION` in `io/ply_loader.cpp`); the version is bumped only if the cache
-  layout changes. The collision-proxy ADR (CLN-SH04-1) chooses the storage and the layout,
-  and so decides whether a bump is needed.
+- Collision proxies become an import output. If the proxies are stored in, or produced by,
+  the PLY import cache path, `PLY_CACHE_VERSION` (`io/ply_loader.cpp`) must be bumped, so
+  that caches written before the bake are re-parsed rather than served without proxies. The
+  precedents are versions 3 and 4, recorded in the comment above that constant: neither was
+  a layout change; each was bumped because an existing cache would have loaded with stale or
+  missing content. The collision-proxy ADR (CLN-SH04-1) chooses the storage and states
+  whether this applies.
 
 ### 3.2 For the cleanup plan
 
