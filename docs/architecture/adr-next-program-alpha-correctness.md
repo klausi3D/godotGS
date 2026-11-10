@@ -47,7 +47,7 @@ through its findings. The question for the owner was what runs next.
 
 | Option | What it is | Cost | What it enables | What it limits |
 | --- | --- | --- | --- | --- |
-| **A. Close BV, then alpha correctness** (audit recommendation) | Close BV at M1 plus the frame-time gate in BV ADR §8.4, then run an "alpha correctness" program: the painterly decision (D-1), the stop-gaps (D-4), F-01 and A-01, then #1012, #1016, #320, #786 and #883. | BV stops after M1; the later BV milestones (M1c to M5 in BV ADR §10) wait. | All capacity, including the single GPU runner, goes to the alpha blockers. | Worlds beyond VRAM do not progress until the alpha program ends. |
+| **A. Close BV, then alpha correctness** (audit recommendation) | Close BV at M1 plus the frame-time gate (gate P1 in BV ADR §8.3, frozen by the §8.4 thresholds file), then run an "alpha correctness" program: the painterly decision (D-1), the stop-gaps (D-4), F-01 and A-01, then #1012, #1016, #320, #786 and #883. | BV stops after M1; the later BV milestones (M1c to M5 in BV ADR §10) wait. | All capacity, including the single GPU runner, goes to the alpha blockers. | Worlds beyond VRAM do not progress until the alpha program ends. |
 | **B. Run both in parallel** | BV continues alongside the cleanup plan. | Both compete for the GPU runner and for the streaming source files, so each moves more slowly. | Neither program stops; the cleanup plan starts now. | Cleanup tasks that touch files held by open BV PRs wait. |
 
 ## Owner decision
@@ -95,13 +95,14 @@ rejected any of them.
 
 **Follow-up owner:** the repository owner decides each proposal. Until then, all five are
 carried by one to-file issue, "Owner decision on the audit's K-01, K-02, K-11, K-12 and K-14
-proposals (not decided by D-8)", which this record's pull request names in its notes. No
-agent decides them.
+proposals (not decided by D-8)", which this record's pull request names in its notes. That
+issue carries each proposal as the table states it, including its scope and its "done when"
+condition. No agent decides them, and no agent drops part of one.
 
 | Finding | Proposal, in full | Status |
 | --- | --- | --- |
-| K-01 | A weekly budget for correctness fixes, with a weekly report of fix share and open-P1 count. | Not decided. |
-| K-11 | Freeze runner and CI topology until Public Alpha unless a change fixes a red. | Not decided. |
+| K-01 | Set a per-week budget for user-visible correctness fixes against the 47 open P1s, so that the BV program cannot starve them; done when a weekly merge report shows fix share and P1 count. | Not decided. |
+| K-11 | Freeze runner topology until Public Alpha unless a change fixes a red; done when no CI-structure PR merges for four weeks. | Not decided. |
 | K-12 | Gate further BV test-lane PRs on #1393 and #1364; done when tier A passes valid with no overflow. | Not decided. |
 | K-02 | Add a game-ship scene budget (nodes, splats, lights, painterly) to the status authority, and map each BV milestone to the release-blocker item it retires; done when each open BV issue names the blocker it closes. | Not decided. |
 | K-14 | Land #1315 first, then re-point the plan at a Grandma's House scene budget and at the alpha blockers #1012, #1016 and #842, with an owner and a date for each recorded in #458. | Not decided. Cleanup task CLN-PR03 carries #1315; the scene budget and the owners and dates in #458 are carried by no task. |

@@ -93,10 +93,18 @@ The policy, as the owner stated it:
   in GitHub enforces it.
 - **No voting, and blockers stay open.** `docs/governance/review-policy.md` ("No voting")
   still holds: a well-founded blocker stays open until it is fixed or a human waives it with
-  a written reason. The cleanup plan's review budget is three rounds. When the budget runs
-  out with a blocker or an unmet acceptance criterion still open, the task goes to the owner;
-  nothing is moved to an issue automatically. Only findings the owner dispositions as
-  non-blockers become follow-up issues.
+  a written reason.
+
+### Cleanup-plan process rule (CR-11, not part of the D-7 answer)
+
+This rule comes from the cleanup plan (its review finding CR-11), not from the owner's D-7
+answer. It is not existing policy: `docs/governance/review-policy.md` does not yet state a
+review-round budget. It applies to cleanup-plan tasks only.
+
+- The review budget for a cleanup-plan task is three rounds.
+- When the budget runs out with a blocker or an unmet acceptance criterion still open, the
+  task goes to the owner. Nothing is moved to an issue automatically.
+- Only findings the owner dispositions as non-blockers become follow-up issues.
 
 ### Consequences
 
