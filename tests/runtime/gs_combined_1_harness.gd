@@ -255,7 +255,9 @@ func _build_scene(world_res: GaussianSplatWorld) -> void:
 		n.name = "Object%02d" % i
 		n.set_splat_asset(_assets[i / 8]["asset"])
 		n.transform = Content.object_transform(i, 0.0)
-		n.set("cast_shadow", true)
+		# The property is registered as `rendering/cast_shadow`; set("cast_shadow", ...) was a
+		# silent no-op that left every object a non-caster. Use the bound setter; _run checks it.
+		n.set_cast_shadow(true)
 		_scene.add_child(n)
 		_objects.append(n)
 	_build_character()
@@ -866,17 +868,26 @@ func _run() -> void:
 		_fail(world["error"])
 		return
 	_build_scene(world["resource"])
+	for obj in _objects:
+		if not obj.get_cast_shadow():
+			_fail("%s is not a shadow caster after set_cast_shadow(true): S1-S4 would measure a scene without splat casters" % obj.name)
+			return
 	_report.ok()
 	_apply_inputs(0, 0.0)
 	_cursor_px = _camera.unproject_position(Content.PICK_PATH_CENTER)
 	# Warm-up: pump frames until the world and the objects both draw, or a wall-clock
-	# deadline. Never a skip: the 600 measured frames run either way and the verdict
-	# judges them.
-	var warm := {"ready": false, "frames": 0, "msec": 0}
+	# deadline. The deadline binds the pass (tests/AGENTS.md): elapsed time is read after
+	# each awaited frame, and a frame that ended past the deadline never counts towards
+	# readiness. Expiry fails the run; the verdict re-checks msec <= timeout_msec.
+	var warm := {"ready": false, "frames": 0, "msec": 0, "timeout_msec": WARMUP_TIMEOUT_MSEC}
 	var warm_start := Time.get_ticks_msec()
 	var stable := 0
-	while Time.get_ticks_msec() - warm_start < WARMUP_TIMEOUT_MSEC and stable < 30:
+	while stable < 30:
 		await RenderingServer.frame_post_draw
+		var elapsed := Time.get_ticks_msec() - warm_start
+		warm["msec"] = elapsed
+		if elapsed > WARMUP_TIMEOUT_MSEC:
+			break
 		warm["frames"] += 1
 		var r := _renderer()
 		if r == null:
@@ -887,7 +898,9 @@ func _run() -> void:
 			ready = ready and str(st.get("hlod_reason", "")) == "active" and int(st.get("hlod_world_draw_records", 0)) > 0 and int(st.get("hlod_instance_draw_records", 0)) > 0
 		stable = stable + 1 if ready else 0
 	warm["ready"] = stable >= 30
-	warm["msec"] = Time.get_ticks_msec() - warm_start
+	if not warm["ready"]:
+		_fail("warm-up not ready within %d ms (%d frames, %d stable): the world and objects never both drew in time" % [WARMUP_TIMEOUT_MSEC, warm["frames"], stable])
+		return
 	var renderer := _renderer()
 	var frames := []
 	var stats_keys_frame0 := []

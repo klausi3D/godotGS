@@ -22,7 +22,9 @@ name: GS-COMBINED-1 Gate
 # expectations file blocks nothing (docs/governance/review-policy.md).
 on:
   # Runner cost (maintainer decision 2026-11-05): on pull_request the gate runs only when
-  # a path it exercises changes. push to master and the schedule stay unfiltered.
+  # a path it exercises changes. The schedule and dispatch stay unfiltered. No push trigger:
+  # nothing self-hosted runs on a push to master (CI diet, .github/workflows/AGENTS.md); the
+  # nightly schedule covers master.
   # A workflow-level path filter skips the WHOLE workflow -- the hosted status job too --
   # so a filtered PR gets no `gs-combined-1` status at all. That is acceptable only while
   # the check is not required (.github/workflows/AGENTS.md: a required gate must always
@@ -41,8 +43,6 @@ on:
       - 'tests/runtime/test_gs_combined_1*'
       - 'tests/runtime/run_runtime_validation.py'
       - '.github/workflows/gs_combined_1.yml'
-  push:
-    branches: [master]
   schedule:
     # 07:30 UTC, after release_ci_runtime (06:00), so the single runner is not contended.
     - cron: "30 7 * * *"

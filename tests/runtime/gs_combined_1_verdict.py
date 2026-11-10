@@ -69,6 +69,14 @@ A4_PROBES = 8
 # A probe whose CPU reference is undefined (coplanar layers, a third layer on the ray)
 # is excluded; a frame counts towards A4 coverage only with this many defined probes.
 A4_MIN_INCLUDED = 6
+# A probe is defined only when its two reference samples identify distinct layers: an
+# object_ref and a world_ref closer than this (max channel) cannot tell which layer is in
+# front, so the probe is not measurable and does not count towards A4 coverage. Without
+# it, a uniform image (both layers missing) would "agree" with both references.
+A4_REF_MIN_SEPARATION = 0.1
+# A6 must exercise the hit path: at least this many fresh frames with the target under
+# the cursor, or the assertion fails on coverage (a no-hit picker would pass otherwise).
+A6_MIN_OPPORTUNITIES = 1
 L_PEARSON_MIN = 0.95
 S_RATIO_MAX = 0.6
 B1_LEDGER_TOLERANCE = 0.02
@@ -181,11 +189,32 @@ def validate_record_shape(record: Any) -> List[str]:
         return problems
     if len(frames) != FRAMES_REQUIRED:
         problems.append(f"frames:count={len(frames)}!={FRAMES_REQUIRED}")
+    problems.extend(_warmup_problems(record.get("warmup")))
     for index, frame in enumerate(frames):
         if not isinstance(frame, dict) or frame.get("frame") != index:
             problems.append(f"frames:index_gap_at={index}")
             break
     return problems
+
+
+def _warmup_problems(warmup: Any) -> List[str]:
+    """The warm-up must have become ready, within its own deadline (tests/AGENTS.md).
+
+    Readiness first observed by a frame that ended past the deadline is late, not ready:
+    the harness refuses it, and the verdict re-checks the recorded elapsed time against
+    the recorded bound, so a record that claims readiness late fails every assertion.
+    """
+    if not isinstance(warmup, dict):
+        return ["warmup:missing"]
+    if warmup.get("ready") is not True:
+        return ["warmup:not_ready"]
+    msec = _number(warmup.get("msec"))
+    bound = _number(warmup.get("timeout_msec"))
+    if msec is None or bound is None or bound <= 0:
+        return ["warmup:elapsed_unknown"]
+    if msec > bound:
+        return ["warmup:ready_after_deadline"]
+    return []
 
 
 def fresh_frames(frames: Sequence[Dict[str, Any]]) -> List[bool]:
@@ -337,6 +366,15 @@ def _eval_a4(frame: Dict[str, Any], record: Dict[str, Any]) -> Optional[List[str
         if front not in ("object", "world"):
             codes.append("missing:a4_cpu_front")
             continue
+        separated = _close(probe.get("object_ref"), probe.get("world_ref"), A4_REF_MIN_SEPARATION)
+        if separated is None:
+            codes.append("missing:a4_reference")
+            continue
+        if separated:
+            # Both references read the same colour: the layers are not distinguishable in
+            # this image (a layer is missing, or the composite is uniform). Ordering cannot
+            # be measured here; the probe does not count, so such frames fail coverage.
+            continue
         included += 1
         reference = probe.get("object_ref") if front == "object" else probe.get("world_ref")
         verdict = _close(probe.get("pixel"), reference, A4_TOLERANCE)
@@ -387,6 +425,16 @@ def _eval_a6(frame: Dict[str, Any], record: Dict[str, Any]) -> Optional[List[str
     if partial and pick.get("ray_region_resident") is not False:
         codes.append("value:pick_partial_in_resident_region")
     return codes
+
+
+def _pick_opportunities(frames: Sequence[Dict[str, Any]], fresh: Sequence[bool]) -> int:
+    """Fresh frames whose CPU mask put the target under the cursor (positive cases)."""
+    count = 0
+    for frame, ok in zip(frames, fresh):
+        pick = frame.get("pick") if ok else None
+        if isinstance(pick, dict) and pick.get("target_under_cursor") is True:
+            count += 1
+    return count
 
 
 def _make_c_eval(pose: str) -> FrameEval:
@@ -708,6 +756,13 @@ def evaluate_assertions(record: Dict[str, Any], log_text: Optional[str]) -> Dict
             raise AssertionError(aid)
         if aid == "A3":
             codes = sorted(set(codes) | set(_log_codes(log_text)))
+        if aid == "A6":
+            # A picker that never returns a hit passes every frame where the target is not
+            # under the cursor. Only frames that put the target under the cursor test it.
+            opportunities = _pick_opportunities(frames, fresh)
+            detail["pick_opportunities"] = opportunities
+            if opportunities < A6_MIN_OPPORTUNITIES:
+                codes = sorted(set(codes) | {"coverage:no_pick_opportunity"})
         if stale_frames and aid not in ("V1",):
             codes = sorted(set(codes) | {"stale:frame_count"})
         if evaluated < minimum:

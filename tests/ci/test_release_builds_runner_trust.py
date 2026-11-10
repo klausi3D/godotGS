@@ -1750,6 +1750,8 @@ GS_COMBINED_PR_PATHS_REQUIRED = (
     "tests/runtime/gs_combined_1*",
 )
 GS_COMBINED_FILTER_NOTE = "in-job change detection"
+# CI diet (.github/workflows/AGENTS.md): no self-hosted work on a push to master.
+GS_COMBINED_FORBIDDEN_TRIGGERS = ("push",)
 
 
 def gs_combined_trigger_violations(lines: List[str]) -> List[str]:
@@ -1758,6 +1760,9 @@ def gs_combined_trigger_violations(lines: List[str]) -> List[str]:
     A workflow-level filter skips the status job too, so it must never reach the
     trusted triggers, the gate's own files must stay inside it, and the README must say
     it has to become in-job change detection before the check is required.
+
+    No `push` trigger (CI diet, maintainer approval 2026-11-07, .github/workflows/AGENTS.md):
+    nothing self-hosted runs on a push to master; the nightly schedule covers master.
     """
     problems: List[str] = []
     block: List[str] = []
@@ -1779,9 +1784,12 @@ def gs_combined_trigger_violations(lines: List[str]) -> List[str]:
             events[current] = []
         elif current is not None:
             events[current].append(line)
-    for event in ("pull_request", "push", "schedule", "workflow_dispatch"):
+    for event in ("pull_request", "schedule", "workflow_dispatch"):
         if event not in events:
             problems.append(f"trigger {event!r} is missing")
+    for event in GS_COMBINED_FORBIDDEN_TRIGGERS:
+        if event in events:
+            problems.append(f"trigger {event!r} is forbidden: nothing self-hosted runs on a push to master")
     for event, body in events.items():
         text = "\n".join(body)
         if event != "pull_request" and ("paths" in text or "paths-ignore" in text):
@@ -1813,7 +1821,9 @@ class GsCombinedGateShapeTests(unittest.TestCase):
 
     def test_trigger_mutations_are_caught(self) -> None:
         mutations = {
-            "push filtered": ("  push:\n    branches: [master]\n", "  push:\n    branches: [master]\n    paths: ['docs/**']\n"),
+            "push to master re-added": ("  schedule:\n", "  push:\n    branches: [master]\n  schedule:\n"),
+            "dispatch removed": ("  workflow_dispatch: {}\n", ""),
+            "schedule filtered": ("    - cron: \"30 7 * * *\"\n", "    - cron: \"30 7 * * *\"\n    paths: ['docs/**']\n"),
             "gate files dropped from the filter": ("      - 'tests/runtime/gs_combined_1*'\n", ""),
             "workflow file dropped from the filter": ("      - '.github/workflows/gs_combined_1.yml'\n", ""),
             "schedule removed": ("  schedule:\n", "  schedule_off:\n"),

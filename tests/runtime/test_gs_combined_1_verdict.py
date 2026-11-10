@@ -92,6 +92,7 @@ def passing_record(variant: str = "B") -> dict:
         "segments": {"frozen": [240, 360]}, "taa_enabled": False,
         "gpu_class": "rtx3090", "build_optimized": True,
         "split_screen": None,
+        "warmup": {"ready": True, "frames": 40, "msec": 500, "timeout_msec": 240000},
         "frames": [_frame(i, variant) for i in range(600)],
     }
 
@@ -128,6 +129,9 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(V.S_RATIO_MAX, 0.6)
         self.assertEqual(V.B1_LEDGER_TOLERANCE, 0.02)
         self.assertEqual(V.P_TIMING_COMPLETE_MIN, 0.99)
+        # Measurability floors (PR #1315 review): not tolerances on a passing value.
+        self.assertEqual(V.A4_REF_MIN_SEPARATION, 0.1)
+        self.assertEqual(V.A6_MIN_OPPORTUNITIES, 1)
         # Pre-registered 2026-11-05 (ADR §9 left it unspecified); frozen.
         self.assertEqual(V.C_AGREEMENT_MIN, 0.95)
         self.assertEqual(V.GR15_TARGETS_MS["rtx3080"], {"p95": 25.0, "p99": 33.3})
@@ -182,6 +186,27 @@ class FailClosedTests(unittest.TestCase):
     def test_index_gap_fails_everything(self):
         record = passing_record()
         record["frames"][10]["frame"] = 11
+        self._assert_all_fail(record)
+
+    def test_warmup_not_ready_fails_everything(self):
+        record = passing_record()
+        record["warmup"]["ready"] = False
+        self._assert_all_fail(record)
+        states, v = _states(record)
+        self.assertIn("record:warmup:not_ready", v["assertions"]["A1"]["codes"])
+
+    def test_warmup_missing_fails_everything(self):
+        record = passing_record()
+        del record["warmup"]
+        self._assert_all_fail(record)
+
+    def test_late_warmup_readiness_fails_everything(self):
+        # Readiness observed past the deadline is late, not ready (tests/AGENTS.md).
+        record = passing_record()
+        record["warmup"]["msec"] = record["warmup"]["timeout_msec"] + 1
+        self._assert_all_fail(record)
+        record = passing_record()
+        del record["warmup"]["timeout_msec"]
         self._assert_all_fail(record)
 
     def test_wrong_schema_fails_everything(self):
@@ -353,6 +378,58 @@ class CoverageTests(unittest.TestCase):
         record["frames"][10]["a4_probes"][1]["cpu_front"] = "excluded"
         record["frames"][10]["a4_probes"][2]["cpu_front"] = "excluded"
         self.assertEqual(_states(record)[0]["A4"], "live-fail")
+
+    def test_a4_uniform_image_is_not_a_pass(self):
+        # Both layers gone (or a uniform composite): probe and both references read the
+        # same colour. Agreement is meaningless there; it must fail, never live-pass.
+        def black(frame):
+            for p in frame["a4_probes"]:
+                p["pixel"] = [0.0, 0.0, 0.0]
+                p["object_ref"] = [0.0, 0.0, 0.0]
+                p["world_ref"] = [0.0, 0.0, 0.0]
+        record = _all_frames(passing_record(), black)
+        states, v = _states(record)
+        self.assertEqual(states["A4"], "live-fail")
+        self.assertIn("coverage:below_minimum", v["assertions"]["A4"]["codes"])
+
+    def test_a4_indistinct_references_do_not_count(self):
+        record = passing_record()
+        for f in record["frames"][:11]:
+            for p in f["a4_probes"][:3]:
+                p["world_ref"] = list(p["object_ref"])  # 5 distinct < 6: frame not counted
+        self.assertEqual(_states(record)[0]["A4"], "live-fail")
+        record = passing_record()
+        for f in record["frames"][:10]:
+            for p in f["a4_probes"][:3]:
+                p["world_ref"] = list(p["object_ref"])
+        self.assertEqual(_states(record)[0]["A4"], "live-pass")
+
+    def test_a4_missing_reference_fails(self):
+        record = passing_record()
+        del record["frames"][5]["a4_probes"][1]["world_ref"]
+        states, v = _states(record)
+        self.assertEqual(states["A4"], "live-fail")
+        self.assertIn("missing:a4_reference", v["assertions"]["A4"]["codes"])
+
+    def test_a6_without_a_pick_opportunity_fails_on_coverage(self):
+        # A picker that never hits passes every frame without the target under the cursor.
+        def no_target(frame):
+            frame["pick"]["target_under_cursor"] = False
+            frame["pick"]["hit_key"] = None
+        record = _all_frames(passing_record(), no_target)
+        states, v = _states(record)
+        self.assertEqual(states["A6"], "live-fail")
+        self.assertIn("coverage:no_pick_opportunity", v["assertions"]["A6"]["codes"])
+        self.assertEqual(v["assertions"]["A6"]["detail"]["pick_opportunities"], 0)
+
+    def test_a6_one_opportunity_is_enough_coverage(self):
+        record = passing_record()
+        for i, f in enumerate(record["frames"]):
+            f["pick"]["target_under_cursor"] = i == 7
+            f["pick"]["hit_key"] = "42" if i == 7 else None
+        self.assertEqual(_states(record)[0]["A6"], "live-pass")
+        record["frames"][7]["pick"]["hit_key"] = None
+        self.assertEqual(_states(record)[0]["A6"], "live-fail")
 
     def test_a4_excluded_frame_still_reports_a_mismatch(self):
         record = passing_record()
