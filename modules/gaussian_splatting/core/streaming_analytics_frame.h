@@ -39,6 +39,8 @@
     X(pool_memory_property_flags) \
     X(pool_allocations) \
     X(pool_non_device_local_allocations) \
+    X(pool_grow_refusals_non_device_local) \
+    X(pool_grow_device_clamps) \
     X(pool_last_grow_old_mb) \
     X(pool_last_grow_new_mb) \
     X(pool_last_grow_ms) \
