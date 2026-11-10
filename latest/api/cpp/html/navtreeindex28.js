@@ -1,5 +1,13 @@
 var NAVTREEINDEX28 =
 {
+"structGPUSortingConfig.html#a1338ec76d9fc536e1bbab4e8ec725fb4":[1,0,119,26],
+"structGPUSortingConfig.html#a1cd3a94639239163968d6e6891bfff35":[1,0,119,28],
+"structGPUSortingConfig.html#a2196ad130d720df59c5b0693fc8d79d9":[1,0,119,12],
+"structGPUSortingConfig.html#a22db0c783ea6b6bcb6c04740c361970b":[1,0,119,6],
+"structGPUSortingConfig.html#a283a95de2cd58d51adaa069ff2a845b2":[1,0,119,9],
+"structGPUSortingConfig.html#a30136b03e80f70183f28e1342d05b434":[1,0,119,23],
+"structGPUSortingConfig.html#a374c312b141cae3b810b08b4c9c4d53c":[1,0,119,30],
+"structGPUSortingConfig.html#a41c01914d3ea909d1471652fceca9772":[1,0,119,25],
 "structGPUSortingConfig.html#a465ced7ffdd81ddb8a71b6b055029cc1":[1,0,119,5],
 "structGPUSortingConfig.html#a5d9ceb8cd94d51a64bd80a0b9bc3d61c":[1,0,119,7],
 "structGPUSortingConfig.html#a6288df5d8a0570f3f41a7a2505da6177":[1,0,119,18],
@@ -241,13 +249,5 @@ var NAVTREEINDEX28 =
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a17218433052282b2c1c628b1cc272cd2":[1,0,2,1,20],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a1aa862671b006ba70064707db3e8d8ad":[0,0,3,1,23],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a1aa862671b006ba70064707db3e8d8ad":[1,0,2,1,23],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a28b79e0834e06e99b01b94f40d6ddd01":[0,0,3,1,24],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a28b79e0834e06e99b01b94f40d6ddd01":[1,0,2,1,24],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a2c5537ad32aa4ac5b10f8e3a7d1cefa5":[0,0,3,1,5],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a2c5537ad32aa4ac5b10f8e3a7d1cefa5":[1,0,2,1,5],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a345d722b7d1ec011e07f49542c3b85cb":[0,0,3,1,28],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a345d722b7d1ec011e07f49542c3b85cb":[1,0,2,1,28],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a3b3eaea493636ecab26885d820e2be55":[0,0,3,1,4],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a3b3eaea493636ecab26885d820e2be55":[1,0,2,1,4],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a3fcee5ff79476cb8d8c9d307e451db95":[0,0,3,1,7]
+"structGaussianRenderDebug_1_1DebugConfigBase.html#a28b79e0834e06e99b01b94f40d6ddd01":[0,0,3,1,24]
 };

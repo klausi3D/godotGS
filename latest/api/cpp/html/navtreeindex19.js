@@ -1,5 +1,13 @@
 var NAVTREEINDEX19 =
 {
+"gaussian__data_8h.html#ac93e1960ee838dccc59151e60e3710e4":[2,0,0,0,3,2,18],
+"gaussian__data_8h.html#aca7c9298bdf56e2dc1d4803fc128a176":[2,0,0,0,3,2,19],
+"gaussian__data_8h.html#acd613e95cf5f860185652837e280f877":[2,0,0,0,3,2,28],
+"gaussian__data_8h.html#ace336ddbda301dfca8280e261a814f1d":[2,0,0,0,3,2,20],
+"gaussian__data_8h.html#ae86c982b9001bcf0b2d30ab524e3ac4a":[2,0,0,0,3,2,32],
+"gaussian__data_8h.html#aea2bef208caa46ae297294015df3f764":[2,0,0,0,3,2,22],
+"gaussian__data_8h.html#aed5ddfceb9a408610783dab82a696bfb":[2,0,0,0,3,2,12],
+"gaussian__data_8h.html#aefe045cbb37a41f73c59628444ebb602":[2,0,0,0,3,2,31],
 "gaussian__data_8h.html#af21cfad033b13505fe13a8b638f7ebf7":[2,0,0,0,3,2,29],
 "gaussian__data_8h_source.html":[2,0,0,0,3,2],
 "gaussian__data__animation_8cpp.html":[2,0,0,0,3,3],
@@ -241,13 +249,5 @@ var NAVTREEINDEX19 =
 "gpu__debug__utils_8h.html#a1a359ab0db1adb557e338a47365d583b":[2,0,0,0,12,15,6],
 "gpu__debug__utils_8h.html#a4d79b14a4948827433cfa03ab0c52e7f":[2,0,0,0,12,15,10],
 "gpu__debug__utils_8h.html#a5b698cb33bed25b8f761ec6d5849cb73":[2,0,0,0,12,15,11],
-"gpu__debug__utils_8h.html#a85b024ab67c4dad22eb7bba83d6c232c":[2,0,0,0,12,15,7],
-"gpu__debug__utils_8h.html#a928574e2ccf891f56e51c7680da443a2":[2,0,0,0,12,15,4],
-"gpu__debug__utils_8h.html#a94457c0d34f028df470f40954008c4b0":[2,0,0,0,12,15,9],
-"gpu__debug__utils_8h.html#adb9acf7d5c82581a3a29cfc6916ab4be":[2,0,0,0,12,15,3],
-"gpu__debug__utils_8h.html#ae09a453a42299f23248991e59d2e2152":[2,0,0,0,12,15,8],
-"gpu__debug__utils_8h_source.html":[2,0,0,0,12,15],
-"gpu__memory__stream_8cpp.html":[2,0,0,0,12,16],
-"gpu__memory__stream_8h.html":[2,0,0,0,12,17],
-"gpu__memory__stream_8h_source.html":[2,0,0,0,12,17]
+"gpu__debug__utils_8h.html#a85b024ab67c4dad22eb7bba83d6c232c":[2,0,0,0,12,15,7]
 };

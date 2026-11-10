@@ -1,5 +1,6 @@
 var NAVTREEINDEX15 =
 {
+"classScopedGpuMarker.html#a73ce651b98bbf9be6c483fe0890655e6":[1,0,231,4],
 "classScopedGpuMarker.html#a999449988bbd82d1a5ee46584459da1b":[1,0,231,1],
 "classScopedGpuMarker.html#aad6662a8e68d7a933232ec6ae296cfb1":[1,0,231,0],
 "classScopedGpuMarker.html#ac254acc79f858aa4a38be21f77231248":[1,0,231,5],
@@ -248,6 +249,5 @@ var NAVTREEINDEX15 =
 "classStreamingUploadPipeline.html#a9ad0c493636789915cbd132bceb01307":[1,0,272,36],
 "classStreamingUploadPipeline.html#a9f85dab65bc30328dd42029d01827db4":[1,0,272,26],
 "classStreamingUploadPipeline.html#aa2000fd3cbb71aabe213c26e2e3734d8":[1,0,272,67],
-"classStreamingUploadPipeline.html#aa3f9024f0acf191949cbfff8bf089374":[1,0,272,89],
-"classStreamingUploadPipeline.html#aa43f01f5e7d80791dfbc7bba4fa39d4e":[1,0,272,18]
+"classStreamingUploadPipeline.html#aa3f9024f0acf191949cbfff8bf089374":[1,0,272,89]
 };

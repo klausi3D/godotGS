@@ -1,5 +1,13 @@
 var NAVTREEINDEX21 =
 {
+"lod__config_8h.html#a5267e731b1e2a184e49141f0fd879857":[2,0,0,0,7,16,10],
+"lod__config_8h.html#a54e22b16ddf21ee81b53d63b9b835751":[2,0,0,0,7,16,18],
+"lod__config_8h.html#a64c89640b3924e4bcf483ad76ee5f52d":[2,0,0,0,7,16,12],
+"lod__config_8h.html#a80944222400e3e4f8a826e052619f881":[2,0,0,0,7,16,19],
+"lod__config_8h.html#a9527cdac90c61c6d209d4c6772945450":[2,0,0,0,7,16,14],
+"lod__config_8h.html#ac781fcd9712a36c9e844f51f4c007c7c":[2,0,0,0,7,16,16],
+"lod__config_8h.html#adfe19497858a41051e02b130fddd44a3":[2,0,0,0,7,16,3],
+"lod__config_8h.html#aedc36535a86406be45587ed80ef65e98":[2,0,0,0,7,16,6],
 "lod__config_8h.html#afab55a48724c5469a0acbd0c63b75f63":[2,0,0,0,7,16,15],
 "lod__config_8h_source.html":[2,0,0,0,7,16],
 "logging__config_8h.html":[2,0,0,0,8,4],
@@ -241,13 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a76e241213c4d35bc36d98de27f9821e7":[0,0,12,0,12],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#aa0127815ac941876da1579b8048ddb84":[0,0,12,0,8],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#ab69c2bdf4111bc0616e63505a6de1fca":[0,0,12,0,15],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#ab73496c57820b8d001d6c25f9e978ade":[0,0,12,0,9],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html":[0,0,12,2],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a22d53e8de109bffd29e1141ce410b990":[0,0,12,2,17],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16cab":[0,0,12,2,6],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba0b2a6261a7e97c49e966126ea4b01a6e":[0,0,12,2,6,0],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba1064347ccf7a6765caf9993dededbf51":[0,0,12,2,6,2],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba2772e873bc541100d7ea56c3c75307ff":[0,0,12,2,6,9],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3315c8a1690c4c48efaeab9526bdc0e5":[0,0,12,2,6,11],
-"namespaceGaussianSplatting_1_1GpuPassTiming.html#a2597f395226531e343c4644eb9e16caba3492d880bcf33d50cf5d8cfdfac8d235":[0,0,12,2,6,6]
+"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#ab73496c57820b8d001d6c25f9e978ade":[0,0,12,0,9]
 };

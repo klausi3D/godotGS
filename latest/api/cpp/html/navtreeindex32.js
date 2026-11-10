@@ -1,5 +1,13 @@
 var NAVTREEINDEX32 =
 {
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a5f6d95802b3af97921036888e56f2973":[1,0,5,2,70],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6545f724900f298b0ef4212aa50c5edd":[0,0,6,2,13],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6545f724900f298b0ef4212aa50c5edd":[1,0,5,2,13],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a65d9a733ba99863a19bd3e8a4bfce114":[0,0,6,2,7],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a65d9a733ba99863a19bd3e8a4bfce114":[1,0,5,2,7],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6a2c7c6040e674b1d796ff9d387c63cf":[0,0,6,2,104],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6a2c7c6040e674b1d796ff9d387c63cf":[1,0,5,2,104],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6d09f9330579f44cd75ed7ff1ffb4706":[0,0,6,2,28],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6d09f9330579f44cd75ed7ff1ffb4706":[1,0,5,2,28],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6da00ad1bf4169d5dfcfdd935a88d6c7":[0,0,6,2,65],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6da00ad1bf4169d5dfcfdd935a88d6c7":[1,0,5,2,65],
@@ -241,13 +249,5 @@ var NAVTREEINDEX32 =
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ae717da0b62e6a2f50abcd7746a340af6":[1,0,6,7,11],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#aeeac8037e3eaef02698e59baabedb793":[0,0,7,7,17],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#aeeac8037e3eaef02698e59baabedb793":[1,0,6,7,17],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#af880002e6663d0c9ffaac8619ee9b809":[0,0,7,7,13],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#af880002e6663d0c9ffaac8619ee9b809":[1,0,6,7,13],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afd0c111c52195b667e587f6619b60370":[0,0,7,7,26],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afd0c111c52195b667e587f6619b60370":[1,0,6,7,26],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afdeefd8e6e27e5c993adbd71ce9a816a":[0,0,7,7,27],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afdeefd8e6e27e5c993adbd71ce9a816a":[1,0,6,7,27],
-"structGaussianRenderPipeline_1_1PainterlyCompositePushConstant.html":[0,0,7,12],
-"structGaussianRenderPipeline_1_1PainterlyCompositePushConstant.html":[1,0,6,12],
-"structGaussianRenderPipeline_1_1PainterlyCompositePushConstant.html#a1c2851661537985092468c7f8fa377f1":[0,0,7,12,2]
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#af880002e6663d0c9ffaac8619ee9b809":[0,0,7,7,13]
 };

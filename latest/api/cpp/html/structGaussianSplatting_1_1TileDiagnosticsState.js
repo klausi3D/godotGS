@@ -1,6 +1,9 @@
 var structGaussianSplatting_1_1TileDiagnosticsState =
 [
     [ "record_hlod_level_stats_sample", "structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db", null ],
+    [ "binning_budget_drop_events", "structGaussianSplatting_1_1TileDiagnosticsState.html#ad425cc576d65ef12a1e874da0b010745", null ],
+    [ "binning_drop_events", "structGaussianSplatting_1_1TileDiagnosticsState.html#a27378f881ded64f68b993081d448747a", null ],
+    [ "binning_tile_range_drop_events", "structGaussianSplatting_1_1TileDiagnosticsState.html#a235df70d29c57be86d64ea2b434cfb44", null ],
     [ "capture_tile_density_snapshot", "structGaussianSplatting_1_1TileDiagnosticsState.html#ad71162c4cacaa9cc6dc520c38c645348", null ],
     [ "debug_binning_counters_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989", null ],
     [ "debug_dump_gpu_counters", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7fcd7c0f8c02bb96a34fbf0e1f1a207e", null ],
@@ -11,7 +14,9 @@ var structGaussianSplatting_1_1TileDiagnosticsState =
     [ "debug_tile_dispatch_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7171fcf98033deb8418497f04d4eec83", null ],
     [ "debug_tile_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7712d8bce4d33a9a9ce79ec092d37db8", null ],
     [ "debug_tile_pipeline_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#ab29f497622ba7b426ac26ed2f53c9e1c", null ],
+    [ "drop_signal_samples", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7fa369047bca68e8ae6d225cf5e42258", null ],
     [ "hlod_level_records", "structGaussianSplatting_1_1TileDiagnosticsState.html#ac61725e83ce29e41cec6cef40ecc180f", null ],
+    [ "last_overlap_binning_splats", "structGaussianSplatting_1_1TileDiagnosticsState.html#aaf59af4814281b16456aa83daec006f4", null ],
     [ "last_overlap_keep_ratio", "structGaussianSplatting_1_1TileDiagnosticsState.html#afe4ed2c1bd8a550a61f340487357b28e", null ],
     [ "last_overlap_record_budget_effective", "structGaussianSplatting_1_1TileDiagnosticsState.html#a1fe387819612c0983b89afb461d16117", null ],
     [ "last_overlap_record_count", "structGaussianSplatting_1_1TileDiagnosticsState.html#ae8a6798df23c6d84b461e3d36d3c7e55", null ],
@@ -24,6 +29,9 @@ var structGaussianSplatting_1_1TileDiagnosticsState =
     [ "runtime_statistics_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#aea848fb7a377423231a3e73d0ba03534", null ],
     [ "sampled_drop_frame_serial", "structGaussianSplatting_1_1TileDiagnosticsState.html#abdf374cd02a7b973c0f977a08ecf51db", null ],
     [ "sampled_dropped_records", "structGaussianSplatting_1_1TileDiagnosticsState.html#ae5489ba582da14d4e91bd2aa4f3a6922", null ],
+    [ "sampled_dropped_records_total", "structGaussianSplatting_1_1TileDiagnosticsState.html#ac529c0d7164b7276d088ca1dae5ec08d", null ],
+    [ "sampled_overlap_records_total", "structGaussianSplatting_1_1TileDiagnosticsState.html#afd42479824838df048dc92b469c581a0", null ],
+    [ "sampled_overlap_splats_total", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7cca4fb2e163737b39586da0d1a2c90f", null ],
     [ "sampled_raster_truncated_tiles", "structGaussianSplatting_1_1TileDiagnosticsState.html#a5200915c0cd9cac741d4406810d5b548", null ],
     [ "sort_key_32bit_engaged", "structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c", null ],
     [ "tile_density_snapshot", "structGaussianSplatting_1_1TileDiagnosticsState.html#a3424148b171cb9a1d2b6a1884c3f74df", null ]

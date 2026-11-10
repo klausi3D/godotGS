@@ -1,5 +1,13 @@
 var NAVTREEINDEX34 =
 {
+"structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946ad0749aaba8b833466dfcbb0428e4f89c":[1,0,6,2,0,0],
+"structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946af35b388d8d4adeab05bce916c73d7a72":[0,0,7,2,0,2],
+"structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946af35b388d8d4adeab05bce916c73d7a72":[1,0,6,2,0,2],
+"structGaussianRenderPipeline_1_1StageResult.html#a521e257691dfb6677684917a6ed7a0e7":[0,0,7,2,3],
+"structGaussianRenderPipeline_1_1StageResult.html#a521e257691dfb6677684917a6ed7a0e7":[1,0,6,2,3],
+"structGaussianRenderPipeline_1_1StageResult.html#a5589ac6be3db1cb9fde7c01fc378129d":[0,0,7,2,8],
+"structGaussianRenderPipeline_1_1StageResult.html#a5589ac6be3db1cb9fde7c01fc378129d":[1,0,6,2,8],
+"structGaussianRenderPipeline_1_1StageResult.html#a5fe63d43f26cc62582ac8f1ed49d3106":[0,0,7,2,6],
 "structGaussianRenderPipeline_1_1StageResult.html#a5fe63d43f26cc62582ac8f1ed49d3106":[1,0,6,2,6],
 "structGaussianRenderPipeline_1_1StageResult.html#a7d3f0ee5d7902392c96133a7f7fe98c4":[0,0,7,2,5],
 "structGaussianRenderPipeline_1_1StageResult.html#a7d3f0ee5d7902392c96133a7f7fe98c4":[1,0,6,2,5],
@@ -241,13 +249,5 @@ var NAVTREEINDEX34 =
 "structGaussianSplatHlodNode.html":[1,0,88],
 "structGaussianSplatHlodNode.html#a0767d32249cd26294433e6710d31c225":[1,0,88,12],
 "structGaussianSplatHlodNode.html#a076bf58937f3adb60da726044f1552b6":[1,0,88,16],
-"structGaussianSplatHlodNode.html#a0812cfc19aec818e1846c3d7837662de":[1,0,88,2],
-"structGaussianSplatHlodNode.html#a162a448a2600a0fa6497b8e330c60a48":[1,0,88,15],
-"structGaussianSplatHlodNode.html#a2131d58aab0d29114037c5b5b2cb6325":[1,0,88,14],
-"structGaussianSplatHlodNode.html#a355e6a6b26069bbd450878861ce21318":[1,0,88,13],
-"structGaussianSplatHlodNode.html#a43cbea9733678c086b533fbb34f2b826":[1,0,88,8],
-"structGaussianSplatHlodNode.html#a51fa8d1b3f93f45345b9f5b0040e1d27":[1,0,88,7],
-"structGaussianSplatHlodNode.html#a715cdd8e02f7ba707b9ebebbc5bb9f56":[1,0,88,3],
-"structGaussianSplatHlodNode.html#a72af543ef1327b1fc5ac78cf2a4a66c8":[1,0,88,4],
-"structGaussianSplatHlodNode.html#a754fae648c029574527c896e15e9dcf1":[1,0,88,6]
+"structGaussianSplatHlodNode.html#a0812cfc19aec818e1846c3d7837662de":[1,0,88,2]
 };

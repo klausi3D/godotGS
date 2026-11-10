@@ -260,6 +260,13 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:af5c3b3547623f2a443dda1fc3074156d" id="r_af5c3b3547623f2a443dda1fc3074156d"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af5c3b3547623f2a443dda1fc3074156d">get_sampled_raster_truncated_tiles</a> () const</td></tr>
 <tr class="memitem:a47fb8250c610a065e40ce255d3d08f80" id="r_a47fb8250c610a065e40ce255d3d08f80"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a47fb8250c610a065e40ce255d3d08f80">get_sampled_drop_frame_serial</a> () const</td></tr>
 <tr class="memitem:a1fa399ffa9779000d4684d0f1f1c8fee" id="r_a1fa399ffa9779000d4684d0f1f1c8fee"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1fa399ffa9779000d4684d0f1f1c8fee">get_raster_tile_cap</a> () const</td></tr>
+<tr class="memitem:acebc16ea02e3f8cd5693d3e2663c0303" id="r_acebc16ea02e3f8cd5693d3e2663c0303"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acebc16ea02e3f8cd5693d3e2663c0303">get_drop_signal_samples</a> () const</td></tr>
+<tr class="memitem:aa087f1b1d31b621eae1f3cf2bbfed35a" id="r_aa087f1b1d31b621eae1f3cf2bbfed35a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa087f1b1d31b621eae1f3cf2bbfed35a">get_binning_drop_events</a> () const</td></tr>
+<tr class="memitem:af41bb360fc6b7a8b11791cbbf387adbb" id="r_af41bb360fc6b7a8b11791cbbf387adbb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af41bb360fc6b7a8b11791cbbf387adbb">get_binning_tile_range_drop_events</a> () const</td></tr>
+<tr class="memitem:a88412729d7258bb68aae00e37ebf07ea" id="r_a88412729d7258bb68aae00e37ebf07ea"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a88412729d7258bb68aae00e37ebf07ea">get_binning_budget_drop_events</a> () const</td></tr>
+<tr class="memitem:a9d08add7e535f237a4136d596e1f7e8b" id="r_a9d08add7e535f237a4136d596e1f7e8b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d08add7e535f237a4136d596e1f7e8b">get_sampled_dropped_records_total</a> () const</td></tr>
+<tr class="memitem:ab2154223e604792e8e9923ef6687914e" id="r_ab2154223e604792e8e9923ef6687914e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab2154223e604792e8e9923ef6687914e">get_sampled_overlap_records_total</a> () const</td></tr>
+<tr class="memitem:a8aa3627809f62532ae4114e2286ffbd9" id="r_a8aa3627809f62532ae4114e2286ffbd9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8aa3627809f62532ae4114e2286ffbd9">get_sampled_overlap_splats_total</a> () const</td></tr>
 <tr class="memitem:a9902583924f74060eef3ecedd6bd85d1" id="r_a9902583924f74060eef3ecedd6bd85d1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9902583924f74060eef3ecedd6bd85d1">set_debug_log_resolve</a> (bool p_enabled)</td></tr>
 <tr class="memitem:aa4f2e61218f4820379c339180a37906b" id="r_aa4f2e61218f4820379c339180a37906b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4f2e61218f4820379c339180a37906b">get_debug_log_resolve</a> () const</td></tr>
 <tr class="memitem:adc8abe7f47c5cff20f7f5adadfad8585" id="r_adc8abe7f47c5cff20f7f5adadfad8585"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc8abe7f47c5cff20f7f5adadfad8585">get_visible_splat_count</a> () const</td></tr>
@@ -1023,6 +1030,81 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a88412729d7258bb68aae00e37ebf07ea" name="a88412729d7258bb68aae00e37ebf07ea"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a88412729d7258bb68aae00e37ebf07ea">&#9670;&#160;</a></span>get_binning_budget_drop_events()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t TileRenderer::get_binning_budget_drop_events </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa087f1b1d31b621eae1f3cf2bbfed35a" name="aa087f1b1d31b621eae1f3cf2bbfed35a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa087f1b1d31b621eae1f3cf2bbfed35a">&#9670;&#160;</a></span>get_binning_drop_events()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t TileRenderer::get_binning_drop_events </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af41bb360fc6b7a8b11791cbbf387adbb" name="af41bb360fc6b7a8b11791cbbf387adbb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af41bb360fc6b7a8b11791cbbf387adbb">&#9670;&#160;</a></span>get_binning_tile_range_drop_events()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t TileRenderer::get_binning_tile_range_drop_events </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a72acaa36f8faac3477a880976f6caefa" name="a72acaa36f8faac3477a880976f6caefa"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a72acaa36f8faac3477a880976f6caefa">&#9670;&#160;</a></span>get_clamped_records()</h2>
 
@@ -1170,6 +1252,31 @@ Friends</h2></td></tr>
           <td> const</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acebc16ea02e3f8cd5693d3e2663c0303" name="acebc16ea02e3f8cd5693d3e2663c0303"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acebc16ea02e3f8cd5693d3e2663c0303">&#9670;&#160;</a></span>get_drop_signal_samples()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_drop_signal_samples </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -2338,6 +2445,81 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t TileRenderer::get_sampled_dropped_records </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9d08add7e535f237a4136d596e1f7e8b" name="a9d08add7e535f237a4136d596e1f7e8b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9d08add7e535f237a4136d596e1f7e8b">&#9670;&#160;</a></span>get_sampled_dropped_records_total()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_sampled_dropped_records_total </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab2154223e604792e8e9923ef6687914e" name="ab2154223e604792e8e9923ef6687914e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab2154223e604792e8e9923ef6687914e">&#9670;&#160;</a></span>get_sampled_overlap_records_total()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_sampled_overlap_records_total </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8aa3627809f62532ae4114e2286ffbd9" name="a8aa3627809f62532ae4114e2286ffbd9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8aa3627809f62532ae4114e2286ffbd9">&#9670;&#160;</a></span>get_sampled_overlap_splats_total()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_sampled_overlap_splats_total </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>

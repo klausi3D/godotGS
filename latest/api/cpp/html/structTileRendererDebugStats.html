@@ -117,7 +117,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a16a27ecc7b8c5a9afacb2b71589a194c" id="r_a16a27ecc7b8c5a9afacb2b71589a194c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a16a27ecc7b8c5a9afacb2b71589a194c">on_debug_counters_readback</a> (const Vector&lt; uint8_t &gt; &amp;p_data)</td></tr>
 <tr class="memitem:a9e00c10b62aaf933564e1c4a0bd854a8" id="r_a9e00c10b62aaf933564e1c4a0bd854a8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e00c10b62aaf933564e1c4a0bd854a8">on_overflow_stats_readback</a> (const Vector&lt; uint8_t &gt; &amp;p_data)</td></tr>
 <tr class="memitem:abe457e38b08a7ccd7fbc0ff29b8dc9bb" id="r_abe457e38b08a7ccd7fbc0ff29b8dc9bb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe457e38b08a7ccd7fbc0ff29b8dc9bb">on_splat_audit_readback</a> (const Vector&lt; uint8_t &gt; &amp;p_data)</td></tr>
-<tr class="memitem:ac17f5e01797850735ed909792b96e201" id="r_ac17f5e01797850735ed909792b96e201"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac17f5e01797850735ed909792b96e201">poll_overflow_drop_signal</a> (RenderingDevice *p_device, uint64_t p_frame_serial)</td></tr>
+<tr class="memitem:a4d5467634056d4e4e1489ba8068889c2" id="r_a4d5467634056d4e4e1489ba8068889c2"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d5467634056d4e4e1489ba8068889c2">poll_overflow_drop_signal</a> (RenderingDevice *p_device, uint64_t p_frame_serial, uint32_t p_binning_splats=0)</td></tr>
 <tr class="memitem:aa5b7a7b71bae3321f35f65eca0be6872" id="r_aa5b7a7b71bae3321f35f65eca0be6872"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa5b7a7b71bae3321f35f65eca0be6872">on_overflow_signal_readback</a> (const Vector&lt; uint8_t &gt; &amp;p_data)</td></tr>
 <tr class="memitem:a8a2fdec5be1723b574d443a0b96ec745" id="r_a8a2fdec5be1723b574d443a0b96ec745"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8a2fdec5be1723b574d443a0b96ec745">poll_hlod_level_stats</a> (RenderingDevice *p_device, uint64_t p_frame_serial)</td></tr>
 <tr class="memitem:aa1b66a5895c050f6a729cbd7ab682361" id="r_aa1b66a5895c050f6a729cbd7ab682361"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa1b66a5895c050f6a729cbd7ab682361">on_hlod_level_stats_readback</a> (const Vector&lt; uint8_t &gt; &amp;p_data)</td></tr>
@@ -152,6 +152,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a8f9f7ae7f3fc94d5f8d799366d6b08b3" id="r_a8f9f7ae7f3fc94d5f8d799366d6b08b3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structTileRendererDebugStats_1_1AsyncReadbackState.html">AsyncReadbackState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8f9f7ae7f3fc94d5f8d799366d6b08b3">overflow_stats_readback</a></td></tr>
 <tr class="memitem:a906420e62ab4f1a4eaac2c55cc5e5c52" id="r_a906420e62ab4f1a4eaac2c55cc5e5c52"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structTileRendererDebugStats_1_1AsyncReadbackState.html">AsyncReadbackState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a906420e62ab4f1a4eaac2c55cc5e5c52">splat_audit_readback</a></td></tr>
 <tr class="memitem:ac57319e4a2ef1705d4ca1d54567c084e" id="r_ac57319e4a2ef1705d4ca1d54567c084e"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structTileRendererDebugStats_1_1AsyncReadbackState.html">AsyncReadbackState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac57319e4a2ef1705d4ca1d54567c084e">overflow_signal_readback</a></td></tr>
+<tr class="memitem:ab41eb0c31ac79839cdd533bfdaeb007d" id="r_ab41eb0c31ac79839cdd533bfdaeb007d"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab41eb0c31ac79839cdd533bfdaeb007d">overflow_signal_requested_splats</a> = 0</td></tr>
 <tr class="memitem:a8620a5ddc1f4848ce46b92235cd63aa0" id="r_a8620a5ddc1f4848ce46b92235cd63aa0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structTileRendererDebugStats_1_1AsyncReadbackState.html">AsyncReadbackState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8620a5ddc1f4848ce46b92235cd63aa0">hlod_level_stats_readback</a></td></tr>
 </table>
 <a name="doc-constructors" id="doc-constructors"></a><h2 id="header-doc-constructors" class="groupheader">Constructor &amp; Destructor Documentation</h2>
@@ -536,8 +537,8 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="ac17f5e01797850735ed909792b96e201" name="ac17f5e01797850735ed909792b96e201"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac17f5e01797850735ed909792b96e201">&#9670;&#160;</a></span>poll_overflow_drop_signal()</h2>
+<a id="a4d5467634056d4e4e1489ba8068889c2" name="a4d5467634056d4e4e1489ba8068889c2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4d5467634056d4e4e1489ba8068889c2">&#9670;&#160;</a></span>poll_overflow_drop_signal()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -550,7 +551,12 @@ Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_frame_serial</em></span>&#160;)</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_frame_serial</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_binning_splats</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -965,6 +971,28 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname"><a class="el" href="structTileRendererDebugStats_1_1AsyncReadbackState.html">AsyncReadbackState</a> TileRendererDebugStats::overflow_signal_readback</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel mutable">mutable</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab41eb0c31ac79839cdd533bfdaeb007d" name="ab41eb0c31ac79839cdd533bfdaeb007d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab41eb0c31ac79839cdd533bfdaeb007d">&#9670;&#160;</a></span>overflow_signal_requested_splats</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t TileRendererDebugStats::overflow_signal_requested_splats = 0</td>
         </tr>
       </table>
   </td>

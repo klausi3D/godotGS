@@ -1,5 +1,13 @@
 var NAVTREEINDEX26 =
 {
+"streaming__gsq__chunk__payload__source_8h_source.html":[2,0,0,0,3,80],
+"streaming__latency__histogram_8h.html":[2,0,0,0,3,81],
+"streaming__latency__histogram_8h_source.html":[2,0,0,0,3,81],
+"streaming__layout__hint_8cpp.html":[2,0,0,0,3,82],
+"streaming__layout__hint_8h.html":[2,0,0,0,3,83],
+"streaming__layout__hint_8h_source.html":[2,0,0,0,3,83],
+"streaming__lod__policy_8cpp.html":[2,0,0,0,3,84],
+"streaming__pool__growth__policy_8h.html":[2,0,0,0,3,85],
 "streaming__pool__growth__policy_8h_source.html":[2,0,0,0,3,85],
 "streaming__quantization_8cpp.html":[2,0,0,0,3,86],
 "streaming__quantization_8h.html":[2,0,0,0,3,87],
@@ -241,13 +249,5 @@ var NAVTREEINDEX26 =
 "structDebugCounterSnapshot.html#abbe596c209efed1a04b670b7b1582c8d":[1,0,59,11],
 "structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c":[1,0,59,2],
 "structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66":[1,0,59,13],
-"structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,59,22],
-"structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c":[1,0,59,16],
-"structDebugCounterSnapshot.html#af94cb2e8f93443163dd4f66e43af9cb5":[1,0,59,0],
-"structDebugCounterSnapshot.html#afc1e9093dea93649098be8439764cfcc":[1,0,59,7],
-"structDebugOverlayOptions.html":[1,0,61],
-"structDebugOverlayOptions.html#a09274de0887b05d75c4a0ec8cf792e88":[1,0,61,1],
-"structDebugOverlayOptions.html#a0c3eb3a8f8ce642d668c7c5f6ec393c5":[1,0,61,11],
-"structDebugOverlayOptions.html#a13263724cca2697ab61cf6eda002c90a":[1,0,61,2],
-"structDebugOverlayOptions.html#a32bfe0bc07611c951fef4485eb07ba17":[1,0,61,13]
+"structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,59,22]
 };
