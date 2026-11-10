@@ -21,7 +21,7 @@
 The audit (base `1cfcf3c1ccb`) found that recent work had moved away from correctness fixes
 and that the plan of record no longer described what was being built.
 
-- K-01: of the last 100 merges (2026-10-01 to 2026-11-09), correctness fixes were 19 PRs and
+- K-01: of the last 100 merges (2026-10-02 to 2026-11-09), correctness fixes were 19 PRs and
   18.6 % of changed lines; tests, CI and docs were 43.6 % of lines. Since 2026-11-03,
   correctness fixes fell to 3 of 45 PRs. 33 PRs (29 % of lines) belonged to the beyond-VRAM
   (BV) program.
