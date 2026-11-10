@@ -1,6 +1,6 @@
 # ADR: Next program — beyond-VRAM and the audit cleanup plan run in parallel
 
-- **Status:** Accepted, 2026-11-10 — decided by the owner on that date; the owner's approving review and merge of this PR confirm the recorded text.
+- **Status:** Accepted, 2026-11-10 — decided by the owner on that date; the owner's confirming comment on this PR and its merge confirm the recorded text (see **Confirmation** below).
 - **Date:** 2026-11-10.
 - **Risk:** this document is R0 (`docs/**`). It decides how work is scheduled; it changes no
   code, workflow, guard, threshold or gate.
@@ -57,12 +57,19 @@ through its findings. The question for the owner was what runs next.
 - **Decided by:** the repository owner, 2026-11-10.
 - **Accepted:** from 2026-11-10, the date of the owner's decision. This ADR records the
   answer; no separate owner comment or issue records it.
-- **Confirmation:** an `APPROVED` review by the owner's account (`klausi3D`) on the pull
-  request that adds this ADR, and the owner's merge of that pull request, confirm that the
-  recorded text matches the decision. The verifier checks them with
-  `gh pr view <PR> --json reviews` (an `APPROVED` review by `klausi3D`) and
-  `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes both outputs into
-  the pull request.
+- **Confirmation:** the pull request that adds this ADR is opened from the owner's account
+  (`klausi3D`), as every agent PR here is, and GitHub does not let a PR's author approve it
+  (see "Require review from Code Owners" in
+  [GitHub settings](../governance/github-settings.md)), so an `APPROVED` review cannot be
+  obtained. The confirmation is the one practised for the owner's OK: a comment on that
+  pull request, posted from `klausi3D`, stating that the owner confirms the recorded text
+  matches the decision, followed by the merge of that pull request by `klausi3D`, done by
+  the owner or by the coordinating agent under the owner's merge delegation. Agents use the
+  same account, so GitHub cannot tell the owner's comment from an agent's; the comment says
+  whether the owner posted it or it quotes the OK the owner gave the coordinating agent.
+  The verifier checks them with `gh pr view <PR> --json comments` (the confirming comment
+  by `klausi3D`) and `gh pr view <PR> --json mergedBy` (merged by `klausi3D`), and pastes
+  both outputs into the pull request.
 
 The owner did not adopt the audit's recommendation (A). BV is not closed at M1, so this
 record defines no "BV closed" condition; BV milestones and their issues continue under the
