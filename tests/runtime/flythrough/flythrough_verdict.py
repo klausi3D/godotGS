@@ -539,6 +539,47 @@ def g6_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
     return status, round(worst, 3), f"worst settle {worst:.2f} s at {worst_at}"
 
 
+OVERFLOW_AT_CHECKPOINT = "overflow_at_checkpoint"
+
+
+def g10_overflow(entry: dict, limit: Any, ctx: Ctx) -> Result:
+    """#1393, ADR G10: overlap records dropped (missing splats) at the checkpoints.
+
+    Reads `passes[].overlap_drops_checkpoints` (probe_summary.overlap_drops). A pass whose window
+    is not OK (no drop columns, no readback completed in the window, a counter that went
+    backwards) is MISSING: zero drops are never inferred from an absent signal. The observed
+    value is the number of readback intervals with a drop on any channel.
+    """
+    events, records, samples, sites, absent = 0, 0, 0, {"tile_range": 0, "budget": 0, "raster_cap": 0}, []
+    for p in ctx.passes():
+        label = f"pass {p.get('pass_index')}"
+        win = p.get("overlap_drops_checkpoints")
+        if not isinstance(win, dict) or win.get("status") != OK:
+            absent.append(f"{label}: overlap_drops_checkpoints "
+                          f"{win.get('status') if isinstance(win, dict) else 'absent'} "
+                          f"({win.get('reason', 'no reason') if isinstance(win, dict) else 'not published'})")
+            continue
+        n = _int(win.get("drop_events"), f"{label} drop_events")
+        got = _int(win.get("readback_samples"), f"{label} readback_samples")
+        if n < 0 or got <= 0:
+            absent.append(f"{label}: drop_events {n}, readback_samples {got}")
+            continue
+        events += n
+        samples += got
+        records += _int(win.get("sampled_dropped_records"), f"{label} sampled_dropped_records")
+        sites["tile_range"] += _int(win.get("binning_tile_range_drop_events"), f"{label} binning_tile_range_drop_events")
+        sites["budget"] += _int(win.get("binning_budget_drop_events"), f"{label} binning_budget_drop_events")
+        sites["raster_cap"] += _int(win.get("raster_tile_cap_drop_events"), f"{label} raster_tile_cap_drop_events")
+    if absent:
+        raise Missing("; ".join(absent))
+    detail = (f"{events} drop intervals in {samples} readbacks at the checkpoints (binning tile range "
+              f"{sites['tile_range']}, binning budget {sites['budget']}, raster cap {sites['raster_cap']}; "
+              f">= {records} records dropped in the sampled frames)")
+    if not _compare(entry["op"], events, _finite(limit, "limit")):
+        return FAIL, events, f"{OVERFLOW_AT_CHECKPOINT}: {detail}"
+    return PASS, events, detail
+
+
 EVALUATORS: Dict[str, Evaluator] = {
     "V1": v1_contention,
     "V2": v2_committed_digests,
@@ -554,6 +595,7 @@ EVALUATORS: Dict[str, Evaluator] = {
     "G4": g4_rss,
     "G6": g6_settle,
     "G6t": g6_settle,
+    "G10": g10_overflow,
 }
 
 

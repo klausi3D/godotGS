@@ -171,7 +171,8 @@ void TileRenderer::TileRendererDebugStats::on_splat_audit_readback(const Vector<
     cached_splat_audit_frame_serial = splat_audit_readback.requested_frame_serial;
 }
 
-void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial) {
+void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial,
+        uint32_t p_binning_splats) {
     // C4b / exit criterion G4 ("no silent degradation"): always-on production readback of the
     // resident OverflowStats SSBO (binding 3). The full-buffer overflow readback
     // (get_overflow_stats / dump_gpu_debug_counters) is debug-gated, so a pure production frame
@@ -202,6 +203,7 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
     Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, 0, sizeof(OverflowStatsSnapshot));
     if (err == OK) {
         overflow_signal_readback.pending = true;
+        overflow_signal_requested_splats = p_binning_splats;
         const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
         p_device->buffer_clear(overflow_statistics_buffer, signal_offset, sizeof(uint32_t));
     }
@@ -259,6 +261,24 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
 	owner.diagnostics.sampled_dropped_records = sample.overflow_splats_clamped;
     owner.diagnostics.sampled_raster_truncated_tiles = sample.overflow_tile_count;
     owner.diagnostics.sampled_drop_frame_serial = overflow_signal_readback.requested_frame_serial;
+    // #1393: cumulative totals over the sampled frames. Records and splats are added only for a
+    // frame that ran tile binning (its splats were recorded at the poll), so the pair stays matched.
+    owner.diagnostics.drop_signal_samples++;
+    owner.diagnostics.sampled_dropped_records_total += sample.overflow_splats_clamped;
+    if (overflow_signal_requested_splats > 0u) {
+        owner.diagnostics.sampled_overlap_records_total += sample.overflow_splats_aggregated;
+        owner.diagnostics.sampled_overlap_splats_total += overflow_signal_requested_splats;
+    }
+    overflow_signal_requested_splats = 0u;
+    if ((drop_signal & ~GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
+        owner.diagnostics.binning_drop_events++;
+    }
+    if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING_TILE_RANGE) != 0u) {
+        owner.diagnostics.binning_tile_range_drop_events++;
+    }
+    if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING_BUDGET) != 0u) {
+        owner.diagnostics.binning_budget_drop_events++;
+    }
     if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
         // #1137: a rasterizer truncated a tile at GS_MAX_RASTER_SPLATS_PER_TILE. Records are
         // depth-sorted, so the farthest content of the densest tiles is missing: tile-shaped

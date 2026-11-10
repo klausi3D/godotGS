@@ -87,7 +87,8 @@ ABSENT: Dict[str, str] = {
     "C-shift/C-flip": "G12 beacons (BV-13b)",
     "C-read": "G9 absent: the flat chunk route publishes no read-error counter yet",
     "C-decode": "G9 absent: the flat chunk route publishes no gsq_* decode-error counter yet",
-    "C-cap": "G10 absent: no overflow-at-checkpoint signal on the flat route yet",
+    "C-cap": "G10 judges overlap-record drops at the checkpoints since #1393, but the instance-count clamp a "
+             "100k visible cap forces (instance_count_overflow_events) is not in G10's signal yet",
     "C-cap-h": "HLOD arm, G10h (M3, BV-16c)",
     "C-revisit": "G13 needs pass B captures (BV-13b)",
     "C-warm": "V10 absent from the thresholds until the cold-pass proof lands (BV-13a-2); the lane's "

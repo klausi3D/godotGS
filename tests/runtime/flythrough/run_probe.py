@@ -456,6 +456,12 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             # #1383 item 2: moving rows plus every checkpoint settle and hold, no load interval.
             "settings_measured": ps.settings_drift(trace, measured),
             "settings_all_rows": ps.settings_drift(trace, pass_rows),
+            # #1393: overlap records the renderer dropped (missing splats), per window. G10 reads
+            # the checkpoint window: every settle and hold row of the pass.
+            "overlap_drops": ps.overlap_drops(trace, pass_rows),
+            "overlap_drops_moving": ps.overlap_drops(trace, moving),
+            "overlap_drops_checkpoints": ps.overlap_drops(trace, ps.rows_where(
+                trace, phase=0, pass_index=pass_index, state={ps.STATE_SETTLING, ps.STATE_HOLD})),
         })
     all_rows = ps.rows_where(trace, phase=0)
     out["streaming_whole_run"] = ps.streaming_counters(trace, all_rows)
@@ -485,8 +491,10 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["uploaded_vs_expected_unique"] = (
         ps.metric(ub["value"] / exp_b) if ub.get("status") == ps.OK and exp_b else ps.missing("no upload bytes or no oracle")
     )
-    out["records_per_splat"] = ps.missing(
-        "not published on the flat chunk route (BV-04b publishes records per splat per level on the HLOD route only)")
+    # #1393: whole path run, load interval included (the drops of the issue start while loading).
+    out["overlap_drops_whole_run"] = ps.overlap_drops(trace, all_rows)
+    out["records_per_splat"] = out["overlap_drops_whole_run"].get("records_per_splat") or ps.missing(
+        f"no drop telemetry: {out['overlap_drops_whole_run'].get('reason', 'no value')}")
     return out
 
 
@@ -636,6 +644,10 @@ def summarise_sweep_point(trace: ps.Trace, run: dict, point_id: str, subset_spla
             "wall_interval": wall,
             "wall_interval_mean_ms": wall["mean"],
             "settings": ps.settings_drift(trace, rows),
+            # #1393: drops in the measured window, and over the whole process (the drops of the
+            # issue appear while the point loads, before its first measured row).
+            "overlap_drops": ps.overlap_drops(trace, rows),
+            "overlap_drops_whole_run": ps.overlap_drops(trace, list(range(len(trace.rows)))),
         }
     return views
 

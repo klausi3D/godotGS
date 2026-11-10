@@ -913,7 +913,29 @@ Dictionary RenderDebugStateOrchestrator::get_overflow_stats() const {
 	out["overflow_drop_events"] = static_cast<int64_t>(tr->get_overflow_drop_events());
 	out["raster_tile_cap_drop_events"] = static_cast<int64_t>(tr->get_raster_tile_cap_drop_events());
 	out["raster_tile_cap"] = static_cast<int64_t>(tr->get_raster_tile_cap());
+	append_drop_telemetry(out);
 	return out;
+}
+
+void RenderDebugStateOrchestrator::append_drop_telemetry(Dictionary &r_stats) const {
+	if (!tile_renderer || !tile_renderer->is_valid()) {
+		return;
+	}
+	// #1393: cumulative, per renderer, from the always-on drop-signal readback. Event counts are
+	// read-intervals with at least one drop (binning_drop_events splits into the tile-range and
+	// budget sites; raster_tile_cap_drop_events is the raster cap). The sampled_*_total sums cover
+	// the sampled frames only. drop_signal_samples counts completed readbacks: a consumer may read a
+	// zero drop count as evidence only over a window in which it advanced.
+	const TileRenderer *tr = tile_renderer->ptr();
+	r_stats["drop_signal_samples"] = static_cast<int64_t>(tr->get_drop_signal_samples());
+	r_stats["overflow_drop_events"] = static_cast<int64_t>(tr->get_overflow_drop_events());
+	r_stats["binning_drop_events"] = static_cast<int64_t>(tr->get_binning_drop_events());
+	r_stats["binning_tile_range_drop_events"] = static_cast<int64_t>(tr->get_binning_tile_range_drop_events());
+	r_stats["binning_budget_drop_events"] = static_cast<int64_t>(tr->get_binning_budget_drop_events());
+	r_stats["raster_tile_cap_drop_events"] = static_cast<int64_t>(tr->get_raster_tile_cap_drop_events());
+	r_stats["sampled_dropped_records_total"] = static_cast<int64_t>(tr->get_sampled_dropped_records_total());
+	r_stats["sampled_overlap_records_total"] = static_cast<int64_t>(tr->get_sampled_overlap_records_total());
+	r_stats["sampled_overlap_splats_total"] = static_cast<int64_t>(tr->get_sampled_overlap_splats_total());
 }
 
 Dictionary RenderDebugStateOrchestrator::get_pipeline_trace_snapshot() const {
