@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `190` documented functions, `29` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `191` documented functions, `28` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -1664,6 +1664,10 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_get_visible_gaussian_count()</code></pre></td>
       <td>Return the number of visible Gaussians scheduled for this dispatch.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_conic_quadratic(vec2 d, vec3 conic)</code></pre></td>
+      <td>#1393: `precise` forbids FMA contraction here. COUNT and EMIT are separately compiled pipelines that run this test on the same footprint bits; without it a driver may fuse differently in each and a tile-boundary pair could be counted in one pass and not the other.</td>
     </tr>
     <tr>
       <td><pre><code>gs_tile_intersects_projected_ellipse(vec2 center, vec3 conic, float sigma2, int tx, int ty)</code></pre></td>
