@@ -522,8 +522,19 @@ Splat shadows on the one route (I-03) are the shadow track, CLN-LT02.
   Under this decision the chunk route is deleted, so that fix and the retirement now overlap;
   the owner rules on F1's chunk-route part.
 - The [Worlds beyond VRAM](adr-beyond-vram-worlds.md) ADR (Proposed) uses the chunk route as
-  the flat arm for tree-less worlds. The beyond-VRAM program continues in parallel (owner
-  decision D-8); how tree-less worlds reach the one route is not decided here.
+  the flat arm for tree-less worlds, and the beyond-VRAM program continues in parallel (owner
+  decision D-8). **Owner ruling, 2026-11-10:** the flat arm moves to the streamed degenerate
+  cut (CLN-RT07-3). The chunk route keeps serving the flat arm until then. The retirement runs
+  in this order:
+  1. CLN-RT07-3 streams tree-less worlds on the HLOD route.
+  2. The beyond-VRAM flat-arm Tier A run passes valid on that route, and its run id is
+     recorded.
+  3. Only then are the chunk route's renderer side and core deleted (CLN-RT07-6 and
+     CLN-RT07-7).
+
+  Before step 2, fixes to the chunk route that the flat arm needs still land. Refactors of
+  code that step 3 deletes do not. The beyond-VRAM ADR carries a dated amendment at its D-2
+  that points here.
 - The [#788 ADR](adr-single-route-per-frame-node-coexistence.md) carries a status line that
   points here.
 

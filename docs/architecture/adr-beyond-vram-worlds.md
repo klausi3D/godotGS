@@ -174,6 +174,14 @@ Both compressed containers fit the approved cache together (§5.3). So the **fla
 the chunk route on the runner for the whole program**. No "leaves-only cut over V4"
 workaround and no disk-option choice is needed.
 
+> **Amendment, 2026-11-10 (owner decision D-2, one route).** The flat arm stays on the chunk
+> route only until the HLOD route can carry it. The owner ruled that the flat arm moves to the
+> streamed degenerate cut (cleanup task CLN-RT07-3: a tree-less world streamed on the HLOD
+> route as a leaves-only cut). The chunk route is deleted (CLN-RT07-6 and CLN-RT07-7) only
+> after the flat-arm Tier A run passes valid on the HLOD route. The containers and the content
+> in this section do not change. The ruling and the deletion order are recorded in
+> [One route, many producers §12.4](adr-one-route-many-producers.md#124-consequences).
+
 **Tier AB** is a single V4 package (u32 counts suffice; about 80k nodes against a reader bound
 of 2^20, `kMaxNodes` at `io/gaussian_splat_world_paged.h:57` ✓). It is never plain v3.
 

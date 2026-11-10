@@ -113,7 +113,12 @@ Do A now, and B as a v1.0 track with its own ADR.
 5. **Reference images are a prerequisite.** The owner signs a set of reference images that
    define the target look before any implementation slice of per-splat stylisation starts.
    CLN-PT05-1 proposes the scene set and the command that produces the images; the owner
-   signs both.
+   signs both. The scene set includes at least one game scene in which a splat world, splat
+   objects and meshes are lit and drawn in the same frame.
+6. **Meshes are not stylised by this decision.** Per-splat stylisation changes only how
+   splats are shaded; meshes in the same frame keep their own materials. The reference images
+   of item 5 show how meshes look beside the stylised splats. Whether meshes get a matching
+   stylisation is an open owner question (see Out of scope).
 
 ### Migration of existing scenes
 
@@ -159,3 +164,5 @@ Findings and their route after this decision:
 - Whether the HLOD route lifts its painterly refusal for the existing screen-space pass, or
   only for per-splat stylisation. This decision forbids new investment in the pass; the
   owner has not ruled on the HLOD-route task that touches it.
+- A matching stylisation for meshes (for example a material or post effect that follows the
+  same palette). The owner decides after seeing the signed reference images.
