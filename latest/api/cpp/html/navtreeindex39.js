@@ -1,5 +1,13 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1SceneHeader.html#afba60982e173f1a752a12edcdda3d8a2":[0,0,12,18,1],
+"structGaussianSplatting_1_1SceneHeader.html#afba60982e173f1a752a12edcdda3d8a2":[1,0,9,17,1],
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html":[0,0,12,30],
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html":[1,0,9,29],
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a20de16929d7ef75a42909039070b5252":[0,0,12,30,0],
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a20de16929d7ef75a42909039070b5252":[1,0,9,29,0],
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a3c48deb7264af588d11219a83409adda":[0,0,12,30,1],
+"structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a3c48deb7264af588d11219a83409adda":[1,0,9,29,1],
 "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a4e53043a1fe94ce06e01584010bcf5fd":[0,0,12,30,3],
 "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a4e53043a1fe94ce06e01584010bcf5fd":[1,0,9,29,3],
 "structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html#a80d8b952eadf16737291f759311d29a8":[0,0,12,30,4],
@@ -241,13 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a866b99fc34677588f1f8e919242ec216":[0,0,12,63,15],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a866b99fc34677588f1f8e919242ec216":[1,0,9,62,15],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989":[0,0,12,63,2],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989":[1,0,9,62,2],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627":[0,0,12,63,20],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627":[1,0,9,62,20],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654":[0,0,12,63,19],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654":[1,0,9,62,19],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db":[0,0,12,63,0],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db":[1,0,9,62,0],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c":[0,0,12,63,25],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c":[1,0,9,62,25]
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989":[1,0,9,62,2]
 };

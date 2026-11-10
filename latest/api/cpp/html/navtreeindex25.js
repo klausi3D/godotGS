@@ -1,5 +1,11 @@
 var NAVTREEINDEX25 =
 {
+"render__debug__state__orchestrator_8h_source.html":[2,0,0,0,12,51],
+"render__debug__types_8h.html":[2,0,0,0,12,0,1],
+"render__debug__types_8h_source.html":[2,0,0,0,12,0,1],
+"render__device__manager_8cpp.html":[2,0,0,0,5,26],
+"render__device__manager_8h.html":[2,0,0,0,5,27],
+"render__device__manager_8h_source.html":[2,0,0,0,5,27],
 "render__device__orchestrator_8cpp.html":[2,0,0,0,12,52],
 "render__device__orchestrator_8h.html":[2,0,0,0,12,53],
 "render__device__orchestrator_8h_source.html":[2,0,0,0,12,53],
@@ -243,11 +249,5 @@ var NAVTREEINDEX25 =
 "streaming__layout__hint_8h.html":[2,0,0,0,3,83],
 "streaming__layout__hint_8h_source.html":[2,0,0,0,3,83],
 "streaming__lod__policy_8cpp.html":[2,0,0,0,3,84],
-"streaming__quantization_8cpp.html":[2,0,0,0,3,85],
-"streaming__quantization_8h.html":[2,0,0,0,3,86],
-"streaming__quantization_8h_source.html":[2,0,0,0,3,86],
-"streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,87],
-"streaming__queue__pressure__controller_8h.html":[2,0,0,0,3,88],
-"streaming__queue__pressure__controller_8h_source.html":[2,0,0,0,3,88],
-"streaming__runtime__state_8h.html":[2,0,0,0,3,89]
+"streaming__pool__growth__policy_8h.html":[2,0,0,0,3,85]
 };

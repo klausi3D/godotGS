@@ -166,6 +166,7 @@ var annotated_dup =
       [ "BudgetState", "structGaussianStreamingTypes_1_1BudgetState.html", "structGaussianStreamingTypes_1_1BudgetState" ],
       [ "SchedulerState", "structGaussianStreamingTypes_1_1SchedulerState.html", "structGaussianStreamingTypes_1_1SchedulerState" ],
       [ "DiagnosticsState", "structGaussianStreamingTypes_1_1DiagnosticsState.html", "structGaussianStreamingTypes_1_1DiagnosticsState" ],
+      [ "AsyncStallFallbackInputs", "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html", "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs" ],
       [ "PrimaryChunkLayoutMetrics", "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html", "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics" ]
     ] ],
     [ "gs", "namespacegs.html", [
@@ -263,6 +264,9 @@ var annotated_dup =
     ] ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", [
       [ "ReadbackPolicy", "structgs__sort__policy_1_1ReadbackPolicy.html", "structgs__sort__policy_1_1ReadbackPolicy" ]
+    ] ],
+    [ "gs_streaming_pool_growth", "namespacegs__streaming__pool__growth.html", [
+      [ "GrowInputs", "structgs__streaming__pool__growth_1_1GrowInputs.html", "structgs__streaming__pool__growth_1_1GrowInputs" ]
     ] ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", [
       [ "StreamingTierCapPolicy", "structgs__tier__cap_1_1StreamingTierCapPolicy.html", "structgs__tier__cap_1_1StreamingTierCapPolicy" ]

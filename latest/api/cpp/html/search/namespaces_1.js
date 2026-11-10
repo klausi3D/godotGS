@@ -38,10 +38,11 @@ var searchData=
   ['gs_5fshadow_5fcaster_35',['gs_shadow_caster',['../namespacegs__shadow__caster.html',1,'']]],
   ['gs_5fsort_5fpolicy_36',['gs_sort_policy',['../namespacegs__sort__policy.html',1,'']]],
   ['gs_5fsplat_5fref_37',['gs_splat_ref',['../namespacegs__splat__ref.html',1,'']]],
-  ['gs_5ftier_5fcap_38',['gs_tier_cap',['../namespacegs__tier__cap.html',1,'']]],
-  ['gs_5fworld_5fformat_39',['gs_world_format',['../namespacegs__world__format.html',1,'']]],
-  ['gs_5fworld_5fframe_40',['gs_world_frame',['../namespacegs__world__frame.html',1,'']]],
-  ['gs_5fworld_5fgenerator_41',['gs_world_generator',['../namespacegs__world__generator.html',1,'']]],
-  ['gs_5fworld_5fpaged_42',['gs_world_paged',['../namespacegs__world__paged.html',1,'']]],
-  ['gs_5fworld_5fwriter_43',['gs_world_writer',['../namespacegs__world__writer.html',1,'']]]
+  ['gs_5fstreaming_5fpool_5fgrowth_38',['gs_streaming_pool_growth',['../namespacegs__streaming__pool__growth.html',1,'']]],
+  ['gs_5ftier_5fcap_39',['gs_tier_cap',['../namespacegs__tier__cap.html',1,'']]],
+  ['gs_5fworld_5fformat_40',['gs_world_format',['../namespacegs__world__format.html',1,'']]],
+  ['gs_5fworld_5fframe_41',['gs_world_frame',['../namespacegs__world__frame.html',1,'']]],
+  ['gs_5fworld_5fgenerator_42',['gs_world_generator',['../namespacegs__world__generator.html',1,'']]],
+  ['gs_5fworld_5fpaged_43',['gs_world_paged',['../namespacegs__world__paged.html',1,'']]],
+  ['gs_5fworld_5fwriter_44',['gs_world_writer',['../namespacegs__world__writer.html',1,'']]]
 ];

@@ -1,5 +1,13 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627":[0,0,12,63,20],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627":[1,0,9,62,20],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654":[0,0,12,63,19],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654":[1,0,9,62,19],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db":[0,0,12,63,0],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db":[1,0,9,62,0],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c":[0,0,12,63,25],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c":[1,0,9,62,25],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#aa31d9eb4f64ccc1de4c04ecae91c0a9e":[0,0,12,63,7],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#aa31d9eb4f64ccc1de4c04ecae91c0a9e":[1,0,9,62,7],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#ab29f497622ba7b426ac26ed2f53c9e1c":[0,0,12,63,10],
@@ -241,13 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1TilePerformanceMetrics.html#af68af2d6c54b728c83f6f8566d0a36c1":[0,0,12,62,12],
 "structGaussianSplatting_1_1TilePerformanceMetrics.html#af68af2d6c54b728c83f6f8566d0a36c1":[1,0,9,61,12],
 "structGaussianSplatting_1_1TilePrefixCpuScanResult.html":[0,0,12,39],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html":[1,0,9,38],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html#a22277d335ff8ff4e0299f6e51b1e6867":[0,0,12,39,0],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html#a22277d335ff8ff4e0299f6e51b1e6867":[1,0,9,38,0],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html#a956ab24c1efd127f82349aebae307adc":[0,0,12,39,1],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html#a956ab24c1efd127f82349aebae307adc":[1,0,9,38,1],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html#ae81f0a6147ab0631b13df1543fee2d3b":[0,0,12,39,2],
-"structGaussianSplatting_1_1TilePrefixCpuScanResult.html#ae81f0a6147ab0631b13df1543fee2d3b":[1,0,9,38,2],
-"structGaussianSplatting_1_1TilePrefixDispatchCounts.html":[0,0,12,38],
-"structGaussianSplatting_1_1TilePrefixDispatchCounts.html":[1,0,9,37]
+"structGaussianSplatting_1_1TilePrefixCpuScanResult.html":[1,0,9,38]
 };

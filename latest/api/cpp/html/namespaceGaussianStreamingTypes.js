@@ -10,6 +10,7 @@ var namespaceGaussianStreamingTypes =
     [ "BudgetState", "structGaussianStreamingTypes_1_1BudgetState.html", "structGaussianStreamingTypes_1_1BudgetState" ],
     [ "SchedulerState", "structGaussianStreamingTypes_1_1SchedulerState.html", "structGaussianStreamingTypes_1_1SchedulerState" ],
     [ "DiagnosticsState", "structGaussianStreamingTypes_1_1DiagnosticsState.html", "structGaussianStreamingTypes_1_1DiagnosticsState" ],
+    [ "AsyncStallFallbackInputs", "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html", "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs" ],
     [ "PrimaryChunkLayoutMetrics", "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html", "structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics" ],
     [ "ResidencyRequestState", "namespaceGaussianStreamingTypes.html#aadc1cbfe1f4c02ba19aa0dd29b91fc7d", [
       [ "RESIDENCY_REQUEST_STATE_IDLE", "namespaceGaussianStreamingTypes.html#aadc1cbfe1f4c02ba19aa0dd29b91fc7da386f3b80adfd3e66c86df19cf0879642", null ],
@@ -33,5 +34,6 @@ var namespaceGaussianStreamingTypes =
       [ "STREAMING_UPLOAD_STATE_GPU_RETIRE_PENDING", "namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa576067eb9273848d087ac6f1020628d1", null ],
       [ "STREAMING_UPLOAD_STATE_GPU_RETIRED", "namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fa2b3e0fa778cd551c882fa4ef3de5657c", null ],
       [ "STREAMING_UPLOAD_STATE_FAILED_OR_ROLLED_BACK", "namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94fadf2bb86e6c9204eb90d0d192972ac8f5", null ]
-    ] ]
+    ] ],
+    [ "evaluate_async_stall_sync_fallback", "namespaceGaussianStreamingTypes.html#a1e19a7e201898597752749afa8da3778", null ]
 ];

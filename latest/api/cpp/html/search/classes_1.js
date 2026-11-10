@@ -24,9 +24,10 @@ var searchData=
   ['assetregistrystate_21',['AssetRegistryState',['../structGaussianStreamingTypes_1_1AssetRegistryState.html',1,'GaussianStreamingTypes']]],
   ['asyncoverflowstate_22',['AsyncOverflowState',['../structTileAsyncReadback_1_1AsyncOverflowState.html',1,'TileAsyncReadback::AsyncOverflowState'],['../structTileRenderer_1_1TileAsyncReadback_1_1AsyncOverflowState.html',1,'TileRenderer::TileAsyncReadback::AsyncOverflowState']]],
   ['asyncreadbackstate_23',['AsyncReadbackState',['../structTileRenderer_1_1TileRendererDebugStats_1_1AsyncReadbackState.html',1,'TileRenderer::TileRendererDebugStats::AsyncReadbackState'],['../structTileRendererDebugStats_1_1AsyncReadbackState.html',1,'TileRendererDebugStats::AsyncReadbackState']]],
-  ['asynctilecountsstate_24',['AsyncTileCountsState',['../structTileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileAsyncReadback::AsyncTileCountsState'],['../structTileRenderer_1_1TileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileRenderer::TileAsyncReadback::AsyncTileCountsState']]],
-  ['atlasassetstate_25',['AtlasAssetState',['../structGaussianStreamingTypes_1_1AtlasAssetState.html',1,'GaussianStreamingTypes']]],
-  ['attachmentvalidationinfo_26',['AttachmentValidationInfo',['../structAttachmentValidationInfo.html',1,'']]],
-  ['autothresholds_27',['AutoThresholds',['../structGPUSorterFactory_1_1AutoThresholds.html',1,'GPUSorterFactory']]],
-  ['autotuneresult_28',['AutoTuneResult',['../structAutoTuneResult.html',1,'']]]
+  ['asyncstallfallbackinputs_24',['AsyncStallFallbackInputs',['../structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html',1,'GaussianStreamingTypes']]],
+  ['asynctilecountsstate_25',['AsyncTileCountsState',['../structTileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileAsyncReadback::AsyncTileCountsState'],['../structTileRenderer_1_1TileAsyncReadback_1_1AsyncTileCountsState.html',1,'TileRenderer::TileAsyncReadback::AsyncTileCountsState']]],
+  ['atlasassetstate_26',['AtlasAssetState',['../structGaussianStreamingTypes_1_1AtlasAssetState.html',1,'GaussianStreamingTypes']]],
+  ['attachmentvalidationinfo_27',['AttachmentValidationInfo',['../structAttachmentValidationInfo.html',1,'']]],
+  ['autothresholds_28',['AutoThresholds',['../structGPUSorterFactory_1_1AutoThresholds.html',1,'GPUSorterFactory']]],
+  ['autotuneresult_29',['AutoTuneResult',['../structAutoTuneResult.html',1,'']]]
 ];

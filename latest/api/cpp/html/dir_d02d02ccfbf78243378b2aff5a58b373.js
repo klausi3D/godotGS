@@ -85,6 +85,7 @@ var dir_d02d02ccfbf78243378b2aff5a58b373 =
     [ "streaming_layout_hint.cpp", "streaming__layout__hint_8cpp.html", "streaming__layout__hint_8cpp" ],
     [ "streaming_layout_hint.h", "streaming__layout__hint_8h.html", "streaming__layout__hint_8h" ],
     [ "streaming_lod_policy.cpp", "streaming__lod__policy_8cpp.html", null ],
+    [ "streaming_pool_growth_policy.h", "streaming__pool__growth__policy_8h.html", "streaming__pool__growth__policy_8h" ],
     [ "streaming_quantization.cpp", "streaming__quantization_8cpp.html", null ],
     [ "streaming_quantization.h", "streaming__quantization_8h.html", "streaming__quantization_8h" ],
     [ "streaming_queue_pressure_controller.cpp", "streaming__queue__pressure__controller_8cpp.html", null ],

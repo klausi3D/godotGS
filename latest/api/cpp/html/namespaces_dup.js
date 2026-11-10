@@ -82,6 +82,7 @@ var namespaces_dup =
       [ "gs_splat_ref_sh_limit", "namespacegs__splat__ref.html#abbce373a0df1bfa81d0b3cd90c2054b4", null ],
       [ "GS_SPLAT_REF_ATLAS_INDEX_MASK", "namespacegs__splat__ref.html#abfcf275ee63142e2c2e2ba7b74af5357", null ]
     ] ],
+    [ "gs_streaming_pool_growth", "namespacegs__streaming__pool__growth.html", "namespacegs__streaming__pool__growth" ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", "namespacegs__tier__cap" ],
     [ "gs_world_format", "namespacegs__world__format.html", "namespacegs__world__format" ],
     [ "gs_world_frame", "namespacegs__world__frame.html", "namespacegs__world__frame" ],

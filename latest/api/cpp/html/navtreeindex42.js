@@ -1,5 +1,13 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1TileRenderParams.html#ac5f921ada63693573861ea91abb954cf":[0,0,12,67,94],
+"structGaussianSplatting_1_1TileRenderParams.html#ac5f921ada63693573861ea91abb954cf":[1,0,9,66,94],
+"structGaussianSplatting_1_1TileRenderParams.html#ac78f4c7d8d83fdc4e33ed3257c9d0db0":[0,0,12,67,36],
+"structGaussianSplatting_1_1TileRenderParams.html#ac78f4c7d8d83fdc4e33ed3257c9d0db0":[1,0,9,66,36],
+"structGaussianSplatting_1_1TileRenderParams.html#ac7cf81f011ea9b58f3dc6e91da579e8b":[0,0,12,67,99],
+"structGaussianSplatting_1_1TileRenderParams.html#ac7cf81f011ea9b58f3dc6e91da579e8b":[1,0,9,66,99],
+"structGaussianSplatting_1_1TileRenderParams.html#ac7f5940c5d4082dc615cf226e192bf19":[0,0,12,67,44],
+"structGaussianSplatting_1_1TileRenderParams.html#ac7f5940c5d4082dc615cf226e192bf19":[1,0,9,66,44],
 "structGaussianSplatting_1_1TileRenderParams.html#ac831f169b8a6e4cb723b5695acd57f29":[0,0,12,67,68],
 "structGaussianSplatting_1_1TileRenderParams.html#ac831f169b8a6e4cb723b5695acd57f29":[1,0,9,66,68],
 "structGaussianSplatting_1_1TileRenderParams.html#ac8e8961ea0f503e321e6392821c8251e":[0,0,12,67,97],
@@ -241,13 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1TileResourceController.html#aae741a62633aab95f2fd318562f4eb8c":[0,0,12,43,9],
 "structGaussianSplatting_1_1TileResourceController.html#aae741a62633aab95f2fd318562f4eb8c":[1,0,9,42,9],
 "structGaussianSplatting_1_1TileResourceController.html#ac45bb31896e14dc19acc0577fb5d1a04":[0,0,12,43,4],
-"structGaussianSplatting_1_1TileResourceController.html#ac45bb31896e14dc19acc0577fb5d1a04":[1,0,9,42,4],
-"structGaussianSplatting_1_1TileResourceController.html#ad7954f792bd89f4205b9c8f4dd4ec60f":[0,0,12,43,3],
-"structGaussianSplatting_1_1TileResourceController.html#ad7954f792bd89f4205b9c8f4dd4ec60f":[1,0,9,42,3],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html":[0,0,12,49],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html":[1,0,9,48],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a0e01193aa98ef1bed757631eead1ed09":[0,0,12,49,7],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a0e01193aa98ef1bed757631eead1ed09":[1,0,9,48,7],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a315690e46b6180aad2d0238bb72372bb":[0,0,12,49,3],
-"structGaussianSplatting_1_1TileSHCacheBuffers.html#a315690e46b6180aad2d0238bb72372bb":[1,0,9,48,3]
+"structGaussianSplatting_1_1TileResourceController.html#ac45bb31896e14dc19acc0577fb5d1a04":[1,0,9,42,4]
 };
