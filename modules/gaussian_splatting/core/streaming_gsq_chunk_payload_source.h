@@ -22,8 +22,20 @@
 // (StreamingUploadPipeline::build_pending_upload_from_pack_job): it reads every page the range
 // touches through this source's PayloadReadService (positional reads on the reader pool), checks
 // each page against its directory entry and stored SHA-256, decodes it with a per-thread
-// gs_gsq::DecodeContext (one ZSTD_DCtx each, leased from a pool) and checks the decoded digest.
-// The pack worker then packs the result into the 176 B PackedGaussian, as for any other source.
+// gs_gsq::DecodeContext (one ZSTD_DCtx each, leased from a pool) and, when enabled, checks the
+// decoded digest. The pack worker then packs the result into the 176 B PackedGaussian, as for
+// any other source.
+//
+// Decoded digest (BV-K9c): a source checks it by default (set_verify_decoded_digest). The
+// streaming load turns it off (gaussian_splat_world_io.cpp, staged branch): measured on the
+// tier-A flythrough it was 68.5 % of the per-page decode span (run 42687229044). It is redundant
+// there for on-disk integrity: verify_page() checks the header and the stored SHA-256 over every
+// stored byte, the page must match its page-table entry, and zstd checks each frame's checksum.
+// The decoded digest only re-hashes the output of a deterministic decode of those verified bytes,
+// so on this path it can catch only a decoder defect, which the codec golden-digest doctests and
+// the resident load (load_resident(), which still checks it) cover. The stored-page verify is
+// never skipped. Whether the check ran is exported (decoded_digest_verified,
+// pages_decoded_digest_checked), so a zero digest_nsec reads as "skipped", not as "free".
 //
 // Failure is visible, never repaired or skipped: a capture that meets a short read, a digest or
 // table mismatch or a refused decode returns false (the streaming system counts it in
@@ -58,7 +70,8 @@ public:
 		uint64_t pages_decoded = 0;
 		uint64_t splats_decoded = 0;
 		uint64_t decode_nsec = 0; // verify + decode + decoded digest, summed over pages
-		uint64_t digest_nsec = 0; // the decoded-digest share of decode_nsec (BV-K9)
+		uint64_t digest_nsec = 0; // the decoded-digest share of decode_nsec (BV-K9); 0 when not verified
+		uint64_t pages_decoded_digest_checked = 0; // pages whose decoded digest was checked (BV-K9c)
 		uint64_t verify_nsec = 0; // the stored-page verify share (header + stored SHA-256) of decode_nsec
 		uint64_t pages_decoded_on_worker_threads = 0;
 		uint64_t pages_decoded_on_main_thread = 0;
@@ -90,6 +103,8 @@ private:
 	gs_gsq::EncodeParams codec_params;
 	LocalVector<Page> pages;
 	LocalVector<uint32_t> page_first_splat; // page_count + 1 entries; the last is splat_count
+	// Set before the source is published (like configure()); captures only read it.
+	bool verify_decoded_digest = true;
 
 	mutable PayloadReadService read_service;
 	mutable BinaryMutex state_mutex; // guards the fields below up to dispatch_mutex
@@ -113,6 +128,7 @@ private:
 	mutable SafeNumeric<uint64_t> stat_decode_nsec;
 	mutable SafeNumeric<uint64_t> stat_digest_nsec;
 	mutable SafeNumeric<uint64_t> stat_verify_nsec;
+	mutable SafeNumeric<uint64_t> stat_pages_digest_checked;
 	mutable SafeNumeric<uint64_t> stat_pages_on_workers;
 	mutable SafeNumeric<uint64_t> stat_pages_on_main;
 	mutable SafeNumeric<uint64_t> stat_page_failures;
@@ -138,6 +154,12 @@ public:
 	bool configure(const String &p_path, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order,
 			uint32_t p_sh_high_order, const AABB &p_bounds, const gs_gsq::EncodeParams &p_codec_params,
 			const LocalVector<Page> &p_pages);
+
+	// Whether a capture re-hashes each decoded page and compares it with the page-table decoded
+	// digest. Default true; the streaming load sets false (BV-K9c, see the class comment). Call
+	// before the source is published to a streaming system or captured from.
+	void set_verify_decoded_digest(bool p_verify) { verify_decoded_digest = p_verify; }
+	bool is_decoded_digest_verified() const { return verify_decoded_digest; }
 
 	bool capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
 			LocalVector<Gaussian> &r_gaussians,

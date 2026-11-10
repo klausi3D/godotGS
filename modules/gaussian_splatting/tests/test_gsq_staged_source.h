@@ -129,6 +129,14 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	}
 	CHECK(world->get_gaussian_data().is_null());
 	CHECK(world->is_streamable_payload());
+	// BV-K9c: the streaming load turns the decoded-digest re-hash off; a source left at its
+	// default keeps it.
+	CHECK_FALSE(source->is_decoded_digest_verified());
+	{
+		Ref<GsqPagedChunkPayloadSource> fresh;
+		fresh.instantiate();
+		CHECK(fresh->is_decoded_digest_verified());
+	}
 	CHECK(source->get_page_count() == 5u);
 	CHECK(source->get_count() == 14000u);
 	CHECK(source->get_sh_degree() == 3u);
@@ -238,7 +246,10 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(stats.pages_decoded_on_main_thread == 0u);
 	CHECK(stats.splats_decoded == expected_splats);
 	CHECK(stats.decode_nsec > 0u);
-	CHECK(stats.digest_nsec > 0u);
+	// BV-K9c: no page was re-hashed on the streaming path; the stored-page verify ran on every
+	// page, and the packed payload equals the resident (decoded-digest-checked) decode above.
+	CHECK(stats.digest_nsec == 0u);
+	CHECK(stats.pages_decoded_digest_checked == 0u);
 	CHECK(stats.verify_nsec > 0u);
 	CHECK(stats.verify_nsec + stats.digest_nsec <= stats.decode_nsec);
 	CHECK(stats.reads.submitted == uint64_t(expected_pages));
@@ -253,6 +264,9 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(int64_t(exported.get("pages_decoded_on_main_thread", int64_t(-1))) == 0);
 	CHECK(int64_t(exported.get("verify_nsec", int64_t(-1))) == int64_t(stats.verify_nsec));
 	CHECK(int64_t(exported.get("digest_nsec", int64_t(-1))) == int64_t(stats.digest_nsec));
+	CHECK(exported.has("decoded_digest_verified"));
+	CHECK_FALSE(bool(exported.get("decoded_digest_verified", true)));
+	CHECK(int64_t(exported.get("pages_decoded_digest_checked", int64_t(-1))) == 0);
 
 	source.unref();
 	world.unref();
@@ -281,10 +295,14 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): a damaged page
 		const char *name;
 		int64_t offset;
 		const char *reason;
+		// Only the decoded-digest check sees this damage; the streaming load skips that check
+		// (BV-K9c), so the case opts the source back in and also proves the streaming default
+		// passes it and the resident load still refuses it.
+		bool decoded_digest_only;
 	};
 	const Damage damages[] = {
-		{ "a byte inside page 1", int64_t(page1) + 300, "gsq_digest_mismatch" },
-		{ "page 1's decoded digest in the page table", page_table + int64_t(gs_world_format::kPagedPageRecordBytes) + 48, "gsq_decoded_digest_mismatch" },
+		{ "a byte inside page 1", int64_t(page1) + 300, "gsq_digest_mismatch", false },
+		{ "page 1's decoded digest in the page table", page_table + int64_t(gs_world_format::kPagedPageRecordBytes) + 48, "gsq_decoded_digest_mismatch", true },
 	};
 	for (const Damage &d : damages) {
 		INFO(d.name);
@@ -307,6 +325,37 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): a damaged page
 		LocalVector<Vector3> sh;
 		uint32_t first_order = 0;
 		uint32_t high_order = 0;
+		// The stored-page verify is never switched off: stored damage fails the streaming default.
+		CHECK_FALSE(source->is_decoded_digest_verified());
+		if (d.decoded_digest_only) {
+			// Streaming default: the page bytes are intact, so the capture succeeds without the
+			// re-hash, and the telemetry says it was skipped.
+			CHECK(source->capture_chunk_snapshot(0, 9000u, gaussians, sh, first_order, high_order));
+			CHECK(gaussians.size() == 9000u);
+			const GsqPagedChunkPayloadSource::DecodeStats skipped = source->get_decode_stats_struct();
+			CHECK(skipped.page_failures == 0u);
+			CHECK(skipped.pages_decoded == 3u);
+			CHECK(skipped.pages_decoded_digest_checked == 0u);
+			CHECK(skipped.digest_nsec == 0u);
+			// The resident load (the non-streaming default) still checks the decoded digest.
+			Error resident_err = OK;
+			Ref<GaussianSplatWorld> refused = TestGSWorldPagedChunks::pc_load(path, resident_err);
+			CHECK(refused.is_null());
+			CHECK(resident_err == ERR_FILE_CORRUPT);
+			// A fresh streaming source opted back in refuses the page as before.
+			source.unref();
+			world.unref();
+			world = gss_load_staged(path, err);
+			source = gss_source_of(world);
+			CHECK(err == OK);
+			if (source.is_null()) {
+				FAIL("the second streaming load did not publish a GsqPagedChunkPayloadSource");
+				continue;
+			}
+			source->set_verify_decoded_digest(true);
+			gaussians.clear();
+			sh.clear();
+		}
 		// Chunk 0 holds page 1: its capture fails visibly and returns nothing.
 		CHECK_FALSE(source->capture_chunk_snapshot(0, 9000u, gaussians, sh, first_order, high_order));
 		CHECK(gaussians.is_empty());
@@ -314,6 +363,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): a damaged page
 		CHECK(stats.captures_failed == 1u);
 		CHECK(stats.page_failures == 1u);
 		CHECK(stats.pages_decoded == 1u); // page 0, before page 1 failed
+		CHECK(stats.pages_decoded_digest_checked == (d.decoded_digest_only ? 1u : 0u));
 		CHECK(stats.last_failure_reason.contains(d.reason));
 		CHECK(stats.last_failure_reason.contains("page 1"));
 		// Chunk 2 (pages 3 and 4) is unaffected; this capture ran on the main thread and is counted so.
