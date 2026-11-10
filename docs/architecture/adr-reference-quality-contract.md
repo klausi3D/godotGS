@@ -1,6 +1,6 @@
 # ADR: Reference parity at default settings — the quality contract
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted on 2026-11-10, when the owner decided it; the owner's approving review and merge of this PR confirm the recorded text.
 - **Date:** 2026-11-10.
 - **Task state:** the decision above is accepted. CLN-D04 is not complete: its tolerance and
   transparency-ordering criteria are unmet and the task stays open after this record merges
@@ -85,8 +85,9 @@ reference.
 owner's words: the image matches gsplat/Inria within a stated tolerance on real scans;
 clamps, caps and fades become opt-in. This is the recommended option.
 
-The owner's approving review on the pull request that adds this record is the acceptance
-record; there is no separate issue comment. Option B is rejected for the reason in [Options considered](#options-considered): a
+The decision was accepted when the owner made it. The owner's approving review and merge of the
+pull request that adds this record confirm that the recorded text matches it; there is no
+separate issue comment. Option B is rejected for the reason in [Options considered](#options-considered): a
 self-referential baseline cannot show a defect it already contains.
 
 ## Decision

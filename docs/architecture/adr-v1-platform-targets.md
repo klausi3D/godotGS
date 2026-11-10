@@ -1,6 +1,6 @@
 # ADR: v1.0 platform and graphics-API targets — Vulkan on Windows and Linux, NVIDIA and AMD
 
-- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Status:** Accepted on 2026-11-10, when the owner decided it; the owner's approving review and merge of this PR confirm the recorded text.
 - **Date:** 2026-11-10.
 - **Decision:** D-3 of the 2026-11 cleanup audit. Task CLN-D03. Bundled with
   [Reference parity at default settings](adr-reference-quality-contract.md) (D-4); the two
@@ -89,8 +89,9 @@ validation has to cover Linux as well as Windows, and the bar's existing Linux r
 `baseline_qa.yml`'s harness arguments and does not cover Windows, so the Windows lane is a
 separate follow-up ([Follow-up tasks](#follow-up-tasks)).
 
-The owner's approving review on the pull request that adds this record is the acceptance
-record; there is no separate issue comment.
+The decision was accepted when the owner made it. The owner's approving review and merge of the
+pull request that adds this record confirm that the recorded text matches it; there is no
+separate issue comment.
 
 ## Decision
 
