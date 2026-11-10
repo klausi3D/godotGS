@@ -30,18 +30,26 @@ that is the intent being honoured, not scope creep.
 
 ## 2. Supported platforms
 
-| Platform | v1.0 rung | Notes |
-| --- | --- | --- |
-| Windows | `production-tested` | Primary target; self-hosted GPU runner exists. |
-| Linux | `editor-tested` | Requires a real-GPU lane (see work items). |
-| macOS | `build-supported` | Explicitly disclosed as unvalidated. |
+v1.0 targets **Vulkan** only, validated on **NVIDIA and AMD** GPUs. D3D12, Metal,
+mobile, web and XR are out of v1.0. The decision and the options weighed are in
+[ADR: v1.0 platform and graphics-API targets](../architecture/adr-v1-platform-targets.md).
+
+| Platform | Graphics API | GPU vendors | v1.0 rung | Notes |
+| --- | --- | --- | --- | --- |
+| Windows | Vulkan | NVIDIA, AMD | `production-tested` | Primary target. CI has no Windows GPU lane today: the Windows GPU job in `.github/workflows/release_builds.yml` is skipped unless a Windows GPU runner is registered. |
+| Linux | Vulkan | NVIDIA, AMD | `editor-tested` | Requires a real-GPU lane (see work items). |
+| macOS | — | — | `build-supported` | Not a v1.0 target. The module builds; explicitly disclosed as unvalidated. |
 
 Rungs are the ladder in
 [`docs/reference/compatibility-matrix.md`](../reference/compatibility-matrix.md).
 
-Linux at `editor-tested` is **not** satisfied by the current CI: the Linux lane
-today runs neither the `qa` nor the `sorting` categories (#596). Both must be
-wired into a GPU-backed Linux lane.
+**AMD validation is a v1.0 requirement and no AMD lane exists yet.** No CI workflow
+targets an AMD runner. The AMD lane needs AMD runner hardware; the cleanup plan creates it
+as CLN-EV12-2.
+
+Linux at `editor-tested` is **not** yet satisfied. The GPU-backed Linux job (`gpu-tests` in
+`.github/workflows/baseline_qa.yml`) now selects the `sorting` and `qa` categories; those
+lanes still have to be proven and pinned (CLN-SH05, from #596).
 
 ## 3. Performance bar
 
@@ -135,6 +143,15 @@ QA pin masked it (#903, #921).
 Required at release, across the supported envelope, plus the exhibition recipe
 and an FSR2 motion-ghosting check. This generalises the condition already bound
 to the #921 fix.
+
+**What the signer compares against.** At default settings the image must match the
+reference rasterizers (gsplat and the graphdeco-inria rasterizer) on the same real scan and
+camera, within a stated tolerance; clamps, caps and fades are opt-in and off at default
+settings. The signer compares the candidate render with that reference render. The
+contract is in
+[ADR: reference parity at default settings](../architecture/adr-reference-quality-contract.md).
+Its numeric tolerance, reference versions and scene list are not yet set, so this
+comparison has no numeric pass criterion until they are.
 
 **The alpha's pass now has to cover streaming too** (§10.1). The procedure first drafted
 on #1012 covered only the resident and world routes. Its in-repo version,
