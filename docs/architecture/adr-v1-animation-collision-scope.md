@@ -4,7 +4,8 @@
 - **Date:** 2026-11-10.
 - **Risk:** this document is R0 (`docs/**`). It changes no code. The work it schedules is R3:
   animation in the render path touches the instance buffer, sort input, HLOD and
-  persistence; collision proxies add an import format and a cache version.
+  persistence; collision proxies add an import output, and a cache version bump if the
+  cache layout changes.
 - **Refs:** decision D-6 of the 2026-11 codebase audit; finding I-13 (issue #1186); the
   audit capability rows "Keyframe / 4D animation" and "Collision / raycast proxies".
 - **Related ADRs:** [One route, many demand producers](adr-one-route-many-producers.md)
@@ -25,10 +26,20 @@ and its own entry under [Owner decision](#owner-decision).
 `core/gaussian_data_animation.cpp`). `GaussianData` binds `set_animation_state_machine`,
 `update_animation` and the `get_animated_*` samplers, so scripts can sample it. No part of the
 renderer, the nodes or the shaders reads it; [Animation](../features/animation.md) states
-that nothing renders it. The only engine reader is the HLOD runtime cut
-(`lod/hlod_runtime_cut.cpp`), which refuses a source that has an animation:
-"Source animation and runtime overlays are unsupported". The serializer still writes and
-reads an `ANIMATION_DATA` chunk (`persistence/gaussian_scene_serializer.cpp`).
+that nothing renders it. Two engine paths read it only to refuse an animated source:
+
+- the HLOD runtime cut (`lod/hlod_runtime_cut.cpp`): "Source animation and runtime overlays
+  are unsupported";
+- the HLOD snapshot capture in `GaussianSplatWorld` (`core/gaussian_splat_world.cpp`): a
+  source with an animation makes the snapshot invalid, and capture fails with
+  `hlod_payload_layout_or_deformation_unsupported`, or with
+  `hlod_source_changed_during_capture` if the animation appears during capture.
+
+Two persistence paths read and write it. The scene serializer writes and reads an
+`ANIMATION_DATA` chunk (`persistence/gaussian_scene_serializer.cpp`). The incremental saver
+(`persistence/incremental_saver.cpp`) records animation changes and applies them to a
+`GaussianAnimationStateMachine` through its bound `load_and_apply_changes` and
+`create_baseline` methods.
 
 What moves on screen today is node transforms, a project-wide wind field and at most
 `GS_MAX_SPHERE_EFFECTORS` (4) sphere effectors per renderer. There is no keyframed or
@@ -50,7 +61,7 @@ first-person exploration game needs walkable surfaces on a scanned house.
     then several R3 slices.
   - Enables: keyframed and 4D splat animation in games; the existing 1,500 lines gain a
     consumer.
-  - Limits: the HLOD refusal for animated sources must be lifted for animated objects to
+  - Limits: the HLOD refusals of animated sources must be lifted for animated objects to
     share a frame with a streamed world.
 - **Option A2: remove the machinery until a game needs it.**
   - Cost: a staged removal of a public class, its `GaussianData` bindings, its persistence
@@ -82,7 +93,9 @@ house.
 
 - **Option chosen:** **A1, keep animation and wire it into the render path.**
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's approving review on the pull request that adds this ADR.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, which the owner's approving
+  review on the pull request that adds this ADR confirms. That review, in the pull
+  request's history, is the acceptance record; this file cannot link it before it exists.
 - **Rejected:** A2, the audit recommendation. Removal would have deleted about 1,500 lines
   with no consumer and the HLOD refusal clause, at the price of no splat animation in v1.0.
   The owner keeps animation in v1.0 and accepts the R3 render work it needs.
@@ -93,7 +106,9 @@ house.
 
 - **Option chosen:** **C1, bake collision proxies at import.**
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's approving review on the pull request that adds this ADR.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, which the owner's approving
+  review on the pull request that adds this ADR confirms. That review, in the pull
+  request's history, is the acceptance record; this file cannot link it before it exists.
 - **Rejected:** C2. Hand authoring needs no engine work but does not scale to scanned
   worlds.
 - **Follow-up:** CLN-SH04 (epic). CLN-SH04-1 writes the collision-proxy bake ADR first, then
@@ -105,11 +120,13 @@ house.
 
 - `GaussianAnimationStateMachine`, its `GaussianData` bindings and the `ANIMATION_DATA`
   persistence chunk stay. Nothing is deprecated or removed under this decision.
-- The HLOD runtime cut's refusal of animated sources becomes a work item of the animation
-  track, not a permanent limit.
+- Every HLOD refusal of animated sources becomes a work item of the animation track
+  (CLN-SH06), not a permanent limit: the runtime cut (`lod/hlod_runtime_cut.cpp`) and the
+  world's HLOD snapshot capture (`core/gaussian_splat_world.cpp`).
 - Collision proxies become an import output. The PLY import cache is versioned
-  (`PLY_CACHE_VERSION` in `io/ply_loader.cpp`), so the bake needs a version bump; the
-  collision-proxy ADR (CLN-SH04-1) fixes the format.
+  (`PLY_CACHE_VERSION` in `io/ply_loader.cpp`); the version is bumped only if the cache
+  layout changes. The collision-proxy ADR (CLN-SH04-1) chooses the storage and the layout,
+  and so decides whether a bump is needed.
 
 ### 3.2 For the cleanup plan
 

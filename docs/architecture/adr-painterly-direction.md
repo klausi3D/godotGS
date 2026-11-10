@@ -87,7 +87,9 @@ Do A now, and B as a v1.0 track with its own ADR.
 - **Option chosen:** **B, per-splat stylisation only.** There is no interim screen-space
   effect at camera or environment level.
 - **Decided by:** the owner, 2026-11-10.
-- **Recorded in:** the owner's approving review on the pull request that adds this ADR.
+- **Recorded in:** the owner's answer in the 2026-11-10 session, which the owner's approving
+  review on the pull request that adds this ADR confirms. That review, in the pull
+  request's history, is the acceptance record; this file cannot link it before it exists.
 - **Rejected:**
   - **A**, because it keeps an edge filter as the product look and leaves the material
     features unimplemented. Its advantage, a look on world plus objects within weeks, is
