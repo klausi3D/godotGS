@@ -620,6 +620,28 @@ class ExpectationsLoaderTests(unittest.TestCase):
             for entry in variant.values():
                 self.assertRegex(entry["issue"], r"^#\d+$")
 
+    def test_s2_is_live_in_variant_b(self):
+        # CI run 42876253541: variant B rasters 192384 splat casters per frame and S2 passes on
+        # all 600 frames, so its #1095 block was stale. S2 is now judged live in B: a passing
+        # S2 is live-pass, a failing S2 is a regression, and re-adding the old block is stale-block.
+        loaded = V.load_expectations(json.loads(EXPECTATIONS_PATH.read_text(encoding="utf-8")))
+        self.assertNotIn("S2", loaded["B"])
+        # Variant A (chunk route) still rasters no splat casters; its block is the route defect.
+        self.assertEqual(loaded["A"]["S2"]["issue"], "#788")
+        states, v = _states(passing_record("B"), loaded)
+        self.assertEqual(states["S2"], "live-pass")
+        self.assertNotIn("S2", v["stale_blocks"])
+        failing = _all_frames(passing_record("B"), lambda f: f["shadow_rois"][V.SHADOW_SETUPS["S2"]].__setitem__("shadow_luma", 0.4))
+        states, v = _states(failing, loaded)
+        self.assertEqual(states["S2"], "live-fail")
+        self.assertIn("S2", v["regressions"])
+        readded = {variant: dict(entries) for variant, entries in loaded.items()}
+        readded["B"]["S2"] = {"issue": "#1095", "reason": "splat object casts no shadow onto a mesh floor",
+                              "expected_failures": ["value:shadow_ratio>0.6"]}
+        states, v = _states(passing_record("B"), readded)
+        self.assertEqual(states["S2"], "stale-block")
+        self.assertIn("S2", v["stale_blocks"])
+
 
 class ControlTests(unittest.TestCase):
     def test_every_control_is_proven_on_a_passing_record(self):
