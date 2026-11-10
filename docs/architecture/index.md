@@ -47,3 +47,6 @@ rather than patching it by hand.
 - [Test quarantine manifest](adr-test-quarantine-manifest.md)
 - [The candidate gate must distinguish measured evidence from defaulted evidence](adr-open-world-proof-content-validation.md)
 - [Widen the public-alpha envelope to streaming open worlds](adr-alpha-envelope-widened-to-streaming.md)
+- [Review and merge policy as practised](adr-review-merge-policy.md) — *Accepted* (owner decision D-7, 2026-11-10)
+- [Upstream Godot strategy: hop straight to 4.7](adr-upstream-strategy.md) — *Accepted* (owner decision D-5, 2026-11-10; Refs #943, #946, #947)
+- [Next program: beyond-VRAM and the audit cleanup plan run in parallel](adr-next-program-alpha-correctness.md) — *Accepted* (owner decision D-8, 2026-11-10)
