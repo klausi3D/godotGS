@@ -433,7 +433,7 @@ status of decision 1.
 
 ## 12. Route retirement decision (D-2)
 
-- **Status:** Accepted — decided by the owner on 2026-11-10. The owner's approving review and merge of the PR that adds this section confirm that the recorded text matches the decision.
+- **Status:** Accepted — decided by the owner on 2026-11-10. The owner's confirming comment on the PR that adds this section and its merge confirm that the recorded text matches the decision (see **Confirmation** below).
 - **Refs:** decision D-2 of the 2026-11 codebase audit; findings I-02, I-03, D-01, D-06, D-07
   and J-19.
 - Claims in this section were re-read at `b58bbe35d1f`.
@@ -485,9 +485,18 @@ the work list.
   chunk-streaming route and the legacy composite are deleted.
 - **Decided by:** the owner, 2026-11-10.
 - **Recorded in:** the owner's answer in the 2026-11-10 session, recorded in this section.
-  The owner's approving review and merge of the pull request that adds this section confirm
-  that the recorded text matches the decision. Sections 1 to 11 were accepted separately
+  Sections 1 to 11 were accepted separately
   (maintainer decisions, 2026-11-04) and are not affected.
+- **Confirmation:** the pull request that adds this section, [#1399](https://github.com/klausi3D/godotGS/pull/1399), was opened from the owner's
+  account (`klausi3D`), as every agent PR here is, and GitHub does not let a PR's author
+  approve it (see "Require review from Code Owners" in
+  [GitHub settings](../governance/github-settings.md)), so an approving review cannot be
+  obtained. The confirmation is the one practised for the owner's OK
+  ([Review and merge policy as practised](adr-review-merge-policy.md)): a
+  [comment on #1399](https://github.com/klausi3D/godotGS/pull/1399#issuecomment-6778694507), posted from `klausi3D` on 2026-11-10 by
+  the coordinating agent, quotes the owner's OK given in the coordination session that day
+  (“ja ich stimme den adrs zu. so machen wir es erstmal.”) and states that the owner confirms the recorded text of decisions D-1 to D-8
+  matches the decisions; `klausi3D` then merged #1399 (`821c17e4e6c`).
 - **Rejected:** B. It keeps every existing path working without a migration, at the cost of
   multiplying every feature by the number of routes.
 

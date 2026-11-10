@@ -1,6 +1,6 @@
 # ADR: v1.0 platform and graphics-API targets — Vulkan on Windows and Linux, NVIDIA and AMD
 
-- **Status:** Accepted on 2026-11-10, when the owner decided it; the owner's approving review and merge of this PR confirm the recorded text.
+- **Status:** Accepted on 2026-11-10, when the owner decided it; the owner's confirming comment on the PR that adds this record and its merge confirm the recorded text (see [Owner decision](#owner-decision)).
 - **Date:** 2026-11-10.
 - **Decision:** D-3 of the 2026-11 cleanup audit. Task CLN-D03. Bundled with
   [Reference parity at default settings](adr-reference-quality-contract.md) (D-4); the two
@@ -89,9 +89,16 @@ validation has to cover Linux as well as Windows, and the bar's existing Linux r
 `baseline_qa.yml`'s harness arguments and does not cover Windows, so the Windows lane is a
 separate follow-up ([Follow-up tasks](#follow-up-tasks)).
 
-The decision was accepted when the owner made it. The owner's approving review and merge of the
-pull request that adds this record confirm that the recorded text matches it; there is no
-separate issue comment.
+The decision was accepted when the owner made it. Confirmation: the pull request that adds this record, [#1400](https://github.com/klausi3D/godotGS/pull/1400), was opened from the owner's
+account (`klausi3D`), as every agent PR here is, and GitHub does not let a PR's author
+approve it (see "Require review from Code Owners" in
+[GitHub settings](../governance/github-settings.md)), so an approving review cannot be
+obtained. The confirmation is the one practised for the owner's OK
+([Review and merge policy as practised](adr-review-merge-policy.md)): a
+[comment on #1400](https://github.com/klausi3D/godotGS/pull/1400#issuecomment-6778694949), posted from `klausi3D` on 2026-11-10 by
+the coordinating agent, quotes the owner's OK given in the coordination session that day
+(“ja ich stimme den adrs zu. so machen wir es erstmal.”) and states that the owner confirms the recorded text of decisions D-1 to D-8
+matches the decisions; `klausi3D` then merged #1400 (`27afe1d1af9`). There is no separate issue comment.
 
 ## Decision
 
