@@ -125,3 +125,5 @@ nav:
               - Test Quarantine Manifest: architecture/adr-test-quarantine-manifest.md
               - Alpha Envelope Widened to Streaming: architecture/adr-alpha-envelope-widened-to-streaming.md
               - Open-World Proof Content Validation: architecture/adr-open-world-proof-content-validation.md
+              - Reference Quality Contract: architecture/adr-reference-quality-contract.md
+              - v1.0 Platform Targets: architecture/adr-v1-platform-targets.md
