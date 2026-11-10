@@ -1381,6 +1381,9 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 				stats["sh_cache_hit_rate"] = binning.get("sh_cache_hit_rate", 0.0);
 			}
 		}
+		// #1393: the always-on overlap-record drop telemetry, read from cached counters (no
+		// readback is issued here). Absent when no tile renderer exists, never a zero.
+		debug_state_orchestrator->append_drop_telemetry(stats);
 	}
 
 	PackedInt32Array sorted_preview;

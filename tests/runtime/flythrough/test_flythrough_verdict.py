@@ -33,6 +33,7 @@ sys.path.insert(0, str(HERE))
 
 import dispatch_lane as lane  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
+import probe_summary as ps  # noqa: E402
 import world_cache as wc  # noqa: E402
 
 FIXTURE = HERE / "fixtures" / "bv09"
@@ -78,6 +79,38 @@ def cold_record(summary: dict, resident: tuple = (0, 1000), read_fraction: float
     return wc.cold_cache_record(res, read, summary, WORLDS_A, host_cache)
 
 
+def drop_trace(increments: list) -> "ps.Trace":
+    """An in-memory trace of the drop counters: one row per entry, each entry the counters' increments
+    in that row (None: the row carries no drop telemetry, the -1 the driver writes)."""
+    fields = ["row", "pass_index", "segment", "view", "state", "s_m", *ps.DROP_COUNTERS]
+    totals = dict.fromkeys(ps.DROP_COUNTERS, 0)
+    rows = []
+    for i, inc in enumerate(increments):
+        if inc is None:
+            values = [-1] * len(ps.DROP_COUNTERS)
+        else:
+            for key, value in inc.items():
+                totals[key] += value
+            values = [totals[k] for k in ps.DROP_COUNTERS]
+        rows.append((i, 0, 0, -1, ps.STATE_HOLD, 0.0, *values))
+    return ps.Trace(fields, "qqqqqd" + "q" * len(ps.DROP_COUNTERS), rows, 0)
+
+
+def drop_window(drops: int = 0, samples: int = 4) -> dict:
+    """A checkpoint window as the producer (probe_summary.overlap_drops) reports it: `samples`
+    readbacks of 800 records over 100 splats, `drops` of them with a binning-budget drop."""
+    assert 0 <= drops <= samples
+    increments = []
+    for i in range(samples):
+        inc = {"drop_signal_samples": 1, "sampled_overlap_records_total": 800, "sampled_overlap_splats_total": 100}
+        if i < drops:
+            inc.update(overflow_drop_events=1, binning_drop_events=1, binning_budget_drop_events=1,
+                       sampled_dropped_records_total=10)
+        increments.append(inc)
+    trace = drop_trace(increments)
+    return ps.overlap_drops(trace, list(range(len(trace.rows))))
+
+
 class _Case(unittest.TestCase):
     def setUp(self) -> None:
         self.inputs = copy.deepcopy(_INPUTS)
@@ -92,6 +125,10 @@ class _Case(unittest.TestCase):
         for world in self.inputs["summary"]["worlds"].values():
             for p in world["flythrough"]["passes"]:
                 p["settings_measured"] = copy.deepcopy(p["settings"])
+                # It predates the drop telemetry too (#1393): a zero-drop window from the producer
+                # stands in; CapturedRun.test_the_pre_1393_producer_leaves_g10_unjudged shows the
+                # captured run without it is INVALID.
+                p["overlap_drops_checkpoints"] = drop_window()
         self.th = copy.deepcopy(_THRESHOLDS)
         # The M1 run predates the GSQ re-prime of Tier A (#1389); Reprime proves the committed
         # GSQ digests and that this flat run is INVALID against them.
@@ -142,7 +179,7 @@ class CapturedRun(_Case):
         self.assertEqual(statuses, {
             "V1": "PASS", "V2": "PASS", "V3": "PASS", "V5": "PASS", "V7": "PASS", "V8": "PASS",
             "V9-evictions": "PASS", "V9-peak-resident": "PASS", "M1-settle": "PASS", "V10": "PASS",
-            "G1": "PASS", "G2a": "PASS", "G4": "PASS", "G6": "FAIL", "G6t": "FAIL",
+            "G1": "PASS", "G2a": "PASS", "G4": "PASS", "G6": "FAIL", "G6t": "FAIL", "G10": "PASS",
         })
         self.assertEqual(result["verdict"], fv.FAIL)
         self.assertEqual(self.row(result, "G6")["observed"], 4.151)
@@ -155,6 +192,12 @@ class CapturedRun(_Case):
         self.assertEqual(startup["status"], "INVALID")
         self.assertIn("settings_drifted", startup["reason"])
         self.assertIs(startup["counted_in_verdict"], False)
+
+    def test_the_pre_1393_producer_leaves_g10_unjudged(self) -> None:
+        for p in self.passes():
+            del p["overlap_drops_checkpoints"]
+        result = self.assert_entry("G10", fv.INVALID, "overlap_drops_checkpoints absent")
+        self.assertEqual(self.row(result, "G10")["evidence"], fv.EVIDENCE_MISSING)
 
     def test_the_pre_bv13a_producer_leaves_the_holds_unjudged(self) -> None:
         for p in self.passes():
@@ -406,6 +449,37 @@ class Gates(_Case):
         self.assertEqual(self.run_verdict()["verdict"], fv.PASS)
         self.passes()[0]["checkpoints"][2]["settle_s"] = {"status": "MISSING", "value": None}
         self.assert_entry("G6", fv.INVALID, "MISSING")
+
+    def test_g10_drops_at_a_checkpoint_fail(self) -> None:
+        self.passes()[1]["overlap_drops_checkpoints"] = drop_window(drops=2)
+        result = self.assert_entry("G10", fv.FAIL, "overflow_at_checkpoint: 2 drop intervals")
+        row = self.row(result, "G10")
+        self.assertEqual((row["observed"], row["evidence"]), (2, fv.EVIDENCE_PRESENT))
+        self.assertIn("binning budget 2", row["reason"])
+        self.assertIn(">= 20 records dropped", row["reason"])
+
+    def test_g10_zero_drops_need_a_completed_readback(self) -> None:
+        """Absence is never a pass: a window without a readback, or without the columns, is MISSING."""
+        self.assert_entry("G10", fv.PASS, "0 drop intervals")
+        # Rows carry the counters, but no readback landed in the window.
+        self.passes()[0]["overlap_drops_checkpoints"] = ps.overlap_drops(drop_trace([{}, {}]), [0, 1])
+        self.assert_entry("G10", fv.INVALID, "zero drops would be unproven")
+        self.setUp()
+        no_columns = ps.Trace(["row"], "q", [(0,)], 0)
+        self.passes()[0]["overlap_drops_checkpoints"] = ps.overlap_drops(no_columns, [0])
+        self.assert_entry("G10", fv.INVALID, "older probe")
+        self.setUp()
+        self.passes()[0]["overlap_drops_checkpoints"] = ps.overlap_drops(drop_trace([None, None]), [0, 1])
+        self.assert_entry("G10", fv.INVALID, "did not publish")
+
+    def test_g10_a_counter_that_went_backwards_is_not_summed(self) -> None:
+        trace = drop_trace([{"drop_signal_samples": 1, "overflow_drop_events": 3}, {"drop_signal_samples": 1}])
+        rows = list(trace.rows)
+        idx = trace.index["overflow_drop_events"]
+        rows[1] = rows[1][:idx] + (0,) + rows[1][idx + 1:]  # the renderer was recreated
+        trace = ps.Trace(trace.fields, trace.types, rows, 0)
+        self.passes()[0]["overlap_drops_checkpoints"] = ps.overlap_drops(trace, [0, 1])
+        self.assert_entry("G10", fv.INVALID, "went backwards")
 
     def _miss(self, checkpoint: str, deadline) -> None:
         for p in self.passes():

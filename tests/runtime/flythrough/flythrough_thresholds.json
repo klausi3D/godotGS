@@ -39,7 +39,6 @@
       "G7": "BV-14 / doctest mutation proofs (section 8.5)",
       "G8": "not published",
       "G9": "not published on the flat route; GSQ counters arrive with the compressed arm",
-      "G10": "overflow drops at checkpoints are not published by the probe",
       "G10h": "HLOD arm, BV-16c",
       "G11": "T-ref references, BV-13b",
       "G11h": "HLOD arm",
@@ -338,6 +337,18 @@
       "window": "stop checkpoints (path kind stop), every repetition",
       "exclusions": "C0 (cold start), C4 and C7 (teleports, G6t)",
       "percentile_method": "none (worst checkpoint)"
+    },
+    "G10": {
+      "class": "correctness",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": 0, "AB": 0},
+      "unit": "readback intervals with an overlap-record drop",
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.passes[].overlap_drops_checkpoints.{status, drop_events, readback_samples}",
+      "window": "checkpoint settle and hold rows of every repetition, the load settle at C0 included",
+      "exclusions": "none",
+      "percentile_method": "none (count)"
     },
     "G6t": {
       "class": "statistical",

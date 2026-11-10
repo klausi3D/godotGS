@@ -6,6 +6,10 @@
 // mirror: OVERFLOW_DROP_SIGNAL_* in renderer/tile_render_types.h (keep the values equal).
 #define GS_OVERFLOW_DROP_BINNING 1u          // tile-binning EMIT dropped an overlap record
 #define GS_OVERFLOW_DROP_RASTER_TILE_CAP 2u  // a rasterizer truncated a tile at GS_MAX_RASTER_SPLATS_PER_TILE (#1137)
+// #1393: which binning drop site fired. Always set together with GS_OVERFLOW_DROP_BINNING, so a
+// reader that knows only bit 1 still sees every binning drop.
+#define GS_OVERFLOW_DROP_BINNING_TILE_RANGE 4u // EMIT wrote more records into a tile than COUNT reserved
+#define GS_OVERFLOW_DROP_BINNING_BUDGET 8u     // the tile's range lies past the global overlap budget
 
 // ProjectedGaussian payload layout. The packed variant trades precision and index range
 // for reduced bandwidth; it is enabled via GS_PACKED_STAGE_DATA.

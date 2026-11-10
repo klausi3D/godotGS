@@ -849,6 +849,7 @@ private:
 
 			if (renderer.render_settings.global_sort_enabled) {
 				if (!_has_dispatch_work()) {
+					renderer.diagnostics.last_overlap_binning_splats = 0u; // #1393: nothing binned
 					renderer.diagnostics.last_overlap_record_count = 0;
 					renderer.diagnostics.last_overlap_record_budget_effective = renderer._get_effective_overlap_capacity();
 					renderer.diagnostics.last_overlap_keep_ratio = 1.0f;
@@ -1107,6 +1108,10 @@ private:
 			}
 
 			renderer.diagnostics.last_overlap_record_count = overlap_record_count;
+			// #1393: the frame's splat count for tile binning (on the GPU-indirect instance route the
+			// last read-back visible count), paired with the frame's overflow_splats_aggregated by the
+			// drop-signal poll: records per splat.
+			renderer.diagnostics.last_overlap_binning_splats = params.splat_count;
 
 			// NOTE: GaussianSplat_Begin/End markers are NOT captured here because they would
 			// be in the post-flush timestamp buffer and cannot be read back. Only TileOverlapCount
@@ -3802,7 +3807,11 @@ void TileRenderer::_poll_overflow_drop_telemetry() {
 	// Unlike _dump_gpu_debug_counters (gated on debug_dump_gpu_counters), this always runs so
 	// overlap-record overflow is surfaced (WARN_ONCE + overflow_drop_events) even in a pure
 	// production frame. Cheap: a single small async readback, throttled by its own pending flag.
-	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial);
+	// #1393: the splats this frame dispatched to tile binning travel with the sample (consumed
+	// here, so a frame that skipped binning never pairs an older frame's splats with its records).
+	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial,
+			diagnostics.last_overlap_binning_splats);
+	diagnostics.last_overlap_binning_splats = 0u;
 	// BV-04b: records per splat per HLOD level, only for frames whose emit pass ran on the HLOD route
 	// (the only route that binds and writes the counters).
 	if (instance_pipeline_buffers.hlod_relative) {
