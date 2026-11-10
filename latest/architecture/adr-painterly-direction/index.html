@@ -5154,7 +5154,7 @@
 
 <h1 id="adr-what-painterly-is-and-where-it-lives-decision-d-1">ADR: What painterly is and where it lives (decision D-1)<a class="headerlink" href="#adr-what-painterly-is-and-where-it-lives-decision-d-1" title="Permanent link">¶</a></h1>
 <ul>
-<li><strong>Status:</strong> Accepted — decided by the owner on 2026-11-10. The owner's approving review and merge of the PR that adds this ADR confirm that the recorded text matches the decision.</li>
+<li><strong>Status:</strong> Accepted — decided by the owner on 2026-11-10. The owner's confirming comment on the PR that adds this ADR and its merge confirm that the recorded text matches the decision (see <strong>Confirmation</strong> below).</li>
 <li><strong>Date:</strong> 2026-11-10.</li>
 <li><strong>Risk:</strong> this document is R0 (<code>docs/**</code>). It changes no code. The work it schedules is R3:
   per-splat stylisation edits binning and raster shaders, and moving the setting off
@@ -5233,9 +5233,17 @@ dedicated environment resource.</p>
 <li><strong>Option chosen:</strong> <strong>B, per-splat stylisation only.</strong> There is no interim screen-space
   effect at camera or environment level.</li>
 <li><strong>Decided by:</strong> the owner, 2026-11-10.</li>
-<li><strong>Recorded in:</strong> the owner's answer in the 2026-11-10 session, recorded in this ADR. The
-  owner's approving review and merge of the pull request that adds this ADR confirm that the
-  recorded text matches the decision.</li>
+<li><strong>Recorded in:</strong> the owner's answer in the 2026-11-10 session, recorded in this ADR.</li>
+<li><strong>Confirmation:</strong> the pull request that adds this ADR, <a href="https://github.com/klausi3D/godotGS/pull/1399">#1399</a>, was opened from the owner's
+  account (<code>klausi3D</code>), as every agent PR here is, and GitHub does not let a PR's author
+  approve it (see "Require review from Code Owners" in
+  <a href="../../governance/github-settings/">GitHub settings</a>), so an approving review cannot be
+  obtained. The confirmation is the one practised for the owner's OK
+  (<a href="../adr-review-merge-policy/">Review and merge policy as practised</a>): a
+  <a href="https://github.com/klausi3D/godotGS/pull/1399#issuecomment-6778694507">comment on #1399</a>, posted from <code>klausi3D</code> on 2026-11-10 by
+  the coordinating agent, quotes the owner's OK given in the coordination session that day
+  (“ja ich stimme den adrs zu. so machen wir es erstmal.”) and states that the owner confirms the recorded text of decisions D-1 to D-8
+  matches the decisions; <code>klausi3D</code> then merged #1399 (<code>821c17e4e6c</code>).</li>
 <li><strong>Rejected:</strong></li>
 <li><strong>A</strong>, because it keeps an edge filter as the product look and leaves the material
     features unimplemented. Its advantage, a look on world plus objects within weeks, is

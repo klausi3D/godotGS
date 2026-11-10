@@ -5264,7 +5264,7 @@
 
 <h1 id="adr-v10-platform-and-graphics-api-targets-vulkan-on-windows-and-linux-nvidia-and-amd">ADR: v1.0 platform and graphics-API targets — Vulkan on Windows and Linux, NVIDIA and AMD<a class="headerlink" href="#adr-v10-platform-and-graphics-api-targets-vulkan-on-windows-and-linux-nvidia-and-amd" title="Permanent link">¶</a></h1>
 <ul>
-<li><strong>Status:</strong> Accepted on 2026-11-10, when the owner decided it; the owner's approving review and merge of this PR confirm the recorded text.</li>
+<li><strong>Status:</strong> Accepted on 2026-11-10, when the owner decided it; the owner's confirming comment on the PR that adds this record and its merge confirm the recorded text (see <a href="#owner-decision">Owner decision</a>).</li>
 <li><strong>Date:</strong> 2026-11-10.</li>
 <li><strong>Decision:</strong> D-3 of the 2026-11 cleanup audit. Task CLN-D03. Bundled with
   <a href="../adr-reference-quality-contract/">Reference parity at default settings</a> (D-4); the two
@@ -5342,9 +5342,16 @@ validation has to cover Linux as well as Windows, and the bar's existing Linux r
 (<a href="#consequences">Consequences</a>) stay. CLN-EV12-2's contract defines one AMD lane with
 <code>baseline_qa.yml</code>'s harness arguments and does not cover Windows, so the Windows lane is a
 separate follow-up (<a href="#follow-up-tasks">Follow-up tasks</a>).</p>
-<p>The decision was accepted when the owner made it. The owner's approving review and merge of the
-pull request that adds this record confirm that the recorded text matches it; there is no
-separate issue comment.</p>
+<p>The decision was accepted when the owner made it. Confirmation: the pull request that adds this record, <a href="https://github.com/klausi3D/godotGS/pull/1400">#1400</a>, was opened from the owner's
+account (<code>klausi3D</code>), as every agent PR here is, and GitHub does not let a PR's author
+approve it (see "Require review from Code Owners" in
+<a href="../../governance/github-settings/">GitHub settings</a>), so an approving review cannot be
+obtained. The confirmation is the one practised for the owner's OK
+(<a href="../adr-review-merge-policy/">Review and merge policy as practised</a>): a
+<a href="https://github.com/klausi3D/godotGS/pull/1400#issuecomment-6778694949">comment on #1400</a>, posted from <code>klausi3D</code> on 2026-11-10 by
+the coordinating agent, quotes the owner's OK given in the coordination session that day
+(“ja ich stimme den adrs zu. so machen wir es erstmal.”) and states that the owner confirms the recorded text of decisions D-1 to D-8
+matches the decisions; <code>klausi3D</code> then merged #1400 (<code>27afe1d1af9</code>). There is no separate issue comment.</p>
 <h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">¶</a></h2>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>

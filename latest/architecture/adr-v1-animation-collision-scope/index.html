@@ -5244,7 +5244,7 @@
 
 <h1 id="adr-v10-scope-for-splat-animation-and-collision-decision-d-6">ADR: v1.0 scope for splat animation and collision (decision D-6)<a class="headerlink" href="#adr-v10-scope-for-splat-animation-and-collision-decision-d-6" title="Permanent link">¶</a></h1>
 <ul>
-<li><strong>Status:</strong> Accepted — decided by the owner on 2026-11-10. The owner's approving review and merge of the PR that adds this ADR confirm that the recorded text matches the decision.</li>
+<li><strong>Status:</strong> Accepted — decided by the owner on 2026-11-10. The owner's confirming comment on the PR that adds this ADR and its merge confirm that the recorded text matches the decision (see <strong>Confirmation</strong> under each decision below).</li>
 <li><strong>Date:</strong> 2026-11-10.</li>
 <li><strong>Risk:</strong> this document is R0 (<code>docs/**</code>). It changes no code. The work it schedules is R3:
   animation in the render path touches the instance buffer, sort input, HLOD and
@@ -5327,9 +5327,17 @@ house.</p>
 <ul>
 <li><strong>Option chosen:</strong> <strong>A1, keep animation and wire it into the render path.</strong></li>
 <li><strong>Decided by:</strong> the owner, 2026-11-10.</li>
-<li><strong>Recorded in:</strong> the owner's answer in the 2026-11-10 session, recorded in this ADR. The
-  owner's approving review and merge of the pull request that adds this ADR confirm that the
-  recorded text matches the decision.</li>
+<li><strong>Recorded in:</strong> the owner's answer in the 2026-11-10 session, recorded in this ADR.</li>
+<li><strong>Confirmation:</strong> the pull request that adds this ADR, <a href="https://github.com/klausi3D/godotGS/pull/1399">#1399</a>, was opened from the owner's
+  account (<code>klausi3D</code>), as every agent PR here is, and GitHub does not let a PR's author
+  approve it (see "Require review from Code Owners" in
+  <a href="../../governance/github-settings/">GitHub settings</a>), so an approving review cannot be
+  obtained. The confirmation is the one practised for the owner's OK
+  (<a href="../adr-review-merge-policy/">Review and merge policy as practised</a>): a
+  <a href="https://github.com/klausi3D/godotGS/pull/1399#issuecomment-6778694507">comment on #1399</a>, posted from <code>klausi3D</code> on 2026-11-10 by
+  the coordinating agent, quotes the owner's OK given in the coordination session that day
+  (“ja ich stimme den adrs zu. so machen wir es erstmal.”) and states that the owner confirms the recorded text of decisions D-1 to D-8
+  matches the decisions; <code>klausi3D</code> then merged #1399 (<code>821c17e4e6c</code>).</li>
 <li><strong>Rejected:</strong> A2, the audit recommendation. Removal would have deleted about 1,500 lines
   with no consumer and the HLOD refusal clause, at the price of no splat animation in v1.0.
   The owner keeps animation in v1.0 and accepts the R3 render work it needs.</li>
@@ -5340,9 +5348,17 @@ house.</p>
 <ul>
 <li><strong>Option chosen:</strong> <strong>C1, bake collision proxies at import.</strong></li>
 <li><strong>Decided by:</strong> the owner, 2026-11-10.</li>
-<li><strong>Recorded in:</strong> the owner's answer in the 2026-11-10 session, recorded in this ADR. The
-  owner's approving review and merge of the pull request that adds this ADR confirm that the
-  recorded text matches the decision.</li>
+<li><strong>Recorded in:</strong> the owner's answer in the 2026-11-10 session, recorded in this ADR.</li>
+<li><strong>Confirmation:</strong> the pull request that adds this ADR, <a href="https://github.com/klausi3D/godotGS/pull/1399">#1399</a>, was opened from the owner's
+  account (<code>klausi3D</code>), as every agent PR here is, and GitHub does not let a PR's author
+  approve it (see "Require review from Code Owners" in
+  <a href="../../governance/github-settings/">GitHub settings</a>), so an approving review cannot be
+  obtained. The confirmation is the one practised for the owner's OK
+  (<a href="../adr-review-merge-policy/">Review and merge policy as practised</a>): a
+  <a href="https://github.com/klausi3D/godotGS/pull/1399#issuecomment-6778694507">comment on #1399</a>, posted from <code>klausi3D</code> on 2026-11-10 by
+  the coordinating agent, quotes the owner's OK given in the coordination session that day
+  (“ja ich stimme den adrs zu. so machen wir es erstmal.”) and states that the owner confirms the recorded text of decisions D-1 to D-8
+  matches the decisions; <code>klausi3D</code> then merged #1399 (<code>821c17e4e6c</code>).</li>
 <li><strong>Rejected:</strong> C2. Hand authoring needs no engine work but does not scale to scanned
   worlds.</li>
 <li><strong>Follow-up:</strong> CLN-SH04 (epic). CLN-SH04-1 writes the collision-proxy bake ADR first, then
