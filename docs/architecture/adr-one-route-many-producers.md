@@ -5,6 +5,9 @@
   routing, accepted as target, deferred") as the direction and specifies how it is reached on
   the HLOD route first. Acceptance of this design does not establish implementation or runtime
   acceptance; the code PRs in §7 carry their own evidence.
+- **Status update (2026-11-10):** §12 adds the route retirement decision (D-2): one route,
+  and the chunk-streaming route and the legacy composite are deleted. See
+  [Owner decision (D-2)](#owner-decision-d-2).
 - **Date:** 2026-11-04.
 - **Risk:** this document is R0 (`docs/**`). The implementation PRs it schedules are **R2**
   (`modules/gaussian_splatting/renderer/**`, and the director changes that alter what the
@@ -425,3 +428,106 @@ status of decision 1.
 - Lighting and shadow receive on the HLOD route.
 - Whether HLOD enforces the uint16 quantized chunk-id limit once instance chunks are appended.
 - The cost of a whole-atlas repack on asset spawn (O(total atlas) by code; not measured).
+
+---
+
+## 12. Route retirement decision (D-2)
+
+- **Status:** Accepted — decided by the owner on 2026-11-10; the owner's approving review on this PR is the acceptance record.
+- **Refs:** decision D-2 of the 2026-11 codebase audit; findings I-02, I-03, D-01, D-06, D-07
+  and J-19.
+- Claims in this section were re-read at `b58bbe35d1f`.
+
+### 12.1 Problem
+
+Sections 1 to 11 decide that the world and node instances share one draw list on the HLOD
+route. They do not decide whether the other routes stay. Today a frame can take one of these
+paths:
+
+- the **resident canonical** route;
+- the **chunk-streaming** route (`renderer/render_streaming_orchestrator.cpp`,
+  `core/gaussian_streaming.cpp`, `core/streaming_global_atlas_registry.cpp`), the project
+  default under `rendering/gaussian_splatting/streaming/route_policy`;
+- the **HLOD** route, for a world with an HLOD snapshot when no refusal applies;
+- for compositing, the pre-upscale hook and the **legacy post-scene composite**
+  (`interfaces/output_compositor.cpp`, used for forward mobile, multiview and probes).
+
+The HLOD route refuses a setup through `GaussianSplatRenderer::hlod_streaming_unsupported_reason()`
+(in `renderer/resident_instance_contract_publisher.cpp`), whose keys
+`lod/hlod_auto_route.h` publishes. A refused setup falls back to another route. So every
+feature lands on three to four routes, and each route drifts: chunk-route LOD draws a prefix
+and does not reduce VRAM (D-01, D-06); a rotated or translated world loses HLOD (D-07); one
+wind or effector setting moves a streamed world off HLOD (I-02); splat shadows exist on the
+HLOD route only (I-03); the legacy composite is the path that dropped splats for scaled
+viewports (J-19).
+
+### 12.2 Options
+
+- **Option A: one route.** The HLOD streaming route, with the resident case as a degenerate
+  cut and a single `TileRenderParams` producer (#788 Option 2, as adopted in §3).
+  - Cost: finish the migration; delete the chunk route and the legacy composite.
+  - Enables: feature parity by construction; one place to test.
+  - Limits: every refusal in `hlod_streaming_unsupported_reason()` must be lifted before the
+    fallback it protects can be deleted.
+- **Option B: keep the routes and require parity.** Every feature PR covers all routes, with
+  a parity test.
+  - Cost: feature work multiplied on every PR, for the life of the project.
+  - Enables: no route is deleted; existing setups keep their path.
+  - Limits: parity rests on a test every PR must extend; drift returns where it does not.
+
+**Audit recommendation: A.** The refusal list in `hlod_streaming_unsupported_reason()` is
+the work list.
+
+## Owner decision (D-2)
+
+- **Option chosen:** **A, one route.** HLOD streaming is the product route, with the
+  resident case as a degenerate cut and a single `TileRenderParams` producer. The
+  chunk-streaming route and the legacy composite are deleted.
+- **Decided by:** the owner, 2026-11-10.
+- **Recorded in:** the owner's approving review on the pull request that adds this section.
+- **Rejected:** B. It keeps every existing path working without a migration, at the cost of
+  multiplying every feature by the number of routes.
+
+### 12.3 Work list and order
+
+This record schedules no code. The tasks below each cite this section.
+
+1. **Refusal table** (CLN-RT01-1). Each refusal key gets an owning task, and a test derives
+   the key set from source so the table cannot drift. At `b58bbe35d1f` the keys of
+   `hlod_streaming_unsupported_reason()` are `lod_disabled_canonical_leaves`,
+   `shadow_instance_filter`, `unsupported_view_or_material` (painterly),
+   `deformation_or_instance_domain` (wind and sphere effectors) and
+   `unsupported_instance_transform_domain`. `GaussianSplatWorld3D::_hlod_auto_route_refusal()`
+   and `plan_world()` add world-level keys, including `hlod_world_transform_unsupported`.
+2. **One `TileRenderParams` producer** (CLN-RT02, I-07).
+3. **Lift the refusals** (CLN-RT03, I-02, D-07): rigid world transform (CLN-RT03-1), wind
+   (CLN-RT03-2), sphere effectors (CLN-RT03-3), painterly (CLN-RT03-4). The keys without a
+   task at this date (`lod_disabled_canonical_leaves`, `shadow_instance_filter`) get one in
+   step 1.
+4. **Retire the chunk-streaming route** (CLN-RT07, takes D-01 and D-06), after step 2 and the
+   streaming evidence task CLN-EV03.
+5. **Retire the legacy post-scene composite** (CLN-RT05, J-19), after the platform decision
+   D-3.
+
+Splat shadows on the one route (I-03) are the shadow track, CLN-LT02.
+
+### 12.4 Consequences
+
+- CLN-RT04 (chunk-route LOD fix) and its children are void: they assumed the chunk route
+  survives. Their findings D-01 and D-06 move to CLN-RT07.
+- §3 is unchanged. Decision 4 schedules a parallel fix of #855 on the chunk route (F1 in §7).
+  Under this decision the chunk route is deleted, so that fix and the retirement now overlap;
+  the owner rules on F1's chunk-route part.
+- The [Worlds beyond VRAM](adr-beyond-vram-worlds.md) ADR (Proposed) uses the chunk route as
+  the flat arm for tree-less worlds. The beyond-VRAM program continues in parallel (owner
+  decision D-8); how tree-less worlds reach the one route is not decided here.
+- The [#788 ADR](adr-single-route-per-frame-node-coexistence.md) carries a status line that
+  points here.
+
+### 12.5 Out of scope
+
+- Deleting or migrating any route: the tasks in §12.3 do that and carry their own evidence.
+- How the resident case becomes a degenerate cut, and when the resident canonical code is
+  removed. The owner's answer names two deletions, the chunk route and the legacy composite.
+- Scheduling CLN-RT07 against open beyond-VRAM PRs. Under owner decision D-8, a task that owns a
+  path an open beyond-VRAM PR holds is not dispatched.
