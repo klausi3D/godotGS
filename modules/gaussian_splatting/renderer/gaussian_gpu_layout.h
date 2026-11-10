@@ -270,7 +270,7 @@ struct alignas(16) DrawnNodeGPU {
     uint32_t instance_id;
     uint32_t chunk_id;
     float fade;                  // Reserved for the S6 cross-fade; written as 1.0 and not read yet
-    uint32_t reserved;           // Zero
+    uint32_t level;              // BV-04b: HLOD level (node height, 0 = leaf); GS_DRAWN_NODE_LEVEL_NONE for object records
     float camera_offset[4];      // xyz = camera-relative node offset, w = 0
 };
 
@@ -279,7 +279,31 @@ static_assert(sizeof(DrawnNodeGPU) == 32, "DrawnNodeGPU must be 32 bytes");
 static_assert(offsetof(DrawnNodeGPU, instance_id) == 0, "DrawnNodeGPU.instance_id offset mismatch");
 static_assert(offsetof(DrawnNodeGPU, chunk_id) == 4, "DrawnNodeGPU.chunk_id offset mismatch");
 static_assert(offsetof(DrawnNodeGPU, fade) == 8, "DrawnNodeGPU.fade offset mismatch");
-static_assert(offsetof(DrawnNodeGPU, reserved) == 12, "DrawnNodeGPU.reserved offset mismatch");
+static_assert(offsetof(DrawnNodeGPU, level) == 12, "DrawnNodeGPU.level offset mismatch");
+
+// BV-04b: records per splat per HLOD level. The tile_binning EMIT pass of the HLOD route adds, per
+// splat that reaches it, its emitted overlap records and 1 to the slot of its draw record's level
+// (binding 24, HlodLevelRecordStats in tile_binning.glsl). Levels 0..GS_HLOD_LEVEL_STAT_SLOTS-3 have
+// their own slot, deeper levels share slot GS_HLOD_LEVEL_STAT_SLOTS-2 ("this level and above"), and
+// object (instance) records use the last slot. Mirrors GS_HLOD_LEVEL_STAT_SLOTS /
+// GS_DRAWN_NODE_LEVEL_NONE in shaders/includes/gs_instance_layout.glsl.
+static constexpr uint32_t GS_HLOD_LEVEL_STAT_SLOTS = 16;
+static constexpr uint32_t GS_DRAWN_NODE_LEVEL_NONE = 0xFFFFFFFFu;
+static constexpr uint32_t GS_HLOD_LEVEL_STAT_OBJECT_SLOT = GS_HLOD_LEVEL_STAT_SLOTS - 1u;
+static constexpr uint32_t GS_HLOD_LEVEL_STAT_DEEPEST_SLOT = GS_HLOD_LEVEL_STAT_SLOTS - 2u;
+
+inline uint32_t gs_hlod_level_stat_slot(uint32_t p_level) {
+    if (p_level == GS_DRAWN_NODE_LEVEL_NONE) {
+        return GS_HLOD_LEVEL_STAT_OBJECT_SLOT;
+    }
+    return p_level < GS_HLOD_LEVEL_STAT_DEEPEST_SLOT ? p_level : GS_HLOD_LEVEL_STAT_DEEPEST_SLOT;
+}
+
+struct HlodLevelRecordStatsGPU {
+    uint32_t records[GS_HLOD_LEVEL_STAT_SLOTS]; // overlap records emitted (incl. ones dropped at capacity)
+    uint32_t splats[GS_HLOD_LEVEL_STAT_SLOTS];  // splats that reached the emit loop
+};
+static_assert(sizeof(HlodLevelRecordStatsGPU) == 128, "HlodLevelRecordStatsGPU must be 128 bytes (std430, 2 x 16 uint)");
 static_assert(offsetof(DrawnNodeGPU, camera_offset) == 16, "DrawnNodeGPU.camera_offset offset mismatch");
 
 // Visible splat list emitted by Stage B.

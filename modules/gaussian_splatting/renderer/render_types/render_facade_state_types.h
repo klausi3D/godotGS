@@ -7,8 +7,11 @@
 #define GAUSSIAN_RENDER_FACADE_STATE_TYPES_H
 
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
+#include "../device_vram_ledger.h"
 #include "../hlod_node_streamer.h"
 #include "../hlod_world_instances.h"
+#include "../hlod_shadow_caster_plan.h"
+#include "../../lod/hlod_auto_route.h"
 #include "core/os/mutex.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
@@ -68,6 +71,11 @@ struct ResourceState {
     // a refused second view is otherwise masked by the main view's "active" in the same frame.
     String hlod_last_refusal_reason;
     uint64_t hlod_refused_views = 0;
+    // The automatic route's sticky demotion (lod/hlod_auto_route.h): one request per submitted snapshot (re-armed when a
+    // new snapshot is installed, gs_hlod_auto_route::install_snapshot()), and the total of requests this renderer queued.
+    // Render thread.
+    gs_hlod_auto_route::DemotionLatch hlod_auto_route_demotion;
+    uint64_t hlod_auto_route_demotions = 0;
     float hlod_tau_px = 0.0f;
     uint64_t hlod_owner_key = 0;
     Ref<GaussianSplatHlodRuntimeData> hlod_prepared_snapshot;
@@ -108,7 +116,6 @@ struct ResourceState {
     uint64_t hlod_root_dropped_frames = 0;
     uint64_t hlod_cpu_cut_usec = 0;
     uint64_t hlod_cpu_prepare_usec = 0; // View admission, selection and draw-list upload; CPU elapsed only.
-    uint64_t hlod_device_byte_upper_bound = 0;
     uint64_t hlod_view_epoch = 0;
     uint32_t hlod_visited_nodes = 0;
     uint32_t hlod_selected_nodes = 0;
@@ -118,7 +125,7 @@ struct ResourceState {
     bool hlod_active = false;
     bool hlod_frame_active = false;
     uint64_t hlod_tile_stage_refused_frames = 0; // Admitted as active, then refused by the tile stage (drew nothing).
-    uint64_t hlod_owned_byte_upper_bound = 0;
+    DeviceVramLedger device_vram_ledger; // The one device VRAM ledger (D-11). Render thread writes; snapshots from any thread.
     uint64_t hlod_retired_bytes = 0;
     // The prepared bundle's director generations (renderer/hlod_bundle_rows.h): the row generation names the uploaded row
     // content (a change re-uploads the rows), the asset-set generation what the bundle packs (a change rebuilds it).
@@ -143,14 +150,38 @@ struct ResourceState {
     // Per main view (the last one prepared): the draw records each producer wrote and the budget rule's outcome.
     uint32_t hlod_world_draw_records = 0;
     uint32_t hlod_instance_draw_records = 0;
+    // BV-04b: the last main view's world draw records per HLOD level slot (gs_hlod_level_stat_slot of the
+    // node height) and the payload splats they draw (tree topology payload_count). The GPU side of
+    // "records per splat per level" is PerformanceMetrics::gpu_hlod_level_records.
+    uint32_t hlod_level_drawn_nodes[GS_HLOD_LEVEL_STAT_SLOTS] = {};
+    uint64_t hlod_level_drawn_splats[GS_HLOD_LEVEL_STAT_SLOTS] = {};
+    void clear_hlod_level_drawn() {
+        for (uint32_t i = 0; i < GS_HLOD_LEVEL_STAT_SLOTS; i++) {
+            hlod_level_drawn_nodes[i] = 0;
+            hlod_level_drawn_splats[i] = 0;
+        }
+    }
     uint32_t hlod_instance_visible_objects = 0;
     uint32_t hlod_instance_admitted_objects = 0;
     uint32_t hlod_instance_refused_objects = 0; // Refused this view: hlod_instance_reserve_exceeds_object_share.
     uint64_t hlod_instance_reserve_refusal_frames = 0; // Main views that refused at least one object (cumulative).
     uint64_t hlod_instance_reserve_splats = 0;
     double hlod_instance_reserve_records = 0.0;
+    // The world's overlap-record need, tracked apart from the shared storage the objects' estimate is grown into
+    // (gs_hlod_bundle::world_overlap_need), the storage the last prepared view drew with, and how often the objects'
+    // estimate grew it (cumulative). A stationary view with unchanged content grows it at most once.
+    gs_hlod_bundle::OverlapWorldNeed hlod_overlap_world_need;
+    uint32_t hlod_overlap_capacity_records = 0;
+    uint64_t hlod_instance_overlap_growths = 0;
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
+    // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The record names the draw list the last
+    // main view uploaded: the world cut plus the admitted objects, or (an idle streamed world) the objects alone. It is
+    // invalidated at the start of every main-view preparation and on release; the shadow passes of the next frame draw
+    // it. hlod_draw_list_uploads counts writes of the relative bundle's draw list (the record keys on it). Render thread only.
+    gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
+    uint64_t hlod_draw_list_uploads = 0;
+    gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
     Mutex hlod_instance_refusal_mutex;
@@ -166,6 +197,9 @@ struct ResourceState {
     std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
     // Lowers the HLOD route's device-ledger limit (0 = off) so a runtime scenario can force a memory refusal. Never raises it.
     std::atomic<uint64_t> hlod_test_route_limit_override{ 0 };
+    // Holds a streamed (paged) world idle: every main view takes the idle fallback with the view's admitted objects
+    // (reason hlod_test_world_held_idle), exactly as while its cut loads. Never makes anything drawable.
+    std::atomic<bool> hlod_test_hold_world_idle{ false };
     // Actual resident sort inputs, retained before the post-frame canonical restore.
     // Borrowed RID only; the observer validates lifetime, device and frame before readback.
     RID hlod_test_sort_count_buffer;

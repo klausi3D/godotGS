@@ -1,117 +1,19 @@
 name: Release Builds
 
 on:
-  pull_request:
-    branches: [master, main, develop]
-    paths:
-      - "core/**"
-      - "drivers/**"
-      - "editor/**"
-      - "main/**"
-      - "modules/**"
-      - "platform/**"
-      - "scene/**"
-      - "servers/**"
-      - "thirdparty/**"
-      - "*.py"
-      - "SConstruct"
-      - ".github/workflows/release_builds.yml"
-      # Helper scripts this workflow EXECUTES. `*.py` above is root-level only
-      # (a single `*` does not span `/`), so without these a change to one of
-      # them would skip the very lanes that run it. Deliberately not
-      # `tests/ci/**`: that would fire two editor builds plus two template
-      # builds on unrelated guard edits. The list is kept honest by
-      # tests/ci/test_release_builds_path_filters.py, which derives the set of
-      # executed scripts from this file and fails if one is not listed here --
-      # so a new helper cannot silently reopen the gap (#825).
-      - "tests/ci/resolve_export_template.py"
-      - "tests/ci/check_renderer_release_gates.py"
-      - "tests/ci/release_attestation.py"
-      # Executed by export_smoke_windows' GPU preflight step (#875/#918); a
-      # change to it must not skip the workflow whose GPU job runs it.
-      - "tests/ci/preflight_runner_gpu_environment.py"
-      - "tests/ci/runner_gpu_contention.py"
-      # Executed by export_smoke_linux (toolchain check): a change to it must not
-      # skip the workflow whose GPU job runs it.
-      - "tests/ci/linux_gpu_runner.sh"
-      # The hash-locked SCons both Windows build jobs install (GAP-403); a pin
-      # change must build here, not wait for the nightly.
-      - "tests/ci/requirements-scons.txt"
-      # export_smoke_windows runs run_export_smoke.py, which imports
-      # run_runtime_validation.py at module scope for its mode arguments. Only
-      # the first is an *execution*, so only the first is in
-      # RELEASE_HELPER_SCRIPTS; the import is a real dependency that the
-      # executed-script derivation cannot see, so it is listed here explicitly.
-      - "tests/runtime/run_export_smoke.py"
-      - "tests/runtime/run_runtime_validation.py"
-      # Data inputs of the same blocking job. export_smoke_windows does not only
-      # run a script: it substitutes a preset template, exports a project, runs a
-      # probe script inside the exported binary and generates a fixture. None of
-      # those is an execution, so none is discoverable from an interpreter line,
-      # and a push touching only the probe skipped this workflow entirely --
-      # exactly the gap the helper-script list above closed, one layer out.
-      # DERIVED, not transcribed: run_export_smoke.py names each of these as a
-      # module-level Path constant and
-      # tests/ci/test_release_builds_path_filters.py reads those constants back
-      # and fails if one is not covered here, so the list cannot drift.
-      #
-      # NOT A COMPLETE INPUT SET, and deliberately so. The preset the smoke run
-      # writes uses `export_filter="all_resources"`, and the run imports the
-      # whole project first (`--path <project> --import`), so every tracked file
-      # under tests/examples/godot/test_project is an input of this blocking
-      # job -- ~140 of them, of which the entries below cover three. A
-      # `tests/examples/godot/test_project/**` filter would cover the rest and
-      # fire two editor builds plus two template builds on every fixture rebake,
-      # which happens routinely, so the trigger stays narrow and the gap is
-      # RECORDED instead: tests/ci/test_release_builds_path_filters.py derives
-      # the untriggered set, prints it, and checks the two things that bound the
-      # risk -- gaussian_production_gates.yml triggers on `tests/**` and loads
-      # the same project with a real editor, and the nightly `schedule:` below
-      # runs the smoke test on whatever a push skipped. What is actually
-      # deferred is the export/packaging interaction on those files (#825).
-      - "tests/runtime/export_smoke_preset.cfg.in"
-      - "tests/runtime/export_smoke_preset_linux.cfg.in"
-      - "tests/runtime/prepare_synthetic_assets.py"
-      - "tests/examples/godot/test_project/project.godot"
-      - "tests/examples/godot/test_project/tests/export_smoke_probe.gd"
-      - "tests/examples/godot/test_project/tests/fixtures/synthetic_cube.ply"
+  # CI diet (maintainer approval 2026-11-07): no pull_request and no branch-push
+  # trigger. Release Builds compiled a Linux editor, a fast-math guard build and a
+  # Linux export template on every PR (and Windows builds plus the self-hosted
+  # export smoke on every master push). Those lanes now run on master HEAD every
+  # night (schedule below), on release tags, and on demand. Because nothing is
+  # path-filtered any more, every helper script and smoke-test input runs on every
+  # nightly; tests/ci/test_release_builds_path_filters.py asserts that no
+  # path-filtered trigger comes back without its coverage manifest. Accepted risk:
+  # a release-build or export regression on master is detected within one day
+  # instead of on the merge (docs/governance/review-policy.md).
   push:
-    branches: [master, main, develop]
     tags:
       - "v*"
-    paths:
-      - "core/**"
-      - "drivers/**"
-      - "editor/**"
-      - "main/**"
-      - "modules/**"
-      - "platform/**"
-      - "scene/**"
-      - "servers/**"
-      - "thirdparty/**"
-      - "*.py"
-      - "SConstruct"
-      - ".github/workflows/release_builds.yml"
-      # Keep in sync with the pull_request filter above; same reasoning.
-      - "tests/ci/resolve_export_template.py"
-      - "tests/ci/check_renderer_release_gates.py"
-      - "tests/ci/release_attestation.py"
-      # Executed by export_smoke_windows' GPU preflight step (#875/#918); a
-      # change to it must not skip the workflow whose GPU job runs it.
-      - "tests/ci/preflight_runner_gpu_environment.py"
-      - "tests/ci/runner_gpu_contention.py"
-      # Executed by export_smoke_linux (toolchain check): a change to it must not
-      # skip the workflow whose GPU job runs it.
-      - "tests/ci/linux_gpu_runner.sh"
-      - "tests/ci/requirements-scons.txt"
-      - "tests/runtime/run_export_smoke.py"
-      - "tests/runtime/run_runtime_validation.py"
-      - "tests/runtime/export_smoke_preset.cfg.in"
-      - "tests/runtime/export_smoke_preset_linux.cfg.in"
-      - "tests/runtime/prepare_synthetic_assets.py"
-      - "tests/examples/godot/test_project/project.godot"
-      - "tests/examples/godot/test_project/tests/export_smoke_probe.gd"
-      - "tests/examples/godot/test_project/tests/fixtures/synthetic_cube.ply"
   schedule:
     # Nightly preview build at 02:30 UTC.
     - cron: "30 2 * * *"

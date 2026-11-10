@@ -198,3 +198,225 @@ TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] Known device capacity clamps
     CHECK(bool(stats.get("budget_capacity_verified", false)));
     CHECK_FALSE(bool(stats.get("budget_uses_unknown_capacity_fallback", true)));
 }
+
+// BV-04a (ADR adr-beyond-vram-worlds.md D-6): whether and why the regulator fired is published
+// by kind, with the frame and the LOD multiplier changes, so the M1 probe can label a run
+// settings_drifted. These drive VRAMBudgetRegulator::update() directly; no device is needed.
+namespace {
+
+Ref<VRAMBudgetRegulator> _make_bv04a_regulator() {
+    Ref<VRAMBudgetRegulator> regulator;
+    regulator.instantiate();
+    VRAMBudgetConfig config;
+    config.budget_mb = 1000;
+    config.min_chunks = 2;
+    config.max_chunks = 20;
+    config.auto_regulate_enabled = true;
+    config.warning_threshold_percent = 85;
+    config.regulation_step_percent = 5.0f; // step = 1 chunk of 20
+    regulator->set_config_override(config);
+    regulator->initialize(nullptr);
+    return regulator;
+}
+
+uint64_t _bv04a_usage_at_percent(const Ref<VRAMBudgetRegulator> &p_regulator, uint32_t p_percent) {
+    return p_regulator->get_debug_stats().budget_bytes / 100u * p_percent;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a the thrash ratchet is published as a thrash reduction with its LOD multiplier change") {
+    Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+    if (regulator->get_current_max_chunks() != 20u || regulator->get_debug_stats().budget_bytes == 0) {
+        FAIL("fixture precondition: chunk cap 20 and a non-zero budget");
+        return;
+    }
+    Dictionary stats = regulator->get_debug_stats_dictionary();
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("none"));
+    CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 0);
+
+    // 70 % usage sits between the step-up (< 59.5 %) and step-down (> 85 %) bands, so only
+    // the thrash detector (visible refetches inside its wall-clock window) can fire.
+    const uint64_t usage = _bv04a_usage_at_percent(regulator, 70);
+    for (uint64_t frame = 1; frame <= 35; frame++) {
+        regulator->update(usage, usage, 10, 1, 1, frame, 1, frame * 16667);
+    }
+    stats = regulator->get_debug_stats_dictionary();
+    CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("budget_reductions", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("headroom_increases", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("regulation_adjustments", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("last_regulation_frame", int64_t(-1))) == 30); // MIN_FRAMES_BETWEEN_ADJUSTMENTS
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("thrash_reduction"));
+    CHECK(regulator->get_current_max_chunks() == 18u);
+    CHECK(regulator->get_lod_distance_multiplier() == doctest::Approx(1.1f));
+}
+
+// Drives the regulator at p_fps for p_seconds with p_refetches_per_second visible refetches,
+// spread evenly in wall-clock time, and a load plus an eviction in every frame.
+int64_t _bv08a_thrash_reductions(uint32_t p_fps, double p_seconds, double p_refetches_per_second) {
+    Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+    const uint64_t usage = _bv04a_usage_at_percent(regulator, 70); // no budget step in either direction
+    const uint64_t frames = uint64_t(p_seconds * p_fps);
+    double owed = 0.0;
+    for (uint64_t frame = 1; frame <= frames; frame++) {
+        owed += p_refetches_per_second / p_fps;
+        const uint32_t refetches = uint32_t(owed);
+        owed -= refetches;
+        regulator->update(usage, usage, 10, 1, 1, frame, refetches, frame * 1000000u / p_fps);
+    }
+    return int64_t(regulator->get_debug_stats_dictionary().get("thrash_reductions", int64_t(-1)));
+}
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-08a thrash is visible-set refetch in a wall-clock window (C-thrash)") {
+    // Cap 20 trips at 8 refetches inside 2 s. Both frame rates must give the same answer for
+    // the same wall-clock behaviour.
+    const uint32_t frame_rates[2] = { 60, 200 };
+    for (uint32_t fps : frame_rates) {
+        CAPTURE(fps);
+        // Negative control: a starved budget refetches what it just evicted, and it must trip.
+        CHECK(_bv08a_thrash_reductions(fps, 3.0, 30.0) >= 1);
+        // A fly-through at a full cap loads and evicts every frame, but nothing comes back.
+        CHECK(_bv08a_thrash_reductions(fps, 3.0, 0.0) == 0);
+        // Refetches too sparse to reach 8 in any 2 s window: a frame-count window would see
+        // fewer at 200 fps than at 60 fps, and one counting all history would trip here.
+        CHECK(_bv08a_thrash_reductions(fps, 20.0, 2.0) == 0);
+    }
+}
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-04a budget step-down and headroom step-up are published by kind") {
+    Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+    if (regulator->get_current_max_chunks() != 20u || regulator->get_debug_stats().budget_bytes == 0) {
+        FAIL("fixture precondition: chunk cap 20 and a non-zero budget");
+        return;
+    }
+    // No evictions, so the thrash detector stays quiet. Over the threshold: one step down.
+    const uint64_t over = _bv04a_usage_at_percent(regulator, 90);
+    for (uint64_t frame = 1; frame <= 30; frame++) {
+        regulator->update(over, over, 10, 0, 0, frame);
+    }
+    Dictionary stats = regulator->get_debug_stats_dictionary();
+    CHECK(int64_t(stats.get("budget_reductions", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("last_regulation_frame", int64_t(-1))) == 30);
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("budget_reduction"));
+    CHECK(regulator->get_current_max_chunks() == 19u);
+
+    // Well under the threshold: one step back up. The multiplier is still 1.0, so it is not
+    // an LOD multiplier adjustment.
+    const uint64_t under = _bv04a_usage_at_percent(regulator, 10);
+    for (uint64_t frame = 31; frame <= 60; frame++) {
+        regulator->update(under, under, 10, 0, 0, frame);
+    }
+    stats = regulator->get_debug_stats_dictionary();
+    CHECK(int64_t(stats.get("headroom_increases", int64_t(-1))) == 1);
+    CHECK(int64_t(stats.get("regulation_adjustments", int64_t(-1))) == 2);
+    CHECK(int64_t(stats.get("lod_multiplier_adjustments", int64_t(-1))) == 0);
+    CHECK(int64_t(stats.get("last_regulation_frame", int64_t(-1))) == 60);
+    CHECK(String(stats.get("last_regulation_reason", String())) == String("headroom_increase"));
+    CHECK(regulator->get_current_max_chunks() == 20u);
+}
+
+// BV-REG (ADR adr-beyond-vram-worlds.md D-6, BV-PRIO): the M1 Tier A repeat after BV-08a
+// (run 42427296940) collapsed the cap 320 -> 4. Every one of its 1975 thrash cuts started at a
+// cap at or below the strict-frustum needed set (368 at the first cut), so each cut raised the
+// refetches that fired the next one. These drive update() with a needed set and a steady
+// refetch rate, so the detector fires on every evaluation.
+namespace {
+
+struct BVRegRun {
+    uint32_t min_cap = UINT32_MAX;
+    uint32_t final_cap = 0;
+    uint32_t reversals = 0; // direction changes of the cap while the phase ran
+};
+
+// Runs one phase at p_fps for p_seconds. Frames and wall clock continue from p_frame.
+BVRegRun _bvreg_phase(const Ref<VRAMBudgetRegulator> &p_regulator, uint64_t &p_frame, uint32_t p_fps,
+        double p_seconds, double p_refetches_per_second, uint32_t p_needed, uint32_t p_usage_percent) {
+    BVRegRun run;
+    const uint64_t usage = _bv04a_usage_at_percent(p_regulator, p_usage_percent);
+    const uint64_t frames = uint64_t(p_seconds * p_fps);
+    double owed = 0.0;
+    uint32_t previous = p_regulator->get_current_max_chunks();
+    int direction = 0;
+    for (uint64_t i = 0; i < frames; i++) {
+        p_frame++;
+        owed += p_refetches_per_second / p_fps;
+        const uint32_t refetches = uint32_t(owed);
+        owed -= refetches;
+        p_regulator->update(usage, usage, p_needed, 1, 1, p_frame, refetches, p_frame * 1000000u / p_fps, p_needed);
+        const uint32_t cap = p_regulator->get_current_max_chunks();
+        run.min_cap = MIN(run.min_cap, cap);
+        if (cap != previous) {
+            const int now_direction = cap > previous ? 1 : -1;
+            if (direction != 0 && now_direction != direction) {
+                run.reversals++;
+            }
+            direction = now_direction;
+            previous = cap;
+        }
+    }
+    run.final_cap = p_regulator->get_current_max_chunks();
+    return run;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-REG thrash at a cap below the needed set is reported, never cut") {
+    const uint32_t frame_rates[2] = { 60, 200 };
+    for (uint32_t fps : frame_rates) {
+        CAPTURE(fps);
+        Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+        if (regulator->get_current_max_chunks() != 20u || regulator->get_debug_stats().budget_bytes == 0) {
+            FAIL("fixture precondition: chunk cap 20 and a non-zero budget");
+            return;
+        }
+        // The Tier A shape: 24 needed chunks against a cap of 20, so the needed set evicts
+        // itself and comes straight back. 70 % usage: no budget step in either direction.
+        uint64_t frame = 0;
+        const BVRegRun run = _bvreg_phase(regulator, frame, fps, 10.0, 240.0, 24, 70);
+        const Dictionary stats = regulator->get_debug_stats_dictionary();
+        const int64_t events = int64_t(stats.get("thrashing_events", int64_t(-1)));
+        // ADR BV-PRIO: the detector still reports a needed set larger than the cap as thrash.
+        CHECK(events >= 10);
+        CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) == 0);
+        CHECK(int64_t(stats.get("thrash_cuts_withheld", int64_t(-1))) == events);
+        CHECK(run.min_cap == 20u);
+        CHECK(run.final_cap == 20u);
+        CHECK(regulator->get_lod_distance_multiplier() == doctest::Approx(1.0f));
+    }
+}
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator] BV-REG a thrash cut stops at the needed set, holds without oscillating, and recovers") {
+    const uint32_t frame_rates[2] = { 60, 200 };
+    for (uint32_t fps : frame_rates) {
+        CAPTURE(fps);
+        Ref<VRAMBudgetRegulator> regulator = _make_bv04a_regulator();
+        if (regulator->get_current_max_chunks() != 20u || regulator->get_debug_stats().budget_bytes == 0) {
+            FAIL("fixture precondition: chunk cap 20 and a non-zero budget");
+            return;
+        }
+        // 16 needed chunks under a cap of 20 with sustained refetches. 10 % usage sits in the
+        // step-up band, so the headroom step-up competes with every thrash cut.
+        uint64_t frame = 0;
+        const BVRegRun thrash = _bvreg_phase(regulator, frame, fps, 20.0, 240.0, 16, 10);
+        Dictionary stats = regulator->get_debug_stats_dictionary();
+        // Above the needed set the ratchet still cuts (C-thrash), but only down to it.
+        CHECK(int64_t(stats.get("thrash_reductions", int64_t(-1))) >= 1);
+        CHECK(int64_t(stats.get("thrash_cuts_withheld", int64_t(-1))) >= 1);
+        CHECK(thrash.min_cap == 16u);
+        CHECK(thrash.final_cap == 16u);
+        // Hysteresis: no step-up between cuts while the thrash persists.
+        CHECK(thrash.reversals == 0u);
+        CHECK(int64_t(stats.get("headroom_increases", int64_t(-1))) == 0);
+
+        // The refetches stop: once the hold and the thrash window have passed, the cap steps
+        // back up to the configured maximum.
+        const BVRegRun calm = _bvreg_phase(regulator, frame, fps, 20.0, 0.0, 16, 10);
+        CHECK(calm.min_cap >= 16u);
+        CHECK(calm.final_cap == 20u);
+        CHECK(calm.reversals == 0u);
+    }
+}

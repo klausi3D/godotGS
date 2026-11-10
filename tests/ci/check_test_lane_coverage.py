@@ -12,7 +12,7 @@ its name. The lanes a CI run can actually execute are:
 
 `REQUIRES_RD_TEST_FILTERS` is deliberately **not** counted. `_build_module_test_runs()`
 only appends that lane under `--gpu` / `GS_RUN_GPU_TESTS=1`, and the blocking
-workflow (`.github/workflows/gaussian_production_gates.yml`) invokes the runner
+workflow (`.github/workflows/baseline_qa.yml` cpu-tests) invokes the runner
 without it; even when it does run it is `strict=False`. Its own comment calls it
 "a catalogue of renderer-dependent tests". Crediting a catalogue as coverage
 would make cases look covered when no CI lane can fail on them - which is the
@@ -524,7 +524,7 @@ def analyze() -> Analysis:
     # Lanes that a CI run can actually execute. REQUIRES_RD_TEST_FILTERS is NOT
     # among them: `_build_module_test_runs()` only appends that lane under
     # --gpu / GS_RUN_GPU_TESTS=1, and the blocking workflow
-    # (.github/workflows/gaussian_production_gates.yml) invokes the runner
+    # (.github/workflows/baseline_qa.yml cpu-tests) invokes the runner
     # without it. Its own comment says it "serves as a catalogue of
     # renderer-dependent tests" - crediting a catalogue as coverage would report
     # coverage that does not exist, which is the defect this guard exists to find.

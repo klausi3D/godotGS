@@ -119,6 +119,8 @@ file(GLOB EDITOR_SOURCES
 file(GLOB IO_SOURCES
     "io/*.cpp"
     "io/*.h"
+    "io/gsq/*.cpp"
+    "io/gsq/*.h"
 )
 
 # Interface Contracts and Bridges

@@ -374,6 +374,13 @@ rasterized splats from the light's view into a target of the shadow region's siz
 today it never does. A dedicated depth-only splat caster is designed in #1095 and lands in
 slices: directional first, then spot, then omni.
 
+**First slice (HLOD route, directional only).** A world on the HLOD route (`GaussianSplatWorld3D`
+with the runtime cut) and the node instances it draws now cast into a `DirectionalLight3D`'s
+shadow map, so meshes and splats receive their shadows. What still holds: nothing casts on the
+other routes; spot and omni lights refuse (`shadow_caster_light_type_not_directional`); only
+splats the camera's cut drew cast, so a caster just outside the view casts nothing; a quantized
+HLOD payload refuses. See [Lighting system](../architecture/lighting-system.md).
+
 **Workaround:** for a shadow in the shape of a splat object, add a mesh proxy with
 `cast_shadow = Shadows Only` (for example a `SphereMesh` or a low-poly hull of the scan).
 
@@ -719,8 +726,8 @@ absent. It is strictly narrower than what #982 fixed.
 
 **Status: Active.**
 
-The Linux CI lane (the `cpu-tests` job in `baseline_qa.yml`, which does not run on pull
-requests) runs the `ply`, `pipeline`, `runtime` and `module` categories headless
+The Linux CI lane (the GitHub-hosted `cpu-tests` job in `baseline_qa.yml`, which runs on
+every code PR and nightly since 2026-11-07) runs the `ply`, `pipeline`, `runtime` and `module` categories headless
 under xvfb on a GPU-less hosted runner. It runs neither `qa` nor `sorting`, so no QA-scene
 and no GPU-sorting evidence exists for Linux at all; every GPU-backed lane in this project
 is Windows. See the [compatibility matrix](../reference/compatibility-matrix.md).

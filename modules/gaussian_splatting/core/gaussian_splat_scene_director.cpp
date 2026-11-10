@@ -1,5 +1,7 @@
 #include "gaussian_splat_scene_director.h"
+#include "scene_director_world_registry.h"
 
+#include "../renderer/gaussian_splat_renderer.h"
 #include "gs_project_settings.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -751,6 +753,10 @@ void GaussianSplatSceneDirector::RendererLifecycleOwner::create(RenderingDevice 
 	renderer = Ref<GaussianSplatRenderer>(memnew(GaussianSplatRenderer(p_device)));
 }
 
+int GaussianSplatSceneDirector::RendererLifecycleOwner::reference_count() const {
+    return renderer.is_null() ? 0 : renderer->get_reference_count();
+}
+
 Ref<GaussianSplatRenderer> GaussianSplatSceneDirector::RendererLifecycleOwner::release() {
 	// Hand the strong Ref to the caller by move, leaving the owner empty. Mirrors
 	// `std::move(world->renderer)`; the caller is responsible for dropping it only
@@ -879,6 +885,8 @@ void GaussianSplatSceneDirector::SubmissionStore::store_submission(WorldSubmissi
 	r_record.has_desired_residency_hint = p_submission.has_desired_residency_hint;
 	r_record.desired_residency_hint = p_submission.desired_residency_hint;
 	r_record.desired_renderer_overrides = p_submission.desired_renderer_overrides;
+	r_record.casts_shadow = p_submission.casts_shadow;
+	r_record.hlod_demotion_callback = p_submission.hlod_demotion_callback;
 	r_record.renderer_restore_state = GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot();
 	r_record.active = true;
 }
@@ -913,6 +921,8 @@ void GaussianSplatSceneDirector::_copy_world_submission_record(const SharedWorld
 	r_submission->has_desired_residency_hint = p_record.has_desired_residency_hint;
 	r_submission->desired_residency_hint = p_record.desired_residency_hint;
 	r_submission->desired_renderer_overrides = p_record.desired_renderer_overrides;
+	r_submission->casts_shadow = p_record.casts_shadow;
+	r_submission->hlod_demotion_callback = p_record.hlod_demotion_callback;
 }
 
 void GaussianSplatSceneDirector::_restore_world_submission_renderer(SharedWorld &p_world,
@@ -1836,6 +1846,30 @@ void GaussianSplatSceneDirector::build_hlod_instance_rows_for_renderer(const Gau
 	}
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	_build_hlod_instance_rows_locked(_find_world_for_renderer(p_renderer), renderer_default, r_rows, r_grading, r_asset_ids, r_instance_keys);
+}
+
+bool GaussianSplatSceneDirector::collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer,
+		LocalVector<uint64_t> &r_keys) const {
+	r_keys.clear();
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	const SharedWorld *world = _find_world_for_renderer(p_renderer);
+	if (!world) {
+		return false;
+	}
+	for (const InstanceRecord &record : world->instance_store.records()) {
+		if (record.visible && record.casts_shadow) {
+			r_keys.push_back(uint64_t(record.node_id));
+		}
+	}
+	return world->submission_store.is_active() && world->submission_store.get_record().casts_shadow;
+}
+
+void GaussianSplatSceneDirector::set_world_submission_casts_shadow(ObjectID p_owner_id, bool p_casts_shadow) {
+	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+	SharedWorld *world = _find_world_for_world_submission(p_owner_id);
+	if (world && world->submission_store.is_active()) {
+		world->submission_store.mutable_record().casts_shadow = p_casts_shadow;
+	}
 }
 
 void GaussianSplatSceneDirector::_build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
@@ -3136,6 +3170,37 @@ bool GaussianSplatSceneDirector::has_hlod_world_submission(const GaussianSplatRe
 	return _world_has_hlod_submission(_find_world_for_renderer(p_renderer), p_owner);
 }
 
+bool GaussianSplatSceneDirector::request_hlod_auto_route_demotion(const GaussianSplatRenderer *p_renderer, uint64_t p_owner,
+		const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause) {
+	Callable callback;
+	{
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+		callback = _hlod_demotion_callback_locked(_find_world_for_renderer(p_renderer), p_owner, p_refused_snapshot);
+	}
+	if (!callback.is_valid()) {
+		return false;
+	}
+	// Deferred: the request comes from the render thread, and the node resubmits on the main thread (a callable_mp
+	// to a freed node is dropped by the queue). The callback is bound to the node's submission generation, so a
+	// set_world()/apply_world() that runs before it is delivered makes the node drop it.
+	callback.call_deferred(p_cause);
+	return true;
+}
+
+Callable GaussianSplatSceneDirector::_hlod_demotion_callback_locked(const SharedWorld *p_world, uint64_t p_owner,
+		const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot) {
+	if (!_world_has_hlod_submission(p_world, p_owner)) {
+		return Callable();
+	}
+	// The renderer refused the snapshot it holds. A newer submission (set_world(), apply_world()) that has not reached
+	// the renderer yet carries another one: the refusal is not about it, and its callback must not be queued for it.
+	const SubmissionStore::WorldSubmissionRecord &record = p_world->submission_store.get_record();
+	if (p_refused_snapshot.is_null() || record.hlod_snapshot != p_refused_snapshot) {
+		return Callable();
+	}
+	return record.hlod_demotion_callback;
+}
+
 bool GaussianSplatSceneDirector::_world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner) {
 	// PR1b: no instance_store.is_empty() term. Node instances are rows 1..N of the same bundle (one draw list, one sort,
 	// one byte ledger); they no longer take the world off the HLOD route.
@@ -3147,6 +3212,20 @@ bool GaussianSplatSceneDirector::_world_has_hlod_submission(const SharedWorld *p
 bool GaussianSplatSceneDirector::test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const {
 	GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
 	return _world_has_hlod_submission(world_registry.find(p_scenario), p_owner);
+}
+
+bool GaussianSplatSceneDirector::test_request_hlod_auto_route_demotion_for_scenario(const RID &p_scenario, uint64_t p_owner,
+		const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause) {
+	Callable callback;
+	{
+		GaussianSplatting::ThreadOwnedMutexLock lock(world_mutex);
+		callback = _hlod_demotion_callback_locked(world_registry.find(p_scenario), p_owner, p_refused_snapshot);
+	}
+	if (!callback.is_valid()) {
+		return false;
+	}
+	callback.call_deferred(p_cause);
+	return true;
 }
 
 GaussianSplatRenderer::WorldSubmissionContract GaussianSplatSceneDirector::test_build_world_contract(const WorldSubmission &p_submission,

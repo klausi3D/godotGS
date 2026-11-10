@@ -870,7 +870,7 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled</code></pre></td>
-      <td><pre><code>false</code></pre></td>
+      <td><pre><code>true</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/lod/lod_config.cpp</code></pre></td>
     </tr>
     <tr>
@@ -1232,7 +1232,7 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/max_pack_jobs_in_flight</code></pre></td>
-      <td><pre><code>4</code></pre></td>
+      <td><pre><code>8</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp</code></pre></td>
     </tr>
     <tr>
@@ -1282,7 +1282,7 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/streaming/pack_worker_threads</code></pre></td>
-      <td><pre><code>2</code></pre></td>
+      <td><pre><code>8</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp</code></pre></td>
     </tr>
     <tr>

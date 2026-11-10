@@ -1,0 +1,19 @@
+{
+  "description": "GodotGS: condense plain scons / tests/{ci,runtime}/run_*.py output (scripts/agentic/condense_output.py). The script is located from the git root because Codex may start in a subdirectory; the bootstrap avoids shell-specific syntax so it parses the same in sh, PowerShell and cmd.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import runpy,subprocess,sys;r=subprocess.run(['git','rev-parse','--show-toplevel'],capture_output=True,text=True).stdout.strip();sys.argv=['condense_output','hook','--codex'];runpy.run_path(r+'/scripts/agentic/condense_output.py',run_name='__main__')\"",
+            "commandWindows": "python -c \"import runpy,subprocess,sys;r=subprocess.run(['git','rev-parse','--show-toplevel'],capture_output=True,text=True).stdout.strip();sys.argv=['condense_output','hook','--codex'];runpy.run_path(r+'/scripts/agentic/condense_output.py',run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Condensing build/test output"
+          }
+        ]
+      }
+    ]
+  }
+}

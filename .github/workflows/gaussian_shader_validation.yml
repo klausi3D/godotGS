@@ -18,23 +18,11 @@ on:
       - "modules/gaussian_splatting/renderer/tile_renderer.cpp"
       - "modules/gaussian_splatting/interfaces/gpu_culler.cpp"
       - ".github/workflows/gaussian_shader_validation.yml"
-  push:
-    branches: [master, develop]
-    paths:
-      - "modules/gaussian_splatting/shaders/**"
-      - "modules/gaussian_splatting/compute/**"
-      - "modules/gaussian_splatting/renderer/gpu_sorter.cpp"
-      - "modules/gaussian_splatting/renderer/gpu_sorter.h"
-      - "modules/gaussian_splatting/renderer/gpu_sorting_config.cpp"
-      - "modules/gaussian_splatting/renderer/gpu_sorting_constants.h"
-      - "modules/gaussian_splatting/renderer/sorting_contract.h"
-      - "modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp"
-      - "modules/gaussian_splatting/renderer/pipeline_io_contracts.h"
-      - "modules/gaussian_splatting/renderer/tile_render_stages.h"
-      - "modules/gaussian_splatting/renderer/tile_render_types.h"
-      - "modules/gaussian_splatting/renderer/tile_renderer.cpp"
-      - "modules/gaussian_splatting/interfaces/gpu_culler.cpp"
-      - ".github/workflows/gaussian_shader_validation.yml"
+  # CI diet (maintainer approval 2026-11-07): no push trigger, so a merge costs no
+  # self-hosted runner time. The PR run above validates the same shaders; the
+  # nightly below re-validates master HEAD without a path filter.
+  schedule:
+    - cron: "15 0 * * *"
   workflow_dispatch:
   merge_group:
     types: [checks_requested]
@@ -44,14 +32,14 @@ permissions:
 
 concurrency:
   group: gaussian-shader-validation-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
 
 jobs:
   shader-validation:
     name: Runtime Shader Matrix + Contracts
     # Never run self-hosted code on untrusted fork PR code. Same-repo branches
-    # (maintainer PRs), push, and workflow_dispatch still run; fork PRs are skipped.
-    # Mirrors the guard used in gaussian_production_gates.yml and protects the
+    # (maintainer PRs), schedule, and workflow_dispatch still run; fork PRs are skipped.
+    # Mirrors the guard used in baseline_qa.yml and protects the
     # persistent runner from arbitrary checked-out repo code (compile_shaders.py and
     # anything under modules/.../shaders). (merge_group is maintainer-gated — see the
     # runner trust boundary in .github/workflows/README.md.)

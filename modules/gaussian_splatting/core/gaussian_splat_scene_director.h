@@ -15,16 +15,22 @@
 
 #include "gaussian_data.h"
 #include "gaussian_splat_asset.h"
+#include "gaussian_splat_hlod_runtime_data.h"
 #include "gaussian_splat_world_frame.h"
 #include "streaming_chunk_payload_source.h"
 #include "thread_owned_mutex.h"
 #include "../lod/lod_config.h"
-#include "../renderer/gaussian_splat_renderer.h"
+#include "../interfaces/gpu_culler.h"
+#include "../renderer/gaussian_gpu_layout.h"
 
 class ColorGradingResource;
+class GaussianSplatRenderer;
 class Node;
 class Node3D;
 class RenderingDevice;
+struct GaussianSplatWorldSubmissionContract;
+struct GaussianSplatWorldSubmissionRuntimeStateSnapshot;
+struct InstanceAssetRegistration;
 
 class GaussianSplatSceneDirector : public Object {
     GDCLASS(GaussianSplatSceneDirector, Object);
@@ -73,12 +79,19 @@ public:
         RID scenario;
         Ref<GaussianData> gaussian_data;
         Ref<ChunkPayloadSource> payload_source;
-        Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
+        Vector<StaticChunk> static_chunks;
         AABB bounds;
         Dictionary metadata;
         bool has_desired_residency_hint = false;
         int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
         Dictionary desired_renderer_overrides;
+        // The world's own cast_shadow (GaussianSplatWorld3D). Godot gives the shared renderer a shadow pass when ANY of its
+        // Gaussian instances casts, so the HLOD shadow casters read the world's flag here (row 0) instead of assuming it.
+        bool casts_shadow = true;
+        // The automatic HLOD route's sticky demotion (lod/hlod_auto_route.h): called deferred, on the main thread, with the
+        // cause when the renderer finds that the route cannot serve this world. Empty: the world is never demoted. The
+        // node binds its submission generation to it and drops a call that arrives for an older submission.
+        Callable hlod_demotion_callback;
     };
 
     struct SubmissionCounts {
@@ -410,11 +423,14 @@ public:
     // Test-only: has_hlod_world_submission / build_hlod_instance_rows_for_renderer for the world of a scenario (same
     // code, located by scenario; rows use a null renderer-default grading). No RenderingDevice needed.
     bool test_has_hlod_world_submission_for_scenario(const RID &p_scenario, uint64_t p_owner) const;
+    // Test-only: request_hlod_auto_route_demotion for the world of a scenario (same staleness check, located by scenario).
+    bool test_request_hlod_auto_route_demotion_for_scenario(const RID &p_scenario, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
     void test_build_hlod_instance_rows_for_scenario(const RID &p_scenario, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
     // Test-only: the renderer contract SubmissionStore::build_contract builds for this submission against a renderer whose
     // max_splats is `p_renderer_max_splats` (the clamp to the data count and the pre-clamp view cap, PR1b).
-    static GaussianSplatRenderer::WorldSubmissionContract test_build_world_contract(const WorldSubmission &p_submission,
+    static GaussianSplatWorldSubmissionContract test_build_world_contract(const WorldSubmission &p_submission,
             int p_renderer_max_splats);
 #endif
     bool get_world_submission(ObjectID p_owner_id, WorldSubmission *r_submission) const;
@@ -422,12 +438,23 @@ public:
     // The HLOD route's world: an active world submission owned by `p_owner` (ADR one-route-many-producers, PR1b). Node
     // instances no longer make it exclusive: they join the route as rows 1..N (build_hlod_instance_rows_for_renderer).
     bool has_hlod_world_submission(const GaussianSplatRenderer *p_renderer, uint64_t p_owner) const;
+    // The automatic HLOD route's sticky demotion: queues the active world submission's demotion callback (deferred, main
+    // thread) when p_owner still owns it and p_refused_snapshot is still its submitted snapshot (a refusal of a snapshot
+    // a newer submission replaced is stale). Any thread; the callback is called outside world_mutex. True when queued.
+    bool request_hlod_auto_route_demotion(const GaussianSplatRenderer *p_renderer, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot, const String &p_cause);
     // The HLOD route's rows: row 0 is the world's identity row (asset 0), then one row per visible node instance with
     // asset data, in instance-store order, built exactly as build_instance_buffer_for_renderer builds a node row.
     // `r_asset_ids` and `r_instance_keys` are parallel: each row's 64-bit asset id and the stable key of its instance
     // (the node's ObjectID; 0 for the world). Empty when there is no renderable world submission. Unlike
     // build_instance_buffer_for_renderer (unchanged: the canonical routes keep their behaviour until follow-up F1),
     // a node never removes the world row.
+    // Splat shadow casters (#1095): the stable keys (node ObjectIDs) of this renderer's world's node instances that are
+    // visible and cast shadows. The HLOD shadow pass casts exactly the drawn rows among them. Returns whether the world
+    // itself (row 0) casts: its submission's casts_shadow; false without an active world submission.
+    bool collect_hlod_shadow_caster_keys_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<uint64_t> &r_keys) const;
+    // The world node's cast_shadow changed: update the active submission in place (no resubmission, no bundle rebuild).
+    void set_world_submission_casts_shadow(ObjectID p_owner_id, bool p_casts_shadow);
     void build_hlod_instance_rows_for_renderer(const GaussianSplatRenderer *p_renderer, LocalVector<InstanceDataGPU> &r_rows,
             LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids, LocalVector<uint64_t> &r_instance_keys) const;
     // The node's HLOD-route admission state in the last main view its renderer prepared: empty when it was drawn (or
@@ -447,701 +474,23 @@ protected:
     static void _bind_methods();
 
 private:
-    struct InstanceRecord {
-        ObjectID node_id;
-        Transform3D transform;
-        float opacity = 1.0f;
-        float lod_bias = 0.0f;
-        float wind_intensity = 1.0f;
-        uint32_t wind_mode = INSTANCE_WIND_INHERIT;
-		Vector3 wind_direction = Vector3();
-		float wind_frequency = 1.0f;
-		float effect_position_scale = 1.0f;
-		float effect_opacity_scale = 1.0f;
-		// Full 64-bit ObjectID of the asset Node3D. Must NOT be truncated to
-		// 32 bits: two assets whose ObjectIDs collide in the low 32 bits would
-		// otherwise alias the same InstanceStore::asset_records entry.
-		uint64_t asset_id = 0;
-		uint32_t flags = 0;
-        uint32_t last_lod = 0;
-        bool casts_shadow = false;
-        bool visible = true;
-        bool has_desired_residency_hint = false;
-        int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
-        bool dirty = true;
-        Ref<ColorGradingResource> color_grading;
+    // #610: the components below are defined in their own headers. A .cpp that works on them includes
+    // scene_director_world_registry.h; every other consumer of the director only needs this header.
+    struct InstanceRecord; // scene_director_instance_store.h
+    struct AssetRecord;
+    class InstanceStore;
+    struct SphereEffectorRecord; // scene_director_sphere_effector_store.h
+    class SphereEffectorStore;
+    struct WorldSubmissionRecord; // scene_director_submission_store.h
+    class SubmissionStore;
+    class RendererLifecycleOwner; // scene_director_renderer_lifecycle.h
+    class LODCacheOwner; // scene_director_lod_cache.h
+    struct SharedWorld; // scene_director_world_registry.h
 
-        // Scene-effector filter state — cached on registration / setters so the
-        // render thread never has to read these from the live Node3D.
-        bool scene_effectors_enabled = true;
-        uint32_t scene_effector_layer_mask = 1u;
-        bool scene_effector_scope_filter_present = false;
-        bool scene_effector_scope_filter_valid = true;
-        ObjectID scene_effector_scope_root_id;
-        LocalVector<ObjectID> scene_tree_ancestor_ids;
-	};
-
-    // Retained-asset payload keyed by the FULL 64-bit asset ObjectID. Moved out
-    // of SharedWorld and into InstanceStore (below) as part of #610 S3, which
-    // groups every instance/asset-lifetime field behind one owned component.
-    struct AssetRecord {
-        Ref<GaussianSplatAsset> asset;
-        Ref<GaussianData> data;
-        uint32_t refcount = 0;
-        uint32_t edited_version = 0;
-        // DATA-001: the asset's payload_version at the time `data` was built. A DYNAMIC
-        // asset re-populated at runtime bumps payload_version (edited_version does not, in
-        // exports), so this lets retain_asset/refresh_asset rebuild the cached data.
-        uint32_t payload_version = 0;
-    };
-
-    // #610 S3: InstanceStore owns the per-scenario instance records, the
-    // node->slot lookup, the instance/asset generation counters and the
-    // asset-retention table. It is the boundary the prune predicate
-    // (_world_has_no_instances) and the sibling decomposition slices see:
-    // callers touch only these public methods, never the fields -- that is what
-    // lets S4/S5/S8 be extracted independently.
-    //
-    // It takes NO lock of its own: every method is called under the director's
-    // single world_mutex, preserving the one ThreadOwnedMutex ownership record
-    // the renderer-contract-boundary guard depends on.
-    //
-    // InstanceRecord::last_lod deliberately stays inside the record and is
-    // written in place by the render-thread LOD walk
-    // (update_instance_lods_for_renderer). That LOD cache belongs to a later
-    // slice (S9), so the store exposes mutable_records() for the walk and hands
-    // out const views everywhere else.
-    class InstanceStore {
-    public:
-        // --- instance queries ---
-        bool is_empty() const { return instances.is_empty(); }
-        uint32_t instance_count() const { return instances.size(); }
-        bool has_instance(ObjectID p_node_id) const { return instance_lookup.has(p_node_id); }
-        uint64_t generation() const { return instance_generation; }
-        uint64_t asset_generation() const { return instance_asset_generation; }
-
-        const InstanceRecord *find(ObjectID p_node_id) const {
-            const uint32_t *index_ptr = instance_lookup.getptr(p_node_id);
-            if (!index_ptr || *index_ptr >= instances.size()) {
-                return nullptr;
-            }
-            return &instances[*index_ptr];
-        }
-        InstanceRecord *find_mutable(ObjectID p_node_id) {
-            uint32_t *index_ptr = instance_lookup.getptr(p_node_id);
-            if (!index_ptr || *index_ptr >= instances.size()) {
-                return nullptr;
-            }
-            return &instances[*index_ptr];
-        }
-        // Read-only view for the render-path builders.
-        const LocalVector<InstanceRecord> &records() const { return instances; }
-        // Mutable view for the S9-owned render-thread LOD walk, which edits
-        // last_lod / dirty in place. Callers MUST NOT push or remove through
-        // this handle -- membership changes go through append() / remove() so
-        // instance_lookup stays consistent.
-        LocalVector<InstanceRecord> &mutable_records() { return instances; }
-
-        // --- instance mutations (keep instance_lookup consistent) ---
-        void append(const InstanceRecord &p_record) {
-            instance_lookup[p_record.node_id] = instances.size();
-            instances.push_back(p_record);
-        }
-        // Swap-remove the record for p_node_id, fixing up the moved record's
-        // lookup slot. Returns false (and leaves r_asset_id untouched) when the
-        // node is absent; otherwise sets r_asset_id to the removed record's
-        // asset_id so the caller can release the matching asset record.
-        bool remove(ObjectID p_node_id, uint64_t &r_asset_id) {
-            uint32_t *index_ptr = instance_lookup.getptr(p_node_id);
-            if (!index_ptr || *index_ptr >= instances.size()) {
-                return false;
-            }
-            const uint32_t index = *index_ptr;
-            r_asset_id = instances[index].asset_id;
-            const uint32_t last_index = instances.size() - 1;
-            if (index != last_index) {
-                instances[index] = instances[last_index];
-                instance_lookup[instances[index].node_id] = index;
-            }
-            instances.remove_at(last_index);
-            instance_lookup.erase(p_node_id);
-            return true;
-        }
-
-        // Saturating generation bumps (skip 0, the "unset" sentinel). Defined in
-        // the .cpp so they can reuse the file-local saturating-increment helper.
-        void bump_generation();
-        void bump_asset_generation();
-
-        // --- asset retention (retain/refresh/release policy moved out of the
-        // director; see the .cpp definitions) ---
-        bool retain_asset(const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id);
-        bool refresh_asset(const Ref<GaussianSplatAsset> &p_asset, uint64_t p_asset_id);
-        void release_asset(uint64_t p_asset_id);
-
-        // --- asset queries ---
-        const AssetRecord *find_asset(uint64_t p_asset_id) const { return asset_records.getptr(p_asset_id); }
-        bool has_asset(uint64_t p_asset_id) const { return asset_records.has(p_asset_id); }
-        uint32_t asset_count() const { return asset_records.size(); }
-        bool assets_empty() const { return asset_records.is_empty(); }
-        const HashMap<uint64_t, AssetRecord> &assets() const { return asset_records; }
-
-        // Drop every instance, lookup slot and asset record. Used by
-        // teardown_world_for_scenario, which erases the whole world entry right
-        // after; the generation counters are intentionally left untouched,
-        // matching the prior inline teardown.
-        void clear() {
-            instances.clear();
-            instance_lookup.clear();
-            asset_records.clear();
-        }
-
-    private:
-        static bool _populate_gaussian_data_from_asset(const Ref<GaussianSplatAsset> &p_asset, Ref<GaussianData> &r_data);
-        // #798 review round 4: drop a record's cached payload after a FAILED rebuild,
-        // so a failed retain/refresh evicts the stale GaussianData instead of leaving
-        // the render path drawing it. See the .cpp definition for the full rationale.
-        void _evict_asset_data(AssetRecord &r_record);
-
-        LocalVector<InstanceRecord> instances;
-        HashMap<ObjectID, uint32_t> instance_lookup;
-        uint64_t instance_generation = 1;
-        uint64_t instance_asset_generation = 1;
-        HashMap<uint64_t, AssetRecord> asset_records;
-    };
-
-    struct SphereEffectorRecord {
-        ObjectID effector_id;
-        Transform3D transform;
-        float radius = 0.0f;
-        float strength = 0.0f;
-        float falloff = 2.0f;
-        float frequency = 2.0f;
-        float opacity_strength = 1.0f;
-        float target_opacity = 0.0f;
-        uint32_t layer_mask = 1u;
-        uint32_t scope_mode = SPHERE_EFFECTOR_SCOPE_SUBTREE;
-        ObjectID scope_root_id;
-        int32_t priority = 0;
-        uint64_t registration_serial = 0;
-        uint32_t scope_specificity = 0u;
-        // Cached liveness of scope_root_id. Starts true on register, flipped
-        // false (and triggers a generation bump) by the payload builder when
-        // `ObjectDB::get_instance(scope_root_id)` no longer resolves.
-        bool scope_root_valid = true;
-        bool enabled = true;
-        bool affect_position = true;
-        bool affect_opacity = false;
-    };
-
-    // #610 S4: SphereEffectorStore owns the per-scenario sphere-effector
-    // records, the effector->slot lookup, the generation counter and the
-    // monotonic registration serial. It is the boundary the prune predicate
-    // (_world_has_no_sphere_effectors) and the sibling decomposition slices
-    // see: callers touch only these public methods, never the fields -- that
-    // is what lets S4/S5/S8 be extracted independently. Mirrors InstanceStore
-    // (#610 S3).
-    //
-    // It takes NO lock of its own: every method is called under the director's
-    // single world_mutex, preserving the one ThreadOwnedMutex ownership record
-    // the renderer-contract-boundary guard depends on.
-    //
-    // D5 (OPEN owner decision, NOT resolved by this slice): the render-thread
-    // payload builder (_build_sorted_sphere_effector_payload) revalidates each
-    // record's cached scope_root_valid against ObjectDB and, when it flips,
-    // writes the flag back through a const view (const_cast) and bumps the
-    // generation. That write-through-const behavior is preserved verbatim here;
-    // S4 is a pure move. records() hands out a const view and the builder keeps
-    // its existing const_cast to mutate scope_root_valid in place.
-    class SphereEffectorStore {
-    public:
-        // --- queries ---
-        bool is_empty() const { return sphere_effectors.is_empty(); }
-        uint32_t count() const { return sphere_effectors.size(); }
-        bool has_effector(ObjectID p_effector_id) const { return sphere_effector_lookup.has(p_effector_id); }
-        uint64_t generation() const { return sphere_effector_generation; }
-
-        // Read-only view for the render-thread payload builder and the
-        // main-thread debug-state query. The builder mutates each record's
-        // cached scope_root_valid in place via const_cast (D5, above);
-        // membership never changes through this handle -- adds/removes go
-        // through append()/remove() so sphere_effector_lookup stays consistent.
-        const LocalVector<SphereEffectorRecord> &records() const { return sphere_effectors; }
-
-        // Mutable lookup of a single record for the in-place update path.
-        // Returns nullptr when the effector is absent.
-        SphereEffectorRecord *find_mutable(ObjectID p_effector_id) {
-            uint32_t *index_ptr = sphere_effector_lookup.getptr(p_effector_id);
-            if (!index_ptr || *index_ptr >= sphere_effectors.size()) {
-                return nullptr;
-            }
-            return &sphere_effectors[*index_ptr];
-        }
-
-        // --- mutations (keep sphere_effector_lookup consistent) ---
-        // Stamp the record with the next registration serial, record its lookup
-        // slot and append it. Mirrors the inline register path verbatim: the
-        // serial is assigned BEFORE the copy is stored.
-        void append(SphereEffectorRecord &p_record) {
-            p_record.registration_serial = ++sphere_effector_registration_serial;
-            sphere_effector_lookup[p_record.effector_id] = sphere_effectors.size();
-            sphere_effectors.push_back(p_record);
-        }
-        // Swap-remove the record for p_effector_id, fixing up the moved
-        // record's lookup slot. Returns false when the effector is absent
-        // (leaving the store untouched), matching the prior inline guard.
-        bool remove(ObjectID p_effector_id) {
-            uint32_t *index_ptr = sphere_effector_lookup.getptr(p_effector_id);
-            if (!index_ptr || *index_ptr >= sphere_effectors.size()) {
-                return false;
-            }
-            const uint32_t index = *index_ptr;
-            const uint32_t last_index = sphere_effectors.size() - 1;
-            if (index != last_index) {
-                sphere_effectors[index] = sphere_effectors[last_index];
-                sphere_effector_lookup[sphere_effectors[index].effector_id] = index;
-            }
-            sphere_effectors.remove_at(last_index);
-            sphere_effector_lookup.erase(p_effector_id);
-            return true;
-        }
-
-        // Saturating generation bump (skip 0, the "unset"/"no world" sentinel
-        // that get_sphere_effector_generation_for_renderer returns for a
-        // missing world). Defined in the .cpp so it reuses the file-local
-        // saturating-increment helper. #610 S4 (D2): the register/update/remove
-        // paths previously bumped through that saturating helper while the two
-        // render-thread D5 revalidation sites used a raw `++` (wrap-to-0 on
-        // uint64 overflow). All six now route through this one saturating
-        // method, so the two D5 sites wrap to 1 instead of 0. Because 0 is the
-        // reserved sentinel above, that is a deliberate consistency fix that
-        // closes a spurious-0-on-overflow hazard on those two sites -- NOT a
-        // 1:1 move -- and it is unreachable in practice (2^64 bumps). Firing
-        // conditions and order are otherwise unchanged. See the D2 note at the
-        // two sites in scene_director_sphere_effectors.cpp.
-        void bump_generation();
-
-        // Drop every effector and lookup slot. Used by
-        // teardown_world_for_scenario, which erases the whole world entry right
-        // after; the generation/serial counters are intentionally left
-        // untouched, matching the prior inline teardown.
-        void clear() {
-            sphere_effectors.clear();
-            sphere_effector_lookup.clear();
-        }
-
-    private:
-        LocalVector<SphereEffectorRecord> sphere_effectors;
-        HashMap<ObjectID, uint32_t> sphere_effector_lookup;
-        uint64_t sphere_effector_generation = 1;
-        uint64_t sphere_effector_registration_serial = 0;
-    };
-
-    // #610 S5: SubmissionStore owns the world-submission record — the active
-    // contract data a GaussianSplatWorld3D installs on a SharedWorld — together
-    // with the PURE functions that build a contract from it. It is DATA + pure
-    // construction ONLY.
-    //
-    // The three-phase submit protocol STAYS in the director: submit_world_submission
-    // arbitrates under world_mutex, applies the blocking render-thread dispatch with
-    // the lock RELEASED, then commits/re-validates under world_mutex, the whole
-    // sequence serialized by world_submission_apply_mutex. That protocol, its
-    // rollback ordering (queue_restore_first), its R1–R4 re-validation and the prune
-    // retry are orchestration, not record state, so they are deliberately NOT here —
-    // the store never dispatches, never locks and never decides.
-    //
-    // Like S3's InstanceStore it takes NO lock of its own: every access happens under
-    // the director's single world_mutex, preserving the one ThreadOwnedMutex
-    // ownership record the renderer-contract-boundary guard depends on.
-    //
-    // build_contract() is the pure contract construction: (renderer-state snapshot,
-    // record) -> WorldSubmissionContract, with zero side effects. It is defined in
-    // the .cpp so it keeps reaching the file-local dictionary/override helpers.
-    class SubmissionStore {
-    public:
-        struct WorldSubmissionRecord {
-        Ref<GaussianSplatHlodRuntimeData> hlod_snapshot;
-        String hlod_reason;
-        float hlod_tau_px = 0.0f;
-        uint64_t hlod_world_key = 0;
-            ObjectID owner_id;
-            Ref<GaussianData> gaussian_data;
-            Ref<ChunkPayloadSource> payload_source;
-            Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
-            AABB bounds;
-            Dictionary metadata;
-            bool has_desired_residency_hint = false;
-            int32_t desired_residency_hint = SUBMISSION_RESIDENCY_HINT_RESIDENT;
-            Dictionary desired_renderer_overrides;
-            GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot renderer_restore_state;
-            bool active = false;
-        };
-
-        // --- record queries ---
-        bool is_active() const { return record.active; }
-        ObjectID owner_id() const { return record.owner_id; }
-
-        // Read-only view for the protocol's re-validation / getter reads and for the
-        // pure helpers below. mutable_record() is for the protocol's in-place field
-        // writes (renderer_restore_state) and the wholesale commit assignment; the
-        // active-flag transitions those produce are byte-identical to the pre-S5
-        // direct-field writes.
-        const WorldSubmissionRecord &get_record() const { return record; }
-        WorldSubmissionRecord &mutable_record() { return record; }
-
-        // Clear the record back to the inactive default. Matches the prior
-        // `world_submission = SharedWorld::WorldSubmissionRecord()` idiom used by
-        // release, cross-scenario eviction and teardown.
-        void reset() { record = WorldSubmissionRecord(); }
-
-        // --- pure construction (no side effects, no dispatch, no lock) ---
-        // Populate r_record from a submission DTO (owner/data/payload/overrides…),
-        // resetting renderer_restore_state and marking the record active.
-        static void store_submission(WorldSubmissionRecord &r_record, const WorldSubmission &p_submission);
-        // True when the record carries resident or file-backed splats to draw.
-        static bool record_has_renderable_payload(const WorldSubmissionRecord &p_record);
-        // Build the renderer contract from a runtime-state baseline and the record.
-        static GaussianSplatRenderer::WorldSubmissionContract build_contract(
-                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state,
-                const WorldSubmissionRecord &p_record);
-
-    private:
-        WorldSubmissionRecord record;
-    };
-
-    // #610 S7: RendererLifecycleOwner owns the per-scenario shared
-    // Ref<GaussianSplatRenderer> and the two lifecycle transitions that create
-    // and release it -- lazy instantiation (memnew on first demand) and the
-    // move-out that hands the last Ref to a caller's deferred-release path. It is
-    // the boundary the renderer-Ref lifecycle presents to the rest of the
-    // director: instance / sphere-effector / world-submission code sees only the
-    // renderer's IDENTITY (ptr() / is_valid() / is_null()) or an opaque strong Ref
-    // (ref()), never the owned field. Mirrors S3's InstanceStore / S4's
-    // SphereEffectorStore / S5's SubmissionStore.
-    //
-    // Like those stores it takes NO lock of its own: every access happens under
-    // the director's single world_mutex, preserving the one ThreadOwnedMutex
-    // ownership record the renderer-contract-boundary guard depends on. It adds no
-    // mutex and holds no back-pointer to the director.
-    //
-    // DELIBERATELY NOT MOVED HERE -- these stay on the director because they are
-    // the #628 / #611 renderer-contract territory this slice must not perturb, not
-    // renderer-Ref lifecycle:
-    //   * GPU BRING-UP. `_initialize_world_renderer` dispatches
-    //     GaussianSplatRenderer::initialize() across the blocking render-thread
-    //     boundary and is one of the functions
-    //     tests/ci/check_renderer_contract_boundary.py allowlists + instruments
-    //     (it must reach world_mutex ownership + _report_renderer_contract_lock_violation).
-    //     It stays on the director and reaches the renderer through ref().
-    //   * The three-phase submit protocol's PHASE-2 HELD REF. submit_world_submission
-    //     copies the strong Ref (ref()) to inflate the reference count to 2 across
-    //     the unlocked apply, then unref()s it and retries the prune (#611 PR B2).
-    //     That protocol -- the copy, the unref, the retry -- stays verbatim in the
-    //     director; this owner only vends the Ref it copies.
-    //   * The DEFERRED LAST-REF RELEASE ordering (#628). A pruned / torn-down
-    //     renderer's Ref is move()d out via release() into a caller-owned release
-    //     vector or a local declared BEFORE world_mutex, so ~GaussianSplatRenderer
-    //     (a p_allow_timeout=false blocking dispatch) runs only after the lock is
-    //     released. This owner never drops the last Ref itself; release() just
-    //     transfers ownership to the caller, whose declaration order the guard's
-    //     check_renderer_ref_released_under_lock still enforces.
-    class RendererLifecycleOwner {
-    public:
-        // --- renderer identity / state (what instance/sphere/submission code sees) ---
-        bool is_valid() const { return renderer.is_valid(); }
-        bool is_null() const { return renderer.is_null(); }
-        GaussianSplatRenderer *ptr() const { return renderer.ptr(); }
-        // Opaque strong Ref. Callers that must copy it (the phase-2 protocol, the
-        // deferred-work queue's queue_apply/queue_restore, get_shared_renderer, the
-        // InstanceSubmission DTO) or deref it for a NON-dispatching read (snapshot /
-        // get_resource_state) go through here; the identity and refcount semantics
-        // are exactly those of the former SharedWorld::renderer field.
-        const Ref<GaussianSplatRenderer> &ref() const { return renderer; }
-        // Renderer reference count, or 0 when null. Exists solely for the prune
-        // predicate `_world_renderer_unshared`, which preserves its historical
-        // `is_null() || get_reference_count() <= 1` threshold by reading through
-        // this (the is_null() short-circuit still guards the deref).
-        int reference_count() const { return renderer.is_null() ? 0 : renderer->get_reference_count(); }
-
-        // --- lifecycle: create + release (the ONLY two field mutations) ---
-        // Lazily instantiate the shared renderer for this world's device.
-        // Precondition (unchanged from the inline site): the caller already
-        // established the renderer is absent. A pure move of the former inline
-        // `renderer = Ref<GaussianSplatRenderer>(memnew(GaussianSplatRenderer(device)))`.
-        void create(RenderingDevice *p_device);
-        // Move the strong Ref out for deferred, UNLOCKED release, leaving the owner
-        // empty. Mirrors the former `std::move(world->renderer)`. The caller MUST
-        // let the returned Ref drop only after world_mutex is released (it is pushed
-        // into a release vector / assigned to a local declared before the lock) --
-        // dropping the last Ref under the lock is the #628 indefinite hang.
-        Ref<GaussianSplatRenderer> release();
-
-    private:
-        Ref<GaussianSplatRenderer> renderer;
-    };
-
-    // #610 S9: LODCacheOwner owns the per-scenario LOD-walk memoization AND the
-    // O(instances) LOD walk itself (the body of update_instance_lods_for_renderer).
-    // The five memo fields used to live inline in SharedWorld and were touched
-    // nowhere but that walk (early-out + write-back), so they encapsulate cleanly
-    // here -- the same store-extraction pattern as S3/S4/S5/S7.
-    //
-    // Like every sibling store it takes NO lock of its own: update() is called
-    // ONLY from update_instance_lods_for_renderer, on the RENDER THREAD, under the
-    // director's single world_mutex -- preserving the one ThreadOwnedMutex
-    // ownership record the renderer-contract-boundary guard depends on. Do NOT give
-    // it a mutex; that would fragment that ownership record.
-    //
-    // The render-thread carve-out (already documented on InstanceStore): update()
-    // mutates p_store.mutable_records()[i].last_lod / .dirty in place and bumps the
-    // store's generation on change. This is the one place the render thread writes
-    // back into director-owned records; it is safe because world_mutex fully
-    // serializes it against every main-thread instance mutation. Whether to keep
-    // this render-thread write or relocate it (main-thread writer / render-owned
-    // double-buffer) is the H1 decision, deferred to #749 as a separate behavior-
-    // changing PR. S9 is a behavior-preserving extraction: no visual or timing
-    // change relative to the pre-S9 inline walk.
-    class LODCacheOwner {
-    public:
-        // Runs the memoized O(instances) LOD walk. Called only under world_mutex.
-        // Takes no lock. Mutates last_lod / dirty in p_store's records in place and
-        // bumps p_store's generation when any instance's LOD changed.
-        void update(InstanceStore &p_store, const Vector3 &p_camera_pos,
-                const LODConfig &p_lod_config, float p_hysteresis_zone);
-
-        // Test / diagnostics only.
-        bool cache_valid() const { return lod_walk_cache_valid; }
-        uint64_t last_generation() const { return lod_walk_last_generation; }
-
-    private:
-        // Per-instance LOD-walk memoization (host-side, zero visual effect). The
-        // walk's result is a pure function of (camera position, every instance
-        // transform/bias, the LODConfig, the hysteresis zone). The store's
-        // generation already bumps on every instance add/remove/transform/param
-        // change, so the whole walk is skipped when none of those inputs moved
-        // since last time. Recorded AFTER the walk so the walk's own generation
-        // bump is captured and does not force a redundant re-walk next frame.
-        bool lod_walk_cache_valid = false;
-        Vector3 lod_walk_last_camera_pos;
-        uint64_t lod_walk_last_generation = 0;
-        LODConfig lod_walk_last_config;
-        float lod_walk_last_hysteresis = 0.0f;
-    };
-
-    struct SharedWorld {
-        RID scenario;
-        RendererLifecycleOwner renderer_owner;
-        InstanceStore instance_store;
-        SphereEffectorStore sphere_effector_store;
-        SubmissionStore submission_store;
-        // #610 S9: the per-instance LOD-walk memoization + the walk itself.
-        LODCacheOwner lod_cache_owner;
-    };
-
-    // #611: renderer-contract work captured while `world_mutex` is held and
-    // executed only after it has been released.
-    //
-    // `apply_world_submission_contract()`, `restore_world_submission_runtime_state()`
-    // and `GaussianSplatRenderer::initialize()` all reach a *blocking*
-    // render-thread dispatch. Building the contract, by contrast, is pure
-    // bookkeeping. So the split is: decide under the lock, dispatch outside it.
-    //
-    // A queued entry holds its own `Ref<GaussianSplatRenderer>`, so the renderer
-    // stays alive across the unlock even if the world it came from is pruned in
-    // between; it does *not* reference the `SharedWorld`, which may be gone.
-    //
-    // Declare this BEFORE the `ThreadOwnedMutexLock` in every caller: locals are
-    // destroyed in reverse order, so the lock must be released first.
-    //
-    // #610 S6: every world_mutex critical section in the director's .cpp now
-    // carries the enclosing `RendererContractWorkQueue` (below) rather than a bare
-    // DeferredRendererWork, because most also needed the `#628` deferred-release
-    // vector and the two had a fragile relative destruction order. That wrapper
-    // owns this queue plus the release vector and fixes the order internally, so
-    // callers declare one local instead of two ordered ones. This class stays a
-    // standalone primitive — used directly by
-    // tests/test_scene_director_renderer_contract_lock.h — and its own
-    // declare-before-the-lock contract is unchanged.
-    //
-    // Public only so its bookkeeping can be tested directly (see
-    // tests/test_scene_director_renderer_contract_lock.h). It is an internal
-    // mechanism, not part of the node-facing API.
+    // Public only so their bookkeeping can be tested directly; defined in scene_director_deferred_work.h.
 public:
-    class DeferredRendererWork {
-    public:
-        enum class Kind : uint8_t {
-            APPLY,
-            RESTORE,
-            INITIALIZE,
-        };
-
-    private:
-        struct Entry {
-            Ref<GaussianSplatRenderer> renderer;
-            GaussianSplatRenderer::WorldSubmissionContract contract;
-            GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot restore_state;
-            Kind kind = Kind::APPLY;
-        };
-        LocalVector<Entry> entries;
-        // Lifetime total of entries this queue actually dispatched. The only
-        // observable that separates "flush ran the work" from "cancel dropped
-        // it" without a live RenderingDevice, which no headless lane has.
-        //
-        // An INITIALIZE entry whose guard re-check finds the renderer already
-        // initialized does NOT count: it was queued but not dispatched, and
-        // conflating the two would make this counter unable to show that the
-        // re-check fires.
-        uint32_t dispatched_entry_count = 0;
-
-    public:
-        void queue_apply(const Ref<GaussianSplatRenderer> &p_renderer,
-                const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
-        void queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
-                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
-        // #611 PR B2: a restore that must run BEFORE anything already queued.
-        //
-        // This exists for exactly one caller: `submit_world_submission`'s
-        // rollback, and it is a behavioural requirement rather than a
-        // preference.
-        //
-        // When phase 1 lazily creates a renderer for a world that already has an
-        // active record P, `_get_or_create_world_for_scenario` queues an apply of
-        // P, and `target_previous_renderer_state` is snapshotted from the
-        // still-blank renderer BEFORE that apply runs. The pre-#611 code then
-        // restored INLINE and let the queued apply(P) flush afterwards, so P was
-        // the last writer and the renderer ended up holding P's contract --
-        // matching the director's record, which a rejection leaves at P.
-        //
-        // Appending the rollback instead inverts that: the flush order becomes
-        // (apply(P), restore(blank)) and the blank snapshot wins, leaving the
-        // renderer cleared while the director still considers P active. That is a
-        // real divergence, not a cosmetic one, and it is the third ordering
-        // defect this restructure has produced -- the queue and an inline call
-        // racing to be last writer.
-        //
-        // Front-insertion restores the original ordering in every case: with a
-        // queued apply present the sequence is (restore, apply(P)) as before, and
-        // with an empty queue it degenerates to the plain append.
-        //
-        // NOT safe to front-insert ahead of an INITIALIZE entry (GPU bring-up must
-        // precede any contract work). That cannot arise here: INITIALIZE is queued
-        // only by `_initialize_world_renderer`, whose sole caller is
-        // `register_instance`, never `submit_world_submission`. If that ever
-        // changes, this must insert after the leading INITIALIZE entries instead.
-        void queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
-                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
-        // #611 PR B1: defer `GaussianSplatRenderer::initialize()`.
-        //
-        // ORDERING — this inserts at the FRONT of the queue, and that is
-        // load-bearing. The one caller (`_initialize_world_renderer`, from
-        // `register_instance`) decides to initialize *after*
-        // `_get_or_create_world_for_scenario` may already have queued an apply
-        // for the same lazily-created renderer, but the code this replaces ran
-        // `initialize()` inline under the lock — i.e. BEFORE that queued apply
-        // dispatched. Appending would invert that order and run the apply
-        // against a renderer whose GPU resources are not up yet.
-        //
-        // The guard (`!gpu_resources_initialized && !gpu_initialization_pending`)
-        // is re-evaluated at flush time, not captured here. Under the lock the
-        // check and the call were atomic; deferring separates them, so the check
-        // has to move with the call. It is never weaker than the inline form: the
-        // only way the re-check can skip is if the renderer became initialized or
-        // had an initialization queued in the gap, which is exactly what the
-        // guard exists to detect.
-        void queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer);
-        // Drop queued work that a later decision has superseded. Used where the
-        // caller re-applies a newer contract to the same renderer before
-        // returning; running the stale entry afterwards would clobber it.
-        void cancel();
-        bool is_empty() const { return entries.is_empty(); }
-        uint32_t size() const { return entries.size(); }
-        uint32_t get_dispatched_entry_count() const { return dispatched_entry_count; }
-        // Dispatch-order inspection. Exists so the front-insertion rule above is
-        // pinned by an assertion rather than by a comment: no headless lane can
-        // observe entry order through side effects, because a device-less
-        // renderer's initialize() and apply() converge on the same resource
-        // state either way.
-        Kind get_entry_kind(uint32_t p_index) const;
-        // Runs and clears the queue. Must not be called while world_mutex is held.
-        void flush();
-        ~DeferredRendererWork() { flush(); }
-
-        DeferredRendererWork() = default;
-        DeferredRendererWork(const DeferredRendererWork &) = delete;
-        DeferredRendererWork &operator=(const DeferredRendererWork &) = delete;
-    };
-
-    // #610 S6: RendererContractWorkQueue bundles the two deferred-renderer
-    // mechanisms every world_mutex critical section in this director must carry
-    // into ONE owned local, so the fragile relative destruction order they require
-    // stops being a per-call-site convention — a `deferred_renderer_release`
-    // vector hand-declared before a DeferredRendererWork, before the lock — and
-    // becomes an invariant of this type:
-    //
-    //   * a DeferredRendererWork queue — apply/restore/initialize work whose
-    //     blocking render-thread dispatch must run AFTER world_mutex is released
-    //     (#611); and
-    //   * the deferred-RELEASE vector — renderer Refs a prune
-    //     (_prune_world_if_unused) moved out of the `worlds` map under the lock,
-    //     whose ~GaussianSplatRenderer must likewise run unlocked or it is the
-    //     #628 indefinite editor hang.
-    //
-    // ORDER — LOAD-BEARING. The queued work must flush BEFORE the released
-    // renderer Refs drop: that is the order the pre-S6 inline code had (restore,
-    // then free), and release_world_submission still depends on it — it queues a
-    // restore against the very Ref the prune moved into release_vector(). Members
-    // are destroyed in reverse declaration order, so `deferred_release` is declared
-    // FIRST (destroyed LAST) and `work` LAST (destroyed FIRST, running flush() in
-    // ~DeferredRendererWork). No explicit destructor is needed: ~DeferredRendererWork
-    // flushes, then the vector drops.
-    //
-    // Declare a RendererContractWorkQueue local BEFORE the
-    // `ThreadOwnedMutexLock lock(world_mutex)` in every caller, exactly as its two
-    // constituents required individually; the whole object is then destroyed after
-    // the lock is released, so both the flush and the release happen unlocked.
-    // tests/ci/check_renderer_contract_boundary.py enforces this declaration order
-    // for RendererContractWorkQueue just as it does for a bare release vector.
-    class RendererContractWorkQueue {
-    public:
-        // --- deferred contract-work primitives (forwarded to the queue) ---
-        void queue_apply(const Ref<GaussianSplatRenderer> &p_renderer,
-                const GaussianSplatRenderer::WorldSubmissionContract &p_contract) {
-            work.queue_apply(p_renderer, p_contract);
-        }
-        void queue_restore(const Ref<GaussianSplatRenderer> &p_renderer,
-                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
-            work.queue_restore(p_renderer, p_snapshot);
-        }
-        void queue_restore_first(const Ref<GaussianSplatRenderer> &p_renderer,
-                const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot) {
-            work.queue_restore_first(p_renderer, p_snapshot);
-        }
-        void queue_initialize(const Ref<GaussianSplatRenderer> &p_renderer) {
-            work.queue_initialize(p_renderer);
-        }
-        void cancel() { work.cancel(); }
-        // Runs and clears the queued contract work. Must not be called while
-        // world_mutex is held (it dispatches). The deferred-release Refs are NOT
-        // touched here; they drop with this object, after this flush.
-        void flush() { work.flush(); }
-
-        // --- deferred renderer-RELEASE vector (the #628 prune pattern) ---
-        // The vector _prune_world_if_unused moves freed renderer Refs into under
-        // world_mutex; they drop only when this object is destroyed — after the
-        // lock is released and after the queued work above has flushed.
-        LocalVector<Ref<GaussianSplatRenderer>> &release_vector() { return deferred_release; }
-
-        RendererContractWorkQueue() = default;
-        RendererContractWorkQueue(const RendererContractWorkQueue &) = delete;
-        RendererContractWorkQueue &operator=(const RendererContractWorkQueue &) = delete;
-
-    private:
-        // Declared FIRST → destroyed LAST: the freed renderer Refs drop only after
-        // `work` (below) has flushed in its own destructor. See ORDER above.
-        LocalVector<Ref<GaussianSplatRenderer>> deferred_release;
-        // Declared LAST → destroyed FIRST: ~DeferredRendererWork runs flush().
-        DeferredRendererWork work;
-    };
+    class DeferredRendererWork;
+    class RendererContractWorkQueue;
 
 private:
     static GaussianSplatSceneDirector *singleton;
@@ -1211,40 +560,37 @@ private:
     class WorldRegistry {
     public:
         // --- queries ---
-        bool is_empty() const { return worlds.is_empty(); }
-        uint32_t size() const { return worlds.size(); }
-        bool has(const RID &p_scenario) const { return worlds.has(p_scenario); }
+        bool is_empty() const;
+        uint32_t size() const;
+        bool has(const RID &p_scenario) const;
 
         // Mutable / const lookup by scenario RID. Mirrors HashMap::getptr:
         // returns nullptr when no world is registered for the scenario.
-        SharedWorld *find(const RID &p_scenario) { return worlds.getptr(p_scenario); }
-        const SharedWorld *find(const RID &p_scenario) const { return worlds.getptr(p_scenario); }
+        SharedWorld *find(const RID &p_scenario);
+        const SharedWorld *find(const RID &p_scenario) const;
 
         // --- registration / removal ---
         // Insert a fresh SharedWorld for p_scenario and return a pointer to the
         // stored entry. Mirrors the inline `worlds.insert(scenario, world);
         // worlds.getptr(scenario)` idiom verbatim -- re-fetch through the map rather
         // than trusting the insert return, so the pointer is into the stored slot.
-        SharedWorld *insert(const RID &p_scenario, const SharedWorld &p_world) {
-            worlds.insert(p_scenario, p_world);
-            return worlds.getptr(p_scenario);
-        }
+        SharedWorld *insert(const RID &p_scenario, const SharedWorld &p_world);
         // Drop the entry for p_scenario. The caller MUST already have moved any
         // renderer Ref out of the entry into a deferred-release vector (see #628
         // above); this only removes the map slot.
-        void erase(const RID &p_scenario) { worlds.erase(p_scenario); }
+        void erase(const RID &p_scenario);
         // Drop every entry. Used by ~GaussianSplatSceneDirector; see
         // release_all_worlds() for the lock-safe, deferred-release equivalent used
         // while the surrounding engine is still live.
-        void clear() { worlds.clear(); }
+        void clear();
 
         // --- iteration (range-for over KeyValue<RID, SharedWorld>) ---
         // Forwarded so `for (KeyValue<RID, SharedWorld> &E : world_registry)` and
         // its const form read exactly as the former `... : worlds` loops.
-        HashMap<RID, SharedWorld>::Iterator begin() { return worlds.begin(); }
-        HashMap<RID, SharedWorld>::Iterator end() { return worlds.end(); }
-        HashMap<RID, SharedWorld>::ConstIterator begin() const { return worlds.begin(); }
-        HashMap<RID, SharedWorld>::ConstIterator end() const { return worlds.end(); }
+        HashMap<RID, SharedWorld>::Iterator begin();
+        HashMap<RID, SharedWorld>::Iterator end();
+        HashMap<RID, SharedWorld>::ConstIterator begin() const;
+        HashMap<RID, SharedWorld>::ConstIterator end() const;
 
     private:
         HashMap<RID, SharedWorld> worlds;
@@ -1275,6 +621,10 @@ private:
             const LocalVector<SphereEffectorSelection> &p_payload);
     // The two row shapes shared by build_instance_buffer_for_renderer and build_hlod_instance_rows_for_renderer.
     static bool _world_has_hlod_submission(const SharedWorld *p_world, uint64_t p_owner);
+    // The demotion callback to queue for a refusal of p_refused_snapshot, or an empty Callable when the request is stale
+    // (another owner, or a newer submission with another snapshot). world_mutex held by the caller.
+    static Callable _hlod_demotion_callback_locked(const SharedWorld *p_world, uint64_t p_owner,
+            const Ref<GaussianSplatHlodRuntimeData> &p_refused_snapshot);
     // world_mutex held by the caller.
     static void _build_hlod_instance_rows_locked(const SharedWorld *p_world, const Ref<ColorGradingResource> &p_renderer_default,
             LocalVector<InstanceDataGPU> &r_rows, LocalVector<InstanceGradingGPU> &r_grading, LocalVector<uint64_t> &r_asset_ids,
@@ -1295,7 +645,7 @@ private:
 	// director-level projection rather than moving into SubmissionStore. The pure
 	// record-only builders (store_submission / record_has_renderable_payload /
 	// build_contract) live on the store; see #610 S5.
-	static void _copy_world_submission_record(const SharedWorld &p_world, const SubmissionStore::WorldSubmissionRecord &p_record,
+	static void _copy_world_submission_record(const SharedWorld &p_world, const WorldSubmissionRecord &p_record,
 			WorldSubmission *r_submission);
 	// #611: THE RENDERER-CONTRACT BOUNDARY (instrumented).
 	//
@@ -1326,9 +676,9 @@ private:
 	// They are non-static precisely so they can reach `world_mutex`; do not make
 	// them static again without moving the check somewhere it can still run.
 	void _restore_world_submission_renderer(SharedWorld &p_world,
-			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_snapshot);
-	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const SubmissionStore::WorldSubmissionRecord &p_record,
-			const GaussianSplatRenderer::WorldSubmissionRuntimeStateSnapshot &p_renderer_state);
+			const GaussianSplatWorldSubmissionRuntimeStateSnapshot &p_snapshot);
+	bool _apply_world_submission_to_renderer(SharedWorld &p_world, const WorldSubmissionRecord &p_record,
+			const GaussianSplatWorldSubmissionRuntimeStateSnapshot &p_renderer_state);
 	// #611 PR B2: the apply for `submit_world_submission`, whose result gates the
 	// commit/reject decision and therefore CANNOT be deferred — a destructor has
 	// no way to feed a value back into a function that already chose its return
@@ -1345,7 +695,7 @@ private:
 	// the boundary check inside reports a violation if it is not, exactly as the
 	// two functions above do.
 	bool _apply_world_submission_contract_unlocked(const Ref<GaussianSplatRenderer> &p_renderer,
-			const GaussianSplatRenderer::WorldSubmissionContract &p_contract);
+			const GaussianSplatWorldSubmissionContract &p_contract);
 	// #611 PR B1: the single route from this class to
 	// `GaussianSplatRenderer::initialize()`. Applies the
 	// not-initialized-and-not-pending guard, then either queues the call on

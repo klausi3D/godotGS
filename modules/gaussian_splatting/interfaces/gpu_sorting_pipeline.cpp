@@ -3,6 +3,7 @@
 
 #include "gpu_sorting_pipeline.h"
 #include "../core/gaussian_splat_scene_director.h"
+#include "../renderer/gaussian_splat_renderer.h"
 #include "../core/gs_vector_alloc.h"
 #include "../core/gs_project_settings.h"
 #include "sync_policy.h"
@@ -14,6 +15,7 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/quantization_config.h"
 #include "../renderer/gpu_sorting_config.h"
+#include "../renderer/gpu_pass_timing.h"
 #include "../renderer/sorting_contract.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../compute/compute_infrastructure.h"
@@ -2794,6 +2796,11 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         return false;
     }
 
+    // BV-04b: GPU timestamp bracket of the depth-key projection (instance chunk dispatch + depth
+    // compute + count clamp; was untimed, part of the fixed cost F). An early return below leaves
+    // the _Begin unpaired, which reads as "not measured".
+    GaussianSplatting::GpuPassTiming::ScopedPassTimestamp projection_timestamp(compute_rd,
+            GaussianSplatting::GpuPassTiming::PASS_PROJECTION, g_gpu_sorting_config.enable_stage_timestamps);
     RD::ComputeListID compute_list = compute_rd->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {
         last_compute_error = "[GPU Sort] Failed to begin instance chunk dispatch compute list";
@@ -2856,6 +2863,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     compute_rd->compute_list_dispatch(compute_list, 1, 1, 1);
     compute_rd->compute_list_add_barrier(compute_list);
     compute_rd->compute_list_end();
+    projection_timestamp.finish();
     // C4b (G4): the clamp above consumed this frame's consume_overflow_flag request. Clear it so
     // a subsequent frame accumulates the sticky flag unless it, too, samples the buffer (which
     // re-arms the reset via the async enqueue / sync capture below).
@@ -2904,6 +2912,13 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         GaussianSplatting::debug_trace_record_event("sort",
                 "InstancePipeline calling sort_async() with instance count buffer",
                 false);
+    }
+    // BV-04b: the depth pre-sort brackets itself (RadixSort indirect path) with this frame's
+    // GPU-timing serial under its own label, never the overlap sort's.
+    if (gpu_sorter.is_valid()) {
+        gpu_sorter->set_timestamp_label_prefix(GaussianSplatting::GpuPassTiming::label_prefix(
+                GaussianSplatting::GpuPassTiming::PASS_PRESORT));
+        gpu_sorter->set_pending_frame_label_serial(GaussianSplatting::GpuPassTiming::current_frame_serial());
     }
     SortOperationResult sort_result = sort_async(sort_params);
     if (!sort_result.success) {

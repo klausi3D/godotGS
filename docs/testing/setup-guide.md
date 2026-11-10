@@ -92,7 +92,7 @@ Key contracts:
 - The supervisor writes a JSON report atomically (`tempfile.mkstemp` + `os.replace`) and streams subprocess output with one thread per pipe (Windows-compatible).
 - The doctest listener prints `[GS-GPU][RID-LEAK?] bytes=N test=advisory` above 4 MiB residual (`LEAK_BYTES_THRESHOLD`, raised from 1 MiB in #341); the supervisor folds non-zero values into a gate failure.
 
-See `modules/gaussian_splatting/tests/README.md#gpu-test-harness` for the per-batch filter table and full listener semantics. The `.github/workflows/baseline_qa.yml` workflow's `gpu-harness` job runs after `gpu-tests` on the self-hosted Linux GPU runner; both jobs are gated against fork-PR code via `head.repo.full_name == github.repository`.
+See `modules/gaussian_splatting/tests/README.md#gpu-test-harness` for the per-batch filter table and full listener semantics. The `.github/workflows/baseline_qa.yml` workflow's `gpu-tests` job runs the harness after the QA scene suite on the self-hosted Linux GPU runner; it is gated against fork-PR code via `head.repo.full_name == github.repository`.
 
 ## Examples
 

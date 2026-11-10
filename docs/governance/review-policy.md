@@ -84,6 +84,25 @@ spots**. Each finding has a severity:
   `GODOTGS_WINDOWS_GPU_RUNNER=true`, then add `export_smoke_windows` to the `needs:` and `if:` of
   both gates in the same change and remove this exception; the Windows contract (same script,
   `--target windows`, same negative control) is kept intact for that day.
+  Recorded relaxation (maintainer approval 2026-11-07, owner: repository owner @klausi3D,
+  "CI diet"): **per-merge release builds and duplicate gate runs moved to nightly; up to
+  one-day detection window for regressions on master accepted.** Concretely: no workflow runs
+  self-hosted work on a push to `master`; `release_builds.yml` lost its `pull_request` and
+  branch-`push` triggers (it runs nightly on master HEAD, on `v*` tags and on dispatch); the
+  duplicate Production Gates `guards` job and the guard phase inside the GPU job are gone (the
+  guard phase runs once per PR in the required `agentic-pr-gate`, and in full nightly); the
+  path-gated guard self-tests (`run_module_tests.py --guard-self-tests auto`) are skipped on
+  PRs whose diff cannot affect them; the GPU job is skipped on PRs that change no code, and the
+  two slow streaming scenarios are skipped on PRs that cannot affect streaming, HLOD or the
+  renderer. Every one of these runs, unfiltered, in the nightly `baseline_qa.yml` /
+  `release_builds.yml` / `gaussian_shader_validation.yml` runs on master HEAD; no threshold,
+  baseline or gate predicate changed. What the window costs: a regression that only appears
+  when two individually green PRs combine, a release-packaging or export-smoke regression, or
+  a guard self-test failure that a PR's path gate skipped is reported by the next nightly
+  instead of on the merge. Retirement path: turn on `strict` required checks or the merge
+  queue (every workflow already wires `merge_group`), or put a lane back on `push`, in a
+  change that updates this record. Layout and the coverage-move table:
+  `.github/workflows/README.md` ("CI layout") and `docs/reference/build-test-ci.md`.
 
 ## Repository enforcement
 

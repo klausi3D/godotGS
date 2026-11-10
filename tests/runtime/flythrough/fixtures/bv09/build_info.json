@@ -1,0 +1,12 @@
+{
+  "binary_kind": "editor_tests",
+  "provenance": {
+    "binary": "godot.linuxbsd.editor.x86_64",
+    "commit": "46e1c556aa0f5980123e22cde6b419df5c9af5d6",
+    "run_id": "42512864344",
+    "sha256": "3061bdd58561892ab87e11295ac34e27dd765968eee0403edf4968759e129195"
+  },
+  "scons_args": "platform=linuxbsd target=editor optimize=speed_trace dev_build=no tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache-opt cache_limit=15 -j16",
+  "sha256": "3061bdd58561892ab87e11295ac34e27dd765968eee0403edf4968759e129195",
+  "version": "4.5.rc.custom_build.46e1c556a"
+}

@@ -7,6 +7,7 @@
 #include "residency_budget_controller.h"
 #include "streaming_chunk_invariants.h"
 #include "streaming_layout_hint.h"
+#include "streaming_pool_growth_policy.h"
 #include "streaming_queue_pressure_controller.h"
 #include "streaming_telemetry_adapter.h"
 #include "core/config/project_settings.h"
@@ -270,10 +271,6 @@ uint32_t _compute_morton_code_10(const Vector3 &p_position, const AABB &p_bounds
 
 } // namespace
 
-// ============================================================================
-// PackTelemetry implementation (DEV_ENABLED only)
-// ============================================================================
-
 GaussianStreamingSystem::GaussianStreamingSystem() {
     // Initialize frame data
     for (int i = 0; i < RING_BUFFER_FRAMES; i++) {
@@ -342,6 +339,25 @@ void GaussianStreamingSystem::_release_persistent_buffer(RenderingDevice *p_rd, 
     persistent_buffer_size = 0;
 }
 
+RenderingDeviceDriver::BufferMemoryPlacement GaussianStreamingSystem::_record_persistent_buffer_placement(RenderingDevice *p_rd,
+        RID p_buffer, uint64_t p_bytes, const char *p_context) {
+    RenderingDeviceDriver::BufferMemoryPlacement placement;
+    if (!p_rd || !p_buffer.is_valid()) {
+        return placement;
+    }
+    placement = p_rd->buffer_get_memory_placement(p_buffer);
+    pool_placement.allocations++;
+    if (placement.known && !placement.device_local) {
+        pool_placement.non_device_local_allocations++;
+        // Never silent: every atlas-reading pass would read this pool over the bus.
+        ERR_PRINT(vformat("[Streaming][BV-POOL] %s: the persistent buffer (%s bytes) was placed OUTSIDE device-local memory "
+                          "(memory type %d, heap %d, flags 0x%x). Device-local VRAM is short; atlas-reading passes will be bus-bound.",
+                p_context ? p_context : "persistent_buffer", String::num_uint64(p_bytes),
+                int(placement.memory_type_index), int(placement.memory_heap_index), int(placement.memory_property_flags)));
+    }
+    return placement;
+}
+
 bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     if (!streaming_initialized) {
         return false;
@@ -379,6 +395,8 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     }
 
     const uint32_t new_buffer_size = static_cast<uint32_t>(new_bytes64);
+    const uint64_t grow_start_usec = OS::get_singleton()->get_ticks_usec();
+    const RenderingDeviceDriver::DeviceLocalHeapUsage heap_before = rd->get_device_local_heap_usage();
     RID new_buffer = rd->storage_buffer_create(new_buffer_size);
     if (!new_buffer.is_valid()) {
         ERR_PRINT(vformat("[Streaming] _grow_persistent_buffer failed: storage_buffer_create returned invalid RID (size=%u bytes).",
@@ -386,6 +404,21 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
         return false;
     }
     rd->set_resource_name(new_buffer, "GS_Streaming_PersistentBuffer");
+    const RenderingDeviceDriver::BufferMemoryPlacement new_placement =
+            _record_persistent_buffer_placement(rd, new_buffer, new_buffer_size, "_grow_persistent_buffer");
+    const RenderingDeviceDriver::DeviceLocalHeapUsage heap_after = rd->get_device_local_heap_usage();
+    if (!gs_streaming_pool_growth::grow_keeps_allocation(new_placement.known, new_placement.device_local)) {
+        // BV-POOL: a pool outside VRAM makes every atlas-reading pass bus-bound (run 42644237192:
+        // 9.4 -> 100 ms). Keep the device-local pool and stop growing; the streamer evicts instead.
+        rd->free(new_buffer);
+        pool_placement.grow_refusals_non_device_local++;
+        ERR_PRINT(vformat("[Streaming][BV-POOL] Persistent buffer grow %d -> %d pages refused: the new buffer was not device-local. "
+                          "Growth stops at %d pages (%s bytes); the streamer evicts instead.",
+                streaming_current_capacity, new_capacity, streaming_current_capacity,
+                String::num_uint64(uint64_t(persistent_buffer_size))));
+        streaming_max_capacity = streaming_current_capacity;
+        return false;
+    }
 
     // Copy currently resident page contents from old buffer to new buffer. The
     // page layout (page index -> byte offset) is identical for old and new
@@ -419,11 +452,18 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
 
     // Swap buffers; release the old one via the existing pattern.
     const uint32_t prev_capacity = streaming_current_capacity;
+    const uint32_t old_buffer_size = persistent_buffer_size;
     _release_persistent_buffer(rd, "_grow_persistent_buffer");
     persistent_buffer = new_buffer;
     persistent_buffer_size = new_buffer_size;
     streaming_current_capacity = new_capacity;
     streaming_grow_count++;
+    pool_placement.placement = new_placement;
+    pool_placement.last_grow_pre = heap_before;
+    pool_placement.last_grow_post = heap_after;
+    pool_placement.last_grow_old_bytes = old_buffer_size;
+    pool_placement.last_grow_new_bytes = new_buffer_size;
+    pool_placement.last_grow_usec = OS::get_singleton()->get_ticks_usec() - grow_start_usec;
 
     // Force a global atlas resync at end-of-frame so downstream descriptor
     // caches (which key on atlas_generation / asset_registry_dirty) rebind to
@@ -432,9 +472,11 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     // directly here would re-enter atlas bookkeeping mid-frame.
     global_atlas_registry.mark_asset_registry_dirty();
 
-    GS_LOG_STREAMING_INFO(vformat("[Streaming] Persistent buffer grew %d -> %d atlas pages (max=%d, grow_count=%d).",
+    GS_LOG_STREAMING_INFO(vformat("[Streaming] Persistent buffer grew %d -> %d atlas pages (max=%d, grow_count=%d, device_local=%s, %d ms).",
             prev_capacity, streaming_current_capacity,
-            streaming_max_capacity, streaming_grow_count));
+            streaming_max_capacity, streaming_grow_count,
+            new_placement.known ? (new_placement.device_local ? "yes" : "NO") : "unknown",
+            int(pool_placement.last_grow_usec / 1000u)));
     return true;
 }
 
@@ -464,8 +506,32 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
         return false;
     }
 
-    uint64_t target64 = MIN<uint64_t>(uint64_t(streaming_current_capacity) * 2u,
-            uint64_t(growth_ceiling));
+    // BV-POOL: a device clamp that left no room is not re-queried on every admission attempt.
+    if (pool_placement.device_refusal_backoff > 0) {
+        pool_placement.device_refusal_backoff--;
+        return false;
+    }
+
+    gs_streaming_pool_growth::GrowInputs grow;
+    grow.current_pages = streaming_current_capacity;
+    grow.ceiling_pages = growth_ceiling;
+    grow.page_bytes = _atlas_page_bytes();
+    // Size for what the registered assets need, as initialize() does, never less than doubling:
+    // a world larger than the pool reaches its final size while the old buffer is still small,
+    // instead of doubling into the ceiling with a large old buffer alive (the BV-POOL cliff).
+    {
+        uint64_t asset_pages = 0;
+        for (uint32_t asset_id : asset_registry.atlas_asset_order) {
+            const AtlasAssetState *asset = _get_asset_state(asset_id);
+            if (!asset) {
+                continue;
+            }
+            for (const StreamingChunk &chunk : _get_asset_chunks(*asset)) {
+                asset_pages += atlas_pages_for_splats(chunk.count);
+            }
+        }
+        grow.needed_pages = gs_streaming_pool_growth::needed_pages_with_headroom(asset_pages, ATLAS_PAGES_PER_MAX_CHUNK);
+    }
 
     // Allocation-inclusive growth gate. The regulator is fed the *evictable* usage so
     // eviction/admission-into-existing-slots ignore the non-reclaimable persistent buffer
@@ -489,14 +555,49 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
             if (budget_max_pages <= uint64_t(streaming_current_capacity)) {
                 return false; // no in-budget headroom to grow into
             }
-            target64 = MIN(target64, budget_max_pages);
+            grow.budget_max_pages = budget_max_pages;
         }
     }
 
-    if (target64 <= uint64_t(streaming_current_capacity)) {
+    // The configured budget is only checked against the static heap size; the new buffer must
+    // fit the device-local memory that is free now, next to the old buffer it is copied from.
+    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
+    RenderingDevice *rd = primary_device_override ? primary_device_override
+            : (last_upload_device ? last_upload_device
+                    : (manager ? manager->get_primary_rendering_device() : nullptr));
+    bool device_free_from_ext = false;
+    if (rd) {
+        const RenderingDeviceDriver::DeviceLocalHeapUsage heap = rd->get_device_local_heap_usage();
+        device_free_from_ext = heap.ext_known;
+        grow.device_free_known = gs_streaming_pool_growth::device_free_bytes(heap.known, heap.heap_size_bytes,
+                heap.allocator_block_bytes, heap.ext_known, heap.ext_budget_bytes, heap.ext_usage_bytes, grow.device_free_bytes);
+    }
+    gs_streaming_pool_growth::GrowInputs unclamped = grow;
+    unclamped.device_free_known = false;
+    const uint32_t unclamped_target = gs_streaming_pool_growth::compute_grow_target(unclamped);
+    const uint32_t target = gs_streaming_pool_growth::compute_grow_target(grow);
+    const bool device_clamped = target < unclamped_target;
+    if (device_clamped) {
+        pool_placement.grow_device_clamps++;
+    }
+    // A clamped grow is the last one; a refusal backs off, so the warning stays rare.
+    if (device_clamped && (target > 0 || pool_placement.grow_device_clamps == 1)) {
+        WARN_PRINT(vformat("[Streaming][BV-POOL] Persistent buffer grow clamped from %d to %d pages: %s MiB of device-local memory free (%s).",
+                unclamped_target, target, String::num_uint64(grow.device_free_bytes / (1024u * 1024u)),
+                device_free_from_ext ? "VK_EXT_memory_budget" : "estimated"));
+    }
+    if (target == 0) {
+        if (unclamped_target != 0) {
+            pool_placement.device_refusal_backoff = uint32_t(kPoolHeapSampleFrames);
+        }
         return false;
     }
-    return _grow_persistent_buffer(static_cast<uint32_t>(target64));
+    const bool grew = _grow_persistent_buffer(target);
+    if (grew && device_clamped) {
+        // The device is close to full: one clamped grow, then no more copies of a large pool.
+        streaming_max_capacity = streaming_current_capacity;
+    }
+    return grew;
 }
 
 void GaussianStreamingSystem::_bind_methods() {
@@ -591,7 +692,10 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
     last_upload_completion_mode = "none";
-    analytics_snapshot.clear();
+    {
+        MutexLock analytics_lock(analytics_frame_mutex);
+        analytics_frame.reset();
+    }
     scheduler.visible_scan_cursor = 0;
     scheduler.prefetch_scan_cursor = 0;
     scheduler.last_visible_scan_count = 0;
@@ -610,6 +714,8 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_padding_chunk_count = 0;
+    scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_visible_scan_had_capacity = false;
     scheduler.last_visible_scan_starvation_eligible = false;
     scheduler.last_visible_scan_starved = false;
@@ -703,6 +809,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     gs_device_utils::safe_submit_and_sync(rd);
     global_atlas_registry.cleanup(rd);
     _release_persistent_buffer(rd, "initialize");
+    pool_placement = PoolPlacementTelemetry();
 
     // Initialize VRAM budget regulator
     budget.vram_regulator.instantiate();
@@ -757,6 +864,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
             persistent_buffer_size = static_cast<uint32_t>(persistent_bytes64);
             persistent_buffer = rd->storage_buffer_create(persistent_buffer_size);
             rd->set_resource_name(persistent_buffer, "GS_Streaming_PersistentBuffer");
+            pool_placement.placement = _record_persistent_buffer_placement(rd, persistent_buffer, persistent_buffer_size, "initialize");
         }
     }
 
@@ -840,6 +948,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     gs_device_utils::safe_submit_and_sync(rd);
     global_atlas_registry.cleanup(rd);
     _release_persistent_buffer(rd, "initialize_empty");
+    pool_placement = PoolPlacementTelemetry();
 
     budget.vram_regulator.instantiate();
     budget.vram_regulator->initialize(rd);
@@ -880,6 +989,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
             persistent_buffer_size = static_cast<uint32_t>(persistent_bytes64);
             persistent_buffer = rd->storage_buffer_create(persistent_buffer_size);
             rd->set_resource_name(persistent_buffer, "GS_Streaming_PersistentBuffer");
+            pool_placement.placement = _record_persistent_buffer_placement(rd, persistent_buffer, persistent_buffer_size, "initialize_empty");
         }
     }
 
@@ -989,7 +1099,10 @@ void GaussianStreamingSystem::update_primary_asset_data(Ref<::GaussianData> p_da
 
 void GaussianStreamingSystem::attach_memory_stream(const Ref<GaussianMemoryStream> &p_stream) {
     memory_stream_proxy = p_stream;
-    analytics_snapshot.clear();
+    {
+        MutexLock analytics_lock(analytics_frame_mutex);
+        analytics_frame.reset();
+    }
 }
 
 void GaussianStreamingSystem::set_config_overrides(const ConfigOverrides &p_overrides) {
@@ -1592,6 +1705,8 @@ void GaussianStreamingSystem::_evict_all_resident_chunks_for_stride_change() {
         for (uint32_t chunk_idx = 0; chunk_idx < asset_chunks.size(); chunk_idx++) {
             if (asset_chunks[chunk_idx].is_loaded) {
                 _unload_chunk(asset_id, chunk_idx);
+                // BV-08a: a mandatory reload at the new stride is no refetch, and no thrash.
+                asset_chunks[chunk_idx].last_evicted_usec = 0;
             }
         }
     }
@@ -2932,6 +3047,8 @@ void GaussianStreamingSystem::_reset_per_frame_counters() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_padding_chunk_count = 0;
+    scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_visible_scan_had_capacity = false;
     scheduler.last_visible_scan_starvation_eligible = false;
     scheduler.last_visible_scan_starved = false;
@@ -2990,7 +3107,9 @@ void GaussianStreamingSystem::_evict_for_vram_budget(uint32_t &evictions_left, b
             continue;
         }
 
-        EvictionResult result = _evict_least_recently_used(force_visible_eviction);
+        // BV-PRIO: padding goes before the frame's needed loads are blocked. Padding admission
+        // stops at the occupancy target, so this cannot feed on itself.
+        EvictionResult result = _evict_least_recently_used(force_visible_eviction, 0, /*p_allow_padding_eviction*/ true);
         if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {
             eviction_controller.record_eviction_result(result);
             evictions_left--;
@@ -3032,7 +3151,8 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
         return non_primary_result;
     }
 
-    EvictionResult result = _evict_least_recently_used(false);
+    // BV-PRIO: a needed load displaces padding at any pressure; padding and prefetch do not.
+    EvictionResult result = _evict_least_recently_used(false, 0, p_admission_gate.context.allow_visible_eviction);
     if (result == EvictionResult::NoEviction && non_primary_result == EvictionResult::SkippedAllVisible) {
         result = EvictionResult::SkippedAllVisible;
     }
@@ -3156,7 +3276,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         enqueue_headroom = _compute_async_enqueue_headroom(
                 upload_pipeline.queued_chunk_loads_this_frame,
                 upload_pipeline.max_chunk_loads_per_frame,
-                upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                 upload_pipeline.max_pack_jobs_in_flight);
     }
     StreamingQueuePressureController::ScanBudgetInput throttle_input;
@@ -3198,14 +3318,20 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
     // the budget can't cover the full list we always restart at 0 to prefer the
     // near field. Only fall back to the cursor when the budget can scan the whole
     // visible list in one frame (the fairness case).
-    const bool restart_from_nearest = scan_budget < visible_count;
+    // BV-PRIO: padding chunks sort last and must stay behind the needed ones, so a list that
+    // holds any is always scanned from the start.
+    const uint32_t last_visible_chunk = visible_chunks[visible_count - 1];
+    const bool padding_in_list = last_visible_chunk < chunks.size() && chunks[last_visible_chunk].padding_only;
+    const bool restart_from_nearest = scan_budget < visible_count || padding_in_list;
     const uint32_t scan_origin = restart_from_nearest ? 0u : scheduler.visible_scan_cursor;
 
     ResidencyBudgetController::AdmissionFrameBudget admission_budget =
             ResidencyBudgetController::make_frame_budget(effective_max, evictions_left, eviction_blocked);
     const float load_threshold = _get_needed_set_load_threshold();
     uint32_t load_candidates = 0;
+    uint32_t needed_queued = 0;
     bool blocked_by_chunk_cap = false;
+    const uint32_t padding_occupancy_limit = _atlas_occupancy_target_pages();
 
     uint32_t scanned_chunks = 0;
     // Complexity: bounded by the effective throttled scan budget under queue pressure.
@@ -3214,7 +3340,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                 _compute_async_enqueue_headroom(
                         upload_pipeline.queued_chunk_loads_this_frame,
                         upload_pipeline.max_chunk_loads_per_frame,
-                        upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed),
+                        upload_pipeline.get_pack_jobs_in_flight_for_admission(),
                         upload_pipeline.max_pack_jobs_in_flight) == 0) {
             break;
         }
@@ -3230,18 +3356,30 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         if (_is_chunk_load_backing_off(chunk)) {
             continue; // #1178: its payload read failed recently; not a load candidate yet
         }
-        load_candidates++;
+        // BV-PRIO: padding is what is left after the needed set. It takes free capacity only:
+        // no slot while a needed load is still waiting, no eviction of anything visible, and
+        // nothing past the occupancy target, where _evict_for_vram_budget() would remove it.
+        const bool padding = chunk.padding_only;
+        const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
+        if (padding && (load_candidates > needed_queued ||
+                               (padding_occupancy_limit > 0 &&
+                                       atlas_allocator.get_used_page_count() + required_pages > padding_occupancy_limit))) {
+            break;
+        }
+        if (!padding) {
+            load_candidates++;
+        }
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         // Sync fallback visible path can still make forward progress via drain-time replacement.
         admission_policy.can_replace_without_eviction = !can_async_pack;
+        admission_policy.allow_visible_eviction = !padding;
         admission_policy.enforce_vram_regulator_gate = budget.vram_regulator.is_valid();
         const uint32_t reserved_chunks = _get_reserved_chunk_count();
         admission_policy.vram_regulator_allows_load =
                 !admission_policy.enforce_vram_regulator_gate ||
                 budget.vram_regulator->can_load_more_chunks(reserved_chunks);
         // #1088: the atlas is "full" for this chunk when no contiguous run of its pages is free.
-        const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
         _try_grow_persistent_buffer_for_atlas_pressure(
                 required_pages,
                 reserved_chunks,
@@ -3257,6 +3395,9 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                         admission_policy);
         const ResidencyBudgetController::AdmissionDecision decision = admission_gate.decision;
         if (decision == ResidencyBudgetController::AdmissionDecision::Skip) {
+            if (padding) {
+                break; // the other padding chunks meet the same full cap
+            }
             if (admission_gate.context.atlas_slots_full ||
                     admission_gate.context.loaded_chunks >= admission_gate.context.effective_max ||
                     (admission_gate.context.enforce_vram_regulator_gate &&
@@ -3266,7 +3407,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
             continue;
         }
         if (decision == ResidencyBudgetController::AdmissionDecision::EvictThenLoad) {
-            blocked_by_chunk_cap = true;
+            blocked_by_chunk_cap = blocked_by_chunk_cap || !padding;
             bool visible_fallback_attempted = false;
             EvictionResult result = _evict_for_admission_gate(admission_gate, visible_fallback_attempted,
                     admission_gate.context.atlas_slots_full ? required_pages : 0u);
@@ -3279,6 +3420,8 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
             if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {
                 eviction_controller.record_eviction_result(result);
                 ResidencyBudgetController::note_successful_eviction(admission_budget);
+            } else if (padding) {
+                break; // nothing off screen left: no free capacity for any padding chunk
             } else {
                 ResidencyBudgetController::note_blocked_eviction(admission_budget);
                 continue;
@@ -3289,9 +3432,12 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         }
 
         const bool queued = _enqueue_chunk_load_request(
-                PRIMARY_ASSET_ID, chunk_idx, can_async_pack, prioritize_sync_visible_enqueue);
+                PRIMARY_ASSET_ID, chunk_idx, can_async_pack, prioritize_sync_visible_enqueue && !padding, !padding);
         if (!queued && !can_async_pack) {
             scheduler.last_sync_fallback_stalled_count++;
+        }
+        if (queued && !padding) {
+            needed_queued++;
         }
     }
     // If we restarted from the nearest prefix this frame, the cursor stays where
@@ -3328,8 +3474,8 @@ void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_or
                 continue;
             }
             const StreamingChunk &chunk = chunks[chunk_idx];
-            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending &&
-                    !_is_chunk_load_backing_off(chunk)) {
+            if (!chunk.padding_only && _is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded &&
+                    !chunk.upload_pending && !_is_chunk_load_backing_off(chunk)) {
                 unscanned_unserved++;
             }
         }
@@ -3370,6 +3516,8 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_padding_chunk_count = 0;
+    scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_needed_set_measured = true;
 
     const LocalVector<uint32_t> &visible_chunks = visibility.visible_chunk_indices;
@@ -3381,8 +3529,13 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     // needed set here is exactly the set the scheduler is trying to make resident.
     const float visible_threshold = _get_needed_set_load_threshold();
 
+    // BV-PRIO: padding chunks draw when resident but are not demand: a view is served once its
+    // frustum chunks are, whatever the padding around them holds.
     uint32_t needed_chunks = 0;
+    uint32_t needed_resident_chunks = 0;
     uint32_t needed_unserved_chunks = 0;
+    uint32_t padding_chunks = 0;
+    uint32_t padding_resident_chunks = 0;
     for (uint32_t chunk_idx : visible_chunks) {
         if (chunk_idx >= chunks.size()) {
             continue;
@@ -3391,11 +3544,19 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
         if (!_is_chunk_within_load_distance(chunk, visible_threshold)) {
             continue;
         }
-        needed_chunks++;
-        if (chunk.is_loaded && chunk.gpu_resident) {
+        const bool resident = chunk.is_loaded && chunk.gpu_resident;
+        if (resident) {
             frame.visible_chunks.push_back(chunk_idx);
             eviction_controller.touch_chunk_use(chunk.last_used_frame, total_frame_count);
-        } else if (!chunk.is_loaded && !chunk.upload_pending) {
+        }
+        if (chunk.padding_only) {
+            padding_chunks++;
+            padding_resident_chunks += resident ? 1 : 0;
+            continue;
+        }
+        needed_chunks++;
+        needed_resident_chunks += resident ? 1 : 0;
+        if (!resident && !chunk.is_loaded && !chunk.upload_pending) {
             needed_unserved_chunks++;
         }
     }
@@ -3403,8 +3564,10 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     // #1086: publish the needed set so the proof lane can measure how complete the
     // working set is (resident-needed / needed), not visible splats over the world.
     scheduler.last_needed_chunk_count = needed_chunks;
-    scheduler.last_needed_resident_chunk_count = frame.visible_chunks.size();
+    scheduler.last_needed_resident_chunk_count = needed_resident_chunks;
     scheduler.last_needed_unserved_chunk_count = needed_unserved_chunks;
+    scheduler.last_padding_chunk_count = padding_chunks;
+    scheduler.last_padding_resident_chunk_count = padding_resident_chunks;
 }
 
 void GaussianStreamingSystem::_handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max) {
@@ -3442,7 +3605,7 @@ void GaussianStreamingSystem::_handle_predictive_prefetch(const Vector3 &camera_
 
     upload_pipeline.get_pending_queue_depths_cached(pack_queue_depth, upload_queue_depth);
     const bool pack_inflight_saturated = upload_pipeline.max_pack_jobs_in_flight > 0 &&
-            upload_pipeline.pack_jobs_in_flight.load(std::memory_order_relaxed) >= upload_pipeline.max_pack_jobs_in_flight;
+            upload_pipeline.get_pack_jobs_in_flight_for_admission() >= upload_pipeline.max_pack_jobs_in_flight;
     const bool visible_backlog_exists =
             scheduler.last_load_candidate_count > 0 || scheduler.last_sync_fallback_stalled_count > 0;
     const bool pack_upload_pressure_high = pack_queue_depth > 0 ||
@@ -3514,7 +3677,21 @@ void GaussianStreamingSystem::_update_vram_regulator() {
     // can be freed); but the overlay must still show the true footprint. (Codex #411)
     budget.vram_regulator->update(_get_total_vram_usage_bytes(), _get_regulator_decision_usage_bytes(),
             budget.loaded_chunks_count, budget.chunks_loaded_this_frame,
-            eviction_controller.get_chunks_evicted_this_frame(), total_frame_count);
+            eviction_controller.get_chunks_evicted_this_frame(), total_frame_count,
+            budget.visible_refetches_this_frame, _wall_clock_usec(),
+            // BV-REG: the strict-frustum needed set of this frame (_build_visible_chunk_list ran
+            // first) floors any thrash cut; padding is not demand (BV-PRIO).
+            scheduler.last_needed_chunk_count);
+    budget.visible_refetches_this_frame = 0;
+}
+
+uint64_t GaussianStreamingSystem::_wall_clock_usec() const {
+#if defined(TESTS_ENABLED)
+    if (test_wall_clock_usec != 0) {
+        return test_wall_clock_usec;
+    }
+#endif
+    return OS::get_singleton()->get_ticks_usec();
 }
 
 void GaussianStreamingSystem::_update_chunk_visibility(const Transform3D &camera_transform, const Projection &projection) {
@@ -3573,6 +3750,15 @@ bool GaussianStreamingSystem::_begin_chunk_upload(uint32_t asset_id, uint32_t ch
             vformat("[Streaming] Begin upload rejected: allocator slot mismatch asset=%d chunk=%d expected=%d mapped=%d.",
                     asset_id, chunk_idx, buffer_slot, mapped_slot == UINT32_MAX ? -1 : int(mapped_slot)));
 
+    // BV-08a: visible-set refetch, judged once per eviction, also when this upload fails later.
+    if (chunk.last_evicted_usec != 0) {
+        const uint64_t now_usec = _wall_clock_usec();
+        if (chunk.is_needed_for_view() &&
+                now_usec - chunk.last_evicted_usec <= VRAMBudgetRegulator::THRASH_REFETCH_WINDOW_USEC) {
+            budget.visible_refetches_this_frame++;
+        }
+        chunk.last_evicted_usec = 0;
+    }
     chunk.buffer_slot = buffer_slot;
     chunk.upload_pending = true;
     chunk.gpu_resident = false;
@@ -3833,7 +4019,7 @@ void GaussianStreamingSystem::_process_upload_retirements() {
                 last_completed_upload_ticket_id, last_upload_completion_mode, ticket);
         // #1086: only a needed chunk (primary, visible, inside the load distance)
         // completing is needed-set progress; prefetch completions are not.
-        if (ticket.asset_id == PRIMARY_ASSET_ID && chunk.is_visible &&
+        if (ticket.asset_id == PRIMARY_ASSET_ID && chunk.is_needed_for_view() &&
                 _is_chunk_within_load_distance(chunk, _get_needed_set_load_threshold())) {
             scheduler.last_needed_chunks_completed++;
         }
@@ -4274,6 +4460,7 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
     }
 
     chunk.is_loaded = false;
+    chunk.last_evicted_usec = _wall_clock_usec();
     chunk.gpu_resident = false;
     chunk.upload_pending = false;
     chunk.upload_lifecycle_state = GaussianStreamingTypes::STREAMING_UPLOAD_STATE_NONE;
@@ -4294,8 +4481,9 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
 }
 
 GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_least_recently_used(bool p_allow_visible_eviction,
-        uint32_t p_visible_fit_pages) {
-    return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages);
+        uint32_t p_visible_fit_pages, bool p_allow_padding_eviction) {
+    return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages,
+            p_allow_padding_eviction);
 }
 
 GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru(bool p_allow_visible_eviction) {
@@ -4530,7 +4718,6 @@ void GaussianStreamingSystem::_reload_debug_logging_config() {
         debug_frame_log_frequency = 1;
     }
 #endif
-    upload_pipeline.telemetry.set_enabled(debug_logging_enabled);
 }
 
 void GaussianStreamingSystem::_start_pack_threads() {
@@ -4558,32 +4745,16 @@ bool GaussianStreamingSystem::_should_force_sync_fallback_for_async_stall(
         return false;
     }
 
-    const uint32_t sync_fallback_queue_depth = _get_sync_fallback_queue_depth();
-    if (scheduler.force_sync_fallback_due_to_async_stall &&
-            pack_queue_depth == 0 &&
-            upload_queue_depth == 0 &&
-            sync_fallback_queue_depth == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = false;
-    }
-
-    // Original narrow signature: pack queue has work but nothing reaches
-    // the upload queue — pack thread may be wedged.
-    if (!scheduler.force_sync_fallback_due_to_async_stall &&
-            diagnostics.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
-            pack_queue_depth > 0 &&
-            upload_queue_depth == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = true;
-    }
-
-    // Broader signature: upload queue has work but nothing completes —
-    // GPU upload path may be blocked or starved.
-    if (!scheduler.force_sync_fallback_due_to_async_stall &&
-            diagnostics.upload_stall_frames >= DiagnosticsState::STALL_THRESHOLD_FRAMES &&
-            upload_queue_depth > 0 &&
-            upload_pipeline.last_upload_chunks == 0) {
-        scheduler.force_sync_fallback_due_to_async_stall = true;
-    }
-
+    GaussianStreamingTypes::AsyncStallFallbackInputs stall_inputs;
+    stall_inputs.currently_forced = scheduler.force_sync_fallback_due_to_async_stall;
+    stall_inputs.pack_queue_depth = pack_queue_depth;
+    stall_inputs.upload_queue_depth = upload_queue_depth;
+    stall_inputs.sync_fallback_queue_depth = _get_sync_fallback_queue_depth();
+    stall_inputs.last_upload_chunks = upload_pipeline.last_upload_chunks;
+    stall_inputs.upload_stall_frames = diagnostics.upload_stall_frames;
+    stall_inputs.upload_stall_wall_usec = diagnostics.upload_stall_wall_usec;
+    scheduler.force_sync_fallback_due_to_async_stall =
+            GaussianStreamingTypes::evaluate_async_stall_sync_fallback(stall_inputs);
     return scheduler.force_sync_fallback_due_to_async_stall;
 }
 
@@ -4730,7 +4901,12 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const float primary_prefetch_threshold_sq = visibility.prefetch_lookahead_distance *
             visibility.prefetch_lookahead_distance * 2.25f;
     const auto is_primary_chunk_needed = [&](const StreamingChunk &p_chunk) -> bool {
-        return p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
+        return p_chunk.is_needed_for_view() && _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
+    };
+    // BV-PRIO: padding drains like prefetch, with allow_visible_eviction = false below.
+    const auto is_primary_chunk_padding = [&](const StreamingChunk &p_chunk) -> bool {
+        return p_chunk.is_visible && p_chunk.padding_only &&
+                _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
     };
     // #1176: relevant only through the camera prediction (the prefetch branch). Such a chunk
     // is admitted with allow_visible_eviction = false below.
@@ -4785,7 +4961,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         bool allow_visible_eviction = true;
         if (asset_id == PRIMARY_ASSET_ID) {
             const bool needed = explicitly_requested || is_primary_chunk_needed(chunk);
-            if (!needed && !is_primary_chunk_predicted(chunk)) {
+            if (!needed && !is_primary_chunk_padding(chunk) && !is_primary_chunk_predicted(chunk)) {
                 scheduler.last_sync_fallback_stalled_count++;
                 continue;
             }

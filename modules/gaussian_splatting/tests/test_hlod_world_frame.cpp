@@ -672,7 +672,7 @@ TEST_CASE("[GaussianSplatting][HLOD][C2] the per-draw GPU record is 32 B and car
 				CHECK(gpu.instance_id == 0u);
 				CHECK(gpu.chunk_id == records[i].node);
 				CHECK(gpu.fade == 1.0f);
-				CHECK(gpu.reserved == 0u);
+				CHECK(gpu.level == GS_DRAWN_NODE_LEVEL_NONE); // BV-04b: no level given = not a world level
 				CHECK(gpu.camera_offset[3] == 0.0f);
 				// Double reference: world node centre (asset x + placement base) minus the camera, no float absolute.
 				const double node_x = double(x_of[records[i].node]);

@@ -159,8 +159,6 @@ bool _chunk_slot_matches_allocator(const GaussianAtlasAllocator &p_allocator, ui
 }
 } // namespace
 
-#ifdef DEV_ENABLED
-
 StreamingUploadPipeline::PackTelemetry::Snapshot
 StreamingUploadPipeline::PackTelemetry::exchange_and_reset() {
     Snapshot s;
@@ -177,6 +175,10 @@ StreamingUploadPipeline::PackTelemetry::exchange_and_reset() {
     upload_bytes_total.set(0);
     s.upload_chunks = upload_chunks_completed.get();
     upload_chunks_completed.set(0);
+    s.read_bytes = read_bytes_total.get();
+    read_bytes_total.set(0);
+    s.decode_bytes = decode_bytes_total.get();
+    decode_bytes_total.set(0);
     s.pack_queue_lat_total = pack_queue_latency_usec_total.get();
     pack_queue_latency_usec_total.set(0);
     s.pack_queue_lat_max = pack_queue_latency_usec_max.get();
@@ -214,6 +216,8 @@ StreamingUploadPipeline::PackTelemetry::read_current() const {
     s.pack_jobs = pack_jobs_completed.get();
     s.upload_bytes = upload_bytes_total.get();
     s.upload_chunks = upload_chunks_completed.get();
+    s.read_bytes = read_bytes_total.get();
+    s.decode_bytes = decode_bytes_total.get();
     s.pack_queue_lat_total = pack_queue_latency_usec_total.get();
     s.pack_queue_lat_max = pack_queue_latency_usec_max.get();
     s.pack_queue_lat_samples = pack_queue_latency_samples.get();
@@ -230,8 +234,6 @@ StreamingUploadPipeline::PackTelemetry::read_current() const {
     return s;
 }
 
-#endif // DEV_ENABLED
-
 #if defined(TESTS_ENABLED)
 void StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls() {
     s_payload_checksum_hash_calls.store(0, std::memory_order_relaxed);
@@ -242,6 +244,54 @@ uint64_t StreamingUploadPipeline::_test_get_payload_checksum_hash_calls() {
 }
 #endif
 
+
+uint64_t StreamingUploadPipeline::compute_staging_upload_clamp_bytes(uint32_t p_staging_max_mb, uint32_t p_frames_in_flight) {
+    if (p_staging_max_mb == 0 || p_frames_in_flight == 0) {
+        return 0;
+    }
+    return uint64_t(p_staging_max_mb) * 1024 * 1024 / p_frames_in_flight;
+}
+
+uint32_t StreamingUploadPipeline::compute_max_ready_upload_jobs(uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight) {
+    if (p_frame_upload_limit_bytes == 0 || p_frame_upload_limit_bytes == UINT64_MAX) {
+        return 0;
+    }
+    static constexpr uint64_t FULL_CHUNK_PACKED_BYTES = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+    const uint64_t two_frames = p_frame_upload_limit_bytes * 2 / FULL_CHUNK_PACKED_BYTES;
+    return MAX(p_max_pack_jobs_in_flight, uint32_t(MIN<uint64_t>(two_frames, UINT32_MAX)));
+}
+
+uint32_t StreamingUploadPipeline::compute_pack_dequeue_batch(uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight) {
+    if (p_worker_threads <= 1) {
+        // One worker: batching only saves mutex round trips, nobody else could take the work.
+        return PACK_DEQUEUE_BATCH_MAX;
+    }
+    if (p_max_pack_jobs_in_flight == 0) {
+        return 1; // unbounded window: no share to compute, never starve the other workers
+    }
+    return CLAMP(p_max_pack_jobs_in_flight / p_worker_threads, 1u, PACK_DEQUEUE_BATCH_MAX);
+}
+
+uint32_t StreamingUploadPipeline::compute_pack_worker_count(uint32_t p_setting, uint32_t p_logical_cpus) {
+    if (p_setting == 0) {
+        return 0;
+    }
+    return MIN(p_setting, MAX(2u, p_logical_cpus / 2u));
+}
+
+uint64_t StreamingUploadPipeline::get_frame_upload_limit_bytes() const {
+    const uint64_t configured = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
+    return upload_staging_clamp_bytes_per_frame == 0 ? configured : MIN(configured, upload_staging_clamp_bytes_per_frame);
+}
+
+uint32_t StreamingUploadPipeline::get_pack_jobs_in_flight_for_admission() const {
+    const uint32_t in_flight = pack_jobs_in_flight.load(std::memory_order_relaxed);
+    if (max_ready_upload_jobs > 0 && max_pack_jobs_in_flight > 0 &&
+            in_flight + get_upload_queue_depth_cached() >= max_ready_upload_jobs) {
+        return MAX(in_flight, max_pack_jobs_in_flight);
+    }
+    return in_flight;
+}
 
 void StreamingUploadPipeline::load_streaming_tuning_config_from_project_settings(GaussianStreamingSystem &system) {
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -321,6 +371,11 @@ void StreamingUploadPipeline::load_streaming_tuning_config_from_project_settings
     max_upload_bytes_per_frame = upload_mb == 0 ? 0 : uint64_t(upload_mb) * 1024 * 1024;
     max_upload_bytes_per_slice = slice_mb == 0 ? 0 : uint64_t(slice_mb) * 1024 * 1024;
     max_upload_bytes_per_second = upload_mbps == 0 ? 0 : uint64_t(upload_mbps) * 1024 * 1024;
+    // BV-08c: same settings RenderingDevice::initialize() sizes the staging ring and its frames from.
+    upload_staging_clamp_bytes_per_frame = compute_staging_upload_clamp_bytes(
+            gs::settings::get_uint(ps, "rendering/rendering_device/staging_buffer/max_size_mb", 128u),
+            MAX<uint32_t>(2u, gs::settings::get_uint(ps, "rendering/rendering_device/vsync/frame_queue_size", 2u)));
+    max_ready_upload_jobs = compute_max_ready_upload_jobs(get_frame_upload_limit_bytes(), max_pack_jobs_in_flight);
     if (max_upload_bytes_per_second == 0) {
         upload_budget_tokens = 0;
         upload_budget_last_update_usec = 0;
@@ -337,7 +392,8 @@ void StreamingUploadPipeline::load_streaming_tuning_config_from_project_settings
 
     const bool want_async = async_pack_enabled && pack_worker_threads > 0;
     const bool threads_mismatch = pack_thread_running.load() &&
-            uint32_t(pack_threads.size()) != pack_worker_threads;
+            uint32_t(pack_threads.size()) !=
+                    compute_pack_worker_count(pack_worker_threads, uint32_t(OS::get_singleton()->get_processor_count()));
     if (want_async && (!pack_thread_running.load() || threads_mismatch)) {
         if (pack_thread_running.load()) {
             stop_pack_threads(system);
@@ -354,7 +410,7 @@ void StreamingUploadPipeline::start_pack_threads(GaussianStreamingSystem &system
     }
     pack_thread_exit = false;
 
-    uint32_t thread_count = MAX(1u, pack_worker_threads);
+    uint32_t thread_count = MAX(1u, compute_pack_worker_count(pack_worker_threads, uint32_t(OS::get_singleton()->get_processor_count())));
     pack_threads.clear();
     pack_thread_contexts.clear();
     pack_threads.resize(thread_count);
@@ -362,9 +418,11 @@ void StreamingUploadPipeline::start_pack_threads(GaussianStreamingSystem &system
 
     PackThreadContext *contexts = pack_thread_contexts.ptr();
     uint32_t started_count = 0;
+    const uint32_t dequeue_batch = compute_pack_dequeue_batch(thread_count, max_pack_jobs_in_flight);
     for (uint32_t i = 0; i < thread_count; i++) {
         contexts[i].system = &system;
         contexts[i].thread_index = i;
+        contexts[i].dequeue_batch = dequeue_batch;
         pack_threads[i] = memnew(Thread);
         Thread::ID tid = pack_threads[i]->start(StreamingUploadPipeline::pack_thread_entry, &contexts[i]);
         if (tid == Thread::UNASSIGNED_ID) {
@@ -440,12 +498,14 @@ void StreamingUploadPipeline::pack_thread_entry(void *p_userdata) {
     if (!context || !context->system) {
         return;
     }
-    context->system->upload_pipeline.pack_thread_func(*context->system, context->thread_index);
+    context->system->upload_pipeline.pack_thread_func(*context->system, context->thread_index, context->dequeue_batch);
 }
 
-void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index) {
+void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index, uint32_t p_dequeue_batch) {
     (void)p_thread_index;
-    static constexpr uint32_t PACK_DEQUEUE_BATCH = 4;
+    // Fixed at thread start (start_pack_threads); a later max_pack_jobs_in_flight change keeps the
+    // old share until the workers restart, which only affects fairness, never correctness.
+    const uint32_t dequeue_batch = CLAMP(p_dequeue_batch, 1u, PACK_DEQUEUE_BATCH_MAX);
     PackSnapshotScratch thread_scratch;
     while (!pack_thread_exit.load()) {
         pack_semaphore.wait();
@@ -454,7 +514,7 @@ void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, 
         }
         telemetry.record_pack_thread_wake();
 
-        PackJob jobs[PACK_DEQUEUE_BATCH];
+        PackJob jobs[PACK_DEQUEUE_BATCH_MAX];
         uint32_t job_count = 0;
         {
             const uint64_t lock_wait_start_usec = _ticks_usec_now();
@@ -465,7 +525,7 @@ void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, 
             // of pending work. Semaphore wakeups may be stale if the main
             // thread synchronously promotes a job after enqueue; in that case
             // the worker simply observes no queued jobs and sleeps again.
-            while (job_count < PACK_DEQUEUE_BATCH && pack_queue_read_idx < pack_queue.size()) {
+            while (job_count < dequeue_batch && pack_queue_read_idx < pack_queue.size()) {
                 jobs[job_count++] = std::move(pack_queue[pack_queue_read_idx++]);
                 const PackJob &dequeued_job = jobs[job_count - 1];
                 if (dequeue_usec > 0 && dequeued_job.enqueue_usec > 0 && dequeue_usec >= dequeued_job.enqueue_usec) {
@@ -539,7 +599,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
         return false;
     }
 
-    if (max_pack_jobs_in_flight > 0 && pack_jobs_in_flight.load() >= max_pack_jobs_in_flight) {
+    if (max_pack_jobs_in_flight > 0 && get_pack_jobs_in_flight_for_admission() >= max_pack_jobs_in_flight) {
         StreamingQueuePressureController::mark_latched_state(
                 queue_pressure_active,
                 queue_pressure_source,
@@ -882,6 +942,9 @@ bool StreamingUploadPipeline::finalize_completed_upload(GaussianStreamingSystem 
         return false;
     }
 
+    // BV-04a: counted here, on the one success path every completed async upload takes, in
+    // every build flavour. It feeds upload_chunks_this_frame and the upload-stall predicate.
+    telemetry.add_upload_chunk();
     memdelete(job);
     return true;
 }
@@ -1016,9 +1079,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                 upload_budget -= slice_bytes;
             }
             submitted = true;
-            if (telemetry.is_enabled()) {
-                telemetry.add_upload_bytes(slice_bytes);
-            }
+            telemetry.add_upload_bytes(slice_bytes);
         }
         return true;
     };
@@ -1030,14 +1091,11 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             return;
         }
         budget_state.completed_chunks++;
-        if (telemetry.is_enabled()) {
-            telemetry.add_upload_chunk();
-        }
     };
 
     UploadBudgetState upload_budget_state = prepare_upload_budget_state();
     const uint64_t upload_budget_start = upload_budget_state.upload_budget;
-    const uint64_t frame_budget_limit = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
+    const uint64_t frame_budget_limit = get_frame_upload_limit_bytes();
     const uint64_t bandwidth_budget_limit = max_upload_bytes_per_second == 0 ? UINT64_MAX : upload_budget_tokens;
     bool submitted = false;
     uint32_t sync_promoted_pack_jobs = 0;
@@ -1190,9 +1248,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                             upload_budget_state.upload_budget -= batched_bytes;
                         }
                         submitted = true;
-                        if (telemetry.is_enabled()) {
-                            telemetry.add_upload_bytes(batched_bytes);
-                        }
+                        telemetry.add_upload_bytes(batched_bytes);
 
                         for (uint32_t i = 0; i < batched_job_count; i++) {
                             coalesced_upload_jobs[i]->bytes_uploaded += coalesced_upload_total_bytes[i];
@@ -1265,7 +1321,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
     pressure_sample.sync_fallback_queue_depth = 0;
     pressure_sample.pack_inflight_saturated =
             max_pack_jobs_in_flight > 0 &&
-            pack_jobs_in_flight.load(std::memory_order_relaxed) >= max_pack_jobs_in_flight;
+            get_pack_jobs_in_flight_for_admission() >= max_pack_jobs_in_flight;
     pressure_sample.upload_frame_cap_hit = upload_frame_cap_hit_this_frame;
     pressure_sample.upload_bandwidth_cap_hit = upload_bandwidth_cap_hit_this_frame;
     pressure_sample.chunk_load_cap_hit = chunk_load_cap_hit_this_frame;
@@ -1339,6 +1395,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     uint32_t sh_first_order = 0;
     uint32_t sh_high_order = 0;
     bool snapshot_ok = false;
+    const uint64_t read_start_usec = _ticks_usec_now();
     if (p_job.uses_explicit_source_indices) {
         const bool indices_ok = p_job.chunk_count == static_cast<uint32_t>(p_job.source_indices.size());
         if (indices_ok && has_payload_source) {
@@ -1369,14 +1426,27 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
         upload->payload_read_failed = true; // #1178: reported on the main thread
         return upload;
     }
+    {
+        // BV-04a: the read stage is the payload source capture (file read on the staged-file
+        // route, a copy on the in-memory route). Only successful reads are recorded.
+        // BV-K9 (#1387): a decoding source (GSQ) decodes inside the capture; that share is
+        // recorded as the decode stage and taken out of the read span.
+        const uint64_t read_end_usec = _ticks_usec_now();
+        const uint64_t read_bytes = uint64_t(r_scratch.gaussian_snapshot.size()) * sizeof(Gaussian) +
+                uint64_t(r_scratch.sh_high_order_snapshot.size()) * sizeof(Vector3);
+        const uint64_t capture_usec = read_end_usec >= read_start_usec ? (read_end_usec - read_start_usec) : 0;
+        const uint64_t decode_nsec = has_payload_source ? p_job.payload_source->take_thread_last_capture_decode_nsec() : 0;
+        uint64_t decode_usec = 0;
+        if (decode_nsec > 0) {
+            decode_usec = MIN(decode_nsec / 1000u, capture_usec);
+            telemetry.add_decode(read_bytes, decode_usec);
+        }
+        telemetry.add_read(read_bytes, capture_usec - decode_usec);
+    }
 
     const Vector3 *sh_coeffs =
             r_scratch.sh_high_order_snapshot.is_empty() ? nullptr : r_scratch.sh_high_order_snapshot.ptr();
-    const bool telemetry_on = telemetry.is_enabled();
-    uint64_t pack_start_usec = 0;
-    if (telemetry_on) {
-        pack_start_usec = _ticks_usec_now();
-    }
+    const uint64_t pack_start_usec = _ticks_usec_now();
     // #787: on allocation failure leave packed_data empty and return the upload unpopulated,
     // which is the same "no payload" state this function already produces when the snapshot
     // fails above. An empty payload is retired harmlessly; a short one would stage a chunk
@@ -1395,7 +1465,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
                 vformat("Failed to pack chunk %d (%d splats) for streaming upload; dropping payload.",
                         p_job.chunk_idx, p_job.chunk_count));
     }
-    if (telemetry_on) {
+    {
         const uint64_t pack_end_usec = _ticks_usec_now();
         const uint64_t duration = pack_end_usec >= pack_start_usec ? (pack_end_usec - pack_start_usec) : 0;
         telemetry.add_pack_time(duration);
@@ -1630,7 +1700,7 @@ uint32_t StreamingUploadPipeline::consume_upload_jobs(uint32_t p_count) {
 StreamingUploadPipeline::UploadBudgetState
 StreamingUploadPipeline::prepare_upload_budget_state() {
     UploadBudgetState result;
-    uint64_t upload_budget_limit = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
+    uint64_t upload_budget_limit = get_frame_upload_limit_bytes();
     if (max_upload_bytes_per_second > 0) {
         OS *os = OS::get_singleton();
         const uint64_t now_usec = os ? os->get_ticks_usec() : 0;

@@ -1,11 +1,15 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_streaming.h"
+#include "../core/streaming_analytics_frame.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/quantization_config.h"
+#include "../renderer/gpu_debug_utils.h"
 
 #include "test_macros.h"
 #include "gs_test_pump.h"
+#include "gs_test_setting_guard.h"
 
+#include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -121,6 +125,47 @@ void _advance_frames_until_upload_retired(Ref<GaussianStreamingSystem> p_system)
 }
 
 } // namespace
+
+TEST_CASE("[Streaming Pipeline] end_frame publishes analytics that are built on the first read") {
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    CHECK(system->get_streaming_analytics().is_empty());
+
+    int overlay_runs = 0;
+    system->end_frame_with_overlay([&overlay_runs](Dictionary &r_metrics) {
+        overlay_runs++;
+        r_metrics["overlay_key"] = true;
+    });
+    CHECK(overlay_runs == 0);
+
+    Dictionary first = system->get_streaming_analytics();
+    CHECK(overlay_runs == 1);
+    CHECK(first.has("overlay_key"));
+
+    // Later readers get the same Dictionary, so a key one reader adds stays visible to the next.
+    Dictionary again = system->get_streaming_analytics();
+    CHECK(overlay_runs == 1);
+    again["reader_key"] = true;
+    CHECK(first.has("reader_key"));
+
+    // The Dictionary keeps its insertion order, and the keys around the two table splits are in place.
+    const Array keys = first.keys();
+    CHECK(String(keys[0]) == "vram_mb");
+    CHECK(keys.find("queue_pressure_active") == keys.find("sync_promoted_pack_jobs_total") + 1);
+    CHECK(keys.find("cap_sources") == keys.find("queue_pressure_sync_source_active") + 1);
+    const Dictionary diagnostics = first.get("diagnostics", Dictionary());
+    const Array diagnostics_keys = diagnostics.keys();
+    CHECK(String(diagnostics_keys[0]) == "category");
+    CHECK(diagnostics_keys.find("queue_pressure_active") == diagnostics_keys.find("visible_eviction_active") + 1);
+    CHECK(String(first.get("diagnostics_category", String())) == String(diagnostics.get("category", String("missing"))));
+    CHECK(Dictionary(first.get("cap_sources", Dictionary())).has("max_upload_mb_per_frame"));
+
+    // A frame a reader still holds does not change when the next frame is published.
+    const std::shared_ptr<StreamingAnalyticsFrame> held = system->get_analytics_frame();
+    system->end_frame();
+    CHECK_FALSE(system->get_streaming_analytics().has("overlay_key"));
+    CHECK(held->resolve().has("overlay_key"));
+}
 
 TEST_CASE("[Streaming Pipeline] stop_pack_threads clears partial lifecycle state") {
     GaussianStreamingSystem system;
@@ -1972,6 +2017,117 @@ TEST_CASE("[Streaming Pipeline] A visible chunk is evicted only when that evicti
     }
 }
 
+TEST_CASE("[Streaming Pipeline] A visible refetch is a visible chunk reloaded inside the thrash window (BV-08a)") {
+    GaussianStreamingSystem system;
+    GaussianStreamingSystem::ConfigOverrides overrides;
+    overrides.override_vram_budget = true;
+    overrides.vram_budget_config.auto_regulate_enabled = false;
+    overrides.vram_budget_config.budget_mb = 512;
+    overrides.vram_budget_config.min_chunks = 1;
+    overrides.vram_budget_config.max_chunks = 32;
+    system.set_config_overrides(overrides);
+    system.initialize_empty(nullptr); // no device: creates the regulator
+    if (!system.get_vram_regulator().is_valid()) {
+        FAIL("fixture precondition: initialize_empty must create the VRAM regulator");
+        return;
+    }
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks.resize(3);
+    const uint32_t page = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    for (uint32_t i = 0; i < 3; i++) {
+        chunks[i].start_idx = i * page;
+        chunks[i].count = page;
+        chunks[i].effective_count = page;
+    }
+    system._test_register_primary_asset_for_chunks();
+    system._test_reset_atlas_allocator(3);
+    for (int i = 0; i < 10; i++) {
+        system.begin_frame(); // clear the eviction hysteresis window
+    }
+    const uint64_t window = VRAMBudgetRegulator::THRASH_REFETCH_WINDOW_USEC;
+    uint64_t now = 1000000;
+    const auto evict_then_reload_after = [&](uint32_t p_chunk, bool p_visible, uint64_t p_after_usec) -> int64_t {
+        system._test_set_wall_clock_usec(now);
+        system._test_mark_chunk_loaded_for_eviction(0, p_chunk, true, 0, 1, 1.0f);
+        if (system._test_evict_least_recently_used(true) != StreamingEvictionController::EvictionResult::EvictedVisible ||
+                chunks[p_chunk].is_loaded) {
+            FAIL("fixture precondition: the chunk must be evicted");
+            return -1;
+        }
+        chunks[p_chunk].is_visible = p_visible;
+        now += p_after_usec;
+        system._test_set_wall_clock_usec(now);
+        uint32_t slot = UINT32_MAX;
+        if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(0, p_chunk), 1, slot) ||
+                !system._test_begin_chunk_upload(0, p_chunk, chunks[p_chunk], slot)) {
+            FAIL("fixture precondition: the upload must begin");
+            return -1;
+        }
+        system._test_update_vram_regulator();
+        return int64_t(system.get_vram_regulator()->get_debug_stats_dictionary().get("visible_refetches_total", int64_t(-1)));
+    };
+
+    CHECK(evict_then_reload_after(0, true, window / 2) == 1);
+    CHECK(evict_then_reload_after(1, true, window + 1) == 1); // too late to be thrash
+    CHECK(evict_then_reload_after(2, false, window / 2) == 1); // not for the view
+}
+
+TEST_CASE("[Streaming Pipeline] A reload after a stride change is no visible refetch (BV-08a)") {
+    GaussianStreamingSystem system;
+    GaussianStreamingSystem::ConfigOverrides overrides;
+    overrides.override_vram_budget = true;
+    overrides.vram_budget_config.auto_regulate_enabled = false;
+    overrides.vram_budget_config.budget_mb = 512;
+    overrides.vram_budget_config.min_chunks = 1;
+    overrides.vram_budget_config.max_chunks = 32;
+    system.set_config_overrides(overrides);
+    system.initialize_empty(nullptr); // no device: creates the regulator
+    if (!system.get_vram_regulator().is_valid()) {
+        FAIL("fixture precondition: initialize_empty must create the VRAM regulator");
+        return;
+    }
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks.resize(1);
+    chunks[0].count = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    chunks[0].effective_count = chunks[0].count;
+    system._test_register_primary_asset_for_chunks();
+    system._test_reset_atlas_allocator(1);
+    system._test_set_wall_clock_usec(1000000);
+    system._test_mark_chunk_loaded_for_eviction(0, 0, true, 0, 1, 1.0f);
+
+    system._test_evict_all_resident_chunks_for_stride_change();
+    if (chunks[0].is_loaded) {
+        FAIL("fixture precondition: the stride change must evict the chunk");
+        return;
+    }
+    uint32_t slot = UINT32_MAX;
+    if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(0, 0), 1, slot) ||
+            !system._test_begin_chunk_upload(0, 0, chunks[0], slot)) {
+        FAIL("fixture precondition: the upload must begin");
+        return;
+    }
+    system._test_update_vram_regulator();
+    CHECK(int64_t(system.get_vram_regulator()->get_debug_stats_dictionary().get("visible_refetches_total", int64_t(-1))) == 0);
+}
+
+TEST_CASE("[Streaming Pipeline] Padding chunks are victims for needed loads only (BV-PRIO)") {
+    GaussianStreamingSystem system;
+    const bool visible[4] = { true, true, true, true };
+    _setup_fragmented_atlas(system, visible);
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks[2].padding_only = true; // younger than the needed chunk A
+    system.begin_frame(); // rebuilds the candidate lists from the flags above
+
+    // Padding and prefetch evict off-screen chunks only, so they cannot displace each other.
+    CHECK(system._test_evict_least_recently_used(false) == StreamingEvictionController::EvictionResult::SkippedAllVisible);
+    CHECK(system.get_loaded_chunks() == 4);
+
+    // A needed load takes the padding chunk, not the least recently used chunk on screen.
+    CHECK(system._test_evict_least_recently_used(true) == StreamingEvictionController::EvictionResult::EvictedNonVisible);
+    CHECK_FALSE(chunks[2].is_loaded);
+    CHECK(chunks[0].is_loaded);
+}
+
 TEST_CASE("[Streaming Pipeline] A zero-page request never evicts (#1088)") {
     GaussianStreamingSystem system;
     _setup_fragmented_atlas(system);
@@ -2582,6 +2738,211 @@ int _count_payload_read_failure_logs(const ScopedStreamingErrorCapture &p_captur
 
 } // namespace
 
+TEST_CASE("[Streaming Pipeline] A full chunk cap under padding pressure serves every needed chunk and goes quiet (BV-PRIO)") {
+    // M1 (run 42375402519): 420..489 padded chunks against a cap of 320, with the strict frustum
+    // at 233..258. Near padding chunks went first, every chunk evicted another one for ever
+    // (86 uploads/s at a static camera) and the view never settled.
+    const uint32_t needed_count = 8;
+    const uint32_t padding_count = 8;
+    const uint32_t chunk_cap = needed_count;
+    const uint32_t splats_per_chunk = 128;
+    const uint32_t chunk_count = needed_count + padding_count;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(2.0f, 2.0f, 2.0f);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * splats_per_chunk;
+        chunk.count = splats_per_chunk;
+        chunk.effective_count = splats_per_chunk;
+        // Needed chunks sit far down the view axis. Padding chunks are nearer, in a column just
+        // outside the 60 degree frustum, so the 1.5 padding pulls them in.
+        chunk.center = i < needed_count
+                ? Vector3(0.0f, 0.0f, -(100.0f + 10.0f * float(i)))
+                : Vector3(15.0f, -7.0f + 2.0f * float(i - needed_count), -20.0f);
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    const Ref<GaussianData> data = _create_streaming_phase_order_test_data(chunk_count * splats_per_chunk);
+    system->_test_begin_device_free_load_scan(data, 1);
+    system->_test_set_atlas_page_ceiling(0); // the chunk cap binds here, as in M1
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // the load scan takes queue_chunk_load()
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    auto run_frames = [&](uint32_t p_frames, uint32_t p_cap) {
+        for (uint32_t frame = 0; frame < p_frames; frame++) {
+            system->begin_frame();
+            system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+            system->_test_load_visible_chunks(p_cap, 4);
+            uploads._test_complete_pack_jobs();
+            uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+            system->_test_build_visible_chunk_list();
+            system->end_frame();
+        }
+    };
+    auto uploads_begun = [&]() -> uint64_t {
+        uint64_t total = 0;
+        for (uint32_t i = 0; i < chunk_count; i++) {
+            total += chunks[i].upload_sequence;
+        }
+        return total;
+    };
+
+    run_frames(1, chunk_cap);
+    uint32_t padding_seen = 0;
+    for (uint32_t i = needed_count; i < chunk_count; i++) {
+        padding_seen += chunks[i].padding_only ? 1 : 0;
+    }
+    if (padding_seen != padding_count || !chunks[0].is_needed_for_view() || !chunks[needed_count - 1].is_needed_for_view()) {
+        system->_test_end_device_free_load_scan();
+        FAIL("fixture precondition: the near column must be padding only and the far row needed, got ", padding_seen);
+        return;
+    }
+
+    run_frames(60, chunk_cap);
+    for (uint32_t i = 0; i < needed_count; i++) {
+        CAPTURE(i);
+        CHECK(chunks[i].is_loaded);
+    }
+    Dictionary analytics = system->get_streaming_analytics();
+    CHECK(int64_t(analytics.get("needed_chunks", int64_t(-1))) == needed_count);
+    CHECK(int64_t(analytics.get("needed_unserved_chunks", int64_t(-1))) == 0);
+    CHECK(int64_t(analytics.get("padding_chunks", int64_t(-1))) == padding_count);
+    CHECK(int64_t(analytics.get("padding_resident_chunks", int64_t(-1))) == 0);
+
+    // A static camera at a full cap uploads nothing more.
+    const uint64_t settled_uploads = uploads_begun();
+    run_frames(60, chunk_cap);
+    CHECK(uploads_begun() == settled_uploads);
+
+    // Free capacity goes to padding, and a needed chunk is never displaced for it.
+    run_frames(60, chunk_cap + 3);
+    CHECK(int64_t(system->get_streaming_analytics().get("padding_resident_chunks", int64_t(-1))) == 3);
+    for (uint32_t i = 0; i < needed_count; i++) {
+        CAPTURE(i);
+        CHECK(chunks[i].is_loaded);
+    }
+
+    system->_test_end_device_free_load_scan();
+}
+
+TEST_CASE("[Streaming Pipeline] The upload budget is clamped to staging ring over frames in flight (BV-08c)") {
+    CHECK(StreamingUploadPipeline::compute_staging_upload_clamp_bytes(128, 2) == 64u * 1024 * 1024);
+    CHECK(StreamingUploadPipeline::compute_staging_upload_clamp_bytes(0, 2) == 0);
+
+    GaussianStreamingSystem system;
+    StreamingUploadPipeline &uploads = system._internal_get_upload_pipeline();
+    uploads.max_upload_bytes_per_frame = 128u * 1024 * 1024;
+    uploads.upload_staging_clamp_bytes_per_frame = 64u * 1024 * 1024;
+    CHECK(uploads.get_frame_upload_limit_bytes() == 64u * 1024 * 1024);
+    CHECK(uploads._test_frame_upload_budget() == 64u * 1024 * 1024);
+    uploads.max_upload_bytes_per_frame = 8u * 1024 * 1024; // a tighter setting still wins
+    CHECK(uploads._test_frame_upload_budget() == 8u * 1024 * 1024);
+    uploads.max_upload_bytes_per_frame = 0; // "unlimited" is limited by the ring
+    CHECK(uploads._test_frame_upload_budget() == 64u * 1024 * 1024);
+
+    const uint64_t full_chunk = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+    CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(10 * full_chunk, 4) == 20);
+    CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(full_chunk, 4) == 4); // never below the pack limit
+    CHECK(StreamingUploadPipeline::compute_max_ready_upload_jobs(UINT64_MAX, 4) == 0);
+}
+
+TEST_CASE("[Streaming Pipeline] A pack worker claims only its share of the in-flight window (BV-LAT)") {
+    // Tier A refill (run 42512864344): a fixed dequeue batch of 4 with 4 jobs in flight let the
+    // first worker claim all of them while the second slept, so refill ran at one worker's rate.
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(4, 4) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(2, 4) == 2);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(3, 4) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(8, 4) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(2, 0) == 1); // unbounded window
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(2, 64) == StreamingUploadPipeline::PACK_DEQUEUE_BATCH_MAX);
+    CHECK(StreamingUploadPipeline::compute_pack_dequeue_batch(1, 4) == StreamingUploadPipeline::PACK_DEQUEUE_BATCH_MAX);
+
+    // With the shipped defaults every worker can hold a job of the full in-flight window at once.
+    GaussianStreamingSystem system;
+    const StreamingUploadPipeline &uploads = system._internal_get_upload_pipeline();
+    CHECK(uploads.pack_worker_threads == 8);
+    CHECK(uploads.max_pack_jobs_in_flight == 8);
+    const uint32_t batch = StreamingUploadPipeline::compute_pack_dequeue_batch(uploads.pack_worker_threads,
+            uploads.max_pack_jobs_in_flight);
+    CHECK((uploads.max_pack_jobs_in_flight + batch - 1) / batch >= uploads.pack_worker_threads);
+}
+
+TEST_CASE("[Streaming Pipeline] Pack workers scale with the CPU and leave half of it to the game (BV-K9b)") {
+    // The shipped 8 workers start in full only with 16+ logical CPUs (the 32-thread lane runner).
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 32) == 8);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 16) == 8);
+    // Consumer CPUs: never more than half of the logical CPUs, never fewer than 2.
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 12) == 6);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 8) == 4);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 4) == 2);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(8, 1) == 2);
+    // A smaller setting is kept; 0 keeps async packing off.
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(3, 32) == 3);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(1, 2) == 1);
+    CHECK(StreamingUploadPipeline::compute_pack_worker_count(0, 32) == 0);
+}
+
+TEST_CASE("[Streaming Pipeline] A stalled upload stops the load scan at the ready bound without evicting (BV-08c)") {
+    const uint32_t chunk_count = 24;
+    const uint32_t ready_bound = 6;
+    const uint32_t splats_per_chunk = 128;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(2.0f, 2.0f, 2.0f);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * splats_per_chunk;
+        chunk.count = splats_per_chunk;
+        chunk.effective_count = splats_per_chunk;
+        chunk.center = Vector3(0.0f, 0.0f, -(10.0f + 10.0f * float(i)));
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    const Ref<GaussianData> data = _create_streaming_phase_order_test_data(chunk_count * splats_per_chunk);
+    system->_test_begin_device_free_load_scan(data, 1);
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // the load scan takes queue_chunk_load()
+    uploads.max_pack_jobs_in_flight = 4;
+    uploads.max_ready_upload_jobs = ready_bound;
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    // Packing keeps up and the GPU write never runs: the frames of a stalled upload.
+    uint32_t peak_ready = 0;
+    for (uint32_t frame = 0; frame < 16; frame++) {
+        system->begin_frame();
+        system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+        system->_test_load_visible_chunks(chunk_count, 4);
+        uploads._test_complete_pack_jobs();
+        peak_ready = MAX(peak_ready, uploads.get_upload_queue_depth_cached());
+        system->end_frame();
+    }
+    CHECK(peak_ready == ready_bound);
+
+    // Nothing was admitted past the bound: the rest of the view is still a clean load candidate.
+    uint32_t pending = 0;
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        pending += chunks[i].upload_pending ? 1 : 0;
+    }
+    CHECK(pending == ready_bound);
+    uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+    CHECK(uploads.get_upload_queue_depth_cached() == 0);
+    system->_test_end_device_free_load_scan();
+}
+
 TEST_CASE("[Streaming Pipeline] A chunk whose payload read keeps failing backs off, is counted and logged once (#1178)") {
     const uint32_t chunk_count = 4;
     const uint32_t splats_per_chunk = 128;
@@ -2744,4 +3105,252 @@ TEST_CASE("[Streaming Pipeline] Restarting the pack threads does not leak payloa
     // ...and the open handles stay bounded by what can read at the same time (the workers
     // plus the main thread's sync pack), not by how many threads ever existed.
     CHECK(file_opens <= uint64_t(worker_threads) + 1);
+}
+
+// ---------------------------------------------------------------------------
+// BV-04a (ADR adr-beyond-vram-worlds.md D-5, D-6): the streaming counters the M1 probe and
+// the gates consume were stubs without DEV_ENABLED, and the upload counters were further
+// gated on debug frame logging. They now count in every build flavour with logging off.
+// Run these in a `dev_build=no tests=yes` build to prove the optimized flavour.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+int64_t _histogram_samples(const Dictionary &p_histograms, const char *p_stage) {
+    const Dictionary stage = p_histograms.get(p_stage, Dictionary());
+    return int64_t(stage.get("samples", int64_t(-1)));
+}
+
+// Sum of bucket_counts; -1 when the stage or its bucket array is absent.
+int64_t _histogram_bucket_sum(const Dictionary &p_histograms, const char *p_stage) {
+    const Dictionary stage = p_histograms.get(p_stage, Dictionary());
+    if (!stage.has("bucket_counts")) {
+        return -1;
+    }
+    const Array counts = stage["bucket_counts"];
+    if (counts.size() != int(StreamingLatencyHistogram::BUCKET_COUNT)) {
+        return -1;
+    }
+    int64_t sum = 0;
+    for (int i = 0; i < counts.size(); i++) {
+        sum += int64_t(counts[i]);
+    }
+    return sum;
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] BV-04a latency histogram buckets are log2 microseconds with an open last bucket") {
+    CHECK(StreamingLatencyHistogram::bucket_for(0) == 0u);
+    CHECK(StreamingLatencyHistogram::bucket_for(1) == 1u);
+    CHECK(StreamingLatencyHistogram::bucket_for(2) == 2u);
+    CHECK(StreamingLatencyHistogram::bucket_for(3) == 2u);
+    CHECK(StreamingLatencyHistogram::bucket_for(1000) == 10u); // [512, 1024)
+    CHECK(StreamingLatencyHistogram::bucket_for(1024) == 11u);
+    const uint32_t last = StreamingLatencyHistogram::BUCKET_COUNT - 1;
+    CHECK(StreamingLatencyHistogram::bucket_for((uint64_t(1) << (last - 1)) - 1) == last - 1);
+    CHECK(StreamingLatencyHistogram::bucket_for(uint64_t(1) << (last - 1)) == last);
+    CHECK(StreamingLatencyHistogram::bucket_for(UINT64_MAX) == last);
+    // Every bucket's upper bound is the next bucket's lower bound.
+    for (uint32_t b = 0; b + 1 < last; b++) {
+        const int64_t upper = StreamingLatencyHistogram::bucket_upper_usec(b);
+        CHECK(StreamingLatencyHistogram::bucket_for(uint64_t(upper) - 1) == b);
+        CHECK(StreamingLatencyHistogram::bucket_for(uint64_t(upper)) == b + 1);
+    }
+    CHECK(StreamingLatencyHistogram::bucket_upper_usec(last) == -1);
+
+    StreamingLatencyHistogram histogram;
+    histogram.record(0);
+    histogram.record(5);
+    histogram.record(5);
+    histogram.record(3000000);
+    const StreamingLatencyHistogram::Snapshot snapshot = histogram.read();
+    CHECK(snapshot.samples == 4);
+    CHECK(snapshot.total_usec == 3000010);
+    CHECK(snapshot.max_usec == 3000000);
+    CHECK(snapshot.buckets[0] == 1);
+    CHECK(snapshot.buckets[3] == 2); // [4, 8)
+    CHECK(snapshot.buckets[22] == 1); // [2^21, 2^22)
+    const Dictionary as_dictionary = StreamingLatencyHistogram::snapshot_to_dictionary(snapshot);
+    CHECK(int64_t(as_dictionary.get("samples", int64_t(-1))) == 4);
+    CHECK(int64_t(as_dictionary.get("max_usec", int64_t(-1))) == 3000000);
+}
+
+TEST_CASE("[Streaming Pipeline] BV-04a read, pack, upload and upload-chunk counters count with debug logging off") {
+    // Debug frame logging used to gate the upload counters: force it off for this case.
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("fixture precondition: ProjectSettings singleton");
+        return;
+    }
+    ProjectSettingGuard all_debug_guard(project_settings, "rendering/gaussian_splatting/debug/enable_all_debug");
+    ProjectSettingGuard frame_log_guard(project_settings, "rendering/gaussian_splatting/debug/frame_log_frequency");
+    project_settings->set_setting("rendering/gaussian_splatting/debug/enable_all_debug", false);
+    project_settings->set_setting("rendering/gaussian_splatting/debug/frame_log_frequency", 0);
+    if (GaussianSplatting::is_debug_frame_logging_enabled()) {
+        FAIL("fixture precondition: debug frame logging must be off");
+        return;
+    }
+    const uint32_t splat_count = 128;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(1);
+    chunks[0] = GaussianStreamingTypes::StreamingChunk();
+    chunks[0].start_idx = 0;
+    chunks[0].count = splat_count;
+    chunks[0].effective_count = splat_count;
+    chunks[0].is_visible = true;
+    chunks[0].buffer_slot = UINT32_MAX;
+    system->_test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(256), 1);
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // queue_chunk_load() needs a pack-queue owner
+
+    // Before any work: every counter exists and reads zero. A missing key reads -1.
+    system->end_frame();
+    {
+        const Dictionary analytics = system->get_streaming_analytics();
+        CHECK(int64_t(analytics.get("read_bytes_total", int64_t(-1))) == 0);
+        CHECK(int64_t(analytics.get("upload_chunks_total", int64_t(-1))) == 0);
+        CHECK(int64_t(analytics.get("upload_bytes_total", int64_t(-1))) == 0);
+        CHECK(int64_t(analytics.get("decode_bytes_total", int64_t(-1))) == 0);
+        const Dictionary histograms = analytics.get("streaming_latency_histograms", Dictionary());
+        CHECK(_histogram_samples(histograms, "read") == 0);
+        CHECK(_histogram_samples(histograms, "decode") == 0);
+        CHECK(_histogram_samples(histograms, "pack") == 0);
+        CHECK(_histogram_samples(histograms, "upload") == 0);
+        const Array bounds = histograms.get("bucket_upper_usec", Array());
+        CHECK(bounds.size() == int(StreamingLatencyHistogram::BUCKET_COUNT));
+    }
+
+    if (!uploads.queue_chunk_load(*system.ptr(), 0, 0)) {
+        system->_test_end_device_free_load_scan();
+        FAIL("fixture precondition: the chunk must be queued for packing");
+        return;
+    }
+    CHECK(uploads._test_complete_pack_jobs() == 1);
+    CHECK(uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr()) == 1);
+
+    system->end_frame();
+    {
+        const Dictionary analytics = system->get_streaming_analytics();
+        const int64_t expected_read_bytes = int64_t(splat_count) * int64_t(sizeof(Gaussian)); // fixture has no SH
+        CHECK(int64_t(analytics.get("read_bytes_this_frame", int64_t(-1))) == expected_read_bytes);
+        CHECK(int64_t(analytics.get("read_bytes_total", int64_t(-1))) == expected_read_bytes);
+        // This drives the upload-stall predicate; it read a constant 0 in optimized builds.
+        CHECK(int(analytics.get("upload_chunks_this_frame", -1)) == 1);
+        CHECK(int64_t(analytics.get("upload_chunks_total", int64_t(-1))) == 1);
+        // The uncompressed route has no decode stage.
+        CHECK(int64_t(analytics.get("decode_bytes_total", int64_t(-1))) == 0);
+        CHECK(int(analytics.get("pack_jobs_completed", -1)) == 1);
+        const Dictionary histograms = analytics.get("streaming_latency_histograms", Dictionary());
+        CHECK(_histogram_samples(histograms, "read") == 1);
+        CHECK(_histogram_samples(histograms, "pack") == 1);
+        CHECK(_histogram_samples(histograms, "upload") == 1);
+        CHECK(_histogram_samples(histograms, "decode") == 0);
+        CHECK(_histogram_bucket_sum(histograms, "read") == 1);
+        CHECK(_histogram_bucket_sum(histograms, "pack") == 1);
+        CHECK(_histogram_bucket_sum(histograms, "upload") == 1);
+    }
+
+    // The next frame drains the per-frame values; the totals and histograms are cumulative.
+    system->end_frame();
+    {
+        const Dictionary analytics = system->get_streaming_analytics();
+        CHECK(int64_t(analytics.get("read_bytes_this_frame", int64_t(-1))) == 0);
+        CHECK(int(analytics.get("upload_chunks_this_frame", -1)) == 0);
+        CHECK(int64_t(analytics.get("read_bytes_total", int64_t(-1))) == int64_t(splat_count) * int64_t(sizeof(Gaussian)));
+        CHECK(int64_t(analytics.get("upload_chunks_total", int64_t(-1))) == 1);
+        const Dictionary histograms = analytics.get("streaming_latency_histograms", Dictionary());
+        CHECK(_histogram_samples(histograms, "read") == 1);
+    }
+    system->_test_end_device_free_load_scan();
+}
+
+TEST_CASE("[Streaming Pipeline] BV-04a upload-stall wall clock follows the unchanged frame predicate") {
+    GaussianStreamingTypes::DiagnosticsState diagnostics;
+    diagnostics.update_upload_stall_wall_clock(true, 1000);
+    CHECK(diagnostics.upload_stall_wall_usec == 0);
+    diagnostics.update_upload_stall_wall_clock(true, 251000);
+    CHECK(diagnostics.upload_stall_wall_usec == 250000);
+    diagnostics.update_upload_stall_wall_clock(false, 260000);
+    CHECK(diagnostics.upload_stall_wall_usec == 0);
+    diagnostics.update_upload_stall_wall_clock(true, 300000);
+    CHECK(diagnostics.upload_stall_wall_usec == 0);
+    diagnostics.update_upload_stall_wall_clock(true, 300500);
+    CHECK(diagnostics.upload_stall_wall_usec == 500);
+
+    // The key is published by the diagnostics snapshot of every frame.
+    GaussianStreamingSystem system;
+    system.end_frame();
+    const Dictionary analytics = system.get_streaming_analytics();
+    const Dictionary snapshot = analytics.get("diagnostics", Dictionary());
+    CHECK(snapshot.has("upload_stall_wall_ms"));
+    CHECK(double(snapshot.get("upload_stall_wall_ms", -1.0)) == 0.0);
+}
+
+TEST_CASE("[Streaming Pipeline] BV-04a effective-settings revision counts every change of a frozen setting") {
+    SUBCASE("revision arithmetic") {
+        GaussianStreamingTypes::DiagnosticsState diagnostics;
+        GaussianStreamingTypes::DiagnosticsState::EffectiveSettingsSample a;
+        a.vram_budget_mb = 1024;
+        a.regulated_max_chunks = 16;
+        a.effective_max_chunks = 16;
+        a.lod_distance_multiplier = 1.0f;
+        a.auto_regulate_enabled = true;
+        diagnostics.observe_effective_settings(a);
+        CHECK(diagnostics.effective_settings_revision == 0); // the first sample is the baseline
+        diagnostics.observe_effective_settings(a);
+        CHECK(diagnostics.effective_settings_revision == 0);
+        GaussianStreamingTypes::DiagnosticsState::EffectiveSettingsSample b = a;
+        b.lod_distance_multiplier = 1.1f;
+        diagnostics.observe_effective_settings(b);
+        CHECK(diagnostics.effective_settings_revision == 1);
+        // A revert is a second change: a reader sampling only the first and last frame sees it.
+        diagnostics.observe_effective_settings(a);
+        CHECK(diagnostics.effective_settings_revision == 2);
+        GaussianStreamingTypes::DiagnosticsState::EffectiveSettingsSample c = a;
+        c.regulated_max_chunks = 14;
+        diagnostics.observe_effective_settings(c);
+        CHECK(diagnostics.effective_settings_revision == 3);
+        GaussianStreamingTypes::DiagnosticsState::EffectiveSettingsSample d = c;
+        d.vram_budget_mb = 2048;
+        diagnostics.observe_effective_settings(d);
+        CHECK(diagnostics.effective_settings_revision == 4);
+    }
+
+    SUBCASE("C-settings: an effective budget changed at runtime moves the published revision") {
+        GaussianStreamingSystem system;
+        GaussianStreamingSystem::ConfigOverrides overrides;
+        overrides.override_vram_budget = true;
+        overrides.vram_budget_config.auto_regulate_enabled = false;
+        overrides.vram_budget_config.budget_mb = 512;
+        overrides.vram_budget_config.min_chunks = 1;
+        overrides.vram_budget_config.max_chunks = 32;
+        system.set_config_overrides(overrides);
+        system.initialize_empty(nullptr); // no device: creates the regulator
+        if (!system.get_vram_regulator().is_valid()) {
+            FAIL("fixture precondition: initialize_empty must create the VRAM regulator");
+            return;
+        }
+        system.end_frame();
+        const Dictionary first = system.get_streaming_analytics();
+        const int64_t baseline = int64_t(first.get("effective_settings_revision", int64_t(-1)));
+        CHECK(baseline >= 0);
+        CHECK(int64_t(first.get("vram_regulated_max_chunks", int64_t(-1))) == 32);
+        CHECK(bool(first.get("vram_auto_regulate_enabled", true)) == false);
+        CHECK(String(first.get("vram_last_regulation_reason", String())) == String("none"));
+        CHECK(int64_t(first.get("vram_thrash_reductions", int64_t(-1))) == 0);
+        CHECK(float(first.get("lod_effective_load_distance", -1.0f)) > 0.0f);
+
+        system.end_frame();
+        CHECK(int64_t(system.get_streaming_analytics().get("effective_settings_revision", int64_t(-1))) == baseline);
+
+        VRAMBudgetConfig changed = system.get_vram_regulator()->get_config();
+        changed.budget_mb = 256;
+        system.get_vram_regulator()->set_config_override(changed);
+        system.end_frame();
+        CHECK(int64_t(system.get_streaming_analytics().get("effective_settings_revision", int64_t(-1))) == baseline + 1);
+        CHECK(int64_t(system.get_streaming_analytics().get("effective_vram_budget_mb", int64_t(-1))) == 256);
+    }
 }

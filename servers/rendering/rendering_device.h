@@ -1643,6 +1643,10 @@ public:
 	// Total VRAM budget (bytes) the app may use on the device-local heap(s), or 0 when
 	// the backend cannot report it (currently only the Vulkan driver answers). (GS #321)
 	uint64_t get_device_memory_budget() const;
+	// GodotGS BV-POOL: where a buffer's memory lives, and the device-local heap usage
+	// (see RenderingDeviceDriver). Unknown placement / usage reports known == false.
+	RenderingDeviceDriver::BufferMemoryPlacement buffer_get_memory_placement(RID p_buffer);
+	RenderingDeviceDriver::DeviceLocalHeapUsage get_device_local_heap_usage() const;
 
 	RenderingDevice *create_local_device();
 

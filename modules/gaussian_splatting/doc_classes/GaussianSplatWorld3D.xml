@@ -184,7 +184,7 @@
 			Enables level-of-detail culling.
 		</member>
 		<member name="quality/hlod_tau_px" type="float" setter="set_hlod_tau_px" getter="get_hlod_tau_px" default="0.0">
-			Pixel error threshold override for the opt-in resident HLOD cut. Zero inherits [code]rendering/gaussian_splatting/lod/hlod_tau_px[/code] (provisional default 1). The effective threshold is multiplied by [member quality/lod_bias]. Requires an identity world transform, complete resident leaves and parents, and one supported perspective main view; unsupported contexts use canonical leaves. Admission limits and diagnostics describe this bounded experimental route, not a large-world capacity guarantee.
+			Pixel error threshold override for the HLOD cut. A world with an HLOD tree over a resident payload, or a version 4 paged package, takes the HLOD route by default, together with the [GaussianSplatNode3D] instances of the scene; [code]rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled[/code] = [code]false[/code] opts out. Zero inherits [code]rendering/gaussian_splatting/lod/hlod_tau_px[/code] (provisional default 1). The effective threshold is multiplied by [member quality/lod_bias]. Requires an identity world transform, complete resident leaves and parents, and one supported perspective main view; unsupported contexts use canonical leaves. Admission limits and diagnostics describe this bounded experimental route, not a large-world capacity guarantee.
 		</member>
 		<member name="quality/lod_bias" type="float" setter="set_lod_bias" getter="get_lod_bias" default="1.0">
 			LOD bias multiplier (0.1 to 4.0).

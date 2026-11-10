@@ -15,7 +15,10 @@
 #include "core/templates/local_vector.h"
 #include "core/variant/dictionary.h"
 #include "render_pipeline_io_types.h"
+#include "../gpu_pass_timing.h"
+#include "../../core/streaming_analytics_frame.h"
 #include <cstdint>
+#include <memory>
 
 namespace GaussianRenderPerformance {
 
@@ -73,6 +76,11 @@ struct PerformanceMetrics {
 	uint32_t raster_overlap_record_budget = 0;
 	uint32_t raster_overlap_record_budget_effective = 0;
 	uint32_t raster_overlap_record_budget_configured = 0;
+	uint32_t raster_overlap_sort_capacity = 0;
+	uint32_t raster_overlap_sort_capacity_high_water = 0;
+	uint64_t raster_overlap_sort_bytes = 0;
+	uint64_t raster_overlap_sort_resize_peak_bytes = 0;
+	uint64_t raster_overlap_sort_resize_preflight_refusals = 0;
 	float raster_overlap_thinning_keep_ratio = 1.0f;
 	bool raster_feature_global_sort = false;
 	bool raster_feature_packed_stage_data = false;
@@ -107,6 +115,7 @@ struct PerformanceMetrics {
 	String cull_route_uid;
 	String cull_route_reason;
 	bool used_hierarchical_culling = false;
+	// Read through PerformanceState::resolve_streaming_state(): the render path leaves it to the frame.
 	Dictionary streaming_state;
 	uint64_t sort_cache_hits = 0;
 	uint64_t sort_cache_misses = 0;
@@ -116,6 +125,7 @@ struct PerformanceMetrics {
 	float gpu_tile_overlap_count_time_ms = 0.0f;
 	bool gpu_tile_overlap_count_time_valid = false;
 	float gpu_tile_binning_time_ms = 0.0f;
+	bool gpu_tile_binning_time_valid = false; // BV-04b: binning is the emit pass; valid exactly when it is
 	float gpu_tile_overlap_emit_time_ms = 0.0f;
 	bool gpu_tile_overlap_emit_time_valid = false;
 	float gpu_tile_overlap_sort_time_ms = 0.0f;
@@ -132,6 +142,11 @@ struct PerformanceMetrics {
 	bool gpu_tile_resolve_time_valid = false;
 	uint64_t gpu_timing_frame_serial = 0;
 	uint64_t gpu_timing_frames_behind = 0;
+	// BV-04b: GPU timing completeness (cull, projection, pre-sort and composite next to the tile
+	// passes; per-pass measurement frame serials; newest same-frame breakdown).
+	GaussianSplatting::GpuPassTiming::PassTimingSnapshot gpu_pass_timing;
+	// BV-04b: records per splat per HLOD level (GPU, last sampled HLOD-route frame).
+	GaussianSplatting::HlodLevelRecordSample gpu_hlod_level_records;
 	uint32_t gpu_timeline_inflight_frames = 0;
 	uint32_t gpu_timeline_completed_frames = 0;
 	uint32_t gpu_timeline_stall_count = 0;
@@ -189,6 +204,11 @@ inline void PerformanceMetrics::reset_raster_frame_stats() {
 	raster_overlap_record_budget = 0;
 	raster_overlap_record_budget_effective = 0;
 	raster_overlap_record_budget_configured = 0;
+	raster_overlap_sort_capacity = 0;
+	raster_overlap_sort_capacity_high_water = 0;
+	raster_overlap_sort_bytes = 0;
+	raster_overlap_sort_resize_peak_bytes = 0;
+	raster_overlap_sort_resize_preflight_refusals = 0;
 	raster_overlap_thinning_keep_ratio = 1.0f;
 	raster_feature_global_sort = false;
 	raster_feature_packed_stage_data = false;
@@ -208,6 +228,7 @@ inline void PerformanceMetrics::reset_gpu_core_pass_timings() {
 	gpu_tile_overlap_count_time_ms = 0.0f;
 	gpu_tile_overlap_count_time_valid = false;
 	gpu_tile_binning_time_ms = 0.0f;
+	gpu_tile_binning_time_valid = false;
 	gpu_tile_overlap_emit_time_ms = 0.0f;
 	gpu_tile_overlap_emit_time_valid = false;
 	gpu_tile_overlap_sort_time_ms = 0.0f;
@@ -225,6 +246,8 @@ inline void PerformanceMetrics::reset_gpu_extended_pass_timings() {
 	tile_prefix_cpu_sync_fallback_valid = false;
 	gpu_tile_resolve_time_ms = 0.0f;
 	gpu_tile_resolve_time_valid = false;
+	gpu_pass_timing = GaussianSplatting::GpuPassTiming::PassTimingSnapshot();
+	gpu_hlod_level_records = GaussianSplatting::HlodLevelRecordSample();
 }
 
 inline void PerformanceMetrics::reset_gpu_timeline_metrics() {
@@ -245,6 +268,17 @@ inline void PerformanceMetrics::reset_gpu_readback_state() {
 struct PerformanceState {
 	PerformanceMetrics metrics;
 	LocalVector<SortFrameMetrics> sort_metrics_history;
+	// The streaming stage's per-frame state. While this is set it wins over metrics.streaming_state, and its
+	// Dictionary is only built when something reads it.
+	std::shared_ptr<StreamingAnalyticsFrame> streaming_state_frame;
+
+	Dictionary resolve_streaming_state() const {
+		return streaming_state_frame ? streaming_state_frame->resolve() : metrics.streaming_state;
+	}
+	void set_streaming_state(const Dictionary &p_state) {
+		metrics.streaming_state = p_state;
+		streaming_state_frame.reset();
+	}
 };
 
 } // namespace GaussianRenderPerformance

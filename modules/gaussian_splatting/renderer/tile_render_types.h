@@ -8,6 +8,7 @@
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
 #include "gaussian_gpu_layout.h"
+#include "gpu_pass_timing.h"
 #include "servers/rendering/rendering_device.h"
 
 #include "../core/gs_project_settings.h"
@@ -208,6 +209,9 @@ static_assert(sizeof(Control) == 32, "Record-loss control std140 ABI");
 // GS_OVERFLOW_DROP_* in shaders/includes/tile_projection_common.glsl; keep the values equal.
 static constexpr uint32_t OVERFLOW_DROP_SIGNAL_BINNING = 1u; // tile-binning EMIT dropped a record
 static constexpr uint32_t OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP = 2u; // raster truncated a tile at the cap (#1137)
+// #1393: the binning drop site, always set together with OVERFLOW_DROP_SIGNAL_BINNING.
+static constexpr uint32_t OVERFLOW_DROP_SIGNAL_BINNING_TILE_RANGE = 4u; // EMIT exceeded the tile's COUNT reservation
+static constexpr uint32_t OVERFLOW_DROP_SIGNAL_BINNING_BUDGET = 8u; // record index past the global overlap budget
 
 struct TileSplatAuditSnapshot {
 	bool valid = false;
@@ -247,6 +251,11 @@ struct TileRenderStats {
 	uint32_t overlap_record_budget = 0;
 	uint32_t overlap_record_budget_effective = 0;
 	uint32_t overlap_record_budget_configured = 0;
+	uint32_t overlap_sort_capacity = 0;
+	uint32_t overlap_sort_capacity_high_water = 0;
+	uint64_t overlap_sort_bytes = 0;
+	uint64_t overlap_sort_resize_peak_bytes = 0;
+	uint64_t overlap_sort_resize_preflight_refusals = 0;
 	float overlap_thinning_keep_ratio = 1.0f;
 	uint64_t compute_raster_frames = 0;
 	uint64_t fragment_raster_frames = 0;
@@ -355,6 +364,10 @@ struct TileTimingState {
 	uint64_t last_raster_resolved_serial = 0;
 	uint64_t last_prefix_resolved_serial = 0;
 	uint64_t last_resolve_resolved_serial = 0;
+	// BV-04b: every pass of the frame (cull, projection, pre-sort, the tile passes, composite) with
+	// its measurement frame serial and the newest same-frame (coherent) breakdown. Fed by
+	// resolve_gpu_timestamps_async() alongside the legacy tile-pass fields above.
+	GaussianSplatting::GpuPassTiming::PassTimingAccumulator pass_timing;
 };
 
 struct TilePerformanceMetrics {
@@ -404,6 +417,15 @@ struct TilePerformanceMetrics {
 
 struct TileDiagnosticsState {
 	mutable TileRenderStats last_render_stats;
+	mutable HlodLevelRecordSample hlod_level_records; // BV-04b
+	void record_hlod_level_stats_sample(const HlodLevelRecordStatsGPU &p_sample, uint64_t p_frame_serial) const {
+		hlod_level_records.frame_serial = p_frame_serial;
+		hlod_level_records.sample_count++;
+		for (uint32_t i = 0; i < GS_HLOD_LEVEL_STAT_SLOTS; i++) {
+			hlod_level_records.records[i] = p_sample.records[i];
+			hlod_level_records.splats[i] = p_sample.splats[i];
+		}
+	}
 	// Set true when the opt-in 32-bit sort-key path survives config resolution and
 	// actually engages (see TileRenderer::_get_effective_sort_key_config). mutable
 	// because that config getter is const, mirroring last_render_stats above.
@@ -435,6 +457,29 @@ struct TileDiagnosticsState {
 	mutable uint32_t sampled_dropped_records = 0;
 	mutable uint32_t sampled_raster_truncated_tiles = 0;
 	mutable uint64_t sampled_drop_frame_serial = 0;
+	// #1393: cumulative production drop telemetry, fed by the same always-on readback.
+	//  - drop_signal_samples: completed readbacks. A window with no new sample proves nothing,
+	//    so consumers read a zero drop count as evidence only when this advanced.
+	//  - binning_drop_events: read-intervals with a tile-binning drop (or an unknown bit), split by
+	//    site into binning_tile_range_drop_events (EMIT wrote past the tile's COUNT reservation) and
+	//    binning_budget_drop_events (the record index lay past the global overlap budget).
+	//  - sampled_*_total: sums over the SAMPLED frames only (frames between two samples are not
+	//    counted, so the dropped-record total is a lower bound). sampled_overlap_records_total is the
+	//    records the EMIT pass attempted (overflow_splats_aggregated: the frame's overlap demand,
+	//    dropped records included); sampled_overlap_splats_total is the frame's splat count for tile
+	//    binning (RenderParams::splat_count; on the GPU-indirect instance route that is the last
+	//    read-back visible count, a frame or more old) in the same sampled frames, so their ratio is
+	//    records per splat on the flat route.
+	mutable uint64_t drop_signal_samples = 0;
+	mutable uint32_t binning_drop_events = 0;
+	mutable uint32_t binning_tile_range_drop_events = 0;
+	mutable uint32_t binning_budget_drop_events = 0;
+	mutable uint64_t sampled_dropped_records_total = 0;
+	mutable uint64_t sampled_overlap_records_total = 0;
+	mutable uint64_t sampled_overlap_splats_total = 0;
+	// Splats the current frame dispatched to tile binning (0 = no binning this frame); consumed by
+	// the frame's drop-signal poll so a sample pairs its records with its own frame's splats.
+	uint32_t last_overlap_binning_splats = 0;
 	bool runtime_statistics_enabled = false;
 	Vector<uint32_t> tile_density_snapshot;
 	bool capture_tile_density_snapshot = false;

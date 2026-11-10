@@ -496,6 +496,128 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] a ledger-bound 
     CHECK(hlod_stream_page_budget(10 * page_bytes, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 10);
 }
 
+// Codex P1 on #1308: prepare_hlod_frame() admits the frame scratch for world pages + the instance region's records
+// (total_gaussians = stream records + region.records). A ledger-bound page budget that reserved per-record scratch for
+// the world's pages only left the scratch admission refusing every frame once the region was large, and the prepared
+// bundle kept that page count, so it never recovered.
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] a ledger-bound page budget reserves the instance region's frame scratch too") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t stride = 176, page = 1024, page_bytes = stride * page, huge = uint64_t(1) << 40;
+    uint64_t scratch_fixed = 0, scratch_per_record = 0;
+    TileRenderer::get_hlod_scratch_reservation(252326u, scratch_fixed, scratch_per_record);
+    const uint64_t fixed_bundle = uint64_t(20) << 20, device = uint64_t(100) << 20;
+    const uint64_t page_ledger = page_bytes + page * scratch_per_record;
+    for (uint64_t instance_records : { uint64_t(0), uint64_t(12000), uint64_t(1) << 20, uint64_t(5) << 20 }) {
+        // A ledger one byte short of 11 world pages with their scratch, plus the region's scratch.
+        const uint64_t ledger = device + fixed_bundle + scratch_fixed + instance_records * scratch_per_record + 11 * page_ledger - 1;
+        const uint64_t pages = hlod_stream_page_budget_with_instances(huge, instance_records, stride, page, huge, fixed_bundle, huge,
+                ledger, device, scratch_fixed, scratch_per_record);
+        CHECK(pages == 10);
+        // What prepare_hlod_scratch() then admits from the remaining headroom: the fixed scratch plus the per-record
+        // scratch of every atlas record, world pages and instance region alike.
+        const uint64_t after_bundle = device + fixed_bundle + pages * page_bytes;
+        const uint64_t frame_scratch = scratch_fixed + (pages * page + instance_records) * scratch_per_record;
+        CHECK(ledger >= after_bundle);
+        CHECK(ledger - after_bundle >= frame_scratch);
+    }
+    // Without instances it is the world-only budget exactly.
+    for (uint64_t ledger : { device + fixed_bundle + scratch_fixed + 3 * page_ledger, device + fixed_bundle + scratch_fixed + 77 * page_ledger + 5 }) {
+        CHECK(hlod_stream_page_budget_with_instances(huge, 0, stride, page, huge, fixed_bundle, huge, ledger, device, scratch_fixed, scratch_per_record) ==
+                hlod_stream_page_budget(huge, stride, page, huge, fixed_bundle, huge, ledger, device, scratch_fixed, scratch_per_record));
+    }
+    // The region's atlas bytes come off an atlas-bound budget (they sit at the atlas tail).
+    CHECK(hlod_stream_page_budget_with_instances(10 * page_bytes, 2 * page, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 8);
+    // A region whose scratch alone exhausts the headroom admits no page (refused with a reason), never a page count the
+    // scratch admission would refuse on every frame.
+    CHECK(hlod_stream_page_budget_with_instances(huge, uint64_t(1) << 20, stride, page, huge, fixed_bundle, huge,
+                  device + fixed_bundle + scratch_fixed + (uint64_t(1) << 20) * scratch_per_record, device, scratch_fixed, scratch_per_record) == 0);
+    // Overflowing products refuse instead of wrapping.
+    CHECK(hlod_stream_page_budget_with_instances(huge, UINT64_MAX / 2, stride, page, huge, fixed_bundle, huge, huge, 0, scratch_fixed, scratch_per_record) == 0);
+}
+
+// Codex P1 on #1308 (4th round of one class): every step of prepare_hlod_frame() allocates from route_limit - route_bytes.
+// An optional overlap growth (measured overflow, the objects' estimate) that ran on the full headroom could spend the
+// bytes the page budget reserved for the frame scratch (or the view grid, or the ViewSet's view charge), and every
+// frame was then refused with tile_capacity_warmup_or_memory_limit: nothing shrinks again, so the world stayed blank.
+// The order is: mandatory world allocations are set aside first, optional growth gets only the rest.
+TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] optional overlap growth never spends the world's mandatory frame allocations") {
+    using namespace ResidentAtlasBudget;
+    struct Frame {
+        bool grew = false;
+        bool scratch_admitted = false;
+        bool view_affordable = false;
+    };
+    // prepare_hlod_frame()'s sequence: optional growth (if it fits what it may spend), grid, scratch, then the ViewSet's
+    // per-frame affordability check against what is left.
+    auto frame = [](uint64_t p_limit, uint64_t p_route, uint64_t p_grid, uint64_t p_scratch, uint64_t p_views, uint64_t p_growth) {
+        Frame f;
+        const uint64_t mandatory = hlod_mandatory_outstanding_bytes(p_grid, p_scratch, p_views);
+        if (p_growth <= hlod_optional_growth_headroom(p_limit, p_route, mandatory)) {
+            p_route += p_growth;
+            f.grew = true;
+        }
+        if (p_route > p_limit || p_limit - p_route < p_grid) { return f; }
+        p_route += p_grid;
+        if (p_limit - p_route < p_scratch) { return f; }
+        p_route += p_scratch;
+        f.scratch_admitted = true;
+        f.view_affordable = p_limit - p_route >= p_views;
+        return f;
+    };
+    const uint64_t route = uint64_t(900) << 20, scratch = uint64_t(40) << 20, views = uint64_t(3) << 20, growth = uint64_t(64) << 20;
+    // A ledger-bound streamed bundle on its first frame: the page budget left exactly the scratch + view charge, plus half
+    // of what the objects' growth would cost. The full headroom would admit the growth; the world must win.
+    {
+        const uint64_t limit = route + scratch + views + growth / 2;
+        const Frame f = frame(limit, route, 0, scratch, views, growth);
+        CHECK_FALSE(f.grew); // Refused, and the refusal blocks nothing:
+        CHECK(f.scratch_admitted);
+        CHECK(f.view_affordable);
+    }
+    // The same with a grid still to provision for this view (a streamed view of another size).
+    {
+        const uint64_t grid = uint64_t(12) << 20;
+        const uint64_t limit = route + grid + scratch + views + growth - 1;
+        const Frame f = frame(limit, route, grid, scratch, views, growth);
+        CHECK_FALSE(f.grew);
+        CHECK(f.scratch_admitted);
+        CHECK(f.view_affordable);
+    }
+    // Room for both: the growth happens and the world still gets everything it needs.
+    {
+        const uint64_t limit = route + scratch + views + growth;
+        const Frame f = frame(limit, route, 0, scratch, views, growth);
+        CHECK(f.grew);
+        CHECK(f.scratch_admitted);
+        CHECK(f.view_affordable);
+    }
+    // Once the scratch exists (steady state), only the views' charge is held back from optional growth.
+    CHECK(hlod_optional_growth_headroom(route + views + growth, route, hlod_mandatory_outstanding_bytes(0, 0, views)) == growth);
+    // Over the limit, or nothing beyond the mandatory bytes: no optional growth at all.
+    CHECK(hlod_optional_growth_headroom(route, route + 1, 0) == 0);
+    CHECK(hlod_optional_growth_headroom(route + scratch, route, scratch) == 0);
+    CHECK(hlod_optional_growth_headroom(route + scratch, route, scratch + 1) == 0);
+    // An unprovable sum (an inadmissible scratch plan is UINT64_MAX) leaves nothing for optional growth.
+    CHECK(hlod_mandatory_outstanding_bytes(1, UINT64_MAX, 0) == UINT64_MAX);
+    CHECK(hlod_mandatory_outstanding_bytes(0, 1, UINT64_MAX) == UINT64_MAX);
+    CHECK(hlod_optional_growth_headroom(UINT64_MAX, 0, hlod_mandatory_outstanding_bytes(5, UINT64_MAX, 5)) == 0);
+    // The grid's outstanding bytes are what hlod_view_grid_action() admits against the headroom: one rule.
+    for (int view_x : { 64, 128, 256 }) {
+        for (uint32_t overlap : { 0u, 1000u }) {
+            const uint64_t live = 4096, wanted = uint64_t(view_x) * 64;
+            const uint64_t outstanding = hlod_view_grid_outstanding_bytes(128, 128, view_x, view_x, overlap, live, wanted);
+            const bool keep = view_x == 128 && overlap != 0;
+            CHECK(outstanding == (keep ? 0u : (wanted > live ? wanted - live : 0u)));
+            if (!keep) {
+                CHECK(hlod_view_grid_action(128, 128, view_x, view_x, overlap, live, wanted, outstanding) == HlodViewGridAction::RESIZE);
+                if (outstanding > 0) {
+                    CHECK(hlod_view_grid_action(128, 128, view_x, view_x, overlap, live, wanted, outstanding - 1) == HlodViewGridAction::REFUSE_MEMORY);
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Paged] a frame the tile stage refuses is not active, names the refusal and is not ready (#1131)") {
     GaussianRenderFacadeState::ResourceState s;
     s.hlod_streaming = true;

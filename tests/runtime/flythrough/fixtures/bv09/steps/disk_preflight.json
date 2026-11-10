@@ -1,0 +1,46 @@
+{
+  "data": {
+    "avail_bytes": 139066634240,
+    "df_root_fs": {
+      "avail_bytes": 139066634240,
+      "filesystem": "/dev/sda1",
+      "mounted_on": "/",
+      "raw": "Filesystem         1-blocks         Used    Available Capacity Mounted on\n/dev/sda1      258906374144 119822962688 139066634240      47% /\n",
+      "total_bytes": 258906374144,
+      "used_bytes": 119822962688
+    },
+    "df_world_fs": {
+      "avail_bytes": 139066634240,
+      "filesystem": "/dev/sda1",
+      "mounted_on": "/",
+      "raw": "Filesystem         1-blocks         Used    Available Capacity Mounted on\n/dev/sda1      258906374144 119822962688 139066634240      47% /\n",
+      "total_bytes": 258906374144,
+      "used_bytes": 119822962688
+    },
+    "measured_dirs": [
+      {
+        "bytes": 25053589504,
+        "path": "/opt/actions-runner/godotgs-scons-cache",
+        "present": true
+      },
+      {
+        "bytes": 655069184,
+        "path": "/opt/actions-runner/godotgs-scons-cache-opt",
+        "present": true
+      }
+    ],
+    "required_free_bytes": 95733480192,
+    "required_parts_bytes": {
+      "disk_probe_file": 8589934592,
+      "free_margin": 26843545600,
+      "world_A": 58800000000,
+      "world_T0": 1500000000
+    },
+    "tier": "A",
+    "world_root": "/opt/actions-runner/_work/_temp/bvw-worlds"
+  },
+  "exit_code": 0,
+  "reason": "disk OK: 139.1 GB free on /, 95.7 GB required",
+  "status": "OK",
+  "step": "disk_preflight"
+}

@@ -1004,7 +1004,8 @@ void GaussianSplatManager::initialize_module() {
     GLOBAL_DEF("rendering/gaussian_splatting/composite/scene_depth_policy", 0);
     // Streaming route policy: 0=resident (no streaming overhead), 1=streaming (current default).
     // Scope: GaussianSplatWorld3D submissions only. GaussianSplatNode3D direct
-    // instances always register as resident regardless of this setting.
+    // instances always register as resident regardless of this setting. A world
+    // that takes the automatic HLOD route (lod/hlod_auto_route.h) is resident too.
     GLOBAL_DEF("rendering/gaussian_splatting/streaming/route_policy", 1);
     // When true, GaussianSplatWorld3D rejects (ERR_PRINT + no submission) any
     // non-identity global transform instead of warning once and continuing.
@@ -1175,10 +1176,14 @@ void GaussianSplatManager::initialize_module() {
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/prefetch_lookahead_distance", 10.0f);
 	// Async chunk packing (background CPU packing)
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/async_pack_enabled", true);
-	// Worker threads for async chunk packing (minimum 1).
-	GLOBAL_DEF("rendering/gaussian_splatting/streaming/pack_worker_threads", 2);
+	// Worker threads for async chunk packing (0 disables async packing). Each job reads, decodes
+	// and packs one chunk (~30 ms plain, ~95 ms paged GSQ for a 41k-splat chunk, BV-K9). Up to 8
+	// workers serve the default 8 jobs in flight in parallel; the started count is capped at
+	// max(2, logical CPUs / 2) so streaming never takes more than half of a consumer CPU from the
+	// game's own threads (StreamingUploadPipeline::compute_pack_worker_count). Idle workers sleep.
+	GLOBAL_DEF("rendering/gaussian_splatting/streaming/pack_worker_threads", 8);
 	// Max async pack jobs queued/processing at once (0 = unlimited).
-	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_pack_jobs_in_flight", 4);
+	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_pack_jobs_in_flight", 8);
 	// Limit chunk uploads per frame to avoid stalls (0 = unlimited).
 	GLOBAL_DEF("rendering/gaussian_splatting/streaming/max_chunk_loads_per_frame", 16);
 	// Optional prefetch queue budget per frame (0 = disabled).

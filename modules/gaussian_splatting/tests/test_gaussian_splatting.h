@@ -64,6 +64,9 @@
 #include "test_logger_rate_limit.h"
 #include "test_vram_budget_regulator.h"
 #include "test_resident_atlas_budget.h"
+#include "test_device_vram_ledger.h"
+#include "test_streaming_pool_growth_policy.h"
+#include "test_async_stall_fallback_policy.h"
 #include "test_gaussian_importance.h"
 #include "test_gaussian_importance_prune.h"
 #include "test_gaussian_splat_asset_prune.h"
@@ -72,12 +75,19 @@
 #include "test_quantized_packing.h"
 #include "test_tile_lighting_abi.h"
 #include "test_tile_buffer_resize.h"
+#include "test_overlap_bootstrap_policy.h"
 #include "test_tile_descriptor_cache.h"
 #include "test_sort_fallback_policy.h"
 #include "test_sort_benchmark_metrics.h"
 #include "test_sorter_metrics_metadata.h"
 #include "test_gaussian_splat_world_io.h"
 #include "test_gs_atomic_file_writer.h"
+#include "test_gs_payload_read_service.h"
+#include "test_gs_atomic_file_transaction.h"
+#include "test_gs_world_writer.h"
+#include "test_gsq_codec.h"
+#include "test_gsq_codec_hardening.h"
+#include "test_gsq_page_builder.h"
 #include "test_view_transform.h"
 #include "test_memory_leak_detection.h"
 #include "test_renderer_lifetime_proof.h"
@@ -146,6 +156,10 @@
 	static const volatile int test_hlod_bundle_rows_cpp_force_link_anchor = test_hlod_bundle_rows_cpp_force_link();
 	extern "C" int test_hlod_world_instances_cpp_force_link();
 	static const volatile int test_hlod_world_instances_cpp_force_link_anchor = test_hlod_world_instances_cpp_force_link();
+	extern "C" int test_hlod_shadow_casters_cpp_force_link();
+	static const volatile int test_hlod_shadow_casters_cpp_force_link_anchor = test_hlod_shadow_casters_cpp_force_link();
+	extern "C" int test_hlod_auto_route_cpp_force_link();
+	static const volatile int test_hlod_auto_route_cpp_force_link_anchor = test_hlod_auto_route_cpp_force_link();
 	extern "C" int test_integration_cpp_force_link();
 	static const volatile int test_integration_cpp_force_link_anchor = test_integration_cpp_force_link();
 	extern "C" int test_lod_system_cpp_force_link();

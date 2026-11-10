@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatWorldGenerator" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Deterministic synthetic test-world generator for the beyond-VRAM benchmark.
+	</brief_description>
+	<description>
+		Generates the seeded, re-iterable synthetic worlds of the beyond-VRAM benchmark (tiers [code]T0[/code], [code]A[/code], [code]A-mini[/code] and [code]T-smoke[/code], plus chunk subsets used as quality references) as plain [code].gsplatworld[/code] files, streamed chunk by chunk without holding the world in memory. Each world gets a sidecar [code]&lt;stem&gt;.manifest.json[/code] with the generator parameters and their SHA-256, the exact per-class content table, the features (towns, walls, foliage, coded beacons) and per-chunk counts, bounds and SHA-256 digests. The same parameters always produce the same bytes. Generated worlds are never written under [code]res://[/code].
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="apply_overrides" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="params" type="Dictionary" />
+			<param index="1" name="overrides" type="Dictionary" />
+			<description>
+				Returns [code]{"ok": true, "params": ...}[/code] with [param overrides] merged into [param params]. Every override key must already exist; otherwise [code]ok[/code] is [code]false[/code] and [code]message[/code] names the key.
+			</description>
+		</method>
+		<method name="generate" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="params" type="Dictionary" />
+			<param index="1" name="world_path" type="String" />
+			<param index="2" name="chunk_selection" type="PackedInt64Array" default="PackedInt64Array()" />
+			<param index="3" name="print_progress" type="bool" default="false" />
+			<param index="4" name="codec" type="String" default="&quot;none&quot;" />
+			<description>
+				Generates the world described by [param params] at [param world_path] and writes its manifest next to it. A non-empty [param chunk_selection] (sorted chunk indices of the full world) writes only those chunks, byte-identical to the full world's. [param codec] is [code]"none"[/code] (uncompressed plain v3) or [code]"gsq_v1"[/code] (plain v3 with paged GSQ v1 chunks; the manifest then carries a [code]codec[/code] block and per-chunk page runs instead of section digests). Returns a report with [code]ok[/code], [code]message[/code], the digests, counts and timings. On failure nothing is published at [param world_path].
+			</description>
+		</method>
+		<method name="get_manifest_path" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="world_path" type="String" />
+			<description>
+				Returns the sidecar manifest path of [param world_path].
+			</description>
+		</method>
+		<method name="get_params_sha" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="params" type="Dictionary" />
+			<description>
+				Returns the SHA-256 of the canonical JSON of [param params] ([code]generator_params_sha[/code]), or an empty string if [param params] is not a complete parameter set.
+			</description>
+		</method>
+		<method name="get_tier_names" qualifiers="static">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the names of the built-in tier presets.
+			</description>
+		</method>
+		<method name="get_tier_params" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="tier" type="String" />
+			<description>
+				Returns the parameter set of a built-in tier, or an empty [Dictionary] for an unknown tier.
+			</description>
+		</method>
+		<method name="plan" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="params" type="Dictionary" />
+			<description>
+				Computes the world's layout without generating it and returns its splat and chunk counts, the per-class content table and the expected file size.
+			</description>
+		</method>
+		<method name="verify" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="world_path" type="String" />
+			<description>
+				Re-reads [param world_path] and checks it against its manifest: file size and digest, header fields, chunk records and every chunk digest. Returns [code]{"ok": bool, "problems": Array}[/code].
+			</description>
+		</method>
+	</methods>
+</class>

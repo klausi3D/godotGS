@@ -36,6 +36,7 @@ static bool _checked_mul_u64(uint64_t p_a, uint64_t p_b, uint64_t &r_result) {
 struct GSplatWorldHeaderInfo {
 	uint32_t version = 0;
 	bool has_hlod = false;
+	bool paged_chunks = false; // plain v3 bit 7 (BV-C5a)
 	bool compressed = false;
 	bool resident_payload = false;
 	uint32_t splat_count = 0;
@@ -135,12 +136,14 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	if (gaussian_offset < header.header_bytes || gaussian_offset > file_size || (splat_count > 0u && gaussian_offset == file_size)) {
 		return ERR_FILE_CORRUPT;
 	}
-	if (header.has_hlod) {
-		// The HLOD sections (interior payload, node tables) are validated by the loader, which
-		// import() runs on the source and output before accepting either; only record what import() needs.
+	if (header.has_hlod || header.has_paged_chunks) {
+		// The HLOD sections (interior payload, node tables) and the paged GSQ directory (bit 7) are
+		// validated by the loader, which import() runs on the source and output before accepting
+		// either; only record what import() needs.
 		if (r_info) {
 			r_info->version = version;
 			r_info->has_hlod = header.has_hlod;
+			r_info->paged_chunks = header.has_paged_chunks;
 			r_info->compressed = (flags & flag_compressed) != 0u;
 			r_info->resident_payload = (flags & flag_resident_payload) != 0u;
 			r_info->splat_count = splat_count;
@@ -428,7 +431,8 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	// "the source file is not touched"); it keeps the plain, byte-preserving copy.
 	const bool in_place = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path() ==
 			ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
-	const bool bake = !header_info.has_hlod && header_info.splat_count > 0u && !in_place;
+	// A paged-GSQ source (bit 7) is copied unchanged: baking would re-save it uncompressed.
+	const bool bake = !header_info.has_hlod && !header_info.paged_chunks && header_info.splat_count > 0u && !in_place;
 	Error err = OK;
 	String hlod_skip_reason;
 	if (bake) {
@@ -445,6 +449,7 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 		}
 	} else {
 		hlod_skip_reason = header_info.has_hlod ? String("source_already_hlod")
+				: header_info.paged_chunks          ? String("paged_gsq_source")
 				: in_place                          ? String("destination_is_source")
 													: String("empty_world");
 		err = _copy_binary_file(p_source_file, save_path);
@@ -480,6 +485,7 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	}
 
 	if (r_metadata) {
+		// Paged GSQ chunks (bit 7) stream: the pack workers read and decode their pages (BV-C5b).
 		const bool resident_only = header_info.compressed || header_info.resident_payload;
 		const String resident_only_reason = header_info.compressed
 				? String("compressed_world_has_no_random_access_chunks")
@@ -488,6 +494,7 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 		import_metadata[StringName("source_path")] = p_source_file;
 		import_metadata[StringName("resource_path")] = save_path;
 		import_metadata[StringName("compressed")] = header_info.compressed;
+		import_metadata[StringName("paged_gsq_chunks")] = header_info.paged_chunks;
 		import_metadata[StringName("payload_mode")] = resident_only
 				? String("resident_only")
 				: String("streamable_uncompressed");

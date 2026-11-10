@@ -77,18 +77,20 @@ Two partial systems exist:
 |---|---|---|
 | G-a | Render a physically stored, deterministic SH3 world several times larger than VRAM, on the 3080 runner and the 3090 workstation. | maintainer requirement |
 | G-b | Chunk streaming and HLOD form **one design**: one residency contract, one byte ledger, one page pool. | maintainer requirement; HLOD ADR §14 |
-| G-c | Run the fly-through at the **tuned settings**: 4M visible cap, 400 m far plane, 4096 MB budget, 320 chunks. Production defaults are reported separately. | maintainer requirement |
+| G-c | Run the fly-through at the **tuned settings**: 4M visible cap, 400 m far plane, 4096 MB budget, 480 chunks. Production defaults are reported separately. The cap was 320 until M1 tier A (run 42427296940) met needed sets of up to 449 chunks: 480 is that maximum plus ≈ 7 % headroom (BV-M1CAP, §5.2). | maintainer requirement; cap from M1 evidence |
 | G-d | Frame targets: 3080 p95 ≤ 25 ms and p99 ≤ 33.3 ms; 3090 p95 ≤ 16.7 ms and p99 ≤ 20 ms. **Never loosened.** §5.1 states plainly what reaching them takes, and §10 schedules calibration and gating **for both devices**. | maintainer requirement |
 | G-e | The out-of-core writer is a reusable `io/` API, and it **carries the page codec**. | maintainer requirement |
 | G-f | Use an optimized build and a persistent world cache on the VM. The approved cache of about 60 GiB **is sufficient**; no VM disk growth is needed (§5.3). | maintainer requirement |
-| **G-g** | **A shippable, compressed, streamable world format** shared by plain chunks and V4 HLOD nodes: about 30–38 B/splat at SH3 [E], against 288–292 B today. | new requirement |
+| **G-g** | **A shippable, compressed, streamable world format** shared by plain chunks and V4 HLOD nodes: 36.5–37.9 B/splat at SH3 on generator content [M] (BV-C2, #1363; real scans UNVERIFIED), against 288–292 B today. | new requirement |
 | G-h | A path to HLOD ADR Package G: ≥ 100 km, ≥ 200M physical SH3 splats, about 1M drawn. | `docs/architecture/adr-hlod-streaming.md:1081-1088` ✓ |
 
 ### 1.3 Non-goals
 
 - Real-scan beyond-VRAM content. It waits on #1294 and on tiled ingest.
 - Package F (editable regions).
-- Instanced or multi-package worlds.
+- Multi-package worlds (several world packages per scenario). Node instances are **not** a
+  non-goal: they coexist with the world in the same frame per
+  [One route, many demand producers](adr-one-route-many-producers.md).
 - Retrained or neural compression (not decodable per page at streaming rates; see the
   compression survey in "External prior art").
 - Any change to S1b rules or to the #1290 waiver. **The HLOD bake rule stays unchanged.**
@@ -117,8 +119,11 @@ The unit is a **run** keyed by `(asset_key, NodeKey, NodeVersion)`:
 - an HLOD node is a run of ≤ 16 pages;
 - a legacy chunk is a degenerate leaf node, a run of ≤ 64 pages.
 
-Selectors are separate **demand producers**: the HLOD `ViewSet` cut and legacy chunk
-visibility.
+Selectors are separate **demand producers**: the HLOD `ViewSet` cut, legacy chunk
+visibility and the movable node instances (rows 1..N of one draw list, per
+[One route, many demand producers](adr-one-route-many-producers.md)); light views and extra
+camera views follow. The producer interface takes several producers per frame from the start, so
+Steps A and B do not harden around one producer.
 
 **The seed is `lod/hlod_node_residency`.** It already has whole-group admission, tickets with
 generations, retirement delay, protection, and eviction outside the closure → LRU → finest
@@ -197,7 +202,7 @@ bound and bound+1, and carries an explicit maintainer disposition in an R3 PR.
 | Cut `splat_budget` = min(leaf_count, `max_splats`) (`publisher.cpp:1657-1658` ✓, `:2038` ✓) | min(`drawn_budget_splats`, visible cap, pool records). This needs the **new setting** from BV-16c. | — |
 | Offline job: 1 worker, 1 job | Per-worker job contexts. Limits come per bucket from the frozen HLOD ADR §15.2 job manifest. | — |
 | `materialize_paged_resident` fallback (`nodes/gaussian_splat_world_3d.cpp:664-674` ✓) | **Refusal only above the resident limit.** Worlds that fit RAM keep the warn-and-load fallback. Larger worlds would OOM today, so no working scene breaks. | Closes the HLOD ADR §14.8 stop condition (silent whole-world materialization). |
-| A second HLOD view (multi-view) | **Refused with `hlod_multiview_budget_undefined`** until per-view sub-budgets and a deterministic Desired merge exist (P6). The drawn budget is a **per-frame total**. | The benchmark has one view. This prevents closure starvation. |
+| A second HLOD view (multi-view) | **Refused with `hlod_multiview_budget_undefined`** until per-view sub-budgets and a deterministic Desired merge exist (P6). This refusal is an interim only, and it keeps its typed reason; light views for splat shadow casters are not deferred (see P6). The drawn budget is a **per-frame total**. | The benchmark has one view. This prevents closure starvation. |
 
 ### D-4 Frame time: an honest model. HLOD caps the drawn count; the 3090 targets are at risk until F is measured
 
@@ -260,6 +265,9 @@ marks a value above the target (3090 p95 16.7 ms; 3080 p95 25 ms):
     > would be inadequate.
 
     This uses only flat-route and T0 data, never HLOD-arm results, so it is pre-registration.
+    The resolution-scaled product standard of 2026-11-09 (about 0.5M drawn per megapixel at
+    ≥ 30 FPS) does not change this rule; see "User decision recorded 2026-11-09" and its open
+    points.
 3. **τ, the SH read bands (SH3 < 50 m, SH1 50–150 m, SH0 > 150 m) and the codec bit depths**
    are frozen in the same block.
 4. **Lowering the drawn budget, raising τ, moving the SH bands nearer or coarsening codec bits
@@ -332,7 +340,8 @@ Decisions:
    labelled `settings_drifted`, which is a finding and not a baseline.
 3. **BV-08a lands before M1c.** It measures thrash as visible-set refetch within a
    **wall-clock window of K ms**, never a frame count. It has a live negative control at two
-   frame rates: a starved budget must trip it at both 60 and 200 fps.
+   frame rates: a starved budget must trip it at both 60 and 200 fps. As built: K = 2000 ms, and
+   it trips at a quarter of the chunk cap (at least 8) refetched inside the window.
 4. Production auto-regulation stays on. This changes production behaviour: the detector no
    longer fires on legitimate fly-through churn. It is a defect fix (false positives), proven
    by the negative control, so it is decided here rather than asked.
@@ -429,7 +438,8 @@ needs a re-bake; that is stated, not hidden.
 
 `renderer/device_vram_ledger` apportions memory to the pool, the sort and overlap buffers (from
 the drawn budget or the visible cap), the per-view buffers, the HLOD scratch (by pool records),
-and the engine and driver reserves.
+and the engine and driver reserves. It also owns the resident object atlas, the instance region
+of the HLOD bundle and the shadow-caster scratch, so the world and the objects share one ledger.
 
 - The GS-owned share stays at 0.60 × device.
 - It is enforced on the HLOD route and report-only on the chunk route until Step C.
@@ -446,8 +456,25 @@ and the engine and driver reserves.
 - **Header.** Each page has a 64 B header plus constants of ≤ 192 B: codec id, count, stored SH
   degree, the sub-block table, per-attribute dequant ranges, and a SHA-256 of the stored
   bytes.
-- **Layout inside a sub-block.** SoA, byte-planed, with positions delta-coded along the spatial
-  order.
+- **Layout inside a sub-block.** SoA, byte-planed, with positions delta-coded in the caller's
+  order. The codec never reorders (`io/gsq/gsq_codec.h:5-6` ✓, `io/gsq/gsq_codec.cpp:559-565`
+  ✓). **Spatial order is the writer's job:** BV-C3 sorts spatially (Morton) before encoding
+  (decision 2026-11-07, #1347). **Fixed in BV-C3 (decision 2026-11-08):** the writer cuts a
+  chunk's importance order into pages of 4,096 splats (`gs_gsq::kWriterPageSplats`, one
+  sub-block each), orders the pages by their first splat and sorts Morton order only inside a
+  page. A prefix of pages is a prefix of the importance order, so §6.2 prefix LOD truncates in
+  whole pages (`io/gsq/gsq_page_builder.h`). A chunk is therefore a run of pages, not one page;
+  the container change is BV-C5a.
+- **Page constants.** The fields D-12 does not quantize (area, DC alpha, stroke age, brush
+  axes, `painterly_meta`, `render_meta`) are stored once per page. The codec refuses a page
+  whose splats differ in them with `gsq_heterogeneous_field` (`io/gsq/gsq_codec.cpp:361-366`,
+  `:434-438` ✓). Normals are the exception: they take per-splat planes when they differ
+  (header flag bit 1). **The BV-C3 page builder must group splats with equal page constants
+  into pages.** Any remaining failure must be visible, as an error or a counted fallback,
+  never silent, and painterly content must stay encodable (decision 2026-11-07). BV-C3 groups
+  bit-identical page constants, cuts each group into importance-ordered pages and counts the
+  split (`constant_groups`, `heterogeneous_chunks`); a field the codec still refuses fails the
+  chunk with its `gsq_*` reason.
 - **Quantization** (pre-registered defaults, frozen in `settings`):
 
 | Attribute | Encoding |
@@ -460,8 +487,19 @@ and the engine and driver reserves.
 | SH | bits 6/5/5 by band |
 | Normal | only when flagged |
 
-- **Size.** 20 B of geometry plus DC and 45 B of SH3 give 65 B fixed width, then **≈ 30–38 B
-  after zstd** [E] (BV-C2 measures it).
+- **Accepted error, conditional.** Rotation error ≤ ≈ 0.28° (smallest-three, 3 × 10 bit plus a
+  2-bit index; bound and test in `tests/test_gsq_codec.h:211-213` ✓) and SH stored as 1 B per
+  coefficient (one byte plane per coefficient whatever the band's bit depth,
+  `io/gsq/gsq_codec.h:39` ✓) are accepted (decision 2026-11-07). The condition: the visual
+  real-scan check of #1357 passes before GSQ becomes a default.
+- **Size.** Positions take 21 bits whenever 16 bits would be coarser than the 0.25 mm step,
+  i.e. on any page wider than ≈ 16.4 m (`io/gsq/gsq_codec.cpp:510` ✓), rounded to 3 B per
+  axis. So 23 B of geometry plus DC and 45 B of SH3 give **68 B fixed width**
+  (`io/gsq/gsq_codec.cpp:289-291` ✓; 65 B only on pages narrow enough for 16-bit
+  positions), then **36.5 B (T0, whole tier) and 37.9 B (Tier A, every 32nd chunk) after zstd**,
+  page headers included [M] (BV-C2, #1363, ci-cpu-1, generator content with correlated SH). The
+  hash-noise SH control takes 44.7 B [M]. **Real scans are not measured** (no scan on the CI
+  runners; the probe reports them MISSING): their ratio is UNVERIFIED.
 - **Decode location.** The decode runs **in the pack workers**, straight into the existing
   176 B `PackedGaussian` (`renderer/gaussian_gpu_layout.h:340` ✓).
     - Shaders are unchanged and the async path is kept.
@@ -483,6 +521,28 @@ and the engine and driver reserves.
       chunks), which removes 4 B/splat on disk and 16 B/splat of RAM (four per-splat `u32`
       index copies, for example `core/streaming_asset_types.h:153-155` ✓). The SH section, and
       with it the 357.9M SH3 cap, does not exist in this container.
+      **Fixed in BV-C5a:** a 64 B paged extension behind the 112 B prefix carries the W16 codec
+      block and the page directory; pages start on 4 KiB boundaries; a 56 B chunk record names
+      its run of pages and a 112 B page record carries offset, stored size, extent and both
+      digests (layout in `io/gaussian_splat_world_format.h`). The reader verifies and decodes
+      every page and loads the world resident; the staged source and async decode are BV-C5b.
+      **Fixed in BV-C5b:** `load_resident()` keeps that path; every other load keeps only the
+      validated directory in a `GsqPagedChunkPayloadSource`
+      (`core/streaming_gsq_chunk_payload_source.h`). A capture reads its pages through the
+      source's `PayloadReadService`, verifies them (table entry, stored and decoded digests) and
+      decodes them on the capturing thread with a leased per-thread `DecodeContext`; on the
+      streaming route that thread is an async pack worker, which packs the 176 B
+      `PackedGaussian`. A failing page fails its capture with the `gsq_*` reason (counted, and
+      retried by the streaming system as a payload read failure). Release counters
+      (`get_decode_stats()`: pages and splats decoded, decode ns, pages decoded on worker vs main
+      threads, failures) prove which path ran.
+      **Changed in BV-K9c:** the streaming load turns the decoded-digest check off
+      (`set_verify_decoded_digest(false)`); it was 68.5 % of the per-page decode span on the
+      tier-A flythrough (run 42687229044). The table entry, the stored SHA-256 and every zstd
+      frame checksum are still checked on every page, so on-disk and transport damage is still
+      refused. The decoded digest re-hashes a deterministic decode of those verified bytes and can
+      only catch a decoder defect; the golden-digest doctests and `load_resident()` still check
+      it. The source reports `decoded_digest_verified` and `pages_decoded_digest_checked`.
 - **Determinism.** Encoding uses integer-exact quantization with `-ffp-contract=off`-safe code.
   A cross-platform golden decoded digest is checked on Windows/MSVC and Linux/GCC.
 - **Semantic read validation stays:** counts, sizes, finite ranges, decoded positions within the
@@ -550,14 +610,17 @@ and proven, not assumed.
    Decode/pack workers  : GSQ decode (per-worker ZSTD_DCtx) → PackedGaussian 176 B → bounded ready queue
    ResidencyManager     : seed NodeResidency; ledger ◄ DeviceVramLedger; SegmentedPagePool (K=1 until Step C)
                           state lists + intrusive LRU per protection class; tickets/generations; retire queue
-   Demand producers     : HLOD ViewSet/CutHistory (one view) | legacy chunk visibility (until Step C)
+   Demand producers     : HLOD ViewSet/CutHistory | node instances (rows 1..N) | legacy chunk visibility (until Step C)
+                          → one draw list, one sort, one ledger per view
    Draw list            : DrawnNodeGPU {instance_id, chunk_id, fade, reserved, camera_offset[4]} 32 B
                           (renderer/gaussian_gpu_layout.h:269-278; segment id goes in `reserved` at Step C)
    Renderer             : depth/projection → COUNT/EMIT → overlap sort → raster; scratch sized from the drawn budget
    Telemetry            : release atomics + per-frame-serial GPU timings → binary frame trace (file)
 ```
 
-The `DrawnNodeGPU` layout was re-read at `renderer/gaussian_gpu_layout.h:269-278` ✓.
+The `DrawnNodeGPU` layout was re-read at `renderer/gaussian_gpu_layout.h:269-278` ✓. Its
+`instance_id` carries real instance rows (world = 0, node instances = 1..N), not only the
+identity world.
 
 ### 3.2 Interfaces
 
@@ -578,13 +641,13 @@ The `DrawnNodeGPU` layout was re-read at `renderer/gaussian_gpu_layout.h:269-278
 | I-1 | No per-frame O(N_world) CPU work. A scaling test runs at 10k, 100k and 1M nodes. |
 | I-2 | Whole-run admission. An unplaceable run is skipped, not waited for. Compaction starts after R = 8 skips. |
 | I-3 | Protected closure = pinned ∪ drawn ∪ ancestors ∪ fades ∪ in-flight ∪ retiring. The budget is checked against allocated pages. |
-| I-4 | Complete-or-nothing publication. The first READY frame is the root or the bootstrap frontier. |
+| I-4 | Complete-or-nothing publication. The first READY frame is the root or the bootstrap frontier. It holds **per producer**: a producer that is not ready never blanks another (a loading world still draws the objects, and a refused object producer never blanks the world). |
 | I-5 | Stale-generation completions are dropped and counted. |
 | I-6 | Ledger honesty. Every resize pre-flights old + new. |
 | I-7 | Drawn ≤ drawn budget ≤ visible cap. On the HLOD arm the visible cap never binds. |
 | I-8 | No silent whole-world materialization. |
 | I-9 | Every gate-consumed counter exists in release builds **and** has a forcing control (§8.5). |
-| I-10 | Deterministic ties by `(instance_key, NodeKey)`. |
+| I-10 | Deterministic ties by `(instance_key, NodeKey)`. Tested with ≥ 2 producers (world + node instances). |
 | **I-11** | A single owner, the render thread, for every residency mutation. Workers communicate only through bounded queues. |
 | **I-12** | Each page is encode → decode → validated by the writer before it is appended. Readers never trust a digest in place of semantic validation. |
 
@@ -727,18 +790,22 @@ See D-4 for the sensitivity table. The decisive measurements are:
 Until they exist, **the 3090 targets are "at risk"** and the 3080 targets are "plausible only
 if F ≤ ≈ 7 ms".
 
+The drawn-splat standard per resolution (about 0.5M per megapixel at ≥ 30 FPS) and the 3080
+rate it rests on are recorded in "User decision recorded 2026-11-09". The standard sits
+below G-d and does not replace it.
+
 ### 5.2 VRAM and RAM, tuned settings, 1080p (decode to 176 B, so VRAM is unchanged by the codec)
 
 | Item | Flat arm (chunk route) | HLOD arm (drawn budget N_frozen ≤ 1.0M) | Label |
 |---|---|---|---|
-| Pool / atlas | 3,520 MiB (320 × 64 pages × 180,224 B) | ≤ 4,095 MiB (streaming budget; staging ceiling exempt per D-3; ledger-clamped) | [D] |
+| Pool / atlas | ≤ 4,092 MiB: 23,808 pages × 180,224 B, the 32-bit buffer-addressing ceiling (`_compute_atlas_page_ceiling`), below 480 × 64 pages and below the 23,829 pages the 4096 MB budget allows. Tier A chunks average 40.6 pages: 449 needed chunks take ≈ 18,200 pages, the world's densest 449 take 22,501, both under the occupancy target of 23,744 pages (ceiling − 1 chunk). Was 3,520 MiB [D] / 2,816 MiB measured at the 320 cap | ≤ 4,095 MiB (streaming budget; staging ceiling exempt per D-3; ledger-clamped) | [D] |
 | Per-visible buffers (refs, depth sort, projection, visibility) | ≈ 318 MiB (4M) | ≈ 80 MiB (pow2 of 1M) | [D] |
 | SH cache + subpixel history (per pool record ≈ 9 B) | ≈ 180 MiB | ≈ 216 MiB at 24M records | [D] |
 | Overlap sort, steady / bootstrap | 855 / 2,670 MiB before E3; demand-driven after BV-10 | ≈ 340 MiB at ≈ 12 records/splat (interior) | [D]/[E] |
 | Textures, tiles, staging, engine | ≈ 0.5 GiB | ≈ 0.5 GiB | [E] |
 | Driver and others | 3080 VM 0.3–0.6; 3090 0.5–1.5 GiB | same | [E] |
-| **Total, 3080** | ≈ 5.6–5.9 steady; ≈ 7.4–7.7 bootstrap before E3 | ≈ 5.5–6.1 GiB | [E] |
-| **Total, 3090** | ≈ 5.8–6.8 GiB | ≈ 5.7–7.0 GiB | [E] |
+| **Total, 3080** | ≈ 6.2–6.5 steady; ≈ 8.0–8.3 bootstrap before E3 (pool + 0.56 GiB for the 480 cap) | ≈ 5.5–6.1 GiB | [E] |
+| **Total, 3090** | ≈ 6.4–7.4 GiB | ≈ 5.7–7.0 GiB | [E] |
 | With BV-C8 (144 B) | pool holds 22 % more records | same | [D] |
 
 "E3" is the demand-driven overlap bootstrap delivered by BV-10.
@@ -746,23 +813,23 @@ if F ≤ ≈ 7 ms".
 | RAM | Flat, M1 probe (uncompressed) | Flat, GSQ (M1c+) | HLOD, A | HLOD, AB | Label |
 |---|---|---|---|---|---|
 | Index / topology | 3.0 GiB steady (4 × u32 per splat), 3.9 GiB load peak | **≈ 2–4 MB** (chunk table only; pages are chunks) | ≈ 36 MB | ≈ 72 MB | [D] |
-| I/O, decode, pack in flight | ≈ 90 MB + unbounded ready queue (bounded after BV-08c) | ≈ 4 × (1.9 MB stored + 8.65 MB packed) ≈ 42 MB | ≈ 16 × (0.6 + 2.9 MB) ≈ 56 MB | same | [D] |
+| I/O, decode, pack in flight | ≈ 90 MB; ready queue bounded by BV-08c to 2 clamped frames, ≤ 128 MiB at the default 128 MB ring and 2 frames | ≈ 4 × (1.9 MB stored + 8.65 MB packed) ≈ 42 MB | ≈ 16 × (0.6 + 2.9 MB) ≈ 56 MB | same | [D] |
 | Godot and the rest | 1.5–2.5 GiB | 1.5–2.5 GiB | 1.5–2.5 GiB | same | [E] |
 | Page cache (OS) | world ≫ RAM | world ≈ 7 GiB: **can be fully cached** (D-14) | ≈ 8 GiB, likewise | ≈ 16 GiB | [D] |
 | G4 limit | ≤ 12 GiB | ≤ 12 GiB | ≤ 12 GiB | ≤ 16 GiB | kept |
 
-### 5.3 Disk (compressed sizes are [E] until BV-C2; the fixed-width upper bound with no zstd gain is in brackets)
+### 5.3 Disk (compressed sizes derive from BV-C2's measured 36.5–37.9 B/splat on generator content [M]; real-scan ratio UNVERIFIED; the fixed-width upper bound with no zstd gain is in brackets)
 
 Compressed sizes per tier:
 
 | Tier / encoding | Size | Label |
 |---|---|---|
 | A plain v3 uncompressed (M1 only) | 54.8 GiB | [D] |
-| **A plain GSQ** | **5.6–7.1 GiB** [12.2] | [E]/[D] |
-| **A V4 GSQ** (interior SH3, D-9: no interior truncation yet) | **7.9–8.7 GiB** [14.6–16.2] | [E]/[D] |
-| **AB V4 GSQ** | **15.8–17.4 GiB** [29–32] | [E]/[D] |
-| **AB-span V4 GSQ** | 15.8–17.4 GiB [29–32] | [E]/[D] |
-| T0 (4.19M): U plain / GSQ plain / GSQ V4 | 1.14 / 0.12–0.15 / 0.16–0.18 GiB | [D]/[E] |
+| **A plain GSQ** | **6.8–7.1 GiB** [12.75] (201.3M × 36.5–37.9 B) | [D] from [M] |
+| **A V4 GSQ** (interior SH3, D-9: no interior truncation yet) | **8.2–9.4 GiB** [15.3–16.9] (plain × 1.20–1.33, interior nodes assumed to compress like leaves) | [D] from [M] |
+| **AB V4 GSQ** | **16.4–18.8 GiB** [30.5–33.9] | [D] from [M] |
+| **AB-span V4 GSQ** | 16.4–18.8 GiB [30.5–33.9] | [D] from [M] |
+| T0 (4.19M): U plain / GSQ plain / GSQ V4 | 1.14 / **0.143** (153,137,905 B) / 0.17–0.19 GiB | [D]/[M]/[D] |
 | T-ref (≤ 12M per checkpoint, uncompressed), **generated per run, one at a time, deleted after use** | ≤ 3.3 GiB transient | [D] |
 | Compressed bake spill (per segment) + assembly | ≈ 1 segment + small | [E] |
 | Synthetic-content caveat | Hash-noise SH would compress poorly, so the generator uses spatially correlated SH fields, and the ratio is **reported separately from real scans** | — |
@@ -778,8 +845,8 @@ Compressed sizes per tier:
 | Enforced free margin (25 GiB) | 26.8 | proposal |
 | **Subtotal without worlds** | **146.6** | |
 | **During M1:** A uncompressed + T0 | 58.8 + 1.5 → **207 GB total** | fits (21 GB slack beyond the margin) |
-| **Steady from M1c:** A plain GSQ + A V4 GSQ + T0 + T-ref transient + spill | 7.6 + 9.3 + 1.5 + 3.5 + 1 → **≈ 169.5 GB total** (worst case fixed width: ≈ 184 GB) | fits |
-| **World cache** | ≈ 21.5 GiB steady (≤ 33 GiB worst); 56 GiB during M1 | **within the approved ≈ 60 GiB** |
+| **Steady from M1c:** A plain GSQ + A V4 GSQ + T0 + T-ref transient + spill | 7.6 + 10.1 + 1.5 + 3.5 + 1 → **≈ 170.3 GB total** (worst case fixed width at 68 B: ≈ 185 GB) | fits |
+| **World cache** | ≈ 22 GiB steady (≤ 34 GiB worst); 56 GiB during M1 | **within the approved ≈ 60 GiB** |
 
 **Result: no VM disk growth and no new cache approval.**
 
@@ -790,9 +857,11 @@ Compressed sizes per tier:
 
 **Workstation data drive (93 GB free [M], `df` on 2026-11-03):**
 
-- Planned use: AB V4 GSQ 17–19 GB, A plain + V4 GSQ ≈ 17 GB, T-ref transient 3.5 GB, spill
-  ≈ 2 GB → ≈ 40 GB.
-- AB-span (+17–19 GB) **replaces** AB when it runs.
+- Planned use (from the BV-C2 ratio [M]): AB V4 GSQ 17.6–20.2 GB, A plain + V4 GSQ 16.1–17.7 GB,
+  T-ref transient 3.5 GB, spill ≈ 2 GB → ≈ 39–44 GB.
+- The fixed-width upper bound (no zstd gain) is ≈ 73.8 GB and does **not** fit the ≈ 66 GB
+  usable (#1360); see K3.
+- AB-span (+17.6–20.2 GB) **replaces** AB when it runs.
 - With the 25 GiB margin the usable space is ≈ 66 GB, so it fits.
 - The same "DID NOT RUN: disk" preflight applies on the workstation.
 - The workstation's system drive is never used.
@@ -804,16 +873,19 @@ The plain splat density is 43.05/m² (§6.2). The frontal width ranges from 645 
 2r·sin(θ/2) at a 400 m far plane and 107.5° horizontal FOV) to 1,091 m (planar far-plane edge
 at 400 m) [D]; both bounds are carried.
 
-| Case | New splats/s | Disk, uncompressed (292 B) | **Disk, GSQ (35 B)** | Decode + pack CPU (2 workers) | Upload (176 B) |
+| Case | New splats/s | Disk, uncompressed (292 B) | **Disk, GSQ (37.9 B [M])** | Decode + pack CPU (1.37M splats/s per core [M]) | Upload (176 B) |
 |---|---|---|---|---|---|
-| 60 m/s | 1.67–2.82M | 0.49–0.82 GB/s | **58–99 MB/s** | ≈ 0.2–0.5 core decode + pack (pack 6–16M/s per worker [E]) | 0.29–0.50 GB/s |
-| 120 m/s | 3.33–5.64M | 0.97–1.65 GB/s | **117–197 MB/s** | ≈ 0.4–1.0 core + pack; pack may bind | 0.59–0.99 GB/s |
-| Teleport refill (≤ 14.6M splats, 2.4 GiB resident) | once | 4.3 GB → ≈ 6–9 s at 0.5–0.7 GB/s | **0.51 GB → ≈ 0.5–1.7 s at 0.3–1 GB/s** | ≈ 0.5–1.2 s pack (2 workers) | 2.57 GB at ≤ 128 MB/frame ≈ 0.35 s at 60 fps |
+| 60 m/s | 1.67–2.82M | 0.49–0.82 GB/s | **63–107 MB/s** | **≈ 1.2–2.1 cores** (decode 2.3M/s with page SHA-256, pack 3.3–3.5M/s per core [M]) | 0.29–0.50 GB/s |
+| 120 m/s | 3.33–5.64M | 0.97–1.65 GB/s | **126–214 MB/s** | **≈ 2.4–4.1 cores: 2 workers bind** | 0.59–0.99 GB/s |
+| Teleport refill (≤ 14.6M splats, 2.4 GiB resident) | once | 4.3 GB → ≈ 6–9 s at 0.5–0.7 GB/s | **0.55 GB → ≈ 0.6–1.8 s at 0.3–1 GB/s** | **≈ 5.3 s decode + pack (2 workers) [D from M]** | 2.57 GB at ≤ 128 MB/frame ≈ 0.35 s at 60 fps |
 
-**Consequence:** disk stops being the binding resource; **pack and decode CPU binds** at
-120 m/s. G6t ≤ 6 s (3080) becomes plausible even on a slow VM disk, but it is still
-statistical (§8.3). BV-06a measures disk (`dd` with `O_DIRECT`; `fio` only if present), and
-BV-C2 measures decode and pack MB/s per core.
+**Consequence:** disk stops being the binding resource; **decode and pack CPU binds**. BV-C2
+measured one core of ci-cpu-1 (AMD Threadripper PRO 3975WX, VM; BV-C2, #1363, generator content,
+median of 3): decode 2.27–2.34M splats/s (83–89 MB/s of stored bytes) with the page SHA-256,
+3.15–3.29M splats/s without it; pack into the 176 B `PackedGaussian` 3.33–3.46M splats/s;
+decode + pack 1.37M splats/s. With 2 workers that binds at 120 m/s and at the upper end of
+60 m/s, and a teleport refill costs ≈ 5.3 s of CPU against G6t ≤ 6 s (3080): **K9 is real**,
+not hypothetical. BV-06a measures disk (`dd` with `O_DIRECT`; `fio` only if present).
 
 ---
 
@@ -938,7 +1010,8 @@ frozen in the thresholds file.**
    route on plain GSQ).
 3. **Pass B, settle** at C0–C7. The run pumps until a condition holds or a wall-clock deadline
    passes:
-    - flat: missing chunks = 0;
+    - flat: missing chunks = 0, where the needed set fits the chunk cap; where it does not,
+      a priority proof replaces the settle (M1 criterion in §10, INVALID until that check exists);
     - HLOD: **the drawn cut equals the manifest's oracle cut at the frozen drawn budget**, with
       no "or budget-bound" escape.
 
@@ -1153,12 +1226,16 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
 
 ### 9.1 Workflow `.github/workflows/beyond_vram_flythrough.yml` (R3)
 
-- **Triggers:** `schedule "0 9 * * 0"` and `workflow_dispatch` (`tier`, `arm`,
-  `prime_world_cache`, `controls_only`). No PR or push triggers.
+- **Triggers:** `schedule "0 22 * * 6"` (the lane; at night, so the single GPU runner is free
+  during the day; BV-06b moved it from Sunday 09:00 UTC), `schedule "0 6 * * 1"` (the watchdog)
+  and `workflow_dispatch` (`mode`, `tier`, `prime_world_cache`; `arm` and `controls_only` land
+  with the arms and controls they select, BV-13a/BV-C6). No PR or push triggers.
 - **Permissions:** `contents: read`, with `actions: read` **on the watchdog job only**. Fork
   guard. No `continue-on-error`.
 - **Concurrency:**
-    - `group: bvw-${{ github.event_name }}`, `cancel-in-progress: false`.
+    - `group: bvw-${{ github.event_name }}-<lane|watchdog>`, `cancel-in-progress: false`. The
+      watchdog has its own group, so a Monday watchdog can never replace the scheduled run it
+      reports on; it skips its own runs by their `run-name`.
     - The real protection against master pushes is that **no other workflow uses this group**.
       The existing groups are per-workflow (`.github/workflows/gaussian_production_gates.yml:85`,
       `.github/workflows/release_builds.yml:151` ✓, …).
@@ -1178,12 +1255,15 @@ evaluable (not INVALID). A harness stub that always exits 2 must yield run INVAL
         - **driver limits logged** (`vulkaninfo`: `maxStorageBufferRange`, `maxBufferSize`);
         - build(s), `build_info` assert;
         - disk/cache preflight + verify + fadvise + mincore;
-        - controls → main → codec arms;
+        - controls → main → codec arms (BV-13a runs the T0 controls **after** the cold main
+          pass: a control reads T0 and would warm its pages, so D-14 item 2 would refuse the
+          cold pass; the verdict is unchanged, any differing control tuple makes the run INVALID);
         - postflight, verdict, upload (all `if: always()`);
         - exit mapping: PASS 0, FAIL 1, INVALID 2, NOT_RUN 3, VOID 75.
     3. `liveness-watchdog` (Mondays): before M2 it keys on "a terminal verdict that is not
-       VOID"; from M2, on PASS within 9 days, two consecutive VOIDs, or a run queued > 20 h,
-       cancelled or replaced.
+       VOID" (BV-06b: PASS, FAIL or INVALID within 9 days; NOT_RUN and a run without a verdict
+       artifact do not count, because a lane that did not run is not alive); from M2, on PASS within
+       9 days, two consecutive VOIDs, or a run queued > 20 h, cancelled or replaced.
 - **BV-06a** is a minimal dispatch-only version (build, `df`, `dd` with `O_DIRECT`, vulkaninfo,
   generate, probe, upload) so that M1 does not wait for the full workflow. A manual VM run is
   rejected: no interactive VM access is assumed (UNVERIFIED), and runner work must be
@@ -1270,9 +1350,23 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 - RSS stays bounded; real eviction;
 - disk throughput measured;
 - release-build latencies;
-- the first > 2 GiB single atlas buffer (3.5 GiB) on GPU;
+- the first > 2 GiB single atlas buffer (≤ 4.0 GiB at the 480-chunk cap) on GPU;
 - **measured F and k**;
 - whether the regulator fires (labelled `settings_drifted` if it does).
+
+**M1 checkpoint criterion: settle where the needed set fits (BV-M1CAP, maintainer decision
+2026-11-08).** At each checkpoint the probe compares the engine's `needed_chunks` with the
+chunk cap enforced in the same frame:
+
+- **needed ≤ cap:** the checkpoint must settle (§7.3: missing chunks = 0 before the deadline).
+  A missed deadline makes the run INVALID, as before.
+- **needed > cap:** the needed set can never be resident at once, so settle is not defined.
+  The checkpoint instead requires a **priority proof**: the most important needed chunks are
+  resident and drawn first. That check does not exist yet. Until it does, such a checkpoint is
+  **INVALID** with a reason naming needed and cap, settled or not; it never passes silently.
+- needed or cap absent: INVALID (MISSING), never a pass.
+
+With the cap at 480, every needed set M1 tier A met (≤ 449) is in the first case.
 
 **M1 does not prove** targets, compression, far quality or HLOD.
 
@@ -1281,8 +1375,28 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | # | PR | Class | Eff. | Survives? |
 |---|---|---|---|---|
 | BV-08a | Thrash detector as a wall-clock refetch window, with two-frame-rate negative control | R2 | 1.5–2 | until Step C |
+| BV-PRIO | Residency priority: strict-frustum chunks first; padding and prefetch only in free capacity | R2 | 1 | until Step C |
 | BV-08b | `PayloadReadService` (positional reads, pool, pooled handles, cancellation) | R3 | 3–5 | yes |
 | BV-08c | Bounded ready queue + upload clamp | R2 | 1–1.5 | yes |
+
+**BV-PRIO (added after M1, run 42375402519).** C0, C1, C6 and C7 never settled in either pass.
+The strict frustum needs 233–258 chunks at those poses and the cap is 320, but the route's needed
+set was the frustum **with `chunk_frustum_padding` 1.5**: 420–489 chunks. At each of the four
+poses `needed_unserved_chunks` is exactly that set minus the cap (100, 169, 121, 100); the four
+poses that settled have a padded set ≤ 260. Nothing told padding from demand, so:
+
+- near padding chunks were admitted before far frustum chunks;
+- the padded set could never be served, so `missing chunks = 0` (§7.3) could not become true;
+- each load evicted another needed chunk for ever: 80–86 uploads/s at a static camera, 53 % of
+  all M1 uploads (23,407 of 44,060) fell in settle waits.
+
+Decision: a chunk is **needed** when it is inside the frustum without the padding and inside the
+load distance. Needed chunks rank first at admission and last at eviction. A padding chunk draws
+when resident but is not demand: it and prefetch take free capacity only (off-screen victims are
+free capacity), never evict a needed chunk or each other, and any needed load displaces them.
+`needed_chunks`, `needed_unserved_chunks`, and through them the §7.3 settle, now
+count the needed set, which is the set §6.4 ground truth computes. A needed set larger than the
+cap still evicts itself; the BV-08a detector reports that as thrash.
 
 ### P2: compressed chunk world → **M1c**, then hard correctness gates → **M2**
 
@@ -1328,7 +1442,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | ★BV-26a | Freeze `drawn_budget_splats` (D-4 rule, from M1/M1c F/k), τ, SH bands in `settings` **before any HLOD data** | R3 | 09, 16c, M1c | 0.5–1 |
 | ★BV-21a | Prime job: V4 GSQ bake on the runner, `gen_sha + bake_sha` key, quarantine | R3 | 20d, C4, 06b | 2 |
 | ★BV-21b | Lane HLOD arm; oracle cuts (A); G3, G10h, G11h hard; P1, G11q calibrating | R3 | 21a, 15, 17, 25, 26a | 2–3 |
-| **M3** | **First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080** | | | |
+| **M3** | **First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080**, also run in GS-COMBINED-1 variant B once that gate exists | | | |
 
 ### P4: frame targets on both devices → **M4**
 
@@ -1344,7 +1458,7 @@ both, and HLOD ADR §16 points here for the BV-00b decisions.
 | ★BV-30 | Tier AB V4 GSQ on the workstation: bake, oracle cuts (AB), bundle tooling, signing, verifier, precheck | R3 (evidence tooling) | 21a | 2–3 |
 | ★BV-31 | 3080 calibration (5 dispatches, HLOD arm only; no flat-arm calibration) + promotion of P1, G5–G6t, G11, G11q, G13–G15 and Q-codec where they pass | R3 | 22–24b, 26b, 27 | 1 + runner |
 | ★BV-32 | **3090 calibration (5 workstation runs on AB) + promotion** | R3 | 30, 31 | 1 + maintainer's time |
-| **M4** | **Met only if P1 is hard and passing on the 3080 (A) and the 3090 (AB), on the HLOD arm.** Otherwise "not met", with the numbers. | | | |
+| **M4** | **Met only if P1 is hard and passing on the 3080 (A) and the 3090 (AB), on the HLOD arm**, with the same run also passing in GS-COMBINED-1 variant B ([One route, many demand producers](adr-one-route-many-producers.md) §9) once that gate exists. A world-only pass is reported but does not meet M4. Otherwise "not met", with the numbers. | | | |
 
 BV-22 to BV-25 start on day 1 in parallel.
 
@@ -1371,7 +1485,9 @@ BV-22 to BV-25 start on day 1 in parallel.
 - Compact GSQ-GPU layout.
 - Importer GSQ output (§12 item 5).
 - Issue: decorative importer compression flags.
-- Multi-view sub-budgets.
+- Multi-view sub-budgets for extra camera views. The light-view sub-budget that real splat
+  shadow casters need is **not** deferred here: it is scheduled with the caster work before M3
+  ([One route, many demand producers](adr-one-route-many-producers.md), decision 6).
 - Lazy index pages.
 - #1302.
 
@@ -1432,13 +1548,13 @@ approver at ≈ 3–4 R3 dispositions per week (≈ 45 R3 PRs) and one runner.
 |---|---|---|
 | K1 | M1 finds chunk-route scale bugs | Fix only probe-proven ones, preferring shared layers; P1b is capped at 10 d, then re-plan. |
 | K2 | Host cache makes cold runs fast | D-14 `host_cache` label; G5/G6t are statistical. |
-| K3 | Codec ratio worse than estimated | The fixed-width upper bound still fits every disk budget (§5.3); BV-C2 measures before freezing. |
+| K3 | Codec ratio worse than estimated | BV-C2 [M]: 36.5–37.9 B/splat on generator content, inside the 30–38 B estimate; real scans UNVERIFIED (none on CI). The fixed-width upper bound fits the runner and the world cache, **not the workstation** (≈ 73.8 GB > ≈ 66 GB usable, #1360); at the measured ratio the workstation plan is ≈ 39–44 GB and fits. Workstation mitigation if the real-scan ratio is worse: generate tiers one at a time, delete T-ref after use, keep one AB variant on disk. |
 | K4 | Frame targets unreachable: F ≈ 10.5 ms, interior k ≈ 12 | D-4 rule; BV-24b; M4 "not met" path; targets never moved. |
 | K5 | Tiled bake not identical in-core | Forced-root variant; identity at ≤ 1M with B_max 64k. |
 | K6 | Bake cost | BV-19 first; the job manifest refuses rather than OOMs. |
 | K7 | Sorter/pool resize transient | E3 (BV-10), I-6. |
 | K8 | First > 2 GiB single buffer (3.5 GiB atlas) never run on GPU before M1 | vulkaninfo limits logged; M1 is the test; BV-33/34b fallback. |
-| K9 | Codec decode CPU binds at 120 m/s | Per-worker DCtx; decode straight to 176 B; pack worker count is a frozen setting; measured in BV-C2. |
+| K9 | Codec decode CPU binds at 120 m/s | **Materialized** [M] (BV-C2): decode + pack 1.37M splats/s per core, so 120 m/s needs ≈ 2.4–4.1 cores and a teleport refill ≈ 5.3 s with 2 workers. Per-worker DCtx; decode straight to 176 B; the pack worker count is a frozen setting and must be sized from this measurement; the SHA-256 (≈ 30 % of decode) and the pack are the levers. |
 | K10 | Encoder non-determinism (fast-math, MSVC vs GCC) | Integer-exact quantization; golden digest on both OSes; `-ffp-contract=off`-safe code. |
 | K11 | System-zstd builds lack symbols, or the ABI differs | UNVERIFIED; builtin zstd for our builds; a link test in BV-C1a. |
 | K12 | Step C touches the alpha envelope | Last phase; compressed plain regression on the runner throughout. |
@@ -1518,6 +1634,81 @@ The user (maintainer) answered the §12 questions on 2026-11-03. These decisions
 5. **Importer.** Accepted by default: GSQ output is opt-in first. It becomes the default only
    once the codec quality gate is hard and passing on real scans.
 
+**Note (2026-11-04).** The maintainer decided that the world, static and movable objects,
+interactive objects, lights and shadows must work in the same frame, and accepted
+[One route, many demand producers](adr-one-route-many-producers.md). This record was amended
+to match, with minimal edits in eight places: the §1.3 non-goal (node instances removed from it;
+multi-package worlds stay out of scope), the D-1 producer set, the §3.1 producer line and
+`DrawnNodeGPU.instance_id`, the D-11 ledger scope, the multi-view refusal (D-3, as an interim) together
+with the P6 light-view sub-budget, invariant I-4 (per producer), invariant I-10 (tested with
+≥ 2 producers), and M3/M4, which are also run in GS-COMBINED-1 variant B. **No threshold or gate in §8 changed.**
+
+## User decision recorded 2026-11-09: drawn-splat budget per resolution
+
+The user (maintainer) set a standard for drawn splats per frame on 2026-11-09:
+
+- **About 0.5M drawn splats per megapixel of output resolution, at ≥ 30 FPS.** That is 4M at
+  4K (8.3 MP), about 1.8M at 1440p (3.7 MP), and about 1M at 1080p (2.1 MP). At 1080p up to
+  2M is also acceptable.
+- This is the standard, not a ceiling on ambition: more drawn splats later are welcome, but
+  they are not the target.
+
+**Basis.**
+
+- **Rate** [M] (GPU run 42644237192, `summary.json`, splat-count sweep including the 2M and 4M
+  points): a linear fit gives gpu_pipeline ≈ 0.79 ms + 6.74 ms per million drawn splats,
+  r² 0.998.
+    - Hardware and pool: RTX 3080, pool ≤ 1408 MB, which is below the VRAM cliff. The frames
+      were healthy.
+    - Timing: the run predates the streaming-pool fix (#1396, #1397).
+    - The fit is in the run summary, not in the repository.
+- **Breakdown at the 4M sweep point** [M] (same run; 3.24M actually drawn): coherent_total
+  21.6 ms. The passes are presort 10.85, binning 3.66, raster 3.33, overlap_sort 1.58,
+  overlap_count 1.49 and projection 0.52 ms.
+- **Separate data point** [M] (not used for the rate): a healthy Tier A frame at 1080p on the
+  3080, 1.57M drawn splats, 9.4 ms GPU frame. It was reported by the maintainer session of
+  2026-11-09 and is not recorded in the repository or an issue, so it is UNVERIFIED as a
+  citation.
+- **Estimates** [E] from 0.79 + 6.74·N:
+    - 1080p: 1M ≈ 7.5 ms, 2M ≈ 14.3 ms;
+    - 1440p: 1.8M ≈ 12.9 ms;
+    - 4K: 4M ≈ 27.8 ms. With D-4's p95 ≈ 1.25 × mean, that is p95 ≈ 35 ms.
+- **The 4K raster and composite cost has not been measured.** The 4K figures carry only the
+  per-splat rate of the sweep above.
+
+**How it relates to decision 2 of 2026-11-03.**
+
+- **Decision 2 stays binding as written.** The gated workload is still the HLOD drawn budget N
+  from the D-4 rule: the largest N ≤ 1.0M that the model, fed with M1/M1c F and k, predicts
+  will meet 3090 p95 ≤ 16.7 ms, frozen by BV-26a before any HLOD-arm data. If N < 0.5M, the
+  user is asked again.
+- **The 2026-11-09 standard is a product baseline, not a gate.** It states what drawn count is
+  good enough at each resolution at ≥ 30 FPS, which is a mean frame ≤ 33.3 ms.
+- **G-d is stricter and is never loosened:** 3080 p95 ≤ 25 ms and p99 ≤ 33.3 ms; 3090 p95
+  ≤ 16.7 ms and p99 ≤ 20 ms. Where the standard and G-d disagree, G-d gates.
+- At 1080p the two agree in order of magnitude: the standard (about 1M) matches the D-4
+  ceiling of 1.0M.
+
+**No threshold or gate in G-d or §8 changed.** The open points below are for the maintainer;
+the program does not resolve them.
+
+**Open points (conflicts with existing gates):**
+
+1. **4K vs G-d on the 3080.** 4M at 4K ≈ 27.8 ms mean [E], p95 ≈ 35 ms [E]. That meets 30 FPS
+   by mean but misses the 3080 p95 ≤ 25 ms target, and is likely above p99 ≤ 33.3 ms, even
+   before the unmeasured 4K raster and composite cost. It misses the 3090 p95 ≤ 16.7 ms
+   unless the 3090 is about 2× faster than the 3080 (D-4 assumes ≈ 1.2× [E]).
+2. **4K vs the 4M visible cap.** A 4M drawn budget equals the 4M visible cap, which must
+   never bind on the HLOD arm (D-4 decision 1; G10h = 0, hard). At 4K the cap would bind or
+   sit at the edge.
+3. **1.0M ceiling of the D-4 rule.** 1440p (about 1.8M), 4K (4M) and the 1080p allowance of
+   up to 2M all exceed the rule's N ≤ 1.0M. Whether the standard raises that ceiling, or only
+   describes ungated product settings, is not decided.
+4. **Resolution of the gated runs.** `drawn_budget_splats` (BV-16c) is one count, and the
+   fly-through (§7) does not fix an output resolution beyond the 1080p budgets of §5.2. A
+   per-megapixel budget would change the setting's shape and the BV-26a freeze; that is not
+   decided.
+
 ---
 
 ## Review history
@@ -1590,7 +1781,8 @@ Every ✓ above was re-read in a checkout at `44836e1d6a5`. The load-bearing one
 | SPZ: one frame per stream; absolute 12-bit-fraction positions | `thirdparty/spz/load-spz.cc:111-121`, `:351-357` | confirmed |
 | No existing workflow uses a shared GPU concurrency group | `grep -A1 '^concurrency:' .github/workflows/*.yml` | confirmed |
 
-**Still UNVERIFIED:** all codec ratios and decode speeds (BV-C2 measures them), the
+**Still UNVERIFIED:** the codec ratio and decode speed on real scans (BV-C2 measured generator
+content only; no real scan is on the CI runners), the
 frame-time split beyond sort and total frame (D-4), runner `df` and disk throughput, host
 caching of the VM disk, 3080 Vulkan limits, the present-gap cause, records per splat at
 benchmark density, system-zstd linking, and template binaries loading absolute-path worlds.

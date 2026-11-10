@@ -6,7 +6,7 @@
 #include "core/variant/typed_array.h"
 #include "core/string/node_path.h"
 #include "../core/gaussian_data.h"
-#include "../renderer/gaussian_splat_renderer.h"
+#include "../interfaces/gpu_culler.h"
 
 class GaussianSplatNode3D;
 class GaussianSplatWorld;
@@ -23,7 +23,7 @@ private:
     NodePath target_node_path;
 
     Ref<GaussianData> merged_data;
-    Vector<GaussianSplatRenderer::StaticChunk> merged_chunks;
+    Vector<StaticChunk> merged_chunks;
     AABB merged_bounds;
 
     void _merge_children_internal();
@@ -60,7 +60,7 @@ public:
     PackedInt32Array get_chunk_sizes() const;
     Array get_chunk_aabbs() const;
 
-    const Vector<GaussianSplatRenderer::StaticChunk> &get_static_chunks() const { return merged_chunks; }
+    const Vector<StaticChunk> &get_static_chunks() const { return merged_chunks; }
     AABB get_merged_bounds() const { return merged_bounds; }
 };
 

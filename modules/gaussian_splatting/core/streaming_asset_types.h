@@ -63,6 +63,9 @@ struct StreamingChunk {
     bool is_loaded = false;
     bool gpu_resident = false;
     bool is_visible = true;
+    // BV-PRIO: visible only through chunk_frustum_padding. Such a chunk loads into free capacity
+    // and never displaces a needed one; see is_needed_for_view().
+    bool padding_only = false;
     bool upload_pending = false;
     RenderingDevice *upload_device = nullptr;
     uint8_t upload_lifecycle_state = STREAMING_UPLOAD_STATE_NONE;
@@ -84,6 +87,8 @@ struct StreamingChunk {
     uint64_t pending_upload_bytes = 0;
     uint64_t last_used_frame = 0;
     uint64_t last_loaded_frame = 0;
+    // BV-08a: wall clock of the last eviction, 0 once a reload has been judged against it.
+    uint64_t last_evicted_usec = 0;
     uint32_t buffer_slot = UINT32_MAX;
     uint64_t explicit_request_generation = 0;
 
@@ -99,6 +104,8 @@ struct StreamingChunk {
 
     ChunkQuantizationInfo quantization;
     bool quantization_computed = false;
+
+    bool is_needed_for_view() const { return is_visible && !padding_only; }
 };
 
 struct RequestedChunkState {

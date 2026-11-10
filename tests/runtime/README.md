@@ -3,9 +3,9 @@
 `tests/runtime/run_runtime_validation.py` runs runtime harnesses (C++ and GDScript) and writes:
 
 - `tests/runtime/runtime_validation_report.json` (default; override per invocation with
-  `--report-path`. The two invocations in `gaussian_production_gates.yml` write distinct
-  `runtime_validation_report_<profile>.json` paths so neither profile's report truncates
-  the other's, and both are uploaded.)
+  `--report-path`. The two CI invocations in `baseline_qa.yml` (headless-ci in `cpu-tests`,
+  streaming-gpu-ci in `gpu-tests`) write distinct `runtime_validation_report_<profile>.json`
+  paths so neither profile's report truncates the other's, and both are uploaded.)
 
 ## Completion Marker (T3 / #891)
 
@@ -149,7 +149,7 @@ does **not** run `release-ci`.
 unavailable local RenderingDevice is still reported explicitly, but it fails those
 proof-required profiles instead of looking like green renderer evidence.
 
-The blocking streaming-specific GPU runtime gate (in `gaussian_production_gates.yml`) uses:
+The blocking streaming-specific GPU runtime gate (in `baseline_qa.yml` `gpu-tests`) uses:
 
 - `--profile streaming-gpu-ci`
 

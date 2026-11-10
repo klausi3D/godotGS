@@ -4,6 +4,7 @@
 #include "render_debug_state_orchestrator.h"
 #include "render_diagnostics_orchestrator.h"
 #include "gaussian_gpu_layout.h"
+#include "gpu_pass_timing.h"
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
@@ -1224,6 +1225,10 @@ void RenderPipelineStages::prepare_frame_context(RenderDataRD *p_render_data,
 	const GaussianSplatRenderer::IFrameStateView &state_view = frame_provider;
 	GaussianSplatRenderer::IFrameMutationAccess &state_mut = frame_provider;
 	r_context.frame_id = state_view.get_frame_state_view().frame_counter;
+	// BV-04b: one GPU-timing serial per pipeline pass. The cull, projection, pre-sort, tile and
+	// composite timestamps of this pass are all labelled with it (gpu_pass_timing.h), so the
+	// per-pass GPU times can be matched to one frame.
+	GaussianSplatting::GpuPassTiming::allocate_frame_serial();
 	// Sample wall-clock animation time once at the start of the render frame
 	// and cache it on FrameState so the tile-pass and depth/sort-pass shader
 	// uniforms see the same value this frame. Previously both stages
@@ -2340,6 +2345,9 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	render_params.splat_count = p_sorted_splat_count > 0 ? MIN(splat_count, p_sorted_splat_count) : splat_count;
 	render_params.overlap_record_count = render_params.splat_count;
 	render_params.total_gaussians = total_gaussians;
+	// BV-04b: label the tile passes with this pipeline pass's GPU-timing serial (0 = none allocated;
+	// the tile renderer then allocates its own).
+	render_params.frame_serial = GaussianSplatting::GpuPassTiming::current_frame_serial();
 	render_params.viewport_size = Vector2i(width, height);
 	render_params.world_to_camera_transform = p_world_to_camera_transform;
 	render_params.projection = p_projection;
@@ -2599,6 +2607,11 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	performance_state.metrics.raster_overlap_record_budget = raster_stats.overlap_record_budget;
 	performance_state.metrics.raster_overlap_record_budget_effective = raster_stats.overlap_record_budget_effective;
 	performance_state.metrics.raster_overlap_record_budget_configured = raster_stats.overlap_record_budget_configured;
+	performance_state.metrics.raster_overlap_sort_capacity = raster_stats.overlap_sort_capacity;
+	performance_state.metrics.raster_overlap_sort_capacity_high_water = raster_stats.overlap_sort_capacity_high_water;
+	performance_state.metrics.raster_overlap_sort_bytes = raster_stats.overlap_sort_bytes;
+	performance_state.metrics.raster_overlap_sort_resize_peak_bytes = raster_stats.overlap_sort_resize_peak_bytes;
+	performance_state.metrics.raster_overlap_sort_resize_preflight_refusals = raster_stats.overlap_sort_resize_preflight_refusals;
 	performance_state.metrics.raster_overlap_thinning_keep_ratio = raster_stats.overlap_thinning_keep_ratio;
 	performance_state.metrics.raster_feature_global_sort = raster_stats.global_sort_enabled;
 	performance_state.metrics.raster_feature_packed_stage_data = raster_stats.feature_packed_stage_data;

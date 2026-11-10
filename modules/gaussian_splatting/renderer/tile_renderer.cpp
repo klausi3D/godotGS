@@ -1,6 +1,7 @@
 #include "tile_renderer.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "overlap_bootstrap_policy.h"
 #include "resident_atlas_budget.h"
 
 #include "core/error/error_macros.h"
@@ -20,6 +21,7 @@
 #include "gpu_debug_utils.h"
 #include "gpu_performance_monitor.h"
 #include "gpu_sorting_config.h"
+#include "gpu_sorting_constants.h"
 #include "instance_pipeline_contract.h"
 #include "quantization_config.h"
 #include "resource_owner_mismatch_contract.h"
@@ -503,12 +505,14 @@ private:
 
 		// Use caller's frame_serial if provided, otherwise auto-increment.
 		// A non-zero frame_serial is required for async GPU counter readback.
-		static uint64_t auto_frame_serial = 0;
+		// BV-04b: the serial comes from the shared GpuPassTiming counter, so the tile passes carry the
+		// same serial as the cull / projection / pre-sort / composite markers of this pipeline pass
+		// (RenderPipelineStages passes it in), and serials stay unique across renderers.
 		if (params.frame_serial > 0) {
 			renderer.frame_state.current_frame_serial = params.frame_serial;
-			auto_frame_serial = params.frame_serial; // Sync auto counter
+			GaussianSplatting::GpuPassTiming::note_external_frame_serial(params.frame_serial);
 		} else {
-			renderer.frame_state.current_frame_serial = ++auto_frame_serial;
+			renderer.frame_state.current_frame_serial = GaussianSplatting::GpuPassTiming::allocate_frame_serial();
 		}
 
 		renderer.render_settings.global_sort_enabled = true;
@@ -845,6 +849,7 @@ private:
 
 			if (renderer.render_settings.global_sort_enabled) {
 				if (!_has_dispatch_work()) {
+					renderer.diagnostics.last_overlap_binning_splats = 0u; // #1393: nothing binned
 					renderer.diagnostics.last_overlap_record_count = 0;
 					renderer.diagnostics.last_overlap_record_budget_effective = renderer._get_effective_overlap_capacity();
 					renderer.diagnostics.last_overlap_keep_ratio = 1.0f;
@@ -879,13 +884,15 @@ private:
 					// Clear the overflow flag after handling to prevent repeated resizes.
 					renderer.async_readback.overflow_state.overflow_detected = false;
 				}
-				// Initial buffer sizing: use higher multiplier for close camera views where splats cover many tiles.
-				// With camera close to geometry, each splat can cover 50-100+ tiles easily.
-				// Using 50x provides headroom for close-up views without budget cutoff.
+				// Demand-driven sizing (BV-10 E3): visible * measured records/splat, or a small seed
+				// before the first measurement. A close-up can cover 100+ tiles per splat, which is
+				// why the seed is not trusted: the first frame takes one synchronous overlap sample
+				// below and grows in the same frame, so the seed never drops a record.
 				// Use effective_visible_splats (accounts for max_visible_splats from instance pipeline)
 				// to avoid undersized initial allocation when CPU readback is stale.
 				const uint32_t overlap_base_count = MAX(params.splat_count, effective_visible_splats);
-				uint32_t overlap_estimate = MIN<uint64_t>(uint64_t(overlap_base_count) * 50u, UINT32_MAX);
+				const uint32_t measured_records_per_splat_q8 = renderer.global_sort_resources.measured_records_per_splat_q8;
+				uint32_t overlap_estimate = GaussianSplatting::overlap_demand_estimate(overlap_base_count, measured_records_per_splat_q8);
 				if (renderer.global_sort_resources.capacity == 0 &&
 						params.total_gaussians > 0 &&
 						overlap_base_count < 1024u) {
@@ -903,14 +910,26 @@ private:
 					const uint32_t adaptive_overlap_floor = _get_adaptive_overlap_budget_floor(&renderer);
 					if (adaptive_overlap_floor > 0u) {
 						if (_adaptive_overlap_budget_has_history(&renderer)) {
-							// After we have raw usage history, drive allocation from adaptive budget directly.
-							overlap_estimate = adaptive_overlap_floor;
+							// After we have raw usage history, drive allocation from adaptive budget, and
+							// lead it by visible * records/splat: the budget only sees a rise in visible
+							// splats a readback later.
+							overlap_estimate = measured_records_per_splat_q8 > 0u
+									? MAX(overlap_estimate, adaptive_overlap_floor)
+									: adaptive_overlap_floor;
 						} else {
 							// Bootstrap from coarse estimate before first reliable overlap sample is available.
 							overlap_estimate = MAX(overlap_estimate, adaptive_overlap_floor);
 						}
 					}
-					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate); }
+					if (!params.hlod_relative) { renderer._ensure_global_sort_resources(overlap_estimate, true); }
+					// The one synchronous overlap sample of the bootstrap (policy allow_sync_bootstrap,
+					// same rule as the instance-count bootstrap): it gives the prefix pass a real total
+					// so the same-frame grow below runs. STRICT_ASYNC profiling keeps its timestamps
+					// instead and grows from the async overflow path a few frames later.
+					const bool overlap_bootstrap_sample = !allow_sync_readback && readback_policy.allow_sync_bootstrap &&
+							!params.hlod_relative && !renderer.global_sort_resources.overlap_bootstrap_sampled &&
+							overlap_base_count > 0u;
+					const bool overlap_sync_measurement = allow_sync_readback || overlap_bootstrap_sample;
 				renderer.global_sort_resources.advance_tile_counts_buffer();
 			tile_counts_buffer_advanced = true;
 			if (renderer.global_sort_resources.capacity == 0 ||
@@ -975,9 +994,12 @@ private:
 			uint32_t overlap_record_count = 0;
 			uint32_t raw_overlap_record_count = 0;
 			if (!renderer._update_global_tile_ranges(params.gaussian_buffer, params.sorted_indices, uniform_device, overlap_record_count,
-						raw_overlap_record_count, allow_sync_readback)) {
+						raw_overlap_record_count, overlap_sync_measurement)) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to build global tile ranges for rasterization");
 				return false;
+			}
+			if (overlap_sync_measurement) {
+				renderer.global_sort_resources.overlap_bootstrap_sampled = true;
 			}
 			// Feed the adaptive budget only REAL overlap measurements. On the default
 			// async path the first frames report raw_overlap_record_count = effective
@@ -986,9 +1008,18 @@ private:
 			// and, because the budget only decays ~10%/120 frames, the shrink could not
 			// converge for ~1-2k frames. Sync readback always yields a real value; in
 			// async, wait for the first completed readback. Until then keep the existing
-			// suggestion (frame-start estimate stays on the coarse visible*50 bootstrap).
+			// suggestion (frame-start estimate stays on the demand-driven seed).
 			const bool have_real_overlap_measurement =
-					allow_sync_readback || renderer.async_readback.overflow_state.first_frame_complete;
+					overlap_sync_measurement || renderer.async_readback.overflow_state.first_frame_complete;
+			auto note_measured_overlap_rate = [&](uint32_t p_raw_records) {
+				const uint32_t rate_q8 = GaussianSplatting::overlap_records_per_splat_q8(p_raw_records, overlap_base_count);
+				if (rate_q8 > 0u) {
+					renderer.global_sort_resources.measured_records_per_splat_q8 = rate_q8;
+				}
+			};
+			if (have_real_overlap_measurement) {
+				note_measured_overlap_rate(raw_overlap_record_count);
+			}
 			const uint32_t adaptive_overlap_budget_suggested = have_real_overlap_measurement
 					? _update_adaptive_overlap_budget(&renderer, raw_overlap_record_count)
 					: _get_adaptive_overlap_budget_suggestion(&renderer);
@@ -1029,7 +1060,7 @@ private:
 				renderer.global_sort_resources.last_observed_demand = measured_overlap_demand;
 			if (!params.hlod_relative && overlap_capacity_request > renderer.global_sort_resources.capacity) {
 				const uint64_t gen_before = renderer.descriptor_generation;
-				renderer._ensure_global_sort_resources(overlap_capacity_request);
+				renderer._ensure_global_sort_resources(overlap_capacity_request, true);
 
 				if (renderer.descriptor_generation > gen_before) {
 					// Descriptor cache was invalidated: buffers were reallocated.
@@ -1059,11 +1090,14 @@ private:
 					overlap_record_count = 0;
 					raw_overlap_record_count = 0;
 					if (!renderer._update_global_tile_ranges(params.gaussian_buffer, params.sorted_indices,
-								uniform_device, overlap_record_count, raw_overlap_record_count, allow_sync_readback)) {
+								uniform_device, overlap_record_count, raw_overlap_record_count, overlap_sync_measurement)) {
 						GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to rebuild tile ranges after buffer resize");
 						return false;
 					}
 					_update_adaptive_overlap_budget(&renderer, raw_overlap_record_count);
+					if (have_real_overlap_measurement) {
+						note_measured_overlap_rate(raw_overlap_record_count);
+					}
 				}
 			}
 
@@ -1074,6 +1108,10 @@ private:
 			}
 
 			renderer.diagnostics.last_overlap_record_count = overlap_record_count;
+			// #1393: the frame's splat count for tile binning (on the GPU-indirect instance route the
+			// last read-back visible count), paired with the frame's overflow_splats_aggregated by the
+			// drop-signal poll: records per splat.
+			renderer.diagnostics.last_overlap_binning_splats = params.splat_count;
 
 			// NOTE: GaussianSplat_Begin/End markers are NOT captured here because they would
 			// be in the post-flush timestamp buffer and cannot be read back. Only TileOverlapCount
@@ -1667,6 +1705,10 @@ void TileRenderer::_on_overflow_stats_readback(const Vector<uint8_t> &p_data) {
 
 void TileRenderer::_on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
     debug_stats.on_overflow_signal_readback(p_data);
+}
+
+void TileRenderer::_on_hlod_level_stats_readback(const Vector<uint8_t> &p_data) {
+    debug_stats.on_hlod_level_stats_readback(p_data);
 }
 
 #ifdef TESTS_ENABLED
@@ -2734,8 +2776,8 @@ void TileRenderer::_ensure_global_projection_buffer(uint32_t p_visible_count) {
 	projection_buffers.ensure_projection_buffer(p_visible_count);
 }
 
-void TileRenderer::_ensure_global_sort_resources(uint32_t p_visible_count) {
-	global_sort_resources.ensure_resources(p_visible_count);
+void TileRenderer::_ensure_global_sort_resources(uint32_t p_visible_count, bool p_growth_headroom) {
+	global_sort_resources.ensure_resources(p_visible_count, p_growth_headroom);
 }
 bool TileRenderer::_update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices,
         RenderingDevice *p_device, uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback) {
@@ -2773,6 +2815,7 @@ void TileRenderer::_reset_timestamp_tracking() {
 		timing_state.frame_gpu_timing_valid = false;
 		timing_state.gpu_timing_frame_serial = 0;
 		timing_state.gpu_timing_frames_behind = 0;
+		timing_state.pass_timing.reset();
 		return;
 	}
 	// Keep last resolved values across frames. Timestamp availability can lag by
@@ -2814,138 +2857,41 @@ bool TileRenderer::_resolve_timestamp_range(TimestampRange &p_range, float &r_du
 }
 
 void TileRenderer::_parse_timestamps_into_frame_map(RenderingDevice *p_device, uint32_t p_available,
-        HashMap<uint64_t, GpuTimestampFrameStages> &r_frames) const {
+        HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> &r_frames) const {
     if (!p_device) {
         return;
     }
-
-    struct TimestampFieldEntry {
-        const char *prefix;
-        int prefix_length;
-        const char *suffix;
-        GpuTimestampStageTimes GpuTimestampFrameStages::*stage;
-        double GpuTimestampStageTimes::*field;
-    };
-
-    static const TimestampFieldEntry timestamp_fields[] = {
-        { "TileBinning_", int(sizeof("TileBinning_") - 1), "_Begin", &GpuTimestampFrameStages::binning, &GpuTimestampStageTimes::begin_ns },
-        { "TileBinning_", int(sizeof("TileBinning_") - 1), "_End", &GpuTimestampFrameStages::binning, &GpuTimestampStageTimes::end_ns },
-        { "TileRaster_", int(sizeof("TileRaster_") - 1), "_Begin", &GpuTimestampFrameStages::raster, &GpuTimestampStageTimes::begin_ns },
-        { "TileRaster_", int(sizeof("TileRaster_") - 1), "_End", &GpuTimestampFrameStages::raster, &GpuTimestampStageTimes::end_ns },
-        { "TileOverlapCount_", int(sizeof("TileOverlapCount_") - 1), "_Begin", &GpuTimestampFrameStages::overlap_count, &GpuTimestampStageTimes::begin_ns },
-        { "TileOverlapCount_", int(sizeof("TileOverlapCount_") - 1), "_End", &GpuTimestampFrameStages::overlap_count, &GpuTimestampStageTimes::end_ns },
-        { "TileOverlapSort_", int(sizeof("TileOverlapSort_") - 1), "_Begin", &GpuTimestampFrameStages::overlap_sort, &GpuTimestampStageTimes::begin_ns },
-        { "TileOverlapSort_", int(sizeof("TileOverlapSort_") - 1), "_End", &GpuTimestampFrameStages::overlap_sort, &GpuTimestampStageTimes::end_ns },
-        { "TilePrefix_", int(sizeof("TilePrefix_") - 1), "_Begin", &GpuTimestampFrameStages::prefix, &GpuTimestampStageTimes::begin_ns },
-        { "TilePrefix_", int(sizeof("TilePrefix_") - 1), "_End", &GpuTimestampFrameStages::prefix, &GpuTimestampStageTimes::end_ns },
-        { "TileResolve_", int(sizeof("TileResolve_") - 1), "_Begin", &GpuTimestampFrameStages::resolve, &GpuTimestampStageTimes::begin_ns },
-        { "TileResolve_", int(sizeof("TileResolve_") - 1), "_End", &GpuTimestampFrameStages::resolve, &GpuTimestampStageTimes::end_ns },
-        { "GaussianSplat_", int(sizeof("GaussianSplat_") - 1), "_Begin", &GpuTimestampFrameStages::total, &GpuTimestampStageTimes::begin_ns },
-        { "GaussianSplat_", int(sizeof("GaussianSplat_") - 1), "_End", &GpuTimestampFrameStages::total, &GpuTimestampStageTimes::end_ns },
-    };
-
-    auto parse_label = [](const String &p_label, const char *p_prefix, int p_prefix_length, const char *p_suffix, uint64_t &r_serial) -> bool {
-        if (!p_label.begins_with(p_prefix)) {
-            return false;
-        }
-        int64_t suffix_pos = p_label.rfind(p_suffix);
-        if (suffix_pos < 0 || suffix_pos <= p_prefix_length) {
-            return false;
-        }
-        String serial_str = p_label.substr(p_prefix_length, suffix_pos - p_prefix_length);
-        r_serial = (uint64_t)serial_str.to_int();
-        return true;
-    };
-    auto get_frame_entry = [&r_frames](uint64_t p_serial) -> GpuTimestampFrameStages * {
-        GpuTimestampFrameStages *entry = r_frames.getptr(p_serial);
-        if (!entry) {
-            GpuTimestampFrameStages fresh;
-            r_frames.insert(p_serial, fresh);
-            entry = r_frames.getptr(p_serial);
-        }
-        return entry;
-    };
-
+    // Every pass marker is "<prefix><frame serial>_Begin|_End" (gpu_pass_timing.h). Since BV-04b this
+    // includes cull, projection, pre-sort and composite, captured outside this renderer on the same
+    // device under the frame serial RenderPipelineStages allocated for the pass.
     for (uint32_t i = 0; i < p_available; i++) {
-        String name = p_device->get_captured_timestamp_name(i);
-        double gpu_ns = double(p_device->get_captured_timestamp_gpu_time(i));
-
-        for (const TimestampFieldEntry &entry : timestamp_fields) {
-            uint64_t serial = 0;
-            if (!parse_label(name, entry.prefix, entry.prefix_length, entry.suffix, serial)) {
-                continue;
-            }
-            GpuTimestampFrameStages *frame_entry = get_frame_entry(serial);
-            if (!frame_entry) {
-                break;
-            }
-            GpuTimestampStageTimes &stage = frame_entry->*(entry.stage);
-            stage.*(entry.field) = gpu_ns;
-            break;
-        }
+        GaussianSplatting::GpuPassTiming::accumulate(r_frames, p_device->get_captured_timestamp_name(i),
+                double(p_device->get_captured_timestamp_gpu_time(i)));
     }
 }
 
-TileRenderer::GpuTimestampDurations TileRenderer::_compute_stage_durations(const HashMap<uint64_t, GpuTimestampFrameStages> &p_frames) const {
-    GpuTimestampDurations durations;
+void TileRenderer::_update_timing_metrics(const GaussianSplatting::GpuPassTiming::FrameDurations &p_frame,
+		const GaussianSplatting::GpuPassTiming::FrameDurations &p_pipeline_frame) {
+	using namespace GaussianSplatting::GpuPassTiming;
+	// BV-04b: every pass (incl. cull / projection / pre-sort / composite), with frame serials and the
+	// newest same-frame breakdown. p_pipeline_frame is the newest frame with ANY measured pass.
+	timing_state.pass_timing.ingest(p_pipeline_frame, OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0);
+	// Legacy tile-pass view. p_frame is the newest frame with a measured TILE pass (TILE_PASSES_MASK),
+	// so these fields select their frame exactly as before BV-04b; semantics below are unchanged.
+	struct LegacyDurations {
+		uint64_t serial;
+		bool has_data;
+		double count_ms, bin_ms, overlap_sort_ms, raster_ms, prefix_ms, resolve_ms;
+		bool count_valid, bin_valid, overlap_sort_valid, raster_valid, prefix_valid, resolve_valid;
+	} p_durations = {
+		p_frame.serial, p_frame.has_data,
+		p_frame.ms[PASS_OVERLAP_COUNT], p_frame.ms[PASS_BINNING], p_frame.ms[PASS_OVERLAP_SORT],
+		p_frame.ms[PASS_RASTER], p_frame.ms[PASS_PREFIX], p_frame.ms[PASS_RESOLVE],
+		p_frame.has_data && p_frame.valid[PASS_OVERLAP_COUNT], p_frame.has_data && p_frame.valid[PASS_BINNING],
+		p_frame.has_data && p_frame.valid[PASS_OVERLAP_SORT], p_frame.has_data && p_frame.valid[PASS_RASTER],
+		p_frame.has_data && p_frame.valid[PASS_PREFIX], p_frame.has_data && p_frame.valid[PASS_RESOLVE],
+	};
 
-    // Pick the latest frame serial with whatever timing survived the flush.
-    for (const KeyValue<uint64_t, GpuTimestampFrameStages> &kv : p_frames) {
-        const uint64_t serial = kv.key;
-        const GpuTimestampFrameStages &stages = kv.value;
-
-		// Check if we have valid markers (total or any per-pass stage).
-		// NOTE: Godot's buffer_get_data() flush resets the timestamp buffer mid-frame;
-		// only pre-flush markers (TileOverlapCount) are reliably readable. Post-flush
-		// markers (GaussianSplat_*, TileBinning_*, TileRaster_*) are usually discarded.
-		// See docs/GPU_TIMESTAMP_PROFILING.md for details.
-		auto has_ordered_stage = [](const GpuTimestampStageTimes &p_stage) -> bool {
-			return p_stage.is_complete() && p_stage.end_ns >= p_stage.begin_ns;
-		};
-		bool has_total = has_ordered_stage(stages.total);
-		bool has_binning = has_ordered_stage(stages.binning);
-		bool has_raster = has_ordered_stage(stages.raster);
-		bool has_overlap_count = has_ordered_stage(stages.overlap_count);
-		bool has_overlap_sort = has_ordered_stage(stages.overlap_sort);
-		bool has_prefix = has_ordered_stage(stages.prefix);
-		bool has_resolve = has_ordered_stage(stages.resolve);
-
-		if (!has_total && !has_binning && !has_raster && !has_overlap_count && !has_overlap_sort && !has_prefix && !has_resolve) {
-			continue; // Need at least one complete timing marker pair
-		}
-
-		double bin_ms = has_binning ? (stages.binning.end_ns - stages.binning.begin_ns) / 1e6 : 0.0;
-		double raster_ms = has_raster ? (stages.raster.end_ns - stages.raster.begin_ns) / 1e6 : 0.0;
-		double count_ms = has_overlap_count ? (stages.overlap_count.end_ns - stages.overlap_count.begin_ns) / 1e6 : 0.0;
-		double overlap_sort_ms = has_overlap_sort ? (stages.overlap_sort.end_ns - stages.overlap_sort.begin_ns) / 1e6 : 0.0;
-		double prefix_ms = has_prefix ? (stages.prefix.end_ns - stages.prefix.begin_ns) / 1e6 : 0.0;
-		double resolve_ms = has_resolve ? (stages.resolve.end_ns - stages.resolve.begin_ns) / 1e6 : 0.0;
-        double total_ms = has_total ? (stages.total.end_ns - stages.total.begin_ns) / 1e6 : 0.0;
-
-        if (!durations.has_data || serial > durations.serial) {
-            durations.has_data = true;
-            durations.serial = serial;
-            durations.bin_ms = bin_ms;
-            durations.raster_ms = raster_ms;
-			durations.count_ms = count_ms;
-			durations.overlap_sort_ms = overlap_sort_ms;
-			durations.prefix_ms = prefix_ms;
-			durations.resolve_ms = resolve_ms;
-			durations.total_ms = total_ms;
-			durations.bin_valid = has_binning;
-			durations.raster_valid = has_raster;
-			durations.count_valid = has_overlap_count;
-			durations.overlap_sort_valid = has_overlap_sort;
-			durations.prefix_valid = has_prefix;
-			durations.resolve_valid = has_resolve;
-			durations.total_valid = has_total;
-		}
-	}
-
-    return durations;
-}
-
-void TileRenderer::_update_timing_metrics(const GpuTimestampDurations &p_durations) {
 	// Runs on EVERY call, including the no-data frames resolve_gpu_timestamps_async() forwards
 	// when a scene stops dispatching: per-pass ingestion self-skips without fresh data (all
 	// *_valid are false), but the staleness pass below MUST still run so sticky timings age out
@@ -3054,15 +3000,19 @@ void TileRenderer::resolve_gpu_timestamps_async() {
         }
         // No fresh timestamps this frame (empty / no-dispatch view): still run the staleness pass
         // so the sticky per-pass timings age out instead of reporting the last scene's cost forever.
-        _update_timing_metrics(GpuTimestampDurations());
+        _update_timing_metrics(GaussianSplatting::GpuPassTiming::FrameDurations(),
+                GaussianSplatting::GpuPassTiming::FrameDurations());
         return;
     }
 
-    HashMap<uint64_t, GpuTimestampFrameStages> frame_times;
+    HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> frame_times;
     _parse_timestamps_into_frame_map(device, available, frame_times);
 
-    GpuTimestampDurations durations = _compute_stage_durations(frame_times);
-    _update_timing_metrics(durations);
+    const GaussianSplatting::GpuPassTiming::FrameDurations durations =
+            GaussianSplatting::GpuPassTiming::latest_frame(frame_times, GaussianSplatting::GpuPassTiming::TILE_PASSES_MASK);
+    const GaussianSplatting::GpuPassTiming::FrameDurations pipeline_durations =
+            GaussianSplatting::GpuPassTiming::latest_frame(frame_times);
+    _update_timing_metrics(durations, pipeline_durations);
     if (!durations.has_data && timing_state.gpu_timing_frame_serial > 0 && frame_state.current_frame_serial > timing_state.gpu_timing_frame_serial) {
         timing_state.gpu_timing_frames_behind = frame_state.current_frame_serial - timing_state.gpu_timing_frame_serial;
     }
@@ -3717,6 +3667,11 @@ TileRenderer::RenderStats TileRenderer::_build_render_stats_from_cached_counts()
 	stats.overlap_record_budget_configured = configured_overlap_budget;
 	stats.overlap_record_budget_effective = diagnostics.last_overlap_record_budget_effective;
 	stats.overlap_thinning_keep_ratio = diagnostics.last_overlap_keep_ratio;
+	stats.overlap_sort_capacity = global_sort_resources.capacity;
+	stats.overlap_sort_capacity_high_water = global_sort_resources.capacity_high_water;
+	stats.overlap_sort_bytes = global_sort_resources.allocated_sort_bytes();
+	stats.overlap_sort_resize_peak_bytes = global_sort_resources.resize_peak_bytes;
+	stats.overlap_sort_resize_preflight_refusals = global_sort_resources.resize_preflight_refusals;
 
 	uint32_t *density_write = nullptr;
 	if (diagnostics.capture_tile_density_snapshot) {
@@ -3852,7 +3807,16 @@ void TileRenderer::_poll_overflow_drop_telemetry() {
 	// Unlike _dump_gpu_debug_counters (gated on debug_dump_gpu_counters), this always runs so
 	// overlap-record overflow is surfaced (WARN_ONCE + overflow_drop_events) even in a pure
 	// production frame. Cheap: a single small async readback, throttled by its own pending flag.
-	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial);
+	// #1393: the splats this frame dispatched to tile binning travel with the sample (consumed
+	// here, so a frame that skipped binning never pairs an older frame's splats with its records).
+	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial,
+			diagnostics.last_overlap_binning_splats);
+	diagnostics.last_overlap_binning_splats = 0u;
+	// BV-04b: records per splat per HLOD level, only for frames whose emit pass ran on the HLOD route
+	// (the only route that binds and writes the counters).
+	if (instance_pipeline_buffers.hlod_relative) {
+		debug_stats.poll_hlod_level_stats(_get_resource_device(), frame_state.current_frame_serial);
+	}
 }
 
 float TileRenderer::get_projection_success_rate_pct() const {
@@ -4039,9 +4003,11 @@ uint32_t TileRenderer::clamp_hlod_overlap_records(uint32_t p_records) const {
 }
 
 uint64_t TileRenderer::get_hlod_overlap_bytes_per_record() const {
-    // Same rule as global_sort_key_stride_words() in tile_render_resources.cpp: 64-bit keys take two words.
-    const uint32_t key_words = _get_effective_sort_key_config().key_bits > 32 ? 2u : 1u;
-    return 2u * uint64_t(key_words + 1u) * sizeof(uint32_t);
+    // BV-10 E4: the whole sort, radix histograms included, rounded up over a representative capacity.
+    constexpr uint64_t SAMPLE_RECORDS = 1u << 20;
+    const uint64_t bytes = GPUSortingConstants::overlap_sort_total_bytes(SAMPLE_RECORDS, g_gpu_sorting_config.radix_bits,
+            g_gpu_sorting_config.workgroup_size, _get_effective_sort_key_config().key_bits);
+    return (bytes + SAMPLE_RECORDS - 1u) / SAMPLE_RECORDS;
 }
 
 uint64_t TileRenderer::estimate_hlod_texture_bytes_for_viewport(const Vector2i &p_viewport) const {
@@ -4090,48 +4056,73 @@ void TileRenderer::get_hlod_scratch_reservation(uint32_t p_visible, uint64_t &r_
     r_bytes_per_record = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) * GaussianSplatting::TILE_SH_CACHE_GROWTH_SLACK_PERCENT / 100u;
 }
 
-bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
+bool TileRenderer::_plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan) {
     // Resolve the CURRENT route's layout before admission, not the last pass's
     // settings. A canonical leaf atlas can fit packed indices while the all-node
     // HLOD atlas exceeds UINT16_MAX; toggling SH also changes required storage.
+    r_plan = HlodScratchPlan();
     const uint32_t total = p_params.total_gaussians;
     const uint32_t visible = p_params.max_visible_splats;
-    const bool packed = p_params.request_packed_stage_data && total <= UINT16_MAX;
-    const bool sh = p_params.request_sh_amortization && p_params.sh_amortization_divisor > 1u && total > 0;
-    const uint32_t divisor = sh ? p_params.sh_amortization_divisor : 1u;
-    const bool packed_changed = render_settings.enable_packed_stage_data != packed;
-    const bool sh_changed = render_settings.enable_sh_amortization != sh;
-    const bool tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
-    // Output targets and overlap storage must already be warm on the canonical
-    // path. Resizes return there instead of allocating textures after admission.
+    if (total == 0 || visible == 0) { return false; }
+    r_plan.packed = p_params.request_packed_stage_data && total <= UINT16_MAX;
+    r_plan.sh = p_params.request_sh_amortization && p_params.sh_amortization_divisor > 1u && total > 0;
+    r_plan.divisor = r_plan.sh ? p_params.sh_amortization_divisor : 1u;
+    r_plan.packed_changed = render_settings.enable_packed_stage_data != r_plan.packed;
+    r_plan.sh_changed = render_settings.enable_sh_amortization != r_plan.sh;
+    r_plan.tighter_changed = render_settings.enable_tighter_bounds != p_params.request_tighter_bounds;
     // A streamed atlas can hold fewer records than the cut may draw splats (pages < leaves) or more (pages round up
     // per node): the frame sizes the history by the larger of the two (_validate_and_configure_settings), so admit it so.
-    const uint32_t history_entries = MAX(total, visible);
-    if (total == 0 || visible == 0 ||
+    r_plan.history_entries = MAX(total, visible);
+    uint32_t projection_capacity = 0;
+    _compute_projection_buffer_bytes(visible, projection_capacity);
+    r_plan.projection_bytes = uint64_t(projection_capacity) *
+            (r_plan.packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
+    r_plan.history_bytes = uint64_t(r_plan.history_entries) * sizeof(uint32_t);
+    r_plan.sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
+    r_plan.visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
+    if (r_plan.projection_bytes > UINT32_MAX || r_plan.history_bytes > UINT32_MAX || r_plan.visibility_bytes > UINT32_MAX) { return false; }
+    const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
+            uint32_t(r_plan.sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
+    // Count full new allocations: old RD buffers remain charged until actually retired.
+    if (r_plan.packed_changed || projection_buffers.projection_buffer_size < r_plan.projection_bytes) { r_plan.extra += r_plan.projection_bytes; }
+    if (subpixel_history_buffers.subpixel_history_size < r_plan.history_bytes) { r_plan.extra += r_plan.history_bytes; }
+    if (subpixel_visibility_buffers.subpixel_visibility_size < r_plan.visibility_bytes) { r_plan.extra += r_plan.visibility_bytes; }
+    if (r_plan.sh && sh_cache_buffers.sh_color_cache_size < r_plan.sh_bytes) { r_plan.extra += sh_plan.target_bytes; }
+    return true;
+}
+
+uint64_t TileRenderer::get_hlod_scratch_outstanding_bytes(const RenderParams &p_params) {
+    HlodScratchPlan plan;
+    return _plan_hlod_scratch(p_params, plan) ? plan.extra : UINT64_MAX;
+}
+
+bool TileRenderer::prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom) {
+    HlodScratchPlan plan;
+    const bool planned = _plan_hlod_scratch(p_params, plan);
+    const uint32_t total = p_params.total_gaussians;
+    const uint32_t visible = p_params.max_visible_splats;
+    const bool packed = plan.packed;
+    const bool sh = plan.sh;
+    const uint32_t divisor = plan.divisor;
+    const bool packed_changed = plan.packed_changed;
+    const bool sh_changed = plan.sh_changed;
+    const bool tighter_changed = plan.tighter_changed;
+    const uint32_t history_entries = plan.history_entries;
+    // Output targets and overlap storage must already be warm on the canonical
+    // path. Resizes return there instead of allocating textures after admission.
+    if (!planned ||
             grid_state.viewport_size != p_params.viewport_size || !render_targets.output_texture.is_valid() ||
             !render_targets.resolved_texture.is_valid() || !render_targets.normal_texture.is_valid() ||
             !render_settings.global_sort_enabled || get_allocated_overlap_capacity() == 0 ||
             !global_sort_resources.sorter.is_valid()) { return false; }
     uint64_t sorter_bytes = 0;
     if (!global_sort_resources.sorter->get_allocated_buffer_bytes(sorter_bytes)) { return false; }
-    uint32_t projection_capacity = 0;
-    _compute_projection_buffer_bytes(visible, projection_capacity);
-    const uint64_t projection_bytes = uint64_t(projection_capacity) *
-            (packed ? TileProjectionLayout::STRIDE_PACKED : TileProjectionLayout::STRIDE_FULL);
-    const uint64_t history_bytes = uint64_t(history_entries) * sizeof(uint32_t);
-    const uint64_t sh_bytes = uint64_t(total) * sizeof(uint32_t); // the SH colour cache is indexed by atlas record
-    const uint64_t visibility_bytes = uint64_t(visible) * sizeof(uint32_t);
-    if (projection_bytes > UINT32_MAX || history_bytes > UINT32_MAX || visibility_bytes > UINT32_MAX) { return false; }
-    const auto sh_plan = GaussianSplatting::tile_compute_sh_cache_resize_plan(
-            uint32_t(sh_bytes), sh_cache_buffers.sh_color_cache_size, 0);
-    uint64_t extra = 0;
-    if (packed_changed || projection_buffers.projection_buffer_size < projection_bytes) { extra += projection_bytes; }
-    if (subpixel_history_buffers.subpixel_history_size < history_bytes) { extra += history_bytes; }
-    if (subpixel_visibility_buffers.subpixel_visibility_size < visibility_bytes) { extra += visibility_bytes; }
-    if (sh && sh_cache_buffers.sh_color_cache_size < sh_bytes) { extra += sh_plan.target_bytes; }
-    // Count full new allocations: old RD buffers remain charged until actually
-    // retired. The caller rechecks the actual ledger before publishing the cut.
-    if (extra > p_headroom) { return false; }
+    const uint64_t projection_bytes = plan.projection_bytes;
+    const uint64_t history_bytes = plan.history_bytes;
+    const uint64_t sh_bytes = plan.sh_bytes;
+    const uint64_t visibility_bytes = plan.visibility_bytes;
+    // The caller rechecks the actual ledger before publishing the cut.
+    if (plan.extra > p_headroom) { return false; }
     struct ScratchPreparationGuard {
         bool &active;
         explicit ScratchPreparationGuard(bool &p_active) : active(p_active) { active = true; }

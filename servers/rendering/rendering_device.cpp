@@ -6444,6 +6444,19 @@ uint64_t RenderingDevice::get_device_memory_budget() const {
 	return driver->get_device_memory_budget();
 }
 
+RenderingDeviceDriver::BufferMemoryPlacement RenderingDevice::buffer_get_memory_placement(RID p_buffer) {
+	_THREAD_SAFE_METHOD_
+	Buffer *buffer = _get_buffer_from_owner(p_buffer);
+	if (buffer == nullptr) {
+		return RenderingDeviceDriver::BufferMemoryPlacement();
+	}
+	return driver->buffer_get_memory_placement(buffer->driver_id);
+}
+
+RenderingDeviceDriver::DeviceLocalHeapUsage RenderingDevice::get_device_local_heap_usage() const {
+	return driver->get_device_local_heap_usage();
+}
+
 void RenderingDevice::_begin_frame(bool p_presented) {
 	// Before writing to this frame, wait for it to be finished.
 	_stall_for_frame(frame);

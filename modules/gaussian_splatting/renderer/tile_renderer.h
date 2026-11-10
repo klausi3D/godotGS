@@ -131,8 +131,17 @@ public:
 
     // Physical texture-allocation deltas, retained conservatively through deferred release.
     bool get_hlod_texture_byte_upper_bound(uint64_t &r_bytes) const;
+    // The frame scratch held now (device ledger attribution, BV-11).
+    uint64_t get_hlod_scratch_live_bytes() const {
+        return uint64_t(projection_buffers.projection_buffer_size) + subpixel_history_buffers.subpixel_history_size +
+                subpixel_visibility_buffers.subpixel_visibility_size + sh_cache_buffers.sh_color_cache_size;
+    }
     uint32_t get_allocated_overlap_capacity() const { return _get_effective_overlap_capacity(); }
     bool prepare_hlod_scratch(const RenderParams &p_params, uint64_t p_headroom);
+    // What prepare_hlod_scratch(p_params, ..) would charge against its headroom right now (0 when the scratch is already
+    // allocated for these params; UINT64_MAX when the params can never be admitted). Same plan as the admission itself,
+    // so the HLOD route can reserve the outstanding scratch before any optional growth spends the headroom.
+    uint64_t get_hlod_scratch_outstanding_bytes(const RenderParams &p_params);
     // Upper bound of what prepare_hlod_scratch() can charge against its headroom for a cut capacity of `p_visible`
     // splats and an atlas of R records: r_fixed_bytes + R * r_bytes_per_record (every buffer a full new allocation,
     // unpacked projection, SH colour cache with its growth slack). A streamed page budget reserves it.
@@ -237,6 +246,14 @@ public:
 	float get_last_gpu_overlap_count_time_ms() const { return timing_state.last_overlap_count_gpu_ms; }
 	bool is_last_gpu_overlap_count_time_valid() const { return timing_state.overlap_count_gpu_timing_valid; }
 	float get_last_gpu_binning_time_ms() const { return timing_state.last_binning_gpu_ms; }
+	// BV-04b binning validity: "binning" is the tile_binning EMIT pass, the same timestamp range as
+	// overlap emit, so it is valid exactly when the emit time is.
+	bool is_last_gpu_binning_time_valid() const { return timing_state.overlap_emit_gpu_timing_valid; }
+	// BV-04b: records per splat per HLOD level of the last sampled HLOD-route frame.
+	const GaussianSplatting::HlodLevelRecordSample &get_hlod_level_record_sample() const { return diagnostics.hlod_level_records; }
+	// BV-04b: per-pass GPU times for every pass of the frame, with measurement frame serials and the
+	// newest same-frame breakdown (see GpuPassTiming::PassTimingSnapshot).
+	const GaussianSplatting::GpuPassTiming::PassTimingSnapshot &get_gpu_pass_timing_snapshot() const { return timing_state.pass_timing.get_snapshot(); }
 	float get_last_gpu_overlap_emit_time_ms() const { return timing_state.last_overlap_emit_gpu_ms; }
 	bool is_last_gpu_overlap_emit_time_valid() const { return timing_state.overlap_emit_gpu_timing_valid; }
 	float get_last_gpu_overlap_sort_time_ms() const { return timing_state.last_overlap_sort_gpu_ms; }
@@ -273,6 +290,14 @@ public:
     uint32_t get_sampled_raster_truncated_tiles() const { return diagnostics.sampled_raster_truncated_tiles; }
     uint64_t get_sampled_drop_frame_serial() const { return diagnostics.sampled_drop_frame_serial; }
     uint32_t get_raster_tile_cap() const { return _get_effective_raster_tile_cap(); }
+    // #1393: cumulative production drop telemetry (TileDiagnosticsState documents each field).
+    uint64_t get_drop_signal_samples() const { return diagnostics.drop_signal_samples; }
+    uint32_t get_binning_drop_events() const { return diagnostics.binning_drop_events; }
+    uint32_t get_binning_tile_range_drop_events() const { return diagnostics.binning_tile_range_drop_events; }
+    uint32_t get_binning_budget_drop_events() const { return diagnostics.binning_budget_drop_events; }
+    uint64_t get_sampled_dropped_records_total() const { return diagnostics.sampled_dropped_records_total; }
+    uint64_t get_sampled_overlap_records_total() const { return diagnostics.sampled_overlap_records_total; }
+    uint64_t get_sampled_overlap_splats_total() const { return diagnostics.sampled_overlap_splats_total; }
 
     void set_debug_log_resolve(bool p_enabled);
     bool get_debug_log_resolve() const { return diagnostics.debug_log_resolve; }
@@ -409,6 +434,14 @@ private:
     void _update_splat_audit_buffer(const RenderParams &p_params);
     uint32_t _get_projection_stride() const;
     uint64_t _compute_projection_buffer_bytes(uint32_t p_visible_count, uint32_t &r_capacity);
+    // The HLOD scratch admission plan shared by prepare_hlod_scratch() and get_hlod_scratch_outstanding_bytes().
+    struct HlodScratchPlan {
+        bool packed = false, sh = false, packed_changed = false, sh_changed = false, tighter_changed = false;
+        uint32_t divisor = 1u, history_entries = 0u;
+        uint64_t projection_bytes = 0, history_bytes = 0, sh_bytes = 0, visibility_bytes = 0;
+        uint64_t extra = 0; // Full new allocations the admission charges against its headroom.
+    };
+    bool _plan_hlod_scratch(const RenderParams &p_params, HlodScratchPlan &r_plan);
     void _destroy_output_textures();
 	    uint64_t _dispatch_tile_binning(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RID p_lighting_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync);
@@ -432,45 +465,11 @@ private:
 	bool _resolve_timestamp_range(TimestampRange &p_range, float &r_duration_ms);
     uint64_t _compute_shader_defines_hash() const;
 
-    // GPU timestamp helper structs (must be declared before methods that use them)
-    struct GpuTimestampStageTimes {
-        double begin_ns = -1.0;
-        double end_ns = -1.0;
-
-        bool is_complete() const { return begin_ns >= 0.0 && end_ns >= 0.0; }
-    };
-	struct GpuTimestampFrameStages {
-		GpuTimestampStageTimes binning;
-		GpuTimestampStageTimes raster;
-		GpuTimestampStageTimes overlap_count;
-        GpuTimestampStageTimes overlap_sort;
-        GpuTimestampStageTimes prefix;
-        GpuTimestampStageTimes resolve;
-        GpuTimestampStageTimes total;
-    };
-    struct GpuTimestampDurations {
-        uint64_t serial = UINT64_MAX;
-        double bin_ms = 0.0;
-        double raster_ms = 0.0;
-        double count_ms = 0.0;
-        double overlap_sort_ms = 0.0;
-        double prefix_ms = 0.0;
-		double resolve_ms = 0.0;
-		double total_ms = 0.0;
-		bool has_data = false;
-		bool bin_valid = false;
-		bool raster_valid = false;
-		bool count_valid = false;
-		bool overlap_sort_valid = false;
-		bool prefix_valid = false;
-		bool resolve_valid = false;
-		bool total_valid = false;
-	};
-
+    // GPU timestamp parsing (BV-04b): the pure parse/reduce lives in gpu_pass_timing.h.
     void _parse_timestamps_into_frame_map(RenderingDevice *p_device, uint32_t p_available,
-            HashMap<uint64_t, GpuTimestampFrameStages> &r_frames) const;
-    GpuTimestampDurations _compute_stage_durations(const HashMap<uint64_t, GpuTimestampFrameStages> &p_frames) const;
-    void _update_timing_metrics(const GpuTimestampDurations &p_durations);
+            HashMap<uint64_t, GaussianSplatting::GpuPassTiming::FrameStages> &r_frames) const;
+    void _update_timing_metrics(const GaussianSplatting::GpuPassTiming::FrameDurations &p_tile_frame,
+            const GaussianSplatting::GpuPassTiming::FrameDurations &p_pipeline_frame);
     void _issue_async_tile_count_readback(RenderingDevice *p_device, uint32_t p_counts_bytes);
     void _compute_density_metrics(const uint32_t *p_counts, uint32_t p_process_tiles, uint32_t p_total_tiles,
             uint32_t p_effective_capacity, uint32_t *p_density_write,
@@ -505,7 +504,7 @@ private:
     // (single source for the define, the render stats and the #1137 cap warning).
     static uint32_t _get_effective_raster_tile_cap();
     void _ensure_global_projection_buffer(uint32_t p_visible_count);
-    void _ensure_global_sort_resources(uint32_t p_visible_count);
+    void _ensure_global_sort_resources(uint32_t p_visible_count, bool p_growth_headroom = false);
 	bool _update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices, RenderingDevice *p_device,
 			uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback);
     bool _validate_tile_grid(const char *p_context) const;
@@ -621,6 +620,7 @@ private:
     void _on_debug_counters_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_stats_readback(const Vector<uint8_t> &p_data);
     void _on_overflow_signal_readback(const Vector<uint8_t> &p_data);
+    void _on_hlod_level_stats_readback(const Vector<uint8_t> &p_data); // BV-04b
 #ifdef TESTS_ENABLED
 	void _on_membership_readback(const Vector<uint8_t> &p_data, int64_t p_nonce);
 #endif

@@ -322,7 +322,7 @@ Result build_cut(const Ref<GaussianSplatWorld> &p_source, const Request &p_reque
 	    !fallible_resize(output_sh, result.selected_splats * high, "HLODCut SH")) {
 		return fail(Status::ALLOCATION_FAILED, "Materialization allocation failed");
 	}
-	Vector<GaussianSplatRenderer::StaticChunk> chunks;
+	Vector<StaticChunk> chunks;
 	if (!gs_resize_or_fail(chunks, selected_count, "HLODCut chunks")) {
 		return fail(Status::ALLOCATION_FAILED, "Chunk allocation failed");
 	}

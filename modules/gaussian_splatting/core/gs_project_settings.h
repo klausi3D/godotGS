@@ -349,6 +349,9 @@ static inline const char *get_streaming_route_policy_source(ProjectSettings *p_p
  * route_policy as a project-wide backend knob. If per-node backend steering is
  * ever needed, introduce a narrow per-world-group setting rather than
  * broadening this one.
+ *
+ * A world that takes the automatic HLOD route (lod/hlod_auto_route.h) gets
+ * the resident hint whatever this says; route_policy decides every other world.
  */
 static inline int get_streaming_route_policy(ProjectSettings *p_ps) {
 	if (!p_ps) {
@@ -391,8 +394,10 @@ static inline GSSphereEffectorSettings get_sphere_effector_settings(ProjectSetti
 	return settings;
 }
 
+// The automatic HLOD route (lod/hlod_auto_route.h): on unless the project opts out. The fallback matches the
+// registration in lod/lod_config.cpp.
 inline bool get_hlod_runtime_cut_enabled(ProjectSettings *p_ps) {
-    return get_bool(p_ps, "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled", false);
+    return get_bool(p_ps, "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled", true);
 }
 
 inline float get_hlod_tau_px(ProjectSettings *p_ps) {

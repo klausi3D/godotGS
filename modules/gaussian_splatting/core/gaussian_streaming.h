@@ -6,11 +6,16 @@
 #include "core/error/error_list.h"
 #include "core/math/plane.h"
 #include "core/math/transform_3d.h"
+#include "core/os/mutex.h"
 #include "core/string/string_name.h"
 #include "servers/rendering/rendering_device.h"
 
+#include <functional>
+#include <memory>
+
 class GaussianMemoryStream;
 class OS;
+class StreamingAnalyticsFrame;
 
 // Extracted subsystem headers (ISSUE-006 split)
 #include "streaming_config_overrides.h"
@@ -107,6 +112,27 @@ private:
     uint32_t streaming_max_capacity = 0;         // Growth ceiling (_compute_atlas_page_ceiling at init).
     uint32_t streaming_grow_count = 0;           // Number of successful grow operations.
 
+    // BV-POOL: where the persistent buffer lives and the device-local heap around its grows.
+    // The allocator only prefers device-local memory, so a pool can land in host memory without
+    // an error. Render thread only (the persistent buffer's own thread); read via end_frame().
+    struct PoolPlacementTelemetry {
+        RenderingDeviceDriver::BufferMemoryPlacement placement;
+        uint32_t allocations = 0; // Persistent-buffer allocations whose placement was queried.
+        uint32_t non_device_local_allocations = 0; // Of those, known to be outside device-local memory.
+        RenderingDeviceDriver::DeviceLocalHeapUsage heap; // Sampled at end_frame() (every kHeapSampleFrames).
+        RenderingDeviceDriver::DeviceLocalHeapUsage last_grow_pre; // Before the last grow's allocation.
+        RenderingDeviceDriver::DeviceLocalHeapUsage last_grow_post; // After it (old buffer still alive).
+        uint64_t last_grow_old_bytes = 0;
+        uint64_t last_grow_new_bytes = 0;
+        uint64_t last_grow_usec = 0; // Wall time of the whole grow (allocate, copy, sync, swap).
+        uint64_t end_frames_since_heap_sample = 0; // 0 = sample at the next end_frame().
+        uint32_t grow_refusals_non_device_local = 0; // Grows refused because the new buffer was not device-local.
+        uint32_t grow_device_clamps = 0; // Grows lowered or refused by the free device-local memory.
+        uint32_t device_refusal_backoff = 0; // Admission attempts to skip after a device refusal.
+    };
+    static constexpr uint64_t kPoolHeapSampleFrames = 30;
+    PoolPlacementTelemetry pool_placement;
+
     // Source data reference
     Ref<::GaussianData> source_data;
 
@@ -188,7 +214,10 @@ private:
 
     // Streaming orchestration hooks
     Ref<GaussianMemoryStream> memory_stream_proxy;
-    Dictionary analytics_snapshot;
+    // Published by end_frame(), built into a Dictionary by the first reader (streaming_analytics_frame.h).
+    // analytics_frame_mutex guards the pointer only: end_frame() and readers run on different threads.
+    mutable BinaryMutex analytics_frame_mutex;
+    std::shared_ptr<StreamingAnalyticsFrame> analytics_frame;
     RenderingDevice *last_upload_device = nullptr;
 
     // Per-chunk quantization (Unity technique for 4x compression)
@@ -207,6 +236,7 @@ private:
     bool quantization_dirty = false;
 #if defined(TESTS_ENABLED)
     bool test_force_next_chunk_upload_failure = false;
+    uint64_t test_wall_clock_usec = 0; // non-zero replaces the OS clock in _wall_clock_usec()
 #endif
 
     void _connect_project_settings();
@@ -261,6 +291,11 @@ public:
     // Frame management
     void begin_frame();
     void end_frame();
+    // Runs on the analytics Dictionary when it is first read. It is part of the published frame, so no reader
+    // can see the frame without it.
+    using AnalyticsOverlay = std::function<void(Dictionary &)>;
+    void end_frame_with_overlay(AnalyticsOverlay p_overlay);
+    std::shared_ptr<StreamingAnalyticsFrame> get_analytics_frame() const;
 
     // Memory management
     uint64_t get_vram_usage() const;
@@ -463,6 +498,8 @@ public:
 	void _test_set_atlas_page_ceiling(uint32_t p_pages) { streaming_max_capacity = p_pages; }
 	uint32_t _test_atlas_occupancy_target_pages() const { return _atlas_occupancy_target_pages(); }
 	void _test_update_vram_regulator() { _update_vram_regulator(); }
+	void _test_evict_all_resident_chunks_for_stride_change() { _evict_all_resident_chunks_for_stride_change(); }
+	void _test_set_wall_clock_usec(uint64_t p_usec) { test_wall_clock_usec = p_usec; }
 	bool _test_regulator_allows_load() const {
 		return budget.vram_regulator.is_valid() && budget.vram_regulator->can_load_more_chunks(_get_reserved_chunk_count());
 	}
@@ -529,8 +566,8 @@ public:
         persistent_buffer_size = 0;
         streaming_initialized = false;
     }
-    uint32_t _test_load_visible_chunks(uint32_t p_effective_max) {
-        uint32_t evictions_left = 0;
+    uint32_t _test_load_visible_chunks(uint32_t p_effective_max, uint32_t p_evictions = 0) {
+        uint32_t evictions_left = p_evictions;
         bool eviction_blocked = false;
         _load_visible_chunks(p_effective_max, evictions_left, eviction_blocked);
         return scheduler.last_load_candidate_count;
@@ -637,6 +674,7 @@ private:
     void _record_visible_scan_starvation(uint32_t p_scan_origin, uint32_t p_scanned_chunks, float p_load_threshold);
     void _handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max);
     void _update_vram_regulator();
+    uint64_t _wall_clock_usec() const;
     void _log_streaming_frame_stats(uint32_t effective_max);
     Error _load_chunk(uint32_t chunk_idx);
     Error _load_chunk(uint32_t asset_id, uint32_t chunk_idx);
@@ -691,7 +729,8 @@ private:
     void _finalize_chunk_load(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, uint32_t buffer_slot, uint32_t asset_chunk_count);
     void _unload_chunk(uint32_t chunk_idx);
     void _unload_chunk(uint32_t asset_id, uint32_t chunk_idx);
-    EvictionResult _evict_least_recently_used(bool p_allow_visible_eviction, uint32_t p_visible_fit_pages = 0);
+    EvictionResult _evict_least_recently_used(bool p_allow_visible_eviction, uint32_t p_visible_fit_pages = 0,
+            bool p_allow_padding_eviction = false);
     bool _is_chunk_in_frustum(const AABB &p_bounds, const Vector<Plane> &p_frustum_planes) const;
     void _reload_debug_logging_config();
     void _load_streaming_tuning_config_from_project_settings();
@@ -724,6 +763,10 @@ private:
     void _process_upload_queue();
     void _clear_pending_uploads();
     void _release_persistent_buffer(RenderingDevice *p_rd, const char *p_context);
+    // BV-POOL: queries where p_buffer lives, counts it and reports a non-device-local pool
+    // loudly. Returns the placement (known == false when the backend cannot tell).
+    RenderingDeviceDriver::BufferMemoryPlacement _record_persistent_buffer_placement(RenderingDevice *p_rd, RID p_buffer,
+            uint64_t p_bytes, const char *p_context);
     // Grow the persistent buffer to p_new_capacity atlas pages, preserving currently
     // resident chunks. Returns false on any failure without corrupting state.
     bool _grow_persistent_buffer(uint32_t p_new_capacity);
@@ -781,7 +824,7 @@ private:
             int &max_skip_factor,
             float &min_opacity,
             uint32_t &chunks_in_transition) const;
-    Dictionary _build_streaming_diagnostics_snapshot(uint32_t pack_queue_depth, uint32_t upload_queue_depth,
+    void _capture_streaming_diagnostics(StreamingAnalyticsFrame &r_frame, uint32_t pack_queue_depth, uint32_t upload_queue_depth,
             uint32_t sync_fallback_queue_depth);
 };
 

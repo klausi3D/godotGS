@@ -64,8 +64,8 @@ described the state before the GPU harness landed, and were left behind when
 it did. `composite_hazard_256x256.png` is committed in this directory and is
 compared on every qualifying PR.
 
-The lane is `gpu-harness` in `.github/workflows/baseline_qa.yml`, which runs
-`tests/ci/run_gpu_harness.py` on the self-hosted Windows GPU runner (batch
+The lane is the GPU harness step of `gpu-tests` in `.github/workflows/baseline_qa.yml`,
+which runs `tests/ci/run_gpu_harness.py` on the self-hosted GPU runner (batch
 `CompositorHazard`). It resolves `GS_VISUAL_BASELINE_MODE` to `compare` for
 PRs and `update` for the nightly schedule, records capture provenance (GPU,
 driver, runner, OS build, commit) to `.provenance.json`, and on `update`

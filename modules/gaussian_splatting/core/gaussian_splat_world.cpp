@@ -101,6 +101,7 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_metadata", "metadata"), &GaussianSplatWorld::set_metadata);
     ClassDB::bind_method(D_METHOD("get_metadata"), &GaussianSplatWorld::get_metadata);
     ClassDB::bind_method(D_METHOD("has_chunk_payload_source"), &GaussianSplatWorld::has_chunk_payload_source);
+    ClassDB::bind_method(D_METHOD("get_chunk_payload_source"), &GaussianSplatWorld::get_chunk_payload_source);
     ClassDB::bind_method(D_METHOD("is_payload_source_backed"), &GaussianSplatWorld::is_payload_source_backed);
     ClassDB::bind_method(D_METHOD("has_renderable_payload"), &GaussianSplatWorld::has_renderable_payload);
     ClassDB::bind_method(D_METHOD("get_payload_mode"), &GaussianSplatWorld::get_payload_mode);
@@ -266,7 +267,7 @@ void GaussianSplatWorld::set_metadata(const Dictionary &p_metadata) {
     emit_changed();
 }
 
-void GaussianSplatWorld::set_static_chunks(const Vector<GaussianSplatRenderer::StaticChunk> &p_chunks) {
+void GaussianSplatWorld::set_static_chunks(const Vector<StaticChunk> &p_chunks) {
     {
         MutexLock lock(render_input_mutex);
     static_chunks = p_chunks;
@@ -700,7 +701,7 @@ Error GaussianSplatWorld::materialize_paged_resident(String &r_reason) {
         hlod_tree.interior_sh_high_order = std::move(interior_sh);
         hlod_tree.interior_resident = true;
         hlod_tree.interior_file_path = String();
-        Vector<GaussianSplatRenderer::StaticChunk> leaf_chunks;
+        Vector<StaticChunk> leaf_chunks;
         if (!build_hlod_leaf_chunks(hlod_tree, leaf_chunks)) {
             r_reason = "hlod_paged_materialize_chunks";
             return ERR_OUT_OF_MEMORY;
@@ -772,7 +773,7 @@ void GaussianSplatWorld::set_hlod_tree(GaussianSplatHlodTree &&p_tree) {
     emit_changed();
 }
 
-bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_tree, Vector<GaussianSplatRenderer::StaticChunk> &r_chunks) {
+bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_tree, Vector<StaticChunk> &r_chunks) {
     r_chunks.clear();
     // Leaves sorted by payload start (depth-first order).
     LocalVector<uint32_t> leaves;
@@ -785,13 +786,13 @@ bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_t
     std::sort(leaves.ptr(), leaves.ptr() + leaves.size(), [&nodes](uint32_t p_a, uint32_t p_b) {
         return nodes[p_a].payload_first < nodes[p_b].payload_first;
     });
-    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+    Vector<StaticChunk> chunks;
     if (!gs_resize_or_fail(chunks, int64_t(leaves.size()), "GaussianSplatWorld::build_hlod_leaf_chunks chunks")) {
         return false;
     }
     for (uint32_t k = 0; k < leaves.size(); k++) {
         const GaussianSplatHlodNode &leaf = nodes[leaves[k]];
-        GaussianSplatRenderer::StaticChunk chunk;
+        StaticChunk chunk;
         chunk.bounds = p_tree.node_world_aabb(leaf);
         chunk.center = chunk.bounds.get_center();
         // The culler uses a float center; bound exact stored and runtime AABB corners about
@@ -1037,7 +1038,7 @@ Error GaussianSplatWorld::_bake_hlod(bool p_quality_selection) {
 
     // Build every fallible piece of the replacement before touching the world, so a failure
     // leaves the world exactly as it was (payload, chunks, source, tree).
-    Vector<GaussianSplatRenderer::StaticChunk> leaf_chunks;
+    Vector<StaticChunk> leaf_chunks;
     if (!build_hlod_leaf_chunks(result.tree, leaf_chunks)) {
         ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY, "GaussianSplatWorld.bake_hlod(): cannot allocate the leaf chunks.");
     }
@@ -1323,12 +1324,12 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
                 !charge(hlod_tree.interior_gaussians.get_capacity(), sizeof(Gaussian)) ||
                 !charge(hlod_tree.interior_sh_high_order.get_capacity(), sizeof(Vector3)) ||
                 !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
-                !charge(static_chunks.size(), sizeof(GaussianSplatRenderer::StaticChunk)) ||
+                !charge(static_chunks.size(), sizeof(StaticChunk)) ||
                 !charge(total, 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
                 !charge(uint64_t(GaussianSplatHlodRuntimeData::MAX_NODES) * 4, 64)) {
             return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
         }
-        for (const GaussianSplatRenderer::StaticChunk &chunk : static_chunks) {
+        for (const StaticChunk &chunk : static_chunks) {
             if (!charge(chunk.indices.size(), sizeof(uint32_t))) {
                 return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_chunk_limit");
             }
@@ -1422,7 +1423,7 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
 }
 
 uint64_t GaussianSplatWorld::capture_render_input(Ref<GaussianData> &r_data, Ref<ChunkPayloadSource> &r_source,
-        Vector<GaussianSplatRenderer::StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const {
+        Vector<StaticChunk> &r_chunks, AABB &r_bounds, Dictionary &r_metadata) const {
     MutexLock lock(render_input_mutex);
     r_data = gaussian_data;
     r_source = chunk_payload_source;

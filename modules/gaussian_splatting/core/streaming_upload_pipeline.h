@@ -3,6 +3,7 @@
 
 #include "gaussian_data.h"
 #include "streaming_chunk_payload_source.h"
+#include "streaming_latency_histogram.h"
 #include "core/os/mutex.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
@@ -84,16 +85,29 @@ public:
     struct PackThreadContext {
         GaussianStreamingSystem *system = nullptr;
         uint32_t thread_index = 0;
+        // BV-LAT: most pack jobs one wakeup of this worker may claim (compute_pack_dequeue_batch()).
+        uint32_t dequeue_batch = 1;
     };
 
+    // BV-04a (ADR adr-beyond-vram-worlds.md D-5): every counter here is a lock-free atomic in
+    // EVERY build flavour. They were stubs without DEV_ENABLED, and the upload counters were
+    // further gated on debug frame logging, so `upload_chunks_this_frame` read 0 in optimized
+    // builds and fed a constant 0 into the upload-stall predicate and the broad forced-sync
+    // guard. Recording is per job, per lock or per upload slice, never per splat.
+    //
+    // The per-frame fields are drained by exchange_and_reset() once per frame on the main thread
+    // (end_frame). The latency histograms are cumulative over the pipeline lifetime.
     struct alignas(64) PackTelemetry {
-#ifdef DEV_ENABLED
-        SafeFlag enabled;
         SafeNumeric<uint64_t> pack_time_usec_total;
         SafeNumeric<uint64_t> pack_time_usec_max;
         SafeNumeric<uint32_t> pack_jobs_completed;
         SafeNumeric<uint64_t> upload_bytes_total;
         SafeNumeric<uint32_t> upload_chunks_completed;
+        // Bytes the chunk payload source delivered into the pack snapshot (gaussians + SH).
+        SafeNumeric<uint64_t> read_bytes_total;
+        // Bytes produced by a payload decode stage. The uncompressed (PLAIN) chunk route has no
+        // decode stage; a GSQ source (BV-C5b) records its decoded snapshot here (BV-K9).
+        SafeNumeric<uint64_t> decode_bytes_total;
         SafeNumeric<uint64_t> pack_queue_latency_usec_total;
         SafeNumeric<uint64_t> pack_queue_latency_usec_max;
         SafeNumeric<uint32_t> pack_queue_latency_samples;
@@ -108,13 +122,32 @@ public:
         SafeNumeric<uint32_t> pack_thread_snapshot_count;
         SafeNumeric<uint32_t> pack_thread_enqueue_upload_count;
 
-        _ALWAYS_INLINE_ bool is_enabled() const { return enabled.is_set(); }
-        _ALWAYS_INLINE_ void set_enabled(bool p_on) { enabled.set_to(p_on); }
+        // Cumulative stage latency histograms (see StreamingLatencyHistogram):
+        //  read   - payload source capture (capture_*_chunk_snapshot) wall time, successful reads,
+        //           minus the source's decode share;
+        //  decode - payload decode wall time inside the capture (GSQ; none on the uncompressed route);
+        //  pack   - pack_gaussians_range wall time;
+        //  upload - pack completion to dequeue for the GPU write (upload queue latency).
+        StreamingLatencyHistogram read_latency;
+        StreamingLatencyHistogram decode_latency;
+        StreamingLatencyHistogram pack_latency;
+        StreamingLatencyHistogram upload_latency;
 
         _ALWAYS_INLINE_ void add_pack_time(uint64_t p_usec) {
             pack_time_usec_total.add(p_usec);
             pack_jobs_completed.increment();
             pack_time_usec_max.exchange_if_greater(p_usec);
+            pack_latency.record(p_usec);
+        }
+
+        _ALWAYS_INLINE_ void add_read(uint64_t p_bytes, uint64_t p_usec) {
+            read_bytes_total.add(p_bytes);
+            read_latency.record(p_usec);
+        }
+
+        _ALWAYS_INLINE_ void add_decode(uint64_t p_bytes, uint64_t p_usec) {
+            decode_bytes_total.add(p_bytes);
+            decode_latency.record(p_usec);
         }
 
         _ALWAYS_INLINE_ void add_upload_bytes(uint64_t p_bytes) {
@@ -135,6 +168,7 @@ public:
             upload_queue_latency_usec_total.add(p_usec);
             upload_queue_latency_samples.increment();
             upload_queue_latency_usec_max.exchange_if_greater(p_usec);
+            upload_latency.record(p_usec);
         }
 
         _ALWAYS_INLINE_ void add_mutex_wait(uint64_t p_usec) {
@@ -167,6 +201,8 @@ public:
             uint32_t pack_jobs = 0;
             uint64_t upload_bytes = 0;
             uint32_t upload_chunks = 0;
+            uint64_t read_bytes = 0;
+            uint64_t decode_bytes = 0;
             uint64_t pack_queue_lat_total = 0;
             uint64_t pack_queue_lat_max = 0;
             uint32_t pack_queue_lat_samples = 0;
@@ -182,46 +218,9 @@ public:
             uint32_t thread_enqueue_uploads = 0;
         };
 
+        // Drains the per-frame fields. Does not touch the cumulative histograms.
         Snapshot exchange_and_reset();
         Snapshot read_current() const;
-#else
-        _ALWAYS_INLINE_ bool is_enabled() const { return false; }
-        _ALWAYS_INLINE_ void set_enabled(bool) {}
-        _ALWAYS_INLINE_ void add_pack_time(uint64_t) {}
-        _ALWAYS_INLINE_ void add_upload_bytes(uint64_t) {}
-        _ALWAYS_INLINE_ void add_upload_chunk() {}
-        _ALWAYS_INLINE_ void add_pack_queue_latency(uint64_t) {}
-        _ALWAYS_INLINE_ void add_upload_queue_latency(uint64_t) {}
-        _ALWAYS_INLINE_ void add_mutex_wait(uint64_t) {}
-        _ALWAYS_INLINE_ void record_pack_thread_wake() {}
-        _ALWAYS_INLINE_ void record_pack_thread_dequeue(uint32_t) {}
-        _ALWAYS_INLINE_ void record_pack_thread_snapshot() {}
-        _ALWAYS_INLINE_ void record_pack_thread_enqueue_upload() {}
-
-        struct Snapshot {
-            uint64_t pack_time_total = 0;
-            uint64_t pack_time_max = 0;
-            uint32_t pack_jobs = 0;
-            uint64_t upload_bytes = 0;
-            uint32_t upload_chunks = 0;
-            uint64_t pack_queue_lat_total = 0;
-            uint64_t pack_queue_lat_max = 0;
-            uint32_t pack_queue_lat_samples = 0;
-            uint64_t upload_queue_lat_total = 0;
-            uint64_t upload_queue_lat_max = 0;
-            uint32_t upload_queue_lat_samples = 0;
-            uint64_t mutex_wait_total = 0;
-            uint64_t mutex_wait_max = 0;
-            uint32_t mutex_wait_samples = 0;
-            uint32_t thread_wakes = 0;
-            uint32_t thread_dequeues = 0;
-            uint32_t thread_snapshots = 0;
-            uint32_t thread_enqueue_uploads = 0;
-        };
-
-        _ALWAYS_INLINE_ Snapshot exchange_and_reset() { return {}; }
-        _ALWAYS_INLINE_ Snapshot read_current() const { return {}; }
-#endif
     };
 
     struct UploadBudgetState {
@@ -234,12 +233,21 @@ public:
     static constexpr uint32_t QUEUE_COMPACT_MIN_PREFIX = 128;
 
     bool async_pack_enabled = true;
-    uint32_t pack_worker_threads = 2;
-    uint32_t max_pack_jobs_in_flight = 4;
+    // BV-K9b: matches the GLOBAL_DEF defaults (8 and 8) so every job of the default in-flight
+    // window has its own worker; the started count is compute_pack_worker_count().
+    uint32_t pack_worker_threads = 8;
+    uint32_t max_pack_jobs_in_flight = 8;
     uint32_t max_chunk_loads_per_frame = 16;
     uint64_t max_upload_bytes_per_frame = 128 * 1024 * 1024;
     uint64_t max_upload_bytes_per_slice = 16 * 1024 * 1024;
     uint64_t max_upload_bytes_per_second = 0;
+    // BV-08c (ADR 3.4 step 4, 7.1): the per-frame upload never exceeds staging ring / frames in
+    // flight, whatever max_upload_mb_per_frame asks for. 0 = no staging limit known.
+    uint64_t upload_staging_clamp_bytes_per_frame = 0;
+    // BV-08c: packed payloads waiting for upload, counted with the jobs still packing. Twice the
+    // clamped frame of full-size chunks, so the queue never holds more than two frames of work.
+    // 0 = unbounded.
+    uint32_t max_ready_upload_jobs = 0;
     uint64_t upload_budget_tokens = 0;
     uint64_t upload_budget_last_update_usec = 0;
     uint32_t queued_chunk_loads_this_frame = 0;
@@ -251,6 +259,15 @@ public:
     uint32_t last_pack_jobs = 0;
     double last_upload_mb = 0.0;
     uint32_t last_upload_chunks = 0;
+    // BV-04a: exact per-frame byte counts drained in end_frame, and their cumulative totals
+    // (main thread only, never reset, so a reader that samples some frames diffs two totals).
+    uint64_t last_upload_bytes = 0;
+    uint64_t last_read_bytes = 0;
+    uint64_t last_decode_bytes = 0;
+    uint64_t upload_bytes_cumulative = 0;
+    uint64_t upload_chunks_cumulative = 0;
+    uint64_t read_bytes_cumulative = 0;
+    uint64_t decode_bytes_cumulative = 0;
     String cap_tier_preset = "custom";
     bool cap_tier_active = false;
     String cap_source_upload_mb_per_frame = "project_default";
@@ -299,7 +316,7 @@ public:
     void start_pack_threads(GaussianStreamingSystem &system);
     void stop_pack_threads(GaussianStreamingSystem &system);
     static void pack_thread_entry(void *p_userdata);
-    void pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index);
+    void pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index, uint32_t p_dequeue_batch);
     // #1176: p_allow_visible_eviction = false (predictive prefetch) never takes the
     // visible-eviction fallback when the atlas has no run for the chunk; the load is skipped.
     bool queue_chunk_load(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx,
@@ -311,8 +328,27 @@ public:
     bool has_pending_uploads();
     uint32_t get_pack_queue_depth_cached() const;
     uint32_t get_upload_queue_depth_cached() const;
+    // BV-08c: pack_jobs_in_flight as admission must read it. Reports saturation while the ready
+    // queue is at max_ready_upload_jobs, so a scan stops before it evicts for a load that could
+    // not be queued. A max_pack_jobs_in_flight of 0 asks for no backpressure and gets none.
+    uint32_t get_pack_jobs_in_flight_for_admission() const;
+    static uint64_t compute_staging_upload_clamp_bytes(uint32_t p_staging_max_mb, uint32_t p_frames_in_flight);
+    static uint32_t compute_max_ready_upload_jobs(uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight);
+    // BV-LAT: most jobs one pack-worker wakeup may claim: its fair share of the in-flight window
+    // (max_pack_jobs_in_flight / workers, at least 1, at most PACK_DEQUEUE_BATCH_MAX). A fixed batch
+    // of 4 with 4 jobs in flight let the first worker take every job and run them serially while
+    // the others slept: beyond-VRAM refill ran at one worker's rate (~32 chunks/s on tier A).
+    static constexpr uint32_t PACK_DEQUEUE_BATCH_MAX = 4;
+    static uint32_t compute_pack_dequeue_batch(uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight);
+    // BV-K9b: pack workers actually started for the pack_worker_threads setting: never more than
+    // max(2, logical CPUs / 2), so the decode/pack burst of a refill leaves at least half of the
+    // CPU to the game's main, render and job threads (16 logical CPUs -> 8, 8 -> 4, 4 -> 2).
+    // 0 stays 0 (async packing off).
+    static uint32_t compute_pack_worker_count(uint32_t p_setting, uint32_t p_logical_cpus);
+    uint64_t get_frame_upload_limit_bytes() const;
     void get_pending_queue_depths_cached(uint32_t &r_pack_queue_depth, uint32_t &r_upload_queue_depth) const;
 #if defined(TESTS_ENABLED)
+    uint64_t _test_frame_upload_budget() { return prepare_upload_budget_state().upload_budget; }
     void _test_set_async_pack_queue_owner(bool p_has_owner) {
         async_pack_enabled = true;
         pack_thread_running.store(p_has_owner, std::memory_order_release);

@@ -1,0 +1,356 @@
+{
+  "schema": "godotgs-flythrough-thresholds/1",
+  "adr": "docs/architecture/adr-beyond-vram-worlds.md sections 8.2-8.4 and the M1 checkpoint criterion in section 10",
+  "guard": "tests/ci/check_flythrough_thresholds.py (no-loosening guard, run by tests/ci/run_module_tests.py --guard-only)",
+  "verdict_module": "tests/runtime/flythrough/flythrough_verdict.py",
+  "provenance": {
+    "source_run": {
+      "workflow": ".github/workflows/beyond_vram_flythrough.yml",
+      "run_id": "42512864344",
+      "run_attempt": 1,
+      "artifact": "beyond-vram-dispatch-A-42512864344-1",
+      "commit": "46e1c556aa0f5980123e22cde6b419df5c9af5d6",
+      "binary_sha256": "3061bdd58561892ab87e11295ac34e27dd765968eee0403edf4968759e129195",
+      "binary_kind": "editor_tests",
+      "probe_summary_schema": "godotgs-bv07-probe-summary/1",
+      "probe_summary_sha256": "5b603eb6cef4936f48deb3401771eca8fbc8e08adbb3e89b2fb39f52e9276282",
+      "tier": "A",
+      "adapter": "NVIDIA GeForce RTX 3080",
+      "captured_fixture": "tests/runtime/flythrough/fixtures/bv09/"
+    },
+    "method": [
+      "Gate values are the values ADR section 8.3 pre-registers (section 8.1: timing and image-quality values are fixed now). The M1 run supplies no gate value: one run is not a calibration, and every tightening proposal it implies would loosen (calibration_record), so none is applied.",
+      "globals.worlds (V2 committed digests), globals.settings (V7 frozen settings), globals.devices and globals.binary are copied from the captured run: world digests, splat and chunk counts, file bytes and path_sha256 from probe/summary.json worlds.<w>; gen_sha and the codec params from the run's worlds/<w>.world.manifest.json; the tuned settings, visible cap and far plane from probe/summary.json settings; the adapter from worlds.A.driver.adapter.",
+      "The world digests are reproducible: the same file_sha256 for A in runs 42427296940 and 42512864344, and for T0 in runs 42406495103, 42465914667, 42427296940 and 42512864344.",
+      "An ADR condition whose signal the lane does not publish yet is absent from this file (section 8.1: a gate whose prerequisite has not landed is absent, and adding it later is a tightening). absent_until_prerequisite names each one; nothing here is PENDING, and the verdict module never scores an absent condition as a pass."
+    ],
+    "absent_until_prerequisite": {
+      "V1-psi": "PSI recorder is reported, not gating, until calibrated (ADR V1); V1 here gates the contention step record only",
+      "V4": "used only for the R breakdown; P1 uses the wall-clock interval",
+      "V5-pose": "pose error at holds is not published by the probe",
+      "V6": "throttle reasons are not published (nvidia_smi.csv is section 9.3, not yet in the lane)",
+      "V9-unique-uploaded": "unique uploaded bytes are not published; the probe publishes total uploads and the oracle's lower bound expected_unique_upload_flat",
+      "V9-drawn-floor": "the probe publishes expected_drawn_upper_bound (frustum chunks, no LOD), not the manifest's expected drawn count; the per-segment drawn floor is not pre-registered",
+      "V10": "BV-13a feeds the path oracle's expected stored bytes into world_cache.v10 (#1376 item 1)",
+      "G1-log": "DEVICE_LOST / OOM / allocation failure are not published as signals; G1 here is exit 0 plus the final marker",
+      "G2b": "external memory.used needs nvidia_smi.csv (section 9.3)",
+      "G2c": "BV-10",
+      "G3": "HLOD arm",
+      "G5": "cold start to first complete frame is not published",
+      "G7": "BV-14 / doctest mutation proofs (section 8.5)",
+      "G8": "not published",
+      "G9": "not published on the flat route; GSQ counters arrive with the compressed arm",
+      "G10h": "HLOD arm, BV-16c",
+      "G11": "T-ref references, BV-13b",
+      "G11h": "HLOD arm",
+      "G11q": "HLOD arm, BV-26a",
+      "G12": "beacon scoring, BV-13b",
+      "G13": "C7 vs C0 capture, BV-13b",
+      "G14": "the probe's moving window excludes holds; G14 counts every frame outside 1 s after a teleport (BV-13a pass A)",
+      "G15": "the probe's moving window does not apply the 1 s post-teleport exclusion of section 8.3 (BV-13a pass A)",
+      "P1": "same window mismatch as G15 (BV-13a pass A); HLOD-gated, printed for flat",
+      "Q-codec": "codec arms U/C/S/D (section 7.3 item 4)"
+    },
+    "m1_observations": {
+      "note": "Values the captured run measured for gates that are absent or report-only. Information, not thresholds.",
+      "G6_stop_settle_s_max": 4.150765,
+      "G6t_teleport_settle_s_max": 10.797297,
+      "G15_moving_frames_over_50ms_pct_worst_pass": 79.18231122236128,
+      "P1_moving_p95_ms_worst_pass": 126.145,
+      "P1_moving_p99_ms_worst_pass": 136.421,
+      "G2a_peak_vram_mib": 4092.320400238037,
+      "G4_peak_rss_bytes": 9563078656,
+      "uploaded_vs_expected_unique": 1.8689561572751583,
+      "regulator_adjustments": 0,
+      "startup_rows_settings": "settings_whole_run INVALID: the cap moved 256 -> 480 and 1 row carried no settings signal, all before the first measured pass; both passes' measured rows are OK"
+    },
+    "calibration_record": [
+      {
+        "gate": "G6",
+        "tier": "A",
+        "rule": "op <=: new = min(old, calibrated p95 x 1.15)",
+        "runs": ["42512864344"],
+        "observed_max": 4.150765,
+        "proposal": 4.77338,
+        "old": 3.0,
+        "applied": false,
+        "why": "the proposal is looser than the pre-registered value"
+      },
+      {
+        "gate": "G6t",
+        "tier": "A",
+        "rule": "op <=: new = min(old, calibrated p95 x 1.15)",
+        "runs": ["42512864344"],
+        "observed_max": 10.797297,
+        "proposal": 12.416892,
+        "old": 6.0,
+        "applied": false,
+        "why": "the proposal is looser than the pre-registered value"
+      }
+    ]
+  },
+  "globals": {
+    "min_vram_ratio": 2.5,
+    "gpu_bytes_per_splat": 176,
+    "tiers": {
+      "A": {
+        "device": "rtx3080",
+        "gate_world": "A",
+        "worlds": ["T0", "A"]
+      }
+    },
+    "devices": {
+      "rtx3080": {
+        "adapter": "NVIDIA GeForce RTX 3080",
+        "vram_bytes": 10737418240
+      }
+    },
+    "binary": {
+      "kind": "editor_tests",
+      "required_scons_args": ["target=editor", "optimize=speed_trace", "dev_build=no", "tests=yes"]
+    },
+    "worlds": {
+      "A": {
+        "path_sha256": "2d18b9de04e527abba8f32351ab2e383fed01b8a9c00dc5f8bdcb2a3af54f4d6",
+        "generator_params_sha": "404e9cc0104b2cb7ebeb7fa374d8888ced9a387e25e51c2b5fafd704577bd759",
+        "gen_sha": "77b570207233d6e8aca48f23a3054daeea077744d58d4bbd02511b560f36f649",
+        "file_sha256": "fb73dec1263250af77f3f5d21e8a46e06b7edb782ade6e009537e7eba7247f8e",
+        "file_bytes": 7579247737,
+        "splat_count": 201326592,
+        "chunk_count": 4939
+      },
+      "T0": {
+        "path_sha256": "797af91c148f6ec8d1efb6fbba45efe37e93e67abd4e6372ad368e98b82c37cb",
+        "generator_params_sha": "87a0952abb0a9404a833e6323d2967f84b8b91090da3b6d8cad959a83439d05b",
+        "gen_sha": "ad1a84a7489f7a9e0da9af50de039839449709c86177fc905fe55b70e36aa415",
+        "file_sha256": "937957098b5014fbe2dc0789ef196fe6490326420356f7da66d99d2184405196",
+        "file_bytes": 1224756353,
+        "splat_count": 4194304,
+        "chunk_count": 343
+      }
+    },
+    "settings": {
+      "tuned": {
+        "rendering/gaussian_splatting/compression/per_chunk_quantization": 0,
+        "rendering/gaussian_splatting/instance_pipeline/enabled": true,
+        "rendering/gaussian_splatting/streaming/max_chunks_in_vram": 480,
+        "rendering/gaussian_splatting/streaming/route_policy": 1,
+        "rendering/gaussian_splatting/streaming/vram_budget_mb": 4096
+      },
+      "lod_distance_multiplier": 1.0,
+      "visible_cap": 4000000,
+      "far_m": 400.0,
+      "codec": {
+        "codec_id": 0,
+        "opacity_bits": 0,
+        "pos_step_m": 0,
+        "sh_bits": [0, 0, 0],
+        "zstd_level": 0
+      }
+    }
+  },
+  "reprime_records": [
+    {
+      "world": "A",
+      "run_id": "42629658168",
+      "date": "2026-11-09",
+      "reason": "BV-C7 (#1381) primes Tier A as plain GSQ (encoding plain_v3_gsq); the committed digests were the uncompressed M1 world, so V2 was INVALID on every GSQ run (#1389). Same generator: path_sha256, generator_params_sha, splat_count and chunk_count are unchanged; only the encoded file (file_sha256, file_bytes) and its cache key (gen_sha) change.",
+      "encoding": "plain_v3_gsq",
+      "gen_sha": "77b570207233d6e8aca48f23a3054daeea077744d58d4bbd02511b560f36f649",
+      "file_sha256": "fb73dec1263250af77f3f5d21e8a46e06b7edb782ade6e009537e7eba7247f8e",
+      "file_bytes": 7579247737,
+      "source": "probe/summary.json worlds.A and steps/cache_check.json worlds.A.gen_sha (verify_ok true) of artifacts beyond-vram-flythrough-A-42629658168-1 (branch bv-13a, 9cf16a03a9e2bf22f13cc8da9cf4d3760210d7e9) and beyond-vram-flythrough-A-42626103664-1 (branch bv-lat, cee13648fd256a202bde1aae75c3f61f5cf1147e); both runs agree on every field",
+      "confirming_run_id": "42626103664",
+      "replaces": {
+        "gen_sha": "ee9f601efc52da31d23f1c2eb388a36a7e50479e59da5e148c97102ea1985072",
+        "file_sha256": "c17ed181e0e8514001a50a9cbd21f96b7a1a1ddaa497e8459acf7acd3d8a08f2",
+        "file_bytes": 58787641824,
+        "encoding": "flat (uncompressed M1 world, run 42512864344)"
+      },
+      "calibration_record": "No gate value changes: the gate values are the ADR 8.3 pre-registered values and were never calibrated from a world digest (provenance.method). No tightening proposal is applied from two runs. V2 stays an exact comparison; a flat Tier A run is INVALID on V2 from now on, because V2 keys the committed digests by world name and the lane's Tier A is GSQ."
+    }
+  ],
+  "waivers": [],
+  "validity": {
+    "V1": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": "OK"},
+      "source_field": "steps/contention.json status",
+      "window": "whole run (contention preflight and postflight)",
+      "exclusions": "none",
+      "percentile_method": "none"
+    },
+    "V2": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": "globals.worlds"},
+      "source_field": "probe/summary.json worlds.<w>.{world_file_sha256, generator_params_sha, splat_count, chunk_count, file_bytes}; steps/cache_check.json or steps/generate.json status",
+      "window": "every world of the tier",
+      "exclusions": "none",
+      "percentile_method": "none"
+    },
+    "V3": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": ">=",
+      "tiers": {"A": "globals.min_vram_ratio"},
+      "source_field": "probe/summary.json worlds.<gate_world>.{splat_count, driver.adapter}",
+      "window": "gate world",
+      "exclusions": "none",
+      "percentile_method": "none"
+    },
+    "V5": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": 2},
+      "repetitions": "tiers value: pass A cold then warm",
+      "checkpoints": ["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+      "source_field": "probe/summary.json worlds.<gate_world>.{path_sha256, trace, flythrough.passes[].checkpoints, flythrough.passes[].segments.*.coverage_m}",
+      "window": "every repetition of the path",
+      "exclusions": "none",
+      "percentile_method": "none"
+    },
+    "V7": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": "globals.settings"},
+      "source_field": "probe/summary.json settings, worlds.<gate_world>.driver.project_settings_readback, worlds.<gate_world>.flythrough.passes[].settings",
+      "window": "measured rows of every repetition (passes[].settings)",
+      "exclusions": "load rows before the first pass (settings_whole_run) are reported, never counted",
+      "percentile_method": "none"
+    },
+    "V8": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": "globals.binary"},
+      "source_field": "build_info.json {binary_kind, scons_args, sha256, provenance}; probe/summary.json binary.sha256",
+      "window": "whole run",
+      "exclusions": "none",
+      "percentile_method": "none"
+    },
+    "V9-evictions": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "flat",
+      "op": ">=",
+      "tiers": {"A": 1000},
+      "unit": "chunks",
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.streaming_whole_run.chunks_evicted_sampled",
+      "window": "whole path run",
+      "exclusions": "none",
+      "percentile_method": "none (count)"
+    },
+    "V9-peak-resident": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "<=",
+      "tiers": {"A": 0.15},
+      "unit": "fraction of the world's GPU-equivalent bytes",
+      "source_field": "probe/summary.json worlds.<gate_world>.{flythrough.streaming_whole_run.peak_vram_mb, splat_count}",
+      "window": "whole path run",
+      "exclusions": "none",
+      "percentile_method": "none (maximum)"
+    },
+    "M1-settle": {
+      "class": "validity",
+      "mode": "report_only",
+      "arm": "flat",
+      "op": "==",
+      "tiers": {"A": true},
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.passes[].checkpoints[].{cap_fit, settled}",
+      "window": "every checkpoint of every repetition",
+      "exclusions": "none; needed > cap is INVALID until the priority proof exists (ADR section 10, M1)",
+      "percentile_method": "none"
+    }
+  },
+  "gates": {
+    "G1": {
+      "class": "correctness",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": 0, "AB": 0},
+      "unit": "exit code",
+      "source_field": "probe/summary.json worlds.<gate_world>.{process.exit_code, process.timed_out, driver.reason}",
+      "window": "whole path run",
+      "exclusions": "none",
+      "percentile_method": "none"
+    },
+    "G2a": {
+      "class": "correctness",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "<=",
+      "tiers": {"A": 100.0, "AB": 100.0},
+      "unit": "% of the effective budget",
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.{streaming_whole_run.peak_vram_mb, settings_whole_run.effective_vram_budget_mb}",
+      "window": "every frame of the path run (peak)",
+      "exclusions": "none",
+      "percentile_method": "none (maximum)"
+    },
+    "G4": {
+      "class": "correctness",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "<=",
+      "tiers": {"A": 12.0, "AB": 16.0},
+      "unit": "GiB",
+      "source_field": "probe/summary.json worlds.<gate_world>.rss.peak_rss_bytes",
+      "window": "whole process (OS high-water mark)",
+      "exclusions": "none",
+      "percentile_method": "none (maximum)"
+    },
+    "G6": {
+      "class": "statistical",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "<=",
+      "tiers": {"A": 3.0, "AB": 2.0},
+      "unit": "s",
+      "checkpoints": ["C1", "C2", "C3", "C5", "C6"],
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.passes[].checkpoints[].settle_s",
+      "window": "stop checkpoints (path kind stop), every repetition",
+      "exclusions": "C0 (cold start), C4 and C7 (teleports, G6t)",
+      "percentile_method": "none (worst checkpoint)"
+    },
+    "G10": {
+      "class": "correctness",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "==",
+      "tiers": {"A": 0, "AB": 0},
+      "unit": "readback intervals with an overlap-record drop",
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.passes[].overlap_drops_checkpoints.{status, drop_events, readback_samples}",
+      "window": "checkpoint settle and hold rows of every repetition, the load settle at C0 included",
+      "exclusions": "none",
+      "percentile_method": "none (count)"
+    },
+    "G6t": {
+      "class": "statistical",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "<=",
+      "tiers": {"A": 6.0, "AB": 4.0},
+      "unit": "s",
+      "checkpoints": ["C4", "C7"],
+      "label": "host_cache",
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.passes[].checkpoints[].settle_s",
+      "window": "teleport checkpoints, every repetition",
+      "exclusions": "stop and cold checkpoints",
+      "percentile_method": "none (worst checkpoint)"
+    }
+  }
+}

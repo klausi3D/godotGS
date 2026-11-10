@@ -56,3 +56,9 @@
 
 # Test and CI harness (the deterministic-check / release-gate runners are R3 in policy).
 /tests/                                      @klausi3D
+
+# Beyond-VRAM fly-through acceptance lane (risk class R3) — must match the
+# fly-through rule in .agentic/policy.json (ADR adr-beyond-vram-worlds.md, BV-01).
+# Listed after /tests/ so these entries are the last match (CODEOWNERS is last-match-wins).
+/tests/runtime/flythrough/                   @klausi3D
+/tests/ci/check_flythrough_thresholds.py     @klausi3D

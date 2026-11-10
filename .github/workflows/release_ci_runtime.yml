@@ -7,12 +7,12 @@ name: Release-CI Runtime Evidence
 # Linux GPU runner — it is intentionally NOT a required PR gate:
 #   - baseline QA CI runs `headless-ci`;
 #   - the blocking GPU streaming gate is `streaming-gpu-ci`
-#     (gaussian_production_gates.yml);
+#     (baseline_qa.yml gpu-tests);
 #   - this lane produces non-blocking release-ready runtime + renderer-proof
 #     evidence on a schedule and on demand.
 on:
   schedule:
-    # Nightly at 06:00 UTC — offset from baseline_qa (03:30) and release_builds
+    # Nightly at 06:00 UTC — offset from baseline_qa (00:30) and release_builds
     # (02:30) so the three lanes do not contend for the single self-hosted runner.
     - cron: "0 6 * * *"
   workflow_dispatch: {}
@@ -30,6 +30,92 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # Compiles the tests=yes editor for runtime-release-ci on a runner that does
+  # NOT need the `gpu` label, so the GPU sits idle for no compile and a CPU-only
+  # runner can take this job. The binary travels as an artifact pinned to
+  # github.sha: `stage-binary` refuses a checkout that is not github.sha and
+  # records commit, run id and sha256; `install-binary` in the GPU job refuses
+  # anything that does not match its own github.sha, run id and checkout
+  # (tests/ci/linux_gpu_runner.sh).
+  build-linux-editor:
+    name: Build Linux Editor for Release-CI Runtime (Self-Hosted CPU)
+    # Same fork guard as runtime-release-ci (trivially satisfied here: there is
+    # no pull_request trigger), carried so the job stays fail-closed.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # No `gpu` label: this job renders nothing, so it is not part of the GPU pool
+    # that the contention/environment preflights guard.
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: |
+          python3 --version
+
+      # This runner has no sudo, so no job installs system packages.
+      # `--build-only` skips the Vulkan-device and DISPLAY checks: nothing here
+      # renders.
+      - name: Check Linux runner build toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools --build-only
+
+      # GAP-403: per-job venv from the hash-locked file, never the runner's
+      # global interpreter.
+      - name: Install SCons
+        run: bash tests/ci/linux_gpu_runner.sh venv
+
+      # The args runtime-release-ci used to run, unchanged. -j16, not nproc
+      # (32): the box has 24 GB of RAM.
+      - name: Build Godot editor with tests
+        run: |
+          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        run: |
+          resolved=""
+          for candidate in \
+            bin/godot.linuxbsd.editor.dev.x86_64 \
+            bin/godot.linuxbsd.editor.x86_64; do
+            if [ -x "$candidate" ]; then
+              resolved="$(realpath "$candidate")"
+              break
+            fi
+          done
+          if [ -z "$resolved" ]; then
+            echo "::error::Could not find built Godot binary in expected bin/ paths."
+            ls -la bin || true
+            exit 1
+          fi
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Stage binary with commit provenance
+        run: bash tests/ci/linux_gpu_runner.sh stage-binary "${{ steps.godot_bin.outputs.path }}" "$RUNNER_TEMP/godot-build"
+
+      - name: Upload binary for the GPU job
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build/
+          if-no-files-found: error
+          retention-days: 7
+
   runtime-release-ci:
     name: Release-CI Runtime Evidence (Windows Self-Hosted GPU)
     # Never build/run untrusted fork PR code on the persistent self-hosted
@@ -42,6 +128,9 @@ jobs:
     # self-hosted runner is now the Linux RTX 3080 box.
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, Linux, X64, gpu]
+    # Tests the binary build-linux-editor compiled for this exact commit; this
+    # job compiles nothing.
+    needs: build-linux-editor
     timeout-minutes: 120
     # #875 -- keep Vulkan implicit layers that are not the GPU driver's own out
     # of this job's GPU processes. Rationale and the measured loader behaviour:
@@ -112,10 +201,18 @@ jobs:
       - name: Install SCons
         run: bash tests/ci/linux_gpu_runner.sh venv
 
-      # -j16, not nproc (32): the box has 24 GB of RAM.
-      - name: Build Godot editor with tests
-        run: |
-          python -m SCons platform=linuxbsd target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=/opt/actions-runner/godotgs-scons-cache cache_limit=50 -j16
+      # The binary comes from build-linux-editor, never from a compile here.
+      # install-binary fails closed unless its provenance names this run and
+      # this job's own checkout (github.sha) and the sha256 matches; then it
+      # places the binary in bin/, where the resolver below finds it.
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
 
       - name: Resolve Godot binary
         id: godot_bin
@@ -143,7 +240,7 @@ jobs:
         # on Linux, against the real Xorg at DISPLAY=:0) so the release-ci
         # profile's `requires_renderer_proof` is satisfied by real GPU rendering.
         # `--skip-cpp` mirrors the other self-hosted GPU jobs (baseline_qa
-        # gpu-tests / production-gates module-validation). The GDScript runtime
+        # gpu-tests). The GDScript runtime
         # suite plus the renderer proof is the release-ready evidence this lane
         # exists to collect.
         env:

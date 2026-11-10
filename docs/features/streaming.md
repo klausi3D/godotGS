@@ -171,6 +171,29 @@ These methods are bound on `GaussianStreamingSystem`, but because no bound API h
 | `get_lod_debug_stats()` | `Dictionary` | LOD level distribution and transition counts. | `GaussianStreamingSystem::get_lod_debug_stats` |
 | `is_vram_budget_warning_active()` | `bool` | True when VRAM usage approaches the configured budget. | `GaussianStreamingSystem::is_vram_budget_warning_active` |
 
+### Streaming telemetry in optimized builds
+
+The pack, upload and regulator counters in `get_streaming_analytics()` count in every build
+flavour, `template_release` included, with debug logging off. Before this they read 0 in
+optimized builds. All of them are cheap: they are counted per job, per lock or per upload
+slice, never per splat, and none reads anything back from the GPU.
+
+| Key | Meaning |
+| --- | --- |
+| `upload_bytes_this_frame`, `read_bytes_this_frame`, `decode_bytes_this_frame` | Bytes written to the atlas, read from the chunk payload source into the pack snapshot, and produced by a decode stage, this frame. The uncompressed chunk route has no decode stage, so the decode bytes are 0; on a GSQ world they equal the read bytes (the decoded snapshot). |
+| `upload_bytes_total`, `upload_chunks_total`, `read_bytes_total`, `decode_bytes_total` | Cumulative totals that are never reset. To get a rate, diff two samples. |
+| `streaming_latency_histograms` | Cumulative log2 histograms in microseconds for `read` (payload capture without its decode share), `decode` (GSQ page verify, decode and decoded digest inside the capture; no samples on the uncompressed route), `pack` (`pack_gaussians_range`) and `upload` (time from pack completion until the job is dequeued for the GPU write). Each stage has `bucket_counts`, `samples`, `total_usec` and `max_usec`. `bucket_upper_usec` lists the exclusive upper bound of each bucket. The last bucket has no upper bound and is marked `-1`. |
+| `diagnostics.upload_stall_wall_ms` | How long, in wall-clock time, the upload-stall predicate behind `upload_stall_frames` has held. |
+| `needed_chunks`, `needed_resident_chunks`, `needed_unserved_chunks` | The chunks this view needs: inside the frustum without `chunk_frustum_padding`, and inside the load distance. A view is served once `needed_unserved_chunks` is 0. |
+| `upload_staging_clamp_bytes_per_frame`, `max_ready_upload_jobs` | The upload limit per frame that the staging ring allows (`staging_buffer/max_size_mb` / `vsync/frame_queue_size`), applied on top of `max_upload_mb_per_frame`, and the bound on packed chunks waiting for upload, counted with those still packing. |
+| `padding_chunks`, `padding_resident_chunks` | Chunks visible only through `chunk_frustum_padding`. They load into free capacity, are displaced by any needed load, and never displace a needed chunk. |
+| `vram_regulated_max_chunks`, `vram_auto_regulate_enabled` | The regulator's current chunk cap, and whether auto-regulation is on. |
+| `vram_thrash_reductions`, `vram_budget_reductions`, `vram_headroom_increases` | Regulator adjustments, counted by kind. They add up to `vram_regulation_adjustments`. |
+| `vram_visible_refetches_total` | Visible chunks whose upload began within 2 s of their eviction. This is the thrash signal: the regulator cuts the chunk cap when a quarter of the cap (at least 8) is refetched inside that wall-clock window. A cut never goes below the strict-frustum needed set, and thrash at a cap that does not exceed the needed set cuts nothing (`vram_thrashing_events` minus `vram_thrash_reductions`). After a cut the cap neither cuts again nor steps up (unless it is below the needed set) for a hold of 2 s that doubles per back-to-back cut, up to 32 s (BV-REG). |
+| `vram_lod_multiplier_adjustments`, `vram_last_regulation_frame`, `vram_last_regulation_reason` | How many times `lod_distance_multiplier` changed, plus the frame and the reason of the last adjustment. The reason is `none`, `thrash_reduction`, `budget_reduction` or `headroom_increase`. |
+| `lod_effective_load_distance` | The chunk load distance that the LOD multiplier produces. |
+| `effective_settings_revision` | Goes up by one at every `end_frame()` in which the effective VRAM budget, the regulated or effective chunk cap, the LOD multiplier or the auto-regulation flag differs from the previous frame. If two samples show the same revision, none of these settings changed between them. |
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix | Implementation reference |

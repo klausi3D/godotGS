@@ -52,7 +52,7 @@ completion evaluation. Within completion evaluation:
 
 Soak criterion for the fail-closed flip (ADR section 4.6, settled Q4) -- measured
 over the per-profile report artifacts preserved by CI (distinct --report-path
-per invocation in gaussian_production_gates.yml; release_ci_runtime.yml already
+per invocation in baseline_qa.yml; release_ci_runtime.yml already
 uploads its own):
 
   1. Per-profile completeness: 5 consecutive runs of each CI-invoked profile

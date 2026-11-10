@@ -37,6 +37,7 @@ GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layou
 SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
 HLOD_OFFLINE_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_hlod_offline_job.py"
 HLOD_S1B_QUALITY_TEST_SCRIPT = ROOT / "tests" / "runtime" / "hlod_s1b_quality" / "test_s1b_quality.py"
+WORLD_MANIFEST_VERIFIER_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_verify_world_manifest.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -84,6 +85,24 @@ BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_ben
 RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
 GS_COMBINED_1_VERDICT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_gs_combined_1_verdict.py"
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+# BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
+BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
+# BV-06b: the world cache / D-14 cold-cache helpers and the liveness watchdog.
+BEYOND_VRAM_LANE_TEST_SCRIPTS = (
+    BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT,
+    ROOT / "tests" / "runtime" / "flythrough" / "test_world_cache.py",
+    ROOT / "tests" / "runtime" / "flythrough" / "test_lane_watchdog.py",
+    # BV-09: the gate verdict module, on the captured M1 run; it also pins the
+    # thresholds guard's wiring below, through this separate wire.
+    ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_verdict.py",
+    # BV-13a: the ADR 8.5 forcing controls and their lane step.
+    ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_controls.py",
+)
+# BV-09: the no-loosening guard of the beyond-VRAM thresholds file (ADR section 8.4).
+FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_flythrough_thresholds.py"
+FLYTHROUGH_THRESHOLDS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_flythrough_thresholds.py"
+# BV-07: the probe lane's path, ground truth, trace parser and summary arithmetic.
+BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_probe_lane.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -528,6 +547,14 @@ _approved_tracked_synthetic_ply_fixtures_cache: set[str] | None = None
 def _run_command(
     args: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None
 ) -> tuple[int, str, str]:
+    skipped = _is_skipped_guard_self_test(args)
+    if skipped is not None:
+        # Printed here, not returned: several callers drop a passing script's
+        # output, and a skip must never read as a silent pass.
+        message = f"[module-tests][guard-self-test] SKIPPED {skipped} (path-gated; see --guard-self-tests)"
+        print(message)
+        _GUARD_SELF_TESTS_SKIPPED_LOG.append(skipped)
+        return 0, message + "\n", ""
     result = subprocess.run(
         args,
         cwd=cwd,
@@ -968,6 +995,24 @@ def _run_hlod_s1b_quality_tests() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_world_manifest_verifier_tests() -> tuple[bool, list[str]]:
+    """CPU-only contracts of the BV-05 world-manifest verifier (constructed worlds); no binary."""
+    script = WORLD_MANIFEST_VERIFIER_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing world manifest verifier test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, "-B", str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        return False, output_lines or [f"World manifest verifier tests failed with exit code {code}."]
+    completed = re.search(
+        r"(?m)^-+\r?\nRan ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s\r?\n\r?\nOK\Z",
+        (out + "\n" + err).rstrip("\r\n"),
+    )
+    if completed is None:
+        return False, output_lines + ["World manifest verifier tests have no complete, nonempty success summary without skips."]
+    return True, output_lines
+
+
 def _run_project_settings_reference_guard() -> tuple[bool, list[str]]:
     """docs/reference/project-settings.md must list exactly the manifest's keys.
     Runs the guard's own unit test first (it also covers the generator's
@@ -1138,6 +1183,124 @@ _GUARD_GODOT_BINARY_OVERRIDE: str | None = None
 # so the value alone cannot tell `--godot-binary godot` from no option at all.
 _GUARD_GODOT_BINARY_EXPLICIT: bool = False
 
+# --- Guard SELF-TESTS: path-gated on PRs, always run nightly (CI diet, 2026-11-07) ---
+#
+# Most of the guard phase's wall time is spent in unit tests OF the guards, not in
+# checks against this tree (measured 2026-11-07: 286 of 364 s locally). A guard's
+# self-test can only change its verdict when one of its inputs changes. The scripts
+# below were each read for what they load from the REAL repository (not their
+# temporary fixtures), and every such read lies under
+# GUARD_SELF_TEST_TRIGGER_PREFIXES or is a root-level file. Self-tests that read
+# product code outside that set (for example the layout-sync, runtime-validation
+# contract, benchmark-fixture and doc-snippet tests, and the lane-ledger test, which
+# scans the whole module) are deliberately NOT listed and always run.
+#
+# `--guard-self-tests auto` (agentic_pr_gate.yml) skips exactly these scripts when
+# the diff against the review base touches none of the trigger prefixes. Every
+# skip is printed. The default is `always`, which the nightly (baseline_qa.yml
+# cpu-tests on schedule) and every local run use, so the full self-test set still
+# runs at least once a day on master. A base that cannot be resolved, or a diff
+# that cannot be computed, RUNS the self-tests: an unknown is never a skip.
+GUARD_SELF_TEST_TRIGGER_PREFIXES: tuple[str, ...] = (
+    "tests/",
+    ".github/",
+    ".agentic/",
+    "scripts/",
+    "docs/",
+    "thirdparty/doctest/",
+    "modules/gaussian_splatting/tests/",
+)
+PATH_GATED_GUARD_SELF_TESTS: tuple[Path, ...] = (
+    ROOT / "tests" / "ci" / "test_check_require_null_deref.py",
+    ROOT / "tests" / "ci" / "test_check_environment_skip_marker.py",
+    ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py",
+    ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py",
+    ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py",
+    ROOT / "tests" / "ci" / "test_renderer_release_gates.py",
+    ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py",
+    ROOT / "tests" / "ci" / "test_quarantine_manifest.py",
+    ROOT / "tests" / "ci" / "test_streaming_evidence_fail_closed.py",
+    ROOT / "tests" / "ci" / "test_production_readiness_enforcement.py",
+    ROOT / "tests" / "ci" / "test_release_builds_path_filters.py",
+    ROOT / "tests" / "ci" / "test_release_publication_gating.py",
+    ROOT / "tests" / "ci" / "test_release_builds_runner_trust.py",
+    ROOT / "tests" / "ci" / "test_preflight_runner_gpu_environment.py",
+    ROOT / "tests" / "ci" / "test_runner_gpu_contention.py",
+)
+GUARD_SELF_TESTS_ENV = "GS_GUARD_SELF_TESTS"
+# Populated by _configure_guard_self_tests(); empty means "run everything".
+_SKIPPED_GUARD_SELF_TESTS: frozenset[str] = frozenset()
+_GUARD_SELF_TESTS_SKIPPED_LOG: list[str] = []
+
+
+def _changed_paths_against(base_ref: str) -> list[str] | None:
+    """Repo-relative paths changed between the merge base of `base_ref` and HEAD.
+
+    None when git cannot answer; the caller treats that as "run the self-tests".
+    """
+    code, out, err = _run_command(["git", "diff", "--name-only", f"{base_ref}...HEAD"])
+    if code != 0:
+        print(f"[module-tests] Cannot diff against {base_ref!r}: {(err or out).strip()}")
+        return None
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def _guard_self_tests_needed(changed: list[str]) -> list[str]:
+    """The changed paths that can change a gated self-test's verdict."""
+    return [
+        path
+        for path in changed
+        if "/" not in path or path.startswith(GUARD_SELF_TEST_TRIGGER_PREFIXES)
+    ]
+
+
+def _configure_guard_self_tests(mode: str, base_ref_override: str | None) -> None:
+    global _SKIPPED_GUARD_SELF_TESTS
+    _SKIPPED_GUARD_SELF_TESTS = frozenset()
+    _GUARD_SELF_TESTS_SKIPPED_LOG.clear()
+    if mode != "auto":
+        return
+    base_ref = base_ref_override
+    if not base_ref:
+        for name in ENVIRONMENT_SKIP_BASE_ENV_VARS:
+            value = os.environ.get(name, "").strip()
+            if value:
+                base_ref = value
+                break
+    if not base_ref:
+        print("[module-tests] Guard self-tests: auto mode but no review base; running all of them.")
+        return
+    changed = _changed_paths_against(base_ref)
+    if changed is None:
+        print("[module-tests] Guard self-tests: diff unavailable; running all of them.")
+        return
+    triggering = _guard_self_tests_needed(changed)
+    if triggering:
+        print(
+            f"[module-tests] Guard self-tests: running all of them; {len(triggering)} changed "
+            f"path(s) can affect them (first: {triggering[0]})."
+        )
+        return
+    _SKIPPED_GUARD_SELF_TESTS = frozenset(str(path.resolve()) for path in PATH_GATED_GUARD_SELF_TESTS)
+    print(
+        f"[module-tests] Guard self-tests: {len(PATH_GATED_GUARD_SELF_TESTS)} path-gated self-test "
+        f"script(s) will be SKIPPED: none of the {len(changed)} changed path(s) lies under "
+        f"{', '.join(GUARD_SELF_TEST_TRIGGER_PREFIXES)} or the repository root. They run in "
+        "full nightly (baseline_qa.yml, schedule)."
+    )
+
+
+def _is_skipped_guard_self_test(args: list[str]) -> str | None:
+    if not _SKIPPED_GUARD_SELF_TESTS or len(args) < 2:
+        return None
+    try:
+        candidate = str(Path(args[1]).resolve())
+    except (OSError, ValueError):
+        return None
+    if candidate in _SKIPPED_GUARD_SELF_TESTS:
+        return _display_path(Path(args[1]))
+    return None
+
 # The PR base, in priority order. GITHUB_BASE_SHA / GITHUB_BASE_REF are what
 # .github/workflows/agentic_pr_gate.yml has available from
 # `github.event.pull_request.base.*`.
@@ -1152,9 +1315,9 @@ ENVIRONMENT_SKIP_BASE_ENV_VARS: tuple[str, ...] = (
 # Events that propose a CHANGE for review and therefore HAVE a base. Anything
 # else (push, schedule, workflow_dispatch) has no "review base" at all: HEAD is
 # already the integrated state, so demanding one there would block the run rather
-# than protect it. gaussian_production_gates.yml runs --guard-only on push,
-# schedule, workflow_dispatch and merge_group as well as pull_request, so the
-# distinction is load-bearing and not hypothetical.
+# than protect it. baseline_qa.yml runs the full guard phase on schedule and
+# workflow_dispatch, and agentic_pr_gate.yml runs --guard-only on merge_group as
+# well as pull_request, so the distinction is load-bearing and not hypothetical.
 BASE_BEARING_EVENTS: frozenset[str] = frozenset(
     {"pull_request", "pull_request_target", "merge_group"}
 )
@@ -1317,6 +1480,50 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
             output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
         return False, output_lines
     return True, [f"Unchecked-resize guard self-test passed ({case_count})."] + output_lines
+
+
+def _run_flythrough_thresholds_guard() -> tuple[bool, list[str]]:
+    """Guard (BV-09, ADR section 8.4): the beyond-VRAM thresholds never loosen.
+
+    Compares `tests/runtime/flythrough/flythrough_thresholds.json` with the same
+    file at the review base and fails on a loosened value, a removed entry, tier
+    or key, a changed op / arm / window / exclusion / percentile method /
+    source field, a hard -> report_only or correctness -> statistical change, a
+    lowered `min_vram_ratio`, a world digest changed without a re-prime record,
+    and a settings edit outside the direction allowlist. The ADR makes the
+    guard, not the risk class, the control, and wires it here because this lane
+    runs in the required `agentic-pr-gate`.
+
+    The base is the one review base every base-anchored guard gets
+    (`_environment_skip_base_ref()`); without one in CI this fails closed.
+    Without a base event (schedule, dispatch) the guard falls back to
+    origin/master, which on master is HEAD itself: it says the comparison is
+    vacuous ("informational") and still validates the file. Its self-tests run
+    first, in the same lane, so the guard passing shows it can still fail.
+    """
+    missing = [
+        path.relative_to(ROOT)
+        for path in (FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT, FLYTHROUGH_THRESHOLDS_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing beyond-VRAM thresholds guard file: {path}" for path in missing]
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
+    output_lines: list[str] = []
+    extra = ["--base-ref", base_ref] if base_ref else []
+    for args in (
+        [sys.executable, str(FLYTHROUGH_THRESHOLDS_TEST_SCRIPT)],
+        [sys.executable, str(FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT), *extra],
+    ):
+        code, out, err = _run_command(args)
+        lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            return False, lines or [f"Beyond-VRAM thresholds guard failed with exit code {code}."]
+        if args[1] == str(FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT):
+            output_lines.extend(lines)
+    return True, output_lines
 
 
 def _run_shipped_project_scripts_guard() -> tuple[bool, list[str]]:
@@ -2146,6 +2353,59 @@ def _run_gpu_contention_contract_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, ["GPU contention contract guard passed."]
+
+
+def _run_beyond_vram_dispatch_lane_guard() -> tuple[bool, list[str]]:
+    """Guard (BV-06a): the beyond-VRAM dispatch lane fails closed, and its workflow wires it so.
+
+    Static, headless, no GPU, no engine binary: `df`, `dd`, `fio`, `vulkaninfo`,
+    the generator and the probe are replaced by fakes, and
+    `.github/workflows/beyond_vram_flythrough.yml` is read as text. It pins the
+    ADR section 5.3 disk refusal (one byte below the budget refuses), that an
+    absent generator/probe entry point is NOT_RUN and never OK, that a zero exit
+    without a manifest/summary fails, that cleanup deletes only a world root the
+    lane created, and that the disk preflight gates every later lane step.
+
+    BV-06b adds the world cache and the D-14 cold-cache method
+    (`test_world_cache.py`: on Linux it runs the real fadvise, mincore and
+    flock) and the liveness watchdog (`test_lane_watchdog.py`).
+    """
+    for script in BEYOND_VRAM_LANE_TEST_SCRIPTS:
+        if not script.is_file():
+            return False, [f"Missing beyond-VRAM dispatch lane test: {script.relative_to(ROOT)}"]
+
+        code, out, err = _run_command([sys.executable, str(script)])
+        if code != 0:
+            output_lines = [line for line in (out + err).splitlines() if line.strip()]
+            if not output_lines:
+                output_lines = [f"Beyond-VRAM dispatch lane guard {script.name} failed with exit code {code}."]
+            return False, output_lines
+
+    return True, ["Beyond-VRAM dispatch lane guard passed."]
+
+
+def _run_beyond_vram_probe_lane_tests() -> tuple[bool, list[str]]:
+    """Guard (BV-07): the probe lane never turns an absent signal into a number.
+
+    Static, headless, no GPU, no engine binary. Runs on captured producer output
+    (a BV-05 T-smoke manifest; a real probe_world.gd trace and result). Pins the
+    arc-length path and its `path_sha256`, the frustum ground truth, that a torn
+    trace / skipped frame / rows != frames is INVALID, that a held GPU sample is
+    never counted as fresh, that a settings change labels `settings_drifted`,
+    the F/k fit, and the entry point's NOT_RUN / FAIL / INVALID exits.
+    """
+    script = BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing beyond-VRAM probe lane test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Beyond-VRAM probe lane tests failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Beyond-VRAM probe lane tests passed."]
 
 
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
@@ -3710,6 +3970,11 @@ def _run_required_message_guards() -> int | None:
             "HLOD S1b quality harness tests failed.",
             "HLOD S1b quality harness tests passed (CPU contracts only; renders not exercised).",
         ),
+        (
+            _run_world_manifest_verifier_tests,
+            "World manifest verifier tests failed.",
+            "World manifest verifier tests passed (constructed worlds; generator output not exercised).",
+        ),
     )
     for runner, failure_summary, success_summary in required_guards:
         exit_code = _run_message_guard(
@@ -3826,6 +4091,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_unchecked_resize_guard,
             "Unchecked-resize guard failed.",
             "Unchecked-resize guard passed.",
+        ),
+        (
+            True,
+            _run_flythrough_thresholds_guard,
+            "Beyond-VRAM thresholds guard failed.",
+            "Beyond-VRAM thresholds guard passed.",
         ),
         (
             True,
@@ -3989,6 +4260,18 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             "GPU contention contract guard failed.",
             "GPU contention contract guard passed.",
         ),
+        (
+            True,
+            _run_beyond_vram_dispatch_lane_guard,
+            "Beyond-VRAM dispatch lane guard failed.",
+            "Beyond-VRAM dispatch lane guard passed.",
+        ),
+        (
+            True,
+            _run_beyond_vram_probe_lane_tests,
+            "Beyond-VRAM probe lane tests failed.",
+            "Beyond-VRAM probe lane tests passed (captured traces; no GPU run).",
+        ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:
         if not enabled:
@@ -4028,10 +4311,47 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
     _GUARD_GODOT_BINARY_OVERRIDE = getattr(cli_args, "godot_binary", None)
     _GUARD_GODOT_BINARY_EXPLICIT = bool(getattr(cli_args, "godot_binary_explicit", False))
 
+    if getattr(cli_args, "skip_guards", False):
+        # CI diet (2026-11-07): the binary-independent guards run once per PR in
+        # the required agentic-pr-gate (`--guard-only`) and in full nightly. The
+        # two guard steps that need the Godot binary this job built cannot run
+        # there (that job builds nothing), so they stay here.
+        print(
+            "[module-tests] --skip-guards: binary-independent guards skipped (they run in "
+            "agentic-pr-gate and nightly); running the binary-dependent guards only."
+        )
+        return _first_guard_failure(
+            (
+                lambda: _run_message_guard(
+                    _run_runtime_validation_contract_guard,
+                    "Runtime validation contract guard failed.",
+                    "Runtime validation contract guard passed.",
+                    success_always=True,
+                ),
+                lambda: _run_stringname_orphan_guard_step(cli_args.godot_binary),
+            )
+        )
+
+    _configure_guard_self_tests(
+        getattr(cli_args, "guard_self_tests", "always") or "always",
+        getattr(cli_args, "base_ref", None),
+    )
+
     history_guard_mode, history_guard_mode_warning = _resolve_history_artifact_guard_mode()
     if history_guard_mode_warning:
         print(f"[module-tests] {history_guard_mode_warning}")
 
+    try:
+        return _run_guard_phase(cli_args, history_guard_mode)
+    finally:
+        if _GUARD_SELF_TESTS_SKIPPED_LOG:
+            print(
+                f"[module-tests] Guard self-tests SKIPPED this run ({len(_GUARD_SELF_TESTS_SKIPPED_LOG)}): "
+                + ", ".join(_GUARD_SELF_TESTS_SKIPPED_LOG)
+            )
+
+
+def _run_guard_phase(cli_args: argparse.Namespace, history_guard_mode: str) -> int | None:
     return _first_guard_failure(
         (
             _run_required_message_guards,
@@ -4900,6 +5220,24 @@ def _parse_args() -> argparse.Namespace:
                         help="Git base ref/commit for render-path guard diff (default: auto-detected).")
     parser.add_argument("--guard-only", "--guards-only", action="store_true",
                         help="Run guards only and skip Godot test execution.")
+    parser.add_argument(
+        "--skip-guards",
+        action="store_true",
+        help=(
+            "Skip the binary-independent guard phase (it runs in agentic-pr-gate and "
+            "nightly) and run only the guards that need --godot-binary, then the lanes."
+        ),
+    )
+    parser.add_argument(
+        "--guard-self-tests",
+        choices=("always", "auto"),
+        default=os.environ.get(GUARD_SELF_TESTS_ENV, "").strip().lower() or "always",
+        help=(
+            "'always' (default) runs every guard self-test. 'auto' skips the path-gated "
+            "self-tests (PATH_GATED_GUARD_SELF_TESTS) when the diff against the review "
+            "base touches none of GUARD_SELF_TEST_TRIGGER_PREFIXES."
+        ),
+    )
     parser.add_argument("--skip-render-guards", action="store_true",
                         help="Skip render-path mutation guard checks.")
     parser.add_argument("--skip-static-guards", action="store_true",
@@ -4950,6 +5288,8 @@ def _parse_args() -> argparse.Namespace:
         # An empty ledger from a run that executed no lane reads as "no lane
         # failed". Refuse rather than emit it.
         parser.error("--lane-report cannot be combined with --guard-only: no lane runs.")
+    if args.skip_guards and args.guard_only:
+        parser.error("--skip-guards cannot be combined with --guard-only: nothing would run.")
     return args
 
 

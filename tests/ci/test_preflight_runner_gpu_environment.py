@@ -104,6 +104,24 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     # Runs the exported binary (a live RenderingDevice and a window read-back).
     ("release_builds.yml", "export_smoke_windows"): "tests/runtime/run_export_smoke.py",
     ("release_builds.yml", "export_smoke_linux"): "tests/runtime/run_export_smoke.py",
+    # The job below tests a binary its workflow's `build-linux-editor` job
+    # compiled (a job WITHOUT the `gpu` label) and downloaded as an artifact, so
+    # it has no SCons step. The anchor is the job's first step that launches
+    # that binary. (baseline_qa.yml `gpu-tests` builds in-job since the CI diet,
+    # 2026-11-07, so its SCons step is the anchor and it needs no entry here.)
+    ("gaussian_production_gates.yml", "openworld-proof-evidence"): (
+        "tests/runtime/prepare_synthetic_assets.py"
+    ),
+    ("release_ci_runtime.yml", "runtime-release-ci"): "tests/runtime/run_runtime_validation.py",
+    # BV-06a: every measuring/generating/probing step is a subcommand of this
+    # lane helper; the binary is launched only through it (build-info,
+    # generate, probe) and vulkaninfo runs through it too. Its first invocation
+    # is the disk preflight, which precedes all of them, so anchoring on it is
+    # at least as strict as anchoring on the first binary launch.
+    ("beyond_vram_flythrough.yml", "flythrough"): "tests/runtime/flythrough/dispatch_lane.py",
+    # BV-06b: the prime job launches the binary only through the same helper
+    # (build-info, then prime-cache, which runs the generator), after the preflight.
+    ("beyond_vram_flythrough.yml", "prime-world-cache"): "tests/runtime/flythrough/dispatch_lane.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step
@@ -112,6 +130,9 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
 # parser the new command shape must be part of the workflow change.
 _PYTHON_COMMAND = r"(?:python(?:3(?:\.exe)?|\.exe)?|py(?:\.exe)?(?:\s+-3)?)"
 _SAFE_COMMAND_TOKEN = r"[A-Za-z0-9_./:\\=-]+"
+# An argument of a declared GPU-work anchor only (see _anchor_command): a safe
+# token that may also contain commas, or one double-quoted string.
+_ANCHOR_ARGUMENT_TOKEN = r'(?:[A-Za-z0-9_./:\\=,-]+|"[^"]*")'
 _PREFLIGHT_COMMAND = re.compile(
     rf"^(?:&\s*)?{_PYTHON_COMMAND}\s+"
     rf"[\"']?{re.escape(PREFLIGHT_SCRIPT)}[\"']?[ \t]*$",
@@ -584,11 +605,19 @@ def _anchor_command(script: str) -> re.Pattern[str]:
     Deliberately LOOSER than _PREFLIGHT_COMMAND / _BUILD_COMMAND in one respect
     and no other: leading indentation is allowed, and the invocation may be
     followed by PowerShell backtick continuations.
+
+    Its ARGUMENTS may also be double-quoted (`--godot "$GODOT_BINARY"`) or carry
+    a comma (`--categories sorting,renderer`): that is how the GPU jobs that test
+    a prebuilt binary hand it over, and those steps are their first GPU work. The
+    script itself must still be the invoked command at the start of the line.
+    Recognizing MORE invocations of a declared anchor can only move the anchor
+    EARLIER (the anchor is the first matching step), which makes the
+    preflight-before-anchor assertion stricter, never looser.
     """
     return re.compile(
         rf"^[ 	]*(?:&[ 	]*)?{_PYTHON_COMMAND}[ 	]+"
         rf"[\"']?{re.escape(script)}[\"']?"
-        rf"(?:[ 	]+{_SAFE_COMMAND_TOKEN})*(?:[ 	]+(?:`|\\))?[ 	]*$",
+        rf"(?:[ 	]+{_ANCHOR_ARGUMENT_TOKEN})*(?:[ 	]+(?:`|\\))?[ 	]*$",
         re.IGNORECASE,
     )
 
@@ -776,6 +805,54 @@ class GatedImageSetCoversWhatCIExecutesTests(unittest.TestCase):
         for spelling in (name, name.upper(), name.replace(".exe", ".EXE")):
             with self.subTest(spelling=spelling):
                 self.assertTrue(preflight._is_ci_image(spelling))
+
+
+class DeclaredAnchorArgumentParsing(unittest.TestCase):
+    """A declared anchor is found with the arguments the prebuilt-binary jobs pass.
+
+    The GPU jobs that test a binary handed over as an artifact have no SCons step,
+    so their ordering anchor is the first script that launches that binary, and
+    those invocations quote the binary path and list categories with commas.
+    """
+
+    SCRIPT = "tests/ci/run_baseline_qa.py"
+
+    def _anchors(self, step_text: str) -> List[WorkflowStep]:
+        return anchor_steps(workflow_steps(_job_lines(step_text)), self.SCRIPT)
+
+    def test_quoted_and_comma_arguments_are_an_invocation(self) -> None:
+        for run in (
+            'python tests/ci/run_baseline_qa.py --categories sorting,renderer --godot "$GODOT_BINARY"',
+            'python tests/ci/run_baseline_qa.py --category pipeline --godot "${{ steps.godot_bin.outputs.path }}"',
+        ):
+            with self.subTest(run=run):
+                self.assertEqual(
+                    len(self._anchors(f"    - name: Run\n      run: |\n        {run}\n")), 1
+                )
+
+    def test_a_mention_with_quoted_arguments_is_still_not_an_invocation(self) -> None:
+        """Discrimination: the widening is in the ARGUMENTS only."""
+        for run in (
+            'echo python tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"',
+            '# python tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"',
+            'python other.py tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"',
+            'python tests/ci/run_baseline_qa.py --godot "$GODOT_BINARY"; rm -rf bin',
+        ):
+            with self.subTest(run=run):
+                self.assertEqual(
+                    self._anchors(f"    - name: Run\n      run: |\n        {run}\n"), []
+                )
+
+    def test_every_prebuilt_binary_job_declares_an_anchor_its_job_executes(self) -> None:
+        """Each GPU job without a build resolves to a declared anchor, not an error."""
+        jobs = gpu_jobs()
+        for key, lines in jobs.items():
+            steps = workflow_steps(lines)
+            if command_steps(steps, _BUILD_COMMAND, BUILD_MARKER):
+                continue
+            with self.subTest(job=key):
+                self.assertIn(key, GPU_WORK_ANCHORS)
+                self.assertTrue(anchor_steps(steps, GPU_WORK_ANCHORS[key]))
 
 
 class WorkflowStepExecutionParsing(unittest.TestCase):

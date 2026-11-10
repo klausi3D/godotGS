@@ -76,6 +76,8 @@ using GaussianSplatting::ScopedGpuMarker;
 #include "../logger/gs_logger.h"
 #include "../shaders/gaussian_splat.glsl.gen.h"
 #include "../shaders/gs_shadow_blit.glsl.gen.h"
+#include "gs_shadow_caster.h"
+#include "hlod_shadow_caster_plan.h"
 #include <cstdint>
 #include <algorithm>
 #include <memory>
@@ -1397,6 +1399,9 @@ void GaussianSplatRenderer::_teardown_resources() {
     // device_state.rd. Skipping teardown when device_state.rd is null would strand
     // them even though clear() can free each through its recorded owner.
     shadow_blit_state.clear(get_device_state().rd);
+    if (splat_shadow_caster) {
+        splat_shadow_caster->clear(); // Frees the caster shader through the device that compiled it.
+    }
     // Phase 8: frustum cull resources now managed by GPUCuller interface
 
     if (streaming_state_ref.registered_gaussian_buffer.is_valid()) {
@@ -1706,7 +1711,9 @@ GaussianSplatRenderer::FrameBackendPlan GaussianSplatRenderer::build_frame_backe
         }
     }
     // The HLOD cut only runs on the resident route. A world that carries a snapshot but takes the chunk-streaming
-    // route (route_policy=streaming) never reaches it: say so instead of reporting hlod_active=false with no reason.
+    // route never reaches it: say so instead of reporting hlod_active=false with no reason. Since the automatic route
+    // a world submission with a snapshot asks for the resident backend itself (lod/hlod_auto_route.h), so this is the
+    // case of a backend the plan forces to streaming (a file-backed payload) or a submission hint not yet observed.
     if (!plan.prefer_resident_backend && plan.streaming_requested && get_resource_state().hlod_snapshot.is_valid() &&
             gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton())) {
         plan.hlod_route_reason = "hlod_route_policy_chunk_streaming";
@@ -2013,6 +2020,73 @@ bool GaussianSplatRenderer::_blit_shadow_depth(RID p_source_depth, RID p_shadow_
     return true;
 }
 
+bool GaussianSplatRenderer::_is_hlod_shadow_route_owner() const {
+    const auto &state = get_resource_state();
+    const GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    return state.hlod_snapshot.is_valid() && director &&
+            gs::settings::get_hlod_runtime_cut_enabled(ProjectSettings::get_singleton()) &&
+            director->has_hlod_world_submission(this, state.hlod_owner_key) &&
+            // LOD off draws the canonical leaves, not a relative list: no caster record is published, so those frames
+            // keep the canonical shadow path they used before the HLOD casters existed.
+            get_lod_enabled();
+}
+
+bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_light_projection,
+        const Transform3D &p_light_transform, const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y,
+        ShadowRenderResult &r_result) {
+    auto &state = get_resource_state();
+    const gs_shadow_caster::FrameRecord &record = state.hlod_shadow_caster_record;
+    const InstancePipelineBuffers &buffers = state.hlod_relative.buffers;
+    RenderingDevice *main_device = RenderingDevice::get_singleton();
+    // The record must name the relative bundle that still exists: same build, the draw list it was recorded with (no
+    // upload since; a streamed world's end-of-frame idle restore zeroes only the bound draw count and the GPU counter, which
+    // the caster never reads, so the bound count is not the key), every buffer valid on the device that owns the shadow
+    // framebuffer.
+    auto valid_buffer = [main_device](RID p_buffer) { return p_buffer.is_valid() && main_device->buffer_is_valid(p_buffer); };
+    const bool bundle_current = record.valid && main_device && record.bundle_builds == state.hlod_bundle_builds &&
+            buffers.hlod_relative && record.draw_list_upload == state.hlod_draw_list_uploads &&
+            buffers.max_chunk_splats == record.max_chunk_splats && valid_buffer(buffers.atlas_gaussian_buffer) &&
+            valid_buffer(buffers.instance_buffer) && valid_buffer(buffers.chunk_meta_buffer) &&
+            valid_buffer(buffers.visible_chunk_buffer);
+    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, p_light_projection.is_orthogonal(), bundle_current);
+    if (plan.draws()) {
+        if (!splat_shadow_caster) {
+            splat_shadow_caster = std::make_unique<GsSplatShadowCaster>();
+        }
+        GsSplatShadowCaster::Inputs inputs;
+        inputs.atlas_gaussian_buffer = buffers.atlas_gaussian_buffer;
+        inputs.instance_buffer = buffers.instance_buffer;
+        inputs.chunk_meta_buffer = buffers.chunk_meta_buffer;
+        inputs.draw_list_buffer = buffers.visible_chunk_buffer;
+        inputs.draw_count = record.draw_count;
+        inputs.slot_stride = record.max_chunk_splats;
+        inputs.instance_slots = plan.instance_slots;
+        // The hook does not name the light, so its pancake size is unknown here; casters in front of a cascade's near
+        // plane are always clamped (Godot's default directional pancake is on). Never rejected.
+        inputs.pancake = true;
+        // The colour path scales every splat of every row by the renderer-wide multiplier (render_pipeline_stages.cpp
+        // render_params.opacity_multiplier -> tile_binning.glsl); the caster applies the same current value.
+        inputs.opacity_multiplier = get_render_config().opacity_multiplier;
+        inputs.row_casts = &record.row_casts;
+        const Projection light_from_frame = gs_shadow_caster::frame_relative_shadow_clip(p_light_projection,
+                p_light_transform, p_flip_y, record.camera);
+        String error;
+        if (!splat_shadow_caster->draw(main_device, p_shadow_framebuffer, p_atlas_rect, light_from_frame, inputs, error)) {
+            WARN_PRINT_ONCE(vformat("[GS Shadow] HLOD splat caster pass not drawn: %s", error));
+            plan = gs_shadow_caster::PassPlan();
+            plan.refusal = gs_shadow_caster::Refusal::PIPELINE_UNAVAILABLE;
+        }
+    }
+    state.hlod_shadow_caster_stats.record(get_frame_state().frame_counter, plan);
+    r_result.rastered_splat_count = plan.draws() ? uint32_t(MIN<uint64_t>(plan.casters, UINT32_MAX)) : 0u;
+    r_result.depth_size = p_atlas_rect.size;
+    r_result.success = plan.draws();
+    r_result.failure_reason = plan.draws() ? ShadowRenderFailureReason::NONE : ShadowRenderFailureReason::NO_CASTER_RASTERED;
+    r_result.route_label = plan.draws() ? String("SHADOW_HLOD_SPLAT_CASTERS")
+                                        : String("SHADOW_SKIP_") + gs_shadow_caster::refusal_reason(plan.refusal);
+    return _finish_shadow_render_result(r_result);
+}
+
 bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,
         const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y) {
     ShadowRenderResult result;
@@ -2038,6 +2112,13 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
     if (!rd) {
         result.failure_reason = ShadowRenderFailureReason::NO_RENDERING_DEVICE;
         return _finish_shadow_render_result(result);
+    }
+
+    if (_is_hlod_shadow_route_owner()) {
+        // HLOD route (#1095, #1163): real casters from the main view's draw list, or an explicit refusal. Never the
+        // color pipeline: a light view there would refuse the route and could release or idle the HLOD bundle.
+        return _render_hlod_shadow_casters(p_light_projection, p_light_transform, p_atlas_rect, p_shadow_framebuffer, p_flip_y,
+                result);
     }
 
     if (!_ensure_shadow_output_compositor(rd)) {

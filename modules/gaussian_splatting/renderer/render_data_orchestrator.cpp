@@ -708,7 +708,8 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
     // A failed/empty replacement must not leave a prepared route available to
     // a later frame or scope restore. Same-input policy resubmission can reuse it.
     if (get_resource_state().hlod_snapshot != p_snapshot.hlod_snapshot) { release_hlod_resources(); }
-    get_resource_state().hlod_snapshot = p_snapshot.hlod_snapshot;
+    gs_hlod_auto_route::install_snapshot(get_resource_state().hlod_snapshot, p_snapshot.hlod_snapshot,
+            get_resource_state().hlod_auto_route_demotion);
 	set_lod_enabled(p_snapshot.lod_enabled);
 	set_lod_bias(p_snapshot.lod_bias);
 	set_lod_max_distance(p_snapshot.lod_max_distance);
@@ -794,7 +795,9 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
     // A failed/empty replacement must not leave a prepared route available to
     // a later frame or scope restore. Same-input policy resubmission can reuse it.
     if (get_resource_state().hlod_snapshot != p_contract.hlod_snapshot) { release_hlod_resources(); }
-    get_resource_state().hlod_snapshot = p_contract.hlod_snapshot;
+    // Before the held snapshot is overwritten: a replacement re-arms the demotion latch (lod/hlod_auto_route.h).
+    gs_hlod_auto_route::install_snapshot(get_resource_state().hlod_snapshot, p_contract.hlod_snapshot,
+            get_resource_state().hlod_auto_route_demotion);
 	set_lod_enabled(p_contract.lod_enabled);
 	set_lod_bias(p_contract.lod_bias);
 	set_lod_max_distance(p_contract.lod_max_distance);
@@ -864,7 +867,7 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	}
 
 	ResourceState &resource_state = get_resource_state();
-	resource_state.hlod_snapshot = p_contract.hlod_snapshot;
+	resource_state.hlod_snapshot = p_contract.hlod_snapshot; // Installed (and the latch re-armed) at the top.
 	resource_state.hlod_reason = p_contract.hlod_reason;
 	resource_state.hlod_tau_px = p_contract.hlod_tau_px;
 	resource_state.hlod_owner_key = p_contract.hlod_owner_key;

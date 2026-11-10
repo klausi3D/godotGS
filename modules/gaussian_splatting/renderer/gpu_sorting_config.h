@@ -22,9 +22,10 @@ struct GPUSortingConfig {
     // Each Gaussian that overlaps a tile generates one record. A scene with N splats
     // where each covers ~M tiles on average produces N*M records. Close camera views
     // or large splats can push this multiplier to 50-100+.
-    // Default: 100 million records (~1.2 GB VRAM for key+value buffers).
+    // This is the cap, not the allocation: capacity follows measured demand (BV-10 E3).
+    // Default: 100 million records (2.6 GiB VRAM at the cap, 28 B/record incl. radix buffers).
     // Minimum: 100,000 (for small test scenes).
-    // Maximum: ~200 million (practical VRAM limit; 2.4 GB for buffers alone).
+    // Maximum: ~200 million (practical VRAM limit; 5.2 GiB at the cap).
     uint32_t max_overlap_records = 100000000;
     // Optional lower bound used by adaptive overlap budgeting.
     // Kept <= max_overlap_records via accessor clamp.

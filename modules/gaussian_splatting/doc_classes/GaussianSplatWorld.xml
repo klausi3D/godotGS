@@ -16,6 +16,12 @@
 				Returns the number of static spatial chunks in this world resource.
 			</description>
 		</method>
+		<method name="get_chunk_payload_source" qualifiers="const">
+			<return type="ChunkPayloadSource" />
+			<description>
+				Returns the source the streaming system reads chunk payloads from, or [code]null[/code] if this world has none (a resident world). A paged-GSQ world loaded for streaming returns a [GsqPagedChunkPayloadSource], whose [method GsqPagedChunkPayloadSource.get_decode_stats] reports the decode telemetry.
+			</description>
+		</method>
 		<method name="get_chunk_sizes">
 			<return type="PackedInt32Array" />
 			<description>
@@ -59,7 +65,7 @@
 			<return type="int" enum="Error" />
 			<param index="0" name="path" type="String" />
 			<description>
-				Explicitly writes this resident, complete HLOD world as a version 4 paged package (an opt-in format; [method ResourceSaver.save] and [method save_to_file] still write version 3). The node index carries each node's footprint and DC metrics and every node payload is a separate page-aligned, hash-protected record, so a runtime that loads the package reads node payloads from the file on demand instead of holding the whole tree in memory. The write is atomic: the target is replaced only when the whole package was written. Fails with the first violated admission or exactness rule (the same limits as the HLOD runtime snapshot) and logs the reason. Loading a version 4 package needs [code]rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled[/code]: a paged world has no payload outside the HLOD route.
+				Explicitly writes this resident, complete HLOD world as a version 4 paged package (an opt-in format; [method ResourceSaver.save] and [method save_to_file] still write version 3). The node index carries each node's footprint and DC metrics and every node payload is a separate page-aligned, hash-protected record, so a runtime that loads the package reads node payloads from the file on demand instead of holding the whole tree in memory. The write is atomic: the target is replaced only when the whole package was written. Fails with the first violated admission or exactness rule (the same limits as the HLOD runtime snapshot) and logs the reason. A loaded version 4 package draws on the HLOD route, which [code]rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled[/code] (on by default) enables: a paged world has no payload outside that route. With the setting off, or in a setup the route cannot serve, [GaussianSplatWorld3D] loads the payload into memory and draws it on the resident route instead.
 			</description>
 		</method>
 		<method name="has_hlod_paged_source" qualifiers="const">

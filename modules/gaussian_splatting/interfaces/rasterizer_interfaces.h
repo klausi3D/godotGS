@@ -174,6 +174,11 @@ struct RasterStats {
     uint32_t overlap_record_budget = 0;
     uint32_t overlap_record_budget_effective = 0;
     uint32_t overlap_record_budget_configured = 0;
+    uint32_t overlap_sort_capacity = 0;
+    uint32_t overlap_sort_capacity_high_water = 0;
+    uint64_t overlap_sort_bytes = 0;
+    uint64_t overlap_sort_resize_peak_bytes = 0;
+    uint64_t overlap_sort_resize_preflight_refusals = 0;
     float overlap_thinning_keep_ratio = 1.0f;
     float occupancy_ratio = 0.0f;
     float dense_ratio = 0.0f;
@@ -206,6 +211,7 @@ struct RasterPerformance {
     float overlap_count_gpu_ms = 0.0f;
     bool overlap_count_gpu_valid = false;
     float binning_gpu_ms = 0.0f;
+    bool binning_gpu_valid = false; // BV-04b: binning (= the emit pass) validity
     float overlap_emit_gpu_ms = 0.0f;
     bool overlap_emit_gpu_valid = false;
     float overlap_sort_gpu_ms = 0.0f;
@@ -226,6 +232,11 @@ struct RasterPerformance {
     uint64_t timing_frame_serial = 0;
     uint32_t timing_frames_behind = 0;
     uint32_t raster_pipeline_reformats = 0;
+    // BV-04b: every pass of the frame (cull .. composite) with measurement frame serials and the
+    // newest same-frame breakdown.
+    GaussianSplatting::GpuPassTiming::PassTimingSnapshot pass_timing;
+    // BV-04b: records per splat per HLOD level (last sampled HLOD-route frame).
+    GaussianSplatting::HlodLevelRecordSample hlod_level_records;
 };
 
 // Rasterization result

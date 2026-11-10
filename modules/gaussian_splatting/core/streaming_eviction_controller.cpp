@@ -36,6 +36,7 @@ void StreamingEvictionController::invalidate_candidate_cache() {
     cached_non_primary_lru_frame = UINT64_MAX;
     cached_non_primary_lru_cursor = 0;
     cached_visible_chunks.clear();
+    cached_padding_chunks.clear();
     cached_nonvisible_chunks.clear();
     cached_non_primary_lru_candidates.clear();
 }
@@ -122,11 +123,13 @@ void StreamingEvictionController::record_total_eviction() {
 }
 
 StreamingEvictionController::EvictionResult StreamingEvictionController::evict_least_recently_used(
-        GaussianStreamingSystem &system, bool p_allow_visible_eviction, uint32_t p_visible_fit_pages) {
+        GaussianStreamingSystem &system, bool p_allow_visible_eviction, uint32_t p_visible_fit_pages,
+        bool p_allow_padding_eviction) {
     ensure_resident_tracking(system);
 
     if (cached_eviction_frame != system.total_frame_count) {
         cached_visible_chunks.clear();
+        cached_padding_chunks.clear();
         cached_nonvisible_chunks.clear();
         uint32_t resident_scan_count = 0;
         uint32_t candidate_count = 0;
@@ -143,8 +146,10 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
                     system.total_frame_count - chunk.last_loaded_frame < eviction_hysteresis_frames) {
                 continue;
             }
-            if (chunk.is_visible) {
+            if (chunk.is_needed_for_view()) {
                 cached_visible_chunks.push_back(i);
+            } else if (chunk.is_visible) {
+                cached_padding_chunks.push_back(i); // BV-PRIO
             } else {
                 cached_nonvisible_chunks.push_back(i);
             }
@@ -155,28 +160,30 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
         system.scheduler.last_primary_eviction_candidate_count = candidate_count;
     }
 
-    uint32_t best_nonvis_idx = UINT32_MAX;
-    uint64_t best_nonvis_frame = UINT64_MAX;
-    float best_nonvis_distance = -1.0f;
+    const auto least_recently_used = [&](const LocalVector<uint32_t> &p_candidates) -> uint32_t {
+        uint32_t best_idx = UINT32_MAX;
+        uint64_t best_frame = UINT64_MAX;
+        float best_distance = -1.0f;
+        for (uint32_t i : p_candidates) {
+            const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
+            if (!chunk.is_loaded) {
+                continue;
+            }
+            if (chunk.last_used_frame < best_frame ||
+                    (chunk.last_used_frame == best_frame && chunk.distance > best_distance)) {
+                best_frame = chunk.last_used_frame;
+                best_distance = chunk.distance;
+                best_idx = i;
+            }
+        }
+        return best_idx;
+    };
+    const uint32_t best_nonvis_idx = least_recently_used(cached_nonvisible_chunks);
+    const uint32_t best_padding_idx = least_recently_used(cached_padding_chunks);
 
     uint32_t best_vis_idx = UINT32_MAX;
     uint64_t best_vis_frame = UINT64_MAX;
     float best_vis_distance = -1.0f;
-
-    for (uint32_t i : cached_nonvisible_chunks) {
-        const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
-        if (!chunk.is_loaded) {
-            continue;
-        }
-        const uint64_t used_frame = chunk.last_used_frame;
-        const float dist = chunk.distance;
-        if (used_frame < best_nonvis_frame ||
-                (used_frame == best_nonvis_frame && dist > best_nonvis_distance)) {
-            best_nonvis_frame = used_frame;
-            best_nonvis_distance = dist;
-            best_nonvis_idx = i;
-        }
-    }
 
     for (uint32_t i : cached_visible_chunks) {
         const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
@@ -206,7 +213,15 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
         return EvictionResult::EvictedNonVisible;
     }
 
-    if (best_vis_idx != UINT32_MAX) {
+    // BV-PRIO: a padding chunk is off screen, so it goes before anything on screen and needs no
+    // fit check. It is not a victim for padding or prefetch, or they would displace each other
+    // forever; refusing those reads like an all-visible atlas, as for a needed victim.
+    if (best_padding_idx != UINT32_MAX && (p_allow_padding_eviction || p_allow_visible_eviction)) {
+        system._unload_chunk(best_padding_idx);
+        return EvictionResult::EvictedNonVisible;
+    }
+
+    if (best_vis_idx != UINT32_MAX || best_padding_idx != UINT32_MAX) {
         if (!p_allow_visible_eviction) {
             if (system.total_frame_count - last_stabilize_log_frame >= 300) {
                 GS_LOG_STREAMING_DEBUG(vformat("[STREAM-STABLE] All %d loaded chunks are visible - stabilizing (not evicting)",
