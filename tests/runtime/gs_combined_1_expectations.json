@@ -1,0 +1,337 @@
+{
+  "schema": "gs-combined-1/expectations/v1",
+  "description": "Assertions of the GS-COMBINED-1 gate (docs/architecture/adr-one-route-many-producers.md section 9) that are known to fail today, per variant. Each `blocked` entry names the tracking issue, why, and the exact failure codes it covers; any other failure code on that assertion is reported as live-fail, and an entry whose assertion passes is reported as stale-block. A blocked assertion is RED, never green. `notes` annotate live-fail rows and never change a state. Entries are evidence-backed by the local RTX 3090 runs of 2026-11-04 (base 1e68020cfe6, dev build). Remove an entry in the change that makes its assertion live.",
+  "preregistered_thresholds": {
+    "C_AGREEMENT_MIN": {
+      "value": 0.95,
+      "assertions": [
+        "C1",
+        "C2",
+        "C3"
+      ],
+      "preregistered": "2026-11-05",
+      "reason": "ADR §9 left it unspecified",
+      "note": "Share of reference-mask pixels whose rendered visibility must agree. Frozen like the ADR thresholds: gs_combined_1_verdict.py refuses an expectations file whose value differs from its own constant, and the unit test pins both."
+    }
+  },
+  "blocked": {
+    "A": {
+      "A1": {
+        "issue": "#1313",
+        "followup": "#1313 per-source counters (ADR one-route section 7 PR1b, GR-21)",
+        "reason": "The renderer publishes no world_drawn_splats or per-object object_drawn_splats; PR1b publishes row counts (hlod_world_draw_records, hlod_instance_draw_records), which the verdict also checks but which cannot satisfy A1.",
+        "expected_failures": [
+          "missing:world_drawn_splats",
+          "missing:object_drawn_splats"
+        ]
+      },
+      "A2": {
+        "issue": "#1313",
+        "followup": "#1313 sort input sources and composite pass count",
+        "reason": "sort_dispatches_frame == 1 is published and checked live; sort_input_sources and a per-frame splat composite pass count are not published.",
+        "expected_failures": [
+          "missing:sort_input_sources",
+          "missing:splat_composite_passes_frame"
+        ]
+      },
+      "A3": {
+        "issue": "#1313",
+        "followup": "#1313 route_skip_reason and dropped_sources (#788 Option 1, GR-21)",
+        "reason": "hlod_reason and the forbidden log lines are checked live; route_skip_reason and dropped_sources are not published.",
+        "expected_failures": [
+          "missing:route_skip_reason",
+          "missing:dropped_sources"
+        ]
+      },
+      "A6": {
+        "issue": "#1312",
+        "followup": "#1312 picking (ADR one-route section 7 F4)",
+        "reason": "InteractiveStateManager::pick() returns an empty result and no pick method is bound to script (GR-05). The harness computes whether the target is under the cursor every frame; there is nothing to call.",
+        "expected_failures": [
+          "missing:pick_api"
+        ]
+      },
+      "L3": {
+        "issue": "#1313",
+        "followup": "#1313 lights_dropped (GR-08)",
+        "reason": "Light caps clamp silently (tile_renderer.h MAX_OMNI_LIGHTS); no lights_dropped counter is published.",
+        "expected_failures": [
+          "missing:lights_dropped"
+        ]
+      },
+      "S1": {
+        "issue": "#1313",
+        "followup": "#1313 per-light caster counters; the casters themselves are #1095 / #1163",
+        "reason": "No per-light shadow_casters_rastered counter and no NO_CASTER_RASTERED count are published; the shadow raster rasterizes no splats today.",
+        "expected_failures": [
+          "missing:shadow_casters_rastered",
+          "missing:shadow_no_caster_rastered"
+        ]
+      },
+      "S2": {
+        "issue": "#1095",
+        "followup": "#1163",
+        "reason": "A splat object casts no shadow onto a mesh floor: receiver/control luminance ratio about 1.0 on every frame.",
+        "expected_failures": [
+          "value:shadow_ratio>0.6"
+        ]
+      },
+      "B1": {
+        "issue": "#1313",
+        "followup": "#1313 ledger bytes and silent_truncation_frames; truncation itself is #1131",
+        "reason": "No per-view byte ledger, device allocation or silent_truncation_frames counter is published.",
+        "expected_failures": [
+          "missing:ledger_bytes",
+          "missing:device_allocated_bytes",
+          "missing:ledger_budget_bytes",
+          "missing:silent_truncation_frames"
+        ]
+      },
+      "P1": {
+        "issue": "#530",
+        "followup": "GR-18 frame-coherent measurement (BV-04b)",
+        "reason": "gpu_timing_frame_serial stays fixed for tens of frames while gpu_frame_valid is true, so no frame-coherent sample exists to take a percentile of.",
+        "expected_failures": [
+          "invalid:timing_not_frame_coherent",
+          "coverage:below_minimum",
+          "invalid:build_not_optimized"
+        ]
+      },
+      "P2": {
+        "issue": "#530",
+        "followup": "GR-18 frame-coherent measurement (BV-04b)",
+        "reason": "As P1.",
+        "expected_failures": [
+          "invalid:timing_not_frame_coherent",
+          "coverage:below_minimum",
+          "invalid:build_not_optimized"
+        ]
+      },
+      "P3": {
+        "issue": "#530",
+        "followup": "GR-18 frame-coherent measurement (BV-04b)",
+        "reason": "Sticky GPU timestamps: the same gpu_timing_frame_serial is reported valid on consecutive frames (stale), and under 1 % of frames carry complete timing.",
+        "expected_failures": [
+          "stale:gpu_timing_frame_serial",
+          "value:timing_complete<99%"
+        ]
+      },
+      "V1": {
+        "issue": "#788",
+        "followup": "GR-16 (HLOD refuses view_count != 1); no dedicated issue yet; V1 deferred by the maintainer 2026-11-05",
+        "reason": "No split-screen variant job exists yet; V1 cannot be evaluated.",
+        "expected_failures": [
+          "missing:split_screen_job",
+          "coverage:below_minimum"
+        ]
+      },
+      "L1": {
+        "issue": "#788",
+        "followup": "F1 (ADR one-route section 7)",
+        "reason": "On the chunk route the world is not drawn when GaussianSplatNode3D instances share the scene (#788): sorted_splats equals the 32 objects' splat sum (39904) on every frame and the splat ground reads luma 0. The directional ROI is on the absent splat ground, so its luminance is constant and r is undefined.",
+        "expected_failures": [
+          "value:pearson_undefined:directional"
+        ]
+      },
+      "L2": {
+        "issue": "#788",
+        "followup": "F1",
+        "reason": "On the chunk route the world is not drawn when GaussianSplatNode3D instances share the scene (#788): sorted_splats equals the 32 objects' splat sum (39904) on every frame and the splat ground reads luma 0. The omni ROIs are on the absent splat ground.",
+        "expected_failures": [
+          "value:pearson_undefined:*",
+          "value:pearson<0.95"
+        ]
+      },
+      "C2": {
+        "issue": "#788",
+        "followup": "F1",
+        "reason": "On the chunk route the world is not drawn when GaussianSplatNode3D instances share the scene (#788): sorted_splats equals the 32 objects' splat sum (39904) on every frame and the splat ground reads luma 0. The foliage slab is part of the world, so the character's depth reference has no occluder.",
+        "expected_failures": [
+          "value:character_mask_disagrees"
+        ]
+      },
+      "C3": {
+        "issue": "#788",
+        "followup": "F1",
+        "reason": "On the chunk route the world is not drawn when GaussianSplatNode3D instances share the scene (#788): sorted_splats equals the 32 objects' splat sum (39904) on every frame and the splat ground reads luma 0. With no foliage drawn the character behind it is visible.",
+        "expected_failures": [
+          "value:character_mask_disagrees"
+        ]
+      },
+      "S3": {
+        "issue": "#788",
+        "followup": "F1",
+        "reason": "On the chunk route the world is not drawn when GaussianSplatNode3D instances share the scene (#788): sorted_splats equals the 32 objects' splat sum (39904) on every frame and the splat ground reads luma 0. The splat ground that should receive the mesh shadow is absent (control ROI dark).",
+        "expected_failures": [
+          "value:shadow_control_dark",
+          "value:shadow_ratio>0.6"
+        ]
+      },
+      "S4": {
+        "issue": "#788",
+        "followup": "F1",
+        "reason": "On the chunk route the world is not drawn when GaussianSplatNode3D instances share the scene (#788): sorted_splats equals the 32 objects' splat sum (39904) on every frame and the splat ground reads luma 0. The splat ground under the splat caster is absent (control ROI dark).",
+        "expected_failures": [
+          "value:shadow_control_dark",
+          "value:shadow_ratio>0.6"
+        ]
+      }
+    },
+    "B": {
+      "A1": {
+        "issue": "#1313",
+        "followup": "#1313 per-source counters (ADR one-route section 7 PR1b, GR-21)",
+        "reason": "The renderer publishes no world_drawn_splats or per-object object_drawn_splats; PR1b publishes row counts (hlod_world_draw_records, hlod_instance_draw_records), which the verdict also checks but which cannot satisfy A1.",
+        "expected_failures": [
+          "missing:world_drawn_splats",
+          "missing:object_drawn_splats"
+        ]
+      },
+      "A2": {
+        "issue": "#1313",
+        "followup": "#1313 sort input sources and composite pass count",
+        "reason": "sort_dispatches_frame == 1 is published and checked live; sort_input_sources and a per-frame splat composite pass count are not published.",
+        "expected_failures": [
+          "missing:sort_input_sources",
+          "missing:splat_composite_passes_frame"
+        ]
+      },
+      "A3": {
+        "issue": "#1313",
+        "followup": "#1313 route_skip_reason and dropped_sources (#788 Option 1, GR-21)",
+        "reason": "hlod_reason and the forbidden log lines are checked live; route_skip_reason and dropped_sources are not published.",
+        "expected_failures": [
+          "missing:route_skip_reason",
+          "missing:dropped_sources"
+        ]
+      },
+      "A6": {
+        "issue": "#1312",
+        "followup": "#1312 picking (ADR one-route section 7 F4)",
+        "reason": "InteractiveStateManager::pick() returns an empty result and no pick method is bound to script (GR-05). The harness computes whether the target is under the cursor every frame; there is nothing to call.",
+        "expected_failures": [
+          "missing:pick_api"
+        ]
+      },
+      "L3": {
+        "issue": "#1313",
+        "followup": "#1313 lights_dropped (GR-08)",
+        "reason": "Light caps clamp silently (tile_renderer.h MAX_OMNI_LIGHTS); no lights_dropped counter is published.",
+        "expected_failures": [
+          "missing:lights_dropped"
+        ]
+      },
+      "S1": {
+        "issue": "#1313",
+        "followup": "#1313 per-light caster counters; the casters themselves are #1095 / #1163",
+        "reason": "No per-light shadow_casters_rastered counter and no NO_CASTER_RASTERED count are published; the shadow raster rasterizes no splats today.",
+        "expected_failures": [
+          "missing:shadow_casters_rastered",
+          "missing:shadow_no_caster_rastered"
+        ]
+      },
+      "S2": {
+        "issue": "#1095",
+        "followup": "#1163",
+        "reason": "A splat object casts no shadow onto a mesh floor: receiver/control luminance ratio about 1.0 on every frame.",
+        "expected_failures": [
+          "value:shadow_ratio>0.6"
+        ]
+      },
+      "S4": {
+        "issue": "#1095",
+        "followup": "#1163",
+        "reason": "A splat object casts no shadow onto the splat world: receiver/control luminance ratio about 1.0 on every frame.",
+        "expected_failures": [
+          "value:shadow_ratio>0.6"
+        ]
+      },
+      "B1": {
+        "issue": "#1313",
+        "followup": "#1313 ledger bytes and silent_truncation_frames; truncation itself is #1131",
+        "reason": "No per-view byte ledger, device allocation or silent_truncation_frames counter is published.",
+        "expected_failures": [
+          "missing:ledger_bytes",
+          "missing:device_allocated_bytes",
+          "missing:ledger_budget_bytes",
+          "missing:silent_truncation_frames"
+        ]
+      },
+      "P1": {
+        "issue": "#530",
+        "followup": "GR-18 frame-coherent measurement (BV-04b)",
+        "reason": "gpu_timing_frame_serial stays fixed for tens of frames while gpu_frame_valid is true, so no frame-coherent sample exists to take a percentile of.",
+        "expected_failures": [
+          "invalid:timing_not_frame_coherent",
+          "coverage:below_minimum",
+          "invalid:build_not_optimized"
+        ]
+      },
+      "P2": {
+        "issue": "#530",
+        "followup": "GR-18 frame-coherent measurement (BV-04b)",
+        "reason": "As P1.",
+        "expected_failures": [
+          "invalid:timing_not_frame_coherent",
+          "coverage:below_minimum",
+          "invalid:build_not_optimized"
+        ]
+      },
+      "P3": {
+        "issue": "#530",
+        "followup": "GR-18 frame-coherent measurement (BV-04b)",
+        "reason": "Sticky GPU timestamps: the same gpu_timing_frame_serial is reported valid on consecutive frames (stale), and under 1 % of frames carry complete timing.",
+        "expected_failures": [
+          "stale:gpu_timing_frame_serial",
+          "value:timing_complete<99%"
+        ]
+      },
+      "V1": {
+        "issue": "#788",
+        "followup": "GR-16 (HLOD refuses view_count != 1); no dedicated issue yet; V1 deferred by the maintainer 2026-11-05",
+        "reason": "No split-screen variant job exists yet; V1 cannot be evaluated.",
+        "expected_failures": [
+          "missing:split_screen_job",
+          "coverage:below_minimum"
+        ]
+      },
+      "C2": {
+        "issue": "#1310",
+        "followup": "#1310 close-range mesh/splat ordering",
+        "reason": "Inside pose: about half the character's silhouette is in front of the foliage slab by up to 0.14 m (CPU depth reference), but the frame shows the slab over it on every inside-pose frame (agreement 0.197). Front and behind poses agree 100 %.",
+        "expected_failures": [
+          "value:character_mask_disagrees"
+        ]
+      },
+      "T1": {
+        "issue": "#1311",
+        "followup": "#1311 intermittent first-frame settle",
+        "reason": "Intermittent: the first frame of the frozen segment differs from the other 119 (sorted_splats off by one) although every input digest is equal. Runs 1-3 passed, run 4 failed. A passing run therefore reports stale-block: do not remove this entry on one pass.",
+        "expected_failures": [
+          "value:frames_differ"
+        ]
+      }
+    }
+  },
+  "notes": {
+    "A": {
+      "A4": {
+        "reason": "needs triage (renderer vs reference): object-front probes show 4-20/255 desaturated tints and a few full tracer-white pixels the CPU occluder model did not predict."
+      },
+      "A5": {
+        "reason": "needs triage (renderer vs reference): 0.5-1.2 px tracer errors, mostly on the fastest mover (pick ball)."
+      }
+    },
+    "B": {
+      "A4": {
+        "reason": "needs triage (renderer vs reference): as variant A."
+      },
+      "A5": {
+        "reason": "needs triage (renderer vs reference): as variant A."
+      },
+      "S3": {
+        "reason": "needs triage (renderer vs reference): 1 of 600 frames at ratio 0.601 (limit 0.6); median 0.29."
+      }
+    }
+  }
+}

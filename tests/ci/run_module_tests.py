@@ -83,6 +83,7 @@ BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_ben
 # contract in test_run_module_tests_lane_ledger.py can derive that a wired
 # runner actually reaches these contract-test files.
 RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+GS_COMBINED_1_VERDICT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_gs_combined_1_verdict.py"
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 # BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
 BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
@@ -2274,6 +2275,28 @@ def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds runner trust guard passed."]
 
 
+def _run_gs_combined_1_verdict_guard() -> tuple[bool, list[str]]:
+    """Guard: the GS-COMBINED-1 verdict module's own unit test (ADR one-route section 9).
+
+    Static, headless, no GPU. The gate's GPU job only ever exercises the verdict on a
+    real record, where most assertions are still blocked; this test is what proves each
+    assertion can pass, fail, and fail on a missing signal, and that the six forcing
+    controls bite. Without this wiring it would run in no lane.
+    """
+    script = GS_COMBINED_1_VERDICT_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing GS-COMBINED-1 verdict test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GS-COMBINED-1 verdict test failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GS-COMBINED-1 verdict test passed."]
+
+
 def _run_gpu_runner_environment_contract_guard() -> tuple[bool, list[str]]:
     """Guard (#875): every GPU-pool job disables the third-party Vulkan layers and proves it.
 
@@ -4218,6 +4241,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_publication_gating_guard,
             "Release publication gating guard failed.",
             "Release publication gating guard passed.",
+        ),
+        (
+            True,
+            _run_gs_combined_1_verdict_guard,
+            "GS-COMBINED-1 verdict guard failed.",
+            "GS-COMBINED-1 verdict guard passed.",
         ),
         (
             True,

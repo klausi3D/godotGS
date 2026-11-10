@@ -61,8 +61,13 @@ spots**. Each finding has a severity:
   same-repo branch. As of 2026-10-01, every self-hosted job either carries the per-job fork guard or
   does not run on `pull_request` events at all (see `.github/workflows/README.md`).
   `tests/ci/test_release_builds_runner_trust.py` (run by `--guard-only`) enforces
-  this for `release_builds.yml` only; for the other workflows, check a new or changed
-  self-hosted job at review time. Any change that relaxes a gate or the runner trust
+  this for `release_builds.yml` and `gs_combined_1.yml`; for the other workflows, check
+  a new or changed self-hosted job at review time. `gs_combined_1.yml` also has the
+  two-job shape a future required GPU status needs: a hosted status job that `needs:`
+  the guarded GPU job with `if: ${{ always() }}` as its only condition and fails closed
+  (`gs_combined_requires_trusted_branch` for a fork PR), so a skipped GPU job can never
+  satisfy the check. It is reported, not required, until every GS-COMBINED-1 assertion
+  is live; making it required is a maintainer decision. Any change that relaxes a gate or the runner trust
   boundary must be documented and human-approved. Recorded relaxation: Production
   Gates readiness enforcement (#1164) enforces `897_907_ready`, `900_ready` and
   `815_ready`; `943_ready`, `871_ready` and `902_ready` are reported, not enforced,

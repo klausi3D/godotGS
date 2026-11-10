@@ -53,6 +53,7 @@ The canonical release-ready profile remains `release-ci` (default for explicit r
 validation, and the nightly evidence lane — see [CI Integration](#ci-integration)).
 The focused canonical node proof profile is `node-asset-gpu-ci`.
 The canonical blocking GPU-backed streaming profile is `streaming-gpu-ci`.
+The game-scene acceptance gate is `gs-combined-1` (see [GS-COMBINED-1](#gs-combined-1)).
 `--list-profiles` only lists runtime validation profiles; the benchmark proof surfaces are
 separate and live in the benchmark workflow/docs.
 List profiles:
@@ -155,6 +156,36 @@ The blocking streaming-specific GPU runtime gate (in `baseline_qa.yml` `gpu-test
 This keeps headless CI honest about what can actually execute, wires the broader
 release-ready profile as a nightly non-headless evidence lane, and keeps one explicit
 blocking streaming gate for world-streaming and residency regressions.
+
+## GS-COMBINED-1
+
+`--profile gs-combined-1` runs the hard gate of
+`docs/architecture/adr-one-route-many-producers.md` section 9 in two variants: A (a
+chunk-streamed world) and B (the same content as a V4 paged HLOD world). Pieces:
+
+- `gs_combined_1_content.gd` generates the content from a fixed seed (no binary fixture);
+- `gs_combined_1_harness.gd` renders 600 fixed-step frames and writes a record of what
+  each frame showed and what the renderer said (`test_gs_combined_1_variant_{a,b}.gd`
+  select the variant; `gs_combined_1_project/project.godot` is the pinned settings file);
+- `gs_combined_1_verdict.py` judges the record, fail-closed, and runs the six forcing
+  controls on it (unit-tested by `test_gs_combined_1_verdict.py` in `--guard-only`);
+- `gs_combined_1_expectations.json` lists each assertion that is blocked today, with its
+  issue and the exact failure codes the block covers.
+
+Each assertion is `live-pass`, `live-fail` (a failure no block explains), `blocked` (red,
+explained by its issue) or `stale-block` (listed as blocked but passing; the entry must be
+removed). A scenario passes only when every assertion is `live-pass` and nothing is
+blocked. Records, verdicts and screenshots land in `tests/runtime/build/gs_combined_1/`.
+The lane is `.github/workflows/gs_combined_1.yml`: reported on every PR, not required
+until the expectations file blocks nothing.
+
+```bash
+python tests/runtime/run_runtime_validation.py --godot-binary <binary> \
+  --profile gs-combined-1 --gd-mode gpu-vulkan --skip-cpp --fail-on-skip
+```
+
+P1/P2 are only valid on an optimized build: the lane that built the binary sets
+`GS_COMBINED_1_BUILD_OPTIMIZED=1`; without it P1/P2 report `invalid:build_not_optimized`.
 
 Benchmark evidence collection is separate from the canonical runtime gate and uses the
 benchmark runner lane selector instead of runtime validation profiles:

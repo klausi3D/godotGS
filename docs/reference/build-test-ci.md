@@ -39,6 +39,11 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
     `release-ci`: the non-headless suite with a required renderer proof, which needs a GPU and a display.
     `headless-ci` is what baseline QA runs; `--gd-mode` defaults to the profile's own mode.
     `--list-profiles` prints every profile and marks the default.
+  - GS-COMBINED-1 gate (GPU, both variants): `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --profile gs-combined-1 --gd-mode gpu-vulkan --skip-cpp --fail-on-skip`.
+    Reported by `.github/workflows/gs_combined_1.yml`, not a required check yet; see `tests/runtime/README.md`.
+    On `pull_request` that workflow is path-filtered, so a PR outside the filtered paths reports no `gs-combined-1`
+    status at all. Before the check is made required, replace the path filter with in-job change detection (a job that
+    always runs and reports), or unrelated PRs block on a check that never reports.
 - Benchmark suite:
   - `python3 tests/runtime/run_benchmark.py --godot-binary <module-built-binary> --profile everything`
 - GPU test harness (visual gate):
