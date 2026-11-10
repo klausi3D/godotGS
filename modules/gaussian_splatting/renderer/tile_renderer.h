@@ -338,6 +338,10 @@ public:
     auto &_test_global_sort_resources() { return global_sort_resources; }
     auto &_test_grid_state() { return grid_state; }
     auto &_test_timing_state() { return timing_state; }
+    // #1393: called on the render thread after COUNT and the prefix scan and before the EMIT
+    // dispatch is recorded, so a GPU test can change the binning inputs between the two passes.
+    // Unset outside tests.
+    std::function<void(RenderingDevice *)> test_before_emit_hook;
     auto &_test_prefix_scan_stage() { return prefix_scan_stage; }
     void _test_ensure_global_sort_resources(uint32_t p_visible_count) {
         _ensure_global_sort_resources(p_visible_count);

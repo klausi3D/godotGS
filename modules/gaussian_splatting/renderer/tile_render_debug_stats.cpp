@@ -835,9 +835,24 @@ void TileRenderer::TileRendererDebugStats::membership_before_emit(RenderingDevic
 		                          30u * 4u, 4u, 4u) != OK) {
 			membership_problem("Forced COUNT-disagreement input change failed");
 		}
+		// #1393: EMIT bins from the footprint COUNT parked in the splat's projection slot. Give the
+		// splat COUNT never saw its identical twin's footprint (slot 0 to slot 1, through a scratch
+		// buffer), so EMIT really writes into tiles COUNT reserved for one splat only: the
+		// disagreement this control proves the drop signal detects.
+		const uint32_t projection_stride = owner._get_projection_stride();
+		RID footprint_scratch = projection_stride > 0u ? p_device->storage_buffer_create(projection_stride) : RID();
+		if (!footprint_scratch.is_valid() ||
+		    p_device->buffer_copy(owner.projection_buffers.projection_buffer, footprint_scratch, 0u, 0u, projection_stride) != OK ||
+		    p_device->buffer_copy(footprint_scratch, owner.projection_buffers.projection_buffer, 0u, projection_stride,
+		                          projection_stride) != OK) {
+			membership_problem("Forced COUNT-disagreement footprint copy failed");
+		}
+		if (footprint_scratch.is_valid()) {
+			p_device->free(footprint_scratch); // Freed after the recorded copies execute.
+		}
 		membership_copy(p_device, owner.subpixel_visibility_buffers.subpixel_visibility_buffer, 4u, 31u, 4u);
 		membership_metadata["forced_input_changes"] =
-		        "COUNT visible1 to EMIT visible2; copy actual visibility decision for identical synthetic splat";
+		        "COUNT visible1 to EMIT visible2; copy actual visibility decision and binning footprint for identical synthetic splat";
 	}
 	if (membership_all_control == 4u) {
 		const uint32_t limit = 1u;
