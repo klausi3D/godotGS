@@ -359,8 +359,17 @@ def _captured_doctest(name: str) -> str:
     return (DOCTEST_FIXTURES / name).read_text(encoding="utf-8")
 
 
+# The positive input is CAPTURED from the producer, not constructed: the verbatim stdout of
+#   bin/godot.linuxbsd.editor.x86_64 --headless --test "--test-case=<fc.DOCTEST['C-thrash']['case']>"
+# on the release-tests binary (dev_build=no tests=yes) built from ccccd7b5880dcd86076ae6f294ffa9a8cc6da6e4,
+# from GPU lane run 42827730602 (artifact beyond-vram-flythrough-A-42827730602-1, logs/doctest_C-thrash.log,
+# sha256 2a55edcace328f6f2776347920b26371a63641bb134b47e631ff3aa444b49c2b). The lane judged it PASS with
+# 6 assertions. Re-capture it from a lane run if the producer changes; never type it out.
+C_THRASH_CAPTURE = "doctest_c_thrash_release_tests_sample.txt"
+
+
 def _one_case(text: str, failed: int = 0, assertions: int = 6) -> str:
-    """The captured output's summary lines with the counts of a one-case run (only the numbers change)."""
+    """A MUTATION for negative cases only: the summary lines rewritten to a one-case run's counts."""
     text = re.sub(r"\[doctest\] test cases:[^\n]*",
                   f"[doctest] test cases: 1 | {1 - failed} passed | {failed} failed | 2186 skipped", text)
     text = re.sub(r"\[doctest\] assertions:[^\n]*",
@@ -381,19 +390,28 @@ class DoctestProofs(unittest.TestCase):
             self.assertEqual(rec["status"], fv.INVALID, name)
             self.assertIn("needs exactly this one", rec["reason"])
 
-    def test_one_case_with_assertions_passes_and_every_other_shape_does_not(self) -> None:
-        clean = _captured_doctest("gpu_harness_zero_assert_sample.txt").split("[doctest] doctest version", 1)
-        clean = "[doctest] doctest version" + clean[1]
-        clean = re.sub(r"=+\n[^\n]*\nTEST CASE:.*?MESSAGE: Skipping test[^\n]*\n\n", "", clean, flags=re.S)
-        self.assertNotIn("Skipping test", clean)
-        self.assertEqual(self.judge(_one_case(clean))["status"], "PASS")
-        self.assertEqual(self.judge(_one_case(clean), rc=1)["status"], fv.FAIL)
-        self.assertEqual(self.judge(_one_case(clean, failed=1), rc=1)["status"], fv.FAIL)
-        self.assertEqual(self.judge(_one_case(clean, assertions=0))["status"], fv.INVALID)
+    def test_the_capture_has_the_shape_it_claims(self) -> None:
+        real = _captured_doctest(C_THRASH_CAPTURE)
+        self.assertIn("[doctest] test cases: 1 | 1 passed | 0 failed | 2667 skipped", real)
+        self.assertIn("[doctest] assertions: 6 | 6 passed | 0 failed |", real)
+        self.assertIn("[doctest] Status: SUCCESS!", real)
+        self.assertNotIn("Skipping test", real)
+
+    def test_the_captured_passing_run_passes_and_every_other_shape_does_not(self) -> None:
+        real = _captured_doctest(C_THRASH_CAPTURE)
+        rec = self.judge(real)
+        self.assertEqual(rec["status"], "PASS", rec)
+        self.assertEqual((rec["assertions"], rec["cases_run"], rec["cases_passed"]), (6, 1, 1), rec)
+        # Negative cases: mutations of the real capture (constructed on purpose, never a positive input).
+        self.assertEqual(self.judge(real, rc=1)["status"], fv.FAIL)
+        self.assertEqual(self.judge(_one_case(real, failed=1), rc=1)["status"], fv.FAIL)
+        self.assertEqual(self.judge(_one_case(real, assertions=0))["status"], fv.INVALID)
+        self.assertEqual(self.judge(real.replace("test cases: 1 |", "test cases: 2 |"))["status"], fv.INVALID,
+                         "two cases are not this one proof")
         self.assertEqual(self.judge(_one_case(_captured_doctest("gpu_harness_zero_assert_sample.txt")))["status"],
                          fv.INVALID, "a self-skip counted as passed is not a proof")
         self.assertEqual(self.judge("")["status"], fv.INVALID)
-        self.assertEqual(self.judge(clean.split("[doctest] Status")[0])["status"], fv.INVALID, "truncated summary")
+        self.assertEqual(self.judge(real.split("[doctest] Status")[0])["status"], fv.INVALID, "truncated summary")
 
     def test_combine(self) -> None:
         self.assertEqual(fc.combine_doctests([])[0], fv.NOT_RUN)
@@ -433,13 +451,11 @@ class DoctestProofs(unittest.TestCase):
         return code, record, calls
 
     def test_the_step_runs_each_case_by_name_on_the_binary(self) -> None:
-        clean = _one_case(re.sub(r"(?s)^.*?\[doctest\] doctest version", "[doctest] doctest version",
-                                 _captured_doctest("doctest_env_skip_sample.txt")))
-        clean = re.sub(r"(?s)=+\n.*?(?=\[doctest\] test cases)", "", clean)
-        code, record, calls = self.step(Path("godot"), clean)
+        code, record, calls = self.step(Path("godot"), _captured_doctest(C_THRASH_CAPTURE))
         self.assertEqual(code, lane.EXIT_OK, record)
         self.assertEqual(calls[0][1:], ["--headless", "--test", f"--test-case={self.CASE}"])
         self.assertEqual(record["data"]["verdict"], "PASS")
+        self.assertEqual(record["data"]["proofs"][0]["assertions"], 6)
         self.assertIn("G7", record["data"]["absent"])
         code, record, _ = self.step(Path("godot"), _captured_doctest("doctest_env_skip_sample.txt"))
         self.assertEqual(code, lane.EXIT_INVALID)
