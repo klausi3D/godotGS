@@ -69,9 +69,9 @@
         ]
       },
       "S2": {
-        "issue": "#1095",
-        "followup": "#1163",
-        "reason": "A splat object casts no shadow onto a mesh floor: receiver/control luminance ratio about 1.0 on every frame.",
+        "issue": "#788",
+        "followup": "ADR one-route section 7 F1/F5 (one route, light views); splat casters ship on the HLOD route only (#1316, #1095)",
+        "reason": "Variant A pins the chunk route, and splat shadow casters exist only on the HLOD route (#1316: the caster list is the active HLOD main-view draw list; canonical routes keep the #1113 fail-closed behaviour). CI run 42876253541 (PR #1315 head a362b287a09, merged as d628a5af625): shadow_casters_rastered 0 on all 600 A frames, receiver/control luminance ratio 1.5-3.0 on every frame, while variant B (HLOD route) rasters 192384 casters per frame and passes S2 (ratio 0.29-0.44). A gets casters when the chunk-route content moves onto the one route (#788).",
         "expected_failures": [
           "value:shadow_ratio>0.6"
         ]
@@ -228,14 +228,6 @@
         "expected_failures": [
           "missing:shadow_casters_rastered",
           "missing:shadow_no_caster_rastered"
-        ]
-      },
-      "S2": {
-        "issue": "#1095",
-        "followup": "#1163",
-        "reason": "A splat object casts no shadow onto a mesh floor: receiver/control luminance ratio about 1.0 on every frame.",
-        "expected_failures": [
-          "value:shadow_ratio>0.6"
         ]
       },
       "S4": {
