@@ -199,7 +199,7 @@ inline bool complete(const BakeResult &p_result, const Input &p_input) {
 
 inline bool in_core(const Input &p_input, BakeResult &r_result) {
 	String error;
-	Error code = ERR_UNAVAILABLE;
+	Error code = OK; // bake_world writes r_code only on failure
 	if (!bake_world(p_input.view(), BakeParams(), r_result, &error, &code) || code != OK) {
 		FAIL("In-core identity oracle failed: ", int(code), " ", error.utf8().get_data());
 		return false;
