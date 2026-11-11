@@ -89,6 +89,8 @@ bool all_zero(const uint8_t *p, size_t n) {
 	return true;
 }
 
+} // namespace
+
 // stored bytes of one payload record, with every multiplication checked.
 bool record_stored_bytes(uint32_t p_count, uint32_t p_high_order, uint64_t &r_gaussian, uint64_t &r_sh, uint64_t &r_total) {
 	uint64_t sh_count;
@@ -99,8 +101,6 @@ bool record_stored_bytes(uint32_t p_count, uint32_t p_high_order, uint64_t &r_ga
 	uint64_t partial;
 	return add_u64(kPayloadRecordHeaderBytes, r_gaussian, partial) && add_u64(partial, r_sh, r_total);
 }
-
-} // namespace
 
 bool compute_node_metrics(const Gaussian *p_gaussians, uint32_t p_count, const double p_cell_center[3],
 		bool p_is_leaf, NodeMetrics &r_metrics, String &r_reason) {
@@ -258,32 +258,9 @@ void read_node_topology(In &in, GaussianSplatHlodNode &n) {
 	n.payload_count = in.u32();
 	n.overlap_footprint = in.f32();
 }
+} // namespace
 
-struct HeaderFields {
-	uint32_t flags = 0u;
-	uint32_t leaf = 0u;
-	uint32_t interior = 0u;
-	uint32_t node_count = 0u;
-	uint32_t sh_degree = 0u;
-	uint32_t sh_first_order = 0u;
-	uint32_t sh_high_order = 0u;
-	uint32_t bake_rule = 0u;
-	double origin[3] = { 0.0, 0.0, 0.0 };
-	Vector3 bounds_pos;
-	Vector3 bounds_size;
-	uint64_t index_offset = 0u;
-	uint64_t index_page_count = 0u;
-	uint64_t payload_offset = 0u;
-	uint64_t payload_bytes = 0u;
-	uint64_t metadata_offset = 0u;
-	uint64_t metadata_size = 0u;
-	uint64_t file_bytes = 0u;
-	uint64_t content_generation = 0u;
-	uint8_t index_digest[32] = {};
-	uint8_t metadata_digest[32] = {};
-};
-
-void write_header(uint8_t *p_page, const HeaderFields &h) {
+void gs_world_paged::write_header(uint8_t *p_page, const HeaderFields &h) {
 	memset(p_page, 0, kHeaderBytes);
 	Out o(p_page);
 	o.u32(kMagic);
@@ -317,6 +294,53 @@ void write_header(uint8_t *p_page, const HeaderFields &h) {
 	o.bytes(h.metadata_digest, 32);
 	sha256(p_page, kHeaderBytes - 32, p_page + kHeaderBytes - 32);
 }
+
+bool gs_world_paged::write_payload_header(uint8_t *p_header, uint32_t p_index,
+		const GaussianSplatHlodPagedSource::NodeRecord &p_record, uint32_t p_high_order, uint64_t p_content_generation) {
+	uint64_t g_bytes, s_bytes, total;
+	if (!record_stored_bytes(p_record.topology.payload_count, p_high_order, g_bytes, s_bytes, total)) {
+		return false;
+	}
+	memset(p_header, 0, kPayloadRecordHeaderBytes);
+	Out o(p_header);
+	o.u32(kRecordMagic);
+	o.u32(p_index);
+	o.u32(p_record.topology.payload_count);
+	o.u32(p_high_order);
+	o.u64(g_bytes);
+	o.u64(s_bytes);
+	o.u64(p_content_generation);
+	o.u64(p_record.topology.payload_first);
+	o.u32(GAUSSIAN_STRUCT_LAYOUT_VERSION);
+	return true;
+}
+
+void gs_world_paged::write_index_page(uint8_t *p_page, uint32_t p_page_index,
+		const GaussianSplatHlodPagedSource::NodeRecord *p_records, uint32_t p_count) {
+	memset(p_page, 0, kIndexPageBytes);
+	for (uint32_t k = 0; k < p_count; ++k) {
+		const GaussianSplatHlodPagedSource::NodeRecord &r = p_records[k];
+		Out o(p_page + kIndexPageHeaderBytes + size_t(k) * kIndexRecordBytes);
+		write_node_topology(o, r.topology);
+		o.f64(r.metrics.footprint);
+		o.u32(r.metrics.dc_encoding);
+		o.u32((r.metrics.homogeneous_dc ? kNodeHomogeneousDc : 0u) | (r.metrics.center_exact ? kNodeCenterExact : 0u));
+		o.u64(0u);
+		o.u64(r.offset);
+		o.u64(r.stored_bytes);
+		o.u64(r.extent_bytes);
+		o.skip_to(192);
+		o.bytes(r.digest, 32);
+	}
+	Out head(p_page);
+	head.u32(kIndexPageMagic);
+	head.u32(p_page_index);
+	head.u32(p_page_index * uint32_t(kRecordsPerIndexPage));
+	head.u32(p_count);
+	sha256(p_page + kIndexPageHeaderBytes, size_t(p_count) * kIndexRecordBytes, p_page + 32);
+}
+
+namespace {
 
 // Fills `r_h` from a verified-digest header page. Distinct reasons per violated rule.
 Error parse_header(const uint8_t *p_page, uint64_t p_file_len, HeaderFields &r_h, String &r_reason) {
@@ -952,20 +976,7 @@ Error GaussianSplatHlodPagedSource::write_package(const GaussianSplatWorld &p_wo
 				sh_buf[size_t(j) * high + k] = sh[k];
 			}
 		}
-		memset(r_head, 0, kPayloadRecordHeaderBytes);
-		Out o(r_head);
-		uint64_t g_bytes, s_bytes, total;
-		record_stored_bytes(count, high, g_bytes, s_bytes, total);
-		o.u32(kRecordMagic);
-		o.u32(i);
-		o.u32(count);
-		o.u32(high);
-		o.u64(g_bytes);
-		o.u64(s_bytes);
-		o.u64(h.content_generation);
-		o.u64(r.topology.payload_first);
-		o.u32(GAUSSIAN_STRUCT_LAYOUT_VERSION);
-		return true;
+		return write_payload_header(r_head, i, r, high, h.content_generation);
 	};
 
 	// Pass 1: content generation = hash of the identity fields and every node's body digest. Known before any
@@ -1071,29 +1082,9 @@ Error GaussianSplatHlodPagedSource::write_package(const GaussianSplatWorld &p_wo
 		}
 		for (uint64_t pi = 0; pi < h.index_page_count; ++pi) {
 			uint8_t *p = page.ptrw();
-			memset(p, 0, kIndexPageBytes);
 			const uint64_t first = pi * kRecordsPerIndexPage;
 			const uint32_t in_page = uint32_t(MIN<uint64_t>(kRecordsPerIndexPage, uint64_t(node_count) - first));
-			for (uint32_t k = 0; k < in_page; ++k) {
-				const NodeRecord &r = records[uint32_t(first) + k];
-				Out o(p + kIndexPageHeaderBytes + size_t(k) * kIndexRecordBytes);
-				write_node_topology(o, r.topology);
-				o.f64(r.metrics.footprint);
-				o.u32(r.metrics.dc_encoding);
-				o.u32((r.metrics.homogeneous_dc ? kNodeHomogeneousDc : 0u) | (r.metrics.center_exact ? kNodeCenterExact : 0u));
-				o.u64(0u);
-				o.u64(r.offset);
-				o.u64(r.stored_bytes);
-				o.u64(r.extent_bytes);
-				o.skip_to(192);
-				o.bytes(r.digest, 32);
-			}
-			Out head_out(p);
-			head_out.u32(kIndexPageMagic);
-			head_out.u32(uint32_t(pi));
-			head_out.u32(uint32_t(first));
-			head_out.u32(in_page);
-			sha256(p + kIndexPageHeaderBytes, size_t(in_page) * kIndexRecordBytes, p + 32);
+			write_index_page(p, uint32_t(pi), records.ptr() + first, in_page);
 			memcpy(page_digests.ptr() + pi * 32u, p + 32, 32);
 			file->seek(h.index_offset + pi * kIndexPageBytes);
 			file->store_buffer(p, kIndexPageBytes);

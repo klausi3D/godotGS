@@ -3,8 +3,7 @@
 #include "gaussian_splat_world_paged.h"
 #include "gs_world_writer.h"
 
-// BV-18a contract only; the implementation is deliberately unavailable in this
-// tests-first change. PAGED_V4 uses the existing V4 identity and uncompressed
+// BV-18a out-of-core writer. PAGED_V4 uses the existing V4 identity and uncompressed
 // output records. CodecParams selects scratch encoding, NOT a V4 codec field
 // (BV-C4). W13 post-assembly verification belongs to BV-18b.
 //
@@ -22,10 +21,16 @@
 // any pre-existing destination byte-intact. Delete each segment immediately
 // after copying its last body. A crash mid-assembly is NOT resumable: the cache
 // owner must sweep orphan files and re-bake. The writer owns only its files.
+// Like the plain writer, this inherits GSAtomicFileTransaction's POSIX caveat:
+// a directory-fsync error after rename reports a durability failure with the
+// new destination already in place; it cannot roll back the atomic replace.
 //
 // Limits retain the plain writer's required fields and reasons: limits_unset,
 // limit_scratch, limit_output, limit_ram, deadline (ERR_TIMEOUT), cancelled
 // (ERR_SKIP). Check stop requests within <= 1 MiB of I/O and before commit.
+// RAM admission conservatively includes serialization buffers and codec working
+// contexts. Metadata cycles and Object/Callable/Signal values are refused before
+// JSON stringification: arbitrary user-code stringification has no memory bound.
 // One driving thread; only request_cancel/get_progress may cross threads.
 namespace gs_world_writer {
 
@@ -96,7 +101,7 @@ struct V4Report {
 
 class WriterV4 {
 public:
-	WriterV4() = default;
+	WriterV4();
 	~WriterV4();
 	WriterV4(const WriterV4 &) = delete;
 	WriterV4 &operator=(const WriterV4 &) = delete;
@@ -135,7 +140,14 @@ public:
 #endif
 
 private:
-	Error _not_implemented();
+	struct Impl;
+	Impl *impl = nullptr;
+	void _cleanup();
+	Error _fail(Error p_error, const String &p_reason);
+	Error _check_stop();
+	Error _check_ram(uint64_t p_body_bytes = 0, uint32_t p_extra_records = 0);
+	Error _write(GSAtomicFileTransaction &p_file, const uint8_t *p_bytes, uint64_t p_size, bool p_scratch);
+	Error _read(GSAtomicFileTransaction &p_file, uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size);
 	V4Report report;
 };
 

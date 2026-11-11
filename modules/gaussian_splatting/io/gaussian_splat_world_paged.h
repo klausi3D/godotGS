@@ -77,6 +77,34 @@ struct NodeMetrics {
 	bool center_exact = true;
 };
 
+// Shared V4 serialization. Callers validate layout/counts before encoding.
+struct HeaderFields {
+	uint32_t flags = 0u;
+	uint32_t leaf = 0u;
+	uint32_t interior = 0u;
+	uint32_t node_count = 0u;
+	uint32_t sh_degree = 0u;
+	uint32_t sh_first_order = 0u;
+	uint32_t sh_high_order = 0u;
+	uint32_t bake_rule = 0u;
+	double origin[3] = { 0.0, 0.0, 0.0 };
+	Vector3 bounds_pos;
+	Vector3 bounds_size;
+	uint64_t index_offset = 0u;
+	uint64_t index_page_count = 0u;
+	uint64_t payload_offset = 0u;
+	uint64_t payload_bytes = 0u;
+	uint64_t metadata_offset = 0u;
+	uint64_t metadata_size = 0u;
+	uint64_t file_bytes = 0u;
+	uint64_t content_generation = 0u;
+	uint8_t index_digest[32] = {};
+	uint8_t metadata_digest[32] = {};
+};
+
+void write_header(uint8_t *p_page, const HeaderFields &p_header);
+bool record_stored_bytes(uint32_t p_count, uint32_t p_high_order, uint64_t &r_gaussian, uint64_t &r_sh, uint64_t &r_total);
+
 // Single definition of the metrics (writer and reader-side verification share it). Fails closed on a
 // non-finite or negative scale / overflowing footprint; r_reason is a distinct string.
 bool compute_node_metrics(const Gaussian *p_gaussians, uint32_t p_count, const double p_cell_center[3],
@@ -169,5 +197,13 @@ private:
 	mutable std::atomic<uint64_t> stat_failures{ 0u };
 	mutable std::atomic<uint64_t> stat_largest{ 0u };
 };
+
+namespace gs_world_paged {
+// p_page holds kIndexPageBytes; p_records contains the next 1..255 records.
+void write_index_page(uint8_t *p_page, uint32_t p_page_index, const GaussianSplatHlodPagedSource::NodeRecord *p_records, uint32_t p_count);
+// p_header holds kPayloadRecordHeaderBytes. Returns false on size overflow.
+bool write_payload_header(uint8_t *p_header, uint32_t p_index, const GaussianSplatHlodPagedSource::NodeRecord &p_record,
+		uint32_t p_high_order, uint64_t p_content_generation);
+} // namespace gs_world_paged
 
 #endif // GAUSSIAN_SPLAT_WORLD_PAGED_H
