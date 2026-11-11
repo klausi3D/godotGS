@@ -313,7 +313,11 @@ static bool _republish_instance_sort_buffers_if_changed(GaussianSplatRenderer *p
 	if (after.valid && after.capacity > 0 && buffers.max_visible_splats > after.capacity) {
 		// Same clamp the publishers apply: never let the depth pass write past the sort buffers.
 		buffers.max_visible_splats = after.capacity;
-		buffers.max_visible_chunks = MIN<uint32_t>(buffers.max_visible_chunks, buffers.max_visible_splats);
+		// A relative HLOD draw list is already selected. Keep every entry so excess splats reach the depth/count
+		// clamp and raise instance_count_overflow_events; truncating the list here would drop them silently.
+		if (!buffers.hlod_relative) {
+			buffers.max_visible_chunks = MIN<uint32_t>(buffers.max_visible_chunks, buffers.max_visible_splats);
+		}
 	}
 	// Republish under the contract's own remap / policy / source generation.
 	p_renderer->set_instance_pipeline_buffers(buffers);

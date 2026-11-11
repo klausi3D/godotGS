@@ -1286,7 +1286,8 @@ Contracts implemented:
 - **First frame, any camera.** A paged world has no canonical payload, so nothing draws while the HLOD route waits for what
   every other world gets from its first composited canonical frame (tile output targets and overlap storage, the
   compositor scratch ledger, the sort capacity). They are provisioned explicitly, without drawing
-  (`TileRenderer::provision_hlod_route`, `OutputCompositor::ensure_hlod_scratch`, sorter sized from the known leaf count),
+  (`TileRenderer::provision_hlod_route`, `OutputCompositor::ensure_hlod_scratch`, sorter sized from the bounded
+  world + instance draw budget, `gs_hlod_bundle::relative_capacity`, since #1417),
   so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
   canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
   point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
@@ -1330,8 +1331,9 @@ Contracts implemented:
 Not in E1 (deferred): lazy loading of index pages and a bounded bootstrap directory (E1 reads the whole index at open, at
 most 256 B per node, then validates it); early coarse startup; out-of-core preparation (the converter needs the resident
 world); leaf ranges; instanced trees; editor import of V4 (the importer refuses version 4, load the file directly); a
-sort/tile scratch that no longer scales with the whole tree (GPU memory is unchanged by E1); physical 100 km / 200M
-acceptance (§15.3 step 3).
+sort/tile scratch that no longer scales with the whole tree (GPU memory was unchanged by E1; #1417 subsequently
+bounded streamed/paged splat-sort capacity by the drawn budget, leaving tile overlap storage unchanged); physical
+100 km / 200M acceptance (§15.3 step 3).
 
 ### 14.5 Persistent edits in a reserved active area
 

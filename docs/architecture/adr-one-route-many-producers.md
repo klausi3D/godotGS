@@ -227,7 +227,9 @@ loading never blanks the objects, and BV ADR I-4 (complete-or-nothing) holds **p
     - The world keeps its floor `F` and keeps drawing.
     - Objects are never dropped as a group just because one of them does not fit: objects come first
       (decision 3). Stated per-object priorities that override the importance order are F3.
-  - The sort capacity is `max(leaf_count, capacity)` (`:1685`) plus the instance capacity.
+  - Streamed/paged bundles size the sorter from `gs_hlod_bundle::relative_capacity`, the world + admitted-instance
+    draw budget bounded by `max_splats` and the view cap (#1417). Whole-tree bundles retain
+    `max(canonical_capacity, relative_capacity)` because they can also sort every leaf and every row's asset.
 - **The value of `F`** is set and justified in PR1b. Exposing it as a project setting is a settings
   change and is R3 (F3); PR1b may ship it as a named constant.
 
