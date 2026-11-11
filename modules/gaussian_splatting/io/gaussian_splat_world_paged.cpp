@@ -102,6 +102,14 @@ bool record_stored_bytes(uint32_t p_count, uint32_t p_high_order, uint64_t &r_ga
 	return add_u64(kPayloadRecordHeaderBytes, r_gaussian, partial) && add_u64(partial, r_sh, r_total);
 }
 
+void reconstruct_leaf_positions(Gaussian *p_gaussians, uint32_t p_count, const double p_cell_center[3]) {
+	for (uint32_t i = 0; i < p_count; ++i) {
+		const Vector3 &p = p_gaussians[i].position;
+		p_gaussians[i].position = Vector3(real_t(double(p.x) + p_cell_center[0]), real_t(double(p.y) + p_cell_center[1]),
+				real_t(double(p.z) + p_cell_center[2]));
+	}
+}
+
 bool compute_node_metrics(const Gaussian *p_gaussians, uint32_t p_count, const double p_cell_center[3],
 		bool p_is_leaf, NodeMetrics &r_metrics, String &r_reason) {
 	r_metrics = NodeMetrics();
@@ -844,12 +852,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 		return ERR_FILE_CORRUPT;
 	}
 	if (rec.is_leaf) {
-		Gaussian *g = r_gaussians.ptrw();
-		for (uint32_t i = 0; i < count; ++i) {
-			const Vector3 &p = g[i].position;
-			g[i].position = Vector3(real_t(double(p.x) + rec.cell_center[0]), real_t(double(p.y) + rec.cell_center[1]),
-					real_t(double(p.z) + rec.cell_center[2]));
-		}
+		reconstruct_leaf_positions(r_gaussians.ptrw(), count, rec.cell_center);
 	}
 	NodeMetrics metrics;
 	if (!compute_node_metrics(r_gaussians.ptr(), count, rec.cell_center, rec.is_leaf, metrics, why)) {

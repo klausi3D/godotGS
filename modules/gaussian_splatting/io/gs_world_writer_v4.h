@@ -14,8 +14,12 @@
 // or read during assembly. Closed files remain owned until deletion/cleanup.
 // Scratch is not fsynced or committed; only the final output is durable.
 // GSQ pages preserve node order, are encoded, decoded and validated
-// before append (W12/W14); metrics describe that decoded runtime form. Codec
-// none spills losslessly. Finalization derives depth/centre/leaf from topology,
+// before append (W12/W14). Leaf metrics describe the reader's reconstruction
+// after node-relative serialization; interior metrics use the decoded form.
+// As in write_package (D-7), inexact centre reconstruction on that runtime
+// form refuses with ERR_UNAVAILABLE / v4_center_reconstruction_not_exact;
+// failure removes all owned scratch files and preserves the destination.
+// Codec none spills losslessly. Finalization derives depth/centre/leaf from topology,
 // reuses gs_hlod_validate_tree, requires canonical BFS and exactly one use of
 // every handle, and writes bodies in BFS order. content_generation uses digests
 // of the actual V4 output bodies (node-relative, uncompressed until BV-C4).
@@ -79,7 +83,7 @@ struct V4Node {
 struct V4SpillRecord {
 	V4BodyDesc desc;
 	uint32_t splat_count = 0;
-	gs_world_paged::NodeMetrics metrics;
+	gs_world_paged::NodeMetrics metrics; // Output reader runtime form, including leaf position round trip.
 	String segment_path;
 	uint64_t offset = 0; // Stored body range within segment_path.
 	uint64_t stored_bytes = 0;

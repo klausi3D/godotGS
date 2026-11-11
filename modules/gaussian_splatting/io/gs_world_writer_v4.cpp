@@ -970,12 +970,6 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	Impl::Spill spill;
 	spill.record.desc = p_desc;
 	spill.record.splat_count = p_count;
-	if (!compute_node_metrics(decoded.ptr(), p_count, p_desc.cell_center, p_desc.is_leaf, spill.record.metrics, reason)) {
-		return _fail(ERR_INVALID_DATA, reason);
-	}
-	if (!spill.record.metrics.center_exact) {
-		return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
-	}
 	if (impl->codec.codec_id == kCodecGsqV1) {
 		spill.record.stored_bytes = page.size();
 		hash_bytes(page.ptr(), page.size(), spill.record.stored_digest);
@@ -985,6 +979,23 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	}
 	make_relative(decoded.ptrw(), p_count, p_desc);
 	hash_body(decoded.ptr(), sh.ptr(), p_count, high, spill.record.output_body_digest);
+	if (p_desc.is_leaf) {
+		// Hash the actual stored output bytes BEFORE reconstructing. Never
+		// serialize this reconstructed copy again: a second round trip can move
+		// positions further. Assembly still starts from the original spill body.
+		reconstruct_leaf_positions(decoded.ptrw(), p_count, p_desc.cell_center);
+		if (!finite_body(decoded.ptr(), sh.ptr(), p_count, high)) {
+			return _fail(ERR_INVALID_DATA, "v4_nonfinite_body");
+		}
+	}
+	// D-7: use the same runtime form and refusal as write_package. A leaf's
+	// input-form center_exact can be true even when this round trip is inexact.
+	if (!compute_node_metrics(decoded.ptr(), p_count, p_desc.cell_center, p_desc.is_leaf, spill.record.metrics, reason)) {
+		return _fail(ERR_INVALID_DATA, reason);
+	}
+	if (!spill.record.metrics.center_exact) {
+		return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
+	}
 	if ((err = _check_stop()) != OK) {
 		return err;
 	}

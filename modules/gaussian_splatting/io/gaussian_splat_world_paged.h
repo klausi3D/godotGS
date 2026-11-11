@@ -105,6 +105,11 @@ struct HeaderFields {
 void write_header(uint8_t *p_page, const HeaderFields &p_header);
 bool record_stored_bytes(uint32_t p_count, uint32_t p_high_order, uint64_t &r_gaussian, uint64_t &r_sh, uint64_t &r_total);
 
+// The V4 reader's node-relative -> absolute conversion for leaves. Writers use
+// this on serialized positions before computing the metrics promised by the index.
+// Interior payloads remain node-relative and must not pass through this helper.
+void reconstruct_leaf_positions(Gaussian *p_gaussians, uint32_t p_count, const double p_cell_center[3]);
+
 // Single definition of the metrics (writer and reader-side verification share it). Fails closed on a
 // non-finite or negative scale / overflowing footprint; r_reason is a distinct string.
 bool compute_node_metrics(const Gaussian *p_gaussians, uint32_t p_count, const double p_cell_center[3],
