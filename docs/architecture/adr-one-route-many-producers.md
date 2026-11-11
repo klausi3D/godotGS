@@ -560,10 +560,12 @@ Splat shadows on the one route (I-03) are the shadow track, CLN-LT02.
 - **Source:** an architecture review of the D-2 backend question, written on 2026-11-10 against
   `91cdcd1e4f9` (code and ADR reading only; no build, GPU run or test run). The review is a
   working note outside the repository; the decision and its reasons are recorded here.
-- **Base:** every `file:line` in this section was re-read at `91cdcd1e4f9` (origin/master).
-- **Evidence status:** no claim in this section rests on a CI or GPU-lane run. The one local
-  measurement quoted in §12.6.4 is marked **[M]** with its source. Statements about runtime
-  behaviour that are not a direct reading of code are marked **[inference]**.
+- **Base:** code `file:line` citations in this section were re-verified for D2-0 at
+  `316cf0178b3d1964f81e72005f0ae07f21f65b20`.
+- **Evidence status:** the D2 amendment in §12.6.6 records the owner-supplied lane result; the
+  local measurement in §12.6.4 is marked **[M]** with its source. D2-0 runs no build or GPU lane.
+  Statements about runtime behaviour that are not a direct reading of code are marked
+  **[inference]**; acceptance of the design is not implementation or rendering evidence.
 
 #### 12.6.1 Decision
 
@@ -601,11 +603,17 @@ the layers in item 2; they stay and move under the one route.
 
 #### 12.6.3 Tree-less (flat) worlds reach the route through an automatically built tree
 
-Tree-less worlds reach the one route through an **automatically built cheap tree**: its interior
-nodes are importance-prefix selections of their children, with no error raster. The HLOD ADR's
-`selected` candidate already defines this as "a copy of prefixes, O(node size)" of the leaves'
-importance-ordered payloads (`docs/architecture/adr-hlod-streaming.md:504-509`). Quality is lower
-than the full bake; the full bake stays the shipping path.
+Tree-less worlds reach the one route through an **automatically built rule-1 tree**. D2 builds it
+offline in the producer binary from the plain-GSQ file, using a tiled `sat` merge of children's
+payloads for interior nodes, with no error raster. This supersedes importance-prefix selection
+(owner decision, §12.6.6). Rule 1 is the existing merge-only identity
+(`core/gaussian_splat_hlod_tree.h:57-69`); the merge defines the geometric error and needs only
+child payloads (`core/gaussian_splat_hlod_merge.h:190-200`), so stitching needs no descendant-leaf
+prefix reads. The full rule-3 quality bake stays the shipping path, but is not required for M3.
+
+The input chunks are re-cut into fixed-lattice octree leaves; GSQ chunks are not reused as
+leaves. The output is a separate ordinary V4 GSQ package plus a sidecar manifest, leaving the
+plain input unchanged. D2 builds neither from the generator nor during import or runtime.
 
 **Not a leaves-only degenerate cut**, for these reasons, read from the contracts
 **[inference, not run]**:
@@ -625,7 +633,8 @@ than the full bake; the full bake stays the shipping path.
 
 A leaves-only cut is used only if a CPU-only spike (the selector over a one-level tree with Tier
 A's leaf table at the eight checkpoint poses) shows that it publishes a complete cut within budget
-at every Tier A checkpoint.
+at every Tier A checkpoint. This leaves-only S1 control runs within D2-4 alongside the auto-tree
+oracle cut; its outcome is pending, not inferred from the contracts above.
 
 #### 12.6.4 Migration order and milestones
 
@@ -649,9 +658,10 @@ program on the chunk route with a gate repair and one frozen reference run.
        common page store, a bounded ready queue, worker and upload sizing, decode telemetry.
        Proven on T0 against the same T0 on the chunk route.
     2. The HLOD route scales: the cap blockers in §12.6.5.
-    3. Out-of-core writer and tiled bake, then the automatic tree for tree-less input.
-    4. **M3 = Tier A on the one route**, measured against the frozen reference of step 2, also in
-       GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep their thresholds. G6 and G6t are
+    3. Out-of-core writer and tiled rule-1 auto tree for tree-less input (D2-0–D2-5; §12.6.6).
+    4. **M3 = Tier A auto tree on the one route**, after #1417 is fixed, measured against the
+       frozen reference of step 2, also in GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep
+       their thresholds. G6 and G6t are
        re-registered with a settle definition for a cut and are not looser than the reference
        without an owner disposition. That re-registration is its own PR under the BV ADR §8.4
        guard; this section changes no threshold or gate.
@@ -675,9 +685,10 @@ gates:
 - Content ends at the lane's 400 m far plane ([Worlds beyond VRAM](adr-beyond-vram-worlds.md) G-c).
 - Each chunk switches LOD level directly from its distance, with no hysteresis
   (`core/streaming_visibility_controller.cpp:943-949`).
-- The settle oracle counts queued and in-flight chunks as served: a needed chunk is unserved only
-  if it is not resident, not loaded and not upload-pending (`core/gaussian_streaming.cpp:3559`).
-  It is checked only at the eight stops.
+- At the time of that diagnosis, the settle oracle counted queued and in-flight chunks as
+  served and was checked only at the eight stops. The legacy condition remains at
+  `core/gaussian_streaming.cpp:3573-3574`; the current GPU-residency measure is separate
+  (`core/gaussian_streaming.cpp:3555-3571`).
 - G11 compares against a reference at the same LOD, and G11h covers the HLOD arm only.
 
 A full M2 program on top of these gates would certify the defects it cannot see.
@@ -695,7 +706,7 @@ candidate refused above it at `:2245`). Raising them is blocked by:
   `uint16_t(p_node)` as the quantized chunk id with no range check, into the `uint16_t chunk_id`
   of `PackedGaussianQuantized` (`renderer/gaussian_gpu_layout.h:389`). It is safe only while the
   node cap is 32,768; above 65,535 nodes the id truncates silently **[inference]**. The chunk
-  route refuses the same case explicitly (`core/gaussian_streaming.cpp:4278-4283`). The PR that
+  route refuses the same case explicitly (`core/gaussian_streaming.cpp:4293-4299`). The PR that
   raises the node bound adds a guard and boundary tests at 65,535 / 65,536. Refs #1413.
 - **Per-frame O(N) in `NodeResidency`.** Eviction candidates, stale-load cancel and stats loop
   over every node (`lod/hlod_node_residency.cpp:179`, `:223`, `:285`, `:545`, `:558`); BV-15.
@@ -715,6 +726,48 @@ candidate refused above it at `:2245`). Raising them is blocked by:
 Risks at scale that do not block the caps but must be watched before M3: no cross-fade
 (`DrawnNodeGPU::fade` is "written as 1.0 and not read yet", `renderer/gaussian_gpu_layout.h:272`),
 and no compaction (`fragmented_groups`, `lod/hlod_node_residency.h:141`).
+
+#### 12.6.6 D2 amendment: owner decisions (2026-11-11)
+
+**Accepted by the owner, verbatim:** "das passt starte das bitte so".
+The decision accepts Q1–Q7 of §9.2 of the external design source
+`Z:/docs-remediation-notes/architecture-2026-11-10/D2_AUTO_TREE_DESIGN.md`, read in full for D2-0.
+The accepted decisions are recorded here so the working note is not needed to interpret them:
+
+| Question | Accepted decision |
+| --- | --- |
+| **Q1 — interior rule** | Rule-1 `sat` merge, not importance-prefix selection. Thinning causes today's far-field holes; merging preserves coverage, supplies the cut's geometric error and permits a local stitch from tile-root payloads. No new bake rule or error raster. |
+| **Q2 — M3 world** | The auto tree is **the Tier A world for M3**. A rule-3 quality bake of Tier A is not required for M3. |
+| **Q3 — plain cache** | Accept **one batched re-prime of the plain worlds** if BV-18a/BV-C4 must edit `gs_world_writer.*` or `gaussian_splat_world_format.h`. Prefer separate auto-tree sources and `TREE_SOURCES`; do not evade source-fingerprint invalidation. |
+| **Q4 — runner prime** | **90 min** deadline, **20 GiB RAM**, **12 GiB scratch**, **12 GiB output**, **12–24 workers**. The bounded-job contract and remaining manifest requirements are in [HLOD streaming §15.2](adr-hlod-streaming.md#152-bounded-job-contract). |
+| **Q5 — import** | An auto tree at import for `res://` paged-GSQ worlds comes later and is outside D2. |
+| **Q6 — identity** | Pin bake digests **per toolchain**, with portable tiled-versus-in-core identity tests as the proof; do not claim cross-platform bake byte identity. |
+| **Q7 — leaves-only** | Run the leaves-only S1 check **within D2-4**, at the eight Tier A checkpoint poses with the frozen drawn budget. |
+
+**Reason for replacing prefix selection.** Today's chunk route draws far chunks as
+importance-thinned prefixes, the same mechanism as importance-prefix selection. That thinning
+is what opens today's far-field holes, as measured in
+[lane run 43001272885](https://github.com/klausi3D/godotGS/actions/runs/43001272885)
+(G16: needed chunk not GPU-resident in **51.49 % of moving frames**;
+**drawn < 0.5 × expected in 4492 of 4614 samples**) **[M, owner-supplied lane result]**.
+The HLOD ADR's measurement supports the mechanism: "Uniform thinning (C) loses coverage" and
+"the grass patch becomes a see-through speckle"
+(`docs/architecture/adr-hlod-streaming.md:208-210`, re-verified in the current tree;
+[HLOD streaming §5.2](adr-hlod-streaming.md#52-image-quality-at-equal-budget-region-of-change-crop-psnr-db-ssim)).
+Repeating thinning in auto-tree parents would retain that cause of holes; this is why the owner
+chose the rule-1 `sat` merge. The decision and lane result do not yet prove that the future auto
+tree renders correctly.
+Distant vegetation can become softer with `sat`; M3 must still provide screenshots and the
+repaired gates' drawn-fraction evidence against the frozen chunk-route reference.
+
+The dependency-ordered **D2-0–D2-5 PR split** and required evidence are recorded in
+[Worlds beyond VRAM §10, P3](adr-beyond-vram-worlds.md#p3-hlod-at-scale-m3).
+BV-18a/b supply out-of-core V4 writing and W13; **BV-C4 is required for Tier A** (uncompressed
+V4 is too large). D2-1/2 can proceed alongside that writer/codec work. Loading and streaming
+Tier A for M3 additionally need D1's shared layers and cap work, including BV-16a, and
+**[#1417](https://github.com/klausi3D/godotGS/issues/1417) must be fixed before M3**.
+D2's CPU preparation and oracle checks alone make no rendering claim. This R0 amendment
+changes no code, workflow, guard, threshold or runtime acceptance gate.
 
 #### Owner decision (Option D)
 

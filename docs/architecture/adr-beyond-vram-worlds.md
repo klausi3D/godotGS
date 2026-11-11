@@ -156,8 +156,8 @@ queues. This is invariant I-11.
   chunk worlds become degenerate-node demand on it, and the chunk streamer's primary atlas,
   allocator and regulator are retired.
   *Amended 2026-11-11: Step A ends at the frozen chunk-route reference run, which replaces M2; Step C merges into Step B, and
-  tree-less worlds get an automatic tree instead of degenerate-node demand (see the 2026-11-11
-  amendment).*
+  tree-less worlds get an offline tiled rule-1 `sat` auto tree from plain GSQ instead of
+  degenerate-node demand (see the 2026-11-11 D2 amendment).*
 
 | Alternative | Why rejected |
 |---|---|
@@ -1447,6 +1447,29 @@ G16 judges the moving rows and the checkpoints' drawn fraction (§8.3).
 
 ### P3: HLOD at scale → **M3**
 
+**D2 amendment (owner, 2026-11-11).** The D2 split below supersedes BV-20a–d / BV-21a as the
+rule-1 auto-tree path to M3; their rule-3 quality-bake extras remain separate work and are not
+required for M3. BV-20c's descendant-leaf prefix reads are unnecessary for rule-1 stitching.
+For M3, BV-21b consumes D2-5's primed Tier A auto tree in place of BV-21a, retaining its other
+dependencies. The original BV-20/BV-21a rows remain below as the quality-bake plan, not a second
+M3 bake requirement. D2 supplies content; BV-21b and D1 supply the runtime integration and evidence.
+
+| PR | Scope | Class | Dependencies | Required evidence (planned, not run by D2-0) |
+| --- | --- | --- | --- | --- |
+| **D2-0** | ADR amendment: accepted Q1–Q7, rule-1 auto tree and PR split | R0 | Owner decision | Verbatim owner decision; documentation and citation checks. |
+| **D2-1** | Forced-root subtree mode in `bake_world`; admit `MERGE_ONLY` offline jobs with frozen parameters, retaining rule identity 1 | R3 | D2-0 | Forced-root subtree equals in-core subtree on holzbank, baum3 and synthetic 1M input; RAM, node, deadline and cancellation controls fail closed; existing bake doctests unchanged. Host-only. |
+| **D2-2** | `TiledAutoTree` in new files: histogram/frontier, reservation admission, N-worker tile bakes, stitch and canonical BFS in-memory assembly | R3 | D2-1 | Tiled equals in-core `MERGE_ONLY` on ≤ 1M worlds with `B_max` 64k and multi-level stitching; 1 versus 8 workers byte-identical; shuffled tile-input order must fail identity. Host-only. |
+| **D2-3** | GSQ chunk adapter with decoded-digest verification; V4 GSQ output, `tree_sha` sidecar, bound build API and class docs | R3 | D2-2, BV-18a/b, BV-C4 for GSQ | T0 plain GSQ → V4 GSQ → paged open + W13; per-node decoded digest matches encode/decode of in-core bake on ≤ 1M subset; old-reader refusal from BV-C4; T0 peak RSS and wall time. Uncompressed T0 identity can precede BV-C4. |
+| **D2-4** | `build_auto_tree.{py,gd}`, job manifest/report; Tier A workstation build (runner if possible); eight-pose oracle and leaves-only S1 control | R2 (planned; final changed paths determine class) | D2-3, BV-C4; frozen drawn budget (BV-26a) | Wall time, peak RSS, scratch/output bytes, node count, height and per-level eps; repeated same-toolchain builds have identical `content_generation` and SHA; auto-tree cut COMPLETE and drawn ≤ budget at all eight poses; report leaves-only control result. CPU-only, no GPU claim. |
+| **D2-5** | Lane `A-v4_gsq_auto` key with `TREE_SOURCES`, prime step, cache-check and V4 manifest verifier | R3 | D2-4, existing prime infrastructure (BV-06b) | Runner prime id/timings; tree-source edit stales only tree key, generator-source edit stales both, corrupt record fails verification; extend cache/dispatch tests. |
+
+BV-18a/b and BV-C4 can proceed alongside D2-1/2. **BV-C4 is needed before Tier A output**:
+uncompressed V4 is estimated at 78–87 GB, beyond the approved world cache; until then use T0
+or smaller worlds. M3 additionally needs D1 (shared read/decode layers and HLOD cap work,
+including BV-16a), BV-21b's runtime dependencies, and **#1417 fixed before M3**. The auto tree
+is the Tier A world for M3; no rule-3 Tier A bake is required. No D2 preparation PR proves
+rendering; M3 compares the one route with the frozen chunk-route reference and repaired gates.
+
 | # | PR | Class | Deps | Eff. |
 |---|---|---|---|---|
 | ★BV-15 | `NodeResidency` with no per-frame O(N); scaling test | R2 | — | 3–5 |
@@ -1466,7 +1489,7 @@ G16 judges the moving rows and the checkpoints' drawn fraction (§8.3).
 | ★BV-26a | Freeze `drawn_budget_splats` (D-4 rule, from M1/M1c F/k), τ, SH bands in `settings` **before any HLOD data** | R3 | 09, 16c, M1c | 0.5–1 |
 | ★BV-21a | Prime job: V4 GSQ bake on the runner, `gen_sha + bake_sha` key, quarantine | R3 | 20d, C4, 06b | 2 |
 | ★BV-21b | Lane HLOD arm; oracle cuts (A); G3, G10h, G11h hard; P1, G11q calibrating | R3 | 21a, 15, 17, 25, 26a | 2–3 |
-| **M3** | **First HLOD-at-scale physical run: Tier A V4 GSQ (≈ 8–9 GiB, 201M SH3) on the 3080**, also run in GS-COMBINED-1 variant B once that gate exists | | | |
+| **M3** | **First HLOD-at-scale physical run: Tier A rule-1 auto tree, V4 GSQ (201M SH3 leaves) on the 3080**, after D1, D2-5, BV-21b and #1417; also run in GS-COMBINED-1 variant B once that gate exists | | | |
 
 ### P4: frame targets on both devices → **M4**
 
@@ -1774,14 +1797,14 @@ route rather than patched on the chunk route.
   and 2 above, except for their route-neutral parts. M3 is measured against the frozen
   reference.
 - **D-1 steps.** Step A ends at the frozen chunk-route reference run. Step C merges into Step B: "primary chunk
-  worlds become degenerate-node demand" becomes "tree-less worlds get an automatic tree at import
-  or prime; there is no chunk-visibility producer". The automatic tree's interior nodes are
-  importance-prefix selections of their children, with no error raster; a leaves-only cut is not
-  the plan, for the reasons in §12.6.3 of the one-route ADR.
+  worlds become degenerate-node demand" becomes "tree-less worlds get an offline automatic tree
+  from plain GSQ; there is no chunk-visibility producer". As amended by D2 below, interior nodes
+  use rule-1 `sat` merge, with no error raster, replacing importance-prefix selection. A leaves-only
+  cut remains conditional on the S1 check in D2-4 (one-route ADR §12.6.3).
 - **D-2.** The plain-GSQ row's role becomes "flat reference arm until M3; afterwards an input
   format". The sentence "the flat arm stays the chunk route on the runner for the whole program.
   No 'leaves-only cut over V4' workaround … is needed" no longer holds. The plain-GSQ file is
-  unchanged; a node index may be added beside or behind it.
+  unchanged; D2 writes a separate V4 GSQ package and sidecar beside it.
 - **D-12 containers.** Add the option that a V4 node record names a run of pages in the BV-C5a
   page directory, so that flat and HLOD worlds share one page store, one reader and one decode
   path. It is decided in BV-C4, not here.
@@ -1802,6 +1825,35 @@ node id truncation on the quantized pack (Refs #1413).
 **No threshold or gate in G-d or §8 changes in this amendment.**
 
 ---
+
+## Owner decision recorded 2026-11-11: D2 auto tree for tree-less worlds
+
+**Owner decision, verbatim:** "das passt starte das bitte so". This accepts Q1–Q7 of the D2
+design; the complete decision record and the reason for replacing importance-prefix selection
+are in [One route, many demand producers §12.6.6](adr-one-route-many-producers.md#1266-d2-amendment-owner-decisions-2026-11-11).
+The design source is `Z:/docs-remediation-notes/architecture-2026-11-10/D2_AUTO_TREE_DESIGN.md`
+(§9.2); this amendment and §10's D2-0–D2-5 split record the accepted plan in the repository.
+
+- **D-1 / §10:** build offline in the producer binary from plain GSQ, re-cut leaves on the
+  lattice, merge interiors with rule-1 `sat`, and write ordinary V4 GSQ through BV-18a/b and
+  BV-C4. The auto tree is the Tier A world for M3; a rule-3 Tier A quality bake is not required.
+- **Cache / prime:** one batched re-prime of the plain worlds is accepted if BV-18a/BV-C4 must
+  edit `gs_world_writer.*` or `gaussian_splat_world_format.h`. Keep tree sources in a separate
+  `TREE_SOURCES` fingerprint and use `<gen_sha12>-<tree_sha12>` for `A-v4_gsq_auto`.
+  `tree_sha` includes tree/writer/codec sources, parameters, input digest and build identity
+  (binary kind and optimization). Publish the validated tree key atomically; a failed tree
+  build leaves the completed plain key intact. Source changes must still invalidate caches.
+- **Runner job limits:** 90 min deadline, 20 GiB RAM, 12 GiB scratch, 12 GiB output and
+  12–24 workers, under [HLOD streaming §15.2](adr-hlod-streaming.md#152-bounded-job-contract).
+- **Import scope:** auto-tree import for `res://` paged-GSQ worlds is later work, outside D2.
+- **Identity:** bake digests are pinned per toolchain; portable tiled-versus-in-core identity
+  tests provide the proof. Same-toolchain worker scheduling must not change output bytes;
+  no cross-platform bake-byte claim is made. The codec's own cross-platform contract stays.
+- **Leaves-only / M3:** D2-4 includes S1's eight-pose leaves-only control. BV-C4 is needed for
+  Tier A, and [#1417](https://github.com/klausi3D/godotGS/issues/1417) must be fixed before M3.
+
+This is a docs-only R0 decision record, not evidence that the tree or bounded-job enforcement
+exists. It changes no code, workflow, guard, threshold or runtime acceptance gate.
 
 ## Review history
 

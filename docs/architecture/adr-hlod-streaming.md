@@ -1613,6 +1613,36 @@ may resume only complete validated units with matching source and rule identitie
 first implementation has no resumable checkpoints, state that explicitly and restart into
 a new temporary output; never trust a partial package as a checkpoint.
 
+**D2 runner-prime amendment (2026-11-11).** The owner's verbatim decision,
+"das passt starte das bitte so", accepts the D2 rule-1 auto-tree recommendations, including
+these limits chosen before execution for the runner's allocation:
+
+| Resource | Accepted D2 runner-prime limit |
+| --- | --- |
+| Wall-time deadline | **90 min** |
+| Peak process RAM | **20 GiB** |
+| Scratch | **12 GiB** |
+| Output | **12 GiB** |
+| Workers | **12–24**; freeze the exact count in each job manifest, with reservation-based admission |
+
+These are the allocation for the offline tiled `sat` auto tree from plain GSQ, the Tier A
+world for M3. They are not measured capacity or a universal quality-bake allowance. A rule-3
+quality bake of Tier A is not required for M3. The design's lower time/space estimates remain
+unmeasured; exceeding a limit still fails the job. The remaining manifest fields above,
+including cancellation/drain deadline and live work/queue limits, must be frozen before a run;
+this amendment does not supply or waive them. D2-1 must add bounded `MERGE_ONLY` offline-job
+admission: the current implementation accepts only the frozen quality rule under an active
+offline job (`modules/gaussian_splatting/core/gaussian_splat_hlod_bake.cpp:248-252`, re-verified
+at `316cf0178b3d1964f81e72005f0ae07f21f65b20`). D2-0 is documentation only, not enforcement.
+
+Bake digests are pinned per toolchain with portable identity tests; import-time auto trees for
+`res://` paged-GSQ worlds remain outside D2. The full accepted Q1–Q7 record is in
+[One route, many demand producers §12.6.6](adr-one-route-many-producers.md#1266-d2-amendment-owner-decisions-2026-11-11),
+and the D2-0–D2-5 dependencies and evidence are in
+[Worlds beyond VRAM §10, P3](adr-beyond-vram-worlds.md#p3-hlod-at-scale-m3).
+This disposition leaves the rule-3 quality contract and runtime gates unchanged; CPU preparation
+and oracle-cut checks cannot satisfy M3 rendering acceptance.
+
 <a id="153-smallest-validation-sequence"></a>
 
 ### 15.3 Staged validation sequence
