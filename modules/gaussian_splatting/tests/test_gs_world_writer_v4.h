@@ -887,4 +887,6 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] abort and destructor remo
 			check_w1(paths, original);
 		}
 	}
+}
+
 } // namespace TestGSWorldWriterV4
