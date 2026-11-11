@@ -1615,10 +1615,11 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
     const uint32_t relative_capacity = gs_hlod_bundle::relative_capacity(input->leaf_count, get_performance_settings().max_splats, get_hlod_view_splat_cap(), region);
     const uint32_t canonical_capacity = gs_hlod_bundle::canonical_capacity(input->leaf_count, region);
     if (relative_capacity != state.hlod_relative_capacity || canonical_capacity != state.hlod_canonical_capacity) { return false; }
-    const SortBufferHandles sort = subsystem_state.sorting_pipeline->get_buffer_handles();
-    if (!sort.valid || sort.capacity < MAX(canonical_capacity, relative_capacity) ||
-            !rd->buffer_is_valid(sort.keys_buffer) || !rd->buffer_is_valid(sort.indices_buffer)) { return false; }
     const bool streaming = state.hlod_streaming;
+    const uint32_t sort_capacity = streaming ? relative_capacity : MAX(canonical_capacity, relative_capacity);
+    const SortBufferHandles sort = subsystem_state.sorting_pipeline->get_buffer_handles();
+    if (!sort.valid || sort.capacity < sort_capacity ||
+            !rd->buffer_is_valid(sort.keys_buffer) || !rd->buffer_is_valid(sort.indices_buffer)) { return false; }
     if (streaming && hlod_streaming_unsupported_reason(nullptr) != nullptr) { return false; } // Release; republish decides again.
     if (streaming && (state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
             state.hlod_streamer->get_residency().device_generation() != rd->get_device_instance_id() ||
@@ -2097,35 +2098,37 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint32_t position_bits = MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX);
     const uint32_t scale_bits = MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX);
     const bool quantize_scales = g_quantization_config.quantize_scales;
-    // One sort holds the world and the objects (PR1b): the canonical bundle sorts every leaf and every row's asset.
-    const uint32_t sort_capacity = MAX(canonical_capacity, relative_capacity);
-    SortBufferHandles existing_sort = subsystem_state.sorting_pipeline.is_valid() ? subsystem_state.sorting_pipeline->get_buffer_handles() : SortBufferHandles();
-    // An edited world suppresses the canonical publication too (it would publish the unedited copy), so it also sizes the sorter
-    // here instead of waiting for a canonical frame that never comes. So does a world with node rows: the canonical
-    // resident publication (with node instances it packs no world row) never sizes the sorter for the world's leaves.
-    if ((input->is_paged() || hlod_edit_committed_here() || region.row_splats != 0) && subsystem_state.sorting_pipeline.is_valid() &&
-            (!existing_sort.valid || existing_sort.capacity < sort_capacity) && !state.hlod_prepared_snapshot.is_valid()) {
-        // A paged world has no canonical atlas, so the canonical publication that sizes the sort buffers for every
-        // other world never runs. Its need is known here (every leaf may be sorted): size the sorter from it. No
-        // contract is published on the old handles, so nothing goes stale. The sort scratch still scales with the whole
-        // tree: GPU memory, not CPU payload memory, and not changed by E1.
-        if (sort_capacity > subsystem_state.sorting_pipeline->get_max_elements()) {
-            subsystem_state.sorting_pipeline->rebuild_sorter(sort_capacity);
+    // Choose the route BEFORE allocating sort storage: resident worlds can stream too. A streamed bundle owns no
+    // canonical atlas; its world + instance draw budget is relative_capacity, bounded by max_splats and the view cap:
+    // modules/gaussian_splatting/renderer/hlod_world_instances.h:224 (get_hlod_view_splat_cap() supplies the view cap).
+    // Whole-tree bundles still sort every leaf and every row's asset. Keep is_hlod_prepared_contract_current() in sync.
+    auto ensure_sort_capacity = [&](bool p_streaming, uint32_t p_capacity) {
+        SortBufferHandles existing_sort = subsystem_state.sorting_pipeline->get_buffer_handles();
+        // Streamed/edited worlds have no canonical publication to size their sort buffers. Node rows also need
+        // this publisher to size the combined world + objects domain, even for a whole-tree bundle.
+        if ((p_streaming || hlod_edit_committed_here() || region.row_splats != 0) &&
+                (!existing_sort.valid || existing_sort.capacity < p_capacity) && !state.hlod_prepared_snapshot.is_valid()) {
+            if (p_capacity > subsystem_state.sorting_pipeline->get_max_elements()) {
+                subsystem_state.sorting_pipeline->rebuild_sorter(p_capacity);
+            }
+            subsystem_state.sorting_pipeline->ensure_buffers(p_capacity);
+            existing_sort = subsystem_state.sorting_pipeline->get_buffer_handles();
         }
-        subsystem_state.sorting_pipeline->ensure_buffers(sort_capacity);
-        existing_sort = subsystem_state.sorting_pipeline->get_buffer_handles();
-    }
-    if (
+        if (
 #ifdef TESTS_ENABLED
-            test_hlod_publication_refuses(1) ||
+                test_hlod_publication_refuses(1) ||
 #endif
-            !existing_sort.valid || existing_sort.capacity < sort_capacity) {
-        state.hlod_reason = input->is_paged()
-                ? (!state.hlod_paged_provision_reason.is_empty() ? state.hlod_paged_provision_reason : String("hlod_paged_sort_allocation_failed"))
-                : (hlod_edit_committed_here() ? String("hlod_edit_sort_allocation_failed") : String("canonical_sort_capacity_warmup"));
-        return 0;
-    }
+                !existing_sort.valid || existing_sort.capacity < p_capacity) {
+            state.hlod_reason = input->is_paged()
+                    ? (!state.hlod_paged_provision_reason.is_empty() ? state.hlod_paged_provision_reason : String("hlod_paged_sort_allocation_failed"))
+                    : (hlod_edit_committed_here() ? String("hlod_edit_sort_allocation_failed") : String("canonical_sort_capacity_warmup"));
+            return false;
+        }
+        return true;
+    };
     const bool prepared = is_hlod_prepared_contract_current();
+    if (prepared && !ensure_sort_capacity(state.hlod_streaming,
+            state.hlod_streaming ? relative_capacity : MAX(canonical_capacity, relative_capacity))) { return 0; }
     if (!prepared) {
         DeviceVramLedger &ledger = refresh_device_vram_ledger(state, rd);
         const uint64_t route_limit = ledger.limit();
@@ -2208,6 +2211,14 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             return 0;
         }
         const bool streaming = route == HlodRouteDecision::BUILD_STREAMED;
+        const uint32_t sort_capacity = streaming ? relative_capacity : MAX(canonical_capacity, relative_capacity);
+        if (!ensure_sort_capacity(streaming, sort_capacity)) { return 0; }
+        // Sort allocation may have consumed headroom since route selection. Price the pool and reserve the
+        // candidate against the live bytes, never the pre-sort measurement (including retired GPU buffers).
+        if (!get_hlod_owned_byte_upper_bound(device_bytes)) {
+            state.hlod_reason = "resource_ledger_warmup_or_unavailable";
+            return 0;
+        }
         uint32_t stream_records = 0;
         HlodNodeStreamer::Config stream_config;
         uint64_t candidate_bytes = whole_candidate_bytes;
