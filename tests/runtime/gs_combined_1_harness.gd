@@ -33,7 +33,7 @@ const SCREENSHOT_FRAMES := [0, 100, 199, 240, 300, 399, 450, 599]
 const STATS_KEYS := [
 	"frame_count", "world_drawn_splats", "object_drawn_splats", "sort_input_sources",
 	"splat_composite_passes_frame", "route_skip_reason", "dropped_sources", "lights_dropped",
-	"shadow_casters_rastered", "shadow_no_caster_rastered", "shadow_light_frame", "ledger_bytes", "device_allocated_bytes",
+	"shadow_casters_rastered", "shadow_no_caster_rastered", "shadow_light_frame", "shadow_light_pass_kinds", "ledger_bytes", "device_allocated_bytes",
 	"ledger_budget_bytes", "silent_truncation_frames",
 	"hlod_reason", "hlod_active", "hlod_world_draw_records", "hlod_instance_draw_records",
 	"hlod_instance_admitted_objects", "hlod_instance_refused_objects", "hlod_instance_visible_objects",

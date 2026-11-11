@@ -151,7 +151,33 @@ struct PassPlan {
 	bool draws() const { return refusal == Refusal::NONE; }
 };
 
-// One light pass. The light type follows from the projection Godot hands the pass: directional cascades are orthographic.
+enum class LightKind { UNKNOWN, DIRECTIONAL, OMNI_CUBE, OMNI_PARABOLOID, SPOT };
+
+inline const char *light_kind_name(LightKind p_kind) {
+	switch (p_kind) {
+		case LightKind::DIRECTIONAL: return "directional";
+		case LightKind::OMNI_CUBE: return "omni_cube";
+		case LightKind::OMNI_PARABOLOID: return "omni_paraboloid";
+		case LightKind::SPOT: return "spot";
+		default: return "unknown";
+	}
+}
+
+struct LightPassInfo {
+	LightKind kind = LightKind::UNKNOWN;
+	int light_type = -1; // RS::LightType, or -1 for legacy direct hook calls.
+	int omni_shadow_mode = -1; // RS::LightOmniShadowMode, or -1 for non-omni/unknown.
+	int pass_index = -1;
+	bool orthographic = false;
+
+	bool supports_hlod_casters() const {
+		// Identity projections also occur for omni paraboloids and after mesh cube finalization. They are not
+		// directional lights. Only legacy calls without an explicit RS type retain projection-only inference.
+		return orthographic && (kind == LightKind::DIRECTIONAL || light_type == -1);
+	}
+};
+
+// One light pass. The caller must check both the explicit light type and the projection for directional eligibility.
 inline PassPlan plan_pass(const FrameRecord &p_record, bool p_orthographic_light, bool p_bundle_current) {
 	PassPlan plan;
 	if (!p_orthographic_light) {
@@ -341,13 +367,24 @@ struct LightFrameStats {
 		uint64_t casters = 0;
 		uint64_t passes = 0;
 		uint64_t no_caster_passes = 0;
+		uint64_t cast_passes = 0;
+		uint64_t ortho_passes = 0;
+		LightKind kind = LightKind::UNKNOWN;
+		LightPassInfo last_pass;
+	};
+	// Plain values only: LocalVector copies own their storage. No shared Dictionary/Variant or recorder references.
+	struct Snapshot {
+		uint64_t renderer_frame = UINT64_MAX;
+		uint64_t overflow_passes = 0;
+		uint64_t no_caster_count = 0;
+		LocalVector<Light> lights;
 	};
 	uint64_t server_frame = UINT64_MAX;
 	uint64_t renderer_frame = UINT64_MAX;
 	LocalVector<Light> lights;
 	uint64_t overflow_passes = 0;
 
-	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count) {
+	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count, const LightPassInfo &p_pass = LightPassInfo()) {
 		if (p_light_id == 0) {
 			return;
 		}
@@ -368,11 +405,18 @@ struct LightFrameStats {
 			}
 			Light light;
 			light.id = p_light_id;
+			light.kind = p_pass.kind;
 			lights.push_back(light);
 		}
 		Light &light = lights[index];
 		const uint64_t casters = p_success ? p_rastered_splat_count : 0;
 		light.casters += casters;
+		if (light.kind != p_pass.kind) {
+			light.kind = LightKind::UNKNOWN; // A mixed-type ID remains visibly inconsistent for the rest of the frame.
+		}
+		light.last_pass = p_pass;
+		light.cast_passes += p_success ? 1 : 0;
+		light.ortho_passes += p_pass.orthographic ? 1 : 0;
 		++light.passes;
 		if (casters == 0) {
 			++light.no_caster_passes;
@@ -387,6 +431,15 @@ struct LightFrameStats {
 			}
 		}
 		return count;
+	}
+
+	Snapshot snapshot() const {
+		Snapshot copy;
+		copy.renderer_frame = renderer_frame;
+		copy.overflow_passes = overflow_passes;
+		copy.no_caster_count = no_caster_lights();
+		copy.lights = lights;
+		return copy;
 	}
 };
 

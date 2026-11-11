@@ -2,6 +2,7 @@ extern "C" int test_hlod_shadow_casters_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../renderer/hlod_shadow_caster_plan.h"
 #include "../renderer/hlod_world_instances.h"
+#include "servers/rendering_server.h"
 
 #include <cmath>
 
@@ -450,6 +451,89 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-light cap counts omitted
 	CHECK(stats.lights[0].passes == 1);
 	CHECK(stats.lights[0].no_caster_passes == 1);
 	CHECK(stats.no_caster_lights() == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] explicit positional types refuse even an identity projection") {
+	LightPassInfo pass;
+	pass.orthographic = Projection().is_orthogonal(); // Cube face 0 after mesh finalization, also dual paraboloids.
+	const FrameRecord record = active_record();
+	CHECK(plan_pass(record, pass.supports_hlod_casters(), true).draws()); // Legacy unknown caller compatibility.
+	pass.light_type = RS::LIGHT_DIRECTIONAL;
+	pass.kind = LightKind::DIRECTIONAL;
+	CHECK(plan_pass(record, pass.supports_hlod_casters(), true).draws());
+	for (LightKind kind : { LightKind::OMNI_CUBE, LightKind::OMNI_PARABOLOID, LightKind::SPOT, LightKind::UNKNOWN }) {
+		pass.kind = kind;
+		pass.light_type = kind == LightKind::SPOT ? RS::LIGHT_SPOT : RS::LIGHT_OMNI;
+		const PassPlan plan = plan_pass(record, pass.supports_hlod_casters(), true);
+		CHECK_FALSE(plan.draws());
+		CHECK(plan.refusal == Refusal::NOT_DIRECTIONAL);
+	}
+	pass.light_type = RS::LIGHT_DIRECTIONAL;
+	pass.kind = LightKind::DIRECTIONAL;
+	pass.orthographic = false;
+	CHECK(plan_pass(record, pass.supports_hlod_casters(), true).refusal == Refusal::NOT_DIRECTIONAL);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] snapshot owns its values across later records and frame resets") {
+	LightFrameStats stats;
+	LightPassInfo pass;
+	pass.kind = LightKind::DIRECTIONAL;
+	pass.light_type = RS::LIGHT_DIRECTIONAL;
+	pass.orthographic = true;
+	pass.pass_index = 0;
+	stats.record(1041, 41, 7, true, 100, pass);
+	pass.pass_index = 1;
+	stats.record(1041, 41, 7, false, 100, pass);
+	pass.kind = LightKind::OMNI_CUBE;
+	pass.light_type = RS::LIGHT_OMNI;
+	pass.omni_shadow_mode = RS::LIGHT_OMNI_SHADOW_CUBE;
+	for (int face = 0; face < 6; ++face) {
+		pass.pass_index = face;
+		pass.orthographic = face == 0;
+		stats.record(1041, 41, 8, false, 100, pass);
+	}
+	const LightFrameStats::Snapshot published = stats.snapshot();
+	LightFrameStats::Snapshot reader;
+	reader = published; // Same assignment used under the publication mutex by build_render_stats().
+	stats.record(1041, 41, 7, true, 900, pass); // Mutate an existing entry and its diagnostic kind.
+	for (uint32_t id = 9; id < 9 + LightFrameStats::kMaxLights; ++id) {
+		stats.record(1041, 41, id, true, 1, pass); // Grow/reallocate storage and overflow.
+	}
+	const LightFrameStats::Snapshot full = stats.snapshot();
+	stats.record(1042, 42, 99, true, 77, pass); // Clear and reuse recorder storage.
+	if (published.lights.size() != 2 || reader.lights.size() != 2 || stats.lights.size() != 1) {
+		FAIL("snapshot or recorder cardinality changed unexpectedly");
+		return;
+	}
+	CHECK(reader.renderer_frame == 41);
+	CHECK(reader.overflow_passes == 0);
+	CHECK(reader.no_caster_count == 1);
+	CHECK(reader.lights[0].id == 7);
+	CHECK(reader.lights[0].casters == 100);
+	CHECK(reader.lights[0].passes == 2);
+	CHECK(reader.lights[0].cast_passes == 1);
+	CHECK(reader.lights[0].ortho_passes == 2);
+	CHECK(reader.lights[0].kind == LightKind::DIRECTIONAL);
+	CHECK(reader.lights[0].last_pass.pass_index == 1);
+	CHECK(reader.lights[1].id == 8);
+	CHECK(reader.lights[1].casters == 0);
+	CHECK(reader.lights[1].passes == 6);
+	CHECK(reader.lights[1].cast_passes == 0);
+	CHECK(reader.lights[1].ortho_passes == 1);
+	CHECK(reader.lights[1].kind == LightKind::OMNI_CUBE);
+	CHECK(reader.lights[1].last_pass.pass_index == 5);
+	CHECK(reader.lights[1].last_pass.light_type == RS::LIGHT_OMNI);
+	CHECK(reader.lights[1].last_pass.omni_shadow_mode == RS::LIGHT_OMNI_SHADOW_CUBE);
+	CHECK(full.overflow_passes == 2);
+	CHECK(stats.renderer_frame == 42);
+	CHECK(stats.lights[0].casters == 77);
+	reader.lights[0].casters = 999;
+	CHECK(published.lights[0].casters == 100); // Reader also owns storage independently of the published value.
+	CHECK(String(light_kind_name(LightKind::DIRECTIONAL)) == "directional");
+	CHECK(String(light_kind_name(LightKind::OMNI_CUBE)) == "omni_cube");
+	CHECK(String(light_kind_name(LightKind::OMNI_PARABOLOID)) == "omni_paraboloid");
+	CHECK(String(light_kind_name(LightKind::SPOT)) == "spot");
+	CHECK(String(light_kind_name(LightKind::UNKNOWN)) == "unknown");
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster writes every cascade texel where Godot's receivers sample it") {

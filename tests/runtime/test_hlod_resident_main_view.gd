@@ -1445,17 +1445,18 @@ func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplat
 	light_c.position = Vector3(0.0, 6.0, 0.0)
 	scene.add_child(light_c)
 	var light_ids := {"A": light_a.get_instance().get_id(), "B": light_b.get_instance().get_id(), "C": light_c.get_instance().get_id()}
+	var what := "shadow casters per light (%s) (ids=%s per_light=MISSING shadow_light_pass_kinds=MISSING)" % [mode, light_ids]
 	for label in light_ids:
-		if not _check(int(light_ids[label]) != 0, "shadow casters per light (%s): light %s has zero scene instance RID (get_instance())" % [mode, label]):
+		if not _check(int(light_ids[label]) != 0, "%s: light %s has zero scene instance RID (get_instance())" % [what, label]):
 			return false
 	var renderer := world_node.get_renderer()
-	if not _check(renderer != null, "shadow casters per light (%s): renderer missing" % mode):
+	if not _check(renderer != null, "%s: renderer missing" % what):
 		return false
 	var summary := {}
 	var tick := 0
 	for with_omni in [true, false]:
 		var phase := "ABC" if with_omni else "AB"
-		var what := "shadow casters per light (%s) %s" % [mode, phase]
+		what = "shadow casters per light (%s) %s (ids=%s per_light=MISSING shadow_light_pass_kinds=MISSING)" % [mode, phase, light_ids]
 		var before := _sc_stats(renderer, what)
 		if before.is_empty():
 			return false
@@ -1474,6 +1475,7 @@ func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplat
 			var st := _sc_stats(renderer, what)
 			if st.is_empty():
 				return false
+			what = "shadow casters per light (%s) %s (ids=%s per_light=%s shadow_light_pass_kinds=%s)" % [mode, phase, light_ids, st.get("shadow_casters_rastered_per_light", "MISSING"), st.get("shadow_light_pass_kinds", "MISSING")]
 			# Check schema before freshness: an old engine must name the missing field, not time out on a sentinel.
 			for key in ["shadow_casters_rastered_per_light", "shadow_no_caster_rastered", "shadow_light_frame"]:
 				if not _check(st.has(key), "%s: missing renderer field %s" % [what, key]):
@@ -1531,7 +1533,7 @@ func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplat
 			return false
 		summary[phase] = samples
 	_metrics["shadow_casters_per_light_" + mode] = summary
-	return _check(Time.get_ticks_msec() < deadline, "shadow casters per light (%s): proof completed after its deadline" % mode)
+	return _check(Time.get_ticks_msec() < deadline, "%s: proof completed after its deadline" % what)
 
 
 # An idle streamed world keeps its objects casting (Codex P2/P1 on #1316). While a paged world's cut loads, the route draws
