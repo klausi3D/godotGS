@@ -477,6 +477,13 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
     analytics[AK::needed_chunks] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
     analytics[AK::needed_resident_chunks] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
     analytics[AK::needed_unserved_chunks] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);
+    // A view is complete only when no needed chunk is missing from the GPU, queued and
+    // in-flight ones included (needed_unserved_chunks reads those as served).
+    analytics[AK::needed_not_resident_chunks] = static_cast<int64_t>(scheduler.last_needed_not_resident_chunk_count);
+    analytics[AK::needed_upload_pending_chunks] =
+            static_cast<int64_t>(scheduler.last_needed_upload_pending_chunk_count);
+    analytics[AK::visible_chunks_evicted_this_frame] =
+            static_cast<int64_t>(eviction_controller.get_visible_chunks_evicted_this_frame());
     analytics[AK::padding_chunks] = static_cast<int64_t>(scheduler.last_padding_chunk_count);
     analytics[AK::padding_resident_chunks] = static_cast<int64_t>(scheduler.last_padding_resident_chunk_count);
     analytics[AK::needed_set_stall_seconds] = scheduler.needed_set_stall_seconds;

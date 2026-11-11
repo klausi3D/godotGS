@@ -714,6 +714,8 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_needed_not_resident_chunk_count = 0;
+    scheduler.last_needed_upload_pending_chunk_count = 0;
     scheduler.last_padding_chunk_count = 0;
     scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_visible_scan_had_capacity = false;
@@ -3047,6 +3049,8 @@ void GaussianStreamingSystem::_reset_per_frame_counters() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_needed_not_resident_chunk_count = 0;
+    scheduler.last_needed_upload_pending_chunk_count = 0;
     scheduler.last_padding_chunk_count = 0;
     scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_visible_scan_had_capacity = false;
@@ -3516,6 +3520,8 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_needed_not_resident_chunk_count = 0;
+    scheduler.last_needed_upload_pending_chunk_count = 0;
     scheduler.last_padding_chunk_count = 0;
     scheduler.last_padding_resident_chunk_count = 0;
     scheduler.last_needed_set_measured = true;
@@ -3534,6 +3540,8 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     uint32_t needed_chunks = 0;
     uint32_t needed_resident_chunks = 0;
     uint32_t needed_unserved_chunks = 0;
+    uint32_t needed_not_resident_chunks = 0;
+    uint32_t needed_upload_pending_chunks = 0;
     uint32_t padding_chunks = 0;
     uint32_t padding_resident_chunks = 0;
     for (uint32_t chunk_idx : visible_chunks) {
@@ -3556,6 +3564,12 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
         }
         needed_chunks++;
         needed_resident_chunks += resident ? 1 : 0;
+        if (!resident) {
+            // Not drawn this frame, whatever the pipeline is doing with it: queued and
+            // in-flight chunks are still holes in the view.
+            needed_not_resident_chunks++;
+            needed_upload_pending_chunks += chunk.upload_pending ? 1 : 0;
+        }
         if (!resident && !chunk.is_loaded && !chunk.upload_pending) {
             needed_unserved_chunks++;
         }
@@ -3566,6 +3580,8 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     scheduler.last_needed_chunk_count = needed_chunks;
     scheduler.last_needed_resident_chunk_count = needed_resident_chunks;
     scheduler.last_needed_unserved_chunk_count = needed_unserved_chunks;
+    scheduler.last_needed_not_resident_chunk_count = needed_not_resident_chunks;
+    scheduler.last_needed_upload_pending_chunk_count = needed_upload_pending_chunks;
     scheduler.last_padding_chunk_count = padding_chunks;
     scheduler.last_padding_resident_chunk_count = padding_resident_chunks;
 }

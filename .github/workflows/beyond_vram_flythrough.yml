@@ -478,14 +478,32 @@ jobs:
           python3 tests/runtime/flythrough/dispatch_lane.py summarize --out "$BVW_OUT" --tier "$BVW_TIER" --contention-outcome "${{ steps.postflight.outcome }}" --mode "${{ inputs.controls_only && 'controls_only' || 'full' }}"
 
       # Reports, logs, driver limits, disk measurements, build_info and the
-      # verdict. The world data itself is never uploaded.
+      # verdict. The world data itself is never uploaded. The probe's viewport
+      # captures go into their own artifact (next step).
       - name: Upload fly-through outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: beyond-vram-flythrough-${{ inputs.tier || 'A' }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/bvw-out/
+          path: |
+            ${{ runner.temp }}/bvw-out/
+            !${{ runner.temp }}/bvw-out/**/screenshots/**
           if-no-files-found: error
+          retention-days: 30
+
+      # Gate repair: the viewport PNG the probe saved at every checkpoint (and
+      # every Nth moving frame when run_probe.py --screenshot-moving-every is
+      # set), for the main fly-through and each control. The summary names the
+      # files (worlds.<w>.flythrough.screenshots). No captures is a warning, not
+      # a failure: a probe that never reached a checkpoint says so in its own
+      # records.
+      - name: Upload probe screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beyond-vram-screenshots-${{ inputs.tier || 'A' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bvw-out/**/screenshots/
+          if-no-files-found: warn
           retention-days: 30
 
       # What the liveness watchdog reads. A run that never reached this step

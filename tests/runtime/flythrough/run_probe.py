@@ -29,6 +29,11 @@ What runs:
    whose needed set exceeds the chunk cap cannot settle; it needs a priority proof
    (ADR M1 settle-where-fits), which does not exist yet, so it is INVALID. ``--passes 2``
    (default) flies the path twice in the same process: a first and a repeat pass.
+   "Missing chunks" means needed chunks that are not GPU-resident (queued and in-flight
+   ones included). Every moving row traces that count, the upload-pending part and the
+   visible evictions (``moving_coverage``, judged by the verdict's G16), and the driver
+   saves a viewport PNG at every checkpoint under ``OUT/<TIER>/screenshots/``
+   (``--screenshot-moving-every N`` adds every Nth moving frame).
    The host page cache is not controlled here, so this script labels neither pass
    cold; the lane's probe step (dispatch_lane.py) records the D-14 cold proof of the
    whole process, which the gate verdict's V10 judges.
@@ -378,7 +383,8 @@ def control_settings(control: Optional[str]) -> Dict[str, object]:
     return dict(TUNED_SETTINGS, **fc.CONTROLS[control].get("project_settings", {}))
 
 
-def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: Optional[str] = None) -> dict:
+def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: Optional[str] = None,
+              screenshots: Optional[dict] = None) -> dict:
     plan = {
         "schema": "godotgs-bv07-probe-plan/1",
         "mode": "path",
@@ -393,6 +399,10 @@ def path_plan(world: Path, path: dict, passes: int, max_fps: int = 0, control: O
         "settle": SETTLE,
         "max_fps": max_fps,
     }
+    if screenshots is not None:
+        # Gate repair: a viewport PNG at every checkpoint; every Nth moving frame when
+        # moving_every_n > 0 (that readback perturbs the moving frame intervals).
+        plan["screenshots"] = screenshots
     if control is not None and fc.CONTROLS[control].get("inject"):
         plan["inject"] = fc.CONTROLS[control]["inject"]
     return plan
@@ -436,8 +446,15 @@ def pool_placement(final_streaming: dict) -> Dict[str, object]:
     return out
 
 
-def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, passes: int) -> Dict[str, object]:
+def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, passes: int,
+                   manifest: Optional[dict] = None) -> Dict[str, object]:
+    """``manifest`` (the world's BV-05 sidecar) lets the moving rows' drawn fraction be judged
+    against the expected count at each pose; without it that part is MISSING."""
     result = run["result"] or {}
+    expected_at = None
+    if manifest is not None:
+        def expected_at(pose, _m=manifest):
+            return probe_groundtruth.expected_drawn_upper_bound(_m, pose, CAMERA, ASPECT)
     segs = path["segments"]
     out: Dict[str, object] = {"passes": []}
     for pass_index in range(passes):
@@ -475,6 +492,11 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
                 "expected_drawn_upper_bound": exp,
                 "drawn_fraction_of_expected": ps.metric(cp["drawn_splats"] / exp) if exp else ps.missing("no expected count"),
                 "needed_unserved_chunks": cp.get("needed_unserved_chunks"),
+                # Gate repair: needed chunks not GPU-resident at the checkpoint (queued and in
+                # flight included); the driver settles only when this is 0.
+                "needed_not_resident_chunks": cp.get("needed_not_resident_chunks"),
+                "needed_upload_pending_chunks": cp.get("needed_upload_pending_chunks"),
+                "screenshot": cp.get("screenshot"),
                 "loaded_chunks": cp.get("loaded_chunks"),
                 "frustum_chunks_expected": truth.get("frustum_chunk_count"),
                 # ADR M1 settle-where-fits: needed vs the cap enforced at the checkpoint row.
@@ -486,6 +508,8 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             "host_cache": "not_controlled here (the lane's probe step records the D-14 cold proof, V10)",
             "moving_frame_interval": ps.interval_stats(ps.frame_intervals(trace, moving)),
             "moving_gpu": ps.gpu_breakdown(trace, moving),
+            # Gate repair (G16): per-frame completeness of the moving rows.
+            "moving_coverage": ps.moving_coverage(trace, moving, expected_at),
             "segments": per_seg,
             "checkpoints": checkpoints,
             "streaming": ps.streaming_counters(trace, pass_rows),
@@ -520,6 +544,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["pool_placement"] = pool_placement(fs)
     out["latency_histograms"] = fs.get("streaming_latency_histograms", ps.missing("no latency histograms"))
     out["gsq_decode"] = ps.gsq_decode_split(result.get("gsq_decode_stats"))
+    out["screenshots"] = screenshot_record(result.get("screenshots"))
     out["expected_unique_upload_flat"] = groundtruth["expected_unique_upload"]["flat"]
     ub = out["streaming_whole_run"].get("upload_bytes", {})
     # Upload bytes are decoded bytes, so the oracle side is too: on a GSQ world the stored
@@ -533,6 +558,28 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["records_per_splat"] = out["overlap_drops_whole_run"].get("records_per_splat") or ps.missing(
         f"no drop telemetry: {out['overlap_drops_whole_run'].get('reason', 'no value')}")
     return out
+
+
+SCREENSHOT_DIR = "screenshots"
+
+
+def screenshot_record(shots: object) -> Dict[str, object]:
+    """Report-only: the viewport captures the driver wrote (files under <tier>/screenshots/)."""
+    if not isinstance(shots, dict):
+        return ps.missing("the driver recorded no screenshots (an older driver)")
+    taken = [s for s in shots.get("taken") or [] if isinstance(s, dict)]
+    errors = [f"{s.get('name')}: {s.get('error')}" for s in taken if s.get("error")]
+    rec: Dict[str, object] = {"dir": SCREENSHOT_DIR, "moving_every_n": shots.get("moving_every_n"),
+                              "files": [s["file"] for s in taken if s.get("file")], "errors": errors}
+    if not shots.get("dir"):
+        rec.update(status=ps.MISSING, reason="screenshots were off in the plan")
+    elif errors:
+        rec.update(status=ps.INVALID, reason=f"{len(errors)} capture(s) failed")
+    else:
+        rec["status"] = ps.OK
+    if shots.get("moving_every_n"):
+        rec["note"] = "moving captures were on: their readbacks perturb the moving frame intervals"
+    return rec
 
 
 def required_path_metrics(world_summary: dict) -> List[str]:
@@ -872,7 +919,12 @@ def main(argv: Sequence[str]) -> int:
     ap.add_argument("--max-fps", type=int, default=0,
                     help="frame-rate cap for the fly-through (0 = uncapped, the measurement setting; "
                          "a cap is only for capturing a compact test fixture)")
+    ap.add_argument("--screenshot-moving-every", type=int, default=0, metavar="N",
+                    help="also save a viewport PNG every N moving frames (0 = off, the measurement setting: "
+                         "each capture stalls the frame it follows). Checkpoints are always captured.")
     args = ap.parse_args(argv)
+    if args.screenshot_moving_every < 0:
+        ap.error("--screenshot-moving-every must be >= 0")
 
     out = args.out.resolve()
     summary: Dict[str, object] = {
@@ -887,6 +939,7 @@ def main(argv: Sequence[str]) -> int:
         "problems": [],
     }
     summary["settings"]["max_fps"] = args.max_fps
+    summary["settings"]["screenshot_moving_every"] = args.screenshot_moving_every
     if args.control is not None:
         summary["control"] = {"id": args.control, "how": fc.CONTROLS[args.control]["how"],
                               "project_settings": fc.CONTROLS[args.control].get("project_settings", {}),
@@ -932,7 +985,9 @@ def main(argv: Sequence[str]) -> int:
             ws["path_moving_length_m"] = round(probe_path.moving_length_m(path), 3)
             ws["groundtruth"] = {"file": f"{tier}/{probe_groundtruth.GROUNDTRUTH_NAME}",
                                  "sha256": gt["groundtruth_sha256"]}
-            run = run_godot(binary, path_plan(d / WORLD_NAME, path, args.passes, args.max_fps, args.control), wout / "path_run", args.timeout_s)
+            shots = {"dir": (wout / SCREENSHOT_DIR).as_posix(), "moving_every_n": args.screenshot_moving_every}
+            run = run_godot(binary, path_plan(d / WORLD_NAME, path, args.passes, args.max_fps, args.control, shots),
+                            wout / "path_run", args.timeout_s)
             ws["process"] = {k: run[k] for k in ("exit_code", "timed_out", "wall_s", "log")}
             ws["rss"] = run["rss"]
             res = run["result"] or {}
@@ -953,7 +1008,7 @@ def main(argv: Sequence[str]) -> int:
                 continue
             if integrity["status"] != ps.OK:
                 summary["problems"].append(f"{tier}: {integrity['reason']}")
-            ws["flythrough"] = summarise_path(trace, run, path, gt, args.passes)
+            ws["flythrough"] = summarise_path(trace, run, path, gt, args.passes, manifest)
             summary["problems"] += [f"{tier}: {p}" for p in required_path_metrics(ws)]
 
         if not args.no_sweep:

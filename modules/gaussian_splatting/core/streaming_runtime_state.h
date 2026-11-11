@@ -106,6 +106,12 @@ struct SchedulerState {
     uint32_t last_needed_chunk_count = 0;
     uint32_t last_needed_resident_chunk_count = 0;
     uint32_t last_needed_unserved_chunk_count = 0;
+    // Needed but not GPU-resident: unserved, upload-pending (queued or in flight) and
+    // loaded-but-not-yet-GPU-resident alike. A view is complete only when this is 0;
+    // "unserved" above reads an in-flight chunk as served.
+    uint32_t last_needed_not_resident_chunk_count = 0;
+    // The upload-pending part of the needed set (queued or in flight, not yet resident).
+    uint32_t last_needed_upload_pending_chunk_count = 0;
     uint32_t last_padding_chunk_count = 0; // BV-PRIO: visible only through the frustum padding
     uint32_t last_padding_resident_chunk_count = 0;
     bool last_visible_scan_had_capacity = false;

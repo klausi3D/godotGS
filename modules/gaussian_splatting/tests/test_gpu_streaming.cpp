@@ -4059,6 +4059,9 @@ TEST_CASE("[Streaming Pipeline] Needed-set residency counts resident needed chun
     CHECK(int64_t(analytics.get("needed_resident_chunks", int64_t(-1))) == 4);
     // Unserved = neither loaded nor already in the pipeline.
     CHECK(int64_t(analytics.get("needed_unserved_chunks", int64_t(-1))) == 2);
+    // Not GPU-resident = the loaded-not-GPU pair + the pending pair + the unserved pair.
+    CHECK(int64_t(analytics.get("needed_not_resident_chunks", int64_t(-1))) == 6);
+    CHECK(int64_t(analytics.get("needed_upload_pending_chunks", int64_t(-1))) == 2);
     // The whole-world view the old metric was built on cannot express this: 26
     // chunks are loaded, more than twice the needed set.
     CHECK(int(culling.get("loaded_chunks", -1)) == int(4 + 2 + behind_count));
@@ -4079,6 +4082,61 @@ TEST_CASE("[Streaming Pipeline] Needed-set residency counts resident needed chun
     CHECK(int64_t(complete.get("needed_chunks", int64_t(-1))) == int64_t(needed_count));
     CHECK(int64_t(complete.get("needed_resident_chunks", int64_t(-1))) == int64_t(needed_count));
     CHECK(int64_t(complete.get("needed_unserved_chunks", int64_t(-1))) == 0);
+}
+
+TEST_CASE("[Streaming Pipeline] An in-flight needed chunk is not served: needed_not_resident_chunks counts it (BV gate repair)") {
+    // The flythrough settle oracle used needed_unserved_chunks == 0 as "the view is
+    // served". That counter leaves out upload-pending (queued or in flight) and
+    // loaded-but-not-GPU-resident chunks, so a view with holes read as complete.
+    // Three needed chunks: one GPU-resident, one in flight (upload pending), one
+    // loaded but not yet GPU-resident. Nothing is unserved in the old sense; two
+    // chunks are still missing from the GPU.
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(3);
+    _setup_needed_set_chunk(chunks[0], 0, Vector3(0.0f, 0.0f, -5.0f), true, true, false);
+    _setup_needed_set_chunk(chunks[1], 1, Vector3(0.2f, 0.0f, -6.0f), false, false, true);
+    _setup_needed_set_chunk(chunks[2], 2, Vector3(-0.2f, 0.0f, -7.0f), true, false, false);
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 1000.0f);
+    Transform3D camera_transform; // at the origin, looking down -Z
+    const auto measure = [&]() -> Dictionary {
+        system->begin_frame();
+        system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+        system->_test_set_visible_scan_result(false, 0);
+        system->_test_build_visible_chunk_list();
+        system->end_frame();
+        return system->get_streaming_analytics();
+    };
+
+    const Dictionary in_flight = measure();
+    if (int64_t(in_flight.get("needed_chunks", int64_t(-1))) != 3) {
+        FAIL("fixture precondition: expected the 3 chunks in front of the camera to be needed, got ",
+                int64_t(in_flight.get("needed_chunks", int64_t(-1))));
+        return;
+    }
+    CHECK(int64_t(in_flight.get("needed_resident_chunks", int64_t(-1))) == 1);
+    // The old oracle's counter calls this view served ...
+    CHECK(int64_t(in_flight.get("needed_unserved_chunks", int64_t(-1))) == 0);
+    // ... the new one does not: the in-flight and the loaded-not-GPU chunk are both missing.
+    CHECK(int64_t(in_flight.get("needed_not_resident_chunks", int64_t(-1))) == 2);
+    CHECK(int64_t(in_flight.get("needed_upload_pending_chunks", int64_t(-1))) == 1);
+    CHECK(int64_t(in_flight.get("visible_chunks_evicted_this_frame", int64_t(-1))) ==
+            int64_t(system->get_visible_chunks_evicted_this_frame()));
+
+    // The upload retires: every needed chunk is GPU-resident and the view is complete.
+    for (uint32_t i = 0; i < 3; i++) {
+        chunks[i].is_loaded = true;
+        chunks[i].gpu_resident = true;
+        chunks[i].upload_pending = false;
+        chunks[i].buffer_slot = i;
+    }
+    const Dictionary complete = measure();
+    CHECK(int64_t(complete.get("needed_resident_chunks", int64_t(-1))) == 3);
+    CHECK(int64_t(complete.get("needed_not_resident_chunks", int64_t(-1))) == 0);
+    CHECK(int64_t(complete.get("needed_upload_pending_chunks", int64_t(-1))) == 0);
 }
 
 TEST_CASE("[Streaming Pipeline] Scan starvation excludes pack saturation but catches a throttled near-prefix scan (#1086)") {

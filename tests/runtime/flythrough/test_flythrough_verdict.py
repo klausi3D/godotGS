@@ -112,6 +112,25 @@ def drop_window(drops: int = 0, samples: int = 4) -> dict:
     return ps.overlap_drops(trace, list(range(len(trace.rows))))
 
 
+def coverage_trace(needed_not_resident: list, drawn: list = None) -> "ps.Trace":
+    """An in-memory trace of moving rows with the gate-repair columns: one row per entry of
+    `needed_not_resident` (-1: the row carries no signal, as the driver writes it)."""
+    fields = ["row", "segment", "state", *ps.POSE_COLUMNS, "drawn_splats", *ps.COVERAGE_COLUMNS]
+    rows = []
+    for i, nnr in enumerate(needed_not_resident):
+        got = drawn[i] if drawn is not None else 1000
+        pending = -1 if nnr < 0 else min(nnr, 1)
+        evicted = -1 if nnr < 0 else 0
+        rows.append((i, 1, ps.STATE_MOVING, 0.0, 0.0, 0.0, 0.0, 0.0, got, nnr, pending, evicted))
+    return ps.Trace(fields, "qqq" + "d" * len(ps.POSE_COLUMNS) + "q" + "q" * len(ps.COVERAGE_COLUMNS), rows, 0)
+
+
+def coverage(needed_not_resident: list, drawn: list = None, expected: int = 1000) -> dict:
+    """A pass's moving_coverage as the producer (probe_summary.moving_coverage) reports it."""
+    trace = coverage_trace(needed_not_resident, drawn)
+    return ps.moving_coverage(trace, list(range(len(trace.rows))), lambda pose: expected, stride=1)
+
+
 class _Case(unittest.TestCase):
     def setUp(self) -> None:
         self.inputs = copy.deepcopy(_INPUTS)
@@ -130,6 +149,11 @@ class _Case(unittest.TestCase):
                 # stands in; CapturedRun.test_the_pre_1393_producer_leaves_g10_unjudged shows the
                 # captured run without it is INVALID.
                 p["overlap_drops_checkpoints"] = drop_window()
+                # It predates the gate repair's per-frame columns (G16): complete moving frames
+                # from the producer stand in. Its checkpoints' drawn fractions are real.
+                # CapturedRun.test_the_pre_gate_repair_producer_leaves_g16_unjudged shows the
+                # captured run without them is INVALID.
+                p["moving_coverage"] = coverage([0] * 20)
         self.th = copy.deepcopy(_THRESHOLDS)
         # The M1 run predates the GSQ re-prime of Tier A (#1389); Reprime proves the committed
         # GSQ digests and that this flat run is INVALID against them.
@@ -181,10 +205,27 @@ class CapturedRun(_Case):
             "V1": "PASS", "V2": "PASS", "V3": "PASS", "V5": "PASS", "V7": "PASS", "V8": "PASS",
             "V9-evictions": "PASS", "V9-peak-resident": "PASS", "M1-settle": "PASS", "V10": "PASS",
             "G1": "PASS", "G2a": "PASS", "G4": "PASS", "G6": "FAIL", "G6t": "FAIL", "G10": "PASS",
+            "G16": "FAIL",
         })
         self.assertEqual(result["verdict"], fv.FAIL)
         self.assertEqual(self.row(result, "G6")["observed"], 4.151)
         self.assertEqual(self.row(result, "G6t")["observed"], 10.797)
+
+    def test_g16_sees_the_captured_runs_thin_checkpoints(self) -> None:
+        """The M1 run settled every checkpoint, yet drew 0.14-0.51 of the expected splats: 14 of
+        its 16 tier A checkpoints are below V9's 50 % floor (only C3 is above, in both passes)."""
+        row = self.row(self.run_verdict(), "G16")
+        self.assertEqual((row["status"], row["evidence"]), (fv.FAIL, fv.EVIDENCE_PRESENT))
+        self.assertEqual(row["observed"]["checkpoints_below_floor"], 14)
+        self.assertEqual(row["observed"]["checkpoint_drawn_fraction"]["pass 0 C5"], 0.144)
+        self.assertIn("incomplete_view", row["reason"])
+        self.assertIn("[checkpoint_drawn_below_floor]", row["reason"])
+
+    def test_the_pre_gate_repair_producer_leaves_g16_unjudged(self) -> None:
+        for p in self.passes():
+            del p["moving_coverage"]
+        result = self.assert_entry("G16", fv.INVALID, "moving_coverage absent")
+        self.assertEqual(self.row(result, "G16")["evidence"], fv.EVIDENCE_MISSING)
 
     def test_startup_rows_are_reported_and_never_counted(self) -> None:
         row = self.row(self.run_verdict(), "V7")
@@ -464,6 +505,8 @@ class Gates(_Case):
         for p in self.passes():
             for c in p["checkpoints"]:
                 c["settle_s"]["value"] = min(c["settle_s"]["value"], 2.9)
+                # The whole verdict's legal route needs G16 too (drawn >= its floor).
+                c["drawn_fraction_of_expected"]["value"] = max(c["drawn_fraction_of_expected"]["value"], 0.5)
         self.assert_entry("G6", fv.PASS)
         self.assert_entry("G6t", fv.PASS)
         self.assertEqual(self.run_verdict()["verdict"], fv.PASS)
@@ -500,6 +543,64 @@ class Gates(_Case):
         trace = ps.Trace(trace.fields, trace.types, rows, 0)
         self.passes()[0]["overlap_drops_checkpoints"] = ps.overlap_drops(trace, [0, 1])
         self.assert_entry("G10", fv.INVALID, "went backwards")
+
+    def _full_checkpoints(self) -> None:
+        for p in self.passes():
+            for c in p["checkpoints"]:
+                c["drawn_fraction_of_expected"]["value"] = max(c["drawn_fraction_of_expected"]["value"], 0.5)
+
+    def test_g16_legal_route(self) -> None:
+        """Every moving frame complete and drawn at or above the floor, every checkpoint too: PASS."""
+        self._full_checkpoints()
+        result = self.assert_entry("G16", fv.PASS, "in 0 of 40 moving frames")
+        self.assertEqual(self.row(result, "G16")["observed"]["checkpoints_below_floor"], 0)
+        # The floor is inclusive: exactly 50 % drawn is not below it.
+        self.passes()[0]["moving_coverage"] = coverage([0] * 4, drawn=[500] * 4)
+        self.assert_entry("G16", fv.PASS)
+
+    def test_g16_a_needed_chunk_in_flight_while_moving_fails(self) -> None:
+        """One moving frame drawn with a needed chunk not GPU-resident (queued or in flight) is a hole."""
+        self._full_checkpoints()
+        self.passes()[1]["moving_coverage"] = coverage([0] * 19 + [2])
+        result = self.assert_entry("G16", fv.FAIL, "incomplete_view: needed chunk not GPU-resident in 1 of 40")
+        row = self.row(result, "G16")
+        self.assertEqual(row["observed"]["moving_needed_not_resident_pct"], 2.5)
+        self.assertIn("[needed_not_resident]", row["reason"])
+
+    def test_g16_thin_moving_frames_fail(self) -> None:
+        self._full_checkpoints()
+        self.passes()[0]["moving_coverage"] = coverage([0] * 4, drawn=[1000, 1000, 1000, 499])
+        result = self.assert_entry("G16", fv.FAIL, "[moving_drawn_below_floor]")
+        self.assertEqual(self.row(result, "G16")["observed"]["drawn_samples"], 24)
+
+    def test_g16_a_thin_checkpoint_fails(self) -> None:
+        self._full_checkpoints()
+        self.passes()[1]["checkpoints"][3]["drawn_fraction_of_expected"]["value"] = 0.49
+        self.assert_entry("G16", fv.FAIL, "at 1 of 16 checkpoints [checkpoint_drawn_below_floor]")
+
+    def test_g16_absent_signals_are_never_a_pass(self) -> None:
+        self._full_checkpoints()
+        # A moving row without the signal could hide a hole.
+        self.passes()[0]["moving_coverage"] = coverage([0, -1, 0])
+        self.assert_entry("G16", fv.INVALID, "needed_not_resident_chunks absent in 1 of 3 moving rows")
+        self.setUp()
+        self._full_checkpoints()
+        no_columns = ps.Trace(["row", "segment"], "qq", [(0, 1)], 0)
+        self.passes()[0]["moving_coverage"] = ps.moving_coverage(no_columns, [0], lambda pose: 1)
+        self.assert_entry("G16", fv.INVALID, "an older probe driver")
+        self.setUp()
+        self._full_checkpoints()
+        trace = coverage_trace([0, 0])
+        self.passes()[0]["moving_coverage"] = ps.moving_coverage(trace, [0, 1], None)
+        self.assert_entry("G16", fv.INVALID, "no manifest")
+        self.setUp()
+        self._full_checkpoints()
+        self.passes()[0]["checkpoints"][2]["drawn_fraction_of_expected"] = {"status": "MISSING", "value": None,
+                                                                            "reason": "no expected count"}
+        self.assert_entry("G16", fv.INVALID, "pass 0 C2 drawn_fraction_of_expected")
+        self.setUp()
+        self.th["gates"]["G16"]["op"] = ">="
+        self.assert_entry("G16", fv.INVALID, "upper bound")
 
     def _miss(self, checkpoint: str, deadline) -> None:
         for p in self.passes():
