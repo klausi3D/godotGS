@@ -1411,11 +1411,124 @@ func _run_shadow_caster_proof(mode: String) -> bool:
 	# The faded node's row is still in the caster set (it casts and is drawn): its missing shadow is the opacity, not the mask.
 	if not _check(int(phases["faded"]["casters_per_pass_max"]) == int(phases["cast"]["casters_per_pass_min"]), "shadow casters (" + mode + "): faded cast %s per pass, cast %s (the faded node's row left the caster set)" % [phases["faded"]["casters_per_pass_max"], phases["cast"]["casters_per_pass_min"]]):
 		return false
+	# Per-light accounting (#1313): only add the extra lights after all single-light checks above.
+	if not await _run_shadow_caster_per_light_proof(scene, world_node, ball, light, mode):
+		return false
 	_scene = null
 	scene.queue_free()
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	return true
+
+
+# Own wall-clock bound, reached by both whole/paged shadow proofs in Resident HLOD Main View.
+# A has four cascade passes, B one; require different positive totals without assuming a per-cascade draw list.
+# C exercises the refused NOT_DIRECTIONAL route: a submitted light with zero casters must be present, while a
+# light with no submitted passes must be absent. Moving C forces fresh atlas updates instead of cached omni shadows.
+func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplatWorld3D, ball: GaussianSplatNode3D, light_a: DirectionalLight3D, mode: String) -> bool:
+	var deadline := Time.get_ticks_msec() + SC_TIMEOUT_MSEC
+	world_node.set_opacity(1.0)
+	world_node.set_cast_shadow(true)
+	ball.set_opacity(1.0)
+	ball.set_cast_shadow(true)
+	light_a.shadow_enabled = true
+	light_a.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	var light_b := DirectionalLight3D.new()
+	light_b.shadow_enabled = true
+	light_b.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	light_b.directional_shadow_max_distance = light_a.directional_shadow_max_distance
+	scene.add_child(light_b)
+	light_b.transform = light_a.transform
+	var light_c := OmniLight3D.new()
+	light_c.shadow_enabled = true
+	light_c.omni_range = 20.0
+	light_c.position = Vector3(0.0, 6.0, 0.0)
+	scene.add_child(light_c)
+	var light_ids := {"A": light_a.get_base().get_id(), "B": light_b.get_base().get_id(), "C": light_c.get_base().get_id()}
+	var renderer := world_node.get_renderer()
+	if not _check(renderer != null, "shadow casters per light (%s): renderer missing" % mode):
+		return false
+	var summary := {}
+	var tick := 0
+	for with_omni in [true, false]:
+		var phase := "ABC" if with_omni else "AB"
+		var what := "shadow casters per light (%s) %s" % [mode, phase]
+		var before := _sc_stats(renderer, what)
+		if before.is_empty():
+			return false
+		var after_frame := int(before["frame_count"])
+		light_c.shadow_enabled = with_omni
+		var samples: Array = []
+		var last := {}
+		var previous_frame := -1
+		# Three consecutive fresh samples are a minimum observation count, never an upper polling bound.
+		while Time.get_ticks_msec() < deadline and samples.size() < 3:
+			tick += 1
+			light_c.position.x = 0.02 * sin(tick * 0.3)
+			await RenderingServer.frame_post_draw
+			if not _check(Time.get_ticks_msec() < deadline, "%s: deadline before fresh per-light accounting completed" % what):
+				return false
+			var st := _sc_stats(renderer, what)
+			if st.is_empty():
+				return false
+			# Check schema before freshness: an old engine must name the missing field, not time out on a sentinel.
+			for key in ["shadow_casters_rastered_per_light", "shadow_no_caster_rastered", "shadow_light_frame"]:
+				if not _check(st.has(key), "%s: missing renderer field %s" % [what, key]):
+					return false
+			if not _check(st["shadow_casters_rastered_per_light"] is Dictionary, "%s: shadow_casters_rastered_per_light must be a Dictionary" % what):
+				return false
+			for key in ["frame_count", "shadow_caster_frame", "shadow_light_frame", "shadow_casters_rastered", "shadow_no_caster_rastered"]:
+				if not _check(typeof(st[key]) == TYPE_INT, "%s: %s must be an int" % [what, key]):
+					return false
+			last = st
+			var light_frame := int(st["shadow_light_frame"])
+			# Exclude cached pre-transition samples and only compare counters belonging to this rendered frame.
+			if light_frame != int(st["frame_count"]) - 1 or light_frame <= after_frame \
+					or str(st["hlod_reason"]) != "active" or int(st["hlod_world_draw_records"]) <= 0 or int(st["hlod_instance_draw_records"]) <= 0:
+				samples.clear()
+				continue
+			if light_frame == previous_frame:
+				continue
+			if previous_frame >= 0 and light_frame != previous_frame + 1:
+				samples.clear()
+			previous_frame = light_frame
+			if not _check(int(st["shadow_caster_frame"]) == light_frame, "%s: scalar shadow_casters_rastered and per-light counts belong to different frames" % what):
+				return false
+			var per_light: Dictionary = st["shadow_casters_rastered_per_light"]
+			for label in (["A", "B", "C"] if with_omni else ["A", "B"]):
+				var light_id: int = light_ids[label]
+				if not _check(per_light.has(light_id), "%s: missing shadow_casters_rastered_per_light[%s] (light %s)" % [what, light_id, label]):
+					return false
+				if not _check(typeof(per_light[light_id]) == TYPE_INT, "%s: shadow_casters_rastered_per_light[%s] (light %s) must be an int" % [what, light_id, label]):
+					return false
+			var a: int = per_light[light_ids["A"]]
+			var b: int = per_light[light_ids["B"]]
+			var total := int(st["shadow_casters_rastered"])
+			if not _check(a > 0 and b > 0 and a != b, "%s: A and B must have different positive caster counts (A=%d B=%d)" % [what, a, b]):
+				return false
+			if not _check(a != total and b != total, "%s: per-light count copied the scalar shadow_casters_rastered (A=%d B=%d total=%d)" % [what, a, b, total]):
+				return false
+			var summed := a + b
+			if with_omni:
+				var c: int = per_light[light_ids["C"]]
+				summed += c
+				if not _check(c == 0 and int(st["shadow_no_caster_rastered"]) >= 1, "%s: refused C must report zero casters and shadow_no_caster_rastered >= 1 (C=%d no_caster=%s)" % [what, c, st["shadow_no_caster_rastered"]]):
+					return false
+			else:
+				if not _check(not per_light.has(light_ids["C"]), "%s: shadow_casters_rastered_per_light[%s] (disabled C) must be absent" % [what, light_ids["C"]]):
+					return false
+				if not _check(int(st["shadow_no_caster_rastered"]) == 0, "%s: shadow_no_caster_rastered must reset to 0 with only A and B (got %s)" % [what, st["shadow_no_caster_rastered"]]):
+					return false
+			if not _check(summed == total, "%s: per-light sum %d != same-frame shadow_casters_rastered %d" % [what, summed, total]):
+				return false
+			samples.append({"frame_count": st["frame_count"], "shadow_light_frame": light_frame,
+					"shadow_casters_rastered_per_light": per_light.duplicate(), "shadow_casters_rastered": total,
+					"shadow_no_caster_rastered": st["shadow_no_caster_rastered"]})
+		if not _check(Time.get_ticks_msec() < deadline and samples.size() == 3, "%s: deadline; never obtained three fresh active frames with shadow_light_frame == frame_count - 1 after %d (last light frame=%s frame_count=%s reason=%s)" % [what, after_frame, last.get("shadow_light_frame", "MISSING"), last.get("frame_count", "MISSING"), last.get("hlod_reason", "MISSING")]):
+			return false
+		summary[phase] = samples
+	_metrics["shadow_casters_per_light_" + mode] = summary
+	return _check(Time.get_ticks_msec() < deadline, "shadow casters per light (%s): proof completed after its deadline" % mode)
 
 
 # An idle streamed world keeps its objects casting (Codex P2/P1 on #1316). While a paged world's cut loads, the route draws
