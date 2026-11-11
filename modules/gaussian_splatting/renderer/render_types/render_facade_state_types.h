@@ -182,6 +182,8 @@ struct ResourceState {
     gs_shadow_caster::FrameRecord hlod_shadow_caster_record;
     uint64_t hlod_draw_list_uploads = 0;
     gs_shadow_caster::FrameStats hlod_shadow_caster_stats;
+    // All shadow routes and early exits, recorded on the render thread like hlod_shadow_caster_stats above.
+    gs_shadow_caster::LightFrameStats shadow_light_stats;
     // Instance keys refused in the last main view, read by GaussianSplatSceneDirector::get_hlod_instance_refusal_for_node
     // from the main thread; guarded by hlod_instance_refusal_mutex (written on the render thread only).
     Mutex hlod_instance_refusal_mutex;

@@ -280,6 +280,178 @@ TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-frame accounting sums th
 	CHECK(stats.last_refusal == Refusal::NO_ACTIVE_HLOD_VIEW);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-light totals distinguish cascades and refused lights and reset together") {
+	FrameStats scalar;
+	LightFrameStats per_light;
+	const PassPlan cast = plan_pass(active_record(), true, true);
+	const PassPlan refused = plan_pass(active_record(), false, true);
+	// Use full-width RID IDs, including two whose low 32 bits match.
+	const uint64_t a = (uint64_t(1) << 32) + 1;
+	const uint64_t b = (uint64_t(2) << 32) + 1;
+	const uint64_t c = 3;
+	for (int pass = 0; pass < 4; ++pass) {
+		scalar.record(41, cast);
+		per_light.record(1041, 41, a, true, cast.casters);
+	}
+	scalar.record(41, cast);
+	per_light.record(1041, 41, b, true, cast.casters);
+	for (int pass = 0; pass < 6; ++pass) {
+		scalar.record(41, refused);
+		// Even a nonzero raster count must not count if the final atlas write failed.
+		per_light.record(1041, 41, c, false, cast.casters);
+	}
+	scalar.record(41, refused);
+	per_light.record(1041, 41, a, false, cast.casters);
+	if (per_light.lights.size() != 3) {
+		FAIL("expected three identified lights, got ", per_light.lights.size());
+		return;
+	}
+	CHECK(per_light.renderer_frame == scalar.frame);
+	CHECK(per_light.server_frame == 1041);
+	CHECK(per_light.lights[0].id == a);
+	CHECK(per_light.lights[0].casters == 4 * cast.casters);
+	CHECK(per_light.lights[0].passes == 5);
+	CHECK(per_light.lights[0].no_caster_passes == 1);
+	CHECK(per_light.lights[1].id == b);
+	CHECK(per_light.lights[1].casters == cast.casters);
+	CHECK(per_light.lights[1].passes == 1);
+	CHECK(per_light.lights[1].no_caster_passes == 0);
+	CHECK(per_light.lights[0].casters != per_light.lights[1].casters);
+	CHECK(per_light.lights[2].id == c);
+	CHECK(per_light.lights[2].casters == 0);
+	CHECK(per_light.lights[2].passes == 6);
+	CHECK(per_light.lights[2].no_caster_passes == 6);
+	CHECK(per_light.no_caster_lights() == 1); // Six refused C passes and one refused A pass, only one zero-total light.
+	uint64_t sum = 0;
+	for (const LightFrameStats::Light &light : per_light.lights) {
+		sum += light.casters;
+	}
+	CHECK(sum == scalar.casters);
+	CHECK(per_light.overflow_passes == 0);
+	// C submits nothing next frame: it must disappear, not persist as a zero entry.
+	scalar.record(42, cast);
+	scalar.record(42, cast);
+	per_light.record(1042, 42, a, true, cast.casters);
+	per_light.record(1042, 42, b, true, cast.casters);
+	if (per_light.lights.size() != 2) {
+		FAIL("expected only A and B after frame change, got ", per_light.lights.size());
+		return;
+	}
+	CHECK(per_light.renderer_frame == 42);
+	CHECK(per_light.server_frame == 1042);
+	CHECK(per_light.renderer_frame == scalar.frame);
+	CHECK(per_light.lights[0].id == a);
+	CHECK(per_light.lights[1].id == b);
+	CHECK(per_light.lights[0].passes == 1);
+	CHECK(per_light.lights[0].no_caster_passes == 0);
+	CHECK(per_light.lights[0].casters + per_light.lights[1].casters == scalar.casters);
+	CHECK(per_light.no_caster_lights() == 0);
+	// A successful but empty pass is also a no-caster pass.
+	per_light.record(1043, 43, b, true, 0);
+	CHECK(per_light.no_caster_lights() == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] RS frame groups advancing canonical renderer counters and keeps the first stamp") {
+	LightFrameStats stats;
+	// Canonical raster advances the renderer counter between shadow passes. The RS key remains fixed.
+	stats.record(1041, 80, 11, false, 123);
+	stats.record(1041, 81, 22, false, 0);
+	stats.record(1041, 82, 11, true, 7);
+	if (stats.lights.size() != 2) {
+		FAIL("renderer counter changes discarded a light within one RS frame: ", stats.lights.size());
+		return;
+	}
+	CHECK(stats.server_frame == 1041);
+	CHECK(stats.renderer_frame == 80);
+	CHECK(stats.lights[0].id == 11);
+	CHECK(stats.lights[0].casters == 7);
+	CHECK(stats.lights[0].passes == 2);
+	CHECK(stats.lights[0].no_caster_passes == 1);
+	CHECK(stats.lights[1].id == 22);
+	CHECK(stats.lights[1].casters == 0);
+	CHECK(stats.no_caster_lights() == 1);
+	// Even an unchanged renderer counter cannot retain entries across an RS frame transition.
+	stats.record(1042, 82, 33, false, 0);
+	if (stats.lights.size() != 1) {
+		FAIL("new RS frame did not clear previous lights: ", stats.lights.size());
+		return;
+	}
+	CHECK(stats.server_frame == 1042);
+	CHECK(stats.renderer_frame == 82);
+	CHECK(stats.lights[0].id == 33);
+	CHECK(stats.lights[0].passes == 1);
+	CHECK(stats.no_caster_lights() == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-light accounting ignores invalid IDs and retains 64-bit caster counts") {
+	LightFrameStats per_light;
+	CHECK(per_light.server_frame == UINT64_MAX);
+	CHECK(per_light.renderer_frame == UINT64_MAX);
+	CHECK(per_light.no_caster_lights() == 0);
+	per_light.record(1040, 40, 0, false, 0);
+	per_light.record(1040, 40, 0, true, 123);
+	CHECK(per_light.server_frame == UINT64_MAX);
+	CHECK(per_light.renderer_frame == UINT64_MAX);
+	CHECK(per_light.lights.is_empty());
+	CHECK(per_light.no_caster_lights() == 0);
+	FrameStats scalar;
+	PassPlan cast = plan_pass(active_record(), true, true);
+	// Accounting accepts uint64_t counts independently of today's draw-slot limit.
+	cast.casters = uint64_t(UINT32_MAX) + 17;
+	scalar.record(41, cast);
+	per_light.record(1041, 41, 7, true, cast.casters);
+	per_light.record(1042, 42, 0, false, 0); // A legacy call cannot advance or erase identified-light evidence.
+	if (per_light.lights.size() != 1) {
+		FAIL("expected one identified light, got ", per_light.lights.size());
+		return;
+	}
+	CHECK(per_light.renderer_frame == scalar.frame);
+	CHECK(per_light.server_frame == 1041);
+	CHECK(per_light.lights[0].id == 7);
+	CHECK(per_light.lights[0].casters == cast.casters);
+	CHECK(per_light.lights[0].casters == scalar.casters);
+	CHECK(per_light.lights[0].passes == 1);
+	CHECK(per_light.no_caster_lights() == 0);
+	CHECK(per_light.overflow_passes == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] per-light cap counts omitted passes and resets without blocking known lights") {
+	LightFrameStats stats;
+	for (uint32_t id = 1; id <= LightFrameStats::kMaxLights; ++id) {
+		stats.record(1041, 41, id, true, id);
+	}
+	const uint64_t extra_id = LightFrameStats::kMaxLights + 1;
+	stats.record(1041, 41, extra_id, false, 0);
+	stats.record(1041, 41, extra_id, true, 100);
+	stats.record(1041, 41, 0, false, 0); // Invalid IDs do not consume capacity or increment overflow.
+	stats.record(1041, 41, 1, true, 10);
+	if (stats.lights.size() != LightFrameStats::kMaxLights) {
+		FAIL("light storage exceeded or failed to reach its cap: ", stats.lights.size());
+		return;
+	}
+	CHECK(stats.overflow_passes == 2);
+	CHECK(stats.lights[0].id == 1);
+	CHECK(stats.lights[0].casters == 11);
+	CHECK(stats.lights[0].passes == 2);
+	CHECK(stats.no_caster_lights() == 0); // An omitted light is not an observed zero.
+	for (const LightFrameStats::Light &light : stats.lights) {
+		CHECK(light.id != extra_id);
+	}
+	stats.record(1042, 42, extra_id, false, 100);
+	if (stats.lights.size() != 1) {
+		FAIL("expected one light after resetting a full frame, got ", stats.lights.size());
+		return;
+	}
+	CHECK(stats.renderer_frame == 42);
+	CHECK(stats.server_frame == 1042);
+	CHECK(stats.overflow_passes == 0);
+	CHECK(stats.lights[0].id == extra_id);
+	CHECK(stats.lights[0].casters == 0);
+	CHECK(stats.lights[0].passes == 1);
+	CHECK(stats.lights[0].no_caster_passes == 1);
+	CHECK(stats.no_caster_lights() == 1);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][ShadowCasters] the caster writes every cascade texel where Godot's receivers sample it") {
 	// A cascade like Godot builds it: orthographic, light looking down at a slant, origin near the camera.
 	Projection ortho;

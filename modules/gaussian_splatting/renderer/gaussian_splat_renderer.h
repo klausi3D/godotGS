@@ -327,6 +327,9 @@ public:
 
     struct ShadowRenderResult {
         RenderPassKind pass_kind = RenderPassKind::SHADOW_MAP;
+        uint64_t server_frame = 0; // Accounting reset key; shadow passes never advance the RS frame.
+        uint64_t renderer_frame = 0;
+        uint64_t light_id = 0; // Base light RID, not the light-instance RID. Zero is excluded from per-light stats.
         bool success = false;
         ShadowRenderFailureReason failure_reason = ShadowRenderFailureReason::NONE;
         String route_label;
@@ -335,7 +338,7 @@ public:
         bool depth_owner_valid = false;
         bool blit_attempted = false;
         // What this pass itself rasterized, as reported by its own raster stage.
-        uint32_t rastered_splat_count = 0;
+        uint64_t rastered_splat_count = 0; // Preserve the HLOD plan's full count, also used by FrameStats.
         Size2i depth_size;
     };
 
@@ -1863,10 +1866,11 @@ public:
      * @param p_atlas_rect Target atlas rectangle for this cascade.
      * @param p_shadow_framebuffer Shadow atlas framebuffer RID.
      * @param p_flip_y Whether the atlas rect should be sampled with a Y flip.
+     * @param p_light Base light RID for per-light accounting; invalid RIDs are not accounted per light.
      * @return True if shadow depth was rendered and blitted.
      */
     bool render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,
-            const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y);
+            const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, RID p_light = RID());
     const ShadowRenderResult &get_last_shadow_render_result() const { return last_shadow_render_result; }
 
     /**

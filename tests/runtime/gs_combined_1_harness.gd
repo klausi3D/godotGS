@@ -33,7 +33,7 @@ const SCREENSHOT_FRAMES := [0, 100, 199, 240, 300, 399, 450, 599]
 const STATS_KEYS := [
 	"frame_count", "world_drawn_splats", "object_drawn_splats", "sort_input_sources",
 	"splat_composite_passes_frame", "route_skip_reason", "dropped_sources", "lights_dropped",
-	"shadow_casters_rastered", "shadow_no_caster_rastered", "ledger_bytes", "device_allocated_bytes",
+	"shadow_casters_rastered", "shadow_no_caster_rastered", "shadow_light_frame", "ledger_bytes", "device_allocated_bytes",
 	"ledger_budget_bytes", "silent_truncation_frames",
 	"hlod_reason", "hlod_active", "hlod_world_draw_records", "hlod_instance_draw_records",
 	"hlod_instance_admitted_objects", "hlod_instance_refused_objects", "hlod_instance_visible_objects",
@@ -922,6 +922,21 @@ func _run() -> void:
 		for key in STATS_KEYS:
 			if stats.has(key):
 				copied[key] = stats[key]
+		# S1 uses fixture light names; the engine keys by base-light RID, never the light-instance RID.
+		# Keep missing lights absent so the verdict diagnoses missing evidence instead of a fabricated zero.
+		if stats.has("shadow_casters_rastered_per_light") and stats["shadow_casters_rastered_per_light"] is Dictionary:
+			if copied.has("shadow_casters_rastered"):
+				copied["shadow_casters_rastered_total"] = copied["shadow_casters_rastered"]
+			var per_light: Dictionary = stats["shadow_casters_rastered_per_light"]
+			var named := {}
+			var sun_id := _sun.get_base().get_id()
+			if per_light.has(sun_id):
+				named["directional"] = per_light[sun_id]
+			for k in range(_omnis.size()):
+				var omni_id: int = _omnis[k].get_base().get_id()
+				if per_light.has(omni_id):
+					named["omni_%d" % k] = per_light[omni_id]
+			copied["shadow_casters_rastered"] = named
 		var timing := _resolve_timing(stats)
 		for key in timing["values"]:
 			copied[key] = timing["values"][key]

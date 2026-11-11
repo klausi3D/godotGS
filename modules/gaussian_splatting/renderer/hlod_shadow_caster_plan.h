@@ -21,6 +21,7 @@
 #include "core/math/rect2.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector3.h"
+#include "core/templates/local_vector.h"
 
 #include <cmath>
 #include <cstdint>
@@ -324,6 +325,68 @@ struct FrameStats {
 			++total_passes_refused;
 			last_refusal = p_plan.refusal;
 		}
+	}
+};
+
+// All shadow routes, grouped by RenderingServer frame, independent of renderer-counter advances inside canonical
+// shadow passes. Publish the renderer counter observed at the first identified pass of each RS frame. HLOD shadow
+// passes do not advance that counter, so the stamp equals FrameStats::frame there. No GPU state or device access.
+// Invalid light IDs (legacy direct hook calls) are ignored, including for the frame stamp and no-caster count.
+// A frame retains at most kMaxLights distinct IDs. Further new-light passes increment overflow_passes; existing
+// entries still accumulate. Missing/overflowed lights are never fabricated as zero-caster observations.
+struct LightFrameStats {
+	static constexpr uint32_t kMaxLights = 256;
+	struct Light {
+		uint64_t id = 0;
+		uint64_t casters = 0;
+		uint64_t passes = 0;
+		uint64_t no_caster_passes = 0;
+	};
+	uint64_t server_frame = UINT64_MAX;
+	uint64_t renderer_frame = UINT64_MAX;
+	LocalVector<Light> lights;
+	uint64_t overflow_passes = 0;
+
+	void record(uint64_t p_server_frame, uint64_t p_renderer_frame, uint64_t p_light_id, bool p_success, uint64_t p_rastered_splat_count) {
+		if (p_light_id == 0) {
+			return;
+		}
+		if (server_frame != p_server_frame) {
+			server_frame = p_server_frame;
+			renderer_frame = p_renderer_frame;
+			lights.clear();
+			overflow_passes = 0;
+		}
+		uint32_t index = 0;
+		while (index < lights.size() && lights[index].id != p_light_id) {
+			++index;
+		}
+		if (index == lights.size()) {
+			if (lights.size() == kMaxLights) {
+				++overflow_passes;
+				return;
+			}
+			Light light;
+			light.id = p_light_id;
+			lights.push_back(light);
+		}
+		Light &light = lights[index];
+		const uint64_t casters = p_success ? p_rastered_splat_count : 0;
+		light.casters += casters;
+		++light.passes;
+		if (casters == 0) {
+			++light.no_caster_passes;
+		}
+	}
+
+	uint64_t no_caster_lights() const {
+		uint64_t count = 0;
+		for (const Light &light : lights) {
+			if (light.casters == 0) {
+				++count;
+			}
+		}
+		return count;
 	}
 };
 
