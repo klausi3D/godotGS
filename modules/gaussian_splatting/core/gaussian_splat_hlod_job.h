@@ -17,6 +17,9 @@ struct OfflineJob {
 	uint64_t input = 0, prepared = 0, nodes = 0, scratch = 0, output = 0;
 	uint64_t deadline = 0, reserved = 0;
 	uint64_t admitted_count = 0, admitted_high = 0;
+	// MERGE_ONLY admission uses this in addition to the legacy counters: a failed
+	// reconfiguration/reservation must not authorize a bake using stale counters.
+	bool reservation_valid = false;
 	mutable Error stopped = OK;
 	String cancel_path;
 	QualityResourceLimits metric;
@@ -40,6 +43,7 @@ struct OfflineJob {
 
 	bool configure(const Dictionary &p_options)
 	{
+		reservation_valid = false;
 		uint64_t wall = 0, batch = 0, drain = 0, ram = 0, source = 0, host = 0, disk = 0;
 		uint64_t active = 0, pending = 0, workers = 0;
 		if (!positive_integer(p_options, "max_input_splats", input) ||
@@ -88,6 +92,7 @@ struct OfflineJob {
 	// owners during growth/probing, not just logical payload sizes. Metadata is disallowed.
 	bool reserve(uint64_t p_count, uint64_t p_high, uint64_t p_old_interior_bytes)
 	{
+		reservation_valid = false;
 		if (!p_count || p_count > input || p_high > 21u || p_count > prepared) {
 			return false;
 		}
@@ -121,6 +126,7 @@ struct OfflineJob {
 		reserved = MAX(reserved, scratch - reload_remaining);
 		admitted_count = p_count;
 		admitted_high = p_high;
+		reservation_valid = true;
 		return true;
 	}
 
