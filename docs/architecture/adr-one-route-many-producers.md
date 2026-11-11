@@ -561,7 +561,8 @@ Splat shadows on the one route (I-03) are the shadow track, CLN-LT02.
   `91cdcd1e4f9` (code and ADR reading only; no build, GPU run or test run). The review is a
   working note outside the repository; the decision and its reasons are recorded here.
 - **Base:** every `file:line` in this section was re-read at `91cdcd1e4f9` (origin/master).
-- **Evidence status:** no claim in this section rests on a run. Statements about runtime
+- **Evidence status:** no claim in this section rests on a CI or GPU-lane run. The one local
+  measurement quoted in §12.6.4 is marked **[M]** with its source. Statements about runtime
   behaviour that are not a direct reading of code are marked **[inference]**.
 
 #### 12.6.1 Decision
@@ -628,24 +629,58 @@ at every Tier A checkpoint.
 
 #### 12.6.4 Migration order and milestones
 
-1. **M2 runs on the current chunk route** and is frozen there as the reference: its run id and
-   gate values are recorded when it is reached. After that, only fixes the reference needs land
-   on chunk-only code. The beyond-VRAM roadmap order before M2 is unchanged (see the BV ADR
-   amendment of 2026-11-11).
-2. Shared layers move under the HLOD streamer: read service, GSQ node payloads through the common
-   page store, a bounded ready queue, worker and upload sizing, decode telemetry. Proven on T0
-   against the same T0 on the chunk route.
-3. The HLOD route scales: the cap blockers in §12.6.5.
-4. Out-of-core writer and tiled bake, then the automatic tree for tree-less input.
-5. **M3 = Tier A on the one route**, judged against the frozen M2 reference, also in
-   GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep their thresholds. G6 and G6t are
-   re-registered with a settle definition for a cut and are not looser than the reference without
-   an owner disposition. That re-registration is its own PR under the BV ADR §8.4 guard; this
-   section changes no threshold or gate.
-6. Lift the refusals (§12.3 step 3), collapse selection, re-home the GPU tests.
-7. Delete the chunk route and the legacy composite (§12.3 steps 4 and 5).
+The owner set this order on 2026-11-11 (see the owner decision below). It replaces the full M2
+program on the chunk route with a gate repair and one frozen reference run.
 
-Steps 2 to 4 can run in parallel.
+1. **Gate repair (route-neutral).** The beyond-VRAM lane's gates are repaired before any
+   reference is recorded:
+    - a needed chunk or node counts as **served only when it is GPU-resident**;
+    - checks run **during movement**, not only at the stops;
+    - the probe captures **screenshots**;
+    - a **drawn-fraction / coverage** measure is added. It is report-only, like the other
+      beyond-VRAM gates, until it is hardened.
+2. **Frozen chunk-route reference.** One Tier A run on the chunk route with the repaired gates;
+   its run id and gate values are recorded in the BV ADR. This replaces the full M2 program on the
+   chunk route: BV-13b, BV-C6 and BV-14 are no longer done in full there, and only their
+   route-neutral parts carry over (gates and the settle oracle; the GSQ codec work). After the
+   run, only fixes the reference needs land on chunk-only code.
+3. **Option D migration:**
+    1. Shared layers move under the HLOD streamer: read service, GSQ node payloads through the
+       common page store, a bounded ready queue, worker and upload sizing, decode telemetry.
+       Proven on T0 against the same T0 on the chunk route.
+    2. The HLOD route scales: the cap blockers in §12.6.5.
+    3. Out-of-core writer and tiled bake, then the automatic tree for tree-less input.
+    4. **M3 = Tier A on the one route**, measured against the frozen reference of step 2, also in
+       GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep their thresholds. G6 and G6t are
+       re-registered with a settle definition for a cut and are not looser than the reference
+       without an owner disposition. That re-registration is its own PR under the BV ADR §8.4
+       guard; this section changes no threshold or gate.
+    5. Lift the refusals (§12.3 step 3), collapse selection, re-home the GPU tests.
+    6. Delete the chunk route and the legacy composite (§12.3 steps 4 and 5).
+
+Steps 3.1 to 3.3 can run in parallel.
+
+**Route-neutral work that continues alongside:** the GS-COMBINED-1 S1 per-light shadow caster
+counter (engine; Refs #1313). #788 (the world missing next to node instances) is re-checked on
+the HLOD route, not patched on the chunk route.
+
+**Why the order changed.** A local Tier A flythrough on 2026-11-11 showed holes, a fill order
+that does not run from the camera to the horizon, and seam flicker, while every gate passed. A
+read-only diagnosis at `91cdcd1e4f9` traced this to the chunk route and to blind spots in the
+gates:
+
+- The chunk route's LOD is a prefix of each chunk: `effective_count = count / splat_skip_factor`
+  (`core/streaming_visibility_controller.cpp:958`). On the lane it drew 1/8 density beyond about
+  100 m, and the drawn fraction was 0.14–0.51 **[M, local run, not recorded in the repository]**.
+- Content ends at the lane's 400 m far plane ([Worlds beyond VRAM](adr-beyond-vram-worlds.md) G-c).
+- Each chunk switches LOD level directly from its distance, with no hysteresis
+  (`core/streaming_visibility_controller.cpp:943-949`).
+- The settle oracle counts queued and in-flight chunks as served: a needed chunk is unserved only
+  if it is not resident, not loaded and not upload-pending (`core/gaussian_streaming.cpp:3559`).
+  It is checked only at the eight stops.
+- G11 compares against a reference at the same LOD, and G11h covers the HLOD arm only.
+
+A full M2 program on top of these gates would certify the defects it cannot see.
 
 #### 12.6.5 Known blockers to raising the HLOD caps
 
@@ -685,6 +720,9 @@ and no compaction (`fragmented_groups`, `lod/hlod_node_residency.h:141`).
 
 - **Question put to the owner (2026-11-11):** "Option D als Zielarchitektur annehmen?"
 - **Answer:** "1. ja".
+- **Program order (2026-11-11):** to the proposal "start Option D now; first repair the gates,
+  freeze the chunk route as reference instead of the full M2 program", the owner answered "gut .
+  dann mache die vorarbeit bis an option d heran." This is the order in §12.6.4.
 - **Decided by:** the owner, 2026-11-11.
 - **Confirmation:** the PR that adds this section is opened from the owner's account
   (`klausi3D`), as every agent PR here is, so an approving review cannot be obtained. The
