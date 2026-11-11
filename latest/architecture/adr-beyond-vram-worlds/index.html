@@ -5446,9 +5446,9 @@ bound and bound+1, and carries an explicit maintainer disposition in an R3 PR.</
 <td>The ceiling exists for one-shot uploads. A streamed pool uploads per run under the per-frame byte cap.</td>
 </tr>
 <tr>
-<td>Sort capacity = whole-tree <code>leaf_count</code> (<code>publisher.cpp:1685</code> ✓)</td>
-<td>pow2(drawn budget)</td>
-<td>Only the drawn set is sorted.</td>
+<td>Sort capacity previously included whole-tree <code>leaf_count</code></td>
+<td><strong>Implemented for streamed/paged bundles (#1417):</strong> <code>gs_hlod_bundle::relative_capacity</code> (with the sorter's allocation padding). Whole-tree bundles retain <code>max(canonical_capacity, relative_capacity)</code>.</td>
+<td>Only the drawn set is sorted by a streamed bundle; whole-tree bundles still support canonical sorting.</td>
 </tr>
 <tr>
 <td>HLOD per-visible scratch sized from <code>max_visible_splats</code> (<code>renderer/tile_renderer.cpp:4074-4114</code> ✓)</td>

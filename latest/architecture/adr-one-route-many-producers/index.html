@@ -6108,7 +6108,9 @@ loading never blanks the objects, and BV ADR I-4 (complete-or-nothing) holds <st
   (decision 3). Stated per-object priorities that override the importance order are F3.</li>
 </ul>
 </li>
-<li>The sort capacity is <code>max(leaf_count, capacity)</code> (<code>:1685</code>) plus the instance capacity.</li>
+<li>Streamed/paged bundles size the sorter from <code>gs_hlod_bundle::relative_capacity</code>, the world + admitted-instance
+    draw budget bounded by <code>max_splats</code> and the view cap (#1417). Whole-tree bundles retain
+    <code>max(canonical_capacity, relative_capacity)</code> because they can also sort every leaf and every row's asset.</li>
 <li><strong>The value of <code>F</code></strong> is set and justified in PR1b. Exposing it as a project setting is a settings
   change and is R3 (F3); PR1b may ship it as a named constant.</li>
 </ul>
