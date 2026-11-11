@@ -326,7 +326,7 @@ Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
 			return p_context.fail(ERR_INVALID_DATA);
 		}
 		node.payload_first = leaf_cursor;
-		memcpy(assembled.leaf_gaussians.ptr() + leaf_cursor, payload.gaussians, size_t(payload.count) * sizeof(Gaussian));
+		memcpy(static_cast<void *>(assembled.leaf_gaussians.ptr() + leaf_cursor), payload.gaussians, size_t(payload.count) * sizeof(Gaussian));
 		if (tree.sh_high_order_count > 0u) {
 			memcpy(assembled.leaf_sh_high_order.ptr() + uint64_t(leaf_cursor) * tree.sh_high_order_count, payload.sh_high_order,
 					size_t(payload.count) * tree.sh_high_order_count * sizeof(Vector3));
@@ -361,7 +361,7 @@ Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
 			return p_context.fail(ERR_INVALID_DATA);
 		}
 		node.payload_first = uint64_t(tree.leaf_splat_count) + interior_cursor;
-		memcpy(tree.interior_gaussians.ptr() + interior_cursor, payload.gaussians, size_t(payload.count) * sizeof(Gaussian));
+		memcpy(static_cast<void *>(tree.interior_gaussians.ptr() + interior_cursor), payload.gaussians, size_t(payload.count) * sizeof(Gaussian));
 		if (tree.sh_high_order_count > 0u) {
 			memcpy(tree.interior_sh_high_order.ptr() + uint64_t(interior_cursor) * tree.sh_high_order_count, payload.sh_high_order,
 					size_t(payload.count) * tree.sh_high_order_count * sizeof(Vector3));
