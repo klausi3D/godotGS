@@ -1,5 +1,9 @@
 var NAVTREEINDEX48 =
 {
+"structPackedGaussianQuantized.html#af7072eb84db6eb3c9c3e2ced58b5928a":[1,0,178,0],
+"structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d":[1,0,178,9],
+"structPackedSphericalHarmonics.html":[1,0,179],
+"structPackedSphericalHarmonics.html#aa95e0a0f86965e209f621cd8eb456a46":[1,0,179,0],
 "structPackedSphericalHarmonics.html#ada6e22655e1b6ec81bc9f78148998f84":[1,0,179,1],
 "structPackedSphericalHarmonics.html#af5c46f064aebed402a3ce34e9d42f1cf":[1,0,179,2],
 "structPainterlyConfig.html":[1,0,180],
@@ -245,9 +249,5 @@ var NAVTREEINDEX48 =
 "structRasterParams.html#a8892b8c68a5aa8bab271130fc5ab81b7":[1,0,203,5],
 "structRasterParams.html#a97f7276195d9d4eedb512595b64ebea7":[1,0,203,4],
 "structRasterParams.html#aa1c748ea75705ecc94296493af28f7bb":[1,0,203,18],
-"structRasterParams.html#aa1f464007d1061dbf9c576ef7dfd1881":[1,0,203,32],
-"structRasterParams.html#aaf334eea3b0c693594bee627c8612381":[1,0,203,30],
-"structRasterParams.html#aaf73ead97d4946dba984b53c5ff21137":[1,0,203,8],
-"structRasterParams.html#ab6a431235ca9e0043bfc070a6626a721":[1,0,203,3],
-"structRasterParams.html#ac65d886b363abc62d9d31dc2c914e8f5":[1,0,203,9]
+"structRasterParams.html#aa1f464007d1061dbf9c576ef7dfd1881":[1,0,203,32]
 };

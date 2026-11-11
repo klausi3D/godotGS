@@ -1,5 +1,9 @@
 var NAVTREEINDEX58 =
 {
+"structgs__shadow__caster_1_1FrameStats.html#acb1a284a36279ad0bd8f52a5ba8d5760":[1,0,19,4,7],
+"structgs__shadow__caster_1_1FrameStats.html#ae8a121491c219167f3344be5f20e2341":[0,0,28,4,6],
+"structgs__shadow__caster_1_1FrameStats.html#ae8a121491c219167f3344be5f20e2341":[1,0,19,4,6],
+"structgs__shadow__caster_1_1PassPlan.html":[0,0,28,1],
 "structgs__shadow__caster_1_1PassPlan.html":[1,0,19,1],
 "structgs__shadow__caster_1_1PassPlan.html#a52f70728081fb3ddfb3ab3dbe5898012":[0,0,28,1,1],
 "structgs__shadow__caster_1_1PassPlan.html#a52f70728081fb3ddfb3ab3dbe5898012":[1,0,19,1,1],
@@ -245,9 +249,5 @@ var NAVTREEINDEX58 =
 "structgs__world__generator_1_1Params.html#a73d19ffcb512198f8e5c0f0ef82963ab":[1,0,25,1,43],
 "structgs__world__generator_1_1Params.html#a74885b14983e4aa06e98dfe488af3487":[0,0,35,1,35],
 "structgs__world__generator_1_1Params.html#a74885b14983e4aa06e98dfe488af3487":[1,0,25,1,35],
-"structgs__world__generator_1_1Params.html#a758a8423a6f3d2796a23ab6b4fada32d":[0,0,35,1,16],
-"structgs__world__generator_1_1Params.html#a758a8423a6f3d2796a23ab6b4fada32d":[1,0,25,1,16],
-"structgs__world__generator_1_1Params.html#a7c5c9899fd8906c4aa8471d45e3e1eb0":[0,0,35,1,5],
-"structgs__world__generator_1_1Params.html#a7c5c9899fd8906c4aa8471d45e3e1eb0":[1,0,25,1,5],
-"structgs__world__generator_1_1Params.html#a7ed6933369490cb1bc7236d60c363b7e":[0,0,35,1,33]
+"structgs__world__generator_1_1Params.html#a758a8423a6f3d2796a23ab6b4fada32d":[0,0,35,1,16]
 };

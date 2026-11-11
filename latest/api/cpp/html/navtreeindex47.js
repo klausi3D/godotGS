@@ -1,5 +1,9 @@
 var NAVTREEINDEX47 =
 {
+"structInstanceDepthParamsGPU.html#adbb4b7d421f2eba6a10d517a7896402a":[1,0,145,8],
+"structInstanceDepthParamsGPU.html#adf57f2daa2c570835f9ef1d0fc495516":[1,0,145,5],
+"structInstanceDepthParamsGPU.html#aefb161cea03a4801de7ce2f0b735f926":[1,0,145,12],
+"structInstanceDepthParamsGPU.html#af0b444a00bd10c1e178d68a983e080f1":[1,0,145,1],
 "structInstanceDepthParamsGPU.html#af0f1c16d10f0ebe0fcb451819fa1752b":[1,0,145,9],
 "structInstanceGradingGPU.html":[1,0,146],
 "structInstanceGradingGPU.html#a2a52546b7c1dbb2470d556ff0ac90f95":[1,0,146,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX47 =
 "structPackedGaussianQuantized.html#aa62c5e8f9c0bd158e43fca6b62181d53":[1,0,178,10],
 "structPackedGaussianQuantized.html#aac060848632fa5a46ae5ed87275df74a":[1,0,178,8],
 "structPackedGaussianQuantized.html#ae21c8d66fec1c8f228276fc69666947a":[1,0,178,7],
-"structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564":[1,0,178,11],
-"structPackedGaussianQuantized.html#af7072eb84db6eb3c9c3e2ced58b5928a":[1,0,178,0],
-"structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d":[1,0,178,9],
-"structPackedSphericalHarmonics.html":[1,0,179],
-"structPackedSphericalHarmonics.html#aa95e0a0f86965e209f621cd8eb456a46":[1,0,179,0]
+"structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564":[1,0,178,11]
 };
