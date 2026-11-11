@@ -2,6 +2,8 @@
 
 #include "../core/gs_vector_alloc.h"
 #include "../core/streaming_chunk_payload_source.h"
+#include "gs_atomic_file_writer.h"
+#include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
 #include "core/io/json.h"
@@ -11,6 +13,19 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <limits>
+
+// Native scratch I/O: exclusive creation, non-truncating reopen, no buffered
+// writes to lose on LRU close. Include after engine headers (Windows macros).
+#if defined(WINDOWS_ENABLED)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace gs_gsq {
 // Implemented beside the codec, using its configured zstd headers/library.
@@ -22,6 +37,156 @@ namespace {
 
 constexpr uint64_t kSliceBytes = uint64_t(1) << 20;
 std::atomic<uint64_t> next_body_handle{ 1 };
+
+// Never committed. Ownership of the path survives close/reopen, so even an
+// evicted file is removed by destruction. Only an exclusive create adopts a
+// path; a failed create must never delete a file belonging to someone else.
+class SpillFile {
+	String path;
+	String native_path;
+	uint64_t size = 0;
+#if defined(WINDOWS_ENABLED)
+	HANDLE handle = INVALID_HANDLE_VALUE;
+#else
+	int fd = -1;
+#endif
+
+public:
+	SpillFile() = default;
+	SpillFile(const SpillFile &) = delete;
+	SpillFile &operator=(const SpillFile &) = delete;
+	~SpillFile() { remove(); }
+	const String &get_path() const { return path; }
+	uint64_t get_size() const { return size; }
+
+	// p_base is used only on first creation. Reopening never creates/truncates.
+	Error open(const String &p_base, bool p_read_only) {
+		const bool create = path.is_empty();
+		const String candidate = create ? _gs_atomic_temp_path(p_base) : path;
+#if defined(WINDOWS_ENABLED)
+		const String native = create ? _gs_atomic_win_native_path(candidate) : native_path;
+		const Char16String name = native.utf16();
+		handle = CreateFileW((LPCWSTR)name.get_data(), p_read_only ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE),
+				FILE_SHARE_READ, nullptr, create ? CREATE_NEW : OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (handle == INVALID_HANDLE_VALUE) {
+			return ERR_FILE_CANT_OPEN;
+		}
+#else
+		const String native = create ? (ProjectSettings::get_singleton() ? ProjectSettings::get_singleton()->globalize_path(candidate) : candidate) : native_path;
+		const CharString name = native.utf8();
+		int flags = p_read_only ? O_RDONLY : O_RDWR;
+		if (create) {
+			flags |= O_CREAT | O_EXCL;
+		}
+#ifdef O_CLOEXEC
+		flags |= O_CLOEXEC;
+#endif
+		do {
+			fd = ::open(name.get_data(), flags, 0600);
+		} while (fd < 0 && errno == EINTR);
+		if (fd < 0) {
+			return ERR_FILE_CANT_OPEN;
+		}
+#endif
+		if (create) {
+			path = candidate;
+			native_path = native;
+		}
+		return OK;
+	}
+
+	bool has_expected_length() const {
+#if defined(WINDOWS_ENABLED)
+		LARGE_INTEGER length;
+		return GetFileSizeEx(handle, &length) && length.QuadPart >= 0 && uint64_t(length.QuadPart) == size;
+#else
+		struct stat info;
+		return ::fstat(fd, &info) == 0 && info.st_size >= 0 && uint64_t(info.st_size) == size;
+#endif
+	}
+
+	Error close() {
+#if defined(WINDOWS_ENABLED)
+		if (handle == INVALID_HANDLE_VALUE) {
+			return OK;
+		}
+		const bool closed = CloseHandle(handle);
+		handle = INVALID_HANDLE_VALUE;
+#else
+		if (fd < 0) {
+			return OK;
+		}
+		// Do not retry close on EINTR: on Linux the descriptor is already freed
+		// and another thread may have reused it. There is no userspace buffer.
+		const bool closed = ::close(fd) == 0;
+		fd = -1;
+#endif
+		return closed ? OK : ERR_FILE_CANT_WRITE;
+	}
+
+	Error remove() {
+		const Error err = close();
+		if (native_path.is_empty()) {
+			return err;
+		}
+#if defined(WINDOWS_ENABLED)
+		const Char16String name = native_path.utf16();
+		const bool removed = DeleteFileW((LPCWSTR)name.get_data()) || GetLastError() == ERROR_FILE_NOT_FOUND;
+#else
+		const CharString name = native_path.utf8();
+		const bool removed = ::unlink(name.get_data()) == 0 || errno == ENOENT;
+#endif
+		if (!removed) {
+			return ERR_FILE_CANT_WRITE; // Retain ownership for cleanup's retry.
+		}
+		native_path = String();
+		return err;
+	}
+
+	// Only bounded (<= 1 MiB) slices enter here; caller checks stop/limits for
+	// each slice. Explicit offsets preserve append position across reopening.
+	Error transfer(uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size, bool p_write) {
+#if defined(WINDOWS_ENABLED)
+		const uint64_t max_offset = INT64_MAX;
+#else
+		const uint64_t max_offset = uint64_t(std::numeric_limits<off_t>::max());
+#endif
+		if (p_offset > max_offset || p_size > max_offset - p_offset) {
+			return ERR_PARAMETER_RANGE_ERROR;
+		}
+		while (p_size) {
+#if defined(WINDOWS_ENABLED)
+			OVERLAPPED ov = {};
+			ov.Offset = DWORD(p_offset & 0xFFFFFFFFu);
+			ov.OffsetHigh = DWORD(p_offset >> 32u);
+			DWORD done = 0;
+			const bool ok = p_write ? WriteFile(handle, p_bytes, DWORD(p_size), &done, &ov) : ReadFile(handle, p_bytes, DWORD(p_size), &done, &ov);
+			if (!ok || !done) {
+#else
+			ssize_t done;
+			do {
+				done = p_write ? ::pwrite(fd, p_bytes, size_t(p_size), off_t(p_offset)) : ::pread(fd, p_bytes, size_t(p_size), off_t(p_offset));
+			} while (done < 0 && errno == EINTR);
+			if (done <= 0) {
+#endif
+				return p_write ? ERR_FILE_CANT_WRITE : ERR_FILE_CANT_READ;
+			}
+			p_offset += uint64_t(done);
+			p_bytes += done;
+			p_size -= uint64_t(done);
+			if (p_write) {
+				size = p_offset; // Also account for partial writes before failure.
+			}
+		}
+		return OK;
+	}
+	Error append(const uint8_t *p_bytes, uint64_t p_size) {
+		return transfer(size, const_cast<uint8_t *>(p_bytes), p_size, true);
+	}
+	Error read_at(uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size) {
+		return transfer(p_offset, p_bytes, p_size, false);
+	}
+};
 
 uint64_t allocate_body_handle() {
 	uint64_t next = next_body_handle.load();
@@ -295,8 +460,12 @@ struct WriterV4::Impl {
 		uint32_t segment = 0;
 	};
 	struct Segment {
-		GSAtomicFileTransaction file;
+		SpillFile file;
 		uint32_t remaining = 0;
+		bool is_open = false;
+		bool read_only = false;
+		Segment *previous = nullptr;
+		Segment *next = nullptr;
 	};
 	bool open = false;
 	bool output_begun = false;
@@ -311,6 +480,43 @@ struct WriterV4::Impl {
 	HashMap<uint64_t, uint32_t> handles;
 	HashMap<V4SegmentKey, uint32_t, SegmentHasher> segment_ids;
 	LocalVector<Segment *> segments;
+	// Intrusive LRU contains only open segments; all segments remain owned by
+	// the table. Eviction and promotion are O(1), independent of world size.
+	Segment *oldest = nullptr;
+	Segment *newest = nullptr;
+	uint32_t open_segments = 0;
+	uint32_t max_open_segments = kMaxOpenSpillSegments;
+	void unlink_segment(Segment *p_segment) {
+		if (p_segment->previous) {
+			p_segment->previous->next = p_segment->next;
+		} else {
+			oldest = p_segment->next;
+		}
+		if (p_segment->next) {
+			p_segment->next->previous = p_segment->previous;
+		} else {
+			newest = p_segment->previous;
+		}
+		p_segment->previous = p_segment->next = nullptr;
+	}
+	void touch_segment(Segment *p_segment) {
+		p_segment->previous = newest;
+		if (newest) {
+			newest->next = p_segment;
+		} else {
+			oldest = p_segment;
+		}
+		newest = p_segment;
+	}
+	Error close_segment(Segment *p_segment) {
+		if (!p_segment->is_open) {
+			return OK;
+		}
+		unlink_segment(p_segment);
+		p_segment->is_open = false;
+		--open_segments;
+		return p_segment->file.close();
+	}
 	GSAtomicFileTransaction output;
 	uint64_t started = 0;
 	uint64_t live_scratch = 0;
@@ -325,6 +531,7 @@ struct WriterV4::Impl {
 	SafeNumeric<uint64_t> splats_total{ 0 };
 	SafeNumeric<uint64_t> bytes_written{ 0 };
 #ifdef TESTS_ENABLED
+	SegmentHandleStats handle_stats;
 	AssemblyObserver observer = nullptr;
 	void *observer_userdata = nullptr;
 #endif
@@ -346,7 +553,8 @@ void WriterV4::_cleanup() {
 		if (segment) {
 			// Preserve measured file lengths in the report before removing files.
 			report.segments[i].spill_bytes = segment->file.get_size();
-			segment->file.abort();
+			impl->close_segment(segment);
+			segment->file.remove();
 			memdelete(segment);
 		}
 	}
@@ -397,29 +605,86 @@ Error WriterV4::_check_ram(uint64_t p_body_bytes, uint32_t p_extra_records) {
 	return OK;
 }
 
-Error WriterV4::_write(GSAtomicFileTransaction &p_file, const uint8_t *p_bytes, uint64_t p_size, bool p_scratch) {
+Error WriterV4::_open_segment(uint32_t p_segment, bool p_read_only) {
+	Impl::Segment *segment = impl->segments[p_segment];
+	if (segment->is_open && segment->read_only != p_read_only) {
+		const Error err = impl->close_segment(segment);
+		if (err != OK) {
+			return _fail(err, "io");
+		}
+	}
+	if (segment->is_open) {
+		impl->unlink_segment(segment);
+		impl->touch_segment(segment);
+		return OK;
+	}
+	if (impl->open_segments >= impl->max_open_segments) {
+		// Evict BEFORE opening: even transient opens must respect the cap.
+		const Error err = impl->close_segment(impl->oldest);
+		if (err != OK) {
+			return _fail(err, "io");
+		}
+	}
+	const V4SegmentKey &key = report.segments[p_segment].key;
+	const String base = impl->scratch_dir.path_join("v4_" + String::num_uint64(key.bucket) + "_" + itos(key.depth));
+#ifdef TESTS_ENABLED
+	const bool reopen = !segment->file.get_path().is_empty();
+#endif
+	const Error err = segment->file.open(base, p_read_only);
+	if (err != OK) {
+		return _fail(err, "io");
+	}
+	segment->is_open = true;
+	segment->read_only = p_read_only;
+	++impl->open_segments;
+	impl->touch_segment(segment);
+#ifdef TESTS_ENABLED
+	// Count here, before validation or subsequent cleanup can close the handle.
+	if (p_read_only) {
+		impl->handle_stats.peak_assembly = MAX(impl->handle_stats.peak_assembly, impl->open_segments);
+		impl->handle_stats.assembly_reopens += reopen ? 1 : 0;
+	} else {
+		impl->handle_stats.peak_spill = MAX(impl->handle_stats.peak_spill, impl->open_segments);
+		impl->handle_stats.spill_reopens += reopen ? 1 : 0;
+	}
+#endif
+	if (!segment->file.has_expected_length()) {
+		return _fail(ERR_FILE_CORRUPT, "v4_spill_extent");
+	}
+	return OK;
+}
+
+Error WriterV4::_write(const uint8_t *p_bytes, uint64_t p_size, uint32_t p_segment) {
+	const bool scratch = p_segment != UINT32_MAX;
 	while (p_size) {
 		Error err = _check_stop();
 		if (err != OK || (err = _check_ram()) != OK) {
 			return err;
 		}
 		const uint64_t slice = MIN(p_size, kSliceBytes);
-		const uint64_t used = p_scratch ? impl->live_scratch : p_file.get_size();
-		const uint64_t cap = p_scratch ? impl->limits.max_scratch_bytes : impl->limits.max_output_bytes;
+		const uint64_t used = scratch ? impl->live_scratch : impl->output.get_size();
+		const uint64_t cap = scratch ? impl->limits.max_scratch_bytes : impl->limits.max_output_bytes;
 		if (used > cap || slice > cap - used) {
-			return _fail(ERR_PARAMETER_RANGE_ERROR, p_scratch ? "limit_scratch" : "limit_output");
+			return _fail(ERR_PARAMETER_RANGE_ERROR, scratch ? "limit_scratch" : "limit_output");
 		}
 		uint64_t next_total, next_progress, disk;
-		if (!add_checked(report.total_scratch_bytes, p_scratch ? slice : 0, next_total) ||
+		if (!add_checked(report.total_scratch_bytes, scratch ? slice : 0, next_total) ||
 				!add_checked(impl->bytes_written.get(), slice, next_progress) ||
 				!add_checked(impl->live_scratch, report.output_bytes, disk) || !add_checked(disk, slice, disk)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
-		err = p_file.append(p_bytes, slice);
+		if (scratch) {
+			if ((err = _open_segment(p_segment, false)) != OK) {
+				return err;
+			}
+			err = impl->segments[p_segment]->file.append(p_bytes, slice);
+		} else {
+			err = impl->output.append(p_bytes, slice);
+		}
 		if (err != OK) {
 			return _fail(err, "io");
 		}
-		if (p_scratch) {
+		if (scratch) {
 			impl->live_scratch += slice;
 			report.total_scratch_bytes = next_total;
 		}
@@ -432,8 +697,9 @@ Error WriterV4::_write(GSAtomicFileTransaction &p_file, const uint8_t *p_bytes, 
 	return OK;
 }
 
-Error WriterV4::_read(GSAtomicFileTransaction &p_file, uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size) {
-	if (p_offset > p_file.get_size() || p_size > p_file.get_size() - p_offset) {
+Error WriterV4::_read(uint32_t p_segment, uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size) {
+	const uint64_t size = impl->segments[p_segment]->file.get_size();
+	if (p_offset > size || p_size > size - p_offset) {
 		return _fail(ERR_FILE_CORRUPT, "v4_spill_extent");
 	}
 	while (p_size) {
@@ -442,7 +708,10 @@ Error WriterV4::_read(GSAtomicFileTransaction &p_file, uint64_t p_offset, uint8_
 			return err;
 		}
 		const uint64_t slice = MIN(p_size, kSliceBytes);
-		err = p_file.read_at(p_offset, p_bytes, slice);
+		if ((err = _open_segment(p_segment, true)) != OK) {
+			return err;
+		}
+		err = impl->segments[p_segment]->file.read_at(p_offset, p_bytes, slice);
 		if (err != OK) {
 			return _fail(err, "io");
 		}
@@ -477,6 +746,18 @@ Progress WriterV4::get_progress() const {
 }
 
 #ifdef TESTS_ENABLED
+void WriterV4::set_max_open_segments_for_test(uint32_t p_max) {
+	ERR_FAIL_COND(impl->open);
+	ERR_FAIL_COND(p_max == 0 || p_max > kMaxOpenSpillSegments);
+	impl->max_open_segments = p_max;
+}
+
+WriterV4::SegmentHandleStats WriterV4::get_segment_handle_stats_for_test() const {
+	SegmentHandleStats stats = impl->handle_stats;
+	stats.open_segments = impl->open_segments;
+	return stats;
+}
+
 void WriterV4::set_assembly_observer(AssemblyObserver p_observer, void *p_userdata) {
 	impl->observer = p_observer;
 	impl->observer_userdata = p_userdata;
@@ -512,6 +793,9 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 	impl->codec_workspace = 0;
 	impl->body_reservation = 0;
 	impl->metadata_reservation = 0;
+#ifdef TESTS_ENABLED
+	impl->handle_stats = SegmentHandleStats();
+#endif
 	impl->started = OS::get_singleton()->get_ticks_usec();
 	impl->cancelled.clear();
 	impl->phase.set(uint32_t(Phase::WRITING));
@@ -714,25 +998,21 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 		V4SegmentReport segment_report;
 		segment_report.key = p_desc.segment;
 		report.segments.push_back(segment_report);
-		// begin() adds its collision-resistant CREATE_NEW suffix. The base is
-		// never published; a segment is always an uncommitted transaction.
-		const String base = impl->scratch_dir.path_join("v4_" + String::num_uint64(p_desc.segment.bucket) + "_" + itos(p_desc.segment.depth));
-		err = segment->file.begin(base);
-		if (err != OK) {
-			return _fail(err, "io");
-		}
-		report.segments[spill.segment].path = segment->file.get_temp_path();
 		impl->segment_ids.insert(p_desc.segment, spill.segment);
 	}
+	if ((err = _open_segment(spill.segment, false)) != OK) {
+		return err;
+	}
 	Impl::Segment *segment = impl->segments[spill.segment];
-	spill.record.segment_path = segment->file.get_temp_path();
+	report.segments[spill.segment].path = segment->file.get_path();
+	spill.record.segment_path = segment->file.get_path();
 	spill.record.offset = segment->file.get_size();
 	if (impl->codec.codec_id == kCodecGsqV1) {
-		err = _write(segment->file, page.ptr(), page.size(), true);
+		err = _write(page.ptr(), page.size(), spill.segment);
 	} else {
-		err = _write(segment->file, reinterpret_cast<const uint8_t *>(p_gaussians), g_bytes, true);
+		err = _write(reinterpret_cast<const uint8_t *>(p_gaussians), g_bytes, spill.segment);
 		if (err == OK && sh_bytes) {
-			err = _write(segment->file, reinterpret_cast<const uint8_t *>(p_sh_high), sh_bytes, true);
+			err = _write(reinterpret_cast<const uint8_t *>(p_sh_high), sh_bytes, spill.segment);
 		}
 	}
 	if (err != OK) {
@@ -958,11 +1238,11 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_index_page");
 	}
 	memset(page.ptrw(), 0, page.size());
-	if ((err = _write(impl->output, page.ptr(), kHeaderBytes, false)) != OK) {
+	if ((err = _write(page.ptr(), kHeaderBytes)) != OK) {
 		return err;
 	}
 	for (uint64_t pi = 0; pi < header.index_page_count; ++pi) {
-		if ((err = _write(impl->output, page.ptr(), page.size(), false)) != OK) {
+		if ((err = _write(page.ptr(), page.size())) != OK) {
 			return err;
 		}
 	}
@@ -989,7 +1269,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 			if (!gs_resize_or_fail(encoded, spill.stored_bytes, "V4 assembly GSQ page")) {
 				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
 			}
-			if ((err = _read(segment->file, spill.offset, encoded.ptrw(), spill.stored_bytes)) != OK) {
+			if ((err = _read(entry.segment, spill.offset, encoded.ptrw(), spill.stored_bytes)) != OK) {
 				return err;
 			}
 			hash_bytes(encoded.ptr(), encoded.size(), digest);
@@ -1002,8 +1282,8 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 				return _fail(err, reason);
 			}
 		} else {
-			if ((err = _read(segment->file, spill.offset, reinterpret_cast<uint8_t *>(body.ptrw()), g_bytes)) != OK ||
-					(err = _read(segment->file, spill.offset + g_bytes, reinterpret_cast<uint8_t *>(sh.ptrw()), sh_bytes)) != OK) {
+			if ((err = _read(entry.segment, spill.offset, reinterpret_cast<uint8_t *>(body.ptrw()), g_bytes)) != OK ||
+					(err = _read(entry.segment, spill.offset + g_bytes, reinterpret_cast<uint8_t *>(sh.ptrw()), sh_bytes)) != OK) {
 				return err;
 			}
 			hash_body(body.ptr(), sh.ptr(), spill.splat_count, header.sh_high_order, digest);
@@ -1032,15 +1312,18 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 			record_hash.update(reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes);
 		}
 		record_hash.finish(record.digest);
-		if ((err = _write(impl->output, record_header, sizeof(record_header), false)) != OK ||
-				(err = _write(impl->output, reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes, false)) != OK ||
-				(err = _write(impl->output, reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes, false)) != OK ||
-				(err = _write(impl->output, page.ptr(), record.extent_bytes - record.stored_bytes, false)) != OK) {
+		if ((err = _write(record_header, sizeof(record_header))) != OK ||
+				(err = _write(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes)) != OK ||
+				(err = _write(reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes)) != OK ||
+				(err = _write(page.ptr(), record.extent_bytes - record.stored_bytes)) != OK) {
 			return err;
 		}
 		if (--segment->remaining == 0) {
 			impl->live_scratch -= segment->file.get_size();
-			segment->file.abort();
+			err = impl->close_segment(segment);
+			if (err != OK || (err = segment->file.remove()) != OK) {
+				return _fail(err, "io");
+			}
 			memdelete(segment);
 			impl->segments[entry.segment] = nullptr;
 			++report.segments_deleted;
@@ -1058,7 +1341,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 			return err;
 		}
 	}
-	if ((err = _write(impl->output, impl->metadata.ptr(), impl->metadata.size(), false)) != OK) {
+	if ((err = _write(impl->metadata.ptr(), impl->metadata.size())) != OK) {
 		return err;
 	}
 	if (impl->output.get_size() != header.file_bytes) {

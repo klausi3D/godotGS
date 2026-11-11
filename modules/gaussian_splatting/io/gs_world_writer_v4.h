@@ -9,7 +9,11 @@
 //
 // Append runtime-form bodies (absolute leaf positions, relative interiors) in
 // any order. One scratch file per (bucket, depth), beneath the caller's scratch
-// directory. GSQ pages preserve node order, are encoded, decoded and validated
+// directory. At most kMaxOpenSpillSegments (64) native segment handles stay open;
+// LRU eviction closes without deleting. Reopens append at the recorded length
+// or read during assembly. Closed files remain owned until deletion/cleanup.
+// Scratch is not fsynced or committed; only the final output is durable.
+// GSQ pages preserve node order, are encoded, decoded and validated
 // before append (W12/W14); metrics describe that decoded runtime form. Codec
 // none spills losslessly. Finalization derives depth/centre/leaf from topology,
 // reuses gs_hlod_validate_tree, requires canonical BFS and exactly one use of
@@ -33,6 +37,9 @@
 // JSON stringification: arbitrary user-code stringification has no memory bound.
 // One driving thread; only request_cancel/get_progress may cross threads.
 namespace gs_world_writer {
+
+// Segment descriptors only; the output transaction uses one additional handle.
+constexpr uint32_t kMaxOpenSpillSegments = 64;
 
 struct PagedV4Spec {
 	uint32_t node_count = 0; // Final BFS table count; excess spills are diagnosed at finalize as unused handles.
@@ -126,6 +133,19 @@ public:
 	const V4Report &get_report() const { return report; }
 
 #ifdef TESTS_ENABLED
+	// Set before begin_paged(); may only lower the production cap (minimum one).
+	void set_max_open_segments_for_test(uint32_t p_max);
+	struct SegmentHandleStats {
+		uint32_t open_segments = 0;
+		uint32_t peak_spill = 0;
+		uint32_t peak_assembly = 0;
+		uint64_t spill_reopens = 0;
+		uint64_t assembly_reopens = 0;
+	};
+	// Reset at begin; retained after failure/commit. Peaks count EVERY open,
+	// including opens immediately closed again on error. Driving thread only.
+	SegmentHandleStats get_segment_handle_stats_for_test() const;
+
 	// Called synchronously for EVERY copied body, after any last-use segment
 	// deletion, before the next body's I/O or commit. May request_cancel(); must
 	// not otherwise re-enter. Paths remain in Report after deletion. Instance-local
@@ -146,8 +166,10 @@ private:
 	Error _fail(Error p_error, const String &p_reason);
 	Error _check_stop();
 	Error _check_ram(uint64_t p_body_bytes = 0, uint32_t p_extra_records = 0);
-	Error _write(GSAtomicFileTransaction &p_file, const uint8_t *p_bytes, uint64_t p_size, bool p_scratch);
-	Error _read(GSAtomicFileTransaction &p_file, uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size);
+	Error _open_segment(uint32_t p_segment, bool p_read_only);
+	// UINT32_MAX selects the output transaction; otherwise selects a scratch segment.
+	Error _write(const uint8_t *p_bytes, uint64_t p_size, uint32_t p_segment = UINT32_MAX);
+	Error _read(uint32_t p_segment, uint64_t p_offset, uint8_t *p_bytes, uint64_t p_size);
 	V4Report report;
 };
 
