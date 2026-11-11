@@ -1378,8 +1378,8 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Extract quantized position components from packed data</td>
     </tr>
     <tr>
-      <td><pre><code>extract_chunk_id(uvec2 position_chunk)</code></pre></td>
-      <td>Extract chunk ID from packed position data</td>
+      <td><pre><code>gs_quantized_chunk_index(GaussianQuantized g)</code></pre></td>
+      <td>The record's 32-bit chunk index (#1413): bits 0..15 in the high half of position_chunk.y, bits 16..31 in the low half of chunk_id_hi. Mirrors gs_quantized_chunk_index() in renderer/gaussian_gpu_layout.h. An HLOD node id is this index, and a tree can hold more than 65,535 nodes.</td>
     </tr>
     <tr>
       <td><pre><code>extract_quantized_scale(uint scale_lo, uint scale_hi)</code></pre></td>
