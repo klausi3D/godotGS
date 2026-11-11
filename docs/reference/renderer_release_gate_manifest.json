@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 226,
-    "sha256": "c1e4fafaaf9f0de0cd094ca7bfa78143a3d7c52ece4e73f26197e677b0b929d1",
-    "sha256_last_changed_by": "#1393 phase 2: add one RequiresGPU case (TileRenderer batch) proving that EMIT bins from COUNT's footprint when the splat data changes between the two passes, so no record is dropped at the tile-range site. Existing cases, batch filters, waivers and backlog unchanged. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
+    "test_count": 228,
+    "sha256": "476cf02c69331fddecc75883d638ec20a336565f945fa862ad8033be3bf32d18",
+    "sha256_last_changed_by": "#1417: add two RequiresGPU cases (HLOD PagedV4 World) proving that a paged world's sorter is sized from the drawn budget, not every leaf, and that a drawn cut above it is clamped and counted. Existing cases, batch filters, waivers and backlog unchanged. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
     "deferred_tags_any": [
       "Importer"
     ],
