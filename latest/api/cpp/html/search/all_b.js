@@ -8,5 +8,6 @@ var searchData=
   ['jacobian_5finvert_5fj_5fcol2_5fsign_5',['jacobian_invert_j_col2_sign',['../structGaussianSplatting_1_1TileRenderParams.html#af1ae3ad62d1a03db557aabbf77decf75',1,'GaussianSplatting::TileRenderParams']]],
   ['jacobiandebugconfig_6',['JacobianDebugConfig',['../structGaussianRenderDebug_1_1JacobianDebugConfig.html',1,'GaussianRenderDebug::JacobianDebugConfig'],['../classGaussianSplatRenderer.html#a94bc9473e61007006fc36f9695f5a8c8',1,'GaussianSplatRenderer::JacobianDebugConfig']]],
   ['jitter_7',['jitter',['../structGaussianSplatting_1_1PainterlyMetadata.html#aabf1d8b1a17d950b2e94d1bdaf351ce1',1,'GaussianSplatting::PainterlyMetadata']]],
-  ['jitter_5famplitude_8',['jitter_amplitude',['../structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197',1,'GaussianSplatting::PainterlyManager::Settings']]]
+  ['jitter_5famplitude_8',['jitter_amplitude',['../structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197',1,'GaussianSplatting::PainterlyManager::Settings']]],
+  ['job_9',['job',['../structgs__hlod_1_1tiled__bake_1_1Context.html#ad8ebc8fe33d75145bf0cd47c91822e94',1,'gs_hlod::tiled_bake::Context']]]
 ];

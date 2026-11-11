@@ -190,6 +190,14 @@ var annotated_dup =
       [ "bake_admission", "namespacegs__hlod_1_1bake__admission.html", [
         [ "ResultRollback", "classgs__hlod_1_1bake__admission_1_1ResultRollback.html", "classgs__hlod_1_1bake__admission_1_1ResultRollback" ]
       ] ],
+      [ "bake_bounds", "namespacegs__hlod_1_1bake__bounds.html", [
+        [ "BoundsAccumulator", "structgs__hlod_1_1bake__bounds_1_1BoundsAccumulator.html", "structgs__hlod_1_1bake__bounds_1_1BoundsAccumulator" ]
+      ] ],
+      [ "tiled_bake", "namespacegs__hlod_1_1tiled__bake.html", [
+        [ "Chunk", "structgs__hlod_1_1tiled__bake_1_1Chunk.html", "structgs__hlod_1_1tiled__bake_1_1Chunk" ],
+        [ "PlanNode", "structgs__hlod_1_1tiled__bake_1_1PlanNode.html", "structgs__hlod_1_1tiled__bake_1_1PlanNode" ],
+        [ "Context", "structgs__hlod_1_1tiled__bake_1_1Context.html", "structgs__hlod_1_1tiled__bake_1_1Context" ]
+      ] ],
       [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
       [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
       [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],
@@ -213,7 +221,16 @@ var annotated_dup =
       [ "QualityScratch", "structgs__hlod_1_1QualityScratch.html", "structgs__hlod_1_1QualityScratch" ],
       [ "QualityViewResult", "structgs__hlod_1_1QualityViewResult.html", "structgs__hlod_1_1QualityViewResult" ],
       [ "QualityResult", "structgs__hlod_1_1QualityResult.html", "structgs__hlod_1_1QualityResult" ],
-      [ "QualityBandResult", "structgs__hlod_1_1QualityBandResult.html", "structgs__hlod_1_1QualityBandResult" ]
+      [ "QualityBandResult", "structgs__hlod_1_1QualityBandResult.html", "structgs__hlod_1_1QualityBandResult" ],
+      [ "TiledBakeSourceInfo", "structgs__hlod_1_1TiledBakeSourceInfo.html", "structgs__hlod_1_1TiledBakeSourceInfo" ],
+      [ "TiledBakeChunkInfo", "structgs__hlod_1_1TiledBakeChunkInfo.html", "structgs__hlod_1_1TiledBakeChunkInfo" ],
+      [ "TiledBakeChunk", "structgs__hlod_1_1TiledBakeChunk.html", "structgs__hlod_1_1TiledBakeChunk" ],
+      [ "TiledBakeSource", "classgs__hlod_1_1TiledBakeSource.html", "classgs__hlod_1_1TiledBakeSource" ],
+      [ "TiledBakeLimits", "structgs__hlod_1_1TiledBakeLimits.html", "structgs__hlod_1_1TiledBakeLimits" ],
+      [ "TiledBakeParams", "structgs__hlod_1_1TiledBakeParams.html", "structgs__hlod_1_1TiledBakeParams" ],
+      [ "TiledBakeReport", "structgs__hlod_1_1TiledBakeReport.html", "structgs__hlod_1_1TiledBakeReport" ],
+      [ "TiledAutoTree", "classgs__hlod_1_1TiledAutoTree.html", null ],
+      [ "BoundsAccumulator", "structgs__hlod_1_1BoundsAccumulator.html", "structgs__hlod_1_1BoundsAccumulator" ]
     ] ],
     [ "gs_hlod_auto_route", "namespacegs__hlod__auto__route.html", [
       [ "WorldInputs", "structgs__hlod__auto__route_1_1WorldInputs.html", "structgs__hlod__auto__route_1_1WorldInputs" ],

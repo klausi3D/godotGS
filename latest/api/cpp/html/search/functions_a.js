@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['keyframe_0',['Keyframe',['../structGaussianSplatting_1_1Keyframe.html#a8caf55cb284d5903672241ef4da43095',1,'GaussianSplatting::Keyframe::Keyframe()=default'],['../structGaussianSplatting_1_1Keyframe.html#aec39dfeb5e6449322e3fc3b4c78dd4e6',1,'GaussianSplatting::Keyframe::Keyframe(float p_time, const Variant &amp;p_value, InterpolationType p_interp=InterpolationType::LINEAR)']]],
-  ['keyframeinterpolator_1',['KeyframeInterpolator',['../classGaussianSplatting_1_1KeyframeInterpolator.html#ad261806e723ae896fb7bb2c2ac6c5b4a',1,'GaussianSplatting::KeyframeInterpolator']]]
+  ['job_0',['job',['../structgs__hlod_1_1tiled__bake_1_1Context.html#ad8ebc8fe33d75145bf0cd47c91822e94',1,'gs_hlod::tiled_bake::Context']]]
 ];

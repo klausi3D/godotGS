@@ -6,6 +6,8 @@ var structgs__hlod_1_1OfflineJob =
     [ "admitted_count", "structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd", null ],
     [ "admitted_high", "structgs__hlod_1_1OfflineJob.html#a30e04a49644b4112ebdad804b3ad7b7f", null ],
     [ "cancel_path", "structgs__hlod_1_1OfflineJob.html#aca68087c9de6277d5b31c8638d55109f", null ],
+    [ "check_callback", "structgs__hlod_1_1OfflineJob.html#a62b675fa9a13160538f47e50ddb27a92", null ],
+    [ "check_userdata", "structgs__hlod_1_1OfflineJob.html#a6f0d8b172bfd827cc9008d3277a7c86f", null ],
     [ "deadline", "structgs__hlod_1_1OfflineJob.html#a96efccdd9b8d963850c5ac7d5b40312b", null ],
     [ "input", "structgs__hlod_1_1OfflineJob.html#acda63d1204c4af5f72b310a7695e9330", null ],
     [ "metric", "structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08", null ],

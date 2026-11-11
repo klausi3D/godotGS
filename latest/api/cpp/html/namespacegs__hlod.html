@@ -95,6 +95,8 @@ $(function(){initNavTree('namespacegs__hlod.html','',''); });
 <tr class="heading"><td colspan="2"><h2 id="header-namespaces" class="groupheader"><a id="namespaces" name="namespaces"></a>
 Namespaces</h2></td></tr>
 <tr class="memitem:bake_5Fadmission" id="r_bake_5Fadmission"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod_1_1bake__admission.html">bake_admission</a></td></tr>
+<tr class="memitem:bake_5Fbounds" id="r_bake_5Fbounds"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod_1_1bake__bounds.html">bake_bounds</a></td></tr>
+<tr class="memitem:tiled_5Fbake" id="r_tiled_5Fbake"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod_1_1tiled__bake.html">tiled_bake</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
@@ -122,6 +124,15 @@ Classes</h2></td></tr>
 <tr class="memitem:QualityViewResult" id="r_QualityViewResult"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1QualityViewResult.html">QualityViewResult</a></td></tr>
 <tr class="memitem:QualityResult" id="r_QualityResult"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1QualityResult.html">QualityResult</a></td></tr>
 <tr class="memitem:QualityBandResult" id="r_QualityBandResult"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1QualityBandResult.html">QualityBandResult</a></td></tr>
+<tr class="memitem:TiledBakeSourceInfo" id="r_TiledBakeSourceInfo"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1TiledBakeSourceInfo.html">TiledBakeSourceInfo</a></td></tr>
+<tr class="memitem:TiledBakeChunkInfo" id="r_TiledBakeChunkInfo"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1TiledBakeChunkInfo.html">TiledBakeChunkInfo</a></td></tr>
+<tr class="memitem:TiledBakeChunk" id="r_TiledBakeChunk"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1TiledBakeChunk.html">TiledBakeChunk</a></td></tr>
+<tr class="memitem:TiledBakeSource" id="r_TiledBakeSource"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__hlod_1_1TiledBakeSource.html">TiledBakeSource</a></td></tr>
+<tr class="memitem:TiledBakeLimits" id="r_TiledBakeLimits"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1TiledBakeLimits.html">TiledBakeLimits</a></td></tr>
+<tr class="memitem:TiledBakeParams" id="r_TiledBakeParams"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1TiledBakeParams.html">TiledBakeParams</a></td></tr>
+<tr class="memitem:TiledBakeReport" id="r_TiledBakeReport"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1TiledBakeReport.html">TiledBakeReport</a></td></tr>
+<tr class="memitem:TiledAutoTree" id="r_TiledAutoTree"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classgs__hlod_1_1TiledAutoTree.html">TiledAutoTree</a></td></tr>
+<tr class="memitem:BoundsAccumulator" id="r_BoundsAccumulator"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1BoundsAccumulator.html">BoundsAccumulator</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-enum-members" class="groupheader"><a id="enum-members" name="enum-members"></a>
 Enumerations</h2></td></tr>
@@ -161,6 +172,11 @@ Functions</h2></td></tr>
 <tr class="memitem:ad62c237276e9f2b9047f07e106daf44d" id="r_ad62c237276e9f2b9047f07e106daf44d"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad62c237276e9f2b9047f07e106daf44d">quality_compare_band</a> (const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;reference, const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;merged, const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;selected, uint32_t first, double eps, <a class="el" href="structgs__hlod_1_1QualityScratch.html">QualityScratch</a> &amp;scratch, <a class="el" href="structgs__hlod_1_1QualityBandResult.html">QualityBandResult</a> &amp;result, uint64_t *bake_work_remaining)</td></tr>
 <tr class="memitem:a3626cee853726b9649306ca3be75f1c6" id="r_a3626cee853726b9649306ca3be75f1c6"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a3626cee853726b9649306ca3be75f1c6 template"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3626cee853726b9649306ca3be75f1c6">quality_resize_or_fail</a> (Vector&lt; T &gt; &amp;p_vector, uint64_t p_count, const char *p_where)</td></tr>
+<tr class="memitem:ab63febeec458b478ff0c8f6b1801165a" id="r_ab63febeec458b478ff0c8f6b1801165a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab63febeec458b478ff0c8f6b1801165a">add_payload_bounds</a> (const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;p_span, const double p_shift[3], <a class="el" href="structgs__hlod_1_1BoundsAccumulator.html">BoundsAccumulator</a> &amp;r_bounds)</td></tr>
+<tr class="memitem:a46965cd2f920f2abd745c394775b1e3a" id="r_a46965cd2f920f2abd745c394775b1e3a"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a46965cd2f920f2abd745c394775b1e3a">payload_radius</a> (const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;p_span, const double p_shift[3], const double p_mid[3])</td></tr>
+<tr class="memitem:a2a3fbb9e9f9bb7e22ee362e8a9fc30f0" id="r_a2a3fbb9e9f9bb7e22ee362e8a9fc30f0"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2a3fbb9e9f9bb7e22ee362e8a9fc30f0">round_down_offset</a> (double p_center, double p_target)</td></tr>
+<tr class="memitem:a75b7b7eb134ba437006840fceadf7e58" id="r_a75b7b7eb134ba437006840fceadf7e58"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a75b7b7eb134ba437006840fceadf7e58">round_up</a> (double p_value)</td></tr>
+<tr class="memitem:a79df4e876e377f0ee8777d1ef4707fde" id="r_a79df4e876e377f0ee8777d1ef4707fde"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a79df4e876e377f0ee8777d1ef4707fde">round_up_offset</a> (double p_center, double p_target)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
@@ -189,6 +205,32 @@ Variables</h2></td></tr>
 </div>
 </div>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
+<a id="ab63febeec458b478ff0c8f6b1801165a" name="ab63febeec458b478ff0c8f6b1801165a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab63febeec458b478ff0c8f6b1801165a">&#9670;&#160;</a></span>add_payload_bounds()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void <a class="el" href="namespacegs__hlod_1_1bake__bounds.html#ab63febeec458b478ff0c8f6b1801165a">gs_hlod::bake_bounds::add_payload_bounds</a> </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_span</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const double</td>          <td class="paramname"><span class="paramname"><em>p_shift</em></span>[3], </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod_1_1BoundsAccumulator.html">BoundsAccumulator</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bounds</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a8dd5ac5934d531f32a78e6aac240a9a2" name="a8dd5ac5934d531f32a78e6aac240a9a2"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8dd5ac5934d531f32a78e6aac240a9a2">&#9670;&#160;</a></span>bake_allocation_probe()</h2>
 
@@ -551,6 +593,32 @@ template&lt;typename T&gt; </div>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a46965cd2f920f2abd745c394775b1e3a" name="a46965cd2f920f2abd745c394775b1e3a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a46965cd2f920f2abd745c394775b1e3a">&#9670;&#160;</a></span>payload_radius()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">double <a class="el" href="namespacegs__hlod_1_1bake__bounds.html#a46965cd2f920f2abd745c394775b1e3a">gs_hlod::bake_bounds::payload_radius</a> </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_span</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const double</td>          <td class="paramname"><span class="paramname"><em>p_shift</em></span>[3], </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const double</td>          <td class="paramname"><span class="paramname"><em>p_mid</em></span>[3]&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -1007,6 +1075,65 @@ template&lt;typename T&gt; </div>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>index</em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2a3fbb9e9f9bb7e22ee362e8a9fc30f0" name="a2a3fbb9e9f9bb7e22ee362e8a9fc30f0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2a3fbb9e9f9bb7e22ee362e8a9fc30f0">&#9670;&#160;</a></span>round_down_offset()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">float <a class="el" href="namespacegs__hlod_1_1bake__bounds.html#a2a3fbb9e9f9bb7e22ee362e8a9fc30f0">gs_hlod::bake_bounds::round_down_offset</a> </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_center</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_target</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a75b7b7eb134ba437006840fceadf7e58" name="a75b7b7eb134ba437006840fceadf7e58"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a75b7b7eb134ba437006840fceadf7e58">&#9670;&#160;</a></span>round_up()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">float <a class="el" href="namespacegs__hlod_1_1bake__bounds.html#a75b7b7eb134ba437006840fceadf7e58">gs_hlod::bake_bounds::round_up</a> </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_value</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a79df4e876e377f0ee8777d1ef4707fde" name="a79df4e876e377f0ee8777d1ef4707fde"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a79df4e876e377f0ee8777d1ef4707fde">&#9670;&#160;</a></span>round_up_offset()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">float <a class="el" href="namespacegs__hlod_1_1bake__bounds.html#a79df4e876e377f0ee8777d1ef4707fde">gs_hlod::bake_bounds::round_up_offset</a> </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_center</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_target</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

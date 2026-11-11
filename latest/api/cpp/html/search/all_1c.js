@@ -84,9 +84,10 @@ var searchData=
   ['_7estagedfilechunkpayloadsource_81',['~StagedFileChunkPayloadSource',['../classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc',1,'StagedFileChunkPayloadSource']]],
   ['_7estreamingpipeline_82',['~StreamingPipeline',['../classStreamingPipeline.html#a4a1c062e9070bff0ba55fbb58d8d3de3',1,'StreamingPipeline']]],
   ['_7ethreadownedmutexlock_83',['~ThreadOwnedMutexLock',['../classGaussianSplatting_1_1ThreadOwnedMutexLock.html#a3cd84a216467ff9a7aceeb01af9812ad',1,'GaussianSplatting::ThreadOwnedMutexLock']]],
-  ['_7etilerasterizer_84',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
-  ['_7etilerenderer_85',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
-  ['_7etileshaderresources_86',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
-  ['_7evrambudgetregulator_87',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]],
-  ['_7ewriter_88',['~Writer',['../classgs__world__writer_1_1Writer.html#a38524b8a1d4ef5f753ce1e4855107612',1,'gs_world_writer::Writer']]]
+  ['_7etiledbakesource_84',['~TiledBakeSource',['../classgs__hlod_1_1TiledBakeSource.html#ae822a203efcdd23ac93638b96fbacbdc',1,'gs_hlod::TiledBakeSource']]],
+  ['_7etilerasterizer_85',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
+  ['_7etilerenderer_86',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
+  ['_7etileshaderresources_87',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
+  ['_7evrambudgetregulator_88',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]],
+  ['_7ewriter_89',['~Writer',['../classgs__world__writer_1_1Writer.html#a38524b8a1d4ef5f753ce1e4855107612',1,'gs_world_writer::Writer']]]
 ];

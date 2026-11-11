@@ -93,6 +93,7 @@ $(function(){initNavTree('gaussian__splat__hlod__bake_8cpp.html','',''); });
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="gaussian__splat__hlod__bake_8h_source.html">gaussian_splat_hlod_bake.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__splat__hlod__bake__admission_8h_source.html">gaussian_splat_hlod_bake_admission.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="gaussian__splat__hlod__bake__bounds_8h_source.html">gaussian_splat_hlod_bake_bounds.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__splat__hlod__job_8h_source.html">gaussian_splat_hlod_job.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__splat__hlod__quality_8h_source.html">gaussian_splat_hlod_quality.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__vector__alloc_8h_source.html">gs_vector_alloc.h</a>&quot;</code><br />
@@ -110,6 +111,10 @@ Include dependency graph for gaussian_splat_hlod_bake.cpp:</div>
 <div class="center"><img src="gaussian__splat__hlod__bake_8cpp__incl.png" border="0" usemap="#agaussian__splat__hlod__bake_8cpp" loading="lazy" alt=""/></div>
 </div>
 </div><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
+Classes</h2></td></tr>
+<tr class="memitem:gs_5Fhlod_3A_3ABoundsAccumulator" id="r_gs_5Fhlod_3A_3ABoundsAccumulator"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__hlod_1_1BoundsAccumulator.html">gs_hlod::BoundsAccumulator</a></td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-namespaces" class="groupheader"><a id="namespaces" name="namespaces"></a>
 Namespaces</h2></td></tr>
 <tr class="memitem:gs_5Fhlod" id="r_gs_5Fhlod"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html">gs_hlod</a></td></tr>
@@ -119,6 +124,11 @@ Functions</h2></td></tr>
 <tr class="memitem:a8dd5ac5934d531f32a78e6aac240a9a2" id="r_a8dd5ac5934d531f32a78e6aac240a9a2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#a8dd5ac5934d531f32a78e6aac240a9a2">gs_hlod::bake_allocation_probe</a> (uint64_t p_bytes, const char *p_where)</td></tr>
 <tr class="memitem:aaeb683cd5ab01edb2ebb90d8528e7ec5" id="r_aaeb683cd5ab01edb2ebb90d8528e7ec5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#aaeb683cd5ab01edb2ebb90d8528e7ec5">gs_hlod::choose_root_cell</a> (const double p_origin[3], const double p_min[3], const double p_max[3], <a class="el" href="structGaussianSplatHlodCell.html">GaussianSplatHlodCell</a> &amp;r_cell, bool &amp;r_origin_centred)</td></tr>
 <tr class="memitem:adff2e145a6fd60d91ca6ee4a9b0160e7" id="r_adff2e145a6fd60d91ca6ee4a9b0160e7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#adff2e145a6fd60d91ca6ee4a9b0160e7">gs_hlod::bake_world</a> (const <a class="el" href="structgs__hlod_1_1BakeInput.html">BakeInput</a> &amp;p_input, const <a class="el" href="structgs__hlod_1_1BakeParams.html">BakeParams</a> &amp;p_params, <a class="el" href="structgs__hlod_1_1BakeResult.html">BakeResult</a> &amp;r_result, String *r_error, Error *r_code)</td></tr>
+<tr class="memitem:ab63febeec458b478ff0c8f6b1801165a" id="r_ab63febeec458b478ff0c8f6b1801165a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#ab63febeec458b478ff0c8f6b1801165a">gs_hlod::add_payload_bounds</a> (const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;p_span, const double p_shift[3], <a class="el" href="structgs__hlod_1_1BoundsAccumulator.html">BoundsAccumulator</a> &amp;r_bounds)</td></tr>
+<tr class="memitem:a46965cd2f920f2abd745c394775b1e3a" id="r_a46965cd2f920f2abd745c394775b1e3a"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#a46965cd2f920f2abd745c394775b1e3a">gs_hlod::payload_radius</a> (const <a class="el" href="structgs__hlod_1_1SplatSpan.html">SplatSpan</a> &amp;p_span, const double p_shift[3], const double p_mid[3])</td></tr>
+<tr class="memitem:a2a3fbb9e9f9bb7e22ee362e8a9fc30f0" id="r_a2a3fbb9e9f9bb7e22ee362e8a9fc30f0"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#a2a3fbb9e9f9bb7e22ee362e8a9fc30f0">gs_hlod::round_down_offset</a> (double p_center, double p_target)</td></tr>
+<tr class="memitem:a75b7b7eb134ba437006840fceadf7e58" id="r_a75b7b7eb134ba437006840fceadf7e58"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#a75b7b7eb134ba437006840fceadf7e58">gs_hlod::round_up</a> (double p_value)</td></tr>
+<tr class="memitem:a79df4e876e377f0ee8777d1ef4707fde" id="r_a79df4e876e377f0ee8777d1ef4707fde"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod.html#a79df4e876e377f0ee8777d1ef4707fde">gs_hlod::round_up_offset</a> (double p_center, double p_target)</td></tr>
 </table>
 </div><!-- contents -->
 </div><!-- doc-content -->
