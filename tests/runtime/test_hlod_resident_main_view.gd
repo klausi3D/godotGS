@@ -1444,7 +1444,10 @@ func _run_shadow_caster_per_light_proof(scene: Node3D, world_node: GaussianSplat
 	light_c.omni_range = 20.0
 	light_c.position = Vector3(0.0, 6.0, 0.0)
 	scene.add_child(light_c)
-	var light_ids := {"A": light_a.get_base().get_id(), "B": light_b.get_base().get_id(), "C": light_c.get_base().get_id()}
+	var light_ids := {"A": light_a.get_instance().get_id(), "B": light_b.get_instance().get_id(), "C": light_c.get_instance().get_id()}
+	for label in light_ids:
+		if not _check(int(light_ids[label]) != 0, "shadow casters per light (%s): light %s has zero scene instance RID (get_instance())" % [mode, label]):
+			return false
 	var renderer := world_node.get_renderer()
 	if not _check(renderer != null, "shadow casters per light (%s): renderer missing" % mode):
 		return false

@@ -868,6 +868,13 @@ func _run() -> void:
 		_fail(world["error"])
 		return
 	_build_scene(world["resource"])
+	var shadow_light_ids := {"directional": _sun.get_instance().get_id()}
+	for k in range(_omnis.size()):
+		shadow_light_ids["omni_%d" % k] = _omnis[k].get_instance().get_id()
+	for light_name in shadow_light_ids:
+		if int(shadow_light_ids[light_name]) == 0:
+			_fail("shadow caster light %s has zero scene instance RID (get_instance())" % light_name)
+			return
 	for obj in _objects:
 		if not obj.get_cast_shadow():
 			_fail("%s is not a shadow caster after set_cast_shadow(true): S1-S4 would measure a scene without splat casters" % obj.name)
@@ -922,20 +929,17 @@ func _run() -> void:
 		for key in STATS_KEYS:
 			if stats.has(key):
 				copied[key] = stats[key]
-		# S1 uses fixture light names; the engine keys by base-light RID, never the light-instance RID.
+		# S1 uses fixture light names; the engine keys by scene instance RID (Light3D.get_instance()).
 		# Keep missing lights absent so the verdict diagnoses missing evidence instead of a fabricated zero.
 		if stats.has("shadow_casters_rastered_per_light") and stats["shadow_casters_rastered_per_light"] is Dictionary:
 			if copied.has("shadow_casters_rastered"):
 				copied["shadow_casters_rastered_total"] = copied["shadow_casters_rastered"]
 			var per_light: Dictionary = stats["shadow_casters_rastered_per_light"]
 			var named := {}
-			var sun_id := _sun.get_base().get_id()
-			if per_light.has(sun_id):
-				named["directional"] = per_light[sun_id]
-			for k in range(_omnis.size()):
-				var omni_id: int = _omnis[k].get_base().get_id()
-				if per_light.has(omni_id):
-					named["omni_%d" % k] = per_light[omni_id]
+			for light_name in shadow_light_ids:
+				var light_id: int = shadow_light_ids[light_name]
+				if per_light.has(light_id):
+					named[light_name] = per_light[light_id]
 			copied["shadow_casters_rastered"] = named
 		var timing := _resolve_timing(stats)
 		for key in timing["values"]:

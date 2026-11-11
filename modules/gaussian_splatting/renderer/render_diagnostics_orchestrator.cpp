@@ -1651,8 +1651,9 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     // splats submitted to the light-view raster draws of that frame, summed over its cast passes (one per cascade); a CPU
     // count of what was drawn, not a GPU fragment count. Refused passes (other light types, no active HLOD view) count
     // in shadow_caster_passes_refused with shadow_caster_last_refusal. The scalar remains HLOD-only.
-    // Per-light accounting covers every hook exit on every route, keyed by the base light RID's id. Only successful
-    // atlas writes add casters. Zero-total lights count once in shadow_no_caster_rastered; unsubmitted lights are absent.
+    // Per-light accounting covers every hook exit on every route, keyed by the scene instance RID's id
+    // (Light3D.get_instance().get_id()). Only successful atlas writes add casters. Zero-total lights count once in
+    // shadow_no_caster_rastered; unsubmitted lights are absent.
     // Reset on the RS frame, not the renderer counter (canonical shadow rasterization advances that counter).
     // shadow_light_frame is the renderer counter at the first identified pass: frame_count - 1 for fresh HLOD data,
     // the pre-first-shadow counter on the canonical route, or -1 before any identified light pass.

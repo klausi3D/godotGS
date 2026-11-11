@@ -145,7 +145,7 @@ static bool _gaussian_shadow_setup_directional(RendererRD::LightStorage *p_light
 	r_dispatch.transform = p_light_storage->light_instance_get_shadow_transform(p_light_instance, p_shadow.pass);
 	r_dispatch.rect = _gaussian_shadow_get_directional_rect(p_light_storage, p_light_instance, p_base_light, p_shadow.pass);
 	r_dispatch.framebuffer = p_directional_fb;
-	r_dispatch.light = p_base_light;
+	r_dispatch.light = p_shadow.scene_instance;
 	r_dispatch.flip_y = true;
 	return true;
 }
@@ -170,7 +170,7 @@ static bool _gaussian_shadow_setup_positional(RendererRD::LightStorage *p_light_
 		r_dispatch.rect.position += p_shadow.pass * r_dispatch.rect.size * dual_paraboloid_offset;
 	}
 	r_dispatch.framebuffer = p_atlas_fb;
-	r_dispatch.light = p_base_light;
+	r_dispatch.light = p_shadow.scene_instance;
 	r_dispatch.flip_y = true;
 	return true;
 }
@@ -195,7 +195,7 @@ static bool _gaussian_shadow_setup_omni_cube(RendererRD::LightStorage *p_light_s
 	r_dispatch.projection = p_light_storage->light_instance_get_shadow_camera(p_light_instance, p_shadow.pass);
 	r_dispatch.transform = p_light_storage->light_instance_get_shadow_transform(p_light_instance, p_shadow.pass);
 	r_dispatch.rect = Rect2i(0, 0, int(face_size), int(face_size));
-	r_dispatch.light = p_base_light;
+	r_dispatch.light = p_shadow.scene_instance;
 	r_dispatch.flip_y = false;
 	return true;
 }

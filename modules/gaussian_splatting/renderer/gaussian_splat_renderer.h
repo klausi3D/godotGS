@@ -329,7 +329,7 @@ public:
         RenderPassKind pass_kind = RenderPassKind::SHADOW_MAP;
         uint64_t server_frame = 0; // Accounting reset key; shadow passes never advance the RS frame.
         uint64_t renderer_frame = 0;
-        uint64_t light_id = 0; // Base light RID, not the light-instance RID. Zero is excluded from per-light stats.
+        uint64_t light_id = 0; // Scene instance RID (Light3D.get_instance()). Zero is excluded from per-light stats.
         bool success = false;
         ShadowRenderFailureReason failure_reason = ShadowRenderFailureReason::NONE;
         String route_label;
@@ -1866,7 +1866,7 @@ public:
      * @param p_atlas_rect Target atlas rectangle for this cascade.
      * @param p_shadow_framebuffer Shadow atlas framebuffer RID.
      * @param p_flip_y Whether the atlas rect should be sampled with a Y flip.
-     * @param p_light Base light RID for per-light accounting; invalid RIDs are not accounted per light.
+     * @param p_light Scene instance RID (Light3D.get_instance()); invalid RIDs are not accounted per light.
      * @return True if shadow depth was rendered and blitted.
      */
     bool render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,

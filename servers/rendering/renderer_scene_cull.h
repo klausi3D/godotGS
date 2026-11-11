@@ -1105,6 +1105,7 @@ public:
 	struct Cull {
 		struct Shadow {
 			RID light_instance;
+			RID scene_instance;
 			uint32_t caster_mask;
 			struct Cascade {
 				Frustum frustum;
