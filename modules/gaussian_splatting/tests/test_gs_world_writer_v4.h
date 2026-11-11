@@ -640,6 +640,153 @@ struct AssemblyProbe {
 	}
 };
 
+// Exercise descriptor eviction with the real five-segment, shuffled fixture.
+// Peaks are updated on every successful open, including transient opens, rather
+// than sampled only after append/finalize (which could hide an over-limit open).
+struct BoundedSegmentsProbe {
+	WriterV4 *writer = nullptr;
+	AssemblyProbe *deletion = nullptr;
+	bool cancel = false;
+	uint32_t calls = 0;
+	static void observe(const WriterV4::AssemblyEvent &p_event, void *p_userdata) {
+		if (!p_userdata) {
+			FAIL("missing bounded-segment observer");
+			return;
+		}
+		BoundedSegmentsProbe &probe = *static_cast<BoundedSegmentsProbe *>(p_userdata);
+		if (!probe.writer || !probe.deletion) {
+			FAIL("missing bounded-segment writer/deletion probe");
+			return;
+		}
+		AssemblyProbe::observe(p_event, probe.deletion);
+		++probe.calls;
+		const auto stats = probe.writer->get_segment_handle_stats_for_test();
+		CHECK(stats.open_segments <= 2);
+		CHECK(stats.peak_assembly <= 2);
+		if (probe.cancel && p_event.node_index == 3) {
+			CHECK(stats.assembly_reopens > 0);
+			probe.writer->request_cancel();
+		}
+	}
+};
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] two open spill handles preserve both codecs and W1 after reopening") {
+	for (bool gsq : { false, true }) {
+		// Successful commit plus failure with absent and pre-existing destinations.
+		for (int outcome = 0; outcome < 3; ++outcome) {
+			Paths paths;
+			Fixture fixture;
+			PackedByteArray original;
+			if (!paths.create() || !fixture.build() || !seed_destination(paths, outcome == 2, original)) {
+				return;
+			}
+			WriterV4 writer;
+			writer.set_max_open_segments_for_test(2);
+			const CodecParams codec = gsq ? gsq_v1_codec_params() : CodecParams();
+			if (!begin(writer, paths, fixture, codec)) {
+				return;
+			}
+			for (uint32_t node : kAppendOrder) {
+				if (!append_one(writer, fixture, node)) {
+					return;
+				}
+				const auto stats = writer.get_segment_handle_stats_for_test();
+				CHECK(stats.open_segments <= 2);
+				CHECK(stats.peak_spill <= 2); // Unbounded implementation reaches five.
+				check_destination(paths, original);
+			}
+			CHECK(writer.get_report().segments.size() == 5);
+			CHECK(writer.get_segment_handle_stats_for_test().peak_spill == 2);
+			CHECK(writer.get_segment_handle_stats_for_test().spill_reopens > 0);
+			AssemblyProbe deletion;
+			if (!deletion.prepare(writer, paths, fixture, original)) {
+				return;
+			}
+			BoundedSegmentsProbe probe;
+			probe.writer = &writer;
+			probe.deletion = &deletion;
+			probe.cancel = outcome != 0;
+			writer.set_assembly_observer(BoundedSegmentsProbe::observe, &probe);
+			const Error result = writer.finalize(fixture.nodes);
+			const auto stats = writer.get_segment_handle_stats_for_test();
+			CHECK(stats.open_segments == 0);
+			CHECK(stats.peak_spill == 2);
+			CHECK(stats.peak_assembly > 0);
+			CHECK(stats.peak_assembly <= 2);
+			CHECK(stats.assembly_reopens > 0);
+			CHECK(probe.calls > 0);
+			CHECK(deletion.saw_early_deletion);
+			if (outcome != 0) {
+				CHECK(result == ERR_SKIP);
+				CHECK(writer.get_report().reason == "cancelled");
+				CHECK_FALSE(writer.get_report().committed);
+				CHECK(probe.calls == 4);
+				check_w1(paths, original);
+				continue;
+			}
+			if (result != OK) {
+				FAIL("bounded assembly failed: ", writer.get_report().reason.utf8().get_data());
+				return;
+			}
+			CHECK(probe.calls == kNodes);
+			CHECK(writer.get_report().committed);
+			GaussianSplatHlodPagedSource source;
+			if (!open_source(paths, source)) {
+				return;
+			}
+			String reason;
+			if (!gsq) {
+				const String reference_path = paths.dir.path_join("reference.gsplatworld");
+				if (fixture.world.is_null()) {
+					FAIL("missing resident reference world");
+					return;
+				}
+				if (GaussianSplatHlodPagedSource::write_package(*fixture.world.ptr(), reference_path, reason) != OK) {
+					FAIL("reference producer failed");
+					return;
+				}
+				PackedByteArray reference, actual;
+				if (!read_bytes(reference_path, reference) || !read_bytes(paths.final_path, actual)) {
+					return;
+				}
+				CHECK(actual == reference);
+			} else {
+				gs_gsq::EncodeParams params;
+				if (gsq_encode_params(codec, params, reason) != OK) {
+					FAIL("invalid GSQ oracle parameters");
+					return;
+				}
+				gs_gsq::DecodeContext decoder;
+				for (uint32_t i = 0; i < kNodes; ++i) {
+					const Body &body = fixture.bodies[i];
+					LocalVector<uint8_t> page;
+					Vector<Gaussian> actual, expected;
+					Vector<Vector3> actual_sh, expected_sh;
+					expected.resize(kSplats);
+					expected_sh.resize(kSplats * kHigh);
+					if (gs_gsq::encode_page(body.gaussians.ptr(), body.sh.ptr(), kSplats, 3, params, page, reason) != OK ||
+							decoder.decode_range(page.ptr(), page.size(), 0, kSplats, expected.ptrw(), expected_sh.ptrw(), reason) != OK ||
+							source.read_node_payload(i, actual, actual_sh, reason) != OK ||
+							actual.size() != kSplats || actual_sh.size() != kSplats * kHigh) {
+						FAIL("bounded GSQ output/oracle payload failed");
+						return;
+					}
+					uint8_t actual_digest[32], expected_digest[32];
+					gs_gsq::decoded_digest(actual.ptr(), actual_sh.ptr(), kSplats, 3, actual_digest);
+					gs_gsq::decoded_digest(expected.ptr(), expected_sh.ptr(), kSplats, 3, expected_digest);
+					CHECK(std::memcmp(actual_digest, expected_digest, 32) == 0);
+				}
+				check_output_generation(paths, source);
+			}
+			PackedStringArray names;
+			if (!list_dir(paths.scratch, names)) {
+				return;
+			}
+			CHECK(names.is_empty());
+		}
+	}
+}
+
 TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] assembly deletes each segment immediately at its last BFS body and bounds peak disk") {
 	// Lossless mode is the worst scratch size and makes the disk bound meaningful.
 	Paths paths;
