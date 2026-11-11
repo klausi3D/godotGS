@@ -21,6 +21,11 @@ struct OfflineJob {
 	// reconfiguration/reservation must not authorize a bake using stale counters.
 	bool reservation_valid = false;
 	mutable Error stopped = OK;
+	// Optional host-only limit check, replacing the legacy clock/file checks.
+	// Keep the callback and userdata immutable while jobs run. Each worker owns
+	// its job copy; the shared context must be thread safe and outlive every copy.
+	Error (*check_callback)(void *) = nullptr;
+	void *check_userdata = nullptr;
 	String cancel_path;
 	QualityResourceLimits metric;
 
@@ -135,7 +140,9 @@ struct OfflineJob {
 		if (stopped != OK) {
 			return stopped;
 		}
-		if (OS::get_singleton()->get_ticks_usec() >= deadline) {
+		if (check_callback) {
+			stopped = check_callback(check_userdata);
+		} else if (OS::get_singleton()->get_ticks_usec() >= deadline) {
 			stopped = ERR_TIMEOUT;
 		} else if (FileAccess::exists(cancel_path)) {
 			stopped = ERR_SKIP;
