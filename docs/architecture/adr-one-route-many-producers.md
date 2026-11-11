@@ -691,6 +691,13 @@ HLOD-owned GPU bytes, which also bounds the streamed atlas (`:18`; passed as the
 into the page budget at `renderer/resident_instance_contract_publisher.cpp:2220-2222`, and the
 candidate refused above it at `:2245`). Raising them is blocked by:
 
+> **Status (D1, 2026-11-11, PR #1416):** the count caps are now structural: the payload must fit a
+> uint32 (`MAX_PAYLOAD`) and the node count the V4 reader bound of 1,048,576 (`MAX_NODES`), checked
+> by `gs_hlod_runtime::source_admission_refusal()`. The 512 MiB cap is split: a whole-tree bundle
+> keeps it as a deliberate budget (`rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb`),
+> a streamed bundle is capped by the device ledger limit and the atlas limit. The quantized record
+> stores the full 32-bit node id (first item below). The other items below are still open.
+
 - **16-bit node id on the quantized path.** `renderer/hlod_node_pack.cpp:98` passes
   `uint16_t(p_node)` as the quantized chunk id with no range check, into the `uint16_t chunk_id`
   of `PackedGaussianQuantized` (`renderer/gaussian_gpu_layout.h:389`). It is safe only while the

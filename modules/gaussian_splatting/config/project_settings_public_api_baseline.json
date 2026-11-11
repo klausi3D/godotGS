@@ -88,6 +88,7 @@
     "rendering/gaussian_splatting/lod/enabled",
     "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled",
     "rendering/gaussian_splatting/lod/hlod_tau_px",
+    "rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb",
     "rendering/gaussian_splatting/lod/hysteresis_zone",
     "rendering/gaussian_splatting/lod/importance_threshold",
     "rendering/gaussian_splatting/lod/max_distance",

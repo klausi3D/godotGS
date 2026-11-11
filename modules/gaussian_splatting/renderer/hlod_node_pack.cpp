@@ -95,7 +95,8 @@ bool pack_node(const GaussianSplatHlodRuntimeData &p_data, uint32_t p_node, cons
 	for (uint32_t i = 0; i < count; ++i) {
 		const Gaussian g = local_gaussian(i);
 		if (p_params.quantized) {
-			pack_gaussian_quantized(g, quant, uint16_t(p_node), p_out.quantized[i], *p_out.metrics, source_sh(i),
+			// The node id is the record's 32-bit chunk index (#1413; it was truncated to 16 bits before).
+			pack_gaussian_quantized(g, quant, p_node, p_out.quantized[i], *p_out.metrics, source_sh(i),
 					p_data.sh_first_order_count(), p_data.high_order_count);
 		} else {
 			pack_gaussian(g, p_out.raw[i], *p_out.metrics, source_sh(i),

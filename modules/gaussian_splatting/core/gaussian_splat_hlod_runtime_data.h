@@ -11,11 +11,26 @@
 // but no pointer into its mutable tree or GaussianData storage is borrowed.
 class GaussianSplatHlodRuntimeData : public RefCounted {
 public:
-	static constexpr uint32_t MAX_LEAVES = 1048576;
-	static constexpr uint32_t MAX_PAYLOAD = 1572864;
-	static constexpr uint32_t MAX_NODES = 32768;
+	// Option D step D1 (ADR one-route §12.6.5): the snapshot's count bounds are structural, not scale budgets. The
+	// memory a snapshot may take is bounded by bytes: CPU_BYTE_LIMIT here (charged at capture), and on the GPU the
+	// device ledger, the atlas limit and the whole-tree budget below.
+	//  - MAX_PAYLOAD: leaf plus interior splats. Payload indices and atlas records are uint32 on the whole route
+	//    (hlod_node_pack, the bundle tables, leaf_count + parent_count sums), so the total must fit a uint32.
+	//    A resident capture holds the payload on the CPU, so CPU_BYTE_LIMIT binds it long before this; a paged (V4)
+	//    capture holds none. Was 1,048,576 leaf and 1,572,864 payload splats.
+	//  - MAX_NODES: the V4 reader's node bound (gs_world_paged::kMaxNodes). A node id is a 32-bit index everywhere
+	//    on the route (the quantized record stores all 32 bits since #1413). Was 32,768.
+	static constexpr uint64_t MAX_PAYLOAD = UINT32_MAX;
+	static constexpr uint32_t MAX_NODES = gs_world_paged::kMaxNodes;
+	// A deliberate budget: the CPU memory one snapshot (tables, payload, histories, packing scratch) may hold.
 	static constexpr uint64_t CPU_BYTE_LIMIT = uint64_t(1) << 30;
-	static constexpr uint64_t GPU_BYTE_LIMIT = uint64_t(512) << 20;
+	// A deliberate budget: the default of the device bytes a WHOLE-TREE (not streamed) HLOD bundle pair may own
+	// before the tree streams instead. Configurable with rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb
+	// and never above the device ledger limit. A streamed bundle is not bounded by it: its pool is sized from the
+	// device ledger and the atlas limit (resident_instance_contract_publisher.cpp). Was the fixed 512 MiB cap of both.
+	static constexpr uint64_t WHOLE_TREE_GPU_BYTE_BUDGET = uint64_t(512) << 20;
+	// The device-ledger limit on a device that reports no trustworthy heap size (fail closed, unchanged).
+	static constexpr uint64_t UNKNOWN_HEAP_GS_BYTE_LIMIT = uint64_t(512) << 20;
 
 	struct Node {
 		GaussianSplatHlodNode topology;
@@ -103,6 +118,10 @@ namespace gs_hlod_runtime {
 // This also admits simulated narrower size_t limits without attempting huge allocations.
 bool allocation_bytes(uint64_t p_count, uint64_t p_stride, uint64_t &r_bytes,
 		uint64_t p_size_limit = SIZE_MAX);
+// The structural count admission of a capture (both the resident and the paged one): nullptr when a tree of
+// `p_nodes` nodes with this payload can be represented on the route, else "hlod_source_admission_limit". Memory is
+// admitted separately, by bytes (CPU_BYTE_LIMIT at capture, the device ledger at publication).
+const char *source_admission_refusal(uint64_t p_leaf_splats, uint64_t p_interior_splats, uint64_t p_nodes);
 }
 
 #endif

@@ -99,9 +99,9 @@ A default is shown as the C++ expression passed at registration (for example a n
 
 | Coverage | Count |
 | --- | ---: |
-| Keys in the manifest | 196 |
+| Keys in the manifest | 197 |
 | Registered by the module at startup | 185 |
-| Read by the module but not registered | 6 |
+| Read by the module but not registered | 7 |
 | Deprecated aliases (read only, never registered) | 5 |
 
 ### Registered keys
@@ -1392,6 +1392,7 @@ Listed in the manifest and read by module code, but not registered: they do not 
 | `rendering/gaussian_splatting/debug/enable_splat_audit` | none |
 | `rendering/gaussian_splatting/debug/force_unclustered_lights` | none |
 | `rendering/gaussian_splatting/debug/splat_audit_sample_count` | none |
+| `rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb` | ResidentInstanceContractPublisher hlod_owned_cap_for (ResidentAtlasBudget::hlod_owned_cap_bytes) |
 | `rendering/gaussian_splatting/streaming/layout_hint_validation_strict` | StreamingUploadPipeline/StreamingVisibilityController/VRAMBudgetRegulator.layout_hint_validation_strict |
 
 ### Deprecated aliases

@@ -414,7 +414,7 @@ bool gs_warn_sh_layout_truncation_once(const GaussianData &p_data,
 
 void pack_gaussian_quantized(const Gaussian &src,
         const ChunkQuantizationInfo &chunk_quant,
-        uint16_t chunk_id,
+        uint32_t chunk_id,
         PackedGaussianQuantized &dst,
         SHCompressionMetrics &metrics,
         const Vector3 *higher_order_coeffs,
@@ -430,7 +430,9 @@ void pack_gaussian_quantized(const Gaussian &src,
     dst.quantized_position[0] = uint16_t(qx);
     dst.quantized_position[1] = uint16_t(qy);
     dst.quantized_position[2] = uint16_t(qz);
-    dst.chunk_id = chunk_id;
+    // All 32 bits of the chunk index (#1413): low half at @6, high half at @28.
+    dst.chunk_id = uint16_t(chunk_id & 0xFFFFu);
+    dst.chunk_id_hi = uint16_t(chunk_id >> 16);
 
     // Opacity: FP32, kept exact (precision-critical; never quantized).
     dst.opacity = sanitize_finite(src.opacity, 0.0f);
@@ -466,8 +468,7 @@ void pack_gaussian_quantized(const Gaussian &src,
     dst.rotation[2] = Float16Utils::float_to_half(safe_rotation.z);
     dst.rotation[3] = Float16Utils::float_to_half(safe_rotation.w);
 
-    dst._pre_sh_padding[0] = 0;
-    dst._pre_sh_padding[1] = 0;
+    dst._pre_sh_padding = 0;
 
     // SH DC: FP32, kept exact (precision-critical; matches the shader's direct read).
     dst.sh_dc[0] = sanitize_finite(src.sh_dc.r, 0.0f);
@@ -503,7 +504,7 @@ void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         const ChunkQuantizationInfo &chunk_quant,
-        uint16_t chunk_id,
+        uint32_t chunk_id,
         PackedGaussianQuantized *dst,
         SHCompressionMetrics &metrics,
         const Vector3 *higher_order_coeffs,

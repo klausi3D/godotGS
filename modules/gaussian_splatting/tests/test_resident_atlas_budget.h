@@ -335,7 +335,7 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] device ledger limit fo
 
 TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] ledger limit literals and HLOD-owned bound refusals (#1131)") {
     using namespace ResidentAtlasBudget;
-    const uint64_t cap = uint64_t(512) << 20; // GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT
+    const uint64_t cap = uint64_t(512) << 20; // UNKNOWN_HEAP_GS_BYTE_LIMIT and the default WHOLE_TREE_GPU_BYTE_BUDGET
     // Literals, not the formula: 8 GiB heap -> 0.60 -> 5,153,960,755; unknown heap -> the 512 MiB cap.
     CHECK(compute_hlod_device_ledger_limit_bytes(8589934592ull, cap) == 5153960755ull);
     CHECK(compute_hlod_device_ledger_limit_bytes(0, cap) == 536870912ull);
@@ -357,7 +357,7 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] ledger limit literals 
 
 TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] streaming engages when any whole-tree limit fails and clamps instead of refusing (#1131)") {
     using namespace ResidentAtlasBudget;
-    const uint64_t cap = uint64_t(512) << 20; // GPU_BYTE_LIMIT
+    const uint64_t cap = uint64_t(512) << 20; // An HLOD-owned cap (the default whole-tree budget)
     const uint64_t atlas_default = kResidentStagingCeilingBytes; // 2 GiB: the default atlas cap
     const uint64_t stride = 176, page = 1024, page_bytes = stride * page;
     // Fits everything: not streamed.
@@ -382,6 +382,42 @@ TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] streaming engages when
     CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, cap, cap, huge, 0, 0, 0) == 0);
     CHECK(hlod_stream_page_budget(atlas_default, stride, page, huge, fixed, cap, 1000, 2000, 0, 0) == 0);
     CHECK(hlod_stream_page_budget(atlas_default, 0, page, huge, fixed, cap, huge, 0, 0, 0) == 0);
+}
+
+TEST_CASE("[GaussianSplatting][VRAMBudgetRegulator][HLOD][D1] a streamed HLOD pool is sized from the device ledger, a whole tree keeps its budget") {
+    using namespace ResidentAtlasBudget;
+    const uint64_t mib = uint64_t(1) << 20;
+    const uint64_t whole_default = 512 * mib; // GaussianSplatHlodRuntimeData::WHOLE_TREE_GPU_BYTE_BUDGET
+    // A 10 GiB device (the CI RTX 3080): the GS ledger limit is its 0.60 share.
+    const uint64_t heap = uint64_t(10) << 30;
+    const uint64_t ledger = compute_hlod_device_ledger_limit_bytes(heap, whole_default);
+    CHECK(ledger == uint64_t(double(heap) * kResidentAtlasHeadroomFraction));
+    // Whole tree: the deliberate budget (setting 0 = default), a configured value, never above the ledger.
+    CHECK(hlod_owned_cap_bytes(false, 0, whole_default, ledger) == whole_default);
+    CHECK(hlod_owned_cap_bytes(false, 1024, whole_default, ledger) == 1024 * mib);
+    CHECK(hlod_owned_cap_bytes(false, 64, whole_default, ledger) == 64 * mib);
+    CHECK(hlod_owned_cap_bytes(false, 65535, whole_default, ledger) == ledger);
+    CHECK(hlod_owned_cap_bytes(false, 0, whole_default, 100 * mib) == 100 * mib);
+    // Streamed: the ledger limit, whatever the whole-tree setting says.
+    CHECK(hlod_owned_cap_bytes(true, 0, whole_default, ledger) == ledger);
+    CHECK(hlod_owned_cap_bytes(true, 64, whole_default, ledger) == ledger);
+    // Unknown heap: the ledger keeps its fail-closed fallback, so the streamed cap is that fallback, as before.
+    const uint64_t unknown = compute_hlod_device_ledger_limit_bytes(0, whole_default);
+    CHECK(hlod_owned_cap_bytes(true, 0, whole_default, unknown) == whole_default);
+    // The pool this gives on the 10 GiB device: bounded by the 2 GiB atlas limit, not by 512 MiB as before.
+    const uint64_t stride = 160, page = 1024, page_bytes = stride * page, fixed = 64 * mib, huge = uint64_t(1) << 40;
+    const uint64_t atlas = kResidentStagingCeilingBytes;
+    const uint64_t pages = hlod_stream_page_budget(atlas, stride, page, huge, fixed,
+            hlod_owned_cap_bytes(true, 0, whole_default, ledger), ledger, 0, 0, 0);
+    CHECK(pages == atlas / page_bytes);
+    CHECK(pages * page_bytes > whole_default);
+    const uint64_t old_pages = hlod_stream_page_budget(atlas, stride, page, huge, fixed, whole_default, ledger, 0, 0, 0);
+    CHECK(old_pages == (whole_default - fixed) / page_bytes); // What the fixed cap allowed.
+    CHECK(pages > old_pages);
+    // The ledger headroom still binds a streamed pool: a nearly full device gets only what is left.
+    const uint64_t device = ledger - fixed - 3 * page_bytes - 5;
+    CHECK(hlod_stream_page_budget(atlas, stride, page, huge, fixed, hlod_owned_cap_bytes(true, 0, whole_default, ledger), ledger, device,
+                  0, 0) == 3);
 }
 
 TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD] a streamed view resizes the tile grid to its own size and refuses honestly when the targets do not fit (resize-fix)") {

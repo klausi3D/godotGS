@@ -386,7 +386,7 @@ static_assert(offsetof(PackedGaussian, sh_metadata) == 172, "PackedGaussian.sh_m
  */
 struct alignas(16) PackedGaussianQuantized {
     uint16_t quantized_position[3]; // 6 bytes @0 - Normalized position per-chunk
-    uint16_t chunk_id;              // 2 bytes @6 - Index into ChunkQuantizationGPU buffer
+    uint16_t chunk_id;              // 2 bytes @6 - Bits 0..15 of the index into the ChunkQuantizationGPU buffer
 
     float opacity;                  // 4 bytes @8
 
@@ -395,7 +395,12 @@ struct alignas(16) PackedGaussianQuantized {
 
     uint16_t rotation[4];           // 8 bytes @20 - Quaternion as float16
 
-    uint16_t _pre_sh_padding[2];    // 4 bytes @28 - Align to 32
+    // #1413: bits 16..31 of the chunk index. An HLOD node id is the chunk index and a tree can hold far more
+    // than 65,535 nodes; the 16-bit field alone truncated it silently. The shader rebuilds the 32-bit index
+    // (quantization_dequant.glsl gs_quantized_chunk_index). Stored in the former alignment padding, so the
+    // record stays 160 bytes and every record packed with a chunk index below 65,536 is bit-identical.
+    uint16_t chunk_id_hi;           // 2 bytes @28
+    uint16_t _pre_sh_padding;       // 2 bytes @30 - Align to 32
 
     float sh_dc[4];                 // 16 bytes @32 - DC coefficients (FP32)
     uint32_t sh_encoded[24];        // 96 bytes @48 - SH0–4 SNORM10 words (scale in sh_dc[3])
@@ -407,6 +412,14 @@ struct alignas(16) PackedGaussianQuantized {
 
 static_assert(sizeof(PackedGaussianQuantized) == 160, "PackedGaussianQuantized must be 160 bytes");
 static_assert(sizeof(PackedGaussianQuantized) % 16 == 0, "PackedGaussianQuantized must be 16-byte aligned");
+static_assert(offsetof(PackedGaussianQuantized, chunk_id) == 6, "PackedGaussianQuantized.chunk_id offset mismatch");
+static_assert(offsetof(PackedGaussianQuantized, chunk_id_hi) == 28, "PackedGaussianQuantized.chunk_id_hi offset mismatch");
+static_assert(offsetof(PackedGaussianQuantized, sh_dc) == 32, "PackedGaussianQuantized.sh_dc offset mismatch");
+
+// The 32-bit chunk index of a quantized record, as the shader rebuilds it (gs_quantized_chunk_index).
+inline uint32_t gs_quantized_chunk_index(const PackedGaussianQuantized &p_record) {
+    return uint32_t(p_record.chunk_id) | (uint32_t(p_record.chunk_id_hi) << 16);
+}
 
 // The quantized layout stores position and scale in uint16 slots, so both bit depths are
 // hard-capped at 16 regardless of the (8..24) project-setting range. A larger position_bits
@@ -722,13 +735,14 @@ void pack_gaussian(const Gaussian &src,
 
 // Pack a Gaussian into the 80-byte per-chunk quantized layout (PackedGaussianQuantized).
 // chunk_quant supplies the position/scale normalization bounds and bit depths; chunk_id
-// is the global index into the ChunkQuantizationGPU buffer the shader dereferences.
+// is the global index into the ChunkQuantizationGPU buffer the shader dereferences (all
+// 32 bits are stored, #1413).
 // Bit-matches the GLSL dequantization in shaders/includes/quantization_dequant.glsl.
 // Opacity and sh_dc stay FP32 by design; non-finite inputs are floored deterministically,
 // and a non-finite render-critical field rejects the splat (opacity 0, counted; #1175).
 void pack_gaussian_quantized(const Gaussian &src,
         const ChunkQuantizationInfo &chunk_quant,
-        uint16_t chunk_id,
+        uint32_t chunk_id,
         PackedGaussianQuantized &dst,
         SHCompressionMetrics &metrics,
         const Vector3 *higher_order_coeffs = nullptr,
@@ -740,7 +754,7 @@ void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
         uint32_t start,
         uint32_t count,
         const ChunkQuantizationInfo &chunk_quant,
-        uint16_t chunk_id,
+        uint32_t chunk_id,
         PackedGaussianQuantized *dst,
         SHCompressionMetrics &metrics,
         const Vector3 *higher_order_coeffs = nullptr,
