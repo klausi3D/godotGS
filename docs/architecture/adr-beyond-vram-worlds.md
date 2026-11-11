@@ -3,6 +3,11 @@
 - **Status:** proposed. Implementation follows the roadmap order in §10, and each code PR
   carries its own risk class. This record is a design only: it changes no code, and no build
   or GPU run backs it.
+- **Amended 2026-11-11 (owner decisions, Option D):** the gates are repaired, one frozen Tier A
+  reference run on the chunk route replaces the full M2 program, M3 is Tier A on the one route,
+  and Step C is pulled forward. Where this record
+  disagrees with that amendment, the amendment wins. See
+  [Owner decision recorded 2026-11-11](#owner-decision-recorded-2026-11-11-option-d-one-residency-core).
 - **Date:** 2026-11-04.
 - **Risk:** this document is R0 (`docs/**`). It is the design record that the R3 packages it
   schedules depend on (`docs/governance/agentic-engineering.md`). Those R3 packages are
@@ -150,6 +155,9 @@ queues. This is invariant I-11.
 - **Step C (M5).** `NodeResidency` becomes the `ResidencyManager` with K segments. Primary
   chunk worlds become degenerate-node demand on it, and the chunk streamer's primary atlas,
   allocator and regulator are retired.
+  *Amended 2026-11-11: Step A ends at the frozen chunk-route reference run, which replaces M2; Step C merges into Step B, and
+  tree-less worlds get an automatic tree instead of degenerate-node demand (see the 2026-11-11
+  amendment).*
 
 | Alternative | Why rejected |
 |---|---|
@@ -173,6 +181,9 @@ stored **compressed with the GSQ v1 page codec (D-12)** in one or both container
 Both compressed containers fit the approved cache together (§5.3). So the **flat arm stays
 the chunk route on the runner for the whole program**. No "leaves-only cut over V4"
 workaround and no disk-option choice is needed.
+*Amended 2026-11-11: the flat arm is the chunk route until M3 only; the plain-GSQ row becomes
+the flat reference arm until M3 and an input format afterwards (see the 2026-11-11
+amendment).*
 
 **Tier AB** is a single V4 package (u32 counts suffice; about 80k nodes against a reader bound
 of 2^20, `kMaxNodes` at `io/gaussian_splat_world_paged.h:57` ✓). It is never plain v3.
@@ -1721,6 +1732,74 @@ the program does not resolve them.
    fly-through (§7) does not fix an output resolution beyond the 1080p budgets of §5.2. A
    per-megapixel budget would change the setting's shape and the BV-26a freeze; that is not
    decided.
+
+## Owner decision recorded 2026-11-11: Option D, one residency core
+
+The owner was asked on 2026-11-11 "Option D als Zielarchitektur annehmen?" and answered
+"1. ja". The decision itself, its reasons and the migration order are recorded in
+[One route, many demand producers](adr-one-route-many-producers.md) §12.6: `NodeResidency` is
+the single residency core of the one route; the GSQ codec, the GSQ page source,
+`PayloadReadService` and worker decode move under it; the HLOD cut sits on top; and
+`GaussianStreamingSystem` is deleted at the end of the migration. This amendment applies that
+decision to this record. It is confirmed, like §12.6, by the owner's confirming comment on the
+PR that adds it and its merge by `klausi3D`.
+
+**Program order (owner, 2026-11-11).** To the proposal "start Option D now; first repair the
+gates, freeze the chunk route as reference instead of the full M2 program", the owner answered
+"gut . dann mache die vorarbeit bis an option d heran." The order, with the diagnosis behind it
+(holes, a fill order that does not run from the camera to the horizon, and seam flicker in a
+local Tier A flythrough while every gate passed), is in the one-route ADR §12.6.4:
+
+1. **Gate repair (route-neutral):** served means GPU-resident; checks during movement, not only
+   at the stops; probe screenshots; a drawn-fraction / coverage measure, report-only like the
+   other gates here until it is hardened.
+2. **Frozen chunk-route reference:** one Tier A run on the chunk route with the repaired gates;
+   its run id and gate values are recorded here. **This replaces the full M2 program on the
+   chunk route.** BV-13b, BV-C6 and BV-14 are no longer done in full on the chunk route; only
+   their route-neutral parts carry over (gates and the settle oracle; the GSQ codec work). After
+   the run, only fixes the reference needs land on chunk-only code.
+3. **Option D migration** (one-route ADR §12.6.4 step 3). **M3 = Tier A on the one route**,
+   measured against the frozen reference, also in GS-COMBINED-1 variant B. G1, G2a, G4 and G10
+   keep their thresholds. G6 and G6t are re-registered with a settle definition for a cut and are
+   not looser than the reference without an owner disposition. That re-registration is its own PR
+   under the §8.4 guard.
+
+**Route-neutral work that continues:** the GS-COMBINED-1 S1 per-light shadow caster counter
+(engine; Refs #1313). #788 (the world missing next to node instances) is re-checked on the HLOD
+route rather than patched on the chunk route.
+
+**What changes in this record** (the text above is left as written; these notes take precedence):
+
+- **Milestones.** The P2 rows BV-13b, BV-C6 and BV-14 and the **M2** row are replaced by steps 1
+  and 2 above, except for their route-neutral parts. M3 is measured against the frozen
+  reference.
+- **D-1 steps.** Step A ends at the frozen chunk-route reference run. Step C merges into Step B: "primary chunk
+  worlds become degenerate-node demand" becomes "tree-less worlds get an automatic tree at import
+  or prime; there is no chunk-visibility producer". The automatic tree's interior nodes are
+  importance-prefix selections of their children, with no error raster; a leaves-only cut is not
+  the plan, for the reasons in §12.6.3 of the one-route ADR.
+- **D-2.** The plain-GSQ row's role becomes "flat reference arm until M3; afterwards an input
+  format". The sentence "the flat arm stays the chunk route on the runner for the whole program.
+  No 'leaves-only cut over V4' workaround … is needed" no longer holds. The plain-GSQ file is
+  unchanged; a node index may be added beside or behind it.
+- **D-12 containers.** Add the option that a V4 node record names a run of pages in the BV-C5a
+  page directory, so that flat and HLOD worlds share one page store, one reader and one decode
+  path. It is decided in BV-C4, not here.
+- **§3.4 coupling.** "On the flat arm a missing chunk is a hole" applies only until M3.
+- **§10.** The frozen chunk-route reference run takes M2's place. P3 gains "read service and GSQ under
+  the HLOD streamer" and "automatic tree". In P5, BV-35a–d are void (there is no legacy chunk
+  visibility producer), and BV-33/34a/34b (segmented pool) move to "on need", since a drawn budget
+  of 1M–4M splats does not approach 4 GiB **[E]**.
+- **§11 risk row K12** ("Step C touches the alpha envelope", mitigation "last phase"): the
+  mitigation no longer holds once Step C is pulled forward. The mitigation becomes the frozen chunk-route
+  reference and the deletion order of the one-route ADR §12.6.4 (the chunk route is deleted only
+  after M3 and after the refusals are lifted).
+
+**HLOD cap blockers.** Raising the pilot caps (1M leaf splats, 32,768 nodes, 512 MiB atlas;
+D-3) has the known blockers listed in the one-route ADR §12.6.5, among them the silent 16-bit
+node id truncation on the quantized pack (Refs #1413).
+
+**No threshold or gate in G-d or §8 changes in this amendment.**
 
 ---
 
