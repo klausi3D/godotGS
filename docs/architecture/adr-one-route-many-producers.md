@@ -8,6 +8,10 @@
 - **Status update (2026-11-10):** §12 adds the route retirement decision (D-2): one route,
   and the chunk-streaming route and the legacy composite are deleted. See
   [Owner decision (D-2)](#owner-decision-d-2).
+- **Status update (2026-11-11):** §12.6 records the owner's acceptance of Option D as the
+  target architecture of the one route: `NodeResidency` is its single residency core, and
+  tree-less worlds reach it through an automatically built tree. See
+  [Owner decision (Option D)](#owner-decision-option-d).
 - **Date:** 2026-11-04.
 - **Risk:** this document is R0 (`docs/**`). The implementation PRs it schedules are **R2**
   (`modules/gaussian_splatting/renderer/**`, and the director changes that alter what the
@@ -427,6 +431,9 @@ status of decision 1.
   settles it (F1).
 - Lighting and shadow receive on the HLOD route.
 - Whether HLOD enforces the uint16 quantized chunk-id limit once instance chunks are appended.
+  **Answered by reading (2026-11-11):** it does not. The quantized node pack casts the node
+  index to `uint16_t` with no range check (`renderer/hlod_node_pack.cpp:98` at `91cdcd1e4f9`);
+  see §12.6.5. Refs #1413.
 - The cost of a whole-atlas repack on asset spawn (O(total atlas) by code; not measured).
 
 ---
@@ -532,7 +539,8 @@ Splat shadows on the one route (I-03) are the shadow track, CLN-LT02.
   the owner rules on F1's chunk-route part.
 - The [Worlds beyond VRAM](adr-beyond-vram-worlds.md) ADR (Proposed) uses the chunk route as
   the flat arm for tree-less worlds. The beyond-VRAM program continues in parallel (owner
-  decision D-8); how tree-less worlds reach the one route is not decided here.
+  decision D-8); how tree-less worlds reach the one route is not decided here. *Decided on
+  2026-11-11 in §12.6.3: through an automatically built tree.*
 - The [#788 ADR](adr-single-route-per-frame-node-coexistence.md) carries a status line that
   points here.
 
@@ -543,3 +551,147 @@ Splat shadows on the one route (I-03) are the shadow track, CLN-LT02.
   removed. The owner's answer names two deletions, the chunk route and the legacy composite.
 - Scheduling CLN-RT07 against open beyond-VRAM PRs. Under owner decision D-8, a task that owns a
   path an open beyond-VRAM PR holds is not dispatched.
+
+### 12.6 Target architecture of the one route (Option D)
+
+- **Status:** Accepted — decided by the owner on 2026-11-11. The owner's confirming comment on
+  the PR that adds this section and its merge confirm that the recorded text matches the
+  decision (see **Confirmation** below).
+- **Source:** an architecture review of the D-2 backend question, written on 2026-11-10 against
+  `91cdcd1e4f9` (code and ADR reading only; no build, GPU run or test run). The review is a
+  working note outside the repository; the decision and its reasons are recorded here.
+- **Base:** every `file:line` in this section was re-read at `91cdcd1e4f9` (origin/master).
+- **Evidence status:** no claim in this section rests on a run. Statements about runtime
+  behaviour that are not a direct reading of code are marked **[inference]**.
+
+#### 12.6.1 Decision
+
+One route, one residency owner, one page store with one read service, one cut:
+
+1. **Residency.** `NodeResidency` (`lod/hlod_node_residency.h`) is the single residency core of
+   the one route, over `GaussianAtlasAllocator` and a pool sized once from the streaming budget
+   inside the device ledger. This is [Worlds beyond VRAM](adr-beyond-vram-worlds.md) D-1 with its
+   Step C pulled forward.
+2. **Under it** move the layers the beyond-VRAM program built beside the chunk route: the GSQ
+   codec (`io/gsq/**`), the GSQ page source (today `core/streaming_gsq_chunk_payload_source.*`),
+   `PayloadReadService` (`io/gs_payload_read_service.*`) and decode on worker threads straight
+   into the GPU record. `GaussianAtlasAllocator`, the device ledger and the flythrough lane stay.
+3. **On top of it** sits the HLOD cut (`ViewSet` / `CutHistory`), with the producers of §4 (world
+   cut, node instances; later per-asset trees and light views).
+4. **`GaussianStreamingSystem` is deleted at the end of the migration**, as a selection, residency
+   and render path: its upload pipeline, regulator, visibility and eviction controllers, atlas
+   registry, pool growth, prefix LOD and `render_streaming_orchestrator`.
+
+**Clarification of D-2.** "The chunk-streaming route is deleted" means item 4. It does not mean
+the layers in item 2; they stay and move under the one route.
+
+#### 12.6.2 Why
+
+- The alternative of keeping the chunk stack as the backend under the HLOD cut was already
+  rejected by the BV ADR ("Chunk streamer as the seed", D-1 alternatives): its unit is a fixed
+  64k chunk with LOD as a draw count, it has the regulator ratchet, and it has no per-node
+  generations. The cut needs a per-node resident mask, whole-transition admission of a parent's
+  missing children and protection of drawn nodes and their ancestors
+  (`lod/hlod_node_residency.h:154-165`); `NodeResidency` has them, the chunk stack does not.
+- The route-neutral layers do not depend on `GaussianStreamingSystem`: `PayloadReadService`'s
+  first runtime caller is the GSQ page source (`io/gs_payload_read_service.h:20-21`). Rebuilding
+  them for the HLOD route would discard working code and the codec evidence.
+- Keeping two routes with parity was rejected by D-2.
+
+#### 12.6.3 Tree-less (flat) worlds reach the route through an automatically built tree
+
+Tree-less worlds reach the one route through an **automatically built cheap tree**: its interior
+nodes are importance-prefix selections of their children, with no error raster. The HLOD ADR's
+`selected` candidate already defines this as "a copy of prefixes, O(node size)" of the leaves'
+importance-ordered payloads (`docs/architecture/adr-hlod-streaming.md:504-509`). Quality is lower
+than the full bake; the full bake stays the shipping path.
+
+**Not a leaves-only degenerate cut**, for these reasons, read from the contracts
+**[inference, not run]**:
+
+- The selector publishes a complete cut or nothing: every non-COMPLETE/EMPTY status has
+  `selected_count` 0 (`lod/hlod_runtime_selection.h:45-46`). Residency admits a parent's missing
+  children as one whole transition, "every run is allocated or none is"
+  (`lod/hlod_node_residency.h:160-165`). A tree-less world is one synthetic parent with thousands
+  of children, so after a teleport the whole visible set would be admitted and loaded as one
+  transition, with no coarse image meanwhile.
+- If the visible leaves exceed the drawn budget there is no coarser frontier to fall back to, so
+  the view draws nothing. Tier A's needed sets reached 449 chunks
+  ([Worlds beyond VRAM](adr-beyond-vram-worlds.md) G-c), far above a drawn budget of 1M–4M splats.
+  The chunk route hides this with prefix LOD, which D-2 deletes.
+- Leaves are capped at 16,384 splats (`core/gaussian_splat_hlod_tree.h:45`), so a flat world needs
+  re-cutting into leaves either way.
+
+A leaves-only cut is used only if a CPU-only spike (the selector over a one-level tree with Tier
+A's leaf table at the eight checkpoint poses) shows that it publishes a complete cut within budget
+at every Tier A checkpoint.
+
+#### 12.6.4 Migration order and milestones
+
+1. **M2 runs on the current chunk route** and is frozen there as the reference: its run id and
+   gate values are recorded when it is reached. After that, only fixes the reference needs land
+   on chunk-only code. The beyond-VRAM roadmap order before M2 is unchanged (see the BV ADR
+   amendment of 2026-11-11).
+2. Shared layers move under the HLOD streamer: read service, GSQ node payloads through the common
+   page store, a bounded ready queue, worker and upload sizing, decode telemetry. Proven on T0
+   against the same T0 on the chunk route.
+3. The HLOD route scales: the cap blockers in §12.6.5.
+4. Out-of-core writer and tiled bake, then the automatic tree for tree-less input.
+5. **M3 = Tier A on the one route**, judged against the frozen M2 reference, also in
+   GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep their thresholds. G6 and G6t are
+   re-registered with a settle definition for a cut and are not looser than the reference without
+   an owner disposition. That re-registration is its own PR under the BV ADR §8.4 guard; this
+   section changes no threshold or gate.
+6. Lift the refusals (§12.3 step 3), collapse selection, re-home the GPU tests.
+7. Delete the chunk route and the legacy composite (§12.3 steps 4 and 5).
+
+Steps 2 to 4 can run in parallel.
+
+#### 12.6.5 Known blockers to raising the HLOD caps
+
+The HLOD route is capped today at 1,048,576 leaf splats, 1,572,864 payload splats and 32,768 nodes
+(`core/gaussian_splat_hlod_runtime_data.h:14-16`, enforced for paged admission as
+`hlod_source_admission_limit` at `core/gaussian_splat_world.cpp:1193-1195`) and at 512 MiB of
+HLOD-owned GPU bytes, which also bounds the streamed atlas (`:18`; passed as the HLOD-owned cap
+into the page budget at `renderer/resident_instance_contract_publisher.cpp:2220-2222`, and the
+candidate refused above it at `:2245`). Raising them is blocked by:
+
+- **16-bit node id on the quantized path.** `renderer/hlod_node_pack.cpp:98` passes
+  `uint16_t(p_node)` as the quantized chunk id with no range check, into the `uint16_t chunk_id`
+  of `PackedGaussianQuantized` (`renderer/gaussian_gpu_layout.h:389`). It is safe only while the
+  node cap is 32,768; above 65,535 nodes the id truncates silently **[inference]**. The chunk
+  route refuses the same case explicitly (`core/gaussian_streaming.cpp:4278-4283`). The PR that
+  raises the node bound adds a guard and boundary tests at 65,535 / 65,536. Refs #1413.
+- **Per-frame O(N) in `NodeResidency`.** Eviction candidates, stale-load cancel and stats loop
+  over every node (`lod/hlod_node_residency.cpp:179`, `:223`, `:285`, `:545`, `:558`); BV-15.
+- **In-core V4 writer.** `GaussianSplatHlodPagedSource::write_package` takes "a resident, complete
+  HLOD world" (`io/gaussian_splat_world_paged.h:151-154`); the out-of-core writer has no V4 mode
+  yet (`io/gs_world_writer.h:29`, BV-18a). Tier A cannot be baked on this route today.
+- **Raw V4 reads without the read service.** The HLOD streamer reads each node through
+  `read_node_payload()` (`renderer/hlod_node_streamer.cpp:127`), which opens a new `FileAccess` per
+  call (`io/gaussian_splat_world_paged.cpp:747`).
+- **Unbounded ready queue and untested throughput.** Packed payloads waiting for upload are outside
+  the 8 MiB read cap (`renderer/hlod_node_streamer.h:46-51`); the defaults of 32 MiB per frame and
+  16 jobs (`:44-45`) have never run above 512 MiB.
+- **Pool addressing.** Uploads use a `uint32` byte offset (`renderer/hlod_node_streamer.cpp:489`),
+  and the page budget refuses `pages * page_splats > UINT32_MAX`
+  (`renderer/resident_instance_contract_publisher.cpp:2224`).
+
+Risks at scale that do not block the caps but must be watched before M3: no cross-fade
+(`DrawnNodeGPU::fade` is "written as 1.0 and not read yet", `renderer/gaussian_gpu_layout.h:272`),
+and no compaction (`fragmented_groups`, `lod/hlod_node_residency.h:141`).
+
+#### Owner decision (Option D)
+
+- **Question put to the owner (2026-11-11):** "Option D als Zielarchitektur annehmen?"
+- **Answer:** "1. ja".
+- **Decided by:** the owner, 2026-11-11.
+- **Confirmation:** the PR that adds this section is opened from the owner's account
+  (`klausi3D`), as every agent PR here is, so an approving review cannot be obtained. The
+  confirmation is the one practised for the owner's OK
+  ([Review and merge policy as practised](adr-review-merge-policy.md)): a confirming comment on
+  that PR from `klausi3D` and its merge by `klausi3D`.
+- **Rejected:** keeping the chunk stack as the backend with the HLOD cut on top; discarding the
+  GSQ codec, read service and decode path with the chunk stack; two routes with parity (D-2).
+- **Not decided here:** the container change for GSQ node payloads (BV ADR amendment of
+  2026-11-11, decided in BV-C4); the code PRs carry their own risk class and evidence.
