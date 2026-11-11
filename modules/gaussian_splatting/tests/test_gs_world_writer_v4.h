@@ -401,6 +401,224 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] codec none shuffled spill
 	CHECK(writer.get_report().output_bytes == uint64_t(actual.size()));
 }
 
+static void check_leaf_metrics_position_round_trip(bool p_gsq, bool p_exact, bool p_existing) {
+	INFO("GSQ spill: ", p_gsq, ", exact centre: ", p_exact, ", existing destination: ", p_existing);
+	Paths paths;
+	PackedByteArray original;
+	if (!paths.create() || !seed_destination(paths, p_existing, original)) {
+		return;
+	}
+	// A real lattice tree: root -> two leaf cells, all with one splat.
+	// Shifting the origin makes leaf 1's centre approximately -93.76080016813673.
+	// Its float32 absolute input passes the old metric check, but the V4
+	// relative -> absolute round trip changes it by one float32 ULP. The
+	// positive control uses a dyadic origin and position with the same topology.
+	GaussianSplatHlodTree tree;
+	tree.origin[0] = p_exact ? -352.0 : -349.76080016813673;
+	tree.leaf_splat_count = 2;
+	tree.interior_splat_count = 1;
+	tree.nodes.resize(3);
+	LocalVector<V4Node> nodes;
+	nodes.resize(3);
+	V4BodyDesc desc[3];
+	Gaussian input[3];
+	for (uint32_t i = 0; i < 3; ++i) {
+		GaussianSplatHlodNode &node = tree.nodes[i];
+		const bool leaf = i != 0;
+		node.cell.e = leaf ? 9 : 10;
+		node.cell.ix = i == 2 ? 1 : 0;
+		node.parent = leaf ? 0 : gs_hlod::kNoParent;
+		node.first_child = leaf ? 0 : 1;
+		node.child_count = leaf ? 0 : 2;
+		node.height = leaf ? 0 : 1;
+		node.flags = leaf ? gs_hlod::NODE_KIND_LEAF : gs_hlod::NODE_KIND_MERGED;
+		node.geometric_error = leaf ? 0.0f : 1.0f;
+		const real_t half = leaf ? 256.0f : 512.0f;
+		node.aabb_min = Vector3(-half, -half, -half);
+		node.aabb_max = Vector3(half, half, half);
+		node.radius = leaf ? 512.0f : 2048.0f;
+		node.payload_first = leaf ? i - 1 : 2;
+		node.payload_count = 1;
+		nodes[i].topology = node;
+		desc[i].segment.bucket = i;
+		desc[i].segment.depth = leaf ? 1 : 0;
+		desc[i].is_leaf = leaf;
+		tree.node_cell_center(node, desc[i].cell_center);
+		input[i].position = leaf ? Vector3(real_t(desc[i].cell_center[0]), real_t(desc[i].cell_center[1]), real_t(desc[i].cell_center[2])) : Vector3();
+		input[i].scale = Vector3(0.03125f, 0.03125f, 0.03125f);
+		input[i].opacity = 0.6f;
+		input[i].sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
+	}
+	input[1].position.x = p_exact ? 38.875f : 38.79985046386719f;
+	String reason;
+	if (!gs_hlod_validate_tree(tree, &reason)) {
+		FAIL("invalid non-float32-centre tree: ", reason.utf8().get_data());
+		return;
+	}
+	CHECK((double(float(desc[1].cell_center[0])) == desc[1].cell_center[0]) == p_exact);
+	PagedV4Spec spec;
+	spec.node_count = 3;
+	spec.leaf_splat_count = 2;
+	spec.interior_splat_count = 1;
+	for (int a = 0; a < 3; ++a) {
+		spec.origin[a] = tree.origin[a];
+	}
+	spec.bounds = tree.node_world_aabb(tree.nodes[0]);
+	const CodecParams codec = p_gsq ? gsq_v1_codec_params() : CodecParams();
+	// Prove both modes retain the triggering position before serialization.
+	Gaussian decoded = input[1];
+	if (p_gsq) {
+		gs_gsq::EncodeParams params;
+		LocalVector<uint8_t> page;
+		gs_gsq::DecodeContext decoder;
+		if (gsq_encode_params(codec, params, reason) != OK ||
+				gs_gsq::encode_page(&input[1], nullptr, 1, 0, params, page, reason) != OK ||
+				decoder.decode_range(page.ptr(), page.size(), 0, 1, &decoded, nullptr, reason) != OK) {
+			FAIL("non-float32-centre GSQ oracle failed");
+			return;
+		}
+	}
+	CHECK(decoded.position.x == input[1].position.x);
+	gs_world_paged::NodeMetrics before, after;
+	if (!gs_world_paged::compute_node_metrics(&decoded, 1, desc[1].cell_center, true, before, reason)) {
+		FAIL("input metrics failed");
+		return;
+	}
+	CHECK(before.center_exact);
+	Gaussian reconstructed = decoded;
+	for (int a = 0; a < 3; ++a) {
+		const real_t relative = real_t(double(decoded.position[a]) - desc[1].cell_center[a]);
+		reconstructed.position[a] = real_t(double(relative) + desc[1].cell_center[a]);
+	}
+	if (p_exact) {
+		CHECK(reconstructed.position == decoded.position);
+	} else {
+		CHECK(reconstructed.position.x == 38.79985427856445f);
+		CHECK(reconstructed.position.x != decoded.position.x);
+	}
+	if (!gs_world_paged::compute_node_metrics(&reconstructed, 1, desc[1].cell_center, true, after, reason)) {
+		FAIL("read-back oracle metrics failed");
+		return;
+	}
+	CHECK(after.center_exact == p_exact);
+
+	// Equivalent resident world: leaf payload indices 0,1; interior index 2.
+	// Exercise the real producer, including snapshot capture, not an imitation
+	// of its refusal. Keep its destination isolated from the writer's W1 check.
+	tree.interior_resident = true;
+	tree.interior_gaussians.push_back(input[0]);
+	LocalVector<Gaussian> leaves;
+	leaves.push_back(input[1]);
+	leaves.push_back(input[2]);
+	LocalVector<Vector3> leaf_sh;
+	Ref<GaussianData> data;
+	data.instantiate();
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	if (data.is_null() || world.is_null()) {
+		FAIL("resident parity fixture allocation failed");
+		return;
+	}
+	data->set_gaussian_payload(leaves, leaf_sh, 0, 0, false, false);
+	world->set_gaussian_data(data);
+	world->set_hlod_tree(std::move(tree));
+	Paths resident_paths;
+	PackedByteArray resident_original;
+	if (!resident_paths.create() || !seed_destination(resident_paths, p_existing, resident_original)) {
+		return;
+	}
+	const Error resident_result = GaussianSplatHlodPagedSource::write_package(*world.ptr(), resident_paths.final_path, reason);
+	if (p_exact) {
+		CHECK(resident_result == OK);
+	} else {
+		CHECK(resident_result == ERR_UNAVAILABLE);
+		CHECK(reason == "v4_center_reconstruction_not_exact");
+		check_w1(resident_paths, resident_original);
+	}
+
+	WriterV4 writer;
+	if (writer.begin_paged(paths.final_path, paths.scratch, spec, codec, Limits::unbounded()) != OK) {
+		FAIL("non-float32-centre begin failed");
+		return;
+	}
+	for (uint32_t i : { 2u, 0u }) {
+		if (writer.append_node(desc[i], &input[i], nullptr, 1, nodes[i].body) != OK) {
+			FAIL("non-float32-centre append failed: ", writer.get_report().reason.utf8().get_data());
+			return;
+		}
+	}
+	// Refuse only after two successful spills, so cleanup must remove earlier
+	// scratch files as well as preserve the absent/pre-existing destination.
+	CHECK(writer.get_report().nodes == 2);
+	PackedStringArray scratch_names;
+	if (!list_dir(paths.scratch, scratch_names)) {
+		return;
+	}
+	CHECK(scratch_names.size() == 2);
+	check_destination(paths, original);
+	const Error append_result = writer.append_node(desc[1], &input[1], nullptr, 1, nodes[1].body);
+	if (!p_exact) {
+		CHECK(append_result == ERR_UNAVAILABLE);
+		CHECK(writer.get_report().error == ERR_UNAVAILABLE);
+		CHECK(writer.get_report().reason == "v4_center_reconstruction_not_exact");
+		CHECK_FALSE(writer.get_report().committed);
+		CHECK(writer.get_progress().phase == Phase::STOPPED);
+		check_w1(paths, original);
+		return;
+	}
+	if (append_result != OK) {
+		FAIL("exact-centre positive control refused: ", writer.get_report().reason.utf8().get_data());
+		return;
+	}
+	if (writer.finalize(nodes) != OK) {
+		FAIL("non-float32-centre finalize failed: ", writer.get_report().reason.utf8().get_data());
+		return;
+	}
+	CHECK(writer.get_report().committed);
+	GaussianSplatHlodPagedSource source;
+	GaussianSplatHlodTree loaded;
+	Dictionary metadata;
+	if (source.open(paths.final_path, loaded, metadata, reason) != OK || source.get_nodes().size() != 3) {
+		FAIL("non-float32-centre output did not open with all nodes");
+		return;
+	}
+	for (uint32_t i = 0; i < 3; ++i) {
+		Vector<Gaussian> payload;
+		Vector<Vector3> sh;
+		if (source.read_node_payload(i, payload, sh, reason) != OK || payload.size() != 1) {
+			FAIL("node ", i, " must read successfully: ", reason.utf8().get_data());
+			return;
+		}
+		gs_world_paged::NodeMetrics actual;
+		V4SpillRecord spill;
+		if (!gs_world_paged::compute_node_metrics(payload.ptr(), 1, desc[i].cell_center, desc[i].is_leaf, actual, reason) ||
+				writer.get_spill_record(nodes[i].body, spill) != OK) {
+			FAIL("read-back metrics or spill lookup failed");
+			return;
+		}
+		check_metrics(source.get_nodes()[i].metrics, actual);
+		check_metrics(spill.metrics, actual);
+		CHECK(actual.center_exact);
+		if (i == 1) {
+			CHECK(payload[0].position == reconstructed.position);
+		}
+	}
+	if (!list_dir(paths.scratch, scratch_names)) {
+		return;
+	}
+	CHECK(scratch_names.is_empty());
+}
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] reconstructed leaf metrics enforce resident refusal parity and W1 with a positive control") {
+	// Independent helper calls: one failure-return must not skip another mode.
+	for (bool gsq : { false, true }) {
+		for (bool existing : { false, true }) {
+			check_leaf_metrics_position_round_trip(gsq, false, existing);
+			check_leaf_metrics_position_round_trip(gsq, true, existing);
+		}
+	}
+}
+
 TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] GSQ spill metrics and every output payload describe decoded runtime values") {
 	Paths paths;
 	Fixture fixture;
