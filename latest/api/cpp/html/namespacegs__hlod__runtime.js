@@ -36,5 +36,6 @@ var namespacegs__hlod__runtime =
     [ "make_node_infos", "namespacegs__hlod__runtime.html#aac6bda8b9962836f0bc125a4b49322ee", null ],
     [ "make_node_key", "namespacegs__hlod__runtime.html#a18ae358510bd7acac4c6f2a8a56200f0", null ],
     [ "rebase_edited_snapshot", "namespacegs__hlod__runtime.html#af5fbea107bc9dd60f16dbba3c3de7787", null ],
+    [ "source_admission_refusal", "namespacegs__hlod__runtime.html#a1e87014962341bef2f3e7bb03881f5cb", null ],
     [ "kCostInsideDistanceFraction", "namespacegs__hlod__runtime.html#adf9500d54376ed2d50f9d5ffe7663888", null ]
 ];

@@ -1,5 +1,8 @@
 var NAVTREEINDEX27 =
 {
+"structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c":[1,0,59,2],
+"structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66":[1,0,59,13],
+"structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,59,22],
 "structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c":[1,0,59,16],
 "structDebugCounterSnapshot.html#af94cb2e8f93443163dd4f66e43af9cb5":[1,0,59,0],
 "structDebugCounterSnapshot.html#afc1e9093dea93649098be8439764cfcc":[1,0,59,7],
@@ -246,8 +249,5 @@ var NAVTREEINDEX27 =
 "structGPUSorterFactory_1_1PolicyDecision.html#a9565c54c5012297de4b8060669c0c819":[1,0,118,1,0],
 "structGPUSorterFactory_1_1PolicyProbe.html":[1,0,118,0],
 "structGPUSorterFactory_1_1PolicyProbe.html#a5fa5f84aeea1d67883819b3c607f1cdc":[1,0,118,0,1],
-"structGPUSorterFactory_1_1PolicyProbe.html#a94749b746c0901ac75f3eeef636e00a1":[1,0,118,0,0],
-"structGPUSorterFactory_1_1PolicyProbe.html#ad0dc63ca1e1beecb28ee6bdf64e09341":[1,0,118,0,2],
-"structGPUSortingConfig.html":[1,0,119],
-"structGPUSortingConfig.html#a0986fe432496ba3912942cfd7bf9158a":[1,0,119,4]
+"structGPUSorterFactory_1_1PolicyProbe.html#a94749b746c0901ac75f3eeef636e00a1":[1,0,118,0,0]
 };

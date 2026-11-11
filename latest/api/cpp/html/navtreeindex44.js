@@ -1,5 +1,8 @@
 var NAVTREEINDEX44 =
 {
+"structGaussianSplatting_1_1TileTimingState.html#a2a627d668aae368232e7f0bffe01ee82":[1,0,9,60,30],
+"structGaussianSplatting_1_1TileTimingState.html#a4a0b656a16591292bacf0a1ccddbc1f6":[0,0,12,61,9],
+"structGaussianSplatting_1_1TileTimingState.html#a4a0b656a16591292bacf0a1ccddbc1f6":[1,0,9,60,9],
 "structGaussianSplatting_1_1TileTimingState.html#a4f05fde1f17d100679c1114d7d9c8dbe":[0,0,12,61,0],
 "structGaussianSplatting_1_1TileTimingState.html#a4f05fde1f17d100679c1114d7d9c8dbe":[1,0,9,60,0],
 "structGaussianSplatting_1_1TileTimingState.html#a5477bb450b37db9cbe5e008a51f056f8":[0,0,12,61,21],
@@ -246,8 +249,5 @@ var NAVTREEINDEX44 =
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#a6607c7244546f301d50f5c4111e7bc82":[1,0,10,5,6],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#a7412d50e4d37f7eab161c101b9fd6d6a":[0,0,14,5,5],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#a7412d50e4d37f7eab161c101b9fd6d6a":[1,0,10,5,5],
-"structGaussianStreamingTypes_1_1ConfigOverrides.html#a7f1906ceb207ba94420533460519dc92":[0,0,14,5,11],
-"structGaussianStreamingTypes_1_1ConfigOverrides.html#a7f1906ceb207ba94420533460519dc92":[1,0,10,5,11],
-"structGaussianStreamingTypes_1_1ConfigOverrides.html#a80614d88048597b608eb78571bb59ee2":[0,0,14,5,3],
-"structGaussianStreamingTypes_1_1ConfigOverrides.html#a80614d88048597b608eb78571bb59ee2":[1,0,10,5,3]
+"structGaussianStreamingTypes_1_1ConfigOverrides.html#a7f1906ceb207ba94420533460519dc92":[0,0,14,5,11]
 };

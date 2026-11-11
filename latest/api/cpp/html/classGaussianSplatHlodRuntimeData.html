@@ -159,11 +159,11 @@ Public Attributes</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
-<tr class="memitem:a492c2a3c237357f429f55967d3dd4c7c" id="r_a492c2a3c237357f429f55967d3dd4c7c"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a492c2a3c237357f429f55967d3dd4c7c">MAX_LEAVES</a> = 1048576</td></tr>
-<tr class="memitem:ae1f75beec082eaca25df5378865021bd" id="r_ae1f75beec082eaca25df5378865021bd"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae1f75beec082eaca25df5378865021bd">MAX_PAYLOAD</a> = 1572864</td></tr>
-<tr class="memitem:af15a510ed603520cc746ce93cf978c6d" id="r_af15a510ed603520cc746ce93cf978c6d"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af15a510ed603520cc746ce93cf978c6d">MAX_NODES</a> = 32768</td></tr>
+<tr class="memitem:af1473ca0867cf0ec0f421e4a5ba6e341" id="r_af1473ca0867cf0ec0f421e4a5ba6e341"><td class="memItemLeft" align="right" valign="top">static constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af1473ca0867cf0ec0f421e4a5ba6e341">MAX_PAYLOAD</a> = UINT32_MAX</td></tr>
+<tr class="memitem:af15a510ed603520cc746ce93cf978c6d" id="r_af15a510ed603520cc746ce93cf978c6d"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af15a510ed603520cc746ce93cf978c6d">MAX_NODES</a> = gs_world_paged::kMaxNodes</td></tr>
 <tr class="memitem:a966dee3621a3649223eef8839ec03056" id="r_a966dee3621a3649223eef8839ec03056"><td class="memItemLeft" align="right" valign="top">static constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a966dee3621a3649223eef8839ec03056">CPU_BYTE_LIMIT</a> = uint64_t(1) &lt;&lt; 30</td></tr>
-<tr class="memitem:af4afbf243d864a5fd2100cbcb58916cb" id="r_af4afbf243d864a5fd2100cbcb58916cb"><td class="memItemLeft" align="right" valign="top">static constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af4afbf243d864a5fd2100cbcb58916cb">GPU_BYTE_LIMIT</a> = uint64_t(512) &lt;&lt; 20</td></tr>
+<tr class="memitem:ab7fe1f0900e760a1ee639b39a2da6f68" id="r_ab7fe1f0900e760a1ee639b39a2da6f68"><td class="memItemLeft" align="right" valign="top">static constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab7fe1f0900e760a1ee639b39a2da6f68">WHOLE_TREE_GPU_BYTE_BUDGET</a> = uint64_t(512) &lt;&lt; 20</td></tr>
+<tr class="memitem:a1eeda30cdafd90e0220f76b5d6dba414" id="r_a1eeda30cdafd90e0220f76b5d6dba414"><td class="memItemLeft" align="right" valign="top">static constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1eeda30cdafd90e0220f76b5d6dba414">UNKNOWN_HEAP_GS_BYTE_LIMIT</a> = uint64_t(512) &lt;&lt; 20</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
 <a id="af528ecb9e0cab9d2d80c4228921670ae" name="af528ecb9e0cab9d2d80c4228921670ae"></a>
@@ -506,28 +506,6 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="af4afbf243d864a5fd2100cbcb58916cb" name="af4afbf243d864a5fd2100cbcb58916cb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af4afbf243d864a5fd2100cbcb58916cb">&#9670;&#160;</a></span>GPU_BYTE_LIMIT</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">uint64_t GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT = uint64_t(512) &lt;&lt; 20</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="aea14946a537e087760385289ae9bbb9f" name="aea14946a537e087760385289ae9bbb9f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aea14946a537e087760385289ae9bbb9f">&#9670;&#160;</a></span>high_order_count</h2>
 
@@ -570,28 +548,6 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a492c2a3c237357f429f55967d3dd4c7c" name="a492c2a3c237357f429f55967d3dd4c7c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a492c2a3c237357f429f55967d3dd4c7c">&#9670;&#160;</a></span>MAX_LEAVES</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">uint32_t GaussianSplatHlodRuntimeData::MAX_LEAVES = 1048576</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="af15a510ed603520cc746ce93cf978c6d" name="af15a510ed603520cc746ce93cf978c6d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#af15a510ed603520cc746ce93cf978c6d">&#9670;&#160;</a></span>MAX_NODES</h2>
 
@@ -602,7 +558,7 @@ Static Public Attributes</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t GaussianSplatHlodRuntimeData::MAX_NODES = 32768</td>
+          <td class="memname">uint32_t GaussianSplatHlodRuntimeData::MAX_NODES = gs_world_paged::kMaxNodes</td>
         </tr>
       </table>
   </td>
@@ -614,8 +570,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="ae1f75beec082eaca25df5378865021bd" name="ae1f75beec082eaca25df5378865021bd"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae1f75beec082eaca25df5378865021bd">&#9670;&#160;</a></span>MAX_PAYLOAD</h2>
+<a id="af1473ca0867cf0ec0f421e4a5ba6e341" name="af1473ca0867cf0ec0f421e4a5ba6e341"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af1473ca0867cf0ec0f421e4a5ba6e341">&#9670;&#160;</a></span>MAX_PAYLOAD</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -624,7 +580,7 @@ Static Public Attributes</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t GaussianSplatHlodRuntimeData::MAX_PAYLOAD = 1572864</td>
+          <td class="memname">uint64_t GaussianSplatHlodRuntimeData::MAX_PAYLOAD = UINT32_MAX</td>
         </tr>
       </table>
   </td>
@@ -856,6 +812,50 @@ Static Public Attributes</h2></td></tr>
           <td class="memname">Ref&lt;Resource&gt; GaussianSplatHlodRuntimeData::source_world</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1eeda30cdafd90e0220f76b5d6dba414" name="a1eeda30cdafd90e0220f76b5d6dba414"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1eeda30cdafd90e0220f76b5d6dba414">&#9670;&#160;</a></span>UNKNOWN_HEAP_GS_BYTE_LIMIT</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT = uint64_t(512) &lt;&lt; 20</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab7fe1f0900e760a1ee639b39a2da6f68" name="ab7fe1f0900e760a1ee639b39a2da6f68"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab7fe1f0900e760a1ee639b39a2da6f68">&#9670;&#160;</a></span>WHOLE_TREE_GPU_BYTE_BUDGET</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatHlodRuntimeData::WHOLE_TREE_GPU_BYTE_BUDGET = uint64_t(512) &lt;&lt; 20</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>

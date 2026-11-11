@@ -105,7 +105,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:aac060848632fa5a46ae5ed87275df74a" id="r_aac060848632fa5a46ae5ed87275df74a"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aac060848632fa5a46ae5ed87275df74a">quantized_scale</a> [3]</td></tr>
 <tr class="memitem:a661fbe52eca77e599f0621adb211d3f2" id="r_a661fbe52eca77e599f0621adb211d3f2"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a661fbe52eca77e599f0621adb211d3f2">area_fp16</a></td></tr>
 <tr class="memitem:af7458dd0caf2802772d45e0777769a2d" id="r_af7458dd0caf2802772d45e0777769a2d"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af7458dd0caf2802772d45e0777769a2d">rotation</a> [4]</td></tr>
-<tr class="memitem:af7072eb84db6eb3c9c3e2ced58b5928a" id="r_af7072eb84db6eb3c9c3e2ced58b5928a"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af7072eb84db6eb3c9c3e2ced58b5928a">_pre_sh_padding</a> [2]</td></tr>
+<tr class="memitem:ab936e86ce2a20ca0dbab798da729f0be" id="r_ab936e86ce2a20ca0dbab798da729f0be"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab936e86ce2a20ca0dbab798da729f0be">chunk_id_hi</a></td></tr>
+<tr class="memitem:ac44bcb5da5cd716c375f4cc2cf80ef63" id="r_ac44bcb5da5cd716c375f4cc2cf80ef63"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac44bcb5da5cd716c375f4cc2cf80ef63">_pre_sh_padding</a></td></tr>
 <tr class="memitem:aa62c5e8f9c0bd158e43fca6b62181d53" id="r_aa62c5e8f9c0bd158e43fca6b62181d53"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa62c5e8f9c0bd158e43fca6b62181d53">sh_dc</a> [4]</td></tr>
 <tr class="memitem:aecd63fc9b48bdd4def5e3bf2fcffa564" id="r_aecd63fc9b48bdd4def5e3bf2fcffa564"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aecd63fc9b48bdd4def5e3bf2fcffa564">sh_encoded</a> [24]</td></tr>
 <tr class="memitem:a909aed848a3578195cdb61162941572e" id="r_a909aed848a3578195cdb61162941572e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a909aed848a3578195cdb61162941572e">normal_xy</a></td></tr>
@@ -117,14 +118,14 @@ Public Attributes</h2></td></tr>
 <p>Uses per-chunk min/max bounds to normalize positions and scales, achieving up to 4x compression ratio with minimal quality loss.</p>
 <p>Memory layout (160 bytes, 16-byte aligned): geometry occupies 32 bytes, FP32 DC plus scale 16 bytes, 24 signed SH1–4 words 96 bytes, normal/stroke 8 bytes and deterministic trailing padding 8 bytes. SH metadata is synthesized by the quantized shader path; unused words are zero. Position/scale precision remains controlled by the per-chunk bounds. </p>
 </div><a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
-<a id="af7072eb84db6eb3c9c3e2ced58b5928a" name="af7072eb84db6eb3c9c3e2ced58b5928a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af7072eb84db6eb3c9c3e2ced58b5928a">&#9670;&#160;</a></span>_pre_sh_padding</h2>
+<a id="ac44bcb5da5cd716c375f4cc2cf80ef63" name="ac44bcb5da5cd716c375f4cc2cf80ef63"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac44bcb5da5cd716c375f4cc2cf80ef63">&#9670;&#160;</a></span>_pre_sh_padding</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint16_t PackedGaussianQuantized::_pre_sh_padding[2]</td>
+          <td class="memname">uint16_t PackedGaussianQuantized::_pre_sh_padding</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -167,6 +168,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint16_t PackedGaussianQuantized::chunk_id</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab936e86ce2a20ca0dbab798da729f0be" name="ab936e86ce2a20ca0dbab798da729f0be"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab936e86ce2a20ca0dbab798da729f0be">&#9670;&#160;</a></span>chunk_id_hi</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint16_t PackedGaussianQuantized::chunk_id_hi</td>
         </tr>
       </table>
 </div><div class="memdoc">

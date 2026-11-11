@@ -1,5 +1,9 @@
 var NAVTREEINDEX52 =
 {
+"structStreamingVisibilityController_1_1ChunkCullingStats.html#ad5f9d4493d51f31cb514f28438b2c4eb":[1,0,273,0,8],
+"structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html":[1,0,273,2],
+"structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#a01ce32120d997e4f24a46b3c0d116faf":[1,0,273,2,8],
+"structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#a15ee0d02914a64729240200275158ec2":[1,0,273,2,0],
 "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#a2b3b24965fb8279a30f41bf81a111827":[1,0,273,2,2],
 "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#a3eee16595c0249c66c28b250e0a6d5ce":[1,0,273,2,5],
 "structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#a7d2918367a0e039c88b4f90673d637ca":[1,0,273,2,7],
@@ -245,9 +249,5 @@ var NAVTREEINDEX52 =
 "structTileRendererDebugStats.html#a67c0cfdb133df2c0a65801a35b152ed5":[1,0,282,8],
 "structTileRendererDebugStats.html#a6cf671c67f493e39ec156d40fb74f0b5":[1,0,282,2],
 "structTileRendererDebugStats.html#a74c4e2e969e60c768365b5a0f867480c":[1,0,282,37],
-"structTileRendererDebugStats.html#a859e0f41ce16f633e19f2a1db1243523":[1,0,282,26],
-"structTileRendererDebugStats.html#a8620a5ddc1f4848ce46b92235cd63aa0":[1,0,282,34],
-"structTileRendererDebugStats.html#a87da4c14ce0a4c2ed83af097ce832d31":[1,0,282,29],
-"structTileRendererDebugStats.html#a8a2fdec5be1723b574d443a0b96ec745":[1,0,282,18],
-"structTileRendererDebugStats.html#a8f9f7ae7f3fc94d5f8d799366d6b08b3":[1,0,282,44]
+"structTileRendererDebugStats.html#a859e0f41ce16f633e19f2a1db1243523":[1,0,282,26]
 };

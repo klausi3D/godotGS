@@ -1,5 +1,8 @@
 var NAVTREEINDEX26 =
 {
+"streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,78],
+"streaming__gsq__chunk__payload__source_8cpp.html":[2,0,0,0,3,79],
+"streaming__gsq__chunk__payload__source_8h.html":[2,0,0,0,3,80],
 "streaming__gsq__chunk__payload__source_8h_source.html":[2,0,0,0,3,80],
 "streaming__latency__histogram_8h.html":[2,0,0,0,3,81],
 "streaming__latency__histogram_8h_source.html":[2,0,0,0,3,81],
@@ -246,8 +249,5 @@ var NAVTREEINDEX26 =
 "structDebugCounterSnapshot.html#a917d59c2249e7843480b6e58636006b5":[1,0,59,10],
 "structDebugCounterSnapshot.html#aa4d85e14819b4f608eb54dcf85dbad9a":[1,0,59,20],
 "structDebugCounterSnapshot.html#ab4703485200b60e5aebc248cb1f681f0":[1,0,59,24],
-"structDebugCounterSnapshot.html#abbe596c209efed1a04b670b7b1582c8d":[1,0,59,11],
-"structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c":[1,0,59,2],
-"structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66":[1,0,59,13],
-"structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,59,22]
+"structDebugCounterSnapshot.html#abbe596c209efed1a04b670b7b1582c8d":[1,0,59,11]
 };

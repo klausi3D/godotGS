@@ -4757,6 +4757,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#1266-d2-amendment-owner-decisions-2026-11-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.6 D2 amendment: owner decisions (2026-11-11)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#owner-decision-option-d" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5728,6 +5739,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#1266-d2-amendment-owner-decisions-2026-11-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.6 D2 amendment: owner decisions (2026-11-11)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#owner-decision-option-d" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6686,10 +6708,12 @@ the work list.</p>
 <li><strong>Source:</strong> an architecture review of the D-2 backend question, written on 2026-11-10 against
   <code>91cdcd1e4f9</code> (code and ADR reading only; no build, GPU run or test run). The review is a
   working note outside the repository; the decision and its reasons are recorded here.</li>
-<li><strong>Base:</strong> every <code>file:line</code> in this section was re-read at <code>91cdcd1e4f9</code> (origin/master).</li>
-<li><strong>Evidence status:</strong> no claim in this section rests on a CI or GPU-lane run. The one local
-  measurement quoted in §12.6.4 is marked <strong>[M]</strong> with its source. Statements about runtime
-  behaviour that are not a direct reading of code are marked <strong>[inference]</strong>.</li>
+<li><strong>Base:</strong> code <code>file:line</code> citations in this section were re-verified for D2-0 at
+  <code>316cf0178b3d1964f81e72005f0ae07f21f65b20</code>.</li>
+<li><strong>Evidence status:</strong> the D2 amendment in §12.6.6 records the owner-supplied lane result; the
+  local measurement in §12.6.4 is marked <strong>[M]</strong> with its source. D2-0 runs no build or GPU lane.
+  Statements about runtime behaviour that are not a direct reading of code are marked
+  <strong>[inference]</strong>; acceptance of the design is not implementation or rendering evidence.</li>
 </ul>
 <h4 id="1261-decision">12.6.1 Decision<a class="headerlink" href="#1261-decision" title="Permanent link">¶</a></h4>
 <p>One route, one residency owner, one page store with one read service, one cut:</p>
@@ -6724,11 +6748,16 @@ the layers in item 2; they stay and move under the one route.</p>
 <li>Keeping two routes with parity was rejected by D-2.</li>
 </ul>
 <h4 id="1263-tree-less-flat-worlds-reach-the-route-through-an-automatically-built-tree">12.6.3 Tree-less (flat) worlds reach the route through an automatically built tree<a class="headerlink" href="#1263-tree-less-flat-worlds-reach-the-route-through-an-automatically-built-tree" title="Permanent link">¶</a></h4>
-<p>Tree-less worlds reach the one route through an <strong>automatically built cheap tree</strong>: its interior
-nodes are importance-prefix selections of their children, with no error raster. The HLOD ADR's
-<code>selected</code> candidate already defines this as "a copy of prefixes, O(node size)" of the leaves'
-importance-ordered payloads (<code>docs/architecture/adr-hlod-streaming.md:504-509</code>). Quality is lower
-than the full bake; the full bake stays the shipping path.</p>
+<p>Tree-less worlds reach the one route through an <strong>automatically built rule-1 tree</strong>. D2 builds it
+offline in the producer binary from the plain-GSQ file, using a tiled <code>sat</code> merge of children's
+payloads for interior nodes, with no error raster. This supersedes importance-prefix selection
+(owner decision, §12.6.6). Rule 1 is the existing merge-only identity
+(<code>core/gaussian_splat_hlod_tree.h:57-69</code>); the merge defines the geometric error and needs only
+child payloads (<code>core/gaussian_splat_hlod_merge.h:190-200</code>), so stitching needs no descendant-leaf
+prefix reads. The full rule-3 quality bake stays the shipping path, but is not required for M3.</p>
+<p>The input chunks are re-cut into fixed-lattice octree leaves; GSQ chunks are not reused as
+leaves. The output is a separate ordinary V4 GSQ package plus a sidecar manifest, leaving the
+plain input unchanged. D2 builds neither from the generator nor during import or runtime.</p>
 <p><strong>Not a leaves-only degenerate cut</strong>, for these reasons, read from the contracts
 <strong>[inference, not run]</strong>:</p>
 <ul>
@@ -6747,7 +6776,8 @@ than the full bake; the full bake stays the shipping path.</p>
 </ul>
 <p>A leaves-only cut is used only if a CPU-only spike (the selector over a one-level tree with Tier
 A's leaf table at the eight checkpoint poses) shows that it publishes a complete cut within budget
-at every Tier A checkpoint.</p>
+at every Tier A checkpoint. This leaves-only S1 control runs within D2-4 alongside the auto-tree
+oracle cut; its outcome is pending, not inferred from the contracts above.</p>
 <h4 id="1264-migration-order-and-milestones">12.6.4 Migration order and milestones<a class="headerlink" href="#1264-migration-order-and-milestones" title="Permanent link">¶</a></h4>
 <p>The owner set this order on 2026-11-11 (see the owner decision below). It replaces the full M2
 program on the chunk route with a gate repair and one frozen reference run.</p>
@@ -6771,9 +6801,10 @@ program on the chunk route with a gate repair and one frozen reference run.</p>
    common page store, a bounded ready queue, worker and upload sizing, decode telemetry.
    Proven on T0 against the same T0 on the chunk route.</li>
 <li>The HLOD route scales: the cap blockers in §12.6.5.</li>
-<li>Out-of-core writer and tiled bake, then the automatic tree for tree-less input.</li>
-<li><strong>M3 = Tier A on the one route</strong>, measured against the frozen reference of step 2, also in
-   GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep their thresholds. G6 and G6t are
+<li>Out-of-core writer and tiled rule-1 auto tree for tree-less input (D2-0–D2-5; §12.6.6).</li>
+<li><strong>M3 = Tier A auto tree on the one route</strong>, after #1417 is fixed, measured against the
+   frozen reference of step 2, also in GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep
+   their thresholds. G6 and G6t are
    re-registered with a settle definition for a cut and are not looser than the reference
    without an owner disposition. That re-registration is its own PR under the BV ADR §8.4
    guard; this section changes no threshold or gate.</li>
@@ -6797,9 +6828,10 @@ gates:</p>
 <li>Content ends at the lane's 400 m far plane (<a href="../adr-beyond-vram-worlds/">Worlds beyond VRAM</a> G-c).</li>
 <li>Each chunk switches LOD level directly from its distance, with no hysteresis
   (<code>core/streaming_visibility_controller.cpp:943-949</code>).</li>
-<li>The settle oracle counts queued and in-flight chunks as served: a needed chunk is unserved only
-  if it is not resident, not loaded and not upload-pending (<code>core/gaussian_streaming.cpp:3559</code>).
-  It is checked only at the eight stops.</li>
+<li>At the time of that diagnosis, the settle oracle counted queued and in-flight chunks as
+  served and was checked only at the eight stops. The legacy condition remains at
+  <code>core/gaussian_streaming.cpp:3573-3574</code>; the current GPU-residency measure is separate
+  (<code>core/gaussian_streaming.cpp:3555-3571</code>).</li>
 <li>G11 compares against a reference at the same LOD, and G11h covers the HLOD arm only.</li>
 </ul>
 <p>A full M2 program on top of these gates would certify the defects it cannot see.</p>
@@ -6810,12 +6842,20 @@ gates:</p>
 HLOD-owned GPU bytes, which also bounds the streamed atlas (<code>:18</code>; passed as the HLOD-owned cap
 into the page budget at <code>renderer/resident_instance_contract_publisher.cpp:2220-2222</code>, and the
 candidate refused above it at <code>:2245</code>). Raising them is blocked by:</p>
+<blockquote>
+<p><strong>Status (D1, 2026-11-11, PR #1416):</strong> the count caps are now structural: the payload must fit a
+uint32 (<code>MAX_PAYLOAD</code>) and the node count the V4 reader bound of 1,048,576 (<code>MAX_NODES</code>), checked
+by <code>gs_hlod_runtime::source_admission_refusal()</code>. The 512 MiB cap is split: a whole-tree bundle
+keeps it as a deliberate budget (<code>rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb</code>),
+a streamed bundle is capped by the device ledger limit and the atlas limit. The quantized record
+stores the full 32-bit node id (first item below). The other items below are still open.</p>
+</blockquote>
 <ul>
 <li><strong>16-bit node id on the quantized path.</strong> <code>renderer/hlod_node_pack.cpp:98</code> passes
   <code>uint16_t(p_node)</code> as the quantized chunk id with no range check, into the <code>uint16_t chunk_id</code>
   of <code>PackedGaussianQuantized</code> (<code>renderer/gaussian_gpu_layout.h:389</code>). It is safe only while the
   node cap is 32,768; above 65,535 nodes the id truncates silently <strong>[inference]</strong>. The chunk
-  route refuses the same case explicitly (<code>core/gaussian_streaming.cpp:4278-4283</code>). The PR that
+  route refuses the same case explicitly (<code>core/gaussian_streaming.cpp:4293-4299</code>). The PR that
   raises the node bound adds a guard and boundary tests at 65,535 / 65,536. Refs #1413.</li>
 <li><strong>Per-frame O(N) in <code>NodeResidency</code>.</strong> Eviction candidates, stale-load cancel and stats loop
   over every node (<code>lod/hlod_node_residency.cpp:179</code>, <code>:223</code>, <code>:285</code>, <code>:545</code>, <code>:558</code>); BV-15.</li>
@@ -6835,6 +6875,72 @@ candidate refused above it at <code>:2245</code>). Raising them is blocked by:</
 <p>Risks at scale that do not block the caps but must be watched before M3: no cross-fade
 (<code>DrawnNodeGPU::fade</code> is "written as 1.0 and not read yet", <code>renderer/gaussian_gpu_layout.h:272</code>),
 and no compaction (<code>fragmented_groups</code>, <code>lod/hlod_node_residency.h:141</code>).</p>
+<h4 id="1266-d2-amendment-owner-decisions-2026-11-11">12.6.6 D2 amendment: owner decisions (2026-11-11)<a class="headerlink" href="#1266-d2-amendment-owner-decisions-2026-11-11" title="Permanent link">¶</a></h4>
+<p><strong>Accepted by the owner, verbatim:</strong> "das passt starte das bitte so".
+The decision accepts Q1–Q7 of §9.2 of the external design source
+<code>Z:/docs-remediation-notes/architecture-2026-11-10/D2_AUTO_TREE_DESIGN.md</code>, read in full for D2-0.
+The accepted decisions are recorded here so the working note is not needed to interpret them:</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Accepted decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Q1 — interior rule</strong></td>
+<td>Rule-1 <code>sat</code> merge, not importance-prefix selection. Thinning causes today's far-field holes; merging preserves coverage, supplies the cut's geometric error and permits a local stitch from tile-root payloads. No new bake rule or error raster.</td>
+</tr>
+<tr>
+<td><strong>Q2 — M3 world</strong></td>
+<td>The auto tree is <strong>the Tier A world for M3</strong>. A rule-3 quality bake of Tier A is not required for M3.</td>
+</tr>
+<tr>
+<td><strong>Q3 — plain cache</strong></td>
+<td>Accept <strong>one batched re-prime of the plain worlds</strong> if BV-18a/BV-C4 must edit <code>gs_world_writer.*</code> or <code>gaussian_splat_world_format.h</code>. Prefer separate auto-tree sources and <code>TREE_SOURCES</code>; do not evade source-fingerprint invalidation.</td>
+</tr>
+<tr>
+<td><strong>Q4 — runner prime</strong></td>
+<td><strong>90 min</strong> deadline, <strong>20 GiB RAM</strong>, <strong>12 GiB scratch</strong>, <strong>12 GiB output</strong>, <strong>12–24 workers</strong>. The bounded-job contract and remaining manifest requirements are in <a href="../adr-hlod-streaming/#152-bounded-job-contract">HLOD streaming §15.2</a>.</td>
+</tr>
+<tr>
+<td><strong>Q5 — import</strong></td>
+<td>An auto tree at import for <code>res://</code> paged-GSQ worlds comes later and is outside D2.</td>
+</tr>
+<tr>
+<td><strong>Q6 — identity</strong></td>
+<td>Pin bake digests <strong>per toolchain</strong>, with portable tiled-versus-in-core identity tests as the proof; do not claim cross-platform bake byte identity.</td>
+</tr>
+<tr>
+<td><strong>Q7 — leaves-only</strong></td>
+<td>Run the leaves-only S1 check <strong>within D2-4</strong>, at the eight Tier A checkpoint poses with the frozen drawn budget.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Reason for replacing prefix selection.</strong> Today's chunk route draws far chunks as
+importance-thinned prefixes, the same mechanism as importance-prefix selection. That thinning
+is what opens today's far-field holes, as measured in
+<a href="https://github.com/klausi3D/godotGS/actions/runs/43001272885">lane run 43001272885</a>
+(G16: needed chunk not GPU-resident in <strong>51.49 % of moving frames</strong>;
+<strong>drawn &lt; 0.5 × expected in 4492 of 4614 samples</strong>) <strong>[M, owner-supplied lane result]</strong>.
+The HLOD ADR's measurement supports the mechanism: "Uniform thinning (C) loses coverage" and
+"the grass patch becomes a see-through speckle"
+(<code>docs/architecture/adr-hlod-streaming.md:208-210</code>, re-verified in the current tree;
+<a href="../adr-hlod-streaming/#52-image-quality-at-equal-budget-region-of-change-crop-psnr-db-ssim">HLOD streaming §5.2</a>).
+Repeating thinning in auto-tree parents would retain that cause of holes; this is why the owner
+chose the rule-1 <code>sat</code> merge. The decision and lane result do not yet prove that the future auto
+tree renders correctly.
+Distant vegetation can become softer with <code>sat</code>; M3 must still provide screenshots and the
+repaired gates' drawn-fraction evidence against the frozen chunk-route reference.</p>
+<p>The dependency-ordered <strong>D2-0–D2-5 PR split</strong> and required evidence are recorded in
+<a href="../adr-beyond-vram-worlds/#p3-hlod-at-scale-m3">Worlds beyond VRAM §10, P3</a>.
+BV-18a/b supply out-of-core V4 writing and W13; <strong>BV-C4 is required for Tier A</strong> (uncompressed
+V4 is too large). D2-1/2 can proceed alongside that writer/codec work. Loading and streaming
+Tier A for M3 additionally need D1's shared layers and cap work, including BV-16a, and
+<strong><a href="https://github.com/klausi3D/godotGS/issues/1417">#1417</a> must be fixed before M3</strong>.
+D2's CPU preparation and oracle checks alone make no rendering claim. This R0 amendment
+changes no code, workflow, guard, threshold or runtime acceptance gate.</p>
 <h4 id="owner-decision-option-d">Owner decision (Option D)<a class="headerlink" href="#owner-decision-option-d" title="Permanent link">¶</a></h4>
 <ul>
 <li><strong>Question put to the owner (2026-11-11):</strong> "Option D als Zielarchitektur annehmen?"</li>

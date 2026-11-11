@@ -1,5 +1,8 @@
 var NAVTREEINDEX28 =
 {
+"structGPUSorterFactory_1_1PolicyProbe.html#ad0dc63ca1e1beecb28ee6bdf64e09341":[1,0,118,0,2],
+"structGPUSortingConfig.html":[1,0,119],
+"structGPUSortingConfig.html#a0986fe432496ba3912942cfd7bf9158a":[1,0,119,4],
 "structGPUSortingConfig.html#a1338ec76d9fc536e1bbab4e8ec725fb4":[1,0,119,26],
 "structGPUSortingConfig.html#a1cd3a94639239163968d6e6891bfff35":[1,0,119,28],
 "structGPUSortingConfig.html#a2196ad130d720df59c5b0693fc8d79d9":[1,0,119,12],
@@ -246,8 +249,5 @@ var NAVTREEINDEX28 =
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a0d329e98aa1a8d1a1a1ededfa0533837":[0,0,3,1,26],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a0d329e98aa1a8d1a1a1ededfa0533837":[1,0,2,1,26],
 "structGaussianRenderDebug_1_1DebugConfigBase.html#a17218433052282b2c1c628b1cc272cd2":[0,0,3,1,20],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a17218433052282b2c1c628b1cc272cd2":[1,0,2,1,20],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a1aa862671b006ba70064707db3e8d8ad":[0,0,3,1,23],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a1aa862671b006ba70064707db3e8d8ad":[1,0,2,1,23],
-"structGaussianRenderDebug_1_1DebugConfigBase.html#a28b79e0834e06e99b01b94f40d6ddd01":[0,0,3,1,24]
+"structGaussianRenderDebug_1_1DebugConfigBase.html#a17218433052282b2c1c628b1cc272cd2":[1,0,2,1,20]
 };

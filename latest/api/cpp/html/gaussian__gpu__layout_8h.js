@@ -27,14 +27,15 @@ var gaussian__gpu__layout_8h =
     [ "gs_hlod_level_stat_slot", "gaussian__gpu__layout_8h.html#a18c54481e5877366c4600676be58b964", null ],
     [ "gs_pack_asset_gpu_flags", "gaussian__gpu__layout_8h.html#ac0327edc85af51e286060556c64b5250", null ],
     [ "gs_pack_sh_metadata", "gaussian__gpu__layout_8h.html#a2b6b0a4b03e379b0f72ef504a64967a0", null ],
+    [ "gs_quantized_chunk_index", "gaussian__gpu__layout_8h.html#a3543d4b96feacbe9aff2f3f3fdfa3714", null ],
     [ "gs_sh_layout_dropped_coefficients", "gaussian__gpu__layout_8h.html#afdce846213d95df791d219ac465cc808", null ],
     [ "gs_warn_sh_layout_truncation_once", "gaussian__gpu__layout_8h.html#a207132aa2f88034dc8b8d02b97f9171b", null ],
     [ "gs_warn_sh_layout_truncation_once", "gaussian__gpu__layout_8h.html#ad7d55777e7afe8b86865dc8d8f82ce7c", null ],
     [ "pack_gaussian", "gaussian__gpu__layout_8h.html#a178c9cc5e58f97a6568a7805f9552d0d", null ],
-    [ "pack_gaussian_quantized", "gaussian__gpu__layout_8h.html#ac7783a87c3628ebab70f184fa1333a10", null ],
+    [ "pack_gaussian_quantized", "gaussian__gpu__layout_8h.html#a20270c7a4ab1b55a8c8c82f2805b3f15", null ],
     [ "pack_gaussians_range", "gaussian__gpu__layout_8h.html#a649b6fc3d383a141b93b54eba358ff7f", null ],
     [ "pack_gaussians_range_limited", "gaussian__gpu__layout_8h.html#a206bb123d6e2813ddf6b3e3e37d30774", null ],
-    [ "pack_gaussians_range_quantized", "gaussian__gpu__layout_8h.html#a48241b4a601e7ae64b8a287981de2a91", null ],
+    [ "pack_gaussians_range_quantized", "gaussian__gpu__layout_8h.html#a8cf8b511906b72c4b83bba9f93f5d896", null ],
     [ "pack_gaussians_range_raw", "gaussian__gpu__layout_8h.html#a9f669b601043b5af7c8c03071f20da5b", null ],
     [ "pack_gaussians_range_raw", "gaussian__gpu__layout_8h.html#ac893e8915818643b1048aa95d2035297", null ]
 ];

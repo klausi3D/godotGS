@@ -82,7 +82,7 @@ var searchData=
   ['_5fpadding_79',['_padding',['../structGaussian.html#afb765308d33f5a282e4d9feea509e80b',1,'Gaussian::_padding'],['../structQuantizationChunkGPU.html#a004eefc8cde175a10bfbada7648bb129',1,'QuantizationChunkGPU::_padding']]],
   ['_5fpadding2_80',['_padding2',['../structGaussian.html#ab201ff5be83cf946b451acf41a33a51a',1,'Gaussian']]],
   ['_5fpeek_5fsubmission_5fdevice_81',['_peek_submission_device',['../classGaussianSplatRenderer.html#acc490fbefc47289964016ffd33489ad9',1,'GaussianSplatRenderer']]],
-  ['_5fpre_5fsh_5fpadding_82',['_pre_sh_padding',['../structPackedGaussianQuantized.html#af7072eb84db6eb3c9c3e2ced58b5928a',1,'PackedGaussianQuantized']]],
+  ['_5fpre_5fsh_5fpadding_82',['_pre_sh_padding',['../structPackedGaussianQuantized.html#ac44bcb5da5cd716c375f4cc2cf80ef63',1,'PackedGaussianQuantized']]],
   ['_5fprepare_5frender_5fframe_5fcontext_83',['_prepare_render_frame_context',['../classGaussianSplatRenderer.html#a7110db8879d5a502c0a3b764fdb81859',1,'GaussianSplatRenderer']]],
   ['_5fproject_5fsetting_5fhas_5foverride_84',['_project_setting_has_override',['../namespacegs__tier__cap.html#af759a7218e938099ff20efb13599dbee',1,'gs_tier_cap']]],
   ['_5fpublish_5fresident_5fdirect_5fdata_5fcontract_85',['_publish_resident_direct_data_contract',['../classGaussianSplatRenderer.html#ab77b8b91fa97cdff125ee32995534558',1,'GaussianSplatRenderer']]],

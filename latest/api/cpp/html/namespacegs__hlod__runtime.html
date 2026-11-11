@@ -133,6 +133,7 @@ Enumerations</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
 <tr class="memitem:af87fa44af335c0570ce8b6d3921d87bd" id="r_af87fa44af335c0570ce8b6d3921d87bd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af87fa44af335c0570ce8b6d3921d87bd">allocation_bytes</a> (uint64_t p_count, uint64_t p_stride, uint64_t &amp;r_bytes, uint64_t p_size_limit=SIZE_MAX)</td></tr>
+<tr class="memitem:a1e87014962341bef2f3e7bb03881f5cb" id="r_a1e87014962341bef2f3e7bb03881f5cb"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e87014962341bef2f3e7bb03881f5cb">source_admission_refusal</a> (uint64_t p_leaf_splats, uint64_t p_interior_splats, uint64_t p_nodes)</td></tr>
 <tr class="memitem:a6cb82adb5c380c5fb8b89fcd23d2caee" id="r_a6cb82adb5c380c5fb8b89fcd23d2caee"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6cb82adb5c380c5fb8b89fcd23d2caee">edit_status_name</a> (<a class="el" href="#ab8dd45d354a0b510d3b8b7ece7384c9e">EditStatus</a> p_status)</td></tr>
 <tr class="memitem:a5e8c6ffc065d98ac885eed70663401e8" id="r_a5e8c6ffc065d98ac885eed70663401e8"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#ab8dd45d354a0b510d3b8b7ece7384c9e">EditStatus</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e8c6ffc065d98ac885eed70663401e8">make_edited_snapshot</a> (const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_base, uint64_t p_expected_revision, const <a class="el" href="structgs__hlod__runtime_1_1LeafEdit.html">LeafEdit</a> *p_edits, uint32_t p_count, Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;r_snapshot, String &amp;r_reason)</td></tr>
 <tr class="memitem:abd7c436fb4d163d664ecf98e96282dab" id="r_abd7c436fb4d163d664ecf98e96282dab"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7c436fb4d163d664ecf98e96282dab">collect_edited_since</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_from, const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_to, LocalVector&lt; uint32_t &gt; &amp;r_nodes)</td></tr>
@@ -369,6 +370,32 @@ Variables</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_snapshot</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1e87014962341bef2f3e7bb03881f5cb" name="a1e87014962341bef2f3e7bb03881f5cb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1e87014962341bef2f3e7bb03881f5cb">&#9670;&#160;</a></span>source_admission_refusal()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char * gs_hlod_runtime::source_admission_refusal </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_leaf_splats</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_interior_splats</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_nodes</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

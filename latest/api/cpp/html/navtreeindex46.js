@@ -1,5 +1,8 @@
 var NAVTREEINDEX46 =
 {
+"structGaussianStreamingTypes_1_1SchedulerState.html#aed03038ed13e5d94b625dc1485bea06e":[1,0,10,8,10],
+"structGaussianStreamingTypes_1_1SchedulerState.html#aefdadf1504bacc83d8239df3d2a2c804":[0,0,14,8,60],
+"structGaussianStreamingTypes_1_1SchedulerState.html#aefdadf1504bacc83d8239df3d2a2c804":[1,0,10,8,60],
 "structGaussianStreamingTypes_1_1SchedulerState.html#af4ece4b2b1f3347528889c7b97b84945":[0,0,14,8,44],
 "structGaussianStreamingTypes_1_1SchedulerState.html#af4ece4b2b1f3347528889c7b97b84945":[1,0,10,8,44],
 "structGaussianStreamingTypes_1_1SchedulerState.html#af62fce31e308d1afd659639fc0746e83":[0,0,14,8,52],
@@ -246,8 +249,5 @@ var NAVTREEINDEX46 =
 "structInstanceDepthParamsGPU.html#a2783e2881020c2654e858e2845b2bd62":[1,0,145,2],
 "structInstanceDepthParamsGPU.html#a33a4d8d068f47a9484dd0b287f60f6ba":[1,0,145,3],
 "structInstanceDepthParamsGPU.html#a6b2dd36e954cf356c33d3efb7d569c14":[1,0,145,6],
-"structInstanceDepthParamsGPU.html#a778f63040503feadcf145b13e29c56f8":[1,0,145,0],
-"structInstanceDepthParamsGPU.html#a80803e69dcd41182c059a9120928dbef":[1,0,145,13],
-"structInstanceDepthParamsGPU.html#a95ba5990865d45364a38058e7382766a":[1,0,145,14],
-"structInstanceDepthParamsGPU.html#aac1ce89c1716d948bd9d99d8a9566893":[1,0,145,11]
+"structInstanceDepthParamsGPU.html#a778f63040503feadcf145b13e29c56f8":[1,0,145,0]
 };

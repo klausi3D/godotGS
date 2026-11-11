@@ -15,6 +15,7 @@ var namespaceResidentAtlasBudget =
     [ "hlod_candidate_fits", "namespaceResidentAtlasBudget.html#a7413f7bf6d44e01e3dce1e98b5974ef0", null ],
     [ "hlod_mandatory_outstanding_bytes", "namespaceResidentAtlasBudget.html#abc16ac190d5c93a7ef7424c9c6d53221", null ],
     [ "hlod_optional_growth_headroom", "namespaceResidentAtlasBudget.html#ace3937a25ef33fcb9eb9dd3851cf2792", null ],
+    [ "hlod_owned_cap_bytes", "namespaceResidentAtlasBudget.html#a8d25999e471da52d777f536840d944bc", null ],
     [ "hlod_prepared_fits", "namespaceResidentAtlasBudget.html#ad3a88f1f891d1c388758cab52828ab24", null ],
     [ "hlod_relative_atlas_records", "namespaceResidentAtlasBudget.html#ae64d38527c62d7dfe72bd8e114e76c53", null ],
     [ "hlod_scale_texture_bytes_for_pixels", "namespaceResidentAtlasBudget.html#adffcd47010aa6f0a4a5559e7eb0af949", null ],
