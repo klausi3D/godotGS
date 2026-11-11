@@ -4689,6 +4689,89 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#126-target-architecture-of-the-one-route-option-d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6 Target architecture of the one route (Option D)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12.6 Target architecture of the one route (Option D)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1261-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.1 Decision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1262-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.2 Why
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1263-tree-less-flat-worlds-reach-the-route-through-an-automatically-built-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.3 Tree-less (flat) worlds reach the route through an automatically built tree
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1264-migration-order-and-milestones" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.4 Migration order and milestones
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1265-known-blockers-to-raising-the-hlod-caps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.5 Known blockers to raising the HLOD caps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#owner-decision-option-d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Owner decision (Option D)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5577,6 +5660,89 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#126-target-architecture-of-the-one-route-option-d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6 Target architecture of the one route (Option D)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12.6 Target architecture of the one route (Option D)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1261-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.1 Decision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1262-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.2 Why
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1263-tree-less-flat-worlds-reach-the-route-through-an-automatically-built-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.3 Tree-less (flat) worlds reach the route through an automatically built tree
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1264-migration-order-and-milestones" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.4 Migration order and milestones
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1265-known-blockers-to-raising-the-hlod-caps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12.6.5 Known blockers to raising the HLOD caps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#owner-decision-option-d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Owner decision (Option D)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5682,6 +5848,10 @@
 <li><strong>Status update (2026-11-10):</strong> §12 adds the route retirement decision (D-2): one route,
   and the chunk-streaming route and the legacy composite are deleted. See
   <a href="#owner-decision-d-2">Owner decision (D-2)</a>.</li>
+<li><strong>Status update (2026-11-11):</strong> §12.6 records the owner's acceptance of Option D as the
+  target architecture of the one route: <code>NodeResidency</code> is its single residency core, and
+  tree-less worlds reach it through an automatically built tree. See
+  <a href="#owner-decision-option-d">Owner decision (Option D)</a>.</li>
 <li><strong>Date:</strong> 2026-11-04.</li>
 <li><strong>Risk:</strong> this document is R0 (<code>docs/**</code>). The implementation PRs it schedules are <strong>R2</strong>
   (<code>modules/gaussian_splatting/renderer/**</code>, and the director changes that alter what the
@@ -6392,7 +6562,10 @@ status of decision 1.</p>
   missing; #788 §3.2 says the instance side. One GPU capture with different fixtures on both sides
   settles it (F1).</li>
 <li>Lighting and shadow receive on the HLOD route.</li>
-<li>Whether HLOD enforces the uint16 quantized chunk-id limit once instance chunks are appended.</li>
+<li>Whether HLOD enforces the uint16 quantized chunk-id limit once instance chunks are appended.
+  <strong>Answered by reading (2026-11-11):</strong> it does not. The quantized node pack casts the node
+  index to <code>uint16_t</code> with no range check (<code>renderer/hlod_node_pack.cpp:98</code> at <code>91cdcd1e4f9</code>);
+  see §12.6.5. Refs #1413.</li>
 <li>The cost of a whole-atlas repack on asset spawn (O(total atlas) by code; not measured).</li>
 </ul>
 <hr>
@@ -6492,7 +6665,8 @@ the work list.</p>
   the owner rules on F1's chunk-route part.</li>
 <li>The <a href="../adr-beyond-vram-worlds/">Worlds beyond VRAM</a> ADR (Proposed) uses the chunk route as
   the flat arm for tree-less worlds. The beyond-VRAM program continues in parallel (owner
-  decision D-8); how tree-less worlds reach the one route is not decided here.</li>
+  decision D-8); how tree-less worlds reach the one route is not decided here. <em>Decided on
+  2026-11-11 in §12.6.3: through an automatically built tree.</em></li>
 <li>The <a href="../adr-single-route-per-frame-node-coexistence/">#788 ADR</a> carries a status line that
   points here.</li>
 </ul>
@@ -6503,6 +6677,181 @@ the work list.</p>
   removed. The owner's answer names two deletions, the chunk route and the legacy composite.</li>
 <li>Scheduling CLN-RT07 against open beyond-VRAM PRs. Under owner decision D-8, a task that owns a
   path an open beyond-VRAM PR holds is not dispatched.</li>
+</ul>
+<h3 id="126-target-architecture-of-the-one-route-option-d">12.6 Target architecture of the one route (Option D)<a class="headerlink" href="#126-target-architecture-of-the-one-route-option-d" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Status:</strong> Accepted — decided by the owner on 2026-11-11. The owner's confirming comment on
+  the PR that adds this section and its merge confirm that the recorded text matches the
+  decision (see <strong>Confirmation</strong> below).</li>
+<li><strong>Source:</strong> an architecture review of the D-2 backend question, written on 2026-11-10 against
+  <code>91cdcd1e4f9</code> (code and ADR reading only; no build, GPU run or test run). The review is a
+  working note outside the repository; the decision and its reasons are recorded here.</li>
+<li><strong>Base:</strong> every <code>file:line</code> in this section was re-read at <code>91cdcd1e4f9</code> (origin/master).</li>
+<li><strong>Evidence status:</strong> no claim in this section rests on a CI or GPU-lane run. The one local
+  measurement quoted in §12.6.4 is marked <strong>[M]</strong> with its source. Statements about runtime
+  behaviour that are not a direct reading of code are marked <strong>[inference]</strong>.</li>
+</ul>
+<h4 id="1261-decision">12.6.1 Decision<a class="headerlink" href="#1261-decision" title="Permanent link">¶</a></h4>
+<p>One route, one residency owner, one page store with one read service, one cut:</p>
+<ol>
+<li><strong>Residency.</strong> <code>NodeResidency</code> (<code>lod/hlod_node_residency.h</code>) is the single residency core of
+   the one route, over <code>GaussianAtlasAllocator</code> and a pool sized once from the streaming budget
+   inside the device ledger. This is <a href="../adr-beyond-vram-worlds/">Worlds beyond VRAM</a> D-1 with its
+   Step C pulled forward.</li>
+<li><strong>Under it</strong> move the layers the beyond-VRAM program built beside the chunk route: the GSQ
+   codec (<code>io/gsq/**</code>), the GSQ page source (today <code>core/streaming_gsq_chunk_payload_source.*</code>),
+   <code>PayloadReadService</code> (<code>io/gs_payload_read_service.*</code>) and decode on worker threads straight
+   into the GPU record. <code>GaussianAtlasAllocator</code>, the device ledger and the flythrough lane stay.</li>
+<li><strong>On top of it</strong> sits the HLOD cut (<code>ViewSet</code> / <code>CutHistory</code>), with the producers of §4 (world
+   cut, node instances; later per-asset trees and light views).</li>
+<li><strong><code>GaussianStreamingSystem</code> is deleted at the end of the migration</strong>, as a selection, residency
+   and render path: its upload pipeline, regulator, visibility and eviction controllers, atlas
+   registry, pool growth, prefix LOD and <code>render_streaming_orchestrator</code>.</li>
+</ol>
+<p><strong>Clarification of D-2.</strong> "The chunk-streaming route is deleted" means item 4. It does not mean
+the layers in item 2; they stay and move under the one route.</p>
+<h4 id="1262-why">12.6.2 Why<a class="headerlink" href="#1262-why" title="Permanent link">¶</a></h4>
+<ul>
+<li>The alternative of keeping the chunk stack as the backend under the HLOD cut was already
+  rejected by the BV ADR ("Chunk streamer as the seed", D-1 alternatives): its unit is a fixed
+  64k chunk with LOD as a draw count, it has the regulator ratchet, and it has no per-node
+  generations. The cut needs a per-node resident mask, whole-transition admission of a parent's
+  missing children and protection of drawn nodes and their ancestors
+  (<code>lod/hlod_node_residency.h:154-165</code>); <code>NodeResidency</code> has them, the chunk stack does not.</li>
+<li>The route-neutral layers do not depend on <code>GaussianStreamingSystem</code>: <code>PayloadReadService</code>'s
+  first runtime caller is the GSQ page source (<code>io/gs_payload_read_service.h:20-21</code>). Rebuilding
+  them for the HLOD route would discard working code and the codec evidence.</li>
+<li>Keeping two routes with parity was rejected by D-2.</li>
+</ul>
+<h4 id="1263-tree-less-flat-worlds-reach-the-route-through-an-automatically-built-tree">12.6.3 Tree-less (flat) worlds reach the route through an automatically built tree<a class="headerlink" href="#1263-tree-less-flat-worlds-reach-the-route-through-an-automatically-built-tree" title="Permanent link">¶</a></h4>
+<p>Tree-less worlds reach the one route through an <strong>automatically built cheap tree</strong>: its interior
+nodes are importance-prefix selections of their children, with no error raster. The HLOD ADR's
+<code>selected</code> candidate already defines this as "a copy of prefixes, O(node size)" of the leaves'
+importance-ordered payloads (<code>docs/architecture/adr-hlod-streaming.md:504-509</code>). Quality is lower
+than the full bake; the full bake stays the shipping path.</p>
+<p><strong>Not a leaves-only degenerate cut</strong>, for these reasons, read from the contracts
+<strong>[inference, not run]</strong>:</p>
+<ul>
+<li>The selector publishes a complete cut or nothing: every non-COMPLETE/EMPTY status has
+  <code>selected_count</code> 0 (<code>lod/hlod_runtime_selection.h:45-46</code>). Residency admits a parent's missing
+  children as one whole transition, "every run is allocated or none is"
+  (<code>lod/hlod_node_residency.h:160-165</code>). A tree-less world is one synthetic parent with thousands
+  of children, so after a teleport the whole visible set would be admitted and loaded as one
+  transition, with no coarse image meanwhile.</li>
+<li>If the visible leaves exceed the drawn budget there is no coarser frontier to fall back to, so
+  the view draws nothing. Tier A's needed sets reached 449 chunks
+  (<a href="../adr-beyond-vram-worlds/">Worlds beyond VRAM</a> G-c), far above a drawn budget of 1M–4M splats.
+  The chunk route hides this with prefix LOD, which D-2 deletes.</li>
+<li>Leaves are capped at 16,384 splats (<code>core/gaussian_splat_hlod_tree.h:45</code>), so a flat world needs
+  re-cutting into leaves either way.</li>
+</ul>
+<p>A leaves-only cut is used only if a CPU-only spike (the selector over a one-level tree with Tier
+A's leaf table at the eight checkpoint poses) shows that it publishes a complete cut within budget
+at every Tier A checkpoint.</p>
+<h4 id="1264-migration-order-and-milestones">12.6.4 Migration order and milestones<a class="headerlink" href="#1264-migration-order-and-milestones" title="Permanent link">¶</a></h4>
+<p>The owner set this order on 2026-11-11 (see the owner decision below). It replaces the full M2
+program on the chunk route with a gate repair and one frozen reference run.</p>
+<ol>
+<li><strong>Gate repair (route-neutral).</strong> The beyond-VRAM lane's gates are repaired before any
+   reference is recorded:<ul>
+<li>a needed chunk or node counts as <strong>served only when it is GPU-resident</strong>;</li>
+<li>checks run <strong>during movement</strong>, not only at the stops;</li>
+<li>the probe captures <strong>screenshots</strong>;</li>
+<li>a <strong>drawn-fraction / coverage</strong> measure is added. It is report-only, like the other
+  beyond-VRAM gates, until it is hardened.</li>
+</ul>
+</li>
+<li><strong>Frozen chunk-route reference.</strong> One Tier A run on the chunk route with the repaired gates;
+   its run id and gate values are recorded in the BV ADR. This replaces the full M2 program on the
+   chunk route: BV-13b, BV-C6 and BV-14 are no longer done in full there, and only their
+   route-neutral parts carry over (gates and the settle oracle; the GSQ codec work). After the
+   run, only fixes the reference needs land on chunk-only code.</li>
+<li><strong>Option D migration:</strong><ol>
+<li>Shared layers move under the HLOD streamer: read service, GSQ node payloads through the
+   common page store, a bounded ready queue, worker and upload sizing, decode telemetry.
+   Proven on T0 against the same T0 on the chunk route.</li>
+<li>The HLOD route scales: the cap blockers in §12.6.5.</li>
+<li>Out-of-core writer and tiled bake, then the automatic tree for tree-less input.</li>
+<li><strong>M3 = Tier A on the one route</strong>, measured against the frozen reference of step 2, also in
+   GS-COMBINED-1 variant B. G1, G2a, G4 and G10 keep their thresholds. G6 and G6t are
+   re-registered with a settle definition for a cut and are not looser than the reference
+   without an owner disposition. That re-registration is its own PR under the BV ADR §8.4
+   guard; this section changes no threshold or gate.</li>
+<li>Lift the refusals (§12.3 step 3), collapse selection, re-home the GPU tests.</li>
+<li>Delete the chunk route and the legacy composite (§12.3 steps 4 and 5).</li>
+</ol>
+</li>
+</ol>
+<p>Steps 3.1 to 3.3 can run in parallel.</p>
+<p><strong>Route-neutral work that continues alongside:</strong> the GS-COMBINED-1 S1 per-light shadow caster
+counter (engine; Refs #1313). #788 (the world missing next to node instances) is re-checked on
+the HLOD route, not patched on the chunk route.</p>
+<p><strong>Why the order changed.</strong> A local Tier A flythrough on 2026-11-11 showed holes, a fill order
+that does not run from the camera to the horizon, and seam flicker, while every gate passed. A
+read-only diagnosis at <code>91cdcd1e4f9</code> traced this to the chunk route and to blind spots in the
+gates:</p>
+<ul>
+<li>The chunk route's LOD is a prefix of each chunk: <code>effective_count = count / splat_skip_factor</code>
+  (<code>core/streaming_visibility_controller.cpp:958</code>). On the lane it drew 1/8 density beyond about
+  100 m, and the drawn fraction was 0.14–0.51 <strong>[M, local run, not recorded in the repository]</strong>.</li>
+<li>Content ends at the lane's 400 m far plane (<a href="../adr-beyond-vram-worlds/">Worlds beyond VRAM</a> G-c).</li>
+<li>Each chunk switches LOD level directly from its distance, with no hysteresis
+  (<code>core/streaming_visibility_controller.cpp:943-949</code>).</li>
+<li>The settle oracle counts queued and in-flight chunks as served: a needed chunk is unserved only
+  if it is not resident, not loaded and not upload-pending (<code>core/gaussian_streaming.cpp:3559</code>).
+  It is checked only at the eight stops.</li>
+<li>G11 compares against a reference at the same LOD, and G11h covers the HLOD arm only.</li>
+</ul>
+<p>A full M2 program on top of these gates would certify the defects it cannot see.</p>
+<h4 id="1265-known-blockers-to-raising-the-hlod-caps">12.6.5 Known blockers to raising the HLOD caps<a class="headerlink" href="#1265-known-blockers-to-raising-the-hlod-caps" title="Permanent link">¶</a></h4>
+<p>The HLOD route is capped today at 1,048,576 leaf splats, 1,572,864 payload splats and 32,768 nodes
+(<code>core/gaussian_splat_hlod_runtime_data.h:14-16</code>, enforced for paged admission as
+<code>hlod_source_admission_limit</code> at <code>core/gaussian_splat_world.cpp:1193-1195</code>) and at 512 MiB of
+HLOD-owned GPU bytes, which also bounds the streamed atlas (<code>:18</code>; passed as the HLOD-owned cap
+into the page budget at <code>renderer/resident_instance_contract_publisher.cpp:2220-2222</code>, and the
+candidate refused above it at <code>:2245</code>). Raising them is blocked by:</p>
+<ul>
+<li><strong>16-bit node id on the quantized path.</strong> <code>renderer/hlod_node_pack.cpp:98</code> passes
+  <code>uint16_t(p_node)</code> as the quantized chunk id with no range check, into the <code>uint16_t chunk_id</code>
+  of <code>PackedGaussianQuantized</code> (<code>renderer/gaussian_gpu_layout.h:389</code>). It is safe only while the
+  node cap is 32,768; above 65,535 nodes the id truncates silently <strong>[inference]</strong>. The chunk
+  route refuses the same case explicitly (<code>core/gaussian_streaming.cpp:4278-4283</code>). The PR that
+  raises the node bound adds a guard and boundary tests at 65,535 / 65,536. Refs #1413.</li>
+<li><strong>Per-frame O(N) in <code>NodeResidency</code>.</strong> Eviction candidates, stale-load cancel and stats loop
+  over every node (<code>lod/hlod_node_residency.cpp:179</code>, <code>:223</code>, <code>:285</code>, <code>:545</code>, <code>:558</code>); BV-15.</li>
+<li><strong>In-core V4 writer.</strong> <code>GaussianSplatHlodPagedSource::write_package</code> takes "a resident, complete
+  HLOD world" (<code>io/gaussian_splat_world_paged.h:151-154</code>); the out-of-core writer has no V4 mode
+  yet (<code>io/gs_world_writer.h:29</code>, BV-18a). Tier A cannot be baked on this route today.</li>
+<li><strong>Raw V4 reads without the read service.</strong> The HLOD streamer reads each node through
+  <code>read_node_payload()</code> (<code>renderer/hlod_node_streamer.cpp:127</code>), which opens a new <code>FileAccess</code> per
+  call (<code>io/gaussian_splat_world_paged.cpp:747</code>).</li>
+<li><strong>Unbounded ready queue and untested throughput.</strong> Packed payloads waiting for upload are outside
+  the 8 MiB read cap (<code>renderer/hlod_node_streamer.h:46-51</code>); the defaults of 32 MiB per frame and
+  16 jobs (<code>:44-45</code>) have never run above 512 MiB.</li>
+<li><strong>Pool addressing.</strong> Uploads use a <code>uint32</code> byte offset (<code>renderer/hlod_node_streamer.cpp:489</code>),
+  and the page budget refuses <code>pages * page_splats &gt; UINT32_MAX</code>
+  (<code>renderer/resident_instance_contract_publisher.cpp:2224</code>).</li>
+</ul>
+<p>Risks at scale that do not block the caps but must be watched before M3: no cross-fade
+(<code>DrawnNodeGPU::fade</code> is "written as 1.0 and not read yet", <code>renderer/gaussian_gpu_layout.h:272</code>),
+and no compaction (<code>fragmented_groups</code>, <code>lod/hlod_node_residency.h:141</code>).</p>
+<h4 id="owner-decision-option-d">Owner decision (Option D)<a class="headerlink" href="#owner-decision-option-d" title="Permanent link">¶</a></h4>
+<ul>
+<li><strong>Question put to the owner (2026-11-11):</strong> "Option D als Zielarchitektur annehmen?"</li>
+<li><strong>Answer:</strong> "1. ja".</li>
+<li><strong>Program order (2026-11-11):</strong> to the proposal "start Option D now; first repair the gates,
+  freeze the chunk route as reference instead of the full M2 program", the owner answered "gut .
+  dann mache die vorarbeit bis an option d heran." This is the order in §12.6.4.</li>
+<li><strong>Decided by:</strong> the owner, 2026-11-11.</li>
+<li><strong>Confirmation:</strong> the PR that adds this section is opened from the owner's account
+  (<code>klausi3D</code>), as every agent PR here is, so an approving review cannot be obtained. The
+  confirmation is the one practised for the owner's OK
+  (<a href="../adr-review-merge-policy/">Review and merge policy as practised</a>): a confirming comment on
+  that PR from <code>klausi3D</code> and its merge by <code>klausi3D</code>.</li>
+<li><strong>Rejected:</strong> keeping the chunk stack as the backend with the HLOD cut on top; discarding the
+  GSQ codec, read service and decode path with the chunk stack; two routes with parity (D-2).</li>
+<li><strong>Not decided here:</strong> the container change for GSQ node payloads (BV ADR amendment of
+  2026-11-11, decided in BV-C4); the code PRs carry their own risk class and evidence.</li>
 </ul>
 
 
@@ -6524,7 +6873,7 @@ the work list.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    Source updated: 2026-11-10
+    Source updated: 2026-11-11
   </span>
 
     
