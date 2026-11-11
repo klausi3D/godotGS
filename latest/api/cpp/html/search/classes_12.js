@@ -58,9 +58,10 @@ var searchData=
   ['resourceownermismatchcontract_55',['ResourceOwnerMismatchContract',['../classResourceOwnerMismatchContract.html',1,'']]],
   ['resourcestate_56',['ResourceState',['../structGaussianRenderFacadeState_1_1ResourceState.html',1,'GaussianRenderFacadeState']]],
   ['result_57',['Result',['../structgs__hlod__runtime_1_1CutHistory_1_1Result.html',1,'gs_hlod_runtime::CutHistory']]],
-  ['rotation_58',['Rotation',['../structGaussianSHRotation_1_1Rotation.html',1,'GaussianSHRotation']]],
-  ['rows_59',['Rows',['../structgs__hlod__bundle_1_1Rows.html',1,'gs_hlod_bundle']]],
-  ['runtimeerrorstatistics_60',['RuntimeErrorStatistics',['../structGaussianRenderFrame_1_1RuntimeErrorStatistics.html',1,'GaussianRenderFrame']]],
-  ['runtimefidelitypolicy_61',['RuntimeFidelityPolicy',['../structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html',1,'GaussianSplatRenderer']]],
-  ['runtimeports_62',['RuntimePorts',['../structRenderDataOrchestrator_1_1RuntimePorts.html',1,'RenderDataOrchestrator::RuntimePorts'],['../structRenderDebugStateOrchestrator_1_1RuntimePorts.html',1,'RenderDebugStateOrchestrator::RuntimePorts'],['../structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html',1,'RenderDiagnosticsOrchestrator::RuntimePorts'],['../structRenderOutputOrchestrator_1_1RuntimePorts.html',1,'RenderOutputOrchestrator::RuntimePorts'],['../structRenderQualityOrchestrator_1_1RuntimePorts.html',1,'RenderQualityOrchestrator::RuntimePorts'],['../structRenderResourceOrchestrator_1_1RuntimePorts.html',1,'RenderResourceOrchestrator::RuntimePorts'],['../structRenderStreamingOrchestratorDependencies_1_1RuntimePorts.html',1,'RenderStreamingOrchestratorDependencies::RuntimePorts']]]
+  ['resultrollback_58',['ResultRollback',['../classgs__hlod_1_1bake__admission_1_1ResultRollback.html',1,'gs_hlod::bake_admission']]],
+  ['rotation_59',['Rotation',['../structGaussianSHRotation_1_1Rotation.html',1,'GaussianSHRotation']]],
+  ['rows_60',['Rows',['../structgs__hlod__bundle_1_1Rows.html',1,'gs_hlod_bundle']]],
+  ['runtimeerrorstatistics_61',['RuntimeErrorStatistics',['../structGaussianRenderFrame_1_1RuntimeErrorStatistics.html',1,'GaussianRenderFrame']]],
+  ['runtimefidelitypolicy_62',['RuntimeFidelityPolicy',['../structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html',1,'GaussianSplatRenderer']]],
+  ['runtimeports_63',['RuntimePorts',['../structRenderDataOrchestrator_1_1RuntimePorts.html',1,'RenderDataOrchestrator::RuntimePorts'],['../structRenderDebugStateOrchestrator_1_1RuntimePorts.html',1,'RenderDebugStateOrchestrator::RuntimePorts'],['../structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html',1,'RenderDiagnosticsOrchestrator::RuntimePorts'],['../structRenderOutputOrchestrator_1_1RuntimePorts.html',1,'RenderOutputOrchestrator::RuntimePorts'],['../structRenderQualityOrchestrator_1_1RuntimePorts.html',1,'RenderQualityOrchestrator::RuntimePorts'],['../structRenderResourceOrchestrator_1_1RuntimePorts.html',1,'RenderResourceOrchestrator::RuntimePorts'],['../structRenderStreamingOrchestratorDependencies_1_1RuntimePorts.html',1,'RenderStreamingOrchestratorDependencies::RuntimePorts']]]
 ];

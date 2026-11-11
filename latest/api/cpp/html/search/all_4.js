@@ -361,7 +361,7 @@ var searchData=
   ['colorscale_358',['colorScale',['../namespacespz.html#a2802ef39537f460bf7dbe1dae153668b',1,'spz']]],
   ['command_5fbuffer_359',['COMMAND_BUFFER',['../classRenderingError.html#acdc88c908551fa310dbf804645d1c180ac11add094f61e8b0f5b98016b63a01cd',1,'RenderingError::COMMAND_BUFFER'],['../namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106ac11add094f61e8b0f5b98016b63a01cd',1,'gs_logger::COMMAND_BUFFER']]],
   ['command_5fbuffer_5fsynchronization_5ffailed_360',['command_buffer_synchronization_failed',['../namespaceRenderingErrorCodes.html#a003f42775d3f6f37a81c8217cce029d9',1,'RenderingErrorCodes']]],
-  ['commit_361',['commit',['../classGSAtomicFileTransaction.html#af9c308931982f298ecc0d7e8513c7dba',1,'GSAtomicFileTransaction']]],
+  ['commit_361',['commit',['../classgs__hlod_1_1bake__admission_1_1ResultRollback.html#aaaf1d9ddf20552ef3ce849394dc87273',1,'gs_hlod::bake_admission::ResultRollback::commit()'],['../classGSAtomicFileTransaction.html#af9c308931982f298ecc0d7e8513c7dba',1,'GSAtomicFileTransaction::commit()']]],
   ['commit_5facquired_5frender_5ftarget_362',['commit_acquired_render_target',['../classGaussianSplatNodeViewportHelper.html#afb2749e49d3bcae5463a13d4011ec13f',1,'GaussianSplatNodeViewportHelper']]],
   ['commit_5fdone_363',['COMMIT_DONE',['../classHlodNodeStreamer.html#a634834966fe947971b548af84674de8fa0ac81b888f957a14411ffded57b0fe69',1,'HlodNodeStreamer']]],
   ['commit_5fedit_364',['commit_edit',['../classgs__hlod__runtime_1_1NodeResidency.html#a4fc017b07a5179143d239290c76adf3b',1,'gs_hlod_runtime::NodeResidency::commit_edit()'],['../classNodeResidency.html#a4fc017b07a5179143d239290c76adf3b',1,'NodeResidency::commit_edit()']]],

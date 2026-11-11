@@ -97,7 +97,7 @@ var searchData=
   ['collect_5fregistered_5fassets_5ffor_5frenderer_94',['collect_registered_assets_for_renderer',['../classGaussianSplatSceneDirector.html#aecc16b5a0f99046ce422f5940b43e0ea',1,'GaussianSplatSceneDirector']]],
   ['colorgradingresource_95',['ColorGradingResource',['../classColorGradingResource.html#a36757294f202a4a2b9de702e3d2d3257',1,'ColorGradingResource']]],
   ['command_5fbuffer_5fsynchronization_5ffailed_96',['command_buffer_synchronization_failed',['../namespaceRenderingErrorCodes.html#a003f42775d3f6f37a81c8217cce029d9',1,'RenderingErrorCodes']]],
-  ['commit_97',['commit',['../classGSAtomicFileTransaction.html#af9c308931982f298ecc0d7e8513c7dba',1,'GSAtomicFileTransaction']]],
+  ['commit_97',['commit',['../classgs__hlod_1_1bake__admission_1_1ResultRollback.html#aaaf1d9ddf20552ef3ce849394dc87273',1,'gs_hlod::bake_admission::ResultRollback::commit()'],['../classGSAtomicFileTransaction.html#af9c308931982f298ecc0d7e8513c7dba',1,'GSAtomicFileTransaction::commit()']]],
   ['commit_5facquired_5frender_5ftarget_98',['commit_acquired_render_target',['../classGaussianSplatNodeViewportHelper.html#afb2749e49d3bcae5463a13d4011ec13f',1,'GaussianSplatNodeViewportHelper']]],
   ['commit_5fedit_99',['commit_edit',['../classgs__hlod__runtime_1_1NodeResidency.html#a4fc017b07a5179143d239290c76adf3b',1,'gs_hlod_runtime::NodeResidency::commit_edit()'],['../classNodeResidency.html#a4fc017b07a5179143d239290c76adf3b',1,'NodeResidency::commit_edit()']]],
   ['commit_5fruntime_5fchanges_100',['commit_runtime_changes',['../classGaussianData.html#aa0ffffbc6805518ed386da30a1716215',1,'GaussianData']]],

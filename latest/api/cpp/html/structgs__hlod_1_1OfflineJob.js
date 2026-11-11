@@ -12,6 +12,7 @@ var structgs__hlod_1_1OfflineJob =
     [ "nodes", "structgs__hlod_1_1OfflineJob.html#ad66620c7ee67423e8752ea007c4a2aa1", null ],
     [ "output", "structgs__hlod_1_1OfflineJob.html#aaabfb0307b4e96c72c4ff26534c3b847", null ],
     [ "prepared", "structgs__hlod_1_1OfflineJob.html#a7fdf172c54569eaec62023da8d634eda", null ],
+    [ "reservation_valid", "structgs__hlod_1_1OfflineJob.html#a8302e26ece00829f750ad20c22f83744", null ],
     [ "reserved", "structgs__hlod_1_1OfflineJob.html#a09c9f9c8a9cb4d7bc5376259a7b939c1", null ],
     [ "scratch", "structgs__hlod_1_1OfflineJob.html#a626da269ddab9ac0ba1c612f3e682072", null ],
     [ "stopped", "structgs__hlod_1_1OfflineJob.html#a32eb2bbf50956bdd427c9e24c87d0e62", null ]

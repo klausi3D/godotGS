@@ -17,6 +17,8 @@ var dir_d02d02ccfbf78243378b2aff5a58b373 =
     [ "gaussian_splat_config_registry.h", "gaussian__splat__config__registry_8h.html", "gaussian__splat__config__registry_8h" ],
     [ "gaussian_splat_hlod_bake.cpp", "gaussian__splat__hlod__bake_8cpp.html", "gaussian__splat__hlod__bake_8cpp" ],
     [ "gaussian_splat_hlod_bake.h", "gaussian__splat__hlod__bake_8h.html", "gaussian__splat__hlod__bake_8h" ],
+    [ "gaussian_splat_hlod_bake_admission.cpp", "gaussian__splat__hlod__bake__admission_8cpp.html", "gaussian__splat__hlod__bake__admission_8cpp" ],
+    [ "gaussian_splat_hlod_bake_admission.h", "gaussian__splat__hlod__bake__admission_8h.html", "gaussian__splat__hlod__bake__admission_8h" ],
     [ "gaussian_splat_hlod_job.h", "gaussian__splat__hlod__job_8h.html", "gaussian__splat__hlod__job_8h" ],
     [ "gaussian_splat_hlod_merge.cpp", "gaussian__splat__hlod__merge_8cpp.html", "gaussian__splat__hlod__merge_8cpp" ],
     [ "gaussian_splat_hlod_merge.h", "gaussian__splat__hlod__merge_8h.html", "gaussian__splat__hlod__merge_8h" ],

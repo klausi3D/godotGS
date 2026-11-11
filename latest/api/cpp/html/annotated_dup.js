@@ -187,6 +187,9 @@ var annotated_dup =
       [ "PageBuilder", "classgs__gsq_1_1PageBuilder.html", "classgs__gsq_1_1PageBuilder" ]
     ] ],
     [ "gs_hlod", "namespacegs__hlod.html", [
+      [ "bake_admission", "namespacegs__hlod_1_1bake__admission.html", [
+        [ "ResultRollback", "classgs__hlod_1_1bake__admission_1_1ResultRollback.html", "classgs__hlod_1_1bake__admission_1_1ResultRollback" ]
+      ] ],
       [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
       [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
       [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],

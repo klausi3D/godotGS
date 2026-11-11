@@ -1,0 +1,5 @@
+var gaussian__splat__hlod__bake__admission_8cpp =
+[
+    [ "gs_hlod::bake_admission::forced_root_contains", "namespacegs__hlod_1_1bake__admission.html#a8403ef0da056da9105fda9ab408d1fa7", null ],
+    [ "gs_hlod::bake_admission::merge_only_job", "namespacegs__hlod_1_1bake__admission.html#a144760b61664dfe0692de87e6b13b561", null ]
+];

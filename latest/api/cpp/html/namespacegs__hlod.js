@@ -1,5 +1,6 @@
 var namespacegs__hlod =
 [
+    [ "bake_admission", "namespacegs__hlod_1_1bake__admission.html", "namespacegs__hlod_1_1bake__admission" ],
     [ "BakeParams", "structgs__hlod_1_1BakeParams.html", "structgs__hlod_1_1BakeParams" ],
     [ "BakeInput", "structgs__hlod_1_1BakeInput.html", "structgs__hlod_1_1BakeInput" ],
     [ "BakeResult", "structgs__hlod_1_1BakeResult.html", "structgs__hlod_1_1BakeResult" ],
