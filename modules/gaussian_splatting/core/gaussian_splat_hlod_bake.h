@@ -45,6 +45,11 @@ struct BakeParams {
 	Mode mode = MERGE_ONLY; // Canonical imports and the public bake retain rule 1.
 	uint32_t leaf_max_splats = kMaxNodeSplats; // <= kMaxNodeSplats; tests use smaller leaves
 	InteriorBakeParams interior;
+	// Optional ordinary lattice cell, borrowed for this synchronous call. Every
+	// centre must lie in its half-open cube; invalid cells fail with ERR_INVALID_DATA.
+	// The root is kept exactly, even if the input fits a smaller cell. nullptr
+	// preserves automatic root selection, including the origin-centred case.
+	const GaussianSplatHlodCell *forced_root = nullptr;
 #ifdef TESTS_ENABLED
 	// Test-only. nullptr (the default) is the production path: the capture branch is a single
 	// pointer test per interior node and the baked tree is byte-identical either way.
@@ -85,6 +90,9 @@ bool choose_root_cell(const double p_origin[3], const double p_min[3], const dou
 // otherwise (numeric image-domain range failures retain their typed error). The interior merge's per-node allocations
 // are probed too (the bound comment in gaussian_splat_hlod_merge.h); the node-count-sized build stacks and the <=
 // kMaxChildren child spans are not.
+// Forced-root and offline MERGE_ONLY bakes leave r_result empty on any failure.
+// Offline MERGE_ONLY requires a successful OfflineJob::reserve() for this input
+// and the frozen default leaf/interior parameters; it retains bake rule 1.
 bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error,
 		Error *r_code = nullptr);
 

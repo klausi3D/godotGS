@@ -1,4 +1,5 @@
 #include "gaussian_splat_hlod_bake.h"
+#include "gaussian_splat_hlod_bake_admission.h"
 #include "gaussian_splat_hlod_job.h"
 #include "gaussian_splat_hlod_quality.h"
 
@@ -209,6 +210,8 @@ bool choose_root_cell(const double p_origin[3], const double p_min[3], const dou
 bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error,
 		Error *r_code) {
 	const uint64_t t_start = OS::get_singleton()->get_ticks_usec();
+	const bool merge_only_job = active_offline_job && p_params.mode == BakeParams::MERGE_ONLY;
+	bake_admission::ResultRollback rollback((p_params.forced_root || merge_only_job) ? &r_result : nullptr);
 	auto fail = [&](const String &p_message, Error p_code = ERR_INVALID_DATA) {
 		if (r_error) {
 			*r_error = p_message;
@@ -245,10 +248,17 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		return fail("HLOD bake input declares SH coefficients but provides none.");
 	}
 	const uint32_t leaf_max = p_params.leaf_max_splats;
-	if (active_offline_job &&
-	    (!quality_selection || n > active_offline_job->input || leaf_max != kMaxNodeSplats ||
+	if (active_offline_job && quality_selection &&
+	    (n > active_offline_job->input || leaf_max != kMaxNodeSplats ||
 	     p_params.interior.node_max_splats != kMaxNodeSplats || p_params.interior.reduction != 4.0)) {
 		return fail("Offline job requires the frozen quality-rule parameters and admitted input count.");
+	}
+	if (merge_only_job) {
+		String reason;
+		const Error admission = bake_admission::merge_only_job(p_input, p_params, *active_offline_job, &reason);
+		if (admission != OK) {
+			return fail(reason, admission);
+		}
 	}
 	if (leaf_max == 0u || leaf_max > kMaxNodeSplats) {
 		return fail(vformat("HLOD leaf size %d is outside [1, %d].", leaf_max, kMaxNodeSplats));
@@ -283,7 +293,12 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	tree.origin[0] = tree.origin[1] = tree.origin[2] = 0.0; // the world frame's origin
 	GaussianSplatHlodCell root_cell;
 	bool origin_centred = false;
-	if (!choose_root_cell(tree.origin, lo, hi, root_cell, origin_centred)) {
+	if (p_params.forced_root) {
+		root_cell = *p_params.forced_root;
+		if (!bake_admission::forced_root_contains(root_cell, tree.origin, lo, hi)) {
+			return fail("HLOD forced root is invalid or does not contain every centre in its half-open cube.");
+		}
+	} else if (!choose_root_cell(tree.origin, lo, hi, root_cell, origin_centred)) {
 		return fail("HLOD bake cannot place the content on the world lattice.");
 	}
 	tree.bake_rule_version = quality_selection ? kQualityBakeRuleVersion : kBakeRuleVersion;
@@ -930,6 +945,15 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	tree.bake_stats.total_ms = double(t_end - t_start) / 1000.0;
 	tree.bake_stats.index_split_groups = index_split_groups;
 	tree.has_bake_stats = true;
+	// The last merge, flattening and validation can cross the deadline or observe
+	// cancellation after the loop's last poll. Never publish that job's output.
+	if (merge_only_job) {
+		const Error stopped = offline_job_check();
+		if (stopped != OK) {
+			return fail("Offline MERGE_ONLY job stopped before publishing the result.", stopped);
+		}
+	}
+	rollback.commit();
 	return true;
 }
 
