@@ -535,6 +535,212 @@ static bool make_paged_world(Ref<GaussianSplatWorld> &r_loaded, uint32_t p_count
     return err == OK && r_loaded.is_valid() && r_loaded->has_hlod_paged_source();
 }
 
+// Model a device whose sorter cannot grow beyond the drawn budget. Keep real GPU
+// buffers and sorting; only allocation requests above the limit are refused. This
+// makes the leaf-count regression deterministic without allocating a Tier A world.
+class BudgetLimitedSortPipeline : public GPUSortingPipeline {
+public:
+    static constexpr uint32_t LIMIT = 16384;
+    uint32_t largest_request = 0;
+    Ref<GPUSortingPipeline> actual;
+
+    void rebuild_sorter(uint32_t p_capacity) override {
+        largest_request = MAX(largest_request, p_capacity);
+        if (p_capacity <= LIMIT) { actual->rebuild_sorter(p_capacity); }
+    }
+    void ensure_buffers(uint32_t p_capacity) override {
+        largest_request = MAX(largest_request, p_capacity);
+        if (p_capacity <= LIMIT) { actual->ensure_buffers(p_capacity); }
+    }
+    uint32_t get_max_elements() const override { return actual->get_max_elements(); }
+    SortBufferHandles get_buffer_handles() const override { return actual->get_buffer_handles(); }
+    RenderingDevice *get_sort_resource_device() const override { return actual->get_sort_resource_device(); }
+};
+
+static void paged_sort_budget_regression(bool p_overflow) {
+    SceneTree *tree = SceneTree::get_singleton();
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!tree || !tree->get_root() || !RenderingServer::get_singleton() || !rd || !ps) {
+        FAIL("WorldSceneTree GPU harness required"); return;
+    }
+    ScopedSortDevice manager_device(rd);
+    PagedWorldHarness harness;
+    harness.tree = tree;
+    harness.configure(ps);
+    struct RestoreSortSettings {
+        ProjectSettings *ps;
+        String key = "rendering/gaussian_splatting/sorting/force_cpu_sort";
+        bool had;
+        Variant previous;
+        decltype(g_quantization_config) quantization = g_quantization_config;
+        explicit RestoreSortSettings(ProjectSettings *p_ps) : ps(p_ps), had(ps->has_setting(key)) {
+            if (had) { previous = ps->get_setting(key); }
+            ps->set_setting(key, false);
+            g_quantization_config.per_chunk_quantization = false;
+        }
+        ~RestoreSortSettings() {
+            if (had) { ps->set_setting(key, previous); } else { ps->clear(key); }
+            g_quantization_config = quantization;
+        }
+    } settings(ps);
+    if (!GaussianSplatSceneDirector::get_singleton()) { harness.owned_director = memnew(GaussianSplatSceneDirector); }
+    if (!make_paged_world(harness.world, 20000)) { FAIL("paged fixture failed"); return; }
+    harness.node = memnew(GaussianSplatWorld3D);
+    harness.node->set_auto_apply_on_ready(false);
+    harness.node->set_world(harness.world);
+    tree->get_root()->add_child(harness.node);
+    tree->process(0.0);
+    harness.node->apply_world();
+    Ref<GaussianSplatRenderer> renderer = harness.node->get_renderer();
+    if (renderer.is_null()) { FAIL("World3D renderer missing"); return; }
+    auto &state = renderer->get_resource_state();
+    if (state.hlod_snapshot.is_null() || !state.hlod_snapshot->is_paged() || state.hlod_snapshot->nodes.size() < 2) {
+        FAIL("current multi-node paged snapshot required"); return;
+    }
+    // The real writer/reader supplied a complete root cut that fits, while the
+    // leaves do not fit the modeled sorter. No package counts are fabricated.
+    CHECK(state.hlod_snapshot->is_current());
+    CHECK(state.hlod_snapshot->leaf_count > BudgetLimitedSortPipeline::LIMIT);
+    CHECK(state.hlod_snapshot->nodes[0].topology.payload_count > 0);
+    CHECK(state.hlod_snapshot->nodes[0].topology.payload_count <= BudgetLimitedSortPipeline::LIMIT);
+    renderer->get_performance_settings().max_splats = BudgetLimitedSortPipeline::LIMIT;
+    // Existing drawn budget: modules/gaussian_splatting/renderer/hlod_world_instances.h:218,224,
+    // world_need_splats/relative_capacity bound world + admitted rows by max_splats
+    // and get_hlod_view_splat_cap(); total leaf count is not a sort requirement.
+    const uint32_t budget = gs_hlod_bundle::relative_capacity(state.hlod_snapshot->leaf_count,
+            renderer->get_performance_settings().max_splats, renderer->get_hlod_view_splat_cap(), {});
+    CHECK(budget == BudgetLimitedSortPipeline::LIMIT);
+    Ref<BudgetLimitedSortPipeline> pipeline;
+    pipeline.instantiate();
+    Ref<GPUSortingPipeline> actual = renderer->get_subsystem_state().sorting_pipeline;
+    if (actual.is_null()) { FAIL("renderer sorter missing"); return; }
+    actual->set_forced_sort_algorithm(GPUSorterFactory::ALGORITHM_RADIX);
+    actual->mark_sorter_dirty();
+    pipeline->actual = actual;
+    if (actual->initialize(rd, budget) != OK || !pipeline->get_buffer_handles().valid ||
+            pipeline->get_buffer_handles().capacity != budget) {
+        FAIL("bounded GPU sorter initialization failed"); return;
+    }
+    // The orchestrator caches the original pipeline pointer. The allocation
+    // facade forwards to that SAME owner, so publication and execution share
+    // resources, and teardown restores the original subsystem reference.
+    struct RestorePipeline {
+        GaussianSplatRenderer *renderer;
+        Ref<GPUSortingPipeline> original;
+        ~RestorePipeline() {
+            renderer->release_hlod_resources();
+            renderer->get_subsystem_state().sorting_pipeline = original;
+        }
+    } restore_pipeline{ renderer.ptr(), actual };
+    renderer->get_subsystem_state().sorting_pipeline = pipeline;
+    // Publication needs live tile/compositor ledgers, but no present target or
+    // asynchronous residency. Provision the same resources as the paged route.
+    const Size2i size(64, 64);
+    Ref<TileRenderer> tile = renderer->get_tile_renderer();
+    Ref<OutputCompositor> compositor = renderer->get_subsystem_state().output_compositor;
+    RD::TextureFormat format;
+    format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+    format.texture_type = RD::TEXTURE_TYPE_2D;
+    format.width = size.x;
+    format.height = size.y;
+    format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+    if (tile.is_null() || compositor.is_null() ||
+            tile->provision_hlod_route(size, RD::DATA_FORMAT_MAX, 4096) != OK ||
+            !compositor->ensure_hlod_scratch(rd, format, size)) {
+        FAIL("paged route ledger provisioning failed"); return;
+    }
+    String reason;
+    const int published = renderer->try_publish_hlod_resident_contract(reason);
+    CHECK(state.hlod_reason != String("hlod_paged_sort_allocation_failed"));
+    CHECK(pipeline->largest_request <= budget);
+    CHECK(pipeline->get_buffer_handles().capacity == budget);
+    if (published != 1) { FAIL("bounded paged publication refused: ", state.hlod_reason.utf8().get_data()); return; }
+    CHECK(state.hlod_streaming);
+    CHECK(state.hlod_relative_capacity == budget);
+    CHECK(state.hlod_canonical.owned_count == 0);
+    CHECK(renderer->is_hlod_prepared_contract_current());
+    const uint64_t builds = state.hlod_bundle_builds;
+    CHECK(renderer->try_publish_hlod_resident_contract(reason) == 1);
+    CHECK(renderer->is_hlod_prepared_contract_current());
+    CHECK(state.hlod_bundle_builds == builds); // The prepared check must use the same bounded capacity.
+    CHECK(pipeline->largest_request <= budget);
+    if (!p_overflow) { return; }
+
+    // Fault injection AFTER real admission: two resident chunks draw budget + 1
+    // splats. Use the admitted atlas, ref/sidecar and sort buffers, and execute the
+    // real relative depth -> clamp -> sort path. No streamer requests are pending.
+    auto &buffers = state.hlod_relative.buffers;
+    const uint32_t demand = budget + 1;
+    if (buffers.atlas_gaussian_count < demand || buffers.max_visible_chunks < 2) {
+        FAIL("admitted atlas cannot hold the overflow fixture"); return;
+    }
+    Vector<PackedGaussian> splats;
+    splats.resize(demand);
+    for (uint32_t i = 0; i < demand; ++i) {
+        PackedGaussian g = {};
+        g.position[2] = -4.0f;
+        g.opacity = 1.0f;
+        g.rotation[3] = 1.0f;
+        for (uint32_t axis = 0; axis < 3; ++axis) { g.scale[axis] = 0.125f; }
+        splats.write[i] = g;
+    }
+    ChunkMetaGPU chunks[2] = {};
+    chunks[0].splat_count = budget;
+    chunks[1].atlas_base = budget;
+    chunks[1].splat_count = 1;
+    const DrawnNodeGPU draws[2] = {
+        { 0u, 0u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } },
+        { 0u, 1u, 1.0f, 0u, { 0.0f, 0.0f, 0.0f, 0.0f } }
+    };
+    const uint32_t counters[3] = { 2, 0, 0 };
+    if (rd->buffer_update(buffers.atlas_gaussian_buffer, 0, demand * sizeof(PackedGaussian), splats.ptr()) != OK ||
+            rd->buffer_update(buffers.chunk_meta_buffer, 0, sizeof(chunks), chunks) != OK ||
+            rd->buffer_update(buffers.visible_chunk_buffer, 0, sizeof(draws), draws) != OK ||
+            rd->buffer_update(buffers.counter_buffer, 0, sizeof(counters), counters) != OK) {
+        FAIL("overflow draw upload failed"); return;
+    }
+    buffers.hlod_draw_count = 2;
+    buffers.max_chunk_splats = budget;
+    if (!renderer->publish_hlod_bundle(true)) { FAIL("overflow relative contract publication failed"); return; }
+    renderer->set_frustum_culling(false);
+    renderer->set_tiny_splat_screen_radius(0.0f);
+    renderer->set_lod_min_screen_size(0.0f);
+    renderer->get_view_state().last_camera_projection.set_perspective(60.0, 1.0, 0.1, 100.0);
+    renderer->get_view_state().manual_viewport_override = size;
+    const uint32_t events = actual->get_instance_count_overflow_events();
+    const auto result = renderer->test_sort_for_view(Transform3D(), GaussianRenderState::IndexDomain::CHUNK_REF);
+    CHECK(result.did_execute);
+    CHECK(renderer->get_debug_state().sort_route_uid == String(RenderRouteUID::INSTANCE_SORT_GPU));
+    CHECK(actual->get_max_elements() == budget);
+    const Vector<uint8_t> sample = rd->buffer_get_data(buffers.instance_count_buffer);
+    if (sample.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout))) { FAIL("complete count readback required"); return; }
+    GaussianSplatting::IndirectDispatchLayout count = {};
+    std::memcpy(&count, sample.ptr(), sizeof(count));
+    CHECK(count.element_count == budget);
+    CHECK(count.unclamped_total == demand);
+    CHECK(count.overflow_flag == 1);
+    // Feed the actual GPU sample through the production readback consumer. This
+    // avoids depending on when an asynchronous callback happens to arrive.
+    auto &readback = actual->_test_instance_count_readback_state();
+    readback.pending = true;
+    ++readback.generation;
+    readback.pending_frame_counter = renderer->get_frame_state().frame_counter;
+    actual->_on_instance_count_readback(sample, readback.generation);
+    CHECK(actual->get_instance_count_overflow_events() == events + 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] paged publication sizes its sorter from the drawn budget, not all leaves (#1417)") {
+    paged_sort_budget_regression(false);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] an admitted budget-sized paged sorter explicitly counts runtime cut overflow (#1417)") {
+    // Old code fails the admission prerequisite, before the overflow exercise.
+    // The existing overflow mechanism already counts drops; preserve it as the
+    // sort allocation shrinks from whole-world capacity to the drawn budget.
+    paged_sort_budget_regression(true);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][World][SceneTree][RequiresGPU] a paged World3D draws nothing from a stand-in and says why when no present target exists") {
     SceneTree *tree = SceneTree::get_singleton();
     RenderingDevice *rd = RenderingDevice::get_singleton();
