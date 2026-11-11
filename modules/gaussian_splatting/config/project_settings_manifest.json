@@ -845,6 +845,12 @@
       "test_coverage": "inventory_only"
     },
     {
+      "effective_state": "ResidentInstanceContractPublisher hlod_owned_cap_for (ResidentAtlasBudget::hlod_owned_cap_bytes)",
+      "key": "rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb",
+      "notes": "Option D step D1 (docs/architecture/adr-one-route-many-producers.md 12.6.5): the device memory, in MiB, a whole-tree (not streamed) HLOD bundle pair may own before the tree streams instead. 0 or unset = the default 512 MiB; never above the device ledger limit. A streamed HLOD world is not bounded by it: its pool is sized from the device ledger and the resident atlas limit (resident/atlas_vram_budget_override_mb). Read at each HLOD publication.",
+      "test_coverage": "partial"
+    },
+    {
       "effective_state": "LODConfig/GPUCuller.hysteresis_zone",
       "key": "rendering/gaussian_splatting/lod/hysteresis_zone",
       "test_coverage": "inventory_only"

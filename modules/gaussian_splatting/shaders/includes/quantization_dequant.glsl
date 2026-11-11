@@ -35,14 +35,14 @@ struct ChunkQuantization {
 // IMPORTANT: Use scalar/uint types to avoid std430 uvec2 alignment padding mismatch
 // C++ layout: 160 bytes including explicit tail padding, GLSL uvec2 would add implicit padding
 struct GaussianQuantized {
-    uvec2 position_chunk;   // 8 bytes @0: quantized_position[3] + chunk_id
+    uvec2 position_chunk;   // 8 bytes @0: quantized_position[3] + chunk index bits 0..15
     float opacity;          // 4 bytes @8
     // Use uint instead of uvec2 to avoid 8-byte alignment at offset 12
     uint scale_area_lo;     // 4 bytes @12: quantized_scale[0-1]
     uint scale_area_hi;     // 4 bytes @16: quantized_scale[2] + area_fp16
     uint rotation_lo;       // 4 bytes @20: rotation[0-1]
     uint rotation_hi;       // 4 bytes @24: rotation[2-3]
-    uint _padding;          // 4 bytes @28: alignment padding (matches C++ _pre_sh_padding)
+    uint chunk_id_hi;       // 4 bytes @28: chunk index bits 16..31 in the low half (C++ chunk_id_hi), high half padding
     vec4 sh_dc;             // 16 bytes @32: DC coefficients (FP32)
     uint sh_encoded[24];    // 96 bytes @48: signed SH1–4 words
     uint normal_xy;         // 4 bytes @144: packHalf2x16(nx, ny)
@@ -83,9 +83,11 @@ uvec3 extract_quantized_position(uvec2 position_chunk) {
     );
 }
 
-// Extract chunk ID from packed position data
-uint extract_chunk_id(uvec2 position_chunk) {
-    return position_chunk.y >> 16u;
+// The record's 32-bit chunk index (#1413): bits 0..15 in the high half of position_chunk.y, bits 16..31 in the
+// low half of chunk_id_hi. Mirrors gs_quantized_chunk_index() in renderer/gaussian_gpu_layout.h. An HLOD node id
+// is this index, and a tree can hold more than 65,535 nodes.
+uint gs_quantized_chunk_index(GaussianQuantized g) {
+    return (g.position_chunk.y >> 16u) | ((g.chunk_id_hi & 0xFFFFu) << 16u);
 }
 
 // Extract quantized scale components from packed data (scalar version for struct layout)

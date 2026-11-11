@@ -25,6 +25,15 @@ bool gs_hlod_runtime::allocation_bytes(uint64_t p_count, uint64_t p_stride, uint
 	return true;
 }
 
+const char *gs_hlod_runtime::source_admission_refusal(uint64_t p_leaf_splats, uint64_t p_interior_splats, uint64_t p_nodes) {
+	if (p_leaf_splats > GaussianSplatHlodRuntimeData::MAX_PAYLOAD ||
+			p_interior_splats > GaussianSplatHlodRuntimeData::MAX_PAYLOAD - p_leaf_splats ||
+			p_nodes > GaussianSplatHlodRuntimeData::MAX_NODES) {
+		return "hlod_source_admission_limit";
+	}
+	return nullptr;
+}
+
 bool GaussianSplatHlodRuntimeData::is_current() const {
 	const GaussianSplatWorld *world = Object::cast_to<GaussianSplatWorld>(source_world.ptr());
 	return world && world->is_hlod_runtime_snapshot_current(*this);

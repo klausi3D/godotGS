@@ -202,8 +202,16 @@ static bool _upload_typed_storage_buffer(GaussianSplatRenderer *p_renderer, Rend
 
 // The one read of the device heap for the budgets of this file. The ledger owns the limits (renderer/device_vram_ledger.h).
 DeviceVramLedger &refresh_device_vram_ledger(GaussianRenderFacadeState::ResourceState &p_state, RenderingDevice *p_rd, uint64_t p_limit_clamp = 0) {
-    p_state.device_vram_ledger.configure(p_rd->get_device_memory_budget(), GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, p_limit_clamp);
+    p_state.device_vram_ledger.configure(p_rd->get_device_memory_budget(), GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT, p_limit_clamp);
     return p_state.device_vram_ledger;
+}
+
+// D1: the HLOD-owned byte cap of a whole-tree or a streamed bundle under `p_ledger_limit` (ResidentAtlasBudget::hlod_owned_cap_bytes).
+uint64_t hlod_owned_cap_for(bool p_streaming, uint64_t p_ledger_limit) {
+    const uint32_t budget_mb = gs::settings::get_uint(ProjectSettings::get_singleton(),
+            "rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb", 0u);
+    return ResidentAtlasBudget::hlod_owned_cap_bytes(p_streaming, budget_mb, GaussianSplatHlodRuntimeData::WHOLE_TREE_GPU_BYTE_BUDGET,
+            p_ledger_limit);
 }
 
 } // namespace
@@ -1281,11 +1289,9 @@ bool hlod_pack_instance_assets(const LocalVector<InstanceAssetRegistration> &p_r
                     ? data->capture_indexed_chunk_snapshot(chunk.source_indices.ptr(), chunk.count, gaussians, sh, first_order, high_order)
                     : data->capture_chunk_snapshot(chunk.start_idx, chunk.count, gaussians, sh, first_order, high_order);
             if (!captured || gaussians.size() != chunk.count || chunk.count == 0) { r_reason = "hlod_instance_chunk_snapshot_failed"; return false; }
-            const uint32_t chunk_id = p_node_count + r_payload.region.chunk_count; // Index into the bundle's chunk tables.
-            if (p_quantized && chunk_id > 0xFFFFu) {
-                // PackedGaussianQuantized carries a uint16 chunk id (the resident atlas refuses the same way).
-                r_reason = "hlod_instance_quantization_chunk_overflow"; return false;
-            }
+            // Index into the bundle's chunk tables. PackedGaussianQuantized stores all 32 bits of it (#1413), so a world
+            // with more than 65,535 nodes keeps its node instances on the quantized route.
+            const uint32_t chunk_id = p_node_count + r_payload.region.chunk_count;
             const Vector3 *sh_coeffs = sh.is_empty() ? nullptr : sh.ptr();
             gs_warn_sh_layout_truncation_once(**data, first_order, high_order, p_quantized);
             SHCompressionMetrics metrics;
@@ -1297,7 +1303,7 @@ bool hlod_pack_instance_assets(const LocalVector<InstanceAssetRegistration> &p_r
                 if (!gs_resize_or_fail(r_payload.quantized, int64_t(base + chunk.count), "HLOD instance packed quantized")) {
                     r_reason = "hlod_instance_payload_allocation_failed"; return false;
                 }
-                pack_gaussians_range_quantized(gaussians, 0, chunk.count, quant, uint16_t(chunk_id),
+                pack_gaussians_range_quantized(gaussians, 0, chunk.count, quant, chunk_id,
                         r_payload.quantized.ptrw() + base, metrics, sh_coeffs, first_order, high_order);
                 ChunkQuantizationGPU q = {};
                 for (int a = 0; a < 3; ++a) {
@@ -1651,14 +1657,15 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
                 GaussianSplatting::InstancePipelineContract::first_raster_violation(ready) != InvariantViolationReason::NONE) { return false; }
     }
     const uint64_t budget = rd->get_device_memory_budget();
-    const uint64_t limit = DeviceVramLedger::gs_limit_for_device(budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+    const uint64_t limit = DeviceVramLedger::gs_limit_for_device(budget, GaussianSplatHlodRuntimeData::UNKNOWN_HEAP_GS_BYTE_LIMIT);
     const uint32_t override_mb = gs::settings::get_uint(ProjectSettings::get_singleton(), "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb", 0u);
     const uint64_t atlas_limit = DeviceVramLedger::atlas_limit_for_device(budget, override_mb);
     uint64_t bytes = 0;
     return ((streaming ? uint64_t(state.hlod_stream_atlas_records) : uint64_t(input->leaf_count + input->parent_count)) + region.records) *
                     (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) <= atlas_limit &&
             get_hlod_owned_byte_upper_bound(bytes) &&
-            ResidentAtlasBudget::hlod_prepared_fits(state.hlod_canonical.bytes + state.hlod_relative.bytes, bytes, limit, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+            ResidentAtlasBudget::hlod_prepared_fits(state.hlod_canonical.bytes + state.hlod_relative.bytes, bytes, limit,
+                    hlod_owned_cap_for(streaming, limit));
 }
 
 bool GaussianSplatRenderer::idle_hlod_streaming_bundle(bool p_with_instances, uint64_t p_origin_revision) {
@@ -2153,8 +2160,9 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         // the device ledger), never because a limit was raised; every limit stays as it is. A setup that can
         // never activate the cut (LOD off, deformation, non-identity placement, shadow filter) keeps the
         // whole-tree/legacy behaviour instead: a streamed world has no canonical copy to fall back to.
+        // D1: the whole tree is held to its deliberate budget (lod/hlod_whole_tree_vram_budget_mb); a streamed one to the ledger.
         const bool whole_fits = whole_atlas_bytes <= atlas_limit &&
-                ResidentAtlasBudget::hlod_candidate_fits(whole_candidate_bytes, device_bytes, route_limit, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT);
+                ResidentAtlasBudget::hlod_candidate_fits(whole_candidate_bytes, device_bytes, route_limit, hlod_owned_cap_for(false, route_limit));
         // A paged snapshot holds no payload at all: it can only ever stream, and where streaming cannot activate
         // there is no whole-tree or canonical copy to fall back to, so it is refused with the reason.
         const char *streaming_unsupported = hlod_streaming_unsupported_reason(&rows.instances[gs_hlod_bundle::WORLD_ROW]);
@@ -2219,7 +2227,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             // PR1b: the instance region's records get their frame scratch too (prepare_hlod_scratch sizes it from world + region).
             const uint64_t pages = ResidentAtlasBudget::hlod_stream_page_budget_with_instances(atlas_limit, region.records,
                     record_stride, stream_config.page_splats,
-                    node_pages, fixed_bytes, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT, route_limit, device_bytes,
+                    node_pages, fixed_bytes, hlod_owned_cap_for(true, route_limit), route_limit, device_bytes,
                     scratch_fixed, scratch_per_record);
             if (pages == 0 || pages * stream_config.page_splats > UINT32_MAX) {
                 state.hlod_reason = whole_atlas_bytes > atlas_limit ? "hlod_existing_atlas_limit" : "hlod_candidate_memory_limit";
@@ -2242,7 +2250,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 #ifdef TESTS_ENABLED
                 test_hlod_publication_refuses(3) ||
 #endif
-                candidate_bytes > GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT || !candidate_reservation.acquire(candidate_bytes) ||
+                candidate_bytes > hlod_owned_cap_for(streaming, route_limit) || !candidate_reservation.acquire(candidate_bytes) ||
                 (state.hlod_prepared_snapshot.is_valid() && state.hlod_prepared_snapshot != input &&
                         input->owned_cpu_bytes > GaussianSplatHlodRuntimeData::CPU_BYTE_LIMIT - state.hlod_prepared_snapshot->owned_cpu_bytes)) {
             state.hlod_reason = "hlod_candidate_memory_limit";

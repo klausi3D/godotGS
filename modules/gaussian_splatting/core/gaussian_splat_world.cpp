@@ -1189,10 +1189,9 @@ Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHl
     }
     const GaussianSplatHlodPagedSource::Info &info = p_source->get_info();
     const Vector<GaussianSplatHlodPagedSource::NodeRecord> &records = p_source->get_nodes();
-    const uint64_t total = uint64_t(info.leaf_splat_count) + info.interior_splat_count;
-    if (info.leaf_splat_count > GaussianSplatHlodRuntimeData::MAX_LEAVES || total > GaussianSplatHlodRuntimeData::MAX_PAYLOAD ||
-            hlod_tree.nodes.size() > GaussianSplatHlodRuntimeData::MAX_NODES) {
-        return fail(ERR_PARAMETER_RANGE_ERROR, "hlod_source_admission_limit");
+    if (const char *admission = gs_hlod_runtime::source_admission_refusal(info.leaf_splat_count, info.interior_splat_count,
+                uint64_t(hlod_tree.nodes.size()))) {
+        return fail(ERR_PARAMETER_RANGE_ERROR, admission);
     }
     if (uint32_t(hlod_tree.nodes.size()) != info.node_count || uint32_t(records.size()) != info.node_count ||
             info.sh_high_order > 21 || info.sh_degree > 4) {
@@ -1204,7 +1203,9 @@ Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHl
             !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
             !charge(records.size(), sizeof(GaussianSplatHlodPagedSource::NodeRecord)) ||
             !charge(16u, p_source->get_max_record_bytes() + uint64_t(gs_hlod::kMaxNodeSplats) * 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
-            !charge(uint64_t(GaussianSplatHlodRuntimeData::MAX_NODES) * 4, 64)) {
+            // Four complete cut histories (CutHistory::workspace_bytes is under 64 B a node), for THIS tree's node count:
+            // charging the structural node bound instead would cost every snapshot 256 MiB of the CPU budget.
+            !charge(uint64_t(hlod_tree.nodes.size()) * 4, 64)) {
         return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
     }
     next->source_world = Ref<Resource>(const_cast<GaussianSplatWorld *>(this));
@@ -1289,10 +1290,10 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
             return fail(ERR_UNAVAILABLE, "hlod_requires_resident_complete_uninstanced_tree");
         }
         const uint64_t total = uint64_t(hlod_tree.leaf_splat_count) + hlod_tree.interior_splat_count;
-        if (hlod_tree.leaf_splat_count > GaussianSplatHlodRuntimeData::MAX_LEAVES ||
-                total > GaussianSplatHlodRuntimeData::MAX_PAYLOAD ||
-                hlod_tree.nodes.size() > GaussianSplatHlodRuntimeData::MAX_NODES) {
-            return fail(ERR_PARAMETER_RANGE_ERROR, "hlod_source_admission_limit");
+        // Counts are admitted structurally; the payload this resident capture holds is admitted by CPU_BYTE_LIMIT below.
+        if (const char *admission = gs_hlod_runtime::source_admission_refusal(hlod_tree.leaf_splat_count,
+                    hlod_tree.interior_splat_count, uint64_t(hlod_tree.nodes.size()))) {
+            return fail(ERR_PARAMETER_RANGE_ERROR, admission);
         }
         Error validation_error = OK;
         String validation_reason;
@@ -1326,7 +1327,7 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
                 !charge(hlod_tree.nodes.size(), sizeof(GaussianSplatHlodRuntimeData::Node)) ||
                 !charge(static_chunks.size(), sizeof(StaticChunk)) ||
                 !charge(total, 2 * MAX(sizeof(PackedGaussian), sizeof(PackedGaussianQuantized))) ||
-                !charge(uint64_t(GaussianSplatHlodRuntimeData::MAX_NODES) * 4, 64)) {
+                !charge(uint64_t(hlod_tree.nodes.size()) * 4, 64)) { // Four cut histories, as in the paged capture.
             return fail(ERR_OUT_OF_MEMORY, "hlod_cpu_admission_limit");
         }
         for (const StaticChunk &chunk : static_chunks) {

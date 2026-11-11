@@ -53,6 +53,21 @@ inline bool hlod_candidate_fits(uint64_t candidate_bytes, uint64_t device_bytes,
             device_bytes <= ledger_limit_bytes - candidate_bytes;
 }
 
+// Option D step D1 (ADR one-route §12.6.5): the HLOD-owned byte cap of a bundle.
+//  - A WHOLE-TREE bundle pair (canonical + relative, every node resident) keeps a deliberate budget: above it the
+//    tree streams. `p_budget_mb` is rendering/gaussian_splatting/lod/hlod_whole_tree_vram_budget_mb (0 = the default).
+//  - A STREAMED bundle is sized from the device ledger: its cap is the ledger limit (the GS share of the device
+//    heap, or the fail-closed limit of an unknown heap). The atlas limit and the ledger headroom bound its pool
+//    further (hlod_stream_page_budget). It used to share the whole-tree cap (a fixed 512 MiB), which bounded every
+//    streamed world to a 512 MiB pool whatever the device held.
+// Neither ever exceeds the ledger limit.
+inline uint64_t hlod_owned_cap_bytes(bool p_streaming, uint32_t p_budget_mb, uint64_t p_default_budget_bytes,
+        uint64_t p_ledger_limit_bytes) {
+    if (p_streaming) { return p_ledger_limit_bytes; }
+    const uint64_t budget = p_budget_mb == 0 ? p_default_budget_bytes : uint64_t(p_budget_mb) * 1024u * 1024u;
+    return MIN(budget, p_ledger_limit_bytes);
+}
+
 // Same for an already prepared bundle: device_bytes already includes the bundle.
 inline bool hlod_prepared_fits(uint64_t owned_bytes, uint64_t device_bytes, uint64_t ledger_limit_bytes,
         uint64_t hlod_owned_cap_bytes) {

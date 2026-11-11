@@ -897,7 +897,11 @@ void main() {
 
 #if defined(USE_QUANTIZED_GAUSSIANS)
     GaussianQuantized src = atlas_gaussian_buffer.gaussians[gaussian_idx];
-    uint quant_id = extract_chunk_id(src.position_chunk);
+    uint quant_id = gs_quantized_chunk_index(src);
+    if (quant_id >= uint(quantization_buffer.chunks.length()) || quant_id >= uint(chunk_meta_buffer.chunk_meta.length())) {
+        GS_DEBUG_INCREMENT(index_mismatch_count);
+        return;
+    }
     ChunkQuantization quant = quantization_buffer.chunks[quant_id];
     ChunkMetaGPU chunk_meta = chunk_meta_buffer.chunk_meta[quant_id];
     vec3 local_position = dequantize_position(extract_quantized_position(src.position_chunk), quant);

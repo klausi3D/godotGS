@@ -83,6 +83,8 @@ TEST_CASE("[GaussianSplatting][HLOD][D1][WorldIO] a quantized node pack keeps no
 			CAPTURE(i);
 			// What the shader reads back is the node id, not the id modulo 65,536.
 			CHECK(shader_chunk_index(records[i]) == id);
+			// The host mirror of the shader decode agrees with the bytes.
+			CHECK(gs_quantized_chunk_index(records[i]) == id);
 			// Below 65,536 the record is the layout it always was: the high half-word stays zero (the former padding),
 			// so every record packed before the change decodes to the same index.
 			if (id < 65536u) {
@@ -162,6 +164,8 @@ TEST_CASE("[GaussianSplatting][HLOD][D1][WorldIO] the runtime cut selects a comp
 	CHECK(count == 102985u);
 	CHECK(count > 65536u); // Above the old 32,768 cap and above the 16-bit quantized id range.
 	CHECK(tree.data.leaf_count == 1114112u); // Above the old 1,048,576 leaf-splat cap.
+	// The capture admission (both capture paths call it) admits this tree; it refused it by name before.
+	CHECK(gs_hlod_runtime::source_admission_refusal(tree.data.leaf_count, tree.data.parent_count, count) == nullptr);
 	gs_hlod_runtime::CutHistory history;
 	// The selector's workspace is admitted for this tree (it refused anything above 32,768 nodes).
 	GS_NEED(history.reserve(count));
@@ -204,5 +208,24 @@ TEST_CASE("[GaussianSplatting][HLOD][D1][WorldIO] the runtime cut selects a comp
 	CHECK(splats == cut.selected_splats);
 	CHECK(max_selected == count - 1u); // The leaf next to the camera, node id 102,984.
 	CHECK(any_interior);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][D1][WorldIO] capture admission bounds are structural: a uint32 payload and the V4 node bound") {
+	using gs_hlod_runtime::source_admission_refusal;
+	const uint64_t payload = GaussianSplatHlodRuntimeData::MAX_PAYLOAD;
+	const uint64_t nodes = GaussianSplatHlodRuntimeData::MAX_NODES;
+	CHECK(payload == uint64_t(UINT32_MAX)); // Payload indices and atlas records are uint32 on the route.
+	CHECK(nodes == uint64_t(gs_world_paged::kMaxNodes)); // The V4 reader's own bound.
+	// The old caps and well beyond them are admitted: Tier A-sized counts (ADR beyond-VRAM G-c).
+	CHECK(source_admission_refusal(1048577u, 524288u, 32769u) == nullptr);
+	CHECK(source_admission_refusal(400000000u, 100000000u, 131072u) == nullptr);
+	// Exactly at each bound passes; one above refuses with the named reason.
+	CHECK(source_admission_refusal(payload, 0u, nodes) == nullptr);
+	CHECK(source_admission_refusal(payload - 7u, 7u, 1u) == nullptr);
+	CHECK(String(source_admission_refusal(payload, 1u, 1u)) == "hlod_source_admission_limit");
+	CHECK(String(source_admission_refusal(payload + 1u, 0u, 1u)) == "hlod_source_admission_limit");
+	CHECK(String(source_admission_refusal(1u, 1u, nodes + 1u)) == "hlod_source_admission_limit");
+	// No wrap: a huge interior count cannot overflow the sum into an admitted value.
+	CHECK(String(source_admission_refusal(2u, UINT64_MAX - 1u, 1u)) == "hlod_source_admission_limit");
 }
 } // namespace TestHlodScaleCaps
