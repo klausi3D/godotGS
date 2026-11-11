@@ -22,7 +22,7 @@ struct TiledBakeSourceInfo {
 struct TiledBakeChunkInfo {
 	uint32_t first_splat = 0;
 	uint32_t splat_count = 0;
-	AABB centre_bounds; // absolute bounds, including centres on either face
+	AABB centre_bounds; // absolute closed bounds; upper face uses AABB::get_end()
 };
 
 struct TiledBakeChunk {
@@ -65,8 +65,8 @@ struct TiledBakeTestHooks {
 #endif
 
 struct TiledBakeParams {
-	uint32_t max_tile_splats = 1000000;
-	uint32_t worker_count = 1;
+	uint32_t max_tile_splats = 1000000; // must be > kMaxNodeSplats
+	uint32_t worker_count = 1; // concurrency ceiling; admission can run smaller batches
 	TiledBakeLimits limits;
 #ifdef TESTS_ENABLED
 	const TiledBakeTestHooks *test_hooks = nullptr;
@@ -91,11 +91,15 @@ public:
 	// Output must equal in-core bake_world byte for byte, including global leaf
 	// source indices, independent of worker count and chunk enumeration order.
 	// No bound script API, GSQ I/O, Tier A job or cache integration here.
+	// The initial histogram is serial; overfull fine cells are refined by bounded
+	// rereads. Coincident/finest-cell overflow uses the in-core index-split shape
+	// with reserved Morton/global-index scratch, never an oversized spatial tile.
 	//
 	// Synchronous, all-or-nothing: on ANY error reset r_result, drain workers and
 	// release reservations. r_report may retain diagnostics, never payloads.
 	// RAM -> ERR_OUT_OF_MEMORY; deadline -> ERR_TIMEOUT; cancel -> ERR_SKIP;
-	// malformed source/params -> ERR_INVALID_DATA; success -> OK. Check limits
+	// malformed source/params -> ERR_INVALID_DATA; another offline job -> ERR_BUSY;
+	// success -> OK. Check limits
 	// throughout all three passes and immediately before publication.
 	static Error build(const TiledBakeSource &p_source, const TiledBakeParams &p_params,
 			BakeResult &r_result, TiledBakeReport &r_report, String *r_error = nullptr);
