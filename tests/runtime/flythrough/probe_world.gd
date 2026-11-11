@@ -60,6 +60,7 @@ var FIELDS := [
 	["px", "d"], ["py", "d"], ["pz", "d"], ["yaw_deg", "d"], ["pitch_deg", "d"],
 	["drawn_splats", "q"], ["visible_chunk_splats", "q"], ["loaded_chunks", "q"], ["visible_chunks", "q"],
 	["needed_chunks", "q"], ["needed_unserved_chunks", "q"], ["chunks_evicted_this_frame", "q"],
+	["needed_not_resident_chunks", "q"], ["needed_upload_pending_chunks", "q"], ["visible_chunks_evicted_this_frame", "q"],
 	["upload_bytes_total", "q"], ["upload_chunks_total", "q"], ["read_bytes_total", "q"],
 	["evicted_bytes_total_mb", "d"], ["vram_mb", "d"], ["effective_vram_budget_mb", "d"],
 	["effective_max_chunks", "q"], ["regulated_max_chunks", "q"], ["lod_distance_multiplier", "d"],
@@ -85,6 +86,9 @@ var _last_stats: Dictionary = {}
 var _last_streaming: Dictionary = {}
 var _first_engine_frame := -1
 var _last_engine_frame := -1
+# Viewport captures (plan "screenshots": {"dir", "moving_every_n"}); see _screenshot().
+var _shots := {}
+var _shot_log := []
 # Per-row context set by the phase code.
 var _ctx := {"phase": 0, "pass_index": 0, "segment": -1, "view": -1, "state": ST_LOADING, "s_m": 0.0}
 
@@ -118,6 +122,8 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
+	_result["screenshots"] = {"dir": _shots.get("dir"), "moving_every_n": int(_shots.get("moving_every_n", 0)),
+			"taken": _shot_log}
 	if _trace != null:
 		_trace.flush()
 		_trace.close()
@@ -211,6 +217,8 @@ func _sample_and_write() -> void:
 		int(_g(stats, "rendered_splat_count", -1)), int(_g(ss, "visible_splats", -1)), int(_g(ss, "loaded_chunks", -1)),
 		int(_g(diag, "visible_chunks", -1)),
 		int(_g(ss, "needed_chunks", -1)), int(_g(ss, "needed_unserved_chunks", -1)), int(_g(ss, "chunks_evicted_this_frame", -1)),
+		int(_g(ss, "needed_not_resident_chunks", -1)), int(_g(ss, "needed_upload_pending_chunks", -1)),
+		int(_g(ss, "visible_chunks_evicted_this_frame", -1)),
 		int(_g(ss, "upload_bytes_total", -1)), int(_g(ss, "upload_chunks_total", -1)), int(_g(ss, "read_bytes_total", -1)),
 		float(_g(ss, "evicted_bytes_total_mb", -1.0)), float(_g(ss, "vram_mb", -1.0)), float(_g(ss, "effective_vram_budget_mb", -1.0)),
 		int(_g(ss, "effective_max_chunks", -1)), int(_g(ss, "vram_regulated_max_chunks", -1)), float(_g(ss, "lod_distance_multiplier", -1.0)),
@@ -286,12 +294,15 @@ func _settled() -> bool:
 	# Flat settle condition (ADR section 7.3 pass B): missing chunks = 0, on a ready route,
 	# with something drawn, in stats that describe this pose. A missing key reads as not
 	# settled, never as settled.
+	# "Missing" means not GPU-resident: needed_not_resident_chunks counts queued, in-flight
+	# and loaded-but-not-uploaded chunks. needed_unserved_chunks leaves those out, so an
+	# oracle on it settled while chunks were still in flight (holes on screen).
 	if _stats_pose_error() > 0.001:
 		return false
 	var ss := _last_streaming
-	if not ss.has("needed_unserved_chunks") or not ss.has("needed_chunks"):
+	if not ss.has("needed_not_resident_chunks") or not ss.has("needed_chunks"):
 		return false
-	if int(ss["needed_unserved_chunks"]) != 0 or int(ss["needed_chunks"]) <= 0:
+	if int(ss["needed_not_resident_chunks"]) != 0 or int(ss["needed_chunks"]) <= 0:
 		return false
 	if not bool(ss.get("render_readiness_ready", false)):
 		return false
@@ -368,9 +379,40 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"loaded_chunks": int(ss.get("loaded_chunks", -1)),
 		"needed_chunks": int(ss.get("needed_chunks", -1)),
 		"needed_unserved_chunks": int(ss.get("needed_unserved_chunks", -1)),
+		"needed_not_resident_chunks": int(ss.get("needed_not_resident_chunks", -1)),
+		"needed_upload_pending_chunks": int(ss.get("needed_upload_pending_chunks", -1)),
 		"row": _rows - 1,
 		"t_usec": Time.get_ticks_usec(),
 	}
+
+
+# ------------------------------------------------------------------ screenshots
+
+# The viewport as drawn on the frame the last trace row describes: nothing is drawn between
+# _frame() returning and this readback. Off unless the plan names a directory. Returns {} when
+# off, else the log entry ("file" on success, "error" otherwise). The readback stalls the
+# process; a checkpoint caller renders one HOLD frame afterwards so the stall lands in a hold
+# row, never in a moving row's frame interval. Moving captures (moving_every_n) do perturb the
+# moving intervals; the result records that they were on.
+func _screenshot(name: String) -> Dictionary:
+	var dir := str(_shots.get("dir", ""))
+	if dir.is_empty():
+		return {}
+	var entry := {"name": name, "row": _rows - 1, "pass_index": _ctx["pass_index"],
+			"segment": _ctx["segment"], "state": _ctx["state"]}
+	var tex := get_root().get_texture()
+	var img: Image = tex.get_image() if tex != null else null
+	if img == null or img.is_empty():
+		entry["error"] = "no viewport image"
+	else:
+		var file := name + ".png"
+		var err := img.save_png(dir.path_join(file))
+		if err != OK:
+			entry["error"] = "save_png failed (%d)" % err
+		else:
+			entry["file"] = file
+	_shot_log.append(entry)
+	return entry
 
 
 # ------------------------------------------------------------------ phases
@@ -422,8 +464,13 @@ func _run_path() -> String:
 				_ctx["s_m"] = 0.0
 				_set_pose(_interp(table, 0.0))
 				var t0 := Time.get_ticks_usec()
+				var moving_frames := 0
+				var every_n := int(_shots.get("moving_every_n", 0))
 				while true:
 					await _frame()
+					moving_frames += 1
+					if every_n > 0 and moving_frames % every_n == 0:
+						_screenshot("p%d_s%02d_row%07d" % [pass_index, si, _rows - 1])
 					var s := speed * float(Time.get_ticks_usec() - t0) / 1000000.0
 					if s >= length:
 						break
@@ -449,7 +496,16 @@ func _run_path() -> String:
 					_ctx["state"] = ST_HOLD
 					await _pump_for(extra)
 				if seg.get("checkpoint") != null:
-					checkpoints.append(_checkpoint(str(seg["checkpoint"]), str(seg["id"]), settle))
+					var cp := _checkpoint(str(seg["checkpoint"]), str(seg["id"]), settle)
+					var shot := _screenshot("p%d_%s" % [pass_index, str(seg["checkpoint"])])
+					cp["screenshot"] = shot.get("file")
+					if not shot.is_empty():
+						cp["screenshot_error"] = shot.get("error")
+					checkpoints.append(cp)
+					if not shot.is_empty():
+						# The readback's stall goes into a hold row (see _screenshot).
+						_ctx["state"] = ST_HOLD
+						await _frame()
 					await _maybe_inject(str(seg["checkpoint"]), pass_index)
 			entry["end_row"] = _rows - 1
 			entry["end_usec"] = Time.get_ticks_usec()
@@ -531,6 +587,12 @@ func _run() -> void:
 	get_root().use_taa = false
 	get_root().msaa_3d = Viewport.MSAA_DISABLED
 
+	if typeof(_plan.get("screenshots")) == TYPE_DICTIONARY:
+		_shots = _plan["screenshots"]
+		var shot_dir := str(_shots.get("dir", ""))
+		if not shot_dir.is_empty() and DirAccess.make_dir_recursive_absolute(shot_dir) != OK:
+			_finish(false, "cannot create the screenshot directory %s" % shot_dir)
+			return
 	if not _open_trace(str(_plan["trace"])):
 		_finish(false, "cannot open the trace file")
 		return

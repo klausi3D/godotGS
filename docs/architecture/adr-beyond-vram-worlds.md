@@ -1011,7 +1011,9 @@ frozen in the thresholds file.**
 3. **Pass B, settle** at C0–C7. The run pumps until a condition holds or a wall-clock deadline
    passes:
     - flat: missing chunks = 0, where the needed set fits the chunk cap; where it does not,
-      a priority proof replaces the settle (M1 criterion in §10, INVALID until that check exists);
+      a priority proof replaces the settle (M1 criterion in §10, INVALID until that check exists).
+      "Missing" means **not GPU-resident** (`needed_not_resident_chunks`): queued, in-flight
+      and loaded-but-not-uploaded chunks are missing too (gate repair, see G16);
     - HLOD: **the drawn cut equals the manifest's oracle cut at the frozen drawn budget**, with
       no "or budget-bound" escape.
 
@@ -1107,6 +1109,7 @@ The settle condition is defined in §7.3.
 | G13 | C7 vs C0 PSNR | ≥ 45 dB | same | both | statistical |
 | G14 | Frames > 250 ms outside 1 s after a teleport | 0 | 0 | both | statistical |
 | G15 | Frames > 50 ms while moving | ≤ 1.0 % | ≤ 0.5 % | both | statistical |
+| G16 | View coverage (gate repair): share of moving frames with a needed chunk not GPU-resident (every row), share of sampled moving frames with drawn < 50 % of the no-LOD expected count at that pose (V9's floor), and every checkpoint's drawn fraction against the same floor. **Proposed, not calibrated; report-only until BV-14** | 0 % / 0 % / no checkpoint below | same | both | correctness |
 | **P1** | **Wall-clock frame interval p95 / p99, time-weighted, over moving windows of pass A only** (holds and 1 s after each teleport excluded; those are covered by G6/G6t/G14) | **≤ 25 / ≤ 33.3 ms** | **≤ 16.7 / ≤ 20 ms** | **HLOD** gated; flat printed against the same values | statistical, promoted at BV-31 (3080) and BV-32 (3090) |
 | P1-seg | Worst-segment p95 / p99 (S5, S7) | — | — | HLOD | report-only (pre-registered) |
 | R | Pass breakdown, read, decode and upload latency, cut histograms, refetch, scheduler CPU, disk, cache state, records per splat per level, codec ratio | — | — | both | report-only |
@@ -1397,6 +1400,16 @@ free capacity), never evict a needed chunk or each other, and any needed load di
 `needed_chunks`, `needed_unserved_chunks`, and through them the §7.3 settle, now
 count the needed set, which is the set §6.4 ground truth computes. A needed set larger than the
 cap still evicts itself; the BV-08a detector reports that as thrash.
+
+**Gate repair (after the owner's Tier A flythrough showed holes while every gate passed).**
+`needed_unserved_chunks` counts only needed chunks that nothing has picked up yet; a queued or
+in-flight chunk counted as served, so the §7.3 settle held while chunks were still missing from
+the GPU, and only the eight checkpoints were judged at all. Decision: the settle oracle reads
+`needed_not_resident_chunks` (needed and not GPU-resident, whatever the pipeline is doing with
+it); `needed_unserved_chunks` stays as a scheduler signal. The probe traces
+`needed_not_resident_chunks`, `needed_upload_pending_chunks` and
+`visible_chunks_evicted_this_frame` on every row, saves a viewport PNG at every checkpoint, and
+G16 judges the moving rows and the checkpoints' drawn fraction (§8.3).
 
 ### P2: compressed chunk world → **M1c**, then hard correctness gates → **M2**
 

@@ -36,7 +36,9 @@ cap and far plane. G6/G6t report a checkpoint that never settled within a
 deadline at or above the limit as FAIL `settle_deadline_missed` (C-starve).
 `inputs["gate_world"]` judges another world than the tier's gate world: the
 BV-13a controls (`flythrough_controls.py`) run on T0.
-V10 (BV-13a-2b) judges the D-14 record of the probe step (`steps/probe.json`
+G16 (gate repair) judges every moving row and every checkpoint's drawn fraction
+(`passes[].moving_coverage`, `checkpoints[].drawn_fraction_of_expected`); the settle
+gates see only the checkpoints. V10 (BV-13a-2b) judges the D-14 record of the probe step (`steps/probe.json`
 `data.cache`); `inputs["cold_cache"]` replaces it with a control's own record.
 
 CLI: ``python3 tests/runtime/flythrough/flythrough_verdict.py --out DIR --tier A``
@@ -637,6 +639,87 @@ def g10_overflow(entry: dict, limit: Any, ctx: Ctx) -> Result:
     return PASS, events, detail
 
 
+INCOMPLETE_VIEW = "incomplete_view"
+
+
+def g16_view_coverage(entry: dict, limit: Any, ctx: Ctx) -> Result:
+    """Gate repair (report-only until BV-14): how complete the view was, moving and at the stops.
+
+    The settle gates (G6, G6t, M1-settle) only see the eight checkpoints, and only through the
+    settle condition. This entry reads every moving row of every repetition
+    (`passes[].moving_coverage`, probe_summary.moving_coverage) and every checkpoint:
+
+    * the share of moving frames in which a needed chunk was not GPU-resident (queued and in
+      flight included);
+    * the share of sampled moving frames whose drawn count is below `drawn_floor` x the no-LOD
+      expected count at that pose (ADR V9's 50 % floor), and each checkpoint's
+      `drawn_fraction_of_expected` against the same floor. The expected count has no LOD, so
+      LOD thinning falls below the floor as well as missing chunks do (G11 compares against a
+      same-LOD reference and cannot see it).
+
+    Both shares are compared with the limit (% of frames). Any record that is absent or not OK
+    is MISSING, never a pass.
+    """
+    if entry.get("op") != "<=":
+        raise Missing(f"op {entry.get('op')!r}: a share of incomplete frames is an upper bound")
+    bound = _finite(limit, "limit")
+    floor = _finite(entry.get("drawn_floor"), "drawn_floor")
+    absent: List[str] = []
+    frames = holes = samples = below = 0
+    checkpoints: Dict[str, float] = {}
+    for p in ctx.passes():
+        label = f"pass {p.get('pass_index')}"
+        mc = p.get("moving_coverage")
+        if not isinstance(mc, dict) or mc.get("status") != OK:
+            absent.append(f"{label}: moving_coverage {mc.get('status') if isinstance(mc, dict) else 'absent'} "
+                          f"({mc.get('reason', 'no reason') if isinstance(mc, dict) else 'not published'})")
+        else:
+            nnr = mc.get("needed_not_resident") if isinstance(mc.get("needed_not_resident"), dict) else {}
+            drawn = mc.get("drawn_fraction") if isinstance(mc.get("drawn_fraction"), dict) else {}
+            try:
+                frames += _int(nnr.get("frames_with_signal"), f"{label} frames_with_signal")
+                holes += _int(nnr.get("frames_gt0"), f"{label} needed_not_resident frames_gt0")
+                if drawn.get("status") != OK:
+                    raise Missing(f"{label}: drawn_fraction {drawn.get('status')!r} "
+                                  f"({drawn.get('reason', 'no reason')})")
+                samples += _int(drawn.get("samples"), f"{label} drawn samples")
+                below += _int(drawn.get("frames_below_floor"), f"{label} frames_below_floor")
+            except Missing as exc:
+                absent.append(str(exc))
+        for c in p.get("checkpoints") or []:
+            where = f"{label} {c.get('checkpoint')}"
+            try:
+                checkpoints[where] = _metric(c.get("drawn_fraction_of_expected"), f"{where} drawn_fraction_of_expected")
+            except Missing as exc:
+                absent.append(str(exc))
+    if absent:
+        raise Missing("; ".join(absent))
+    if frames <= 0 or samples <= 0 or not checkpoints:
+        raise Missing(f"{frames} moving frames, {samples} drawn samples, {len(checkpoints)} checkpoints: "
+                      "nothing to judge")
+    hole_pct = 100.0 * holes / frames
+    below_pct = 100.0 * below / samples
+    cps_below = [k for k, v in checkpoints.items() if v < floor]
+    observed = {
+        "moving_needed_not_resident_pct": round(hole_pct, 3), "moving_frames": frames,
+        "moving_drawn_below_floor_pct": round(below_pct, 3), "drawn_samples": samples, "drawn_floor": floor,
+        "checkpoints_below_floor": len(cps_below), "checkpoint_drawn_fraction": {k: round(v, 3) for k, v in checkpoints.items()},
+    }
+    detail = (f"needed chunk not GPU-resident in {holes} of {frames} moving frames ({hole_pct:.2f} %); "
+              f"drawn < {floor:g} x expected in {below} of {samples} sampled moving frames ({below_pct:.2f} %) "
+              f"and at {len(cps_below)} of {len(checkpoints)} checkpoints")
+    problems = []
+    if not _compare(entry["op"], hole_pct, bound):
+        problems.append("needed_not_resident")
+    if not _compare(entry["op"], below_pct, bound):
+        problems.append("moving_drawn_below_floor")
+    if cps_below:
+        problems.append("checkpoint_drawn_below_floor")
+    if problems:
+        return FAIL, observed, f"{INCOMPLETE_VIEW}: {detail} [{', '.join(problems)}]"
+    return PASS, observed, detail
+
+
 EVALUATORS: Dict[str, Evaluator] = {
     "V1": v1_contention,
     "V2": v2_committed_digests,
@@ -654,6 +737,7 @@ EVALUATORS: Dict[str, Evaluator] = {
     "G6": g6_settle,
     "G6t": g6_settle,
     "G10": g10_overflow,
+    "G16": g16_view_coverage,
 }
 
 

@@ -401,6 +401,110 @@ def streaming_counters(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     }
 
 
+#: Gate repair: per-frame completeness columns of the trace (probe_world.gd FIELDS; -1 where
+#: the streaming state did not publish the key). `needed_not_resident_chunks` counts every
+#: needed chunk that is not GPU-resident in that frame, queued and in-flight ones included.
+COVERAGE_COLUMNS = ("needed_not_resident_chunks", "needed_upload_pending_chunks",
+                    "visible_chunks_evicted_this_frame")
+#: ADR 8.2 V9 pre-registers "at every checkpoint, drawn >= 50 % of the manifest's expected
+#: count". The expected count is the no-LOD upper bound (probe_groundtruth), so LOD thinning
+#: falls below it as well as missing chunks do.
+V9_DRAWN_FLOOR = 0.5
+#: The expected count of a pose needs a frustum test of every chunk of the world (about 10 ms
+#: per pose on tier A in Python), so the drawn fraction is sampled on every Nth moving row.
+#: The per-frame columns are read on every moving row.
+DRAWN_FRACTION_STRIDE = 10
+POSE_COLUMNS = ("px", "py", "pz", "yaw_deg", "pitch_deg")
+
+
+def moving_coverage(trace: Trace, rows: Sequence[int], expected_at=None, stride: int = DRAWN_FRACTION_STRIDE,
+                    floor: float = V9_DRAWN_FLOOR) -> Dict[str, object]:
+    """How complete the view was while moving, per frame (gate repair, report-only).
+
+    * ``needed_not_resident``: frames in which at least one needed chunk was not GPU-resident.
+    * ``upload_pending`` / ``visible_evicted``: the upload-pending part of those chunks, and
+      visible chunks evicted in the frame.
+    * ``drawn_fraction``: drawn splats over ``expected_at(pose)`` (the no-LOD upper bound of
+      the frustum chunks at the row's pose) on every ``stride``-th row, and how many sampled
+      frames fell below ``floor``. The render stats can lag the pose by a frame or two; at
+      moving speeds that shifts the expected count by a few chunks at most.
+
+    A column the trace does not have (an older driver), or a moving row without the signal,
+    makes the record MISSING: a frame without the signal could hide a hole.
+    """
+    if not rows:
+        return {"status": MISSING, "reason": "no moving rows"}
+    absent = [c for c in COVERAGE_COLUMNS if c not in trace.index]
+    if absent:
+        return {"status": MISSING, "moving_frames": len(rows),
+                "reason": f"the trace has no {absent} column (an older probe driver)"}
+    out: Dict[str, object] = {"moving_frames": len(rows)}
+    seg_ix = trace.index["segment"]
+    per_seg: Dict[str, Dict[str, int]] = {}
+    for i in rows:
+        rec = per_seg.setdefault(str(trace.rows[i][seg_ix]), {"frames": 0, "needed_not_resident_frames": 0,
+                                                               "drawn_samples": 0, "drawn_below_floor": 0})
+        rec["frames"] += 1
+        if trace.get(trace.rows[i], "needed_not_resident_chunks") > 0:
+            rec["needed_not_resident_frames"] += 1
+    missing_signal = []
+
+    def per_frame(name: str) -> Dict[str, object]:
+        vals = [trace.get(trace.rows[i], name) for i in rows if trace.get(trace.rows[i], name) >= 0]
+        gap = len(rows) - len(vals)
+        if gap:
+            missing_signal.append(f"{name} absent in {gap} of {len(rows)} moving rows")
+        if not vals:
+            return {"frames_with_signal": 0, "rows_without_signal": gap}
+        gt0 = sum(1 for v in vals if v > 0)
+        return {"frames_with_signal": len(vals), "rows_without_signal": gap, "frames_gt0": gt0,
+                "share_gt0": gt0 / len(vals), "max": max(vals), "mean": mean(vals), "total": sum(vals)}
+
+    out["needed_not_resident"] = per_frame("needed_not_resident_chunks")
+    out["upload_pending"] = per_frame("needed_upload_pending_chunks")
+    out["visible_evicted"] = per_frame("visible_chunks_evicted_this_frame")
+    if missing_signal:
+        out.update(status=MISSING, reason="; ".join(missing_signal))
+    else:
+        out["status"] = OK
+
+    step = max(1, int(stride))
+    drawn: Dict[str, object] = {"stride": step, "floor": floor,
+                                "expected": "no-LOD upper bound: the splats of the frustum chunks at the row's pose"}
+    if expected_at is None:
+        drawn.update(status=MISSING, reason="no manifest: the expected count of a moving pose cannot be computed")
+    else:
+        fractions: List[float] = []
+        no_expected = no_signal = 0
+        for i in rows[::step]:
+            row = trace.rows[i]
+            got = trace.get(row, "drawn_splats")
+            if got < 0:
+                no_signal += 1
+                continue
+            exp = expected_at([trace.get(row, c) for c in POSE_COLUMNS])
+            if exp <= 0:
+                no_expected += 1
+                continue
+            frac = got / exp
+            fractions.append(frac)
+            rec = per_seg[str(row[seg_ix])]
+            rec["drawn_samples"] += 1
+            rec["drawn_below_floor"] += 1 if frac < floor else 0
+        below = sum(1 for f in fractions if f < floor)
+        drawn.update(samples=len(fractions), rows_without_signal=no_signal, rows_without_expected=no_expected,
+                     frames_below_floor=below)
+        if no_signal or not fractions:
+            drawn.update(status=MISSING, reason=f"{no_signal} sampled rows without drawn_splats, "
+                                                f"{len(fractions)} usable samples")
+        else:
+            drawn.update(status=OK, share_below_floor=below / len(fractions), min=min(fractions),
+                         p05=nearest_rank(fractions, 0.05), p50=nearest_rank(fractions, 0.5))
+    out["drawn_fraction"] = drawn
+    out["per_segment"] = per_seg
+    return out
+
+
 #: #1393: the renderer's cumulative overlap-record drop counters, one trace column each
 #: (probe_world.gd DROP_FIELDS; -1 where the renderer did not publish the key).
 DROP_COUNTERS = (

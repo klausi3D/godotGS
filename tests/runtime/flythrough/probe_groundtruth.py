@@ -176,6 +176,12 @@ def checkpoint_truth(manifest: dict, pose: Sequence[float], camera: dict, aspect
     }
 
 
+def expected_drawn_upper_bound(manifest: dict, pose: Sequence[float], camera: dict, aspect: float) -> int:
+    """The splats of the frustum chunks at ``pose``: the same no-LOD upper bound as a
+    checkpoint's ``expected_drawn_upper_bound``, for any pose (the moving rows of the trace)."""
+    return sum(int(c["count"]) for c in frustum_chunks(manifest, pose, camera, aspect))
+
+
 def path_poses(path: dict) -> Iterable[Sequence[float]]:
     for seg in path["segments"]:
         if seg["kind"] == "move":

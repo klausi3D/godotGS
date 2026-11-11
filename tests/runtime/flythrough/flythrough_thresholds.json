@@ -363,6 +363,20 @@
       "window": "teleport checkpoints, every repetition",
       "exclusions": "stop and cold checkpoints",
       "percentile_method": "none (worst checkpoint)"
+    },
+    "G16": {
+      "class": "correctness",
+      "mode": "report_only",
+      "arm": "both",
+      "op": "<=",
+      "tiers": {"A": 0.0, "AB": 0.0},
+      "unit": "% of moving frames (each share separately)",
+      "drawn_floor": 0.5,
+      "source_field": "probe/summary.json worlds.<gate_world>.flythrough.passes[].{moving_coverage.needed_not_resident, moving_coverage.drawn_fraction, checkpoints[].drawn_fraction_of_expected}",
+      "window": "moving rows of every repetition (needed-not-resident: every row; drawn fraction: every 10th row, probe_summary.DRAWN_FRACTION_STRIDE); every checkpoint of every repetition (drawn fraction)",
+      "exclusions": "settle, hold, teleport and load rows (the settle gates and M1-settle judge those)",
+      "percentile_method": "none (share of frames; any checkpoint below drawn_floor)",
+      "note": "Proposed, not calibrated (gate repair before BV-14). 0 % because a frame drawn while a needed chunk is not GPU-resident shows a hole: a correctness defect like G7 and G10, which have no tolerance either. drawn_floor is ADR 8.2 V9's pre-registered 50 % of the manifest's expected count; that count has no LOD, so LOD thinning falls below it too."
     }
   }
 }

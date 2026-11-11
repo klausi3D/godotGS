@@ -1313,7 +1313,8 @@ class WorkflowContract(unittest.TestCase):
             self.assertEqual(self.steps[index].get("if"), "always()")
         self.assertIn("tests/ci/runner_gpu_contention.py postflight", self.steps[postflight]["run"])
         self.assertIn('--contention-outcome "${{ steps.postflight.outcome }}"', self.steps[summarize]["run"])
-        self.assertEqual(len(uploads), 2)
+        # Outputs, the probe screenshots (gate repair) and the verdict the watchdog reads.
+        self.assertEqual(len(uploads), 3)
         self.assertLess(postflight, summarize, "the verdict must see the contention outcome")
         self.assertLess(summarize, min(uploads))
         self.assertLess(max(uploads), cleanup)

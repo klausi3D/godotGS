@@ -211,6 +211,9 @@
     X(needed_chunks) \
     X(needed_resident_chunks) \
     X(needed_unserved_chunks) \
+    X(needed_not_resident_chunks) \
+    X(needed_upload_pending_chunks) \
+    X(visible_chunks_evicted_this_frame) \
     X(padding_chunks) \
     X(padding_resident_chunks) \
     X(needed_set_stall_seconds) \

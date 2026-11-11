@@ -32,7 +32,7 @@ import flythrough_controls as fc  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
 import run_probe as rp  # noqa: E402
 import world_cache as wc  # noqa: E402
-from test_flythrough_verdict import _INPUTS, _THRESHOLDS, CONTENTION_OK, drop_window  # noqa: E402
+from test_flythrough_verdict import _INPUTS, _THRESHOLDS, CONTENTION_OK, coverage, drop_window  # noqa: E402
 
 CHECKPOINTS_G6 = ("C1", "C2", "C3", "C5", "C6")
 
@@ -45,6 +45,7 @@ def _t0_summary() -> dict:
     for p in fl["passes"]:
         p["settings_measured"] = copy.deepcopy(p["settings"])  # predates BV-13a, see test_flythrough_verdict
         p["overlap_drops_checkpoints"] = drop_window()  # predates #1393, see test_flythrough_verdict
+        p["moving_coverage"] = coverage([0] * 20)  # predates the gate repair (G16), see test_flythrough_verdict
     fl["passes"] = fl["passes"][:1]
     return summary
 

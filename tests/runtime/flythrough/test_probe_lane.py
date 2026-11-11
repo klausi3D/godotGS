@@ -325,6 +325,87 @@ class CapturedTrace(unittest.TestCase):
         self.assertIsNone(s["pool_placement"]["device_local"])
         self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
 
+    def _with_coverage_columns(self, needed_not_resident) -> "ps.Trace":
+        """The captured trace with the gate-repair columns appended: needed_not_resident(i, row)
+        per row, no upload pending beyond it, no visible eviction. Every other value is real."""
+        tr = ps.read_trace(self.path_trace)
+        rows = []
+        for i, r in enumerate(tr.rows):
+            nnr = needed_not_resident(i, r)
+            rows.append(tuple(r) + (nnr, min(nnr, 1), 0))
+        return ps.Trace(tr.fields + list(ps.COVERAGE_COLUMNS), tr.types + "qqq", rows, 0)
+
+    def test_the_captured_run_predates_the_coverage_columns(self) -> None:
+        """An older driver's trace has no per-frame completeness: MISSING, never complete. It
+        adds no problems line: the coverage entry (G16) is report-only and judged in the verdict."""
+        m = manifest()
+        path = pp.resolve_path(m)
+        truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+        s = rp.summarise_path(ps.read_trace(self.path_trace), self.run_of(self.path_trace, self.path_result),
+                              path, truth, 1, m)
+        mc = s["passes"][0]["moving_coverage"]
+        self.assertEqual(mc["status"], ps.MISSING)
+        self.assertIn("older probe driver", mc["reason"])
+        self.assertEqual(s["screenshots"]["status"], ps.MISSING)
+        self.assertIsNone(s["passes"][0]["checkpoints"][0]["needed_not_resident_chunks"])
+        self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
+
+    def test_moving_coverage_counts_every_frame_with_a_chunk_in_flight(self) -> None:
+        m = manifest()
+        tr = self._with_coverage_columns(lambda i, r: 2 if i % 7 == 0 else 0)
+        moving = ps.rows_where(tr, phase=0, pass_index=0, state=ps.STATE_MOVING)
+        self.assertGreater(len(moving), 20, "the fixture has moving rows")
+        expected_at = lambda pose: gt.expected_drawn_upper_bound(m, pose, rp.CAMERA, rp.ASPECT)  # noqa: E731
+        mc = ps.moving_coverage(tr, moving, expected_at, stride=1)
+        self.assertEqual(mc["status"], ps.OK, mc)
+        holes = sum(1 for i in moving if i % 7 == 0)
+        self.assertEqual(mc["needed_not_resident"]["frames_gt0"], holes)
+        self.assertEqual(mc["needed_not_resident"]["frames_with_signal"], len(moving))
+        self.assertEqual(sum(v["needed_not_resident_frames"] for v in mc["per_segment"].values()), holes)
+        # The drawn fraction is the row's real drawn count over the real manifest's expected count
+        # at the row's real pose.
+        d = mc["drawn_fraction"]
+        self.assertEqual(d["status"], ps.OK, d)
+        self.assertEqual(d["samples"] + d["rows_without_expected"], len(moving))
+        row = tr.rows[moving[len(moving) // 2]]
+        exp = expected_at([tr.get(row, c) for c in ps.POSE_COLUMNS])
+        self.assertGreater(exp, 0)
+        self.assertGreaterEqual(d["min"], 0.0)
+        self.assertLessEqual(d["min"], tr.get(row, "drawn_splats") / exp)
+        # A complete trace has no hole frame, and every sampled row is counted once per stride.
+        clean = ps.moving_coverage(self._with_coverage_columns(lambda i, r: 0), moving, expected_at, stride=10)
+        self.assertEqual(clean["needed_not_resident"]["frames_gt0"], 0)
+        self.assertEqual(clean["drawn_fraction"]["samples"] + clean["drawn_fraction"]["rows_without_expected"],
+                         len(moving[::10]))
+
+    def test_a_moving_row_without_the_signal_is_missing(self) -> None:
+        captured_moving = ps.rows_where(ps.read_trace(self.path_trace), phase=0, pass_index=0, state=ps.STATE_MOVING)
+        gap = captured_moving[len(captured_moving) // 2]
+        tr = self._with_coverage_columns(lambda i, r: -1 if i == gap else 0)
+        moving = ps.rows_where(tr, phase=0, pass_index=0, state=ps.STATE_MOVING)
+        self.assertEqual(moving, captured_moving)
+        mc = ps.moving_coverage(tr, moving, lambda pose: 1)
+        self.assertEqual(mc["status"], ps.MISSING)
+        self.assertIn("needed_not_resident_chunks absent in 1 of", mc["reason"])
+
+    def test_the_moving_expected_count_is_the_checkpoint_oracle(self) -> None:
+        """One oracle: at a checkpoint pose the per-pose count equals the checkpoint's expected count."""
+        m = manifest()
+        path = pp.resolve_path(m)
+        for name, pose in pp.checkpoints(path):
+            self.assertEqual(gt.expected_drawn_upper_bound(m, pose, rp.CAMERA, rp.ASPECT),
+                             gt.checkpoint_truth(m, pose, rp.CAMERA, rp.ASPECT)["expected_drawn_upper_bound"], name)
+
+    def test_screenshot_record(self) -> None:
+        ok = rp.screenshot_record({"dir": "/x/screenshots", "moving_every_n": 0,
+                                   "taken": [{"name": "p0_C0", "file": "p0_C0.png"}]})
+        self.assertEqual((ok["status"], ok["files"]), (ps.OK, ["p0_C0.png"]))
+        bad = rp.screenshot_record({"dir": "/x", "moving_every_n": 0, "taken": [{"name": "p0_C1", "error": "no viewport image"}]})
+        self.assertEqual(bad["status"], ps.INVALID)
+        self.assertEqual(rp.screenshot_record({"dir": None, "taken": []})["status"], ps.MISSING)
+        self.assertEqual(rp.screenshot_record(None)["status"], ps.MISSING)
+        self.assertIn("perturb", rp.screenshot_record({"dir": "/x", "moving_every_n": 30, "taken": []})["note"])
+
     def test_pool_placement_reports_only_a_known_placement(self) -> None:
         full = {k: 0 for k in rp.POOL_PLACEMENT_KEYS}
         full.update(pool_placement_known=True, pool_device_local=1)
@@ -651,6 +732,49 @@ class OverlapDrops(unittest.TestCase):
         self.assertIn("debug_state_orchestrator->append_drop_telemetry(stats);", stats)
 
 
+class CoverageWiring(unittest.TestCase):
+    """Gate repair: deleting any wire of the completeness signal turns this red."""
+
+    def test_the_driver_traces_and_settles_on_needed_not_resident(self) -> None:
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        for name in ps.COVERAGE_COLUMNS:
+            self.assertIn(f'["{name}", "q"]', gd, name)
+            self.assertIn(f'_g(ss, "{name}", -1)', gd, name)
+        settled = gd[gd.index("func _settled() -> bool:"):]
+        settled = settled[:settled.index("\n\n\n")]
+        self.assertIn('int(ss["needed_not_resident_chunks"]) != 0', settled)
+        self.assertIn('not ss.has("needed_not_resident_chunks")', settled)
+        self.assertNotIn('ss["needed_unserved_chunks"]', settled, "the old oracle reads in-flight chunks as served")
+
+    def test_the_driver_captures_every_checkpoint(self) -> None:
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.assertRegex(gd, r'var shot := _screenshot\("p%d_%s" % \[pass_index, str\(seg\["checkpoint"\]\)\]\)')
+        self.assertIn("img.save_png(dir.path_join(file))", gd)
+        self.assertIn('_result["screenshots"]', gd)
+
+    def test_the_engine_publishes_every_coverage_key(self) -> None:
+        core = ROOT / "modules" / "gaussian_splatting" / "core"
+        keys = (core / "streaming_analytics_frame.h").read_text(encoding="utf-8")
+        surface = (core / "streaming_diagnostics_surface.cpp").read_text(encoding="utf-8")
+        for name in ps.COVERAGE_COLUMNS:
+            self.assertIn(f"X({name})", keys, name)
+            self.assertIn(f"analytics[AK::{name}] =", surface, name)
+        build = (core / "gaussian_streaming.cpp").read_text(encoding="utf-8")
+        body = build[build.index("void GaussianStreamingSystem::_build_visible_chunk_list()"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("scheduler.last_needed_not_resident_chunk_count = needed_not_resident_chunks;", body)
+
+    def test_the_probe_judges_moving_rows_with_the_manifest(self) -> None:
+        src = (HERE / "run_probe.py").read_text(encoding="utf-8")
+        self.assertIn("summarise_path(trace, run, path, gt, args.passes, manifest)", src)
+        self.assertIn('"moving_coverage": ps.moving_coverage(trace, moving, expected_at)', src)
+
+    def test_the_workflow_uploads_the_screenshots(self) -> None:
+        wf = (ROOT / ".github" / "workflows" / "beyond_vram_flythrough.yml").read_text(encoding="utf-8")
+        self.assertIn("name: beyond-vram-screenshots-", wf)
+        self.assertIn("path: ${{ runner.temp }}/bvw-out/**/screenshots/", wf)
+
+
 class Statistics(unittest.TestCase):
     def test_gsq_decode_split_names_the_dominant_part(self) -> None:
         # Constructed: the split is closed-form arithmetic over four counters.
@@ -816,6 +940,27 @@ class EntryPoint(unittest.TestCase):
         self.assertTrue(s["settings_drifted"])
         self.assertEqual(s["worlds"]["T-smoke"]["flythrough"]["passes"][0]["settings"]["status"], ps.INVALID)
         self.assertTrue(any("V7 INVALID settings_drifted" in p for p in s["problems"]), s["problems"])
+
+    def test_the_path_plan_asks_for_checkpoint_screenshots(self) -> None:
+        out = self.tmp / "out"
+        seen = {}
+
+        def fake_run(binary, plan, workdir, timeout_s):
+            seen.setdefault("plan", plan)
+            return {"exit_code": 0, "timed_out": False, "wall_s": 0.1, "result": None,
+                    "rss": {"peak_rss_bytes": ps.missing("x")}, "log": "", "trace": str(self.tmp / "none.bin")}
+
+        with mock.patch.object(rp, "run_godot", side_effect=fake_run):
+            rp.main(["--godot-binary", str(self.binary), "--world", f"T-smoke={self.world}",
+                     "--out", str(out), "--no-sweep"])
+        shots = seen["plan"]["screenshots"]
+        self.assertEqual(Path(shots["dir"]), (out / "T-smoke" / rp.SCREENSHOT_DIR).resolve())
+        self.assertEqual(shots["moving_every_n"], 0, "moving captures stall frames: off unless asked for")
+        with mock.patch.object(rp, "run_godot", side_effect=fake_run):
+            seen.clear()
+            rp.main(["--godot-binary", str(self.binary), "--world", f"T-smoke={self.world}",
+                     "--out", str(out), "--no-sweep", "--screenshot-moving-every", "30"])
+        self.assertEqual(seen["plan"]["screenshots"]["moving_every_n"], 30)
 
     def test_dispatch_lane_contract(self) -> None:
         """BV-06a calls exactly this entry point with --godot-binary, --world TIER=DIR, --out."""
