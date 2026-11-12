@@ -1274,27 +1274,37 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def parse_meminfo(text: str) -> Dict[str, int]:
+_MEMINFO_FIELDS = {"MemTotal": "mem_total_bytes", "MemAvailable": "mem_available_bytes",
+                   "SwapTotal": "swap_total_bytes", "SwapFree": "swap_free_bytes"}
+
+
+def parse_meminfo(text: str) -> dict:
     """Linux reports kB here, meaning 1024 bytes; never substitute MemFree."""
     values: Dict[str, int] = {}
     for line in text.splitlines():
         name = line.partition(":")[0]
-        if name not in ("MemTotal", "MemAvailable"):
+        if name not in _MEMINFO_FIELDS:
             continue
-        match = re.fullmatch(r"(MemTotal|MemAvailable):\s+(\d+)\s+kB\s*", line)
+        match = re.fullmatch(r"(MemTotal|MemAvailable|SwapTotal|SwapFree):\s+(\d+)\s+kB\s*", line)
         if match is None or name in values:
             raise ValueError("missing units, malformed number, or duplicate memory field")
         values[name] = int(match[2]) * 1024
-    if set(values) != {"MemTotal", "MemAvailable"} or not 0 <= values["MemAvailable"] <= values["MemTotal"] or values["MemTotal"] == 0:
+    if ("MemTotal" in values and "MemAvailable" in values
+            and (not 0 <= values["MemAvailable"] <= values["MemTotal"] or values["MemTotal"] == 0)):
         raise ValueError("MemTotal and MemAvailable must both be measured and consistent")
-    return {"mem_total_bytes": values["MemTotal"], "mem_available_bytes": values["MemAvailable"]}
+    result = {field: values.get(name) for name, field in _MEMINFO_FIELDS.items()}
+    result["measurement_absence"] = {field: f"{name} missing from /proc/meminfo"
+                                     for name, field in _MEMINFO_FIELDS.items() if name not in values}
+    return result
 
 
 def auto_tree_preflight(
     cache_root: Path, out: Path, runner: Runner = subprocess.run, which: Which = shutil.which,
     meminfo_path: Path = Path("/proc/meminfo"),
 ) -> int:
-    data: dict = {"mem_total_bytes": None, "mem_available_bytes": None, "df": None,
+    data: dict = {**dict.fromkeys(_MEMINFO_FIELDS.values()), "df": None,
+                  "measurement_absence": {field: "meminfo unavailable or invalid; not measured"
+                                          for field in _MEMINFO_FIELDS.values()},
                   "required_memory_bytes": AUTO_TREE_MEMORY_BYTES,
                   "expected_output_bytes": AUTO_TREE_OUTPUT_BYTES,
                   "scratch_bytes": AUTO_TREE_SCRATCH_BYTES,
@@ -1313,6 +1323,9 @@ def auto_tree_preflight(
             data["reason_code"] = "meminfo_invalid"
             raise LaneError(f"invalid /proc/meminfo: {exc}", EXIT_NOT_RUN) from exc
         data["meminfo_raw"] = raw
+        if data["mem_total_bytes"] is None or data["mem_available_bytes"] is None:
+            data["reason_code"] = "meminfo_invalid"
+            raise LaneError("MemTotal and MemAvailable must both be measured", EXIT_NOT_RUN)
         if which("df") is None:
             data["reason_code"] = "disk_unavailable"
             raise LaneError("df is unavailable; free disk is unmeasured", EXIT_NOT_RUN)
@@ -1324,8 +1337,6 @@ def auto_tree_preflight(
         except (LaneError, OSError, subprocess.TimeoutExpired) as exc:
             data["reason_code"] = "disk_unavailable"
             raise LaneError(f"free disk is unmeasured: {exc}", EXIT_NOT_RUN) from exc
-        print(f"auto-tree preflight: MemAvailable={data['mem_available_bytes']} bytes "
-              f"MemTotal={data['mem_total_bytes']} bytes; df={json.dumps(data['df'], sort_keys=True)}")
         if data["mem_available_bytes"] < AUTO_TREE_MEMORY_BYTES:
             data["reason_code"] = "ram_insufficient"
             raise LaneError("MemAvailable is below 22 GiB", EXIT_NOT_RUN)
@@ -1335,6 +1346,12 @@ def auto_tree_preflight(
         code, reason = EXIT_OK, "measured RAM and disk meet the Tier A auto-tree budget"
     except LaneError as exc:
         code, reason = exc.code, str(exc)
+    measurements = " ".join(
+        f"{name}={data[field]} bytes" if data[field] is not None
+        else f"{name}=absent ({data['measurement_absence'][field]})"
+        for name, field in _MEMINFO_FIELDS.items()
+    )
+    print(f"auto-tree preflight: {measurements}; df={json.dumps(data['df'], sort_keys=True)}")
     write_record(out, "auto_tree_preflight", code, reason, data)
     _announce(code, reason)
     return code
@@ -1671,23 +1688,15 @@ def real_scan_identity(out: Path, scan_dir: Optional[str] = None) -> dict:
 
 def auto_tree_t0(
     repo: Path, godot_binary: Path, cache_root: Path, out: Path, run_id: str,
-    runner: Runner = subprocess.run, which: Which = shutil.which,
-    verify: Callable[[Path], dict] = _verify_world, meminfo_path: Path = Path("/proc/meminfo"),
+    runner: Runner = subprocess.run, verify: Callable[[Path], dict] = _verify_world,
     scan_dir: Optional[str] = None,
 ) -> int:
     data: dict = {"run_id": run_id, "tier": "T0", "encoding": ENCODING_GSQ}
     real_scan_identity(out, scan_dir)
-    _auto_pending(out, "T0", "T0 admission/plain-GSQ generation has not completed")
+    _auto_pending(out, "T0", "T0 plain-GSQ generation has not completed")
     code, reason = EXIT_FAIL, "T0 auto-tree did not complete"
     try:
-        # The CLI preflight gates T0 too; direct calls cannot bypass it.
-        # T0 is outside the cache. If the cache itself is a mountpoint, its
-        # parent is a different filesystem and must be measured separately.
-        code = auto_tree_preflight(cache_root.parent, out, runner, which, meminfo_path)
-        measured = _read_auto_json(out / "steps" / "auto_tree_preflight.json")
-        _auto_json(out / "T0.preflight.json", measured)
-        if code != EXIT_OK:
-            raise LaneError(measured["reason"], code)
+        # T0 runs before Tier A admission, bounded by its smaller job limits.
         parent = cache_root.parent
         parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="bvw-auto-tree-t0-", dir=parent) as scratch_dir:
@@ -1990,13 +1999,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id,
                            encoding=args.encoding, auto_tree=args.auto_tree)
     if args.command == "auto-tree-preflight":
-        real_scan_identity(args.out)
-        for tag in ("T0", "A.first", "A.second"):
-            _auto_pending(args.out, tag, "initial RAM/disk admission has not completed")
-        _auto_report(args.out, "A.repeat_identity", EXIT_NOT_RUN, "two completed builds are required", first=None, second=None)
-        _auto_report(args.out, "A.cache_key", EXIT_NOT_RUN, "no tree key has been published by this attempt")
         code = auto_tree_preflight(args.cache_root, args.out)
-        _auto_json(args.out / "initial.preflight.json", _read_auto_json(args.out / "steps" / "auto_tree_preflight.json"))
+        measured = _read_auto_json(args.out / "steps" / "auto_tree_preflight.json")
+        _auto_json(args.out / "initial.preflight.json", measured)
+        reason = (f"Tier A admission refused: {measured['reason']}" if code != EXIT_OK
+                  else "Tier A admitted; builds and cache-check have not completed")
+        # T0 and real-scan evidence were already written by the preceding step.
+        for tag in ("A.first", "A.second"):
+            _auto_pending(args.out, tag, reason)
+        _auto_report(args.out, "A.repeat_identity", EXIT_NOT_RUN, reason, first=None, second=None)
+        _auto_report(args.out, "A.cache_key", EXIT_NOT_RUN, reason)
         return code
     if args.command == "prime-auto-tree":
         return prime_auto_tree(args.repo, args.godot_binary, args.cache_root, args.out, args.run_id)

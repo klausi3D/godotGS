@@ -1459,6 +1459,65 @@ class D25AutoTreePreflight(_TempCase):
         self.assertEqual(data["df"]["used_bytes"], 228 * 10**9 - self.REQUIRED_DISK)
         self.assertEqual(data["required_disk_bytes"], self.REQUIRED_DISK)
 
+    def test_swap_measurements_are_printed_and_recorded_in_bytes(self):
+        for total, free in ((8 * GIB, 3 * GIB), (0, 0)):
+            with self.subTest(total=total, free=free):
+                path = self.meminfo()
+                path.write_text(path.read_text().replace("SwapTotal:             0 kB\n",
+                                f"SwapTotal: {total // 1024} kB\nSwapFree: {free // 1024} kB\n"))
+                output = io.StringIO()
+                with mock.patch("sys.stdout", output):
+                    code, record = self.preflight(path)
+                self.assertEqual(code, lane.EXIT_OK)
+                for name, field, value in (("MemAvailable", "mem_available_bytes", 22 * GIB),
+                                           ("MemTotal", "mem_total_bytes", 32 * GIB),
+                                           ("SwapTotal", "swap_total_bytes", total),
+                                           ("SwapFree", "swap_free_bytes", free)):
+                    self.assertEqual(record["data"][field], value)
+                    self.assertIn(f"{name}={value} bytes", output.getvalue())
+
+    def test_missing_memory_fields_are_absent_with_reason(self):
+        for name, field in (("MemTotal", "mem_total_bytes"), ("SwapTotal", "swap_total_bytes"),
+                            ("SwapFree", "swap_free_bytes")):
+            with self.subTest(name=name):
+                path = self.meminfo()
+                path.write_text("\n".join(line for line in path.read_text().splitlines()
+                                           if not line.startswith(name + ":")))
+                output = io.StringIO()
+                with mock.patch("sys.stdout", output):
+                    code, record = self.preflight(path)
+                self.assertEqual(code, lane.EXIT_NOT_RUN if name == "MemTotal" else lane.EXIT_OK)
+                self.assertIsNone(record["data"][field])
+                self.assertIn(name, record["data"]["measurement_absence"][field])
+                self.assertIn(f"{name}=absent (", output.getvalue())
+                self.assertEqual(record["data"]["mem_available_bytes"], 22 * GIB)
+
+    def test_unavailable_meminfo_records_absence_for_all_memory_measurements(self):
+        code, record = self.preflight(self.tmp / "missing")
+        self.assertEqual(code, lane.EXIT_NOT_RUN)
+        for field in ("mem_total_bytes", "mem_available_bytes", "swap_total_bytes", "swap_free_bytes"):
+            self.assertIsNone(record["data"][field])
+            self.assertTrue(record["data"]["measurement_absence"][field])
+
+    def test_failed_tier_a_preflight_preserves_t0_evidence_and_records_not_run(self):
+        self.out.mkdir(parents=True, exist_ok=True)
+        names = ("T0.build.json", "T0.verify.json", "T0.oracle.json", "real_scan_identity.json")
+        # Orchestration sentinels, not producer reports.
+        for name in names:
+            (self.out / name).write_text('{"status": "OK", "reason": "completed earlier"}\n')
+        before = {name: (self.out / name).read_bytes() for name in names}
+        preflight = lane.auto_tree_preflight
+        with mock.patch.object(lane, "auto_tree_preflight", side_effect=lambda root, out:
+                               preflight(root, out, FakeRunner(), _all_tools, self.meminfo(21 * GIB))):
+            code = lane.main(["auto-tree-preflight", "--cache-root", str(self.tmp), "--out", str(self.out)])
+        self.assertEqual(code, lane.EXIT_NOT_RUN)
+        self.assertNotEqual(code, 0, "the workflow must stay red on refused Tier A admission")
+        self.assertEqual(before, {name: (self.out / name).read_bytes() for name in names})
+        for name in ("A.first.build", "A.second.build", "A.repeat_identity", "A.cache_key"):
+            record = json.loads((self.out / (name + ".json")).read_text())
+            self.assertEqual(record["status"], "NOT_RUN")
+            self.assertIn("MemAvailable", record["reason"])
+
 
 class D25AutoTreeCache(_CacheCase):
     """Orchestration doubles only: arbitrary file bytes are NOT a V4 fixture."""
@@ -1745,10 +1804,10 @@ class D25AutoTreeCache(_CacheCase):
         before = self.snapshot(self.cache)
         runner, outputs, identities = self.repeat_runner(tier="T0")
         runner.overrides[lane.GENERATOR_ENTRY.name] = self.generator().overrides[lane.GENERATOR_ENTRY.name]
-        memory = self.tmp / "meminfo"
-        memory.write_text("MemTotal: 33554432 kB\nMemAvailable: 25165824 kB\n", encoding="ascii")
-        self.assertEqual(lane.auto_tree_t0(self.repo, self.binary, self.cache, self.out, "25", runner,
-                                         _all_tools, lambda p: {"ok": True}, memory), lane.EXIT_OK)
+        with mock.patch.object(lane, "auto_tree_preflight", return_value=lane.EXIT_NOT_RUN) as tier_a_admission:
+            self.assertEqual(lane.auto_tree_t0(self.repo, self.binary, self.cache, self.out, "25", runner,
+                                             verify=lambda p: {"ok": True}), lane.EXIT_OK)
+        tier_a_admission.assert_not_called()
         generates = [c for c in runner.calls if len(c) > 1 and Path(c[1]).name == lane.GENERATOR_ENTRY.name]
         self.assertEqual(len(generates), 1)
         self.assertEqual(self.arg(generates[0], "--tier"), "T0")
@@ -1766,8 +1825,7 @@ class D25AutoTreeCache(_CacheCase):
         self.assertEqual(len(report["leaves_only"]["poses"]), 8)
         self.assertFalse(report["scratch_bytes"]["available"])
         self.assertTrue(report["scratch_bytes"]["reason"])
-        df = next(c for c in runner.calls if c[0] == "df")
-        self.assertEqual(Path(df[-1]), self.cache.parent)
+        self.assertFalse(any(c[0] == "df" for c in runner.calls), "T0 uses its own job limits")
 
     def test_real_scan_is_not_run_without_bound_in_core_digests(self):
         scans = self.tmp / "real-scans"
@@ -1915,7 +1973,7 @@ class D25AutoTreeWorkflow(unittest.TestCase):
     def test_auto_tree_step_order_gates_builds_and_uploads_reports_only(self):
         steps = _steps(_job_block(self.text, "prime-auto-tree"))
         indices = []
-        for command in ("auto-tree-preflight", "auto-tree-t0", "prime-auto-tree", "cache-check"):
+        for command in ("auto-tree-t0", "auto-tree-preflight", "prime-auto-tree", "cache-check"):
             hits = [i for i, s in enumerate(steps)
                     if re.search(rf"{re.escape(_LANE)} {command}\b", s.get("run", ""))]
             self.assertEqual(len(hits), 1, command)
@@ -1923,11 +1981,13 @@ class D25AutoTreeWorkflow(unittest.TestCase):
         self.assertEqual(indices, sorted(indices))
         self.assertIn("--auto-tree", steps[indices[-1]]["run"])
         for index in indices:
-            self.assertNotIn("always()", steps[index].get("if", ""))
-            self.assertNotIn("failure()", steps[index].get("if", ""))
+            self.assertIsNone(steps[index].get("if"), "default success() gates the ordered steps")
+        self.assertNotIn("continue-on-error:", "\n".join(_job_block(self.text, "prime-auto-tree")))
         uploads = [i for i, s in enumerate(steps) if s.get("uses", "").startswith("actions/upload-artifact@")]
         self.assertTrue(uploads)
         self.assertGreater(min(uploads), indices[-1])
+        for index in uploads:
+            self.assertEqual(steps[index].get("if"), "always()")
         block = "\n".join(_job_block(self.text, "prime-auto-tree"))
         upload_blocks = re.findall(r"uses: actions/upload-artifact@[^\n]+\n(.*?)(?=\n      - |\Z)", block, re.S)
         for upload in upload_blocks:
