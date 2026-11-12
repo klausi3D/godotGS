@@ -578,6 +578,10 @@ void scratch_report(const PreparedBuild &p_build, Dictionary &r_report) {
 	measured("scratch_frontier_bytes_total", p_build.frontier_scratch_bytes, "no frontier disk writes; frontier stayed in RAM or was not reached");
 	measured("scratch_combined_bytes_peak", writer.scratch_bytes_peak, "no scratch writes observed");
 	measured("frontier_ram_bytes_peak", p_build.frontier_ram_peak, "no frontier RAM allocations observed");
+	// #1432: WriterV4 cleanup reports segment files it could not remove. A
+	// count, not a measurement: zero is a real observation. OwnedDirectory's
+	// scratch sweep still removes what is left.
+	r_report["writer_scratch_delete_failures"] = int64_t(writer.scratch_delete_failures);
 }
 
 // Driving-thread-only owner. Workers never access the writer, these tables or
@@ -1387,7 +1391,12 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 			// Preserve codec-none's existing raw-byte digest and manifest identity.
 			hash_payload(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_high_order, digest);
 		}
-		const uint8_t *expected_digest = gsq ? decoded_digests[i].bytes : spill.stored_digest;
+		// #1432: codec none expects the payload exactly as the reader rebuilds
+		// it. A leaf stores float(x - c) and reads back float(float(x - c) + c),
+		// which is not the identity next to a coordinate plane, so the pre-store
+		// input digest (spill.stored_digest) is the wrong expectation there. The
+		// raw stored bytes stay bound to the input by output_body_digest below.
+		const uint8_t *expected_digest = gsq ? decoded_digests[i].bytes : spill.runtime_digest;
 		if (std::memcmp(digest, expected_digest, 32) != 0) {
 			return refuse(r_reason, "v4_reopen_runtime_digest", ERR_FILE_CORRUPT);
 		}

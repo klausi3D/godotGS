@@ -113,6 +113,11 @@ struct V4SpillRecord {
 	uint64_t stored_bytes = 0;
 	uint8_t stored_digest[32] = {}; // SHA-256 of the entire stored body range.
 	uint8_t output_body_digest[32] = {}; // Decoded persisted scratch, node-relative Gaussian + SH bytes.
+	// Gaussian + SH bytes exactly as the V4 reader returns this node: decoded
+	// output, leaf positions reconstructed as float(relative + cell_center).
+	// For codec none this differs from stored_digest when a leaf position does
+	// not round-trip bit-exactly (for example next to a coordinate plane, #1432).
+	uint8_t runtime_digest[32] = {};
 };
 
 struct V4SegmentReport {
@@ -120,6 +125,7 @@ struct V4SegmentReport {
 	String path;
 	uint64_t spill_bytes = 0; // Actual file length including spill framing, retained after deletion.
 	uint32_t body_count = 0;
+	bool delete_failed = false; // Cleanup could not remove this segment file (#1432).
 };
 
 struct V4Report {
@@ -134,6 +140,11 @@ struct V4Report {
 	uint64_t scratch_bytes_peak = 0; // Maximum measured live segments + caller-owned scratch; excludes output.
 	uint64_t peak_scratch_plus_output_bytes = 0; // Maximum live logical lengths, includes output temp.
 	uint32_t segments_deleted = 0;
+	// Segment files that cleanup after a failure or abort could not
+	// remove. Reported, not escalated: the outcome is already decided by then,
+	// and a committed output never depends on scratch. The destructor retries
+	// once more but cannot report; callers owning scratch_dir should sweep it.
+	uint32_t scratch_delete_failures = 0;
 	uint32_t nodes = 0; // Successfully appended bodies.
 	uint64_t output_bytes = 0;
 };
@@ -197,6 +208,10 @@ public:
 	};
 	using AssemblyObserver = void (*)(const AssemblyEvent &, void *);
 	void set_assembly_observer(AssemblyObserver p_observer, void *p_userdata);
+	// The next p_count cleanup deletions report failure without removing the
+	// file; the segment destructor still removes it. Forcing control for the
+	// otherwise OS-dependent delete-failure path.
+	void set_scratch_delete_faults_for_test(uint32_t p_count);
 #endif
 
 private:

@@ -154,6 +154,9 @@ struct Fixture {
 	PagedV4Spec spec;
 	Body bodies[kNodes];
 	LocalVector<V4Node> nodes;
+	// #1432: every fourth leaf splat sits at absolute y = 0.3, next to the y = 0
+	// plane in a leaf cell centred on y = 2, where float(float(y - c) + c) != y.
+	bool near_plane = false;
 
 	bool build() {
 		// Constructed synthetic topology, not an imitation of serialized bytes.
@@ -204,6 +207,9 @@ struct Fixture {
 				if (leaf) {
 					for (int a = 0; a < 3; ++a) {
 						g.position[a] += real_t(body.desc.cell_center[a]);
+					}
+					if (near_plane && j % 4 == 0) {
+						g.position.y = 0.3f;
 					}
 				}
 				g.scale = Vector3(0.03125f, 0.043f + float(j % 3) * 0.003f, 0.071f);
@@ -1344,6 +1350,106 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] abort and destructor remo
 				}
 			}
 			check_w1(paths, original);
+		}
+	}
+}
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] scratch delete failures during cleanup are reported, not swallowed") {
+	// #1432: _cleanup ignored SpillFile::remove(). Forcing control through the
+	// test fault hook; the legal route (no fault) must report zero.
+	for (uint32_t faults : { 0u, 2u }) {
+		Paths paths;
+		Fixture fixture;
+		if (!paths.create() || !fixture.build()) {
+			return;
+		}
+		{
+			WriterV4 writer;
+			if (!begin(writer, paths, fixture) || !append_all(writer, fixture, paths)) {
+				return;
+			}
+			PackedStringArray names;
+			if (!list_dir(paths.scratch, names)) {
+				return;
+			}
+			CHECK(names.size() == 5);
+			writer.set_scratch_delete_faults_for_test(faults);
+			writer.abort();
+			const V4Report &report = writer.get_report();
+			CHECK(report.reason == "aborted"); // The outcome is not rewritten.
+			CHECK(report.scratch_delete_failures == faults);
+			uint32_t flagged = 0;
+			for (const V4SegmentReport &segment : report.segments) {
+				flagged += segment.delete_failed ? 1u : 0u;
+			}
+			CHECK(flagged == faults);
+		}
+		// The faulted deletions were retried by the segment destructor.
+		PackedStringArray names;
+		if (list_dir(paths.scratch, names)) {
+			CHECK(names.is_empty());
+		}
+	}
+}
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] runtime digest is the payload the reader returns, also for inexact near-plane leaves") {
+	// GSQ keeps the standard fixture: its quantized positions are covered by the
+	// existing GSQ round-trip tests; here it pins that runtime_digest is wired.
+	for (bool gsq : { false, true }) {
+		Paths paths;
+		Fixture fixture;
+		fixture.near_plane = !gsq;
+		if (!paths.create() || !fixture.build()) {
+			return;
+		}
+		// Fixture proof: the leaf round trip is inexact, yet idempotent (accepted).
+		const double center_y = fixture.bodies[3].desc.cell_center[1];
+		const float stored = float(double(0.3f) - center_y);
+		const float rebuilt = float(double(stored) + center_y);
+		if (!gsq && (rebuilt == 0.3f || float(double(float(double(rebuilt) - center_y)) + center_y) != rebuilt)) {
+			FAIL("near-plane fixture must be inexact and idempotent at y = 0.3");
+			return;
+		}
+		WriterV4 writer;
+		if (!begin(writer, paths, fixture, gsq ? gsq_v1_codec_params() : CodecParams()) || !append_all(writer, fixture, paths)) {
+			return;
+		}
+		if (writer.finalize(fixture.nodes) != OK) {
+			FAIL("finalize failed: ", writer.get_report().full_reason.utf8().get_data());
+			return;
+		}
+		GaussianSplatHlodPagedSource source;
+		if (!open_source(paths, source)) {
+			return;
+		}
+		uint32_t distinct = 0;
+		for (uint32_t i = 0; i < kNodes; ++i) {
+			V4SpillRecord spill;
+			if (writer.get_spill_record(fixture.nodes[i].body, spill) != OK) {
+				FAIL("spill record missing for node ", i);
+				return;
+			}
+			Vector<Gaussian> gaussians;
+			Vector<Vector3> sh;
+			String reason;
+			if (source.read_node_payload(i, gaussians, sh, reason) != OK || gaussians.size() != int(kSplats) || sh.size() != int(kSplats * kHigh)) {
+				FAIL("node ", i, " does not read back: ", reason.utf8().get_data());
+				return;
+			}
+			uint8_t digest[32];
+			body_digest(gaussians.ptr(), sh.ptr(), digest);
+			CHECK_MESSAGE(std::memcmp(digest, spill.runtime_digest, 32) == 0, "node ", i);
+			if (!gsq && fixture.nodes[i].topology.child_count == 0) {
+				// The reader returns the reconstruction, not the absolute input.
+				CHECK(gaussians[0].position.y == rebuilt);
+				uint8_t input[32];
+				body_digest(fixture.bodies[i].gaussians.ptr(), fixture.bodies[i].sh.ptr(), input);
+				CHECK(std::memcmp(input, spill.stored_digest, 32) == 0);
+				distinct += std::memcmp(spill.runtime_digest, spill.stored_digest, 32) != 0 ? 1u : 0u;
+			}
+		}
+		if (!gsq) {
+			CHECK(distinct == 4); // Every leaf holds near-plane splats.
 		}
 	}
 }
