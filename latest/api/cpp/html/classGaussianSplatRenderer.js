@@ -400,7 +400,7 @@ var classGaussianSplatRenderer =
     [ "render_gaussians", "classGaussianSplatRenderer.html#aa31fe0aa2eb1beddf652cc561569e71a", null ],
     [ "render_instanced", "classGaussianSplatRenderer.html#aca2929295ceb258881bcf9edf093fbd7", null ],
     [ "render_scene_instance", "classGaussianSplatRenderer.html#a9135c858e7c512ce0e473f382aefcbeb", null ],
-    [ "render_shadow_depth_map", "classGaussianSplatRenderer.html#a40cb08c10907dd215fbcaae9df3e1c86", null ],
+    [ "render_shadow_depth_map", "classGaussianSplatRenderer.html#a975ccfae03ac4dd9ba66310762388dbd", null ],
     [ "render_sorted_splats", "classGaussianSplatRenderer.html#ab4cd3648ef0173301459ea61ad6c3ed0", null ],
     [ "report_chunk_route_to_device_vram_ledger", "classGaussianSplatRenderer.html#aaa5f4c14685a592c6ded21855b583d76", null ],
     [ "request_hlod_auto_route_demotion", "classGaussianSplatRenderer.html#a1ece320cf854e2ca47b607c10615c767", null ],

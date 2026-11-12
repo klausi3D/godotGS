@@ -2,9 +2,18 @@ var namespacegs__shadow__caster =
 [
     [ "FrameRecord", "structgs__shadow__caster_1_1FrameRecord.html", "structgs__shadow__caster_1_1FrameRecord" ],
     [ "PassPlan", "structgs__shadow__caster_1_1PassPlan.html", "structgs__shadow__caster_1_1PassPlan" ],
+    [ "LightPassInfo", "structgs__shadow__caster_1_1LightPassInfo.html", "structgs__shadow__caster_1_1LightPassInfo" ],
     [ "FootprintEigen", "structgs__shadow__caster_1_1FootprintEigen.html", "structgs__shadow__caster_1_1FootprintEigen" ],
     [ "DepthGradient", "structgs__shadow__caster_1_1DepthGradient.html", "structgs__shadow__caster_1_1DepthGradient" ],
     [ "FrameStats", "structgs__shadow__caster_1_1FrameStats.html", "structgs__shadow__caster_1_1FrameStats" ],
+    [ "LightFrameStats", "structgs__shadow__caster_1_1LightFrameStats.html", "structgs__shadow__caster_1_1LightFrameStats" ],
+    [ "LightKind", "namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5b", [
+      [ "UNKNOWN", "namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5ba696b031073e74bf2cb98e5ef201d4aa3", null ],
+      [ "DIRECTIONAL", "namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5bab6f2249394a4def60a78b342dcc925b9", null ],
+      [ "OMNI_CUBE", "namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5ba17b796eb223937596688a16042b5a124", null ],
+      [ "OMNI_PARABOLOID", "namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5baecc90f414a6e63ffad4a014de45d5a76", null ],
+      [ "SPOT", "namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5ba5bac85a0c611ddef64ab0dfb383056f4", null ]
+    ] ],
     [ "Refusal", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39", [
       [ "NONE", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39ab50339a10e1de285ac99d4c3990b8693", null ],
       [ "NOT_DIRECTIONAL", "namespacegs__shadow__caster.html#a3d82421984d4cb0270b1196113a64d39a3ecd9e034c6d3232eb10f6bfa13195a9", null ],
@@ -26,6 +35,7 @@ var namespacegs__shadow__caster =
     [ "frame_relative_shadow_clip", "namespacegs__shadow__caster.html#a02074877ccf6387f5fc504c1c3562ef8", null ],
     [ "godot_directional_receiver_sample", "namespacegs__shadow__caster.html#aeeab84752eb77e8258694a46d1c5b3a9", null ],
     [ "godot_shadow_clip", "namespacegs__shadow__caster.html#a44e15650d12733e02d2e5a380d1ca5c1", null ],
+    [ "light_kind_name", "namespacegs__shadow__caster.html#aef6ee597d1c8d6e467838f82756eb1fc", null ],
     [ "pancake_depth", "namespacegs__shadow__caster.html#ac47dc1db35c8847dfc1c043040fb8ca7", null ],
     [ "plan_pass", "namespacegs__shadow__caster.html#ad5e44387896df904a3ea1118eec7b84c", null ],
     [ "refusal_reason", "namespacegs__shadow__caster.html#a4d6ba6859aae020258df49fee09a6ca7", null ]

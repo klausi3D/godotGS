@@ -598,8 +598,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memdesc:a9135c858e7c512ce0e473f382aefcbeb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Renders <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> splats for a scene instance.  <br /></td></tr>
 <tr class="memitem:aa31fe0aa2eb1beddf652cc561569e71a" id="r_aa31fe0aa2eb1beddf652cc561569e71a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa31fe0aa2eb1beddf652cc561569e71a">render_gaussians</a> (RenderDataRD *p_render_data, const PagedArray&lt; RID &gt; &amp;p_instances)</td></tr>
 <tr class="memdesc:aa31fe0aa2eb1beddf652cc561569e71a"><td class="mdescLeft">&#160;</td><td class="mdescRight">Renders <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> splats for multiple instances.  <br /></td></tr>
-<tr class="memitem:a40cb08c10907dd215fbcaae9df3e1c86" id="r_a40cb08c10907dd215fbcaae9df3e1c86"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a40cb08c10907dd215fbcaae9df3e1c86">render_shadow_depth_map</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, const Rect2i &amp;p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y)</td></tr>
-<tr class="memdesc:a40cb08c10907dd215fbcaae9df3e1c86"><td class="mdescLeft">&#160;</td><td class="mdescRight">Renders a directional shadow map into the light's shadow atlas.  <br /></td></tr>
+<tr class="memitem:a975ccfae03ac4dd9ba66310762388dbd" id="r_a975ccfae03ac4dd9ba66310762388dbd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a975ccfae03ac4dd9ba66310762388dbd">render_shadow_depth_map</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, const Rect2i &amp;p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, RID p_light=RID(), int p_light_type=-1, int p_omni_shadow_mode=-1, int p_shadow_pass=-1)</td></tr>
+<tr class="memdesc:a975ccfae03ac4dd9ba66310762388dbd"><td class="mdescLeft">&#160;</td><td class="mdescRight">Renders a directional shadow map into the light's shadow atlas.  <br /></td></tr>
 <tr class="memitem:a651af705d5157aef778bd0bf5cf09d9c" id="r_a651af705d5157aef778bd0bf5cf09d9c"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussianSplatRenderer_1_1ShadowRenderResult.html">ShadowRenderResult</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a651af705d5157aef778bd0bf5cf09d9c">get_last_shadow_render_result</a> () const</td></tr>
 <tr class="memitem:a26c1e3f3502f533d7f460706910d9fc5" id="r_a26c1e3f3502f533d7f460706910d9fc5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a26c1e3f3502f533d7f460706910d9fc5">render_for_view</a> (const Transform3D &amp;p_world_to_camera_transform, const Projection &amp;p_cam_projection, RID p_render_target, const Size2i &amp;p_viewport_size) override</td></tr>
 <tr class="memdesc:a26c1e3f3502f533d7f460706910d9fc5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Renders splats for a specific camera view.  <br /></td></tr>
@@ -8927,8 +8927,8 @@ Usage</h2>
 
 </div>
 </div>
-<a id="a40cb08c10907dd215fbcaae9df3e1c86" name="a40cb08c10907dd215fbcaae9df3e1c86"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a40cb08c10907dd215fbcaae9df3e1c86">&#9670;&#160;</a></span>render_shadow_depth_map()</h2>
+<a id="a975ccfae03ac4dd9ba66310762388dbd" name="a975ccfae03ac4dd9ba66310762388dbd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a975ccfae03ac4dd9ba66310762388dbd">&#9670;&#160;</a></span>render_shadow_depth_map()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -8956,7 +8956,27 @@ Usage</h2>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_flip_y</em></span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_flip_y</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RID</td>          <td class="paramname"><span class="paramname"><em>p_light</em></span><span class="paramdefsep"> = </span><span class="paramdefval">RID()</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_light_type</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_omni_shadow_mode</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_shadow_pass</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -8969,6 +8989,10 @@ Usage</h2>
     <tr><td class="paramname">p_atlas_rect</td><td>Target atlas rectangle for this cascade. </td></tr>
     <tr><td class="paramname">p_shadow_framebuffer</td><td>Shadow atlas framebuffer RID. </td></tr>
     <tr><td class="paramname">p_flip_y</td><td>Whether the atlas rect should be sampled with a Y flip. </td></tr>
+    <tr><td class="paramname">p_light</td><td>Scene instance RID (Light3D.get_instance()); invalid RIDs are not accounted per light. </td></tr>
+    <tr><td class="paramname">p_light_type</td><td>RS::LightType, or -1 for legacy callers without an explicit type. </td></tr>
+    <tr><td class="paramname">p_omni_shadow_mode</td><td>RS::LightOmniShadowMode, or -1 for non-omni/unknown. </td></tr>
+    <tr><td class="paramname">p_shadow_pass</td><td>Godot's cascade, cube face or paraboloid pass index; -1 if unknown. </td></tr>
   </table>
   </dd>
 </dl>

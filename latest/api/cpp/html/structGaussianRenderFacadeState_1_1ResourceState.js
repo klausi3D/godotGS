@@ -128,5 +128,8 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "resident_dispatch_chunk_count", "structGaussianRenderFacadeState_1_1ResourceState.html#a5b35b472f6dcd2f12ff96777acc20abd", null ],
     [ "resident_max_chunk_splats", "structGaussianRenderFacadeState_1_1ResourceState.html#a38dd9be03aa5e461960fd8a4d7c8a113", null ],
     [ "resident_quantization_buffer", "structGaussianRenderFacadeState_1_1ResourceState.html#acd5dd187851f4551d05c8c198495ff7a", null ],
-    [ "resident_quantization_buffer_size", "structGaussianRenderFacadeState_1_1ResourceState.html#abbd1110848bda5d37e7d50b9cfec7e13", null ]
+    [ "resident_quantization_buffer_size", "structGaussianRenderFacadeState_1_1ResourceState.html#abbd1110848bda5d37e7d50b9cfec7e13", null ],
+    [ "shadow_light_snapshot", "structGaussianRenderFacadeState_1_1ResourceState.html#a64920323dd4c17638e968d76168dce4b", null ],
+    [ "shadow_light_snapshot_mutex", "structGaussianRenderFacadeState_1_1ResourceState.html#aaa9d25a111ff5e591c7cee3a626de9ea", null ],
+    [ "shadow_light_stats", "structGaussianRenderFacadeState_1_1ResourceState.html#a4230911ca54a78ec4fc2d626de3ae898", null ]
 ];

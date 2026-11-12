@@ -76,4 +76,7 @@ digraph "GaussianSplatRenderer"
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_result</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node26 [id="Node000026",label="GaussianSplatRenderer\l::ShadowRenderResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatRenderer_1_1ShadowRenderResult.html",tooltip=" "];
+  Node27 -> Node26 [id="edge26_Node000026_Node000027",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">light_pass</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node27 [id="Node000027",label="gs_shadow_caster::LightPassInfo",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightPassInfo.html",tooltip=" "];
 }

@@ -4,5 +4,6 @@ var searchData=
   ['layouthintfailurereason_1',['LayoutHintFailureReason',['../namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71a',1,'gs_layout_hint::LayoutHintFailureReason'],['../render__streaming__orchestrator_8cpp.html#af7eb2001e84ee3c7f4cdbe534efb9975',1,'LayoutHintFailureReason:&#160;render_streaming_orchestrator.cpp']]],
   ['layouthintusage_2',['LayoutHintUsage',['../namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407d',1,'gs_layout_hint']]],
   ['layouthintvalidationusage_3',['LayoutHintValidationUsage',['../render__streaming__orchestrator_8cpp.html#a4c2404175eb3c3e43d1d8767e42cab4c',1,'render_streaming_orchestrator.cpp']]],
-  ['level_4',['Level',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480ed',1,'gs_logger']]]
+  ['level_4',['Level',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480ed',1,'gs_logger']]],
+  ['lightkind_5',['LightKind',['../namespacegs__shadow__caster.html#a9562ea175d6832e74a9349c2e4778b5b',1,'gs_shadow_caster']]]
 ];

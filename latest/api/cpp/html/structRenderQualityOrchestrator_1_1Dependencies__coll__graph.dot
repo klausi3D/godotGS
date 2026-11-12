@@ -79,24 +79,27 @@ digraph "RenderQualityOrchestrator::Dependencies"
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_result</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node27 [id="Node000027",label="GaussianSplatRenderer\l::ShadowRenderResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatRenderer_1_1ShadowRenderResult.html",tooltip=" "];
-  Node28 -> Node1 [id="edge27_Node000001_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_culler</TD></TR>
+  Node28 -> Node27 [id="edge27_Node000027_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">light_pass</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node28 [id="Node000028",label="GPUCuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUCuller.html",tooltip=" "];
-  Node3 -> Node28 [id="edge28_Node000028_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node29 -> Node28 [id="edge29_Node000028_Node000029",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node29 [id="Node000029",label="ICuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classICuller.html",tooltip=" "];
-  Node16 -> Node1 [id="edge30_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
+  Node28 [id="Node000028",label="gs_shadow_caster::LightPassInfo",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightPassInfo.html",tooltip=" "];
+  Node29 -> Node1 [id="edge28_Node000001_Node000029",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">gpu_culler</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node30 -> Node1 [id="edge31_Node000001_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">runtime_ports</TD></TR>
+  Node29 [id="Node000029",label="GPUCuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classGPUCuller.html",tooltip=" "];
+  Node3 -> Node29 [id="edge29_Node000029_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node30 -> Node29 [id="edge30_Node000029_Node000030",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node30 [id="Node000030",label="ICuller",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classICuller.html",tooltip=" "];
+  Node16 -> Node1 [id="edge31_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node30 [id="Node000030",label="RenderQualityOrchestrator\l::RuntimePorts",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderQualityOrchestrator_1_1RuntimePorts.html",tooltip=" "];
-  Node31 -> Node30 [id="edge32_Node000030_Node000031",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">get_streaming_state</TD></TR>
+  Node31 -> Node1 [id="edge32_Node000001_Node000031",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">runtime_ports</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node31 [id="Node000031",label="RenderQualityOrchestrator\l::RuntimePorts",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderQualityOrchestrator_1_1RuntimePorts.html",tooltip=" "];
+  Node32 -> Node31 [id="edge33_Node000031_Node000032",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">get_streaming_state</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_mut</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">get_streaming_state_view</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node31 [id="Node000031",label="GaussianRenderState\l::StreamingState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderState_1_1StreamingState.html",tooltip=" "];
-  Node32 -> Node31 [id="edge33_Node000031_Node000032",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shared_dynamic_asset</TD></TR>
+  Node32 [id="Node000032",label="GaussianRenderState\l::StreamingState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderState_1_1StreamingState.html",tooltip=" "];
+  Node33 -> Node32 [id="edge34_Node000032_Node000033",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">shared_dynamic_asset</TD></TR>
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_handle</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node32 [id="Node000032",label="GaussianSplatManager\l::SharedDynamicAssetHandle",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatManager_1_1SharedDynamicAssetHandle.html",tooltip="Handle for shared GPU resources associated with a dynamic asset."];
+  Node33 [id="Node000033",label="GaussianSplatManager\l::SharedDynamicAssetHandle",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatManager_1_1SharedDynamicAssetHandle.html",tooltip="Handle for shared GPU resources associated with a dynamic asset."];
 }

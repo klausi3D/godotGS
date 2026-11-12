@@ -1,5 +1,12 @@
 var NAVTREEINDEX26 =
 {
+"scene__director__sphere__effectors_8cpp.html":[2,0,0,0,3,70],
+"scene__director__submission__store_8h.html":[2,0,0,0,3,71],
+"scene__director__submission__store_8h_source.html":[2,0,0,0,3,71],
+"scene__director__world__registry_8h.html":[2,0,0,0,3,72],
+"scene__director__world__registry_8h_source.html":[2,0,0,0,3,72],
+"sh__config_8cpp.html":[2,0,0,0,12,83],
+"sh__config_8cpp.html#a2638ccf61f1126e66c7538caebc441df":[2,0,0,0,12,83,0],
 "sh__config_8cpp.html#abb8c416df92980405ced3cd2b502a976":[2,0,0,0,12,83,1],
 "sh__config_8cpp.html#afd4263cdf6d82ae6987db3a1406dac15":[2,0,0,0,12,83,2],
 "sh__config_8h.html":[2,0,0,0,12,84],
@@ -242,12 +249,5 @@ var NAVTREEINDEX26 =
 "structChunkQuantizationInfo.html#a4288d4406a0ecaa7f5c37756e08f5564":[1,0,49,3],
 "structChunkQuantizationInfo.html#a4af4d8f927f2cd2b4e4acb70682310cc":[1,0,49,4],
 "structChunkQuantizationInfo.html#a53c6b7ebb49be0d5d033e9f525c02c9f":[1,0,49,0],
-"structChunkQuantizationInfo.html#a590620a10b179f545860e9a7efe5673a":[1,0,49,2],
-"structChunkQuantizationInfo.html#a5986889bfe707b9d5b0d345217ba6814":[1,0,49,8],
-"structChunkQuantizationInfo.html#a6cb7ed02284c7174a556ffb5a6dff7a1":[1,0,49,5],
-"structChunkQuantizationInfo.html#a77c08c7b76301a8f63e1e75b89713eb5":[1,0,49,15],
-"structChunkQuantizationInfo.html#a7e8937bb22250df4b9b590461370d541":[1,0,49,13],
-"structChunkQuantizationInfo.html#a85852e0b73a0b5b033f3f0e77ef5fffe":[1,0,49,12],
-"structChunkQuantizationInfo.html#a872be014dc05a8a950c8ad269cde8973":[1,0,49,1],
-"structChunkQuantizationInfo.html#aa207c04f54324f07a7ac13fd9ebe7d8b":[1,0,49,14]
+"structChunkQuantizationInfo.html#a590620a10b179f545860e9a7efe5673a":[1,0,49,2]
 };

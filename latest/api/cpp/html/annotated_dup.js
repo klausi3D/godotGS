@@ -278,9 +278,11 @@ var annotated_dup =
     [ "gs_shadow_caster", "namespacegs__shadow__caster.html", [
       [ "FrameRecord", "structgs__shadow__caster_1_1FrameRecord.html", "structgs__shadow__caster_1_1FrameRecord" ],
       [ "PassPlan", "structgs__shadow__caster_1_1PassPlan.html", "structgs__shadow__caster_1_1PassPlan" ],
+      [ "LightPassInfo", "structgs__shadow__caster_1_1LightPassInfo.html", "structgs__shadow__caster_1_1LightPassInfo" ],
       [ "FootprintEigen", "structgs__shadow__caster_1_1FootprintEigen.html", "structgs__shadow__caster_1_1FootprintEigen" ],
       [ "DepthGradient", "structgs__shadow__caster_1_1DepthGradient.html", "structgs__shadow__caster_1_1DepthGradient" ],
-      [ "FrameStats", "structgs__shadow__caster_1_1FrameStats.html", "structgs__shadow__caster_1_1FrameStats" ]
+      [ "FrameStats", "structgs__shadow__caster_1_1FrameStats.html", "structgs__shadow__caster_1_1FrameStats" ],
+      [ "LightFrameStats", "structgs__shadow__caster_1_1LightFrameStats.html", "structgs__shadow__caster_1_1LightFrameStats" ]
     ] ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", [
       [ "ReadbackPolicy", "structgs__sort__policy_1_1ReadbackPolicy.html", "structgs__sort__policy_1_1ReadbackPolicy" ]

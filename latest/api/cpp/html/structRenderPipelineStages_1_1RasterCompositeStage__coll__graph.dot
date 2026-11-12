@@ -79,17 +79,20 @@ digraph "RenderPipelineStages::RasterCompositeStage"
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_result</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node27 [id="Node000027",label="GaussianSplatRenderer\l::ShadowRenderResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatRenderer_1_1ShadowRenderResult.html",tooltip=" "];
-  Node28 -> Node1 [id="edge27_Node000001_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">raster_stage</TD></TR>
+  Node28 -> Node27 [id="edge27_Node000027_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">light_pass</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node28 [id="Node000028",label="RenderPipelineStages\l::RasterStage",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderPipelineStages_1_1RasterStage.html",tooltip=" "];
-  Node29 -> Node28 [id="edge28_Node000028_Node000029",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pipeline</TD></TR>
+  Node28 [id="Node000028",label="gs_shadow_caster::LightPassInfo",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightPassInfo.html",tooltip=" "];
+  Node29 -> Node1 [id="edge28_Node000001_Node000029",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">raster_stage</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node29 [id="Node000029",label="RenderPipelineStages",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classRenderPipelineStages.html",tooltip=" "];
-  Node2 -> Node28 [id="edge29_Node000028_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">renderer</TD></TR>
+  Node29 [id="Node000029",label="RenderPipelineStages\l::RasterStage",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderPipelineStages_1_1RasterStage.html",tooltip=" "];
+  Node30 -> Node29 [id="edge29_Node000029_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pipeline</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node30 -> Node1 [id="edge30_Node000001_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">composite_stage</TD></TR>
+  Node30 [id="Node000030",label="RenderPipelineStages",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classRenderPipelineStages.html",tooltip=" "];
+  Node2 -> Node29 [id="edge30_Node000029_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">renderer</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node30 [id="Node000030",label="RenderPipelineStages\l::CompositeStage",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderPipelineStages_1_1CompositeStage.html",tooltip=" "];
-  Node2 -> Node30 [id="edge31_Node000030_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">renderer</TD></TR>
+  Node31 -> Node1 [id="edge31_Node000001_Node000031",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">composite_stage</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node31 [id="Node000031",label="RenderPipelineStages\l::CompositeStage",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderPipelineStages_1_1CompositeStage.html",tooltip=" "];
+  Node2 -> Node31 [id="edge32_Node000031_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">renderer</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
 }

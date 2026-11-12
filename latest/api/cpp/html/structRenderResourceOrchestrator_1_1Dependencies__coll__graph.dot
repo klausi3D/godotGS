@@ -79,29 +79,32 @@ digraph "RenderResourceOrchestrator::Dependencies"
 <TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">&nbsp;&nbsp;_result</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node27 [id="Node000027",label="GaussianSplatRenderer\l::ShadowRenderResult",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatRenderer_1_1ShadowRenderResult.html",tooltip=" "];
-  Node28 -> Node1 [id="edge27_Node000001_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">device_state</TD></TR>
+  Node28 -> Node27 [id="edge27_Node000027_Node000028",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">light_pass</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node28 [id="Node000028",label="GaussianRenderFacadeState\l::DeviceState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1DeviceState.html",tooltip=" "];
-  Node29 -> Node1 [id="edge28_Node000001_Node000029",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">performance_settings</TD></TR>
+  Node28 [id="Node000028",label="gs_shadow_caster::LightPassInfo",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__shadow__caster_1_1LightPassInfo.html",tooltip=" "];
+  Node29 -> Node1 [id="edge28_Node000001_Node000029",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">device_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node29 [id="Node000029",label="GaussianRenderPerformance\l::PerformanceSettings",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPerformance_1_1PerformanceSettings.html",tooltip=" "];
-  Node30 -> Node1 [id="edge29_Node000001_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">painterly_config</TD></TR>
+  Node29 [id="Node000029",label="GaussianRenderFacadeState\l::DeviceState",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1DeviceState.html",tooltip=" "];
+  Node30 -> Node1 [id="edge29_Node000001_Node000030",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">performance_settings</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node30 [id="Node000030",label="GaussianRenderConfig\l::PainterlyConfig",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderConfig_1_1PainterlyConfig.html",tooltip=" "];
-  Node31 -> Node1 [id="edge30_Node000001_Node000031",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">debug_config</TD></TR>
+  Node30 [id="Node000030",label="GaussianRenderPerformance\l::PerformanceSettings",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderPerformance_1_1PerformanceSettings.html",tooltip=" "];
+  Node31 -> Node1 [id="edge30_Node000001_Node000031",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">painterly_config</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node31 [id="Node000031",label="GaussianRenderDebug\l::DebugConfig",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1DebugConfig.html",tooltip=" "];
-  Node32 -> Node31 [id="edge31_Node000031_Node000032",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node32 [id="Node000032",label="GaussianRenderDebug\l::DebugConfigBase",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1DebugConfigBase.html",tooltip="Base debug configuration flags independent of renderer class."];
-  Node16 -> Node1 [id="edge32_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
+  Node31 [id="Node000031",label="GaussianRenderConfig\l::PainterlyConfig",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderConfig_1_1PainterlyConfig.html",tooltip=" "];
+  Node32 -> Node1 [id="edge31_Node000001_Node000032",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">debug_config</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node17 -> Node1 [id="edge33_Node000001_Node000017",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">tile_renderer_state</TD></TR>
+  Node32 [id="Node000032",label="GaussianRenderDebug\l::DebugConfig",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1DebugConfig.html",tooltip=" "];
+  Node33 -> Node32 [id="edge32_Node000032_Node000033",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node33 [id="Node000033",label="GaussianRenderDebug\l::DebugConfigBase",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1DebugConfigBase.html",tooltip="Base debug configuration flags independent of renderer class."];
+  Node16 -> Node1 [id="edge33_Node000001_Node000016",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">test_data_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node19 -> Node1 [id="edge34_Node000001_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">subsystem_state</TD></TR>
+  Node17 -> Node1 [id="edge34_Node000001_Node000017",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">tile_renderer_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node23 -> Node1 [id="edge35_Node000001_Node000023",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pipeline_features_effective</TD></TR>
+  Node19 -> Node1 [id="edge35_Node000001_Node000019",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">subsystem_state</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node33 -> Node1 [id="edge36_Node000001_Node000033",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">runtime_ports</TD></TR>
+  Node23 -> Node1 [id="edge36_Node000001_Node000023",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">pipeline_features_effective</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node33 [id="Node000033",label="RenderResourceOrchestrator\l::RuntimePorts",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderResourceOrchestrator_1_1RuntimePorts.html",tooltip=" "];
+  Node34 -> Node1 [id="edge37_Node000001_Node000034",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">runtime_ports</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node34 [id="Node000034",label="RenderResourceOrchestrator\l::RuntimePorts",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structRenderResourceOrchestrator_1_1RuntimePorts.html",tooltip=" "];
 }

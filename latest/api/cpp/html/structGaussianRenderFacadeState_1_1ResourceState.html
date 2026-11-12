@@ -185,6 +185,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a2080e67a983ecc0c3f33d29fce7a9edc" id="r_a2080e67a983ecc0c3f33d29fce7a9edc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">gs_shadow_caster::FrameRecord</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2080e67a983ecc0c3f33d29fce7a9edc">hlod_shadow_caster_record</a></td></tr>
 <tr class="memitem:a25d799032247c502e536bff313bd4095" id="r_a25d799032247c502e536bff313bd4095"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a25d799032247c502e536bff313bd4095">hlod_draw_list_uploads</a> = 0</td></tr>
 <tr class="memitem:a1c6f1e8f38aedb040f03ceb74a85f338" id="r_a1c6f1e8f38aedb040f03ceb74a85f338"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1FrameStats.html">gs_shadow_caster::FrameStats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c6f1e8f38aedb040f03ceb74a85f338">hlod_shadow_caster_stats</a></td></tr>
+<tr class="memitem:a4230911ca54a78ec4fc2d626de3ae898" id="r_a4230911ca54a78ec4fc2d626de3ae898"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1LightFrameStats.html">gs_shadow_caster::LightFrameStats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4230911ca54a78ec4fc2d626de3ae898">shadow_light_stats</a></td></tr>
+<tr class="memitem:aaa9d25a111ff5e591c7cee3a626de9ea" id="r_aaa9d25a111ff5e591c7cee3a626de9ea"><td class="memItemLeft" align="right" valign="top">Mutex&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaa9d25a111ff5e591c7cee3a626de9ea">shadow_light_snapshot_mutex</a></td></tr>
+<tr class="memitem:a64920323dd4c17638e968d76168dce4b" id="r_a64920323dd4c17638e968d76168dce4b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html">gs_shadow_caster::LightFrameStats::Snapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a64920323dd4c17638e968d76168dce4b">shadow_light_snapshot</a></td></tr>
 <tr class="memitem:aade4d0521877585a48cc0517565efea1" id="r_aade4d0521877585a48cc0517565efea1"><td class="memItemLeft" align="right" valign="top">Mutex&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aade4d0521877585a48cc0517565efea1">hlod_instance_refusal_mutex</a></td></tr>
 <tr class="memitem:aeccdbd83558217acda443622ba9cb0c0" id="r_aeccdbd83558217acda443622ba9cb0c0"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeccdbd83558217acda443622ba9cb0c0">hlod_instance_refused_keys</a></td></tr>
 <tr class="memitem:aa9ce7fdd31bf8af9538995a367cb07c3" id="r_aa9ce7fdd31bf8af9538995a367cb07c3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa9ce7fdd31bf8af9538995a367cb07c3">hlod_grading_generation</a> = 0</td></tr>
@@ -2047,6 +2050,48 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianRenderFacadeState::ResourceState::resident_quantization_buffer_size = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a64920323dd4c17638e968d76168dce4b" name="a64920323dd4c17638e968d76168dce4b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a64920323dd4c17638e968d76168dce4b">&#9670;&#160;</a></span>shadow_light_snapshot</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html">gs_shadow_caster::LightFrameStats::Snapshot</a> GaussianRenderFacadeState::ResourceState::shadow_light_snapshot</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaa9d25a111ff5e591c7cee3a626de9ea" name="aaa9d25a111ff5e591c7cee3a626de9ea"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaa9d25a111ff5e591c7cee3a626de9ea">&#9670;&#160;</a></span>shadow_light_snapshot_mutex</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Mutex GaussianRenderFacadeState::ResourceState::shadow_light_snapshot_mutex</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4230911ca54a78ec4fc2d626de3ae898" name="a4230911ca54a78ec4fc2d626de3ae898"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4230911ca54a78ec4fc2d626de3ae898">&#9670;&#160;</a></span>shadow_light_stats</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structgs__shadow__caster_1_1LightFrameStats.html">gs_shadow_caster::LightFrameStats</a> GaussianRenderFacadeState::ResourceState::shadow_light_stats</td>
         </tr>
       </table>
 </div><div class="memdoc">

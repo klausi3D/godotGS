@@ -1,5 +1,12 @@
 var NAVTREEINDEX25 =
 {
+"namespacespz.html#aa16f1bb87fdb64d0e9e7313fc319da34":[0,0,42,21],
+"namespacespz.html#aa555f48581c8228534eca221a9b2ed97":[0,0,42,31],
+"namespacespz.html#aa5a41400c0c1e272e5ffab41ffdc891e":[0,0,42,49],
+"namespacespz.html#aa90c74c0e31a33acd1a4ba6e3c0d15de":[0,0,42,50],
+"namespacespz.html#aab5ecae00c937c57d2ccb729c71e7bc5":[0,0,42,77],
+"namespacespz.html#aac5880fd0e7f01acc85110c2f080d4dc":[0,0,42,11],
+"namespacespz.html#aae19d827f33928ada8d6ae33dffa9283":[0,0,42,22],
 "namespacespz.html#abbeff710f683eac14ec94f943091c79a":[0,0,42,47],
 "namespacespz.html#abc32a85fd46ae1c25a441ce89e8b1b01":[0,0,42,27],
 "namespacespz.html#abf5128145cf5d36257a4543ac119d48b":[0,0,42,30],
@@ -242,12 +249,5 @@ var NAVTREEINDEX25 =
 "scene__director__renderer__lifecycle_8h.html":[2,0,0,0,3,68],
 "scene__director__renderer__lifecycle_8h_source.html":[2,0,0,0,3,68],
 "scene__director__sphere__effector__store_8h.html":[2,0,0,0,3,69],
-"scene__director__sphere__effector__store_8h_source.html":[2,0,0,0,3,69],
-"scene__director__sphere__effectors_8cpp.html":[2,0,0,0,3,70],
-"scene__director__submission__store_8h.html":[2,0,0,0,3,71],
-"scene__director__submission__store_8h_source.html":[2,0,0,0,3,71],
-"scene__director__world__registry_8h.html":[2,0,0,0,3,72],
-"scene__director__world__registry_8h_source.html":[2,0,0,0,3,72],
-"sh__config_8cpp.html":[2,0,0,0,12,83],
-"sh__config_8cpp.html#a2638ccf61f1126e66c7538caebc441df":[2,0,0,0,12,83,0]
+"scene__director__sphere__effector__store_8h_source.html":[2,0,0,0,3,69]
 };

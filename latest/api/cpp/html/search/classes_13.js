@@ -27,7 +27,7 @@ var searchData=
   ['sharedworld_24',['SharedWorld',['../structGaussianSplatSceneDirector_1_1SharedWorld.html',1,'GaussianSplatSceneDirector']]],
   ['shcompressionmetrics_25',['SHCompressionMetrics',['../structSHCompressionMetrics.html',1,'']]],
   ['shconfig_26',['SHConfig',['../structSHConfig.html',1,'']]],
-  ['snapshot_27',['Snapshot',['../structDeviceVramLedger_1_1Snapshot.html',1,'DeviceVramLedger::Snapshot'],['../structStreamingLatencyHistogram_1_1Snapshot.html',1,'StreamingLatencyHistogram::Snapshot'],['../structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html',1,'StreamingUploadPipeline::PackTelemetry::Snapshot']]],
+  ['snapshot_27',['Snapshot',['../structDeviceVramLedger_1_1Snapshot.html',1,'DeviceVramLedger::Snapshot'],['../structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html',1,'gs_shadow_caster::LightFrameStats::Snapshot'],['../structStreamingLatencyHistogram_1_1Snapshot.html',1,'StreamingLatencyHistogram::Snapshot'],['../structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html',1,'StreamingUploadPipeline::PackTelemetry::Snapshot']]],
   ['snapshotasset_28',['SnapshotAsset',['../structgs__hlod__runtime_1_1SnapshotAsset.html',1,'gs_hlod_runtime']]],
   ['snapshotinstance_29',['SnapshotInstance',['../structgs__hlod__runtime_1_1SnapshotInstance.html',1,'gs_hlod_runtime']]],
   ['sortbenchmarktimingmetrics_30',['SortBenchmarkTimingMetrics',['../structGaussianSplatting_1_1SortBenchmarkTimingMetrics.html',1,'GaussianSplatting']]],

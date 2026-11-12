@@ -96,9 +96,11 @@ $(function(){initNavTree('namespacegs__shadow__caster.html','',''); });
 Classes</h2></td></tr>
 <tr class="memitem:FrameRecord" id="r_FrameRecord"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a></td></tr>
 <tr class="memitem:PassPlan" id="r_PassPlan"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a></td></tr>
+<tr class="memitem:LightPassInfo" id="r_LightPassInfo"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1LightPassInfo.html">LightPassInfo</a></td></tr>
 <tr class="memitem:FootprintEigen" id="r_FootprintEigen"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1FootprintEigen.html">FootprintEigen</a></td></tr>
 <tr class="memitem:DepthGradient" id="r_DepthGradient"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1DepthGradient.html">DepthGradient</a></td></tr>
 <tr class="memitem:FrameStats" id="r_FrameStats"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1FrameStats.html">FrameStats</a></td></tr>
+<tr class="memitem:LightFrameStats" id="r_LightFrameStats"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structgs__shadow__caster_1_1LightFrameStats.html">LightFrameStats</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-enum-members" class="groupheader"><a id="enum-members" name="enum-members"></a>
 Enumerations</h2></td></tr>
@@ -116,6 +118,15 @@ Enumerations</h2></td></tr>
 &#160;&#160;<a class="el" href="#a3d82421984d4cb0270b1196113a64d39a633f928923d512534d4527792a79b61c">INVALID_ATLAS_RECT</a>
 <br />
  }</td></tr>
+<tr class="memitem:a9562ea175d6832e74a9349c2e4778b5b" id="r_a9562ea175d6832e74a9349c2e4778b5b"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9562ea175d6832e74a9349c2e4778b5b">LightKind</a> { <br />
+&#160;&#160;<a class="el" href="#a9562ea175d6832e74a9349c2e4778b5ba696b031073e74bf2cb98e5ef201d4aa3">UNKNOWN</a>
+, <a class="el" href="#a9562ea175d6832e74a9349c2e4778b5bab6f2249394a4def60a78b342dcc925b9">DIRECTIONAL</a>
+, <a class="el" href="#a9562ea175d6832e74a9349c2e4778b5ba17b796eb223937596688a16042b5a124">OMNI_CUBE</a>
+, <a class="el" href="#a9562ea175d6832e74a9349c2e4778b5baecc90f414a6e63ffad4a014de45d5a76">OMNI_PARABOLOID</a>
+, <br />
+&#160;&#160;<a class="el" href="#a9562ea175d6832e74a9349c2e4778b5ba5bac85a0c611ddef64ab0dfb383056f4">SPOT</a>
+<br />
+ }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -123,6 +134,7 @@ Functions</h2></td></tr>
 <tr class="memitem:aa288b7c9de63f8f24266a4ad98605bcf" id="r_aa288b7c9de63f8f24266a4ad98605bcf"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa288b7c9de63f8f24266a4ad98605bcf">build_row_casts</a> (const LocalVector&lt; uint64_t &gt; &amp;p_row_keys, bool p_world_casts, const LocalVector&lt; uint64_t &gt; &amp;p_caster_keys, LocalVector&lt; uint32_t &gt; &amp;r_row_casts)</td></tr>
 <tr class="memitem:a1743fed0e72a00512985a671ccb97160" id="r_a1743fed0e72a00512985a671ccb97160"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1743fed0e72a00512985a671ccb97160">admitted_instance_splats</a> (const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">gs_hlod_bundle::InstanceRegion</a> &amp;p_region, const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">gs_hlod_bundle::ObjectDemand</a> *p_demands, uint32_t p_demand_count, const <a class="el" href="structgs__hlod__bundle_1_1Admission.html">gs_hlod_bundle::Admission</a> &amp;p_admission, const LocalVector&lt; uint32_t &gt; &amp;p_row_casts)</td></tr>
 <tr class="memitem:ab074dbdded9cab471cfe99f80bffa99e" id="r_ab074dbdded9cab471cfe99f80bffa99e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab074dbdded9cab471cfe99f80bffa99e">complete_record</a> (<a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;r_record, uint32_t p_world_records, uint64_t p_world_record_splats)</td></tr>
+<tr class="memitem:aef6ee597d1c8d6e467838f82756eb1fc" id="r_aef6ee597d1c8d6e467838f82756eb1fc"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aef6ee597d1c8d6e467838f82756eb1fc">light_kind_name</a> (<a class="el" href="#a9562ea175d6832e74a9349c2e4778b5b">LightKind</a> p_kind)</td></tr>
 <tr class="memitem:ad5e44387896df904a3ea1118eec7b84c" id="r_ad5e44387896df904a3ea1118eec7b84c"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1PassPlan.html">PassPlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad5e44387896df904a3ea1118eec7b84c">plan_pass</a> (const <a class="el" href="structgs__shadow__caster_1_1FrameRecord.html">FrameRecord</a> &amp;p_record, bool p_orthographic_light, bool p_bundle_current)</td></tr>
 <tr class="memitem:a44e15650d12733e02d2e5a380d1ca5c1" id="r_a44e15650d12733e02d2e5a380d1ca5c1"><td class="memItemLeft" align="right" valign="top">Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a44e15650d12733e02d2e5a380d1ca5c1">godot_shadow_clip</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, bool p_flip_y)</td></tr>
 <tr class="memitem:a02074877ccf6387f5fc504c1c3562ef8" id="r_a02074877ccf6387f5fc504c1c3562ef8"><td class="memItemLeft" align="right" valign="top">Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a02074877ccf6387f5fc504c1c3562ef8">frame_relative_shadow_clip</a> (const Projection &amp;p_light_projection, const Transform3D &amp;p_light_transform, bool p_flip_y, const Vector3 &amp;p_frame_camera)</td></tr>
@@ -134,6 +146,35 @@ Functions</h2></td></tr>
 <tr class="memitem:adf39fceec9aee97a82e768cacd58f41e" id="r_adf39fceec9aee97a82e768cacd58f41e"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structgs__shadow__caster_1_1DepthGradient.html">DepthGradient</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adf39fceec9aee97a82e768cacd58f41e">caster_depth_gradient</a> (float p_a, float p_b, float p_c, float p_low_pass, float p_cx, float p_cy)</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Enumeration Type Documentation</h2>
+<a id="a9562ea175d6832e74a9349c2e4778b5b" name="a9562ea175d6832e74a9349c2e4778b5b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9562ea175d6832e74a9349c2e4778b5b">&#9670;&#160;</a></span>LightKind</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum class <a class="el" href="#a9562ea175d6832e74a9349c2e4778b5b">gs_shadow_caster::LightKind</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel strong">strong</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a9562ea175d6832e74a9349c2e4778b5ba696b031073e74bf2cb98e5ef201d4aa3" name="a9562ea175d6832e74a9349c2e4778b5ba696b031073e74bf2cb98e5ef201d4aa3"></a>UNKNOWN&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a9562ea175d6832e74a9349c2e4778b5bab6f2249394a4def60a78b342dcc925b9" name="a9562ea175d6832e74a9349c2e4778b5bab6f2249394a4def60a78b342dcc925b9"></a>DIRECTIONAL&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a9562ea175d6832e74a9349c2e4778b5ba17b796eb223937596688a16042b5a124" name="a9562ea175d6832e74a9349c2e4778b5ba17b796eb223937596688a16042b5a124"></a>OMNI_CUBE&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a9562ea175d6832e74a9349c2e4778b5baecc90f414a6e63ffad4a014de45d5a76" name="a9562ea175d6832e74a9349c2e4778b5baecc90f414a6e63ffad4a014de45d5a76"></a>OMNI_PARABOLOID&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a9562ea175d6832e74a9349c2e4778b5ba5bac85a0c611ddef64ab0dfb383056f4" name="a9562ea175d6832e74a9349c2e4778b5ba5bac85a0c611ddef64ab0dfb383056f4"></a>SPOT&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a id="a3d82421984d4cb0270b1196113a64d39" name="a3d82421984d4cb0270b1196113a64d39"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3d82421984d4cb0270b1196113a64d39">&#9670;&#160;</a></span>Refusal</h2>
 
@@ -547,6 +588,31 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_flip_y</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aef6ee597d1c8d6e467838f82756eb1fc" name="aef6ee597d1c8d6e467838f82756eb1fc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aef6ee597d1c8d6e467838f82756eb1fc">&#9670;&#160;</a></span>light_kind_name()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char * gs_shadow_caster::light_kind_name </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="#a9562ea175d6832e74a9349c2e4778b5b">LightKind</a></td>          <td class="paramname"><span class="paramname"><em>p_kind</em></span></td><td>)</td>
+          <td></td>
         </tr>
       </table>
   </td>

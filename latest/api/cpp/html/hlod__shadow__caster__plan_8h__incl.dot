@@ -173,6 +173,7 @@ digraph "hlod_shadow_caster_plan.h"
   Node50 [id="Node000050",label="core/math/rect2.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node1 -> Node5 [id="edge118_Node000001_Node000005",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node6 [id="edge119_Node000001_Node000006",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node49 [id="edge120_Node000001_Node000049",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node36 [id="edge121_Node000001_Node000036",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node7 [id="edge120_Node000001_Node000007",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node49 [id="edge121_Node000001_Node000049",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node36 [id="edge122_Node000001_Node000036",color="steelblue1",style="solid",tooltip=" "];
 }
