@@ -1309,6 +1309,7 @@ def auto_tree_preflight(
                   "expected_output_bytes": AUTO_TREE_OUTPUT_BYTES,
                   "scratch_bytes": AUTO_TREE_SCRATCH_BYTES,
                   "required_disk_bytes": 2 * AUTO_TREE_OUTPUT_BYTES + AUTO_TREE_SCRATCH_BYTES,
+                  "builder_ram_estimate": auto_tree_ram_estimate(),
                   "meminfo_path": str(meminfo_path)}
     code, reason = EXIT_NOT_RUN, "preflight measurements unavailable"
     try:
@@ -1352,6 +1353,7 @@ def auto_tree_preflight(
         for name, field in _MEMINFO_FIELDS.items()
     )
     print(f"auto-tree preflight: {measurements}; df={json.dumps(data['df'], sort_keys=True)}")
+    print(f"auto-tree builder estimate (diagnostic only): {data['builder_ram_estimate']['reason']}")
     write_record(out, "auto_tree_preflight", code, reason, data)
     _announce(code, reason)
     return code
@@ -1391,14 +1393,55 @@ def _auto_plain_key(repo: Path, cache_root: Path) -> Tuple[Path, dict, str, str]
     return key, meta, fingerprint, _file_sha256(world)
 
 
+def auto_tree_ram_estimate() -> dict:
+    """Analytical Tier A SH3 reservation, not measured RSS or an admission gate.
+
+    Single-precision runner: Gaussian=144 B, SH3=12 Vector3 at 12 B each.
+    See tiled_internal.h node_bound, tiled_bake.cpp permanent reservation,
+    hlod_job.h OfflineJob::reserve, and auto_tree.cpp payload_reserved.
+    """
+    leaves, payload = 201_326_592, 144 + 12 * 12
+    node_bound = 1 + 8 * ((leaves // 16385) * 128 + 2 * ((leaves + 16383) // 16384))
+    interiors = (leaves + 2) // 3 + node_bound
+    permanent = 4 * (leaves + interiors) * payload + node_bound * 4096 + leaves * 64
+    # At tile=1M, OfflineJob max(bake,reload)=1,977,835,936 B; workers.cpp
+    # adds 3*65536*288 decoded bytes + 12*1M index bytes + 8 MiB stack.
+    worker = 1_977_835_936 + 3 * 65536 * payload + 12 * 1_000_000 + 8 * (1 << 20)
+    # Source adapter charges 16 MiB plus largest stored page for EACH worker.
+    minimum = (128 << 20) + permanent + 16 * (16 << 20)
+    limit = auto_tree_job("A")["limits"]["max_ram_bytes"]
+    return {"status": "OK", "kind": "analytical_reservation_estimate", "enforced": False,
+            "reason": (f"current builder Tier A reservation lower bound {minimum / GIB:.3f} GiB exceeds "
+                       f"{limit / GIB:g} GiB job limit; estimate only, builder refusal remains authoritative"),
+            "leaf_splats": leaves, "sh_degree": 3, "payload_bytes_per_splat": payload,
+            "node_bound": node_bound, "interior_reservation_bound": interiors,
+            "tiled_permanent_bytes": permanent, "minimum_reserved_bytes": minimum,
+            "full_worker_batch_subtotal_bytes": minimum + 16 * worker,
+            "worker_count": 16, "max_tile_splats": 1_000_000,
+            "writer_payload_bytes_range": [(leaves + count) * payload + leaves * 4
+                                            for count in (36_000_000, 67_000_000)],
+            "writer_interior_splats_range": [36_000_000, 67_000_000],
+            "job_limit_bytes": limit, "exceeds_job_limit": minimum > limit,
+            "scope": "permanent admission is mandatory; worker batching can reduce concurrency; writer is a later phase",
+            "unmeasured_terms": ["source page/directory/path sizes and sidecar expansion beyond 128 MiB",
+                                 "planning scratch and worker bookkeeping",
+                                 "writer node metadata and codec/verification workspaces"],
+            "provenance": "D2_AUTO_TREE_DESIGN sections 2.3/3; current D2-3 C++ reservation formulas"}
+
+
 def auto_tree_job(tier: str) -> dict:
     """Q4 limits; admission caps RAM even when all sixteen workers are queued."""
     large = tier == "A"
     if tier not in ("A", "T0"):
         raise LaneError(f"unsupported auto-tree tier {tier}")
+    # T0: tiled permanent=4*(N+ceil(N/3)+node_bound)*288 + node_bound*4096
+    # + N*64 = 7.546 GiB at N=4,194,304 (tiled_bake.cpp:774-777).
+    # Four tile jobs + base/source fixed terms total 10.431 GiB. Max sidecar
+    # expansion and 4*137,478,748 B (whole input as page bound) reach 12.822 GiB
+    # before directories/planning. Use 16 GiB for margin; workers/tile unchanged.
     return {"schema": "godotgs-auto-tree-job/2", "codec": "gsq",
             "worker_count": 16 if large else 4, "max_tile_splats": 1_000_000 if large else 262144,
-            "limits": {"max_ram_bytes": (20 if large else 6) * GIB,
+            "limits": {"max_ram_bytes": (20 if large else 16) * GIB,
                        "max_scratch_bytes": (12 if large else 2) * GIB,
                        "max_output_bytes": (12 if large else 2) * GIB,
                        "deadline_sec": 5400 if large else 1200},
@@ -1547,7 +1590,8 @@ def prime_auto_tree(
     fadvise: Optional[wc.Fadvise] = None, lock: Callable[..., object] = wc.cache_lock,
     verify: Callable[[Path], dict] = _verify_world, meminfo_path: Path = Path("/proc/meminfo"),
 ) -> int:
-    data: dict = {"cache_root": str(cache_root), "run_id": run_id}
+    data: dict = {"cache_root": str(cache_root), "run_id": run_id,
+                  "builder_ram_estimate": auto_tree_ram_estimate()}
     code, reason = EXIT_FAIL, "auto-tree prime did not complete"
     for tag in ("A.first", "A.second"):
         _auto_pending(out, tag, "Tier A admission/build has not completed")

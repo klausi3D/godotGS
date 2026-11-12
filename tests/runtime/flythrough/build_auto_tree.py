@@ -54,7 +54,8 @@ def new_report():
     report = dict.fromkeys(("wall_time_sec", "output_bytes", "node_count", "height", "levels",
         "content_generation", "output_file_sha256", "tree_sha", "input_file_sha256",
         "job_manifest_sha256", "source_fingerprint", "source_fingerprint_source",
-        "drawn_budget_splats", "drawn_budget_source", "oracle", "leaves_only", "builder_wall_time_sec"))
+        "drawn_budget_splats", "drawn_budget_source", "oracle", "leaves_only", "builder_wall_time_sec",
+        "builder_raw", "producer_reason"))
     report.update(schema="godotgs-auto-tree-build-report/1", status="failed", reason="not_started",
         budget_frozen=False, oracle_complete_all_poses=False,
         w13=absent("producer reopen and decoded-node verification not run"),
@@ -309,6 +310,11 @@ def _build(args, report):
         envelope = _read_json(response, "producer_report_invalid")
         if type(envelope) is not dict:
             raise BuildError("producer_report_invalid")
+        # Preserve diagnostics before any refusal/validation exits. In particular,
+        # reserved bytes are admission accounting, never a substitute for RSS.
+        # Keep the raw dictionary so new producer counters/reason text survive.
+        report["builder_raw"] = envelope.get("builder")
+        report["producer_reason"] = envelope.get("reason")
         if "reason" in envelope and type(envelope["reason"]) is not str:
             raise BuildError("producer_report_invalid")
         if envelope.get("reason"):
@@ -317,6 +323,9 @@ def _build(args, report):
         if type(builder) is not dict or type(builder.get("error")) is not int or type(builder.get("reason")) is not str:
             raise BuildError("builder_report_invalid")
         report["peak_rss_bytes"] = process_peak_rss(builder)
+        wall_usec = builder.get("wall_usec")
+        if type(wall_usec) is int and wall_usec > 0:
+            report["builder_wall_time_sec"] = wall_usec / 1000000
         if builder["error"] != 0:
             raise BuildError(builder["reason"] or "builder_error_without_reason")
         if builder["reason"]:
@@ -325,10 +334,8 @@ def _build(args, report):
             raise BuildError("producer_exit_nonzero")
         if tree_source_fingerprint(args.repo) != job["source_fingerprint"]:
             raise BuildError("tree_source_changed")
-        wall_usec = builder.get("wall_usec")
         if type(wall_usec) is not int or wall_usec <= 0:
             raise BuildError("builder_report_invalid")
-        report["builder_wall_time_sec"] = wall_usec / 1000000
         _collect_output(report, args.out, job, builder)
         report["oracle"] = _oracle_block(envelope.get("oracle"), poses, job["drawn_budget_splats"])
         report["oracle"].update(camera=job["oracle"],

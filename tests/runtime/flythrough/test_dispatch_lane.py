@@ -1411,6 +1411,10 @@ class D25AutoTreePreflight(_TempCase):
         self.assertEqual(code, lane.EXIT_NOT_RUN)
         self.assertEqual(record["status"], "NOT_RUN")
         self.assertEqual(record["data"]["reason_code"], "ram_insufficient")
+        estimate = record["data"]["builder_ram_estimate"]
+        self.assertFalse(estimate["enforced"])
+        self.assertEqual(estimate["tiled_permanent_bytes"], 389_184_099_456)
+        self.assertTrue(estimate["exceeds_job_limit"])
 
     def test_disk_below_two_outputs_plus_scratch_is_not_run(self):
         code, record = self.preflight(self.meminfo(), self.REQUIRED_DISK - 1)
@@ -1458,6 +1462,8 @@ class D25AutoTreePreflight(_TempCase):
         self.assertEqual(data["df"]["total_bytes"], 228 * 10**9)
         self.assertEqual(data["df"]["used_bytes"], 228 * 10**9 - self.REQUIRED_DISK)
         self.assertEqual(data["required_disk_bytes"], self.REQUIRED_DISK)
+        self.assertTrue(data["builder_ram_estimate"]["exceeds_job_limit"],
+                        "the estimate must not refuse admission by itself")
 
     def test_swap_measurements_are_printed_and_recorded_in_bytes(self):
         for total, free in ((8 * GIB, 3 * GIB), (0, 0)):
@@ -1658,6 +1664,7 @@ class D25AutoTreeCache(_CacheCase):
         self.assertEqual(self.record("prime_auto_tree")["data"]["reason_code"], "cache_absent")
         self.assertFalse(any("build_auto_tree.py" in " ".join(c) for c in runner.calls))
         self.assertFalse((self.cache / "A-v4_gsq_auto").exists())
+        self.assertTrue(self.record("prime_auto_tree")["data"]["builder_ram_estimate"]["exceeds_job_limit"])
 
     def test_prime_stale_plain_is_not_run_and_builds_nothing(self):
         plain = self.ready_plain()
@@ -1683,6 +1690,10 @@ class D25AutoTreeCache(_CacheCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.snapshot(plain), before)
         self.assertEqual(wc.complete_keys(self.cache, "A-v4_gsq_auto"), [])
+        estimate = self.record("prime_auto_tree")["data"]["builder_ram_estimate"]
+        self.assertEqual(estimate["writer_payload_bytes_range"], [69_155_364_864, 78_083_364_864])
+        self.assertEqual(estimate["full_worker_batch_subtotal_bytes"], 422_464_315_008)
+        self.assertIn("builder", estimate["reason"])
 
     def test_old_tree_keys_are_deleted_before_build_and_plain_is_preserved(self):
         plain, tree = self.tree_fixture()
@@ -1846,6 +1857,9 @@ class D25AutoTreeCache(_CacheCase):
         self.assertEqual(job["drawn_budget_source"], "ADR HLOD arm N_frozen <= 1.0M; BV-26a not merged")
         for field in job["limits"]:
             self.assertLess(small["limits"][field], job["limits"][field])
+        self.assertEqual(small["limits"]["max_ram_bytes"], 16 * GIB)
+        self.assertEqual(small["worker_count"], 4)
+        self.assertEqual(small["max_tile_splats"], 262144)
         self.assertEqual(small["codec"], "gsq")
         self.assertNotIn("source_fingerprint", job)
 

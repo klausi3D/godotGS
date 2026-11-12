@@ -155,9 +155,19 @@ world files remain on the runner. A stale or absent plain key requires a
 separate plain-cache prime; this mode never silently rebuilds it.
 Tier A uses 16 workers (within the design's 12–24 range), with RAM admission
 capped at 20 GiB; scratch and output limits are 12 GiB each. T0 uses four workers,
-6 GiB RAM, 2 GiB scratch/output limits and a 20-minute build deadline. Producer
+16 GiB RAM, 2 GiB scratch/output limits and a 20-minute build deadline. Producer
 scratch stays on the output filesystem. T0 does not require Tier A's capacity
-admission. Reports include both build identities, wall time, measured RSS,
+admission. The T0 RAM limit covers the current tiled reservation (10.431 GiB
+before variable source/sidecar overhead) with margin. Tier A limits remain
+unchanged: preflight/prime records include a diagnostic formula estimate,
+not a new gate. Current permanent tiled admission alone is 362.456 GiB;
+a full 16-worker batch subtotal is 393.451 GiB before variable overhead.
+The later retained SH3 payload alone is 64.406–72.721 GiB for the design's
+36M–67M interiors. These are reservation calculations, not measured RSS;
+the builder's own refusal remains authoritative. Failure reports preserve
+`builder_raw` (including reservation, page/tile counters and reason text),
+`producer_reason`, and builder wall time when supplied.
+Reports include both build identities, wall time, measured RSS,
 per-level eps, W13 node counts, V4 verification, oracle cuts and the leaves-only
 control. Unmeasured scratch peaks carry an explicit absence reason. Real-scan
 identity is `NOT_RUN` because the existing bound in-core API exposes no per-node

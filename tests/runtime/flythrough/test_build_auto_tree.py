@@ -311,7 +311,7 @@ class D25SourceFingerprintContract(unittest.TestCase):
             target.write_bytes(source.read_bytes())
         return repo
 
-    def run_driver(self, root, *, repo=None, capture=None):
+    def run_driver(self, root, *, repo=None, capture=None, failure_envelope=None):
         source, job, report = root / "input", root / "job.json", root / "report.json"
         # Input bytes never reach a producer: this test checks request provenance,
         # not a valid world or a fabricated producer-output fixture.
@@ -333,6 +333,12 @@ class D25SourceFingerprintContract(unittest.TestCase):
             self.assertEqual(Path(payload["scratch"]).parent, request.parent)
             self.assertEqual(Path(command[command.index("--path") + 1]), request.parent)
             capture.append(payload)
+            if failure_envelope is not None:
+                # Fault injection at the subprocess boundary, not a captured
+                # producer fixture or evidence that a real build ran.
+                response = Path(command[command.index("--report") + 1])
+                response.write_text(json.dumps(failure_envelope), encoding="utf-8")
+                return self.driver.subprocess.CompletedProcess(command, 1)
             # Deliberately terminate at the subprocess boundary. No Godot runs.
             raise self.driver.subprocess.TimeoutExpired(command, kwargs["timeout"])
 
@@ -344,6 +350,31 @@ class D25SourceFingerprintContract(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(report.is_file(), "driver failures must publish their reason")
         return json.loads(report.read_text(encoding="utf-8")), producer.call_count
+
+    def test_builder_refusal_preserves_raw_diagnostics_in_uploaded_report(self):
+        builder = {"error": 6, "reason": "limit_ram: injected allocation refusal",
+                   "peak_reserved_bytes": 7654321098, "tiles_baked": 0, "pages_decoded": 19,
+                   "pages_decoded_digest_checked": 19, "wall_usec": 790000,
+                   "detail": "injected diagnostic text"}
+        with tempfile.TemporaryDirectory() as directory:
+            report, calls = self.run_driver(Path(directory), capture=[], failure_envelope={"builder": builder})
+        self.assertEqual(calls, 1)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["reason"], builder["reason"])
+        self.assertEqual(report["builder_raw"], builder)
+        self.assertEqual(report["builder_wall_time_sec"], 0.79)
+        self.assertFalse(report["peak_rss_bytes"]["available"], "reservation is not measured RSS")
+        self.assertIsNone(report["output_bytes"])
+
+    def test_envelope_failure_keeps_builder_details_and_absence_is_not_zero(self):
+        for builder in ({"error": 6, "reason": "builder detail"}, None):
+            envelope = {"reason": "injected bridge failure", "builder": builder}
+            with self.subTest(builder=builder), tempfile.TemporaryDirectory() as directory:
+                report, _ = self.run_driver(Path(directory), capture=[], failure_envelope=envelope)
+                self.assertEqual(report["reason"], envelope["reason"])
+                self.assertEqual(report["producer_reason"], envelope["reason"])
+                self.assertEqual(report["builder_raw"], builder)
+                self.assertIsNone(report["builder_wall_time_sec"])
 
     def test_v2_job_accepts_no_caller_source_identity(self):
         job = self.job()
