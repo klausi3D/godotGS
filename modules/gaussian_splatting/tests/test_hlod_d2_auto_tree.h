@@ -953,6 +953,89 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] RAM refusal preserves destinat
 	CHECK(paged->open(output, tree, metadata, reason) == OK);
 }
 
+// D2-4: call the proposed API through the existing Variant binding machinery.
+// This compiles before oracle_cut exists and fails with binding_missing at
+// runtime, rather than breaking compilation or silently skipping the contract.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound CPU oracle cut and leaves-only control") {
+	Ref<GaussianSplatHlodAutoTree> api;
+	api.instantiate();
+	if (!api->has_method("oracle_cut")) {
+		FAIL("binding_missing: GaussianSplatHlodAutoTree.oracle_cut");
+		return;
+	}
+	Fixture fixture;
+	D2_AUTO_NEED(fixture.create(262144));
+	const String output = fixture.dir.path_join("oracle.gsplatworld");
+	Dictionary build_options = fixture.options();
+	build_options["codec"] = "gsq";
+	const Dictionary built = bound_build(fixture.input, output, build_options);
+	D2_AUTO_NEED(int(built.get("error", FAILED)) == OK);
+	Dictionary camera;
+	camera["width"] = 1920;
+	camera["height"] = 1080;
+	camera["fov_deg"] = 107.5;
+	camera["keep"] = "width";
+	camera["near_m"] = 0.05;
+	camera["far_m"] = 1000.0;
+	camera["tau_pixels"] = 1000000.0; // Main cut stops coarse; leaves control must not.
+	Array pose;
+	for (double value : { 0.0, 100.0, 400.0, 0.0, -15.0 }) {
+		pose.push_back(value); // probe_path convention: x, y, z, yaw, pitch.
+	}
+	Dictionary checkpoint;
+	checkpoint["checkpoint"] = "test-view";
+	checkpoint["pose"] = pose;
+	Array poses;
+	poses.push_back(checkpoint);
+	uint64_t coarse_splats = 0;
+	for (int mode = 0; mode < 3; ++mode) {
+		Dictionary options = camera.duplicate(true);
+		options["drawn_budget_splats"] = mode == 0 ? 1000000 : 1;
+		options["leaves_only"] = mode == 2;
+		const Variant path_arg = output, poses_arg = poses, options_arg = options;
+		const Variant *args[] = { &path_arg, &poses_arg, &options_arg };
+		Callable::CallError error;
+		const Variant value = api->callp("oracle_cut", args, 3, error);
+		D2_AUTO_NEED(error.error == Callable::CallError::CALL_OK);
+		D2_AUTO_NEED(value.get_type() == Variant::DICTIONARY);
+		const Dictionary report = value;
+		D2_AUTO_NEED(report.has("poses") && report["poses"].get_type() == Variant::ARRAY);
+		const Array rows = report["poses"];
+		if (rows.size() != 1) {
+			FAIL("oracle_cut must return exactly one row for the single test pose");
+			return;
+		}
+		D2_AUTO_NEED(rows[0].get_type() == Variant::DICTIONARY);
+		const Dictionary row = rows[0];
+		for (const char *field : { "status", "selected_splats", "selected_count", "budget", "drawn_le_budget", "budget_bound" }) {
+			D2_AUTO_NEED(row.has(field));
+		}
+		CHECK(int64_t(row["budget"]) == (mode == 0 ? 1000000 : 1));
+		CHECK(row["budget_bound"].get_type() == Variant::BOOL);
+		const uint64_t selected = uint64_t(int64_t(row["selected_splats"]));
+		CHECK(bool(row["drawn_le_budget"]) == (selected <= uint64_t(int64_t(row["budget"]))));
+		if (mode == 1) {
+			CHECK(String(row["status"]) == "BOOTSTRAP_INFEASIBLE");
+			CHECK(int64_t(row["selected_count"]) == 0);
+		} else {
+			CHECK(String(row["status"]) == "COMPLETE");
+			CHECK(int64_t(row["selected_count"]) > 0);
+			CHECK(selected > 0);
+			if (mode == 0) {
+				coarse_splats = selected;
+			} else {
+				// Private snapshot marks interiors EDIT_STALE; CutHistory expands
+				// them with nonbinding capacities. tau=0 is INVALID in production.
+				CHECK(String(report.get("mechanism", "")) == "stale_interiors_unbounded");
+				CHECK(bool(row.get("only_leaves", false)));
+				CHECK(selected > coarse_splats);
+				CHECK(selected <= fixture.generated.splat_count);
+				CHECK_FALSE(bool(row["drawn_le_budget"]));
+			}
+		}
+	}
+}
+
 #undef D2_AUTO_NEED
 
 } // namespace TestHlodD2AutoTree
