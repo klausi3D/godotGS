@@ -6,5 +6,6 @@ var searchData=
   ['worldplan_3',['WorldPlan',['../structgs__hlod__auto__route_1_1WorldPlan.html',1,'gs_hlod_auto_route']]],
   ['worldsubmission_4',['WorldSubmission',['../structGaussianSplatSceneDirector_1_1WorldSubmission.html',1,'GaussianSplatSceneDirector']]],
   ['worldsubmissionrecord_5',['WorldSubmissionRecord',['../structGaussianSplatSceneDirector_1_1WorldSubmissionRecord.html',1,'GaussianSplatSceneDirector']]],
-  ['writer_6',['Writer',['../classgs__world__writer_1_1Writer.html',1,'gs_world_writer']]]
+  ['writer_6',['Writer',['../classgs__world__writer_1_1Writer.html',1,'gs_world_writer']]],
+  ['writerv4_7',['WriterV4',['../classgs__world__writer_1_1WriterV4.html',1,'gs_world_writer']]]
 ];

@@ -1,13 +1,20 @@
 var searchData=
 [
-  ['viewresult_0',['ViewResult',['../structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html',1,'gs_hlod_runtime::ViewSet']]],
-  ['viewset_1',['ViewSet',['../classgs__hlod__runtime_1_1ViewSet.html',1,'gs_hlod_runtime']]],
-  ['viewspec_2',['ViewSpec',['../structgs__hlod__runtime_1_1ViewSpec.html',1,'gs_hlod_runtime']]],
-  ['viewstate_3',['ViewState',['../structRenderFrameContextManager_1_1ViewState.html',1,'RenderFrameContextManager']]],
-  ['visiblechunkrefgpu_4',['VisibleChunkRefGPU',['../structVisibleChunkRefGPU.html',1,'']]],
-  ['visiblelodselection_5',['VisibleLODSelection',['../structRenderStreamingOrchestrator_1_1VisibleLODSelection.html',1,'RenderStreamingOrchestrator']]],
-  ['visiblescanstarvationinput_6',['VisibleScanStarvationInput',['../structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html',1,'StreamingQueuePressureController']]],
-  ['vrambudgetconfig_7',['VRAMBudgetConfig',['../structVRAMBudgetConfig.html',1,'']]],
-  ['vrambudgetregulator_8',['VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html',1,'']]],
-  ['vramdebugstats_9',['VRAMDebugStats',['../structVRAMDebugStats.html',1,'']]]
+  ['v4bodydesc_0',['V4BodyDesc',['../structgs__world__writer_1_1V4BodyDesc.html',1,'gs_world_writer']]],
+  ['v4bodyhandle_1',['V4BodyHandle',['../structgs__world__writer_1_1V4BodyHandle.html',1,'gs_world_writer']]],
+  ['v4node_2',['V4Node',['../structgs__world__writer_1_1V4Node.html',1,'gs_world_writer']]],
+  ['v4report_3',['V4Report',['../structgs__world__writer_1_1V4Report.html',1,'gs_world_writer']]],
+  ['v4segmentkey_4',['V4SegmentKey',['../structgs__world__writer_1_1V4SegmentKey.html',1,'gs_world_writer']]],
+  ['v4segmentreport_5',['V4SegmentReport',['../structgs__world__writer_1_1V4SegmentReport.html',1,'gs_world_writer']]],
+  ['v4spillrecord_6',['V4SpillRecord',['../structgs__world__writer_1_1V4SpillRecord.html',1,'gs_world_writer']]],
+  ['viewresult_7',['ViewResult',['../structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html',1,'gs_hlod_runtime::ViewSet']]],
+  ['viewset_8',['ViewSet',['../classgs__hlod__runtime_1_1ViewSet.html',1,'gs_hlod_runtime']]],
+  ['viewspec_9',['ViewSpec',['../structgs__hlod__runtime_1_1ViewSpec.html',1,'gs_hlod_runtime']]],
+  ['viewstate_10',['ViewState',['../structRenderFrameContextManager_1_1ViewState.html',1,'RenderFrameContextManager']]],
+  ['visiblechunkrefgpu_11',['VisibleChunkRefGPU',['../structVisibleChunkRefGPU.html',1,'']]],
+  ['visiblelodselection_12',['VisibleLODSelection',['../structRenderStreamingOrchestrator_1_1VisibleLODSelection.html',1,'RenderStreamingOrchestrator']]],
+  ['visiblescanstarvationinput_13',['VisibleScanStarvationInput',['../structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html',1,'StreamingQueuePressureController']]],
+  ['vrambudgetconfig_14',['VRAMBudgetConfig',['../structVRAMBudgetConfig.html',1,'']]],
+  ['vrambudgetregulator_15',['VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html',1,'']]],
+  ['vramdebugstats_16',['VRAMDebugStats',['../structVRAMDebugStats.html',1,'']]]
 ];

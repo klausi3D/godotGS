@@ -7,6 +7,15 @@ var namespacegs__world__writer =
     [ "Report", "structgs__world__writer_1_1Report.html", "structgs__world__writer_1_1Report" ],
     [ "ChunkDesc", "structgs__world__writer_1_1ChunkDesc.html", "structgs__world__writer_1_1ChunkDesc" ],
     [ "Writer", "classgs__world__writer_1_1Writer.html", "classgs__world__writer_1_1Writer" ],
+    [ "PagedV4Spec", "structgs__world__writer_1_1PagedV4Spec.html", "structgs__world__writer_1_1PagedV4Spec" ],
+    [ "V4SegmentKey", "structgs__world__writer_1_1V4SegmentKey.html", "structgs__world__writer_1_1V4SegmentKey" ],
+    [ "V4BodyDesc", "structgs__world__writer_1_1V4BodyDesc.html", "structgs__world__writer_1_1V4BodyDesc" ],
+    [ "V4BodyHandle", "structgs__world__writer_1_1V4BodyHandle.html", "structgs__world__writer_1_1V4BodyHandle" ],
+    [ "V4Node", "structgs__world__writer_1_1V4Node.html", "structgs__world__writer_1_1V4Node" ],
+    [ "V4SpillRecord", "structgs__world__writer_1_1V4SpillRecord.html", "structgs__world__writer_1_1V4SpillRecord" ],
+    [ "V4SegmentReport", "structgs__world__writer_1_1V4SegmentReport.html", "structgs__world__writer_1_1V4SegmentReport" ],
+    [ "V4Report", "structgs__world__writer_1_1V4Report.html", "structgs__world__writer_1_1V4Report" ],
+    [ "WriterV4", "classgs__world__writer_1_1WriterV4.html", "classgs__world__writer_1_1WriterV4" ],
     [ "Phase", "namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6", [
       [ "IDLE", "namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6aa5daf7f2ebbba4975d61dab1c40188c7", null ],
       [ "WRITING", "namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6aa8ae3f8747543dc53054e6ccbb5fcb1b", null ],
@@ -26,5 +35,6 @@ var namespacegs__world__writer =
     [ "gsq_v1_codec_params", "namespacegs__world__writer.html#ada361ea93d7678c5267ad41e583414f5", null ],
     [ "kCodecGsqV1", "namespacegs__world__writer.html#ad77f9ae40d8df80734e1b93d34520d2d", null ],
     [ "kCodecNone", "namespacegs__world__writer.html#ae7bc0321423f7c3100461e0453e0ea54", null ],
-    [ "kDefaultFreeDiskMargin", "namespacegs__world__writer.html#afc0969532fd5b4bc30f22a6464590e50", null ]
+    [ "kDefaultFreeDiskMargin", "namespacegs__world__writer.html#afc0969532fd5b4bc30f22a6464590e50", null ],
+    [ "kMaxOpenSpillSegments", "namespacegs__world__writer.html#a8b1f4c27d3c41ac5f8906944f0885a75", null ]
 ];

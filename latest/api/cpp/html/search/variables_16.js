@@ -9,7 +9,7 @@ var searchData=
   ['validated_6',['validated',['../structGaussianRenderPipeline_1_1StageIO.html#aed1928e3f7847da88963f812e130473a',1,'GaussianRenderPipeline::StageIO']]],
   ['validation_5ferror_7',['validation_error',['../structGaussianRenderPipeline_1_1StageIO.html#a7760a637ffedfa5dd8c3fd085c2c4436',1,'GaussianRenderPipeline::StageIO']]],
   ['validation_5ffailed_8',['validation_failed',['../structGaussianRenderPipeline_1_1StageIO.html#a3c93c61c3752a371a6fe2eff41da85fc',1,'GaussianRenderPipeline::StageIO']]],
-  ['value_9',['value',['../structGaussianSplatting_1_1Keyframe.html#a0001a75bc7dcd486a63a04be311d3dd0',1,'GaussianSplatting::Keyframe']]],
+  ['value_9',['value',['../structGaussianSplatting_1_1Keyframe.html#a0001a75bc7dcd486a63a04be311d3dd0',1,'GaussianSplatting::Keyframe::value'],['../structgs__world__writer_1_1V4BodyHandle.html#a5415ec2738f055513217bd2ea1337bf4',1,'gs_world_writer::V4BodyHandle::value']]],
   ['values_5fbuffer_10',['values_buffer',['../structSortOperationParams.html#a5b3ac9e80695ba98bd3dd68fd394e51d',1,'SortOperationParams::values_buffer'],['../structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685',1,'GaussianSplatting::TileGlobalSortResources::values_buffer']]],
   ['values_5fconverted_11',['values_converted',['../structFloat16Utils_1_1Float16ConversionStats.html#a39ef90134a70725329799d3e14f93ad3',1,'Float16Utils::Float16ConversionStats']]],
   ['variance_12',['variance',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode_1_1Stats.html#ab37c8b10160054ce73e7a680e86200e4',1,'GaussianSplatting::HierarchicalSplatStructure::OctreeNode::Stats']]],

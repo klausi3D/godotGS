@@ -7,7 +7,7 @@ var searchData=
   ['fill_5finstance_5fgrading_5fentry_4',['fill_instance_grading_entry',['../classGaussianSplatSceneDirector.html#ac271edf724501b1faec70e357686b257',1,'GaussianSplatSceneDirector']]],
   ['fill_5fpreset_5fconfig_5',['fill_preset_config',['../classGaussianSplatNodeQualityHelper.html#a69878c1e51b55a692765ea40544a4abb',1,'GaussianSplatNodeQualityHelper']]],
   ['fill_5fsort_5fpadding_6',['fill_sort_padding',['../namespaceGaussianSplatting.html#abcb1a8c67d061f28743591cb2ee38286',1,'GaussianSplatting']]],
-  ['finalize_7',['finalize',['../classgs__world__writer_1_1Writer.html#aefd48590249f3c170bfa46bf5a4e2543',1,'gs_world_writer::Writer']]],
+  ['finalize_7',['finalize',['../classgs__world__writer_1_1Writer.html#aefd48590249f3c170bfa46bf5a4e2543',1,'gs_world_writer::Writer::finalize()'],['../classgs__world__writer_1_1WriterV4.html#af65ff3257dc5a15c472d9a392905d2e4',1,'gs_world_writer::WriterV4::finalize()']]],
   ['finalize_5fframe_5fmetrics_8',['finalize_frame_metrics',['../classRenderDiagnosticsOrchestrator.html#af32747920133317abc0837a5be6f8cb5',1,'RenderDiagnosticsOrchestrator']]],
   ['finalize_5fmodule_9',['finalize_module',['../classGaussianSplatManager.html#add41591b0e7ab8a62491500c5700f790',1,'GaussianSplatManager']]],
   ['finalize_5fresidency_5frequests_10',['finalize_residency_requests',['../classGaussianStreamingSystem.html#a02a72be5a7366c4ff368a32792adcb1f',1,'GaussianStreamingSystem']]],

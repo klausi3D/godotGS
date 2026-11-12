@@ -13,6 +13,7 @@ var namespacegs__gsq =
     [ "sh_high_order_for_degree", "namespacegs__gsq.html#a9cd48d18441817c345cc8097864ff38d", null ],
     [ "validate_encode_params", "namespacegs__gsq.html#ad768129b6f032c903317043a7afed7cd", null ],
     [ "verify_page", "namespacegs__gsq.html#ade26980767342bc4e2a4169e6ee40972", null ],
+    [ "writer_v4_workspace_bytes", "namespacegs__gsq.html#a6060a504bb61d5993a3238e879782147", null ],
     [ "zstd_header_version", "namespacegs__gsq.html#a0700dee7821f7c4295fac1f7e77b7860", null ],
     [ "zstd_library_version", "namespacegs__gsq.html#a0eca6558ebe0772ad9a864e26871cd43", null ],
     [ "kCodecId", "namespacegs__gsq.html#afeed6f983f7582f31bc9ff72cb6af1d8", null ],

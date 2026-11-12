@@ -313,7 +313,8 @@ var annotated_dup =
       [ "Report", "structgs__world__generator_1_1Report.html", "structgs__world__generator_1_1Report" ]
     ] ],
     [ "gs_world_paged", "namespacegs__world__paged.html", [
-      [ "NodeMetrics", "structgs__world__paged_1_1NodeMetrics.html", "structgs__world__paged_1_1NodeMetrics" ]
+      [ "NodeMetrics", "structgs__world__paged_1_1NodeMetrics.html", "structgs__world__paged_1_1NodeMetrics" ],
+      [ "HeaderFields", "structgs__world__paged_1_1HeaderFields.html", "structgs__world__paged_1_1HeaderFields" ]
     ] ],
     [ "gs_world_writer", "namespacegs__world__writer.html", [
       [ "CodecParams", "structgs__world__writer_1_1CodecParams.html", "structgs__world__writer_1_1CodecParams" ],
@@ -322,7 +323,16 @@ var annotated_dup =
       [ "Progress", "structgs__world__writer_1_1Progress.html", "structgs__world__writer_1_1Progress" ],
       [ "Report", "structgs__world__writer_1_1Report.html", "structgs__world__writer_1_1Report" ],
       [ "ChunkDesc", "structgs__world__writer_1_1ChunkDesc.html", "structgs__world__writer_1_1ChunkDesc" ],
-      [ "Writer", "classgs__world__writer_1_1Writer.html", "classgs__world__writer_1_1Writer" ]
+      [ "Writer", "classgs__world__writer_1_1Writer.html", "classgs__world__writer_1_1Writer" ],
+      [ "PagedV4Spec", "structgs__world__writer_1_1PagedV4Spec.html", "structgs__world__writer_1_1PagedV4Spec" ],
+      [ "V4SegmentKey", "structgs__world__writer_1_1V4SegmentKey.html", "structgs__world__writer_1_1V4SegmentKey" ],
+      [ "V4BodyDesc", "structgs__world__writer_1_1V4BodyDesc.html", "structgs__world__writer_1_1V4BodyDesc" ],
+      [ "V4BodyHandle", "structgs__world__writer_1_1V4BodyHandle.html", "structgs__world__writer_1_1V4BodyHandle" ],
+      [ "V4Node", "structgs__world__writer_1_1V4Node.html", "structgs__world__writer_1_1V4Node" ],
+      [ "V4SpillRecord", "structgs__world__writer_1_1V4SpillRecord.html", "structgs__world__writer_1_1V4SpillRecord" ],
+      [ "V4SegmentReport", "structgs__world__writer_1_1V4SegmentReport.html", "structgs__world__writer_1_1V4SegmentReport" ],
+      [ "V4Report", "structgs__world__writer_1_1V4Report.html", "structgs__world__writer_1_1V4Report" ],
+      [ "WriterV4", "classgs__world__writer_1_1WriterV4.html", "classgs__world__writer_1_1WriterV4" ]
     ] ],
     [ "ResidentAtlasBudget", "namespaceResidentAtlasBudget.html", [
       [ "SubsetPlan", "structResidentAtlasBudget_1_1SubsetPlan.html", "structResidentAtlasBudget_1_1SubsetPlan" ]
