@@ -86,6 +86,7 @@
 #include "test_gs_atomic_file_transaction.h"
 #include "test_gs_world_writer.h"
 #include "test_gs_world_writer_v4.h"
+#include "test_gs_world_writer_v4_gsq.h"
 #include "test_gsq_codec.h"
 #include "test_gsq_codec_hardening.h"
 #include "test_gsq_page_builder.h"
