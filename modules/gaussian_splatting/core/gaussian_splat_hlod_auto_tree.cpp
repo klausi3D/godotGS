@@ -6,6 +6,7 @@
 #include "../io/gs_auto_tree_source.h"
 #include "../io/gs_atomic_file_transaction.h"
 #include "../io/gs_world_writer_v4.h"
+#include "../io/gsq/gsq_codec.h"
 #include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
@@ -33,6 +34,11 @@
 #include <unistd.h>
 #endif
 
+namespace gs_gsq {
+// Shared with WriterV4; implemented beside the codec with its zstd headers.
+uint64_t writer_v4_workspace_bytes(const EncodeParams &p_params);
+}
+
 namespace {
 
 constexpr uint64_t kSlice = 1ull << 20;
@@ -55,6 +61,7 @@ struct Options {
 	String fingerprint;
 	uint32_t workers = 1;
 	uint32_t tile_splats = 1000000;
+	gs_world_writer::CodecParams codec;
 	gs_world_writer::Limits limits;
 	uint64_t deadline = 0; // absolute ticks, unlike WriterV4's relative duration
 };
@@ -99,9 +106,8 @@ Error parse_options(const Dictionary &p_options, uint64_t p_started, Options &r_
 	}
 	const String codec = p_options.get("codec", "none");
 	if (codec == "gsq") {
-		return refuse(r_reason, "v4_gsq_output_requires_bv_c4", ERR_UNAVAILABLE);
-	}
-	if (codec != "none") {
+		r_options.codec = gs_world_writer::gsq_v1_codec_params();
+	} else if (codec != "none") {
 		return refuse(r_reason, "codec_invalid");
 	}
 	if (!p_options.has("source_fingerprint")) {
@@ -216,6 +222,55 @@ void hash_payload(const Gaussian *p_g, const Vector3 *p_sh, uint32_t p_count, ui
 		hash.update(reinterpret_cast<const uint8_t *>(p_sh), uint64_t(p_count) * p_high * sizeof(Vector3));
 	}
 	hash.finish(r_digest);
+}
+
+struct NodeDigest {
+	uint8_t bytes[32] = {};
+};
+
+// Capture expected output BEFORE discarding the bake. The public GSQ spill
+// digest hashes compressed scratch, not the final runtime payload (leaves use
+// a separate node-relative page). Do not re-encode decoded scratch: that would
+// quantize twice. All buffers here die before the next append or reopen.
+Error gsq_node_digest(const Gaussian *p_g, const Vector3 *p_sh, uint32_t p_count, uint32_t p_degree,
+		const gs_world_writer::V4BodyDesc &p_desc, const gs_gsq::EncodeParams &p_params,
+		NodeDigest &r_digest, String &r_reason) {
+	const uint64_t stored_limit = gs_world_paged::gsq_record_stored_bytes_limit(p_count, p_degree);
+	if (!stored_limit) {
+		return refuse(r_reason, "gsq_verify_layout", ERR_INVALID_DATA);
+	}
+	const uint32_t high = gs_gsq::sh_high_order_for_degree(p_degree);
+	Vector<Gaussian> decoded;
+	Vector<Vector3> sh;
+	LocalVector<uint8_t> page;
+	if (!gs_resize_or_fail(decoded, p_count, "gs_auto_tree GSQ verification gaussians") ||
+			!gs_resize_or_fail(sh, uint64_t(p_count) * high, "gs_auto_tree GSQ verification SH") ||
+			!gs_hlod::fallible_resize(page, stored_limit - gs_world_paged::kPayloadRecordHeaderBytes, "gs_auto_tree GSQ verification page")) {
+		return refuse(r_reason, "limit_ram: gsq_verification", ERR_OUT_OF_MEMORY);
+	}
+	std::memcpy(decoded.ptrw(), p_g, uint64_t(p_count) * sizeof(Gaussian));
+	if (p_desc.is_leaf) {
+		Gaussian *g = decoded.ptrw();
+		for (uint32_t i = 0; i < p_count; ++i) {
+			for (uint32_t axis = 0; axis < 3; ++axis) {
+				g[i].position[axis] = real_t(double(g[i].position[axis]) - p_desc.cell_center[axis]);
+			}
+		}
+	}
+	Error error = gs_gsq::encode_page(decoded.ptr(), p_sh, p_count, p_degree, p_params, page, r_reason);
+	if (error != OK) {
+		return error;
+	}
+	gs_gsq::DecodeContext decoder;
+	error = decoder.decode_range(page.ptr(), page.size(), 0, p_count, decoded.ptrw(), sh.ptrw(), r_reason);
+	if (error != OK) {
+		return error;
+	}
+	if (p_desc.is_leaf) {
+		gs_world_paged::reconstruct_leaf_positions(decoded.ptrw(), p_count, p_desc.cell_center);
+	}
+	gs_gsq::decoded_digest(decoded.ptr(), sh.ptr(), p_count, p_degree, r_digest.bytes);
+	return OK;
 }
 
 bool same_metrics(const gs_world_paged::NodeMetrics &a, const gs_world_paged::NodeMetrics &b) {
@@ -576,12 +631,41 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	// tree validation scratch. Writer has its own separately enforced reservation.
 	const uint64_t metadata_reserved = base_reserved + uint64_t(spec.node_count) * 16384;
 	const uint64_t max_body = uint64_t(gs_hlod::kMaxNodeSplats) * (sizeof(Gaussian) + uint64_t(spec.sh_high_order) * sizeof(Vector3));
-	const uint64_t writer_reserved = (16ull << 20) + 16 * max_body + uint64_t(spec.node_count) *
+	uint64_t writer_reserved = (16ull << 20) + 16 * max_body + uint64_t(spec.node_count) *
 			(16384 + 64 * uint64_t(output.length() + scratch_root.length() + 256));
-	const uint64_t writer_phase_reserved = metadata_reserved + payload_reserved + writer_reserved;
-	if (writer_phase_reserved > p_options.limits.max_ram_bytes) {
+	const bool gsq = p_options.codec.codec_id == gs_world_writer::kCodecGsqV1;
+	gs_gsq::EncodeParams encode_params;
+	uint64_t verification_reserved = 0;
+	if (gsq) {
+		error = gs_world_writer::gsq_encode_params(p_options.codec, encode_params, r_reason);
+		if (error != OK) {
+			return error;
+		}
+		const uint64_t codec_workspace = gs_gsq::writer_v4_workspace_bytes(encode_params);
+		const uint64_t max_stored = gs_world_paged::gsq_record_stored_bytes_limit(gs_hlod::kMaxNodeSplats, spec.sh_degree);
+		if (!max_stored) {
+			return refuse(r_reason, "gsq_verify_layout", ERR_INVALID_DATA);
+		}
+		// Independent per-node encode/decode plus reopen/readback: allow capacity
+		// growth and allocation probes for decoded arrays, raw planes, log scales
+		// and stored page, plus one retained reader decoder and the digest table.
+		// Do not borrow WriterV4's reservation: it still owns metadata/spills.
+		const uint64_t verify_buffers = 12 * max_body + 2 * max_stored +
+				gs_world_paged::gsq_decode_workspace_bytes() + 2 * uint64_t(spec.node_count) * sizeof(NodeDigest);
+		if (codec_workspace > p_options.limits.max_ram_bytes ||
+				verify_buffers > p_options.limits.max_ram_bytes - codec_workspace ||
+				writer_reserved > p_options.limits.max_ram_bytes - codec_workspace) {
+			return refuse(r_reason, "limit_ram: gsq_verification", ERR_OUT_OF_MEMORY);
+		}
+		verification_reserved = codec_workspace + verify_buffers;
+		writer_reserved += codec_workspace;
+	}
+	const uint64_t resident_reserved = metadata_reserved + payload_reserved;
+	if (resident_reserved > p_options.limits.max_ram_bytes || writer_reserved > p_options.limits.max_ram_bytes - resident_reserved ||
+			verification_reserved > p_options.limits.max_ram_bytes - resident_reserved - writer_reserved) {
 		return refuse(r_reason, "limit_ram", ERR_OUT_OF_MEMORY);
 	}
+	const uint64_t writer_phase_reserved = resident_reserved + writer_reserved + verification_reserved;
 	r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), writer_phase_reserved));
 	OwnedDirectory stage;
 	OwnedDirectory scratch;
@@ -598,14 +682,16 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	}
 	writer_limits.deadline_usec = p_options.deadline - writer_start;
 	const String staged_world = stage.path.path_join("world");
-	error = writer.begin_paged(staged_world, scratch.path, spec, gs_world_writer::CodecParams(), writer_limits);
+	error = writer.begin_paged(staged_world, scratch.path, spec, p_options.codec, writer_limits);
 	if (error != OK) {
 		return refuse(r_reason, writer.get_report().reason, writer.get_report().reason == "limit_ram" ? ERR_OUT_OF_MEMORY : error);
 	}
 	LocalVector<gs_world_writer::V4Node> nodes;
 	LocalVector<uint32_t> depths;
+	Vector<NodeDigest> decoded_digests;
 	if (!gs_hlod::fallible_resize(nodes, spec.node_count, "gs_auto_tree writer nodes") ||
-			!gs_hlod::fallible_resize(depths, spec.node_count, "gs_auto_tree node depths")) {
+			!gs_hlod::fallible_resize(depths, spec.node_count, "gs_auto_tree node depths") ||
+			(gsq && !gs_resize_or_fail(decoded_digests, spec.node_count, "gs_auto_tree GSQ node digests"))) {
 		return refuse(r_reason, "limit_ram: node_tables", ERR_OUT_OF_MEMORY);
 	}
 	std::vector<std::vector<double>> errors;
@@ -636,6 +722,12 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		if (error != OK) {
 			return refuse(r_reason, writer.get_report().reason, writer.get_report().reason == "limit_ram" ? ERR_OUT_OF_MEMORY : error);
 		}
+		if (gsq) {
+			error = gsq_node_digest(g, sh, node.payload_count, spec.sh_degree, desc, encode_params, decoded_digests.write[i], r_reason);
+			if (error != OK) {
+				return error;
+			}
+		}
 		if (errors.size() <= depths[i]) {
 			errors.resize(depths[i] + 1);
 		}
@@ -655,7 +747,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		return error;
 	}
 	const auto &info = reopened->get_info();
-	if (info.node_count != spec.node_count || info.leaf_splat_count != spec.leaf_splat_count || info.interior_splat_count != spec.interior_splat_count ||
+	if (info.codec_id != p_options.codec.codec_id || info.node_count != spec.node_count || info.leaf_splat_count != spec.leaf_splat_count || info.interior_splat_count != spec.interior_splat_count ||
 			info.sh_high_order != spec.sh_high_order || info.sh_first_order != spec.sh_first_order || info.bake_rule_version != spec.bake_rule_version ||
 			info.sh_degree != spec.sh_degree || info.is_2d != spec.is_2d || info.bounds != spec.bounds ||
 			std::memcmp(reopened_tree.origin, spec.origin, sizeof(spec.origin)) != 0) {
@@ -689,27 +781,38 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 			return refuse(r_reason, "v4_reopen_metrics", ERR_FILE_CORRUPT);
 		}
 		uint8_t digest[32];
-		hash_payload(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_high_order, digest);
-		// Codec none's spill digest covers runtime bytes, unlike output_body_digest
-		// which covers the node-relative on-disk body. Verify BOTH against append.
-		if (std::memcmp(digest, spill.stored_digest, 32) != 0) {
+		if (gsq) {
+			gs_gsq::decoded_digest(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_degree, digest);
+		} else {
+			// Preserve codec-none's existing raw-byte digest and manifest identity.
+			hash_payload(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_high_order, digest);
+		}
+		const uint8_t *expected_digest = gsq ? decoded_digests[i].bytes : spill.stored_digest;
+		if (std::memcmp(digest, expected_digest, 32) != 0) {
 			return refuse(r_reason, "v4_reopen_runtime_digest", ERR_FILE_CORRUPT);
 		}
 		Dictionary entry;
 		entry["decoded_sha256"] = String::hex_encode_buffer(digest, 32);
 		entry["stored_sha256"] = String::hex_encode_buffer(record.digest, 32);
 		manifest_nodes[i] = entry;
-		if (record.is_leaf) {
-			Gaussian *g = gaussians.ptrw();
-			for (uint32_t j = 0; j < spill.splat_count; ++j) {
-				for (uint32_t axis = 0; axis < 3; ++axis) {
-					g[j].position[axis] = float(double(g[j].position[axis]) - record.cell_center[axis]);
+		if (!gsq) {
+			// Codec none additionally audits the raw node-relative spill bytes.
+			// GSQ's legacy output_body_digest describes decoded absolute scratch
+			// converted to relative positions, not the separately encoded output.
+			// read_node_payload verified its stored record SHA; above we compared
+			// canonical output against the independently encoded original bake.
+			if (record.is_leaf) {
+				Gaussian *g = gaussians.ptrw();
+				for (uint32_t j = 0; j < spill.splat_count; ++j) {
+					for (uint32_t axis = 0; axis < 3; ++axis) {
+						g[j].position[axis] = float(double(g[j].position[axis]) - record.cell_center[axis]);
+					}
 				}
 			}
-		}
-		hash_payload(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_high_order, digest);
-		if (std::memcmp(digest, spill.output_body_digest, 32) != 0) {
-			return refuse(r_reason, "v4_reopen_stored_body_digest", ERR_FILE_CORRUPT);
+			hash_payload(gaussians.ptr(), sh.ptr(), spill.splat_count, spec.sh_high_order, digest);
+			if (std::memcmp(digest, spill.output_body_digest, 32) != 0) {
+				return refuse(r_reason, "v4_reopen_stored_body_digest", ERR_FILE_CORRUPT);
+			}
 		}
 		r_report["nodes_verified"] = i + 1;
 	}
@@ -753,7 +856,18 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		}
 	}
 	Dictionary codec;
-	codec["codec"] = "none";
+	codec["codec"] = gsq ? "gsq" : "none";
+	if (gsq) {
+		codec["codec_id"] = int64_t(p_options.codec.codec_id);
+		Array bits;
+		for (uint8_t value : p_options.codec.sh_bits) {
+			bits.push_back(int64_t(value));
+		}
+		codec["sh_bits"] = bits;
+		codec["opacity_bits"] = int64_t(p_options.codec.opacity_bits);
+		codec["pos_step_m"] = double(p_options.codec.pos_step_m);
+		codec["zstd_level"] = int64_t(p_options.codec.zstd_level);
+	}
 	Dictionary params = build_parameters(p_options);
 	Dictionary key;
 	key["source_fingerprint"] = p_options.fingerprint;

@@ -618,7 +618,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound GSQ auto-tree output rec
 		const String output = fixture.dir.path_join(String(name) + ".gsplatworld");
 		const Dictionary report = bound_build(fixture.input, output, options);
 		const CharString build_reason = String(report.get("reason", "")).utf8();
-		INFO("codec=", name, " reason=", build_reason.get_data());
+		INFO("codec=", doctest::String(name), " reason=", doctest::String(build_reason.get_data()));
 		CHECK(String(report.get("reason", "")) != "v4_gsq_output_requires_bv_c4");
 		D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
 		success_report(report);
@@ -669,7 +669,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 	const String output = fixture.dir.path_join("gsq_oracle.gsplatworld");
 	const Dictionary report = bound_build(fixture.input, output, options);
 	const CharString build_reason = String(report.get("reason", "")).utf8();
-	INFO("GSQ build reason=", build_reason.get_data());
+	INFO("GSQ build reason=", doctest::String(build_reason.get_data()));
 	D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
 	success_report(report);
 	CHECK(int64_t(report.get("tiles_baked", 0)) > 1);
@@ -786,7 +786,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree GSQ output refuses o
 	const String output = fixture.dir.path_join("gsq_identity.gsplatworld");
 	const Dictionary report = bound_build(fixture.input, output, options);
 	const CharString build_reason = String(report.get("reason", "")).utf8();
-	INFO("GSQ build reason=", build_reason.get_data());
+	INFO("GSQ build reason=", doctest::String(build_reason.get_data()));
 	D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
 	PackedByteArray bytes = FileAccess::get_file_as_bytes(output);
 	D2_AUTO_NEED(bytes.size() >= int64_t(gs_world_paged::kHeaderBytes));
