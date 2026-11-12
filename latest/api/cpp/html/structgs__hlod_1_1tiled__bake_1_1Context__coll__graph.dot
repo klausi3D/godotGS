@@ -6,19 +6,24 @@ digraph "gs_hlod::tiled_bake::Context"
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
   Node1 [id="Node000001",label="gs_hlod::tiled_bake\l::Context",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip=" "];
-  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">source</TD></TR>
+  Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node2 [id="Node000002",label="gs_hlod::TiledBakeBudget",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classgs__hlod_1_1TiledBakeBudget.html",tooltip=" "];
+  Node3 -> Node1 [id="edge2_Node000001_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">source</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node2 [id="Node000002",label="gs_hlod::TiledBakeSource",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classgs__hlod_1_1TiledBakeSource.html",tooltip=" "];
-  Node3 -> Node1 [id="edge2_Node000001_Node000003",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">params</TD></TR>
+  Node3 [id="Node000003",label="gs_hlod::TiledBakeSource",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classgs__hlod_1_1TiledBakeSource.html",tooltip=" "];
+  Node4 -> Node1 [id="edge3_Node000001_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">params</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node3 [id="Node000003",label="gs_hlod::TiledBakeParams",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeParams.html",tooltip=" "];
-  Node4 -> Node3 [id="edge3_Node000003_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">limits</TD></TR>
+  Node4 [id="Node000004",label="gs_hlod::TiledBakeParams",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeParams.html",tooltip=" "];
+  Node5 -> Node4 [id="edge4_Node000004_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">limits</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node4 [id="Node000004",label="gs_hlod::TiledBakeLimits",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeLimits.html",tooltip=" "];
-  Node5 -> Node1 [id="edge4_Node000001_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">report</TD></TR>
+  Node5 [id="Node000005",label="gs_hlod::TiledBakeLimits",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeLimits.html",tooltip=" "];
+  Node6 -> Node1 [id="edge5_Node000001_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">report</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node5 [id="Node000005",label="gs_hlod::TiledBakeReport",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeReport.html",tooltip=" "];
-  Node6 -> Node1 [id="edge5_Node000001_Node000006",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">info</TD></TR>
+  Node6 [id="Node000006",label="gs_hlod::TiledBakeReport",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeReport.html",tooltip=" "];
+  Node7 -> Node1 [id="edge6_Node000001_Node000007",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">sink</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
-  Node6 [id="Node000006",label="gs_hlod::TiledBakeSourceInfo",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeSourceInfo.html",tooltip=" "];
+  Node7 [id="Node000007",label="gs_hlod::TiledBakeSink",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$classgs__hlod_1_1TiledBakeSink.html",tooltip=" "];
+  Node8 -> Node1 [id="edge7_Node000001_Node000008",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">info</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node8 [id="Node000008",label="gs_hlod::TiledBakeSourceInfo",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1TiledBakeSourceInfo.html",tooltip=" "];
 }

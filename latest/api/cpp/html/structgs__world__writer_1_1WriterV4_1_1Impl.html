@@ -130,6 +130,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ac566b5b88d1852a513a6367fd4ae276a" id="r_ac566b5b88d1852a513a6367fd4ae276a"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGSAtomicFileTransaction.html">GSAtomicFileTransaction</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac566b5b88d1852a513a6367fd4ae276a">output</a></td></tr>
 <tr class="memitem:ad635ab31ee0f04a5f7c4d08bd4531953" id="r_ad635ab31ee0f04a5f7c4d08bd4531953"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad635ab31ee0f04a5f7c4d08bd4531953">started</a> = 0</td></tr>
 <tr class="memitem:ab114e82f9831f80da7e6c8a9153cb317" id="r_ab114e82f9831f80da7e6c8a9153cb317"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab114e82f9831f80da7e6c8a9153cb317">live_scratch</a> = 0</td></tr>
+<tr class="memitem:a23183813c2541a39c62f7876a3a57b78" id="r_a23183813c2541a39c62f7876a3a57b78"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a23183813c2541a39c62f7876a3a57b78">external_scratch</a> = 0</td></tr>
+<tr class="memitem:ab8e39f1432d6ac4c834edccd790e5478" id="r_ab8e39f1432d6ac4c834edccd790e5478"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab8e39f1432d6ac4c834edccd790e5478">measured_external_scratch</a> = 0</td></tr>
 <tr class="memitem:a4f9ce5d0c2af282b72d484c18cd72cff" id="r_a4f9ce5d0c2af282b72d484c18cd72cff"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4f9ce5d0c2af282b72d484c18cd72cff">codec_workspace</a> = 0</td></tr>
 <tr class="memitem:abca4d697d7df1b738d1d45c3f2eb8dcb" id="r_abca4d697d7df1b738d1d45c3f2eb8dcb"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abca4d697d7df1b738d1d45c3f2eb8dcb">body_reservation</a> = 0</td></tr>
 <tr class="memitem:a93e36e353319a03a1e3aaa65dcb20d5a" id="r_a93e36e353319a03a1e3aaa65dcb20d5a"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a93e36e353319a03a1e3aaa65dcb20d5a">metadata_reservation</a> = 0</td></tr>
@@ -302,6 +304,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a23183813c2541a39c62f7876a3a57b78" name="a23183813c2541a39c62f7876a3a57b78"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a23183813c2541a39c62f7876a3a57b78">&#9670;&#160;</a></span>external_scratch</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_writer::WriterV4::Impl::external_scratch = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a2acdf0fa61ae5060887fc7f159b8b000" name="a2acdf0fa61ae5060887fc7f159b8b000"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a2acdf0fa61ae5060887fc7f159b8b000">&#9670;&#160;</a></span>final_path</h2>
 
@@ -366,6 +382,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_world_writer::WriterV4::Impl::max_open_segments = <a class="el" href="namespacegs__world__writer.html#a8b1f4c27d3c41ac5f8906944f0885a75">kMaxOpenSpillSegments</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab8e39f1432d6ac4c834edccd790e5478" name="ab8e39f1432d6ac4c834edccd790e5478"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab8e39f1432d6ac4c834edccd790e5478">&#9670;&#160;</a></span>measured_external_scratch</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_writer::WriterV4::Impl::measured_external_scratch = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -12,5 +12,7 @@ var classgs__world__writer_1_1WriterV4 =
     [ "get_report", "classgs__world__writer_1_1WriterV4.html#ae92678e34a7bef14350002f7a7f1aac8", null ],
     [ "get_spill_record", "classgs__world__writer_1_1WriterV4.html#a1dc493fc58314f8a1a5334ec664c1fd7", null ],
     [ "operator=", "classgs__world__writer_1_1WriterV4.html#ab513a02b1613450fae24e57430ae1e83", null ],
-    [ "request_cancel", "classgs__world__writer_1_1WriterV4.html#a4c646087d922ee329784382eacaa1707", null ]
+    [ "record_external_scratch_bytes", "classgs__world__writer_1_1WriterV4.html#aac13db23b77f5bd89e3a20cb1d305162", null ],
+    [ "request_cancel", "classgs__world__writer_1_1WriterV4.html#a4c646087d922ee329784382eacaa1707", null ],
+    [ "set_external_scratch_bytes", "classgs__world__writer_1_1WriterV4.html#a8765b4b36b6ef2ad67868eb22ce3257e", null ]
 ];

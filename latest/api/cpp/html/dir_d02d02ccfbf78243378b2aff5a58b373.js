@@ -31,7 +31,7 @@ var dir_d02d02ccfbf78243378b2aff5a58b373 =
     [ "gaussian_splat_hlod_runtime_data.cpp", "gaussian__splat__hlod__runtime__data_8cpp.html", null ],
     [ "gaussian_splat_hlod_runtime_data.h", "gaussian__splat__hlod__runtime__data_8h.html", "gaussian__splat__hlod__runtime__data_8h" ],
     [ "gaussian_splat_hlod_tiled_assemble.cpp", "gaussian__splat__hlod__tiled__assemble_8cpp.html", "gaussian__splat__hlod__tiled__assemble_8cpp" ],
-    [ "gaussian_splat_hlod_tiled_bake.cpp", "gaussian__splat__hlod__tiled__bake_8cpp.html", null ],
+    [ "gaussian_splat_hlod_tiled_bake.cpp", "gaussian__splat__hlod__tiled__bake_8cpp.html", "gaussian__splat__hlod__tiled__bake_8cpp" ],
     [ "gaussian_splat_hlod_tiled_bake.h", "gaussian__splat__hlod__tiled__bake_8h.html", "gaussian__splat__hlod__tiled__bake_8h" ],
     [ "gaussian_splat_hlod_tiled_internal.h", "gaussian__splat__hlod__tiled__internal_8h.html", "gaussian__splat__hlod__tiled__internal_8h" ],
     [ "gaussian_splat_hlod_tiled_workers.cpp", "gaussian__splat__hlod__tiled__workers_8cpp.html", "gaussian__splat__hlod__tiled__workers_8cpp" ],

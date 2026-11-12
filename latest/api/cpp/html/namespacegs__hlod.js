@@ -33,6 +33,8 @@ var namespacegs__hlod =
     [ "TiledBakeSource", "classgs__hlod_1_1TiledBakeSource.html", "classgs__hlod_1_1TiledBakeSource" ],
     [ "TiledBakeLimits", "structgs__hlod_1_1TiledBakeLimits.html", "structgs__hlod_1_1TiledBakeLimits" ],
     [ "TiledBakeParams", "structgs__hlod_1_1TiledBakeParams.html", "structgs__hlod_1_1TiledBakeParams" ],
+    [ "TiledBakeBudget", "classgs__hlod_1_1TiledBakeBudget.html", "classgs__hlod_1_1TiledBakeBudget" ],
+    [ "TiledBakeSink", "classgs__hlod_1_1TiledBakeSink.html", "classgs__hlod_1_1TiledBakeSink" ],
     [ "TiledBakeReport", "structgs__hlod_1_1TiledBakeReport.html", "structgs__hlod_1_1TiledBakeReport" ],
     [ "TiledAutoTree", "classgs__hlod_1_1TiledAutoTree.html", null ],
     [ "BoundsAccumulator", "structgs__hlod_1_1BoundsAccumulator.html", "structgs__hlod_1_1BoundsAccumulator" ],

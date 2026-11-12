@@ -220,9 +220,10 @@ var NAVTREEINDEX14 =
 "classResourceFormatLoaderGaussianSplatWorld.html":[1,0,229],
 "classResourceFormatLoaderGaussianSplatWorld.html#a2807f17faf4a8cf97052ba44d99c9dd9":[1,0,229,0],
 "classResourceFormatLoaderGaussianSplatWorld.html#a36b859b302b5db21d43fca399ea6a634":[1,0,229,1],
-"classResourceFormatLoaderGaussianSplatWorld.html#a3afce8960ef4b63d446d0421b778d2b7":[1,0,229,5],
+"classResourceFormatLoaderGaussianSplatWorld.html#a3afce8960ef4b63d446d0421b778d2b7":[1,0,229,6],
 "classResourceFormatLoaderGaussianSplatWorld.html#a6029a231036112d18f201a42cd2311eb":[1,0,229,3],
-"classResourceFormatLoaderGaussianSplatWorld.html#a88b3bac8dcba4f0615b9cd109b9177e3":[1,0,229,4],
+"classResourceFormatLoaderGaussianSplatWorld.html#a88b3bac8dcba4f0615b9cd109b9177e3":[1,0,229,5],
+"classResourceFormatLoaderGaussianSplatWorld.html#a9ad08c61d4c5ac4b5b6a838c678f6092":[1,0,229,4],
 "classResourceFormatLoaderGaussianSplatWorld.html#a9c5c5f124cf6f1bc7e2f0e19d42f2646":[1,0,229,2],
 "classResourceFormatLoaderImportedGaussianSplatWorld.html":[1,0,230],
 "classResourceFormatLoaderImportedGaussianSplatWorld.html#a09c3bcb19bd1e5fdfad6b0aae236ab06":[1,0,230,0],
@@ -248,6 +249,5 @@ var NAVTREEINDEX14 =
 "classResourceFormatSaverGaussianSplatWorld.html#ae00d123ceff300ec0d857f12f62e7516":[1,0,231,3],
 "classResourceFormatSaverGaussianSplatWorld.html#afc588ec989ef612521b78d4067d87af4":[1,0,231,5],
 "classResourceOwnerMismatchContract.html":[1,0,232],
-"classSPIRVDiskCache.html":[1,0,257],
-"classSPIRVDiskCache.html#a0105a765b49905c538792d8df750ac6a":[1,0,257,2]
+"classSPIRVDiskCache.html":[1,0,257]
 };

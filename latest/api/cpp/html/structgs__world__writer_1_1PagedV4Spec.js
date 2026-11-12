@@ -2,6 +2,8 @@ var structgs__world__writer_1_1PagedV4Spec =
 [
     [ "bake_rule_version", "structgs__world__writer_1_1PagedV4Spec.html#ac07a834ab7866852092e4a57bd038448", null ],
     [ "bounds", "structgs__world__writer_1_1PagedV4Spec.html#a09d4e0ea05860935e1be5a1d29efd2ca", null ],
+    [ "compact_gsq_spill", "structgs__world__writer_1_1PagedV4Spec.html#a23b08c4f0c43ee8b887e44ccce91cefa", null ],
+    [ "deferred_counts", "structgs__world__writer_1_1PagedV4Spec.html#a09af868af5af2987aaddb9b0e0e57bef", null ],
     [ "interior_splat_count", "structgs__world__writer_1_1PagedV4Spec.html#a4a1dfd171d073278252a78b32b9cbbc7", null ],
     [ "is_2d", "structgs__world__writer_1_1PagedV4Spec.html#ace42e7ab6cb9e33b6f8c1b3811e370c0", null ],
     [ "leaf_splat_count", "structgs__world__writer_1_1PagedV4Spec.html#a0dd2e00c69caaf237b85abc523e394ac", null ],

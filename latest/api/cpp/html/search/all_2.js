@@ -174,7 +174,7 @@ var searchData=
   ['append_5fchunk_171',['append_chunk',['../classgs__world__writer_1_1Writer.html#a0e1f13ca858afc3dbb7209837413355c',1,'gs_world_writer::Writer']]],
   ['append_5fdrop_5ftelemetry_172',['append_drop_telemetry',['../classRenderDebugStateOrchestrator.html#aede4bd55aa13de1ace007f8066075015',1,'RenderDebugStateOrchestrator']]],
   ['append_5finstance_5fdraws_173',['append_instance_draws',['../namespacegs__hlod__bundle.html#ad739b0403060b68c090f07981bdd0b2c',1,'gs_hlod_bundle']]],
-  ['append_5fnode_174',['append_node',['../classgs__world__writer_1_1WriterV4.html#abe53ac115880e30d927653df6a438d5d',1,'gs_world_writer::WriterV4']]],
+  ['append_5fnode_174',['append_node',['../classgs__hlod_1_1TiledBakeSink.html#a2df2eeea8a2daed40a2b25339a8b80f1',1,'gs_hlod::TiledBakeSink::append_node()'],['../classgs__world__writer_1_1WriterV4.html#abe53ac115880e30d927653df6a438d5d',1,'gs_world_writer::WriterV4::append_node()']]],
   ['append_5frange_175',['append_range',['../classStreamingAnalyticsFrame_1_1KeyedValues.html#a2559cca0020d823d264f6467dda67df0',1,'StreamingAnalyticsFrame::KeyedValues']]],
   ['append_5fto_5fdictionary_176',['append_to_dictionary',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a72e19e1d007027f8df1ae6a5ce12a4ad',1,'GaussianSplatting::GpuPassTiming']]],
   ['apply_177',['APPLY',['../classGaussianSplatSceneDirector_1_1DeferredRendererWork.html#ac8ee224d9a8a967955123a85b46529d3a2919bace3a09a7700313ddaa94bfada9',1,'GaussianSplatSceneDirector::DeferredRendererWork']]],

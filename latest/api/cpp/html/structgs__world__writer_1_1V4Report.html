@@ -102,6 +102,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a620fa5ae718bc6eb6e7ef2d9c56d700a" id="r_a620fa5ae718bc6eb6e7ef2d9c56d700a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a620fa5ae718bc6eb6e7ef2d9c56d700a">committed</a> = false</td></tr>
 <tr class="memitem:a56c34b35b3bc66dd2e99f1532faec6b3" id="r_a56c34b35b3bc66dd2e99f1532faec6b3"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; <a class="el" href="structgs__world__writer_1_1V4SegmentReport.html">V4SegmentReport</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56c34b35b3bc66dd2e99f1532faec6b3">segments</a></td></tr>
 <tr class="memitem:a97b0f8a90a53fd78b1ee34316c850d13" id="r_a97b0f8a90a53fd78b1ee34316c850d13"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a97b0f8a90a53fd78b1ee34316c850d13">total_scratch_bytes</a> = 0</td></tr>
+<tr class="memitem:a57d5965d7b80b1899ada98f392d5e242" id="r_a57d5965d7b80b1899ada98f392d5e242"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a57d5965d7b80b1899ada98f392d5e242">scratch_measured</a> = false</td></tr>
+<tr class="memitem:ac38f2dc68da77e040ab5e500a8771fbf" id="r_ac38f2dc68da77e040ab5e500a8771fbf"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac38f2dc68da77e040ab5e500a8771fbf">spill_bytes_peak</a> = 0</td></tr>
+<tr class="memitem:ac88e2d61378c8443ebed7d5776d14f89" id="r_ac88e2d61378c8443ebed7d5776d14f89"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac88e2d61378c8443ebed7d5776d14f89">scratch_bytes_peak</a> = 0</td></tr>
 <tr class="memitem:aa3d07a14c2139a3d79e5fd76f430e2f9" id="r_aa3d07a14c2139a3d79e5fd76f430e2f9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa3d07a14c2139a3d79e5fd76f430e2f9">peak_scratch_plus_output_bytes</a> = 0</td></tr>
 <tr class="memitem:a9a61eb6ef64b4ad789919ace30402b3e" id="r_a9a61eb6ef64b4ad789919ace30402b3e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9a61eb6ef64b4ad789919ace30402b3e">segments_deleted</a> = 0</td></tr>
 <tr class="memitem:a3963b888e4c8b8ac1d1826564a56930a" id="r_a3963b888e4c8b8ac1d1826564a56930a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3963b888e4c8b8ac1d1826564a56930a">nodes</a> = 0</td></tr>
@@ -206,6 +209,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ac88e2d61378c8443ebed7d5776d14f89" name="ac88e2d61378c8443ebed7d5776d14f89"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac88e2d61378c8443ebed7d5776d14f89">&#9670;&#160;</a></span>scratch_bytes_peak</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_writer::V4Report::scratch_bytes_peak = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a57d5965d7b80b1899ada98f392d5e242" name="a57d5965d7b80b1899ada98f392d5e242"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a57d5965d7b80b1899ada98f392d5e242">&#9670;&#160;</a></span>scratch_measured</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_world_writer::V4Report::scratch_measured = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a56c34b35b3bc66dd2e99f1532faec6b3" name="a56c34b35b3bc66dd2e99f1532faec6b3"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a56c34b35b3bc66dd2e99f1532faec6b3">&#9670;&#160;</a></span>segments</h2>
 
@@ -228,6 +259,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_world_writer::V4Report::segments_deleted = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac38f2dc68da77e040ab5e500a8771fbf" name="ac38f2dc68da77e040ab5e500a8771fbf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac38f2dc68da77e040ab5e500a8771fbf">&#9670;&#160;</a></span>spill_bytes_peak</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_writer::V4Report::spill_bytes_peak = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

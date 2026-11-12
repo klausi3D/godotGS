@@ -85,11 +85,13 @@ var searchData=
   ['_7estagedfilechunkpayloadsource_82',['~StagedFileChunkPayloadSource',['../classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc',1,'StagedFileChunkPayloadSource']]],
   ['_7estreamingpipeline_83',['~StreamingPipeline',['../classStreamingPipeline.html#a4a1c062e9070bff0ba55fbb58d8d3de3',1,'StreamingPipeline']]],
   ['_7ethreadownedmutexlock_84',['~ThreadOwnedMutexLock',['../classGaussianSplatting_1_1ThreadOwnedMutexLock.html#a3cd84a216467ff9a7aceeb01af9812ad',1,'GaussianSplatting::ThreadOwnedMutexLock']]],
-  ['_7etiledbakesource_85',['~TiledBakeSource',['../classgs__hlod_1_1TiledBakeSource.html#ae822a203efcdd23ac93638b96fbacbdc',1,'gs_hlod::TiledBakeSource']]],
-  ['_7etilerasterizer_86',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
-  ['_7etilerenderer_87',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
-  ['_7etileshaderresources_88',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
-  ['_7evrambudgetregulator_89',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]],
-  ['_7ewriter_90',['~Writer',['../classgs__world__writer_1_1Writer.html#a38524b8a1d4ef5f753ce1e4855107612',1,'gs_world_writer::Writer']]],
-  ['_7ewriterv4_91',['~WriterV4',['../classgs__world__writer_1_1WriterV4.html#a638306f33d02690552c250e563e708fc',1,'gs_world_writer::WriterV4']]]
+  ['_7etiledbakebudget_85',['~TiledBakeBudget',['../classgs__hlod_1_1TiledBakeBudget.html#adff427a87993210b23e5d5152339f9e7',1,'gs_hlod::TiledBakeBudget']]],
+  ['_7etiledbakesink_86',['~TiledBakeSink',['../classgs__hlod_1_1TiledBakeSink.html#a2f09bb4352791543b17f0bf83c10eedd',1,'gs_hlod::TiledBakeSink']]],
+  ['_7etiledbakesource_87',['~TiledBakeSource',['../classgs__hlod_1_1TiledBakeSource.html#ae822a203efcdd23ac93638b96fbacbdc',1,'gs_hlod::TiledBakeSource']]],
+  ['_7etilerasterizer_88',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
+  ['_7etilerenderer_89',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
+  ['_7etileshaderresources_90',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
+  ['_7evrambudgetregulator_91',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]],
+  ['_7ewriter_92',['~Writer',['../classgs__world__writer_1_1Writer.html#a38524b8a1d4ef5f753ce1e4855107612',1,'gs_world_writer::Writer']]],
+  ['_7ewriterv4_93',['~WriterV4',['../classgs__world__writer_1_1WriterV4.html#a638306f33d02690552c250e563e708fc',1,'gs_world_writer::WriterV4']]]
 ];

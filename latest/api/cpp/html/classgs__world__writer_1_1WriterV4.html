@@ -106,6 +106,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ab513a02b1613450fae24e57430ae1e83" id="r_ab513a02b1613450fae24e57430ae1e83"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#abbdccba70870ac0296fe91265b484dec">WriterV4</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab513a02b1613450fae24e57430ae1e83">operator=</a> (const <a class="el" href="#abbdccba70870ac0296fe91265b484dec">WriterV4</a> &amp;)=delete</td></tr>
 <tr class="memitem:a179fcbba4fcf576aff137399ff9399df" id="r_a179fcbba4fcf576aff137399ff9399df"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a179fcbba4fcf576aff137399ff9399df">begin_paged</a> (const String &amp;p_final_path, const String &amp;p_scratch_dir, const <a class="el" href="structgs__world__writer_1_1PagedV4Spec.html">PagedV4Spec</a> &amp;p_spec, const <a class="el" href="structgs__world__writer_1_1CodecParams.html">CodecParams</a> &amp;p_codec, const <a class="el" href="structgs__world__writer_1_1Limits.html">Limits</a> &amp;p_limits)</td></tr>
 <tr class="memitem:abe53ac115880e30d927653df6a438d5d" id="r_abe53ac115880e30d927653df6a438d5d"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abe53ac115880e30d927653df6a438d5d">append_node</a> (const <a class="el" href="structgs__world__writer_1_1V4BodyDesc.html">V4BodyDesc</a> &amp;p_desc, const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh_high, uint32_t p_count, <a class="el" href="structgs__world__writer_1_1V4BodyHandle.html">V4BodyHandle</a> &amp;r_handle)</td></tr>
+<tr class="memitem:a8765b4b36b6ef2ad67868eb22ce3257e" id="r_a8765b4b36b6ef2ad67868eb22ce3257e"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8765b4b36b6ef2ad67868eb22ce3257e">set_external_scratch_bytes</a> (uint64_t p_bytes, bool p_measured=true)</td></tr>
+<tr class="memitem:aac13db23b77f5bd89e3a20cb1d305162" id="r_aac13db23b77f5bd89e3a20cb1d305162"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aac13db23b77f5bd89e3a20cb1d305162">record_external_scratch_bytes</a> (uint64_t p_bytes)</td></tr>
 <tr class="memitem:a1dc493fc58314f8a1a5334ec664c1fd7" id="r_a1dc493fc58314f8a1a5334ec664c1fd7"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1dc493fc58314f8a1a5334ec664c1fd7">get_spill_record</a> (<a class="el" href="structgs__world__writer_1_1V4BodyHandle.html">V4BodyHandle</a> p_handle, <a class="el" href="structgs__world__writer_1_1V4SpillRecord.html">V4SpillRecord</a> &amp;r_record) const</td></tr>
 <tr class="memitem:af65ff3257dc5a15c472d9a392905d2e4" id="r_af65ff3257dc5a15c472d9a392905d2e4"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af65ff3257dc5a15c472d9a392905d2e4">finalize</a> (const LocalVector&lt; <a class="el" href="structgs__world__writer_1_1V4Node.html">V4Node</a> &gt; &amp;p_nodes)</td></tr>
 <tr class="memitem:a0cc0ed43dcf3299f1de12599b9b8a61c" id="r_a0cc0ed43dcf3299f1de12599b9b8a61c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0cc0ed43dcf3299f1de12599b9b8a61c">abort</a> ()</td></tr>
@@ -368,6 +370,23 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="aac13db23b77f5bd89e3a20cb1d305162" name="aac13db23b77f5bd89e3a20cb1d305162"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aac13db23b77f5bd89e3a20cb1d305162">&#9670;&#160;</a></span>record_external_scratch_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error gs_world_writer::WriterV4::record_external_scratch_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a4c646087d922ee329784382eacaa1707" name="a4c646087d922ee329784382eacaa1707"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a4c646087d922ee329784382eacaa1707">&#9670;&#160;</a></span>request_cancel()</h2>
 
@@ -379,6 +398,27 @@ Public Member Functions</h2></td></tr>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8765b4b36b6ef2ad67868eb22ce3257e" name="a8765b4b36b6ef2ad67868eb22ce3257e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8765b4b36b6ef2ad67868eb22ce3257e">&#9670;&#160;</a></span>set_external_scratch_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error gs_world_writer::WriterV4::set_external_scratch_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_measured</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

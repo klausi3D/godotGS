@@ -87,7 +87,6 @@ var hierarchy =
     [ "NodeResidency::Config", "structNodeResidency_1_1Config.html", null ],
     [ "PayloadReadService::Config", "structPayloadReadService_1_1Config.html", null ],
     [ "GaussianStreamingTypes::ConfigOverrides", "structGaussianStreamingTypes_1_1ConfigOverrides.html", null ],
-    [ "gs_hlod::tiled_bake::Context", "structgs__hlod_1_1tiled__bake_1_1Context.html", null ],
     [ "Control", null, [
       [ "GaussianSplatDebugHUD", "classGaussianSplatDebugHUD.html", null ]
     ] ],
@@ -729,11 +728,15 @@ var hierarchy =
     [ "GaussianSplatting::TileBufferShrinkPolicy", "structGaussianSplatting_1_1TileBufferShrinkPolicy.html", null ],
     [ "GaussianSplatting::TileConfigState", "structGaussianSplatting_1_1TileConfigState.html", null ],
     [ "gs_hlod::TiledAutoTree", "classgs__hlod_1_1TiledAutoTree.html", null ],
+    [ "gs_hlod::TiledBakeBudget", "classgs__hlod_1_1TiledBakeBudget.html", [
+      [ "gs_hlod::tiled_bake::Context", "structgs__hlod_1_1tiled__bake_1_1Context.html", null ]
+    ] ],
     [ "gs_hlod::TiledBakeChunk", "structgs__hlod_1_1TiledBakeChunk.html", null ],
     [ "gs_hlod::TiledBakeChunkInfo", "structgs__hlod_1_1TiledBakeChunkInfo.html", null ],
     [ "gs_hlod::TiledBakeLimits", "structgs__hlod_1_1TiledBakeLimits.html", null ],
     [ "gs_hlod::TiledBakeParams", "structgs__hlod_1_1TiledBakeParams.html", null ],
     [ "gs_hlod::TiledBakeReport", "structgs__hlod_1_1TiledBakeReport.html", null ],
+    [ "gs_hlod::TiledBakeSink", "classgs__hlod_1_1TiledBakeSink.html", null ],
     [ "gs_hlod::TiledBakeSource", "classgs__hlod_1_1TiledBakeSource.html", [
       [ "GsqAutoTreeSource", "classGsqAutoTreeSource.html", null ]
     ] ],

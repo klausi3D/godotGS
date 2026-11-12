@@ -5,5 +5,7 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="gs_hlod::TiledAutoTree",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$classgs__hlod_1_1TiledAutoTree.html",tooltip=" "];
+  Node0 [id="Node000000",label="gs_hlod::TiledBakeBudget",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$classgs__hlod_1_1TiledBakeBudget.html",tooltip=" "];
+  Node0 -> Node1 [id="edge6_Node000000_Node000001",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node1 [id="Node000001",label="gs_hlod::tiled_bake\l::Context",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structgs__hlod_1_1tiled__bake_1_1Context.html",tooltip=" "];
 }
