@@ -17,12 +17,14 @@ Run directly or through ``python tests/ci/run_module_tests.py --guard-only``.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from typing import Sequence, Set
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -119,6 +121,37 @@ class Layout(_Tmp):
         self.assertEqual(wc.clear_quarantine(self.tmp), [moved.name])
 
 
+_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+
+
+def builder_include_dependencies(repo: Path, builder_sources: Sequence[str]) -> Set[str]:
+    """Module files the C++ builder sources include directly, plus each header's .cpp.
+
+    A quoted include resolves like the compiler: next to the including file, then
+    from the repository root (engine and thirdparty headers, which are outside the
+    module and not fingerprinted). An include that resolves nowhere raises, so a
+    missed path cannot silently shrink the derived set.
+    """
+    module = (repo / "modules" / "gaussian_splatting").resolve()
+    found: Set[str] = set()
+    for relative in builder_sources:
+        if not relative.endswith((".cpp", ".h")):
+            continue
+        path = (repo / relative).resolve()
+        for name in _INCLUDE.findall(path.read_text(encoding="utf-8")):
+            local = (path.parent / name).resolve()
+            if not local.is_file():
+                if (repo / name).is_file():
+                    continue
+                raise AssertionError(f"{relative}: include {name!r} resolves nowhere")
+            if module not in local.parents:
+                continue
+            found.add(local.relative_to(repo.resolve()).as_posix())
+            if local.suffix == ".h" and local.with_suffix(".cpp").is_file():
+                found.add(local.with_suffix(".cpp").relative_to(repo.resolve()).as_posix())
+    return found
+
+
 class AutoTreeLayout(_Tmp):
     def _source_checkout(self) -> Path:
         self.assertTrue(wc.TREE_SOURCES, "tree fingerprint coverage cannot be empty")
@@ -157,6 +190,17 @@ class AutoTreeLayout(_Tmp):
             self.assertTrue(matches, f"required producer family has no files: {pattern}")
             required.update(matches)
         self.assertTrue(required.issubset(sources), f"unfingerprinted tree sources: {sorted(required - set(sources))}")
+        # #1432: the families above missed the builder's input loader. Derive the
+        # builder's direct module dependencies from its own includes instead of a
+        # second hand list: every module header a family source includes, and that
+        # header's .cpp, must be fingerprinted by the tree key (TREE_SOURCES) or by
+        # its generator half (GENERATOR_SOURCES). One level, not transitive: the
+        # transitive closure is most of the module (declared limit).
+        dependencies = builder_include_dependencies(repo, sorted(required))
+        self.assertIn("modules/gaussian_splatting/io/gaussian_splat_world_io.cpp", dependencies)
+        self.assertIn("modules/gaussian_splatting/core/streaming_gsq_chunk_payload_source.cpp", dependencies)
+        covered = set(sources) | set(wc.GENERATOR_SOURCES)
+        self.assertEqual(sorted(dependencies - covered), [], "builder includes these module sources unfingerprinted")
         for relative in sources:
             with self.subTest(relative=relative):
                 self.assertTrue((repo / relative).is_file(), f"missing tree source: {relative}")

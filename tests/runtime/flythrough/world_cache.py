@@ -105,6 +105,11 @@ GENERATOR_SOURCES: Tuple[str, ...] = (
 #: The auto-tree producer has a separate identity: changing these sources must
 #: not invalidate the expensive plain-world generator cache. Keep explicit paths
 #: so a removed source fails closed instead of vanishing from a glob's digest.
+#: Besides the builder families, every module header a builder source includes
+#: (and that header's .cpp) is listed: the input loader, the GSQ chunk payload
+#: source, the Gaussian layout and the publish transaction all shape the output.
+#: Sources already in GENERATOR_SOURCES are covered by the tree key's generator
+#: fingerprint. test_world_cache.py derives that required set from the includes.
 TREE_SOURCES: Tuple[str, ...] = (
     "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree.cpp",
     "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree.h",
@@ -131,6 +136,27 @@ TREE_SOURCES: Tuple[str, ...] = (
     "modules/gaussian_splatting/io/gs_world_writer_v4.cpp",
     "modules/gaussian_splatting/io/gs_world_writer_v4.h",
     "modules/gaussian_splatting/io/gsq/gsq_writer_v4_memory.cpp",
+    "modules/gaussian_splatting/core/gaussian_data.cpp",
+    "modules/gaussian_splatting/core/gaussian_data.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_quality.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_quality.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_runtime_data.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_runtime_data.h",
+    "modules/gaussian_splatting/core/gaussian_splat_world.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_world.h",
+    "modules/gaussian_splatting/core/gs_vector_alloc.h",
+    "modules/gaussian_splatting/core/streaming_chunk_payload_source.cpp",
+    "modules/gaussian_splatting/core/streaming_chunk_payload_source.h",
+    "modules/gaussian_splatting/core/streaming_gsq_chunk_payload_source.cpp",
+    "modules/gaussian_splatting/core/streaming_gsq_chunk_payload_source.h",
+    "modules/gaussian_splatting/io/gaussian_splat_world_io.cpp",
+    "modules/gaussian_splatting/io/gaussian_splat_world_io.h",
+    "modules/gaussian_splatting/io/gs_atomic_file_transaction.cpp",
+    "modules/gaussian_splatting/io/gs_atomic_file_transaction.h",
+    "modules/gaussian_splatting/io/gs_atomic_file_writer.cpp",
+    "modules/gaussian_splatting/io/gs_atomic_file_writer.h",
+    "modules/gaussian_splatting/lod/hlod_runtime_selection.cpp",
+    "modules/gaussian_splatting/lod/hlod_runtime_selection.h",
     "tests/runtime/flythrough/build_auto_tree.py",
     "tests/runtime/flythrough/build_auto_tree.gd",
 )

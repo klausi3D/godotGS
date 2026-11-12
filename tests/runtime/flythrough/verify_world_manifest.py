@@ -250,6 +250,9 @@ def verify_v4(world: Path) -> dict:
                 "node_count": node_count, "leaf_splat_count": leaf, "interior_splat_count": interior},
                 "manifest_counts_mismatch")
             require(m["content_generation"] == str(generation), "content_generation_mismatch")
+            # #1432: the GSQ builder always records the reopened header bounds,
+            # so their absence is a defect, not a reason to skip the comparison.
+            require(codec != CODEC_GSQ_V1 or "header_bounds" in m, "header_bounds_missing")
             if "header_bounds" in m:
                 bits = struct.unpack_from("<6I", header, 88)
                 require(m["header_bounds"] == {"position_f32_bits": list(bits[:3]), "size_f32_bits": list(bits[3:])},

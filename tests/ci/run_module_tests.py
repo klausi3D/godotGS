@@ -2471,6 +2471,11 @@ def _selected_producer_binary(godot_binary: str | None, *, explicit: bool = Fals
     return str(Path(resolved).resolve()) if resolved else raw
 
 
+#: The exact message _run_auto_tree_binary_tests returns when no binary is
+#: selected. Its caller reports that run as NOT_RUN, never as "completed".
+AUTO_TREE_NOT_RUN_MESSAGE = "D2-4 mode=NOT_RUN: no Godot binary selected; pure driver tests run separately."
+
+
 def _run_auto_tree_binary_tests() -> tuple[bool, list[str]]:
     """D2-4 CPU producer tests also run in PR jobs using --skip-guards.
 
@@ -2481,7 +2486,7 @@ def _run_auto_tree_binary_tests() -> tuple[bool, list[str]]:
         _GUARD_GODOT_BINARY_OVERRIDE, explicit=_GUARD_GODOT_BINARY_EXPLICIT
     )
     if selected is None:
-        return True, ["D2-4 mode=NOT_RUN: no Godot binary selected; pure driver tests run separately."]
+        return True, [AUTO_TREE_NOT_RUN_MESSAGE]
     script = AUTO_TREE_BINARY_TEST_SCRIPT
     if not script.is_file():
         return False, [f"D2-4 binary_test_missing: {script}"]
@@ -5353,12 +5358,21 @@ def _run_doctests_and_auto_tree(*args) -> int:
     and failed doctests cannot silently turn the selected producer into a skip.
     """
     doctest_code = _run_doctest_lanes(*args)
-    auto_tree_code = _run_message_guard(
-        _run_auto_tree_binary_tests,
-        "D2-4 producer tests failed.",
-        "D2-4 producer tests completed.",
-        success_always=True,
-    )
+    outcomes: list[bool] = []
+
+    def auto_tree_tests() -> tuple[bool, list[str]]:
+        ok, messages = _run_auto_tree_binary_tests()
+        outcomes.append(ok and AUTO_TREE_NOT_RUN_MESSAGE in messages)
+        return ok, messages
+
+    auto_tree_code = _run_message_guard(auto_tree_tests, "D2-4 producer tests failed.")
+    if auto_tree_code is None and outcomes == [True]:
+        # #1432: "did not run" must not read as "completed". The exit status is
+        # unchanged: without a selected binary D2-4 is not evidence this lane
+        # owes, and a selected binary that cannot run still fails.
+        print("[module-tests] D2-4 producer tests NOT_RUN: no Godot binary selected.")
+    elif auto_tree_code is None and outcomes == [False]:
+        print("[module-tests] D2-4 producer tests completed.")
     return doctest_code or auto_tree_code or 0
 
 

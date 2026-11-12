@@ -1777,7 +1777,7 @@ class D25AutoTreeCache(_CacheCase):
                           drawn_budget_source="ADR HLOD arm N_frozen <= 1.0M; BV-26a not merged",
                           oracle={"poses": [{"checkpoint": f"C{i}", "status": "COMPLETE",
                                              "selected_splats": 3, "drawn_le_budget": True} for i in range(8)]},
-                          leaves_only={"poses": [{"checkpoint": f"C{i}", "status": "COMPLETE",
+                          leaves_only={"poses": [{"checkpoint": f"C{i}", "status": "COMPLETE", "only_leaves": True,
                                                   "selected_splats": 2, "drawn_le_budget": True} for i in range(8)]})
             for field in ("tree_sha", "input_file_sha256", "source_fingerprint", "content_generation", "output_file_sha256"):
                 report[field] = manifest[field]
@@ -1809,6 +1809,40 @@ class D25AutoTreeCache(_CacheCase):
         self.assertIn("W13", self.record("prime_auto_tree")["reason"])
         self.assertEqual(wc.complete_keys(self.cache, "A-v4_gsq_auto"), [])
         self.assertEqual(self.snapshot(plain), before)
+
+    def test_leaves_only_control_that_did_not_run_prevents_publication(self):
+        # #1432 forcing control: the control rows were only checked for their
+        # names, so INVALID / BOOTSTRAP_* control rows still published a key.
+        cases = {
+            "invalid": {"status": "INVALID", "only_leaves": False, "selected_splats": 0},
+            "bootstrap": {"status": "BOOTSTRAP_EXHAUSTED", "only_leaves": False, "selected_splats": 0},
+            "unavailable": {"status": "UNAVAILABLE", "only_leaves": False, "selected_splats": 0},
+            "not_leaves": {"status": "COMPLETE", "only_leaves": False, "selected_splats": 2},
+            "leaves_missing": {"status": "COMPLETE", "selected_splats": 2},
+        }
+        for name, bad in cases.items():
+            with self.subTest(case=name):
+                plain = self.ready_plain()
+                before = self.snapshot(plain)
+                runner, outputs, identities = self.repeat_runner()
+                build = runner.overrides["build_auto_tree.py"]
+
+                def bad_control(cmd, _build=build, _bad=bad, **kwargs):
+                    result = _build(cmd, **kwargs)
+                    path = Path(self.arg(cmd, "--report"))
+                    report = json.loads(path.read_text(encoding="utf-8"))
+                    row = {"checkpoint": "C3", "drawn_le_budget": True}
+                    row.update(_bad)
+                    report["leaves_only"]["poses"][3] = row
+                    path.write_text(json.dumps(report), encoding="utf-8")
+                    return result
+
+                runner.overrides["build_auto_tree.py"] = bad_control
+                self.assertEqual(self.prime_tree(runner), lane.EXIT_FAIL)
+                self.assertEqual(len(outputs), 1)
+                self.assertIn("control evidence", self.record("prime_auto_tree")["reason"])
+                self.assertEqual(wc.complete_keys(self.cache, "A-v4_gsq_auto"), [])
+                self.assertEqual(self.snapshot(plain), before)
 
     def test_t0_generates_plain_gsq_in_scratch_and_records_evidence(self):
         self.ready_plain()

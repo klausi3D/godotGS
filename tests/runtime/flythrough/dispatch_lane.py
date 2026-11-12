@@ -1544,7 +1544,12 @@ def _auto_build(
                 or not isinstance(controls, list) or [r.get("checkpoint") for r in controls] != poses
                 or any(r.get("status") != "COMPLETE" or r.get("drawn_le_budget") is not True
                        or type(r.get("selected_splats")) is not int or not 0 < r["selected_splats"] <= AUTO_TREE_BUDGET
-                       for r in rows)):
+                       for r in rows)
+                # #1432: the leaves-only control must have run. Its budget is
+                # unbounded by design, so only the status and leaf predicate apply.
+                or any(r.get("status") not in ("COMPLETE", "EMPTY") or r.get("only_leaves") is not True
+                       or type(r.get("selected_splats")) is not int or r["selected_splats"] < 0
+                       for r in controls)):
             raise LaneError(f"{tag}: missing or invalid eight-pose oracle/budget/control evidence")
         _auto_report(out, f"{tag}.oracle", EXIT_OK, "all eight oracle cuts complete within the provisional budget",
                      budget_frozen=False, drawn_budget_splats=AUTO_TREE_BUDGET,
