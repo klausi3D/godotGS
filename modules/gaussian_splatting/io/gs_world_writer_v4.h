@@ -23,6 +23,14 @@
 // reuses gs_hlod_validate_tree, requires canonical BFS and exactly one use of
 // every handle, and writes bodies in BFS order. content_generation uses digests
 // of the actual stored V4 output bodies (node-relative, GSQ-compressed when selected).
+// GSQ finalization first decodes one output node at a time in reverse BFS and
+// unions its three-sigma support with the bake AABB/sphere and final child
+// bounds. A moved AABB midpoint preserves the entire original sphere. Bounds
+// use the bake's outward rounding; validation tolerances are unchanged. All
+// bounds are final before record serialization/hashing; codec none skips this
+// pass and retains the bake bounds and original bytes. This extra GSQ read/decode
+// pass uses the existing admitted per-node buffers and node tables, not a second
+// resident tree of payloads. Scratch is retained until the BFS write pass.
 //
 // W1: publish through GSAtomicFileTransaction only after successful assembly.
 // Failure, abort and destruction remove all owned temp/segment files and leave

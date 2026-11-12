@@ -282,9 +282,23 @@ bool same_metrics(const gs_world_paged::NodeMetrics &a, const gs_world_paged::No
 	return a.footprint == b.footprint && a.dc_encoding == b.dc_encoding && a.center_exact == b.center_exact && a.homogeneous_dc == b.homogeneous_dc;
 }
 
-bool same_node(const GaussianSplatHlodNode &a, const GaussianSplatHlodNode &b) {
+bool same_node(const GaussianSplatHlodNode &a, const GaussianSplatHlodNode &b, bool p_gsq, const double p_center[3]) {
+	bool bounds_match = a.aabb_min == b.aabb_min && a.aabb_max == b.aabb_max && a.radius == b.radius;
+	if (p_gsq) {
+		// WriterV4 unions decoded support with bake bounds and propagates child
+		// growth. A shifted midpoint must still contain the entire bake sphere.
+		bounds_match = true;
+		double motion_squared = 0;
+		for (int axis = 0; axis < 3; ++axis) {
+			bounds_match = bounds_match && a.aabb_min[axis] <= b.aabb_min[axis] && a.aabb_max[axis] >= b.aabb_max[axis];
+			const double actual_mid = 0.5 * ((p_center[axis] + double(a.aabb_min[axis])) + (p_center[axis] + double(a.aabb_max[axis])));
+			const double bake_mid = 0.5 * ((p_center[axis] + double(b.aabb_min[axis])) + (p_center[axis] + double(b.aabb_max[axis])));
+			motion_squared += (actual_mid - bake_mid) * (actual_mid - bake_mid);
+		}
+		bounds_match = bounds_match && double(a.radius) >= double(b.radius) + std::sqrt(motion_squared);
+	}
 	return a.cell.e == b.cell.e && a.cell.ix == b.cell.ix && a.cell.iy == b.cell.iy && a.cell.iz == b.cell.iz &&
-			a.aabb_min == b.aabb_min && a.aabb_max == b.aabb_max && a.radius == b.radius && a.geometric_error == b.geometric_error &&
+			bounds_match && a.geometric_error == b.geometric_error &&
 			a.error_chosen == b.error_chosen && a.error_rejected == b.error_rejected && a.parent == b.parent &&
 			a.first_child == b.first_child && a.child_count == b.child_count && a.height == b.height && a.payload_first == b.payload_first &&
 			a.payload_count == b.payload_count && a.flags == b.flags && a.overlap_footprint == b.overlap_footprint;
@@ -770,12 +784,14 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		if (error != OK) {
 			return refuse(r_reason, "v4_reopen_spill_missing", error);
 		}
-		if (!same_node(record.topology, nodes[i].topology) || record.is_leaf != spill.desc.is_leaf || record.topology.payload_count != spill.splat_count ||
+		if (!same_node(record.topology, nodes[i].topology, gsq, spill.desc.cell_center) || record.is_leaf != spill.desc.is_leaf || record.topology.payload_count != spill.splat_count ||
 				std::memcmp(record.cell_center, spill.desc.cell_center, sizeof(record.cell_center)) != 0) {
 			return refuse(r_reason, "v4_reopen_topology", ERR_FILE_CORRUPT);
 		}
 		Vector<Gaussian> gaussians;
 		Vector<Vector3> sh;
+		// The reader also applies validate_node_payload to decoded support against
+		// the final AABB/sphere, with its unchanged half-ULP tolerance.
 		error = reopened->read_node_payload(i, gaussians, sh, r_reason);
 		if (error != OK) {
 			return error;
