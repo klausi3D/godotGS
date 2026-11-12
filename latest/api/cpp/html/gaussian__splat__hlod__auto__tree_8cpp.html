@@ -93,17 +93,20 @@ $(function(){initNavTree('gaussian__splat__hlod__auto__tree_8cpp.html','',''); }
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="gaussian__splat__hlod__auto__tree_8h_source.html">gaussian_splat_hlod_auto_tree.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__splat__hlod__tiled__bake_8h_source.html">gaussian_splat_hlod_tiled_bake.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="gaussian__splat__world_8h_source.html">gaussian_splat_world.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__vector__alloc_8h_source.html">gs_vector_alloc.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="streaming__chunk__payload__source_8h_source.html">streaming_chunk_payload_source.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__auto__tree__source_8h_source.html">../io/gs_auto_tree_source.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__atomic__file__transaction_8h_source.html">../io/gs_atomic_file_transaction.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__world__writer__v4_8h_source.html">../io/gs_world_writer_v4.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gsq__codec_8h_source.html">../io/gsq/gsq_codec.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="hlod__runtime__selection_8h_source.html">../lod/hlod_runtime_selection.h</a>&quot;</code><br />
 <code>#include &quot;core/config/project_settings.h&quot;</code><br />
 <code>#include &quot;core/crypto/crypto_core.h&quot;</code><br />
 <code>#include &quot;core/io/dir_access.h&quot;</code><br />
 <code>#include &quot;core/io/file_access.h&quot;</code><br />
 <code>#include &quot;core/io/json.h&quot;</code><br />
+<code>#include &quot;core/math/projection.h&quot;</code><br />
 <code>#include &quot;core/object/class_db.h&quot;</code><br />
 <code>#include &quot;core/os/os.h&quot;</code><br />
 <code>#include &lt;algorithm&gt;</code><br />
@@ -111,6 +114,7 @@ $(function(){initNavTree('gaussian__splat__hlod__auto__tree_8cpp.html','',''); }
 <code>#include &lt;cmath&gt;</code><br />
 <code>#include &lt;cstdio&gt;</code><br />
 <code>#include &lt;cstring&gt;</code><br />
+<code>#include &lt;limits&gt;</code><br />
 <code>#include &lt;vector&gt;</code><br />
 <code>#include &lt;fcntl.h&gt;</code><br />
 <code>#include &lt;sys/resource.h&gt;</code><br />
