@@ -167,7 +167,10 @@ struct Fixture {
 	String input;
 	gs_world_generator::Report generated;
 
-	bool create(uint32_t p_total = 32768, uint32_t p_codec = gs_world_writer::kCodecGsqV1, int64_t p_seed_delta = 0) {
+	// p_near_plane selects the plain chunks that touch the x = 0 or z = 0 plane
+	// instead: their splats sit close to a coordinate plane, where a leaf's
+	// node-relative float32 position does not reconstruct bit-exactly (#1432).
+	bool create(uint32_t p_total = 32768, uint32_t p_codec = gs_world_writer::kCodecGsqV1, int64_t p_seed_delta = 0, bool p_near_plane = false) {
 		static uint32_t sequence = 0;
 		dir = OS::get_singleton()->get_temp_path().path_join("gs_d2_auto_" + itos(OS::get_singleton()->get_ticks_usec()) + "_" + itos(sequence++));
 		scratch = dir.path_join("scratch");
@@ -201,6 +204,13 @@ struct Fixture {
 		// 262144-splat plan yields about 147k selected splats, several 64k tiles.
 		for (uint32_t i = 0; i < plan.chunks.size(); ++i) {
 			const auto &chunk = plan.chunks[i];
+			if (p_near_plane) {
+				if ((chunk.cell.x0 == 0 || chunk.cell.x1 == 0 || chunk.cell.z0 == 0 || chunk.cell.z1 == 0) &&
+						chunk.class_counts[gs_world_generator::CLASS_PLAIN] == chunk.count) {
+					options.selection.push_back(i);
+				}
+				continue;
+			}
 			if ((chunk.cell.x1 <= -32 || chunk.cell.x0 >= 32) &&
 					(chunk.cell.z1 <= -32 || chunk.cell.z0 >= 32) &&
 					chunk.class_counts[gs_world_generator::CLASS_PLAIN] == chunk.count) {
@@ -511,6 +521,89 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ to codec-none V4 equals in
 		CHECK(double(level.get("eps_min", -1)) == values.front());
 		CHECK(double(level.get("eps_max", -1)) == values.back());
 		CHECK(double(level.get("eps_median", -1)) == (values[(values.size() - 1) / 2] + values[values.size() / 2]) / 2.0);
+	}
+}
+
+// #1432: a codec-none leaf stores float(x - c) and the reader returns
+// float(float(x - c) + c). Next to a coordinate plane that round trip is not the
+// identity (x = 0.1f in a cell centred on 0.5 reads back 0.09999999f), yet it is
+// idempotent, so the writer accepts the leaf. The reopen check must then expect
+// exactly that reconstructed payload, not the pre-store absolute input.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Codec-none auto-tree reopens near-plane leaves whose positions do not round-trip exactly") {
+	Fixture fixture;
+	D2_AUTO_NEED(fixture.create(262144, gs_world_writer::kCodecGsqV1, 0, true));
+	D2_AUTO_NEED(fixture.generated.splat_count > 0);
+	Resident resident;
+	D2_AUTO_NEED(resident.load(fixture));
+	gs_hlod::BakeResult oracle;
+	String reason;
+	Error error = OK;
+	D2_AUTO_NEED(gs_hlod::bake_world(resident.view(), gs_hlod::BakeParams(), oracle, &reason, &error));
+	D2_AUTO_NEED(error == OK);
+	D2_AUTO_NEED(oracle.leaf_gaussians.size() == oracle.tree.leaf_splat_count);
+	D2_AUTO_NEED(oracle.leaf_sh_high_order.size() == uint64_t(oracle.tree.leaf_splat_count) * resident.high);
+	D2_AUTO_NEED(oracle.tree.interior_gaussians.size() == oracle.tree.interior_splat_count);
+	// Independent expectation: the store/reconstruct arithmetic spelled out here,
+	// not the writer's or reader's helpers.
+	LocalVector<Gaussian> expected_leaves = oracle.leaf_gaussians;
+	uint64_t inexact = 0;
+	for (const auto &node : oracle.tree.nodes) {
+		if (!node.is_leaf()) {
+			continue;
+		}
+		double center[3];
+		oracle.tree.node_cell_center(node, center);
+		for (uint32_t j = 0; j < node.payload_count; ++j) {
+			Vector3 &pos = expected_leaves[node.payload_first + j].position;
+			for (int axis = 0; axis < 3; ++axis) {
+				const float stored = float(double(pos[axis]) - center[axis]);
+				const float reconstructed = float(double(stored) + center[axis]);
+				// The writer's acceptance rule: the reconstruction is idempotent.
+				D2_AUTO_NEED(float(double(float(double(reconstructed) - center[axis])) + center[axis]) == reconstructed);
+				inexact += reconstructed != pos[axis] ? 1u : 0u;
+				pos[axis] = reconstructed;
+			}
+		}
+	}
+	// Fixture proof: without inexact coordinates this case tests nothing.
+	D2_AUTO_NEED(inexact > 0);
+	MESSAGE("near-plane leaf coordinates that do not round-trip exactly: ", inexact);
+
+	const String output = fixture.dir.path_join("near_plane.gsplatworld");
+	const Dictionary report = GaussianSplatHlodAutoTree::build(fixture.input, output, fixture.options());
+	CHECK_MESSAGE(int(report.get("error", FAILED)) == OK, "auto-tree build refused: ", String(report.get("reason", "missing")).utf8().get_data());
+	D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
+	success_report(report);
+	CHECK(directory_empty(fixture.scratch));
+	const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(output));
+	D2_AUTO_NEED(!manifest.is_empty());
+	CHECK(String(Dictionary(manifest.get("codec", Dictionary())).get("codec", "")) == "none");
+	CHECK(String(manifest.get("output_file_sha256", "")) == FileAccess::get_sha256(output));
+
+	Ref<GaussianSplatHlodPagedSource> paged;
+	paged.instantiate();
+	GaussianSplatHlodTree tree;
+	Dictionary metadata;
+	D2_AUTO_NEED(paged->open(output, tree, metadata, reason) == OK);
+	D2_AUTO_NEED(tree.nodes.size() == oracle.tree.nodes.size());
+	const Array nodes = manifest.get("nodes", Array());
+	D2_AUTO_NEED(nodes.size() == int(tree.nodes.size()));
+	for (uint32_t i = 0; i < tree.nodes.size(); ++i) {
+		const auto &expected = oracle.tree.nodes[i];
+		same_node(tree.nodes[i], expected);
+		const uint64_t start = expected.is_leaf() ? expected.payload_first : expected.payload_first - oracle.tree.leaf_splat_count;
+		const Gaussian *g = expected.is_leaf() ? expected_leaves.ptr() + start : oracle.tree.interior_gaussians.ptr() + start;
+		const Vector3 *sh = expected.is_leaf() ? oracle.leaf_sh_high_order.ptr() + start * resident.high : oracle.tree.interior_sh_high_order.ptr() + start * resident.high;
+		Vector<Gaussian> actual;
+		Vector<Vector3> actual_sh;
+		D2_AUTO_NEED(paged->read_node_payload(i, actual, actual_sh, reason) == OK);
+		D2_AUTO_NEED(actual.size() == int(expected.payload_count));
+		D2_AUTO_NEED(actual_sh.size() == int(expected.payload_count * resident.high));
+		CHECK(std::memcmp(actual.ptr(), g, expected.payload_count * sizeof(Gaussian)) == 0);
+		CHECK(std::memcmp(actual_sh.ptr(), sh, expected.payload_count * resident.high * sizeof(Vector3)) == 0);
+		const Dictionary entry = nodes[i];
+		CHECK(String(entry.get("decoded_sha256", "")) == payload_digest(g, sh, expected.payload_count, resident.high));
+		CHECK(String(entry.get("stored_sha256", "")) == String::hex_encode_buffer(paged->get_nodes()[i].digest, 32));
 	}
 }
 
