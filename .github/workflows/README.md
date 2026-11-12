@@ -139,7 +139,7 @@ it never runs the fly-through, codec probe or watchdog. T0 runs first, stays in
 scratch and preserves the existing T0 cache, bounded by its own smaller job
 limits. The following Tier A admission records and prints `MemAvailable`,
 `MemTotal`, `SwapTotal`, `SwapFree` and `df` capacity; missing memory/swap fields
-are null with an explicit absence reason. Admission refuses below 22 GiB
+are null with an explicit absence reason. Admission refuses below 20 GiB
 available RAM or `2 × 10.2 GB + 12 GiB` free disk. Missing required memory
 information is `NOT_RUN`; swap is diagnostic and does not increase the RAM budget.
 A refused preflight makes the job fail and skips Tier A prime and cache-check,

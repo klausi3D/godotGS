@@ -1388,7 +1388,7 @@ class D25AutoTreePreflight(_TempCase):
 
     REQUIRED_DISK = 2 * 10_200_000_000 + 12 * GIB
 
-    def meminfo(self, available=22 * GIB):
+    def meminfo(self, available=20 * GIB):
         path = self.tmp / "meminfo"
         path.write_text(
             f"MemTotal:       {32 * GIB // 1024} kB\n"
@@ -1406,8 +1406,8 @@ class D25AutoTreePreflight(_TempCase):
         )
         return code, self.record("auto_tree_preflight")
 
-    def test_memory_below_22_gib_is_not_run(self):
-        code, record = self.preflight(self.meminfo(22 * GIB - 1024))
+    def test_memory_below_20_gib_is_not_run(self):
+        code, record = self.preflight(self.meminfo(20 * GIB - 1024))
         self.assertEqual(code, lane.EXIT_NOT_RUN)
         self.assertEqual(record["status"], "NOT_RUN")
         self.assertEqual(record["data"]["reason_code"], "ram_insufficient")
@@ -1456,7 +1456,7 @@ class D25AutoTreePreflight(_TempCase):
         self.assertEqual(code, lane.EXIT_OK)
         self.assertEqual(record["status"], "OK")
         data = record["data"]
-        self.assertEqual(data["mem_available_bytes"], 22 * GIB)
+        self.assertEqual(data["mem_available_bytes"], 20 * GIB)
         self.assertEqual(data["mem_total_bytes"], 32 * GIB)
         self.assertEqual(data["df"]["avail_bytes"], self.REQUIRED_DISK)
         self.assertEqual(data["df"]["total_bytes"], 228 * 10**9)
@@ -1475,7 +1475,7 @@ class D25AutoTreePreflight(_TempCase):
                 with mock.patch("sys.stdout", output):
                     code, record = self.preflight(path)
                 self.assertEqual(code, lane.EXIT_OK)
-                for name, field, value in (("MemAvailable", "mem_available_bytes", 22 * GIB),
+                for name, field, value in (("MemAvailable", "mem_available_bytes", 20 * GIB),
                                            ("MemTotal", "mem_total_bytes", 32 * GIB),
                                            ("SwapTotal", "swap_total_bytes", total),
                                            ("SwapFree", "swap_free_bytes", free)):
@@ -1496,7 +1496,7 @@ class D25AutoTreePreflight(_TempCase):
                 self.assertIsNone(record["data"][field])
                 self.assertIn(name, record["data"]["measurement_absence"][field])
                 self.assertIn(f"{name}=absent (", output.getvalue())
-                self.assertEqual(record["data"]["mem_available_bytes"], 22 * GIB)
+                self.assertEqual(record["data"]["mem_available_bytes"], 20 * GIB)
 
     def test_unavailable_meminfo_records_absence_for_all_memory_measurements(self):
         code, record = self.preflight(self.tmp / "missing")
@@ -1514,7 +1514,7 @@ class D25AutoTreePreflight(_TempCase):
         before = {name: (self.out / name).read_bytes() for name in names}
         preflight = lane.auto_tree_preflight
         with mock.patch.object(lane, "auto_tree_preflight", side_effect=lambda root, out:
-                               preflight(root, out, FakeRunner(), _all_tools, self.meminfo(21 * GIB))):
+                               preflight(root, out, FakeRunner(), _all_tools, self.meminfo(20 * GIB - 1024))):
             code = lane.main(["auto-tree-preflight", "--cache-root", str(self.tmp), "--out", str(self.out)])
         self.assertEqual(code, lane.EXIT_NOT_RUN)
         self.assertNotEqual(code, 0, "the workflow must stay red on refused Tier A admission")
