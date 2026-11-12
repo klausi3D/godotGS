@@ -1,5 +1,11 @@
 var NAVTREEINDEX43 =
 {
+"structGaussianSplatting_1_1TileRenderStats.html#a46c1059e22eb28fc8f1699ad2baf4f55":[1,0,9,57,17],
+"structGaussianSplatting_1_1TileRenderStats.html#a48f429ffe603f3ef6fbeb2ac5941210a":[0,0,12,58,34],
+"structGaussianSplatting_1_1TileRenderStats.html#a48f429ffe603f3ef6fbeb2ac5941210a":[1,0,9,57,34],
+"structGaussianSplatting_1_1TileRenderStats.html#a49ff7ddd10779cad5ff0147fd68ad787":[0,0,12,58,12],
+"structGaussianSplatting_1_1TileRenderStats.html#a49ff7ddd10779cad5ff0147fd68ad787":[1,0,9,57,12],
+"structGaussianSplatting_1_1TileRenderStats.html#a4efe1f28869bef4ce595570211789a8a":[0,0,12,58,8],
 "structGaussianSplatting_1_1TileRenderStats.html#a4efe1f28869bef4ce595570211789a8a":[1,0,9,57,8],
 "structGaussianSplatting_1_1TileRenderStats.html#a586242a0143616daddc389e611289c87":[0,0,12,58,31],
 "structGaussianSplatting_1_1TileRenderStats.html#a586242a0143616daddc389e611289c87":[1,0,9,57,31],
@@ -243,11 +249,5 @@ var NAVTREEINDEX43 =
 "structGaussianSplatting_1_1TileShaderResources.html#aa032f0bc73a3e8509d37879cc6c2a5cd":[1,0,9,44,4],
 "structGaussianSplatting_1_1TileShaderResources.html#aa45ec27e123f9f69ba8fdd8cdcfaddce":[0,0,12,45,11],
 "structGaussianSplatting_1_1TileShaderResources.html#aa45ec27e123f9f69ba8fdd8cdcfaddce":[1,0,9,44,11],
-"structGaussianSplatting_1_1TileShaderResources.html#ab25669927775cbb7338d5689fc526aa4":[0,0,12,45,26],
-"structGaussianSplatting_1_1TileShaderResources.html#ab25669927775cbb7338d5689fc526aa4":[1,0,9,44,26],
-"structGaussianSplatting_1_1TileShaderResources.html#aceb7256053222b357d137436a7b71069":[0,0,12,45,34],
-"structGaussianSplatting_1_1TileShaderResources.html#aceb7256053222b357d137436a7b71069":[1,0,9,44,34],
-"structGaussianSplatting_1_1TileShaderResources.html#ad04aaf88160da530fa4c1644475d8ebd":[0,0,12,45,15],
-"structGaussianSplatting_1_1TileShaderResources.html#ad04aaf88160da530fa4c1644475d8ebd":[1,0,9,44,15],
-"structGaussianSplatting_1_1TileShaderResources.html#ad5a13034f5708f5062afed77d3a65cd1":[0,0,12,45,21]
+"structGaussianSplatting_1_1TileShaderResources.html#ab25669927775cbb7338d5689fc526aa4":[0,0,12,45,26]
 };

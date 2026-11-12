@@ -1,5 +1,11 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html#a8528c1dd483ea0da08996bd5e5e14d5a":[1,0,9,15,2,0,3],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html#ac65549755b6e2f576d469d55b41379b5":[0,0,12,16,2,0,1],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html#ac65549755b6e2f576d469d55b41379b5":[1,0,9,15,2,0,1],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html#ad5e0ba59f6baf4bfcc761f264bb15cc3":[0,0,12,16,2,0,2],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html#ad5e0ba59f6baf4bfcc761f264bb15cc3":[1,0,9,15,2,0,2],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html":[0,0,12,16,0],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html":[1,0,9,15,0],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#a79b0e2489fc936076aac9ed2ff254311":[0,0,12,16,0,4],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#a79b0e2489fc936076aac9ed2ff254311":[1,0,9,15,0,4],
@@ -243,11 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1TileBufferShrinkPolicy.html#acc782f044ab4768bb3084f751d153461":[1,0,9,39,1],
 "structGaussianSplatting_1_1TileBufferShrinkPolicy.html#ae6878e11744f7f01741f4a5a121d206c":[0,0,12,40,2],
 "structGaussianSplatting_1_1TileBufferShrinkPolicy.html#ae6878e11744f7f01741f4a5a121d206c":[1,0,9,39,2],
-"structGaussianSplatting_1_1TileBufferShrinkPolicy.html#afac6bc72c9f1c703cafc6260fcc399d1":[0,0,12,40,3],
-"structGaussianSplatting_1_1TileBufferShrinkPolicy.html#afac6bc72c9f1c703cafc6260fcc399d1":[1,0,9,39,3],
-"structGaussianSplatting_1_1TileConfigState.html":[0,0,12,64],
-"structGaussianSplatting_1_1TileConfigState.html":[1,0,9,63],
-"structGaussianSplatting_1_1TileConfigState.html#a5d2f5f8436328b70d46cc0ae6433bc52":[0,0,12,64,4],
-"structGaussianSplatting_1_1TileConfigState.html#a5d2f5f8436328b70d46cc0ae6433bc52":[1,0,9,63,4],
-"structGaussianSplatting_1_1TileConfigState.html#a9197e2c277a9a3916f30254adf76fb63":[0,0,12,64,0]
+"structGaussianSplatting_1_1TileBufferShrinkPolicy.html#afac6bc72c9f1c703cafc6260fcc399d1":[0,0,12,40,3]
 };

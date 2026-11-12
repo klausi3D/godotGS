@@ -1,5 +1,11 @@
 var NAVTREEINDEX51 =
 {
+"structSortOperationParams.html#a7fdb9c4ba2252629ebee23ef6a2a0442":[1,0,246,2],
+"structSortOperationParams.html#aa2e3aa0edda298af32121a587207844b":[1,0,246,0],
+"structSortOperationResult.html":[1,0,247],
+"structSortOperationResult.html#a23a67cb3ea9246b3a248a8aa3ed96829":[1,0,247,6],
+"structSortOperationResult.html#a24e71bac1313a6362d6f8b7e1ab5ab78":[1,0,247,4],
+"structSortOperationResult.html#a2c824d57c3cb08fc05b26f225213e916":[1,0,247,2],
 "structSortOperationResult.html#a5ce9265adcbb0bf78a3d238e1e1b6bcf":[1,0,247,5],
 "structSortOperationResult.html#aa569a71d5dc87fd3ab478736387f8c6f":[1,0,247,3],
 "structSortOperationResult.html#ad2612c979c30673b834cb6f653950060":[1,0,247,0],
@@ -243,11 +249,5 @@ var NAVTREEINDEX51 =
 "structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#ae40027d20e426cfc6a85edeba0d2804f":[1,0,271,0,1],
 "structStreamingUploadPipeline_1_1PackJob.html":[1,0,272,3],
 "structStreamingUploadPipeline_1_1PackJob.html#a0fd22eb9d4e615326e636ece230abba1":[1,0,272,3,8],
-"structStreamingUploadPipeline_1_1PackJob.html#a2e1492948ee25ad375f1ba17ba01562e":[1,0,272,3,4],
-"structStreamingUploadPipeline_1_1PackJob.html#a2f6766a34ef1cc942852e772d22b954e":[1,0,272,3,9],
-"structStreamingUploadPipeline_1_1PackJob.html#a43c9fbecafe9e48f0c35ffcd4e53d94f":[1,0,272,3,2],
-"structStreamingUploadPipeline_1_1PackJob.html#a4c1fb68339a2e5eda92ebe99c0e5013a":[1,0,272,3,6],
-"structStreamingUploadPipeline_1_1PackJob.html#a528bd235ce045575b92e649ca9d1b253":[1,0,272,3,0],
-"structStreamingUploadPipeline_1_1PackJob.html#a7d0f42595c41aba5231ddc685df713eb":[1,0,272,3,1],
-"structStreamingUploadPipeline_1_1PackJob.html#a838657f71a395785888e1bbf651703d5":[1,0,272,3,3]
+"structStreamingUploadPipeline_1_1PackJob.html#a2e1492948ee25ad375f1ba17ba01562e":[1,0,272,3,4]
 };

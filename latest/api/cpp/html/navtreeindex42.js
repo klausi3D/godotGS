@@ -1,5 +1,11 @@
 var NAVTREEINDEX42 =
 {
+"structGaussianSplatting_1_1TileRenderParams.html#a38b586f1fa28cac6af3395e4adddc56f":[1,0,9,66,87],
+"structGaussianSplatting_1_1TileRenderParams.html#a3a1b3e8954f395b561cdf5b1c0149193":[0,0,12,67,45],
+"structGaussianSplatting_1_1TileRenderParams.html#a3a1b3e8954f395b561cdf5b1c0149193":[1,0,9,66,45],
+"structGaussianSplatting_1_1TileRenderParams.html#a3c73a8e4cfa065a32d5aa1fb0f85c55a":[0,0,12,67,55],
+"structGaussianSplatting_1_1TileRenderParams.html#a3c73a8e4cfa065a32d5aa1fb0f85c55a":[1,0,9,66,55],
+"structGaussianSplatting_1_1TileRenderParams.html#a3e6082ab6a4662ae63cfdde59ebc1b44":[0,0,12,67,81],
 "structGaussianSplatting_1_1TileRenderParams.html#a3e6082ab6a4662ae63cfdde59ebc1b44":[1,0,9,66,81],
 "structGaussianSplatting_1_1TileRenderParams.html#a3eb68b6a1daf06dc108fba8388b1160f":[0,0,12,67,8],
 "structGaussianSplatting_1_1TileRenderParams.html#a3eb68b6a1daf06dc108fba8388b1160f":[1,0,9,66,8],
@@ -243,11 +249,5 @@ var NAVTREEINDEX42 =
 "structGaussianSplatting_1_1TileRenderStats.html#a3e7449c92278437ed9846b22ac9e0e41":[1,0,9,57,14],
 "structGaussianSplatting_1_1TileRenderStats.html#a4157c115a71f5d272cb318ba65932fce":[0,0,12,58,25],
 "structGaussianSplatting_1_1TileRenderStats.html#a4157c115a71f5d272cb318ba65932fce":[1,0,9,57,25],
-"structGaussianSplatting_1_1TileRenderStats.html#a46c1059e22eb28fc8f1699ad2baf4f55":[0,0,12,58,17],
-"structGaussianSplatting_1_1TileRenderStats.html#a46c1059e22eb28fc8f1699ad2baf4f55":[1,0,9,57,17],
-"structGaussianSplatting_1_1TileRenderStats.html#a48f429ffe603f3ef6fbeb2ac5941210a":[0,0,12,58,34],
-"structGaussianSplatting_1_1TileRenderStats.html#a48f429ffe603f3ef6fbeb2ac5941210a":[1,0,9,57,34],
-"structGaussianSplatting_1_1TileRenderStats.html#a49ff7ddd10779cad5ff0147fd68ad787":[0,0,12,58,12],
-"structGaussianSplatting_1_1TileRenderStats.html#a49ff7ddd10779cad5ff0147fd68ad787":[1,0,9,57,12],
-"structGaussianSplatting_1_1TileRenderStats.html#a4efe1f28869bef4ce595570211789a8a":[0,0,12,58,8]
+"structGaussianSplatting_1_1TileRenderStats.html#a46c1059e22eb28fc8f1699ad2baf4f55":[0,0,12,58,17]
 };

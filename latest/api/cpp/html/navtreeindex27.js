@@ -1,5 +1,10 @@
 var NAVTREEINDEX27 =
 {
+"structChunkQuantizationInfo.html#a2fea954b9ac4d42297976a25b1ca359e":[1,0,49,9],
+"structChunkQuantizationInfo.html#a4288d4406a0ecaa7f5c37756e08f5564":[1,0,49,3],
+"structChunkQuantizationInfo.html#a4af4d8f927f2cd2b4e4acb70682310cc":[1,0,49,4],
+"structChunkQuantizationInfo.html#a53c6b7ebb49be0d5d033e9f525c02c9f":[1,0,49,0],
+"structChunkQuantizationInfo.html#a590620a10b179f545860e9a7efe5673a":[1,0,49,2],
 "structChunkQuantizationInfo.html#a5986889bfe707b9d5b0d345217ba6814":[1,0,49,8],
 "structChunkQuantizationInfo.html#a6cb7ed02284c7174a556ffb5a6dff7a1":[1,0,49,5],
 "structChunkQuantizationInfo.html#a77c08c7b76301a8f63e1e75b89713eb5":[1,0,49,15],
@@ -244,10 +249,5 @@ var NAVTREEINDEX27 =
 "structGPUCuller_1_1CullingConfig.html#ab4b3dafca03b3c98aa38571ac455a97b":[1,0,116,0,31],
 "structGPUCuller_1_1CullingConfig.html#abcfc4f4607274e1fa6df0de05d473903":[1,0,116,0,5],
 "structGPUCuller_1_1CullingConfig.html#ad7b249c1e9d4b46ba14b274b548f5043":[1,0,116,0,17],
-"structGPUCuller_1_1CullingConfig.html#ade45ed462e91e187cbfeeb546c68cadc":[1,0,116,0,3],
-"structGPUCuller_1_1CullingConfig.html#ae8e3746661e4f4e9b38d37fc9be41b2a":[1,0,116,0,15],
-"structGPUCuller_1_1CullingConfig.html#af1800ac4c034a0b9080ab71b1f70aecd":[1,0,116,0,24],
-"structGPUCuller_1_1CullingConfig.html#afb6343c22926b65d984db5a545241982":[1,0,116,0,29],
-"structGPUCuller_1_1CullingConfig.html#afd8cb04ab8d7e8715165e89d112c5fca":[1,0,116,0,19],
-"structGPUCuller_1_1CullingInputs.html":[1,0,116,2]
+"structGPUCuller_1_1CullingConfig.html#ade45ed462e91e187cbfeeb546c68cadc":[1,0,116,0,3]
 };

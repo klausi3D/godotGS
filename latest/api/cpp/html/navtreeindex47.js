@@ -1,5 +1,11 @@
 var NAVTREEINDEX47 =
 {
+"structGsqPagedChunkPayloadSource_1_1DecodeStats.html#ad42c2682c582727fe88b526af4b01053":[1,0,123,1,12],
+"structGsqPagedChunkPayloadSource_1_1Page.html":[1,0,123,0],
+"structGsqPagedChunkPayloadSource_1_1Page.html#a01ee303d2b7aa841d0c6c31114e07f06":[1,0,123,0,5],
+"structGsqPagedChunkPayloadSource_1_1Page.html#a055aea0fc4df76de4709e20d964e61e8":[1,0,123,0,0],
+"structGsqPagedChunkPayloadSource_1_1Page.html#a088c4bfb19792eb5b2f5c7e9de7f863f":[1,0,123,0,1],
+"structGsqPagedChunkPayloadSource_1_1Page.html#a4cd6dbdc8cd40707a1292e5d240a0612":[1,0,123,0,2],
 "structGsqPagedChunkPayloadSource_1_1Page.html#ab0dbf9449a8a170e818d4d441632edc3":[1,0,123,0,4],
 "structGsqPagedChunkPayloadSource_1_1Page.html#af6acbfaac78eaee3f4e2b23fc85118c2":[1,0,123,0,3],
 "structHlodFallback.html":[1,0,129],
@@ -243,11 +249,5 @@ var NAVTREEINDEX47 =
 "structNodeResidency_1_1Ticket.html#ad5b06b14ca3b4faba1635dd6c5deaa3a":[1,0,169,2,6],
 "structOutputCompositor_1_1CachedFramebuffer.html":[1,0,171,0],
 "structOutputCompositor_1_1CachedFramebuffer.html#a3e8d6eacfca383b79adc380c84267a70":[1,0,171,0,0],
-"structOutputCompositor_1_1CachedFramebuffer.html#a8bdc32ddda8fb7103c773e3954021cce":[1,0,171,0,1],
-"structOutputCompositor_1_1CachedFramebuffer.html#affb4e1937d868fc88fb64c116d813a65":[1,0,171,0,2],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html":[1,0,171,1],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a169115204dd51be0c50c1c07e4ffd845":[1,0,171,1,1],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a5b94e19d42cd0929b994656545add366":[1,0,171,1,3],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a9a4265891f0e91a388422ca7004a268f":[1,0,171,1,2],
-"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#aada19b75415704e1caaff853b056eae1":[1,0,171,1,0]
+"structOutputCompositor_1_1CachedFramebuffer.html#a8bdc32ddda8fb7103c773e3954021cce":[1,0,171,0,1]
 };

@@ -1,5 +1,8 @@
 var NAVTREEINDEX19 =
 {
+"functions_vars_c.html":[1,3,2,3],
+"functions_vars_d.html":[1,3,2,4],
+"functions_vars_e.html":[1,3,2,5],
 "functions_vars_f.html":[1,3,2,6],
 "functions_vars_g.html":[1,3,2,7],
 "functions_vars_h.html":[1,3,2,8],
@@ -246,8 +249,5 @@ var NAVTREEINDEX19 =
 "gaussian__splat__settings__manager_8h.html":[2,0,0,0,3,43],
 "gaussian__splat__settings__manager_8h.html#ad22edb694004011325a5dd94942160ce":[2,0,0,0,3,43,2],
 "gaussian__splat__settings__manager_8h_source.html":[2,0,0,0,3,43],
-"gaussian__splat__source__path_8h.html":[2,0,0,0,3,44],
-"gaussian__splat__source__path_8h_source.html":[2,0,0,0,3,44],
-"gaussian__splat__world_8cpp.html":[2,0,0,0,3,45],
-"gaussian__splat__world_8h.html":[2,0,0,0,3,46]
+"gaussian__splat__source__path_8h.html":[2,0,0,0,3,44]
 };

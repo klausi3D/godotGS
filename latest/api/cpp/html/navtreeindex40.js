@@ -1,5 +1,11 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatting_1_1TileBufferShrinkPolicy.html#afac6bc72c9f1c703cafc6260fcc399d1":[1,0,9,39,3],
+"structGaussianSplatting_1_1TileConfigState.html":[0,0,12,64],
+"structGaussianSplatting_1_1TileConfigState.html":[1,0,9,63],
+"structGaussianSplatting_1_1TileConfigState.html#a5d2f5f8436328b70d46cc0ae6433bc52":[0,0,12,64,4],
+"structGaussianSplatting_1_1TileConfigState.html#a5d2f5f8436328b70d46cc0ae6433bc52":[1,0,9,63,4],
+"structGaussianSplatting_1_1TileConfigState.html#a9197e2c277a9a3916f30254adf76fb63":[0,0,12,64,0],
 "structGaussianSplatting_1_1TileConfigState.html#a9197e2c277a9a3916f30254adf76fb63":[1,0,9,63,0],
 "structGaussianSplatting_1_1TileConfigState.html#aa3df470418a3cb376bcabba2dd70e1d1":[0,0,12,64,1],
 "structGaussianSplatting_1_1TileConfigState.html#aa3df470418a3cb376bcabba2dd70e1d1":[1,0,9,63,1],
@@ -243,11 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a9802e93eec2ebe1699d23501995f1325":[1,0,9,45,3],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a9d31f28b63cf47d13b3a5c21a10e5900":[0,0,12,46,26],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#a9d31f28b63cf47d13b3a5c21a10e5900":[1,0,9,45,26],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685":[0,0,12,46,45],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685":[1,0,9,45,45],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#aacb59ed1a673c74dc9cf8737a08c7762":[0,0,12,46,20],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#aacb59ed1a673c74dc9cf8737a08c7762":[1,0,9,45,20],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#ab2ad9bdfeff96d5af06cf1cc23cce6b3":[0,0,12,46,44],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#ab2ad9bdfeff96d5af06cf1cc23cce6b3":[1,0,9,45,44],
-"structGaussianSplatting_1_1TileGlobalSortResources.html#abc00fcec4c99f76c6662f4cf2ee16fc0":[0,0,12,46,47]
+"structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685":[0,0,12,46,45]
 };

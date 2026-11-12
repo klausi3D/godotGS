@@ -113,20 +113,66 @@ Classes</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:aa29d89d8a2fd14617c65659f001c387e" id="r_aa29d89d8a2fd14617c65659f001c387e"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa29d89d8a2fd14617c65659f001c387e">open</a> (const String &amp;p_path, <a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;r_tree, Dictionary &amp;r_metadata, String &amp;r_reason)</td></tr>
+<tr class="memitem:a0094420f3e9f55597bc22d4f57347a73" id="r_a0094420f3e9f55597bc22d4f57347a73"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0094420f3e9f55597bc22d4f57347a73">~GaussianSplatHlodPagedSource</a> ()</td></tr>
 <tr class="memitem:a0c82845991665d4497aef78feccad4cc" id="r_a0c82845991665d4497aef78feccad4cc"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c82845991665d4497aef78feccad4cc">is_open</a> () const</td></tr>
 <tr class="memitem:ae274bb437369b6f4d78299dab84e70f6" id="r_ae274bb437369b6f4d78299dab84e70f6"><td class="memItemLeft" align="right" valign="top">const String &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae274bb437369b6f4d78299dab84e70f6">get_path</a> () const</td></tr>
 <tr class="memitem:a551113399a42cc04ab993deb6c771ede" id="r_a551113399a42cc04ab993deb6c771ede"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussianSplatHlodPagedSource_1_1Info.html">Info</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a551113399a42cc04ab993deb6c771ede">get_info</a> () const</td></tr>
+<tr class="memitem:a5b343261f7ca38698e0ff455c51f1c9a" id="r_a5b343261f7ca38698e0ff455c51f1c9a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5b343261f7ca38698e0ff455c51f1c9a">get_codec_id</a> () const</td></tr>
 <tr class="memitem:a6bdb480eadaf6b0a7310193a3d1c37cd" id="r_a6bdb480eadaf6b0a7310193a3d1c37cd"><td class="memItemLeft" align="right" valign="top">const Vector&lt; <a class="el" href="structGaussianSplatHlodPagedSource_1_1NodeRecord.html">NodeRecord</a> &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6bdb480eadaf6b0a7310193a3d1c37cd">get_nodes</a> () const</td></tr>
 <tr class="memitem:aa8907604472d5337795d016422c40d9a" id="r_aa8907604472d5337795d016422c40d9a"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa8907604472d5337795d016422c40d9a">read_node_payload</a> (uint32_t p_node, Vector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, Vector&lt; Vector3 &gt; &amp;r_sh, String &amp;r_reason) const</td></tr>
 <tr class="memitem:a622dceee0237da964b8ddc1c66d596b0" id="r_a622dceee0237da964b8ddc1c66d596b0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatHlodPagedSource_1_1Stats.html">Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a622dceee0237da964b8ddc1c66d596b0">get_stats</a> () const</td></tr>
 <tr class="memitem:ae247d0bf0fa935277d630af5c5eed4e7" id="r_ae247d0bf0fa935277d630af5c5eed4e7"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae247d0bf0fa935277d630af5c5eed4e7">get_max_record_bytes</a> () const</td></tr>
+<tr class="memitem:aa3aad7c6bf60837edcffdbb4bc2cd317" id="r_aa3aad7c6bf60837edcffdbb4bc2cd317"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa3aad7c6bf60837edcffdbb4bc2cd317">get_node_read_working_set_bytes</a> (uint32_t p_node) const</td></tr>
 <tr class="memitem:a8daf825ec0c03210af2bd084c18e0ca8" id="r_a8daf825ec0c03210af2bd084c18e0ca8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8daf825ec0c03210af2bd084c18e0ca8">get_index_digest</a> (uint8_t r_digest[32]) const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:aa37c437907ab7a0b38c9e70ec056c5a7" id="r_aa37c437907ab7a0b38c9e70ec056c5a7"><td class="memItemLeft" align="right" valign="top">static Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa37c437907ab7a0b38c9e70ec056c5a7">write_package</a> (const <a class="el" href="classGaussianSplatWorld.html">GaussianSplatWorld</a> &amp;p_world, const String &amp;p_path, String &amp;r_reason)</td></tr>
 </table>
+<a name="doc-constructors" id="doc-constructors"></a><h2 id="header-doc-constructors" class="groupheader">Constructor &amp; Destructor Documentation</h2>
+<a id="a0094420f3e9f55597bc22d4f57347a73" name="a0094420f3e9f55597bc22d4f57347a73"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0094420f3e9f55597bc22d4f57347a73">&#9670;&#160;</a></span>~GaussianSplatHlodPagedSource()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">GaussianSplatHlodPagedSource::~GaussianSplatHlodPagedSource </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="a5b343261f7ca38698e0ff455c51f1c9a" name="a5b343261f7ca38698e0ff455c51f1c9a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5b343261f7ca38698e0ff455c51f1c9a">&#9670;&#160;</a></span>get_codec_id()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatHlodPagedSource::get_codec_id </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a8daf825ec0c03210af2bd084c18e0ca8" name="a8daf825ec0c03210af2bd084c18e0ca8"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8daf825ec0c03210af2bd084c18e0ca8">&#9670;&#160;</a></span>get_index_digest()</h2>
 
@@ -190,6 +236,23 @@ Static Public Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa3aad7c6bf60837edcffdbb4bc2cd317" name="aa3aad7c6bf60837edcffdbb4bc2cd317"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa3aad7c6bf60837edcffdbb4bc2cd317">&#9670;&#160;</a></span>get_node_read_working_set_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

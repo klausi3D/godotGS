@@ -1,5 +1,11 @@
 var NAVTREEINDEX48 =
 {
+"structOutputCompositor_1_1CachedFramebuffer.html#affb4e1937d868fc88fb64c116d813a65":[1,0,171,0,2],
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html":[1,0,171,1],
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a169115204dd51be0c50c1c07e4ffd845":[1,0,171,1,1],
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a5b94e19d42cd0929b994656545add366":[1,0,171,1,3],
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#a9a4265891f0e91a388422ca7004a268f":[1,0,171,1,2],
+"structOutputCompositor_1_1FramebufferValidationCacheEntry.html#aada19b75415704e1caaff853b056eae1":[1,0,171,1,0],
 "structOutputCompositor_1_1FramebufferValidationCacheEntry.html#aeb039d18a77cd8857ad5b29c5ff8ffa2":[1,0,171,1,4],
 "structOutputCompositor_1_1LastCompositeStats.html":[1,0,171,3],
 "structOutputCompositor_1_1LastCompositeStats.html#a3fd5a5f38bc90de37f495ca2a12cc770":[1,0,171,3,1],
@@ -243,11 +249,5 @@ var NAVTREEINDEX48 =
 "structPipelineFeatureSet.html#abb8ace4f925be8a0d2f95fc0afc957ae":[1,0,194,9],
 "structPipelineFeatureSet.html#acc149efdadccf7f8c8c3eae27a1e3aff":[1,0,194,0],
 "structPipelineFeatureSet.html#ace6da7a5c5e537f43c0a9ce963e89a19":[1,0,194,2],
-"structQualityTierConfig.html":[1,0,196],
-"structQualityTierConfig.html#a13196f25922a6b46c72f47c7b49fcb50":[1,0,196,17],
-"structQualityTierConfig.html#a1410b59a909d4c4c0391a1ff4091b78a":[1,0,196,1],
-"structQualityTierConfig.html#a1b13ac59b0407fa830c7880d859ac3c7":[1,0,196,9],
-"structQualityTierConfig.html#a25d73436646a93a82ec28ecb031aef23":[1,0,196,12],
-"structQualityTierConfig.html#a28336f088bbb36fe0ef550a597b9d0eb":[1,0,196,10],
-"structQualityTierConfig.html#a36fc5816cd4266237f49496d809eb5b8":[1,0,196,20]
+"structQualityTierConfig.html":[1,0,196]
 };

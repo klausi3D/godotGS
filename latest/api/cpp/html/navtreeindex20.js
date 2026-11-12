@@ -1,5 +1,8 @@
 var NAVTREEINDEX20 =
 {
+"gaussian__splat__source__path_8h_source.html":[2,0,0,0,3,44],
+"gaussian__splat__world_8cpp.html":[2,0,0,0,3,45],
+"gaussian__splat__world_8h.html":[2,0,0,0,3,46],
 "gaussian__splat__world_8h_source.html":[2,0,0,0,3,46],
 "gaussian__splat__world__3d_8cpp.html":[2,0,0,0,9,12],
 "gaussian__splat__world__3d_8h.html":[2,0,0,0,9,13],
@@ -246,8 +249,5 @@ var NAVTREEINDEX20 =
 "hlod__auto__route_8h.html":[2,0,0,0,7,2],
 "hlod__auto__route_8h_source.html":[2,0,0,0,7,2],
 "hlod__bundle__rows_8h.html":[2,0,0,0,12,29],
-"hlod__bundle__rows_8h_source.html":[2,0,0,0,12,29],
-"hlod__drawn__node_8h.html":[2,0,0,0,12,30],
-"hlod__drawn__node_8h_source.html":[2,0,0,0,12,30],
-"hlod__edit_8cpp.html":[2,0,0,0,7,3]
+"hlod__bundle__rows_8h_source.html":[2,0,0,0,12,29]
 };

@@ -1,5 +1,8 @@
 var NAVTREEINDEX23 =
 {
+"namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0":[0,0,16,0,5],
+"namespacegs_1_1sorting__settings.html":[0,0,16,1],
+"namespacegs__chunk__invariants.html":[0,0,17],
 "namespacegs__chunk__invariants.html#a2a60ace2440a04e92c3c797755fba7df":[0,0,17,0],
 "namespacegs__chunk__invariants.html#a427b9ba170e955e33a304d77defea235":[0,0,17,2],
 "namespacegs__chunk__invariants.html#a5b224a2d0a2bf1ae01cdf57c060c0d81":[0,0,17,1],
@@ -246,8 +249,5 @@ var NAVTREEINDEX23 =
 "namespacegs__logger.html#adff94b27f1e0dab276953e7026874590":[0,0,27,9],
 "namespacegs__logger.html#af6d0de58a88d02f957c610a1f9cb9584":[0,0,27,12],
 "namespacegs__logger_1_1test.html":[0,0,27,0],
-"namespacegs__logger_1_1test.html#a18bc8b1a91ca2602d82a38f549212841":[0,0,27,0,0],
-"namespacegs__logger_1_1test.html#a61ee5803a21774d422153c243f568b36":[0,0,27,0,3],
-"namespacegs__logger_1_1test.html#aa9442aee00ad51032642c1ab29324e09":[0,0,27,0,1],
-"namespacegs__logger_1_1test.html#ace28493382b3550a24b629002a893a96":[0,0,27,0,2]
+"namespacegs__logger_1_1test.html#a18bc8b1a91ca2602d82a38f549212841":[0,0,27,0,0]
 };

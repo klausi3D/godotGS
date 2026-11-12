@@ -1,5 +1,11 @@
 var NAVTREEINDEX36 =
 {
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a5e1a433b9199d3fe5734a5af1f827907":[1,0,102,1,15],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a61d01d51542faf831071d6d611fddbc6":[1,0,102,1,23],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a670094a73109c9eca0d918e8f8857ec4":[1,0,102,1,14],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a6bfc3b3db14924b0bf002facffce0465":[1,0,102,1,13],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a6ccdadab9b370e3bde7ec41daa3650e1":[1,0,102,1,21],
+"structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a78fc1a6165a8f9e5209b8b7b77df3903":[1,0,102,1,9],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a82a73660310b69f9591a904cec93e37f":[1,0,102,1,12],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#a913e0ff6c2448a3b1c7567ac955c2632":[1,0,102,1,4],
 "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html#aac38dc5593061e252227553a6cc21371":[1,0,102,1,11],
@@ -243,11 +249,5 @@ var NAVTREEINDEX36 =
 "structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a38b15fd75e1d69bd7ab52815c3bd6b38":[1,0,104,11,9],
 "structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a4a98e62a0937453c5cd920d54435328f":[1,0,104,11,4],
 "structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a4f477229e9fe61480d179d8d13bee148":[1,0,104,11,16],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a64ff15eee21c8ae3b842d7fb943f6ed8":[1,0,104,11,3],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a6ff239a4d21dbe28ad503ba151ac88c7":[1,0,104,11,8],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a811fea4c07f709ddc89e418541a01465":[1,0,104,11,15],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a858f36aa93b9f5940a5cff911100d6ad":[1,0,104,11,17],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a8ce6f29750fd2d23ceb65bfd65e671b1":[1,0,104,11,11],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a9f1dd9bc16cf183ffdc9a97604b344f9":[1,0,104,11,1],
-"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#aaca66e02ca54942022f41a1db467d115":[1,0,104,11,7]
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a64ff15eee21c8ae3b842d7fb943f6ed8":[1,0,104,11,3]
 };

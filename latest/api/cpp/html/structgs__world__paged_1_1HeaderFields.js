@@ -3,6 +3,7 @@ var structgs__world__paged_1_1HeaderFields =
     [ "bake_rule", "structgs__world__paged_1_1HeaderFields.html#a852a0e9972e63171839acc0c73c1dd51", null ],
     [ "bounds_pos", "structgs__world__paged_1_1HeaderFields.html#aa70625774fae1bafee97c3513feffd6d", null ],
     [ "bounds_size", "structgs__world__paged_1_1HeaderFields.html#ab3763e0cb05f2cf5140940ea9e92d36d", null ],
+    [ "codec_id", "structgs__world__paged_1_1HeaderFields.html#ae716188a4a0a887eb1a42be6dcb75758", null ],
     [ "content_generation", "structgs__world__paged_1_1HeaderFields.html#af5ffd9ecbbecb05f2c1ce19f5e8f3dca", null ],
     [ "file_bytes", "structgs__world__paged_1_1HeaderFields.html#a1db3330b5dbae3c8ddb911e78a2fd46f", null ],
     [ "flags", "structgs__world__paged_1_1HeaderFields.html#a06c8a7f7a3f876b1f8341889df1318b3", null ],

@@ -116,10 +116,11 @@ digraph "gaussian_splat_hlod_runtime_data.h"
   Node38 -> Node34 [id="edge72_Node000038_Node000034",color="steelblue1",style="solid",tooltip=" "];
   Node38 -> Node39 [id="edge73_Node000038_Node000039",color="steelblue1",style="solid",tooltip=" "];
   Node39 [id="Node000039",label="core/object/ref_counted.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node38 -> Node27 [id="edge74_Node000038_Node000027",color="steelblue1",style="solid",tooltip=" "];
-  Node38 -> Node17 [id="edge75_Node000038_Node000017",color="steelblue1",style="solid",tooltip=" "];
-  Node38 -> Node18 [id="edge76_Node000038_Node000018",color="steelblue1",style="solid",tooltip=" "];
-  Node38 -> Node25 [id="edge77_Node000038_Node000025",color="steelblue1",style="solid",tooltip=" "];
-  Node38 -> Node3 [id="edge78_Node000038_Node000003",color="steelblue1",style="solid",tooltip=" "];
-  Node38 -> Node30 [id="edge79_Node000038_Node000030",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node6 [id="edge74_Node000038_Node000006",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node27 [id="edge75_Node000038_Node000027",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node17 [id="edge76_Node000038_Node000017",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node18 [id="edge77_Node000038_Node000018",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node25 [id="edge78_Node000038_Node000025",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node3 [id="edge79_Node000038_Node000003",color="steelblue1",style="solid",tooltip=" "];
+  Node38 -> Node30 [id="edge80_Node000038_Node000030",color="steelblue1",style="solid",tooltip=" "];
 }

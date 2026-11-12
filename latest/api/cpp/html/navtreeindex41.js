@@ -1,5 +1,11 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1TileGlobalSortResources.html#a9f0126cca2c6d0c521701856dd68f685":[1,0,9,45,45],
+"structGaussianSplatting_1_1TileGlobalSortResources.html#aacb59ed1a673c74dc9cf8737a08c7762":[0,0,12,46,20],
+"structGaussianSplatting_1_1TileGlobalSortResources.html#aacb59ed1a673c74dc9cf8737a08c7762":[1,0,9,45,20],
+"structGaussianSplatting_1_1TileGlobalSortResources.html#ab2ad9bdfeff96d5af06cf1cc23cce6b3":[0,0,12,46,44],
+"structGaussianSplatting_1_1TileGlobalSortResources.html#ab2ad9bdfeff96d5af06cf1cc23cce6b3":[1,0,9,45,44],
+"structGaussianSplatting_1_1TileGlobalSortResources.html#abc00fcec4c99f76c6662f4cf2ee16fc0":[0,0,12,46,47],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#abc00fcec4c99f76c6662f4cf2ee16fc0":[1,0,9,45,47],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#abdac7f3c1bdbd528c8cb6c9cbbde4383":[0,0,12,46,1],
 "structGaussianSplatting_1_1TileGlobalSortResources.html#abdac7f3c1bdbd528c8cb6c9cbbde4383":[1,0,9,45,1],
@@ -243,11 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1TileRenderParams.html#a2dd2bedb1619a6b95f26a396b20797b2":[1,0,9,66,108],
 "structGaussianSplatting_1_1TileRenderParams.html#a34d97292fa829279ac2a310b6aa7b821":[0,0,12,67,75],
 "structGaussianSplatting_1_1TileRenderParams.html#a34d97292fa829279ac2a310b6aa7b821":[1,0,9,66,75],
-"structGaussianSplatting_1_1TileRenderParams.html#a38b586f1fa28cac6af3395e4adddc56f":[0,0,12,67,87],
-"structGaussianSplatting_1_1TileRenderParams.html#a38b586f1fa28cac6af3395e4adddc56f":[1,0,9,66,87],
-"structGaussianSplatting_1_1TileRenderParams.html#a3a1b3e8954f395b561cdf5b1c0149193":[0,0,12,67,45],
-"structGaussianSplatting_1_1TileRenderParams.html#a3a1b3e8954f395b561cdf5b1c0149193":[1,0,9,66,45],
-"structGaussianSplatting_1_1TileRenderParams.html#a3c73a8e4cfa065a32d5aa1fb0f85c55a":[0,0,12,67,55],
-"structGaussianSplatting_1_1TileRenderParams.html#a3c73a8e4cfa065a32d5aa1fb0f85c55a":[1,0,9,66,55],
-"structGaussianSplatting_1_1TileRenderParams.html#a3e6082ab6a4662ae63cfdde59ebc1b44":[0,0,12,67,81]
+"structGaussianSplatting_1_1TileRenderParams.html#a38b586f1fa28cac6af3395e4adddc56f":[0,0,12,67,87]
 };

@@ -1,5 +1,11 @@
 var NAVTREEINDEX44 =
 {
+"structGaussianSplatting_1_1TileShaderResources.html#ab25669927775cbb7338d5689fc526aa4":[1,0,9,44,26],
+"structGaussianSplatting_1_1TileShaderResources.html#aceb7256053222b357d137436a7b71069":[0,0,12,45,34],
+"structGaussianSplatting_1_1TileShaderResources.html#aceb7256053222b357d137436a7b71069":[1,0,9,44,34],
+"structGaussianSplatting_1_1TileShaderResources.html#ad04aaf88160da530fa4c1644475d8ebd":[0,0,12,45,15],
+"structGaussianSplatting_1_1TileShaderResources.html#ad04aaf88160da530fa4c1644475d8ebd":[1,0,9,44,15],
+"structGaussianSplatting_1_1TileShaderResources.html#ad5a13034f5708f5062afed77d3a65cd1":[0,0,12,45,21],
 "structGaussianSplatting_1_1TileShaderResources.html#ad5a13034f5708f5062afed77d3a65cd1":[1,0,9,44,21],
 "structGaussianSplatting_1_1TileShaderResources.html#ad7571668b200065585e97c19ff17c317":[0,0,12,45,28],
 "structGaussianSplatting_1_1TileShaderResources.html#ad7571668b200065585e97c19ff17c317":[1,0,9,44,28],
@@ -243,11 +249,5 @@ var NAVTREEINDEX44 =
 "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a0d1a579740cc1b03411a54081a7297b5":[1,0,10,10,2],
 "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a1ce855909e8eb7d03658ec59d7901eda":[0,0,14,10,5],
 "structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a1ce855909e8eb7d03658ec59d7901eda":[1,0,10,10,5],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a54c7c698e9c8295d2123c7e44cf5d374":[0,0,14,10,1],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a54c7c698e9c8295d2123c7e44cf5d374":[1,0,10,10,1],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#ac04ccf26b905ec79b5eb33243632cf94":[0,0,14,10,6],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#ac04ccf26b905ec79b5eb33243632cf94":[1,0,10,10,6],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#ade63a0eb770a64a06ce19a7e0594f2f0":[0,0,14,10,0],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#ade63a0eb770a64a06ce19a7e0594f2f0":[1,0,10,10,0],
-"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#aefbc5a7e3c2245dcc8476a3f7e96f508":[0,0,14,10,3]
+"structGaussianStreamingTypes_1_1AsyncStallFallbackInputs.html#a54c7c698e9c8295d2123c7e44cf5d374":[0,0,14,10,1]
 };

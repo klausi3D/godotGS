@@ -1,5 +1,13 @@
 var NAVTREEINDEX61 =
 {
+"structgs__world__paged_1_1NodeMetrics.html":[1,0,26,0],
+"structgs__world__paged_1_1NodeMetrics.html#a8701f7db3a4cb0bd5dcbea0094a904a7":[0,0,36,0,2],
+"structgs__world__paged_1_1NodeMetrics.html#a8701f7db3a4cb0bd5dcbea0094a904a7":[1,0,26,0,2],
+"structgs__world__paged_1_1NodeMetrics.html#a98da242a7aa200618e0532320c5df37e":[0,0,36,0,3],
+"structgs__world__paged_1_1NodeMetrics.html#a98da242a7aa200618e0532320c5df37e":[1,0,26,0,3],
+"structgs__world__paged_1_1NodeMetrics.html#ac2b8da8ab513d69587f3ed50bb72c5ae":[0,0,36,0,0],
+"structgs__world__paged_1_1NodeMetrics.html#ac2b8da8ab513d69587f3ed50bb72c5ae":[1,0,26,0,0],
+"structgs__world__paged_1_1NodeMetrics.html#ad18dde047a247af0dd1ed323cc4fee42":[0,0,36,0,1],
 "structgs__world__paged_1_1NodeMetrics.html#ad18dde047a247af0dd1ed323cc4fee42":[1,0,26,0,1],
 "structgs__world__writer_1_1ChunkDesc.html":[0,0,37,5],
 "structgs__world__writer_1_1ChunkDesc.html":[1,0,27,5],
@@ -241,13 +249,5 @@ var NAVTREEINDEX61 =
 "structgs__world__writer_1_1WriterV4_1_1Impl.html#a8071b5a36c273f6bcb497f8a60667fba":[1,0,27,15,0,30],
 "structgs__world__writer_1_1WriterV4_1_1Impl.html#a88c94497e33b3e9ecbf5aba4a06b519f":[0,0,37,15,0,26],
 "structgs__world__writer_1_1WriterV4_1_1Impl.html#a88c94497e33b3e9ecbf5aba4a06b519f":[1,0,27,15,0,26],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8940c99ffadef83b92db6bf0d74673ab":[0,0,37,15,0,15],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8940c99ffadef83b92db6bf0d74673ab":[1,0,27,15,0,15],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8b3ba73da4a73353aeb7a00cb00d5593":[0,0,37,15,0,31],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8b3ba73da4a73353aeb7a00cb00d5593":[1,0,27,15,0,31],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8b6e964ce69734af7984c760bdf3cda0":[0,0,37,15,0,10],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8b6e964ce69734af7984c760bdf3cda0":[1,0,27,15,0,10],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8c6ddc74350b779fb3e6fdb8eb1b1bd3":[0,0,37,15,0,12],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8c6ddc74350b779fb3e6fdb8eb1b1bd3":[1,0,27,15,0,12],
-"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8f31860b66303d0954a02bb921759990":[0,0,37,15,0,21]
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#a8940c99ffadef83b92db6bf0d74673ab":[0,0,37,15,0,15]
 };

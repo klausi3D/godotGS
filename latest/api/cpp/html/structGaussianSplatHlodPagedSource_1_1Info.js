@@ -2,6 +2,7 @@ var structGaussianSplatHlodPagedSource_1_1Info =
 [
     [ "bake_rule_version", "structGaussianSplatHlodPagedSource_1_1Info.html#a1ed511732f9ac93eb32e7946c5b40a7b", null ],
     [ "bounds", "structGaussianSplatHlodPagedSource_1_1Info.html#a94d0d2b55ff9166e4bf033345112588f", null ],
+    [ "codec_id", "structGaussianSplatHlodPagedSource_1_1Info.html#a2ba83c75e0f13382525bee7867ae5e22", null ],
     [ "content_generation", "structGaussianSplatHlodPagedSource_1_1Info.html#af8e0f79d6b07859652f224137ebe1c77", null ],
     [ "file_bytes", "structGaussianSplatHlodPagedSource_1_1Info.html#abd819f62d0b6e4bf1a30e14c4fbe9532", null ],
     [ "index_bytes", "structGaussianSplatHlodPagedSource_1_1Info.html#a5e4943eb126aac70917a316e9cca032e", null ],

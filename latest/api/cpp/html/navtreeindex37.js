@@ -1,5 +1,11 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a6ff239a4d21dbe28ad503ba151ac88c7":[1,0,104,11,8],
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a811fea4c07f709ddc89e418541a01465":[1,0,104,11,15],
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a858f36aa93b9f5940a5cff911100d6ad":[1,0,104,11,17],
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a8ce6f29750fd2d23ceb65bfd65e671b1":[1,0,104,11,11],
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#a9f1dd9bc16cf183ffdc9a97604b344f9":[1,0,104,11,1],
+"structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#aaca66e02ca54942022f41a1db467d115":[1,0,104,11,7],
 "structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#ab14755071f13b0e05547b3994a1144ee":[1,0,104,11,2],
 "structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#abe676fd03990d3f7aa86f5ee438b42a8":[1,0,104,11,5],
 "structGaussianSplatSceneDirector_1_1SphereEffectorRecord.html#acdb624658390e7d29ae6598fe475bf00":[1,0,104,11,6],
@@ -243,11 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult.html#a625e73d9d1d06f2918f1f424cf6c803f":[1,0,9,0,0,2],
 "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult.html#a9e81a2bf2b6550af1bfac85b2fe2160d":[0,0,12,0,0,0],
 "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageResult.html#a9e81a2bf2b6550af1bfac85b2fe2160d":[1,0,9,0,0,0],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html":[0,0,12,0,4],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html":[1,0,9,0,4],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html#a3aa5179d100111b6ee5c778da1952aaa":[0,0,12,0,4,3],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html#a3aa5179d100111b6ee5c778da1952aaa":[1,0,9,0,4,3],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html#a6b1343cc066719e1300d9732c132a6aa":[0,0,12,0,4,0],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html#a6b1343cc066719e1300d9732c132a6aa":[1,0,9,0,4,0],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html#ab0e5af131805e72d9fba3101b6a5b232":[0,0,12,0,4,1]
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationInput.html":[0,0,12,0,4]
 };

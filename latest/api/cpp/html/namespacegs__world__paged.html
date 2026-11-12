@@ -105,6 +105,8 @@ Functions</h2></td></tr>
 <tr class="memitem:a514b1bf0330c6bb71357077163b18b93" id="r_a514b1bf0330c6bb71357077163b18b93"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a514b1bf0330c6bb71357077163b18b93">validate_node_payload</a> (const double p_cell_center[3], uint32_t p_sh_high_order_count, const <a class="el" href="structGaussianSplatHlodNode.html">GaussianSplatHlodNode</a> &amp;p_node, const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh, String &amp;r_reason)</td></tr>
 <tr class="memitem:ad5638848190f9097b8bfc59427ce16e2" id="r_ad5638848190f9097b8bfc59427ce16e2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad5638848190f9097b8bfc59427ce16e2">align_up_page</a> (uint64_t p_value)</td></tr>
 <tr class="memitem:a1bfdc04101c698c330dde546e0cac63c" id="r_a1bfdc04101c698c330dde546e0cac63c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1bfdc04101c698c330dde546e0cac63c">write_header</a> (uint8_t *p_page, const <a class="el" href="structgs__world__paged_1_1HeaderFields.html">HeaderFields</a> &amp;p_header)</td></tr>
+<tr class="memitem:ab276007b3fb571ce4956668b3bf3c63d" id="r_ab276007b3fb571ce4956668b3bf3c63d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab276007b3fb571ce4956668b3bf3c63d">gsq_record_stored_bytes_limit</a> (uint32_t p_count, uint32_t p_sh_degree)</td></tr>
+<tr class="memitem:a089462b824bd961dce7c3ec57c101b41" id="r_a089462b824bd961dce7c3ec57c101b41"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a089462b824bd961dce7c3ec57c101b41">gsq_decode_workspace_bytes</a> ()</td></tr>
 <tr class="memitem:ae7664e89a8a4a20436be91f29122ad43" id="r_ae7664e89a8a4a20436be91f29122ad43"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae7664e89a8a4a20436be91f29122ad43">write_index_page</a> (uint8_t *p_page, uint32_t p_page_index, const <a class="el" href="structGaussianSplatHlodPagedSource_1_1NodeRecord.html">GaussianSplatHlodPagedSource::NodeRecord</a> *p_records, uint32_t p_count)</td></tr>
 <tr class="memitem:a04c2194137d618b8fb879b4d9aefb5f0" id="r_a04c2194137d618b8fb879b4d9aefb5f0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04c2194137d618b8fb879b4d9aefb5f0">write_payload_header</a> (uint8_t *p_header, uint32_t p_index, const <a class="el" href="structGaussianSplatHlodPagedSource_1_1NodeRecord.html">GaussianSplatHlodPagedSource::NodeRecord</a> &amp;p_record, uint32_t p_high_order, uint64_t p_content_generation)</td></tr>
 </table>
@@ -169,6 +171,44 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a089462b824bd961dce7c3ec57c101b41" name="a089462b824bd961dce7c3ec57c101b41"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a089462b824bd961dce7c3ec57c101b41">&#9670;&#160;</a></span>gsq_decode_workspace_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_paged::gsq_decode_workspace_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab276007b3fb571ce4956668b3bf3c63d" name="ab276007b3fb571ce4956668b3bf3c63d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab276007b3fb571ce4956668b3bf3c63d">&#9670;&#160;</a></span>gsq_record_stored_bytes_limit()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_world_paged::gsq_record_stored_bytes_limit </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_sh_degree</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

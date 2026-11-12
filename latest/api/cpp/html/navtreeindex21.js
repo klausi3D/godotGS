@@ -1,5 +1,8 @@
 var NAVTREEINDEX21 =
 {
+"hlod__drawn__node_8h.html":[2,0,0,0,12,30],
+"hlod__drawn__node_8h_source.html":[2,0,0,0,12,30],
+"hlod__edit_8cpp.html":[2,0,0,0,7,3],
 "hlod__edit_8h.html":[2,0,0,0,7,4],
 "hlod__edit_8h_source.html":[2,0,0,0,7,4],
 "hlod__matched__arms_8cpp.html":[2,0,0,0,7,5],
@@ -246,8 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8943d3c6321ab82bd787bf650934ba03":[0,0,12,75,5],
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8a9c0818e0622aadfcb2e59cfe5299b4":[0,0,12,75,3],
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396aaff175b8d0aa8fd8039d06cba5a7e256":[0,0,12,75,4],
-"namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396ae66aa6e86c6fd816012fa41cc1c6ecd0":[0,0,12,75,2],
-"namespaceGaussianSplatting.html#aa7a85fe5e903a1c6a58bdf61d83b9329":[0,0,12,120],
-"namespaceGaussianSplatting.html#ab80e7305ef25650bb5f303dd8744f703":[0,0,12,85],
-"namespaceGaussianSplatting.html#ab80e7305ef25650bb5f303dd8744f703a08546ea38727eb26ed368534744d954a":[0,0,12,85,1]
+"namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396ae66aa6e86c6fd816012fa41cc1c6ecd0":[0,0,12,75,2]
 };
