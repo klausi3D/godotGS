@@ -572,6 +572,7 @@ void WriterV4::_cleanup() {
 
 Error WriterV4::_fail(Error p_error, const String &p_reason) {
 	report.error = p_error;
+	report.full_reason = p_reason;
 	report.reason = p_reason.get_slicec(':', 0).strip_edges();
 	report.committed = false;
 	report.output_bytes = impl->output_begun ? impl->output.get_size() : 0;
@@ -1536,6 +1537,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 	_cleanup();
 	report.error = OK;
 	report.reason = String();
+	report.full_reason = String();
 	report.committed = true;
 	impl->phase.set(uint32_t(Phase::COMMITTED));
 	return OK;

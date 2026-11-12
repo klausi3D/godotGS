@@ -100,7 +100,8 @@ struct V4SegmentReport {
 
 struct V4Report {
 	Error error = OK;
-	String reason;
+	String reason; // Stable reason key, without the diagnostic suffix.
+	String full_reason; // Complete failure text, including detail after ':'.
 	bool committed = false;
 	LocalVector<V4SegmentReport> segments;
 	uint64_t total_scratch_bytes = 0; // Cumulative segment file lengths, not remaining live bytes.

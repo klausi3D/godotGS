@@ -71,6 +71,11 @@ Error refuse(String &r_reason, const String &p_reason, Error p_error = ERR_INVAL
 	return p_error;
 }
 
+Error writer_failure(const gs_world_writer::V4Report &p_report, Error p_error, String &r_reason) {
+	return refuse(r_reason, p_report.full_reason.is_empty() ? p_report.reason : p_report.full_reason,
+			p_report.reason == "limit_ram" ? ERR_OUT_OF_MEMORY : p_error);
+}
+
 bool digest_string(const String &p_value) {
 	if (p_value.length() != 64) {
 		return false;
@@ -684,7 +689,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	const String staged_world = stage.path.path_join("world");
 	error = writer.begin_paged(staged_world, scratch.path, spec, p_options.codec, writer_limits);
 	if (error != OK) {
-		return refuse(r_reason, writer.get_report().reason, writer.get_report().reason == "limit_ram" ? ERR_OUT_OF_MEMORY : error);
+		return writer_failure(writer.get_report(), error, r_reason);
 	}
 	LocalVector<gs_world_writer::V4Node> nodes;
 	LocalVector<uint32_t> depths;
@@ -720,7 +725,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		nodes[i].topology = node;
 		error = writer.append_node(desc, g, sh, node.payload_count, nodes[i].body);
 		if (error != OK) {
-			return refuse(r_reason, writer.get_report().reason, writer.get_report().reason == "limit_ram" ? ERR_OUT_OF_MEMORY : error);
+			return writer_failure(writer.get_report(), error, r_reason);
 		}
 		if (gsq) {
 			error = gsq_node_digest(g, sh, node.payload_count, spec.sh_degree, desc, encode_params, decoded_digests.write[i], r_reason);
@@ -736,7 +741,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	result = gs_hlod::BakeResult();
 	error = writer.finalize(nodes);
 	if (error != OK) {
-		return refuse(r_reason, writer.get_report().reason, writer.get_report().reason == "limit_ram" ? ERR_OUT_OF_MEMORY : error);
+		return writer_failure(writer.get_report(), error, r_reason);
 	}
 	Ref<GaussianSplatHlodPagedSource> reopened;
 	reopened.instantiate();
