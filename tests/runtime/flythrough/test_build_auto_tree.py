@@ -212,6 +212,38 @@ class DriverContract(unittest.TestCase):
                     observed.append(payload["reason"])
             self.assertEqual(len(observed), len(set(observed)))
 
+    def test_invalid_oracle_response_is_a_named_failure(self):
+        # Deliberately malformed responses, not captured producer fixtures.
+        poses = [{"checkpoint": "C0", "pose": [0, 0, 0, 0, 0]}]
+        for response in (None, {}, {"error": False}, {"error": 0, "poses": []},
+                         {"error": 0, "poses": [{"checkpoint": "C0", "pose": poses[0]["pose"], "status": []}]}):
+            with self.subTest(response=response):
+                self.assert_reason("oracle_report_invalid", self.driver._oracle_block, response, poses, 1)
+
+    def test_collect_output_rejects_mismatched_bytes_before_reading_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "corrupt.gsplatworld"
+            path.write_bytes(b"corrupt bytes, not a V4 fixture")
+            path.with_suffix(".manifest.json").write_text(json.dumps({
+                "schema": "godotgs-auto-tree-manifest/1", "output_file_sha256": "0" * 64,
+            }), encoding="utf-8")
+            report = self.driver.new_report()
+            self.assert_reason("output_sha_mismatch", self.driver._collect_output, report, path, example_job(), {})
+            self.assertIsNone(report["output_bytes"])
+            self.assertEqual(report["status"], "failed")
+
+    def test_report_path_collision_cannot_overwrite_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.gsplatworld"
+            source.write_bytes(b"preserve this input")
+            with mock.patch("subprocess.run", side_effect=AssertionError("must not launch")):
+                code = self.driver.main(["--godot-binary", sys.executable, "--input", str(source),
+                    "--job-manifest", str(root / "job.json"), "--out", str(root / "out.gsplatworld"),
+                    "--report", str(source)])
+            self.assertEqual(code, 1)
+            self.assertEqual(source.read_bytes(), b"preserve this input")
+
 
 
 if __name__ == "__main__":

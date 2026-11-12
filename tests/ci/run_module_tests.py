@@ -2497,15 +2497,6 @@ def _run_auto_tree_binary_tests() -> tuple[bool, list[str]]:
     return True, messages + ["D2-4 producer tests passed."]
 
 
-def _run_auto_tree_binary_step() -> int | None:
-    return _run_message_guard(
-        _run_auto_tree_binary_tests,
-        "D2-4 producer tests failed.",
-        "D2-4 producer tests completed.",
-        success_always=True,
-    )
-
-
 def _run_runtime_validation_contract_guard(
     godot_binary: str | None = None,
     *,
@@ -4360,7 +4351,6 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
         )
         return _first_guard_failure(
             (
-                _run_auto_tree_binary_step,
                 lambda: _run_message_guard(
                     _run_runtime_validation_contract_guard,
                     "Runtime validation contract guard failed.",
@@ -4393,7 +4383,6 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
 def _run_guard_phase(cli_args: argparse.Namespace, history_guard_mode: str) -> int | None:
     return _first_guard_failure(
         (
-            _run_auto_tree_binary_step,
             _run_required_message_guards,
             lambda: _run_history_artifact_guard_step(history_guard_mode),
             lambda: _run_optional_message_guards(cli_args),
@@ -5333,6 +5322,22 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
+def _run_doctests_and_auto_tree(*args) -> int:
+    """Always finish doctest reporting before the independent D2-4 producer job.
+
+    Do not short circuit on either result: D2-4 cannot hide doctest evidence,
+    and failed doctests cannot silently turn the selected producer into a skip.
+    """
+    doctest_code = _run_doctest_lanes(*args)
+    auto_tree_code = _run_message_guard(
+        _run_auto_tree_binary_tests,
+        "D2-4 producer tests failed.",
+        "D2-4 producer tests completed.",
+        success_always=True,
+    )
+    return doctest_code or auto_tree_code or 0
+
+
 def main() -> int:
     cli_args = _parse_args()
     godot = _normalize_process_arg(cli_args.godot_binary)
@@ -5390,7 +5395,7 @@ def main() -> int:
             print(f"[module-tests][lane-ledger][INTEGRITY] {message}")
         return 1
 
-    return _run_doctest_lanes(
+    return _run_doctests_and_auto_tree(
         godot,
         test_runs,
         tests_unavailable_mode,

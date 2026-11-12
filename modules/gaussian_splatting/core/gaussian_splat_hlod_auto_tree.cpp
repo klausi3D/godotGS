@@ -1,17 +1,20 @@
 #include "gaussian_splat_hlod_auto_tree.h"
 
 #include "gaussian_splat_hlod_tiled_bake.h"
+#include "gaussian_splat_world.h"
 #include "gs_vector_alloc.h"
 #include "streaming_chunk_payload_source.h"
 #include "../io/gs_auto_tree_source.h"
 #include "../io/gs_atomic_file_transaction.h"
 #include "../io/gs_world_writer_v4.h"
 #include "../io/gsq/gsq_codec.h"
+#include "../lod/hlod_runtime_selection.h"
 #include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
+#include "core/math/projection.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 
@@ -20,6 +23,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 // Keep native headers after engine headers (Windows macro pollution).
@@ -1012,6 +1016,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 
 void GaussianSplatHlodAutoTree::_bind_methods() {
 	ClassDB::bind_static_method("GaussianSplatHlodAutoTree", D_METHOD("build", "input_path", "output_path", "options"), &GaussianSplatHlodAutoTree::build);
+	ClassDB::bind_static_method("GaussianSplatHlodAutoTree", D_METHOD("oracle_cut", "v4_path", "poses", "options"), &GaussianSplatHlodAutoTree::oracle_cut);
 }
 
 Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const String &p_output_path, const Dictionary &p_options) {
@@ -1044,5 +1049,203 @@ Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const St
 	}
 	report["error"] = error;
 	report["reason"] = reason;
+	return report;
+}
+
+Dictionary GaussianSplatHlodAutoTree::oracle_cut(const String &p_v4_path, const Array &p_poses, const Dictionary &p_options) {
+	Dictionary report;
+	report["error"] = ERR_INVALID_PARAMETER;
+	report["reason"] = "oracle_options_invalid";
+	report["poses"] = Array();
+	// This is also a public bound API, so validate independently of the Python
+	// job parser. No strings/bools masquerading as numbers, or ignored options.
+	const char *integer_keys[] = { "width", "height", "drawn_budget_splats" };
+	const char *numeric_keys[] = { "fov_deg", "near_m", "far_m", "tau_pixels" };
+	if (p_options.size() != 9 || !p_options.has("keep") || !p_options.has("leaves_only")) {
+		return report;
+	}
+	for (const char *key : integer_keys) {
+		if (!p_options.has(key) || p_options[key].get_type() != Variant::INT || int64_t(p_options[key]) <= 0) {
+			return report;
+		}
+	}
+	for (const char *key : numeric_keys) {
+		if (!p_options.has(key) || (p_options[key].get_type() != Variant::INT && p_options[key].get_type() != Variant::FLOAT) ||
+				!std::isfinite(double(p_options[key])) || double(p_options[key]) <= 0) {
+			return report;
+		}
+	}
+	if (p_options["keep"].get_type() != Variant::STRING || String(p_options["keep"]) != "width" ||
+			p_options["leaves_only"].get_type() != Variant::BOOL || int64_t(p_options["width"]) > INT32_MAX ||
+			int64_t(p_options["height"]) > INT32_MAX || double(p_options["fov_deg"]) >= 180.0 ||
+			double(p_options["far_m"]) <= double(p_options["near_m"])) {
+		return report;
+	}
+	const bool leaves_only = p_options["leaves_only"];
+	const uint64_t budget = int64_t(p_options["drawn_budget_splats"]);
+	const double width = int64_t(p_options["width"]), height = int64_t(p_options["height"]);
+	const real_t near_plane = double(p_options["near_m"]), far_plane = double(p_options["far_m"]);
+	const real_t fov = double(p_options["fov_deg"]);
+	if (!Math::is_finite(near_plane) || !Math::is_finite(far_plane) || near_plane <= 0 || far_plane <= near_plane || fov <= 0 || fov >= 180) {
+		return report;
+	}
+	// At most the eight lane checkpoints; single-pose CPU doctests use this too.
+	if (p_poses.is_empty() || p_poses.size() > 8) {
+		report["reason"] = "oracle_poses_invalid";
+		return report;
+	}
+	for (int i = 0; i < p_poses.size(); ++i) {
+		if (p_poses[i].get_type() != Variant::DICTIONARY) {
+			report["reason"] = "oracle_poses_invalid";
+			return report;
+		}
+		const Dictionary row = p_poses[i];
+		if (row.size() != 2 || !row.has("checkpoint") || row["checkpoint"].get_type() != Variant::STRING ||
+				String(row["checkpoint"]).is_empty() || !row.has("pose") || row["pose"].get_type() != Variant::ARRAY) {
+			report["reason"] = "oracle_poses_invalid";
+			return report;
+		}
+		const Array pose = row["pose"];
+		if (pose.size() != 5) {
+			report["reason"] = "oracle_poses_invalid";
+			return report;
+		}
+		for (int j = 0; j < pose.size(); ++j) {
+			if ((pose[j].get_type() != Variant::INT && pose[j].get_type() != Variant::FLOAT) ||
+					!std::isfinite(double(pose[j])) || !Math::is_finite(real_t(double(pose[j])))) {
+				report["reason"] = "oracle_poses_invalid";
+				return report;
+			}
+		}
+	}
+	Ref<GaussianSplatHlodPagedSource> source;
+	source.instantiate();
+	GaussianSplatHlodTree tree;
+	Dictionary metadata;
+	String reason;
+	Error error = source->open(p_v4_path, tree, metadata, reason);
+	if (error != OK) {
+		report["error"] = error;
+		report["reason"] = reason;
+		return report;
+	}
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	error = world->set_hlod_paged_package(std::move(tree), source);
+	Ref<GaussianSplatHlodRuntimeData> snapshot;
+	if (error == OK) {
+		error = world->capture_hlod_runtime_snapshot(snapshot, reason);
+	}
+	if (error != OK || snapshot.is_null()) {
+		report["error"] = error == OK ? ERR_UNAVAILABLE : error;
+		report["reason"] = reason.is_empty() ? String("oracle_snapshot_unavailable") : reason;
+		return report;
+	}
+	const uint32_t node_count = snapshot->nodes.size();
+	gs_hlod_runtime::CutHistory history;
+	if (node_count == 0 || !history.reserve(node_count)) {
+		report["error"] = ERR_OUT_OF_MEMORY;
+		report["reason"] = "oracle_workspace_unavailable";
+		return report;
+	}
+	if (leaves_only) {
+		// Diagnostic S1 control, NOT the main oracle or an edited world. Capture
+		// produced fresh node tables; this snapshot is private and never published.
+		// Stale interiors force the production selector to expand to leaves even
+		// at zero geometric error (tau=0 itself is invalid in CutHistory).
+		if (!gs_resize_or_fail(snapshot->edit_state, node_count, "auto-tree oracle edit state")) {
+			report["error"] = ERR_OUT_OF_MEMORY;
+			report["reason"] = "oracle_workspace_unavailable";
+			return report;
+		}
+		for (uint32_t i = 0; i < node_count; ++i) {
+			snapshot->edit_state.write[i] = snapshot->nodes[i].topology.child_count > 0 ?
+					GaussianSplatHlodRuntimeData::EDIT_STALE : GaussianSplatHlodRuntimeData::EDIT_CLEAN;
+		}
+		snapshot->edit_revision = 1; // Enables the selector's final stale-node defense.
+		report["mechanism"] = "stale_interiors_unbounded";
+		report["role"] = "diagnostic control only; excluded from the main oracle verdict";
+	}
+	Projection projection;
+	projection.set_perspective(fov, width / height, near_plane, far_plane, true);
+	// set_perspective can return early (for example after real_t underflow).
+	// Never select with its unchanged identity or overflowed coefficients.
+	if (projection.columns[2][3] != -1 || projection.columns[3][3] != 0) {
+		report["reason"] = "oracle_frustum_invalid";
+		return report;
+	}
+	for (int col = 0; col < 4; ++col) {
+		for (int row = 0; row < 4; ++row) {
+			if (!Math::is_finite(projection.columns[col][row])) {
+				report["reason"] = "oracle_frustum_invalid";
+				return report;
+			}
+		}
+	}
+	gs_hlod_runtime::CutRequest request;
+	// Compute in double from the declared horizontal FOV, matching the lane's
+	// focal formula without an intermediate real_t projection rounding.
+	request.focal_pixels = width * 0.5 / std::tan(double(p_options["fov_deg"]) * Math_PI / 360.0);
+	request.tau_pixels = double(p_options["tau_pixels"]);
+	request.splat_budget = leaves_only ? UINT64_MAX : budget;
+	request.node_budget = node_count;
+	request.record_budget = std::numeric_limits<double>::max();
+	// resident=nullptr treats all payloads as available, without reading them.
+	// page_splats=0 disables atlas demand; node capacity admits every frontier.
+	Array rows;
+	for (int i = 0; i < p_poses.size(); ++i) {
+		Dictionary row = Dictionary(p_poses[i]).duplicate(true);
+		const Array pose = row["pose"];
+		if (pose.size() != 5) {
+			report["reason"] = "oracle_poses_invalid";
+			return report;
+		}
+		request.camera = Vector3(double(pose[0]), double(pose[1]), double(pose[2]));
+		const Basis basis = Basis::from_euler(Vector3(Math::deg_to_rad(double(pose[4])), Math::deg_to_rad(double(pose[3])), 0));
+		const Vector<Plane> planes = projection.get_projection_planes(Transform3D(basis, request.camera));
+		if (planes.size() != 6) {
+			report["reason"] = "oracle_frustum_invalid";
+			return report;
+		}
+		for (int j = 0; j < 6; ++j) {
+			if (!planes[j].normal.is_finite() || planes[j].normal.is_zero_approx() || !Math::is_finite(planes[j].d)) {
+				report["reason"] = "oracle_frustum_invalid";
+				return report;
+			}
+			request.frustum[j] = planes[j];
+		}
+		history.invalidate(); // Each checkpoint is an independent cut, no hysteresis history.
+		const auto result = history.select(*snapshot.ptr(), request);
+		using Cut = gs_hlod_runtime::CutHistory;
+		const char *status = "INVALID";
+		switch (result.status) {
+			case Cut::COMPLETE: status = "COMPLETE"; break;
+			case Cut::EMPTY: status = "EMPTY"; break;
+			case Cut::INVALID: status = "INVALID"; break;
+			case Cut::UNAVAILABLE: status = "UNAVAILABLE"; break;
+			case Cut::BOOTSTRAP_EXHAUSTED: status = "BOOTSTRAP_EXHAUSTED"; break;
+			case Cut::BOOTSTRAP_ARITHMETIC: status = "BOOTSTRAP_ARITHMETIC"; break;
+			case Cut::BOOTSTRAP_MISSING_RESIDENCY: status = "BOOTSTRAP_MISSING_RESIDENCY"; break;
+			case Cut::BOOTSTRAP_INFEASIBLE: status = "BOOTSTRAP_INFEASIBLE"; break;
+		}
+		row["status"] = status;
+		row["selected_splats"] = int64_t(result.selected_splats);
+		row["selected_count"] = result.selected_count;
+		row["budget"] = int64_t(budget);
+		row["drawn_le_budget"] = result.selected_splats <= budget;
+		row["budget_bound"] = result.budget_bound;
+		if (leaves_only) {
+			bool only_leaves = result.status == Cut::COMPLETE || result.status == Cut::EMPTY;
+			for (uint32_t j = 0; j < result.selected_count; ++j) {
+				const uint32_t node = history.selected_node(j);
+				only_leaves = only_leaves && node < node_count && snapshot->nodes[node].topology.child_count == 0;
+			}
+			row["only_leaves"] = only_leaves;
+		}
+		rows.push_back(row);
+	}
+	report["error"] = OK;
+	report["reason"] = "";
+	report["poses"] = rows;
 	return report;
 }

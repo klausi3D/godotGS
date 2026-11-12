@@ -1275,16 +1275,17 @@ class WorkflowContract(unittest.TestCase):
                     f"{subcommand} can run without a successful disk preflight",
                 )
 
-    def test_every_flythrough_test_file_is_wired_into_the_guard_lane(self) -> None:
-        """A test no lane runs is decoration (tests/AGENTS.md). Imports the runner's own list."""
+    def test_every_flythrough_test_file_is_wired_into_a_lane(self) -> None:
+        """A test no lane runs is decoration; use the runner's guard and binary registrations."""
         sys.path.insert(0, str(ROOT / "tests" / "ci"))
         import run_module_tests  # noqa: PLC0415
 
         wired = {p.resolve() for p in run_module_tests.BEYOND_VRAM_LANE_TEST_SCRIPTS}
         wired.add(run_module_tests.BEYOND_VRAM_PROBE_LANE_TEST_SCRIPT.resolve())
         wired.add(run_module_tests.WORLD_MANIFEST_VERIFIER_TEST_SCRIPT.resolve())
+        wired.add(run_module_tests.AUTO_TREE_BINARY_TEST_SCRIPT.resolve())
         present = {p.resolve() for p in HERE.glob("test_*.py")}
-        self.assertEqual(present - wired, set(), "a flythrough test file runs in no guard lane")
+        self.assertEqual(present - wired, set(), "a flythrough test file runs in no lane")
 
     def test_the_probe_runs_only_on_a_checked_cache(self) -> None:
         probe = self.index_of("probe")

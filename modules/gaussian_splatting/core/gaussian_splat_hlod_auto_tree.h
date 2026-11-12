@@ -62,4 +62,7 @@ protected:
 
 public:
 	static Dictionary build(const String &p_input_path, const String &p_output_path, const Dictionary &p_options);
+	// Host-only metadata oracle. Each call owns a fresh, unpublished snapshot;
+	// leaves_only forces stale interiors as a diagnostic control, not a verdict.
+	static Dictionary oracle_cut(const String &p_v4_path, const Array &p_poses, const Dictionary &p_options);
 };

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <thread>
 #include <vector>
 
@@ -987,6 +988,19 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound CPU oracle cut and leave
 	checkpoint["pose"] = pose;
 	Array poses;
 	poses.push_back(checkpoint);
+	// A tiny positive double is not necessarily a representable perspective in
+	// real_t. The API must refuse it, not select with an identity frustum.
+	Dictionary invalid_camera = camera.duplicate(true);
+	invalid_camera["fov_deg"] = std::numeric_limits<double>::denorm_min();
+	invalid_camera["drawn_budget_splats"] = 1000000;
+	invalid_camera["leaves_only"] = false;
+	const Variant invalid_path_arg = output, invalid_poses_arg = poses, invalid_options_arg = invalid_camera;
+	const Variant *invalid_args[] = { &invalid_path_arg, &invalid_poses_arg, &invalid_options_arg };
+	Callable::CallError invalid_call;
+	const Variant invalid_value = api->callp("oracle_cut", invalid_args, 3, invalid_call);
+	D2_AUTO_NEED(invalid_call.error == Callable::CallError::CALL_OK && invalid_value.get_type() == Variant::DICTIONARY);
+	const Dictionary invalid_result = invalid_value;
+	CHECK(int(invalid_result.get("error", OK)) != OK);
 	uint64_t coarse_splats = 0;
 	for (int mode = 0; mode < 3; ++mode) {
 		Dictionary options = camera.duplicate(true);

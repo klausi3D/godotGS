@@ -1040,7 +1040,7 @@ class GuardSelfTestPathGateTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertIsNone(harness._run_ci_guard_steps(args))
         rv.assert_called_once()
-        tree.assert_called_once()
+        tree.assert_not_called()  # D2-4 runs after doctest reporting.
         sn.assert_called_once_with("godot")
         full.assert_not_called()
 
@@ -1058,32 +1058,45 @@ class AutoTreeWiringTests(unittest.TestCase):
         scripts = [Path(call.args[0][-1]).name for call in run.call_args_list]
         self.assertIn("test_build_auto_tree.py", scripts)
 
-    def test_pr_skip_guards_invokes_binary_suite_and_propagates_failure(self):
-        args = mock.Mock(skip_guards=True, base_ref=None, godot_binary="selected-missing-godot",
-                         godot_binary_explicit=True)
-        for exit_code in (0, 1):
-            with self.subTest(exit_code=exit_code), \
-                    mock.patch.object(self.runner, "_run_runtime_validation_contract_guard", return_value=(True, [])), \
-                    mock.patch.object(self.runner, "_run_stringname_orphan_guard_step", return_value=None), \
-                    mock.patch.object(self.runner, "_run_command", return_value=(exit_code, "driver_missing", "")) as run, \
-                    contextlib.redirect_stdout(io.StringIO()):
-                result = self.runner._run_ci_guard_steps(args)
-            calls = [c for c in run.call_args_list if "test_build_auto_tree_binary.py" in str(c.args[0])]
-            self.assertEqual(len(calls), 1, "binary test not wired under --skip-guards")
-            self.assertEqual(calls[0].kwargs["env"]["GODOT_BINARY"], "selected-missing-godot")
-            self.assertEqual(calls[0].kwargs["env"]["GS_REQUIRE_AUTO_TREE_BINARY"], "1")
-            self.assertEqual(result, None if exit_code == 0 else 1)
+    def test_binary_suite_runs_after_doctests_for_pr_and_full_runs(self):
+        for skip in (True, False):
+            for doctest_code, binary_code in ((0, 0), (0, 1), (1, 0), (1, 1)):
+                with self.subTest(skip_guards=skip, doctests=doctest_code, binary=binary_code):
+                    events = []
+                    argv = ["run_module_tests.py", "--godot-binary", "selected-missing-godot"]
+                    if skip:
+                        argv.append("--skip-guards")
+                    def command(args, **kwargs):
+                        events.append("auto-tree")
+                        return binary_code, "producer test result", ""
+                    with contextlib.ExitStack() as stack:
+                        stack.enter_context(mock.patch.object(sys, "argv", argv))
+                        stack.enter_context(mock.patch.object(self.runner, "_run_runtime_validation_contract_guard", return_value=(True, [])))
+                        stack.enter_context(mock.patch.object(self.runner, "_run_stringname_orphan_guard_step", return_value=None))
+                        stack.enter_context(mock.patch.object(self.runner, "_configure_guard_self_tests"))
+                        stack.enter_context(mock.patch.object(self.runner, "_run_guard_phase", return_value=None))
+                        stack.enter_context(mock.patch.object(self.runner, "_test_runner_is_unavailable", return_value=True))
+                        stack.enter_context(mock.patch.object(self.runner, "_build_module_test_runs", return_value=[]))
+                        stack.enter_context(mock.patch.object(self.runner, "_lane_runs_missing_from_module_filters", return_value=[]))
+                        stack.enter_context(mock.patch.object(self.runner, "_run_doctest_lanes",
+                            side_effect=lambda *a: events.append("doctests") or doctest_code))
+                        run = stack.enter_context(mock.patch.object(self.runner, "_run_command", side_effect=command))
+                        output = stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                        result = self.runner.main()
+                    self.assertEqual(events, ["doctests", "auto-tree"])
+                    self.assertEqual(result, doctest_code or binary_code)
+                    calls = [c for c in run.call_args_list if "test_build_auto_tree_binary.py" in str(c.args[0])]
+                    self.assertEqual(len(calls), 1, "binary test not wired after doctests")
+                    self.assertEqual(calls[0].kwargs["env"]["GODOT_BINARY"], "selected-missing-godot")
+                    self.assertEqual(calls[0].kwargs["env"]["GS_REQUIRE_AUTO_TREE_BINARY"], "1")
+                    self.assertIn("mode=binary-required", output.getvalue())
 
-    def test_full_guard_phase_also_requires_binary_suite(self):
-        self.runner._GUARD_GODOT_BINARY_OVERRIDE = "selected-missing-godot"
-        self.runner._GUARD_GODOT_BINARY_EXPLICIT = True
-        # Fail first: no unrelated guard, binary probe, or actual subprocess can run.
-        with mock.patch.object(self.runner, "_run_command", return_value=(1, "driver_missing", "")) as run, \
+    def test_full_guard_phase_does_not_run_auto_tree_before_doctests(self):
+        with mock.patch.object(self.runner, "_run_auto_tree_binary_tests") as binary, \
                 mock.patch.object(self.runner, "_run_required_message_guards", return_value=1), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.runner._run_guard_phase(mock.Mock(), "off"), 1)
-        self.assertEqual(len(run.call_args_list), 1)
-        self.assertIn("test_build_auto_tree_binary.py", str(run.call_args.args[0]))
+        binary.assert_not_called()
 
     def test_no_binary_selected_is_explicitly_not_run(self):
         self.runner._GUARD_GODOT_BINARY_OVERRIDE = "godot"
