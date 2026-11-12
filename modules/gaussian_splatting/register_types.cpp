@@ -5,6 +5,7 @@
 
 #include "core/gaussian_data.h"
 #include "core/gaussian_splat_asset.h"
+#include "core/gaussian_splat_hlod_auto_tree.h"
 #include "core/gaussian_splat_world.h"
 #include "core/gaussian_splat_scene_director.h"
 #include "core/gaussian_splat_config_registry.h"
@@ -104,6 +105,7 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             GDREGISTER_CLASS(GsqPagedChunkPayloadSource);
             GDREGISTER_CLASS(VRAMBudgetRegulator);
             GDREGISTER_CLASS(GaussianSplatWorldGenerator);
+            GDREGISTER_CLASS(GaussianSplatHlodAutoTree);
 
             // Node classes
             GDREGISTER_CLASS(GaussianSplatNode3D);

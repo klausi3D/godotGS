@@ -102,6 +102,7 @@ def get_doc_classes():
         "GaussianSplatContainer",
         "GaussianSplatDebugHUD",
         "GaussianSplatDynamicInstance3D",
+        "GaussianSplatHlodAutoTree",
         "GaussianSplatManager",
         "GaussianSplatNode3D",
         "GaussianSplatPerformanceOverlay",
