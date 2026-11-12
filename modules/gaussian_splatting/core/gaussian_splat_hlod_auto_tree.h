@@ -3,11 +3,16 @@
 #include "core/object/ref_counted.h"
 #include "core/variant/dictionary.h"
 
-// D2-3 phase 1. The only executable production behavior is an empty report.
-// Phase 2 driver: GsqAutoTreeSource -> TiledAutoTree -> WriterV4 (codec NONE)
+// D2-3 driver: GsqAutoTreeSource -> TiledAutoTree -> WriterV4 (codec NONE)
 // -> reopen every node, recompute metrics and compare spill-time digests ->
-// atomically publish output and <stem>.manifest.json. Stage both artifacts before
-// publication; any error preserves existing destinations and removes owned scratch.
+// stage output and <stem>.manifest.json, then publish with per-file atomic
+// replacements and rollback on ordinary I/O errors. Native filesystems cannot
+// atomically replace TWO fixed names together: a crash/concurrent reader can see
+// a mixed pair. Hard-link backups preserve previous bytes until publication;
+// unsupported filesystems fail closed. Rollback filesystem failures preserve
+// recovery files and name their directory in the error, rather than deleting old
+// data. Callers must exclude external writers and validate the sidecar file SHA.
+// Only owned private staging/scratch directories are cleaned, never caller files.
 // No GSQ node encoding/container until BV-C4: codec="gsq" must return
 // ERR_UNAVAILABLE / v4_gsq_output_requires_bv_c4.
 //
@@ -29,6 +34,9 @@
 // merge_grid, node_max_splats, max_eps_steps; FLOAT for reduction and eps_growth.
 // Restore these schema types after JSON parsing before recomputing tree_sha.
 // Limits, paths, timings and memory are execution metadata only.
+// wall_usec measures through verified staging, excluding final manifest write
+// and publication so the returned and persisted report are identical. The whole
+// BakeResult is held in memory at T0 scale, then freed after spilling its nodes.
 class GaussianSplatHlodAutoTree : public RefCounted {
 	GDCLASS(GaussianSplatHlodAutoTree, RefCounted);
 
