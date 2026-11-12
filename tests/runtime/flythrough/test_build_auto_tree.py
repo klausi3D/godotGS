@@ -246,5 +246,137 @@ class DriverContract(unittest.TestCase):
 
 
 
+class D25SourceFingerprintContract(unittest.TestCase):
+    """D2-5 red contracts; the D2-4 example remains unchanged in tests-only turn 1."""
+
+    def setUp(self):
+        self.driver = load_module("d25_build_auto_tree", DRIVER)
+        self.cache = load_module("d25_builder_world_cache", HERE / "world_cache.py")
+
+    def job(self):
+        job = example_job()
+        job["schema"] = "godotgs-auto-tree-job/2"
+        job.pop("source_fingerprint", None)
+        job.pop("source_fingerprint_source", None)
+        return job
+
+    def checkout(self, root):
+        self.assertTrue(hasattr(self.cache, "TREE_SOURCES"), "TREE_SOURCES is not implemented")
+        self.assertTrue(self.cache.TREE_SOURCES)
+        repo = root / "checkout"
+        for relative in self.cache.TREE_SOURCES:
+            source = HERE.parents[2] / relative
+            self.assertTrue(source.is_file(), relative)
+            target = repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+        return repo
+
+    def run_driver(self, root, *, repo=None, capture=None):
+        source, job, report = root / "input", root / "job.json", root / "report.json"
+        # Input bytes never reach a producer: this test checks request provenance,
+        # not a valid world or a fabricated producer-output fixture.
+        source.write_bytes(b"source provenance test only")
+        source.with_suffix(".manifest.json").write_text("{}", encoding="utf-8")
+        job.write_text(json.dumps(self.job()), encoding="utf-8")
+        argv = ["--godot-binary", sys.executable, "--input", str(source),
+                "--job-manifest", str(job), "--out", str(root / "out.gsplatworld"),
+                "--report", str(report)]
+        if repo is not None:
+            argv += ["--repo", str(repo)]
+
+        def stop_at_producer(command, **kwargs):
+            self.assertIsNotNone(capture, "invalid sources must prevent producer launch")
+            request = Path(command[command.index("--request") + 1])
+            capture.append(json.loads(request.read_text(encoding="utf-8")))
+            # Deliberately terminate at the subprocess boundary. No Godot runs.
+            raise self.driver.subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+        poses = [(f"C{i}", [0, 0, 0, 0, 0]) for i in range(8)]
+        with mock.patch.object(self.driver.probe_path, "resolve_path", return_value=[]), \
+                mock.patch.object(self.driver.probe_path, "checkpoints", return_value=poses), \
+                mock.patch("subprocess.run", side_effect=stop_at_producer) as producer:
+            code = self.driver.main(argv)
+        self.assertEqual(code, 1)
+        self.assertTrue(report.is_file(), "driver failures must publish their reason")
+        return json.loads(report.read_text(encoding="utf-8")), producer.call_count
+
+    def test_v2_job_accepts_no_caller_source_identity(self):
+        job = self.job()
+        try:
+            validated = self.driver.validate_job_manifest(job)
+        except self.driver.BuildError as exc:
+            self.fail(f"v2 job must derive its source identity; refused with {exc.reason}")
+        self.assertEqual(validated, job)
+        self.assertNotIn("source_fingerprint", job)
+        self.assertNotIn("source_fingerprint_source", job)
+
+    def test_caller_source_fingerprint_is_refused_with_distinct_reason(self):
+        for schema in ("godotgs-auto-tree-job/1", "godotgs-auto-tree-job/2"):
+            for supplied in ({"source_fingerprint": "a" * 64},
+                             {"source_fingerprint_source": "caller assertion"},
+                             {"source_fingerprint": "a" * 64,
+                              "source_fingerprint_source": "caller assertion"}):
+                with self.subTest(schema=schema, supplied=tuple(supplied)):
+                    job = self.job()
+                    job.update(schema=schema, **supplied)
+                    with self.assertRaises(self.driver.BuildError) as caught:
+                        self.driver.validate_job_manifest(job)
+                    self.assertEqual(caught.exception.reason, "job_manifest_source_fingerprint_forbidden")
+
+    def test_repo_sources_supply_the_producer_and_report_fingerprint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.checkout(root)
+            expected = self.cache.source_fingerprint(repo, self.cache.TREE_SOURCES)
+            captured = []
+            report, calls = self.run_driver(root, repo=repo, capture=captured)
+            self.assertEqual(calls, 1)
+            self.assertEqual(report["reason"], "producer_timeout")
+            self.assertEqual(report["source_fingerprint"], expected)
+            self.assertEqual(captured[0]["job"]["source_fingerprint"], expected)
+            self.assertTrue(report["source_fingerprint_source"])
+
+    def test_tree_source_edit_changes_the_next_producer_fingerprint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.checkout(root)
+            captured = []
+            before, calls = self.run_driver(root, repo=repo, capture=captured)
+            self.assertEqual(calls, 1)
+            target = repo / self.cache.TREE_SOURCES[0]
+            target.write_bytes(target.read_bytes() + b"\n// fingerprint forcing control\n")
+            after, calls = self.run_driver(root, repo=repo, capture=captured)
+            self.assertEqual(calls, 1)
+            self.assertEqual(before["reason"], "producer_timeout")
+            self.assertEqual(after["reason"], "producer_timeout")
+            self.assertNotEqual(before["source_fingerprint"], after["source_fingerprint"])
+            expected = self.cache.source_fingerprint(repo, self.cache.TREE_SOURCES)
+            self.assertEqual(after["source_fingerprint"], expected)
+            self.assertEqual(captured[-1]["job"]["source_fingerprint"], expected)
+
+    def test_missing_tree_source_fails_before_producer_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.checkout(root)
+            (repo / self.cache.TREE_SOURCES[0]).unlink()
+            report, calls = self.run_driver(root, repo=repo)
+            self.assertEqual(calls, 0)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["reason"], "tree_source_missing")
+            self.assertIsNone(report["output_bytes"])
+
+    def test_repo_defaults_to_driver_checkout_root(self):
+        self.assertTrue(hasattr(self.cache, "TREE_SOURCES"), "TREE_SOURCES is not implemented")
+        expected = self.cache.source_fingerprint(HERE.parents[2], self.cache.TREE_SOURCES)
+        with tempfile.TemporaryDirectory() as directory:
+            captured = []
+            report, calls = self.run_driver(Path(directory), capture=captured)
+            self.assertEqual(calls, 1)
+            self.assertEqual(report["reason"], "producer_timeout")
+            self.assertEqual(report["source_fingerprint"], expected)
+            self.assertEqual(captured[0]["job"]["source_fingerprint"], expected)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

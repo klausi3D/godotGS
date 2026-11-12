@@ -331,5 +331,168 @@ class VerifyPagedWorldTest(unittest.TestCase):
         self.assertTrue(any(x.startswith("--content re-reads raw splats") for x in p), p)
 
 
+def build_v4_structure_world(directory: Path) -> Path:
+    """Construct a V4 integrity envelope, not producer or GSQ decoding evidence.
+
+    No producer-captured V4 exists in tests/fixtures. This stdlib-only writer follows
+    gaussian_splat_world_paged.{h,cpp}: 4096-byte header, 65536-byte index pages,
+    256-byte node entries and aligned payload envelopes. Opaque bodies deliberately
+    do not claim to be decodable GSQ; W13 remains the producer's decoding evidence.
+    This fixture tests structural acceptance and isolated malformed-input rejection.
+    """
+    header_bytes, index_bytes, payload_bytes = 4096, 65536, 4096
+    payload_offset = header_bytes + index_bytes
+    generation = 1234567890123456789
+    header = bytearray(header_bytes)
+    struct.pack_into("<16I", header, 0, 0x57505347, 4, 0, header_bytes, 4096,
+                     index_bytes, 256, 1, 2, 1, 3, 0, 0, 0, 1, 1)
+    struct.pack_into("<3d6f", header, 64, 0, 0, 0, -1, -1, -1, 2, 2, 2)
+    struct.pack_into("<8Q", header, 112, header_bytes, 1, payload_offset,
+                     3 * payload_bytes, 0, 0, payload_offset + 3 * payload_bytes, generation)
+    index = bytearray(index_bytes)
+    struct.pack_into("<4I", index, 0, 0x49505347, 0, 0, 3)
+    payloads, nodes = bytearray(), []
+    for i in range(3):
+        body = bytes((i * 47 + j) % 251 for j in range(160))
+        envelope = bytearray(64)
+        struct.pack_into("<4I4QI", envelope, 0, 0x504E5347, i, 1, 0,
+                         144, 0, generation, 0 if i == 0 else i - 1, 1)
+        record = bytes(envelope) + body
+        digest = hashlib.sha256(record).digest()
+        entry = 64 + i * 256
+        struct.pack_into("<i3I3q", index, entry, 1 if i == 0 else 0,
+                         2 if i == 0 else 0, 1 if i == 0 else 0,
+                         17 if i == 0 else 0, 0, 0, 0)
+        struct.pack_into("<10f", index, entry + 40, -1, -1, -1, 1, 1, 1, 2, 0, 0, 0)
+        struct.pack_into("<IIQIf", index, entry + 80, 0xFFFFFFFF if i == 0 else 0,
+                         1 if i == 0 else 0xFFFFFFFF, 0 if i == 0 else i - 1, 1, 0)
+        struct.pack_into("<dII4Q", index, entry + 104, 0, 0, 3, 0,
+                         payload_offset + i * payload_bytes, len(record), payload_bytes)
+        index[entry + 192:entry + 224] = digest
+        payloads += record + bytes(payload_bytes - len(record))
+        nodes.append({"stored_sha256": digest.hex(),
+                      "decoded_sha256": hashlib.sha256(b"unverified decoded placeholder" + bytes([i])).hexdigest()})
+    index[32:64] = hashlib.sha256(index[64:64 + 3 * 256]).digest()
+    header[176:208] = hashlib.sha256(index).digest()
+    header[-32:] = hashlib.sha256(header[:-32]).digest()
+    blob = bytes(header) + bytes(index) + bytes(payloads)
+    # Exactly representable FLOAT values keep this structural fixture independent
+    # of Godot's full-precision float formatting. This is not a producer golden.
+    codec = dict(GSQ_CODEC, codec="gsq", pos_step_m=0.25)
+    params = {"leaf_max": 16384, "max_tile_splats": 65536,
+              "interior": {"merge_grid": 64, "reduction": 4.0, "node_max_splats": 16384,
+                           "eps_growth": 1.25, "max_eps_steps": 1024}}
+    key = {"source_fingerprint": "a" * 64, "build_params": params,
+           "codec": codec, "input_file_sha256": "b" * 64}
+    tree_sha = hashlib.sha256(json.dumps(key, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    manifest = dict(key, schema="godotgs-auto-tree-manifest/1", tree_sha=tree_sha,
+                    build_params=dict(params, worker_count=1), nodes=nodes,
+                    totals={"node_count": 3, "leaf_splat_count": 2, "interior_splat_count": 1},
+                    content_generation=str(generation), output_file_sha256=hashlib.sha256(blob).hexdigest(),
+                    levels=[{"depth": 0, "node_count": 1, "eps_min": 0, "eps_median": 0, "eps_max": 0},
+                            {"depth": 1, "node_count": 2, "eps_min": 0, "eps_median": 0, "eps_max": 0}],
+                    report={"nodes_verified": 3})
+    world = directory / "auto.gsplatworld"
+    world.write_bytes(blob)
+    world.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return world
+
+
+class VerifyAutoTreeV4Test(unittest.TestCase):
+    """D2-5 integrity tests; no C++ producer, decoder, renderer or GPU claim."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.world = build_v4_structure_world(Path(self._tmp.name))
+        self.manifest_path = self.world.with_suffix(".manifest.json")
+
+    def edit_manifest(self, edit) -> None:
+        manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        edit(manifest)
+        self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def write_mutation(self, blob: bytearray, *, header: bool = False) -> None:
+        if header:
+            blob[4064:4096] = hashlib.sha256(blob[:4064]).digest()
+        self.world.write_bytes(blob)
+        # A stale whole-file SHA must not mask a missing granular verifier.
+        self.edit_manifest(lambda m: m.__setitem__("output_file_sha256", hashlib.sha256(blob).hexdigest()))
+
+    def assert_problem(self, prefix: str) -> None:
+        result = vwm.verify_v4(self.world)
+        self.assertFalse(result["ok"], result)
+        self.assertTrue(any(p.startswith(prefix) for p in result["problems"]), result)
+
+    def test_pristine_v4_structure_verifies(self) -> None:
+        result = vwm.verify_v4(self.world)
+        self.assertTrue(result["ok"], result["problems"])
+
+    def test_v4_payload_byte_flip_names_each_node(self) -> None:
+        original = self.world.read_bytes()
+        for node in range(3):
+            with self.subTest(node=node):
+                blob = bytearray(original)
+                blob[4096 + 65536 + node * 4096 + 64 + 7] ^= 0x10
+                self.write_mutation(blob)
+                self.assert_problem(f"node_digest_mismatch: node {node}")
+
+    def test_v4_header_codec_must_match_sidecar(self) -> None:
+        blob = bytearray(self.world.read_bytes())
+        struct.pack_into("<I", blob, 60, 0)  # valid other codec, fresh header SHA
+        self.write_mutation(blob, header=True)
+        self.assert_problem("codec_mismatch")
+
+    def test_v4_header_magic_and_version_are_checked(self) -> None:
+        original = self.world.read_bytes()
+        for offset in (0, 4):
+            with self.subTest(offset=offset):
+                blob = bytearray(original)
+                blob[offset] ^= 0x20
+                self.write_mutation(blob, header=True)
+                self.assert_problem("header: magic/version")
+
+    def test_v4_index_page_digest_is_checked_independently(self) -> None:
+        blob = bytearray(self.world.read_bytes())
+        blob[4096 + 64 + 40] ^= 0x10
+        # Refresh aggregate index and header SHA, leave the page's digest stale.
+        blob[176:208] = hashlib.sha256(blob[4096:4096 + 65536]).digest()
+        self.write_mutation(blob, header=True)
+        self.assert_problem("index_page_digest_mismatch")
+
+    def test_v4_tampered_tree_sha_is_recomputed(self) -> None:
+        self.edit_manifest(lambda m: m.__setitem__("tree_sha", "0" * 64))
+        self.assert_problem("tree_sha_mismatch")
+
+    def test_v4_tree_sha_binds_each_input(self) -> None:
+        original = self.manifest_path.read_text(encoding="utf-8")
+        edits = {
+            "source": lambda m: m.__setitem__("source_fingerprint", "c" * 64),
+            "input": lambda m: m.__setitem__("input_file_sha256", "d" * 64),
+            "params": lambda m: m["build_params"].__setitem__("max_tile_splats", 131072),
+            "codec": lambda m: m["codec"].__setitem__("pos_step_m", 0.5),
+        }
+        for field, edit in edits.items():
+            with self.subTest(field=field):
+                self.manifest_path.write_text(original, encoding="utf-8")
+                self.edit_manifest(edit)
+                self.assert_problem("tree_sha_mismatch")
+
+    def test_v4_worker_count_is_not_part_of_tree_sha(self) -> None:
+        self.edit_manifest(lambda m: m["build_params"].__setitem__("worker_count", 8))
+        result = vwm.verify_v4(self.world)
+        self.assertTrue(result["ok"], result["problems"])
+
+    def test_v4_requires_decoded_digest_for_every_node(self) -> None:
+        self.edit_manifest(lambda m: m["nodes"][2].pop("decoded_sha256"))
+        self.assert_problem("decoded_digest_missing: node 2")
+
+    def test_v4_rejects_malformed_decoded_digest(self) -> None:
+        for value in ("", "a" * 63, "g" * 64, None):
+            with self.subTest(value=value):
+                self.edit_manifest(lambda m: m["nodes"][1].__setitem__("decoded_sha256", value))
+                self.assert_problem("decoded_digest_invalid: node 1")
+
+
 if __name__ == "__main__":
     unittest.main()
