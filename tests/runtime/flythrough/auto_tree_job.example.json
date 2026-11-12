@@ -1,0 +1,25 @@
+{
+  "schema": "godotgs-auto-tree-job/1",
+  "codec": "gsq",
+  "worker_count": 1,
+  "max_tile_splats": 65536,
+  "limits": {
+    "max_ram_bytes": 2147483648,
+    "max_scratch_bytes": 1073741824,
+    "max_output_bytes": 1073741824,
+    "deadline_sec": 120
+  },
+  "source_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "source_fingerprint_source": "test identity only; caller supplied; D2-5 owns TREE_SOURCES",
+  "drawn_budget_splats": 1000000,
+  "drawn_budget_source": "D2-4 smoke test capacity; BV-26a not merged; not a Tier A budget",
+  "oracle": {
+    "width": 1920,
+    "height": 1080,
+    "fov_deg": 107.5,
+    "keep": "width",
+    "near_m": 0.05,
+    "far_m": 400.0,
+    "tau_pixels": 1.0
+  }
+}

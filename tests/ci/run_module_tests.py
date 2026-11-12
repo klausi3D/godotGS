@@ -8,6 +8,7 @@ strict/warn-only policy (strict fails, warn-only skips).
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -87,6 +88,7 @@ GS_COMBINED_1_VERDICT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_gs_combin
 EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 # BV-06a: the beyond-VRAM dispatch lane helper and its workflow wiring.
 BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_dispatch_lane.py"
+AUTO_TREE_BINARY_TEST_SCRIPT = ROOT / "tests" / "runtime" / "flythrough" / "test_build_auto_tree_binary.py"
 # BV-06b: the world cache / D-14 cold-cache helpers and the liveness watchdog.
 BEYOND_VRAM_LANE_TEST_SCRIPTS = (
     BEYOND_VRAM_DISPATCH_LANE_TEST_SCRIPT,
@@ -97,6 +99,7 @@ BEYOND_VRAM_LANE_TEST_SCRIPTS = (
     ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_verdict.py",
     # BV-13a: the ADR 8.5 forcing controls and their lane step.
     ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_controls.py",
+    ROOT / "tests" / "runtime" / "flythrough" / "test_build_auto_tree.py",
 )
 # BV-09: the no-loosening guard of the beyond-VRAM thresholds file (ADR section 8.4).
 FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_flythrough_thresholds.py"
@@ -2468,6 +2471,56 @@ def _selected_producer_binary(godot_binary: str | None, *, explicit: bool = Fals
     return str(Path(resolved).resolve()) if resolved else raw
 
 
+def _run_auto_tree_binary_tests() -> tuple[bool, list[str]]:
+    """D2-4 CPU producer tests also run in PR jobs using --skip-guards.
+
+    A selected binary is mandatory evidence, including when it is missing or
+    lacks the binding/tests support. No tests-unavailable waiver applies here.
+    """
+    selected = _selected_producer_binary(
+        _GUARD_GODOT_BINARY_OVERRIDE, explicit=_GUARD_GODOT_BINARY_EXPLICIT
+    )
+    if selected is None:
+        return True, ["D2-4 mode=NOT_RUN: no Godot binary selected; pure driver tests run separately."]
+    script = AUTO_TREE_BINARY_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"D2-4 binary_test_missing: {script}"]
+    try:
+        suite = ast.parse(script.read_text(encoding="utf-8"))
+        expected = sum(
+            isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and method.name.startswith("test_")
+            for cls in ast.walk(suite) if isinstance(cls, ast.ClassDef)
+            for method in cls.body
+        )
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        return False, [f"D2-4 binary_test_invalid: {exc}"]
+    if not expected:
+        return False, ["D2-4 binary_test_invalid: no declared test methods"]
+    env = {key: value for key, value in os.environ.items()
+           if key.upper() not in ("GODOT_BINARY", "GS_REQUIRE_AUTO_TREE_BINARY")}
+    env["GODOT_BINARY"] = selected
+    env["GS_REQUIRE_AUTO_TREE_BINARY"] = "1"
+    code, out, err = _run_command([sys.executable, "-B", str(script)], env=env)
+    messages = [f"D2-4 mode=binary-required CPU-only binary={selected}"]
+    if code != 0:
+        return False, messages + [line for line in (out + err).splitlines() if line.strip()] + [
+            f"D2-4 producer tests failed with exit code {code}."
+        ]
+    messages += [line for line in out.splitlines() if line.startswith("D2-4 evidence:")]
+    # unittest writes its summary to stderr. Require one unambiguous successful
+    # summary; an exit code alone also describes zero tests or skipped tests.
+    output = out + "\n" + err
+    counts = re.findall(r"^Ran (\d+) tests? in [^\r\n]+\r?$", output, re.MULTILINE)
+    outcomes = re.findall(r"^OK(?: \(skipped=(\d+)\))?\r?$", output, re.MULTILINE)
+    if len(counts) != 1 or len(outcomes) != 1:
+        return False, messages + ["D2-4 unittest_summary_invalid: expected one Ran/OK summary", output]
+    ran, skipped = int(counts[0]), int(outcomes[0] or 0)
+    messages += [f"D2-4 unittest: Ran {ran} tests; OK; skipped={skipped}; required>={expected}"]
+    if skipped or ran < expected:
+        return False, messages + ["D2-4 unittest_coverage_failed: skipped tests or incomplete test count"]
+    return True, messages + ["D2-4 producer tests passed."]
+
+
 def _run_runtime_validation_contract_guard(
     godot_binary: str | None = None,
     *,
@@ -4314,7 +4367,7 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
     if getattr(cli_args, "skip_guards", False):
         # CI diet (2026-11-07): the binary-independent guards run once per PR in
         # the required agentic-pr-gate (`--guard-only`) and in full nightly. The
-        # two guard steps that need the Godot binary this job built cannot run
+        # guard steps that need the Godot binary this job built cannot run
         # there (that job builds nothing), so they stay here.
         print(
             "[module-tests] --skip-guards: binary-independent guards skipped (they run in "
@@ -5293,6 +5346,22 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
+def _run_doctests_and_auto_tree(*args) -> int:
+    """Always finish doctest reporting before the independent D2-4 producer job.
+
+    Do not short circuit on either result: D2-4 cannot hide doctest evidence,
+    and failed doctests cannot silently turn the selected producer into a skip.
+    """
+    doctest_code = _run_doctest_lanes(*args)
+    auto_tree_code = _run_message_guard(
+        _run_auto_tree_binary_tests,
+        "D2-4 producer tests failed.",
+        "D2-4 producer tests completed.",
+        success_always=True,
+    )
+    return doctest_code or auto_tree_code or 0
+
+
 def main() -> int:
     cli_args = _parse_args()
     godot = _normalize_process_arg(cli_args.godot_binary)
@@ -5350,7 +5419,7 @@ def main() -> int:
             print(f"[module-tests][lane-ledger][INTEGRITY] {message}")
         return 1
 
-    return _run_doctest_lanes(
+    return _run_doctests_and_auto_tree(
         godot,
         test_runs,
         tests_unavailable_mode,
