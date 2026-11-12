@@ -767,9 +767,29 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		return error;
 	}
 	const auto &info = reopened->get_info();
+	bool header_bounds_match = info.bounds == spec.bounds;
+	if (gsq) {
+		if (reopened_tree.nodes.is_empty()) {
+			return refuse(r_reason, "v4_reopen_identity", ERR_FILE_CORRUPT);
+		}
+		const auto &root = reopened_tree.nodes[0];
+		double center[3];
+		reopened_tree.node_cell_center(root, center);
+		header_bounds_match = true;
+		for (int a = 0; a < 3; ++a) {
+			const double lo = double(info.bounds.position[a]);
+			const double hi = lo + double(info.bounds.size[a]);
+			// Match the loader's endpoint arithmetic. GSQ may expand the header,
+			// but it must retain spec.bounds and enclose the final inflated root.
+			header_bounds_match = header_bounds_match && Math::is_finite(lo) && Math::is_finite(hi) &&
+					Math::is_finite(info.bounds.size[a]) && info.bounds.size[a] >= 0 &&
+					lo <= double(spec.bounds.position[a]) && hi >= double(spec.bounds.position[a]) + double(spec.bounds.size[a]) &&
+					lo <= center[a] + double(root.aabb_min[a]) && hi >= center[a] + double(root.aabb_max[a]);
+		}
+	}
 	if (info.codec_id != p_options.codec.codec_id || info.node_count != spec.node_count || info.leaf_splat_count != spec.leaf_splat_count || info.interior_splat_count != spec.interior_splat_count ||
 			info.sh_high_order != spec.sh_high_order || info.sh_first_order != spec.sh_first_order || info.bake_rule_version != spec.bake_rule_version ||
-			info.sh_degree != spec.sh_degree || info.is_2d != spec.is_2d || info.bounds != spec.bounds ||
+			info.sh_degree != spec.sh_degree || info.is_2d != spec.is_2d || !header_bounds_match ||
 			std::memcmp(reopened_tree.origin, spec.origin, sizeof(spec.origin)) != 0) {
 		return refuse(r_reason, "v4_reopen_identity", ERR_FILE_CORRUPT);
 	}
@@ -839,6 +859,26 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		r_report["nodes_verified"] = i + 1;
 	}
 	document["schema"] = "godotgs-auto-tree-manifest/1";
+	if (gsq) {
+		// Record the REOPENED header, not the pre-inflation spec. Integer IEEE754
+		// bit patterns preserve all six float32 values exactly through JSON's
+		// number parser (including tiny values and signed zero). This output fact
+		// is outside the existing tree_sha key; output_file_sha256 binds the file.
+		Array position_bits, size_bits;
+		for (int a = 0; a < 3; ++a) {
+			const float position = float(info.bounds.position[a]);
+			const float size = float(info.bounds.size[a]);
+			uint32_t position_word, size_word;
+			std::memcpy(&position_word, &position, sizeof(position_word));
+			std::memcpy(&size_word, &size, sizeof(size_word));
+			position_bits.push_back(int64_t(position_word));
+			size_bits.push_back(int64_t(size_word));
+		}
+		Dictionary header_bounds;
+		header_bounds["position_f32_bits"] = position_bits;
+		header_bounds["size_f32_bits"] = size_bits;
+		document["header_bounds"] = header_bounds;
+	}
 	document["nodes"] = manifest_nodes;
 	document["content_generation"] = String::num_uint64(info.content_generation);
 	Dictionary totals;

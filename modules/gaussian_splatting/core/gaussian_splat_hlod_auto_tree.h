@@ -26,6 +26,11 @@
 // string (JSON numbers cannot retain all 64 bits). The codec block is unchanged
 // for none: {"codec":"none"}. GSQ records flat fields codec="gsq", codec_id,
 // sh_bits (three integers), opacity_bits, pos_step_m and zstd_level.
+// GSQ alone also records header_bounds={position_f32_bits:[x,y,z],
+// size_f32_bits:[x,y,z]} from the reopened output header. Each entry is the
+// unsigned IEEE754 float32 bit pattern stored as an integer, so JSON preserves
+// the exact written bounds. This output metadata is outside the tree_sha key;
+// output_file_sha256 covers the header. Codec-none manifest content is unchanged.
 // GSQ decoded_sha256 is gs_gsq::decoded_digest of read_node_payload's runtime
 // form (absolute leaves, relative interiors), checked against one encode/decode
 // of the original bake in V4's node-relative frame. Codec none retains its

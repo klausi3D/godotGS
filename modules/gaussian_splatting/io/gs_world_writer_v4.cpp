@@ -1396,6 +1396,32 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (!gs_hlod_validate_tree(tree, &reason, &validation_error)) {
 			return _fail(validation_error, "v4_invalid_topology: " + reason);
 		}
+		// The normal resource loader compares double(position) + double(size)
+		// against cell_center + double(root offset). Union the final root with
+		// ALL of spec.bounds, then round the actual float32 header fields outward
+		// using that same arithmetic. Unlike the resident saver's optional-world
+		// bounds policy, an unrepresentable union must not drop the caller's box.
+		const NodeRecord &root = records[0];
+		for (int a = 0; a < 3; ++a) {
+			const double spec_lo = double(impl->spec.bounds.position[a]);
+			const double spec_hi = spec_lo + double(impl->spec.bounds.size[a]);
+			const double lo = MIN(spec_lo, root.cell_center[a] + double(root.topology.aabb_min[a]));
+			const double hi = MAX(spec_hi, root.cell_center[a] + double(root.topology.aabb_max[a]));
+			float begin = float(lo);
+			if (double(begin) > lo) {
+				begin = std::nextafter(begin, -std::numeric_limits<float>::infinity());
+			}
+			float extent = float(hi - double(begin));
+			for (int step = 0; step < 4 && is_finite(extent) && double(begin) + double(extent) < hi; ++step) {
+				extent = std::nextafter(extent, std::numeric_limits<float>::infinity());
+			}
+			if (!is_finite(begin) || !is_finite(extent) || extent < 0 ||
+					double(begin) > lo || double(begin) + double(extent) < hi) {
+				return _fail(ERR_INVALID_DATA, "v4_header_bounds_unrepresentable");
+			}
+			header.bounds_pos[a] = begin;
+			header.bounds_size[a] = extent;
+		}
 	}
 	header.payload_bytes = cursor - header.payload_offset;
 	if (!impl->metadata.is_empty()) {

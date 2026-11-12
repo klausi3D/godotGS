@@ -31,6 +31,12 @@
 // pass and retains the bake bounds and original bytes. This extra GSQ read/decode
 // pass uses the existing admitted per-node buffers and node tables, not a second
 // resident tree of payloads. Scratch is retained until the BFS write pass.
+// GSQ also unions spec.bounds with the final root's double world extent and
+// rounds the float32 header position/size outward using double(position) +
+// double(size), exactly as the normal resource loader checks enclosure. An
+// unrepresentable union fails with v4_header_bounds_unrepresentable; no bounds
+// are discarded. This precedes header identity, record and index hashing.
+// Codec none retains spec.bounds verbatim, including its original header bytes.
 //
 // W1: publish through GSAtomicFileTransaction only after successful assembly.
 // Failure, abort and destruction remove all owned temp/segment files and leave
