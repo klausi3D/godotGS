@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatHlodAutoTree" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Host-only tiled HLOD builder contract for plain GSQ worlds.
+	</brief_description>
+	<description>
+		Phase 1 exposes the API for contract tests only. [method build] currently returns an empty [Dictionary]; the build pipeline is not implemented yet.
+		The phase 2 contract reads plain v3 GSQ input with stored and decoded page digest verification always enabled, builds the frozen rule-1 MERGE_ONLY tree, writes uncompressed V4 through WriterV4, then reopens every node and checks its payload digest and recomputed metrics before publishing the output and sidecar. GSQ V4 output requires BV-C4 and is refused until that codec exists. Failures remove owned scratch and preserve pre-existing destinations.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="build" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="input_path" type="String" />
+			<param index="1" name="output_path" type="String" />
+			<param index="2" name="options" type="Dictionary" />
+			<description>
+				Builds the plain v3 GSQ world at [param input_path] into the uncompressed V4 world at [param output_path], with a sidecar at [code]&lt;output stem&gt;.manifest.json[/code]. This is the intended contract; phase 1 returns an empty dictionary without performing I/O.
+				[param options] accepts [code]scratch_dir[/code] (String), [code]source_fingerprint[/code] (required String of exactly 64 lowercase hexadecimal characters supplied by the caller), [code]worker_count[/code] (integer 1 through 64, default 1), [code]max_tile_splats[/code] (integer greater than 16384, default 1000000), [code]codec[/code] (String, default [code]"none"[/code]), and [code]limits[/code] (required Dictionary). Scratch directory is required. Limits require positive integer [code]max_ram_bytes[/code], [code]max_scratch_bytes[/code], [code]max_output_bytes[/code], and positive numeric [code]deadline_sec[/code]. Unknown keys, missing required fields, and incorrect types are errors; strings are never coerced to numbers. The leaf size is frozen at 16384 and InteriorBakeParams uses merge_grid 64, reduction 4, node_max_splats 16384, eps_growth 1.25, and max_eps_steps 1024.
+				The report contains [code]error[/code] (an [enum Error] code), [code]reason[/code], [code]tree_sha[/code], [code]manifest_path[/code], [code]node_count[/code], [code]nodes_verified[/code], [code]worker_count[/code], [code]tiles_baked[/code], [code]stitch_levels[/code], [code]wall_usec[/code], [code]peak_reserved_bytes[/code], [code]process_peak_memory_available[/code], and [code]process_peak_memory_bytes[/code]. Wall time and reserved peak are positive on success; process peak is positive when the OS supplies it, otherwise zero with availability false. Missing input returns ERR_FILE_NOT_FOUND with [code]input_not_found[/code]. Uncompressed plain input returns ERR_UNAVAILABLE with [code]input_requires_plain_v3_gsq[/code]. Requested [code]"gsq"[/code] output returns ERR_UNAVAILABLE with [code]v4_gsq_output_requires_bv_c4[/code]. Insufficient RAM returns ERR_OUT_OF_MEMORY with [code]limit_ram[/code]. Invalid options return ERR_INVALID_PARAMETER with a distinct reason, including [code]source_fingerprint_required[/code], [code]source_fingerprint_invalid[/code], [code]worker_count_invalid[/code], [code]unknown_option[/code], [code]unknown_limit[/code], [code]option_type[/code], or [code]limits_required[/code].
+				The [code]godotgs-auto-tree-manifest/1[/code] sidecar records input file and available generator/manifest digests, source fingerprint, build parameters, [code]{"codec":"none"}[/code], per-node stored and decoded SHA-256 digests, totals, depth-level node counts and minimum/median/maximum geometric error, content generation, output SHA-256, and the report. Decoded node digests cover runtime-form Gaussian bytes followed by high-order SH bytes (absolute leaf positions and relative interior positions). Stored digests cover the entire final V4 payload record. Content generation is an unsigned decimal string to preserve all 64 bits in JSON. The median of an even number of errors is the mean of the two central values.
+				[code]tree_sha[/code] is SHA-256 over UTF-8 [code]JSON.stringify(key, "", true, true)[/code] without a newline, with [code]key = {source_fingerprint, build_params, codec, input_file_sha256}[/code]. Build parameters are [code]leaf_max[/code], [code]max_tile_splats[/code], and [code]interior[/code] with the five frozen fields above. The manifest also records [code]worker_count[/code] in build_params, but the hash excludes it so scheduling cannot change the key or output bytes. Canonical numeric types are integers for leaf_max, max_tile_splats, merge_grid, node_max_splats, and max_eps_steps, and floats for reduction and eps_growth. Restore these schema types after parsing JSON before recomputing the hash. Paths, limits, timings, and memory counters are excluded. Whole manifest bytes include execution metadata; only content digests are schedule independent.
+			</description>
+		</method>
+	</methods>
+</class>
