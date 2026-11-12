@@ -571,8 +571,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Codec-none auto-tree reopens n
 
 	const String output = fixture.dir.path_join("near_plane.gsplatworld");
 	const Dictionary report = GaussianSplatHlodAutoTree::build(fixture.input, output, fixture.options());
-	CHECK_MESSAGE(int(report.get("error", FAILED)) == OK, "auto-tree build refused: ", String(report.get("reason", "missing")).utf8().get_data());
-	D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
+	if (int(report.get("error", FAILED)) != OK) {
+		// FAIL formats immediately; a lazily captured const char * printed a pointer.
+		const CharString refused = String(report.get("reason", "missing")).utf8();
+		FAIL("auto-tree build refused: ", refused.get_data());
+		return;
+	}
 	success_report(report);
 	CHECK(directory_empty(fixture.scratch));
 	const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(output));
