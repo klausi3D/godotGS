@@ -779,7 +779,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 		CHECK(recorded == String::hex_encode_buffer(actual_digest, 32));
 		CHECK(std::memcmp(expected_digest, actual_digest, 32) == 0);
 		CHECK(String(entry.get("stored_sha256", "")) == String::hex_encode_buffer(paged->get_nodes()[i].digest, 32));
-		D2_AUTO_NEED(TestGSQBounds::check_decoded_support(tree, i, actual, actual_sh));
+		D2_AUTO_NEED(TestGSQBounds::check_decoded_support(*paged.ptr(), tree, i, actual, actual_sh));
 	}
 	TestGSQBounds::check_tree_bounds(oracle.tree, tree, bounds_budget);
 	CHECK(lossy); // Reject a fixture for which bypassing GSQ would also pass.

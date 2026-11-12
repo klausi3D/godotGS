@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -911,7 +912,31 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	r_report["wall_usec"] = int64_t(MAX(uint64_t(1), OS::get_singleton()->get_ticks_usec() - p_started));
 	memory_report(r_report);
 	document["report"] = r_report;
-	const CharString json = JSON::stringify(document, "", true, true).utf8();
+	CharString json;
+	if (gsq) {
+		// JSON::stringify(full_precision=true) emits fixed-point decimals, but
+		// String::to_float's parser keeps only 18 mantissa digits INCLUDING leading
+		// zeroes. For pos_step_m this loses bits even with full-precision output.
+		// Emit this schema FLOAT as a normalized scientific JSON number instead.
+		// Keep the hash key's numeric value/type and codec-none serialization intact.
+		char step_text[32];
+		const double step = double(p_options.codec.pos_step_m);
+		const int step_length = std::snprintf(step_text, sizeof(step_text), "%.16e", step);
+		if (step_length <= 0 || step_length >= int(sizeof(step_text)) || String::to_float(step_text) != step) {
+			return refuse(r_reason, "manifest_codec_precision", ERR_INVALID_DATA);
+		}
+		// Serialize the two objects separately to insert a numeric token without
+		// replacing text that could also occur in a user-supplied string value.
+		Dictionary persisted_codec = codec.duplicate();
+		persisted_codec.erase("pos_step_m");
+		const String codec_json = JSON::stringify(persisted_codec, "", true, true).trim_suffix("}") +
+				",\"pos_step_m\":" + String::ascii(step_text) + "}";
+		Dictionary persisted_document = document.duplicate();
+		persisted_document.erase("codec");
+		json = (JSON::stringify(persisted_document, "", true, true).trim_suffix("}") + ",\"codec\":" + codec_json + "}").utf8();
+	} else {
+		json = JSON::stringify(document, "", true, true).utf8();
+	}
 	if (uint64_t(json.length()) > p_options.limits.max_scratch_bytes) {
 		return refuse(r_reason, "limit_scratch", ERR_PARAMETER_RANGE_ERROR);
 	}

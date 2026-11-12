@@ -6,6 +6,8 @@
 #include "../io/gaussian_splat_world_paged.h"
 #include "../io/gs_world_writer.h"
 #include "../io/gsq/gsq_codec.h"
+#include "core/crypto/crypto_core.h"
+#include "core/io/file_access.h"
 
 #include <cmath>
 #include <cstring>
@@ -122,9 +124,11 @@ inline void check_unchanged_fields(const GaussianSplatHlodNode &a, const Gaussia
 	CHECK(a.overlap_footprint == b.overlap_footprint);
 }
 
-inline bool check_decoded_support(const GaussianSplatHlodTree &p_tree, uint32_t p_node,
+inline bool check_decoded_support(const GaussianSplatHlodPagedSource &p_source, const GaussianSplatHlodTree &p_tree, uint32_t p_node,
 		const Vector<Gaussian> &p_runtime, const Vector<Vector3> &p_sh) {
-	if (p_node >= p_tree.nodes.size() || p_runtime.size() != int(p_tree.nodes[p_node].payload_count) ||
+	INFO("decoded support node=", p_node);
+	if (p_node >= p_tree.nodes.size() || p_node >= uint32_t(p_source.get_nodes().size()) ||
+			p_runtime.size() != int(p_tree.nodes[p_node].payload_count) ||
 			uint64_t(p_sh.size()) != uint64_t(p_runtime.size()) * p_tree.sh_high_order_count) {
 		FAIL("GSQ support oracle needs the complete reopened payload");
 		return false;
@@ -133,21 +137,70 @@ inline bool check_decoded_support(const GaussianSplatHlodTree &p_tree, uint32_t 
 	double center[3];
 	p_tree.node_cell_center(node, center);
 	Vector<Gaussian> relative;
-	if (!gs_resize_or_fail(relative, p_runtime.size(), "GSQ bounds test relative payload")) {
+	Vector<Vector3> relative_sh;
+	if (!gs_resize_or_fail(relative, p_runtime.size(), "GSQ bounds test relative payload") ||
+			!gs_resize_or_fail(relative_sh, p_sh.size(), "GSQ bounds test relative SH")) {
 		FAIL("cannot allocate GSQ bounds test payload");
 		return false;
 	}
-	std::memcpy(relative.ptrw(), p_runtime.ptr(), p_runtime.size() * sizeof(Gaussian));
-	if (node.is_leaf()) {
-		for (int i = 0; i < relative.size(); ++i) {
-			for (int a = 0; a < 3; ++a) {
-				relative.write[i].position[a] = real_t(double(p_runtime[i].position[a]) - center[a]);
-			}
-		}
+	// read_node_payload validates BEFORE reconstructing absolute leaf floats.
+	// Subtracting the centre from those rounded floats is not the inverse: e.g.
+	// relative 0.5-2^-24 at centre 2 reconstructs as 2.5, then subtracts to 0.5.
+	// Decode the stored node-relative bytes, exactly as the reader validates them.
+	const auto &record = p_source.get_nodes()[p_node];
+	const uint64_t header_bytes = gs_world_paged::kPayloadRecordHeaderBytes;
+	Ref<FileAccess> file = FileAccess::open(p_source.get_path(), FileAccess::READ);
+	if (file.is_null() || record.stored_bytes <= header_bytes || record.offset > file->get_length() ||
+			record.stored_bytes > file->get_length() - record.offset) {
+		FAIL("missing stored node-relative payload for support oracle");
+		return false;
+	}
+	Vector<uint8_t> stored;
+	if (!gs_resize_or_fail(stored, record.stored_bytes, "GSQ bounds test stored payload")) {
+		FAIL("cannot allocate stored support oracle");
+		return false;
+	}
+	file->seek(record.offset);
+	if (file->get_buffer(stored.ptrw(), stored.size()) != uint64_t(stored.size())) {
+		FAIL("cannot read stored support oracle");
+		return false;
+	}
+	CryptoCore::SHA256Context hash;
+	hash.start();
+	hash.update(stored.ptr(), stored.size());
+	uint8_t digest[32];
+	hash.finish(digest);
+	if (std::memcmp(digest, record.digest, sizeof(digest)) != 0) {
+		FAIL("stored support oracle digest mismatch");
+		return false;
 	}
 	String reason;
-	const bool contained = gs_world_paged::validate_node_payload(center, p_tree.sh_high_order_count, node, relative.ptr(), p_sh.ptr(), reason);
-	INFO("decoded support: ", doctest::String(reason.utf8().get_data()));
+	const uint8_t *body = stored.ptr() + header_bytes;
+	const uint64_t body_bytes = record.stored_bytes - header_bytes;
+	if (p_source.get_codec_id() == gs_world_writer::kCodecGsqV1) {
+		gs_gsq::PageInfo page;
+		gs_gsq::DecodeContext decoder;
+		if (gs_gsq::verify_page(body, body_bytes, page, reason) != OK || page.splat_count != node.payload_count ||
+				page.sh_degree != p_source.get_info().sh_degree || page.sh_high_order != p_tree.sh_high_order_count ||
+				page.stored_bytes != body_bytes ||
+				decoder.decode_range(body, body_bytes, 0, node.payload_count, relative.ptrw(), relative_sh.ptrw(), reason, false) != OK) {
+			FAIL("cannot decode stored support oracle: ", doctest::String(reason.utf8().get_data()));
+			return false;
+		}
+	} else {
+		const uint64_t g_bytes = uint64_t(relative.size()) * sizeof(Gaussian);
+		const uint64_t sh_bytes = uint64_t(relative_sh.size()) * sizeof(Vector3);
+		if (p_source.get_codec_id() != gs_world_writer::kCodecNone || body_bytes != g_bytes + sh_bytes) {
+			FAIL("unexpected codec-none support oracle layout");
+			return false;
+		}
+		std::memcpy(relative.ptrw(), body, g_bytes);
+		if (sh_bytes) {
+			std::memcpy(relative_sh.ptrw(), body + g_bytes, sh_bytes);
+		}
+	}
+	const bool contained = gs_world_paged::validate_node_payload(center, p_tree.sh_high_order_count, node, relative.ptr(), relative_sh.ptr(), reason);
+	INFO("decoded support node=", p_node, " reason=", doctest::String(reason.utf8().get_data()));
 	CHECK(contained); // Includes AABB AND sphere, with the unchanged half-ULP tolerance.
 	return contained;
 }

@@ -720,7 +720,7 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ unions tight ba
 		for (uint32_t i = 0; i < kNodes; ++i) {
 			Vector<Gaussian> actual;
 			Vector<Vector3> sh;
-			if (source.read_node_payload(i, actual, sh, reason) != OK || !TestGSQBounds::check_decoded_support(tree, i, actual, sh)) {
+			if (source.read_node_payload(i, actual, sh, reason) != OK || !TestGSQBounds::check_decoded_support(source, tree, i, actual, sh)) {
 				FAIL("tight output payload failed: ", doctest::String(reason.utf8().get_data()));
 				return;
 			}
