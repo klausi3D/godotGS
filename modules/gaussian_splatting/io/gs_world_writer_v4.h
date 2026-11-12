@@ -23,6 +23,20 @@
 // reuses gs_hlod_validate_tree, requires canonical BFS and exactly one use of
 // every handle, and writes bodies in BFS order. content_generation uses digests
 // of the actual stored V4 output bodies (node-relative, GSQ-compressed when selected).
+// GSQ finalization first decodes one output node at a time in reverse BFS and
+// unions its three-sigma support with the bake AABB/sphere and final child
+// bounds. A moved AABB midpoint preserves the entire original sphere. Bounds
+// use the bake's outward rounding; validation tolerances are unchanged. All
+// bounds are final before record serialization/hashing; codec none skips this
+// pass and retains the bake bounds and original bytes. This extra GSQ read/decode
+// pass uses the existing admitted per-node buffers and node tables, not a second
+// resident tree of payloads. Scratch is retained until the BFS write pass.
+// GSQ also unions spec.bounds with the final root's double world extent and
+// rounds the float32 header position/size outward using double(position) +
+// double(size), exactly as the normal resource loader checks enclosure. An
+// unrepresentable union fails with v4_header_bounds_unrepresentable; no bounds
+// are discarded. This precedes header identity, record and index hashing.
+// Codec none retains spec.bounds verbatim, including its original header bytes.
 //
 // W1: publish through GSAtomicFileTransaction only after successful assembly.
 // Failure, abort and destruction remove all owned temp/segment files and leave
@@ -100,7 +114,8 @@ struct V4SegmentReport {
 
 struct V4Report {
 	Error error = OK;
-	String reason;
+	String reason; // Stable reason key, without the diagnostic suffix.
+	String full_reason; // Complete failure text, including detail after ':'.
 	bool committed = false;
 	LocalVector<V4SegmentReport> segments;
 	uint64_t total_scratch_bytes = 0; // Cumulative segment file lengths, not remaining live bytes.

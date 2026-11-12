@@ -3,6 +3,7 @@
 // D2-3 phase 1: host-only runtime-red contract tests. modules/SCsub discovers
 // tests/*.h; [WorldIO] selects the existing CPU lane. No external fixtures.
 #include "test_macros.h"
+#include "gs_gsq_bounds_test_helpers.h"
 
 #include "../core/gaussian_splat_hlod_auto_tree.h"
 #include "../core/gaussian_splat_world.h"
@@ -10,10 +11,12 @@
 #include "../io/gaussian_splat_world_paged.h"
 #include "../io/gs_auto_tree_source.h"
 #include "../io/gs_world_generator.h"
+#include "../io/gsq/gsq_codec.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
+#include "core/io/marshalls.h"
 #include "core/os/os.h"
 
 #include <algorithm>
@@ -140,7 +143,19 @@ inline String tree_sha(const Dictionary &p_manifest) {
 	Dictionary key;
 	key["source_fingerprint"] = p_manifest.get("source_fingerprint", "");
 	key["build_params"] = params;
-	key["codec"] = p_manifest.get("codec", Dictionary());
+	Dictionary codec = Dictionary(p_manifest.get("codec", Dictionary())).duplicate(true);
+	if (String(codec.get("codec", "")) == "gsq") {
+		for (const char *field : { "codec_id", "opacity_bits", "zstd_level" }) {
+			codec[field] = int64_t(codec.get(field, 0));
+		}
+		Array bits = codec.get("sh_bits", Array());
+		for (int i = 0; i < bits.size(); ++i) {
+			bits[i] = int64_t(bits[i]);
+		}
+		codec["sh_bits"] = bits;
+		codec["pos_step_m"] = double(codec.get("pos_step_m", 0));
+	}
+	key["codec"] = codec;
 	key["input_file_sha256"] = p_manifest.get("input_file_sha256", "");
 	return JSON::stringify(key, "", true, true).sha256_text();
 }
@@ -591,7 +606,229 @@ inline Dictionary bound_build(const String &p_input, const String &p_output, con
 	return result;
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound auto-tree API refuses invalid options and unavailable GSQ output") {
+// D2-3b: use only existing bindings and Dictionary fields so these contracts
+// compile before GSQ output is enabled. Each GSQ build must succeed first; the
+// current ERR_UNAVAILABLE refusal is a runtime failure, never a skipped case.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound GSQ auto-tree output records codec parameters in tree SHA") {
+	Fixture fixture;
+	D2_AUTO_NEED(fixture.create());
+	String none_sha;
+	for (const char *name : { "none", "gsq" }) {
+		Dictionary options = fixture.options();
+		options["codec"] = name;
+		const String output = fixture.dir.path_join(String(name) + ".gsplatworld");
+		const Dictionary report = bound_build(fixture.input, output, options);
+		const CharString build_reason = String(report.get("reason", "")).utf8();
+		INFO("codec=", doctest::String(name), " reason=", doctest::String(build_reason.get_data()));
+		CHECK(String(report.get("reason", "")) != "v4_gsq_output_requires_bv_c4");
+		D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
+		success_report(report);
+		const PackedByteArray bytes = FileAccess::get_file_as_bytes(output);
+		D2_AUTO_NEED(bytes.size() >= int64_t(gs_world_paged::kHeaderBytes));
+		CHECK(decode_uint32(bytes.ptr() + 4) == 4u);
+		CHECK(decode_uint32(bytes.ptr() + 60) == (String(name) == "gsq" ? 1u : 0u));
+		const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(output));
+		D2_AUTO_NEED(!manifest.is_empty());
+		const Dictionary codec = manifest.get("codec", Dictionary());
+		CHECK(String(codec.get("codec", "")) == name);
+		if (String(name) == "gsq") {
+			// Flat CodecParams block, using the generator's existing field names.
+			const gs_world_writer::CodecParams params = gs_world_writer::gsq_v1_codec_params();
+			CHECK(double(codec.get("codec_id", -1)) == double(params.codec_id));
+			const Array bits = codec.get("sh_bits", Array());
+			D2_AUTO_NEED(bits.size() == 3);
+			for (int band = 0; band < 3; ++band) {
+				CHECK(double(bits[band]) == double(params.sh_bits[band]));
+			}
+			CHECK(double(codec.get("opacity_bits", -1)) == double(params.opacity_bits));
+			CHECK(double(codec.get("pos_step_m", -1)) == double(params.pos_step_m));
+			CHECK(double(codec.get("zstd_level", -1)) == double(params.zstd_level));
+		}
+		const String sha = manifest.get("tree_sha", "");
+		D2_AUTO_NEED(hex_digest(sha));
+		CHECK(sha == tree_sha(manifest));
+		CHECK(sha == String(report.get("tree_sha", "")));
+		CHECK(String(manifest.get("input_file_sha256", "")) == FileAccess::get_sha256(fixture.input));
+		if (String(name) == "none") {
+			none_sha = sha;
+		} else {
+			CHECK(sha != none_sha);
+		}
+	}
+	// The bound API currently exposes only the codec name, not individual
+	// CodecParams overrides. No hypothetical option names are added here.
+	CHECK(directory_empty(fixture.scratch));
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node digests equal in-core encode decode and reopened payloads") {
+	Fixture fixture;
+	D2_AUTO_NEED(fixture.create(262144));
+	D2_AUTO_NEED(fixture.generated.splat_count > 2 * 65536);
+	D2_AUTO_NEED(fixture.generated.splat_count <= 1000000);
+	Dictionary options = fixture.options();
+	options["codec"] = "gsq";
+	const String output = fixture.dir.path_join("gsq_oracle.gsplatworld");
+	const Dictionary report = bound_build(fixture.input, output, options);
+	const CharString build_reason = String(report.get("reason", "")).utf8();
+	INFO("GSQ build reason=", doctest::String(build_reason.get_data()));
+	D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
+	success_report(report);
+	CHECK(int64_t(report.get("tiles_baked", 0)) > 1);
+	CHECK(int64_t(report.get("stitch_levels", 0)) > 0);
+
+	Resident resident;
+	D2_AUTO_NEED(resident.load(fixture));
+	D2_AUTO_NEED(resident.first == 3);
+	D2_AUTO_NEED(resident.high == gs_gsq::sh_high_order_for_degree(3));
+	gs_hlod::BakeParams bake_params;
+	bake_params.mode = gs_hlod::BakeParams::MERGE_ONLY;
+	gs_hlod::BakeResult oracle;
+	String reason;
+	Error error = OK;
+	D2_AUTO_NEED(gs_hlod::bake_world(resident.view(), bake_params, oracle, &reason, &error));
+	D2_AUTO_NEED(error == OK);
+	D2_AUTO_NEED(gs_hlod_validate_tree(oracle.tree, &reason));
+	D2_AUTO_NEED(oracle.leaf_gaussians.size() == oracle.tree.leaf_splat_count);
+	D2_AUTO_NEED(oracle.leaf_sh_high_order.size() == uint64_t(oracle.tree.leaf_splat_count) * resident.high);
+	D2_AUTO_NEED(oracle.tree.interior_gaussians.size() == oracle.tree.interior_splat_count);
+	D2_AUTO_NEED(oracle.tree.interior_sh_high_order.size() == uint64_t(oracle.tree.interior_splat_count) * resident.high);
+	D2_AUTO_NEED(oracle.tree.interior_splat_count > 0);
+	gs_gsq::EncodeParams encode_params;
+	D2_AUTO_NEED(gs_world_writer::gsq_encode_params(gs_world_writer::gsq_v1_codec_params(), encode_params, reason) == OK);
+	gs_gsq::DecodeContext decoder;
+
+	Ref<GaussianSplatHlodPagedSource> paged;
+	paged.instantiate();
+	GaussianSplatHlodTree tree;
+	Dictionary metadata;
+	D2_AUTO_NEED(paged->open(output, tree, metadata, reason) == OK);
+	D2_AUTO_NEED(tree.nodes.size() == oracle.tree.nodes.size());
+	D2_AUTO_NEED(paged->get_nodes().size() == int(tree.nodes.size()));
+	CHECK(tree.bake_rule_version == 1);
+	CHECK(tree.leaf_splat_count == oracle.tree.leaf_splat_count);
+	CHECK(tree.interior_splat_count == oracle.tree.interior_splat_count);
+	CHECK(tree.sh_high_order_count == resident.high);
+	CHECK(std::memcmp(tree.origin, oracle.tree.origin, sizeof(tree.origin)) == 0);
+	const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(output));
+	CHECK(String(manifest.get("output_file_sha256", "")) == FileAccess::get_sha256(output));
+	const Array nodes = manifest.get("nodes", Array());
+	D2_AUTO_NEED(nodes.size() == int(tree.nodes.size()));
+	bool lossy = false;
+	std::vector<TestGSQBounds::Budget> bounds_budget(tree.nodes.size());
+	for (uint32_t i = 0; i < tree.nodes.size(); ++i) {
+		INFO("node=", i);
+		const auto &expected = oracle.tree.nodes[i];
+		TestGSQBounds::check_unchanged_fields(tree.nodes[i], expected);
+		D2_AUTO_NEED(expected.payload_count > 0);
+		D2_AUTO_NEED(expected.is_leaf() || expected.payload_first >= oracle.tree.leaf_splat_count);
+		const uint64_t start = expected.is_leaf() ? expected.payload_first : expected.payload_first - oracle.tree.leaf_splat_count;
+		const auto &source_g = expected.is_leaf() ? oracle.leaf_gaussians : oracle.tree.interior_gaussians;
+		const auto &source_sh = expected.is_leaf() ? oracle.leaf_sh_high_order : oracle.tree.interior_sh_high_order;
+		D2_AUTO_NEED(start + expected.payload_count <= source_g.size());
+		D2_AUTO_NEED((start + expected.payload_count) * resident.high <= source_sh.size());
+		const Gaussian *g = source_g.ptr() + start;
+		const Vector3 *sh = source_sh.ptr() + start * resident.high;
+		// Independent oracle: encode the in-core payload exactly once, without
+		// using WriterV4, the output bytes, or the manifest as encoder input.
+		// V4 frames leaves relative to their node centre; interiors already use
+		// that frame. Derive the centre from the in-core tree, not the reader.
+		LocalVector<Gaussian> encoder_input;
+		encoder_input.resize(expected.payload_count);
+		std::memcpy(encoder_input.ptr(), g, expected.payload_count * sizeof(Gaussian));
+		double center[3];
+		oracle.tree.node_cell_center(expected, center);
+		if (expected.is_leaf()) {
+			for (Gaussian &splat : encoder_input) {
+				for (int axis = 0; axis < 3; ++axis) {
+					splat.position[axis] = real_t(double(splat.position[axis]) - center[axis]);
+				}
+			}
+		}
+		LocalVector<uint8_t> page;
+		LocalVector<Gaussian> decoded;
+		LocalVector<Vector3> decoded_sh;
+		decoded.resize(expected.payload_count);
+		decoded_sh.resize(expected.payload_count * resident.high);
+		D2_AUTO_NEED(gs_gsq::encode_page(encoder_input.ptr(), sh, expected.payload_count, 3, encode_params, page, reason) == OK);
+		gs_gsq::PageInfo page_info;
+		D2_AUTO_NEED(gs_gsq::verify_page(page.ptr(), page.size(), page_info, reason) == OK);
+		D2_AUTO_NEED(TestGSQBounds::quantisation_budget(g, expected.payload_count, center, expected.is_leaf(), page_info,
+				gs_world_writer::gsq_v1_codec_params(), bounds_budget[i]));
+		D2_AUTO_NEED(decoder.decode_range(page.ptr(), page.size(), 0, expected.payload_count, decoded.ptr(), decoded_sh.ptr(), reason) == OK);
+		if (expected.is_leaf()) {
+			for (Gaussian &splat : decoded) {
+				for (int axis = 0; axis < 3; ++axis) {
+					splat.position[axis] = real_t(double(splat.position[axis]) + center[axis]);
+				}
+			}
+		}
+		uint8_t expected_digest[32], source_digest[32], actual_digest[32];
+		gs_gsq::decoded_digest(decoded.ptr(), decoded_sh.ptr(), expected.payload_count, 3, expected_digest);
+		gs_gsq::decoded_digest(g, sh, expected.payload_count, 3, source_digest);
+		lossy |= std::memcmp(source_digest, expected_digest, 32) != 0;
+		Vector<Gaussian> actual;
+		Vector<Vector3> actual_sh;
+		D2_AUTO_NEED(paged->read_node_payload(i, actual, actual_sh, reason) == OK);
+		D2_AUTO_NEED(actual.size() == int(expected.payload_count));
+		D2_AUTO_NEED(actual_sh.size() == int(expected.payload_count * resident.high));
+		gs_gsq::decoded_digest(actual.ptr(), actual_sh.ptr(), expected.payload_count, 3, actual_digest);
+		const Dictionary entry = nodes[i];
+		const String recorded = entry.get("decoded_sha256", "");
+		CHECK(hex_digest(recorded));
+		CHECK(recorded == String::hex_encode_buffer(expected_digest, 32));
+		CHECK(recorded == String::hex_encode_buffer(actual_digest, 32));
+		CHECK(std::memcmp(expected_digest, actual_digest, 32) == 0);
+		CHECK(String(entry.get("stored_sha256", "")) == String::hex_encode_buffer(paged->get_nodes()[i].digest, 32));
+		D2_AUTO_NEED(TestGSQBounds::check_decoded_support(*paged.ptr(), tree, i, actual, actual_sh));
+	}
+	TestGSQBounds::check_tree_bounds(oracle.tree, tree, bounds_budget);
+	CHECK(lossy); // Reject a fixture for which bypassing GSQ would also pass.
+	CHECK(directory_empty(fixture.scratch));
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree GSQ output refuses old readers and resealed unknown codecs") {
+	Fixture fixture;
+	D2_AUTO_NEED(fixture.create());
+	Dictionary options = fixture.options();
+	options["codec"] = "gsq";
+	const String output = fixture.dir.path_join("gsq_identity.gsplatworld");
+	const Dictionary report = bound_build(fixture.input, output, options);
+	const CharString build_reason = String(report.get("reason", "")).utf8();
+	INFO("GSQ build reason=", doctest::String(build_reason.get_data()));
+	D2_AUTO_NEED(int(report.get("error", FAILED)) == OK);
+	PackedByteArray bytes = FileAccess::get_file_as_bytes(output);
+	D2_AUTO_NEED(bytes.size() >= int64_t(gs_world_paged::kHeaderBytes));
+	CHECK(decode_uint32(bytes.ptr() + 4) == 4u);
+	CHECK(decode_uint32(bytes.ptr() + 60) == 1u);
+	// Pre-BV-C4 V4 readers require this reserved word to be zero.
+	const bool old_reader_accepts = decode_uint32(bytes.ptr() + 60) == 0u;
+	CHECK_FALSE(old_reader_accepts);
+	String reason;
+	GaussianSplatHlodPagedSource good;
+	GaussianSplatHlodTree tree;
+	Dictionary metadata;
+	D2_AUTO_NEED(good.open(output, tree, metadata, reason) == OK);
+	D2_AUTO_NEED(!tree.nodes.is_empty());
+	// Only the header changes; the index pages and their digests remain valid.
+	// Reseal its SHA just as in BV-C4 so corruption cannot mask codec refusal.
+	encode_uint32(0xFFFFFFFFu, bytes.ptrw() + 60);
+	CryptoCore::SHA256Context hash;
+	hash.start();
+	hash.update(bytes.ptr(), gs_world_paged::kHeaderBytes - 32);
+	hash.finish(bytes.ptrw() + gs_world_paged::kHeaderBytes - 32);
+	const String corrupt = fixture.dir.path_join("unknown_codec.gsplatworld");
+	D2_AUTO_NEED(write_bytes(corrupt, bytes));
+	GaussianSplatHlodPagedSource refused;
+	metadata["stale"] = true; // Failed open must clear populated outputs too.
+	CHECK(refused.open(corrupt, tree, metadata, reason) == ERR_FILE_CORRUPT);
+	CHECK(reason == "v4_unsupported_codec");
+	CHECK_FALSE(refused.is_open());
+	CHECK(refused.get_nodes().is_empty());
+	CHECK(tree.nodes.is_empty());
+	CHECK(metadata.is_empty());
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound auto-tree API refuses invalid options") {
 	Fixture fixture, plain;
 	D2_AUTO_NEED(fixture.create());
 	D2_AUTO_NEED(plain.create(32768, gs_world_writer::kCodecNone));
@@ -601,7 +838,6 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound auto-tree API refuses in
 		const char *reason;
 	};
 	const Bad cases[] = {
-		{ "codec", "gsq", "v4_gsq_output_requires_bv_c4" },
 		{ "codec", "invented", "codec_invalid" },
 		{ "scratch_dir", Variant(), "scratch_dir_required" },
 		{ "source_fingerprint", Variant(), "source_fingerprint_required" },
@@ -631,7 +867,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound auto-tree API refuses in
 			options[bad.key] = bad.value;
 		}
 		const Dictionary report = bound_build(fixture.input, output, options);
-		CHECK(int(report.get("error", OK)) == (String(bad.key) == "codec" && bad.value == Variant("gsq") ? ERR_UNAVAILABLE : ERR_INVALID_PARAMETER));
+		CHECK(int(report.get("error", OK)) == ERR_INVALID_PARAMETER);
 		CHECK(String(report.get("reason", "")).begins_with(bad.reason));
 		CHECK_FALSE(FileAccess::exists(output));
 		CHECK_FALSE(FileAccess::exists(gs_world_generator::manifest_path_for(output)));

@@ -1,7 +1,10 @@
 #pragma once
 
 #include "test_gs_world_writer_v4.h"
+#include "gs_gsq_bounds_test_helpers.h"
 #include "../io/gaussian_splat_world_format.h"
+#include "../io/gaussian_splat_world_io.h"
+#include "core/error/error_macros.h"
 #include "core/io/marshalls.h"
 
 // BV-C4 phase 1: host-only executable contracts, using only master APIs.
@@ -495,6 +498,380 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] codec none preserve
 		CHECK(decode_uint32(actual.ptr() + record.offset + 48) == GAUSSIAN_STRUCT_LAYOUT_VERSION);
 		for (uint64_t tail = 52; tail < kPayloadRecordHeaderBytes; ++tail) {
 			CHECK(actual[record.offset + tail] == 0);
+		}
+	}
+}
+
+// Keep the existing seven-node BFS topology, but compute bounds with the bake's
+// actual three-sigma/outward-rounding functions instead of generous test boxes.
+static bool tight_quantisation_fixture(Fixture &r_fixture, GaussianSplatHlodTree &r_bake) {
+	if (!r_fixture.build()) {
+		return false;
+	}
+	r_bake.leaf_splat_count = 4 * kSplats;
+	r_bake.interior_splat_count = 3 * kSplats;
+	r_bake.sh_high_order_count = kHigh;
+	r_bake.interior_resident = true;
+	LocalVector<Gaussian> leaves;
+	LocalVector<Vector3> leaf_sh;
+	if (!gs_hlod::fallible_resize(r_bake.nodes, kNodes, "tight GSQ test nodes") ||
+			!gs_hlod::fallible_resize(r_bake.interior_gaussians, 3 * kSplats, "tight GSQ test interiors") ||
+			!gs_hlod::fallible_resize(r_bake.interior_sh_high_order, 3 * kSplats * kHigh, "tight GSQ test interior SH") ||
+			!gs_hlod::fallible_resize(leaves, 4 * kSplats, "tight GSQ test leaves") ||
+			!gs_hlod::fallible_resize(leaf_sh, 4 * kSplats * kHigh, "tight GSQ test leaf SH")) {
+		FAIL("cannot allocate tight GSQ fixture");
+		return false;
+	}
+	// Y-scale endpoints have exact Q16 logs -5 and -4. This interior value
+	// maps near code 1.75 of 1023, rounds UP to code 2, and stays above its
+	// source even after Q16 truncation. Position extrema and identity rotations
+	// are exactly representable before encoding. Position dequantisation may
+	// move the upper Y endpoint inward; scale rounding still pushes support out.
+	const float victim_scale = float(std::exp2(-5.0 + 1.75 / 1023.0));
+	for (uint32_t i = 0; i < kNodes; ++i) {
+		auto &node = r_bake.nodes[i];
+		node = r_fixture.nodes[i].topology;
+		auto &body = r_fixture.bodies[i];
+		for (uint32_t j = 0; j < kSplats; ++j) {
+			Gaussian &g = body.gaussians[j];
+			g.rotation = Quaternion(0, 0, 0, 1);
+			g.scale = Vector3(0.03125f, 0.03125f, 0.03125f);
+			if (node.is_leaf()) {
+				g.scale.y = j % 3 == 2 ? victim_scale : (j % 3 == 1 ? 0.0625f : 0.03125f);
+				g.position = Vector3(real_t(body.desc.cell_center[0]), j % 3 == 2 ? 2.5f : 1.5f, 2.0f);
+			} else {
+				// Interior payloads stay strictly inside the children's world Y/Z
+				// bounds. Their bounds can grow only by bottom-up child propagation.
+				g.position = Vector3(0, real_t(2.0 - body.desc.cell_center[1]), real_t(2.0 - body.desc.cell_center[2]));
+			}
+			const uint32_t slot = (node.is_leaf() ? i - 3 : i) * kSplats + j;
+			if (node.is_leaf()) {
+				leaves[slot] = g;
+			} else {
+				r_bake.interior_gaussians[slot] = g;
+			}
+			for (uint32_t k = 0; k < kHigh; ++k) {
+				if (node.is_leaf()) {
+					leaf_sh[slot * kHigh + k] = body.sh[j * kHigh + k];
+				} else {
+					r_bake.interior_sh_high_order[slot * kHigh + k] = body.sh[j * kHigh + k];
+				}
+			}
+		}
+	}
+	for (int i = kNodes - 1; i >= 0; --i) {
+		auto &node = r_bake.nodes[i];
+		const auto &body = r_fixture.bodies[i];
+		const double *center = body.desc.cell_center;
+		const double shift[3] = { node.is_leaf() ? 0.0 : center[0], node.is_leaf() ? 0.0 : center[1], node.is_leaf() ? 0.0 : center[2] };
+		const gs_hlod::SplatSpan span{ body.gaussians.ptr(), body.sh.ptr(), kSplats, kHigh };
+		gs_hlod::bake_bounds::BoundsAccumulator bounds;
+		gs_hlod::bake_bounds::add_payload_bounds(span, shift, bounds);
+		for (uint32_t c = node.first_child; c < node.first_child + node.child_count; ++c) {
+			const auto &child = r_bake.nodes[c];
+			const double *cc = r_fixture.bodies[c].desc.cell_center;
+			const double lo[3] = { cc[0] + child.aabb_min.x, cc[1] + child.aabb_min.y, cc[2] + child.aabb_min.z };
+			const double hi[3] = { cc[0] + child.aabb_max.x, cc[1] + child.aabb_max.y, cc[2] + child.aabb_max.z };
+			bounds.add(lo, hi);
+		}
+		double mid[3];
+		for (int a = 0; a < 3; ++a) {
+			node.aabb_min[a] = gs_hlod::bake_bounds::round_down_offset(center[a], bounds.lo[a]);
+			node.aabb_max[a] = gs_hlod::bake_bounds::round_up_offset(center[a], bounds.hi[a]);
+			mid[a] = 0.5 * ((center[a] + double(node.aabb_min[a])) + (center[a] + double(node.aabb_max[a])));
+		}
+		double radius = gs_hlod::bake_bounds::payload_radius(span, shift, mid);
+		for (int a = 0; a < 3; ++a) {
+			radius = MAX(radius, 0.5 * (double(node.aabb_max[a]) - double(node.aabb_min[a])));
+		}
+		for (uint32_t c = node.first_child; c < node.first_child + node.child_count; ++c) {
+			const auto &child = r_bake.nodes[c];
+			const double *cc = r_fixture.bodies[c].desc.cell_center;
+			double distance_squared = 0;
+			for (int a = 0; a < 3; ++a) {
+				const double delta = mid[a] - 0.5 * ((cc[a] + double(child.aabb_min[a])) + (cc[a] + double(child.aabb_max[a])));
+				distance_squared += delta * delta;
+			}
+			radius = MAX(radius, std::sqrt(distance_squared) + double(child.radius));
+		}
+		node.radius = gs_hlod::bake_bounds::round_up(radius);
+		r_fixture.nodes[i].topology = node;
+	}
+	String reason;
+	if (!gs_hlod_validate_tree(r_bake, &reason)) {
+		FAIL("tight fixture tree invalid: ", doctest::String(reason.utf8().get_data()));
+		return false;
+	}
+	Ref<GaussianData> data;
+	data.instantiate();
+	data->set_gaussian_payload(leaves, leaf_sh, 3, kHigh, false, false);
+	r_fixture.world->set_gaussian_data(data);
+	GaussianSplatHlodTree resident_tree = r_bake;
+	r_fixture.world->set_hlod_tree(std::move(resident_tree));
+	r_fixture.spec.bounds = r_fixture.world->get_bounds();
+	return true;
+}
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ unions tight bake bounds with decoded support and propagates bounded inflation") {
+	Paths paths;
+	Fixture fixture;
+	GaussianSplatHlodTree bake;
+	if (!paths.create() || !tight_quantisation_fixture(fixture, bake)) {
+		return;
+	}
+	const CodecParams codec = gsq_v1_codec_params();
+	gs_gsq::EncodeParams encode_params;
+	String reason;
+	if (gsq_encode_params(codec, encode_params, reason) != OK) {
+		FAIL("cannot get GSQ parameters");
+		return;
+	}
+	std::vector<TestGSQBounds::Budget> budgets(kNodes);
+	std::vector<String> decoded_digests(kNodes);
+	uint32_t escaping_leaves = 0;
+	gs_gsq::DecodeContext decoder;
+	for (uint32_t i = 0; i < kNodes; ++i) {
+		const auto &body = fixture.bodies[i];
+		LocalVector<Gaussian> relative = body.gaussians;
+		if (body.desc.is_leaf) {
+			for (Gaussian &g : relative) {
+				for (int a = 0; a < 3; ++a) {
+					g.position[a] = real_t(double(g.position[a]) - body.desc.cell_center[a]);
+				}
+			}
+		}
+		// Positive fixture control: the exact same bounds contain the source.
+		if (!validate_node_payload(body.desc.cell_center, kHigh, bake.nodes[i], relative.ptr(), body.sh.ptr(), reason)) {
+			FAIL("tight unquantised payload must validate: ", doctest::String(reason.utf8().get_data()));
+			return;
+		}
+		LocalVector<uint8_t> page;
+		Vector<Gaussian> decoded;
+		Vector<Vector3> decoded_sh;
+		if (!gs_resize_or_fail(decoded, kSplats, "tight GSQ test decoded") ||
+				!gs_resize_or_fail(decoded_sh, kSplats * kHigh, "tight GSQ test decoded SH")) {
+			FAIL("cannot allocate tight GSQ oracle");
+			return;
+		}
+		gs_gsq::PageInfo page_info;
+		if (gs_gsq::encode_page(relative.ptr(), body.sh.ptr(), kSplats, 3, encode_params, page, reason) != OK ||
+				gs_gsq::verify_page(page.ptr(), page.size(), page_info, reason) != OK ||
+				decoder.decode_range(page.ptr(), page.size(), 0, kSplats, decoded.ptrw(), decoded_sh.ptrw(), reason) != OK ||
+				!TestGSQBounds::quantisation_budget(body.gaussians.ptr(), kSplats, body.desc.cell_center, body.desc.is_leaf, page_info, codec, budgets[i])) {
+			FAIL("tight GSQ oracle failed: ", doctest::String(reason.utf8().get_data()));
+			return;
+		}
+		if (body.desc.is_leaf) {
+			// The adversary is proved using the real codec, not a guessed epsilon.
+			CHECK(decoded[2].position.y <= relative[2].position.y);
+			for (int a = 0; a < 3; ++a) {
+				CHECK(std::abs(double(decoded[2].position[a]) - double(relative[2].position[a])) <= budgets[i].axis[a]);
+			}
+			CHECK(decoded[2].scale.y > relative[2].scale.y);
+			double cov[6];
+			gs_hlod::splat_covariance(decoded[2], cov);
+			CHECK(double(decoded[2].position.y) + 3 * std::sqrt(cov[3]) > double(bake.nodes[i].aabb_max.y));
+			const bool contained = validate_node_payload(body.desc.cell_center, kHigh, bake.nodes[i], decoded.ptr(), decoded_sh.ptr(), reason);
+			CHECK_FALSE(contained);
+			CHECK(reason == "HLOD node AABB does not contain its payload's three-sigma support");
+			if (!contained) {
+				++escaping_leaves;
+			}
+			reconstruct_leaf_positions(decoded.ptrw(), kSplats, body.desc.cell_center);
+		}
+		uint8_t digest[32];
+		gs_gsq::decoded_digest(decoded.ptr(), decoded_sh.ptr(), kSplats, 3, digest);
+		decoded_digests[i] = String::hex_encode_buffer(digest, 32);
+	}
+	if (escaping_leaves != 4) {
+		FAIL("all four tight leaves must expose GSQ support expansion");
+		return;
+	}
+	// Independent codec-none producer pins the complete output bytes, not just
+	// equality between two calls to the writer being changed in phase B.
+	const String reference_path = paths.dir.path_join("tight_none_reference.gsplatworld");
+	if (GaussianSplatHlodPagedSource::write_package(*fixture.world.ptr(), reference_path, reason) != OK) {
+		FAIL("tight codec-none reference failed: ", doctest::String(reason.utf8().get_data()));
+		return;
+	}
+	for (bool gsq : { false, true }) {
+		WriterV4 writer;
+		if (!begin(writer, paths, fixture, gsq ? codec : CodecParams())) {
+			return;
+		}
+		for (uint32_t i : kAppendOrder) {
+			if (!append_one(writer, fixture, i)) {
+				return;
+			}
+		}
+		const Error finalized = writer.finalize(fixture.nodes);
+		INFO("codec=", gsq ? doctest::String("gsq") : doctest::String("none"), " finalize reason=",
+				doctest::String(writer.get_report().full_reason.utf8().get_data()));
+		CHECK(finalized == OK); // RED on b2e2fbadfdb: v4_invalid_payload: HLOD node AABB does not contain ...
+		if (finalized != OK) {
+			return;
+		}
+		GaussianSplatHlodPagedSource source;
+		GaussianSplatHlodTree tree;
+		Dictionary metadata;
+		if (source.open(paths.final_path, tree, metadata, reason) != OK || tree.nodes.size() != kNodes) {
+			FAIL("tight output reopen failed: ", doctest::String(reason.utf8().get_data()));
+			return;
+		}
+		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV1 : kCodecNone));
+		for (uint32_t i = 0; i < kNodes; ++i) {
+			Vector<Gaussian> actual;
+			Vector<Vector3> sh;
+			if (source.read_node_payload(i, actual, sh, reason) != OK || !TestGSQBounds::check_decoded_support(source, tree, i, actual, sh)) {
+				FAIL("tight output payload failed: ", doctest::String(reason.utf8().get_data()));
+				return;
+			}
+			TestGSQBounds::check_unchanged_fields(tree.nodes[i], bake.nodes[i]);
+			if (gsq) {
+				uint8_t digest[32];
+				gs_gsq::decoded_digest(actual.ptr(), sh.ptr(), kSplats, 3, digest);
+				CHECK(String::hex_encode_buffer(digest, 32) == decoded_digests[i]);
+			} else {
+				CHECK(tree.nodes[i].aabb_min == bake.nodes[i].aabb_min);
+				CHECK(tree.nodes[i].aabb_max == bake.nodes[i].aabb_max);
+				CHECK(tree.nodes[i].radius == bake.nodes[i].radius);
+			}
+		}
+		if (gsq) {
+			TestGSQBounds::check_tree_bounds(bake, tree, budgets);
+			// Leaves require growth, and the interior source payloads do not.
+			// Thus growth at both ancestor levels proves bottom-up propagation.
+			for (uint32_t i = 0; i < kNodes; ++i) {
+				CHECK(tree.nodes[i].aabb_max.y > bake.nodes[i].aabb_max.y);
+			}
+		} else {
+			PackedByteArray reference, actual;
+			if (!read_bytes(reference_path, reference) || !read_bytes(paths.final_path, actual)) {
+				return;
+			}
+			CHECK(actual == reference);
+		}
+	}
+}
+
+// Capture the actual format loader refusal, not a diagnostic reconstructed by
+// the test. Leave normal engine error reporting enabled as well.
+struct ScopedHeaderBoundsLoadErrors : public ErrorHandlerList {
+	String messages;
+	static void capture(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType p_type) {
+		if (p_type != ERR_HANDLER_ERROR) {
+			return;
+		}
+		auto *self = static_cast<ScopedHeaderBoundsLoadErrors *>(p_userdata);
+		if (!self->messages.is_empty()) {
+			self->messages += "\n";
+		}
+		self->messages += p_error ? String::utf8(p_error) : String();
+		if (p_message && p_message[0]) {
+			self->messages += String(" | ") + String::utf8(p_message);
+		}
+	}
+	ScopedHeaderBoundsLoadErrors() {
+		errfunc = capture;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedHeaderBoundsLoadErrors() { remove_error_handler(this); }
+	ScopedHeaderBoundsLoadErrors(const ScopedHeaderBoundsLoadErrors &) = delete;
+	ScopedHeaderBoundsLoadErrors &operator=(const ScopedHeaderBoundsLoadErrors &) = delete;
+};
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ inflated root remains enclosed by header bounds through the normal resource loader") {
+	Fixture fixture;
+	GaussianSplatHlodTree bake;
+	if (!tight_quantisation_fixture(fixture, bake) || bake.nodes.size() != kNodes) {
+		FAIL("header enclosure regression needs the complete tight bake tree");
+		return;
+	}
+	fixture.spec.bounds = bake.node_world_aabb(bake.nodes[0]);
+	double bake_center[3];
+	bake.node_cell_center(bake.nodes[0], bake_center);
+	// Fixture control: no header padding or AABB conversion loss is allowed to
+	// mask GSQ growth (or make the codec-none control fail before the regression).
+	for (int a = 0; a < 3; ++a) {
+		const double lo = double(fixture.spec.bounds.position[a]);
+		const double hi = lo + double(fixture.spec.bounds.size[a]);
+		const bool exact = lo == bake_center[a] + double(bake.nodes[0].aabb_min[a]) &&
+				hi == bake_center[a] + double(bake.nodes[0].aabb_max[a]);
+		CHECK(exact);
+		if (!exact) {
+			return;
+		}
+	}
+	for (bool gsq : { false, true }) {
+		INFO("codec=", gsq ? doctest::String("gsq") : doctest::String("none"));
+		Paths paths; // Separate files; a previously loaded resource cannot mask GSQ output.
+		WriterV4 writer;
+		if (!paths.create() || !begin(writer, paths, fixture, gsq ? gsq_v1_codec_params() : CodecParams())) {
+			return;
+		}
+		for (uint32_t i : kAppendOrder) {
+			if (!append_one(writer, fixture, i)) {
+				return;
+			}
+		}
+		const Error finalized = writer.finalize(fixture.nodes);
+		INFO("finalize reason=", doctest::String(writer.get_report().full_reason.utf8().get_data()));
+		CHECK(finalized == OK);
+		if (finalized != OK) {
+			return;
+		}
+		GaussianSplatHlodPagedSource source;
+		GaussianSplatHlodTree tree;
+		Dictionary metadata;
+		String reason;
+		if (source.open(paths.final_path, tree, metadata, reason) != OK || tree.nodes.size() != kNodes) {
+			FAIL("header enclosure output reopen failed: ", doctest::String(reason.utf8().get_data()));
+			return;
+		}
+		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV1 : kCodecNone));
+		double center[3], root_lo[3], root_hi[3];
+		tree.node_cell_center(tree.nodes[0], center);
+		bool escapes_spec = false;
+		for (int a = 0; a < 3; ++a) {
+			root_lo[a] = center[a] + double(tree.nodes[0].aabb_min[a]);
+			root_hi[a] = center[a] + double(tree.nodes[0].aabb_max[a]);
+			const double spec_lo = double(fixture.spec.bounds.position[a]);
+			const double spec_hi = spec_lo + double(fixture.spec.bounds.size[a]);
+			escapes_spec |= root_lo[a] < spec_lo || root_hi[a] > spec_hi;
+		}
+		CHECK(escapes_spec == gsq); // GSQ must actually exercise the loader's enclosure gate.
+		if (escapes_spec != gsq) {
+			return;
+		}
+		// This is the normal .gsplatworld ResourceLoader implementation, including
+		// _load_gsplatworld_paged's header/root check. No resident load or GPU setup.
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		Error load_error = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded;
+		String loader_messages;
+		{
+			ScopedHeaderBoundsLoadErrors errors;
+			loaded = loader.load(paths.final_path, "", &load_error, false, nullptr, ResourceFormatLoader::CACHE_MODE_IGNORE);
+			loader_messages = errors.messages;
+		}
+		INFO("loader error=", int(load_error), " refusal=", doctest::String(loader_messages.utf8().get_data()));
+		CHECK(load_error == OK); // RED on 922b3f2ab54: header world bounds ... do not enclose the HLOD root.
+		CHECK(loaded.is_valid());
+		if (load_error != OK || loaded.is_null()) {
+			return;
+		}
+		CHECK(loaded->has_hlod_paged_source());
+		const AABB header_bounds = source.get_info().bounds;
+		CHECK(loaded->get_bounds() == header_bounds);
+		for (int a = 0; a < 3; ++a) {
+			CHECK(double(header_bounds.position[a]) <= root_lo[a]);
+			CHECK(double(header_bounds.position[a]) + double(header_bounds.size[a]) >= root_hi[a]);
+		}
+		if (!gsq) {
+			CHECK(header_bounds.position == fixture.spec.bounds.position);
+			CHECK(header_bounds.size == fixture.spec.bounds.size);
 		}
 	}
 }

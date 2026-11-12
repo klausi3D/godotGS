@@ -169,7 +169,8 @@ public:
 
 	// Single use: a second call on an opened source is refused (ERR_ALREADY_IN_USE, v4_already_open); use a new instance.
 	// Validates the header, every index page and the whole topology (without reading any payload) and fills
-	// r_tree with the node table (interior payload NOT resident). On failure nothing is published: the returned
+	// r_tree with the node table (interior payload NOT resident). Every failure clears r_tree and r_metadata,
+	// including ERR_ALREADY_IN_USE (which leaves the source itself open and unchanged). Nothing is published: the returned
 	// error is OK / ERR_FILE_CORRUPT / ERR_FILE_UNRECOGNIZED / ERR_OUT_OF_MEMORY / a file error and r_reason is a
 	// distinct machine-readable reason.
 	Error open(const String &p_path, GaussianSplatHlodTree &r_tree, Dictionary &r_metadata, String &r_reason);

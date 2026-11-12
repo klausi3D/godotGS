@@ -3,8 +3,8 @@
 #include "core/object/ref_counted.h"
 #include "core/variant/dictionary.h"
 
-// D2-3 driver: GsqAutoTreeSource -> TiledAutoTree -> WriterV4 (codec NONE)
-// -> reopen every node, recompute metrics and compare spill-time digests ->
+// D2-3 driver: GsqAutoTreeSource -> TiledAutoTree -> WriterV4 (NONE or GSQ v1)
+// -> reopen every node, recompute metrics and compare pre-finalize digests ->
 // stage output and <stem>.manifest.json, then publish with per-file atomic
 // replacements and rollback on ordinary I/O errors. Native filesystems cannot
 // atomically replace TWO fixed names together: a crash/concurrent reader can see
@@ -13,17 +13,29 @@
 // recovery files and name their directory in the error, rather than deleting old
 // data. Callers must exclude external writers and validate the sidecar file SHA.
 // Only owned private staging/scratch directories are cleaned, never caller files.
-// No GSQ node encoding/container until BV-C4: codec="gsq" must return
-// ERR_UNAVAILABLE / v4_gsq_output_requires_bv_c4.
+// codec="none" (default) preserves uncompressed output. codec="gsq" uses
+// gsq_v1_codec_params() for scratch and V4 output (header codec id 1).
+// Individual codec parameter overrides are not exposed by the bound API.
 //
 // Manifest schema godotgs-auto-tree-manifest/1:
 // tree_sha, source_fingerprint, input_file_sha256, input_manifest_sha256,
 // input_gen_sha, input_generator_params_sha (when available), build_params,
-// codec={"codec":"none"}, nodes=[{stored_sha256, decoded_sha256}], totals,
+// codec, nodes=[{stored_sha256, decoded_sha256}], totals,
 // levels=[{depth,node_count,eps_min,eps_median,eps_max}], content_generation,
 // output_file_sha256 and report. content_generation is an unsigned decimal
-// string (JSON numbers cannot retain all 64 bits). decoded_sha256 hashes runtime-form Gaussian
-// bytes followed by high-order SH bytes; stored_sha256 hashes the V4 record.
+// string (JSON numbers cannot retain all 64 bits). The codec block is unchanged
+// for none: {"codec":"none"}. GSQ records flat fields codec="gsq", codec_id,
+// sh_bits (three integers), opacity_bits, pos_step_m and zstd_level.
+// GSQ alone also records header_bounds={position_f32_bits:[x,y,z],
+// size_f32_bits:[x,y,z]} from the reopened output header. Each entry is the
+// unsigned IEEE754 float32 bit pattern stored as an integer, so JSON preserves
+// the exact written bounds. This output metadata is outside the tree_sha key;
+// output_file_sha256 covers the header. Codec-none manifest content is unchanged.
+// GSQ decoded_sha256 is gs_gsq::decoded_digest of read_node_payload's runtime
+// form (absolute leaves, relative interiors), checked against one encode/decode
+// of the original bake in V4's node-relative frame. Codec none retains its
+// existing raw Gaussian bytes followed by high-order SH bytes digest.
+// stored_sha256 hashes the entire V4 record for either codec.
 //
 // tree_sha hashes UTF-8 JSON::stringify(key, "", true, true), without newline,
 // where key={source_fingerprint,build_params,codec,input_file_sha256} and
@@ -32,11 +44,16 @@
 // Frozen interior fields: merge_grid, reduction, node_max_splats, eps_growth,
 // max_eps_steps. Canonical numeric types are INT for leaf_max, max_tile_splats,
 // merge_grid, node_max_splats, max_eps_steps; FLOAT for reduction and eps_growth.
+// The entire codec block participates in the key. GSQ codec_id, sh_bits entries,
+// opacity_bits and zstd_level are INT; pos_step_m is FLOAT (double of the
+// CodecParams float, without decimal rounding). Codec none has no numeric fields.
 // Restore these schema types after JSON parsing before recomputing tree_sha.
 // Limits, paths, timings and memory are execution metadata only.
 // wall_usec measures through verified staging, excluding final manifest write
 // and publication so the returned and persisted report are identical. The whole
 // BakeResult is held in memory at T0 scale, then freed after spilling its nodes.
+// GSQ additionally reserves per-node digests and bounded single-node verification
+// encode/decode and reopen buffers, separately from WriterV4's working memory.
 class GaussianSplatHlodAutoTree : public RefCounted {
 	GDCLASS(GaussianSplatHlodAutoTree, RefCounted);
 

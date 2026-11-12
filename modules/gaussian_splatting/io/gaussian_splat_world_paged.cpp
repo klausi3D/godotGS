@@ -545,6 +545,11 @@ void GaussianSplatHlodPagedSource::_return_decoder(gs_gsq::DecodeContext *p_deco
 }
 
 Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlodTree &r_tree, Dictionary &r_metadata, String &r_reason) {
+	// Publish outputs only at the successful commit below, including when a
+	// caller reuses populated outputs. Assignment avoids clearing shared aliases
+	// of the caller's Dictionary; an already-open source itself stays untouched.
+	r_tree = GaussianSplatHlodTree();
+	r_metadata = Dictionary();
 	if (opened) {
 		r_reason = "v4_already_open";
 		return ERR_ALREADY_IN_USE;

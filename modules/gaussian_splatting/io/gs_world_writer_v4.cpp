@@ -1,5 +1,6 @@
 #include "gs_world_writer_v4.h"
 
+#include "../core/gaussian_splat_hlod_bake_bounds.h"
 #include "../core/gs_vector_alloc.h"
 #include "../core/streaming_chunk_payload_source.h"
 #include "gs_atomic_file_writer.h"
@@ -446,6 +447,62 @@ Error validate_round_trip(const gs_gsq::PageInfo &info, const Gaussian *p_source
 	return OK;
 }
 
+// Children must already have their final bounds. Work in the decoded payload's
+// relative frame, as validate_node_payload does, and round child world bounds
+// back to parent offsets as the bake does. No payload or node-table copies.
+void union_gsq_bounds(GaussianSplatHlodPagedSource::NodeRecord &r_record,
+		const Vector<GaussianSplatHlodPagedSource::NodeRecord> &p_records, const gs_hlod::SplatSpan &p_span) {
+	using namespace gs_hlod::bake_bounds;
+	auto &node = r_record.topology;
+	const double *center = r_record.cell_center;
+	const double zero[3] = {};
+	const double old_lo[3] = { node.aabb_min.x, node.aabb_min.y, node.aabb_min.z };
+	const double old_hi[3] = { node.aabb_max.x, node.aabb_max.y, node.aabb_max.z };
+	BoundsAccumulator bounds;
+	bounds.add(old_lo, old_hi);
+	add_payload_bounds(p_span, zero, bounds);
+	for (uint32_t c = node.first_child; c < node.first_child + node.child_count; ++c) {
+		const auto &child = p_records[c];
+		double lo[3], hi[3];
+		for (int a = 0; a < 3; ++a) {
+			lo[a] = round_down_offset(center[a], child.cell_center[a] + double(child.topology.aabb_min[a]));
+			hi[a] = round_up_offset(center[a], child.cell_center[a] + double(child.topology.aabb_max[a]));
+		}
+		bounds.add(lo, hi);
+	}
+	double mid[3], world_mid[3];
+	double local_motion_squared = 0, world_motion_squared = 0;
+	for (int a = 0; a < 3; ++a) {
+		node.aabb_min[a] = round_down_offset(0, bounds.lo[a]);
+		node.aabb_max[a] = round_up_offset(0, bounds.hi[a]);
+		mid[a] = 0.5 * (double(node.aabb_min[a]) + double(node.aabb_max[a]));
+		world_mid[a] = 0.5 * ((center[a] + double(node.aabb_min[a])) + (center[a] + double(node.aabb_max[a])));
+		const double local_delta = mid[a] - 0.5 * (old_lo[a] + old_hi[a]);
+		const double world_delta = world_mid[a] - 0.5 * ((center[a] + old_lo[a]) + (center[a] + old_hi[a]));
+		local_motion_squared += local_delta * local_delta;
+		world_motion_squared += world_delta * world_delta;
+	}
+	// Moving the AABB midpoint moves the implicit sphere centre. Preserve the
+	// WHOLE bake sphere, including that translation, as well as decoded support.
+	double radius = MAX(payload_radius(p_span, zero, mid),
+			double(node.radius) + std::sqrt(MAX(local_motion_squared, world_motion_squared)));
+	for (int a = 0; a < 3; ++a) {
+		radius = MAX(radius, 0.5 * (double(node.aabb_max[a]) - double(node.aabb_min[a])));
+	}
+	for (uint32_t c = node.first_child; c < node.first_child + node.child_count; ++c) {
+		const auto &child = p_records[c];
+		double distance_squared = 0;
+		for (int a = 0; a < 3; ++a) {
+			const double child_mid = 0.5 * ((child.cell_center[a] + double(child.topology.aabb_min[a])) +
+					(child.cell_center[a] + double(child.topology.aabb_max[a])));
+			const double delta = world_mid[a] - child_mid;
+			distance_squared += delta * delta;
+		}
+		radius = MAX(radius, std::sqrt(distance_squared) + double(child.topology.radius));
+	}
+	node.radius = round_up(radius);
+}
+
 struct SegmentHasher {
 	static uint32_t hash(const V4SegmentKey &p_key) {
 		return hash_murmur3_one_32(p_key.depth, hash_murmur3_one_64(p_key.bucket));
@@ -572,6 +629,7 @@ void WriterV4::_cleanup() {
 
 Error WriterV4::_fail(Error p_error, const String &p_reason) {
 	report.error = p_error;
+	report.full_reason = p_reason;
 	report.reason = p_reason.get_slicec(':', 0).strip_edges();
 	report.committed = false;
 	report.output_bytes = impl->output_begun ? impl->output.get_size() : 0;
@@ -1205,7 +1263,9 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 	tree.interior_splat_count = impl->spec.interior_splat_count;
 	tree.sh_high_order_count = impl->spec.sh_high_order;
 	// LocalVector is the validator's existing table API. RAM was admitted above.
-	tree.nodes.resize(count);
+	if (!gs_hlod::fallible_resize(tree.nodes, count, "V4 validation nodes")) {
+		return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_node_table");
+	}
 	for (uint32_t i = 0; i < count; ++i) {
 		tree.nodes[i] = p_nodes[i].topology;
 	}
@@ -1282,6 +1342,85 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		record.offset = cursor;
 		if (!add_checked(cursor, record.extent_bytes, cursor)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+		}
+	}
+	if (header.codec_id == kCodecGsqV1) {
+		// Finalize bounds BEFORE emitting any record or computing identity/hash
+		// bytes. Reverse BFS propagates decoded support through every ancestor.
+		// Only one output page and decoded node are live; these are a subset of
+		// the existing assembly reservation (including decoder workspace). Reuse
+		// the already admitted records/tree tables, with no additional O(N) data.
+		for (uint32_t remaining = count; remaining > 0; --remaining) {
+			const uint32_t i = remaining - 1;
+			const Impl::Spill &entry = impl->spills[spill_indices[i]];
+			const V4SpillRecord &spill = entry.record;
+			uint64_t g_bytes, sh_bytes, total;
+			if (!record_stored_bytes(spill.splat_count, header.sh_high_order, g_bytes, sh_bytes, total)) {
+				return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+			}
+			if ((err = _check_stop()) != OK || (err = _check_ram(12 * (g_bytes + sh_bytes) + kSliceBytes)) != OK) {
+				return err;
+			}
+			Vector<uint8_t> encoded;
+			Vector<Gaussian> body;
+			Vector<Vector3> sh;
+			if (!gs_resize_or_fail(encoded, entry.output_stored_bytes, "V4 GSQ bounds page") ||
+					!gs_resize_or_fail(body, spill.splat_count, "V4 GSQ bounds body") ||
+					!gs_resize_or_fail(sh, uint64_t(spill.splat_count) * header.sh_high_order, "V4 GSQ bounds SH")) {
+				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
+			}
+			if ((err = _read(entry.segment, entry.output_offset, encoded.ptrw(), entry.output_stored_bytes)) != OK) {
+				return err;
+			}
+			uint8_t body_digest[32];
+			hash_bytes(encoded.ptr(), encoded.size(), body_digest);
+			if (memcmp(body_digest, entry.output_stored_digest, sizeof(body_digest)) != 0) {
+				return _fail(ERR_FILE_CORRUPT, "v4_output_body_digest_mismatch");
+			}
+			gs_gsq::DecodeContext decoder;
+			err = decoder.decode_range(encoded.ptr(), encoded.size(), 0, spill.splat_count, body.ptrw(), sh.ptrw(), reason);
+			if (err != OK) {
+				return _fail(err, reason);
+			}
+			if (!finite_body(body.ptr(), sh.ptr(), spill.splat_count, header.sh_high_order)) {
+				return _fail(ERR_INVALID_DATA, "v4_invalid_payload: non-finite decoded GSQ payload");
+			}
+			NodeRecord &record = records.write[i];
+			const gs_hlod::SplatSpan span{ body.ptr(), sh.ptr(), spill.splat_count, header.sh_high_order };
+			union_gsq_bounds(record, records, span);
+			if (!validate_node_payload(record.cell_center, header.sh_high_order, record.topology, body.ptr(), sh.ptr(), reason)) {
+				return _fail(ERR_INVALID_DATA, "v4_invalid_payload: " + reason);
+			}
+			tree.nodes[i] = record.topology;
+		}
+		if (!gs_hlod_validate_tree(tree, &reason, &validation_error)) {
+			return _fail(validation_error, "v4_invalid_topology: " + reason);
+		}
+		// The normal resource loader compares double(position) + double(size)
+		// against cell_center + double(root offset). Union the final root with
+		// ALL of spec.bounds, then round the actual float32 header fields outward
+		// using that same arithmetic. Unlike the resident saver's optional-world
+		// bounds policy, an unrepresentable union must not drop the caller's box.
+		const NodeRecord &root = records[0];
+		for (int a = 0; a < 3; ++a) {
+			const double spec_lo = double(impl->spec.bounds.position[a]);
+			const double spec_hi = spec_lo + double(impl->spec.bounds.size[a]);
+			const double lo = MIN(spec_lo, root.cell_center[a] + double(root.topology.aabb_min[a]));
+			const double hi = MAX(spec_hi, root.cell_center[a] + double(root.topology.aabb_max[a]));
+			float begin = float(lo);
+			if (double(begin) > lo) {
+				begin = std::nextafter(begin, -std::numeric_limits<float>::infinity());
+			}
+			float extent = float(hi - double(begin));
+			for (int step = 0; step < 4 && is_finite(extent) && double(begin) + double(extent) < hi; ++step) {
+				extent = std::nextafter(extent, std::numeric_limits<float>::infinity());
+			}
+			if (!is_finite(begin) || !is_finite(extent) || extent < 0 ||
+					double(begin) > lo || double(begin) + double(extent) < hi) {
+				return _fail(ERR_INVALID_DATA, "v4_header_bounds_unrepresentable");
+			}
+			header.bounds_pos[a] = begin;
+			header.bounds_size[a] = extent;
 		}
 	}
 	header.payload_bytes = cursor - header.payload_offset;
@@ -1536,6 +1675,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 	_cleanup();
 	report.error = OK;
 	report.reason = String();
+	report.full_reason = String();
 	report.committed = true;
 	impl->phase.set(uint32_t(Phase::COMMITTED));
 	return OK;
