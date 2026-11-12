@@ -96,8 +96,8 @@ $(function(){initNavTree('gaussian__splat__hlod__auto__tree_8h_source.html','','
 <div class="line"><a id="l00003" name="l00003"></a><span class="lineno">    3</span><span class="preprocessor">#include &quot;core/object/ref_counted.h&quot;</span></div>
 <div class="line"><a id="l00004" name="l00004"></a><span class="lineno">    4</span><span class="preprocessor">#include &quot;core/variant/dictionary.h&quot;</span></div>
 <div class="line"><a id="l00005" name="l00005"></a><span class="lineno">    5</span> </div>
-<div class="line"><a id="l00006" name="l00006"></a><span class="lineno">    6</span><span class="comment">// D2-3 driver: GsqAutoTreeSource -&gt; TiledAutoTree -&gt; WriterV4 (codec NONE)</span></div>
-<div class="line"><a id="l00007" name="l00007"></a><span class="lineno">    7</span><span class="comment">// -&gt; reopen every node, recompute metrics and compare spill-time digests -&gt;</span></div>
+<div class="line"><a id="l00006" name="l00006"></a><span class="lineno">    6</span><span class="comment">// D2-3 driver: GsqAutoTreeSource -&gt; TiledAutoTree -&gt; WriterV4 (NONE or GSQ v1)</span></div>
+<div class="line"><a id="l00007" name="l00007"></a><span class="lineno">    7</span><span class="comment">// -&gt; reopen every node, recompute metrics and compare pre-finalize digests -&gt;</span></div>
 <div class="line"><a id="l00008" name="l00008"></a><span class="lineno">    8</span><span class="comment">// stage output and &lt;stem&gt;.manifest.json, then publish with per-file atomic</span></div>
 <div class="line"><a id="l00009" name="l00009"></a><span class="lineno">    9</span><span class="comment">// replacements and rollback on ordinary I/O errors. Native filesystems cannot</span></div>
 <div class="line"><a id="l00010" name="l00010"></a><span class="lineno">   10</span><span class="comment">// atomically replace TWO fixed names together: a crash/concurrent reader can see</span></div>
@@ -106,44 +106,61 @@ $(function(){initNavTree('gaussian__splat__hlod__auto__tree_8h_source.html','','
 <div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span><span class="comment">// recovery files and name their directory in the error, rather than deleting old</span></div>
 <div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span><span class="comment">// data. Callers must exclude external writers and validate the sidecar file SHA.</span></div>
 <div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span><span class="comment">// Only owned private staging/scratch directories are cleaned, never caller files.</span></div>
-<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span><span class="comment">// No GSQ node encoding/container until BV-C4: codec=&quot;gsq&quot; must return</span></div>
-<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span><span class="comment">// ERR_UNAVAILABLE / v4_gsq_output_requires_bv_c4.</span></div>
-<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span><span class="comment">//</span></div>
-<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span><span class="comment">// Manifest schema godotgs-auto-tree-manifest/1:</span></div>
-<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span><span class="comment">// tree_sha, source_fingerprint, input_file_sha256, input_manifest_sha256,</span></div>
-<div class="line"><a id="l00021" name="l00021"></a><span class="lineno">   21</span><span class="comment">// input_gen_sha, input_generator_params_sha (when available), build_params,</span></div>
-<div class="line"><a id="l00022" name="l00022"></a><span class="lineno">   22</span><span class="comment">// codec={&quot;codec&quot;:&quot;none&quot;}, nodes=[{stored_sha256, decoded_sha256}], totals,</span></div>
-<div class="line"><a id="l00023" name="l00023"></a><span class="lineno">   23</span><span class="comment">// levels=[{depth,node_count,eps_min,eps_median,eps_max}], content_generation,</span></div>
-<div class="line"><a id="l00024" name="l00024"></a><span class="lineno">   24</span><span class="comment">// output_file_sha256 and report. content_generation is an unsigned decimal</span></div>
-<div class="line"><a id="l00025" name="l00025"></a><span class="lineno">   25</span><span class="comment">// string (JSON numbers cannot retain all 64 bits). decoded_sha256 hashes runtime-form Gaussian</span></div>
-<div class="line"><a id="l00026" name="l00026"></a><span class="lineno">   26</span><span class="comment">// bytes followed by high-order SH bytes; stored_sha256 hashes the V4 record.</span></div>
-<div class="line"><a id="l00027" name="l00027"></a><span class="lineno">   27</span><span class="comment">//</span></div>
-<div class="line"><a id="l00028" name="l00028"></a><span class="lineno">   28</span><span class="comment">// tree_sha hashes UTF-8 JSON::stringify(key, &quot;&quot;, true, true), without newline,</span></div>
-<div class="line"><a id="l00029" name="l00029"></a><span class="lineno">   29</span><span class="comment">// where key={source_fingerprint,build_params,codec,input_file_sha256} and</span></div>
-<div class="line"><a id="l00030" name="l00030"></a><span class="lineno">   30</span><span class="comment">// build_params excludes worker_count. Record worker_count in manifest build_params</span></div>
-<div class="line"><a id="l00031" name="l00031"></a><span class="lineno">   31</span><span class="comment">// and report, but exclude it from the key (schedule independence, design section 6).</span></div>
-<div class="line"><a id="l00032" name="l00032"></a><span class="lineno">   32</span><span class="comment">// Frozen interior fields: merge_grid, reduction, node_max_splats, eps_growth,</span></div>
-<div class="line"><a id="l00033" name="l00033"></a><span class="lineno">   33</span><span class="comment">// max_eps_steps. Canonical numeric types are INT for leaf_max, max_tile_splats,</span></div>
-<div class="line"><a id="l00034" name="l00034"></a><span class="lineno">   34</span><span class="comment">// merge_grid, node_max_splats, max_eps_steps; FLOAT for reduction and eps_growth.</span></div>
-<div class="line"><a id="l00035" name="l00035"></a><span class="lineno">   35</span><span class="comment">// Restore these schema types after JSON parsing before recomputing tree_sha.</span></div>
-<div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span><span class="comment">// Limits, paths, timings and memory are execution metadata only.</span></div>
-<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span><span class="comment">// wall_usec measures through verified staging, excluding final manifest write</span></div>
-<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span><span class="comment">// and publication so the returned and persisted report are identical. The whole</span></div>
-<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span><span class="comment">// BakeResult is held in memory at T0 scale, then freed after spilling its nodes.</span></div>
-<div class="foldopen" id="foldopen00040" data-start="{" data-end="};">
-<div class="line"><a id="l00040" name="l00040"></a><span class="lineno"><a class="line" href="classGaussianSplatHlodAutoTree.html">   40</a></span><span class="keyword">class </span><a class="code hl_class" href="classGaussianSplatHlodAutoTree.html">GaussianSplatHlodAutoTree</a> : <span class="keyword">public</span> RefCounted {</div>
-<div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span>    GDCLASS(<a class="code hl_class" href="classGaussianSplatHlodAutoTree.html">GaussianSplatHlodAutoTree</a>, RefCounted);</div>
-<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span> </div>
-<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span><span class="keyword">protected</span>:</div>
-<div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span>    <span class="keyword">static</span> <span class="keywordtype">void</span> <a class="code hl_function" href="classGaussianSplatHlodAutoTree.html#a3bf19cefd38a7eb82b70be0ea28f353b">_bind_methods</a>();</div>
-<div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span> </div>
-<div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span><span class="keyword">public</span>:</div>
-<div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span>    <span class="keyword">static</span> Dictionary <a class="code hl_function" href="classGaussianSplatHlodAutoTree.html#a1fdc38aca3367491f0281b3e53ce5636">build</a>(<span class="keyword">const</span> String &amp;p_input_path, <span class="keyword">const</span> String &amp;p_output_path, <span class="keyword">const</span> Dictionary &amp;p_options);</div>
-<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>};</div>
+<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span><span class="comment">// codec=&quot;none&quot; (default) preserves uncompressed output. codec=&quot;gsq&quot; uses</span></div>
+<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span><span class="comment">// gsq_v1_codec_params() for scratch and V4 output (header codec id 1).</span></div>
+<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span><span class="comment">// Individual codec parameter overrides are not exposed by the bound API.</span></div>
+<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span><span class="comment">//</span></div>
+<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span><span class="comment">// Manifest schema godotgs-auto-tree-manifest/1:</span></div>
+<div class="line"><a id="l00021" name="l00021"></a><span class="lineno">   21</span><span class="comment">// tree_sha, source_fingerprint, input_file_sha256, input_manifest_sha256,</span></div>
+<div class="line"><a id="l00022" name="l00022"></a><span class="lineno">   22</span><span class="comment">// input_gen_sha, input_generator_params_sha (when available), build_params,</span></div>
+<div class="line"><a id="l00023" name="l00023"></a><span class="lineno">   23</span><span class="comment">// codec, nodes=[{stored_sha256, decoded_sha256}], totals,</span></div>
+<div class="line"><a id="l00024" name="l00024"></a><span class="lineno">   24</span><span class="comment">// levels=[{depth,node_count,eps_min,eps_median,eps_max}], content_generation,</span></div>
+<div class="line"><a id="l00025" name="l00025"></a><span class="lineno">   25</span><span class="comment">// output_file_sha256 and report. content_generation is an unsigned decimal</span></div>
+<div class="line"><a id="l00026" name="l00026"></a><span class="lineno">   26</span><span class="comment">// string (JSON numbers cannot retain all 64 bits). The codec block is unchanged</span></div>
+<div class="line"><a id="l00027" name="l00027"></a><span class="lineno">   27</span><span class="comment">// for none: {&quot;codec&quot;:&quot;none&quot;}. GSQ records flat fields codec=&quot;gsq&quot;, codec_id,</span></div>
+<div class="line"><a id="l00028" name="l00028"></a><span class="lineno">   28</span><span class="comment">// sh_bits (three integers), opacity_bits, pos_step_m and zstd_level.</span></div>
+<div class="line"><a id="l00029" name="l00029"></a><span class="lineno">   29</span><span class="comment">// GSQ alone also records header_bounds={position_f32_bits:[x,y,z],</span></div>
+<div class="line"><a id="l00030" name="l00030"></a><span class="lineno">   30</span><span class="comment">// size_f32_bits:[x,y,z]} from the reopened output header. Each entry is the</span></div>
+<div class="line"><a id="l00031" name="l00031"></a><span class="lineno">   31</span><span class="comment">// unsigned IEEE754 float32 bit pattern stored as an integer, so JSON preserves</span></div>
+<div class="line"><a id="l00032" name="l00032"></a><span class="lineno">   32</span><span class="comment">// the exact written bounds. This output metadata is outside the tree_sha key;</span></div>
+<div class="line"><a id="l00033" name="l00033"></a><span class="lineno">   33</span><span class="comment">// output_file_sha256 covers the header. Codec-none manifest content is unchanged.</span></div>
+<div class="line"><a id="l00034" name="l00034"></a><span class="lineno">   34</span><span class="comment">// GSQ decoded_sha256 is gs_gsq::decoded_digest of read_node_payload&#39;s runtime</span></div>
+<div class="line"><a id="l00035" name="l00035"></a><span class="lineno">   35</span><span class="comment">// form (absolute leaves, relative interiors), checked against one encode/decode</span></div>
+<div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span><span class="comment">// of the original bake in V4&#39;s node-relative frame. Codec none retains its</span></div>
+<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span><span class="comment">// existing raw Gaussian bytes followed by high-order SH bytes digest.</span></div>
+<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span><span class="comment">// stored_sha256 hashes the entire V4 record for either codec.</span></div>
+<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span><span class="comment">//</span></div>
+<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span><span class="comment">// tree_sha hashes UTF-8 JSON::stringify(key, &quot;&quot;, true, true), without newline,</span></div>
+<div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span><span class="comment">// where key={source_fingerprint,build_params,codec,input_file_sha256} and</span></div>
+<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span><span class="comment">// build_params excludes worker_count. Record worker_count in manifest build_params</span></div>
+<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span><span class="comment">// and report, but exclude it from the key (schedule independence, design section 6).</span></div>
+<div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span><span class="comment">// Frozen interior fields: merge_grid, reduction, node_max_splats, eps_growth,</span></div>
+<div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span><span class="comment">// max_eps_steps. Canonical numeric types are INT for leaf_max, max_tile_splats,</span></div>
+<div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span><span class="comment">// merge_grid, node_max_splats, max_eps_steps; FLOAT for reduction and eps_growth.</span></div>
+<div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span><span class="comment">// The entire codec block participates in the key. GSQ codec_id, sh_bits entries,</span></div>
+<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span><span class="comment">// opacity_bits and zstd_level are INT; pos_step_m is FLOAT (double of the</span></div>
+<div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span><span class="comment">// CodecParams float, without decimal rounding). Codec none has no numeric fields.</span></div>
+<div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span><span class="comment">// Restore these schema types after JSON parsing before recomputing tree_sha.</span></div>
+<div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span><span class="comment">// Limits, paths, timings and memory are execution metadata only.</span></div>
+<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span><span class="comment">// wall_usec measures through verified staging, excluding final manifest write</span></div>
+<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span><span class="comment">// and publication so the returned and persisted report are identical. The whole</span></div>
+<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span><span class="comment">// BakeResult is held in memory at T0 scale, then freed after spilling its nodes.</span></div>
+<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span><span class="comment">// GSQ additionally reserves per-node digests and bounded single-node verification</span></div>
+<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span><span class="comment">// encode/decode and reopen buffers, separately from WriterV4&#39;s working memory.</span></div>
+<div class="foldopen" id="foldopen00057" data-start="{" data-end="};">
+<div class="line"><a id="l00057" name="l00057"></a><span class="lineno"><a class="line" href="classGaussianSplatHlodAutoTree.html">   57</a></span><span class="keyword">class </span><a class="code hl_class" href="classGaussianSplatHlodAutoTree.html">GaussianSplatHlodAutoTree</a> : <span class="keyword">public</span> RefCounted {</div>
+<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>    GDCLASS(<a class="code hl_class" href="classGaussianSplatHlodAutoTree.html">GaussianSplatHlodAutoTree</a>, RefCounted);</div>
+<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span> </div>
+<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span><span class="keyword">protected</span>:</div>
+<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>    <span class="keyword">static</span> <span class="keywordtype">void</span> <a class="code hl_function" href="classGaussianSplatHlodAutoTree.html#a3bf19cefd38a7eb82b70be0ea28f353b">_bind_methods</a>();</div>
+<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span> </div>
+<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span><span class="keyword">public</span>:</div>
+<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>    <span class="keyword">static</span> Dictionary <a class="code hl_function" href="classGaussianSplatHlodAutoTree.html#a1fdc38aca3367491f0281b3e53ce5636">build</a>(<span class="keyword">const</span> String &amp;p_input_path, <span class="keyword">const</span> String &amp;p_output_path, <span class="keyword">const</span> Dictionary &amp;p_options);</div>
+<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>};</div>
 </div>
-<div class="ttc" id="aclassGaussianSplatHlodAutoTree_html"><div class="ttname"><a href="classGaussianSplatHlodAutoTree.html">GaussianSplatHlodAutoTree</a></div><div class="ttdef"><b>Definition</b> gaussian_splat_hlod_auto_tree.h:40</div></div>
-<div class="ttc" id="aclassGaussianSplatHlodAutoTree_html_a1fdc38aca3367491f0281b3e53ce5636"><div class="ttname"><a href="classGaussianSplatHlodAutoTree.html#a1fdc38aca3367491f0281b3e53ce5636">GaussianSplatHlodAutoTree::build</a></div><div class="ttdeci">static Dictionary build(const String &amp;p_input_path, const String &amp;p_output_path, const Dictionary &amp;p_options)</div><div class="ttdef"><b>Definition</b> gaussian_splat_hlod_auto_tree.cpp:817</div></div>
-<div class="ttc" id="aclassGaussianSplatHlodAutoTree_html_a3bf19cefd38a7eb82b70be0ea28f353b"><div class="ttname"><a href="classGaussianSplatHlodAutoTree.html#a3bf19cefd38a7eb82b70be0ea28f353b">GaussianSplatHlodAutoTree::_bind_methods</a></div><div class="ttdeci">static void _bind_methods()</div><div class="ttdef"><b>Definition</b> gaussian_splat_hlod_auto_tree.cpp:813</div></div>
+<div class="ttc" id="aclassGaussianSplatHlodAutoTree_html"><div class="ttname"><a href="classGaussianSplatHlodAutoTree.html">GaussianSplatHlodAutoTree</a></div><div class="ttdef"><b>Definition</b> gaussian_splat_hlod_auto_tree.h:57</div></div>
+<div class="ttc" id="aclassGaussianSplatHlodAutoTree_html_a1fdc38aca3367491f0281b3e53ce5636"><div class="ttname"><a href="classGaussianSplatHlodAutoTree.html#a1fdc38aca3367491f0281b3e53ce5636">GaussianSplatHlodAutoTree::build</a></div><div class="ttdeci">static Dictionary build(const String &amp;p_input_path, const String &amp;p_output_path, const Dictionary &amp;p_options)</div><div class="ttdef"><b>Definition</b> gaussian_splat_hlod_auto_tree.cpp:1017</div></div>
+<div class="ttc" id="aclassGaussianSplatHlodAutoTree_html_a3bf19cefd38a7eb82b70be0ea28f353b"><div class="ttname"><a href="classGaussianSplatHlodAutoTree.html#a3bf19cefd38a7eb82b70be0ea28f353b">GaussianSplatHlodAutoTree::_bind_methods</a></div><div class="ttdeci">static void _bind_methods()</div><div class="ttdef"><b>Definition</b> gaussian_splat_hlod_auto_tree.cpp:1013</div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
 </div><!-- container -->

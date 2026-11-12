@@ -251,5 +251,6 @@ var searchData=
   ['frustum_5fplane_5fslack_248',['frustum_plane_slack',['../structCullParams.html#a36b0cd3a239442c09cf9f4a6d3b9f90a',1,'CullParams::frustum_plane_slack'],['../structFrustumCullParamsGPU.html#a9e5918e7197e1e703476f9f5a0ec6449',1,'FrustumCullParamsGPU::frustum_plane_slack'],['../structInstanceCullParamsGPU.html#ab8f1f6a3748dabb096f4c0ad79e2de53',1,'InstanceCullParamsGPU::frustum_plane_slack']]],
   ['frustum_5fplanes_249',['frustum_planes',['../structCullParams.html#ae9480c594fd4606212b81d2900603efc',1,'CullParams::frustum_planes'],['../structFrustumCullParamsGPU.html#a495675edc55d232376f771697429e052',1,'FrustumCullParamsGPU::frustum_planes'],['../structInstanceCullParamsGPU.html#a80e72d0283147d54687d84eae1aaf895',1,'InstanceCullParamsGPU::frustum_planes'],['../structInstanceDepthParamsGPU.html#adbb4b7d421f2eba6a10d517a7896402a',1,'InstanceDepthParamsGPU::frustum_planes']]],
   ['frustumcullparamsgpu_250',['FrustumCullParamsGPU',['../structFrustumCullParamsGPU.html',1,'']]],
-  ['full_5fupdate_251',['full_update',['../structStreamingGlobalAtlasRegistry_1_1ChunkMetaUploadPlan.html#a399c254ae0ca9b33e51fb23039f0ac08',1,'StreamingGlobalAtlasRegistry::ChunkMetaUploadPlan']]]
+  ['full_5freason_251',['full_reason',['../structgs__world__writer_1_1V4Report.html#a007d2a21dc5c263368ae00c7e94791ea',1,'gs_world_writer::V4Report']]],
+  ['full_5fupdate_252',['full_update',['../structStreamingGlobalAtlasRegistry_1_1ChunkMetaUploadPlan.html#a399c254ae0ca9b33e51fb23039f0ac08',1,'StreamingGlobalAtlasRegistry::ChunkMetaUploadPlan']]]
 ];

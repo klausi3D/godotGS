@@ -1,5 +1,7 @@
 var NAVTREEINDEX63 =
 {
+"structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#a63873fbb86a5ccedf9ed4921ad1a5491":[0,0,42,7,0],
+"structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#a63873fbb86a5ccedf9ed4921ad1a5491":[1,0,29,7,0],
 "structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#a66abfb6a01fb78750b4ef069976eb91c":[0,0,42,7,4],
 "structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#a66abfb6a01fb78750b4ef069976eb91c":[1,0,29,7,4],
 "structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html#a67c7aa614781d518c89783b13e2dc613":[0,0,42,7,5],

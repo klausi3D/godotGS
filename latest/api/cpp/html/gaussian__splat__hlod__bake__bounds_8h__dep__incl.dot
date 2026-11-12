@@ -11,4 +11,6 @@ digraph "gaussian_splat_hlod_bake_bounds.h"
   Node3 [id="Node000003",label="gaussian_splat_hlod\l_bake_bounds.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__hlod__bake__bounds_8cpp.html",tooltip=" "];
   Node1 -> Node4 [id="edge3_Node000001_Node000004",dir="back",color="steelblue1",style="solid",tooltip=" "];
   Node4 [id="Node000004",label="gaussian_splat_hlod\l_tiled_assemble.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__hlod__tiled__assemble_8cpp.html",tooltip=" "];
+  Node1 -> Node5 [id="edge4_Node000001_Node000005",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node5 [id="Node000005",label="gs_world_writer_v4.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__world__writer__v4_8cpp.html",tooltip=" "];
 }
