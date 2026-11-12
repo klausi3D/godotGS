@@ -458,6 +458,12 @@ struct WriterV4::Impl {
 	struct Spill {
 		V4SpillRecord record;
 		uint32_t segment = 0;
+		// GSQ output facts are separate from the public scratch audit. A leaf
+		// stores a second page encoded from ORIGINAL relative positions; encoding
+		// the decoded scratch would quantize every other field a second time.
+		uint64_t output_offset = 0;
+		uint64_t output_stored_bytes = 0;
+		uint8_t output_stored_digest[32] = {};
 	};
 	struct Segment {
 		SpillFile file;
@@ -871,13 +877,17 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 	// for disk preflight, a lower bound for early output-cap refusal.
 	const uint64_t raw = total * (sizeof(Gaussian) + uint64_t(p_spec.sh_high_order) * sizeof(Vector3));
 	const uint64_t pages = (uint64_t(p_spec.node_count) + kRecordsPerIndexPage - 1) / kRecordsPerIndexPage;
-	const uint64_t minimum_output = kHeaderBytes + pages * kIndexPageBytes + raw +
+	const uint64_t minimum_output = kHeaderBytes + pages * kIndexPageBytes +
+			(p_codec.codec_id == kCodecNone ? raw : uint64_t(p_spec.node_count) * (gs_gsq::kPageHeaderBytes + 1)) +
 			uint64_t(p_spec.node_count) * kPayloadRecordHeaderBytes + impl->metadata.size();
 	if (minimum_output > p_limits.max_output_bytes) {
 		return _fail(ERR_PARAMETER_RANGE_ERROR, "limit_output");
 	}
-	const uint64_t output_estimate = minimum_output + uint64_t(p_spec.node_count) * (kPageBytes - 1);
-	const uint64_t scratch_estimate = p_codec.codec_id == kCodecNone ? raw : 2 * raw + uint64_t(p_spec.node_count) * 1024;
+	const uint64_t max_bodies = p_codec.codec_id == kCodecNone ? raw : 2 * raw + uint64_t(p_spec.node_count) * 1024;
+	const uint64_t output_estimate = kHeaderBytes + pages * kIndexPageBytes + max_bodies +
+			uint64_t(p_spec.node_count) * (kPayloadRecordHeaderBytes + kPageBytes - 1) + impl->metadata.size();
+	// GSQ leaves retain both the original scratch page and the final relative page.
+	const uint64_t scratch_estimate = p_codec.codec_id == kCodecNone ? raw : 2 * max_bodies;
 	uint64_t need;
 	if (!add_checked(output_estimate, scratch_estimate, need) || !add_checked(need, p_limits.min_free_disk_margin, need)) {
 		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
@@ -925,7 +935,7 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	const uint64_t raw_bytes = g_bytes + sh_bytes;
 	// One node at a time, including page, raw codec planes/log scales, decoded
 	// arrays and capacity growth. The codec context has its own admission above.
-	if ((err = _check_ram(8 * raw_bytes + kSliceBytes, 1)) != OK) {
+	if ((err = _check_ram((impl->codec.codec_id == kCodecNone ? 8 : 12) * raw_bytes + kSliceBytes, 1)) != OK) {
 		return err;
 	}
 	Vector<Gaussian> decoded;
@@ -980,9 +990,9 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	make_relative(decoded.ptrw(), p_count, p_desc);
 	hash_body(decoded.ptr(), sh.ptr(), p_count, high, spill.record.output_body_digest);
 	if (p_desc.is_leaf) {
-		// Hash the actual stored output bytes BEFORE reconstructing. Never
-		// serialize this reconstructed copy again: a second round trip can move
-		// positions further. Assembly still starts from the original spill body.
+		// Retain the raw scratch audit before reconstruction. Codec none writes
+		// these bytes; GSQ has a separate stored-output digest below. Never encode
+		// this reconstructed copy: that would quantize already decoded fields.
 		reconstruct_leaf_positions(decoded.ptrw(), p_count, p_desc.cell_center);
 		if (!finite_body(decoded.ptr(), sh.ptr(), p_count, high)) {
 			return _fail(ERR_INVALID_DATA, "v4_nonfinite_body");
@@ -995,6 +1005,56 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	}
 	if (!spill.record.metrics.center_exact) {
 		return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
+	}
+	LocalVector<uint8_t> output_page;
+	if (impl->codec.codec_id == kCodecGsqV1) {
+		Vector<Gaussian> original_relative;
+		if (p_desc.is_leaf) {
+			if (!gs_resize_or_fail(original_relative, p_count, "V4 GSQ relative source")) {
+				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
+			}
+			memcpy(original_relative.ptrw(), p_gaussians, g_bytes);
+			make_relative(original_relative.ptrw(), p_count, p_desc);
+			err = gs_gsq::encode_page(original_relative.ptr(), p_sh_high, p_count, impl->spec.sh_degree,
+					impl->encode_params, output_page, reason);
+			if (err != OK) {
+				return _fail(err, reason);
+			}
+		}
+		const LocalVector<uint8_t> &stored_page = p_desc.is_leaf ? output_page : page;
+		spill.output_stored_bytes = stored_page.size();
+		hash_bytes(stored_page.ptr(), stored_page.size(), spill.output_stored_digest);
+		gs_gsq::PageInfo output_info;
+		if (gs_gsq::verify_page(stored_page.ptr(), stored_page.size(), output_info, reason) != OK) {
+			return _fail(ERR_INVALID_DATA, "w12_verify");
+		}
+		if (output_info.splat_count != p_count || output_info.sh_degree != impl->spec.sh_degree ||
+				output_info.sh_high_order != high || output_info.stored_bytes != stored_page.size()) {
+			return _fail(ERR_INVALID_DATA, "w12_header");
+		}
+		gs_gsq::DecodeContext decoder;
+		err = decoder.decode_range(stored_page.ptr(), stored_page.size(), 0, p_count, decoded.ptrw(), sh.ptrw(), reason, false);
+		if (err != OK) {
+			return _fail(err, reason);
+		}
+		err = validate_round_trip(output_info, p_desc.is_leaf ? original_relative.ptr() : p_gaussians,
+				p_sh_high, decoded.ptr(), sh.ptr(), p_count, high, reason);
+		if (err != OK) {
+			return _fail(err, reason);
+		}
+		if (p_desc.is_leaf) {
+			reconstruct_leaf_positions(decoded.ptrw(), p_count, p_desc.cell_center);
+		}
+		if (!finite_body(decoded.ptr(), sh.ptr(), p_count, high)) {
+			return _fail(ERR_INVALID_DATA, "v4_nonfinite_body");
+		}
+		// Index metrics describe the actual output decoder, not scratch or source.
+		if (!compute_node_metrics(decoded.ptr(), p_count, p_desc.cell_center, p_desc.is_leaf, spill.record.metrics, reason)) {
+			return _fail(ERR_INVALID_DATA, reason);
+		}
+		if (!spill.record.metrics.center_exact) {
+			return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
+		}
 	}
 	if ((err = _check_stop()) != OK) {
 		return err;
@@ -1019,7 +1079,12 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	spill.record.segment_path = segment->file.get_path();
 	spill.record.offset = segment->file.get_size();
 	if (impl->codec.codec_id == kCodecGsqV1) {
+		spill.output_offset = spill.record.offset;
 		err = _write(page.ptr(), page.size(), spill.segment);
+		if (err == OK && p_desc.is_leaf) {
+			spill.output_offset = segment->file.get_size();
+			err = _write(output_page.ptr(), output_page.size(), spill.segment);
+		}
 	} else {
 		err = _write(reinterpret_cast<const uint8_t *>(p_gaussians), g_bytes, spill.segment);
 		if (err == OK && sh_bytes) {
@@ -1157,6 +1222,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_node_table");
 	}
 	HeaderFields header;
+	header.codec_id = impl->codec.codec_id;
 	header.flags = impl->spec.is_2d ? kFlagIs2D : 0;
 	header.leaf = impl->spec.leaf_splat_count;
 	header.interior = impl->spec.interior_splat_count;
@@ -1200,8 +1266,16 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		}
 		record.metrics = spill.metrics;
 		uint64_t g_bytes, sh_bytes, rounded;
-		if (!record_stored_bytes(spill.splat_count, header.sh_high_order, g_bytes, sh_bytes, record.stored_bytes) ||
-				!add_checked(record.stored_bytes, kPageBytes - 1, rounded)) {
+		if (!record_stored_bytes(spill.splat_count, header.sh_high_order, g_bytes, sh_bytes, record.stored_bytes)) {
+			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+		}
+		if (header.codec_id == kCodecGsqV1) {
+			if (!add_checked(kPayloadRecordHeaderBytes, impl->spills[spill_indices[i]].output_stored_bytes, record.stored_bytes) ||
+					record.stored_bytes > gsq_record_stored_bytes_limit(spill.splat_count, header.sh_degree)) {
+				return _fail(ERR_INVALID_DATA, "v4_payload_record_size_inconsistent");
+			}
+		}
+		if (!add_checked(record.stored_bytes, kPageBytes - 1, rounded)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
 		record.extent_bytes = rounded & ~(kPageBytes - 1);
@@ -1223,15 +1297,16 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 	if (header.file_bytes > impl->limits.max_output_bytes) {
 		return _fail(ERR_PARAMETER_RANGE_ERROR, "limit_output");
 	}
-	// Same identity header and digest order as write_package; no spill-codec
-	// identity enters this hash. Each output body digest was fixed at append.
+	// Identity includes the codec. Hash each STORED output body (not the decoded
+	// scratch audit) in BFS order. Codec none retains the original identity bytes.
 	uint8_t header_page[kHeaderBytes];
 	write_header(header_page, header);
 	CryptoCore::SHA256Context generation;
 	generation.start();
 	generation.update(header_page, kHeaderBytes - 32);
 	for (uint32_t i = 0; i < count; ++i) {
-		generation.update(impl->spills[spill_indices[i]].record.output_body_digest, 32);
+		const Impl::Spill &spill = impl->spills[spill_indices[i]];
+		generation.update(header.codec_id == kCodecGsqV1 ? spill.output_stored_digest : spill.record.output_body_digest, 32);
 	}
 	uint8_t digest[32];
 	generation.finish(digest);
@@ -1266,7 +1341,7 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (!record_stored_bytes(spill.splat_count, header.sh_high_order, g_bytes, sh_bytes, total)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
-		if ((err = _check_ram(8 * (g_bytes + sh_bytes) + kSliceBytes)) != OK) {
+		if ((err = _check_ram((header.codec_id == kCodecNone ? 8 : 12) * (g_bytes + sh_bytes) + kSliceBytes)) != OK) {
 			return err;
 		}
 		Vector<Gaussian> body;
@@ -1275,8 +1350,8 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 				!gs_resize_or_fail(sh, uint64_t(spill.splat_count) * header.sh_high_order, "V4 assembly SH")) {
 			return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
 		}
+		Vector<uint8_t> encoded;
 		if (impl->codec.codec_id == kCodecGsqV1) {
-			Vector<uint8_t> encoded;
 			if (!gs_resize_or_fail(encoded, spill.stored_bytes, "V4 assembly GSQ page")) {
 				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
 			}
@@ -1307,8 +1382,47 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (memcmp(digest, spill.output_body_digest, sizeof(digest)) != 0) {
 			return _fail(ERR_FILE_CORRUPT, "v4_output_body_digest_mismatch");
 		}
+		if (header.codec_id == kCodecGsqV1) {
+			if (!gs_resize_or_fail(encoded, entry.output_stored_bytes, "V4 output GSQ page")) {
+				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
+			}
+			if ((err = _read(entry.segment, entry.output_offset, encoded.ptrw(), entry.output_stored_bytes)) != OK) {
+				return err;
+			}
+			hash_bytes(encoded.ptr(), encoded.size(), digest);
+			if (memcmp(digest, entry.output_stored_digest, sizeof(digest)) != 0) {
+				return _fail(ERR_FILE_CORRUPT, "v4_output_body_digest_mismatch");
+			}
+			gs_gsq::DecodeContext decoder;
+			err = decoder.decode_range(encoded.ptr(), encoded.size(), 0, spill.splat_count, body.ptrw(), sh.ptrw(), reason);
+			if (err != OK) {
+				return _fail(err, reason);
+			}
+		}
 		if (!validate_node_payload(record.cell_center, header.sh_high_order, record.topology, body.ptr(), sh.ptr(), reason)) {
 			return _fail(ERR_INVALID_DATA, "v4_invalid_payload: " + reason);
+		}
+		// Validate the same decoded runtime form used at append. Keep the raw
+		// codec-none serialization buffer untouched while reconstructing leaves.
+		Vector<Gaussian> runtime;
+		if (record.is_leaf) {
+			if (!gs_resize_or_fail(runtime, spill.splat_count, "V4 assembly runtime metrics")) {
+				return _fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_body");
+			}
+			memcpy(runtime.ptrw(), body.ptr(), g_bytes);
+			reconstruct_leaf_positions(runtime.ptrw(), spill.splat_count, record.cell_center);
+		}
+		NodeMetrics actual_metrics;
+		if (!compute_node_metrics(record.is_leaf ? runtime.ptr() : body.ptr(), spill.splat_count,
+				record.cell_center, record.is_leaf, actual_metrics, reason)) {
+			return _fail(ERR_INVALID_DATA, reason);
+		}
+		if (!actual_metrics.center_exact) {
+			return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
+		}
+		if (actual_metrics.footprint != spill.metrics.footprint || actual_metrics.dc_encoding != spill.metrics.dc_encoding ||
+				actual_metrics.homogeneous_dc != spill.metrics.homogeneous_dc || actual_metrics.center_exact != spill.metrics.center_exact) {
+			return _fail(ERR_INVALID_DATA, "v4_metrics_disagree_with_spill");
 		}
 		uint8_t record_header[kPayloadRecordHeaderBytes];
 		if (!write_payload_header(record_header, i, record, header.sh_high_order, header.content_generation) ||
@@ -1318,15 +1432,27 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		CryptoCore::SHA256Context record_hash;
 		record_hash.start();
 		record_hash.update(record_header, sizeof(record_header));
-		record_hash.update(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes);
-		if (sh_bytes) {
-			record_hash.update(reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes);
+		if (header.codec_id == kCodecGsqV1) {
+			record_hash.update(encoded.ptr(), encoded.size());
+		} else {
+			record_hash.update(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes);
+			if (sh_bytes) {
+				record_hash.update(reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes);
+			}
 		}
 		record_hash.finish(record.digest);
-		if ((err = _write(record_header, sizeof(record_header))) != OK ||
-				(err = _write(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes)) != OK ||
-				(err = _write(reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes)) != OK ||
-				(err = _write(page.ptr(), record.extent_bytes - record.stored_bytes)) != OK) {
+		if ((err = _write(record_header, sizeof(record_header))) != OK) {
+			return err;
+		}
+		if (header.codec_id == kCodecGsqV1) {
+			err = _write(encoded.ptr(), encoded.size());
+		} else {
+			err = _write(reinterpret_cast<const uint8_t *>(body.ptr()), g_bytes);
+			if (err == OK) {
+				err = _write(reinterpret_cast<const uint8_t *>(sh.ptr()), sh_bytes);
+			}
+		}
+		if (err != OK || (err = _write(page.ptr(), record.extent_bytes - record.stored_bytes)) != OK) {
 			return err;
 		}
 		if (--segment->remaining == 0) {

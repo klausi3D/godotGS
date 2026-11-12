@@ -3,9 +3,9 @@
 #include "gaussian_splat_world_paged.h"
 #include "gs_world_writer.h"
 
-// BV-18a out-of-core writer. PAGED_V4 uses the existing V4 identity and uncompressed
-// output records. CodecParams selects scratch encoding, NOT a V4 codec field
-// (BV-C4). W13 post-assembly verification belongs to BV-18b.
+// BV-18a/BV-C4 out-of-core writer. CodecParams selects both scratch encoding and
+// the V4 header codec id: none preserves the original bytes; GSQ emits one
+// node-relative GSQ page per record. W13 post-assembly verification belongs to BV-18b.
 //
 // Append runtime-form bodies (absolute leaf positions, relative interiors) in
 // any order. One scratch file per (bucket, depth), beneath the caller's scratch
@@ -22,7 +22,7 @@
 // Codec none spills losslessly. Finalization derives depth/centre/leaf from topology,
 // reuses gs_hlod_validate_tree, requires canonical BFS and exactly one use of
 // every handle, and writes bodies in BFS order. content_generation uses digests
-// of the actual V4 output bodies (node-relative, uncompressed until BV-C4).
+// of the actual stored V4 output bodies (node-relative, GSQ-compressed when selected).
 //
 // W1: publish through GSAtomicFileTransaction only after successful assembly.
 // Failure, abort and destruction remove all owned temp/segment files and leave
@@ -88,7 +88,7 @@ struct V4SpillRecord {
 	uint64_t offset = 0; // Stored body range within segment_path.
 	uint64_t stored_bytes = 0;
 	uint8_t stored_digest[32] = {}; // SHA-256 of the entire stored body range.
-	uint8_t output_body_digest[32] = {}; // SHA-256 of uncompressed node-relative Gaussian + SH bytes.
+	uint8_t output_body_digest[32] = {}; // Legacy scratch audit: decoded scratch, node-relative Gaussian + SH bytes.
 };
 
 struct V4SegmentReport {

@@ -12,7 +12,7 @@
 //   [4096, +index_bytes)     index pages (64 KiB each): 255 fixed 256-byte node records per page, each page led by
 //                            a 64-byte header carrying its own SHA-256 so one page can be verified alone
 //   [payload_offset, ...)    one payload record per node, each starting on a 4096-byte boundary:
-//                            64-byte record header + count * sizeof(Gaussian) + count * high_order * 12 bytes
+//                            64-byte record header + raw Gaussian/SH bytes (codec 0) or one GSQ page (codec 1)
 //   [metadata_offset, ...)   optional UTF-8 JSON dictionary (world metadata), digest in the header
 //
 // A node record repeats the v3 topology and adds what the runtime snapshot used to derive by scanning the whole
@@ -31,6 +31,7 @@
 #include "../core/gaussian_splat_hlod_tree.h"
 #include "core/error/error_list.h"
 #include "core/object/ref_counted.h"
+#include "core/os/mutex.h"
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/vector.h"
@@ -40,6 +41,9 @@
 #include <cstdint>
 
 class GaussianSplatWorld;
+namespace gs_gsq {
+class DecodeContext;
+}
 
 namespace gs_world_paged {
 
@@ -87,6 +91,7 @@ struct HeaderFields {
 	uint32_t sh_first_order = 0u;
 	uint32_t sh_high_order = 0u;
 	uint32_t bake_rule = 0u;
+	uint32_t codec_id = 0u; // Header u32 at byte 60; 0 = none, 1 = GSQ v1.
 	double origin[3] = { 0.0, 0.0, 0.0 };
 	Vector3 bounds_pos;
 	Vector3 bounds_size;
@@ -104,6 +109,9 @@ struct HeaderFields {
 
 void write_header(uint8_t *p_page, const HeaderFields &p_header);
 bool record_stored_bytes(uint32_t p_count, uint32_t p_high_order, uint64_t &r_gaussian, uint64_t &r_sh, uint64_t &r_total);
+// Envelope + GSQ header + worst-case zstd frame sizes. Zero for unsupported counts/degrees.
+uint64_t gsq_record_stored_bytes_limit(uint32_t p_count, uint32_t p_sh_degree);
+uint64_t gsq_decode_workspace_bytes();
 
 // The V4 reader's node-relative -> absolute conversion for leaves. Writers use
 // this on serialized positions before computing the metrics promised by the index.
@@ -123,20 +131,21 @@ bool validate_node_payload(const double p_cell_center[3], uint32_t p_sh_high_ord
 } // namespace gs_world_paged
 
 // An open V4 package. Immutable after open(); read_node_payload() is safe to call concurrently from any thread
-// (each call opens its own handle), which is how the node streamer's worker jobs use it.
+// (each call opens its own file handle and exclusively leases a pooled decoder), which is how the node streamer's worker jobs use it.
 class GaussianSplatHlodPagedSource : public RefCounted {
 public:
 	struct NodeRecord {
 		GaussianSplatHlodNode topology;
 		gs_world_paged::NodeMetrics metrics;
 		uint64_t offset = 0u; // payload record start, page aligned
-		uint64_t stored_bytes = 0u; // header + gaussians + SH, no padding
+		uint64_t stored_bytes = 0u; // envelope + raw Gaussian/SH or compressed GSQ page, no padding
 		uint64_t extent_bytes = 0u; // stored_bytes rounded up to a page
 		uint8_t digest[32] = {};
 		double cell_center[3] = { 0.0, 0.0, 0.0 };
 		bool is_leaf = false;
 	};
 	struct Info {
+		uint32_t codec_id = UINT32_MAX; // Unopened sentinel; only a parsed, explicit zero means none.
 		uint32_t leaf_splat_count = 0u;
 		uint32_t interior_splat_count = 0u;
 		uint32_t node_count = 0u;
@@ -164,15 +173,17 @@ public:
 	// error is OK / ERR_FILE_CORRUPT / ERR_FILE_UNRECOGNIZED / ERR_OUT_OF_MEMORY / a file error and r_reason is a
 	// distinct machine-readable reason.
 	Error open(const String &p_path, GaussianSplatHlodTree &r_tree, Dictionary &r_metadata, String &r_reason);
+	~GaussianSplatHlodPagedSource();
 
 	bool is_open() const { return opened; }
 	const String &get_path() const { return path; }
 	const Info &get_info() const { return info; }
+	uint32_t get_codec_id() const { return info.codec_id; }
 	const Vector<NodeRecord> &get_nodes() const { return nodes; }
 
 	// Reads and verifies one node's payload and returns it in the runtime snapshot's convention (leaf positions
 	// absolute float32, interior positions node-relative). Bounded: exactly the record's stored_bytes, which the
-	// index check pinned to 64 + count * 144 + count * high_order * 12 (at most 16,384 splats), never more.
+	// index pins to the raw size or bounds by the GSQ worst-case stored size (at most 16,384 splats).
 	// A replaced or truncated file is refused (length, record stamp and digest). Thread-safe.
 	Error read_node_payload(uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const;
 
@@ -180,6 +191,10 @@ public:
 
 	// Test seam: the largest payload record this package can ever read in one call.
 	uint64_t get_max_record_bytes() const { return max_record_bytes; }
+	// Streamer admission: stored buffer + decoded arrays + decoder workspace for
+	// GSQ. Codec none retains its original record-byte reservation. Excludes the
+	// packed output (charged by the streamer) and idle pooled contexts.
+	uint64_t get_node_read_working_set_bytes(uint32_t p_node) const;
 
 	// Writes `p_world` (a resident, complete HLOD world) as a V4 package, atomically. Opt-in and explicit: no
 	// save, import or bake path calls it. The world's payload is read through the runtime snapshot, so the same
@@ -190,6 +205,12 @@ public:
 	void get_index_digest(uint8_t r_digest[32]) const;
 
 private:
+	// Only the idle list is locked; decoding never holds the mutex. Each lease
+	// owns a ZSTD_DCtx exclusively. Idle retention is bounded, active leases by callers.
+	mutable Mutex decoder_mutex;
+	mutable LocalVector<gs_gsq::DecodeContext *> idle_decoders;
+	gs_gsq::DecodeContext *_lease_decoder() const;
+	void _return_decoder(gs_gsq::DecodeContext *p_decoder) const;
 	bool opened = false;
 	String path;
 	Info info;

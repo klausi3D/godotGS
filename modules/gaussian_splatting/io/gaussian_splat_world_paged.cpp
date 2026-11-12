@@ -5,6 +5,7 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gs_vector_alloc.h"
 #include "gs_atomic_file_writer.h"
+#include "gsq/gsq_codec.h"
 
 #include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
@@ -286,7 +287,7 @@ void gs_world_paged::write_header(uint8_t *p_page, const HeaderFields &h) {
 	o.u32(h.sh_first_order);
 	o.u32(h.sh_high_order);
 	o.u32(h.bake_rule);
-	o.u32(0u);
+	o.u32(h.codec_id);
 	for (int a = 0; a < 3; ++a) { o.f64(h.origin[a]); }
 	for (int a = 0; a < 3; ++a) { o.f32(float(h.bounds_pos[a])); }
 	for (int a = 0; a < 3; ++a) { o.f32(float(h.bounds_size[a])); }
@@ -390,8 +391,9 @@ Error parse_header(const uint8_t *p_page, uint64_t p_file_len, HeaderFields &r_h
 	r_h.sh_first_order = in.u32();
 	r_h.sh_high_order = in.u32();
 	r_h.bake_rule = in.u32();
-	if (in.u32() != 0u) {
-		r_reason = "v4_nonzero_reserved_header";
+	r_h.codec_id = in.u32();
+	if (r_h.codec_id != 0u && r_h.codec_id != gs_gsq::kCodecId) {
+		r_reason = "v4_unsupported_codec";
 		return ERR_FILE_CORRUPT;
 	}
 	for (int a = 0; a < 3; ++a) { r_h.origin[a] = in.f64(); }
@@ -421,6 +423,12 @@ Error parse_header(const uint8_t *p_page, uint64_t p_file_len, HeaderFields &r_h
 	if (r_h.bake_rule == 0u || r_h.node_count == 0u || r_h.node_count > kMaxNodes ||
 			r_h.sh_degree > 4u || r_h.sh_first_order > 3u || r_h.sh_high_order > kMaxHighOrder) {
 		r_reason = "v4_header_field_out_of_range";
+		return ERR_FILE_CORRUPT;
+	}
+	if (r_h.codec_id == gs_gsq::kCodecId && (r_h.sh_degree > gs_gsq::kMaxShDegree ||
+			r_h.sh_high_order != gs_gsq::sh_high_order_for_degree(r_h.sh_degree) ||
+			r_h.sh_first_order != (r_h.sh_degree == 0 ? 0u : 3u))) {
+		r_reason = "v4_gsq_sh_layout_mismatch";
 		return ERR_FILE_CORRUPT;
 	}
 	const uint64_t total = uint64_t(r_h.leaf) + r_h.interior;
@@ -504,6 +512,37 @@ Error read_exact(const Ref<FileAccess> &p_file, uint8_t *p_dst, uint64_t p_size)
 
 // ---------------------------------------------------------------------------------------------------------------
 // Reader
+
+GaussianSplatHlodPagedSource::~GaussianSplatHlodPagedSource() {
+	// As with read_node_payload, callers must retain the source for the duration
+	// of their call; no lease may outlive its owner.
+	for (gs_gsq::DecodeContext *decoder : idle_decoders) {
+		memdelete(decoder);
+	}
+}
+
+gs_gsq::DecodeContext *GaussianSplatHlodPagedSource::_lease_decoder() const {
+	{
+		MutexLock lock(decoder_mutex);
+		if (!idle_decoders.is_empty()) {
+			gs_gsq::DecodeContext *decoder = idle_decoders[idle_decoders.size() - 1];
+			idle_decoders.resize(idle_decoders.size() - 1);
+			return decoder;
+		}
+	}
+	return memnew(gs_gsq::DecodeContext);
+}
+
+void GaussianSplatHlodPagedSource::_return_decoder(gs_gsq::DecodeContext *p_decoder) const {
+	{
+		MutexLock lock(decoder_mutex);
+		if (idle_decoders.size() < 16) {
+			idle_decoders.push_back(p_decoder);
+			return;
+		}
+	}
+	memdelete(p_decoder);
+}
 
 Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlodTree &r_tree, Dictionary &r_metadata, String &r_reason) {
 	if (opened) {
@@ -648,7 +687,10 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 		uint64_t g_bytes, s_bytes, stored;
 		if (r.topology.payload_count == 0u || r.topology.payload_count > gs_hlod::kMaxNodeSplats ||
 				!record_stored_bytes(r.topology.payload_count, h.sh_high_order, g_bytes, s_bytes, stored) ||
-				r.stored_bytes != stored || r.extent_bytes != align_up_page(stored)) {
+				(h.codec_id == 0u ? r.stored_bytes != stored :
+						(r.stored_bytes <= kPayloadRecordHeaderBytes + gs_gsq::kPageHeaderBytes ||
+								r.stored_bytes > gsq_record_stored_bytes_limit(r.topology.payload_count, h.sh_degree))) ||
+				r.stored_bytes > r.extent_bytes || r.extent_bytes != align_up_page(r.stored_bytes)) {
 			r_reason = "v4_payload_record_size_inconsistent";
 			return ERR_FILE_CORRUPT;
 		}
@@ -668,7 +710,7 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 			r_reason = "v4_payload_range_inconsistent";
 			return ERR_FILE_CORRUPT;
 		}
-		max_record = MAX(max_record, stored);
+		max_record = MAX(max_record, r.stored_bytes);
 	}
 	if (cursor != h.payload_offset + h.payload_bytes) {
 		r_reason = "v4_payload_region_inconsistent";
@@ -714,6 +756,7 @@ Error GaussianSplatHlodPagedSource::open(const String &p_path, GaussianSplatHlod
 
 	// Commit.
 	info = Info();
+	info.codec_id = h.codec_id;
 	info.leaf_splat_count = h.leaf;
 	info.interior_splat_count = h.interior;
 	info.node_count = h.node_count;
@@ -756,10 +799,25 @@ GaussianSplatHlodPagedSource::Stats GaussianSplatHlodPagedSource::get_stats() co
 	return s;
 }
 
+uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t p_node) const {
+	if (!opened || p_node >= uint32_t(nodes.size())) {
+		return 0;
+	}
+	const NodeRecord &record = nodes[p_node];
+	if (info.codec_id == 0u) {
+		return record.stored_bytes;
+	}
+	// Open bounded every factor by kMaxNodeSplats / GSQ degree 3. Account for
+	// Vector capacity growth as well as all simultaneously live decode buffers.
+	const uint64_t decoded = uint64_t(record.topology.payload_count) *
+			(sizeof(Gaussian) + uint64_t(record_high_order) * sizeof(Vector3));
+	return 2 * (record.stored_bytes + decoded) + gsq_decode_workspace_bytes();
+}
+
 Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const {
 	r_gaussians.clear();
 	r_sh.clear();
-	auto fail = [&](Error p_error, const char *p_why) {
+	auto fail = [&](Error p_error, const String &p_why) {
 		r_reason = p_why;
 		r_gaussians.clear();
 		r_sh.clear();
@@ -772,9 +830,13 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 	const NodeRecord &rec = nodes[p_node];
 	const uint32_t count = rec.topology.payload_count;
 	uint64_t g_bytes, s_bytes, stored;
-	if (!record_stored_bytes(count, record_high_order, g_bytes, s_bytes, stored) || stored != rec.stored_bytes) {
+	const bool gsq = info.codec_id == gs_gsq::kCodecId;
+	if (!record_stored_bytes(count, record_high_order, g_bytes, s_bytes, stored) ||
+			(gsq ? (rec.stored_bytes <= kPayloadRecordHeaderBytes + gs_gsq::kPageHeaderBytes ||
+						rec.stored_bytes > gsq_record_stored_bytes_limit(count, info.sh_degree)) : stored != rec.stored_bytes)) {
 		return fail(ERR_FILE_CORRUPT, "v4_payload_record_size_inconsistent");
 	}
+	stored = rec.stored_bytes;
 	Error open_error = OK;
 	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ, &open_error);
 	if (file.is_null()) {
@@ -819,17 +881,29 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 	CryptoCore::SHA256Context ctx;
 	ctx.start();
 	ctx.update(head, sizeof(head));
-	err = read_exact(file, reinterpret_cast<uint8_t *>(r_gaussians.ptrw()), g_bytes);
-	if (err != OK) {
-		return fail(err, "v4_payload_truncated");
-	}
-	ctx.update(reinterpret_cast<const uint8_t *>(r_gaussians.ptr()), size_t(g_bytes));
-	if (s_bytes != 0u) {
-		err = read_exact(file, reinterpret_cast<uint8_t *>(r_sh.ptrw()), s_bytes);
+	Vector<uint8_t> encoded;
+	if (gsq) {
+		if (!gs_resize_or_fail(encoded, int64_t(stored - sizeof(head)), "V4 GSQ stored page")) {
+			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		}
+		err = read_exact(file, encoded.ptrw(), encoded.size());
 		if (err != OK) {
 			return fail(err, "v4_payload_truncated");
 		}
-		ctx.update(reinterpret_cast<const uint8_t *>(r_sh.ptr()), size_t(s_bytes));
+		ctx.update(encoded.ptr(), encoded.size());
+	} else {
+		err = read_exact(file, reinterpret_cast<uint8_t *>(r_gaussians.ptrw()), g_bytes);
+		if (err != OK) {
+			return fail(err, "v4_payload_truncated");
+		}
+		ctx.update(reinterpret_cast<const uint8_t *>(r_gaussians.ptr()), size_t(g_bytes));
+		if (s_bytes != 0u) {
+			err = read_exact(file, reinterpret_cast<uint8_t *>(r_sh.ptrw()), s_bytes);
+			if (err != OK) {
+				return fail(err, "v4_payload_truncated");
+			}
+			ctx.update(reinterpret_cast<const uint8_t *>(r_sh.ptr()), size_t(s_bytes));
+		}
 	}
 	uint8_t digest[32];
 	ctx.finish(digest);
@@ -844,6 +918,28 @@ Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Ga
 	// Semantic validation on the node-relative form, then the same relative -> absolute step the v3 resident
 	// load applies to a leaf (so the runtime sees identical floats), then the metrics the index promised.
 	String why;
+	if (gsq) {
+		gs_gsq::PageInfo page_info;
+		err = gs_gsq::verify_page(encoded.ptr(), encoded.size(), page_info, why);
+		if (err != OK) {
+			return fail(ERR_FILE_CORRUPT, "v4_gsq_payload_invalid: " + why);
+		}
+		// decode_range alone accepts a prefix. Pin the entire page to this
+		// envelope BEFORE decoding, especially the SH stride of the destination.
+		if (page_info.splat_count != count || page_info.sh_degree != info.sh_degree ||
+				page_info.sh_high_order != record_high_order || page_info.stored_bytes != uint64_t(encoded.size())) {
+			return fail(ERR_FILE_CORRUPT, "v4_gsq_page_layout_mismatch");
+		}
+		gs_gsq::DecodeContext *decoder = _lease_decoder();
+		if (!decoder) {
+			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		}
+		err = decoder->decode_range(encoded.ptr(), encoded.size(), 0, count, r_gaussians.ptrw(), r_sh.ptrw(), why, false);
+		_return_decoder(decoder); // All paths after leasing return it, including decode failure.
+		if (err != OK) {
+			return fail(err == ERR_OUT_OF_MEMORY ? err : ERR_FILE_CORRUPT, "v4_gsq_payload_invalid: " + why);
+		}
+	}
 	if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {
 		r_reason = "v4_payload_invalid: " + why;
 		r_gaussians.clear();

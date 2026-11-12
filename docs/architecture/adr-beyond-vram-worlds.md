@@ -520,9 +520,9 @@ of the HLOD bundle and the shadow-caster scratch, so the world and the objects s
       include path (the SPZ build environment, `SCsub:20-21` ✓). That works with builtin
       zstd; system-zstd builds are UNVERIFIED.
 - **Containers:**
-    - **V4:** a codec-id field. The header reserved word and record tail are zero today and
-      enforced zero (`paged.cpp:579-582`, `:771-775` ✓). The exact placement is fixed in
-      BV-C4, and a test proves that **old readers refuse** it. `GAUSSIAN_STRUCT_LAYOUT_VERSION`
+    - **V4:** BV-C4 uses header u32 at byte 60 as codec id (0 = none, 1 = GSQ v1);
+      the record tail remains zero. Old readers enforce byte 60 as zero and refuse GSQ;
+      unknown codec ids are refused. `GAUSSIAN_STRUCT_LAYOUT_VERSION`
       keeps meaning the Gaussian struct layout and is not reused as a codec id.
       `stored_bytes` becomes the compressed size. The record SHA-256 covers the stored bytes.
     - **Plain v3:** a new flag bit 7 `kFlagPagedChunks`. Bits 0–5 are the plain flags and bit 6

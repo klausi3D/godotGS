@@ -157,7 +157,8 @@ void HlodNodeStreamer::start_jobs() {
 		// An edited leaf is packed from memory (package F1): no file read, so no read reservation.
 		if (source->is_paged() && !source->find_edited(p_ticket.node) && p_ticket.node < uint32_t(source->paged_source->get_nodes().size())) {
 			read_bytes = source->paged_source->get_nodes()[p_ticket.node].stored_bytes;
-			reserved = read_bytes + uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride();
+			reserved = source->paged_source->get_node_read_working_set_bytes(p_ticket.node) +
+					uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride();
 			// Reserve against the read cap; the rest stay pending (LOADING, protected) and start as reads finish.
 			if (read_stats->in_flight.load() != 0 && read_stats->in_flight_bytes.load() + reserved > cfg.max_inflight_read_bytes) {
 				return false;
