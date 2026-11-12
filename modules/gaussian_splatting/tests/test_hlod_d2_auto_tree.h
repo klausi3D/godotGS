@@ -607,6 +607,189 @@ inline Dictionary bound_build(const String &p_input, const String &p_output, con
 	return result;
 }
 
+// D2-6 phase 1: runtime contracts through the existing bound API only.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Streaming auto-tree completes under a job RAM limit the retained builder refuses with identical bytes") {
+	Fixture fixture;
+	if (!fixture.create(1048576)) {
+		FAIL("D2-6 streaming fixture generation failed");
+		return;
+	}
+	// Approximately 589824 selected degree-3 splats, P = 144 + 12*12 = 288 B.
+	// References below are at base 5359cce6220, relative to the module directory.
+	// core/gaussian_splat_hlod_tiled_internal.h:62 node_bound ~= 36417;
+	// core/gaussian_splat_hlod_tiled_bake.cpp:774-777 retains
+	// 4*(N + ceil(N/3) + node_bound)*P + 4096*node_bound + 64*N + 256*chunks
+	// ~= 1082 MiB. With the 128 MiB base (core/gaussian_splat_hlod_auto_tree.cpp:52)
+	// this already exceeds 3*384 MiB, before workers or the later payload_reserved
+	// charge (auto_tree.cpp:651-653). The default 2 GiB still admits that builder.
+	// At T=16385 (>16384), OfflineJob has nodes=1057, interiors=6519:
+	// [3*T + 3*6519 + 6*T + 10*16384]*288 + 128*T + 64*T + 2048*1057 + 1 MiB
+	// = 96.939 MiB (core/gaussian_splat_hlod_job.h:104-131; reload term is smaller).
+	// Add 3*4096*288 decode + 3*T*4 indices + 8 MiB stack = 108.501 MiB/worker
+	// (tiled_bake.cpp:648, core/gaussian_splat_hlod_tiled_workers.cpp:257).
+	// Writer fixed buffers = 16 MiB + 16*(16384*288) = 88 MiB (auto_tree.cpp:657-659).
+	// Thus 128 + 108.501 + 88 + ~17 MiB source decoder = ~342 MiB, leaving ~42 MiB
+	// for node tables/frontier/directory. Four workers alone with the base exceed
+	// 384 MiB: admission must reduce concurrency, including decoder reservations
+	// (io/gs_auto_tree_source.cpp:185-192). Stitch must also charge its actual
+	// frontier, not the unconditional eight-full-child workspace (tiled_bake.cpp:805).
+	// Output codec none avoids doubling these large debug builds for GSQ output;
+	// GSQ input still exercises decode. Additional GSQ output verification/workspace
+	// terms (auto_tree.cpp:663-685) are zero for none, not borrowed from the writer.
+	constexpr int64_t ram_limit = int64_t(384) << 20;
+	Dictionary options = fixture.options(1);
+	options["max_tile_splats"] = 16385;
+	Dictionary limits = options.get("limits", Dictionary());
+	// Four times the existing 262144-plan fixture: allow four times its 45 s.
+	limits["deadline_sec"] = 180;
+	options["limits"] = limits;
+	const String reference_path = fixture.dir.path_join("reference.gsplatworld");
+	const Dictionary reference = bound_build(fixture.input, reference_path, options);
+	if (int(reference.get("error", FAILED)) != OK) {
+		FAIL("D2-6 unrestricted reference failed: ", String(reference.get("reason", "missing")).utf8().get_data());
+		return;
+	}
+	success_report(reference);
+	CHECK(int64_t(reference.get("tiles_baked", 0)) >= 4);
+	const String file_sha = FileAccess::get_sha256(reference_path);
+	const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(reference_path));
+	const String generation = manifest.get("content_generation", "");
+	const String sha = manifest.get("tree_sha", "");
+	const Array nodes = manifest.get("nodes", Array());
+	if (!hex_digest(file_sha) || !hex_digest(sha) || generation.is_empty() || nodes.is_empty()) {
+		FAIL("D2-6 reference must publish file/tree hashes, generation and node digests");
+		return;
+	}
+	CHECK(String(manifest.get("output_file_sha256", "")) == file_sha);
+	CHECK(sha == tree_sha(manifest));
+	CHECK(sha == String(reference.get("tree_sha", "")));
+	CHECK(int64_t(nodes.size()) == int64_t(reference.get("node_count", -1)));
+	for (int i = 0; i < nodes.size(); ++i) {
+		if (nodes[i].get_type() != Variant::DICTIONARY) {
+			FAIL("D2-6 reference node must be a Dictionary");
+			return;
+		}
+		const Dictionary node = nodes[i];
+		if (!hex_digest(node.get("stored_sha256", "")) || !hex_digest(node.get("decoded_sha256", ""))) {
+			FAIL("D2-6 reference node must contain both payload digests");
+			return;
+		}
+	}
+	options["worker_count"] = 4;
+	limits["max_ram_bytes"] = ram_limit;
+	options["limits"] = limits;
+	const String limited_path = fixture.dir.path_join("limited.gsplatworld");
+	const Dictionary limited = bound_build(fixture.input, limited_path, options);
+	MESSAGE("D2-6 streaming selected=", fixture.generated.splat_count, " limit=", ram_limit,
+			" reference_peak=", int64_t(reference.get("peak_reserved_bytes", 0)),
+			" limited_peak=", int64_t(limited.get("peak_reserved_bytes", 0)),
+			" reason=", String(limited.get("reason", "missing")).utf8().get_data());
+	if (int(limited.get("error", FAILED)) != OK) {
+		// Master reaches this explicit failure with limit_ram; never index its absent manifest.
+		FAIL("D2-6 one tile fits: streaming build must succeed after reducing worker admission");
+		return;
+	}
+	success_report(limited);
+	CHECK(int64_t(limited.get("peak_reserved_bytes", 0)) <= ram_limit);
+	CHECK(int64_t(limited.get("tiles_baked", 0)) >= 4);
+	CHECK(FileAccess::get_sha256(limited_path) == file_sha);
+	const Dictionary streamed = json_file(gs_world_generator::manifest_path_for(limited_path));
+	if (!streamed.has("nodes") || !streamed.has("content_generation") || !streamed.has("tree_sha")) {
+		FAIL("D2-6 limited build must publish its identity manifest");
+		return;
+	}
+	CHECK(streamed["nodes"] == Variant(nodes));
+	CHECK(String(streamed["content_generation"]) == generation);
+	CHECK(String(streamed["tree_sha"]) == sha);
+	CHECK(String(limited.get("tree_sha", "")) == sha);
+	CHECK(tree_sha(streamed) == sha);
+	CHECK(String(streamed.get("output_file_sha256", "")) == file_sha);
+	CHECK(directory_empty(fixture.scratch));
+	// Fixture's destructor removes both outputs and input, including on every early return.
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree peak reservation does not grow with splat count") {
+	Fixture fixtures[2];
+	int64_t peaks[2] = {};
+	int64_t node_counts[2] = {};
+	// Same world/seed, four times the density: approximately 147456 and 589824
+	// selected splats. An extra xz subdivision restores the same maximum tile
+	// occupancy (up to integer apportionment); both source chunk caps remain 4096.
+	// Same T=16385, one worker and 2 GiB for BOTH runs: master must complete both
+	// and fail the peak delta, not fail early from admission or a different limit.
+	constexpr int64_t payload_bytes = sizeof(Gaussian) + 12 * sizeof(Vector3);
+	// At base 5359cce6220, core/gaussian_splat_hlod_auto_tree.cpp:656-659 charges
+	// 16384/node + writer [16384 + 64*(output.length + scratch.length + 256)]/node;
+	// core/gaussian_splat_hlod_tiled_bake.cpp:776 adds 4096/node. Include 64/node
+	// for the two 32-byte GSQ digest tables (auto_tree.cpp:677-678), even though
+	// codec none uses zero. Round up to 96 KiB, with the path-dependent term
+	// explicitly checked below so a longer temporary path cannot invalidate it.
+	constexpr int64_t k_node = 96 * 1024;
+	// 1 MiB = 256 extra chunks * 4 KiB: covers the source directory's two Page
+	// copies (io/gs_auto_tree_source.cpp:185) and tiled 256 B/chunk (:777), including
+	// directory/path/manifest bookkeeping. The input sidecar expansion must remain
+	// inside the fixed 128 MiB base (auto_tree.cpp:579), checked below. This is
+	// below one full tile payload (~4.5 MiB); no retained splat term is allowed.
+	constexpr int64_t slack = int64_t(1) << 20;
+	for (int i = 0; i < 2; ++i) {
+		Fixture &fixture = fixtures[i];
+		if (!fixture.create(i == 0 ? 262144 : 1048576)) {
+			FAIL("D2-6 scaling fixture generation failed");
+			return;
+		}
+		const String output = fixture.dir.path_join("scaling.gsplatworld");
+		const int64_t per_node = 16384 + 16384 + 4096 + 64 +
+				64 * int64_t(output.length() + fixture.scratch.length() + 256);
+		if (per_node > k_node) {
+			FAIL("D2-6 temporary paths exceed the documented per-node allowance");
+			return;
+		}
+		const int64_t manifest_bytes = FileAccess::get_file_as_bytes(fixture.generated.manifest_path).size();
+		if (manifest_bytes <= 0 || manifest_bytes * 128 + (int64_t(4) << 20) > (int64_t(128) << 20)) {
+			FAIL("D2-6 source manifest must fit the fixed base reservation");
+			return;
+		}
+		Dictionary options = fixture.options(1);
+		options["max_tile_splats"] = 16385;
+		Dictionary limits = options.get("limits", Dictionary());
+		limits["deadline_sec"] = 180;
+		options["limits"] = limits;
+		const Dictionary report = bound_build(fixture.input, output, options);
+		if (int(report.get("error", FAILED)) != OK) {
+			FAIL("D2-6 scaling build must complete before measuring peaks: ", String(report.get("reason", "missing")).utf8().get_data());
+			return;
+		}
+		success_report(report);
+		peaks[i] = int64_t(report.get("peak_reserved_bytes", 0));
+		node_counts[i] = int64_t(report.get("node_count", 0));
+		if (peaks[i] <= 0 || node_counts[i] <= 0) {
+			FAIL("D2-6 scaling build must report measured peaks and nonempty node tables");
+			return;
+		}
+		CHECK(peaks[i] <= int64_t(limits.get("max_ram_bytes", 0)));
+		CHECK(int64_t(report.get("tiles_baked", 0)) > 1);
+		CHECK(directory_empty(fixture.scratch));
+	}
+	const int64_t selected_n = int64_t(fixtures[0].generated.splat_count);
+	const int64_t selected_4n = int64_t(fixtures[1].generated.splat_count);
+	if (selected_n <= 0 || selected_4n < 4 * selected_n - 4096 || selected_4n > 4 * selected_n + 4096 || node_counts[1] <= node_counts[0]) {
+		FAIL("D2-6 scaling fixtures must increase selected splats about fourfold and grow the node table");
+		return;
+	}
+	const int64_t extra_chunks = int64_t(fixtures[1].generated.chunk_count) - int64_t(fixtures[0].generated.chunk_count);
+	CHECK(extra_chunks >= 0);
+	CHECK(extra_chunks <= 256);
+	const int64_t allowed_delta = (node_counts[1] - node_counts[0]) * k_node + slack;
+	MESSAGE("D2-6 scaling N=", selected_n, " peak_N=", peaks[0], " nodes_N=", node_counts[0],
+			" four_N=", selected_4n, " peak_4N=", peaks[1], " nodes_4N=", node_counts[1],
+			" K_node=", k_node, " slack=", slack, " allowed_delta=", allowed_delta);
+	// A full extra 3N payload alone must exceed the bound, before master's 4x
+	// retained-capacity factor/interiors/metadata. Prevent a vacuously loose bound.
+	CHECK(3 * selected_n * payload_bytes > allowed_delta);
+	CHECK(peaks[1] - peaks[0] <= allowed_delta);
+	// Both fixtures clean themselves on success and on explicit failure returns.
+}
+
 // D2-3b: use only existing bindings and Dictionary fields so these contracts
 // compile before GSQ output is enabled. Each GSQ build must succeed first; the
 // current ERR_UNAVAILABLE refusal is a runtime failure, never a skipped case.
