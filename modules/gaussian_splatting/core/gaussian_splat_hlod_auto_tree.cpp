@@ -1185,7 +1185,7 @@ Dictionary GaussianSplatHlodAutoTree::oracle_cut(const String &p_v4_path, const 
 	gs_hlod_runtime::CutRequest request;
 	// Compute in double from the declared horizontal FOV, matching the lane's
 	// focal formula without an intermediate real_t projection rounding.
-	request.focal_pixels = width * 0.5 / std::tan(double(p_options["fov_deg"]) * Math_PI / 360.0);
+	request.focal_pixels = width * 0.5 / std::tan(double(p_options["fov_deg"]) * Math::PI / 360.0);
 	request.tau_pixels = double(p_options["tau_pixels"]);
 	request.splat_budget = leaves_only ? UINT64_MAX : budget;
 	request.node_budget = node_count;
