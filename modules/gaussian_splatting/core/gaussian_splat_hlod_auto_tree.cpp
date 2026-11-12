@@ -930,7 +930,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		Dictionary persisted_codec = codec.duplicate();
 		persisted_codec.erase("pos_step_m");
 		const String codec_json = JSON::stringify(persisted_codec, "", true, true).trim_suffix("}") +
-				",\"pos_step_m\":" + String::ascii(step_text) + "}";
+				",\"pos_step_m\":" + String(step_text) + "}";
 		Dictionary persisted_document = document.duplicate();
 		persisted_document.erase("codec");
 		json = (JSON::stringify(persisted_document, "", true, true).trim_suffix("}") + ",\"codec\":" + codec_json + "}").utf8();
