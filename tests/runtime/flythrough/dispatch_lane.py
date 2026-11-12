@@ -210,7 +210,7 @@ WORLD_FILE_NAME = "world.gsplatworld"
 
 AUTO_TREE_ENTRY = Path("tests/runtime/flythrough/build_auto_tree.py")
 AUTO_TREE_ENCODING = "v4_gsq_auto"
-AUTO_TREE_MEMORY_BYTES = 22 * GIB
+AUTO_TREE_MEMORY_BYTES = 20 * GIB  # Owner decision 2026-11-12: design job limit (was 22 GiB).
 AUTO_TREE_OUTPUT_BYTES = 10_200_000_000  # Design section 4 upper bound, decimal GB.
 AUTO_TREE_SCRATCH_BYTES = 12 * GIB
 AUTO_TREE_BUDGET = 1_000_000
@@ -1340,7 +1340,7 @@ def auto_tree_preflight(
             raise LaneError(f"free disk is unmeasured: {exc}", EXIT_NOT_RUN) from exc
         if data["mem_available_bytes"] < AUTO_TREE_MEMORY_BYTES:
             data["reason_code"] = "ram_insufficient"
-            raise LaneError("MemAvailable is below 22 GiB", EXIT_NOT_RUN)
+            raise LaneError("MemAvailable is below 20 GiB", EXIT_NOT_RUN)
         if data["df"]["avail_bytes"] < data["required_disk_bytes"]:
             data["reason_code"] = "disk_insufficient"
             raise LaneError("free disk is below 2 x 10.2 GB output + 12 GiB scratch", EXIT_NOT_RUN)

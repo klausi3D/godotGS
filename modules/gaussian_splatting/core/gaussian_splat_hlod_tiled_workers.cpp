@@ -25,20 +25,6 @@ struct Worker {
 	Error result = OK; // worker-owned until joined
 };
 
-uint32_t selection_lower_bound(const Context &p_context, const PlanNode &p_node, uint32_t p_global) {
-	uint32_t first = p_node.selection_first;
-	uint32_t end = first + p_node.input_count;
-	while (first < end) {
-		const uint32_t middle = first + (end - first) / 2u;
-		if (p_context.selected_indices[middle] < p_global) {
-			first = middle + 1u;
-		} else {
-			end = middle;
-		}
-	}
-	return first;
-}
-
 void tile_region(const PlanNode &p_node, double r_corner[3], double &r_edge) {
 	const GaussianSplatHlodCell &cell = p_node.record.cell;
 	r_edge = std::ldexp(1.0, cell.e);
@@ -51,12 +37,7 @@ void tile_region(const PlanNode &p_node, double r_corner[3], double &r_edge) {
 	}
 }
 
-bool chunk_may_select(const Context &p_context, const PlanNode &p_node, const TiledBakeChunkInfo &p_chunk) {
-	if (p_node.indexed) {
-		const uint32_t first = selection_lower_bound(p_context, p_node, p_chunk.first_splat);
-		return first < p_node.selection_first + p_node.input_count &&
-				uint64_t(p_context.selected_indices[first]) < uint64_t(p_chunk.first_splat) + p_chunk.splat_count;
-	}
+bool chunk_may_select(const Context &, const PlanNode &p_node, const TiledBakeChunkInfo &p_chunk) {
 	double corner[3], edge;
 	tile_region(p_node, corner, edge);
 	// Descriptors have closed bounds; tiles exclude their upper faces. Use the
@@ -71,11 +52,7 @@ bool chunk_may_select(const Context &p_context, const PlanNode &p_node, const Ti
 	return true;
 }
 
-bool selects(const Context &p_context, const PlanNode &p_node, uint32_t p_global, const Vector3 &p_position) {
-	if (p_node.indexed) {
-		const uint32_t first = selection_lower_bound(p_context, p_node, p_global);
-		return first < p_node.selection_first + p_node.input_count && p_context.selected_indices[first] == p_global;
-	}
+bool selects(const Context &, const PlanNode &p_node, uint32_t p_global, const Vector3 &p_position) {
 	double corner[3], edge;
 	tile_region(p_node, corner, edge);
 	uint32_t octant = 0;
@@ -88,6 +65,14 @@ bool selects(const Context &p_context, const PlanNode &p_node, uint32_t p_global
 			octant |= 1u << axis;
 		}
 	}
+	if (p_node.indexed) {
+		const uint64_t key = index_key(p_node.record, p_position);
+		const bool after_lower = !p_node.selection_has_lower || key > p_node.selection_low_key ||
+				(key == p_node.selection_low_key && p_global > p_node.selection_low_global);
+		const bool before_upper = key < p_node.selection_high_key ||
+				(key == p_node.selection_high_key && p_global <= p_node.selection_high_global);
+		return after_lower && before_upper;
+	}
 	return (p_node.octant_mask & (1u << octant)) != 0u;
 }
 
@@ -96,9 +81,6 @@ Error bake_tile(Worker &p_worker) {
 	PlanNode &node = context.plan[p_worker.node];
 	if (context.check() != OK) {
 		return context.check();
-	}
-	if (node.indexed && uint64_t(node.selection_first) + node.input_count > context.selected_indices.size()) {
-		return context.fail(ERR_INVALID_DATA);
 	}
 	TiledBakeChunk gathered;
 	LocalVector<uint32_t> global_indices;
@@ -222,6 +204,7 @@ Error bake_tiles(Context &p_context) {
 			++work_count;
 		}
 	}
+	p_context.report.tiles_planned = work_count;
 	if (work_count == 0u || p_context.params.worker_count == 0u) {
 		return p_context.fail(ERR_INVALID_DATA);
 	}
@@ -235,6 +218,15 @@ Error bake_tiles(Context &p_context) {
 	}
 	LocalVector<Worker> workers;
 	if (!fallible_resize(workers, capacity, "gs_hlod::tiled workers")) {
+		p_context.release(worker_bytes);
+		return p_context.fail(ERR_OUT_OF_MEMORY);
+	}
+	// A fixed tile envelope makes admission independent of world density once
+	// the source exceeds the tile cap. Tiny worlds need only their actual input.
+	// Each worker still carries an exact-input OfflineJob for its internal check.
+	const uint32_t envelope_count = MIN(p_context.params.max_tile_splats, p_context.info.splat_count);
+	OfflineJob envelope = p_context.job(envelope_count);
+	if (!envelope.reserve(envelope_count, p_context.info.sh_high_order_count, 0u)) {
 		p_context.release(worker_bytes);
 		return p_context.fail(ERR_OUT_OF_MEMORY);
 	}
@@ -254,19 +246,23 @@ Error bake_tiles(Context &p_context) {
 			}
 			// The job formula includes gathered input and bake owners. Charge a
 			// decoded source chunk, global-index map and native stack separately.
-			const uint64_t extra = p_context.decode_bytes + 3u * uint64_t(input_count) * sizeof(uint32_t) + (uint64_t(8) << 20u);
-			if (extra > UINT64_MAX - job.reserved) {
+			const uint64_t maps_and_stack = 3u * uint64_t(envelope_count) * sizeof(uint32_t) + (uint64_t(8) << 20u);
+			if (p_context.decode_bytes > UINT64_MAX - maps_and_stack) {
 				p_context.fail(ERR_OUT_OF_MEMORY);
 				break;
 			}
-			const uint64_t reserved = job.reserved + extra;
-			if (p_context.live_reserved > p_context.params.limits.max_ram_bytes ||
-					reserved > p_context.params.limits.max_ram_bytes - p_context.live_reserved) {
-				if (count == 0u) {
-					p_context.fail(ERR_OUT_OF_MEMORY);
-				}
+			const uint64_t extra = p_context.decode_bytes + maps_and_stack;
+			if (extra > UINT64_MAX - envelope.reserved) {
+				p_context.fail(ERR_OUT_OF_MEMORY);
+				break;
+			}
+			const uint64_t reserved = envelope.reserved + extra;
+			if (count > 0u && (p_context.live_reserved > p_context.params.limits.max_ram_bytes ||
+					reserved > p_context.params.limits.max_ram_bytes - p_context.live_reserved)) {
 				break; // A smaller admitted batch may still make progress.
 			}
+			// Only a single-worker refusal may evict optional sink RAM. Do not
+			// evict merely to enlarge an already viable batch.
 			if (!p_context.reserve(reserved)) {
 				p_context.fail(ERR_OUT_OF_MEMORY);
 				break;
@@ -307,13 +303,49 @@ Error bake_tiles(Context &p_context) {
 				memdelete(worker.thread);
 				worker.thread = nullptr;
 			}
+		}
+		// Gathered inputs, merge scratch and native stacks are now gone. Retain
+		// the actual allocated result capacities until emission, releasing the
+		// rest before sink metadata growth; a full batch cannot starve its drain.
+		for (uint32_t i = 0; i < count; ++i) {
+			Worker &worker = workers[i];
+			const BakeResult &tile = p_context.plan[worker.node].tile;
+			const uint64_t retained =
+					(uint64_t(tile.leaf_gaussians.get_capacity()) + tile.tree.interior_gaussians.get_capacity()) * sizeof(Gaussian) +
+					(uint64_t(tile.leaf_sh_high_order.get_capacity()) + tile.tree.interior_sh_high_order.get_capacity()) * sizeof(Vector3) +
+					uint64_t(tile.leaf_source_index.get_capacity()) * sizeof(uint32_t) +
+					uint64_t(tile.tree.nodes.get_capacity()) * sizeof(GaussianSplatHlodNode);
+			if (retained > worker.reserved) {
+				p_context.fail(ERR_OUT_OF_MEMORY);
+			} else {
+				p_context.release(worker.reserved - retained);
+				worker.reserved = retained;
+			}
+		}
+		// No sink callback or metadata-vector growth may overlap a worker: the
+		// plan is immutable while workers hold references into it. Batch join is
+		// the synchronization boundary; sink/ledger fields have one thread owner.
+		for (uint32_t i = 0; i < count; ++i) {
+			Worker &worker = workers[i];
 			if (worker.result == OK && !p_context.plan[worker.node].tile.tree.nodes.is_empty()) {
 				++p_context.report.tiles_baked;
 				p_context.report.largest_tile_splats = MAX(p_context.report.largest_tile_splats, p_context.plan[worker.node].input_count);
 				p_context.report.stitch_levels = MAX(p_context.report.stitch_levels, p_context.plan[worker.node].depth);
+				if (p_context.check() == OK) {
+					const Error emitted = emit_tile(p_context, worker.node);
+					if (emitted != OK) {
+						p_context.fail(emitted);
+					}
+				}
 			}
 			p_context.release(worker.reserved);
 			worker.reserved = 0;
+			if (p_context.check() == OK) {
+				const Error stitched = stitch_ready(p_context, worker.node);
+				if (stitched != OK) {
+					p_context.fail(stitched);
+				}
+			}
 		}
 	}
 	p_context.release(worker_bytes);

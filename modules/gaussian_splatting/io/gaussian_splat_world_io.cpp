@@ -1453,7 +1453,7 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
 		uint64_t p_sh_offset, uint64_t p_chunk_table_offset, uint64_t p_indices_offset, uint64_t p_metadata_offset,
 		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, Error *r_error, float *r_progress,
-		bool p_force_resident) {
+		bool p_force_resident, bool p_skip_static_chunk_indices) {
 	auto refuse = [&](Error p_err, const String &p_why) {
 		if (r_error) {
 			*r_error = p_err;
@@ -1698,7 +1698,7 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 		chunk.bounds = AABB(record.bounds_pos, record.bounds_size);
 		chunk.center = record.center;
 		chunk.radius = record.radius;
-		if (record.splat_count > 0u) {
+		if (record.splat_count > 0u && !p_skip_static_chunk_indices) {
 			if (!gs_resize_or_fail(chunk.indices, int64_t(record.splat_count), "GaussianSplatWorldIO::load paged chunk indices")) {
 				return refuse(ERR_OUT_OF_MEMORY, "cannot allocate the chunk indices");
 			}
@@ -1746,7 +1746,8 @@ static Ref<Resource> _load_gsplatworld_gsq_chunks(const Ref<FileAccess> &p_file,
 	return world;
 }
 
-static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
+static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident,
+		bool p_skip_static_chunk_indices = false) {
 	if (r_progress) {
 		*r_progress = 0.0f;
 	}
@@ -1776,12 +1777,19 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t version = file->get_32();
-	if (version == gs_world_paged::kVersion) {
+	if (version == gs_world_paged::kVersion && !p_skip_static_chunk_indices) {
 		// V4 is a distinct, opt-in identity with its own strict reader; v1-v3 below are untouched.
 		file.unref();
 		return _load_gsplatworld_paged(p_path, r_error, r_progress, p_force_resident);
 	}
 	const uint32_t flags = file->get_32();
+	if (p_skip_static_chunk_indices && (version != gs_world_format::kVersion ||
+			(flags & gs_world_format::kFlagPagedChunks) == 0u || (flags & gs_world_format::kFlagHasHlod) != 0u)) {
+		if (r_error) {
+			*r_error = ERR_UNAVAILABLE;
+		}
+		return Ref<Resource>();
+	}
 	gs_world_format::HeaderLayout header;
 	const Error header_error = gs_world_format::select_header(version, flags, file_len, header);
 	if (header_error != OK) {
@@ -1845,7 +1853,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	if (header.has_paged_chunks) {
 		return _load_gsplatworld_gsq_chunks(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
 				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
-				metadata_offset, metadata_size, header, r_error, r_progress, p_force_resident);
+				metadata_offset, metadata_size, header, r_error, r_progress, p_force_resident, p_skip_static_chunk_indices);
 	}
 	if (header.has_hlod) {
 		return _load_gsplatworld_hlod(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
@@ -2239,6 +2247,11 @@ Ref<Resource> ResourceFormatLoaderGaussianSplatWorld::load(const String &p_path,
 Ref<GaussianSplatWorld> ResourceFormatLoaderGaussianSplatWorld::load_resident(const String &p_path, Error *r_error) const {
 	Ref<Resource> resource = _load_gsplatworld_resource(p_path, r_error, nullptr, true);
 	Ref<GaussianSplatWorld> world = resource;
+	return world;
+}
+
+Ref<GaussianSplatWorld> ResourceFormatLoaderGaussianSplatWorld::load_paged_directory_for_auto_tree(const String &p_path, Error *r_error) const {
+	Ref<GaussianSplatWorld> world = _load_gsplatworld_resource(p_path, r_error, nullptr, false, true);
 	return world;
 }
 

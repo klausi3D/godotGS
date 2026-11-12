@@ -165,8 +165,6 @@ class BinaryContract(unittest.TestCase):
             if report["peak_rss_bytes"]["available"]:
                 self.assertGreater(report["peak_rss_bytes"]["value"], 0)
                 self.assertIn(report["peak_rss_bytes"]["source"], ("process_rss", "child_ru_maxrss"))
-            # Current builder has no scratch measurement; samples cannot certify a peak.
-            self.assertIs(report["scratch_bytes"]["available"], False)
             cache = load_module("d25_binary_world_cache", HERE / "world_cache.py")
             self.assertEqual(report["source_fingerprint"], cache.source_fingerprint(HERE.parents[2], cache.TREE_SOURCES))
             self.assertIn("TREE_SOURCES", report["source_fingerprint_source"])
@@ -175,6 +173,16 @@ class BinaryContract(unittest.TestCase):
             self.assertEqual(report["w13"]["nodes_verified"], report["node_count"])
             self.assertEqual(report["w13"]["node_count"], report["node_count"])
             self.assertGreater(report["builder_wall_time_sec"], 0)
+            scratch = report["scratch_bytes"]
+            self.assertIs(scratch["available"], True)
+            self.assertIs(type(scratch["value"]), int)
+            self.assertGreater(scratch["value"], 0)
+            self.assertIs(type(scratch["total_bytes"]), int)
+            self.assertGreater(scratch["total_bytes"], 0)
+            self.assertEqual(scratch["source"], "writer_v4_and_frontier")
+            self.assertIn("staged V4 output", scratch["scope"])
+            self.assertIn("lossless frontier", scratch["scope"])
+            self.assertIn("excludes manifest", scratch["scope"])
         for key in ("content_generation", "output_file_sha256", "tree_sha"):
             self.assertEqual(builds[0][1][key], builds[1][1][key])
         print('D2-4 evidence: {"repeat_identity_equal":true,"runs":["first","repeat"]}', flush=True)

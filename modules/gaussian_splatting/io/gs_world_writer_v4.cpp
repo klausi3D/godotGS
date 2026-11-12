@@ -583,6 +583,8 @@ struct WriterV4::Impl {
 	GSAtomicFileTransaction output;
 	uint64_t started = 0;
 	uint64_t live_scratch = 0;
+	uint64_t external_scratch = 0; // Driving thread only; caller owns/removes these files.
+	uint64_t measured_external_scratch = 0; // Successful caller writes, bounded by the reservation above.
 	uint64_t codec_workspace = 0;
 	uint64_t body_reservation = 0;
 	uint64_t metadata_reservation = 0;
@@ -624,6 +626,8 @@ void WriterV4::_cleanup() {
 	impl->segments.reset();
 	impl->segment_ids.clear();
 	impl->live_scratch = 0;
+	impl->external_scratch = 0;
+	impl->measured_external_scratch = 0;
 	impl->open = false;
 }
 
@@ -726,31 +730,70 @@ Error WriterV4::_write(const uint8_t *p_bytes, uint64_t p_size, uint32_t p_segme
 			return err;
 		}
 		const uint64_t slice = MIN(p_size, kSliceBytes);
-		const uint64_t used = scratch ? impl->live_scratch : impl->output.get_size();
+		uint64_t used = impl->output.get_size();
+		if (scratch && !add_checked(impl->live_scratch, impl->external_scratch, used)) {
+			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+		}
 		const uint64_t cap = scratch ? impl->limits.max_scratch_bytes : impl->limits.max_output_bytes;
 		if (used > cap || slice > cap - used) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, scratch ? "limit_scratch" : "limit_output");
 		}
+		if (impl->spec.deferred_counts) {
+			// Final topology was unknown at begin: enforce the disk margin as
+			// actual bytes grow instead of admitting a speculative whole-tree size.
+			const String path = scratch ? impl->scratch_dir : impl->final_path.get_base_dir();
+			Ref<DirAccess> dir = DirAccess::open(path.is_empty() ? String(".") : path);
+			uint64_t need;
+			if (!add_checked(slice, impl->limits.min_free_disk_margin, need)) {
+				return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+			}
+			if (dir.is_null()) {
+				return _fail(ERR_FILE_BAD_PATH, "preflight_disk");
+			}
+			const uint64_t free_bytes = dir->get_space_left();
+			if (!free_bytes || free_bytes < need) {
+				return _fail(ERR_FILE_CANT_WRITE, "preflight_disk");
+			}
+		}
 		uint64_t next_total, next_progress, disk;
 		if (!add_checked(report.total_scratch_bytes, scratch ? slice : 0, next_total) ||
 				!add_checked(impl->bytes_written.get(), slice, next_progress) ||
-				!add_checked(impl->live_scratch, report.output_bytes, disk) || !add_checked(disk, slice, disk)) {
+				!add_checked(impl->live_scratch, impl->measured_external_scratch, disk) ||
+				!add_checked(disk, report.output_bytes, disk) || !add_checked(disk, slice, disk)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
+		uint64_t before_write = 0;
 		if (scratch) {
 			if ((err = _open_segment(p_segment, false)) != OK) {
 				return err;
 			}
+			before_write = impl->segments[p_segment]->file.get_size();
 			err = impl->segments[p_segment]->file.append(p_bytes, slice);
 		} else {
 			err = impl->output.append(p_bytes, slice);
 		}
 		if (err != OK) {
+			// A native write can complete only part of the admitted slice. Its
+			// file object tracks that length even on error; retain the measured
+			// bytes before _fail deletes the segment. Admission bounded these sums.
+			if (scratch) {
+				const uint64_t written = impl->segments[p_segment]->file.get_size() - before_write;
+				impl->live_scratch += written;
+				report.total_scratch_bytes += written;
+				impl->bytes_written.set(impl->bytes_written.get() + written);
+				report.spill_bytes_peak = MAX(report.spill_bytes_peak, impl->live_scratch);
+			}
+			report.output_bytes = impl->output_begun ? impl->output.get_size() : 0;
+			const uint64_t measured = impl->live_scratch + impl->measured_external_scratch;
+			report.scratch_bytes_peak = MAX(report.scratch_bytes_peak, measured);
+			report.peak_scratch_plus_output_bytes = MAX(report.peak_scratch_plus_output_bytes, measured + report.output_bytes);
 			return _fail(err, "io");
 		}
 		if (scratch) {
 			impl->live_scratch += slice;
 			report.total_scratch_bytes = next_total;
+			report.spill_bytes_peak = MAX(report.spill_bytes_peak, impl->live_scratch);
+			report.scratch_bytes_peak = MAX(report.scratch_bytes_peak, impl->live_scratch + impl->measured_external_scratch);
 		}
 		report.output_bytes = impl->output_begun ? impl->output.get_size() : 0;
 		report.peak_scratch_plus_output_bytes = MAX(report.peak_scratch_plus_output_bytes, disk);
@@ -758,6 +801,59 @@ Error WriterV4::_write(const uint8_t *p_bytes, uint64_t p_size, uint32_t p_segme
 		p_bytes += slice;
 		p_size -= slice;
 	}
+	return OK;
+}
+
+Error WriterV4::set_external_scratch_bytes(uint64_t p_bytes, bool p_measured) {
+	if (!impl->open) {
+		return report.error != OK ? report.error : ERR_UNCONFIGURED;
+	}
+	Error err = _check_stop();
+	if (err != OK) {
+		return err;
+	}
+	uint64_t scratch, disk;
+	if (!add_checked(impl->live_scratch, p_bytes, scratch) || !add_checked(scratch, report.output_bytes, disk)) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+	}
+	if (scratch > impl->limits.max_scratch_bytes) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, "limit_scratch");
+	}
+	if (p_bytes > impl->external_scratch) {
+		uint64_t need;
+		if (!add_checked(p_bytes - impl->external_scratch, impl->limits.min_free_disk_margin, need)) {
+			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+		}
+		Ref<DirAccess> dir = DirAccess::open(impl->scratch_dir);
+		if (dir.is_null()) {
+			return _fail(ERR_FILE_BAD_PATH, "preflight_disk");
+		}
+		const uint64_t free_bytes = dir->get_space_left();
+		if (!free_bytes || free_bytes < need) {
+			return _fail(ERR_FILE_CANT_WRITE, "preflight_disk");
+		}
+	}
+	impl->external_scratch = p_bytes;
+	if (p_measured) {
+		return record_external_scratch_bytes(p_bytes);
+	}
+	return OK;
+}
+
+Error WriterV4::record_external_scratch_bytes(uint64_t p_bytes) {
+	if (!impl->open) {
+		return report.error != OK ? report.error : ERR_UNCONFIGURED;
+	}
+	if (p_bytes > impl->external_scratch) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_external_scratch_unreserved");
+	}
+	uint64_t scratch, disk;
+	if (!add_checked(impl->live_scratch, p_bytes, scratch) || !add_checked(scratch, report.output_bytes, disk)) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+	}
+	impl->measured_external_scratch = p_bytes;
+	report.scratch_bytes_peak = MAX(report.scratch_bytes_peak, scratch);
+	report.peak_scratch_plus_output_bytes = MAX(report.peak_scratch_plus_output_bytes, disk);
 	return OK;
 }
 
@@ -873,7 +969,8 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 		return _fail(ERR_INVALID_PARAMETER, "limits_unset");
 	}
 	const uint64_t total = uint64_t(p_spec.leaf_splat_count) + p_spec.interior_splat_count;
-	if (p_final_path.is_empty() || p_scratch_dir.is_empty() || !p_spec.node_count || p_spec.node_count > kMaxNodes ||
+	const bool invalid_counts = p_spec.deferred_counts ? (p_spec.node_count != 0 || p_spec.interior_splat_count != 0) : !p_spec.node_count;
+	if (p_final_path.is_empty() || p_scratch_dir.is_empty() || invalid_counts || p_spec.node_count > kMaxNodes ||
 			!p_spec.leaf_splat_count || total > UINT32_MAX || p_spec.node_count > total ||
 			p_spec.sh_degree > 4 || p_spec.sh_first_order > 3 || p_spec.sh_high_order > kMaxHighOrder || !p_spec.bake_rule_version) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec");
@@ -944,10 +1041,14 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 	const uint64_t max_bodies = p_codec.codec_id == kCodecNone ? raw : 2 * raw + uint64_t(p_spec.node_count) * 1024;
 	const uint64_t output_estimate = kHeaderBytes + pages * kIndexPageBytes + max_bodies +
 			uint64_t(p_spec.node_count) * (kPayloadRecordHeaderBytes + kPageBytes - 1) + impl->metadata.size();
-	// GSQ leaves retain both the original scratch page and the final relative page.
-	const uint64_t scratch_estimate = p_codec.codec_id == kCodecNone ? raw : 2 * max_bodies;
+	// Legacy GSQ leaves retain input and output pages. Compact mode retains
+	// only the final page, after the same append-time round-trip validation.
+	const uint64_t scratch_estimate = p_codec.codec_id == kCodecNone ? raw : (p_spec.compact_gsq_spill ? max_bodies : 2 * max_bodies);
 	uint64_t need;
-	if (!add_checked(output_estimate, scratch_estimate, need) || !add_checked(need, p_limits.min_free_disk_margin, need)) {
+	// Deferred mode has no exact topology yet. The lower output bound is valid
+	// with the known leaf count; free disk is checked again before every write.
+	if (!add_checked(p_spec.deferred_counts ? minimum_output : output_estimate,
+			p_spec.deferred_counts ? 0 : scratch_estimate, need) || !add_checked(need, p_limits.min_free_disk_margin, need)) {
 		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 	}
 	// Both directories may be on different volumes. No files have been created.
@@ -962,6 +1063,7 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 		}
 	}
 	impl->open = true;
+	report.scratch_measured = true;
 	return OK;
 }
 
@@ -1100,6 +1202,14 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 		if (err != OK) {
 			return _fail(err, reason);
 		}
+		if (impl->spec.compact_gsq_spill) {
+			// The sole persisted representation is already node-relative.
+			// Preserve a decoded digest as well as its stored-byte digest; no
+			// fields are re-encoded from this lossy decoded copy.
+			spill.record.stored_bytes = stored_page.size();
+			memcpy(spill.record.stored_digest, spill.output_stored_digest, 32);
+			hash_body(decoded.ptr(), sh.ptr(), p_count, high, spill.record.output_body_digest);
+		}
 		if (p_desc.is_leaf) {
 			reconstruct_leaf_positions(decoded.ptrw(), p_count, p_desc.cell_center);
 		}
@@ -1138,8 +1248,9 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	spill.record.offset = segment->file.get_size();
 	if (impl->codec.codec_id == kCodecGsqV1) {
 		spill.output_offset = spill.record.offset;
-		err = _write(page.ptr(), page.size(), spill.segment);
-		if (err == OK && p_desc.is_leaf) {
+		const LocalVector<uint8_t> &stored_page = impl->spec.compact_gsq_spill && p_desc.is_leaf ? output_page : page;
+		err = _write(stored_page.ptr(), stored_page.size(), spill.segment);
+		if (err == OK && p_desc.is_leaf && !impl->spec.compact_gsq_spill) {
 			spill.output_offset = segment->file.get_size();
 			err = _write(output_page.ptr(), output_page.size(), spill.segment);
 		}
@@ -1223,6 +1334,28 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (!present) {
 			return _fail(ERR_INVALID_DATA, "v4_handle_unused");
 		}
+	}
+	if (impl->spec.deferred_counts) {
+		uint64_t leaves = 0;
+		uint64_t interiors = 0;
+		for (const V4Node &entry : p_nodes) {
+			if ((err = _check_stop()) != OK) {
+				return err;
+			}
+			if (entry.topology.is_leaf()) {
+				leaves += entry.topology.payload_count;
+			} else {
+				interiors += entry.topology.payload_count;
+			}
+		}
+		// kMaxNodes and u32 payload counts bound these sums below uint64 max.
+		if (leaves != impl->spec.leaf_splat_count || leaves + interiors > UINT32_MAX) {
+			return _fail(ERR_INVALID_DATA, "v4_splat_count_mismatch");
+		}
+		impl->spec.node_count = count;
+		impl->spec.interior_splat_count = uint32_t(interiors);
+		impl->nodes_total.set(count);
+		impl->splats_total.set(leaves + interiors);
 	}
 	if (count != impl->spec.node_count) {
 		return _fail(ERR_INVALID_DATA, "v4_node_count_mismatch");
@@ -1516,7 +1649,9 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 				return _fail(ERR_FILE_CORRUPT, "v4_spill_digest_mismatch");
 			}
 		}
-		make_relative(body.ptrw(), spill.splat_count, spill.desc);
+		if (header.codec_id != kCodecGsqV1 || !impl->spec.compact_gsq_spill) {
+			make_relative(body.ptrw(), spill.splat_count, spill.desc);
+		}
 		hash_body(body.ptr(), sh.ptr(), spill.splat_count, header.sh_high_order, digest);
 		if (memcmp(digest, spill.output_body_digest, sizeof(digest)) != 0) {
 			return _fail(ERR_FILE_CORRUPT, "v4_output_body_digest_mismatch");
