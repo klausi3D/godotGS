@@ -559,7 +559,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Manifest hash pins sources fro
 		const Dictionary params = manifest.get("build_params", Dictionary());
 		CHECK(params.size() == 4); // three content fields plus execution worker_count
 		CHECK(int(params.get("leaf_max", 0)) == 16384);
-		CHECK(params.get("max_tile_splats", 0) == options["max_tile_splats"]);
+		CHECK(int64_t(params.get("max_tile_splats", -1)) == int64_t(options["max_tile_splats"]));
 		const Dictionary interior = params.get("interior", Dictionary());
 		CHECK(interior.size() == 5);
 		CHECK(int(interior.get("merge_grid", 0)) == 64);

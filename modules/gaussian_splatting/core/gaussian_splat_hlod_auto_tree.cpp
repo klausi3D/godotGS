@@ -1,6 +1,7 @@
 #include "gaussian_splat_hlod_auto_tree.h"
 
 #include "gaussian_splat_hlod_tiled_bake.h"
+#include "gs_vector_alloc.h"
 #include "streaming_chunk_payload_source.h"
 #include "../io/gs_auto_tree_source.h"
 #include "../io/gs_atomic_file_transaction.h"
@@ -181,7 +182,9 @@ Error hash_file(const String &p_path, uint64_t p_deadline, String &r_hash, Strin
 		return refuse(r_reason, "input_hash_open", ERR_FILE_CANT_OPEN);
 	}
 	Vector<uint8_t> bytes;
-	bytes.resize(kSlice);
+	if (!gs_resize_or_fail(bytes, kSlice, "gs_auto_tree hash_file buffer")) {
+		return refuse(r_reason, "limit_ram: file_hash_buffer", ERR_OUT_OF_MEMORY);
+	}
 	CryptoCore::SHA256Context hash;
 	hash.start();
 	const uint64_t size = file->get_length();
@@ -424,7 +427,9 @@ Error input_provenance(const String &p_input, uint64_t p_deadline, uint64_t p_pa
 		return refuse(r_reason, "limit_ram: input_manifest", ERR_OUT_OF_MEMORY);
 	}
 	Vector<uint8_t> bytes;
-	bytes.resize(size);
+	if (!gs_resize_or_fail(bytes, size, "gs_auto_tree input_provenance buffer")) {
+		return refuse(r_reason, "limit_ram: input_manifest_buffer", ERR_OUT_OF_MEMORY);
+	}
 	CryptoCore::SHA256Context sha;
 	sha.start();
 	for (uint64_t offset = 0; offset < size;) {
