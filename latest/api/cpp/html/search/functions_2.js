@@ -26,7 +26,7 @@ var searchData=
   ['bucket_5ffor_23',['bucket_for',['../structStreamingLatencyHistogram.html#ace31ee66a844c82920b400e649fff639',1,'StreamingLatencyHistogram']]],
   ['bucket_5fupper_5fbounds_5fusec_24',['bucket_upper_bounds_usec',['../structStreamingLatencyHistogram.html#af955b18b577fa3a8020d98a7dcd8b518',1,'StreamingLatencyHistogram']]],
   ['bucket_5fupper_5fusec_25',['bucket_upper_usec',['../structStreamingLatencyHistogram.html#af23bcf77f9249449bcb91d96500bea96',1,'StreamingLatencyHistogram']]],
-  ['build_26',['build',['../classgs__hlod_1_1TiledAutoTree.html#a0140f2f744320a72cac4d41cacc65357',1,'gs_hlod::TiledAutoTree::build()'],['../structChunkSpatialGrid.html#a2a54c6e68d85fc49b550bd934dbf9fd5',1,'ChunkSpatialGrid::build()']]],
+  ['build_26',['build',['../classGaussianSplatHlodAutoTree.html#a1fdc38aca3367491f0281b3e53ce5636',1,'GaussianSplatHlodAutoTree::build()'],['../classgs__hlod_1_1TiledAutoTree.html#a0140f2f744320a72cac4d41cacc65357',1,'gs_hlod::TiledAutoTree::build()'],['../structChunkSpatialGrid.html#a2a54c6e68d85fc49b550bd934dbf9fd5',1,'ChunkSpatialGrid::build()']]],
   ['build_5fand_5fapply_5fframe_5fbackend_5fplan_27',['build_and_apply_frame_backend_plan',['../classGaussianSplatRenderer.html#ab0e4c49465465b44762ebce24f1d50d5',1,'GaussianSplatRenderer']]],
   ['build_5fband_28',['build_band',['../namespaceGaussianSHRotation_1_1detail.html#ab2fe58192d0399dc31aa4ce802f672bb',1,'GaussianSHRotation::detail']]],
   ['build_5fchunk_29',['build_chunk',['../classgs__gsq_1_1PageBuilder.html#abb8e1322fa0d0ec0310485a2bde7816b',1,'gs_gsq::PageBuilder']]],

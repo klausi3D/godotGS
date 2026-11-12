@@ -172,7 +172,7 @@ var searchData=
   ['buffers_169',['Buffers',['../structHlodNodeStreamer_1_1Buffers.html',1,'HlodNodeStreamer']]],
   ['buffers_170',['buffers',['../structHlodViewIdentity.html#ac54a305af0abfa97bc78c8d10ad8e2ec',1,'HlodViewIdentity::buffers'],['../structGaussianRenderFacadeState_1_1HlodBundle.html#ab1041c3bd8642cfa8c14410d53e48638',1,'GaussianRenderFacadeState::HlodBundle::buffers']]],
   ['bufferstate_171',['BufferState',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162',1,'GaussianMemoryStream']]],
-  ['build_172',['build',['../classgs__hlod_1_1TiledAutoTree.html#a0140f2f744320a72cac4d41cacc65357',1,'gs_hlod::TiledAutoTree::build()'],['../structChunkSpatialGrid.html#a2a54c6e68d85fc49b550bd934dbf9fd5',1,'ChunkSpatialGrid::build()']]],
+  ['build_172',['build',['../classGaussianSplatHlodAutoTree.html#a1fdc38aca3367491f0281b3e53ce5636',1,'GaussianSplatHlodAutoTree::build()'],['../classgs__hlod_1_1TiledAutoTree.html#a0140f2f744320a72cac4d41cacc65357',1,'gs_hlod::TiledAutoTree::build()'],['../structChunkSpatialGrid.html#a2a54c6e68d85fc49b550bd934dbf9fd5',1,'ChunkSpatialGrid::build()']]],
   ['build_5fand_5fapply_5fframe_5fbackend_5fplan_173',['build_and_apply_frame_backend_plan',['../classGaussianSplatRenderer.html#ab0e4c49465465b44762ebce24f1d50d5',1,'GaussianSplatRenderer']]],
   ['build_5fband_174',['build_band',['../namespaceGaussianSHRotation_1_1detail.html#ab2fe58192d0399dc31aa4ce802f672bb',1,'GaussianSHRotation::detail']]],
   ['build_5fchunk_175',['build_chunk',['../classgs__gsq_1_1PageBuilder.html#abb8e1322fa0d0ec0310485a2bde7816b',1,'gs_gsq::PageBuilder']]],

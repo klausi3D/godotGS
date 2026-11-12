@@ -494,6 +494,7 @@ var hierarchy =
       [ "GPUCuller", "classGPUCuller.html", null ],
       [ "GPUSortingPipeline", "classGPUSortingPipeline.html", null ],
       [ "GaussianMemoryStream", "classGaussianMemoryStream.html", null ],
+      [ "GaussianSplatHlodAutoTree", "classGaussianSplatHlodAutoTree.html", null ],
       [ "GaussianSplatHlodPagedSource", "classGaussianSplatHlodPagedSource.html", null ],
       [ "GaussianSplatHlodRuntimeData", "classGaussianSplatHlodRuntimeData.html", null ],
       [ "GaussianSplatRenderer", "classGaussianSplatRenderer.html", null ],
@@ -688,6 +689,7 @@ var hierarchy =
     [ "GaussianSplatHlodPagedSource::Stats", "structGaussianSplatHlodPagedSource_1_1Stats.html", null ],
     [ "GaussianSplatting::HierarchicalSplatStructure::OctreeNode::Stats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode_1_1Stats.html", null ],
     [ "gs_hlod_runtime::NodeResidency::Stats", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html", null ],
+    [ "GsqAutoTreeSource::Stats", "structGsqAutoTreeSource_1_1Stats.html", null ],
     [ "NodeResidency::Stats", "structNodeResidency_1_1Stats.html", null ],
     [ "PayloadReadService::Stats", "structPayloadReadService_1_1Stats.html", null ],
     [ "GaussianMemoryStream::StreamBuffer", "structGaussianMemoryStream_1_1StreamBuffer.html", null ],
@@ -732,7 +734,9 @@ var hierarchy =
     [ "gs_hlod::TiledBakeLimits", "structgs__hlod_1_1TiledBakeLimits.html", null ],
     [ "gs_hlod::TiledBakeParams", "structgs__hlod_1_1TiledBakeParams.html", null ],
     [ "gs_hlod::TiledBakeReport", "structgs__hlod_1_1TiledBakeReport.html", null ],
-    [ "gs_hlod::TiledBakeSource", "classgs__hlod_1_1TiledBakeSource.html", null ],
+    [ "gs_hlod::TiledBakeSource", "classgs__hlod_1_1TiledBakeSource.html", [
+      [ "GsqAutoTreeSource", "classGsqAutoTreeSource.html", null ]
+    ] ],
     [ "gs_hlod::TiledBakeSourceInfo", "structgs__hlod_1_1TiledBakeSourceInfo.html", null ],
     [ "GaussianSplatting::TileDebugCounterSnapshot", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html", null ],
     [ "GaussianSplatting::TileDensityMetrics", "structGaussianSplatting_1_1TileDensityMetrics.html", null ],

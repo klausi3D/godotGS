@@ -117,7 +117,7 @@ var searchData=
   ['read_5fbytes_114',['read_bytes',['../structStreamingUploadPipeline_1_1PackTelemetry_1_1Snapshot.html#aa0d31ab1f49e00bc96f9cbbe041cdec9',1,'StreamingUploadPipeline::PackTelemetry::Snapshot']]],
   ['read_5fbytes_5fcumulative_115',['read_bytes_cumulative',['../classStreamingUploadPipeline.html#af15f5218aec3964a8104d54ae96b5bb0',1,'StreamingUploadPipeline']]],
   ['read_5fbytes_5ftotal_116',['read_bytes_total',['../structStreamingUploadPipeline_1_1PackTelemetry.html#a566e7bdd2675fba527e67e44201148c9',1,'StreamingUploadPipeline::PackTelemetry']]],
-  ['read_5fchunk_117',['read_chunk',['../classgs__hlod_1_1TiledBakeSource.html#a46096877430fb2e590a63d3f89521099',1,'gs_hlod::TiledBakeSource']]],
+  ['read_5fchunk_117',['read_chunk',['../classgs__hlod_1_1TiledBakeSource.html#a46096877430fb2e590a63d3f89521099',1,'gs_hlod::TiledBakeSource::read_chunk()'],['../classGsqAutoTreeSource.html#a7ef8babdd633134c279269d643ed66a0',1,'GsqAutoTreeSource::read_chunk()']]],
   ['read_5fcurrent_118',['read_current',['../structStreamingUploadPipeline_1_1PackTelemetry.html#ac4c3537d37cc24446df9fedefb517b91',1,'StreamingUploadPipeline::PackTelemetry']]],
   ['read_5ffailures_119',['read_failures',['../structGaussianSplatHlodPagedSource_1_1Stats.html#a329adcb1441b3b2a4336a2452ef295be',1,'GaussianSplatHlodPagedSource::Stats']]],
   ['read_5finterior_5fpayload_120',['read_interior_payload',['../structGaussianSplatHlodTree.html#a4a6a9584f64a540774dc7b1f40a57c0d',1,'GaussianSplatHlodTree']]],

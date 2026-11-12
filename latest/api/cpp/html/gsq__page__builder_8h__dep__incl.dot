@@ -21,7 +21,9 @@ digraph "gsq_page_builder.h"
   Node4 -> Node8 [id="edge8_Node000004_Node000008",dir="back",color="steelblue1",style="solid",tooltip=" "];
   Node8 [id="Node000008",label="gs_world_writer_v4.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__world__writer__v4_8h.html",tooltip=" "];
   Node8 -> Node9 [id="edge9_Node000008_Node000009",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node9 [id="Node000009",label="gs_world_writer_v4.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__world__writer__v4_8cpp.html",tooltip=" "];
-  Node1 -> Node10 [id="edge10_Node000001_Node000010",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node10 [id="Node000010",label="gsq_page_builder.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gsq__page__builder_8cpp.html",tooltip=" "];
+  Node9 [id="Node000009",label="gaussian_splat_hlod\l_auto_tree.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__hlod__auto__tree_8cpp.html",tooltip=" "];
+  Node8 -> Node10 [id="edge10_Node000008_Node000010",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node10 [id="Node000010",label="gs_world_writer_v4.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gs__world__writer__v4_8cpp.html",tooltip=" "];
+  Node1 -> Node11 [id="edge11_Node000001_Node000011",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node11 [id="Node000011",label="gsq_page_builder.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gsq__page__builder_8cpp.html",tooltip=" "];
 }
