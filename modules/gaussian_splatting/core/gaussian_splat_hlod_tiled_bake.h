@@ -76,22 +76,35 @@ struct TiledBakeParams {
 #endif
 };
 
+// Borrowed only during build_streamed. All calls run on the driving thread;
+// reservations include optional sink-owned frontier buffers in the same ledger.
+class TiledBakeBudget {
+public:
+	virtual ~TiledBakeBudget() = default;
+	virtual bool reserve(uint64_t p_bytes) = 0;
+	virtual void release(uint64_t p_bytes) = 0;
+};
+
 // All callbacks run on the driving thread, after the entire worker batch joins.
 // Payload pointers are borrowed for append_node only. Interior coordinates are
 // cell-relative and leaves are absolute, exactly as in BakeResult. A frontier
-// must be reloadable losslessly until finish; compressed writer bodies are not
+// must be reloadable losslessly until release_frontier; compressed writer bodies are not
 // a substitute for this scratch copy. Provisional IDs are dense but not BFS.
 class TiledBakeSink {
 public:
 	virtual ~TiledBakeSink() = default;
+	virtual void set_budget(TiledBakeBudget *) {}
+	virtual Error trim_memory() { return OK; }
 	virtual uint64_t reservation_bytes(uint32_t p_total_nodes) const = 0;
 	virtual Error append_node(uint32_t p_id, const GaussianSplatHlodNode &p_node,
 			uint32_t p_depth, const SplatSpan &p_payload, const uint32_t *p_leaf_source_indices, bool p_frontier) = 0;
 	virtual Error load_frontier(uint32_t p_id, TiledBakeChunk &r_payload) = 0;
+	virtual Error release_frontier(uint32_t) { return OK; }
 	virtual Error finish(GaussianSplatHlodTree &p_tree, const LocalVector<uint32_t> &p_bfs_to_provisional) = 0;
 };
 
 struct TiledBakeReport {
+	uint32_t tiles_planned = 0;
 	uint32_t tiles_baked = 0;
 	uint32_t largest_tile_splats = 0;
 	uint32_t stitch_levels = 0; // levels above the deepest frontier cell
@@ -106,8 +119,8 @@ public:
 	static Error build_streamed(const TiledBakeSource &p_source, const TiledBakeParams &p_params,
 			TiledBakeSink &p_sink, TiledBakeReport &r_report, String *r_error = nullptr);
 	// Pass 1 counts centres and chooses an adaptive frontier; pass 2 admits and
-	// bakes each tile with its forced lattice root and frozen MERGE_ONLY defaults;
-	// pass 3 stitches tile-root payloads and assembles canonical BFS records.
+	// bakes each tile with its forced lattice root and frozen MERGE_ONLY defaults,
+	// stitching completed ancestors immediately; pass 3 assembles canonical BFS records.
 	// This compatibility API is an in-memory sink over build_streamed and therefore
 	// explicitly reserves its retained output (leaves remain DFS/importance ordered).
 	// Recheck the assembled tree before publishing. File reopen/decode/W13 belongs

@@ -68,6 +68,11 @@ struct PagedV4Spec {
 	// interior counts from the complete BFS table and validates the leaf total.
 	// RAM admission grows with appended records, not a speculative upper bound.
 	bool deferred_counts = false;
+	// Execution-only: retain only the final GSQ representation in scratch.
+	// Both input and output round trips are still validated at append; the
+	// persisted output is hashed, decoded and validated again at finalize.
+	// Default preserves the legacy public input-form spill audit.
+	bool compact_gsq_spill = false;
 	uint32_t sh_degree = 0;
 	uint32_t sh_first_order = 0;
 	uint32_t sh_high_order = 0;
@@ -107,7 +112,7 @@ struct V4SpillRecord {
 	uint64_t offset = 0; // Stored body range within segment_path.
 	uint64_t stored_bytes = 0;
 	uint8_t stored_digest[32] = {}; // SHA-256 of the entire stored body range.
-	uint8_t output_body_digest[32] = {}; // Legacy scratch audit: decoded scratch, node-relative Gaussian + SH bytes.
+	uint8_t output_body_digest[32] = {}; // Decoded persisted scratch, node-relative Gaussian + SH bytes.
 };
 
 struct V4SegmentReport {
@@ -124,6 +129,9 @@ struct V4Report {
 	bool committed = false;
 	LocalVector<V4SegmentReport> segments;
 	uint64_t total_scratch_bytes = 0; // Cumulative segment file lengths, not remaining live bytes.
+	bool scratch_measured = false; // Successful scratch admission began; retained after cleanup.
+	uint64_t spill_bytes_peak = 0; // Maximum live writer-owned segment bytes.
+	uint64_t scratch_bytes_peak = 0; // Maximum measured live segments + caller-owned scratch; excludes output.
 	uint64_t peak_scratch_plus_output_bytes = 0; // Maximum live logical lengths, includes output temp.
 	uint32_t segments_deleted = 0;
 	uint32_t nodes = 0; // Successfully appended bodies.
@@ -147,7 +155,10 @@ public:
 	// grows; lower this count only after removing/truncating those bytes. Shares
 	// the scratch cap and peak disk accounting, but never adopts caller files.
 	// total_scratch_bytes remains writer-only; callers add their cumulative I/O.
-	Error set_external_scratch_bytes(uint64_t p_bytes);
+	// p_measured=false reserves before I/O without claiming those bytes were
+	// written. Then record successful slices without reducing the reservation.
+	Error set_external_scratch_bytes(uint64_t p_bytes, bool p_measured = true);
+	Error record_external_scratch_bytes(uint64_t p_bytes);
 	// Inspect append-time facts without loading the body; retained through commit/failure.
 	Error get_spill_record(V4BodyHandle p_handle, V4SpillRecord &r_record) const;
 	// Refusals (ERR_INVALID_DATA): v4_handle_unused, v4_handle_reused,

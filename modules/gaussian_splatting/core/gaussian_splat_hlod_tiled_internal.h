@@ -17,7 +17,9 @@ struct PlanNode {
 	uint32_t children[kMaxChildren] = {};
 	uint32_t input_count = 0;
 	uint32_t depth = 0;
+	uint32_t parent = kNoParent; // plan parent survives replacement by a tile-local root
 	bool work = false;
+	bool ready = false; // coordinator only, after emission; workers never access it
 	// Grouped leaves select octants of record.cell. Index-split leaves select a
 	// (Morton, global-index) interval, with exclusive lower/inclusive upper ends.
 	uint8_t octant_mask = 0xff;
@@ -31,7 +33,7 @@ struct PlanNode {
 	uint32_t extra_id_first = 0; // non-root tile records; root uses this plan's ID
 };
 
-struct Context {
+struct Context : public TiledBakeBudget {
 	const TiledBakeSource &source;
 	const TiledBakeParams &params;
 	TiledBakeReport &report;
@@ -53,8 +55,8 @@ struct Context {
 	Error fail(Error p_code);
 	Error check();
 	static Error check_job(void *p_context) { return static_cast<Context *>(p_context)->check(); }
-	bool reserve(uint64_t p_bytes);
-	void release(uint64_t p_bytes);
+	bool reserve(uint64_t p_bytes) override;
+	void release(uint64_t p_bytes) override;
 	bool reserve_metadata(uint32_t p_nodes);
 	Error read(uint32_t p_chunk, TiledBakeChunk &r_chunk);
 	OfflineJob job(uint32_t p_count) const;
@@ -81,6 +83,7 @@ inline uint64_t node_bound(uint32_t p_count) {
 void finish_metrics(GaussianSplatHlodNode &r_node, const SplatSpan &p_own,
 		const GaussianSplatHlodNode *const *p_children, uint32_t p_child_count);
 Error emit_tile(Context &p_context, uint32_t p_plan);
+Error stitch_ready(Context &p_context, uint32_t p_plan);
 uint64_t index_key(const GaussianSplatHlodNode &p_node, const Vector3 &p_position);
 Error stitch_and_assemble(Context &p_context);
 Error bake_tiles(Context &p_context);

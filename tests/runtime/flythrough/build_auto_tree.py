@@ -55,7 +55,7 @@ def new_report():
         "content_generation", "output_file_sha256", "tree_sha", "input_file_sha256",
         "job_manifest_sha256", "source_fingerprint", "source_fingerprint_source",
         "drawn_budget_splats", "drawn_budget_source", "oracle", "leaves_only", "builder_wall_time_sec",
-        "builder_raw", "producer_reason"))
+        "builder_raw", "producer_reason", "tiles_planned", "tiles_baked"))
     report.update(schema="godotgs-auto-tree-build-report/1", status="failed", reason="not_started",
         budget_frozen=False, oracle_complete_all_poses=False,
         w13=absent("producer reopen and decoded-node verification not run"),
@@ -192,10 +192,32 @@ def scratch_usage(builder_report):
     peak = builder_report.get("scratch_bytes_peak")
     total = builder_report.get("scratch_bytes_total")
     if type(peak) is int and peak > 0 and type(total) is int and total > 0:
-        return {"available": True, "value": peak, "total_bytes": total,
-                "source": "writer_v4_and_frontier",
-                "scope": "peak live scratch plus staged V4 output, including lossless frontier; excludes manifest"}
-    return absent("builder has no valid positive scratch peak and cumulative byte measurements")
+        result = {"available": True, "value": peak, "total_bytes": total,
+                  "source": "writer_v4_and_frontier",
+                  "scope": "peak live scratch plus staged V4 output, including lossless frontier; excludes manifest"}
+    else:
+        reasons = [builder_report.get(key + "_unavailable_reason")
+                   for key in ("scratch_bytes_peak", "scratch_bytes_total")]
+        reasons = [reason for reason in reasons if type(reason) is str and reason]
+        result = absent("; ".join(dict.fromkeys(reasons)) if reasons else
+                        "builder has no valid positive scratch peak and cumulative byte measurements")
+    measurements = {}
+    for key in ("scratch_spill_bytes_peak", "scratch_spill_bytes_total",
+                "scratch_frontier_bytes_peak", "scratch_frontier_bytes_total",
+                "scratch_combined_bytes_peak", "frontier_ram_bytes_peak"):
+        reason_key = key + "_unavailable_reason"
+        if key not in builder_report and reason_key not in builder_report:
+            continue
+        value = builder_report.get(key)
+        if type(value) is int and value > 0:
+            measurements[key] = {"available": True, "value": value}
+        else:
+            reason = builder_report.get(reason_key)
+            measurements[key] = absent(reason if type(reason) is str and reason else
+                                       "builder has no valid positive " + key + " measurement")
+    if measurements:
+        result["measurements"] = measurements
+    return result
 
 
 def _oracle_block(value, poses, budget, *, control=False):
@@ -325,18 +347,25 @@ def _build(args, report):
         # Keep the raw dictionary so new producer counters/reason text survive.
         report["builder_raw"] = envelope.get("builder")
         report["producer_reason"] = envelope.get("reason")
+        builder = envelope.get("builder")
+        if type(builder) is dict:
+            # Scratch is useful even if the bridge or builder refused the job.
+            # Preserve measured components independently of legacy totals.
+            report["scratch_bytes"] = scratch_usage(builder)
+            for key in ("tiles_planned", "tiles_baked"):
+                value = builder.get(key)
+                if type(value) is int and value >= 0:
+                    report[key] = value
         if "reason" in envelope and type(envelope["reason"]) is not str:
             raise BuildError("producer_report_invalid")
         if envelope.get("reason"):
             raise BuildError(envelope["reason"])
-        builder = envelope.get("builder")
         if type(builder) is not dict or type(builder.get("error")) is not int or type(builder.get("reason")) is not str:
             raise BuildError("builder_report_invalid")
         report["peak_rss_bytes"] = process_peak_rss(builder)
         wall_usec = builder.get("wall_usec")
         if type(wall_usec) is int and wall_usec > 0:
             report["builder_wall_time_sec"] = wall_usec / 1000000
-        report["scratch_bytes"] = scratch_usage(builder)
         if builder["error"] != 0:
             raise BuildError(builder["reason"] or "builder_error_without_reason")
         if builder["reason"]:

@@ -71,6 +71,7 @@ struct Options {
 	uint64_t deadline = 0; // absolute ticks, unlike WriterV4's relative duration
 #ifdef TESTS_ENABLED
 	bool retained_reference = false; // C++ test entry only; parse_options never accepts this.
+	const GaussianSplatHlodAutoTree::TestHooks *test_hooks = nullptr;
 #endif
 };
 
@@ -551,16 +552,44 @@ struct PreparedBuild {
 	Vector<NodeDigest> decoded_digests;
 	std::vector<std::vector<double>> errors;
 	uint64_t frontier_scratch_bytes = 0;
+	uint64_t frontier_scratch_peak = 0;
+	uint64_t frontier_ram_peak = 0;
 };
+
+// Capture on success before manifest serialization AND on every later return.
+// A missing counter means no bytes were observed, never a fabricated zero peak.
+void scratch_report(const PreparedBuild &p_build, Dictionary &r_report) {
+	const auto &writer = p_build.writer.get_report();
+	auto measured = [&](const char *p_name, uint64_t p_bytes, const char *p_absent) {
+		const String unavailable = String(p_name) + "_unavailable_reason";
+		if (p_bytes) {
+			r_report[p_name] = int64_t(p_bytes);
+			r_report.erase(unavailable);
+		} else {
+			r_report.erase(p_name);
+			r_report[unavailable] = p_absent;
+		}
+	};
+	measured("scratch_bytes_total", writer.total_scratch_bytes + p_build.frontier_scratch_bytes, "no scratch writes observed");
+	measured("scratch_bytes_peak", writer.peak_scratch_plus_output_bytes, "no scratch or staged output writes observed");
+	measured("scratch_spill_bytes_peak", writer.spill_bytes_peak, "no writer spill writes observed");
+	measured("scratch_spill_bytes_total", writer.total_scratch_bytes, "no writer spill writes observed");
+	measured("scratch_frontier_bytes_peak", p_build.frontier_scratch_peak, "no frontier disk writes; frontier stayed in RAM or was not reached");
+	measured("scratch_frontier_bytes_total", p_build.frontier_scratch_bytes, "no frontier disk writes; frontier stayed in RAM or was not reached");
+	measured("scratch_combined_bytes_peak", writer.scratch_bytes_peak, "no scratch writes observed");
+	measured("frontier_ram_bytes_peak", p_build.frontier_ram_peak, "no frontier RAM allocations observed");
+}
 
 // Driving-thread-only owner. Workers never access the writer, these tables or
 // the frontier file; TiledAutoTree joins the entire batch before callbacks.
 // Frontier bytes are the ORIGINAL runtime payload, not GSQ's quantized spill.
 class StreamingSink : public gs_hlod::TiledBakeSink {
 	struct Frontier {
-		uint64_t offset = 0;
 		uint32_t count = 0;
 		NodeDigest digest;
+		gs_hlod::TiledBakeChunk resident;
+		String path; // owned per-entry file, removed immediately after consumption
+		uint64_t disk_bytes = 0;
 	};
 	PreparedBuild &build;
 	String &reason;
@@ -572,27 +601,76 @@ class StreamingSink : public gs_hlod::TiledBakeSink {
 	LocalVector<gs_world_writer::V4BodyHandle> handles;
 	LocalVector<NodeDigest> digests;
 	LocalVector<Frontier> frontiers;
-	Ref<FileAccess> frontier_file;
-	String frontier_path;
+	String scratch_path;
 	uint64_t frontier_bytes = 0;
+	gs_hlod::TiledBakeBudget *budget = nullptr; // borrowed only while coordinator lives
+	uint64_t cache_limit = uint64_t(64) << 20;
+	uint64_t cache_reserved = 0;
+	uint64_t cache_live = 0;
+	bool cache_attempted = false;
+	uint64_t tile_bucket = 0;
+#ifdef TESTS_ENABLED
+	bool fail_after_frontier = false;
+#endif
 
-	Error transfer(uint8_t *p_bytes, uint64_t p_size, bool p_write) {
+	Error transfer(const Ref<FileAccess> &p_file, uint8_t *p_bytes, uint64_t p_size, bool p_write, Frontier &p_frontier) {
 		for (uint64_t offset = 0; offset < p_size;) {
 			if (check_deadline(deadline, reason) != OK) {
 				return ERR_TIMEOUT;
 			}
 			const uint64_t count = MIN(kSlice, p_size - offset);
 			if (p_write) {
-				frontier_file->store_buffer(p_bytes + offset, count);
-			} else if (frontier_file->get_buffer(p_bytes + offset, count) != count) {
+				const uint64_t before = p_file->get_length();
+				const bool written = p_file->store_buffer(p_bytes + offset, count);
+				const uint64_t after = p_file->get_length();
+				if (after < before || after - before > count) {
+					return refuse(reason, "frontier_extent", ERR_FILE_CORRUPT);
+				}
+				const uint64_t actual = after - before;
+				frontier_bytes += actual;
+				p_frontier.disk_bytes += actual;
+				build.frontier_scratch_bytes += actual;
+				build.frontier_scratch_peak = MAX(build.frontier_scratch_peak, frontier_bytes);
+				const Error measured = build.writer.record_external_scratch_bytes(frontier_bytes);
+				if (measured != OK) {
+					return writer_failure(build.writer.get_report(), measured, reason);
+				}
+				if (!written || actual != count) {
+					return refuse(reason, "frontier_io", ERR_FILE_CANT_WRITE);
+				}
+			} else if (p_file->get_buffer(p_bytes + offset, count) != count) {
 				return refuse(reason, "frontier_short_read", ERR_FILE_CORRUPT);
 			}
-			if (frontier_file->get_error() != OK) {
-				return refuse(reason, "frontier_io", frontier_file->get_error());
+			if (p_file->get_error() != OK) {
+				return refuse(reason, "frontier_io", p_file->get_error());
 			}
 			offset += count;
 		}
 		return OK;
+	}
+
+	Error spill_frontier(uint32_t p_id, const gs_hlod::SplatSpan &p_payload) {
+		Frontier &frontier = frontiers[p_id];
+		const uint64_t g_bytes = uint64_t(p_payload.count) * sizeof(Gaussian);
+		const uint64_t sh_bytes = uint64_t(p_payload.count) * build.spec.sh_high_order * sizeof(Vector3);
+		if (frontier_bytes > UINT64_MAX - g_bytes - sh_bytes) {
+			return refuse(reason, "limit_scratch", ERR_PARAMETER_RANGE_ERROR);
+		}
+		Error error = build.writer.set_external_scratch_bytes(frontier_bytes + g_bytes + sh_bytes, false);
+		if (error != OK) {
+			return writer_failure(build.writer.get_report(), error, reason);
+		}
+		const String path = scratch_path.path_join("frontier_" + itos(p_id) + ".raw");
+		Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE, &error);
+		if (file.is_null()) {
+			return refuse(reason, "frontier_create", error == OK ? ERR_CANT_CREATE : error);
+		}
+		frontier.path = path;
+		error = transfer(file, reinterpret_cast<uint8_t *>(const_cast<Gaussian *>(p_payload.gaussians)), g_bytes, true, frontier);
+		if (error == OK && sh_bytes) {
+			error = transfer(file, reinterpret_cast<uint8_t *>(const_cast<Vector3 *>(p_payload.sh_high_order)), sh_bytes, true, frontier);
+		}
+		return error;
 	}
 
 public:
@@ -602,20 +680,90 @@ public:
 			node_bytes(p_node_bytes), gsq(p_gsq), encode_params(p_encode) {}
 
 	~StreamingSink() override {
-		frontier_file.unref();
-		if (!frontier_path.is_empty()) {
-			DirAccess::remove_absolute(frontier_path);
+		for (const Frontier &frontier : frontiers) {
+			if (!frontier.path.is_empty()) {
+				DirAccess::remove_absolute(frontier.path);
+			}
 		}
 	}
 
 	Error open(const String &p_scratch) {
-		Error error = OK;
-		const String path = p_scratch.path_join("frontier.raw");
-		frontier_file = FileAccess::open(path, FileAccess::WRITE_READ, &error);
-		if (frontier_file.is_null()) {
-			return refuse(reason, "frontier_create", error == OK ? ERR_CANT_CREATE : error);
+		scratch_path = p_scratch;
+		return OK;
+	}
+
+#ifdef TESTS_ENABLED
+	void set_test_hooks(const GaussianSplatHlodAutoTree::TestHooks *p_hooks) {
+		if (p_hooks) {
+			cache_limit = p_hooks->frontier_ram_bytes;
+			fail_after_frontier = p_hooks->fail_after_frontier;
 		}
-		frontier_path = path;
+	}
+#endif
+
+	void set_budget(gs_hlod::TiledBakeBudget *p_budget) override {
+		if (!p_budget && budget) {
+			// Teardown on every return, before the borrowed coordinator is destroyed.
+			for (Frontier &frontier : frontiers) {
+				frontier.resident.gaussians.reset();
+				frontier.resident.sh_high_order.reset();
+			}
+			budget->release(cache_reserved);
+			cache_reserved = cache_live = 0;
+		}
+		budget = p_budget;
+	}
+
+	Error trim_memory() override {
+		if (!cache_reserved) {
+			return OK;
+		}
+		// Admission pressure evicts this optional fixed-size cache, before a tile
+		// can be refused. No worker is running; all bytes and ledger fields have
+		// the coordinator as sole owner. Do not reacquire and thrash on later tiles.
+		for (uint32_t id = 0; id < frontiers.size(); ++id) {
+			Frontier &frontier = frontiers[id];
+			if (frontier.resident.gaussians.is_empty()) {
+				continue;
+			}
+			const gs_hlod::SplatSpan payload = { frontier.resident.gaussians.ptr(), frontier.resident.sh_high_order.ptr(),
+				frontier.count, build.spec.sh_high_order };
+			const Error error = spill_frontier(id, payload);
+			if (error != OK) {
+				return error;
+			}
+			frontier.resident.gaussians.reset();
+			frontier.resident.sh_high_order.reset();
+		}
+		budget->release(cache_reserved);
+		cache_reserved = cache_live = 0;
+		return OK;
+	}
+
+	Error release_frontier(uint32_t p_id) override {
+		if (p_id >= frontiers.size() || !frontiers[p_id].count) {
+			return refuse(reason, "frontier_missing", ERR_INVALID_DATA);
+		}
+		Frontier &frontier = frontiers[p_id];
+		if (!frontier.path.is_empty()) {
+			const Error removed = DirAccess::remove_absolute(frontier.path);
+			if (removed != OK) {
+				return refuse(reason, "frontier_remove", removed);
+			}
+			frontier.path = String();
+			frontier_bytes -= frontier.disk_bytes;
+			frontier.disk_bytes = 0;
+			const Error error = build.writer.set_external_scratch_bytes(frontier_bytes);
+			if (error != OK) {
+				return writer_failure(build.writer.get_report(), error, reason);
+			}
+		} else {
+			cache_live -= uint64_t(frontier.resident.gaussians.get_capacity()) * sizeof(Gaussian) +
+					uint64_t(frontier.resident.sh_high_order.get_capacity()) * sizeof(Vector3);
+			frontier.resident.gaussians.reset();
+			frontier.resident.sh_high_order.reset();
+		}
+		frontier.count = 0;
 		return OK;
 	}
 
@@ -646,7 +794,13 @@ public:
 			return refuse(reason, "stream_duplicate_node", ERR_INVALID_DATA);
 		}
 		gs_world_writer::V4BodyDesc desc;
-		desc.segment.bucket = 0; // Depth bounds segment count; append order does not affect final bytes.
+		// Each tile starts with its root. Per-tile/depth segments are contiguous
+		// in final BFS order, so assembly can delete them promptly instead of
+		// retaining a whole world's depth while writing its replacement output.
+		if (p_frontier) {
+			tile_bucket = p_id;
+		}
+		desc.segment.bucket = tile_bucket;
 		desc.segment.depth = p_depth;
 		desc.is_leaf = p_node.is_leaf();
 		const GaussianSplatHlodTree frame;
@@ -666,29 +820,47 @@ public:
 		if (p_frontier) {
 			const uint64_t g_bytes = uint64_t(p_payload.count) * sizeof(Gaussian);
 			const uint64_t sh_bytes = uint64_t(p_payload.count) * build.spec.sh_high_order * sizeof(Vector3);
-			if (frontier_bytes > UINT64_MAX - g_bytes - sh_bytes) {
-				return refuse(reason, "limit_scratch", ERR_PARAMETER_RANGE_ERROR);
-			}
-			// Reserve the caller-owned file in WriterV4's SAME live scratch ledger
-			// before growing it; writer appends also include this reservation.
-			error = build.writer.set_external_scratch_bytes(frontier_bytes + g_bytes + sh_bytes);
-			if (error != OK) {
-				return writer_failure(build.writer.get_report(), error, reason);
-			}
 			Frontier &frontier = frontiers[p_id];
-			frontier.offset = frontier_bytes;
 			frontier.count = p_payload.count;
 			hash_payload(p_payload.gaussians, p_payload.sh_high_order, p_payload.count,
 					build.spec.sh_high_order, frontier.digest.bytes);
-			frontier_file->seek(frontier_bytes);
-			error = transfer(reinterpret_cast<uint8_t *>(const_cast<Gaussian *>(p_payload.gaussians)), g_bytes, true);
-			if (error == OK && sh_bytes) {
-				error = transfer(reinterpret_cast<uint8_t *>(const_cast<Vector3 *>(p_payload.sh_high_order)), sh_bytes, true);
+			if (!cache_attempted) {
+				cache_attempted = true;
+				// Charge the entire fixed cache BEFORE allocating any entry. Its
+				// envelope does not grow with splats, tiles or partially filled roots.
+				if (budget && cache_limit && budget->reserve(cache_limit)) {
+					cache_reserved = cache_limit;
+				}
 			}
-			if (error != OK) {
-				return error;
+			// Fresh LocalVector allocations have a minimum capacity of two.
+			const uint64_t sh_count = uint64_t(p_payload.count) * build.spec.sh_high_order;
+			const uint64_t capacity_bytes = uint64_t(MAX(p_payload.count, 2u)) * sizeof(Gaussian) +
+					(sh_count ? MAX(sh_count, uint64_t(2)) * sizeof(Vector3) : 0);
+			if (cache_live <= cache_reserved && 2 * capacity_bytes <= cache_reserved - cache_live) {
+				// Fresh exact capacities plus allocation probes fit the cache ledger.
+				if (!gs_hlod::fallible_resize(frontier.resident.gaussians, p_payload.count, "gs_auto_tree RAM frontier") ||
+						!gs_hlod::fallible_resize(frontier.resident.sh_high_order, uint64_t(p_payload.count) * build.spec.sh_high_order,
+								"gs_auto_tree RAM frontier SH")) {
+					return refuse(reason, "limit_ram: frontier", ERR_OUT_OF_MEMORY);
+				}
+				std::memcpy(static_cast<void *>(frontier.resident.gaussians.ptr()), p_payload.gaussians, g_bytes);
+				if (sh_bytes) {
+					std::memcpy(frontier.resident.sh_high_order.ptr(), p_payload.sh_high_order, sh_bytes);
+				}
+				cache_live += uint64_t(frontier.resident.gaussians.get_capacity()) * sizeof(Gaussian) +
+						uint64_t(frontier.resident.sh_high_order.get_capacity()) * sizeof(Vector3);
+				build.frontier_ram_peak = MAX(build.frontier_ram_peak, cache_live);
+			} else {
+				error = spill_frontier(p_id, p_payload);
+				if (error != OK) {
+					return error;
+				}
 			}
-			frontier_bytes += g_bytes + sh_bytes;
+#ifdef TESTS_ENABLED
+			if (fail_after_frontier) {
+				return refuse(reason, "test_after_frontier", ERR_SKIP);
+			}
+#endif
 		}
 		return OK;
 	}
@@ -697,20 +869,39 @@ public:
 		if (p_id >= frontiers.size() || frontiers[p_id].count == 0) {
 			return refuse(reason, "frontier_missing", ERR_INVALID_DATA);
 		}
-		const Frontier &frontier = frontiers[p_id];
+		Frontier &frontier = frontiers[p_id];
 		if (!gs_hlod::fallible_resize(r_payload.gaussians, frontier.count, "gs_auto_tree frontier gaussians") ||
 				!gs_hlod::fallible_resize(r_payload.sh_high_order, uint64_t(frontier.count) * build.spec.sh_high_order,
 						"gs_auto_tree frontier SH")) {
 			return refuse(reason, "limit_ram: frontier", ERR_OUT_OF_MEMORY);
 		}
-		frontier_file->seek(frontier.offset);
-		Error error = transfer(reinterpret_cast<uint8_t *>(r_payload.gaussians.ptr()), uint64_t(frontier.count) * sizeof(Gaussian), false);
-		if (error == OK && build.spec.sh_high_order) {
-			error = transfer(reinterpret_cast<uint8_t *>(r_payload.sh_high_order.ptr()),
-					uint64_t(frontier.count) * build.spec.sh_high_order * sizeof(Vector3), false);
-		}
-		if (error != OK) {
-			return error;
+		const uint64_t g_bytes = uint64_t(frontier.count) * sizeof(Gaussian);
+		const uint64_t sh_bytes = uint64_t(frontier.count) * build.spec.sh_high_order * sizeof(Vector3);
+		if (frontier.path.is_empty()) {
+			if (frontier.resident.gaussians.size() != frontier.count ||
+					frontier.resident.sh_high_order.size() != uint64_t(frontier.count) * build.spec.sh_high_order) {
+				return refuse(reason, "frontier_extent", ERR_FILE_CORRUPT);
+			}
+			std::memcpy(static_cast<void *>(r_payload.gaussians.ptr()), frontier.resident.gaussians.ptr(), g_bytes);
+			if (sh_bytes) {
+				std::memcpy(r_payload.sh_high_order.ptr(), frontier.resident.sh_high_order.ptr(), sh_bytes);
+			}
+		} else {
+			Error error = OK;
+			Ref<FileAccess> file = FileAccess::open(frontier.path, FileAccess::READ, &error);
+			if (file.is_null()) {
+				return refuse(reason, "frontier_open", error == OK ? ERR_CANT_OPEN : error);
+			}
+			if (file->get_length() != g_bytes + sh_bytes) {
+				return refuse(reason, "frontier_extent", ERR_FILE_CORRUPT);
+			}
+			error = transfer(file, reinterpret_cast<uint8_t *>(r_payload.gaussians.ptr()), g_bytes, false, frontier);
+			if (error == OK && sh_bytes) {
+				error = transfer(file, reinterpret_cast<uint8_t *>(r_payload.sh_high_order.ptr()), sh_bytes, false, frontier);
+			}
+			if (error != OK) {
+				return error;
+			}
 		}
 		NodeDigest digest;
 		hash_payload(r_payload.gaussians.ptr(), r_payload.sh_high_order.ptr(), frontier.count, build.spec.sh_high_order, digest.bytes);
@@ -754,15 +945,15 @@ public:
 			}
 			build.errors[depths[i]].push_back(node.geometric_error);
 		}
-		build.frontier_scratch_bytes = frontier_bytes;
-		frontier_file.unref();
-		const Error removed = DirAccess::remove_absolute(frontier_path);
-		if (removed != OK) {
-			return refuse(reason, "frontier_remove", removed);
+		for (uint32_t id = 0; id < frontiers.size(); ++id) {
+			if (frontiers[id].count) {
+				const Error error = release_frontier(id);
+				if (error != OK) {
+					return error;
+				}
+			}
 		}
-		frontier_path = String();
-		const Error error = build.writer.set_external_scratch_bytes(0);
-		return error == OK ? OK : writer_failure(build.writer.get_report(), error, reason);
+		return OK;
 	}
 };
 
@@ -781,6 +972,7 @@ Error prepare_streaming(const String &input, const String &output, const String 
 	const auto info = source.get_info();
 	auto &spec = r_build.spec;
 	spec.deferred_counts = true;
+	spec.compact_gsq_spill = true;
 	spec.leaf_splat_count = info.splat_count;
 	spec.sh_degree = source.get_sh_degree();
 	spec.sh_first_order = info.sh_first_order_count;
@@ -827,6 +1019,9 @@ Error prepare_streaming(const String &input, const String &output, const String 
 		return writer_failure(r_build.writer.get_report(), error, r_reason);
 	}
 	StreamingSink sink(r_build, r_reason, p_options.deadline, fixed, per_node, gsq, encode_params);
+#ifdef TESTS_ENABLED
+	sink.set_test_hooks(p_options.test_hooks);
+#endif
 	error = sink.open(p_scratch_path);
 	if (error != OK) {
 		return error;
@@ -845,6 +1040,7 @@ Error prepare_streaming(const String &input, const String &output, const String 
 	r_report["pages_decoded_digest_checked"] = int64_t(stats.pages_decoded_digest_checked);
 	r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), tiled_report.peak_reserved_bytes));
 	r_report["tiles_baked"] = tiled_report.tiles_baked;
+	r_report["tiles_planned"] = tiled_report.tiles_planned;
 	r_report["stitch_levels"] = tiled_report.stitch_levels;
 	if (error != OK) {
 		if (error == ERR_OUT_OF_MEMORY) {
@@ -900,6 +1096,7 @@ Error prepare_retained_reference(const String &input, const String &output, cons
 		r_report["pages_decoded_digest_checked"] = int64_t(stats.pages_decoded_digest_checked);
 		r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), base_reserved + source_reserved + tiled_report.peak_reserved_bytes));
 		r_report["tiles_baked"] = tiled_report.tiles_baked;
+		r_report["tiles_planned"] = tiled_report.tiles_planned;
 		r_report["stitch_levels"] = tiled_report.stitch_levels;
 		if (error != OK) {
 			if (error == ERR_OUT_OF_MEMORY) {
@@ -1089,6 +1286,11 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		return refuse(r_reason, "staging_create", ERR_CANT_CREATE);
 	}
 	PreparedBuild prepared;
+	struct ScratchReportOnExit {
+		const PreparedBuild &build;
+		Dictionary &report;
+		~ScratchReportOnExit() { scratch_report(build, report); }
+	} scratch_report_on_exit{ prepared, r_report };
 #ifdef TESTS_ENABLED
 	if (p_options.retained_reference) {
 		error = prepare_retained_reference(input, output, scratch_root, stage.path, scratch.path,
@@ -1113,8 +1315,7 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	if (error != OK) {
 		return writer_failure(writer.get_report(), error, r_reason);
 	}
-	r_report["scratch_bytes_total"] = int64_t(writer.get_report().total_scratch_bytes + prepared.frontier_scratch_bytes);
-	r_report["scratch_bytes_peak"] = int64_t(writer.get_report().peak_scratch_plus_output_bytes);
+	scratch_report(prepared, r_report);
 	Ref<GaussianSplatHlodPagedSource> reopened;
 	reopened.instantiate();
 	GaussianSplatHlodTree reopened_tree;
@@ -1372,7 +1573,11 @@ void GaussianSplatHlodAutoTree::_bind_methods() {
 	ClassDB::bind_static_method("GaussianSplatHlodAutoTree", D_METHOD("oracle_cut", "v4_path", "poses", "options"), &GaussianSplatHlodAutoTree::oracle_cut);
 }
 
-static Dictionary build_auto_tree_entry(const String &p_input_path, const String &p_output_path, const Dictionary &p_options, bool p_retained_reference) {
+static Dictionary build_auto_tree_entry(const String &p_input_path, const String &p_output_path, const Dictionary &p_options, bool p_retained_reference
+#ifdef TESTS_ENABLED
+		, const GaussianSplatHlodAutoTree::TestHooks *p_test_hooks = nullptr
+#endif
+) {
 	const uint64_t started = OS::get_singleton()->get_ticks_usec();
 	Dictionary report;
 	report["error"] = ERR_UNAVAILABLE;
@@ -1384,10 +1589,16 @@ static Dictionary build_auto_tree_entry(const String &p_input_path, const String
 	report["wall_usec"] = 0;
 	report["peak_reserved_bytes"] = 0;
 	report["tiles_baked"] = 0;
+	report["tiles_planned"] = 0;
+	for (const char *key : { "scratch_bytes_total", "scratch_bytes_peak", "scratch_spill_bytes_peak", "scratch_spill_bytes_total",
+			 "scratch_frontier_bytes_peak", "scratch_frontier_bytes_total", "scratch_combined_bytes_peak", "frontier_ram_bytes_peak" }) {
+		report[String(key) + "_unavailable_reason"] = "builder did not reach scratch/frontier allocation";
+	}
 	report["stitch_levels"] = 0;
 	Options options;
 #ifdef TESTS_ENABLED
 	options.retained_reference = p_retained_reference;
+	options.test_hooks = p_test_hooks;
 #else
 	(void)p_retained_reference;
 #endif
@@ -1415,6 +1626,10 @@ Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const St
 }
 
 #ifdef TESTS_ENABLED
+Dictionary GaussianSplatHlodAutoTree::build_streamed_for_test(const String &p_input_path, const String &p_output_path, const Dictionary &p_options, const TestHooks &p_hooks) {
+	return build_auto_tree_entry(p_input_path, p_output_path, p_options, false, &p_hooks);
+}
+
 Dictionary GaussianSplatHlodAutoTree::build_retained_for_test(const String &p_input_path, const String &p_output_path, const Dictionary &p_options) {
 	return build_auto_tree_entry(p_input_path, p_output_path, p_options, true);
 }

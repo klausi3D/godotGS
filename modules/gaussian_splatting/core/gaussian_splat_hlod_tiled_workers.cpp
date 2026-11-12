@@ -204,6 +204,7 @@ Error bake_tiles(Context &p_context) {
 			++work_count;
 		}
 	}
+	p_context.report.tiles_planned = work_count;
 	if (work_count == 0u || p_context.params.worker_count == 0u) {
 		return p_context.fail(ERR_INVALID_DATA);
 	}
@@ -256,13 +257,12 @@ Error bake_tiles(Context &p_context) {
 				break;
 			}
 			const uint64_t reserved = envelope.reserved + extra;
-			if (p_context.live_reserved > p_context.params.limits.max_ram_bytes ||
-					reserved > p_context.params.limits.max_ram_bytes - p_context.live_reserved) {
-				if (count == 0u) {
-					p_context.fail(ERR_OUT_OF_MEMORY);
-				}
+			if (count > 0u && (p_context.live_reserved > p_context.params.limits.max_ram_bytes ||
+					reserved > p_context.params.limits.max_ram_bytes - p_context.live_reserved)) {
 				break; // A smaller admitted batch may still make progress.
 			}
+			// Only a single-worker refusal may evict optional sink RAM. Do not
+			// evict merely to enlarge an already viable batch.
 			if (!p_context.reserve(reserved)) {
 				p_context.fail(ERR_OUT_OF_MEMORY);
 				break;
@@ -340,6 +340,12 @@ Error bake_tiles(Context &p_context) {
 			}
 			p_context.release(worker.reserved);
 			worker.reserved = 0;
+			if (p_context.check() == OK) {
+				const Error stitched = stitch_ready(p_context, worker.node);
+				if (stitched != OK) {
+					p_context.fail(stitched);
+				}
+			}
 		}
 	}
 	p_context.release(worker_bytes);

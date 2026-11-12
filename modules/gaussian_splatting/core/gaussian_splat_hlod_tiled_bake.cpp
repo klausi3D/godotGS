@@ -43,7 +43,14 @@ Error Context::check() {
 
 bool Context::reserve(uint64_t p_bytes) {
 	if (live_reserved > params.limits.max_ram_bytes || p_bytes > params.limits.max_ram_bytes - live_reserved) {
-		return false; // scheduler may drain the current batch and retry
+		const Error trimmed = sink.trim_memory();
+		if (trimmed != OK) {
+			fail(trimmed);
+			return false;
+		}
+		if (live_reserved > params.limits.max_ram_bytes || p_bytes > params.limits.max_ram_bytes - live_reserved) {
+			return false; // scheduler may drain the current batch and retry
+		}
 	}
 	live_reserved += p_bytes;
 	report.peak_reserved_bytes = MAX(report.peak_reserved_bytes, live_reserved);
@@ -415,6 +422,7 @@ class Planner {
 		node.record.cell = p_cell;
 		node.record.flags = p_flags;
 		node.record.parent = p_parent;
+		node.parent = p_parent;
 		node.input_count = p_count;
 		node.depth = context.plan[p_parent].depth + 1u;
 		PlanNode &parent = context.plan[p_parent];
@@ -817,6 +825,13 @@ Error TiledAutoTree::build_streamed(const TiledBakeSource &p_source, const Tiled
 		*r_error = String();
 	}
 	tiled_bake::Context context(p_source, p_params, r_report, p_sink);
+	// The sink releases its optional reservations before the borrowed ledger dies,
+	// including every early return. Neither side is accessed by worker threads.
+	p_sink.set_budget(&context);
+	struct DetachBudget {
+		TiledBakeSink &sink;
+		~DetachBudget() { sink.set_budget(nullptr); }
+	} detach_budget{ p_sink };
 	auto fail = [&](Error p_code) {
 		context.fail(p_code);
 		if (r_error) {

@@ -53,13 +53,23 @@
 // and publication so the returned and persisted report are identical. Tile
 // payloads are spilled by the coordinator as batches drain; only node tables and
 // a bounded tile/merge working set stay resident. Original frontier payloads use
-// separate lossless scratch, so stitching never consumes GSQ quantization.
+// an optional reserved 64 MiB RAM cache with lossless per-entry disk overflow.
+// Admission can evict the cache before refusing a worker. Completed parents are
+// stitched immediately and consumed child frontiers are deleted, so stitching
+// never consumes GSQ quantization or retains the entire world's frontier.
+// Writer segments are per tile/depth; GSQ spills only the final encoded page,
+// after retaining both original and relative append-time round-trip validation.
 // GSQ additionally reserves per-node digests and bounded single-node verification
 // encode/decode and reopen buffers, separately from WriterV4's working memory.
-// Successful reports include scratch_bytes_total (cumulative spill and frontier
+// Reports include scratch_bytes_total (cumulative spill and frontier
 // bytes) and scratch_bytes_peak (maximum simultaneous scratch plus staged output
 // file lengths, excluding the final manifest). These are measured logical lengths,
-// not allocated filesystem blocks; missing measurements are omitted on failure.
+// not allocated filesystem blocks. Failure retains every observed counter.
+// scratch_spill_bytes_{peak,total}, scratch_frontier_bytes_{peak,total}, and
+// scratch_combined_bytes_peak (scratch only) separate the owners; the optional
+// frontier_ram_bytes_peak reports allocated cache payload, not its reservation.
+// No-write counters are omitted with <counter>_unavailable_reason, never fake
+// zero peaks. tiles_planned records work tiles once planning has completed.
 class GaussianSplatHlodAutoTree : public RefCounted {
 	GDCLASS(GaussianSplatHlodAutoTree, RefCounted);
 
@@ -69,6 +79,11 @@ protected:
 public:
 	static Dictionary build(const String &p_input_path, const String &p_output_path, const Dictionary &p_options);
 #ifdef TESTS_ENABLED
+	struct TestHooks {
+		uint64_t frontier_ram_bytes = uint64_t(64) << 20; // zero forces lossless disk storage
+		bool fail_after_frontier = false; // exercise reporting/cleanup after actual writes
+	};
+	static Dictionary build_streamed_for_test(const String &p_input_path, const String &p_output_path, const Dictionary &p_options, const TestHooks &p_hooks);
 	// Unbound C++ identity oracle: old retained BakeResult -> BFS/bucket-0 writer
 	// route. Its payloads come from the same in-memory sink exercised by D2-2's
 	// independent in-core identity tests; no release/script option enables it.

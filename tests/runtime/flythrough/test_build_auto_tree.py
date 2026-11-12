@@ -216,6 +216,37 @@ class DriverContract(unittest.TestCase):
                     self.assertNotIn("total_bytes", result)
                     self.assertTrue(result["reason"])
 
+    def test_scratch_components_survive_missing_legacy_totals(self):
+        # Dictionary unit inputs exercise extraction, not a producer format.
+        values = {"scratch_spill_bytes_peak": 100, "scratch_spill_bytes_total": 120,
+                  "scratch_frontier_bytes_peak": 30, "scratch_frontier_bytes_total": 40,
+                  "scratch_combined_bytes_peak": 125, "frontier_ram_bytes_peak": 200}
+        result = self.driver.scratch_usage(values)
+        self.assertFalse(result["available"])
+        self.assertNotIn("value", result)
+        self.assertEqual(result["measurements"], {
+            key: {"available": True, "value": value} for key, value in values.items()})
+
+    def test_scratch_components_preserve_absence_reasons_and_reject_invalid_values(self):
+        reason = "frontier remained in RAM; no frontier scratch was written"
+        values = {"scratch_bytes_peak_unavailable_reason": "writer did not start",
+                  "scratch_bytes_total_unavailable_reason": "writer did not start",
+                  "scratch_frontier_bytes_peak_unavailable_reason": reason}
+        result = self.driver.scratch_usage(values)
+        self.assertEqual(result["reason"], "writer did not start")
+        self.assertEqual(result["measurements"], {
+            "scratch_frontier_bytes_peak": {"available": False, "reason": reason}})
+        self.assertNotIn("measurements", self.driver.scratch_usage({}))
+        for key in ("scratch_spill_bytes_peak", "scratch_spill_bytes_total",
+                    "scratch_frontier_bytes_peak", "scratch_frontier_bytes_total",
+                    "scratch_combined_bytes_peak", "frontier_ram_bytes_peak"):
+            for value in (None, False, True, 0, -1, 1.5, "1234", [], {}):
+                with self.subTest(key=key, value=value):
+                    component = self.driver.scratch_usage({key: value})["measurements"][key]
+                    self.assertFalse(component["available"])
+                    self.assertNotIn("value", component)
+                    self.assertTrue(component["reason"])
+
     def test_output_sha_is_recomputed_from_bytes_and_mismatch_fails(self):
         # Arbitrary bytes exercise hashing only; this is not a V4 producer fixture.
         with tempfile.TemporaryDirectory() as directory:
@@ -400,6 +431,30 @@ class D25SourceFingerprintContract(unittest.TestCase):
                 self.assertEqual(report["producer_reason"], envelope["reason"])
                 self.assertEqual(report["builder_raw"], builder)
                 self.assertIsNone(report["builder_wall_time_sec"])
+
+    def test_failure_preserves_scratch_components_and_tile_progress(self):
+        # Fault injection checks orchestration, not the real producer's format.
+        builder = {"error": 6, "reason": "limit_scratch", "tiles_planned": 300,
+                   "tiles_baked": 214, "scratch_bytes_peak": 12000,
+                   "scratch_bytes_total": 15000, "scratch_spill_bytes_peak": 9000,
+                   "scratch_spill_bytes_total": 11000, "scratch_combined_bytes_peak": 12000,
+                   "scratch_frontier_bytes_peak": 4000, "scratch_frontier_bytes_total": 4000,
+                   "frontier_ram_bytes_peak": 5000}
+        for bridge_reason in (None, "injected bridge failure"):
+            with self.subTest(bridge_reason=bridge_reason), tempfile.TemporaryDirectory() as directory:
+                envelope = {"builder": builder}
+                if bridge_reason is not None:
+                    envelope["reason"] = bridge_reason
+                report, calls = self.run_driver(Path(directory), capture=[], failure_envelope=envelope)
+                self.assertEqual(calls, 1)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["reason"], bridge_reason or "limit_scratch")
+                self.assertEqual(report["tiles_planned"], 300)
+                self.assertEqual(report["tiles_baked"], 214)
+                self.assertEqual(report["scratch_bytes"], self.driver.scratch_usage(builder))
+                self.assertTrue(report["scratch_bytes"]["available"])
+                self.assertEqual(report["scratch_bytes"]["measurements"]["scratch_spill_bytes_peak"]["value"], 9000)
+                self.assertEqual(report["builder_raw"], builder)
 
     def test_v2_job_accepts_no_caller_source_identity(self):
         job = self.job()

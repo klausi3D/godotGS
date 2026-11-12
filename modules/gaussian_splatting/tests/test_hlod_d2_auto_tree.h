@@ -1317,6 +1317,106 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Bound CPU oracle cut and leave
 	}
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] RAM and consumed disk frontiers preserve both codec identities") {
+	Fixture fixture;
+	if (!fixture.create(65536)) {
+		FAIL("frontier identity fixture generation failed");
+		return;
+	}
+	for (const char *codec : { "none", "gsq" }) {
+		Dictionary options = fixture.options(4);
+		options["max_tile_splats"] = 16385;
+		options["codec"] = codec;
+		String ram_sha;
+		Dictionary ram_manifest;
+		for (bool disk : { false, true }) {
+			GaussianSplatHlodAutoTree::TestHooks hooks;
+			hooks.frontier_ram_bytes = disk ? 0 : uint64_t(128) << 20;
+			const String output = fixture.dir.path_join(String(codec) + (disk ? "_disk.gsplatworld" : "_ram.gsplatworld"));
+			const Dictionary report = GaussianSplatHlodAutoTree::build_streamed_for_test(fixture.input, output, options, hooks);
+			if (int(report.get("error", FAILED)) != OK) {
+				const CharString reason = String(report.get("reason", "missing")).utf8();
+				FAIL("frontier identity build failed: ", doctest::String(reason.get_data()));
+				return;
+			}
+			success_report(report);
+			CHECK(int64_t(report.get("tiles_planned", 0)) > 1);
+			CHECK(report.get("tiles_planned", -1) == report.get("tiles_baked", -2));
+			CHECK(int64_t(report.get("scratch_spill_bytes_peak", 0)) > 0);
+			CHECK(int64_t(report.get("scratch_combined_bytes_peak", 0)) <= int64_t(report.get("scratch_bytes_peak", 0)));
+			const String sha = FileAccess::get_sha256(output);
+			const Dictionary manifest = json_file(gs_world_generator::manifest_path_for(output));
+			if (!hex_digest(sha) || !manifest.has("nodes") || !manifest.has("tree_sha") || !manifest.has("content_generation")) {
+				FAIL("frontier identity manifest missing");
+				return;
+			}
+			if (!disk) {
+				ram_sha = sha;
+				ram_manifest = manifest;
+				CHECK(int64_t(report.get("frontier_ram_bytes_peak", 0)) > 0);
+				CHECK_FALSE(report.has("scratch_frontier_bytes_peak"));
+				CHECK_FALSE(String(report.get("scratch_frontier_bytes_peak_unavailable_reason", "")).is_empty());
+			} else {
+				CHECK(sha == ram_sha);
+				for (const char *key : { "nodes", "tree_sha", "content_generation" }) {
+					if (!ram_manifest.has(key)) {
+						FAIL("RAM reference manifest missing identity");
+						return;
+					}
+					CHECK(manifest[key] == ram_manifest[key]);
+				}
+				const int64_t peak = report.get("scratch_frontier_bytes_peak", 0);
+				CHECK(peak > 0);
+				// A parent is emitted only after its children have been consumed.
+				// Retaining every frontier until final assembly makes total == peak.
+				CHECK(int64_t(report.get("scratch_frontier_bytes_total", 0)) > peak);
+				CHECK_FALSE(report.has("frontier_ram_bytes_peak"));
+			}
+			CHECK(directory_empty(fixture.scratch));
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Failed auto-tree retains measured scratch and planned tile progress") {
+	Fixture fixture;
+	if (!fixture.create(65536)) {
+		FAIL("frontier failure fixture generation failed");
+		return;
+	}
+	Dictionary options = fixture.options(1);
+	options["max_tile_splats"] = 16385;
+	options["codec"] = "gsq";
+	for (bool disk : { false, true }) {
+		GaussianSplatHlodAutoTree::TestHooks hooks;
+		hooks.frontier_ram_bytes = disk ? 0 : uint64_t(64) << 20;
+		hooks.fail_after_frontier = true;
+		const String output = fixture.dir.path_join(disk ? "failed_disk.gsplatworld" : "failed_ram.gsplatworld");
+		const Dictionary report = GaussianSplatHlodAutoTree::build_streamed_for_test(fixture.input, output, options, hooks);
+		CHECK(int(report.get("error", OK)) == ERR_SKIP);
+		CHECK(String(report.get("reason", "")) == "test_after_frontier");
+		CHECK(int64_t(report.get("tiles_baked", 0)) == 1);
+		CHECK(int64_t(report.get("tiles_planned", 0)) > 1);
+		for (const char *key : { "scratch_bytes_peak", "scratch_bytes_total", "scratch_spill_bytes_peak",
+				 "scratch_spill_bytes_total", "scratch_combined_bytes_peak" }) {
+			CHECK(int64_t(report.get(key, 0)) > 0);
+		}
+		if (disk) {
+			CHECK(int64_t(report.get("scratch_frontier_bytes_peak", 0)) > 0);
+			CHECK(int64_t(report.get("scratch_frontier_bytes_total", 0)) > 0);
+		} else {
+			CHECK(int64_t(report.get("frontier_ram_bytes_peak", 0)) > 0);
+			CHECK_FALSE(report.has("scratch_frontier_bytes_total"));
+			CHECK_FALSE(String(report.get("scratch_frontier_bytes_total_unavailable_reason", "")).is_empty());
+		}
+		CHECK_FALSE(FileAccess::exists(output));
+		CHECK(directory_empty(fixture.scratch));
+	}
+	const Dictionary missing = bound_build(fixture.dir.path_join("missing.gsplatworld"), fixture.dir.path_join("unused.gsplatworld"), options);
+	CHECK(int(missing.get("error", OK)) == ERR_FILE_NOT_FOUND);
+	CHECK_FALSE(missing.has("scratch_bytes_peak"));
+	CHECK_FALSE(String(missing.get("scratch_bytes_peak_unavailable_reason", "")).is_empty());
+}
+
 #undef D2_AUTO_NEED
 
 } // namespace TestHlodD2AutoTree
