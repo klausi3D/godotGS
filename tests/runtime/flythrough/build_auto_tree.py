@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Build a V4 auto tree and CPU oracle report with a tests-capable producer.
 
-Usage: --godot-binary B --input W --job-manifest J --out V4 --report R
+Usage: --godot-binary B --input W --job-manifest J --out V4 --report R [--repo ROOT]
 Exit 0: complete eight-pose oracle; 1: failed job (reason in R); 2: CLI usage.
-Source identity is supplied by the job, not computed from a guessed TREE_SOURCES
-list: D2-5 owns that list. The budget is provisional until BV-26a is merged.
+Source identity is derived from the checkout's TREE_SOURCES, never from the job.
+The budget is provisional until BV-26a is merged.
 Standard library only. Generated worlds stay outside the temporary res:// project.
 """
 from __future__ import annotations
@@ -25,12 +25,15 @@ import time
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import probe_path  # noqa: E402
+import world_cache  # noqa: E402
+import verify_world_manifest  # noqa: E402
 
 JSON_LIMIT = 16 * 1024 * 1024
 MAX_JSON_INTEGER = (1 << 53) - 1  # Godot's JSON reader uses doubles.
 JOB_KEYS = {"schema", "codec", "worker_count", "max_tile_splats", "limits",
-            "source_fingerprint", "source_fingerprint_source", "drawn_budget_splats",
-            "drawn_budget_source", "oracle"}
+            "drawn_budget_splats", "drawn_budget_source", "oracle"}
+SOURCE_FIELDS = {"source_fingerprint", "source_fingerprint_source"}
+SOURCE_PROVENANCE = "checkout TREE_SOURCES fingerprint (world_cache.py)"
 LIMIT_KEYS = {"max_ram_bytes", "max_scratch_bytes", "max_output_bytes", "deadline_sec"}
 CAMERA_KEYS = {"width", "height", "fov_deg", "keep", "near_m", "far_m", "tau_pixels"}
 SELECT_STATUSES = {"COMPLETE", "EMPTY", "INVALID", "UNAVAILABLE", "BOOTSTRAP_EXHAUSTED",
@@ -51,9 +54,10 @@ def new_report():
     report = dict.fromkeys(("wall_time_sec", "output_bytes", "node_count", "height", "levels",
         "content_generation", "output_file_sha256", "tree_sha", "input_file_sha256",
         "job_manifest_sha256", "source_fingerprint", "source_fingerprint_source",
-        "drawn_budget_splats", "drawn_budget_source", "oracle", "leaves_only"))
+        "drawn_budget_splats", "drawn_budget_source", "oracle", "leaves_only", "builder_wall_time_sec"))
     report.update(schema="godotgs-auto-tree-build-report/1", status="failed", reason="not_started",
         budget_frozen=False, oracle_complete_all_poses=False,
+        w13=absent("producer reopen and decoded-node verification not run"),
         peak_rss_bytes=absent("process RSS not available"),
         scratch_bytes=absent("builder does not measure scratch usage; directory samples are not a peak"))
     return report
@@ -76,16 +80,17 @@ def _number(value, *, integer=False, low=0, high=MAX_JSON_INTEGER):
 
 
 def validate_job_manifest(job):
+    if type(job) is dict and SOURCE_FIELDS & job.keys():
+        raise BuildError("job_manifest_source_fingerprint_forbidden")
     _keys(job, JOB_KEYS)
     _keys(job["limits"], LIMIT_KEYS)
     _keys(job["oracle"], CAMERA_KEYS)
-    for key in ("schema", "codec", "source_fingerprint", "source_fingerprint_source", "drawn_budget_source"):
+    for key in ("schema", "codec", "drawn_budget_source"):
         if type(job[key]) is not str:
             raise BuildError("job_manifest_type")
         if not job[key].strip():
             raise BuildError("job_manifest_value")
-    if (job["schema"] != "godotgs-auto-tree-job/1" or job["codec"] not in ("none", "gsq")
-            or re.fullmatch(r"[0-9a-f]{64}", job["source_fingerprint"]) is None):
+    if job["schema"] != "godotgs-auto-tree-job/2" or job["codec"] not in ("none", "gsq"):
         raise BuildError("job_manifest_value")
     _number(job["worker_count"], integer=True, high=64)
     _number(job["max_tile_splats"], integer=True, low=16384, high=(1 << 32) - 1)
@@ -163,6 +168,25 @@ def process_peak_rss(builder_report):
     return absent("builder has no OS process RSS; reserved bytes and godot_static are not process RSS")
 
 
+def tree_source_fingerprint(repo):
+    try:
+        return world_cache.source_fingerprint(repo, world_cache.TREE_SOURCES)
+    except world_cache.CacheError as exc:
+        raise BuildError("tree_source_missing") from exc
+    except OSError as exc:
+        raise BuildError("tree_source_unreadable") from exc
+
+
+def verified_nodes(builder, count):
+    """Only the producer's completed per-node reopen loop proves W13."""
+    if (type(builder.get("node_count")) is not int or builder["node_count"] != count
+            or type(builder.get("nodes_verified")) is not int
+            or builder["nodes_verified"] != count or count <= 0):
+        raise BuildError("builder_w13_incomplete")
+    return {"available": True, "passed": True, "nodes_verified": count,
+            "node_count": count, "source": "GaussianSplatHlodAutoTree.build nodes_verified"}
+
+
 def _oracle_block(value, poses, budget, *, control=False):
     if type(value) is not dict or type(value.get("error")) is not int:
         raise BuildError("oracle_report_invalid")
@@ -221,6 +245,9 @@ def _collect_output(report, output, job, builder):
                 or type(generation) is not str or not generation.isdecimal() or not 0 < int(generation) < (1 << 64)
                 or re.fullmatch(r"[0-9a-f]{64}", sidecar["tree_sha"]) is None):
             raise ValueError("identity/counts")
+        if verify_world_manifest.compute_tree_sha(sidecar) != sidecar["tree_sha"]:
+            raise BuildError("output_tree_sha_mismatch")
+        report["w13"] = verified_nodes(builder, count)
         report.update(node_count=count, height=max(level["depth"] for level in levels), levels=levels,
                       content_generation=generation, tree_sha=sidecar["tree_sha"],
                       output_bytes=output.stat().st_size + sidecar_path.stat().st_size)
@@ -234,10 +261,15 @@ def _build(args, report):
     # Bind the digest to the exact bytes parsed, not a second read of a job
     # that another process might have replaced between parsing and hashing.
     job, report["job_manifest_sha256"] = load_job_manifest(args.job_manifest, with_sha=True)
-    for key in ("source_fingerprint", "source_fingerprint_source", "drawn_budget_splats", "drawn_budget_source"):
+    for key in ("drawn_budget_splats", "drawn_budget_source"):
         report[key] = job[key]
     if not args.input.is_file():
         raise BuildError("input_not_found")
+    # This enriched job exists only inside the driver/producer bridge. External
+    # v2 job manifests cannot assert their own source identity.
+    job["source_fingerprint"] = tree_source_fingerprint(args.repo)
+    report["source_fingerprint"] = job["source_fingerprint"]
+    report["source_fingerprint_source"] = SOURCE_PROVENANCE
     report["input_file_sha256"] = file_sha256(args.input)
     source_manifest = _read_json(args.input.with_suffix(".manifest.json"), "input_manifest_invalid")
     try:
@@ -254,7 +286,9 @@ def _build(args, report):
     if not script.is_file():
         raise BuildError("driver_script_missing")
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="gs_auto_tree_project_") as directory:
+    # The lane admits disk space on the output filesystem. Keeping producer
+    # scratch here prevents an unmeasured /tmp (often tmpfs) from filling up.
+    with tempfile.TemporaryDirectory(prefix="gs_auto_tree_project_", dir=args.out.parent) as directory:
         project = Path(directory)
         (project / "project.godot").write_text('[application]\nconfig/name="auto-tree"\n', encoding="utf-8")
         scratch = project / "scratch"
@@ -289,6 +323,12 @@ def _build(args, report):
             raise BuildError("builder_report_invalid")
         if child.returncode != 0:
             raise BuildError("producer_exit_nonzero")
+        if tree_source_fingerprint(args.repo) != job["source_fingerprint"]:
+            raise BuildError("tree_source_changed")
+        wall_usec = builder.get("wall_usec")
+        if type(wall_usec) is not int or wall_usec <= 0:
+            raise BuildError("builder_report_invalid")
+        report["builder_wall_time_sec"] = wall_usec / 1000000
         _collect_output(report, args.out, job, builder)
         report["oracle"] = _oracle_block(envelope.get("oracle"), poses, job["drawn_budget_splats"])
         report["oracle"].update(camera=job["oracle"],
@@ -306,8 +346,9 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     for flag in ("godot-binary", "input", "job-manifest", "out", "report"):
         parser.add_argument("--" + flag, required=True, type=Path)
+    parser.add_argument("--repo", type=Path, default=HERE.parents[2])
     args = parser.parse_args(argv)
-    for name in ("input", "job_manifest", "out", "report"):
+    for name in ("input", "job_manifest", "out", "report", "repo"):
         setattr(args, name, getattr(args, name).resolve())
     # Never let report publication or builder output overwrite an input or each other.
     paths = [args.input, args.input.with_suffix(".manifest.json"), args.job_manifest,

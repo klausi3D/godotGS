@@ -373,7 +373,9 @@ def build_v4_structure_world(directory: Path) -> Path:
         nodes.append({"stored_sha256": digest.hex(),
                       "decoded_sha256": hashlib.sha256(b"unverified decoded placeholder" + bytes([i])).hexdigest()})
     index[32:64] = hashlib.sha256(index[64:64 + 3 * 256]).digest()
-    header[176:208] = hashlib.sha256(index).digest()
+    # The header hashes the concatenated page digests, not raw index-page bytes
+    # (gaussian_splat_world_paged.cpp's page_digests / index_digest_actual).
+    header[176:208] = hashlib.sha256(index[32:64]).digest()
     header[-32:] = hashlib.sha256(header[:-32]).digest()
     blob = bytes(header) + bytes(index) + bytes(payloads)
     # Exactly representable FLOAT values keep this structural fixture independent
@@ -455,8 +457,8 @@ class VerifyAutoTreeV4Test(unittest.TestCase):
     def test_v4_index_page_digest_is_checked_independently(self) -> None:
         blob = bytearray(self.world.read_bytes())
         blob[4096 + 64 + 40] ^= 0x10
-        # Refresh aggregate index and header SHA, leave the page's digest stale.
-        blob[176:208] = hashlib.sha256(blob[4096:4096 + 65536]).digest()
+        # The aggregate hashes page digest words; retain their (stale) values.
+        blob[176:208] = hashlib.sha256(blob[4096 + 32:4096 + 64]).digest()
         self.write_mutation(blob, header=True)
         self.assert_problem("index_page_digest_mismatch")
 
@@ -492,6 +494,49 @@ class VerifyAutoTreeV4Test(unittest.TestCase):
             with self.subTest(value=value):
                 self.edit_manifest(lambda m: m["nodes"][1].__setitem__("decoded_sha256", value))
                 self.assert_problem("decoded_digest_invalid: node 1")
+
+    def test_v4_reports_decoded_checks_as_not_run(self) -> None:
+        result = vwm.verify_v4(self.world)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["decoded_verification"],
+                         {"status": "NOT_RUN", "reason_code": "builder_w13_required",
+                          "reason": "decoded content requires the builder's C++ W13 reopen check"})
+
+    def test_v4_dispatches_through_default_verifier(self) -> None:
+        result = vwm.verify(self.world)
+        self.assertTrue(result["ok"], result)
+
+    def test_tree_key_uses_godot_full_precision_and_schema_numeric_types(self) -> None:
+        # Regression for the actual GSQ float32 step promoted to double: ordinary
+        # json.dumps uses a different decimal spelling. Expected text follows
+        # JSON::_stringify and String::num's fixed-format precision, not a golden
+        # captured from a producer (no binary is run by this suite).
+        step = struct.unpack("<f", struct.pack("<f", 0.00025))[0]
+        self.assertEqual(vwm._godot_json(step), "0.000250000011874362826")
+        manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        expected = vwm.compute_tree_sha(manifest)
+        manifest["build_params"]["interior"]["reduction"] = 4
+        manifest["build_params"]["leaf_max"] = 16384.0
+        self.assertEqual(vwm.compute_tree_sha(manifest), expected)
+
+    def test_v4_header_digest_and_aggregate_index_digest_fail_independently(self) -> None:
+        original = self.world.read_bytes()
+        blob = bytearray(original)
+        blob[4064] ^= 0x10
+        self.write_mutation(blob)
+        self.assert_problem("header_digest_mismatch")
+        blob = bytearray(original)
+        blob[176] ^= 0x10
+        self.write_mutation(blob, header=True)
+        self.assert_problem("index_digest_mismatch")
+
+    def test_v4_missing_node_and_truncated_file_fail_closed(self) -> None:
+        original = self.manifest_path.read_text(encoding="utf-8")
+        self.edit_manifest(lambda m: m["nodes"].pop())
+        self.assert_problem("manifest_counts_mismatch")
+        self.manifest_path.write_text(original, encoding="utf-8")
+        self.world.write_bytes(self.world.read_bytes()[:-1])
+        self.assert_problem("file_bytes_mismatch")
 
 
 if __name__ == "__main__":

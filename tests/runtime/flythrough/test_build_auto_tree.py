@@ -28,7 +28,7 @@ REPORT_FIELDS = {
     "content_generation", "output_file_sha256", "tree_sha", "input_file_sha256",
     "job_manifest_sha256", "source_fingerprint", "source_fingerprint_source",
     "budget_frozen", "drawn_budget_splats", "drawn_budget_source", "oracle",
-    "oracle_complete_all_poses", "leaves_only",
+    "oracle_complete_all_poses", "leaves_only", "w13", "builder_wall_time_sec",
 }
 
 
@@ -90,8 +90,7 @@ class DriverContract(unittest.TestCase):
                         self.assert_reason("job_manifest_type", self.driver.validate_job_manifest, job)
 
     def test_strings_and_objects_are_strictly_typed(self):
-        for key in ("schema", "codec", "source_fingerprint", "source_fingerprint_source",
-                    "drawn_budget_source", "limits", "oracle"):
+        for key in ("schema", "codec", "drawn_budget_source", "limits", "oracle"):
             job = example_job()
             job[key] = 1
             with self.subTest(key=key):
@@ -100,11 +99,9 @@ class DriverContract(unittest.TestCase):
             self.assert_reason("job_manifest_type", self.driver.validate_job_manifest, value)
 
     def test_invalid_values_and_nonfinite_limits(self):
-        cases = [("schema", "godotgs-auto-tree-job/2"), ("codec", "unknown"),
+        cases = [("schema", "godotgs-auto-tree-job/1"), ("codec", "unknown"),
                  ("worker_count", 0), ("worker_count", 65), ("max_tile_splats", 16384),
-                 ("drawn_budget_splats", 0), ("source_fingerprint", "A" * 64),
-                 ("source_fingerprint", "a" * 63), ("source_fingerprint", "g" * 64),
-                 ("drawn_budget_source", ""), ("source_fingerprint_source", "")]
+                 ("drawn_budget_splats", 0), ("drawn_budget_source", "")]
         for key, value in cases:
             with self.subTest(key=key, value=value):
                 job = example_job()
@@ -152,7 +149,9 @@ class DriverContract(unittest.TestCase):
             self.assertIs(report[field]["available"], False)
             self.assertTrue(report[field]["reason"])
             self.assertIsNone(report[field].get("value"))
-        for field in ("wall_time_sec", "output_bytes", "node_count", "height"):
+        self.assertIs(report["w13"]["available"], False)
+        self.assertTrue(report["w13"]["reason"])
+        for field in ("wall_time_sec", "output_bytes", "node_count", "height", "builder_wall_time_sec"):
             self.assertIsNone(report[field], field)
         json.dumps(report, allow_nan=False)
 
@@ -174,6 +173,23 @@ class DriverContract(unittest.TestCase):
         result = self.driver.process_peak_rss({})
         self.assertIs(result["available"], False)
         self.assertTrue(result["reason"])
+
+    def test_w13_requires_all_nodes_verified_with_strict_counts(self):
+        # Malformed metric dictionaries exercise evidence acceptance only;
+        # they are not a fixture claiming to capture producer output.
+        for builder in ({}, {"node_count": 2}, {"node_count": 2, "nodes_verified": 0},
+                        {"node_count": 2, "nodes_verified": 1},
+                        {"node_count": 1, "nodes_verified": 2},
+                        {"node_count": 2, "nodes_verified": True},
+                        {"node_count": 2, "nodes_verified": 2.0}):
+            with self.subTest(builder=builder):
+                self.assert_reason("builder_w13_incomplete", self.driver.verified_nodes, builder, 2)
+        result = self.driver.verified_nodes({"node_count": 2, "nodes_verified": 2}, 2)
+        self.assertIs(result["available"], True)
+        self.assertIs(result["passed"], True)
+        self.assertEqual(result["nodes_verified"], 2)
+        self.assertEqual(result["node_count"], 2)
+        self.assertIn("nodes_verified", result["source"])
 
     def test_output_sha_is_recomputed_from_bytes_and_mismatch_fails(self):
         # Arbitrary bytes exercise hashing only; this is not a V4 producer fixture.
@@ -232,6 +248,29 @@ class DriverContract(unittest.TestCase):
             self.assertIsNone(report["output_bytes"])
             self.assertEqual(report["status"], "failed")
 
+    def test_collect_output_requires_w13_before_accepting_metrics(self):
+        # Orchestration-only test with mocked format/hash checks. This deliberately
+        # incomplete producer report must not become evidence of a verified world.
+        fingerprint, tree_sha = "a" * 64, "b" * 64
+        sidecar = {"schema": "godotgs-auto-tree-manifest/1", "output_file_sha256": "c" * 64,
+                   "input_file_sha256": "d" * 64, "source_fingerprint": fingerprint,
+                   "tree_sha": tree_sha, "content_generation": "1", "totals": {"node_count": 2},
+                   "levels": [{"depth": 0, "node_count": 2, "eps_min": 0, "eps_median": 0, "eps_max": 0}]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "world.gsplatworld"
+            path.touch()
+            path.with_suffix(".manifest.json").touch()
+            report = self.driver.new_report()
+            report["input_file_sha256"] = sidecar["input_file_sha256"]
+            with mock.patch.object(self.driver, "_read_json", return_value=sidecar), \
+                    mock.patch.object(self.driver, "verify_output_sha256", return_value=sidecar["output_file_sha256"]), \
+                    mock.patch.object(self.driver.verify_world_manifest, "compute_tree_sha", return_value=tree_sha):
+                self.assert_reason("builder_w13_incomplete", self.driver._collect_output,
+                                   report, path, {"source_fingerprint": fingerprint},
+                                   {"tree_sha": tree_sha, "node_count": 2})
+            self.assertIs(report["w13"]["available"], False)
+            self.assertIsNone(report["output_bytes"])
+
     def test_report_path_collision_cannot_overwrite_input(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -247,7 +286,7 @@ class DriverContract(unittest.TestCase):
 
 
 class D25SourceFingerprintContract(unittest.TestCase):
-    """D2-5 red contracts; the D2-4 example remains unchanged in tests-only turn 1."""
+    """D2-5 source identity contracts introduced in tests-only turn 1."""
 
     def setUp(self):
         self.driver = load_module("d25_build_auto_tree", DRIVER)
@@ -288,7 +327,12 @@ class D25SourceFingerprintContract(unittest.TestCase):
         def stop_at_producer(command, **kwargs):
             self.assertIsNotNone(capture, "invalid sources must prevent producer launch")
             request = Path(command[command.index("--request") + 1])
-            capture.append(json.loads(request.read_text(encoding="utf-8")))
+            payload = json.loads(request.read_text(encoding="utf-8"))
+            # Scratch admission measures the output filesystem, never system /tmp.
+            self.assertEqual(request.parent.parent, Path(payload["output"]).parent)
+            self.assertEqual(Path(payload["scratch"]).parent, request.parent)
+            self.assertEqual(Path(command[command.index("--path") + 1]), request.parent)
+            capture.append(payload)
             # Deliberately terminate at the subprocess boundary. No Godot runs.
             raise self.driver.subprocess.TimeoutExpired(command, kwargs["timeout"])
 
@@ -323,6 +367,12 @@ class D25SourceFingerprintContract(unittest.TestCase):
                     with self.assertRaises(self.driver.BuildError) as caught:
                         self.driver.validate_job_manifest(job)
                     self.assertEqual(caught.exception.reason, "job_manifest_source_fingerprint_forbidden")
+
+    def test_source_fingerprint_io_failure_is_distinct_and_fail_closed(self):
+        with mock.patch.object(self.driver.world_cache, "source_fingerprint", side_effect=OSError("unreadable")):
+            with self.assertRaises(self.driver.BuildError) as caught:
+                self.driver.tree_source_fingerprint(HERE.parents[2])
+        self.assertEqual(caught.exception.reason, "tree_source_unreadable")
 
     def test_repo_sources_supply_the_producer_and_report_fingerprint(self):
         with tempfile.TemporaryDirectory() as directory:

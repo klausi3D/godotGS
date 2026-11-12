@@ -102,6 +102,39 @@ GENERATOR_SOURCES: Tuple[str, ...] = (
     "tests/runtime/flythrough/generate_world.gd",
 )
 
+#: The auto-tree producer has a separate identity: changing these sources must
+#: not invalidate the expensive plain-world generator cache. Keep explicit paths
+#: so a removed source fails closed instead of vanishing from a glob's digest.
+TREE_SOURCES: Tuple[str, ...] = (
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake_admission.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake_admission.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake_bounds.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake_bounds.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_job.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_merge.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_merge.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tiled_assemble.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tiled_bake.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tiled_bake.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tiled_internal.h",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tiled_workers.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tree.cpp",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tree.h",
+    "modules/gaussian_splatting/io/gaussian_splat_world_paged.cpp",
+    "modules/gaussian_splatting/io/gaussian_splat_world_paged.h",
+    "modules/gaussian_splatting/io/gs_auto_tree_source.cpp",
+    "modules/gaussian_splatting/io/gs_auto_tree_source.h",
+    "modules/gaussian_splatting/io/gs_world_writer_v4.cpp",
+    "modules/gaussian_splatting/io/gs_world_writer_v4.h",
+    "modules/gaussian_splatting/io/gsq/gsq_writer_v4_memory.cpp",
+    "tests/runtime/flythrough/build_auto_tree.py",
+    "tests/runtime/flythrough/build_auto_tree.gd",
+)
+
 Fadvise = Callable[[int, int, int, int], None]
 
 

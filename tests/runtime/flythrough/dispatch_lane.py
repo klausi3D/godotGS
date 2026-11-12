@@ -83,11 +83,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -205,6 +207,14 @@ VERDICT_SCHEMA = "godotgs-beyond-vram-lane-verdict/1"
 VERDICT_FILE = "verdict.json"
 CACHE_WORLDS_FILE = "cache_worlds.json"
 WORLD_FILE_NAME = "world.gsplatworld"
+
+AUTO_TREE_ENTRY = Path("tests/runtime/flythrough/build_auto_tree.py")
+AUTO_TREE_ENCODING = "v4_gsq_auto"
+AUTO_TREE_MEMORY_BYTES = 22 * GIB
+AUTO_TREE_OUTPUT_BYTES = 10_200_000_000  # Design section 4 upper bound, decimal GB.
+AUTO_TREE_SCRATCH_BYTES = 12 * GIB
+AUTO_TREE_BUDGET = 1_000_000
+AUTO_TREE_BUDGET_SOURCE = "ADR HLOD arm N_frozen <= 1.0M; BV-26a not merged"
 
 Runner = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], Optional[str]]
@@ -1133,6 +1143,9 @@ def prime_cache(
                     if m1.is_dir():
                         shutil.rmtree(m1)
                     data["deleted_m1_world"] = {"world_id": m1.name, "entries": removed}
+                    tree_base = _auto_tree_base(cache_root)
+                    if tree_base.is_dir():
+                        data["deleted_auto_tree_keys"] = _delete_auto_tree_keys(tree_base)
         reason = f"primed {', '.join(TIER_WORLDS[tier])} (Tier A encoding {encoding}) into {cache_root}"
         code = EXIT_OK
     except (LaneError, wc.CacheError) as exc:
@@ -1160,8 +1173,11 @@ def cache_check(
     verify: Callable[[Path], dict] = _verify_world,
     lock: Callable[..., object] = wc.cache_lock,
     encoding: str = ENCODING,
+    auto_tree: bool = False,
 ) -> int:
     """Per-run verify (V2 against the world's own manifest), quarantine, fadvise."""
+    if auto_tree:
+        return auto_tree_cache_check(repo, tier, cache_root, out, run_id, fadvise, verify, lock)
     step = "cache_check"
     data: Dict[str, object] = {"tier": tier, "encoding": encoding, "cache_root": str(cache_root), "worlds": {}}
     try:
@@ -1236,6 +1252,462 @@ def cache_check(
     except OSError as exc:
         reason, code = f"cache check could not complete: {exc}", EXIT_FAIL
     write_record(out, step, code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+# --------------------------------------------------------------------------
+# D2-5: CPU-only auto-tree build lane. The plain key is always read-only.
+# --------------------------------------------------------------------------
+
+
+def _auto_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _fsync_write(path, json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def parse_meminfo(text: str) -> Dict[str, int]:
+    """Linux reports kB here, meaning 1024 bytes; never substitute MemFree."""
+    values: Dict[str, int] = {}
+    for line in text.splitlines():
+        name = line.partition(":")[0]
+        if name not in ("MemTotal", "MemAvailable"):
+            continue
+        match = re.fullmatch(r"(MemTotal|MemAvailable):\s+(\d+)\s+kB\s*", line)
+        if match is None or name in values:
+            raise ValueError("missing units, malformed number, or duplicate memory field")
+        values[name] = int(match[2]) * 1024
+    if set(values) != {"MemTotal", "MemAvailable"} or not 0 <= values["MemAvailable"] <= values["MemTotal"] or values["MemTotal"] == 0:
+        raise ValueError("MemTotal and MemAvailable must both be measured and consistent")
+    return {"mem_total_bytes": values["MemTotal"], "mem_available_bytes": values["MemAvailable"]}
+
+
+def auto_tree_preflight(
+    cache_root: Path, out: Path, runner: Runner = subprocess.run, which: Which = shutil.which,
+    meminfo_path: Path = Path("/proc/meminfo"),
+) -> int:
+    data: dict = {"mem_total_bytes": None, "mem_available_bytes": None, "df": None,
+                  "required_memory_bytes": AUTO_TREE_MEMORY_BYTES,
+                  "expected_output_bytes": AUTO_TREE_OUTPUT_BYTES,
+                  "scratch_bytes": AUTO_TREE_SCRATCH_BYTES,
+                  "required_disk_bytes": 2 * AUTO_TREE_OUTPUT_BYTES + AUTO_TREE_SCRATCH_BYTES,
+                  "meminfo_path": str(meminfo_path)}
+    code, reason = EXIT_NOT_RUN, "preflight measurements unavailable"
+    try:
+        try:
+            raw = meminfo_path.read_text(encoding="ascii")
+        except (OSError, UnicodeError) as exc:
+            data["reason_code"] = "meminfo_unavailable"
+            raise LaneError(f"MemAvailable/MemTotal unavailable: {exc}", EXIT_NOT_RUN) from exc
+        try:
+            data.update(parse_meminfo(raw))
+        except ValueError as exc:
+            data["reason_code"] = "meminfo_invalid"
+            raise LaneError(f"invalid /proc/meminfo: {exc}", EXIT_NOT_RUN) from exc
+        data["meminfo_raw"] = raw
+        if which("df") is None:
+            data["reason_code"] = "disk_unavailable"
+            raise LaneError("df is unavailable; free disk is unmeasured", EXIT_NOT_RUN)
+        target = cache_root.resolve()
+        while not target.exists() and target != target.parent:
+            target = target.parent
+        try:
+            data["df"] = run_df(target, runner)
+        except (LaneError, OSError, subprocess.TimeoutExpired) as exc:
+            data["reason_code"] = "disk_unavailable"
+            raise LaneError(f"free disk is unmeasured: {exc}", EXIT_NOT_RUN) from exc
+        print(f"auto-tree preflight: MemAvailable={data['mem_available_bytes']} bytes "
+              f"MemTotal={data['mem_total_bytes']} bytes; df={json.dumps(data['df'], sort_keys=True)}")
+        if data["mem_available_bytes"] < AUTO_TREE_MEMORY_BYTES:
+            data["reason_code"] = "ram_insufficient"
+            raise LaneError("MemAvailable is below 22 GiB", EXIT_NOT_RUN)
+        if data["df"]["avail_bytes"] < data["required_disk_bytes"]:
+            data["reason_code"] = "disk_insufficient"
+            raise LaneError("free disk is below 2 x 10.2 GB output + 12 GiB scratch", EXIT_NOT_RUN)
+        code, reason = EXIT_OK, "measured RAM and disk meet the Tier A auto-tree budget"
+    except LaneError as exc:
+        code, reason = exc.code, str(exc)
+    write_record(out, "auto_tree_preflight", code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+def _auto_fingerprint(repo: Path, sources: Sequence[str]) -> str:
+    try:
+        return wc.source_fingerprint(repo, sources)
+    except (wc.CacheError, OSError) as exc:
+        raise wc.CacheError(f"cache_stale: checkout sources cannot be fingerprinted: {exc}",
+                            EXIT_NOT_RUN, "cache_stale") from exc
+
+
+def _one_key(cache_root: Path, wid: str) -> Path:
+    keys = wc.complete_keys(cache_root, wid)
+    if not keys:
+        raise wc.CacheError(f"cache absent: no complete {wid} key", EXIT_NOT_RUN, "cache_absent")
+    if len(keys) != 1:
+        raise wc.CacheError(f"ambiguous cache: {len(keys)} complete {wid} keys", EXIT_FAIL, "cache_ambiguous")
+    return keys[0]
+
+
+def _auto_plain_key(repo: Path, cache_root: Path) -> Tuple[Path, dict, str, str]:
+    wc.ensure_format(cache_root, create=False)
+    key = _one_key(cache_root, wc.world_id("A", ENCODING_GSQ))
+    fingerprint = _auto_fingerprint(repo, wc.GENERATOR_SOURCES)
+    meta = wc.read_key_meta(key)
+    if meta.get("encoding") != ENCODING_GSQ or meta.get("source_fingerprint") != fingerprint:
+        raise wc.CacheError("cache_stale: plain key has different generator sources or encoding",
+                            EXIT_NOT_RUN, "cache_stale")
+    gen_sha = meta.get("gen_sha")
+    if not isinstance(gen_sha, str) or re.fullmatch(r"[0-9a-f]{64}", gen_sha) is None or key.name != gen_sha[:12]:
+        raise wc.CacheError("cache_stale: plain key has invalid generator identity", EXIT_NOT_RUN, "cache_stale")
+    world = key / WORLD_FILE_NAME
+    if not world.is_file():
+        raise wc.CacheError("cache absent: plain world file is missing", EXIT_NOT_RUN, "cache_absent")
+    return key, meta, fingerprint, _file_sha256(world)
+
+
+def auto_tree_job(tier: str) -> dict:
+    """Q4 limits; admission caps RAM even when all sixteen workers are queued."""
+    large = tier == "A"
+    if tier not in ("A", "T0"):
+        raise LaneError(f"unsupported auto-tree tier {tier}")
+    return {"schema": "godotgs-auto-tree-job/2", "codec": "gsq",
+            "worker_count": 16 if large else 4, "max_tile_splats": 1_000_000 if large else 262144,
+            "limits": {"max_ram_bytes": (20 if large else 6) * GIB,
+                       "max_scratch_bytes": (12 if large else 2) * GIB,
+                       "max_output_bytes": (12 if large else 2) * GIB,
+                       "deadline_sec": 5400 if large else 1200},
+            "drawn_budget_splats": AUTO_TREE_BUDGET, "drawn_budget_source": AUTO_TREE_BUDGET_SOURCE,
+            "oracle": {"width": 1920, "height": 1080, "fov_deg": 107.5, "keep": "width",
+                       "near_m": 0.05, "far_m": 400.0, "tau_pixels": 1.0}}
+
+
+def _auto_report(out: Path, name: str, code: int, reason: str, **data) -> dict:
+    value = dict(data, status=_status_for(code), reason=reason)
+    _auto_json(out / f"{name}.json", value)
+    return value
+
+
+def _auto_pending(out: Path, tag: str, reason: str) -> None:
+    import build_auto_tree as driver
+
+    report = driver.new_report()
+    report.update(status="NOT_RUN", reason=reason)
+    _auto_json(out / f"{tag}.build.json", report)
+    _auto_report(out, f"{tag}.verify", EXIT_NOT_RUN, reason)
+    _auto_report(out, f"{tag}.oracle", EXIT_NOT_RUN, reason, oracle=None, leaves_only=None)
+
+
+def _read_auto_json(path: Path) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.name}: expected an object")
+    return value
+
+
+def _auto_build(
+    repo: Path, binary: Path, source: Path, output: Path, out: Path, tag: str, job: dict,
+    runner: Runner, verify: Callable[[Path], dict],
+) -> dict:
+    import build_auto_tree as driver
+    import verify_world_manifest as manifest_verifier
+
+    job_path, report_path = out / f"{tag}.job.json", out / f"{tag}.build.json"
+    _auto_json(job_path, job)
+    initial = driver.new_report()
+    initial.update(status="NOT_RUN", reason="builder has not produced a report")
+    _auto_json(report_path, initial)
+    _auto_report(out, f"{tag}.verify", EXIT_NOT_RUN, "build has not completed")
+    _auto_report(out, f"{tag}.oracle", EXIT_NOT_RUN, "build has not completed", oracle=None, leaves_only=None)
+    cmd = [sys.executable, str(_entry_point(repo, AUTO_TREE_ENTRY, "D2-4", "auto-tree builder")),
+           "--repo", str(repo), "--godot-binary", str(binary), "--input", str(source),
+           "--out", str(output), "--job-manifest", str(job_path), "--report", str(report_path)]
+    try:
+        rc = _run_logged(cmd, out / "logs" / f"{tag}.log", runner, job["limits"]["deadline_sec"] + 120)
+        report = _read_auto_json(report_path)
+        producer_status = report.get("status")
+        if rc != 0 or producer_status != "complete":
+            reason = report.get("reason") or f"builder exited {rc} without a complete report"
+            report.update(status="FAIL", producer_status=producer_status, reason=reason)
+            _auto_json(report_path, report)
+            raise LaneError(f"{tag}: {reason}")
+        report.update(status="OK", producer_status=producer_status, reason="builder completed; validating evidence")
+        _auto_json(report_path, report)
+        result = verify(output)
+        _auto_report(out, f"{tag}.verify", EXIT_OK if result.get("ok") else EXIT_FAIL,
+                     "V4 stored-byte structure and digests verified" if result.get("ok") else "V4 verifier rejected output",
+                     result=result)
+        if not result.get("ok"):
+            raise LaneError(f"{tag}: V4 verifier failed: {result.get('problems')}")
+        sidecar = _read_auto_json(output.with_suffix(".manifest.json"))
+        tree_sha = manifest_verifier.compute_tree_sha(sidecar)
+        digest = _file_sha256(output)
+        if (tree_sha != sidecar.get("tree_sha") or tree_sha != report.get("tree_sha")
+                or digest != report.get("output_file_sha256") or digest != sidecar.get("output_file_sha256")
+                or sidecar.get("source_fingerprint") != _auto_fingerprint(repo, wc.TREE_SOURCES)
+                or sidecar.get("input_file_sha256") != _file_sha256(source)
+                or report.get("source_fingerprint") != sidecar.get("source_fingerprint")
+                or report.get("input_file_sha256") != sidecar.get("input_file_sha256")
+                or sidecar.get("content_generation") != report.get("content_generation")
+                or sidecar.get("codec", {}).get("codec") != job["codec"]
+                or sidecar.get("codec", {}).get("codec_id") != 1
+                or sidecar.get("build_params", {}).get("max_tile_splats") != job["max_tile_splats"]):
+            raise LaneError(f"{tag}: recomputed build identity disagrees with report/sidecar/request")
+        w13 = report.get("w13", {})
+        node_count = report.get("node_count")
+        if (type(node_count) is not int or node_count <= 0 or w13.get("available") is not True
+                or w13.get("passed") is not True or type(w13.get("nodes_verified")) is not int
+                or w13["nodes_verified"] != node_count or w13.get("node_count") != node_count
+                or sidecar.get("totals", {}).get("node_count") != node_count):
+            raise LaneError(f"{tag}: builder W13 reopen/decode evidence is absent")
+        if (type(report.get("wall_time_sec")) not in (int, float)
+                or not math.isfinite(report["wall_time_sec"]) or report["wall_time_sec"] <= 0
+                or type(report.get("output_bytes")) is not int or report["output_bytes"] <= 0
+                or type(report.get("height")) is not int or report["height"] < 0
+                or not isinstance(report.get("levels"), list) or not report["levels"]):
+            raise LaneError(f"{tag}: build measurements are missing or malformed")
+        oracle, leaves = report.get("oracle"), report.get("leaves_only")
+        rows = oracle.get("poses") if isinstance(oracle, dict) else None
+        controls = leaves.get("poses") if isinstance(leaves, dict) else None
+        poses = [f"C{i}" for i in range(8)]
+        if (report.get("budget_frozen") is not False or report.get("drawn_budget_splats") != AUTO_TREE_BUDGET
+                or report.get("drawn_budget_source") != AUTO_TREE_BUDGET_SOURCE
+                or not isinstance(rows, list) or [r.get("checkpoint") for r in rows] != poses
+                or not isinstance(controls, list) or [r.get("checkpoint") for r in controls] != poses
+                or any(r.get("status") != "COMPLETE" or r.get("drawn_le_budget") is not True
+                       or type(r.get("selected_splats")) is not int or not 0 < r["selected_splats"] <= AUTO_TREE_BUDGET
+                       for r in rows)):
+            raise LaneError(f"{tag}: missing or invalid eight-pose oracle/budget/control evidence")
+        _auto_report(out, f"{tag}.oracle", EXIT_OK, "all eight oracle cuts complete within the provisional budget",
+                     budget_frozen=False, drawn_budget_splats=AUTO_TREE_BUDGET,
+                     drawn_budget_source=AUTO_TREE_BUDGET_SOURCE, oracle=oracle, leaves_only=leaves, w13=report["w13"])
+        report["reason"] = "build, W13, V4 verification and eight-pose oracle completed"
+        _auto_json(report_path, report)
+        return report
+    except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired, LaneError) as exc:
+        try:
+            report = _read_auto_json(report_path)
+        except (OSError, ValueError):
+            report = initial
+        report.update(status="FAIL", reason=str(exc))
+        _auto_json(report_path, report)
+        raise LaneError(f"{tag}: {exc}") from exc
+
+
+def _auto_tree_base(cache_root: Path) -> Path:
+    base = cache_root / wc.world_id("A", AUTO_TREE_ENCODING)
+    if base.is_symlink() or base.resolve() != cache_root.resolve() / base.name:
+        raise LaneError(f"refusing redirected tree cache directory: {base}")
+    return base
+
+
+def _delete_auto_tree_keys(base: Path) -> List[str]:
+    deleted = []
+    for old in sorted(base.iterdir()):
+        if old.is_symlink() or old.resolve() != base.resolve() / old.name:
+            raise LaneError(f"refusing redirected tree cache entry: {old}")
+        if old.is_dir():
+            # Resolve and check before recursive deletion, including junctions.
+            target = old.resolve()
+            if target.parent != base.resolve():
+                raise LaneError(f"tree deletion escapes its base: {old}")
+            shutil.rmtree(target)
+            deleted.append(old.name)
+    return deleted
+
+
+def prime_auto_tree(
+    repo: Path, godot_binary: Path, cache_root: Path, out: Path, run_id: str,
+    runner: Runner = subprocess.run, which: Which = shutil.which,
+    fadvise: Optional[wc.Fadvise] = None, lock: Callable[..., object] = wc.cache_lock,
+    verify: Callable[[Path], dict] = _verify_world, meminfo_path: Path = Path("/proc/meminfo"),
+) -> int:
+    data: dict = {"cache_root": str(cache_root), "run_id": run_id}
+    code, reason = EXIT_FAIL, "auto-tree prime did not complete"
+    for tag in ("A.first", "A.second"):
+        _auto_pending(out, tag, "Tier A admission/build has not completed")
+    _auto_report(out, "A.repeat_identity", EXIT_NOT_RUN, "two completed builds are required", first=None, second=None)
+    _auto_report(out, "A.cache_key", EXIT_NOT_RUN, "no tree key has been published by this attempt")
+    try:
+        if not cache_root.is_absolute() or re.fullmatch(r"[A-Za-z0-9_.-]+", run_id) is None or run_id in (".", ".."):
+            raise LaneError("absolute cache root and a safe run_id are required")
+        wc.ensure_format(cache_root, create=False)
+        # Shared with plain readers, exclusive against plain re-prime. A second
+        # lock serializes tree writers without taking away plain read access.
+        with lock(cache_root, False), lock(cache_root / ".auto-tree-lock", True):
+            plain, plain_meta, gen_fingerprint, input_digest = _auto_plain_key(repo, cache_root)
+            tree_fingerprint = _auto_fingerprint(repo, wc.TREE_SOURCES)
+            base = _auto_tree_base(cache_root)
+            base.mkdir(exist_ok=True)
+            data["deleted_keys"] = _delete_auto_tree_keys(base)
+            preflight = auto_tree_preflight(cache_root, out, runner, which, meminfo_path)
+            measured = _read_auto_json(out / "steps" / "auto_tree_preflight.json")
+            _auto_json(out / "A.preflight.json", measured)
+            data["preflight"] = measured
+            if preflight != EXIT_OK:
+                data["reason_code"] = measured["data"]["reason_code"]
+                raise LaneError(measured["reason"], preflight)
+            incoming = base / f"{wc.INCOMING_PREFIX}{run_id}"
+            incoming.mkdir()
+            job = auto_tree_job("A")
+            first = _auto_build(repo, godot_binary, plain / WORLD_FILE_NAME, incoming / WORLD_FILE_NAME,
+                                out, "A.first", job, runner, verify)
+            # Same filesystem for the disk estimate; this scratch copy is always
+            # removed, including when verification or repeat identity fails.
+            with tempfile.TemporaryDirectory(prefix=f".repeat-{run_id}-", dir=base) as repeat_dir:
+                second = _auto_build(repo, godot_binary, plain / WORLD_FILE_NAME, Path(repeat_dir) / WORLD_FILE_NAME,
+                                     out, "A.second", job, runner, verify)
+                fields = ("content_generation", "output_file_sha256")
+                left, right = ({k: r[k] for k in fields} for r in (first, second))
+                matched = left == right
+                comparison = _auto_report(out, "A.repeat_identity", EXIT_OK if matched else EXIT_FAIL,
+                                          "both builds have identical content_generation and file SHA-256" if matched
+                                          else "repeat build identity differs", first=left, second=right,
+                                          reason_code="repeat_identity_match" if matched else "repeat_identity_mismatch")
+                data["repeat_identity"] = comparison
+                if not matched:
+                    raise LaneError("repeat_identity_mismatch")
+            # Refuse a checkout/input changed while this long build was running.
+            if (tree_fingerprint != _auto_fingerprint(repo, wc.TREE_SOURCES)
+                    or gen_fingerprint != _auto_fingerprint(repo, wc.GENERATOR_SOURCES)
+                    or input_digest != _file_sha256(plain / WORLD_FILE_NAME)):
+                raise wc.CacheError("cache_stale: inputs changed during the build", EXIT_NOT_RUN, "cache_stale")
+            meta = {"schema": wc.KEY_SCHEMA, "world": "A", "encoding": AUTO_TREE_ENCODING,
+                    "gen_sha": plain_meta["gen_sha"], "tree_sha": first["tree_sha"],
+                    "source_fingerprint": gen_fingerprint, "tree_source_fingerprint": tree_fingerprint,
+                    "input_file_sha256": input_digest, "run_id": run_id,
+                    "w13": first["w13"], "repeat_identity": comparison}
+            _auto_json(incoming / wc.KEY_META_FILE, meta)
+            key = base / f"{plain_meta['gen_sha'][:12]}-{first['tree_sha'][:12]}"
+            os.replace(incoming, key)
+            data["bytes_dropped_from_page_cache"] = wc.drop_from_page_cache(wc.world_files(key), fadvise)
+            _fsync_write(key / wc.COMPLETE_FILE, f"run_id={run_id}\n")
+            _auto_report(out, "A.cache_key", EXIT_OK, "verified key published with completion marker", key_metadata=meta)
+            data["key"] = str(key)
+            code, reason = EXIT_OK, "auto-tree key published after two identical verified builds"
+    except wc.CacheError as exc:
+        code, reason = exc.code, str(exc)
+        data["reason_code"] = exc.reason_code or "cache_invalid"
+    except LaneError as exc:
+        code, reason = exc.code, str(exc)
+    except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired) as exc:
+        code, reason = EXIT_FAIL, f"auto-tree prime could not complete: {exc}"
+    write_record(out, "prime_auto_tree", code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+def auto_tree_cache_check(
+    repo: Path, tier: str, cache_root: Path, out: Path, run_id: str,
+    fadvise: Optional[wc.Fadvise], verify: Callable[[Path], dict], lock: Callable[..., object],
+) -> int:
+    data: dict = {"cache_root": str(cache_root), "run_id": run_id, "auto_tree": True}
+    code, reason = EXIT_FAIL, "auto-tree cache check did not complete"
+    try:
+        if tier != "A":
+            raise LaneError("auto-tree cache check supports Tier A only")
+        wc.ensure_format(cache_root, create=False)
+        with lock(cache_root, False), lock(cache_root / ".auto-tree-lock", False):
+            plain, plain_meta, generator_fingerprint, digest = _auto_plain_key(repo, cache_root)
+            _auto_tree_base(cache_root)
+            tree = _one_key(cache_root, wc.world_id("A", AUTO_TREE_ENCODING))
+            meta = wc.read_key_meta(tree)
+            fingerprint = _auto_fingerprint(repo, wc.TREE_SOURCES)
+            if (meta.get("source_fingerprint") != generator_fingerprint
+                    or meta.get("tree_source_fingerprint") != fingerprint
+                    or meta.get("input_file_sha256") != digest or meta.get("gen_sha") != plain_meta["gen_sha"]
+                    or meta.get("encoding") != AUTO_TREE_ENCODING
+                    or not isinstance(meta.get("tree_sha"), str) or re.fullmatch(r"[0-9a-f]{64}", meta["tree_sha"]) is None
+                    or tree.name != f"{plain_meta['gen_sha'][:12]}-{meta['tree_sha'][:12]}"):
+                raise wc.CacheError("cache_stale: tree key input or checkout fingerprint differs", EXIT_NOT_RUN, "cache_stale")
+            for name, key in (("plain", plain), ("tree", tree)):
+                result = verify(key / WORLD_FILE_NAME)
+                data[f"{name}_verification"] = result
+                if not result.get("ok"):
+                    raise LaneError(f"{name} world failed manifest verification: {result.get('problems')}")
+                if name == "tree" and result.get("tree_sha") != meta["tree_sha"]:
+                    raise wc.CacheError("cache_stale: recomputed tree_sha differs from key", EXIT_NOT_RUN, "cache_stale")
+                if name == "tree":
+                    sidecar = _read_auto_json((key / WORLD_FILE_NAME).with_suffix(".manifest.json"))
+                    if (sidecar.get("source_fingerprint") != fingerprint or sidecar.get("input_file_sha256") != digest
+                            or sidecar.get("codec", {}).get("codec") != "gsq"
+                            or sidecar.get("codec", {}).get("codec_id") != 1):
+                        raise wc.CacheError("cache_stale: verified sidecar inputs differ from the key/checkout",
+                                            EXIT_NOT_RUN, "cache_stale")
+                wc.drop_from_page_cache(wc.world_files(key), fadvise)
+            data.update(plain_key=str(plain), tree_key=str(tree), input_file_sha256=digest,
+                        tree_source_fingerprint=fingerprint, source_fingerprint=generator_fingerprint)
+            code, reason = EXIT_OK, "both complete keys verified against input bytes and checkout sources"
+    except wc.CacheError as exc:
+        code, reason = exc.code, str(exc)
+        data["reason_code"] = exc.reason_code or "cache_invalid"
+    except LaneError as exc:
+        code, reason = exc.code, str(exc)
+    except (OSError, ValueError, TypeError) as exc:
+        code, reason = EXIT_FAIL, f"auto-tree cache check failed: {exc}"
+    write_record(out, "cache_check", code, reason, data)
+    _announce(code, reason)
+    return code
+
+
+def real_scan_identity(out: Path, scan_dir: Optional[str] = None) -> dict:
+    chosen = scan_dir or os.environ.get("BVW_SCAN_DIR") or os.environ.get("GS_REAL_SCAN_DIR")
+    # The bound in-core bake/save API exposes no per-node decoded digests.
+    # A scan cannot supply that missing API, and inventing a fixture cannot prove it.
+    return _auto_report(out, "real_scan_identity", EXIT_NOT_RUN,
+                        "in-core MERGE_ONLY per-node digest API is not bound; identity was not attempted",
+                        reason_code="in_core_per_node_digest_api_unavailable", scan_dir=chosen,
+                        scan_dir_present=Path(chosen).is_dir() if chosen else False,
+                        leaf_count=None, tiled_digests=None, in_core_digests=None)
+
+
+def auto_tree_t0(
+    repo: Path, godot_binary: Path, cache_root: Path, out: Path, run_id: str,
+    runner: Runner = subprocess.run, which: Which = shutil.which,
+    verify: Callable[[Path], dict] = _verify_world, meminfo_path: Path = Path("/proc/meminfo"),
+    scan_dir: Optional[str] = None,
+) -> int:
+    data: dict = {"run_id": run_id, "tier": "T0", "encoding": ENCODING_GSQ}
+    real_scan_identity(out, scan_dir)
+    _auto_pending(out, "T0", "T0 admission/plain-GSQ generation has not completed")
+    code, reason = EXIT_FAIL, "T0 auto-tree did not complete"
+    try:
+        # The CLI preflight gates T0 too; direct calls cannot bypass it.
+        # T0 is outside the cache. If the cache itself is a mountpoint, its
+        # parent is a different filesystem and must be measured separately.
+        code = auto_tree_preflight(cache_root.parent, out, runner, which, meminfo_path)
+        measured = _read_auto_json(out / "steps" / "auto_tree_preflight.json")
+        _auto_json(out / "T0.preflight.json", measured)
+        if code != EXIT_OK:
+            raise LaneError(measured["reason"], code)
+        parent = cache_root.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="bvw-auto-tree-t0-", dir=parent) as scratch_dir:
+            scratch = Path(scratch_dir)
+            source = scratch / "plain"
+            cmd = [sys.executable, str(_entry_point(repo, GENERATOR_ENTRY, "BV-05", "generator")),
+                   "--godot-binary", str(godot_binary), "--tier", "T0", "--encoding", ENCODING_GSQ, "--out", str(source)]
+            rc = _run_logged(cmd, out / "logs" / "T0.generate.log", runner, 600)
+            if rc != 0:
+                raise LaneError(f"T0 plain-GSQ generation exited {rc}")
+            report = _auto_build(repo, godot_binary, source / WORLD_FILE_NAME, scratch / "tree" / WORLD_FILE_NAME,
+                                 out, "T0", auto_tree_job("T0"), runner, verify)
+            data["report"] = str(out / "T0.build.json")
+            data["w13"] = report["w13"]
+        code, reason = EXIT_OK, "T0 plain GSQ to V4 GSQ completed with W13 reopen and oracle; scratch removed"
+    except LaneError as exc:
+        code, reason = exc.code, str(exc)
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
+        code, reason = EXIT_FAIL, f"T0 build could not complete: {exc}"
+    write_record(out, "auto_tree_t0", code, reason, data)
     _announce(code, reason)
     return code
 
@@ -1473,6 +1945,21 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", type=Path, default=ROOT)
     p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
     p.add_argument("--encoding", choices=ENCODINGS, default=ENCODING, help="Tier A's encoding (T0 stays flat)")
+    p.add_argument("--auto-tree", action="store_true", help="verify the plain and derived Tier A auto-tree keys")
+
+    p = sub.add_parser("auto-tree-preflight")
+    common(p, world=False)
+    p.add_argument("--cache-root", type=Path, required=True)
+
+    for name in ("auto-tree-t0", "prime-auto-tree"):
+        p = sub.add_parser(name)
+        common(p, world=False)
+        p.add_argument("--repo", type=Path, default=ROOT)
+        p.add_argument("--godot-binary", type=Path, required=True)
+        p.add_argument("--cache-root", type=Path, required=True)
+        p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
+        if name == "auto-tree-t0":
+            p.add_argument("--scan-dir", default=None)
 
     p = sub.add_parser("summarize")
     common(p, world=False)
@@ -1500,7 +1987,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return prime_cache(args.repo, args.godot_binary, args.tier, args.cache_root, args.out, args.run_id,
                            encoding=args.encoding)
     if args.command == "cache-check":
-        return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id, encoding=args.encoding)
+        return cache_check(args.repo, args.tier, args.cache_root, args.out, args.run_id,
+                           encoding=args.encoding, auto_tree=args.auto_tree)
+    if args.command == "auto-tree-preflight":
+        real_scan_identity(args.out)
+        for tag in ("T0", "A.first", "A.second"):
+            _auto_pending(args.out, tag, "initial RAM/disk admission has not completed")
+        _auto_report(args.out, "A.repeat_identity", EXIT_NOT_RUN, "two completed builds are required", first=None, second=None)
+        _auto_report(args.out, "A.cache_key", EXIT_NOT_RUN, "no tree key has been published by this attempt")
+        code = auto_tree_preflight(args.cache_root, args.out)
+        _auto_json(args.out / "initial.preflight.json", _read_auto_json(args.out / "steps" / "auto_tree_preflight.json"))
+        return code
+    if args.command == "prime-auto-tree":
+        return prime_auto_tree(args.repo, args.godot_binary, args.cache_root, args.out, args.run_id)
+    if args.command == "auto-tree-t0":
+        return auto_tree_t0(args.repo, args.godot_binary, args.cache_root, args.out, args.run_id, scan_dir=args.scan_dir)
     if args.command == "disk-throughput":
         return disk_throughput(args.world_root, args.out, args.probe_gib)
     if args.command == "vulkan-limits":

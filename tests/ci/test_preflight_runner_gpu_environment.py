@@ -122,6 +122,8 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     # BV-06b: the prime job launches the binary only through the same helper
     # (build-info, then prime-cache, which runs the generator), after the preflight.
     ("beyond_vram_flythrough.yml", "prime-world-cache"): "tests/runtime/flythrough/dispatch_lane.py",
+    # D2-5 uses the same producer handoff for T0 and the two Tier A tree builds.
+    ("beyond_vram_flythrough.yml", "prime-auto-tree"): "tests/runtime/flythrough/dispatch_lane.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step

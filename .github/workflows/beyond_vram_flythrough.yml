@@ -36,12 +36,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "flythrough (the lane) or watchdog (run only the liveness watchdog)"
+        description: "flythrough (the lane), auto_tree (prime the HLOD tree only), or watchdog (liveness only)"
         required: false
         default: "flythrough"
         type: choice
         options:
           - "flythrough"
+          - "auto_tree"
           - "watchdog"
       tier:
         description: "World tier: T0 (4.19M splats, smoke) or A (201M splats; also uses T0). The weekly schedule runs A."
@@ -70,7 +71,7 @@ on:
         default: "8"
         type: string
       scan_dir:
-        description: "Runner directory of real-scan *.ply files for the BV-C2 codec probe (empty: $GS_REAL_SCAN_DIR; none found: MISSING)"
+        description: "Runner directory of real scans for the codec probe or auto_tree identity evidence (empty: $GS_REAL_SCAN_DIR; unavailable evidence is recorded)"
         required: false
         default: ""
         type: string
@@ -85,7 +86,7 @@ on:
         default: false
         type: boolean
 
-run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
 permissions:
   contents: read
@@ -101,7 +102,7 @@ permissions:
 # mincore check right before each probe turns any warming by the other run into
 # INVALID cache_warm, never into a cold result.
 concurrency:
-  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || 'lane' }}
+  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || 'lane' }}
   cancel-in-progress: false
 
 env:
@@ -192,7 +193,7 @@ jobs:
   # to the RTX 3080 runner (`rtx3080`), because the cache lives on its disk.
   prime-world-cache:
     name: Prime world cache (RTX 3080 runner)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.prime_world_cache }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.prime_world_cache }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
     timeout-minutes: 240
@@ -295,12 +296,124 @@ jobs:
         if: always()
         run: python3 tests/ci/runner_gpu_contention.py postflight
 
+  # D2-5: a separate dispatch mode; the existing plain GSQ key is read only.
+  # Two Tier A builds each retain their 90-minute deadline. Reports are small;
+  # neither the cached world nor the scratch repeat is an uploaded artifact.
+  prime-auto-tree:
+    name: Prime automatic HLOD tree (RTX 3080 runner)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'auto_tree' }}
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
+    needs: build-linux-editor
+    timeout-minutes: 240
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      NODEVICE_SELECT: '1'
+      BVW_SCAN_DIR: ${{ inputs.scan_dir }}
+      GS_CI_GPU_CONTENTION_DIR: ${{ runner.temp }}/bvw-auto-tree-out/contention
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 1
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: python3 --version
+
+      - name: Set lane paths
+        run: |
+          echo "BVW_OUT=$RUNNER_TEMP/bvw-auto-tree-out" >> "$GITHUB_ENV"
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+      - name: Resolve Godot binary
+        id: godot_bin
+        run: |
+          candidate=bin/godot.linuxbsd.editor.x86_64
+          if [ ! -x "$candidate" ]; then
+            echo "::error::Could not find the optimized editor binary $candidate."
+            ls -la bin || true
+            exit 1
+          fi
+          resolved="$(realpath "$candidate")"
+          echo "Resolved Godot binary: $resolved"
+          echo "path=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Build info (assert optimized producer binary)
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "${{ steps.godot_bin.outputs.path }}" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$BVW_OUT"
+
+      - name: Auto-tree RAM and disk preflight (record measured capacity)
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py auto-tree-preflight --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT"
+
+      - name: T0 plain GSQ to V4 end to end (scratch only)
+        timeout-minutes: 30
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py auto-tree-t0 --repo "$PWD" --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --scan-dir "${BVW_SCAN_DIR:-${GS_REAL_SCAN_DIR:-}}"
+
+      - name: Prime Tier A automatic tree and compare repeat identity
+        timeout-minutes: 200
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py prime-auto-tree --repo "$PWD" --godot-binary "${{ steps.godot_bin.outputs.path }}" --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+      - name: Verify both cache keys and the automatic tree
+        timeout-minutes: 10
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py cache-check --repo "$PWD" --tier A --encoding plain_v3_gsq --auto-tree --cache-root "$BVW_CACHE_ROOT" --out "$BVW_OUT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+
+      - name: Upload auto-tree reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beyond-vram-auto-tree-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/bvw-auto-tree-out/**/*.json
+            ${{ runner.temp }}/bvw-auto-tree-out/**/*.log
+          if-no-files-found: error
+          retention-days: 30
+
   # ADR section 9.1 job 2. Runs on the schedule and on every lane dispatch, after
   # the prime when one was requested. Pinned to the RTX 3080 runner (`rtx3080`):
   # the world cache it reads lives on that runner's disk.
   flythrough:
     name: Beyond-VRAM fly-through (report-only)
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: [build-linux-editor, prime-world-cache]
     # ADR section 9.1: 150 min, per-step timeouts below. Generation is the prime
@@ -534,7 +647,7 @@ jobs:
   # 3 when no report was written.
   codec-probe:
     name: BV-C2 GSQ codec probe (Self-Hosted CPU, report-only)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' }}
     runs-on: [self-hosted, Linux, X64]
     needs: build-linux-editor
     timeout-minutes: 45

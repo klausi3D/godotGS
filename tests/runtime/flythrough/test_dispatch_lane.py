@@ -1127,11 +1127,13 @@ class WorkflowContract(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
         cls.build = _job_block(cls.text, "build-linux-editor")
         cls.prime = _job_block(cls.text, "prime-world-cache")
+        cls.auto_tree = _job_block(cls.text, "prime-auto-tree")
         cls.gpu = _job_block(cls.text, "flythrough")
         cls.codec = _job_block(cls.text, "codec-probe")
         cls.watchdog = _job_block(cls.text, "liveness-watchdog")
         cls.steps = _steps(cls.gpu)
         cls.prime_steps = _steps(cls.prime)
+        cls.auto_tree_steps = _steps(cls.auto_tree)
         cls.by_id = {s["id"]: i for i, s in enumerate(cls.steps) if "id" in s}
 
     @staticmethod
@@ -1179,7 +1181,7 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("\npermissions:\n  contents: read\n\n", self.text)
         self.assertIn(
             "  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || "
-            "inputs.mode == 'watchdog') && 'watchdog' || 'lane' }}\n  cancel-in-progress: false\n",
+            "inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || 'lane' }}\n  cancel-in-progress: false\n",
             self.text,
         )
         # actions: read on the watchdog job only (ADR section 9.1).
@@ -1191,8 +1193,8 @@ class WorkflowContract(unittest.TestCase):
 
     def test_runner_routing(self) -> None:
         self.assertIn("    runs-on: [self-hosted, Linux, X64]", self.build)
-        # The cache lives on the 3080's disk: both jobs that touch it are pinned to it.
-        for job in (self.prime, self.gpu):
+        # The cache lives on the 3080's disk: every job that touches it is pinned to it.
+        for job in (self.prime, self.auto_tree, self.gpu):
             self.assertIn("    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]", job)
         self.assertIn("    runs-on: ubuntu-latest", self.watchdog)
         self.assertIn("    needs: [build-linux-editor, prime-world-cache]", self.gpu)
@@ -1213,16 +1215,16 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("cache_path=/opt/actions-runner/godotgs-scons-cache-opt", args)
         build_runs = "".join(s.get("run", "") for s in _steps(self.build))
         self.assertIn("python -m SCons $BVW_SCONS_ARGS\n", build_runs)
-        for steps in (self.steps, self.prime_steps):
+        for steps in (self.steps, self.prime_steps, self.auto_tree_steps):
             self.assertIn('--scons-args "$BVW_SCONS_ARGS"', steps[self.index_of("build-info", steps)]["run"])
 
     def test_the_binary_handoff_is_pinned(self) -> None:
         build_runs = "".join(s.get("run", "") for s in _steps(self.build))
         self.assertIn("linux_gpu_runner.sh stage-binary", build_runs)
-        for steps in (self.steps, self.prime_steps):
+        for steps in (self.steps, self.prime_steps, self.auto_tree_steps):
             self.assertIn("linux_gpu_runner.sh install-binary", "".join(s.get("run", "") for s in steps))
-        # build upload; prime, flythrough and codec-probe download
-        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 4)
+        # Build upload; both primes, flythrough and codec-probe download.
+        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 5)
 
     def test_the_cache_root_is_the_section_9_2_path(self) -> None:
         self.assertIn(f"  BVW_CACHE_ROOT: {wc.DEFAULT_CACHE_ROOT.as_posix()}\n", self.text)
@@ -1297,7 +1299,8 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn(f'--cache-worlds "$BVW_OUT/{lane.CACHE_WORLDS_FILE}"', self.steps[probe]["run"])
 
     def test_preflights_precede_the_lane(self) -> None:
-        for steps, first in ((self.steps, "disk-preflight"), (self.prime_steps, "build-info")):
+        for steps, first in ((self.steps, "disk-preflight"), (self.prime_steps, "build-info"),
+                             (self.auto_tree_steps, "build-info")):
             first_lane = self.index_of(first, steps)
             runs = [s.get("run", "") for s in steps]
             for script in ("tests/ci/runner_gpu_contention.py preflight", "tests/ci/preflight_runner_gpu_environment.py"):
@@ -1459,12 +1462,23 @@ class D25AutoTreeCache(_CacheCase):
         return self.key("A", lane.ENCODING_GSQ)
 
     def tree_fixture(self):
+        from test_verify_world_manifest import build_v4_structure_world
+        from verify_world_manifest import compute_tree_sha
+
         plain = self.ready_plain()
-        self.tree_sha = "ab" * 32
+        fixture_dir = self.tmp / "tree-structure"
+        fixture_dir.mkdir()
+        fixture = build_v4_structure_world(fixture_dir)
+        sidecar = json.loads(fixture.with_suffix(".manifest.json").read_text(encoding="utf-8"))
+        sidecar["source_fingerprint"] = wc.source_fingerprint(self.repo, wc.TREE_SOURCES)
+        sidecar["input_file_sha256"] = hashlib.sha256((plain / lane.WORLD_FILE_NAME).read_bytes()).hexdigest()
+        self.tree_sha = sidecar["tree_sha"] = compute_tree_sha(sidecar)
         tree = self.cache / "A-v4_gsq_auto" / f"{GEN_SHA[:12]}-{self.tree_sha[:12]}"
         tree.mkdir(parents=True)
-        (tree / lane.WORLD_FILE_NAME).write_bytes(b"opaque tree bytes")
-        (tree / lane.MANIFEST_NAME).write_text("{}", encoding="utf-8")
+        (tree / lane.WORLD_FILE_NAME).write_bytes(fixture.read_bytes())
+        # The sidecar must bind the same inputs as .key.json. An empty sidecar
+        # would conceal a missing cross-check while the verifier is doubled.
+        (tree / lane.MANIFEST_NAME).write_text(json.dumps(sidecar), encoding="utf-8")
         meta = {"schema": wc.KEY_SCHEMA, "world": "A", "encoding": "v4_gsq_auto",
                 "gen_sha": GEN_SHA, "tree_sha": self.tree_sha, "run_id": "25",
                 "input_file_sha256": hashlib.sha256((plain / lane.WORLD_FILE_NAME).read_bytes()).hexdigest(),
@@ -1528,6 +1542,29 @@ class D25AutoTreeCache(_CacheCase):
                 self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_absent")
                 marker.write_bytes(saved)
 
+    def test_sidecar_identity_cannot_be_laundered_by_updating_key_metadata(self):
+        plain, tree = self.tree_fixture()
+        self.assertEqual(self.tree_check(), lane.EXIT_OK)
+        path = tree / wc.KEY_META_FILE
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        (self.repo / wc.TREE_SOURCES[0]).write_text("// new tree source\n", encoding="utf-8")
+        meta["tree_source_fingerprint"] = wc.source_fingerprint(self.repo, wc.TREE_SOURCES)
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        self.assertEqual(self.tree_check(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_stale")
+
+    def test_sidecar_input_cannot_be_laundered_by_updating_key_metadata(self):
+        plain, tree = self.tree_fixture()
+        self.assertEqual(self.tree_check(), lane.EXIT_OK)
+        source = plain / lane.WORLD_FILE_NAME
+        source.write_bytes(source.read_bytes() + b"changed input")
+        path = tree / wc.KEY_META_FILE
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        meta["input_file_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
+        path.write_text(json.dumps(meta), encoding="utf-8")
+        self.assertEqual(self.tree_check(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("cache_check")["data"]["reason_code"], "cache_stale")
+
     def prime_tree(self, runner):
         # Injectable OS/process boundaries match the existing prime-cache tests.
         meminfo = self.tmp / "meminfo"
@@ -1571,7 +1608,39 @@ class D25AutoTreeCache(_CacheCase):
         self.assertEqual(self.snapshot(plain), before)
         self.assertEqual(wc.complete_keys(self.cache, "A-v4_gsq_auto"), [])
 
-    def repeat_runner(self, changed=None):
+    def test_old_tree_keys_are_deleted_before_build_and_plain_is_preserved(self):
+        plain, tree = self.tree_fixture()
+        before = self.snapshot(plain)
+
+        def fail(cmd, **kwargs):
+            self.assertFalse(tree.exists(), "delete old tree before building its replacement")
+            return _proc(cmd, 1)
+
+        runner = FakeRunner(**{"build_auto_tree.py": fail})
+        self.assertEqual(self.prime_tree(runner), lane.EXIT_FAIL)
+        self.assertIn(tree.name, self.record("prime_auto_tree")["data"]["deleted_keys"])
+        self.assertEqual(self.snapshot(plain), before)
+
+    def test_successful_plain_reprime_removes_the_derived_tree(self):
+        plain, tree = self.tree_fixture()
+        self.assertEqual(self.prime("A", self.generator(rc=1), encoding=lane.ENCODING_GSQ), lane.EXIT_FAIL)
+        self.assertTrue((tree / wc.COMPLETE_FILE).exists())
+        self.assertEqual(self.prime("A", encoding=lane.ENCODING_GSQ), lane.EXIT_OK)
+        self.assertFalse(tree.exists())
+        self.assertEqual(self.record("prime_cache")["data"]["deleted_auto_tree_keys"], [tree.name])
+
+    def test_redirected_tree_directory_is_refused_without_deleting_plain(self):
+        plain = self.ready_plain()
+        before = self.snapshot(plain)
+        base = self.cache / "A-v4_gsq_auto"
+        original = Path.is_symlink
+        # Windows need not grant symlink privileges to exercise the refusal.
+        with mock.patch.object(Path, "is_symlink", lambda p: p == base or original(p)):
+            self.assertEqual(self.prime_tree(FakeRunner()), lane.EXIT_FAIL)
+        self.assertIn("redirected tree", self.record("prime_auto_tree")["reason"])
+        self.assertEqual(self.snapshot(plain), before)
+
+    def repeat_runner(self, changed=None, *, tier="A"):
         import build_auto_tree as driver
         from test_verify_world_manifest import build_v4_structure_world
 
@@ -1581,8 +1650,10 @@ class D25AutoTreeCache(_CacheCase):
             output = Path(self.arg(cmd, "--out"))
             self.assertNotIn(output, outputs, "repeat build must use a different scratch path")
             self.assertFalse((output.parent / wc.COMPLETE_FILE).exists())
-            if not outputs:
+            if not outputs and tier == "A":
                 self.assertEqual(output.parent, self.cache / "A-v4_gsq_auto" / ".incoming-25")
+            if tier == "T0":
+                self.assertFalse(output.is_relative_to(self.cache), "T0 must not write a cache key")
             outputs.append(output)
             output.parent.mkdir(parents=True, exist_ok=True)
             # Share the explicitly structural fixture, not a captured producer
@@ -1595,6 +1666,12 @@ class D25AutoTreeCache(_CacheCase):
             output.write_bytes(blob)
             manifest["input_file_sha256"] = hashlib.sha256(Path(self.arg(cmd, "--input")).read_bytes()).hexdigest()
             manifest["source_fingerprint"] = wc.source_fingerprint(self.repo, wc.TREE_SOURCES)
+            # Honor the submitted job instead of silently using the tiny V4
+            # structure fixture's tile limit. Real builder reports include W13
+            # and selected_splats; the lane must not accept their absence.
+            job = json.loads(Path(self.arg(cmd, "--job-manifest")).read_text(encoding="utf-8"))
+            manifest["build_params"]["max_tile_splats"] = job["max_tile_splats"]
+            manifest["build_params"]["worker_count"] = job["worker_count"]
             key = {k: manifest[k] for k in ("source_fingerprint", "build_params", "codec", "input_file_sha256")}
             key["build_params"] = {k: v for k, v in key["build_params"].items() if k != "worker_count"}
             manifest["tree_sha"] = hashlib.sha256(json.dumps(key, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -1605,14 +1682,16 @@ class D25AutoTreeCache(_CacheCase):
             report = driver.new_report()
             report.update(status="complete", reason="", wall_time_sec=1.5,
                           peak_rss_bytes={"available": True, "value": 1024, "source": "process_rss"},
-                          output_bytes=len(blob), node_count=3, height=1,
+                          output_bytes=len(blob), node_count=3, height=1, levels=manifest["levels"],
+                          w13={"available": True, "passed": True, "nodes_verified": 3, "node_count": 3,
+                               "source": "test double of builder W13"},
                           oracle_complete_all_poses=True, budget_frozen=False,
                           drawn_budget_splats=1_000_000,
                           drawn_budget_source="ADR HLOD arm N_frozen <= 1.0M; BV-26a not merged",
                           oracle={"poses": [{"checkpoint": f"C{i}", "status": "COMPLETE",
-                                             "drawn_splats": 3, "drawn_le_budget": True} for i in range(8)]},
+                                             "selected_splats": 3, "drawn_le_budget": True} for i in range(8)]},
                           leaves_only={"poses": [{"checkpoint": f"C{i}", "status": "COMPLETE",
-                                                  "drawn_splats": 2, "drawn_le_budget": True} for i in range(8)]})
+                                                  "selected_splats": 2, "drawn_le_budget": True} for i in range(8)]})
             for field in ("tree_sha", "input_file_sha256", "source_fingerprint", "content_generation", "output_file_sha256"):
                 report[field] = manifest[field]
             report_path = Path(self.arg(cmd, "--report"))
@@ -1622,6 +1701,78 @@ class D25AutoTreeCache(_CacheCase):
             return _proc(cmd)
 
         return FakeRunner(**{"build_auto_tree.py": build}), outputs, identities
+
+    def test_missing_w13_evidence_prevents_publication(self):
+        plain = self.ready_plain()
+        before = self.snapshot(plain)
+        runner, outputs, identities = self.repeat_runner()
+        build = runner.overrides["build_auto_tree.py"]
+
+        def without_w13(cmd, **kwargs):
+            result = build(cmd, **kwargs)
+            path = Path(self.arg(cmd, "--report"))
+            report = json.loads(path.read_text(encoding="utf-8"))
+            report.pop("w13")
+            path.write_text(json.dumps(report), encoding="utf-8")
+            return result
+
+        runner.overrides["build_auto_tree.py"] = without_w13
+        self.assertEqual(self.prime_tree(runner), lane.EXIT_FAIL)
+        self.assertEqual(len(outputs), 1)
+        self.assertIn("W13", self.record("prime_auto_tree")["reason"])
+        self.assertEqual(wc.complete_keys(self.cache, "A-v4_gsq_auto"), [])
+        self.assertEqual(self.snapshot(plain), before)
+
+    def test_t0_generates_plain_gsq_in_scratch_and_records_evidence(self):
+        self.ready_plain()
+        before = self.snapshot(self.cache)
+        runner, outputs, identities = self.repeat_runner(tier="T0")
+        runner.overrides[lane.GENERATOR_ENTRY.name] = self.generator().overrides[lane.GENERATOR_ENTRY.name]
+        memory = self.tmp / "meminfo"
+        memory.write_text("MemTotal: 33554432 kB\nMemAvailable: 25165824 kB\n", encoding="ascii")
+        self.assertEqual(lane.auto_tree_t0(self.repo, self.binary, self.cache, self.out, "25", runner,
+                                         _all_tools, lambda p: {"ok": True}, memory), lane.EXIT_OK)
+        generates = [c for c in runner.calls if len(c) > 1 and Path(c[1]).name == lane.GENERATOR_ENTRY.name]
+        self.assertEqual(len(generates), 1)
+        self.assertEqual(self.arg(generates[0], "--tier"), "T0")
+        self.assertEqual(self.arg(generates[0], "--encoding"), "plain_v3_gsq")
+        self.assertFalse(Path(self.arg(generates[0], "--out")).exists(), "scratch must be removed")
+        self.assertEqual(self.snapshot(self.cache), before)
+        self.assertEqual(len(outputs), 1)
+        self.assertFalse(outputs[0].exists())
+        report = json.loads((self.out / "T0.build.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "OK")
+        self.assertEqual(report["wall_time_sec"], 1.5)
+        self.assertEqual(report["peak_rss_bytes"]["value"], 1024)
+        self.assertEqual(report["content_generation"], identities[0]["content_generation"])
+        self.assertEqual(len(report["oracle"]["poses"]), 8)
+        self.assertEqual(len(report["leaves_only"]["poses"]), 8)
+        self.assertFalse(report["scratch_bytes"]["available"])
+        self.assertTrue(report["scratch_bytes"]["reason"])
+        df = next(c for c in runner.calls if c[0] == "df")
+        self.assertEqual(Path(df[-1]), self.cache.parent)
+
+    def test_real_scan_is_not_run_without_bound_in_core_digests(self):
+        scans = self.tmp / "real-scans"
+        scans.mkdir()
+        result = lane.real_scan_identity(self.out, str(scans))
+        self.assertEqual(result["status"], "NOT_RUN")
+        self.assertEqual(result["reason_code"], "in_core_per_node_digest_api_unavailable")
+        self.assertIsNone(result["leaf_count"])
+        self.assertIsNone(result["in_core_digests"])
+        self.assertTrue(result["scan_dir_present"])
+
+    def test_job_limits_are_design_q4_and_t0_is_smaller(self):
+        job, small = lane.auto_tree_job("A"), lane.auto_tree_job("T0")
+        self.assertEqual(job["worker_count"], 16)
+        self.assertEqual(job["limits"], {"max_ram_bytes": 20 * GIB, "max_scratch_bytes": 12 * GIB,
+                                         "max_output_bytes": 12 * GIB, "deadline_sec": 5400})
+        self.assertEqual(job["drawn_budget_splats"], 1_000_000)
+        self.assertEqual(job["drawn_budget_source"], "ADR HLOD arm N_frozen <= 1.0M; BV-26a not merged")
+        for field in job["limits"]:
+            self.assertLess(small["limits"][field], job["limits"][field])
+        self.assertEqual(small["codec"], "gsq")
+        self.assertNotIn("source_fingerprint", job)
 
     def test_repeat_identity_match_publishes_key_and_removes_scratch(self):
         plain = self.ready_plain()
