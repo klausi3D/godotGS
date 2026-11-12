@@ -8,6 +8,7 @@ strict/warn-only policy (strict fails, warn-only skips).
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -2484,6 +2485,17 @@ def _run_auto_tree_binary_tests() -> tuple[bool, list[str]]:
     script = AUTO_TREE_BINARY_TEST_SCRIPT
     if not script.is_file():
         return False, [f"D2-4 binary_test_missing: {script}"]
+    try:
+        suite = ast.parse(script.read_text(encoding="utf-8"))
+        expected = sum(
+            isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and method.name.startswith("test_")
+            for cls in ast.walk(suite) if isinstance(cls, ast.ClassDef)
+            for method in cls.body
+        )
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        return False, [f"D2-4 binary_test_invalid: {exc}"]
+    if not expected:
+        return False, ["D2-4 binary_test_invalid: no declared test methods"]
     env = {key: value for key, value in os.environ.items()
            if key.upper() not in ("GODOT_BINARY", "GS_REQUIRE_AUTO_TREE_BINARY")}
     env["GODOT_BINARY"] = selected
@@ -2494,6 +2506,18 @@ def _run_auto_tree_binary_tests() -> tuple[bool, list[str]]:
         return False, messages + [line for line in (out + err).splitlines() if line.strip()] + [
             f"D2-4 producer tests failed with exit code {code}."
         ]
+    messages += [line for line in out.splitlines() if line.startswith("D2-4 evidence:")]
+    # unittest writes its summary to stderr. Require one unambiguous successful
+    # summary; an exit code alone also describes zero tests or skipped tests.
+    output = out + "\n" + err
+    counts = re.findall(r"^Ran (\d+) tests? in [^\r\n]+\r?$", output, re.MULTILINE)
+    outcomes = re.findall(r"^OK(?: \(skipped=(\d+)\))?\r?$", output, re.MULTILINE)
+    if len(counts) != 1 or len(outcomes) != 1:
+        return False, messages + ["D2-4 unittest_summary_invalid: expected one Ran/OK summary", output]
+    ran, skipped = int(counts[0]), int(outcomes[0] or 0)
+    messages += [f"D2-4 unittest: Ran {ran} tests; OK; skipped={skipped}; required>={expected}"]
+    if skipped or ran < expected:
+        return False, messages + ["D2-4 unittest_coverage_failed: skipped tests or incomplete test count"]
     return True, messages + ["D2-4 producer tests passed."]
 
 

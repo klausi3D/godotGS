@@ -35,6 +35,28 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def emit_evidence(name, world_manifest, report):
+    """Project actual report values; absence stays absent, controls stay separate."""
+    evidence = {"run": name, "tier": "T-smoke", "splat_count": world_manifest["world"]["splat_count"],
+                "status": report["status"], "reason": report["reason"]}
+    for key in ("node_count", "height", "content_generation", "output_file_sha256",
+                "peak_rss_bytes", "scratch_bytes", "budget_frozen", "drawn_budget_source",
+                "oracle_complete_all_poses"):
+        evidence[key] = report[key]
+    wall = report["wall_time_sec"]
+    evidence["wall_usec"] = None if wall is None else round(wall * 1000000)
+    evidence["wall_scope"] = "driver invocation"
+    for block in ("oracle", "leaves_only"):
+        data = report[block]
+        evidence[block] = None if data is None else {
+            "role": "main verdict" if block == "oracle" else "diagnostic control; excluded from verdict",
+            "poses": [{key: row[key] for key in (
+                "checkpoint", "status", "selected_splats", "budget", "drawn_le_budget")}
+                for row in data["poses"]],
+        }
+    print("D2-4 evidence: " + json.dumps(evidence, separators=(",", ":"), allow_nan=False), flush=True)
+
+
 class BinaryContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -94,6 +116,7 @@ class BinaryContract(unittest.TestCase):
         self.assertEqual(report["schema"], "godotgs-auto-tree-build-report/1")
         self.assertIsInstance(report["reason"], str)
         json.dumps(report, allow_nan=False)
+        emit_evidence(name, json.loads(self.world.with_suffix(".manifest.json").read_text(encoding="utf-8")), report)
         return result, report, output, job_path
 
     def good_builds(self):
@@ -147,6 +170,7 @@ class BinaryContract(unittest.TestCase):
             self.assertEqual(report["source_fingerprint_source"], example_job()["source_fingerprint_source"])
         for key in ("content_generation", "output_file_sha256", "tree_sha"):
             self.assertEqual(builds[0][1][key], builds[1][1][key])
+        print('D2-4 evidence: {"repeat_identity_equal":true,"runs":["first","repeat"]}', flush=True)
 
     def test_eight_checkpoint_oracle_and_separate_leaves_control(self):
         report = self.good_builds()[0][1]

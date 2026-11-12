@@ -1049,8 +1049,101 @@ class AutoTreeWiringTests(unittest.TestCase):
     """Independent registration: removing the D2-4 suite cannot remove these checks."""
     def setUp(self):
         self.runner = harness
+        script = self.runner.AUTO_TREE_BINARY_TEST_SCRIPT
+        spec = importlib.util.spec_from_file_location("d2_binary_contract", script)
+        self.binary_suite = importlib.util.module_from_spec(spec)
+        with mock.patch.object(sys, "path", [str(script.parent), *sys.path]):
+            spec.loader.exec_module(self.binary_suite)
+        self.expected = unittest.defaultTestLoader.loadTestsFromModule(self.binary_suite).countTestCases()
         for name in ("_GUARD_BASE_REF_OVERRIDE", "_GUARD_GODOT_BINARY_OVERRIDE", "_GUARD_GODOT_BINARY_EXPLICIT"):
             self.addCleanup(setattr, harness, name, getattr(harness, name))
+
+    def summary(self, count=None, *, skip=False):
+        # Capture the real unittest producer, without executing Godot or the
+        # binary suite. Do not invent strings claiming to model its format.
+        def body():
+            if skip:
+                raise unittest.SkipTest("forcing control")
+        suite = unittest.TestSuite(unittest.FunctionTestCase(body)
+                                   for _ in range(self.expected if count is None else count))
+        stream = io.StringIO()
+        unittest.TextTestRunner(stream=stream).run(suite)
+        return stream.getvalue()
+
+    def binary_result(self, output):
+        with mock.patch.object(self.runner, "_selected_producer_binary", return_value="selected-godot"), \
+                mock.patch.object(self.runner, "_run_command", return_value=(0, "", output)):
+            return self.runner._run_auto_tree_binary_tests()
+
+    def test_summary_rejects_skips_missing_and_short_execution(self):
+        for output in ("", self.summary(0), self.summary(self.expected - 1), self.summary(skip=True)):
+            with self.subTest(output=output):
+                ok, messages = self.binary_result(output)
+                self.assertFalse(ok, messages)
+                self.assertNotIn("D2-4 producer tests passed.", messages)
+        for output in (self.summary(), self.summary().replace("\n", "\r\n")):
+            ok, messages = self.binary_result(output)
+            self.assertTrue(ok, messages)
+            self.assertIn(f"Ran {self.expected} tests; OK; skipped=0", " ".join(messages))
+
+    def test_count_floor_tracks_added_test_methods(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "binary_suite.py"
+            script.write_text(self.runner.AUTO_TREE_BINARY_TEST_SCRIPT.read_text(encoding="utf-8") +
+                              "\nclass AddedContract(unittest.TestCase):\n    def test_added(self): pass\n", encoding="utf-8")
+            with mock.patch.object(self.runner, "AUTO_TREE_BINARY_TEST_SCRIPT", script):
+                ok, messages = self.binary_result(self.summary())
+                self.assertFalse(ok, messages)
+                self.assertIn(f"required>={self.expected + 1}", " ".join(messages))
+
+    def test_evidence_preserves_absence_and_is_printed_on_success(self):
+        driver = self.binary_suite.load_module("d2_evidence_driver", self.binary_suite.DRIVER)
+        report = driver.new_report()
+        with contextlib.redirect_stdout(io.StringIO()) as captured:
+            self.binary_suite.emit_evidence("projection-control", {"world": {"splat_count": 42}}, report)
+        evidence = captured.getvalue().strip()
+        data = json.loads(evidence.removeprefix("D2-4 evidence: "))
+        self.assertIsNone(data["oracle"])
+        self.assertFalse(data["scratch_bytes"]["available"])
+        self.assertTrue(data["scratch_bytes"]["reason"])
+        self.assertIsNone(data["wall_usec"])
+        with mock.patch.object(self.runner, "_selected_producer_binary", return_value="selected-godot"), \
+                mock.patch.object(self.runner, "_run_command", return_value=(0, evidence + "\n", self.summary())):
+            ok, messages = self.runner._run_auto_tree_binary_tests()
+        self.assertTrue(ok, messages)
+        self.assertIn(evidence, messages)
+
+    def test_each_invocation_emits_report_and_both_cuts(self):
+        driver = self.binary_suite.load_module("d2_invocation_driver", self.binary_suite.DRIVER)
+        report = driver.new_report()
+        # Constructed projection inputs, not a fixture claiming binary evidence.
+        report.update(node_count=9, height=2, content_generation="123", output_file_sha256="a" * 64,
+                      wall_time_sec=0.25, budget_frozen=False)
+        for block in ("oracle", "leaves_only"):
+            report[block] = {"poses": [dict(checkpoint=f"C{i}", status="COMPLETE", selected_splats=i + 1,
+                                            budget=4, drawn_le_budget=i < 4) for i in range(8)]}
+        with tempfile.TemporaryDirectory() as directory:
+            case = self.binary_suite.BinaryContract("test_repeat_build_identity_and_measured_report")
+            case.root = Path(directory)
+            case.world = case.root / "world.gsplatworld"
+            case.world.with_suffix(".manifest.json").write_text(json.dumps({"world": {"splat_count": 42}}))
+            case.binary = "never-executed"
+            def command(args):
+                Path(args[args.index("--report") + 1]).write_text(json.dumps(report))
+                return mock.Mock(stdout="", stderr="", returncode=0)
+            with mock.patch.object(case, "generate"), mock.patch.object(case, "run_command", side_effect=command), \
+                    contextlib.redirect_stdout(io.StringIO()) as captured:
+                case.invoke("projection-control")
+        lines = captured.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("D2-4 evidence: "))
+        data = json.loads(lines[0].removeprefix("D2-4 evidence: "))
+        for key in ("node_count", "height", "content_generation", "output_file_sha256", "peak_rss_bytes"):
+            self.assertEqual(data[key], report[key])
+        self.assertEqual(data["wall_usec"], 250000)
+        for block in ("oracle", "leaves_only"):
+            self.assertEqual(data[block]["poses"], report[block]["poses"])
+        self.assertIn("excluded from verdict", data["leaves_only"]["role"])
 
     def test_pure_suite_is_actually_invoked(self):
         with mock.patch.object(self.runner, "_run_command", return_value=(0, "", "")) as run:
@@ -1068,7 +1161,7 @@ class AutoTreeWiringTests(unittest.TestCase):
                         argv.append("--skip-guards")
                     def command(args, **kwargs):
                         events.append("auto-tree")
-                        return binary_code, "producer test result", ""
+                        return binary_code, "", self.summary()
                     with contextlib.ExitStack() as stack:
                         stack.enter_context(mock.patch.object(sys, "argv", argv))
                         stack.enter_context(mock.patch.object(self.runner, "_run_runtime_validation_contract_guard", return_value=(True, [])))
@@ -1090,6 +1183,8 @@ class AutoTreeWiringTests(unittest.TestCase):
                     self.assertEqual(calls[0].kwargs["env"]["GODOT_BINARY"], "selected-missing-godot")
                     self.assertEqual(calls[0].kwargs["env"]["GS_REQUIRE_AUTO_TREE_BINARY"], "1")
                     self.assertIn("mode=binary-required", output.getvalue())
+                    if binary_code == 0:
+                        self.assertIn(f"Ran {self.expected} tests; OK; skipped=0", output.getvalue())
 
     def test_full_guard_phase_does_not_run_auto_tree_before_doctests(self):
         with mock.patch.object(self.runner, "_run_auto_tree_binary_tests") as binary, \
