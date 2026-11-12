@@ -6,6 +6,7 @@ extern "C" int test_hlod_paged_package_cpp_force_link() { return 0; }
 #include "../io/gaussian_splat_world_format.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/gaussian_splat_world_paged.h"
+#include "../io/gsq/gsq_codec.h"
 #include "../renderer/hlod_node_pack.h"
 #include "../renderer/hlod_node_streamer.h"
 #include "core/crypto/crypto_core.h"
@@ -760,10 +761,43 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO] every remaining header, i
 	reseal_header_only(f);
 	expect("page geometry", f, "v4_unexpected_page_geometry", ERR_FILE_CORRUPT);
 
-	f = good;
-	wr32(f, 60, 1u);
-	reseal_header_only(f);
-	expect("reserved header word", f, "v4_nonzero_reserved_header", ERR_FILE_CORRUPT);
+	// Header word 60 became the codec id in BV-C4.
+	for (uint32_t codec : { 2u, 0xFFFFFFFFu }) {
+		f = good;
+		wr32(f, 60, codec);
+		reseal_header_only(f);
+		expect("unknown codec", f, "v4_unsupported_codec", ERR_FILE_CORRUPT);
+	}
+	{
+		f = good;
+		wr32(f, 60, gs_gsq::kCodecId);
+		reseal_header_only(f);
+		const String path = temp_path("raw_claiming_gsq");
+		write_all(path, f);
+		Ref<GaussianSplatHlodPagedSource> source;
+		String reason;
+		const Error err = open_source(path, source, reason);
+		GS_NEED(source.is_valid());
+		if (err != OK) {
+			CHECK(err == ERR_FILE_CORRUPT);
+			CHECK(reason == "v4_payload_record_size_inconsistent");
+			CHECK_FALSE(source->is_open());
+			CHECK(source->get_nodes().is_empty());
+		} else {
+			GS_NEED(source->get_nodes().size() == int64_t(rd32(good, 40)));
+			GS_NEED(!source->get_nodes().is_empty());
+			for (uint32_t i = 0; i < uint32_t(source->get_nodes().size()); ++i) {
+				Vector<Gaussian> gaussians;
+				Vector<Vector3> sh;
+				gaussians.resize(1);
+				sh.resize(1);
+				CHECK(source->read_node_payload(i, gaussians, sh, reason) == ERR_FILE_CORRUPT);
+				CHECK(reason == "v4_gsq_payload_invalid: gsq_bad_magic");
+				CHECK(gaussians.is_empty());
+				CHECK(sh.is_empty());
+			}
+		}
+	}
 
 	f = good;
 	f.ptrw()[1000] = 1;
