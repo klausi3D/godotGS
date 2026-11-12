@@ -3,6 +3,8 @@
 #include "test_gs_world_writer_v4.h"
 #include "gs_gsq_bounds_test_helpers.h"
 #include "../io/gaussian_splat_world_format.h"
+#include "../io/gaussian_splat_world_io.h"
+#include "core/error/error_macros.h"
 #include "core/io/marshalls.h"
 
 // BV-C4 phase 1: host-only executable contracts, using only master APIs.
@@ -748,6 +750,128 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ unions tight ba
 				return;
 			}
 			CHECK(actual == reference);
+		}
+	}
+}
+
+// Capture the actual format loader refusal, not a diagnostic reconstructed by
+// the test. Leave normal engine error reporting enabled as well.
+struct ScopedHeaderBoundsLoadErrors : public ErrorHandlerList {
+	String messages;
+	static void capture(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType p_type) {
+		if (p_type != ERR_HANDLER_ERROR) {
+			return;
+		}
+		auto *self = static_cast<ScopedHeaderBoundsLoadErrors *>(p_userdata);
+		if (!self->messages.is_empty()) {
+			self->messages += "\n";
+		}
+		self->messages += p_error ? String::utf8(p_error) : String();
+		if (p_message && p_message[0]) {
+			self->messages += String(" | ") + String::utf8(p_message);
+		}
+	}
+	ScopedHeaderBoundsLoadErrors() {
+		errfunc = capture;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedHeaderBoundsLoadErrors() { remove_error_handler(this); }
+	ScopedHeaderBoundsLoadErrors(const ScopedHeaderBoundsLoadErrors &) = delete;
+	ScopedHeaderBoundsLoadErrors &operator=(const ScopedHeaderBoundsLoadErrors &) = delete;
+};
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][BVC4] GSQ inflated root remains enclosed by header bounds through the normal resource loader") {
+	Fixture fixture;
+	GaussianSplatHlodTree bake;
+	if (!tight_quantisation_fixture(fixture, bake) || bake.nodes.size() != kNodes) {
+		FAIL("header enclosure regression needs the complete tight bake tree");
+		return;
+	}
+	fixture.spec.bounds = bake.node_world_aabb(bake.nodes[0]);
+	double bake_center[3];
+	bake.node_cell_center(bake.nodes[0], bake_center);
+	// Fixture control: no header padding or AABB conversion loss is allowed to
+	// mask GSQ growth (or make the codec-none control fail before the regression).
+	for (int a = 0; a < 3; ++a) {
+		const double lo = double(fixture.spec.bounds.position[a]);
+		const double hi = lo + double(fixture.spec.bounds.size[a]);
+		const bool exact = lo == bake_center[a] + double(bake.nodes[0].aabb_min[a]) &&
+				hi == bake_center[a] + double(bake.nodes[0].aabb_max[a]);
+		CHECK(exact);
+		if (!exact) {
+			return;
+		}
+	}
+	for (bool gsq : { false, true }) {
+		INFO("codec=", gsq ? doctest::String("gsq") : doctest::String("none"));
+		Paths paths; // Separate files; a previously loaded resource cannot mask GSQ output.
+		WriterV4 writer;
+		if (!paths.create() || !begin(writer, paths, fixture, gsq ? gsq_v1_codec_params() : CodecParams())) {
+			return;
+		}
+		for (uint32_t i : kAppendOrder) {
+			if (!append_one(writer, fixture, i)) {
+				return;
+			}
+		}
+		const Error finalized = writer.finalize(fixture.nodes);
+		INFO("finalize reason=", doctest::String(writer.get_report().full_reason.utf8().get_data()));
+		CHECK(finalized == OK);
+		if (finalized != OK) {
+			return;
+		}
+		GaussianSplatHlodPagedSource source;
+		GaussianSplatHlodTree tree;
+		Dictionary metadata;
+		String reason;
+		if (source.open(paths.final_path, tree, metadata, reason) != OK || tree.nodes.size() != kNodes) {
+			FAIL("header enclosure output reopen failed: ", doctest::String(reason.utf8().get_data()));
+			return;
+		}
+		CHECK(source.get_codec_id() == (gsq ? kCodecGsqV1 : kCodecNone));
+		double center[3], root_lo[3], root_hi[3];
+		tree.node_cell_center(tree.nodes[0], center);
+		bool escapes_spec = false;
+		for (int a = 0; a < 3; ++a) {
+			root_lo[a] = center[a] + double(tree.nodes[0].aabb_min[a]);
+			root_hi[a] = center[a] + double(tree.nodes[0].aabb_max[a]);
+			const double spec_lo = double(fixture.spec.bounds.position[a]);
+			const double spec_hi = spec_lo + double(fixture.spec.bounds.size[a]);
+			escapes_spec |= root_lo[a] < spec_lo || root_hi[a] > spec_hi;
+		}
+		CHECK(escapes_spec == gsq); // GSQ must actually exercise the loader's enclosure gate.
+		if (escapes_spec != gsq) {
+			return;
+		}
+		// This is the normal .gsplatworld ResourceLoader implementation, including
+		// _load_gsplatworld_paged's header/root check. No resident load or GPU setup.
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		Error load_error = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded;
+		String loader_messages;
+		{
+			ScopedHeaderBoundsLoadErrors errors;
+			loaded = loader.load(paths.final_path, "", &load_error, false, nullptr, ResourceFormatLoader::CACHE_MODE_IGNORE);
+			loader_messages = errors.messages;
+		}
+		INFO("loader error=", int(load_error), " refusal=", doctest::String(loader_messages.utf8().get_data()));
+		CHECK(load_error == OK); // RED on 922b3f2ab54: header world bounds ... do not enclose the HLOD root.
+		CHECK(loaded.is_valid());
+		if (load_error != OK || loaded.is_null()) {
+			return;
+		}
+		CHECK(loaded->has_hlod_paged_source());
+		const AABB header_bounds = source.get_info().bounds;
+		CHECK(loaded->get_bounds() == header_bounds);
+		for (int a = 0; a < 3; ++a) {
+			CHECK(double(header_bounds.position[a]) <= root_lo[a]);
+			CHECK(double(header_bounds.position[a]) + double(header_bounds.size[a]) >= root_hi[a]);
+		}
+		if (!gsq) {
+			CHECK(header_bounds.position == fixture.spec.bounds.position);
+			CHECK(header_bounds.size == fixture.spec.bounds.size);
 		}
 	}
 }
