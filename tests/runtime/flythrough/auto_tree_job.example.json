@@ -1,5 +1,5 @@
 {
-  "schema": "godotgs-auto-tree-job/1",
+  "schema": "godotgs-auto-tree-job/2",
   "codec": "gsq",
   "worker_count": 1,
   "max_tile_splats": 65536,
@@ -9,10 +9,8 @@
     "max_output_bytes": 1073741824,
     "deadline_sec": 120
   },
-  "source_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "source_fingerprint_source": "test identity only; caller supplied; D2-5 owns TREE_SOURCES",
   "drawn_budget_splats": 1000000,
-  "drawn_budget_source": "D2-4 smoke test capacity; BV-26a not merged; not a Tier A budget",
+  "drawn_budget_source": "ADR HLOD arm N_frozen <= 1.0M; BV-26a not merged",
   "oracle": {
     "width": 1920,
     "height": 1080,

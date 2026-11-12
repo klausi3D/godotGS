@@ -119,6 +119,78 @@ class Layout(_Tmp):
         self.assertEqual(wc.clear_quarantine(self.tmp), [moved.name])
 
 
+class AutoTreeLayout(_Tmp):
+    def _source_checkout(self) -> Path:
+        self.assertTrue(wc.TREE_SOURCES, "tree fingerprint coverage cannot be empty")
+        for relative in wc.TREE_SOURCES:
+            path = self.tmp / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(relative, encoding="utf-8")
+        return self.tmp
+
+    def test_tree_sources_cover_existing_builder_files_and_all_exist(self) -> None:
+        sources = wc.TREE_SOURCES
+        self.assertIsInstance(sources, tuple)
+        self.assertTrue(sources)
+        self.assertEqual(len(sources), len(set(sources)), "duplicate inputs hide coverage mistakes")
+        repo = HERE.parents[2]
+        # Derive file membership from the checkout. These patterns select the
+        # producer families required by D2, rather than pinning today's file list.
+        patterns = (
+            "modules/gaussian_splatting/core/gaussian_splat_hlod_bake*",
+            "modules/gaussian_splatting/core/gaussian_splat_hlod_merge*",
+            "modules/gaussian_splatting/core/gaussian_splat_hlod_tree*",
+            "modules/gaussian_splatting/core/gaussian_splat_hlod_job*",
+            "modules/gaussian_splatting/core/gaussian_splat_hlod_auto_tree*",
+            "modules/gaussian_splatting/core/gaussian_splat_hlod_tiled*",
+            "modules/gaussian_splatting/io/gaussian_splat_world_paged*",
+            "modules/gaussian_splatting/io/gs_world_writer_v4*",
+            "modules/gaussian_splatting/io/gsq/gsq_writer_v4*",
+            "modules/gaussian_splatting/io/gs_auto_tree_source*",
+            "tests/runtime/flythrough/build_auto_tree.py",
+            "tests/runtime/flythrough/build_auto_tree.gd",
+        )
+        required = set()
+        for pattern in patterns:
+            matches = {path.relative_to(repo).as_posix() for path in repo.glob(pattern)
+                       if path.is_file() and path.suffix in (".h", ".cpp", ".py", ".gd")}
+            self.assertTrue(matches, f"required producer family has no files: {pattern}")
+            required.update(matches)
+        self.assertTrue(required.issubset(sources), f"unfingerprinted tree sources: {sorted(required - set(sources))}")
+        for relative in sources:
+            with self.subTest(relative=relative):
+                self.assertTrue((repo / relative).is_file(), f"missing tree source: {relative}")
+        self.assertEqual(len(wc.source_fingerprint(repo, sources)), 64)
+
+    def test_tree_sources_and_generator_sources_are_disjoint(self) -> None:
+        self.assertTrue(wc.TREE_SOURCES)
+        self.assertFalse(set(wc.TREE_SOURCES) & set(wc.GENERATOR_SOURCES))
+
+    def test_tree_fingerprint_changes_for_every_tree_source(self) -> None:
+        repo = self._source_checkout()
+        first = wc.source_fingerprint(repo, wc.TREE_SOURCES)
+        for relative in wc.TREE_SOURCES:
+            with self.subTest(relative=relative):
+                path = repo / relative
+                original = path.read_bytes()
+                path.write_bytes(original + b"\nchanged tree implementation\n")
+                self.assertNotEqual(wc.source_fingerprint(repo, wc.TREE_SOURCES), first)
+                path.write_bytes(original)
+        self.assertEqual(wc.source_fingerprint(repo, wc.TREE_SOURCES), first)
+
+    def test_missing_tree_source_fails_closed(self) -> None:
+        repo = self._source_checkout()
+        for relative in wc.TREE_SOURCES:
+            with self.subTest(relative=relative):
+                path = repo / relative
+                original = path.read_bytes()
+                path.unlink()
+                with self.assertRaises(wc.CacheError) as ctx:
+                    wc.source_fingerprint(repo, wc.TREE_SOURCES)
+                self.assertIn(relative, str(ctx.exception))
+                path.write_bytes(original)
+
+
 class Labels(unittest.TestCase):
     def test_residency_limit_is_inclusive_one_percent(self) -> None:
         paths = [Path("a")]

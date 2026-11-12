@@ -28,7 +28,7 @@ REPORT_FIELDS = {
     "content_generation", "output_file_sha256", "tree_sha", "input_file_sha256",
     "job_manifest_sha256", "source_fingerprint", "source_fingerprint_source",
     "budget_frozen", "drawn_budget_splats", "drawn_budget_source", "oracle",
-    "oracle_complete_all_poses", "leaves_only",
+    "oracle_complete_all_poses", "leaves_only", "w13", "builder_wall_time_sec",
 }
 
 
@@ -90,8 +90,7 @@ class DriverContract(unittest.TestCase):
                         self.assert_reason("job_manifest_type", self.driver.validate_job_manifest, job)
 
     def test_strings_and_objects_are_strictly_typed(self):
-        for key in ("schema", "codec", "source_fingerprint", "source_fingerprint_source",
-                    "drawn_budget_source", "limits", "oracle"):
+        for key in ("schema", "codec", "drawn_budget_source", "limits", "oracle"):
             job = example_job()
             job[key] = 1
             with self.subTest(key=key):
@@ -100,11 +99,9 @@ class DriverContract(unittest.TestCase):
             self.assert_reason("job_manifest_type", self.driver.validate_job_manifest, value)
 
     def test_invalid_values_and_nonfinite_limits(self):
-        cases = [("schema", "godotgs-auto-tree-job/2"), ("codec", "unknown"),
+        cases = [("schema", "godotgs-auto-tree-job/1"), ("codec", "unknown"),
                  ("worker_count", 0), ("worker_count", 65), ("max_tile_splats", 16384),
-                 ("drawn_budget_splats", 0), ("source_fingerprint", "A" * 64),
-                 ("source_fingerprint", "a" * 63), ("source_fingerprint", "g" * 64),
-                 ("drawn_budget_source", ""), ("source_fingerprint_source", "")]
+                 ("drawn_budget_splats", 0), ("drawn_budget_source", "")]
         for key, value in cases:
             with self.subTest(key=key, value=value):
                 job = example_job()
@@ -152,7 +149,9 @@ class DriverContract(unittest.TestCase):
             self.assertIs(report[field]["available"], False)
             self.assertTrue(report[field]["reason"])
             self.assertIsNone(report[field].get("value"))
-        for field in ("wall_time_sec", "output_bytes", "node_count", "height"):
+        self.assertIs(report["w13"]["available"], False)
+        self.assertTrue(report["w13"]["reason"])
+        for field in ("wall_time_sec", "output_bytes", "node_count", "height", "builder_wall_time_sec"):
             self.assertIsNone(report[field], field)
         json.dumps(report, allow_nan=False)
 
@@ -174,6 +173,23 @@ class DriverContract(unittest.TestCase):
         result = self.driver.process_peak_rss({})
         self.assertIs(result["available"], False)
         self.assertTrue(result["reason"])
+
+    def test_w13_requires_all_nodes_verified_with_strict_counts(self):
+        # Malformed metric dictionaries exercise evidence acceptance only;
+        # they are not a fixture claiming to capture producer output.
+        for builder in ({}, {"node_count": 2}, {"node_count": 2, "nodes_verified": 0},
+                        {"node_count": 2, "nodes_verified": 1},
+                        {"node_count": 1, "nodes_verified": 2},
+                        {"node_count": 2, "nodes_verified": True},
+                        {"node_count": 2, "nodes_verified": 2.0}):
+            with self.subTest(builder=builder):
+                self.assert_reason("builder_w13_incomplete", self.driver.verified_nodes, builder, 2)
+        result = self.driver.verified_nodes({"node_count": 2, "nodes_verified": 2}, 2)
+        self.assertIs(result["available"], True)
+        self.assertIs(result["passed"], True)
+        self.assertEqual(result["nodes_verified"], 2)
+        self.assertEqual(result["node_count"], 2)
+        self.assertIn("nodes_verified", result["source"])
 
     def test_output_sha_is_recomputed_from_bytes_and_mismatch_fails(self):
         # Arbitrary bytes exercise hashing only; this is not a V4 producer fixture.
@@ -232,6 +248,29 @@ class DriverContract(unittest.TestCase):
             self.assertIsNone(report["output_bytes"])
             self.assertEqual(report["status"], "failed")
 
+    def test_collect_output_requires_w13_before_accepting_metrics(self):
+        # Orchestration-only test with mocked format/hash checks. This deliberately
+        # incomplete producer report must not become evidence of a verified world.
+        fingerprint, tree_sha = "a" * 64, "b" * 64
+        sidecar = {"schema": "godotgs-auto-tree-manifest/1", "output_file_sha256": "c" * 64,
+                   "input_file_sha256": "d" * 64, "source_fingerprint": fingerprint,
+                   "tree_sha": tree_sha, "content_generation": "1", "totals": {"node_count": 2},
+                   "levels": [{"depth": 0, "node_count": 2, "eps_min": 0, "eps_median": 0, "eps_max": 0}]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "world.gsplatworld"
+            path.touch()
+            path.with_suffix(".manifest.json").touch()
+            report = self.driver.new_report()
+            report["input_file_sha256"] = sidecar["input_file_sha256"]
+            with mock.patch.object(self.driver, "_read_json", return_value=sidecar), \
+                    mock.patch.object(self.driver, "verify_output_sha256", return_value=sidecar["output_file_sha256"]), \
+                    mock.patch.object(self.driver.verify_world_manifest, "compute_tree_sha", return_value=tree_sha):
+                self.assert_reason("builder_w13_incomplete", self.driver._collect_output,
+                                   report, path, {"source_fingerprint": fingerprint},
+                                   {"tree_sha": tree_sha, "node_count": 2})
+            self.assertIs(report["w13"]["available"], False)
+            self.assertIsNone(report["output_bytes"])
+
     def test_report_path_collision_cannot_overwrite_input(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -244,6 +283,180 @@ class DriverContract(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(source.read_bytes(), b"preserve this input")
 
+
+
+class D25SourceFingerprintContract(unittest.TestCase):
+    """D2-5 source identity contracts introduced in tests-only turn 1."""
+
+    def setUp(self):
+        self.driver = load_module("d25_build_auto_tree", DRIVER)
+        self.cache = load_module("d25_builder_world_cache", HERE / "world_cache.py")
+
+    def job(self):
+        job = example_job()
+        job["schema"] = "godotgs-auto-tree-job/2"
+        job.pop("source_fingerprint", None)
+        job.pop("source_fingerprint_source", None)
+        return job
+
+    def checkout(self, root):
+        self.assertTrue(hasattr(self.cache, "TREE_SOURCES"), "TREE_SOURCES is not implemented")
+        self.assertTrue(self.cache.TREE_SOURCES)
+        repo = root / "checkout"
+        for relative in self.cache.TREE_SOURCES:
+            source = HERE.parents[2] / relative
+            self.assertTrue(source.is_file(), relative)
+            target = repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+        return repo
+
+    def run_driver(self, root, *, repo=None, capture=None, failure_envelope=None):
+        source, job, report = root / "input", root / "job.json", root / "report.json"
+        # Input bytes never reach a producer: this test checks request provenance,
+        # not a valid world or a fabricated producer-output fixture.
+        source.write_bytes(b"source provenance test only")
+        source.with_suffix(".manifest.json").write_text("{}", encoding="utf-8")
+        job.write_text(json.dumps(self.job()), encoding="utf-8")
+        argv = ["--godot-binary", sys.executable, "--input", str(source),
+                "--job-manifest", str(job), "--out", str(root / "out.gsplatworld"),
+                "--report", str(report)]
+        if repo is not None:
+            argv += ["--repo", str(repo)]
+
+        def stop_at_producer(command, **kwargs):
+            self.assertIsNotNone(capture, "invalid sources must prevent producer launch")
+            request = Path(command[command.index("--request") + 1])
+            payload = json.loads(request.read_text(encoding="utf-8"))
+            # Scratch admission measures the output filesystem, never system /tmp.
+            self.assertEqual(request.parent.parent, Path(payload["output"]).parent)
+            self.assertEqual(Path(payload["scratch"]).parent, request.parent)
+            self.assertEqual(Path(command[command.index("--path") + 1]), request.parent)
+            capture.append(payload)
+            if failure_envelope is not None:
+                # Fault injection at the subprocess boundary, not a captured
+                # producer fixture or evidence that a real build ran.
+                response = Path(command[command.index("--report") + 1])
+                response.write_text(json.dumps(failure_envelope), encoding="utf-8")
+                return self.driver.subprocess.CompletedProcess(command, 1)
+            # Deliberately terminate at the subprocess boundary. No Godot runs.
+            raise self.driver.subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+        poses = [(f"C{i}", [0, 0, 0, 0, 0]) for i in range(8)]
+        with mock.patch.object(self.driver.probe_path, "resolve_path", return_value=[]), \
+                mock.patch.object(self.driver.probe_path, "checkpoints", return_value=poses), \
+                mock.patch("subprocess.run", side_effect=stop_at_producer) as producer:
+            code = self.driver.main(argv)
+        self.assertEqual(code, 1)
+        self.assertTrue(report.is_file(), "driver failures must publish their reason")
+        return json.loads(report.read_text(encoding="utf-8")), producer.call_count
+
+    def test_builder_refusal_preserves_raw_diagnostics_in_uploaded_report(self):
+        builder = {"error": 6, "reason": "limit_ram: injected allocation refusal",
+                   "peak_reserved_bytes": 7654321098, "tiles_baked": 0, "pages_decoded": 19,
+                   "pages_decoded_digest_checked": 19, "wall_usec": 790000,
+                   "detail": "injected diagnostic text"}
+        with tempfile.TemporaryDirectory() as directory:
+            report, calls = self.run_driver(Path(directory), capture=[], failure_envelope={"builder": builder})
+        self.assertEqual(calls, 1)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["reason"], builder["reason"])
+        self.assertEqual(report["builder_raw"], builder)
+        self.assertEqual(report["builder_wall_time_sec"], 0.79)
+        self.assertFalse(report["peak_rss_bytes"]["available"], "reservation is not measured RSS")
+        self.assertIsNone(report["output_bytes"])
+
+    def test_envelope_failure_keeps_builder_details_and_absence_is_not_zero(self):
+        for builder in ({"error": 6, "reason": "builder detail"}, None):
+            envelope = {"reason": "injected bridge failure", "builder": builder}
+            with self.subTest(builder=builder), tempfile.TemporaryDirectory() as directory:
+                report, _ = self.run_driver(Path(directory), capture=[], failure_envelope=envelope)
+                self.assertEqual(report["reason"], envelope["reason"])
+                self.assertEqual(report["producer_reason"], envelope["reason"])
+                self.assertEqual(report["builder_raw"], builder)
+                self.assertIsNone(report["builder_wall_time_sec"])
+
+    def test_v2_job_accepts_no_caller_source_identity(self):
+        job = self.job()
+        try:
+            validated = self.driver.validate_job_manifest(job)
+        except self.driver.BuildError as exc:
+            self.fail(f"v2 job must derive its source identity; refused with {exc.reason}")
+        self.assertEqual(validated, job)
+        self.assertNotIn("source_fingerprint", job)
+        self.assertNotIn("source_fingerprint_source", job)
+
+    def test_caller_source_fingerprint_is_refused_with_distinct_reason(self):
+        for schema in ("godotgs-auto-tree-job/1", "godotgs-auto-tree-job/2"):
+            for supplied in ({"source_fingerprint": "a" * 64},
+                             {"source_fingerprint_source": "caller assertion"},
+                             {"source_fingerprint": "a" * 64,
+                              "source_fingerprint_source": "caller assertion"}):
+                with self.subTest(schema=schema, supplied=tuple(supplied)):
+                    job = self.job()
+                    job.update(schema=schema, **supplied)
+                    with self.assertRaises(self.driver.BuildError) as caught:
+                        self.driver.validate_job_manifest(job)
+                    self.assertEqual(caught.exception.reason, "job_manifest_source_fingerprint_forbidden")
+
+    def test_source_fingerprint_io_failure_is_distinct_and_fail_closed(self):
+        with mock.patch.object(self.driver.world_cache, "source_fingerprint", side_effect=OSError("unreadable")):
+            with self.assertRaises(self.driver.BuildError) as caught:
+                self.driver.tree_source_fingerprint(HERE.parents[2])
+        self.assertEqual(caught.exception.reason, "tree_source_unreadable")
+
+    def test_repo_sources_supply_the_producer_and_report_fingerprint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.checkout(root)
+            expected = self.cache.source_fingerprint(repo, self.cache.TREE_SOURCES)
+            captured = []
+            report, calls = self.run_driver(root, repo=repo, capture=captured)
+            self.assertEqual(calls, 1)
+            self.assertEqual(report["reason"], "producer_timeout")
+            self.assertEqual(report["source_fingerprint"], expected)
+            self.assertEqual(captured[0]["job"]["source_fingerprint"], expected)
+            self.assertTrue(report["source_fingerprint_source"])
+
+    def test_tree_source_edit_changes_the_next_producer_fingerprint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.checkout(root)
+            captured = []
+            before, calls = self.run_driver(root, repo=repo, capture=captured)
+            self.assertEqual(calls, 1)
+            target = repo / self.cache.TREE_SOURCES[0]
+            target.write_bytes(target.read_bytes() + b"\n// fingerprint forcing control\n")
+            after, calls = self.run_driver(root, repo=repo, capture=captured)
+            self.assertEqual(calls, 1)
+            self.assertEqual(before["reason"], "producer_timeout")
+            self.assertEqual(after["reason"], "producer_timeout")
+            self.assertNotEqual(before["source_fingerprint"], after["source_fingerprint"])
+            expected = self.cache.source_fingerprint(repo, self.cache.TREE_SOURCES)
+            self.assertEqual(after["source_fingerprint"], expected)
+            self.assertEqual(captured[-1]["job"]["source_fingerprint"], expected)
+
+    def test_missing_tree_source_fails_before_producer_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.checkout(root)
+            (repo / self.cache.TREE_SOURCES[0]).unlink()
+            report, calls = self.run_driver(root, repo=repo)
+            self.assertEqual(calls, 0)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["reason"], "tree_source_missing")
+            self.assertIsNone(report["output_bytes"])
+
+    def test_repo_defaults_to_driver_checkout_root(self):
+        self.assertTrue(hasattr(self.cache, "TREE_SOURCES"), "TREE_SOURCES is not implemented")
+        expected = self.cache.source_fingerprint(HERE.parents[2], self.cache.TREE_SOURCES)
+        with tempfile.TemporaryDirectory() as directory:
+            captured = []
+            report, calls = self.run_driver(Path(directory), capture=captured)
+            self.assertEqual(calls, 1)
+            self.assertEqual(report["reason"], "producer_timeout")
+            self.assertEqual(report["source_fingerprint"], expected)
+            self.assertEqual(captured[0]["job"]["source_fingerprint"], expected)
 
 
 if __name__ == "__main__":

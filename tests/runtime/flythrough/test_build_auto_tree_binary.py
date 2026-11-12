@@ -167,7 +167,14 @@ class BinaryContract(unittest.TestCase):
                 self.assertIn(report["peak_rss_bytes"]["source"], ("process_rss", "child_ru_maxrss"))
             # Current builder has no scratch measurement; samples cannot certify a peak.
             self.assertIs(report["scratch_bytes"]["available"], False)
-            self.assertEqual(report["source_fingerprint_source"], example_job()["source_fingerprint_source"])
+            cache = load_module("d25_binary_world_cache", HERE / "world_cache.py")
+            self.assertEqual(report["source_fingerprint"], cache.source_fingerprint(HERE.parents[2], cache.TREE_SOURCES))
+            self.assertIn("TREE_SOURCES", report["source_fingerprint_source"])
+            self.assertIs(report["w13"]["available"], True)
+            self.assertIs(report["w13"]["passed"], True)
+            self.assertEqual(report["w13"]["nodes_verified"], report["node_count"])
+            self.assertEqual(report["w13"]["node_count"], report["node_count"])
+            self.assertGreater(report["builder_wall_time_sec"], 0)
         for key in ("content_generation", "output_file_sha256", "tree_sha"):
             self.assertEqual(builds[0][1][key], builds[1][1][key])
         print('D2-4 evidence: {"repeat_identity_equal":true,"runs":["first","repeat"]}', flush=True)
