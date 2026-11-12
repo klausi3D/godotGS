@@ -41,6 +41,7 @@ using GaussianSplatting::ScopedGpuMarker;
 // Note: scene/ includes not available in modules - using fallback rendering
 // #include "scene/resources/primitive_meshes.h"
 #include "servers/rendering/rendering_server_globals.h"
+#include "servers/rendering/renderer_compositor.h"
 #include <limits>
 
 
@@ -467,6 +468,16 @@ const char *GaussianSplatRenderer::_shadow_failure_reason_label(ShadowRenderFail
 }
 
 bool GaussianSplatRenderer::_finish_shadow_render_result(const ShadowRenderResult &p_result) {
+	// Every hook exit, including pre-device failures and canonical refusals, records exactly one pass.
+	auto &state = get_resource_state();
+	state.shadow_light_stats.record(p_result.server_frame, p_result.renderer_frame, p_result.light_id,
+			p_result.success, p_result.rastered_splat_count, p_result.light_pass);
+	// Publish every exit (including refusals), so no route depends on a later successful pass to expose its data.
+	// At most 256 plain light entries; readers copy under the same lock and never touch the live recorder.
+	{
+		MutexLock lock(state.shadow_light_snapshot_mutex);
+		state.shadow_light_snapshot = state.shadow_light_stats.snapshot();
+	}
 	last_shadow_render_result = p_result;
 	if (last_shadow_render_result.route_label.is_empty()) {
 		last_shadow_render_result.route_label = _shadow_failure_reason_label(last_shadow_render_result.failure_reason);
@@ -2048,7 +2059,9 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
             buffers.max_chunk_splats == record.max_chunk_splats && valid_buffer(buffers.atlas_gaussian_buffer) &&
             valid_buffer(buffers.instance_buffer) && valid_buffer(buffers.chunk_meta_buffer) &&
             valid_buffer(buffers.visible_chunk_buffer);
-    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, p_light_projection.is_orthogonal(), bundle_current);
+    // Mesh cube finalization replaces face 0's camera with identity before the GS hook reads it. Explicit RS type
+    // prevents that orthographic omni face (and dual paraboloids) from masquerading as a directional cascade.
+    gs_shadow_caster::PassPlan plan = gs_shadow_caster::plan_pass(record, r_result.light_pass.supports_hlod_casters(), bundle_current);
     if (plan.draws()) {
         if (!splat_shadow_caster) {
             splat_shadow_caster = std::make_unique<GsSplatShadowCaster>();
@@ -2061,7 +2074,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         inputs.draw_count = record.draw_count;
         inputs.slot_stride = record.max_chunk_splats;
         inputs.instance_slots = plan.instance_slots;
-        // The hook does not name the light, so its pancake size is unknown here; casters in front of a cascade's near
+        // The hook does not carry the light's pancake size; casters in front of a cascade's near
         // plane are always clamped (Godot's default directional pancake is on). Never rejected.
         inputs.pancake = true;
         // The colour path scales every splat of every row by the renderer-wide multiplier (render_pipeline_stages.cpp
@@ -2078,7 +2091,7 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
         }
     }
     state.hlod_shadow_caster_stats.record(get_frame_state().frame_counter, plan);
-    r_result.rastered_splat_count = plan.draws() ? uint32_t(MIN<uint64_t>(plan.casters, UINT32_MAX)) : 0u;
+    r_result.rastered_splat_count = plan.draws() ? plan.casters : 0;
     r_result.depth_size = p_atlas_rect.size;
     r_result.success = plan.draws();
     r_result.failure_reason = plan.draws() ? ShadowRenderFailureReason::NONE : ShadowRenderFailureReason::NO_CASTER_RASTERED;
@@ -2088,8 +2101,30 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
 }
 
 bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,
-        const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y) {
+        const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, RID p_light,
+        int p_light_type, int p_omni_shadow_mode, int p_shadow_pass) {
     ShadowRenderResult result;
+    // Render-thread frame key: begin_frame() advances it once before all viewport/shadow work. Canonical shadow
+    // rasterization may advance our renderer counter, but never this key. Standalone calls without an RS compositor
+    // share key 0; they cannot observe an RS frame transition. Invalid light IDs are ignored by the accounting.
+    result.server_frame = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    result.renderer_frame = get_frame_state().frame_counter;
+    result.light_id = p_light.get_id();
+    result.light_pass.light_type = p_light_type;
+    result.light_pass.omni_shadow_mode = p_omni_shadow_mode;
+    result.light_pass.pass_index = p_shadow_pass;
+    result.light_pass.orthographic = p_light_projection.is_orthogonal();
+    if (p_light_type == RS::LIGHT_DIRECTIONAL) {
+        result.light_pass.kind = gs_shadow_caster::LightKind::DIRECTIONAL;
+    } else if (p_light_type == RS::LIGHT_OMNI) {
+        if (p_omni_shadow_mode == RS::LIGHT_OMNI_SHADOW_CUBE) {
+            result.light_pass.kind = gs_shadow_caster::LightKind::OMNI_CUBE;
+        } else if (p_omni_shadow_mode == RS::LIGHT_OMNI_SHADOW_DUAL_PARABOLOID) {
+            result.light_pass.kind = gs_shadow_caster::LightKind::OMNI_PARABOLOID;
+        }
+    } else if (p_light_type == RS::LIGHT_SPOT) {
+        result.light_pass.kind = gs_shadow_caster::LightKind::SPOT;
+    }
     result.atlas_rect = p_atlas_rect;
     static bool logged_once = false;
     if (!logged_once) {

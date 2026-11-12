@@ -2264,6 +2264,7 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 	cull.shadow_count = p_shadow_index + 1;
 	cull.shadows[p_shadow_index].cascade_count = splits;
 	cull.shadows[p_shadow_index].light_instance = light->instance;
+	cull.shadows[p_shadow_index].scene_instance = p_instance->self;
 	cull.shadows[p_shadow_index].caster_mask = RSG::light_storage->light_get_shadow_caster_mask(p_instance->base);
 
 	for (int i = 0; i < splits; i++) {
@@ -2514,6 +2515,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, i, 0);
 					shadow_data.light = light->instance;
+					shadow_data.scene_instance = p_instance->self;
 					shadow_data.pass = i;
 				}
 			} else { //shadow cube
@@ -2596,6 +2598,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, xform, radius, 0, i, 0);
 
 					shadow_data.light = light->instance;
+					shadow_data.scene_instance = p_instance->self;
 					shadow_data.pass = i;
 				}
 
@@ -2664,6 +2667,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
+			shadow_data.scene_instance = p_instance->self;
 			shadow_data.pass = 0;
 
 		} break;
@@ -3411,6 +3415,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 					continue;
 				}
 				render_shadow_data[max_shadows_used].light = cull.shadows[i].light_instance;
+				render_shadow_data[max_shadows_used].scene_instance = cull.shadows[i].scene_instance;
 				render_shadow_data[max_shadows_used].pass = j;
 				render_shadow_data[max_shadows_used].instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
 				max_shadows_used++;
@@ -3622,6 +3627,7 @@ if (kLogGaussianSplatDebug) {
 
 	for (uint32_t i = 0; i < max_shadows_used; i++) {
 		render_shadow_data[i].instances.clear();
+		render_shadow_data[i].scene_instance = RID();
 	}
 	max_shadows_used = 0;
 

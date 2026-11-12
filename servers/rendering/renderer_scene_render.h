@@ -274,6 +274,7 @@ public:
 
 	struct RenderShadowData {
 		RID light;
+		RID scene_instance; // Owning scene-cull Instance::self (VisualInstance3D::get_instance()).
 		int pass = 0;
 		PagedArray<RenderGeometryInstance *> instances;
 	};

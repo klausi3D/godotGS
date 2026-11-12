@@ -1650,7 +1650,17 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     // shadow passes of a frame run before its main view, so a fresh value is frame_count - 1). shadow_casters_rastered:
     // splats submitted to the light-view raster draws of that frame, summed over its cast passes (one per cascade); a CPU
     // count of what was drawn, not a GPU fragment count. Refused passes (other light types, no active HLOD view) count
-    // in shadow_caster_passes_refused with shadow_caster_last_refusal.
+    // in shadow_caster_passes_refused with shadow_caster_last_refusal. The scalar remains HLOD-only.
+    // Per-light accounting covers every hook exit on every route, keyed by the scene instance RID's id
+    // (Light3D.get_instance().get_id()). Only successful atlas writes add casters. Zero-total lights count once in
+    // shadow_no_caster_rastered; unsubmitted lights are absent.
+    // Reset on the RS frame, not the renderer counter (canonical shadow rasterization advances that counter).
+    // shadow_light_frame is the renderer counter at the first identified pass: frame_count - 1 for fresh HLOD data,
+    // the pre-first-shadow counter on the canonical route, or -1 before any identified light pass.
+    // Invalid light RIDs are ignored. At the per-frame light cap, omitted new-light passes increment the overflow stat.
+    // Every hook exit publishes a mutex-protected value snapshot; main-thread callers never read the live recorder.
+    // shadow_light_pass_kinds records explicit RS type/mode, pass counts and actual projection orthogonality, so an
+    // identity omni camera cannot be mistaken for directional eligibility. last_pass is Godot's last pass index.
     {
         const gs_shadow_caster::FrameStats &sc = resource_state.hlod_shadow_caster_stats;
         stats["shadow_caster_frame"] = sc.frame == UINT64_MAX ? int64_t(-1) : int64_t(sc.frame);
@@ -1662,6 +1672,32 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["shadow_caster_total_passes_cast"] = int64_t(sc.total_passes_cast);
         stats["shadow_caster_total_passes_refused"] = int64_t(sc.total_passes_refused);
         stats["shadow_caster_source"] = "hlod_main_view_draw_list";
+    }
+    {
+        gs_shadow_caster::LightFrameStats::Snapshot sl;
+        {
+            MutexLock lock(resource_state.shadow_light_snapshot_mutex);
+            sl = resource_state.shadow_light_snapshot;
+        }
+        Dictionary per_light;
+        Dictionary pass_kinds;
+        for (const gs_shadow_caster::LightFrameStats::Light &light : sl.lights) {
+            per_light[int64_t(light.id)] = int64_t(light.casters);
+            Dictionary kind;
+            kind["type"] = String(gs_shadow_caster::light_kind_name(light.kind));
+            kind["passes"] = int64_t(light.passes);
+            kind["cast_passes"] = int64_t(light.cast_passes);
+            kind["ortho_passes"] = int64_t(light.ortho_passes);
+            kind["last_pass"] = light.last_pass.pass_index;
+            kind["light_type"] = light.last_pass.light_type;
+            kind["omni_shadow_mode"] = light.last_pass.omni_shadow_mode;
+            pass_kinds[int64_t(light.id)] = kind;
+        }
+        stats["shadow_casters_rastered_per_light"] = per_light;
+        stats["shadow_light_pass_kinds"] = pass_kinds;
+        stats["shadow_no_caster_rastered"] = int64_t(sl.no_caster_count);
+        stats["shadow_light_frame"] = sl.renderer_frame == UINT64_MAX ? int64_t(-1) : int64_t(sl.renderer_frame);
+        stats["shadow_light_overflow_passes"] = int64_t(sl.overflow_passes);
     }
     stats["hlod_reason"] = resource_state.hlod_reason;
     stats["hlod_last_refusal_reason"] = resource_state.hlod_last_refusal_reason;

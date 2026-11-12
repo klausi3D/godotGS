@@ -33,7 +33,7 @@ const SCREENSHOT_FRAMES := [0, 100, 199, 240, 300, 399, 450, 599]
 const STATS_KEYS := [
 	"frame_count", "world_drawn_splats", "object_drawn_splats", "sort_input_sources",
 	"splat_composite_passes_frame", "route_skip_reason", "dropped_sources", "lights_dropped",
-	"shadow_casters_rastered", "shadow_no_caster_rastered", "ledger_bytes", "device_allocated_bytes",
+	"shadow_casters_rastered", "shadow_no_caster_rastered", "shadow_light_frame", "shadow_light_pass_kinds", "ledger_bytes", "device_allocated_bytes",
 	"ledger_budget_bytes", "silent_truncation_frames",
 	"hlod_reason", "hlod_active", "hlod_world_draw_records", "hlod_instance_draw_records",
 	"hlod_instance_admitted_objects", "hlod_instance_refused_objects", "hlod_instance_visible_objects",
@@ -868,6 +868,13 @@ func _run() -> void:
 		_fail(world["error"])
 		return
 	_build_scene(world["resource"])
+	var shadow_light_ids := {"directional": _sun.get_instance().get_id()}
+	for k in range(_omnis.size()):
+		shadow_light_ids["omni_%d" % k] = _omnis[k].get_instance().get_id()
+	for light_name in shadow_light_ids:
+		if int(shadow_light_ids[light_name]) == 0:
+			_fail("shadow caster light %s has zero scene instance RID (get_instance())" % light_name)
+			return
 	for obj in _objects:
 		if not obj.get_cast_shadow():
 			_fail("%s is not a shadow caster after set_cast_shadow(true): S1-S4 would measure a scene without splat casters" % obj.name)
@@ -922,6 +929,18 @@ func _run() -> void:
 		for key in STATS_KEYS:
 			if stats.has(key):
 				copied[key] = stats[key]
+		# S1 uses fixture light names; the engine keys by scene instance RID (Light3D.get_instance()).
+		# Keep missing lights absent so the verdict diagnoses missing evidence instead of a fabricated zero.
+		if stats.has("shadow_casters_rastered_per_light") and stats["shadow_casters_rastered_per_light"] is Dictionary:
+			if copied.has("shadow_casters_rastered"):
+				copied["shadow_casters_rastered_total"] = copied["shadow_casters_rastered"]
+			var per_light: Dictionary = stats["shadow_casters_rastered_per_light"]
+			var named := {}
+			for light_name in shadow_light_ids:
+				var light_id: int = shadow_light_ids[light_name]
+				if per_light.has(light_id):
+					named[light_name] = per_light[light_id]
+			copied["shadow_casters_rastered"] = named
 		var timing := _resolve_timing(stats)
 		for key in timing["values"]:
 			copied[key] = timing["values"][key]
