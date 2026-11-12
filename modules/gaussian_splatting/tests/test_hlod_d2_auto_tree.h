@@ -3,6 +3,7 @@
 // D2-3 phase 1: host-only runtime-red contract tests. modules/SCsub discovers
 // tests/*.h; [WorldIO] selects the existing CPU lane. No external fixtures.
 #include "test_macros.h"
+#include "gs_gsq_bounds_test_helpers.h"
 
 #include "../core/gaussian_splat_hlod_auto_tree.h"
 #include "../core/gaussian_splat_world.h"
@@ -713,10 +714,11 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 	const Array nodes = manifest.get("nodes", Array());
 	D2_AUTO_NEED(nodes.size() == int(tree.nodes.size()));
 	bool lossy = false;
+	std::vector<TestGSQBounds::Budget> bounds_budget(tree.nodes.size());
 	for (uint32_t i = 0; i < tree.nodes.size(); ++i) {
 		INFO("node=", i);
 		const auto &expected = oracle.tree.nodes[i];
-		same_node(tree.nodes[i], expected);
+		TestGSQBounds::check_unchanged_fields(tree.nodes[i], expected);
 		D2_AUTO_NEED(expected.payload_count > 0);
 		D2_AUTO_NEED(expected.is_leaf() || expected.payload_first >= oracle.tree.leaf_splat_count);
 		const uint64_t start = expected.is_leaf() ? expected.payload_first : expected.payload_first - oracle.tree.leaf_splat_count;
@@ -748,6 +750,10 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 		decoded.resize(expected.payload_count);
 		decoded_sh.resize(expected.payload_count * resident.high);
 		D2_AUTO_NEED(gs_gsq::encode_page(encoder_input.ptr(), sh, expected.payload_count, 3, encode_params, page, reason) == OK);
+		gs_gsq::PageInfo page_info;
+		D2_AUTO_NEED(gs_gsq::verify_page(page.ptr(), page.size(), page_info, reason) == OK);
+		D2_AUTO_NEED(TestGSQBounds::quantisation_budget(g, expected.payload_count, center, expected.is_leaf(), page_info,
+				gs_world_writer::gsq_v1_codec_params(), bounds_budget[i]));
 		D2_AUTO_NEED(decoder.decode_range(page.ptr(), page.size(), 0, expected.payload_count, decoded.ptr(), decoded_sh.ptr(), reason) == OK);
 		if (expected.is_leaf()) {
 			for (Gaussian &splat : decoded) {
@@ -773,7 +779,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] GSQ auto-tree canonical node d
 		CHECK(recorded == String::hex_encode_buffer(actual_digest, 32));
 		CHECK(std::memcmp(expected_digest, actual_digest, 32) == 0);
 		CHECK(String(entry.get("stored_sha256", "")) == String::hex_encode_buffer(paged->get_nodes()[i].digest, 32));
+		D2_AUTO_NEED(TestGSQBounds::check_decoded_support(tree, i, actual, actual_sh));
 	}
+	TestGSQBounds::check_tree_bounds(oracle.tree, tree, bounds_budget);
 	CHECK(lossy); // Reject a fixture for which bypassing GSQ would also pass.
 	CHECK(directory_empty(fixture.scratch));
 }
