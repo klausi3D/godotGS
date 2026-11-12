@@ -506,6 +506,73 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] tiled cancellation fails close
 	stop_test(false);
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] bounded histogram coarsening preserves in-core bytes") {
+	const Input input = make_input(40960, 8, 12);
+	Source source(input, true);
+	BakeResult expected, actual;
+	if (!in_core(input, expected)) {
+		FAIL("D2-6 histogram reference bake failed");
+		return;
+	}
+	TiledBakeTestHooks hooks;
+	hooks.histogram_max_bins = 4;
+	TiledBakeParams options = params(2);
+	options.max_tile_splats = 16385;
+	options.test_hooks = &hooks;
+	TiledBakeReport report;
+	if (!tiled(source, input, options, actual, report)) {
+		FAIL("D2-6 coarsened histogram build failed");
+		return;
+	}
+	// This checks the forcing hook's wiring as well as output identity: removing
+	// the cap or silently retaining the fine histogram cannot make this green.
+	CHECK(report.histogram_passes > 1u);
+	CHECK(report.tiles_baked > 1u);
+	CHECK(source.reads.load() > source.get_info().chunk_count);
+	same_content(expected, actual);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] bounded Morton rank cuts preserve coincident and finest-cell bytes") {
+	uint32_t count = 9u * kMaxNodeSplats + 17u;
+	bool coincident = true;
+	SUBCASE("coincident multilevel index groups") {
+		coincident = true;
+	}
+	SUBCASE("finest cell with nonidentical Morton keys and global-index ties") {
+		count = 2u * kMaxNodeSplats + 3u;
+		coincident = false;
+	}
+	Input input = make_input(count, 1);
+	for (uint32_t i = 0; i < input.gaussians.size(); ++i) {
+		input.gaussians[i].position = coincident ? Vector3(2, 2, 2) :
+				Vector3(0.000001f + float(i % 13u) * 0.0000005f,
+						0.000001f + float((i / 13u) % 11u) * 0.0000005f, 0.000001f);
+	}
+	BakeResult expected;
+	if (!in_core(input, expected)) {
+		FAIL("D2-6 index-cut reference bake failed");
+		return;
+	}
+	for (uint32_t workers : { 1u, 4u }) {
+		Source source(input, true);
+		TiledBakeParams options = params(workers);
+		options.max_tile_splats = 16385;
+		BakeResult actual;
+		TiledBakeReport report;
+		if (!tiled(source, input, options, actual, report)) {
+			FAIL("D2-6 bounded index-cut build failed");
+			return;
+		}
+		CHECK(report.tiles_baked == (count + kMaxNodeSplats - 1u) / kMaxNodeSplats);
+		bool indexed = false;
+		for (const GaussianSplatHlodNode &node : actual.tree.nodes) {
+			indexed = indexed || (node.flags & kNodeFlagSplitByIndex) != 0u;
+		}
+		CHECK(indexed);
+		same_content(expected, actual);
+	}
+}
+
 #undef D2_TILED_NEED
 
 } // namespace TestHlodD2TiledBake

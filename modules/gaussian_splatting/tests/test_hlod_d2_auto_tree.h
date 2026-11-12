@@ -646,7 +646,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Streaming auto-tree completes 
 	const String reference_path = fixture.dir.path_join("reference.gsplatworld");
 	const Dictionary reference = bound_build(fixture.input, reference_path, options);
 	if (int(reference.get("error", FAILED)) != OK) {
-		FAIL("D2-6 unrestricted reference failed: ", String(reference.get("reason", "missing")).utf8().get_data());
+		const CharString reason = String(reference.get("reason", "missing")).utf8();
+		FAIL("D2-6 unrestricted reference failed: ", doctest::String(reason.get_data()));
 		return;
 	}
 	success_report(reference);
@@ -680,10 +681,11 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Streaming auto-tree completes 
 	options["limits"] = limits;
 	const String limited_path = fixture.dir.path_join("limited.gsplatworld");
 	const Dictionary limited = bound_build(fixture.input, limited_path, options);
+	const CharString limited_reason = String(limited.get("reason", "missing")).utf8();
 	MESSAGE("D2-6 streaming selected=", fixture.generated.splat_count, " limit=", ram_limit,
 			" reference_peak=", int64_t(reference.get("peak_reserved_bytes", 0)),
 			" limited_peak=", int64_t(limited.get("peak_reserved_bytes", 0)),
-			" reason=", String(limited.get("reason", "missing")).utf8().get_data());
+			" reason=", doctest::String(limited_reason.get_data()));
 	if (int(limited.get("error", FAILED)) != OK) {
 		// Master reaches this explicit failure with limit_ram; never index its absent manifest.
 		FAIL("D2-6 one tile fits: streaming build must succeed after reducing worker admission");
@@ -725,12 +727,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree peak reservation doe
 	// codec none uses zero. Round up to 96 KiB, with the path-dependent term
 	// explicitly checked below so a longer temporary path cannot invalidate it.
 	constexpr int64_t k_node = 96 * 1024;
-	// 1 MiB = 256 extra chunks * 4 KiB: covers the source directory's two Page
+	// Allow 4 KiB per actual extra chunk: covers the source directory's two Page
 	// copies (io/gs_auto_tree_source.cpp:185) and tiled 256 B/chunk (:777), including
 	// directory/path/manifest bookkeeping. The input sidecar expansion must remain
-	// inside the fixed 128 MiB base (auto_tree.cpp:579), checked below. This is
-	// below one full tile payload (~4.5 MiB); no retained splat term is allowed.
-	constexpr int64_t slack = int64_t(1) << 20;
+	// inside the fixed 128 MiB base (auto_tree.cpp:579), checked below. The resulting
+	// slack must stay below one full tile payload (~4.5 MiB); no retained splat term.
+	constexpr int64_t per_chunk_slack = 4 * 1024;
 	for (int i = 0; i < 2; ++i) {
 		Fixture &fixture = fixtures[i];
 		if (!fixture.create(i == 0 ? 262144 : 1048576)) {
@@ -756,7 +758,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree peak reservation doe
 		options["limits"] = limits;
 		const Dictionary report = bound_build(fixture.input, output, options);
 		if (int(report.get("error", FAILED)) != OK) {
-			FAIL("D2-6 scaling build must complete before measuring peaks: ", String(report.get("reason", "missing")).utf8().get_data());
+			const CharString reason = String(report.get("reason", "missing")).utf8();
+			FAIL("D2-6 scaling build must complete before measuring peaks: ", doctest::String(reason.get_data()));
 			return;
 		}
 		success_report(report);
@@ -778,7 +781,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree peak reservation doe
 	}
 	const int64_t extra_chunks = int64_t(fixtures[1].generated.chunk_count) - int64_t(fixtures[0].generated.chunk_count);
 	CHECK(extra_chunks >= 0);
-	CHECK(extra_chunks <= 256);
+	const int64_t slack = extra_chunks * per_chunk_slack;
+	CHECK(slack < 16385 * payload_bytes);
 	const int64_t allowed_delta = (node_counts[1] - node_counts[0]) * k_node + slack;
 	MESSAGE("D2-6 scaling N=", selected_n, " peak_N=", peaks[0], " nodes_N=", node_counts[0],
 			" four_N=", selected_4n, " peak_4N=", peaks[1], " nodes_4N=", node_counts[1],
@@ -788,6 +792,86 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Auto-tree peak reservation doe
 	CHECK(3 * selected_n * payload_bytes > allowed_delta);
 	CHECK(peaks[1] - peaks[0] <= allowed_delta);
 	// Both fixtures clean themselves on success and on explicit failure returns.
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][D2] Streaming auto-tree matches retained BFS writer for both codecs and worker schedules") {
+	Fixture fixture;
+	if (!fixture.create(262144)) {
+		FAIL("D2-6 retained-reference fixture generation failed");
+		return;
+	}
+	// Existing D2-3 multi-tile fixture. The reference takes the old retained
+	// BakeResult -> BFS/bucket-0 append route; production emits completed tiles
+	// before the stitch and remaps provisional handles only after assembly.
+	// D2-2 independently pins the shared in-memory sink to in-core MERGE_ONLY.
+	for (const char *codec : { "none", "gsq" }) {
+		String first_sha;
+		Dictionary first_manifest;
+		for (uint32_t workers : { 1u, 4u }) {
+			Dictionary options = fixture.options(workers);
+			options["codec"] = codec;
+			Dictionary limits = options.get("limits", Dictionary());
+			// The GSQ route independently encodes/decodes and reopens every node.
+			limits["deadline_sec"] = 90;
+			options["limits"] = limits;
+			const String suffix = String(codec) + "_" + itos(workers) + ".gsplatworld";
+			const String reference_path = fixture.dir.path_join("retained_" + suffix);
+			const String streamed_path = fixture.dir.path_join("streamed_" + suffix);
+			const Dictionary reference = GaussianSplatHlodAutoTree::build_retained_for_test(fixture.input, reference_path, options);
+			if (int(reference.get("error", FAILED)) != OK) {
+				FAIL("D2-6 retained reference failed: ", codec, " workers=", workers,
+						" reason=", String(reference.get("reason", "missing")).utf8().get_data());
+				return;
+			}
+			const Dictionary streamed = bound_build(fixture.input, streamed_path, options);
+			if (int(streamed.get("error", FAILED)) != OK) {
+				FAIL("D2-6 streaming identity build failed: ", codec, " workers=", workers,
+						" reason=", String(streamed.get("reason", "missing")).utf8().get_data());
+				return;
+			}
+			success_report(reference);
+			success_report(streamed);
+			CHECK(int64_t(reference.get("tiles_baked", 0)) > 1);
+			CHECK(int64_t(streamed.get("tiles_baked", 0)) > 1);
+			const String reference_sha = FileAccess::get_sha256(reference_path);
+			const Dictionary a = json_file(gs_world_generator::manifest_path_for(reference_path));
+			const Dictionary b = json_file(gs_world_generator::manifest_path_for(streamed_path));
+			if (!hex_digest(reference_sha) || !hex_digest(a.get("tree_sha", "")) ||
+					String(a.get("content_generation", "")).is_empty() || Array(a.get("nodes", Array())).is_empty()) {
+				FAIL("D2-6 retained reference must publish nonempty identities");
+				return;
+			}
+			CHECK(FileAccess::get_sha256(streamed_path) == reference_sha);
+			for (const char *key : { "content_generation", "tree_sha", "nodes", "output_file_sha256", "totals", "levels" }) {
+				if (!a.has(key) || !b.has(key)) {
+					FAIL("D2-6 identity manifest field missing: ", key);
+					return;
+				}
+				CHECK(a[key] == b[key]);
+				if (workers == 4) {
+					if (!first_manifest.has(key)) {
+						FAIL("D2-6 one-worker reference identity field missing");
+						return;
+					}
+					CHECK(a[key] == first_manifest[key]);
+				}
+			}
+			CHECK(String(a.get("output_file_sha256", "")) == reference_sha);
+			CHECK(tree_sha(a) == String(a.get("tree_sha", "")));
+			CHECK(tree_sha(b) == String(b.get("tree_sha", "")));
+			CHECK(reference.get("tree_sha", "") == a.get("tree_sha", "missing"));
+			CHECK(streamed.get("tree_sha", "") == b.get("tree_sha", "missing"));
+			CHECK(int64_t(streamed.get("scratch_bytes_total", 0)) > 0);
+			CHECK(int64_t(streamed.get("scratch_bytes_peak", 0)) > 0);
+			if (workers == 1) {
+				first_sha = reference_sha;
+				first_manifest = a;
+			} else {
+				CHECK(reference_sha == first_sha);
+			}
+			CHECK(directory_empty(fixture.scratch));
+		}
+	}
 }
 
 // D2-3b: use only existing bindings and Dictionary fields so these contracts

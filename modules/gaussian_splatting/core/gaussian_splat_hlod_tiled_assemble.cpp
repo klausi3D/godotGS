@@ -87,16 +87,7 @@ const GaussianSplatHlodNode &referenced_record(const Context &p_context, const N
 	return p_ref.local == kNoParent || p_ref.local == 0u ? plan.record : plan.tile.tree.nodes[p_ref.local];
 }
 
-SplatSpan referenced_payload(const Context &p_context, const NodeRef &p_ref) {
-	const PlanNode &plan = p_context.plan[p_ref.plan];
-	return p_ref.local == kNoParent ? plan.merged.span() :
-			tile_payload(plan.tile, plan.tile.tree.nodes[p_ref.local], p_context.info.sh_high_order_count);
-}
-
 Error stitch(Context &p_context) {
-	InteriorBakeScratch scratch;
-	SplatList children_frame;
-	children_frame.sh_high_order_count = p_context.info.sh_high_order_count;
 	const GaussianSplatHlodTree frame;
 	const InteriorBakeParams params;
 	for (uint32_t reverse = p_context.plan.size(); reverse > 0u; --reverse) {
@@ -114,6 +105,37 @@ Error stitch(Context &p_context) {
 		}
 		double center[3];
 		frame.node_cell_center(node, center);
+		uint64_t input_count = 0;
+		for (uint32_t c = 0; c < node.child_count; ++c) {
+			if (plan.children[c] <= id || plan.children[c] >= p_context.plan.size()) {
+				return p_context.fail(ERR_INVALID_DATA);
+			}
+			input_count += p_context.plan[plan.children[c]].record.payload_count;
+		}
+		// Preallocate both concatenations exactly, so reference.append in
+		// bake_interior_node cannot grow either payload owner. The one loaded
+		// child dies before the reference allocation. Fresh merge/result payloads
+		// are each <= candidate; 3*candidate also covers allocation probes. The
+		// 128-byte input term covers cells (24), entries (16), pass flags (1),
+		// member indices (4), old+new growth/probes; 64*candidate covers sorting.
+		const uint64_t candidate = MIN((input_count + 3u) / 4u, uint64_t(kMaxNodeSplats));
+		const uint64_t bytes = (2u * input_count + 3u * candidate) * p_context.payload_bytes +
+				input_count * 128u + candidate * 64u + (uint64_t(1) << 20u);
+		if (!p_context.reserve(bytes)) {
+			return p_context.fail(ERR_OUT_OF_MEMORY);
+		}
+		struct Release {
+			Context &context;
+			uint64_t bytes;
+			~Release() { context.release(bytes); }
+		} release{ p_context, bytes };
+		InteriorBakeScratch scratch;
+		SplatList children_frame;
+		children_frame.sh_high_order_count = p_context.info.sh_high_order_count;
+		if (!fallible_resize(children_frame.gaussians, input_count, "gs_hlod::tiled stitch frame") ||
+				!fallible_resize(children_frame.sh_high_order, input_count * p_context.info.sh_high_order_count, "gs_hlod::tiled stitch frame SH")) {
+			return p_context.fail(ERR_OUT_OF_MEMORY);
+		}
 		children_frame.clear();
 		const GaussianSplatHlodNode *children[kMaxChildren] = {};
 		SplatSpan spans[kMaxChildren];
@@ -128,8 +150,17 @@ Error stitch(Context &p_context) {
 			const GaussianSplatHlodNode &child = child_plan.record;
 			children[c] = &child;
 			max_child_error = MAX(max_child_error, double(child.geometric_error));
-			const SplatSpan src = root_payload(child_plan, p_context.info.sh_high_order_count);
-			if (src.count == 0u || src.count > kMaxNodeSplats) {
+			TiledBakeChunk loaded;
+			const Error loaded_error = p_context.sink.load_frontier(child_id, loaded);
+			if (loaded_error != OK) {
+				return p_context.fail(loaded_error);
+			}
+			const SplatSpan src = { loaded.gaussians.ptr(), loaded.sh_high_order.ptr(),
+				loaded.gaussians.size(), p_context.info.sh_high_order_count };
+			if (loaded.sh_high_order.size() != uint64_t(src.count) * src.sh_high_order_count) {
+				return p_context.fail(ERR_INVALID_DATA);
+			}
+			if (src.count == 0u || src.count > kMaxNodeSplats || src.count != child.payload_count) {
 				return p_context.fail(ERR_INVALID_DATA);
 			}
 			counts[c] = src.count;
@@ -164,6 +195,10 @@ Error stitch(Context &p_context) {
 			spans[c].sh_high_order_count = p_context.info.sh_high_order_count;
 			offset += counts[c];
 		}
+		if (!fallible_resize(scratch.reference.gaussians, input_count, "gs_hlod::tiled stitch reference") ||
+				!fallible_resize(scratch.reference.sh_high_order, input_count * p_context.info.sh_high_order_count, "gs_hlod::tiled stitch reference SH")) {
+			return p_context.fail(ERR_OUT_OF_MEMORY);
+		}
 		const double edge = frame.node_cell_edge(node);
 		const Vector3 origin(real_t(-0.5 * edge), real_t(-0.5 * edge), real_t(-0.5 * edge));
 		InteriorBakeResult result;
@@ -180,24 +215,67 @@ Error stitch(Context &p_context) {
 		for (uint32_t c = 0; c < node.child_count; ++c) {
 			node.geometric_error = MAX(node.geometric_error, children[c]->geometric_error);
 		}
-		plan.merged = std::move(result.payload);
-		node.payload_count = plan.merged.size();
+		node.payload_count = result.payload.size();
 		node.flags = (node.flags & ~kNodeFlagKindMask) | NODE_KIND_MERGED;
-		finish_metrics(node, plan.merged.span(), children, node.child_count);
+		finish_metrics(node, result.payload.span(), children, node.child_count);
+		const Error emitted = p_context.sink.append_node(id, node, plan.depth, result.payload.span(), nullptr, true);
+		if (emitted != OK) {
+			return p_context.fail(emitted);
+		}
 	}
 	return p_context.check();
 }
 
 } // namespace
 
-SplatSpan root_payload(const PlanNode &p_node, uint32_t p_high) {
-	if (!p_node.work) {
-		return p_node.merged.span();
+Error emit_tile(Context &p_context, uint32_t p_plan) {
+	PlanNode &plan = p_context.plan[p_plan];
+	BakeResult &tile = plan.tile;
+	if (tile.tree.nodes.is_empty() || uint64_t(p_context.total_nodes) + tile.tree.nodes.size() - 1u > UINT32_MAX) {
+		return p_context.fail(ERR_INVALID_DATA);
 	}
-	return p_node.tile.tree.nodes.is_empty() ? SplatSpan() : tile_payload(p_node.tile, p_node.tile.tree.nodes[0], p_high);
+	plan.extra_id_first = p_context.total_nodes;
+	const uint32_t total = p_context.total_nodes + tile.tree.nodes.size() - 1u;
+	if (!p_context.reserve_metadata(total)) {
+		return p_context.fail(ERR_OUT_OF_MEMORY);
+	}
+	p_context.total_nodes = total;
+	LocalVector<uint32_t> depths;
+	if (!fallible_resize(depths, tile.tree.nodes.size(), "gs_hlod::tiled emission depths")) {
+		return p_context.fail(ERR_OUT_OF_MEMORY);
+	}
+	for (uint32_t i = 0; i < tile.tree.nodes.size(); ++i) {
+		if (p_context.check() != OK) {
+			return p_context.check();
+		}
+		const GaussianSplatHlodNode &node = tile.tree.nodes[i];
+		if (i > 0u && node.parent >= i) {
+			return p_context.fail(ERR_INVALID_DATA);
+		}
+		depths[i] = i == 0u ? plan.depth : depths[node.parent] + 1u;
+		const SplatSpan payload = tile_payload(tile, node, p_context.info.sh_high_order_count);
+		if (payload.count != node.payload_count || (node.is_leaf() &&
+				node.payload_first + node.payload_count > tile.leaf_source_index.size())) {
+			return p_context.fail(ERR_INVALID_DATA);
+		}
+		const uint32_t *indices = node.is_leaf() ? tile.leaf_source_index.ptr() + node.payload_first : nullptr;
+		const uint32_t provisional = i == 0u ? p_plan : plan.extra_id_first + i - 1u;
+		const Error error = p_context.sink.append_node(provisional, node, depths[i], payload, indices, i == 0u);
+		if (error != OK) {
+			return p_context.fail(error);
+		}
+	}
+	// The coordinator owns these buffers after join. Keep only local topology.
+	tile.leaf_gaussians.reset();
+	tile.leaf_sh_high_order.reset();
+	tile.leaf_source_index.reset();
+	tile.tree.interior_gaussians.reset();
+	tile.tree.interior_sh_high_order.reset();
+	tile.tree.interior_resident = false;
+	return p_context.check();
 }
 
-Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
+Error stitch_and_assemble(Context &p_context) {
 	const Error stitched = stitch(p_context);
 	if (stitched != OK) {
 		return stitched;
@@ -219,8 +297,7 @@ Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
 	if (total_nodes > p_context.node_bound || total_nodes > UINT32_MAX) {
 		return p_context.fail(ERR_OUT_OF_MEMORY);
 	}
-	BakeResult assembled;
-	GaussianSplatHlodTree &tree = assembled.tree;
+	GaussianSplatHlodTree tree;
 	tree.leaf_splat_count = p_context.info.splat_count;
 	tree.sh_high_order_count = p_context.info.sh_high_order_count;
 	tree.bake_rule_version = kBakeRuleVersion;
@@ -272,28 +349,16 @@ Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
 		return p_context.fail(ERR_INVALID_DATA);
 	}
 	tree.interior_splat_count = uint32_t(interior_total);
-	if (!fallible_resize(assembled.leaf_gaussians, tree.leaf_splat_count, "gs_hlod::tiled assembly leaves") ||
-			!fallible_resize(assembled.leaf_source_index, tree.leaf_splat_count, "gs_hlod::tiled assembly source indices") ||
-			!fallible_resize(assembled.leaf_sh_high_order, uint64_t(tree.leaf_splat_count) * tree.sh_high_order_count,
-					"gs_hlod::tiled assembly leaf SH") ||
-			!fallible_resize(tree.interior_gaussians, interior_total, "gs_hlod::tiled assembly interiors") ||
-			!fallible_resize(tree.interior_sh_high_order, interior_total * tree.sh_high_order_count,
-					"gs_hlod::tiled assembly interior SH")) {
-		return p_context.fail(ERR_OUT_OF_MEMORY);
-	}
 	LocalVector<uint32_t> stack;
-	LocalVector<uint8_t> seen;
+	LocalVector<uint32_t> bfs_to_provisional;
 	if (!fallible_resize(stack, total_nodes, "gs_hlod::tiled assembly DFS") ||
-			!fallible_resize(seen, tree.leaf_splat_count, "gs_hlod::tiled assembly permutation")) {
+			!fallible_resize(bfs_to_provisional, total_nodes, "gs_hlod::tiled assembly IDs")) {
 		return p_context.fail(ERR_OUT_OF_MEMORY);
 	}
-	for (uint32_t first = 0u; first < seen.size();) {
-		if (p_context.check() != OK) {
-			return p_context.check();
-		}
-		const uint32_t count = MIN(65536u, seen.size() - first);
-		memset(seen.ptr() + first, 0, count);
-		first += count;
+	for (uint32_t i = 0; i < refs.size(); ++i) {
+		const NodeRef &ref = refs[i];
+		bfs_to_provisional[i] = ref.local == kNoParent || ref.local == 0u ? ref.plan :
+				p_context.plan[ref.plan].extra_id_first + ref.local - 1u;
 	}
 	uint32_t stack_size = 1u;
 	stack[0] = 0u;
@@ -317,32 +382,11 @@ Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
 		if (ref.local == kNoParent) {
 			return p_context.fail(ERR_INVALID_DATA);
 		}
-		const SplatSpan payload = referenced_payload(p_context, ref);
-		const BakeResult &tile = p_context.plan[ref.plan].tile;
-		const GaussianSplatHlodNode &tile_node = tile.tree.nodes[ref.local];
-		if (payload.count == 0u || payload.count != node.payload_count ||
-				payload.count > tree.leaf_splat_count - leaf_cursor ||
-				tile_node.payload_first + payload.count > tile.leaf_source_index.size()) {
+		if (node.payload_count == 0u || node.payload_count > tree.leaf_splat_count - leaf_cursor) {
 			return p_context.fail(ERR_INVALID_DATA);
 		}
 		node.payload_first = leaf_cursor;
-		memcpy(static_cast<void *>(assembled.leaf_gaussians.ptr() + leaf_cursor), payload.gaussians, size_t(payload.count) * sizeof(Gaussian));
-		if (tree.sh_high_order_count > 0u) {
-			memcpy(assembled.leaf_sh_high_order.ptr() + uint64_t(leaf_cursor) * tree.sh_high_order_count, payload.sh_high_order,
-					size_t(payload.count) * tree.sh_high_order_count * sizeof(Vector3));
-		}
-		for (uint32_t k = 0; k < payload.count; ++k) {
-			if ((k & 4095u) == 0u && p_context.check() != OK) {
-				return p_context.check();
-			}
-			const uint32_t source = tile.leaf_source_index[uint32_t(tile_node.payload_first) + k];
-			if (source >= seen.size() || seen[source] != 0u) {
-				return p_context.fail(ERR_INVALID_DATA);
-			}
-			seen[source] = 1u;
-			assembled.leaf_source_index[leaf_cursor + k] = source;
-		}
-		leaf_cursor += payload.count;
+		leaf_cursor += node.payload_count;
 	}
 	if (leaf_cursor != tree.leaf_splat_count) {
 		return p_context.fail(ERR_INVALID_DATA);
@@ -356,58 +400,25 @@ Error stitch_and_assemble(Context &p_context, BakeResult &r_result) {
 		if (node.is_leaf()) {
 			continue;
 		}
-		const SplatSpan payload = referenced_payload(p_context, refs[i]);
-		if (payload.count == 0u || payload.count != node.payload_count || payload.count > tree.interior_splat_count - interior_cursor) {
+		if (node.payload_count == 0u || node.payload_count > tree.interior_splat_count - interior_cursor) {
 			return p_context.fail(ERR_INVALID_DATA);
 		}
 		node.payload_first = uint64_t(tree.leaf_splat_count) + interior_cursor;
-		memcpy(static_cast<void *>(tree.interior_gaussians.ptr() + interior_cursor), payload.gaussians, size_t(payload.count) * sizeof(Gaussian));
-		if (tree.sh_high_order_count > 0u) {
-			memcpy(tree.interior_sh_high_order.ptr() + uint64_t(interior_cursor) * tree.sh_high_order_count, payload.sh_high_order,
-					size_t(payload.count) * tree.sh_high_order_count * sizeof(Vector3));
-		}
-		interior_cursor += payload.count;
+		interior_cursor += node.payload_count;
 	}
 	if (interior_cursor != tree.interior_splat_count) {
 		return p_context.fail(ERR_INVALID_DATA);
 	}
-	tree.interior_resident = true;
+	tree.interior_resident = false;
 	String reason;
 	Error validation = OK;
 	if (!gs_hlod_validate_tree(tree, &reason, &validation)) {
 		return p_context.fail(validation == ERR_OUT_OF_MEMORY ? validation : ERR_INVALID_DATA);
 	}
-	// W13's in-memory counterpart: recompute metrics from the assembled payload,
-	// not the pre-assembly plan, so wrong copies/offsets cannot merely certify themselves.
-	for (uint32_t reverse = tree.nodes.size(); reverse > 0u; --reverse) {
-		if (p_context.check() != OK) {
-			return p_context.check();
-		}
-		const GaussianSplatHlodNode &node = tree.nodes[reverse - 1u];
-		GaussianSplatHlodNode measured = node;
-		const GaussianSplatHlodNode *children[kMaxChildren] = {};
-		for (uint32_t c = 0; c < node.child_count; ++c) {
-			children[c] = &tree.nodes[node.first_child + c];
-		}
-		const SplatSpan payload = tile_payload(assembled, node, tree.sh_high_order_count);
-		if (payload.count != node.payload_count) {
-			return p_context.fail(ERR_INVALID_DATA);
-		}
-		finish_metrics(measured, payload, children, node.child_count);
-		if (measured.height != node.height || measured.radius != node.radius) {
-			return p_context.fail(ERR_INVALID_DATA);
-		}
-		for (int a = 0; a < 3; ++a) {
-			if (measured.aabb_min[a] != node.aabb_min[a] || measured.aabb_max[a] != node.aabb_max[a]) {
-				return p_context.fail(ERR_INVALID_DATA);
-			}
-		}
-	}
 	if (p_context.check() != OK) {
 		return p_context.check();
 	}
-	r_result = std::move(assembled);
-	return OK;
+	return p_context.sink.finish(tree, bfs_to_provisional);
 }
 
 } // namespace tiled_bake

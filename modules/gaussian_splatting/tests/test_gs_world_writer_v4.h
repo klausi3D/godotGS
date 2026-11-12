@@ -401,6 +401,100 @@ TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] codec none shuffled spill
 	CHECK(writer.get_report().output_bytes == uint64_t(actual.size()));
 }
 
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] deferred counts preserve both codecs and reject a mismatched leaf total") {
+	for (bool gsq : { false, true }) {
+		INFO("GSQ: ", gsq);
+		PackedByteArray reference;
+		for (int mode = 0; mode < 3; ++mode) {
+			Paths paths;
+			Fixture fixture;
+			PackedByteArray original;
+			if (!paths.create() || !fixture.build() || !seed_destination(paths, mode == 2, original)) {
+				return;
+			}
+			if (mode != 0) {
+				fixture.spec.deferred_counts = true;
+				fixture.spec.node_count = 0;
+				fixture.spec.interior_splat_count = 0;
+				if (mode == 2) {
+					++fixture.spec.leaf_splat_count;
+				}
+			}
+			WriterV4 writer;
+			const CodecParams codec = gsq ? gsq_v1_codec_params() : CodecParams();
+			if (!begin(writer, paths, fixture, codec) || !append_all(writer, fixture, paths, original)) {
+				return;
+			}
+			const Error result = writer.finalize(fixture.nodes);
+			if (mode == 2) {
+				CHECK(result == ERR_INVALID_DATA);
+				CHECK(writer.get_report().reason == "v4_splat_count_mismatch");
+				CHECK_FALSE(writer.get_report().committed);
+				check_w1(paths, original);
+				continue;
+			}
+			if (result != OK) {
+				FAIL("count-mode assembly failed: ", writer.get_report().reason.utf8().get_data());
+				return;
+			}
+			PackedByteArray actual;
+			if (!read_bytes(paths.final_path, actual)) {
+				return;
+			}
+			if (mode == 0) {
+				reference = actual;
+			} else {
+				CHECK(actual == reference); // Header, generation, all node records and payloads.
+			}
+			CHECK(writer.get_report().committed);
+			CHECK(writer.get_report().nodes == kNodes);
+		}
+	}
+}
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] external scratch shares the live cap and releases admission") {
+	for (int mode = 0; mode < 3; ++mode) {
+		Paths paths;
+		Fixture fixture;
+		PackedByteArray original;
+		if (!paths.create() || !fixture.build() || !seed_destination(paths, true, original)) {
+			return;
+		}
+		Limits limits = Limits::unbounded();
+		limits.max_scratch_bytes = 16 * 1024 * 1024;
+		WriterV4 writer;
+		if (!begin(writer, paths, fixture, CodecParams(), limits)) {
+			return;
+		}
+		if (mode == 0) {
+			CHECK(writer.set_external_scratch_bytes(limits.max_scratch_bytes + 1) == ERR_PARAMETER_RANGE_ERROR);
+			CHECK(writer.get_report().reason == "limit_scratch");
+			check_w1(paths, original);
+			continue;
+		}
+		if (writer.set_external_scratch_bytes(limits.max_scratch_bytes) != OK) {
+			FAIL("could not admit external scratch within cap");
+			return;
+		}
+		CHECK(writer.get_report().peak_scratch_plus_output_bytes == limits.max_scratch_bytes);
+		CHECK(writer.get_report().total_scratch_bytes == 0); // Caller-owned bytes stay separate.
+		if (mode == 1) {
+			const Body &body = fixture.bodies[0];
+			V4BodyHandle handle;
+			CHECK(writer.append_node(body.desc, body.gaussians.ptr(), body.sh.ptr(), kSplats, handle) == ERR_PARAMETER_RANGE_ERROR);
+			CHECK(writer.get_report().reason == "limit_scratch");
+			check_w1(paths, original);
+		} else {
+			if (writer.set_external_scratch_bytes(0) != OK || !append_all(writer, fixture, paths, original)) {
+				FAIL("released external scratch did not restore admission");
+				return;
+			}
+			CHECK(writer.finalize(fixture.nodes) == OK);
+			CHECK(writer.get_report().committed);
+		}
+	}
+}
+
 static void check_leaf_metrics_position_round_trip(bool p_gsq, bool p_exact, bool p_existing) {
 	INFO("GSQ spill: ", p_gsq, ", exact centre: ", p_exact, ", existing destination: ", p_existing);
 	Paths paths;

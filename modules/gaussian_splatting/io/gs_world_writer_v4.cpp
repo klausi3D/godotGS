@@ -583,6 +583,7 @@ struct WriterV4::Impl {
 	GSAtomicFileTransaction output;
 	uint64_t started = 0;
 	uint64_t live_scratch = 0;
+	uint64_t external_scratch = 0; // Driving thread only; caller owns/removes these files.
 	uint64_t codec_workspace = 0;
 	uint64_t body_reservation = 0;
 	uint64_t metadata_reservation = 0;
@@ -624,6 +625,7 @@ void WriterV4::_cleanup() {
 	impl->segments.reset();
 	impl->segment_ids.clear();
 	impl->live_scratch = 0;
+	impl->external_scratch = 0;
 	impl->open = false;
 }
 
@@ -726,15 +728,36 @@ Error WriterV4::_write(const uint8_t *p_bytes, uint64_t p_size, uint32_t p_segme
 			return err;
 		}
 		const uint64_t slice = MIN(p_size, kSliceBytes);
-		const uint64_t used = scratch ? impl->live_scratch : impl->output.get_size();
+		uint64_t used = impl->output.get_size();
+		if (scratch && !add_checked(impl->live_scratch, impl->external_scratch, used)) {
+			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+		}
 		const uint64_t cap = scratch ? impl->limits.max_scratch_bytes : impl->limits.max_output_bytes;
 		if (used > cap || slice > cap - used) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, scratch ? "limit_scratch" : "limit_output");
 		}
+		if (impl->spec.deferred_counts) {
+			// Final topology was unknown at begin: enforce the disk margin as
+			// actual bytes grow instead of admitting a speculative whole-tree size.
+			const String path = scratch ? impl->scratch_dir : impl->final_path.get_base_dir();
+			Ref<DirAccess> dir = DirAccess::open(path.is_empty() ? String(".") : path);
+			uint64_t need;
+			if (!add_checked(slice, impl->limits.min_free_disk_margin, need)) {
+				return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+			}
+			if (dir.is_null()) {
+				return _fail(ERR_FILE_BAD_PATH, "preflight_disk");
+			}
+			const uint64_t free_bytes = dir->get_space_left();
+			if (!free_bytes || free_bytes < need) {
+				return _fail(ERR_FILE_CANT_WRITE, "preflight_disk");
+			}
+		}
 		uint64_t next_total, next_progress, disk;
 		if (!add_checked(report.total_scratch_bytes, scratch ? slice : 0, next_total) ||
 				!add_checked(impl->bytes_written.get(), slice, next_progress) ||
-				!add_checked(impl->live_scratch, report.output_bytes, disk) || !add_checked(disk, slice, disk)) {
+				!add_checked(impl->live_scratch, impl->external_scratch, disk) ||
+				!add_checked(disk, report.output_bytes, disk) || !add_checked(disk, slice, disk)) {
 			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 		}
 		if (scratch) {
@@ -758,6 +781,40 @@ Error WriterV4::_write(const uint8_t *p_bytes, uint64_t p_size, uint32_t p_segme
 		p_bytes += slice;
 		p_size -= slice;
 	}
+	return OK;
+}
+
+Error WriterV4::set_external_scratch_bytes(uint64_t p_bytes) {
+	if (!impl->open) {
+		return report.error != OK ? report.error : ERR_UNCONFIGURED;
+	}
+	Error err = _check_stop();
+	if (err != OK) {
+		return err;
+	}
+	uint64_t scratch, disk;
+	if (!add_checked(impl->live_scratch, p_bytes, scratch) || !add_checked(scratch, report.output_bytes, disk)) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+	}
+	if (scratch > impl->limits.max_scratch_bytes) {
+		return _fail(ERR_PARAMETER_RANGE_ERROR, "limit_scratch");
+	}
+	if (p_bytes > impl->external_scratch) {
+		uint64_t need;
+		if (!add_checked(p_bytes - impl->external_scratch, impl->limits.min_free_disk_margin, need)) {
+			return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
+		}
+		Ref<DirAccess> dir = DirAccess::open(impl->scratch_dir);
+		if (dir.is_null()) {
+			return _fail(ERR_FILE_BAD_PATH, "preflight_disk");
+		}
+		const uint64_t free_bytes = dir->get_space_left();
+		if (!free_bytes || free_bytes < need) {
+			return _fail(ERR_FILE_CANT_WRITE, "preflight_disk");
+		}
+	}
+	impl->external_scratch = p_bytes;
+	report.peak_scratch_plus_output_bytes = MAX(report.peak_scratch_plus_output_bytes, disk);
 	return OK;
 }
 
@@ -873,7 +930,8 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 		return _fail(ERR_INVALID_PARAMETER, "limits_unset");
 	}
 	const uint64_t total = uint64_t(p_spec.leaf_splat_count) + p_spec.interior_splat_count;
-	if (p_final_path.is_empty() || p_scratch_dir.is_empty() || !p_spec.node_count || p_spec.node_count > kMaxNodes ||
+	const bool invalid_counts = p_spec.deferred_counts ? (p_spec.node_count != 0 || p_spec.interior_splat_count != 0) : !p_spec.node_count;
+	if (p_final_path.is_empty() || p_scratch_dir.is_empty() || invalid_counts || p_spec.node_count > kMaxNodes ||
 			!p_spec.leaf_splat_count || total > UINT32_MAX || p_spec.node_count > total ||
 			p_spec.sh_degree > 4 || p_spec.sh_first_order > 3 || p_spec.sh_high_order > kMaxHighOrder || !p_spec.bake_rule_version) {
 		return _fail(ERR_INVALID_PARAMETER, "invalid_spec");
@@ -947,7 +1005,10 @@ Error WriterV4::begin_paged(const String &p_final_path, const String &p_scratch_
 	// GSQ leaves retain both the original scratch page and the final relative page.
 	const uint64_t scratch_estimate = p_codec.codec_id == kCodecNone ? raw : 2 * max_bodies;
 	uint64_t need;
-	if (!add_checked(output_estimate, scratch_estimate, need) || !add_checked(need, p_limits.min_free_disk_margin, need)) {
+	// Deferred mode has no exact topology yet. The lower output bound is valid
+	// with the known leaf count; free disk is checked again before every write.
+	if (!add_checked(p_spec.deferred_counts ? minimum_output : output_estimate,
+			p_spec.deferred_counts ? 0 : scratch_estimate, need) || !add_checked(need, p_limits.min_free_disk_margin, need)) {
 		return _fail(ERR_PARAMETER_RANGE_ERROR, "v4_size_overflow");
 	}
 	// Both directories may be on different volumes. No files have been created.
@@ -1223,6 +1284,28 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (!present) {
 			return _fail(ERR_INVALID_DATA, "v4_handle_unused");
 		}
+	}
+	if (impl->spec.deferred_counts) {
+		uint64_t leaves = 0;
+		uint64_t interiors = 0;
+		for (const V4Node &entry : p_nodes) {
+			if ((err = _check_stop()) != OK) {
+				return err;
+			}
+			if (entry.topology.is_leaf()) {
+				leaves += entry.topology.payload_count;
+			} else {
+				interiors += entry.topology.payload_count;
+			}
+		}
+		// kMaxNodes and u32 payload counts bound these sums below uint64 max.
+		if (leaves != impl->spec.leaf_splat_count || leaves + interiors > UINT32_MAX) {
+			return _fail(ERR_INVALID_DATA, "v4_splat_count_mismatch");
+		}
+		impl->spec.node_count = count;
+		impl->spec.interior_splat_count = uint32_t(interiors);
+		impl->nodes_total.set(count);
+		impl->splats_total.set(leaves + interiors);
 	}
 	if (count != impl->spec.node_count) {
 		return _fail(ERR_INVALID_DATA, "v4_node_count_mismatch");

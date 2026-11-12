@@ -42,7 +42,7 @@ Error Context::check() {
 }
 
 bool Context::reserve(uint64_t p_bytes) {
-	if (p_bytes > params.limits.max_ram_bytes - live_reserved) {
+	if (live_reserved > params.limits.max_ram_bytes || p_bytes > params.limits.max_ram_bytes - live_reserved) {
 		return false; // scheduler may drain the current batch and retry
 	}
 	live_reserved += p_bytes;
@@ -52,6 +52,23 @@ bool Context::reserve(uint64_t p_bytes) {
 
 void Context::release(uint64_t p_bytes) {
 	live_reserved -= p_bytes;
+}
+
+bool Context::reserve_metadata(uint32_t p_nodes) {
+	const uint64_t external = sink.reservation_bytes(p_nodes);
+	const uint64_t local = uint64_t(p_nodes) * 4096u;
+	if (external > UINT64_MAX - local) {
+		return false;
+	}
+	const uint64_t required = external + local;
+	if (required > metadata_reserved && !reserve(required - metadata_reserved)) {
+		return false;
+	}
+	if (required < metadata_reserved) {
+		release(metadata_reserved - required);
+	}
+	metadata_reserved = required;
+	return true;
 }
 
 namespace {
@@ -223,6 +240,7 @@ class Histogram {
 	}
 
 public:
+	bool full = false;
 	LocalVector<Bin> bins;
 	explicit Histogram(Context &p_context) : context(p_context), memory(p_context) {}
 	const Counts *find(const GaussianSplatHlodCell &p_cell) const {
@@ -247,7 +265,19 @@ public:
 			const_cast<Counts *>(existing)->add(p_counts);
 			return true;
 		}
-		if (bins.size() >= (uint32_t(1) << 29u) || !memory.take(512u)) {
+		// At most 4 MiB regardless of occupied source cells. Retry at a coarser
+		// lattice if this fills; child_counts rereads descendants exactly.
+		uint32_t cap = 8192u;
+#ifdef TESTS_ENABLED
+		if (context.params.test_hooks) {
+			cap = MAX(1u, MIN(cap, context.params.test_hooks->histogram_max_bins));
+		}
+#endif
+		if (bins.size() >= cap) {
+			full = true;
+			return false;
+		}
+		if (!memory.take(512u)) {
 			context.fail(ERR_OUT_OF_MEMORY);
 			return false;
 		}
@@ -376,7 +406,8 @@ class Planner {
 			return kNoParent;
 		}
 		const uint32_t id = context.plan.size();
-		if (!fallible_resize(context.plan, uint64_t(id) + 1u, "gs_hlod::tiled plan")) {
+		if (!context.reserve_metadata(id + 1u) ||
+				!fallible_resize(context.plan, uint64_t(id) + 1u, "gs_hlod::tiled plan")) {
 			context.fail(ERR_OUT_OF_MEMORY);
 			return kNoParent;
 		}
@@ -438,7 +469,8 @@ class Planner {
 	}
 
 	Error index_group(uint32_t p_node, uint32_t p_first_chunk, uint32_t p_chunks,
-			const LocalVector<IndexEntry> &p_entries, uint32_t p_origin_flags) {
+			uint32_t p_total, uint32_t p_origin_flags, uint32_t p_root,
+			IndexEntry &r_lower, bool &r_has_lower) {
 		if (context.check() != OK) {
 			return context.check();
 		}
@@ -446,31 +478,82 @@ class Planner {
 		if (p_chunks <= kMaxChildren) {
 			for (uint32_t c = 0; c < p_chunks; ++c) {
 				const uint32_t begin = (p_first_chunk + c) * kMaxNodeSplats;
-				const uint32_t count = MIN(kMaxNodeSplats, p_entries.size() - begin);
+				const uint32_t count = MIN(kMaxNodeSplats, p_total - begin);
 				const uint32_t id = add_child(p_node, cell, count, kNodeFlagSplitByIndex | p_origin_flags);
 				if (id == kNoParent) {
 					return context.check();
 				}
-				const uint32_t offset = context.selected_indices.size();
-				if (!fallible_resize(context.selected_indices, uint64_t(offset) + count, "gs_hlod::tiled index selections")) {
+				// Re-scan into a bounded max heap: exactly the next sorted leaf's
+				// keys survive. This also handles arbitrary Morton ties through the
+				// immutable global index, without a source-sized permutation table.
+				Reservation memory(context);
+				if (!memory.take(uint64_t(count) * sizeof(IndexEntry) * 3u + context.decode_bytes)) {
+					return context.check();
+				}
+				LocalVector<IndexEntry> entries;
+				if (!fallible_resize(entries, count, "gs_hlod::tiled bounded index heap")) {
 					return context.fail(ERR_OUT_OF_MEMORY);
 				}
-				for (uint32_t i = 0; i < count; ++i) {
-					context.selected_indices[offset + i] = p_entries[begin + i].global;
+				auto less = [](const IndexEntry &p_a, const IndexEntry &p_b) {
+					return p_a.key < p_b.key || (p_a.key == p_b.key && p_a.global < p_b.global);
+				};
+				const GaussianSplatHlodNode root = context.plan[p_root].record;
+				TiledBakeChunk decoded;
+				uint32_t written = 0u;
+				uint64_t remaining = 0u;
+				for (uint32_t chunk_id : context.ordered_chunks) {
+					if (!intersects(root, context.chunks[chunk_id].info.centre_bounds)) {
+						continue;
+					}
+					if (context.read(chunk_id, decoded) != OK) {
+						return context.check();
+					}
+					for (uint32_t j = 0; j < decoded.gaussians.size(); ++j) {
+						if ((j & 4095u) == 0u && context.check() != OK) {
+							return context.check();
+						}
+						const Vector3 &position = decoded.gaussians[j].position;
+						if (!contains(root, position)) {
+							continue;
+						}
+						const IndexEntry candidate = { index_key(root, position), context.chunks[chunk_id].info.first_splat + j };
+						if (r_has_lower && !less(r_lower, candidate)) {
+							continue;
+						}
+						++remaining;
+						if (written < count) {
+							entries[written++] = candidate;
+							std::push_heap(entries.ptr(), entries.ptr() + written, less);
+						} else if (less(candidate, entries[0])) {
+							std::pop_heap(entries.ptr(), entries.ptr() + count, less);
+							entries[count - 1u] = candidate;
+							std::push_heap(entries.ptr(), entries.ptr() + count, less);
+						}
+					}
 				}
-				std::sort(context.selected_indices.ptr() + offset, context.selected_indices.ptr() + offset + count);
-				context.plan[id].work = true;
-				context.plan[id].indexed = true;
-				context.plan[id].selection_first = offset;
+				if (written != count || remaining != uint64_t(p_total) - begin) {
+					return context.fail(ERR_INVALID_DATA);
+				}
+				PlanNode &leaf = context.plan[id];
+				leaf.work = true;
+				leaf.indexed = true;
+				leaf.selection_has_lower = r_has_lower;
+				leaf.selection_low_key = r_lower.key;
+				leaf.selection_low_global = r_lower.global;
+				leaf.selection_high_key = entries[0].key;
+				leaf.selection_high_global = entries[0].global;
+				r_lower = entries[0];
+				r_has_lower = true;
 			}
 		} else {
 			for (uint32_t g = 0; g < kMaxChildren; ++g) {
 				const uint32_t first = p_first_chunk + uint32_t(uint64_t(p_chunks) * g / kMaxChildren);
 				const uint32_t last = p_first_chunk + uint32_t(uint64_t(p_chunks) * (g + 1u) / kMaxChildren);
 				const uint32_t begin = first * kMaxNodeSplats;
-				const uint32_t end = uint32_t(MIN(uint64_t(p_entries.size()), uint64_t(last) * kMaxNodeSplats));
+				const uint32_t end = uint32_t(MIN(uint64_t(p_total), uint64_t(last) * kMaxNodeSplats));
 				const uint32_t id = add_child(p_node, cell, end - begin, kNodeFlagSplitByIndex | p_origin_flags);
-				if (id == kNoParent || index_group(id, first, last - first, p_entries, p_origin_flags) != OK) {
+				if (id == kNoParent || index_group(id, first, last - first, p_total, p_origin_flags,
+						p_root, r_lower, r_has_lower) != OK) {
 					return context.check();
 				}
 			}
@@ -479,54 +562,12 @@ class Planner {
 	}
 
 	Error split_by_index(uint32_t p_node) {
-		const GaussianSplatHlodNode record = context.plan[p_node].record;
 		const uint32_t count = context.plan[p_node].input_count;
-		Reservation memory(context);
-		if (!memory.take(uint64_t(count) * sizeof(IndexEntry) * 3u + context.decode_bytes)) {
-			return context.check();
-		}
-		LocalVector<IndexEntry> entries;
-		if (!fallible_resize(entries, count, "gs_hlod::tiled index entries")) {
-			return context.fail(ERR_OUT_OF_MEMORY);
-		}
-		TiledBakeChunk chunk;
-		double lo[3], edge;
-		region(record, lo, edge);
-		uint32_t cursor = 0;
-		for (uint32_t id : context.ordered_chunks) {
-			if (!intersects(record, context.chunks[id].info.centre_bounds)) {
-				continue;
-			}
-			if (context.read(id, chunk) != OK) {
-				return context.check();
-			}
-			for (uint32_t i = 0; i < chunk.gaussians.size(); ++i) {
-				if ((i & 4095u) == 0u && context.check() != OK) {
-					return context.check();
-				}
-				const Vector3 &p = chunk.gaussians[i].position;
-				if (!contains(record, p)) {
-					continue;
-				}
-				if (cursor >= count) {
-					return context.fail(ERR_INVALID_DATA);
-				}
-				uint64_t key = 0;
-				for (int a = 0; a < 3; ++a) {
-					const double t = (double(p[a]) - lo[a]) / edge * 2097152.0;
-					key |= spread21(uint64_t(CLAMP(t, 0.0, 2097151.0))) << uint32_t(a);
-				}
-				entries[cursor++] = { key, context.chunks[id].info.first_splat + i };
-			}
-		}
-		if (cursor != count) {
-			return context.fail(ERR_INVALID_DATA);
-		}
-		std::sort(entries.ptr(), entries.ptr() + entries.size(), [](const IndexEntry &p_a, const IndexEntry &p_b) {
-			return p_a.key < p_b.key || (p_a.key == p_b.key && p_a.global < p_b.global);
-		});
+		const uint32_t flags = context.plan[p_node].record.flags & kNodeFlagOriginCentredRoot;
+		IndexEntry lower;
+		bool has_lower = false;
 		return index_group(p_node, 0u, uint32_t((uint64_t(count) + kMaxNodeSplats - 1u) / kMaxNodeSplats),
-				entries, record.flags & kNodeFlagOriginCentredRoot);
+				count, flags, p_node, lower, has_lower);
 	}
 
 public:
@@ -645,7 +686,11 @@ Error descriptors(Context &p_context, int32_t &r_fine, int32_t &r_coarse) {
 	if (cursor != ctx.info.splat_count) {
 		return ctx.fail(ERR_INVALID_DATA);
 	}
-	ctx.decode_bytes = 3u * uint64_t(max_chunk) * ctx.payload_bytes;
+	const uint64_t decoded = 3u * uint64_t(max_chunk) * ctx.payload_bytes;
+	if (ctx.params.source_decoder_bytes > UINT64_MAX - decoded) {
+		return ctx.fail(ERR_OUT_OF_MEMORY);
+	}
+	ctx.decode_bytes = decoded + ctx.params.source_decoder_bytes;
 	GaussianSplatHlodCell coarse;
 	bool origin_centred = false;
 	const double origin[3] = {};
@@ -669,7 +714,7 @@ Error descriptors(Context &p_context, int32_t &r_fine, int32_t &r_coarse) {
 	return ctx.check();
 }
 
-Error histogram_and_plan(Context &p_context, int32_t p_fine, int32_t p_coarse) {
+Error histogram_and_plan_attempt(Context &p_context, int32_t p_fine, int32_t p_coarse) {
 	Context &ctx = p_context;
 	Histogram histogram(ctx);
 	Counts total;
@@ -695,7 +740,7 @@ Error histogram_and_plan(Context &p_context, int32_t p_fine, int32_t p_coarse) {
 					return ctx.fail(ERR_INVALID_DATA);
 				}
 				if (!histogram.add(cell, one)) {
-					return ctx.check();
+					return histogram.full ? ERR_BUSY : ctx.check();
 				}
 			}
 		}
@@ -714,11 +759,12 @@ Error histogram_and_plan(Context &p_context, int32_t p_fine, int32_t p_coarse) {
 			cell.iy = parent_index(cell.iy);
 			cell.iz = parent_index(cell.iz);
 			if (!histogram.add(cell, bin.counts)) {
-				return ctx.check();
+				return histogram.full ? ERR_BUSY : ctx.check();
 			}
 		}
 	}
-	if (total.count != ctx.info.splat_count || !fallible_resize(ctx.plan, 1u, "gs_hlod::tiled root")) {
+	if (total.count != ctx.info.splat_count || !ctx.reserve_metadata(1u) ||
+			!fallible_resize(ctx.plan, 1u, "gs_hlod::tiled root")) {
 		return ctx.fail(total.count != ctx.info.splat_count ? ERR_INVALID_DATA : ERR_OUT_OF_MEMORY);
 	}
 	const double origin[3] = {};
@@ -734,17 +780,43 @@ Error histogram_and_plan(Context &p_context, int32_t p_fine, int32_t p_coarse) {
 	return planner.split(0u, total);
 }
 
+Error histogram_and_plan(Context &p_context, int32_t p_fine, int32_t p_coarse) {
+	for (;;) {
+		++p_context.report.histogram_passes;
+		const Error code = histogram_and_plan_attempt(p_context, p_fine, p_coarse);
+		if (code != ERR_BUSY) {
+			return code;
+		}
+		// The failed attempt has destroyed its histogram and decoder before a
+		// retry; neither storage nor reservation accumulates across passes.
+		if (p_fine >= p_coarse || p_context.check() != OK) {
+			return p_context.fail(p_context.check() != OK ? p_context.check() : ERR_INVALID_DATA);
+		}
+		++p_fine;
+	}
+}
+
 } // namespace
+uint64_t index_key(const GaussianSplatHlodNode &p_node, const Vector3 &p_position) {
+	double lo[3], edge;
+	region(p_node, lo, edge);
+	uint64_t key = 0;
+	for (int a = 0; a < 3; ++a) {
+		const double t = (double(p_position[a]) - lo[a]) / edge * 2097152.0;
+		key |= spread21(uint64_t(CLAMP(t, 0.0, 2097151.0))) << uint32_t(a);
+	}
+	return key;
+}
+
 } // namespace tiled_bake
 
-Error TiledAutoTree::build(const TiledBakeSource &p_source, const TiledBakeParams &p_params,
-		BakeResult &r_result, TiledBakeReport &r_report, String *r_error) {
-	r_result = BakeResult();
+Error TiledAutoTree::build_streamed(const TiledBakeSource &p_source, const TiledBakeParams &p_params,
+		TiledBakeSink &p_sink, TiledBakeReport &r_report, String *r_error) {
 	r_report = TiledBakeReport();
 	if (r_error) {
 		*r_error = String();
 	}
-	tiled_bake::Context context(p_source, p_params, r_report);
+	tiled_bake::Context context(p_source, p_params, r_report, p_sink);
 	auto fail = [&](Error p_code) {
 		context.fail(p_code);
 		if (r_error) {
@@ -768,15 +840,10 @@ Error TiledAutoTree::build(const TiledBakeSource &p_source, const TiledBakeParam
 	if (context.node_bound > UINT32_MAX) {
 		return fail(ERR_OUT_OF_MEMORY);
 	}
-	// Reserve retained tiles + stitched payload + final assembly, including
-	// vector growth/probes, mappings and node metadata BEFORE the first allocation.
-	// The reduction-4 bound is the same inequality used by OfflineJob::reserve.
-	const uint64_t interiors = (uint64_t(context.info.splat_count) + 2u) / 3u + context.node_bound;
-	const uint64_t resident = 4u * (uint64_t(context.info.splat_count) + interiors) * context.payload_bytes;
-	const uint64_t metadata = context.node_bound * 4096u + uint64_t(context.info.splat_count) * 64u +
-			uint64_t(context.info.chunk_count) * 256u;
-	tiled_bake::Reservation permanent(context);
-	if (!permanent.take(resident + metadata)) {
+	// Source directory is proportional to chunk count. All payload-bearing
+	// reservations below belong to admitted workers or one stitch, never N.
+	tiled_bake::Reservation directory(context);
+	if (!context.reserve_metadata(0u) || !directory.take(uint64_t(context.info.chunk_count) * 256u)) {
 		return fail(ERR_OUT_OF_MEMORY);
 	}
 	OfflineJob coordinator = context.job(context.info.splat_count);
@@ -790,30 +857,175 @@ Error TiledAutoTree::build(const TiledBakeSource &p_source, const TiledBakeParam
 		code = tiled_bake::histogram_and_plan(context, fine, coarse);
 	}
 	if (code == OK) {
+		context.total_nodes = context.plan.size();
 		code = tiled_bake::bake_tiles(context);
 	}
-	BakeResult assembled;
 	if (code == OK) {
-		bool has_stitch = false;
-		for (const tiled_bake::PlanNode &node : context.plan) {
-			has_stitch = has_stitch || !node.work;
-		}
-		// One serial merge workspace; reserve the existing job formula's bounded
-		// eight-child maximum. No tile worker remains alive during stitching.
-		OfflineJob stitch = context.job(kMaxChildren * kMaxNodeSplats);
-		tiled_bake::Reservation scratch(context);
-		if (has_stitch && (!stitch.reserve(kMaxChildren * kMaxNodeSplats, context.info.sh_high_order_count, 0u) ||
-				!scratch.take(stitch.reserved))) {
-			code = context.fail(ERR_OUT_OF_MEMORY);
-		} else {
-			code = tiled_bake::stitch_and_assemble(context, assembled);
-		}
+		code = tiled_bake::stitch_and_assemble(context);
 	}
 	if (code != OK || context.check() != OK) {
 		return fail(code != OK ? code : context.check());
 	}
-	r_result = std::move(assembled);
 	return OK;
+}
+
+namespace {
+
+// Compatibility sink: each callback copies into its own node owner, then finish
+// flattens those copies into the historical BakeResult layout. Its reservation
+// explicitly includes both retained payload and final assembly; production uses
+// a spill sink and never pays this N-dependent term.
+class MemorySink : public TiledBakeSink {
+	struct Payload {
+		TiledBakeChunk chunk;
+		LocalVector<uint32_t> source;
+	};
+	LocalVector<Payload> payloads;
+	BakeResult &result;
+	uint64_t retained_bytes;
+
+public:
+	MemorySink(BakeResult &r_result, const TiledBakeSourceInfo &p_info) : result(r_result) {
+		if (p_info.sh_high_order_count > 21u) {
+			retained_bytes = UINT64_MAX;
+			return;
+		}
+		const uint64_t nodes = tiled_bake::node_bound(p_info.splat_count);
+		const uint64_t interiors = (uint64_t(p_info.splat_count) + 2u) / 3u + nodes;
+		const uint64_t bytes = sizeof(Gaussian) + uint64_t(p_info.sh_high_order_count) * sizeof(Vector3);
+		retained_bytes = 4u * (uint64_t(p_info.splat_count) + interiors) * bytes + uint64_t(p_info.splat_count) * 64u;
+	}
+	uint64_t reservation_bytes(uint32_t) const override { return retained_bytes; }
+	Error append_node(uint32_t p_id, const GaussianSplatHlodNode &, uint32_t,
+			const SplatSpan &p_payload, const uint32_t *p_indices, bool) override {
+		if (p_id >= payloads.size() && !fallible_resize(payloads, uint64_t(p_id) + 1u, "gs_hlod::memory sink nodes")) {
+			return ERR_OUT_OF_MEMORY;
+		}
+		Payload &owned = payloads[p_id];
+		if (!owned.chunk.gaussians.is_empty()) {
+			return ERR_INVALID_DATA;
+		}
+		if (!fallible_resize(owned.chunk.gaussians, p_payload.count, "gs_hlod::memory sink payload") ||
+				!fallible_resize(owned.chunk.sh_high_order, uint64_t(p_payload.count) * p_payload.sh_high_order_count, "gs_hlod::memory sink SH") ||
+				(p_indices && !fallible_resize(owned.source, p_payload.count, "gs_hlod::memory sink indices"))) {
+			return ERR_OUT_OF_MEMORY;
+		}
+		memcpy(static_cast<void *>(owned.chunk.gaussians.ptr()), p_payload.gaussians, size_t(p_payload.count) * sizeof(Gaussian));
+		if (p_payload.sh_high_order_count > 0u) {
+			memcpy(owned.chunk.sh_high_order.ptr(), p_payload.sh_high_order,
+					size_t(p_payload.count) * p_payload.sh_high_order_count * sizeof(Vector3));
+		}
+		if (p_indices) {
+			memcpy(owned.source.ptr(), p_indices, size_t(p_payload.count) * sizeof(uint32_t));
+		}
+		return OK;
+	}
+	Error load_frontier(uint32_t p_id, TiledBakeChunk &r_payload) override {
+		if (p_id >= payloads.size()) {
+			return ERR_INVALID_DATA;
+		}
+		const TiledBakeChunk &source = payloads[p_id].chunk;
+		if (!fallible_resize(r_payload.gaussians, source.gaussians.size(), "gs_hlod::memory frontier") ||
+				!fallible_resize(r_payload.sh_high_order, source.sh_high_order.size(), "gs_hlod::memory frontier SH")) {
+			return ERR_OUT_OF_MEMORY;
+		}
+		memcpy(static_cast<void *>(r_payload.gaussians.ptr()), source.gaussians.ptr(), size_t(source.gaussians.size()) * sizeof(Gaussian));
+		if (!source.sh_high_order.is_empty()) {
+			memcpy(r_payload.sh_high_order.ptr(), source.sh_high_order.ptr(), size_t(source.sh_high_order.size()) * sizeof(Vector3));
+		}
+		return OK;
+	}
+	Error finish(GaussianSplatHlodTree &p_tree, const LocalVector<uint32_t> &p_ids) override {
+		BakeResult assembled;
+		assembled.tree = std::move(p_tree);
+		GaussianSplatHlodTree &tree = assembled.tree;
+		if (!fallible_resize(assembled.leaf_gaussians, tree.leaf_splat_count, "gs_hlod::memory leaves") ||
+				!fallible_resize(assembled.leaf_source_index, tree.leaf_splat_count, "gs_hlod::memory sources") ||
+				!fallible_resize(assembled.leaf_sh_high_order, uint64_t(tree.leaf_splat_count) * tree.sh_high_order_count, "gs_hlod::memory leaf SH") ||
+				!fallible_resize(tree.interior_gaussians, tree.interior_splat_count, "gs_hlod::memory interiors") ||
+				!fallible_resize(tree.interior_sh_high_order, uint64_t(tree.interior_splat_count) * tree.sh_high_order_count, "gs_hlod::memory interior SH")) {
+			return ERR_OUT_OF_MEMORY;
+		}
+		LocalVector<uint8_t> seen;
+		if (!fallible_resize(seen, tree.leaf_splat_count, "gs_hlod::memory permutation")) {
+			return ERR_OUT_OF_MEMORY;
+		}
+		memset(seen.ptr(), 0, seen.size());
+		for (uint32_t i = 0; i < tree.nodes.size(); ++i) {
+			if (offline_job_check() != OK) {
+				return offline_job_check();
+			}
+			if (i >= p_ids.size() || p_ids[i] >= payloads.size()) {
+				return ERR_INVALID_DATA;
+			}
+			const GaussianSplatHlodNode &node = tree.nodes[i];
+			const Payload &owned = payloads[p_ids[i]];
+			if (owned.chunk.gaussians.size() != node.payload_count ||
+					owned.chunk.sh_high_order.size() != uint64_t(node.payload_count) * tree.sh_high_order_count) {
+				return ERR_INVALID_DATA;
+			}
+			const uint64_t first = node.is_leaf() ? node.payload_first : node.payload_first - tree.leaf_splat_count;
+			LocalVector<Gaussian> &g = node.is_leaf() ? assembled.leaf_gaussians : tree.interior_gaussians;
+			LocalVector<Vector3> &sh = node.is_leaf() ? assembled.leaf_sh_high_order : tree.interior_sh_high_order;
+			memcpy(static_cast<void *>(g.ptr() + first), owned.chunk.gaussians.ptr(), size_t(node.payload_count) * sizeof(Gaussian));
+			if (tree.sh_high_order_count > 0u) {
+				memcpy(sh.ptr() + first * tree.sh_high_order_count, owned.chunk.sh_high_order.ptr(),
+						size_t(node.payload_count) * tree.sh_high_order_count * sizeof(Vector3));
+			}
+			if (node.is_leaf()) {
+				if (owned.source.size() != node.payload_count) {
+					return ERR_INVALID_DATA;
+				}
+				for (uint32_t k = 0; k < node.payload_count; ++k) {
+					const uint32_t source = owned.source[k];
+					if (source >= seen.size() || seen[source] != 0u) {
+						return ERR_INVALID_DATA;
+					}
+					seen[source] = 1u;
+					assembled.leaf_source_index[first + k] = source;
+				}
+			}
+			// Recompute bounds from the copied payload to preserve the historical
+			// in-memory verification rather than only validating the metadata.
+			GaussianSplatHlodNode measured = node;
+			const GaussianSplatHlodNode *children[kMaxChildren] = {};
+			for (uint32_t c = 0; c < node.child_count; ++c) {
+				children[c] = &tree.nodes[node.first_child + c];
+			}
+			const SplatSpan span = { g.ptr() + first,
+				tree.sh_high_order_count > 0u ? sh.ptr() + first * tree.sh_high_order_count : nullptr,
+				node.payload_count, tree.sh_high_order_count };
+			tiled_bake::finish_metrics(measured, span, children, node.child_count);
+			if (measured.height != node.height || measured.radius != node.radius) {
+				return ERR_INVALID_DATA;
+			}
+			for (int a = 0; a < 3; ++a) {
+				if (measured.aabb_min[a] != node.aabb_min[a] || measured.aabb_max[a] != node.aabb_max[a]) {
+					return ERR_INVALID_DATA;
+				}
+			}
+		}
+		tree.interior_resident = true;
+		Error error = OK;
+		if (!gs_hlod_validate_tree(tree, nullptr, &error)) {
+			return error == ERR_OUT_OF_MEMORY ? error : ERR_INVALID_DATA;
+		}
+		result = std::move(assembled);
+		return OK;
+	}
+};
+
+} // namespace
+
+Error TiledAutoTree::build(const TiledBakeSource &p_source, const TiledBakeParams &p_params,
+		BakeResult &r_result, TiledBakeReport &r_report, String *r_error) {
+	r_result = BakeResult();
+	MemorySink sink(r_result, p_source.get_info());
+	const Error error = build_streamed(p_source, p_params, sink, r_report, r_error);
+	if (error != OK) {
+		r_result = BakeResult();
+	}
+	return error;
 }
 
 } // namespace gs_hlod

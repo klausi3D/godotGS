@@ -69,6 +69,9 @@ struct Options {
 	gs_world_writer::CodecParams codec;
 	gs_world_writer::Limits limits;
 	uint64_t deadline = 0; // absolute ticks, unlike WriterV4's relative duration
+#ifdef TESTS_ENABLED
+	bool retained_reference = false; // C++ test entry only; parse_options never accepts this.
+#endif
 };
 
 Error refuse(String &r_reason, const String &p_reason, Error p_error = ERR_INVALID_PARAMETER) {
@@ -541,55 +544,336 @@ Error input_provenance(const String &p_input, uint64_t p_deadline, uint64_t p_pa
 	return OK;
 }
 
-Error run_build(const String &p_input_path, const String &p_output_path, const Options &p_options, uint64_t p_started, Dictionary &r_report, String &r_reason) {
-	const String input = native_path(p_input_path);
-	const String output = native_path(p_output_path);
-	const String manifest = native_path(manifest_path(p_output_path));
-	const String scratch_root = native_path(p_options.scratch);
-	if (p_input_path.is_empty() || !FileAccess::exists(input)) {
-		return refuse(r_reason, "input_not_found", ERR_FILE_NOT_FOUND);
+struct PreparedBuild {
+	gs_world_writer::PagedV4Spec spec;
+	gs_world_writer::WriterV4 writer;
+	LocalVector<gs_world_writer::V4Node> nodes;
+	Vector<NodeDigest> decoded_digests;
+	std::vector<std::vector<double>> errors;
+	uint64_t frontier_scratch_bytes = 0;
+};
+
+// Driving-thread-only owner. Workers never access the writer, these tables or
+// the frontier file; TiledAutoTree joins the entire batch before callbacks.
+// Frontier bytes are the ORIGINAL runtime payload, not GSQ's quantized spill.
+class StreamingSink : public gs_hlod::TiledBakeSink {
+	struct Frontier {
+		uint64_t offset = 0;
+		uint32_t count = 0;
+		NodeDigest digest;
+	};
+	PreparedBuild &build;
+	String &reason;
+	const uint64_t deadline;
+	const uint64_t fixed_bytes;
+	const uint64_t node_bytes;
+	const bool gsq;
+	gs_gsq::EncodeParams encode_params;
+	LocalVector<gs_world_writer::V4BodyHandle> handles;
+	LocalVector<NodeDigest> digests;
+	LocalVector<Frontier> frontiers;
+	Ref<FileAccess> frontier_file;
+	String frontier_path;
+	uint64_t frontier_bytes = 0;
+
+	Error transfer(uint8_t *p_bytes, uint64_t p_size, bool p_write) {
+		for (uint64_t offset = 0; offset < p_size;) {
+			if (check_deadline(deadline, reason) != OK) {
+				return ERR_TIMEOUT;
+			}
+			const uint64_t count = MIN(kSlice, p_size - offset);
+			if (p_write) {
+				frontier_file->store_buffer(p_bytes + offset, count);
+			} else if (frontier_file->get_buffer(p_bytes + offset, count) != count) {
+				return refuse(reason, "frontier_short_read", ERR_FILE_CORRUPT);
+			}
+			if (frontier_file->get_error() != OK) {
+				return refuse(reason, "frontier_io", frontier_file->get_error());
+			}
+			offset += count;
+		}
+		return OK;
 	}
-	if (p_output_path.is_empty() || !input.is_absolute_path() || !output.is_absolute_path() || !scratch_root.is_absolute_path() ||
-			input == output || input == manifest || output == manifest || manifest_path(input) == output || manifest_path(input) == manifest) {
-		return refuse(r_reason, "path_invalid");
+
+public:
+	StreamingSink(PreparedBuild &p_build, String &r_reason, uint64_t p_deadline,
+			uint64_t p_fixed_bytes, uint64_t p_node_bytes, bool p_gsq, const gs_gsq::EncodeParams &p_encode) :
+			build(p_build), reason(r_reason), deadline(p_deadline), fixed_bytes(p_fixed_bytes),
+			node_bytes(p_node_bytes), gsq(p_gsq), encode_params(p_encode) {}
+
+	~StreamingSink() override {
+		frontier_file.unref();
+		if (!frontier_path.is_empty()) {
+			DirAccess::remove_absolute(frontier_path);
+		}
 	}
-	Ref<DirAccess> destination_dir = DirAccess::open(output.get_base_dir());
-	if (destination_dir.is_null() || !DirAccess::dir_exists_absolute(scratch_root) ||
-			DirAccess::dir_exists_absolute(output) || DirAccess::dir_exists_absolute(manifest) ||
-			destination_dir->is_link(output.get_file()) || destination_dir->is_link(manifest.get_file())) {
-		return refuse(r_reason, "destination_invalid", ERR_FILE_BAD_PATH);
+
+	Error open(const String &p_scratch) {
+		Error error = OK;
+		const String path = p_scratch.path_join("frontier.raw");
+		frontier_file = FileAccess::open(path, FileAccess::WRITE_READ, &error);
+		if (frontier_file.is_null()) {
+			return refuse(reason, "frontier_create", error == OK ? ERR_CANT_CREATE : error);
+		}
+		frontier_path = path;
+		return OK;
 	}
-	// Include case aliases, hard links and aliases through parent directories.
-	if (destination_dir->is_equivalent(input, output) || destination_dir->is_equivalent(input, manifest) ||
-			destination_dir->is_equivalent(manifest_path(input), output) || destination_dir->is_equivalent(manifest_path(input), manifest) ||
-			destination_dir->is_equivalent(output, manifest)) {
-		return refuse(r_reason, "path_invalid");
+
+	uint64_t reservation_bytes(uint32_t p_total_nodes) const override {
+		if (node_bytes && uint64_t(p_total_nodes) > (UINT64_MAX - fixed_bytes) / node_bytes) {
+			return UINT64_MAX;
+		}
+		return fixed_bytes + uint64_t(p_total_nodes) * node_bytes;
 	}
-	if (p_options.limits.max_ram_bytes <= kBaseReservation) {
+
+	Error append_node(uint32_t p_id, const GaussianSplatHlodNode &p_node, uint32_t p_depth,
+			const gs_hlod::SplatSpan &p_payload, const uint32_t *, bool p_frontier) override {
+		if (check_deadline(deadline, reason) != OK) {
+			return ERR_TIMEOUT;
+		}
+		if (p_id == UINT32_MAX || p_payload.count != p_node.payload_count || !p_payload.gaussians ||
+				p_payload.sh_high_order_count != build.spec.sh_high_order ||
+				(build.spec.sh_high_order && !p_payload.sh_high_order)) {
+			return refuse(reason, "stream_payload_invalid", ERR_INVALID_DATA);
+		}
+		if (p_id >= handles.size() &&
+				(!gs_hlod::fallible_resize(handles, p_id + 1, "gs_auto_tree stream handles") ||
+						!gs_hlod::fallible_resize(frontiers, p_id + 1, "gs_auto_tree frontier offsets") ||
+						(gsq && !gs_hlod::fallible_resize(digests, p_id + 1, "gs_auto_tree stream digests")))) {
+			return refuse(reason, "limit_ram: stream_tables", ERR_OUT_OF_MEMORY);
+		}
+		if (handles[p_id].value != UINT64_MAX) {
+			return refuse(reason, "stream_duplicate_node", ERR_INVALID_DATA);
+		}
+		gs_world_writer::V4BodyDesc desc;
+		desc.segment.bucket = 0; // Depth bounds segment count; append order does not affect final bytes.
+		desc.segment.depth = p_depth;
+		desc.is_leaf = p_node.is_leaf();
+		const GaussianSplatHlodTree frame;
+		frame.node_cell_center(p_node, desc.cell_center);
+		Error error = build.writer.append_node(desc, p_payload.gaussians, p_payload.sh_high_order,
+				p_payload.count, handles[p_id]);
+		if (error != OK) {
+			return writer_failure(build.writer.get_report(), error, reason);
+		}
+		if (gsq) {
+			error = gsq_node_digest(p_payload.gaussians, p_payload.sh_high_order, p_payload.count,
+					build.spec.sh_degree, desc, encode_params, digests[p_id], reason);
+			if (error != OK) {
+				return error;
+			}
+		}
+		if (p_frontier) {
+			const uint64_t g_bytes = uint64_t(p_payload.count) * sizeof(Gaussian);
+			const uint64_t sh_bytes = uint64_t(p_payload.count) * build.spec.sh_high_order * sizeof(Vector3);
+			if (frontier_bytes > UINT64_MAX - g_bytes - sh_bytes) {
+				return refuse(reason, "limit_scratch", ERR_PARAMETER_RANGE_ERROR);
+			}
+			// Reserve the caller-owned file in WriterV4's SAME live scratch ledger
+			// before growing it; writer appends also include this reservation.
+			error = build.writer.set_external_scratch_bytes(frontier_bytes + g_bytes + sh_bytes);
+			if (error != OK) {
+				return writer_failure(build.writer.get_report(), error, reason);
+			}
+			Frontier &frontier = frontiers[p_id];
+			frontier.offset = frontier_bytes;
+			frontier.count = p_payload.count;
+			hash_payload(p_payload.gaussians, p_payload.sh_high_order, p_payload.count,
+					build.spec.sh_high_order, frontier.digest.bytes);
+			frontier_file->seek(frontier_bytes);
+			error = transfer(reinterpret_cast<uint8_t *>(const_cast<Gaussian *>(p_payload.gaussians)), g_bytes, true);
+			if (error == OK && sh_bytes) {
+				error = transfer(reinterpret_cast<uint8_t *>(const_cast<Vector3 *>(p_payload.sh_high_order)), sh_bytes, true);
+			}
+			if (error != OK) {
+				return error;
+			}
+			frontier_bytes += g_bytes + sh_bytes;
+		}
+		return OK;
+	}
+
+	Error load_frontier(uint32_t p_id, gs_hlod::TiledBakeChunk &r_payload) override {
+		if (p_id >= frontiers.size() || frontiers[p_id].count == 0) {
+			return refuse(reason, "frontier_missing", ERR_INVALID_DATA);
+		}
+		const Frontier &frontier = frontiers[p_id];
+		if (!gs_hlod::fallible_resize(r_payload.gaussians, frontier.count, "gs_auto_tree frontier gaussians") ||
+				!gs_hlod::fallible_resize(r_payload.sh_high_order, uint64_t(frontier.count) * build.spec.sh_high_order,
+						"gs_auto_tree frontier SH")) {
+			return refuse(reason, "limit_ram: frontier", ERR_OUT_OF_MEMORY);
+		}
+		frontier_file->seek(frontier.offset);
+		Error error = transfer(reinterpret_cast<uint8_t *>(r_payload.gaussians.ptr()), uint64_t(frontier.count) * sizeof(Gaussian), false);
+		if (error == OK && build.spec.sh_high_order) {
+			error = transfer(reinterpret_cast<uint8_t *>(r_payload.sh_high_order.ptr()),
+					uint64_t(frontier.count) * build.spec.sh_high_order * sizeof(Vector3), false);
+		}
+		if (error != OK) {
+			return error;
+		}
+		NodeDigest digest;
+		hash_payload(r_payload.gaussians.ptr(), r_payload.sh_high_order.ptr(), frontier.count, build.spec.sh_high_order, digest.bytes);
+		if (std::memcmp(digest.bytes, frontier.digest.bytes, sizeof(digest.bytes)) != 0) {
+			return refuse(reason, "frontier_digest_mismatch", ERR_FILE_CORRUPT);
+		}
+		return OK;
+	}
+
+	Error finish(GaussianSplatHlodTree &p_tree, const LocalVector<uint32_t> &p_ids) override {
+		if (p_ids.size() != p_tree.nodes.size() || p_ids.size() != handles.size()) {
+			return refuse(reason, "stream_node_count", ERR_INVALID_DATA);
+		}
+		build.spec.node_count = p_tree.nodes.size();
+		build.spec.leaf_splat_count = p_tree.leaf_splat_count;
+		build.spec.interior_splat_count = p_tree.interior_splat_count;
+		build.spec.bake_rule_version = p_tree.bake_rule_version;
+		for (uint32_t a = 0; a < 3; ++a) {
+			build.spec.origin[a] = p_tree.origin[a];
+		}
+		LocalVector<uint32_t> depths;
+		if (!gs_hlod::fallible_resize(build.nodes, p_ids.size(), "gs_auto_tree BFS writer nodes") ||
+				!gs_hlod::fallible_resize(depths, p_ids.size(), "gs_auto_tree BFS depths") ||
+				(gsq && !gs_resize_or_fail(build.decoded_digests, p_ids.size(), "gs_auto_tree BFS digests"))) {
+			return refuse(reason, "limit_ram: node_tables", ERR_OUT_OF_MEMORY);
+		}
+		for (uint32_t i = 0; i < p_ids.size(); ++i) {
+			const uint32_t id = p_ids[i];
+			const auto &node = p_tree.nodes[i];
+			if (id >= handles.size() || handles[id].value == UINT64_MAX || (i > 0 && node.parent >= i)) {
+				return refuse(reason, "stream_node_mapping", ERR_INVALID_DATA);
+			}
+			build.nodes[i].topology = node;
+			build.nodes[i].body = handles[id];
+			if (gsq) {
+				build.decoded_digests.write[i] = digests[id];
+			}
+			depths[i] = i == 0 ? 0 : depths[node.parent] + 1;
+			if (build.errors.size() <= depths[i]) {
+				build.errors.resize(depths[i] + 1);
+			}
+			build.errors[depths[i]].push_back(node.geometric_error);
+		}
+		build.frontier_scratch_bytes = frontier_bytes;
+		frontier_file.unref();
+		const Error removed = DirAccess::remove_absolute(frontier_path);
+		if (removed != OK) {
+			return refuse(reason, "frontier_remove", removed);
+		}
+		frontier_path = String();
+		const Error error = build.writer.set_external_scratch_bytes(0);
+		return error == OK ? OK : writer_failure(build.writer.get_report(), error, reason);
+	}
+};
+
+Error prepare_streaming(const String &input, const String &output, const String &scratch_root,
+		const String &p_stage_path, const String &p_scratch_path, const Options &p_options,
+		uint64_t base_reserved, PreparedBuild &r_build, Dictionary &r_report, String &r_reason) {
+	GsqAutoTreeSource source;
+	Error error = source.open(input, &r_reason, p_options.limits.max_ram_bytes - base_reserved);
+	r_report["peak_reserved_bytes"] = int64_t(base_reserved + source.get_open_peak_reserved_bytes());
+	if (error != OK) {
+		if (error == ERR_OUT_OF_MEMORY) {
+			r_reason = "limit_ram: " + r_reason;
+		}
+		return error;
+	}
+	const auto info = source.get_info();
+	auto &spec = r_build.spec;
+	spec.deferred_counts = true;
+	spec.leaf_splat_count = info.splat_count;
+	spec.sh_degree = source.get_sh_degree();
+	spec.sh_first_order = info.sh_first_order_count;
+	spec.sh_high_order = info.sh_high_order_count;
+	spec.is_2d = source.is_2d();
+	spec.bounds = source.get_bounds();
+	const uint64_t max_body = uint64_t(gs_hlod::kMaxNodeSplats) * (sizeof(Gaussian) + uint64_t(spec.sh_high_order) * sizeof(Vector3));
+	const bool gsq = p_options.codec.codec_id == gs_world_writer::kCodecGsqV1;
+	gs_gsq::EncodeParams encode_params;
+	uint64_t writer_fixed = (16ull << 20) + 16 * max_body;
+	uint64_t verification_fixed = 0;
+	if (gsq) {
+		error = gs_world_writer::gsq_encode_params(p_options.codec, encode_params, r_reason);
+		if (error != OK) {
+			return error;
+		}
+		const uint64_t codec_workspace = gs_gsq::writer_v4_workspace_bytes(encode_params);
+		const uint64_t max_stored = gs_world_paged::gsq_record_stored_bytes_limit(gs_hlod::kMaxNodeSplats, spec.sh_degree);
+		if (!max_stored || codec_workspace > p_options.limits.max_ram_bytes) {
+			return refuse(r_reason, "gsq_verify_layout", ERR_INVALID_DATA);
+		}
+		writer_fixed += codec_workspace;
+		verification_fixed = codec_workspace + 12 * max_body + 2 * max_stored + gs_world_paged::gsq_decode_workspace_bytes();
+	}
+	const uint64_t external_fixed = base_reserved + source.get_reserved_bytes() + verification_fixed;
+	const uint64_t fixed = external_fixed + writer_fixed;
+	const uint64_t per_node = 16384 + 16384 + 64 * uint64_t(output.length() + scratch_root.length() + 256) +
+			(gsq ? 2 * sizeof(NodeDigest) : 0);
+	if (fixed >= p_options.limits.max_ram_bytes) {
 		return refuse(r_reason, "limit_ram", ERR_OUT_OF_MEMORY);
 	}
-	uint64_t base_reserved = kBaseReservation;
-	if (FileAccess::exists(manifest_path(input))) {
-		Ref<FileAccess> sidecar = FileAccess::open(manifest_path(input), FileAccess::READ);
-		if (sidecar.is_null() || sidecar->get_length() > kManifestLimit) {
-			return refuse(r_reason, "input_manifest_size", ERR_INVALID_DATA);
-		}
-		// The JSON DOM can be much larger than its encoded text. Reserve its
-		// transient expansion for both provenance reads, not just the file bytes.
-		base_reserved = MAX(base_reserved, sidecar->get_length() * 128 + 4 * kSlice);
+	r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), fixed));
+	gs_world_writer::Limits writer_limits = p_options.limits;
+	// The coordinator admits writer growth together with every worker. WriterV4
+	// also enforces its own maximum; its ceiling is not counted as a live allocation.
+	writer_limits.max_ram_bytes -= external_fixed;
+	const uint64_t now = OS::get_singleton()->get_ticks_usec();
+	if (now >= p_options.deadline) {
+		return refuse(r_reason, "deadline", ERR_TIMEOUT);
 	}
-	if (base_reserved >= p_options.limits.max_ram_bytes) {
-		return refuse(r_reason, "limit_ram: input_manifest", ERR_OUT_OF_MEMORY);
+	writer_limits.deadline_usec = p_options.deadline - now;
+	error = r_build.writer.begin_paged(p_stage_path.path_join("world"), p_scratch_path, spec, p_options.codec, writer_limits);
+	if (error != OK) {
+		return writer_failure(r_build.writer.get_report(), error, r_reason);
 	}
-	r_report["peak_reserved_bytes"] = int64_t(base_reserved);
-	Dictionary document;
-	Error error = input_provenance(input, p_options.deadline, base_reserved - 4 * kSlice, document, r_reason);
+	StreamingSink sink(r_build, r_reason, p_options.deadline, fixed, per_node, gsq, encode_params);
+	error = sink.open(p_scratch_path);
 	if (error != OK) {
 		return error;
 	}
+	gs_hlod::TiledBakeParams params;
+	params.worker_count = p_options.workers;
+	params.max_tile_splats = p_options.tile_splats;
+	params.source_decoder_bytes = source.get_decode_scratch_bytes();
+	params.limits.max_ram_bytes = p_options.limits.max_ram_bytes;
+	params.limits.deadline_usec = p_options.deadline;
+	gs_hlod::TiledBakeReport tiled_report;
+	String tiled_reason;
+	error = gs_hlod::TiledAutoTree::build_streamed(source, params, sink, tiled_report, &tiled_reason);
+	const auto stats = source.get_stats();
+	r_report["pages_decoded"] = int64_t(stats.pages_decoded);
+	r_report["pages_decoded_digest_checked"] = int64_t(stats.pages_decoded_digest_checked);
+	r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), tiled_report.peak_reserved_bytes));
+	r_report["tiles_baked"] = tiled_report.tiles_baked;
+	r_report["stitch_levels"] = tiled_report.stitch_levels;
+	if (error != OK) {
+		if (error == ERR_OUT_OF_MEMORY) {
+			r_reason = "limit_ram";
+		} else if (stats.failures > 0) {
+			r_reason = stats.last_reason;
+			error = ERR_FILE_CORRUPT;
+		} else if (r_reason.is_empty()) {
+			r_reason = tiled_reason;
+		}
+	}
+	return error;
+}
+
+#ifdef TESTS_ENABLED
+// Frozen D2-3 writer route: retained BakeResult, canonical BFS append, bucket 0.
+// Deliberately separate from StreamingSink's emission/remapping so tests compare
+// complete output bytes across the two routes. Never bound to the script API.
+Error prepare_retained_reference(const String &input, const String &output, const String &scratch_root,
+		const String &p_stage_path, const String &p_scratch_path, const Options &p_options,
+		uint64_t base_reserved, PreparedBuild &r_build, Dictionary &r_report, String &r_reason) {
+	Error error = OK;
+	auto &spec = r_build.spec;
+	auto &writer = r_build.writer;
+	auto &nodes = r_build.nodes;
+	auto &decoded_digests = r_build.decoded_digests;
+	auto &errors = r_build.errors;
 	gs_hlod::BakeResult result;
 	gs_hlod::TiledBakeReport tiled_report;
-	gs_world_writer::PagedV4Spec spec;
 	{
 		GsqAutoTreeSource source;
 		error = source.open(input, &r_reason, p_options.limits.max_ram_bytes - base_reserved);
@@ -691,12 +975,6 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 	}
 	const uint64_t writer_phase_reserved = resident_reserved + writer_reserved + verification_reserved;
 	r_report["peak_reserved_bytes"] = int64_t(MAX(uint64_t(int64_t(r_report["peak_reserved_bytes"])), writer_phase_reserved));
-	OwnedDirectory stage;
-	OwnedDirectory scratch;
-	if (stage.create(output.get_base_dir()) != OK || scratch.create(scratch_root) != OK) {
-		return refuse(r_reason, "staging_create", ERR_CANT_CREATE);
-	}
-	gs_world_writer::WriterV4 writer;
 	gs_world_writer::Limits writer_limits = p_options.limits;
 	writer_limits.max_ram_bytes = writer_reserved;
 	const uint64_t writer_start = OS::get_singleton()->get_ticks_usec();
@@ -705,20 +983,17 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		return ERR_TIMEOUT;
 	}
 	writer_limits.deadline_usec = p_options.deadline - writer_start;
-	const String staged_world = stage.path.path_join("world");
-	error = writer.begin_paged(staged_world, scratch.path, spec, p_options.codec, writer_limits);
+	const String staged_world = p_stage_path.path_join("world");
+	error = writer.begin_paged(staged_world, p_scratch_path, spec, p_options.codec, writer_limits);
 	if (error != OK) {
 		return writer_failure(writer.get_report(), error, r_reason);
 	}
-	LocalVector<gs_world_writer::V4Node> nodes;
 	LocalVector<uint32_t> depths;
-	Vector<NodeDigest> decoded_digests;
 	if (!gs_hlod::fallible_resize(nodes, spec.node_count, "gs_auto_tree writer nodes") ||
 			!gs_hlod::fallible_resize(depths, spec.node_count, "gs_auto_tree node depths") ||
 			(gsq && !gs_resize_or_fail(decoded_digests, spec.node_count, "gs_auto_tree GSQ node digests"))) {
 		return refuse(r_reason, "limit_ram: node_tables", ERR_OUT_OF_MEMORY);
 	}
-	std::vector<std::vector<double>> errors;
 	for (uint32_t i = 0; i < spec.node_count; ++i) {
 		if (check_deadline(p_options.deadline, r_reason) != OK) {
 			return ERR_TIMEOUT;
@@ -758,10 +1033,88 @@ Error run_build(const String &p_input_path, const String &p_output_path, const O
 		errors[depths[i]].push_back(node.geometric_error);
 	}
 	result = gs_hlod::BakeResult();
+	return OK;
+}
+#endif
+
+Error run_build(const String &p_input_path, const String &p_output_path, const Options &p_options, uint64_t p_started, Dictionary &r_report, String &r_reason) {
+	const String input = native_path(p_input_path);
+	const String output = native_path(p_output_path);
+	const String manifest = native_path(manifest_path(p_output_path));
+	const String scratch_root = native_path(p_options.scratch);
+	if (p_input_path.is_empty() || !FileAccess::exists(input)) {
+		return refuse(r_reason, "input_not_found", ERR_FILE_NOT_FOUND);
+	}
+	if (p_output_path.is_empty() || !input.is_absolute_path() || !output.is_absolute_path() || !scratch_root.is_absolute_path() ||
+			input == output || input == manifest || output == manifest || manifest_path(input) == output || manifest_path(input) == manifest) {
+		return refuse(r_reason, "path_invalid");
+	}
+	Ref<DirAccess> destination_dir = DirAccess::open(output.get_base_dir());
+	if (destination_dir.is_null() || !DirAccess::dir_exists_absolute(scratch_root) ||
+			DirAccess::dir_exists_absolute(output) || DirAccess::dir_exists_absolute(manifest) ||
+			destination_dir->is_link(output.get_file()) || destination_dir->is_link(manifest.get_file())) {
+		return refuse(r_reason, "destination_invalid", ERR_FILE_BAD_PATH);
+	}
+	// Include case aliases, hard links and aliases through parent directories.
+	if (destination_dir->is_equivalent(input, output) || destination_dir->is_equivalent(input, manifest) ||
+			destination_dir->is_equivalent(manifest_path(input), output) || destination_dir->is_equivalent(manifest_path(input), manifest) ||
+			destination_dir->is_equivalent(output, manifest)) {
+		return refuse(r_reason, "path_invalid");
+	}
+	if (p_options.limits.max_ram_bytes <= kBaseReservation) {
+		return refuse(r_reason, "limit_ram", ERR_OUT_OF_MEMORY);
+	}
+	uint64_t base_reserved = kBaseReservation;
+	if (FileAccess::exists(manifest_path(input))) {
+		Ref<FileAccess> sidecar = FileAccess::open(manifest_path(input), FileAccess::READ);
+		if (sidecar.is_null() || sidecar->get_length() > kManifestLimit) {
+			return refuse(r_reason, "input_manifest_size", ERR_INVALID_DATA);
+		}
+		// The JSON DOM can be much larger than its encoded text. Reserve its
+		// transient expansion for both provenance reads, not just the file bytes.
+		base_reserved = MAX(base_reserved, sidecar->get_length() * 128 + 4 * kSlice);
+	}
+	if (base_reserved >= p_options.limits.max_ram_bytes) {
+		return refuse(r_reason, "limit_ram: input_manifest", ERR_OUT_OF_MEMORY);
+	}
+	r_report["peak_reserved_bytes"] = int64_t(base_reserved);
+	Dictionary document;
+	Error error = input_provenance(input, p_options.deadline, base_reserved - 4 * kSlice, document, r_reason);
+	if (error != OK) {
+		return error;
+	}
+	OwnedDirectory stage;
+	OwnedDirectory scratch;
+	if (stage.create(output.get_base_dir()) != OK || scratch.create(scratch_root) != OK) {
+		return refuse(r_reason, "staging_create", ERR_CANT_CREATE);
+	}
+	PreparedBuild prepared;
+#ifdef TESTS_ENABLED
+	if (p_options.retained_reference) {
+		error = prepare_retained_reference(input, output, scratch_root, stage.path, scratch.path,
+				p_options, base_reserved, prepared, r_report, r_reason);
+	} else
+#endif
+	{
+		error = prepare_streaming(input, output, scratch_root, stage.path, scratch.path,
+				p_options, base_reserved, prepared, r_report, r_reason);
+	}
+	if (error != OK) {
+		return error;
+	}
+	auto &spec = prepared.spec;
+	auto &writer = prepared.writer;
+	auto &nodes = prepared.nodes;
+	auto &decoded_digests = prepared.decoded_digests;
+	auto &errors = prepared.errors;
+	const bool gsq = p_options.codec.codec_id == gs_world_writer::kCodecGsqV1;
+	const String staged_world = stage.path.path_join("world");
 	error = writer.finalize(nodes);
 	if (error != OK) {
 		return writer_failure(writer.get_report(), error, r_reason);
 	}
+	r_report["scratch_bytes_total"] = int64_t(writer.get_report().total_scratch_bytes + prepared.frontier_scratch_bytes);
+	r_report["scratch_bytes_peak"] = int64_t(writer.get_report().peak_scratch_plus_output_bytes);
 	Ref<GaussianSplatHlodPagedSource> reopened;
 	reopened.instantiate();
 	GaussianSplatHlodTree reopened_tree;
@@ -1019,7 +1372,7 @@ void GaussianSplatHlodAutoTree::_bind_methods() {
 	ClassDB::bind_static_method("GaussianSplatHlodAutoTree", D_METHOD("oracle_cut", "v4_path", "poses", "options"), &GaussianSplatHlodAutoTree::oracle_cut);
 }
 
-Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const String &p_output_path, const Dictionary &p_options) {
+static Dictionary build_auto_tree_entry(const String &p_input_path, const String &p_output_path, const Dictionary &p_options, bool p_retained_reference) {
 	const uint64_t started = OS::get_singleton()->get_ticks_usec();
 	Dictionary report;
 	report["error"] = ERR_UNAVAILABLE;
@@ -1033,6 +1386,11 @@ Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const St
 	report["tiles_baked"] = 0;
 	report["stitch_levels"] = 0;
 	Options options;
+#ifdef TESTS_ENABLED
+	options.retained_reference = p_retained_reference;
+#else
+	(void)p_retained_reference;
+#endif
 	String reason;
 	Error error = parse_options(p_options, started, options, reason);
 	JobLease lease;
@@ -1051,6 +1409,16 @@ Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const St
 	report["reason"] = reason;
 	return report;
 }
+
+Dictionary GaussianSplatHlodAutoTree::build(const String &p_input_path, const String &p_output_path, const Dictionary &p_options) {
+	return build_auto_tree_entry(p_input_path, p_output_path, p_options, false);
+}
+
+#ifdef TESTS_ENABLED
+Dictionary GaussianSplatHlodAutoTree::build_retained_for_test(const String &p_input_path, const String &p_output_path, const Dictionary &p_options) {
+	return build_auto_tree_entry(p_input_path, p_output_path, p_options, true);
+}
+#endif
 
 Dictionary GaussianSplatHlodAutoTree::oracle_cut(const String &p_v4_path, const Array &p_poses, const Dictionary &p_options) {
 	Dictionary report;

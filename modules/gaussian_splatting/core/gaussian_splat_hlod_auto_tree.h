@@ -50,10 +50,16 @@
 // Restore these schema types after JSON parsing before recomputing tree_sha.
 // Limits, paths, timings and memory are execution metadata only.
 // wall_usec measures through verified staging, excluding final manifest write
-// and publication so the returned and persisted report are identical. The whole
-// BakeResult is held in memory at T0 scale, then freed after spilling its nodes.
+// and publication so the returned and persisted report are identical. Tile
+// payloads are spilled by the coordinator as batches drain; only node tables and
+// a bounded tile/merge working set stay resident. Original frontier payloads use
+// separate lossless scratch, so stitching never consumes GSQ quantization.
 // GSQ additionally reserves per-node digests and bounded single-node verification
 // encode/decode and reopen buffers, separately from WriterV4's working memory.
+// Successful reports include scratch_bytes_total (cumulative spill and frontier
+// bytes) and scratch_bytes_peak (maximum simultaneous scratch plus staged output
+// file lengths, excluding the final manifest). These are measured logical lengths,
+// not allocated filesystem blocks; missing measurements are omitted on failure.
 class GaussianSplatHlodAutoTree : public RefCounted {
 	GDCLASS(GaussianSplatHlodAutoTree, RefCounted);
 
@@ -62,6 +68,12 @@ protected:
 
 public:
 	static Dictionary build(const String &p_input_path, const String &p_output_path, const Dictionary &p_options);
+#ifdef TESTS_ENABLED
+	// Unbound C++ identity oracle: old retained BakeResult -> BFS/bucket-0 writer
+	// route. Its payloads come from the same in-memory sink exercised by D2-2's
+	// independent in-core identity tests; no release/script option enables it.
+	static Dictionary build_retained_for_test(const String &p_input_path, const String &p_output_path, const Dictionary &p_options);
+#endif
 	// Host-only metadata oracle. Each call owns a fresh, unpublished snapshot;
 	// leaves_only forces stale interiors as a diagnostic control, not a verdict.
 	static Dictionary oracle_cut(const String &p_v4_path, const Array &p_poses, const Dictionary &p_options);

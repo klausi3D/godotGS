@@ -20,6 +20,10 @@ public:
 			Error *r_error = nullptr, bool p_use_sub_threads = false,
 			float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE) override;
 	Ref<GaussianSplatWorld> load_resident(const String &p_path, Error *r_error = nullptr) const;
+	// C++ offline builder only: validates a plain v3 GSQ directory without
+	// materializing per-splat StaticChunk indices. The returned world is for
+	// directory inspection, not rendering; normal load paths are unchanged.
+	Ref<GaussianSplatWorld> load_paged_directory_for_auto_tree(const String &p_path, Error *r_error = nullptr) const;
 	virtual void get_recognized_extensions(List<String> *p_extensions) const override;
 	bool recognize_path(const String &p_path, const String &p_for_type = String()) const override;
 	virtual bool handles_type(const String &p_type) const override;

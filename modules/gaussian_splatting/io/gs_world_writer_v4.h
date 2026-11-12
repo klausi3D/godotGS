@@ -63,6 +63,11 @@ struct PagedV4Spec {
 	uint32_t node_count = 0; // Final BFS table count; excess spills are diagnosed at finalize as unused handles.
 	uint32_t leaf_splat_count = 0;
 	uint32_t interior_splat_count = 0;
+	// Execution-only streaming option; never serialized. Begin with node_count
+	// and interior_splat_count zero and a known leaf_splat_count. Finalize derives node and
+	// interior counts from the complete BFS table and validates the leaf total.
+	// RAM admission grows with appended records, not a speculative upper bound.
+	bool deferred_counts = false;
 	uint32_t sh_degree = 0;
 	uint32_t sh_first_order = 0;
 	uint32_t sh_high_order = 0;
@@ -138,6 +143,11 @@ public:
 	// order (a V4 node fits a GSQ page). No Morton/importance reordering here.
 	Error append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussians, const Vector3 *p_sh_high,
 			uint32_t p_count, V4BodyHandle &r_handle);
+	// Driving thread only. Admit caller-owned scratch in scratch_dir BEFORE it
+	// grows; lower this count only after removing/truncating those bytes. Shares
+	// the scratch cap and peak disk accounting, but never adopts caller files.
+	// total_scratch_bytes remains writer-only; callers add their cumulative I/O.
+	Error set_external_scratch_bytes(uint64_t p_bytes);
 	// Inspect append-time facts without loading the body; retained through commit/failure.
 	Error get_spill_record(V4BodyHandle p_handle, V4SpillRecord &r_record) const;
 	// Refusals (ERR_INVALID_DATA): v4_handle_unused, v4_handle_reused,

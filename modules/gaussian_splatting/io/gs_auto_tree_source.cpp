@@ -68,11 +68,11 @@ Error GsqAutoTreeSource::open(const String &p_path, String *r_error, uint64_t p_
 	const uint32_t page_count = file->get_32();
 	file->get_32(); // alignment; the canonical loader validates it below
 	const uint64_t page_table_offset = file->get_64();
-	// The canonical staged loader temporarily owns contiguous chunk index lists,
-	// directory copies and parsed metadata. Admit that transient work before it
+	// The canonical directory-only loader owns chunk/page directory copies and
+	// parsed metadata, without per-splat index lists. Admit that work before it
 	// allocates; nothing resident is decoded here. Metadata gets a conservative
 	// parser expansion allowance, not merely its encoded byte count.
-	uint64_t open_bytes = uint64_t(splat_count) * 8u + uint64_t(chunk_count) * 1024u +
+	uint64_t open_bytes = uint64_t(chunk_count) * 1024u +
 			uint64_t(page_count) * 1024u + 1024u * 1024u;
 	if (metadata_bytes > (UINT64_MAX - open_bytes) / 128u) {
 		return fail(ERR_OUT_OF_MEMORY, "gsq_directory_ram_limit", r_error);
@@ -83,7 +83,7 @@ Error GsqAutoTreeSource::open(const String &p_path, String *r_error, uint64_t p_
 	}
 	open_peak_reserved_bytes = open_bytes;
 	ResourceFormatLoaderGaussianSplatWorld loader;
-	Ref<GaussianSplatWorld> world = loader.load(p_path, String(), &error, false, nullptr, ResourceFormatLoader::CACHE_MODE_IGNORE);
+	Ref<GaussianSplatWorld> world = loader.load_paged_directory_for_auto_tree(p_path, &error);
 	if (error != OK || world.is_null()) {
 		return fail(error == OK ? ERR_FILE_CORRUPT : error, "gsq_header_or_directory_invalid", r_error);
 	}
@@ -100,7 +100,7 @@ Error GsqAutoTreeSource::open(const String &p_path, String *r_error, uint64_t p_
 	source_info.sh_high_order_count = world->get_sh_high_order_count();
 	const AABB source_bounds = world->get_bounds();
 	const bool source_2d = world->get_2d_mode();
-	// Drop the loader's temporary indices and directory before allocating our own.
+	// Drop the loader's temporary directory before allocating our own.
 	validated_source.unref();
 	world.unref();
 

@@ -191,6 +191,31 @@ class DriverContract(unittest.TestCase):
         self.assertEqual(result["node_count"], 2)
         self.assertIn("nodes_verified", result["source"])
 
+    def test_scratch_measurement_reports_peak_and_cumulative_bytes(self):
+        # Unit inputs for measurement extraction, not a serialized producer fixture.
+        result = self.driver.scratch_usage({"scratch_bytes_peak": 1234, "scratch_bytes_total": 5678})
+        self.assertIs(result["available"], True)
+        self.assertEqual(result["value"], 1234)
+        self.assertEqual(result["total_bytes"], 5678)
+        self.assertEqual(result["source"], "writer_v4_and_frontier")
+        self.assertIn("staged V4 output", result["scope"])
+        self.assertIn("excludes manifest", result["scope"])
+
+    def test_scratch_measurement_never_coerces_missing_or_invalid_values_to_zero(self):
+        result = self.driver.scratch_usage({"peak_reserved_bytes": 1234})
+        self.assertIs(result["available"], False)
+        self.assertNotIn("value", result)
+        self.assertTrue(result["reason"])
+        for key in ("scratch_bytes_peak", "scratch_bytes_total"):
+            for value in (None, False, True, 0, -1, 1.5, "1234", [], {}):
+                with self.subTest(key=key, value=value):
+                    values = {"scratch_bytes_peak": 1234, "scratch_bytes_total": 5678, key: value}
+                    result = self.driver.scratch_usage(values)
+                    self.assertIs(result["available"], False)
+                    self.assertNotIn("value", result)
+                    self.assertNotIn("total_bytes", result)
+                    self.assertTrue(result["reason"])
+
     def test_output_sha_is_recomputed_from_bytes_and_mismatch_fails(self):
         # Arbitrary bytes exercise hashing only; this is not a V4 producer fixture.
         with tempfile.TemporaryDirectory() as directory:

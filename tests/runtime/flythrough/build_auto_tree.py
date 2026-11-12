@@ -60,7 +60,7 @@ def new_report():
         budget_frozen=False, oracle_complete_all_poses=False,
         w13=absent("producer reopen and decoded-node verification not run"),
         peak_rss_bytes=absent("process RSS not available"),
-        scratch_bytes=absent("builder does not measure scratch usage; directory samples are not a peak"))
+        scratch_bytes=absent("builder scratch measurement not available; directory samples are not a peak"))
     return report
 
 
@@ -186,6 +186,16 @@ def verified_nodes(builder, count):
         raise BuildError("builder_w13_incomplete")
     return {"available": True, "passed": True, "nodes_verified": count,
             "node_count": count, "source": "GaussianSplatHlodAutoTree.build nodes_verified"}
+
+
+def scratch_usage(builder_report):
+    peak = builder_report.get("scratch_bytes_peak")
+    total = builder_report.get("scratch_bytes_total")
+    if type(peak) is int and peak > 0 and type(total) is int and total > 0:
+        return {"available": True, "value": peak, "total_bytes": total,
+                "source": "writer_v4_and_frontier",
+                "scope": "peak live scratch plus staged V4 output, including lossless frontier; excludes manifest"}
+    return absent("builder has no valid positive scratch peak and cumulative byte measurements")
 
 
 def _oracle_block(value, poses, budget, *, control=False):
@@ -326,6 +336,7 @@ def _build(args, report):
         wall_usec = builder.get("wall_usec")
         if type(wall_usec) is int and wall_usec > 0:
             report["builder_wall_time_sec"] = wall_usec / 1000000
+        report["scratch_bytes"] = scratch_usage(builder)
         if builder["error"] != 0:
             raise BuildError(builder["reason"] or "builder_error_without_reason")
         if builder["reason"]:
