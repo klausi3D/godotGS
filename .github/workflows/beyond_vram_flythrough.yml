@@ -312,7 +312,6 @@ jobs:
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
       NODEVICE_SELECT: '1'
       BVW_SCAN_DIR: ${{ inputs.scan_dir }}
-      GS_CI_GPU_CONTENTION_DIR: ${{ runner.temp }}/bvw-auto-tree-out/contention
     defaults:
       run:
         working-directory: repo
@@ -336,6 +335,7 @@ jobs:
       - name: Set lane paths
         run: |
           echo "BVW_OUT=$RUNNER_TEMP/bvw-auto-tree-out" >> "$GITHUB_ENV"
+          echo "GS_CI_GPU_CONTENTION_DIR=$RUNNER_TEMP/bvw-auto-tree-out/contention" >> "$GITHUB_ENV"
 
       - name: Check Linux GPU runner toolchain
         run: bash tests/ci/linux_gpu_runner.sh check-tools

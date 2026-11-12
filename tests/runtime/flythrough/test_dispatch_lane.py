@@ -1157,6 +1157,23 @@ class WorkflowContract(unittest.TestCase):
         self.assertEqual(events, ["schedule", "workflow_dispatch"])
         self.assertEqual(re.findall(r'^    - cron: "([^"]+)"$', on_block, re.M), [LANE_CRON, WATCHDOG_CRON])
 
+    def test_job_env_does_not_reference_runner_context(self) -> None:
+        # runner is available to steps, but not jobs.<job_id>.env.
+        jobs = re.findall(r"^  ([A-Za-z0-9_-]+):\s*$", self.text.split("\njobs:\n", 1)[1], re.M)
+        self.assertTrue(jobs)
+        for name in jobs:
+            in_env = False
+            env_lines = []
+            for line in _job_block(self.text, name):
+                if line.startswith("    env:"):
+                    in_env = True
+                elif re.match(r"^    \S", line):
+                    in_env = False
+                if in_env:
+                    env_lines.append(line)
+            for expression in re.findall(r"\$\{\{(.*?)\}\}", "\n".join(env_lines), re.S):
+                self.assertNotRegex(expression, r"\brunner\s*(?:\.|\[)", name)
+
     def test_every_watchdog_cron_copy_matches_the_schedule(self) -> None:
         """A drifted copy would run the GPU lane on Mondays or never run the watchdog."""
         copies = re.findall(r"github\.event\.schedule (?:==|!=) '([^']+)'", self.text)
@@ -1926,6 +1943,23 @@ class D25AutoTreeWorkflow(unittest.TestCase):
                 self.assertTrue(path.startswith("${{ runner.temp }}/bvw-auto-tree-out/"), path)
                 self.assertTrue(path.endswith((".json", ".log")), "upload reports only: " + path)
                 self.assertNotIn("..", path)
+
+    def test_auto_tree_contention_path_is_exported_before_preflight(self):
+        job = _job_block(self.text, "prime-auto-tree")
+        steps = _steps(job)
+        paths = next(i for i, step in enumerate(steps) if step.get("name") == "Set lane paths")
+        self.assertIn(
+            'echo "GS_CI_GPU_CONTENTION_DIR=$RUNNER_TEMP/bvw-auto-tree-out/contention" >> "$GITHUB_ENV"',
+            steps[paths]["run"],
+        )
+        # Both phases inherit the same exported directory, which is uploaded.
+        self.assertEqual("\n".join(job).count("GS_CI_GPU_CONTENTION_DIR"), 1)
+        pre = next(i for i, step in enumerate(steps)
+                   if "runner_gpu_contention.py preflight" in step.get("run", ""))
+        post = next(i for i, step in enumerate(steps)
+                    if "runner_gpu_contention.py postflight" in step.get("run", ""))
+        self.assertLess(paths, pre)
+        self.assertLess(pre, post)
 
 
 if __name__ == "__main__":
