@@ -1,0 +1,8 @@
+WARNING: [GaussianSplatManager] RenderingServer unavailable; local devices will be lazily created
+     at: GaussianSplatManager (modules/gaussian_splatting/core/gaussian_splat_manager.cpp:275)
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+===============================================================================
+[doctest] test cases:   1 |   1 passed | 0 failed | 2766 skipped
+[doctest] assertions: 339 | 339 passed | 0 failed |
+[doctest] Status: SUCCESS!

@@ -1724,15 +1724,211 @@ def auto_tree_cache_check(
     return code
 
 
-def real_scan_identity(out: Path, scan_dir: Optional[str] = None) -> dict:
-    chosen = scan_dir or os.environ.get("BVW_SCAN_DIR") or os.environ.get("GS_REAL_SCAN_DIR")
-    # The bound in-core bake/save API exposes no per-node decoded digests.
-    # A scan cannot supply that missing API, and inventing a fixture cannot prove it.
-    return _auto_report(out, "real_scan_identity", EXIT_NOT_RUN,
-                        "in-core MERGE_ONLY per-node digest API is not bound; identity was not attempted",
-                        reason_code="in_core_per_node_digest_api_unavailable", scan_dir=chosen,
-                        scan_dir_present=Path(chosen).is_dir() if chosen else False,
-                        leaf_count=None, tiled_digests=None, in_core_digests=None)
+REAL_SCAN_TEST_CASE = "[GaussianSplatting][WorldIO][HLOD][D2] Real-scan auto-tree equals in-core merge with negative control"
+REAL_SCAN_MAX_SPLATS = 1_000_000
+
+
+def real_scan_peak_estimate(count: int) -> int:
+    """Conservative admission estimate, not measured RSS: 1 GiB + 4096 bytes/splat.
+
+    SH3 Gaussian + high SH = 324 bytes/splat on the Linux float build. Allow
+    twelve such payload owners (3888 bytes), plus permutations/metadata (208).
+    Independent builds/bakes are sequential. The fixed GiB covers bounded merge,
+    codec and writer scratch. The PLY is streamed to a strided temporary subset,
+    so the entire 1.5 GB source is never resident. Full runs additionally require
+    auto_tree_preflight's unchanged 20 GiB MemAvailable and disk gates.
+    """
+    return GIB + 4096 * count
+
+
+def _real_scan_vertex_count(scan: Path) -> int:
+    # Read the header only. Never decode/retain all 6.13M splats in Python.
+    with scan.open("rb") as handle:
+        if handle.readline(256).strip() != b"ply":
+            raise ValueError("scan is not a PLY")
+        used, count = 4, None
+        while used < 1024 * 1024:
+            line = handle.readline(4096)
+            used += len(line)
+            if not line:
+                break
+            match = re.fullmatch(rb"element vertex ([0-9]+)\s*", line)
+            if match:
+                if count is not None:
+                    raise ValueError("duplicate PLY vertex element")
+                count = int(match[1])
+            if line.strip() == b"end_header":
+                if count is None or not 0 < count <= 0xFFFFFFFF:
+                    raise ValueError("PLY has no valid vertex count")
+                return count
+    raise ValueError("PLY header missing or larger than 1 MiB")
+
+
+def _real_scan_report_problem(report: dict, vertices: int, stride: int, maximum: int) -> Optional[str]:
+    count = (vertices + stride - 1) // stride
+    if report.get("first_divergence"):
+        return "identity reported a first divergence"
+    if (report.get("input_vertex_count") != vertices or report.get("stride") != stride
+            or report.get("subset_count") != count or count > maximum):
+        return "scan vertex/stride/subset counts do not match the requested input"
+    for field in ("input_sha256", "subset_sha256"):
+        if not isinstance(report.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", report[field]):
+            return f"{field} missing or invalid"
+    if not isinstance(report.get("input_file_size_bytes"), int) or report["input_file_size_bytes"] <= 0:
+        return "input file size is missing"
+    if not report.get("subset_rule"):
+        return "subset rule is missing"
+    planned, baked = report.get("tiles_planned"), report.get("tiles_baked")
+    if not isinstance(planned, int) or not isinstance(baked, int) or planned <= 1 or baked != planned:
+        return "tiled planner did not plan and bake more than one tile"
+    control = report.get("negative_control")
+    if not isinstance(control, dict) or control.get("detected") is not True:
+        return "negative control did not detect a mismatch"
+    first = control.get("first_divergence")
+    if (not isinstance(first, dict) or not isinstance(first.get("node_index"), int)
+            or first["node_index"] < 0 or not first.get("field")):
+        return "negative control has no concrete first divergent node and field"
+    codecs = report.get("codecs")
+    if (not isinstance(codecs, list) or not codecs
+            or any(not isinstance(row, dict) or row.get("status") != "PASS" for row in codecs)
+            or not any(row.get("codec") == "gsq" for row in codecs)):
+        return "successful GSQ identity evidence is missing"
+    return None
+
+
+def _run_real_scan_case(binary: Path, scan: Path, out: Path, vertices: int, stride: int,
+                        maximum: int, tag: str, runner: Runner, timeout_s: float) -> Tuple[int, str, dict]:
+    report_path = out / f"{tag}.doctest.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.unlink(missing_ok=True)  # A previous successful dispatch is never current evidence.
+    env = dict(os.environ, GS_D2_REAL_SCAN_PLY=str(scan.resolve()), GS_D2_REAL_SCAN_OUT=str(report_path.resolve()),
+               GS_D2_REAL_SCAN_STRIDE=str(stride), GS_D2_REAL_SCAN_MAX_SPLATS=str(maximum))
+    cmd = [str(binary.resolve()), "--headless", "--test", f"--test-case={REAL_SCAN_TEST_CASE}"]
+    log = out / "logs" / f"{tag}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    data = {"report": str(report_path), "log": str(log)}
+    scratch: Optional[Path] = None
+    try:
+        # A killed doctest can leave payloads and their JSON manifests behind.
+        # Keep all of them outside the report tree's recursive upload globs.
+        scratch = Path(tempfile.mkdtemp(prefix=f"{out.name}-scratch-", dir=out.resolve().parent))
+        env["GS_D2_REAL_SCAN_SCRATCH"] = str(scratch)
+        with log.open("w", encoding="utf-8") as handle:
+            proc = runner(cmd, stdout=handle, stderr=subprocess.STDOUT, text=True, env=env,
+                          timeout=timeout_s)
+        output = log.read_text(encoding="utf-8", errors="replace")
+        proof = fc.judge_doctest("real_scan_identity", REAL_SCAN_TEST_CASE, proc.returncode, output)
+        data["doctest"] = proof
+        if not report_path.is_file():
+            data["reason_code"] = "real_scan_report_missing"
+            return EXIT_FAIL, "doctest wrote no identity report", data
+        report = _read_auto_json(report_path)
+        data.update(identity=report, first_divergence=report.get("first_divergence"))
+        # Explicit full-mode missing-data report can have no bake assertions; its
+        # only legal meaning is NOT_RUN, even if doctest itself returned zero.
+        if report.get("status") in ("NOT_RUN", "MISSING") and report.get("reason_code") == "real_scan_missing":
+            data["reason_code"] = "real_scan_missing"
+            return EXIT_NOT_RUN, "real scan unavailable in the doctest", data
+        if report.get("status") == "FAIL":
+            data["reason_code"] = "real_scan_mismatch" if report.get("first_divergence") else "real_scan_case_failed"
+            return EXIT_FAIL, f"identity case failed: {report.get('first_divergence') or report.get('reason', '')}", data
+        if proof["status"] != "PASS":
+            data["reason_code"] = "real_scan_doctest_unproven"
+            return EXIT_FAIL, f"identity execution not proven: {proof['reason']}", data
+        if report.get("status") != "PASS":
+            data["reason_code"] = "real_scan_report_unproven"
+            return EXIT_FAIL, f"identity report status is {report.get('status')!r}", data
+        problem = _real_scan_report_problem(report, vertices, stride, maximum)
+        if report.get("input_file_size_bytes") != scan.stat().st_size:
+            problem = "reported source size differs from the requested scan"
+        if problem:
+            data["reason_code"] = "real_scan_report_incomplete"
+            return EXIT_FAIL, problem, data
+        return EXIT_OK, "real-scan tiled/in-core identity and negative control passed", data
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
+        data["reason_code"] = "real_scan_execution_failed"
+        return EXIT_FAIL, f"identity case could not complete: {exc}", data
+    finally:
+        if scratch is not None:
+            shutil.rmtree(scratch)
+
+
+def real_scan_identity(
+    godot_binary: Path, out: Path, scan: Optional[Path] = None, stride: int = 7,
+    runner: Runner = subprocess.run, timeout_s: float = 3300.0,
+    meminfo_path: Path = Path("/proc/meminfo"), which: Which = shutil.which,
+) -> int:
+    """Exact-name CPU identity on the data-bearing runner; reports contain no splat payloads."""
+    data: dict = {"binary": str(godot_binary), "stride": stride,
+                  "memory_estimate_definition": "1 GiB + 4096 bytes per splat; conservative estimate, not measured RSS",
+                  "full_scan": {"status": "NOT_RUN", "reason_code": "subset_not_completed"}}
+    code, reason = EXIT_FAIL, "real-scan identity did not complete"
+    started = time.monotonic()
+    try:
+        if scan is None:
+            chosen = os.environ.get("BVW_SCAN_DIR") or os.environ.get("GS_REAL_SCAN_DIR")
+            if not chosen and os.environ.get("GS_TESTDATA"):
+                chosen = str(Path(os.environ["GS_TESTDATA"]) / "3dgs-szenen")
+            scan = Path(chosen) / "bicycle-30k.ply" if chosen else None
+        data["scan"] = str(scan) if scan is not None else None
+        if scan is None or not scan.is_file():
+            data["reason_code"] = "real_scan_missing"
+            raise LaneError("real scan missing; identity did not run", EXIT_NOT_RUN)
+        if type(stride) is not int or stride <= 0 or not 0 < timeout_s <= 3500:
+            data["reason_code"] = "real_scan_parameters_invalid"
+            raise LaneError("stride must be positive and timeout in (0, 3500] seconds", EXIT_INVALID)
+        if not godot_binary.is_file():
+            data["reason_code"] = "real_scan_binary_missing"
+            raise LaneError("release-tests binary unavailable; identity did not run", EXIT_NOT_RUN)
+        vertices = _real_scan_vertex_count(scan)
+        selected = (vertices + stride - 1) // stride
+        data.update(input_vertex_count=vertices, subset_count=selected,
+                    estimated_peak_bytes=real_scan_peak_estimate(selected))
+        if selected > REAL_SCAN_MAX_SPLATS:
+            data["reason_code"] = "real_scan_subset_too_large"
+            raise LaneError("requested stride selects more than 1,000,000 splats; increase --stride", EXIT_INVALID)
+        code, reason, case = _run_real_scan_case(godot_binary, scan, out, vertices, stride, REAL_SCAN_MAX_SPLATS,
+                                                "real_scan", runner, timeout_s)
+        data.update(case)
+        if code == EXIT_OK:
+            full: dict = {"status": "NOT_RUN", "estimated_peak_bytes": real_scan_peak_estimate(vertices),
+                          "reason_code": "real_scan_full_preflight_refused"}
+            # Reuse the existing admission unchanged; keep its Tier A record in
+            # its own directory so auto-tree-t0 cannot overwrite lane admission.
+            admission_out = out / "full-preflight"
+            admitted = auto_tree_preflight(out, admission_out, runner=runner, which=which,
+                                            meminfo_path=meminfo_path)
+            preflight = admission_out / "steps" / "auto_tree_preflight.json"
+            measurements = _read_auto_json(preflight) if preflight.is_file() else {}
+            full["preflight"] = measurements
+            available = measurements.get("data", {}).get("mem_available_bytes")
+            remaining = timeout_s - (time.monotonic() - started)
+            if admitted != EXIT_OK:
+                full["reason"] = measurements.get("reason", "existing RAM/disk preflight did not admit full scan")
+            elif type(available) is not int:
+                full.update(reason_code="real_scan_full_memory_unmeasured", reason="MemAvailable is unmeasured")
+            elif full["estimated_peak_bytes"] > available:
+                full.update(reason_code="real_scan_peak_exceeds_available",
+                            reason="full-scan conservative peak exceeds measured MemAvailable")
+            elif remaining <= 1:
+                full.update(reason_code="real_scan_full_time_unavailable", reason="identity step deadline exhausted")
+            else:
+                full_code, full_reason, full_case = _run_real_scan_case(
+                    godot_binary, scan, out, vertices, 1, vertices, "real_scan.full", runner, remaining)
+                full.update(full_case, status="PASS" if full_code == EXIT_OK else _status_for(full_code), reason=full_reason)
+                if full_code != EXIT_OK:
+                    code, reason = full_code, f"full scan: {full_reason}"
+                    data["first_divergence"] = full_case.get("first_divergence")
+            data["full_scan"] = full
+    except LaneError as exc:
+        code, reason = exc.code, str(exc)
+    except (OSError, ValueError, TypeError) as exc:
+        code, reason = EXIT_FAIL, f"real-scan identity could not complete: {exc}"
+        data["reason_code"] = "real_scan_input_invalid"
+    write_record(out, "real_scan_identity", code, reason, data)
+    _auto_report(out, "real_scan_identity", code, reason, **data)
+    _announce(code, reason)
+    return code
 
 
 def auto_tree_t0(
@@ -1741,10 +1937,14 @@ def auto_tree_t0(
     scan_dir: Optional[str] = None,
 ) -> int:
     data: dict = {"run_id": run_id, "tier": "T0", "encoding": ENCODING_GSQ}
-    real_scan_identity(out, scan_dir)
+    scan = Path(scan_dir) / "bicycle-30k.ply" if scan_dir else None
+    real_scan_code = real_scan_identity(godot_binary, out, scan, runner=runner)
+    data["real_scan_exit_code"] = real_scan_code
     _auto_pending(out, "T0", "T0 plain-GSQ generation has not completed")
     code, reason = EXIT_FAIL, "T0 auto-tree did not complete"
     try:
+        if real_scan_code not in (EXIT_OK, EXIT_NOT_RUN):
+            raise LaneError("real-scan identity failed; see real_scan_identity.json", real_scan_code)
         # T0 runs before Tier A admission, bounded by its smaller job limits.
         parent = cache_root.parent
         parent.mkdir(parents=True, exist_ok=True)
@@ -2009,6 +2209,13 @@ def _parser() -> argparse.ArgumentParser:
     common(p, world=False)
     p.add_argument("--cache-root", type=Path, required=True)
 
+    p = sub.add_parser("real-scan-identity")
+    common(p, world=False)
+    p.add_argument("--godot-binary", type=Path, required=True)
+    p.add_argument("--scan", type=Path, default=None,
+                   help="read-only PLY (default: GS_TESTDATA/3dgs-szenen/bicycle-30k.ply)")
+    p.add_argument("--stride", type=int, default=7, help="keep zero-based vertex i iff i %% stride == 0")
+
     for name in ("auto-tree-t0", "prime-auto-tree"):
         p = sub.add_parser(name)
         common(p, world=False)
@@ -2059,6 +2266,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _auto_report(args.out, "A.repeat_identity", EXIT_NOT_RUN, reason, first=None, second=None)
         _auto_report(args.out, "A.cache_key", EXIT_NOT_RUN, reason)
         return code
+    if args.command == "real-scan-identity":
+        return real_scan_identity(args.godot_binary, args.out, args.scan, stride=args.stride)
     if args.command == "prime-auto-tree":
         return prime_auto_tree(args.repo, args.godot_binary, args.cache_root, args.out, args.run_id)
     if args.command == "auto-tree-t0":
