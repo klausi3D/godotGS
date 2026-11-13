@@ -1,5 +1,17 @@
 var NAVTREEINDEX59 =
 {
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a6d30e98318feef6d2da979e2662b1e1f":[0,0,25,10,2],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a6d30e98318feef6d2da979e2662b1e1f":[1,0,17,10,2],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a7661f2bae07a9ebe4bd0eef2d254fd95":[0,0,25,10,3],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a7661f2bae07a9ebe4bd0eef2d254fd95":[1,0,17,10,3],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a78e0916db69110cd3c24265d9c7f2185":[0,0,25,10,4],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a78e0916db69110cd3c24265d9c7f2185":[1,0,17,10,4],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a930346237ba766716294d46d27e0b12c":[0,0,25,10,1],
+"structgs__hlod__runtime_1_1ResidencyBudget.html#a930346237ba766716294d46d27e0b12c":[1,0,17,10,1],
+"structgs__hlod__runtime_1_1SelectionSnapshot.html":[0,0,25,11],
+"structgs__hlod__runtime_1_1SelectionSnapshot.html":[1,0,17,11],
+"structgs__hlod__runtime_1_1SelectionSnapshot.html#a5cfcecec98f84be27d67c2d3d5fbc265":[0,0,25,11,4],
+"structgs__hlod__runtime_1_1SelectionSnapshot.html#a5cfcecec98f84be27d67c2d3d5fbc265":[1,0,17,11,4],
 "structgs__hlod__runtime_1_1SelectionSnapshot.html#a5f1b86725dedaada40d6e3d67c43e574":[0,0,25,11,3],
 "structgs__hlod__runtime_1_1SelectionSnapshot.html#a5f1b86725dedaada40d6e3d67c43e574":[1,0,17,11,3],
 "structgs__hlod__runtime_1_1SelectionSnapshot.html#ac2451b2208f893200153a8ae5a42227e":[0,0,25,11,6],
@@ -237,17 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__shadow__caster_1_1LightFrameStats.html#a4e4430b57f98f81c165e02ab7bd3a574":[0,0,28,6,5],
 "structgs__shadow__caster_1_1LightFrameStats.html#a4e4430b57f98f81c165e02ab7bd3a574":[1,0,19,6,5],
 "structgs__shadow__caster_1_1LightFrameStats.html#a675315b87353bba8a611cecee7b0949e":[0,0,28,6,2],
-"structgs__shadow__caster_1_1LightFrameStats.html#a675315b87353bba8a611cecee7b0949e":[1,0,19,6,2],
-"structgs__shadow__caster_1_1LightFrameStats.html#ab6b215294ace7c45e874bba4fec2f1e0":[0,0,28,6,6],
-"structgs__shadow__caster_1_1LightFrameStats.html#ab6b215294ace7c45e874bba4fec2f1e0":[1,0,19,6,6],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html":[0,0,28,6,0],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html":[1,0,19,6,0],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a0f52c20be49198d646e31c02bcf1d616":[0,0,28,6,0,7],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a0f52c20be49198d646e31c02bcf1d616":[1,0,19,6,0,7],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a1a841123655371c1282b89c95102939d":[0,0,28,6,0,4],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a1a841123655371c1282b89c95102939d":[1,0,19,6,0,4],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a224edfab94bf8a91e68fdb3e8c3b9e62":[0,0,28,6,0,6],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a224edfab94bf8a91e68fdb3e8c3b9e62":[1,0,19,6,0,6],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5065d183ad7a651ebfdb8d7d0170009f":[0,0,28,6,0,5],
-"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5065d183ad7a651ebfdb8d7d0170009f":[1,0,19,6,0,5]
+"structgs__shadow__caster_1_1LightFrameStats.html#a675315b87353bba8a611cecee7b0949e":[1,0,19,6,2]
 };

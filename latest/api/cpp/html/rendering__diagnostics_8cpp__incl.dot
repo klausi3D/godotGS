@@ -182,7 +182,7 @@ digraph "rendering_diagnostics.cpp"
   Node16 -> Node109 [id="edge128_Node000016_Node000109",color="steelblue1",style="solid",tooltip=" "];
   Node109 [id="Node000109",label="rasterizer_interfaces.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$rasterizer__interfaces_8h.html",tooltip=" "];
   Node109 -> Node51 [id="edge129_Node000109_Node000051",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node159 [id="edge130_Node000001_Node000159",color="steelblue1",style="solid",tooltip=" "];
-  Node159 [id="Node000159",label="../logger/gs_logger.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$gs__logger_8h.html",tooltip=" "];
-  Node159 -> Node52 [id="edge131_Node000159_Node000052",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node165 [id="edge130_Node000001_Node000165",color="steelblue1",style="solid",tooltip=" "];
+  Node165 [id="Node000165",label="../logger/gs_logger.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$gs__logger_8h.html",tooltip=" "];
+  Node165 -> Node52 [id="edge131_Node000165_Node000052",color="steelblue1",style="solid",tooltip=" "];
 }

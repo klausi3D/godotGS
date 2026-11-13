@@ -26,8 +26,9 @@ var classPayloadPageStore =
     [ "begin_capture", "classPayloadPageStore.html#ad381c369e8e84f5651364c241967e2fd", null ],
     [ "cancel_requester", "classPayloadPageStore.html#a94eb2de7bff7655db7848dabb65f2a2f", null ],
     [ "decode_gsq_page", "classPayloadPageStore.html#a4b363d6784680da4e6862fdbcd9d36f6", null ],
+    [ "decode_gsq_subrange", "classPayloadPageStore.html#acdb847e7379ea321a1e45c3b80f83330", null ],
     [ "end_capture", "classPayloadPageStore.html#a3a7f6eeb8aaa49d20546768de3a6b0c6", null ],
-    [ "lease_decoder", "classPayloadPageStore.html#a8ecba9c6b738eef9db91784e8504d290", null ],
+    [ "lease_decoder", "classPayloadPageStore.html#a6636b7c3785b406ad1d21b2d035fa28e", null ],
     [ "operator=", "classPayloadPageStore.html#a443076a3135e1075222a89a0856475aa", null ],
     [ "replace_source", "classPayloadPageStore.html#ad0399165d589a6e959a09800d68e44e3", null ],
     [ "request", "classPayloadPageStore.html#ae74602edcef5ec13632d0107f581b751", null ],
@@ -35,5 +36,6 @@ var classPayloadPageStore =
     [ "start", "classPayloadPageStore.html#a09b0f37dfcdf51179dd923e459b1af97", null ],
     [ "stats", "classPayloadPageStore.html#acd05381bdf034a39973e6732c2e96c0b", null ],
     [ "take_thread_last_capture_decode_nsec", "classPayloadPageStore.html#ae4495ad3cfb93a57fa34b85c675ff4d3", null ],
+    [ "uses_retained_admission", "classPayloadPageStore.html#ae72bb77ac26cfd21b7561be8b8f13932", null ],
     [ "wait", "classPayloadPageStore.html#af673bb0d2953f40a2239a00a3cca78f4", null ]
 ];

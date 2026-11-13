@@ -196,10 +196,10 @@ digraph "render_resource_orchestrator.h"
   Node134 -> Node78 [id="edge141_Node000134_Node000078",color="steelblue1",style="solid",tooltip=" "];
   Node134 -> Node119 [id="edge142_Node000134_Node000119",color="steelblue1",style="solid",tooltip=" "];
   Node134 -> Node120 [id="edge143_Node000134_Node000120",color="steelblue1",style="solid",tooltip=" "];
-  Node2 -> Node150 [id="edge144_Node000002_Node000150",color="steelblue1",style="solid",tooltip=" "];
-  Node150 [id="Node000150",label="render_types/render\l_frame_types.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$render__frame__types_8h.html",tooltip="Frame context and pipeline type definitions for GaussianSplatRenderer."];
-  Node150 -> Node23 [id="edge145_Node000150_Node000023",color="steelblue1",style="solid",tooltip=" "];
-  Node150 -> Node19 [id="edge146_Node000150_Node000019",color="steelblue1",style="solid",tooltip=" "];
-  Node150 -> Node20 [id="edge147_Node000150_Node000020",color="steelblue1",style="solid",tooltip=" "];
-  Node150 -> Node125 [id="edge148_Node000150_Node000125",color="steelblue1",style="solid",tooltip=" "];
+  Node2 -> Node156 [id="edge144_Node000002_Node000156",color="steelblue1",style="solid",tooltip=" "];
+  Node156 [id="Node000156",label="render_types/render\l_frame_types.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$render__frame__types_8h.html",tooltip="Frame context and pipeline type definitions for GaussianSplatRenderer."];
+  Node156 -> Node23 [id="edge145_Node000156_Node000023",color="steelblue1",style="solid",tooltip=" "];
+  Node156 -> Node19 [id="edge146_Node000156_Node000019",color="steelblue1",style="solid",tooltip=" "];
+  Node156 -> Node20 [id="edge147_Node000156_Node000020",color="steelblue1",style="solid",tooltip=" "];
+  Node156 -> Node125 [id="edge148_Node000156_Node000125",color="steelblue1",style="solid",tooltip=" "];
 }

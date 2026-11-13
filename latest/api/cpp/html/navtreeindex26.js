@@ -1,5 +1,12 @@
 var NAVTREEINDEX26 =
 {
+"render__frame__context__manager_8h_source.html":[2,0,0,0,12,57],
+"render__frame__types_8h.html":[2,0,0,0,12,0,3],
+"render__frame__types_8h_source.html":[2,0,0,0,12,0,3],
+"render__instancing__orchestrator_8cpp.html":[2,0,0,0,12,58],
+"render__instancing__orchestrator_8h.html":[2,0,0,0,12,59],
+"render__instancing__orchestrator_8h_source.html":[2,0,0,0,12,59],
+"render__output__orchestrator_8cpp.html":[2,0,0,0,12,60],
 "render__output__orchestrator_8h.html":[2,0,0,0,12,61],
 "render__output__orchestrator_8h_source.html":[2,0,0,0,12,61],
 "render__performance__types_8h.html":[2,0,0,0,12,0,4],
@@ -242,12 +249,5 @@ var NAVTREEINDEX26 =
 "streaming__tier__cap__policy_8h.html":[2,0,0,0,3,104],
 "streaming__tier__cap__policy_8h_source.html":[2,0,0,0,3,104],
 "streaming__upload__pipeline_8cpp.html":[2,0,0,0,3,105],
-"streaming__upload__pipeline_8h.html":[2,0,0,0,3,106],
-"streaming__upload__pipeline_8h_source.html":[2,0,0,0,3,106],
-"streaming__visibility__controller_8cpp.html":[2,0,0,0,3,107],
-"streaming__visibility__controller_8h.html":[2,0,0,0,3,108],
-"streaming__visibility__controller_8h_source.html":[2,0,0,0,3,108],
-"streaming__vram__regulator_8cpp.html":[2,0,0,0,3,109],
-"streaming__vram__regulator_8h.html":[2,0,0,0,3,110],
-"streaming__vram__regulator_8h_source.html":[2,0,0,0,3,110]
+"streaming__upload__pipeline_8h.html":[2,0,0,0,3,106]
 };

@@ -1,5 +1,17 @@
 var NAVTREEINDEX63 =
 {
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ac16f0c30c016ea31d29864cf5b0514fe":[0,0,37,15,0,21],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ac16f0c30c016ea31d29864cf5b0514fe":[1,0,27,15,0,21],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ac566b5b88d1852a513a6367fd4ae276a":[0,0,37,15,0,26],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ac566b5b88d1852a513a6367fd4ae276a":[1,0,27,15,0,26],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ac98ea12cebb6a223569a07e3beed747a":[0,0,37,15,0,29],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ac98ea12cebb6a223569a07e3beed747a":[1,0,27,15,0,29],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#aca4caae5f4a776d7d6c9fb2392fd1f36":[0,0,37,15,0,6],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#aca4caae5f4a776d7d6c9fb2392fd1f36":[1,0,27,15,0,6],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ad5bf65e95153dffc5aeac00bce13cd32":[0,0,37,15,0,31],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ad5bf65e95153dffc5aeac00bce13cd32":[1,0,27,15,0,31],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ad635ab31ee0f04a5f7c4d08bd4531953":[0,0,37,15,0,36],
+"structgs__world__writer_1_1WriterV4_1_1Impl.html#ad635ab31ee0f04a5f7c4d08bd4531953":[1,0,27,15,0,36],
 "structgs__world__writer_1_1WriterV4_1_1Impl.html#ad6e7c4e6c29b29908907be3b9951feb1":[0,0,37,15,0,14],
 "structgs__world__writer_1_1WriterV4_1_1Impl.html#ad6e7c4e6c29b29908907be3b9951feb1":[1,0,27,15,0,14],
 "structgs__world__writer_1_1WriterV4_1_1Impl.html#af1cca115159c3f24f10a66a7d1035519":[0,0,37,15,0,7],
@@ -237,17 +249,5 @@ var NAVTREEINDEX63 =
 "tile__lighting__abi_8h.html":[2,0,0,0,12,97],
 "tile__lighting__abi_8h_source.html":[2,0,0,0,12,97],
 "tile__prefix__scan__utils_8h.html":[2,0,0,0,12,98],
-"tile__prefix__scan__utils_8h_source.html":[2,0,0,0,12,98],
-"tile__rasterizer_8cpp.html":[2,0,0,0,5,32],
-"tile__rasterizer_8cpp.html#a7958a82acba5e1c045f3402bcc5cf96c":[2,0,0,0,5,32,0],
-"tile__rasterizer_8cpp.html#a7958a82acba5e1c045f3402bcc5cf96cac9f1a6384b1c466d4612f513bd8e13ea":[2,0,0,0,5,32,0,0],
-"tile__rasterizer_8cpp.html#a7958a82acba5e1c045f3402bcc5cf96cacc497c968b81697cdd774ae270395160":[2,0,0,0,5,32,0,2],
-"tile__rasterizer_8cpp.html#a7958a82acba5e1c045f3402bcc5cf96cad0370a4900a07a0aa37721b31333ba2a":[2,0,0,0,5,32,0,1],
-"tile__rasterizer_8h.html":[2,0,0,0,5,33],
-"tile__rasterizer_8h_source.html":[2,0,0,0,5,33],
-"tile__render__adaptive__controller_8cpp.html":[2,0,0,0,12,99],
-"tile__render__adaptive__controller_8h.html":[2,0,0,0,12,100],
-"tile__render__adaptive__controller_8h_source.html":[2,0,0,0,12,100],
-"tile__render__async__readback_8cpp.html":[2,0,0,0,12,101],
-"tile__render__async__readback_8h.html":[2,0,0,0,12,102]
+"tile__prefix__scan__utils_8h_source.html":[2,0,0,0,12,98]
 };

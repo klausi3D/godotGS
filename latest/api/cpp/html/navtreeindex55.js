@@ -1,5 +1,17 @@
 var NAVTREEINDEX55 =
 {
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a9e83e782679d3b66d15529cbebf8585e":[0,0,16,0,0,1],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a9e83e782679d3b66d15529cbebf8585e":[1,0,11,0,0,1],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#aa445ec45f2df27b858b6850c6ac257fe":[0,0,16,0,0,3],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#aa445ec45f2df27b858b6850c6ac257fe":[1,0,11,0,0,3],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af07db69b791d133df3a89955341b5559":[0,0,16,0,0,4],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af07db69b791d133df3a89955341b5559":[1,0,11,0,0,4],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af2f88fecf3ea5cd4715264638f587f24":[0,0,16,0,0,9],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af2f88fecf3ea5cd4715264638f587f24":[1,0,11,0,0,9],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af36fe830ed43d2deb960d57e8cea0dfd":[0,0,16,0,0,2],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af36fe830ed43d2deb960d57e8cea0dfd":[1,0,11,0,0,2],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af4f4cd074c8ba5c40fa6848c3ae5c4b9":[0,0,16,0,0,8],
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html#af4f4cd074c8ba5c40fa6848c3ae5c4b9":[1,0,11,0,0,8],
 "structgs_1_1settings_1_1GSWindSettings.html":[0,0,16,0,1],
 "structgs_1_1settings_1_1GSWindSettings.html":[1,0,11,0,1],
 "structgs_1_1settings_1_1GSWindSettings.html#a2757d6e9b83c0d8349fd5c5973f7e17d":[0,0,16,0,1,3],
@@ -237,17 +249,5 @@ var NAVTREEINDEX55 =
 "structgs__hlod_1_1OfflineJob.html#a62b675fa9a13160538f47e50ddb27a92":[0,0,20,6,6],
 "structgs__hlod_1_1OfflineJob.html#a62b675fa9a13160538f47e50ddb27a92":[1,0,13,6,6],
 "structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[0,0,20,6,3],
-"structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[1,0,13,6,3],
-"structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08":[0,0,20,6,10],
-"structgs__hlod_1_1OfflineJob.html#a67ad0b531b574f0a6ffd297851b83c08":[1,0,13,6,10],
-"structgs__hlod_1_1OfflineJob.html#a6f0d8b172bfd827cc9008d3277a7c86f":[0,0,20,6,7],
-"structgs__hlod_1_1OfflineJob.html#a6f0d8b172bfd827cc9008d3277a7c86f":[1,0,13,6,7],
-"structgs__hlod_1_1OfflineJob.html#a76c74e412a6fec3e680c5554429f09b3":[0,0,20,6,0],
-"structgs__hlod_1_1OfflineJob.html#a76c74e412a6fec3e680c5554429f09b3":[1,0,13,6,0],
-"structgs__hlod_1_1OfflineJob.html#a7fdf172c54569eaec62023da8d634eda":[0,0,20,6,13],
-"structgs__hlod_1_1OfflineJob.html#a7fdf172c54569eaec62023da8d634eda":[1,0,13,6,13],
-"structgs__hlod_1_1OfflineJob.html#a8302e26ece00829f750ad20c22f83744":[0,0,20,6,14],
-"structgs__hlod_1_1OfflineJob.html#a8302e26ece00829f750ad20c22f83744":[1,0,13,6,14],
-"structgs__hlod_1_1OfflineJob.html#a96efccdd9b8d963850c5ac7d5b40312b":[0,0,20,6,8],
-"structgs__hlod_1_1OfflineJob.html#a96efccdd9b8d963850c5ac7d5b40312b":[1,0,13,6,8]
+"structgs__hlod_1_1OfflineJob.html#a673b3d99a47752189841eb729d90fddd":[1,0,13,6,3]
 };

@@ -141,9 +141,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 228,
-    "sha256": "476cf02c69331fddecc75883d638ec20a336565f945fa862ad8033be3bf32d18",
-    "sha256_last_changed_by": "#1417: add two RequiresGPU cases (HLOD PagedV4 World) proving that a paged world's sorter is sized from the drawn budget, not every leaf, and that a drawn cut above it is clamped and counted. Existing cases, batch filters, waivers and backlog unchanged. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
+    "test_count": 229,
+    "sha256": "7c4d1199ea51c2bbe99382e4859c563314c8175b74c9e1bf82021c5d0163490d",
+    "sha256_last_changed_by": "D3-2: add one RequiresGPU case (HLOD PagedV4 World SceneTree) proving that held V4 uploads publish only resident GPU draw records; it runs in the existing WorldSceneTree batch. Existing cases, batch filters, waivers and backlog unchanged. Count and digest derived with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -480,8 +480,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 228,
-      "running_in_a_named_batch": 163,
+      "requires_gpu_total": 229,
+      "running_in_a_named_batch": 164,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },

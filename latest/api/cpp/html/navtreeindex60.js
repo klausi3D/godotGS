@@ -1,5 +1,17 @@
 var NAVTREEINDEX60 =
 {
+"structgs__shadow__caster_1_1LightFrameStats.html#ab6b215294ace7c45e874bba4fec2f1e0":[0,0,28,6,6],
+"structgs__shadow__caster_1_1LightFrameStats.html#ab6b215294ace7c45e874bba4fec2f1e0":[1,0,19,6,6],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html":[0,0,28,6,0],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html":[1,0,19,6,0],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a0f52c20be49198d646e31c02bcf1d616":[0,0,28,6,0,7],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a0f52c20be49198d646e31c02bcf1d616":[1,0,19,6,0,7],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a1a841123655371c1282b89c95102939d":[0,0,28,6,0,4],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a1a841123655371c1282b89c95102939d":[1,0,19,6,0,4],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a224edfab94bf8a91e68fdb3e8c3b9e62":[0,0,28,6,0,6],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a224edfab94bf8a91e68fdb3e8c3b9e62":[1,0,19,6,0,6],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5065d183ad7a651ebfdb8d7d0170009f":[0,0,28,6,0,5],
+"structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a5065d183ad7a651ebfdb8d7d0170009f":[1,0,19,6,0,5],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a756f1e93d5ee1d424fbb8a222bd88058":[0,0,28,6,0,2],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#a756f1e93d5ee1d424fbb8a222bd88058":[1,0,19,6,0,2],
 "structgs__shadow__caster_1_1LightFrameStats_1_1Light.html#aa0a2b3e9f847052bfbf2a16bf88cb4aa":[0,0,28,6,0,1],
@@ -237,17 +249,5 @@ var NAVTREEINDEX60 =
 "structgs__world__generator_1_1IRect.html#af0c4b138fa2d15759b2c8817b18c6f16":[0,0,35,2,2],
 "structgs__world__generator_1_1IRect.html#af0c4b138fa2d15759b2c8817b18c6f16":[1,0,25,2,2],
 "structgs__world__generator_1_1Params.html":[0,0,35,1],
-"structgs__world__generator_1_1Params.html":[1,0,25,1],
-"structgs__world__generator_1_1Params.html#a1cc2121074d460c488d6854f953154a3":[0,0,35,1,3],
-"structgs__world__generator_1_1Params.html#a1cc2121074d460c488d6854f953154a3":[1,0,25,1,3],
-"structgs__world__generator_1_1Params.html#a2ccf683804bfa57ddc84dee8845a5c1f":[0,0,35,1,31],
-"structgs__world__generator_1_1Params.html#a2ccf683804bfa57ddc84dee8845a5c1f":[1,0,25,1,31],
-"structgs__world__generator_1_1Params.html#a32b14cf16a7ca45dae024c2e6de45d21":[0,0,35,1,29],
-"structgs__world__generator_1_1Params.html#a32b14cf16a7ca45dae024c2e6de45d21":[1,0,25,1,29],
-"structgs__world__generator_1_1Params.html#a34957e38eb1e5b63f29af188a1bb3fe3":[0,0,35,1,7],
-"structgs__world__generator_1_1Params.html#a34957e38eb1e5b63f29af188a1bb3fe3":[1,0,25,1,7],
-"structgs__world__generator_1_1Params.html#a39f7a02646c3685e91cf3772a2048e1f":[0,0,35,1,27],
-"structgs__world__generator_1_1Params.html#a39f7a02646c3685e91cf3772a2048e1f":[1,0,25,1,27],
-"structgs__world__generator_1_1Params.html#a3a030cebd2526129ac899e98116f51b6":[0,0,35,1,41],
-"structgs__world__generator_1_1Params.html#a3a030cebd2526129ac899e98116f51b6":[1,0,25,1,41]
+"structgs__world__generator_1_1Params.html":[1,0,25,1]
 };

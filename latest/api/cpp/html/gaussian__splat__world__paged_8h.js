@@ -6,6 +6,7 @@ var gaussian__splat__world__paged_8h =
     [ "GaussianSplatHlodPagedSource::NodeRecord", "structGaussianSplatHlodPagedSource_1_1NodeRecord.html", "structGaussianSplatHlodPagedSource_1_1NodeRecord" ],
     [ "GaussianSplatHlodPagedSource::Info", "structGaussianSplatHlodPagedSource_1_1Info.html", "structGaussianSplatHlodPagedSource_1_1Info" ],
     [ "GaussianSplatHlodPagedSource::Stats", "structGaussianSplatHlodPagedSource_1_1Stats.html", "structGaussianSplatHlodPagedSource_1_1Stats" ],
+    [ "GaussianSplatHlodPagedSource::ReadStorageObserver", "structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html", "structGaussianSplatHlodPagedSource_1_1ReadStorageObserver" ],
     [ "gs_world_paged::align_up_page", "namespacegs__world__paged.html#ad5638848190f9097b8bfc59427ce16e2", null ],
     [ "gs_world_paged::compute_node_metrics", "namespacegs__world__paged.html#a4b8bc6d09ac180e0400a84cd72a85623", null ],
     [ "gs_world_paged::gsq_decode_workspace_bytes", "namespacegs__world__paged.html#a089462b824bd961dce7c3ec57c101b41", null ],

@@ -1,5 +1,17 @@
 var NAVTREEINDEX49 =
 {
+"structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d":[1,0,180,10],
+"structPackedSphericalHarmonics.html":[1,0,181],
+"structPackedSphericalHarmonics.html#aa95e0a0f86965e209f621cd8eb456a46":[1,0,181,0],
+"structPackedSphericalHarmonics.html#ada6e22655e1b6ec81bc9f78148998f84":[1,0,181,1],
+"structPackedSphericalHarmonics.html#af5c46f064aebed402a3ce34e9d42f1cf":[1,0,181,2],
+"structPainterlyConfig.html":[1,0,182],
+"structPainterlyConfig.html#a07dcc02ebb0491bfd28309ef857083f2":[1,0,182,9],
+"structPainterlyConfig.html#a0aecee1543a16e25c0c076a1b3645f49":[1,0,182,5],
+"structPainterlyConfig.html#a211521a741b18fe6fdfcf48a79547644":[1,0,182,1],
+"structPainterlyConfig.html#a4c406cf5f9906cfa8df0669009cbba42":[1,0,182,4],
+"structPainterlyConfig.html#a64477e96a7d96c335cb1136ce3fbf8bb":[1,0,182,10],
+"structPainterlyConfig.html#a6a4337c8c66073f109c9adf108a4cbc2":[1,0,182,6],
 "structPainterlyConfig.html#a93fc8846f0d3f61e1d326fa214fc63a1":[1,0,182,0],
 "structPainterlyConfig.html#ab6f384a75c97d650bd68ef28b7fa831e":[1,0,182,7],
 "structPainterlyConfig.html#ac0902b5a754a2aaa8a2976a71e2980d3":[1,0,182,3],
@@ -237,17 +249,5 @@ var NAVTREEINDEX49 =
 "structRasterDebugCounters.html#ac40a8b850f9fca0a56917c831cef1079":[1,0,203,2],
 "structRasterDebugCounters.html#ac90f2cf2b8c285df2fe6704b9f3327fd":[1,0,203,12],
 "structRasterDebugCounters.html#ad02f12f68344f9cd3a6084b43f1ba2cd":[1,0,203,17],
-"structRasterDebugCounters.html#ae75ca3085ed7ec4c0cea940fe6803155":[1,0,203,14],
-"structRasterDebugCounters.html#aea8a0cd3f58f37582f6233970e9db8ff":[1,0,203,18],
-"structRasterDebugCounters.html#aed03dec35548b2e54e575557af52cb0f":[1,0,203,3],
-"structRasterDebugCounters.html#aefdb2ac65e3b4fb443238b097cd6dedf":[1,0,203,5],
-"structRasterDebugOptions.html":[1,0,204],
-"structRasterDebugOptions.html#a0924c498f7ee265ddcf7dcb1727b71e9":[1,0,204,2],
-"structRasterDebugOptions.html#a30a12f07bb5e2fcb7557f19073300d6d":[1,0,204,5],
-"structRasterDebugOptions.html#a5aad1f395f47a1af4b75cd461ce41181":[1,0,204,4],
-"structRasterDebugOptions.html#a5b07a4881b4a021044ac03e37d2c2b62":[1,0,204,9],
-"structRasterDebugOptions.html#a618c264a90a222df20f2b0c5abc5ec18":[1,0,204,1],
-"structRasterDebugOptions.html#a7e0572eb473c6c037e95623bb96ca7cc":[1,0,204,3],
-"structRasterDebugOptions.html#a961d0810427813811aaf60124c02f703":[1,0,204,0],
-"structRasterDebugOptions.html#aa533ff9130f0687a4ccd3531a3138776":[1,0,204,8]
+"structRasterDebugCounters.html#ae75ca3085ed7ec4c0cea940fe6803155":[1,0,203,14]
 };

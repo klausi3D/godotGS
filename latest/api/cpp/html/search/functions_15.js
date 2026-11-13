@@ -86,5 +86,7 @@ var searchData=
   ['update_5fvisible_5frange_83',['update_visible_range',['../classGaussianMemoryStream.html#abc6cf5b9fe8f5b5eb4a7ba0775d271e5',1,'GaussianMemoryStream::update_visible_range()'],['../classStreamingPipeline.html#ad17fa8a58f4e3b8690352a9555b7affb',1,'StreamingPipeline::update_visible_range()']]],
   ['upload_5fasset_5fto_5frenderer_84',['upload_asset_to_renderer',['../classGaussianSplatNodeRendererHelper.html#a8a100d7de31490269bc79670474c45b1',1,'GaussianSplatNodeRendererHelper']]],
   ['upload_5fgaussian_5fdata_85',['upload_gaussian_data',['../classGPUBufferManager.html#a3f3a5e4901c94f1c9d390bb9f4bf3916',1,'GPUBufferManager']]],
-  ['usesfloat16_86',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]]
+  ['uses_5fpage_5fstore_86',['uses_page_store',['../classHlodNodeStreamer.html#a79b528c60c63ad599f12e28cadcb46f4',1,'HlodNodeStreamer']]],
+  ['uses_5fretained_5fadmission_87',['uses_retained_admission',['../classPayloadPageStore.html#ae72bb77ac26cfd21b7561be8b8f13932',1,'PayloadPageStore']]],
+  ['usesfloat16_88',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]]
 ];

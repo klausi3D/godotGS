@@ -1,5 +1,17 @@
 var NAVTREEINDEX48 =
 {
+"structInstanceDepthParamsGPU.html#aefb161cea03a4801de7ce2f0b735f926":[1,0,147,12],
+"structInstanceDepthParamsGPU.html#af0b444a00bd10c1e178d68a983e080f1":[1,0,147,1],
+"structInstanceDepthParamsGPU.html#af0f1c16d10f0ebe0fcb451819fa1752b":[1,0,147,9],
+"structInstanceGradingGPU.html":[1,0,148],
+"structInstanceGradingGPU.html#a2a52546b7c1dbb2470d556ff0ac90f95":[1,0,148,0],
+"structInstanceGradingGPU.html#acb4ca514eca9afd038d78feaf1520a94":[1,0,148,1],
+"structInteractiveUniformData.html":[1,0,150],
+"structInteractiveUniformData.html#a1f3611c6790ecdcbf9e67d142115c17c":[1,0,150,1],
+"structInteractiveUniformData.html#a2b536235253404d1bbc782d33fcbca20":[1,0,150,5],
+"structInteractiveUniformData.html#a96d4afe46b7b3eb4bea4ae245042bb91":[1,0,150,4],
+"structInteractiveUniformData.html#aa04fb0825c9d83be8b7c86b3bb4dfd82":[1,0,150,6],
+"structInteractiveUniformData.html#ab6355db1bb5cc1c6b6310a33bc9cadd8":[1,0,150,3],
 "structInteractiveUniformData.html#abe738d268fc2d79321582f53321fc8ad":[1,0,150,2],
 "structInteractiveUniformData.html#ac7cd2f4221c4736a233420808a1ac3bb":[1,0,150,0],
 "structLODBlendConfig.html":[1,0,168],
@@ -237,17 +249,5 @@ var NAVTREEINDEX48 =
 "structPackedGaussianQuantized.html#ab936e86ce2a20ca0dbab798da729f0be":[1,0,180,4],
 "structPackedGaussianQuantized.html#ac44bcb5da5cd716c375f4cc2cf80ef63":[1,0,180,0],
 "structPackedGaussianQuantized.html#ae21c8d66fec1c8f228276fc69666947a":[1,0,180,8],
-"structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564":[1,0,180,12],
-"structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d":[1,0,180,10],
-"structPackedSphericalHarmonics.html":[1,0,181],
-"structPackedSphericalHarmonics.html#aa95e0a0f86965e209f621cd8eb456a46":[1,0,181,0],
-"structPackedSphericalHarmonics.html#ada6e22655e1b6ec81bc9f78148998f84":[1,0,181,1],
-"structPackedSphericalHarmonics.html#af5c46f064aebed402a3ce34e9d42f1cf":[1,0,181,2],
-"structPainterlyConfig.html":[1,0,182],
-"structPainterlyConfig.html#a07dcc02ebb0491bfd28309ef857083f2":[1,0,182,9],
-"structPainterlyConfig.html#a0aecee1543a16e25c0c076a1b3645f49":[1,0,182,5],
-"structPainterlyConfig.html#a211521a741b18fe6fdfcf48a79547644":[1,0,182,1],
-"structPainterlyConfig.html#a4c406cf5f9906cfa8df0669009cbba42":[1,0,182,4],
-"structPainterlyConfig.html#a64477e96a7d96c335cb1136ce3fbf8bb":[1,0,182,10],
-"structPainterlyConfig.html#a6a4337c8c66073f109c9adf108a4cbc2":[1,0,182,6]
+"structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564":[1,0,180,12]
 };

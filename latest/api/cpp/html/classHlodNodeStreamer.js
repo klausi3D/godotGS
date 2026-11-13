@@ -26,8 +26,10 @@ var classHlodNodeStreamer =
     [ "get_data", "classHlodNodeStreamer.html#a8c589358f961a6192b6ff8d81dd87c13", null ],
     [ "get_last_commit_result", "classHlodNodeStreamer.html#a6659f41f5f04742f0b70367c971bbabc", null ],
     [ "get_residency", "classHlodNodeStreamer.html#ae03a8fcf679c8bc6f55795e2d3267b9d", null ],
+    [ "get_retained_byte_cap", "classHlodNodeStreamer.html#a94559732c4df8d77d1b43d2c72876251", null ],
     [ "get_telemetry", "classHlodNodeStreamer.html#a290e7fff5bf385be4107db8b2885a102", null ],
     [ "init", "classHlodNodeStreamer.html#a2fc9f72111f4cd0b5707cd92d8a7e8ca", null ],
+    [ "init_with_page_store", "classHlodNodeStreamer.html#a7560de27a539ddabf710ea8d82ba9f59", null ],
     [ "is_active", "classHlodNodeStreamer.html#a11d98f3927ff1bd97473c707c0558fca", null ],
     [ "is_edit_ready", "classHlodNodeStreamer.html#a12e021b3a4f37fbd87c4edfea23bfbe0", null ],
     [ "is_edit_staged", "classHlodNodeStreamer.html#aaa2ccf9ee6fb681ffcb819466e88e1c9", null ],
@@ -40,5 +42,6 @@ var classHlodNodeStreamer =
     [ "shutdown", "classHlodNodeStreamer.html#a2fad6d3427031bead65d5f6a62bec38f", null ],
     [ "stage_edit", "classHlodNodeStreamer.html#a69a21e557d321680b681bd1586bff120", null ],
     [ "unregister_view", "classHlodNodeStreamer.html#af44b87501b2f3fafda10fde423889aa1", null ],
-    [ "update", "classHlodNodeStreamer.html#afde394d989dc890d13d5423fde052e64", null ]
+    [ "update", "classHlodNodeStreamer.html#afde394d989dc890d13d5423fde052e64", null ],
+    [ "uses_page_store", "classHlodNodeStreamer.html#a79b528c60c63ad599f12e28cadcb46f4", null ]
 ];

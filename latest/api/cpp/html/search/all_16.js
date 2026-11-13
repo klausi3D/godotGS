@@ -195,9 +195,11 @@ var searchData=
   ['used_5fspz_192',['used_spz',['../structGaussianDataLoadResult.html#a11651638c025f6c412678f166c30fe72',1,'GaussianDataLoadResult']]],
   ['user_5fdata_193',['user_data',['../structBatchedAsyncReadback_1_1ReadbackRequest.html#ae33c93d77a85935af6bd2a7c6d9ef725',1,'BatchedAsyncReadback::ReadbackRequest']]],
   ['uses_5fexplicit_5fsource_5findices_194',['uses_explicit_source_indices',['../structStreamingUploadPipeline_1_1PackJob.html#a97b1e5102e427be9dcfd9bba4410b70c',1,'StreamingUploadPipeline::PackJob']]],
-  ['uses_5fprimary_5fchunks_195',['uses_primary_chunks',['../structGaussianStreamingTypes_1_1AtlasAssetState.html#a37d59e9f267cd73c6fc2772d716ed4d9',1,'GaussianStreamingTypes::AtlasAssetState']]],
-  ['usesfloat16_196',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]],
-  ['usesquaternionsmallestthree_197',['usesQuaternionSmallestThree',['../structspz_1_1PackedGaussians.html#abfdd10f52eb226ec82876de7fa149565',1,'spz::PackedGaussians']]],
-  ['using_5freal_5fdata_198',['using_real_data',['../structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6a2c7c6040e674b1d796ff9d387c63cf',1,'GaussianRenderPerformance::PerformanceMetrics::using_real_data'],['../structGaussianRenderPipeline_1_1DataSourcePlan.html#a86e3d2a80e5d9fa785ffab914c2f49ca',1,'GaussianRenderPipeline::DataSourcePlan::using_real_data']]],
-  ['using_5fscene_5fdata_199',['using_scene_data',['../structRenderFrameContextManager_1_1ViewState.html#afaf10d291b5390817af43d9152ad734c',1,'RenderFrameContextManager::ViewState']]]
+  ['uses_5fpage_5fstore_195',['uses_page_store',['../classHlodNodeStreamer.html#a79b528c60c63ad599f12e28cadcb46f4',1,'HlodNodeStreamer']]],
+  ['uses_5fprimary_5fchunks_196',['uses_primary_chunks',['../structGaussianStreamingTypes_1_1AtlasAssetState.html#a37d59e9f267cd73c6fc2772d716ed4d9',1,'GaussianStreamingTypes::AtlasAssetState']]],
+  ['uses_5fretained_5fadmission_197',['uses_retained_admission',['../classPayloadPageStore.html#ae72bb77ac26cfd21b7561be8b8f13932',1,'PayloadPageStore']]],
+  ['usesfloat16_198',['usesFloat16',['../structspz_1_1PackedGaussians.html#a7344a1a095df9c9e48f6dadd0a2cfd06',1,'spz::PackedGaussians']]],
+  ['usesquaternionsmallestthree_199',['usesQuaternionSmallestThree',['../structspz_1_1PackedGaussians.html#abfdd10f52eb226ec82876de7fa149565',1,'spz::PackedGaussians']]],
+  ['using_5freal_5fdata_200',['using_real_data',['../structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6a2c7c6040e674b1d796ff9d387c63cf',1,'GaussianRenderPerformance::PerformanceMetrics::using_real_data'],['../structGaussianRenderPipeline_1_1DataSourcePlan.html#a86e3d2a80e5d9fa785ffab914c2f49ca',1,'GaussianRenderPipeline::DataSourcePlan::using_real_data']]],
+  ['using_5fscene_5fdata_201',['using_scene_data',['../structRenderFrameContextManager_1_1ViewState.html#afaf10d291b5390817af43d9152ad734c',1,'RenderFrameContextManager::ViewState']]]
 ];

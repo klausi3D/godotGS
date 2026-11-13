@@ -109,6 +109,7 @@ Classes</h2></td></tr>
 <tr class="memitem:NodeRecord" id="r_NodeRecord"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatHlodPagedSource_1_1NodeRecord.html">NodeRecord</a></td></tr>
 <tr class="memitem:Info" id="r_Info"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatHlodPagedSource_1_1Info.html">Info</a></td></tr>
 <tr class="memitem:Stats" id="r_Stats"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatHlodPagedSource_1_1Stats.html">Stats</a></td></tr>
+<tr class="memitem:ReadStorageObserver" id="r_ReadStorageObserver"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html">ReadStorageObserver</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
@@ -120,6 +121,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a5b343261f7ca38698e0ff455c51f1c9a" id="r_a5b343261f7ca38698e0ff455c51f1c9a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5b343261f7ca38698e0ff455c51f1c9a">get_codec_id</a> () const</td></tr>
 <tr class="memitem:a6bdb480eadaf6b0a7310193a3d1c37cd" id="r_a6bdb480eadaf6b0a7310193a3d1c37cd"><td class="memItemLeft" align="right" valign="top">const Vector&lt; <a class="el" href="structGaussianSplatHlodPagedSource_1_1NodeRecord.html">NodeRecord</a> &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6bdb480eadaf6b0a7310193a3d1c37cd">get_nodes</a> () const</td></tr>
 <tr class="memitem:aa8907604472d5337795d016422c40d9a" id="r_aa8907604472d5337795d016422c40d9a"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa8907604472d5337795d016422c40d9a">read_node_payload</a> (uint32_t p_node, Vector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, Vector&lt; Vector3 &gt; &amp;r_sh, String &amp;r_reason) const</td></tr>
+<tr class="memitem:ad2cdc227322643bc6bd0d4f72b1f218c" id="r_ad2cdc227322643bc6bd0d4f72b1f218c"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad2cdc227322643bc6bd0d4f72b1f218c">install_in_page_store</a> (<a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &amp;p_store, uint64_t p_generation) const</td></tr>
+<tr class="memitem:a04118277e7ec94ca529e56f152e738cf" id="r_a04118277e7ec94ca529e56f152e738cf"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04118277e7ec94ca529e56f152e738cf">read_node_payload_from_store</a> (<a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &amp;p_store, uint64_t p_requester, uint64_t p_ticket, uint32_t p_node, Vector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, Vector&lt; Vector3 &gt; &amp;r_sh, String &amp;r_reason, <a class="el" href="structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html">ReadStorageObserver</a> *p_observer=nullptr) const</td></tr>
 <tr class="memitem:a622dceee0237da964b8ddc1c66d596b0" id="r_a622dceee0237da964b8ddc1c66d596b0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatHlodPagedSource_1_1Stats.html">Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a622dceee0237da964b8ddc1c66d596b0">get_stats</a> () const</td></tr>
 <tr class="memitem:ae247d0bf0fa935277d630af5c5eed4e7" id="r_ae247d0bf0fa935277d630af5c5eed4e7"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae247d0bf0fa935277d630af5c5eed4e7">get_max_record_bytes</a> () const</td></tr>
 <tr class="memitem:aa3aad7c6bf60837edcffdbb4bc2cd317" id="r_aa3aad7c6bf60837edcffdbb4bc2cd317"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa3aad7c6bf60837edcffdbb4bc2cd317">get_node_read_working_set_bytes</a> (uint32_t p_node) const</td></tr>
@@ -324,6 +327,27 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="ad2cdc227322643bc6bd0d4f72b1f218c" name="ad2cdc227322643bc6bd0d4f72b1f218c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad2cdc227322643bc6bd0d4f72b1f218c">&#9670;&#160;</a></span>install_in_page_store()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianSplatHlodPagedSource::install_in_page_store </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_store</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_generation</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a0c82845991665d4497aef78feccad4cc" name="a0c82845991665d4497aef78feccad4cc"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a0c82845991665d4497aef78feccad4cc">&#9670;&#160;</a></span>is_open()</h2>
 
@@ -405,6 +429,57 @@ Static Public Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a04118277e7ec94ca529e56f152e738cf" name="a04118277e7ec94ca529e56f152e738cf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a04118277e7ec94ca529e56f152e738cf">&#9670;&#160;</a></span>read_node_payload_from_store()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianSplatHlodPagedSource::read_node_payload_from_store </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_store</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_requester</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Vector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_gaussians</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Vector&lt; Vector3 &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>r_sh</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html">ReadStorageObserver</a> *</td>          <td class="paramname"><span class="paramname"><em>p_observer</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;) const</td>
         </tr>
       </table>
 </div><div class="memdoc">

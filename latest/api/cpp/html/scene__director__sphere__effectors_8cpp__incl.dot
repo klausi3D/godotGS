@@ -181,13 +181,13 @@ digraph "scene_director_sphere_effectors.cpp"
   Node128 -> Node68 [id="edge128_Node000128_Node000068",color="steelblue1",style="solid",tooltip=" "];
   Node99 -> Node68 [id="edge129_Node000099_Node000068",color="steelblue1",style="solid",tooltip=" "];
   Node99 -> Node58 [id="edge130_Node000099_Node000058",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node165 [id="edge131_Node000001_Node000165",color="steelblue1",style="solid",tooltip=" "];
-  Node165 [id="Node000165",label="scene_director_internal.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$scene__director__internal_8h.html",tooltip=" "];
-  Node165 -> Node2 [id="edge132_Node000165_Node000002",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node171 [id="edge131_Node000001_Node000171",color="steelblue1",style="solid",tooltip=" "];
+  Node171 [id="Node000171",label="scene_director_internal.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$scene__director__internal_8h.html",tooltip=" "];
+  Node171 -> Node2 [id="edge132_Node000171_Node000002",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node56 [id="edge133_Node000001_Node000056",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node68 [id="edge134_Node000001_Node000068",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node166 [id="edge135_Node000001_Node000166",color="steelblue1",style="solid",tooltip=" "];
-  Node166 [id="Node000166",label="scene/3d/node_3d.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node167 [id="edge136_Node000001_Node000167",color="steelblue1",style="solid",tooltip=" "];
-  Node167 [id="Node000167",label="scene/main/node.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node172 [id="edge135_Node000001_Node000172",color="steelblue1",style="solid",tooltip=" "];
+  Node172 [id="Node000172",label="scene/3d/node_3d.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node173 [id="edge136_Node000001_Node000173",color="steelblue1",style="solid",tooltip=" "];
+  Node173 [id="Node000173",label="scene/main/node.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

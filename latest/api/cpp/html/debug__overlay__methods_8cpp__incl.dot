@@ -180,14 +180,14 @@ digraph "debug_overlay_methods.cpp"
   Node2 -> Node131 [id="edge128_Node000002_Node000131",color="steelblue1",style="solid",tooltip=" "];
   Node131 [id="Node000131",label="../interfaces/renderer\l_interfaces.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$renderer__interfaces_8h.html",tooltip="Segregated interfaces for Gaussian Splat rendering."];
   Node131 -> Node41 [id="edge129_Node000131_Node000041",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node155 [id="edge130_Node000001_Node000155",color="steelblue1",style="solid",tooltip=" "];
-  Node155 [id="Node000155",label="../interfaces/debug\l_overlay_system.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$debug__overlay__system_8h.html",tooltip=" "];
-  Node155 -> Node128 [id="edge131_Node000155_Node000128",color="steelblue1",style="solid",tooltip=" "];
-  Node155 -> Node2 [id="edge132_Node000155_Node000002",color="steelblue1",style="solid",tooltip=" "];
-  Node155 -> Node41 [id="edge133_Node000155_Node000041",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node156 [id="edge134_Node000001_Node000156",color="steelblue1",style="solid",tooltip=" "];
-  Node156 [id="Node000156",label="../interfaces/debug\l_overlay_macros.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$debug__overlay__macros_8h.html",tooltip="Helper macros to reduce boilerplate in debug overlay setter implementations."];
+  Node1 -> Node161 [id="edge130_Node000001_Node000161",color="steelblue1",style="solid",tooltip=" "];
+  Node161 [id="Node000161",label="../interfaces/debug\l_overlay_system.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$debug__overlay__system_8h.html",tooltip=" "];
+  Node161 -> Node128 [id="edge131_Node000161_Node000128",color="steelblue1",style="solid",tooltip=" "];
+  Node161 -> Node2 [id="edge132_Node000161_Node000002",color="steelblue1",style="solid",tooltip=" "];
+  Node161 -> Node41 [id="edge133_Node000161_Node000041",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node162 [id="edge134_Node000001_Node000162",color="steelblue1",style="solid",tooltip=" "];
+  Node162 [id="Node000162",label="../interfaces/debug\l_overlay_macros.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$debug__overlay__macros_8h.html",tooltip="Helper macros to reduce boilerplate in debug overlay setter implementations."];
   Node1 -> Node67 [id="edge135_Node000001_Node000067",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node143 [id="edge136_Node000001_Node000143",color="steelblue1",style="solid",tooltip=" "];
-  Node143 [id="Node000143",label="algorithm",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node149 [id="edge136_Node000001_Node000149",color="steelblue1",style="solid",tooltip=" "];
+  Node149 [id="Node000149",label="algorithm",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

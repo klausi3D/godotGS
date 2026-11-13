@@ -485,6 +485,7 @@ var hierarchy =
     [ "TileRenderer::TileRasterizerStage::RasterUniformSets", "structTileRenderer_1_1TileRasterizerStage_1_1RasterUniformSets.html", null ],
     [ "gs_sort_policy::ReadbackPolicy", "structgs__sort__policy_1_1ReadbackPolicy.html", null ],
     [ "BatchedAsyncReadback::ReadbackRequest", "structBatchedAsyncReadback_1_1ReadbackRequest.html", null ],
+    [ "GaussianSplatHlodPagedSource::ReadStorageObserver", "structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html", null ],
     [ "RefCounted", null, [
       [ "AssetDependencyManager", "classAssetDependencyManager.html", null ],
       [ "BatchedAsyncReadback", "classBatchedAsyncReadback.html", null ],

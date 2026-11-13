@@ -1,5 +1,17 @@
 var NAVTREEINDEX50 =
 {
+"structRasterDebugCounters.html#aea8a0cd3f58f37582f6233970e9db8ff":[1,0,203,18],
+"structRasterDebugCounters.html#aed03dec35548b2e54e575557af52cb0f":[1,0,203,3],
+"structRasterDebugCounters.html#aefdb2ac65e3b4fb443238b097cd6dedf":[1,0,203,5],
+"structRasterDebugOptions.html":[1,0,204],
+"structRasterDebugOptions.html#a0924c498f7ee265ddcf7dcb1727b71e9":[1,0,204,2],
+"structRasterDebugOptions.html#a30a12f07bb5e2fcb7557f19073300d6d":[1,0,204,5],
+"structRasterDebugOptions.html#a5aad1f395f47a1af4b75cd461ce41181":[1,0,204,4],
+"structRasterDebugOptions.html#a5b07a4881b4a021044ac03e37d2c2b62":[1,0,204,9],
+"structRasterDebugOptions.html#a618c264a90a222df20f2b0c5abc5ec18":[1,0,204,1],
+"structRasterDebugOptions.html#a7e0572eb473c6c037e95623bb96ca7cc":[1,0,204,3],
+"structRasterDebugOptions.html#a961d0810427813811aaf60124c02f703":[1,0,204,0],
+"structRasterDebugOptions.html#aa533ff9130f0687a4ccd3531a3138776":[1,0,204,8],
 "structRasterDebugOptions.html#ae9d906dadd7fd3e600ee9db737f21aee":[1,0,204,6],
 "structRasterDebugOptions.html#aee328c9644846b06695d0da14dc17d06":[1,0,204,7],
 "structRasterOverflowStats.html":[1,0,205],
@@ -237,17 +249,5 @@ var NAVTREEINDEX50 =
 "structRenderPipelineStages_1_1CullStage.html#ab9a5a7bfced23d7817df13d53df4476f":[1,0,220,0,0],
 "structRenderPipelineStages_1_1CullStage.html#af62f4acc539f6368461b8923687339ad":[1,0,220,0,3],
 "structRenderPipelineStages_1_1RasterCompositeStage.html":[1,0,220,4],
-"structRenderPipelineStages_1_1RasterCompositeStage.html#a40ea309a2e4ef506251e85ab52b0921e":[1,0,220,4,2],
-"structRenderPipelineStages_1_1RasterCompositeStage.html#a4474fa63133c19f0a8736216eda647f7":[1,0,220,4,1],
-"structRenderPipelineStages_1_1RasterCompositeStage.html#a5408a5762118e8a865b994b32ea41059":[1,0,220,4,0],
-"structRenderPipelineStages_1_1RasterCompositeStage.html#a5c67a8327c48539aa32558a2342e4225":[1,0,220,4,4],
-"structRenderPipelineStages_1_1RasterCompositeStage.html#a95cd4fd058bee5e95e696951beebacfb":[1,0,220,4,3],
-"structRenderPipelineStages_1_1RasterCompositeStage.html#af502ef52c0abc6abced32812fd4defd5":[1,0,220,4,5],
-"structRenderPipelineStages_1_1RasterStage.html":[1,0,220,2],
-"structRenderPipelineStages_1_1RasterStage.html#a03aa25fece640cb03daf3ad7dda289a7":[1,0,220,2,5],
-"structRenderPipelineStages_1_1RasterStage.html#a3cde8391672a5b06234914689cb09108":[1,0,220,2,4],
-"structRenderPipelineStages_1_1RasterStage.html#a493b53ee108ba1afe081f1803acdc890":[1,0,220,2,6],
-"structRenderPipelineStages_1_1RasterStage.html#a4cb415cca0d8d780e930c183fc9c4580":[1,0,220,2,0],
-"structRenderPipelineStages_1_1RasterStage.html#a5b99e15458b5708945e9e6c47defc461":[1,0,220,2,8],
-"structRenderPipelineStages_1_1RasterStage.html#a6378f87781d49ee5692be9d3177f290f":[1,0,220,2,3]
+"structRenderPipelineStages_1_1RasterCompositeStage.html#a40ea309a2e4ef506251e85ab52b0921e":[1,0,220,4,2]
 };

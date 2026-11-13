@@ -1,5 +1,17 @@
 var NAVTREEINDEX51 =
 {
+"structRenderPipelineStages_1_1RasterCompositeStage.html#a4474fa63133c19f0a8736216eda647f7":[1,0,220,4,1],
+"structRenderPipelineStages_1_1RasterCompositeStage.html#a5408a5762118e8a865b994b32ea41059":[1,0,220,4,0],
+"structRenderPipelineStages_1_1RasterCompositeStage.html#a5c67a8327c48539aa32558a2342e4225":[1,0,220,4,4],
+"structRenderPipelineStages_1_1RasterCompositeStage.html#a95cd4fd058bee5e95e696951beebacfb":[1,0,220,4,3],
+"structRenderPipelineStages_1_1RasterCompositeStage.html#af502ef52c0abc6abced32812fd4defd5":[1,0,220,4,5],
+"structRenderPipelineStages_1_1RasterStage.html":[1,0,220,2],
+"structRenderPipelineStages_1_1RasterStage.html#a03aa25fece640cb03daf3ad7dda289a7":[1,0,220,2,5],
+"structRenderPipelineStages_1_1RasterStage.html#a3cde8391672a5b06234914689cb09108":[1,0,220,2,4],
+"structRenderPipelineStages_1_1RasterStage.html#a493b53ee108ba1afe081f1803acdc890":[1,0,220,2,6],
+"structRenderPipelineStages_1_1RasterStage.html#a4cb415cca0d8d780e930c183fc9c4580":[1,0,220,2,0],
+"structRenderPipelineStages_1_1RasterStage.html#a5b99e15458b5708945e9e6c47defc461":[1,0,220,2,8],
+"structRenderPipelineStages_1_1RasterStage.html#a6378f87781d49ee5692be9d3177f290f":[1,0,220,2,3],
 "structRenderPipelineStages_1_1RasterStage.html#a907f1fc20aa6a10ef2420b7ad37ef1cd":[1,0,220,2,7],
 "structRenderPipelineStages_1_1RasterStage.html#a9833a8172a46ba691f8a1efee046b096":[1,0,220,2,2],
 "structRenderPipelineStages_1_1RasterStage.html#aaa7a448e9ea8a93ec992707ec1cfc5a0":[1,0,220,2,1],
@@ -237,17 +249,5 @@ var NAVTREEINDEX51 =
 "structSorterCapabilities.html#a1603d75f63828764a2a9308b789c5b59":[1,0,242,2],
 "structSorterCapabilities.html#a2d8101f9725f82c66756bce69bffd09d":[1,0,242,4],
 "structSorterCapabilities.html#a86690ca2eb61eb597d0bd2336b4ce558":[1,0,242,3],
-"structSorterCapabilities.html#ac605420a7f0ba0fe3fa3cca8efbb94f2":[1,0,242,0],
-"structSorterCapabilities.html#ae6be83923a86eabb33df0466dbb49b50":[1,0,242,1],
-"structSortingMetrics.html":[1,0,245],
-"structSortingMetrics.html#a032be040f2a785300dcbec06b584687a":[1,0,245,2],
-"structSortingMetrics.html#a084f8224e9a5c2a1d098707bbfcf4940":[1,0,245,11],
-"structSortingMetrics.html#a0d0c7bb9a0174a2a132f491e8f179823":[1,0,245,4],
-"structSortingMetrics.html#a22262a8588bf49da3ffbf425369f685b":[1,0,245,18],
-"structSortingMetrics.html#a30c8080e42cb4fd01e033d5037bf9722":[1,0,245,7],
-"structSortingMetrics.html#a3588fdac89f59a735954b1fd8e801728":[1,0,245,13],
-"structSortingMetrics.html#a3c4b014732a3398ee6310019ed8045fc":[1,0,245,9],
-"structSortingMetrics.html#a6092bf246ac7cec6f7f1bb8bf3b5d34f":[1,0,245,5],
-"structSortingMetrics.html#a91ce54a81ba6b6f6123b9cd4254c5398":[1,0,245,16],
-"structSortingMetrics.html#a9fd8304a6fc1fe8d01550b975e3e1aa0":[1,0,245,12]
+"structSorterCapabilities.html#ac605420a7f0ba0fe3fa3cca8efbb94f2":[1,0,242,0]
 };

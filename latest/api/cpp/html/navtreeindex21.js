@@ -1,5 +1,12 @@
 var NAVTREEINDEX21 =
 {
+"gs__atomic__file__transaction_8cpp.html":[2,0,0,0,6,12],
+"gs__atomic__file__transaction_8h.html":[2,0,0,0,6,13],
+"gs__atomic__file__transaction_8h_source.html":[2,0,0,0,6,13],
+"gs__atomic__file__writer_8cpp.html":[2,0,0,0,6,14],
+"gs__atomic__file__writer_8cpp.html#a818a3736f95555a62743cecd097bd551":[2,0,0,0,6,14,0],
+"gs__atomic__file__writer_8cpp.html#a86178d54058be92e7b3b3f1a942fe2af":[2,0,0,0,6,14,3],
+"gs__atomic__file__writer_8cpp.html#acf1356909b23bab0b6e4c3db5fb85caf":[2,0,0,0,6,14,1],
 "gs__atomic__file__writer_8cpp.html#aed869a97e9e2e37de65d95bbdc7987f5":[2,0,0,0,6,14,2],
 "gs__atomic__file__writer_8h.html":[2,0,0,0,6,15],
 "gs__atomic__file__writer_8h.html#a4544608ea6ee79d77c6d9510b28a00f5":[2,0,0,0,6,15,6],
@@ -242,12 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27a2f6c00b041046ca7473374c038460f29":[0,0,7,17,5],
 "namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27a5a76d9b9e309996a402e22c6989c6956":[0,0,7,17,1],
 "namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27a8253c95466a0988bd66185cbca697b5f":[0,0,7,17,4],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27a9004779bf02d7e6012fbdbf267bb616c":[0,0,7,17,12],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27aaaf473fafd362ccd927e01e78e205d34":[0,0,7,17,3],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27aade0b8f5523f87cb5645c0cac1f62963":[0,0,7,17,10],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27ab50339a10e1de285ac99d4c3990b8693":[0,0,7,17,0],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27adde517f87b721e6a1d0ad685c43b293e":[0,0,7,17,7],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27ae0f750b5d73a4aae74a072940e6e06c4":[0,0,7,17,9],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27ae88c40866a2524f16813ca5452ac4fe3":[0,0,7,17,6],
-"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27af2cf753ee93f6f1ad0744bdbbe943ce1":[0,0,7,17,11]
+"namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27a9004779bf02d7e6012fbdbf267bb616c":[0,0,7,17,12]
 };

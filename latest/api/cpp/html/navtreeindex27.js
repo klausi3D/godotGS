@@ -1,5 +1,12 @@
 var NAVTREEINDEX27 =
 {
+"streaming__upload__pipeline_8h_source.html":[2,0,0,0,3,106],
+"streaming__visibility__controller_8cpp.html":[2,0,0,0,3,107],
+"streaming__visibility__controller_8h.html":[2,0,0,0,3,108],
+"streaming__visibility__controller_8h_source.html":[2,0,0,0,3,108],
+"streaming__vram__regulator_8cpp.html":[2,0,0,0,3,109],
+"streaming__vram__regulator_8h.html":[2,0,0,0,3,110],
+"streaming__vram__regulator_8h_source.html":[2,0,0,0,3,110],
 "structAlgorithmProbe.html":[1,0,32],
 "structAlgorithmProbe.html#abb7942063a937e643df83129ac44d7a5":[1,0,32,2],
 "structAlgorithmProbe.html#ad0a162400c8b7be512e0099fef604583":[1,0,32,1],
@@ -242,12 +249,5 @@ var NAVTREEINDEX27 =
 "structDependencyNode.html":[1,0,64],
 "structDependencyNode.html#a01957271ea77320539a8c043e86d4581":[1,0,64,4],
 "structDependencyNode.html#aa8bee09d226b430976f18331d6b2dc65":[1,0,64,3],
-"structDependencyNode.html#ab02fa8590a52f49d939b0a184a19d43f":[1,0,64,0],
-"structDependencyNode.html#abaf17a428732b4a7c521b52021a1f7c0":[1,0,64,1],
-"structDependencyNode.html#ae42bd0a59951b4b076dd55a6812acaed":[1,0,64,5],
-"structDependencyNode.html#aefdd380ea93bcabdec549c2ecbefd63a":[1,0,64,2],
-"structDeviceContext.html":[1,0,65],
-"structDeviceContext.html#a690aab610069b1bd7c7527acbe71b65a":[1,0,65,1],
-"structDeviceContext.html#a906a7a6ee92b05ba02d72028cfe07910":[1,0,65,0],
-"structDeviceContext.html#aa8668940ea548345003bc4e4def4c153":[1,0,65,2]
+"structDependencyNode.html#ab02fa8590a52f49d939b0a184a19d43f":[1,0,64,0]
 };

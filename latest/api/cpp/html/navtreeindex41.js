@@ -1,5 +1,17 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a7fa369047bca68e8ae6d225cf5e42258":[0,0,12,63,14],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a7fa369047bca68e8ae6d225cf5e42258":[1,0,9,62,14],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a7fcd7c0f8c02bb96a34fbf0e1f1a207e":[0,0,12,63,6],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a7fcd7c0f8c02bb96a34fbf0e1f1a207e":[1,0,9,62,6],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a866b99fc34677588f1f8e919242ec216":[0,0,12,63,20],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a866b99fc34677588f1f8e919242ec216":[1,0,9,62,20],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989":[0,0,12,63,5],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989":[1,0,9,62,5],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627":[0,0,12,63,25],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627":[1,0,9,62,25],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654":[0,0,12,63,24],
+"structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654":[1,0,9,62,24],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db":[0,0,12,63,0],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a9c932d52cd446a12c59efb41614e19db":[1,0,9,62,0],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c":[0,0,12,63,33],
@@ -237,17 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1TilePerformanceMetrics.html#a97ffc40c9520fcdcb9c27282cfdae3d5":[0,0,12,62,7],
 "structGaussianSplatting_1_1TilePerformanceMetrics.html#a97ffc40c9520fcdcb9c27282cfdae3d5":[1,0,9,61,7],
 "structGaussianSplatting_1_1TilePerformanceMetrics.html#aa59f3454456a6396dbb24b746f5ddd69":[0,0,12,62,0],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#aa59f3454456a6396dbb24b746f5ddd69":[1,0,9,61,0],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ab3bc09fb9f9ef2e745574b50f84e234a":[0,0,12,62,1],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ab3bc09fb9f9ef2e745574b50f84e234a":[1,0,9,61,1],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ab8e9e8f568110188fd9475ba5ab261c3":[0,0,12,62,8],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ab8e9e8f568110188fd9475ba5ab261c3":[1,0,9,61,8],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ac227f86dad3e805b7cc9120ec204c3d3":[0,0,12,62,14],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ac227f86dad3e805b7cc9120ec204c3d3":[1,0,9,61,14],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#acd408c9afb78f6ba422f971b94b3e9a1":[0,0,12,62,11],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#acd408c9afb78f6ba422f971b94b3e9a1":[1,0,9,61,11],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#acd751a3fd7c018d06713ebff1f60b769":[0,0,12,62,3],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#acd751a3fd7c018d06713ebff1f60b769":[1,0,9,61,3],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ad0a8c5acf0c8c88c67d9934f9b337b22":[0,0,12,62,2],
-"structGaussianSplatting_1_1TilePerformanceMetrics.html#ad0a8c5acf0c8c88c67d9934f9b337b22":[1,0,9,61,2]
+"structGaussianSplatting_1_1TilePerformanceMetrics.html#aa59f3454456a6396dbb24b746f5ddd69":[1,0,9,61,0]
 };

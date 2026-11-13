@@ -1,5 +1,12 @@
 var NAVTREEINDEX19 =
 {
+"culler__interfaces_8h_source.html":[2,0,0,0,5,0],
+"debug__overlay__interfaces_8h.html":[2,0,0,0,5,1],
+"debug__overlay__interfaces_8h_source.html":[2,0,0,0,5,1],
+"debug__overlay__macros_8h.html":[2,0,0,0,5,2],
+"debug__overlay__macros_8h.html#a0f84d9475c92f6515b3b23e100779ecd":[2,0,0,0,5,2,1],
+"debug__overlay__macros_8h.html#a263d1b0c43a7b91ca0689bd21566f5c8":[2,0,0,0,5,2,0],
+"debug__overlay__macros_8h.html#a2fd79391c716dea8144be365aeb0d91c":[2,0,0,0,5,2,4],
 "debug__overlay__macros_8h.html#a3a1a1c7890af09bbc8c97dd1aa7ca7e9":[2,0,0,0,5,2,2],
 "debug__overlay__macros_8h.html#a5cb9e219b6c76d31af48789007fcfcea":[2,0,0,0,5,2,5],
 "debug__overlay__macros_8h.html#a7d6cbab665d6829ead13fd89cea63b67":[2,0,0,0,5,2,6],
@@ -242,12 +249,5 @@ var NAVTREEINDEX19 =
 "gaussian__scene__serializer_8cpp.html":[2,0,0,0,11,1],
 "gaussian__scene__serializer_8h.html":[2,0,0,0,11,2],
 "gaussian__scene__serializer_8h_source.html":[2,0,0,0,11,2],
-"gaussian__sh__rotation_8h.html":[2,0,0,0,3,10],
-"gaussian__sh__rotation_8h_source.html":[2,0,0,0,3,10],
-"gaussian__splat__asset_8cpp.html":[2,0,0,0,3,11],
-"gaussian__splat__asset_8cpp.html#ad5682c7afbc6e2ec4310c71b115ff803":[2,0,0,0,3,11,0],
-"gaussian__splat__asset_8h.html":[2,0,0,0,3,12],
-"gaussian__splat__asset_8h.html#a298ea4c90a915ee929c7ab87efeecdcc":[2,0,0,0,3,12,3],
-"gaussian__splat__asset_8h.html#abf36ddb19757804470c39772c9788267":[2,0,0,0,3,12,2],
-"gaussian__splat__asset_8h_source.html":[2,0,0,0,3,12]
+"gaussian__sh__rotation_8h.html":[2,0,0,0,3,10]
 };

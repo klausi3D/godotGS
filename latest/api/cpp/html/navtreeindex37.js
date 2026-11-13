@@ -1,5 +1,17 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a0aac42517fdad1cd5f9ea02c18ee7144":[1,0,104,4,0,9],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a1fb5c49b7e51d300f51236da914215aa":[1,0,104,4,0,13],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a2fde30525ecfe24d67e4a1be72acb998":[1,0,104,4,0,0],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a3ed691e94bbfcd350925c88c58b6543d":[1,0,104,4,0,4],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a5306b6558af9823b912c0a8baabdce68":[1,0,104,4,0,15],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a5bac91971e9b1716cc26ec115d201075":[1,0,104,4,0,17],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a741c0bbc90679204ce8c1e2d8d283491":[1,0,104,4,0,14],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a7e64644a9de893074a528ee58236706c":[1,0,104,4,0,1],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#a88e521e224f41aa9ba8cf4570cb8e830":[1,0,104,4,0,7],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#aa6c5d3b79a4966f7affe289304d93276":[1,0,104,4,0,16],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#aaad7d702ed82fda8ef099c6488f71c27":[1,0,104,4,0,5],
+"structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#aaf66098e6f3003601b8db80449788a8a":[1,0,104,4,0,11],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#ac7ade910ad968bd56692272e01d5f4b2":[1,0,104,4,0,10],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#acb6935c3f451b385567c5694c859f563":[1,0,104,4,0,6],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#adeeac1ed3728bb0ab89003a232d5c72b":[1,0,104,4,0,3],
@@ -237,17 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatting_1_1AnimationChange.html":[0,0,12,22],
 "structGaussianSplatting_1_1AnimationChange.html":[1,0,9,21],
 "structGaussianSplatting_1_1AnimationChange.html#a0122b03a599cbb25ec2b38d963fc3e98":[0,0,12,22,2],
-"structGaussianSplatting_1_1AnimationChange.html#a0122b03a599cbb25ec2b38d963fc3e98":[1,0,9,21,2],
-"structGaussianSplatting_1_1AnimationChange.html#a77beb451454eee2fc1c74f4cfa11b4b1":[0,0,12,22,3],
-"structGaussianSplatting_1_1AnimationChange.html#a77beb451454eee2fc1c74f4cfa11b4b1":[1,0,9,21,3],
-"structGaussianSplatting_1_1AnimationChange.html#a79afcc2d62933c1727880a93bc9c6133":[0,0,12,22,1],
-"structGaussianSplatting_1_1AnimationChange.html#a79afcc2d62933c1727880a93bc9c6133":[1,0,9,21,1],
-"structGaussianSplatting_1_1AnimationChange.html#aa3a10d39bf771e96001f2e27f22c99a2":[0,0,12,22,0],
-"structGaussianSplatting_1_1AnimationChange.html#aa3a10d39bf771e96001f2e27f22c99a2":[1,0,9,21,0],
-"structGaussianSplatting_1_1AnimationClip.html":[0,0,12,5],
-"structGaussianSplatting_1_1AnimationClip.html":[1,0,9,4],
-"structGaussianSplatting_1_1AnimationClip.html#a07dba4c7238f57eded83cf65ffe1ecc3":[0,0,12,5,1],
-"structGaussianSplatting_1_1AnimationClip.html#a07dba4c7238f57eded83cf65ffe1ecc3":[1,0,9,4,1],
-"structGaussianSplatting_1_1AnimationClip.html#a3be299aca989412ff0dc66367c0dbaf0":[0,0,12,5,4],
-"structGaussianSplatting_1_1AnimationClip.html#a3be299aca989412ff0dc66367c0dbaf0":[1,0,9,4,4]
+"structGaussianSplatting_1_1AnimationChange.html#a0122b03a599cbb25ec2b38d963fc3e98":[1,0,9,21,2]
 };
