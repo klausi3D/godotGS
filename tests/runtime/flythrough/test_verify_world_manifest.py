@@ -393,7 +393,10 @@ def build_v4_structure_world(directory: Path) -> Path:
                     content_generation=str(generation), output_file_sha256=hashlib.sha256(blob).hexdigest(),
                     levels=[{"depth": 0, "node_count": 1, "eps_min": 0, "eps_median": 0, "eps_max": 0},
                             {"depth": 1, "node_count": 2, "eps_min": 0, "eps_median": 0, "eps_max": 0}],
-                    report={"nodes_verified": 3})
+                    report={"nodes_verified": 3},
+                    # The GSQ builder records the reopened header's six float32 words.
+                    header_bounds={"position_f32_bits": list(struct.unpack_from("<3I", header, 88)),
+                                   "size_f32_bits": list(struct.unpack_from("<3I", header, 100))})
     world = directory / "auto.gsplatworld"
     world.write_bytes(blob)
     world.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -461,6 +464,30 @@ class VerifyAutoTreeV4Test(unittest.TestCase):
         blob[176:208] = hashlib.sha256(blob[4096 + 32:4096 + 64]).digest()
         self.write_mutation(blob, header=True)
         self.assert_problem("index_page_digest_mismatch")
+
+    def test_v4_gsq_requires_header_bounds(self) -> None:
+        # #1432: absence used to skip the comparison and pass.
+        self.edit_manifest(lambda m: m.pop("header_bounds"))
+        self.assert_problem("header_bounds_missing")
+
+    def test_v4_header_bounds_must_match_header_words(self) -> None:
+        self.edit_manifest(lambda m: m["header_bounds"]["size_f32_bits"].__setitem__(1, 0))
+        self.assert_problem("header_bounds_mismatch")
+
+    def test_v4_codec_none_does_not_require_header_bounds(self) -> None:
+        # The builder records header_bounds for GSQ only; the legal codec-none route.
+        blob = bytearray(self.world.read_bytes())
+        struct.pack_into("<I", blob, 60, 0)
+        self.write_mutation(blob, header=True)
+
+        def as_codec_none(m):
+            m.pop("header_bounds")
+            m["codec"] = {"codec": "none"}
+            m["tree_sha"] = vwm.compute_tree_sha(m)
+        self.edit_manifest(as_codec_none)
+        # The opaque GSQ-sized bodies are not codec-none records, so verification
+        # stops at the first node size: proof that it got past header_bounds.
+        self.assertEqual(vwm.verify_v4(self.world)["problems"], ["node_size_invalid: node 0"])
 
     def test_v4_tampered_tree_sha_is_recomputed(self) -> None:
         self.edit_manifest(lambda m: m.__setitem__("tree_sha", "0" * 64))

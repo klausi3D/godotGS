@@ -292,6 +292,35 @@ class DriverContract(unittest.TestCase):
             with self.subTest(response=response):
                 self.assert_reason("oracle_report_invalid", self.driver._oracle_block, response, poses, 1)
 
+    def test_leaves_only_control_that_did_not_run_fails(self):
+        # #1432 forcing control. Constructed rows in the shape the shared row
+        # checks require; only the control predicate varies.
+        poses = [{"checkpoint": "C0", "pose": [0, 0, 0, 0, 0]}]
+
+        def control(status, only_leaves, splats):
+            row = {"checkpoint": "C0", "pose": poses[0]["pose"], "status": status,
+                   "selected_splats": splats, "selected_count": 1 if splats else 0, "budget": 1,
+                   "budget_bound": False, "drawn_le_budget": splats <= 1}
+            if only_leaves is not None:
+                row["only_leaves"] = only_leaves
+            return {"error": 0, "reason": "", "mechanism": "stale_interiors_unbounded", "poses": [row]}
+
+        def check(response):
+            return self.driver._oracle_block(response, poses, 1, control=True)
+
+        # The legal route: a control that ran, over budget by design, passes.
+        for status, splats in (("COMPLETE", 7), ("EMPTY", 0)):
+            with self.subTest(legal=status):
+                self.assertEqual(check(control(status, True, splats))["poses"][0]["status"], status)
+        for status in ("INVALID", "UNAVAILABLE", "BOOTSTRAP_EXHAUSTED", "BOOTSTRAP_ARITHMETIC",
+                       "BOOTSTRAP_MISSING_RESIDENCY", "BOOTSTRAP_INFEASIBLE"):
+            for only_leaves in (False, True):
+                with self.subTest(status=status, only_leaves=only_leaves):
+                    self.assert_reason("leaves_control_invalid", check, control(status, only_leaves, 0))
+        for only_leaves in (False, None, 1):
+            with self.subTest(complete_only_leaves=only_leaves):
+                self.assert_reason("leaves_control_invalid", check, control("COMPLETE", only_leaves, 7))
+
     def test_collect_output_rejects_mismatched_bytes_before_reading_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "corrupt.gsplatworld"

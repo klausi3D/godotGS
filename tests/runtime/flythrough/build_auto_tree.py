@@ -242,8 +242,10 @@ def _oracle_block(value, poses, budget, *, control=False):
         if ((row["status"] == "COMPLETE" and (row["selected_count"] == 0 or row["selected_splats"] == 0))
                 or (row["status"] != "COMPLETE" and (row["selected_count"] != 0 or row["selected_splats"] != 0))):
             raise BuildError("oracle_report_invalid")
-        if control and (type(row.get("only_leaves")) is not bool or
-                        (row["status"] in ("COMPLETE", "EMPTY") and not row["only_leaves"])):
+        # #1432: a control that did not run (INVALID, UNAVAILABLE, BOOTSTRAP_*)
+        # proves nothing about leaves, so it fails rather than passing vacuously.
+        # Its budget is unbounded by design, so drawn_le_budget does not apply.
+        if control and (row["status"] not in ("COMPLETE", "EMPTY") or row.get("only_leaves") is not True):
             raise BuildError("leaves_control_invalid")
     if control and value.get("mechanism") != "stale_interiors_unbounded":
         raise BuildError("leaves_control_invalid")

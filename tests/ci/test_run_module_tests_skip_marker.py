@@ -1203,6 +1203,31 @@ class AutoTreeWiringTests(unittest.TestCase):
         self.assertIn("mode=NOT_RUN", " ".join(messages))
         run.assert_not_called()
 
+    def test_step_summary_never_reports_not_run_as_completed(self):
+        # #1432: the step printed "completed" for NOT_RUN. Drive the real
+        # no-binary route through the step, then the ran and failed routes.
+        self.runner._GUARD_GODOT_BINARY_OVERRIDE = "godot"
+        self.runner._GUARD_GODOT_BINARY_EXPLICIT = False
+        with mock.patch.dict("os.environ", {}, clear=True), \
+                mock.patch.object(self.runner, "_run_doctest_lanes", return_value=0), \
+                mock.patch.object(self.runner, "_run_command") as run, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            code = self.runner._run_doctests_and_auto_tree()
+        run.assert_not_called()
+        self.assertEqual(code, 0)
+        self.assertIn("D2-4 producer tests NOT_RUN", output.getvalue())
+        self.assertNotIn("completed", output.getvalue())
+        for ok, expected, absent, expected_code in ((True, "D2-4 producer tests completed.", "NOT_RUN", 0),
+                                                    (False, "D2-4 producer tests failed.", "completed", 1)):
+            with self.subTest(ok=ok), \
+                    mock.patch.object(self.runner, "_run_doctest_lanes", return_value=0), \
+                    mock.patch.object(self.runner, "_run_auto_tree_binary_tests",
+                                      return_value=(ok, ["D2-4 producer tests passed." if ok else "x"])), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(self.runner._run_doctests_and_auto_tree(), expected_code)
+                self.assertIn(expected, output.getvalue())
+                self.assertNotIn(absent, output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

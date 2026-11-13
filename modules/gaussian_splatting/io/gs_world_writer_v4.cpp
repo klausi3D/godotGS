@@ -599,6 +599,7 @@ struct WriterV4::Impl {
 	SegmentHandleStats handle_stats;
 	AssemblyObserver observer = nullptr;
 	void *observer_userdata = nullptr;
+	uint32_t scratch_delete_faults = 0;
 #endif
 };
 
@@ -619,7 +620,18 @@ void WriterV4::_cleanup() {
 			// Preserve measured file lengths in the report before removing files.
 			report.segments[i].spill_bytes = segment->file.get_size();
 			impl->close_segment(segment);
-			segment->file.remove();
+#ifdef TESTS_ENABLED
+			const bool faulted = impl->scratch_delete_faults > 0;
+			impl->scratch_delete_faults -= faulted ? 1u : 0u;
+#else
+			const bool faulted = false;
+#endif
+			const Error removed = faulted ? ERR_FILE_CANT_WRITE : segment->file.remove();
+			if (removed != OK) {
+				// #1432: never silent. The destructor below retries once more.
+				report.segments[i].delete_failed = true;
+				++report.scratch_delete_failures;
+			}
 			memdelete(segment);
 		}
 	}
@@ -922,6 +934,10 @@ void WriterV4::set_assembly_observer(AssemblyObserver p_observer, void *p_userda
 	impl->observer = p_observer;
 	impl->observer_userdata = p_userdata;
 }
+
+void WriterV4::set_scratch_delete_faults_for_test(uint32_t p_count) {
+	impl->scratch_delete_faults = p_count;
+}
 #endif
 
 Error WriterV4::get_spill_record(V4BodyHandle p_handle, V4SpillRecord &r_record) const {
@@ -1166,6 +1182,11 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 	if (!spill.record.metrics.center_exact) {
 		return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
 	}
+	if (impl->codec.codec_id != kCodecGsqV1) {
+		// Codec none writes exactly the relative bytes hashed into
+		// output_body_digest above; decoded now holds the reader's runtime form.
+		hash_body(decoded.ptr(), sh.ptr(), p_count, high, spill.record.runtime_digest);
+	}
 	LocalVector<uint8_t> output_page;
 	if (impl->codec.codec_id == kCodecGsqV1) {
 		Vector<Gaussian> original_relative;
@@ -1223,6 +1244,8 @@ Error WriterV4::append_node(const V4BodyDesc &p_desc, const Gaussian *p_gaussian
 		if (!spill.record.metrics.center_exact) {
 			return _fail(ERR_UNAVAILABLE, "v4_center_reconstruction_not_exact");
 		}
+		// The reader decodes this same output page, then reconstructs leaves.
+		hash_body(decoded.ptr(), sh.ptr(), p_count, high, spill.record.runtime_digest);
 	}
 	if ((err = _check_stop()) != OK) {
 		return err;
@@ -1697,6 +1720,11 @@ Error WriterV4::finalize(const LocalVector<V4Node> &p_nodes) {
 		if (actual_metrics.footprint != spill.metrics.footprint || actual_metrics.dc_encoding != spill.metrics.dc_encoding ||
 				actual_metrics.homogeneous_dc != spill.metrics.homogeneous_dc || actual_metrics.center_exact != spill.metrics.center_exact) {
 			return _fail(ERR_INVALID_DATA, "v4_metrics_disagree_with_spill");
+		}
+		// The payload a reader will return must be the one append_node recorded.
+		hash_body(record.is_leaf ? runtime.ptr() : body.ptr(), sh.ptr(), spill.splat_count, header.sh_high_order, digest);
+		if (memcmp(digest, spill.runtime_digest, sizeof(digest)) != 0) {
+			return _fail(ERR_FILE_CORRUPT, "v4_runtime_digest_mismatch");
 		}
 		uint8_t record_header[kPayloadRecordHeaderBytes];
 		if (!write_payload_header(record_header, i, record, header.sh_high_order, header.content_generation) ||
