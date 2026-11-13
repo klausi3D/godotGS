@@ -256,6 +256,7 @@ Error HlodNodeStreamer::_test_set_control(const TestControl &p_control) {
 }
 
 Error HlodNodeStreamer::_test_set_fault(TestFault p_fault) {
+	if (p_fault >= TEST_FAULT_EARLY_SHADOW_METADATA && p_fault <= TEST_FAULT_PARTIAL_COMMIT) { return ERR_UNAVAILABLE; }
 	if (ledger.is_null() || !active) { return ERR_UNAVAILABLE; }
 	MutexLock lock(ledger->mutex);
 	if (ledger->live != 0 || ledger->jobs != 0) { return ERR_BUSY; }
@@ -300,6 +301,18 @@ Vector<HlodNodeStreamer::TestPublication> HlodNodeStreamer::_test_publications()
 	if (ledger.is_null()) { return Vector<TestPublication>(); }
 	MutexLock lock(ledger->mutex);
 	return ledger->publications;
+}
+
+Error HlodNodeStreamer::_test_observe_shadow_transfers() {
+	return ERR_UNAVAILABLE; // D3-3 phase-1 stub: no production path changes.
+}
+
+Error HlodNodeStreamer::_test_shadow_writes(Vector<TestWrite> &) const {
+	return ERR_UNAVAILABLE; // D3-3 phase-1 stub: leave the caller's output untouched.
+}
+
+Error HlodNodeStreamer::_test_shadow_runs(Vector<NodeResidency::Ticket> &) const {
+	return ERR_UNAVAILABLE; // D3-3 phase-1 stub: no fabricated reservations.
 }
 
 Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeData> &p_data, uint64_t p_world, uint64_t p_device) {
@@ -955,10 +968,29 @@ void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_
 		bool ok = fits && p_device && p_device->get_device_instance_id() == device_generation;
 #ifdef TESTS_ENABLED
 		const bool cpu_sink = ledger->control.cpu_upload_sink;
+		Vector<TestWrite> sink_writes;
 		if (cpu_sink) { ok = fits && publication_ticket.node < uint32_t(test_metadata.size()); }
 		if (ledger->control.fail_upload) { ok = false; }
 		if (ok && cpu_sink) {
+			TestWrite write;
+			write.node = publication_ticket.node;
+			write.frame = frame;
+			write.offset = offset;
+			write.bytes = bytes;
+			sink_writes.push_back(write); // The CPU atlas sink records the actual write range.
+			if (cfg.quantized) {
+				write.kind = TestWrite::QUANTIZATION;
+				write.offset = uint64_t(publication_ticket.node) * sizeof(ChunkQuantizationGPU);
+				write.bytes = sizeof(ChunkQuantizationGPU);
+				write.quant = r.quant;
+				sink_writes.push_back(write);
+			}
 			test_metadata.write[publication_ticket.node] = r.meta;
+			write.kind = TestWrite::METADATA;
+			write.offset = uint64_t(publication_ticket.node) * sizeof(ChunkMetaGPU);
+			write.bytes = sizeof(ChunkMetaGPU);
+			write.meta = test_metadata[publication_ticket.node];
+			sink_writes.push_back(write);
 		} else
 #endif
 		if (ok) {
@@ -981,6 +1013,7 @@ void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_
 			publication.device_generation = r.ticket.device_generation;
 			publication.request_generation = r.ticket.request_generation;
 			publication.metadata_splat_count = cpu_sink ? test_metadata[publication_ticket.node].splat_count : r.meta.splat_count;
+			publication.writes = sink_writes;
 			ledger->publications.push_back(publication);
 		}
 #endif

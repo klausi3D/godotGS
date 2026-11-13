@@ -213,6 +213,32 @@ public:
 		uint32_t mailbox_outputs = 0;
 		uint32_t ready_outputs = 0;
 		uint64_t faults_triggered = 0;
+		// D3-3 phase 1: unavailable until shadow owners are independently observed.
+		// Owner byte fields above remain ordinary-only; ledger totals are shared.
+		Error shadow_observation_error = ERR_UNAVAILABLE;
+		uint64_t shadow_worker_output_bytes = 0;
+		uint64_t shadow_mailbox_bytes = 0;
+		uint64_t shadow_ready_bytes = 0;
+		uint64_t shadow_partial_upload_bytes = 0;
+		uint64_t shadow_live_reservations = 0;
+		uint64_t shadow_transferred_bytes = 0; // Current/last transaction, survives commit/cancel.
+		uint64_t shadow_descriptor_payload_bytes = 0;
+		uint64_t shadow_pending_payload_bytes = 0;
+		uint32_t shadow_transfer_count = 0;
+		uint32_t shadow_ready_outputs = 0;
+		uint32_t shadow_pending_tickets = 0;
+	};
+	struct TestWrite {
+		enum Kind { ATLAS, QUANTIZATION, METADATA };
+		Kind kind = ATLAS;
+		uint32_t node = UINT32_MAX;
+		uint64_t offset = 0;
+		uint64_t bytes = 0;
+		uint64_t frame = 0;
+		bool shadow = false;
+		bool during_commit = false;
+		ChunkMetaGPU meta = {};
+		ChunkQuantizationGPU quant = {};
 	};
 	// Append at the REAL metadata write / finish_upload boundary. The CPU sink
 	// substitutes device writes only; jobs, admission, validation and residency
@@ -226,6 +252,8 @@ public:
 		uint64_t device_generation = 0;
 		uint64_t request_generation = 0;
 		uint32_t metadata_splat_count = 0;
+		// Ordered writes made by the ordinary CPU sink, for preservation evidence.
+		Vector<TestWrite> writes;
 	};
 	struct TestControl {
 		bool hold_uploads = false;
@@ -239,6 +267,11 @@ public:
 		TEST_FAULT_NONE,
 		TEST_FAULT_DROP_OUTPUT_CHARGE,
 		TEST_FAULT_SKIP_PUBLICATION_GENERATION,
+		// D3-3 phase-1 stubs: rejected with ERR_UNAVAILABLE; no fault is installed.
+		TEST_FAULT_EARLY_SHADOW_METADATA,
+		TEST_FAULT_READY_ON_PACK,
+		TEST_FAULT_LEAK_SHADOW_PERMIT,
+		TEST_FAULT_PARTIAL_COMMIT,
 	};
 	// Faults alter the REAL handoff/publication, never stats or a checker.
 	// These seam methods belong to the render thread, like update()/shutdown().
@@ -253,6 +286,13 @@ public:
 	// Cumulative owner/peak counters survive epoch replacement and shutdown.
 	TestSnapshot _test_snapshot() const;
 	Vector<TestPublication> _test_publications() const;
+	// Observation capability only, never an opt-in to production transfer behavior.
+	// Phase 1 fails closed without changing control/state/output arguments.
+	// The eventual trace records CPU-sink or device writes cumulatively, at the
+	// actual write boundary, including commit and eviction metadata/quantization.
+	Error _test_observe_shadow_transfers();
+	Error _test_shadow_writes(Vector<TestWrite> &r_writes) const;
+	Error _test_shadow_runs(Vector<gs_hlod_runtime::NodeResidency::Ticket> &r_runs) const;
 	// Invalidates the live epoch while retaining old in-flight/queued output:
 	// the real publication guard, rather than test queue deletion, must reject it.
 	Error _test_replace_source(const Ref<GaussianSplatHlodRuntimeData> &p_data,
