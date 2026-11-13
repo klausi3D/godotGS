@@ -88,6 +88,7 @@ public:
 		friend class PayloadPageStore;
 		PayloadPageStore *owner = nullptr;
 		gs_gsq::DecodeContext *decoder = nullptr;
+		bool retain_on_return = true;
 
 	public:
 		DecoderLease() = default;
@@ -176,13 +177,23 @@ public:
 	Error cancel_requester(uint64_t p_requester);
 	void shutdown(); // Idempotent; joins readers and drains stored/idle decoder owners.
 	Stats stats() const;
+	bool uses_retained_admission() const;
 
-	Error lease_decoder(DecoderLease &r_lease);
+	// V4 uses transient leases so idle scratch cannot escape the streamer's
+	// working-set reservation. Existing chunk callers retain their pool policy.
+	Error lease_decoder(DecoderLease &r_lease, bool p_retain_on_return = true);
 	// Whole-page decode, matching the current chunk source. Always verifies stored
 	// bytes/header/descriptor. Digest policy is explicit per call (no V4 default).
 	// On failure: no output, DIGEST_NOT_PERFORMED, a gsq_* reason, one page failure.
 	Error decode_gsq_page(const StoredPage &p_page, DecoderLease &p_decoder, bool p_verify_decoded_digest,
 			DecodedPage &r_page, String &r_reason);
+	// Decode a complete GSQ page inside an adapter-owned opaque envelope. Checks
+	// the entire GSQ stored digest and expected shape before writing caller-owned
+	// buffers. No canonical decoded digest exists in this contract: the adapter
+	// keeps its own decoded-validation policy. Stage counters use the same meanings
+	// as decode_gsq_page; chunk's directory and digest checks remain unchanged.
+	Error decode_gsq_subrange(const StoredPage &p_page, DecoderLease &p_decoder, uint32_t p_offset,
+			uint32_t p_count, uint32_t p_sh_degree, Gaussian *r_gaussians, Vector3 *r_sh, String &r_reason);
 	// Adapter capture boundary; page decode counts stay separate from captures.
 	// Thread-local decode span is reset at begin and taken exactly once after end.
 	// The adapter's legacy null-index refusal counts a capture without resetting it.
@@ -264,5 +275,5 @@ private:
 	void _discard_locked(Request *p_request);
 	void _drain_locked();
 	void _release_stored(uint64_t p_bytes);
-	void _return_decoder(gs_gsq::DecodeContext *p_decoder);
+	void _return_decoder(gs_gsq::DecodeContext *p_decoder, bool p_retain);
 };

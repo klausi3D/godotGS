@@ -1566,6 +1566,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_route_owned_bytes"] = int64_t(ledger_snapshot.admitted_device_bytes); // ledger + device buffers, as last admitted
     // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
     stats["hlod_streaming"] = resource_state.hlod_streaming;
+    stats["hlod_stream_page_store_active"] = resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid() &&
+            resource_state.hlod_streamer->uses_page_store(resource_state.hlod_page_store.get());
     if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
         const HlodNodeStreamer::Telemetry &t = resource_state.hlod_streamer->get_telemetry();
         stats["hlod_stream_frames"] = int64_t(resource_state.hlod_stream_frames);

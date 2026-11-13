@@ -82,6 +82,7 @@ PayloadPageStore::DecoderLease &PayloadPageStore::DecoderLease::operator=(Decode
 		reset();
 		owner = p_other.owner;
 		decoder = p_other.decoder;
+		retain_on_return = p_other.retain_on_return;
 		p_other.owner = nullptr;
 		p_other.decoder = nullptr;
 	}
@@ -98,7 +99,7 @@ void PayloadPageStore::DecoderLease::reset() {
 		gs_gsq::DecodeContext *returned = decoder;
 		owner = nullptr;
 		decoder = nullptr;
-		store->_return_decoder(returned);
+		store->_return_decoder(returned, retain_on_return);
 	}
 }
 
@@ -432,7 +433,12 @@ PayloadPageStore::Stats PayloadPageStore::stats() const {
 	return result;
 }
 
-Error PayloadPageStore::lease_decoder(DecoderLease &r_lease) {
+bool PayloadPageStore::uses_retained_admission() const {
+	MutexLock lock(mutex);
+	return state == RUNNING && config.admission_policy == ADMIT_RETAINED_BYTES;
+}
+
+Error PayloadPageStore::lease_decoder(DecoderLease &r_lease, bool p_retain_on_return) {
 	r_lease.reset();
 	MutexLock lock(mutex);
 	if (state != RUNNING) {
@@ -440,6 +446,9 @@ Error PayloadPageStore::lease_decoder(DecoderLease &r_lease) {
 	}
 	if (idle_decoders.is_empty()) {
 		r_lease.decoder = memnew(gs_gsq::DecodeContext);
+		if (r_lease.decoder == nullptr) {
+			return ERR_OUT_OF_MEMORY;
+		}
 		counters.decoder_created++;
 	} else {
 		r_lease.decoder = idle_decoders[idle_decoders.size() - 1u];
@@ -447,6 +456,7 @@ Error PayloadPageStore::lease_decoder(DecoderLease &r_lease) {
 		counters.decoder_reuses++;
 	}
 	r_lease.owner = this;
+	r_lease.retain_on_return = p_retain_on_return;
 	counters.decoder_leases++;
 	counters.decoders_leased++;
 	counters.decoders_idle = idle_decoders.size();
@@ -454,11 +464,11 @@ Error PayloadPageStore::lease_decoder(DecoderLease &r_lease) {
 	return OK;
 }
 
-void PayloadPageStore::_return_decoder(gs_gsq::DecodeContext *p_decoder) {
+void PayloadPageStore::_return_decoder(gs_gsq::DecodeContext *p_decoder, bool p_retain) {
 	MutexLock lock(mutex);
 	counters.decoder_returns++;
 	counters.decoders_leased--;
-	if (state == RUNNING && idle_decoders.size() < config.decoder_retention_cap) {
+	if (p_retain && state == RUNNING && idle_decoders.size() < config.decoder_retention_cap) {
 		idle_decoders.push_back(p_decoder);
 	} else {
 		memdelete(p_decoder);
@@ -566,6 +576,75 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 		} else {
 			counters.pages_decoded_digest_skipped++;
 		}
+		if (Thread::is_main_thread()) {
+			counters.pages_decoded_on_main_thread++;
+		} else {
+			counters.pages_decoded_on_worker_threads++;
+		}
+	}
+	return OK;
+}
+
+Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLease &p_decoder, uint32_t p_offset,
+		uint32_t p_count, uint32_t p_sh_degree, Gaussian *r_gaussians, Vector3 *r_sh, String &r_reason) {
+	r_reason = String();
+	bool valid_owner;
+	{
+		MutexLock lock(mutex);
+		valid_owner = state == RUNNING && p_page.owner == this && p_decoder.owner == this &&
+				p_page.identity.source_generation == source_generation && p_decoder.decoder != nullptr;
+		counters.stored_bytes_read += uint64_t(p_page.bytes.size());
+	}
+	const auto decode_begin = std::chrono::steady_clock::now();
+	const uint64_t stored = uint64_t(p_page.bytes.size());
+	const uint32_t high_order = gs_gsq::sh_high_order_for_degree(p_sh_degree);
+	Error error = OK;
+	if (!valid_owner || p_page.descriptor.encoding != OPAQUE_BYTES || p_count == 0 ||
+			p_count > gs_gsq::kMaxPageSplats || p_sh_degree > gs_gsq::kMaxShDegree ||
+			p_count != p_page.descriptor.splat_count || p_sh_degree != p_page.descriptor.sh_degree ||
+			r_gaussians == nullptr || (high_order != 0 && r_sh == nullptr) ||
+			p_offset > stored || stored - p_offset < gs_gsq::kPageHeaderBytes) {
+		r_reason = "gsq_page_store_invalid_owner_or_subrange";
+		error = ERR_INVALID_PARAMETER;
+	} else if (p_page.error != OK || stored != p_page.descriptor.stored_bytes) {
+		r_reason = "gsq_page_store_incomplete_record";
+		error = p_page.error != OK ? p_page.error : ERR_FILE_CORRUPT;
+	}
+	const uint8_t *bytes = error == OK ? p_page.bytes.ptr() + p_offset : nullptr;
+	const uint64_t page_bytes = error == OK ? stored - p_offset : 0;
+	gs_gsq::PageInfo info;
+	if (error == OK) {
+		error = gs_gsq::verify_page(bytes, page_bytes, info, r_reason);
+	}
+	const uint64_t verify_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - decode_begin).count());
+	if (error == OK && (info.splat_count != p_count || info.sh_degree != p_sh_degree ||
+			info.sh_high_order != high_order || uint64_t(info.stored_bytes) != page_bytes)) {
+		r_reason = "gsq_page_layout_mismatch";
+		error = ERR_FILE_CORRUPT;
+	}
+	if (error == OK) {
+		error = p_decoder.decoder->decode_range(bytes, page_bytes, 0, p_count, r_gaussians,
+				high_order != 0 ? r_sh : nullptr, r_reason, false);
+	}
+	const uint64_t decode_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - decode_begin).count());
+	if (error != OK) {
+		MutexLock lock(mutex);
+		counters.page_failures++;
+		return error;
+	}
+	last_capture_decode_nsec += decode_nsec;
+	{
+		MutexLock lock(mutex);
+		counters.pages_verified++;
+		counters.pages_decoded++;
+		counters.splats_decoded += p_count;
+		counters.decode_nsec += decode_nsec;
+		counters.verify_nsec += verify_nsec;
+		// This is V4's existing policy: outer and GSQ stored digests, decoded
+		// semantics/bounds/metrics in its adapter, no canonical decoded digest.
+		counters.pages_decoded_digest_skipped++;
 		if (Thread::is_main_thread()) {
 			counters.pages_decoded_on_main_thread++;
 		} else {

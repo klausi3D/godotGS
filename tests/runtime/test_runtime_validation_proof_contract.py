@@ -2425,6 +2425,91 @@ class AdvisoryLadderEndToEndTests(unittest.TestCase):
         self.assertGreater(report["failed"], 0)
 
 
+def _hlod_page_store_native_contract_errors(script: str) -> list[str]:
+    """Source wiring evidence only; the registered GPU scenario proves rendering."""
+    errors = []
+    if "func _run_paged_page_store_proof(world: GaussianSplatWorld) -> bool:" not in script:
+        return ["native paged page-store arm missing"]
+    arm = script.split("func _run_paged_page_store_proof(", 1)[1].split("\n\nfunc ", 1)[0]
+    run = script.split("func _run() -> void:", 1)[1]
+    if "if not await _run_paged_page_store_proof(world):\n\t\treturn" not in run:
+        errors.append("native paged page-store arm must bind scenario completion")
+    for required in (
+        "world.save_hlod_paged(_paged_path) == OK",
+        'ResourceLoader.load(_paged_path, "GaussianSplatWorld", ResourceLoader.CACHE_MODE_IGNORE)',
+        "_paged_world.has_hlod_paged_source() and not _paged_world.has_resident_gaussian_data()",
+        "_node.world = _paged_world",
+    ):
+        if required not in arm:
+            errors.append("native arm must export, reload and submit a genuinely paged V4 world")
+            break
+    for condition in ('bool(row["has_paged_fields"])', 'bool(row["paged"])',
+                      'bool(row["page_store_active"])', 'int(row["nonresident_drawn"]) == 0'):
+        if f"if not _check({condition}," not in arm:
+            errors.append("every paged sample must check " + condition)
+    if ('while Time.get_ticks_msec() < _deadline:' not in arm
+            or 'var row: Dictionary = await _frame()' not in arm
+            or not re.search(r'await _frame\(\)\s*\n(?:\s*#[^\n]*\n)*\s*if Time.get_ticks_msec\(\) >= _deadline:\s*\n\s*break', arm)):
+        errors.append("paged readiness must pump frames and reject late samples under the existing deadline")
+    if ('bool(row["active"]) and int(row["lit"]) > 0 and reads > 0' not in arm
+            or 'observed_source and sampled > 0 and reads > 0 and stable >= 3' not in arm):
+        errors.append("paged proof must read payloads and finish with active lit frames")
+    cleanup = script.split("func _cleanup() -> bool:", 1)[1].split("\n\nfunc ", 1)[0]
+    if ('_node.clear_world()' not in cleanup or '_paged_world = null' not in cleanup
+            or 'await RenderingServer.frame_post_draw' not in cleanup
+            or 'DirAccess.remove_absolute(ProjectSettings.globalize_path(_paged_path))' not in cleanup
+            or 'if not await _cleanup():\n\t\t_fail(' not in run):
+        errors.append("scenario must release its paged source and remove the temporary package")
+    return errors
+
+
+class HlodPageStoreNativeScenarioTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.script = (ROOT / "tests/runtime/test_hlod_streamed_resize_views.gd").read_text(encoding="utf-8")
+
+    def test_shipped_arm_reaches_native_paged_publication_with_frame_checks(self) -> None:
+        self.assertEqual(_hlod_page_store_native_contract_errors(self.script), [])
+
+    def test_deleting_the_paged_arm_invocation_is_detected(self) -> None:
+        changed = self.script.replace("if not await _run_paged_page_store_proof(world):", "if false:", 1)
+        self.assertNotEqual(changed, self.script)
+        self.assertIn("native paged page-store arm must bind scenario completion",
+                      _hlod_page_store_native_contract_errors(changed))
+
+    def test_real_export_reload_and_submission_cannot_be_replaced_by_resident_data(self) -> None:
+        for old in ("world.save_hlod_paged(_paged_path) == OK", "_node.world = _paged_world",
+                    "_paged_world.has_hlod_paged_source() and not _paged_world.has_resident_gaussian_data()"):
+            with self.subTest(removed=old):
+                changed = self.script.replace(old, "true", 1)
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_page_store_native_contract_errors(changed))
+
+    def test_deleting_any_per_frame_invariant_is_detected(self) -> None:
+        for condition in ('bool(row["has_paged_fields"])', 'bool(row["paged"])',
+                          'bool(row["page_store_active"])', 'int(row["nonresident_drawn"]) == 0'):
+            with self.subTest(condition=condition):
+                changed = self.script.replace(f"if not _check({condition},", "if not _check(true,", 1)
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_page_store_native_contract_errors(changed))
+
+    def test_late_readiness_and_no_payload_progress_are_rejected_by_source_contract(self) -> None:
+        for old in ('if Time.get_ticks_msec() >= _deadline:\n\t\t\tbreak',
+                    'bool(row["active"]) and int(row["lit"]) > 0 and reads > 0',
+                    'observed_source and sampled > 0 and reads > 0 and stable >= 3'):
+            with self.subTest(removed=old):
+                # Mutate the arm, not the independent teardown deadline.
+                before, arm = self.script.split("func _run_paged_page_store_proof(", 1)
+                changed = before + "func _run_paged_page_store_proof(" + arm.replace(old, "true", 1)
+                self.assertNotEqual(changed, self.script)
+                self.assertTrue(_hlod_page_store_native_contract_errors(changed))
+
+    def test_paged_fixture_lifetime_cleanup_is_wired(self) -> None:
+        changed = self.script.replace("_node.clear_world()", "pass", 1)
+        self.assertNotEqual(changed, self.script)
+        self.assertIn("scenario must release its paged source and remove the temporary package",
+                      _hlod_page_store_native_contract_errors(changed))
+
+
 class HlodMainViewRequiredWiringTests(unittest.TestCase):
     """Required migration policy, including removal of invocation/registration.
 

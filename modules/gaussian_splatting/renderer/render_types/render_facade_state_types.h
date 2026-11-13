@@ -7,6 +7,7 @@
 #define GAUSSIAN_RENDER_FACADE_STATE_TYPES_H
 
 #include "../../core/gaussian_splat_hlod_runtime_data.h"
+#include "../../io/gs_payload_page_store.h"
 #include "../device_vram_ledger.h"
 #include "../hlod_node_streamer.h"
 #include "../hlod_world_instances.h"
@@ -88,6 +89,11 @@ struct ResourceState {
     // streamer decides which nodes are resident. Empty/false for the whole-tree bundle.
     bool hlod_streaming = false;
     uint32_t hlod_stream_atlas_records = 0;
+    // Render-thread-owned V4 runtime service. Declared before the streamer so
+    // destruction drains workers before the store. Explicit teardown keeps the
+    // same order; worker calls use the store's own mutex, never this owner slot.
+    // One service per active bundle, never a process-global decoded cache.
+    std::unique_ptr<PayloadPageStore> hlod_page_store;
     Ref<HlodNodeStreamer> hlod_streamer;
     // Package F1: the last committed edited snapshot. It outlives the streamer and the prepared bundle: a rebuild (device
     // loss, a failed commit, a setting change) serves it again instead of the unedited world, and a frame that cannot be

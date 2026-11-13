@@ -5,6 +5,7 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gs_vector_alloc.h"
 #include "gs_atomic_file_writer.h"
+#include "gs_payload_page_store.h"
 #include "gsq/gsq_codec.h"
 
 #include "core/crypto/crypto_core.h"
@@ -536,7 +537,7 @@ gs_gsq::DecodeContext *GaussianSplatHlodPagedSource::_lease_decoder() const {
 void GaussianSplatHlodPagedSource::_return_decoder(gs_gsq::DecodeContext *p_decoder) const {
 	{
 		MutexLock lock(decoder_mutex);
-		if (idle_decoders.size() < 16) {
+		if (!runtime_installed && idle_decoders.size() < 16) {
 			idle_decoders.push_back(p_decoder);
 			return;
 		}
@@ -809,14 +810,326 @@ uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t 
 		return 0;
 	}
 	const NodeRecord &record = nodes[p_node];
-	if (info.codec_id == 0u) {
-		return record.stored_bytes;
-	}
 	// Open bounded every factor by kMaxNodeSplats / GSQ degree 3. Account for
 	// Vector capacity growth as well as all simultaneously live decode buffers.
-	const uint64_t decoded = uint64_t(record.topology.payload_count) *
-			(sizeof(Gaussian) + uint64_t(record_high_order) * sizeof(Vector3));
-	return 2 * (record.stored_bytes + decoded) + gsq_decode_workspace_bytes();
+	const uint64_t count = record.topology.payload_count;
+	const uint64_t decoded = count * (sizeof(Gaussian) + uint64_t(record_high_order) * sizeof(Vector3));
+	const uint64_t workspace = info.codec_id == 0u ? 0u : gsq_decode_workspace_bytes();
+	uint64_t stored_allocation = 0, gaussian_allocation = 0, sh_allocation = 0;
+	const uint64_t transport_bytes = info.codec_id == 0u ?
+			MIN(record.stored_bytes, PayloadReadService::read_slice_bytes) : record.stored_bytes;
+	if (!gs_hlod_runtime::allocation_bytes(transport_bytes, 1, stored_allocation) ||
+			!gs_hlod_runtime::allocation_bytes(count, sizeof(Gaussian), gaussian_allocation) ||
+			!gs_hlod_runtime::allocation_bytes(count * record_high_order, sizeof(Vector3), sh_allocation)) {
+		return UINT64_MAX;
+	}
+	if (info.codec_id == 0u) {
+		// Codec-none copies one bounded transport window into the decoded arrays
+		// at a time. Each window is freed before the next is submitted, and all
+		// transport storage is gone before the caller allocates packed output.
+		return stored_allocation + gaussian_allocation + sh_allocation;
+	}
+	// Retain the existing conservative expression, while also covering the
+	// actual rounded allocations and CowData headers for very small GSQ nodes.
+	return MAX(2 * (record.stored_bytes + decoded) + workspace,
+			stored_allocation + gaussian_allocation + sh_allocation + workspace);
+}
+
+namespace {
+PayloadPageStore::PageDescriptor v4_page_descriptor(uint32_t p_node,
+		const GaussianSplatHlodPagedSource::NodeRecord &p_record, uint32_t p_degree) {
+	PayloadPageStore::PageDescriptor page;
+	page.id = p_node;
+	page.offset = p_record.offset;
+	page.stored_bytes = uint32_t(p_record.stored_bytes);
+	// The V4 adapter validates its envelope before any GSQ interpretation. A GSQ
+	// node remains one complete, immutable record in the transport catalog.
+	page.encoding = PayloadPageStore::OPAQUE_BYTES;
+	page.splat_count = p_record.topology.payload_count;
+	page.sh_degree = p_degree;
+	memcpy(page.stored_digest, p_record.digest, sizeof(page.stored_digest));
+	return page;
+}
+
+PayloadPageStore::PageDescriptor v4_raw_window_descriptor(uint32_t p_node,
+		const GaussianSplatHlodPagedSource::NodeRecord &p_record, uint32_t p_degree, uint64_t p_relative_offset) {
+	PayloadPageStore::PageDescriptor page = v4_page_descriptor(p_node, p_record, p_degree);
+	// Catalog IDs are transport-only. One source has one codec, so raw window
+	// IDs cannot collide with the unchanged GSQ node IDs in another catalog.
+	page.id = (uint64_t(p_node) << 32u) | (p_relative_offset / PayloadReadService::read_slice_bytes);
+	page.offset += p_relative_offset;
+	page.stored_bytes = uint32_t(MIN(PayloadReadService::read_slice_bytes, p_record.stored_bytes - p_relative_offset));
+	// The index has one digest for the entire record, not per-window digests.
+	// OPAQUE transport never interprets it; the adapter verifies it incrementally
+	// across every window before publishing any decoded payload to its caller.
+	return page;
+}
+} // namespace
+
+Error GaussianSplatHlodPagedSource::install_in_page_store(PayloadPageStore &p_store, uint64_t p_generation) const {
+	if (!opened || p_generation == 0 || !p_store.uses_retained_admission()) {
+		return ERR_INVALID_PARAMETER;
+	}
+	LocalVector<PayloadPageStore::PageDescriptor> pages;
+	if (info.codec_id == 0u) {
+		// Size the immutable transport catalog without reading payloads. The file's
+		// existing structural bounds cap record sizes/counts; additionally check the
+		// expanded LocalVector count and allocation arithmetic before it can grow.
+		uint64_t windows = 0;
+		for (const NodeRecord &record : nodes) {
+			if (record.stored_bytes == 0u || record.stored_bytes > UINT32_MAX ||
+					!fits_within(record.offset, record.stored_bytes, uint64_t(INT64_MAX)) ||
+					!add_u64(windows, 1u + (record.stored_bytes - 1u) / PayloadReadService::read_slice_bytes, windows) ||
+					windows > UINT32_MAX) {
+				return ERR_INVALID_DATA;
+			}
+		}
+		uint64_t catalog_bytes = 0;
+		if (!mul_u64(windows, sizeof(PayloadPageStore::PageDescriptor), catalog_bytes) ||
+				catalog_bytes > uint64_t(std::numeric_limits<size_t>::max()) || !probe_allocation(catalog_bytes)) {
+			return ERR_OUT_OF_MEMORY;
+		}
+		pages.reserve(uint32_t(windows));
+	}
+	for (uint32_t node = 0; node < uint32_t(nodes.size()); ++node) {
+		if (nodes[node].stored_bytes > UINT32_MAX) {
+			return ERR_INVALID_DATA;
+		}
+		if (info.codec_id == 0u) {
+			for (uint64_t offset = 0; offset < nodes[node].stored_bytes; offset += PayloadReadService::read_slice_bytes) {
+				pages.push_back(v4_raw_window_descriptor(node, nodes[node], info.sh_degree, offset));
+			}
+		} else {
+			pages.push_back(v4_page_descriptor(node, nodes[node], info.sh_degree));
+		}
+	}
+	{
+		// A source previously used by offline callers may already own idle
+		// contexts. Do not carry that cached scratch into a runtime bundle outside
+		// its reservations. No store lock is held while taking decoder_mutex.
+		MutexLock lock(decoder_mutex);
+		runtime_installed = true;
+		for (gs_gsq::DecodeContext *idle : idle_decoders) {
+			memdelete(idle);
+		}
+		idle_decoders.clear();
+	}
+	return p_store.replace_source(path, p_generation, pages);
+}
+
+Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStore &p_store,
+		uint64_t p_requester, uint64_t p_ticket, uint32_t p_node, Vector<Gaussian> &r_gaussians,
+		Vector<Vector3> &r_sh, String &r_reason, ReadStorageObserver *p_observer) const {
+	r_gaussians.clear();
+	r_sh.clear();
+	p_store.begin_capture();
+	PayloadPageStore::StoredPage page;
+	PayloadPageStore::DecoderLease decoder;
+	uint64_t stored_extent = 0;
+	uint64_t decoded_extent = 0;
+	uint64_t workspace_extent = 0;
+	auto observe = [&]() {
+		if (p_observer != nullptr) {
+			p_observer->storage_changed(stored_extent, decoded_extent, workspace_extent);
+		}
+	};
+	auto release_transport = [&]() {
+		// Transient V4 leases destroy scratch before releasing its observed charge.
+		decoder.reset();
+		workspace_extent = 0;
+		page.reset();
+		stored_extent = 0;
+		observe();
+	};
+	auto fail = [&](Error p_error, const String &p_why) {
+		r_gaussians.clear();
+		r_sh.clear();
+		decoded_extent = 0;
+		release_transport();
+		r_reason = p_why;
+		stat_failures.fetch_add(1u);
+		p_store.end_capture(false, p_why);
+		return p_error;
+	};
+	if (!opened || p_node >= uint32_t(nodes.size())) {
+		return fail(ERR_INVALID_PARAMETER, "v4_node_out_of_range");
+	}
+	const NodeRecord &rec = nodes[p_node];
+	const uint32_t count = rec.topology.payload_count;
+	uint64_t g_bytes, s_bytes, stored;
+	const bool gsq = info.codec_id == gs_gsq::kCodecId;
+	if (!record_stored_bytes(count, record_high_order, g_bytes, s_bytes, stored) || rec.stored_bytes > UINT32_MAX ||
+			(gsq ? (rec.stored_bytes <= kPayloadRecordHeaderBytes + gs_gsq::kPageHeaderBytes ||
+						rec.stored_bytes > gsq_record_stored_bytes_limit(count, info.sh_degree)) : stored != rec.stored_bytes)) {
+		return fail(ERR_FILE_CORRUPT, "v4_payload_record_size_inconsistent");
+	}
+	stored = rec.stored_bytes;
+	// Match the offline reader's length-before-record validation without opening
+	// another payload reader. The common service is the sole payload transport.
+	const int64_t file_bytes = FileAccess::get_size(path);
+	if (file_bytes < 0) {
+		return fail(ERR_FILE_CANT_OPEN, "v4_cannot_reopen");
+	}
+	if (uint64_t(file_bytes) != info.file_bytes) {
+		return fail(ERR_FILE_CORRUPT, "v4_file_changed_length");
+	}
+	auto read_page = [&](const PayloadPageStore::PageDescriptor &p_descriptor) -> Error {
+		// Includes CowData's rounded capacity and both allocation headers. The
+		// caller resets the previous page before another request can allocate.
+		if (!gs_hlod_runtime::allocation_bytes(p_descriptor.stored_bytes, 1, stored_extent)) {
+			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		}
+		observe(); // Covers the real service -> stash -> caller allocation.
+		const PayloadReadService::SubmitResult submitted = p_store.request(p_requester, p_ticket, p_descriptor);
+		if (submitted != PayloadReadService::SUBMIT_OK) {
+			return fail(submitted == PayloadReadService::SUBMIT_BUSY ? ERR_BUSY : ERR_UNAVAILABLE,
+					"v4_page_store_request_refused");
+		}
+		if (!p_store.wait(p_requester, p_ticket, page)) {
+			return fail(ERR_UNAVAILABLE, "v4_page_store_request_cancelled");
+		}
+		if (page.get_error() != OK || uint64_t(page.get_bytes().size()) != p_descriptor.stored_bytes) {
+			return fail(page.get_error() != OK ? page.get_error() : ERR_FILE_CORRUPT, "v4_payload_truncated");
+		}
+		return OK;
+	};
+	auto validate_envelope = [&](const uint8_t *p_head) -> Error {
+		In in(p_head);
+		const uint32_t magic = in.u32();
+		const uint32_t node = in.u32();
+		const uint32_t rcount = in.u32();
+		const uint32_t high = in.u32();
+		const uint64_t gb = in.u64();
+		const uint64_t sb = in.u64();
+		const uint64_t gen = in.u64();
+		const uint64_t first = in.u64();
+		const uint32_t layout = in.u32();
+		if (magic != kRecordMagic || node != p_node || rcount != count || high != record_high_order || gb != g_bytes ||
+				sb != s_bytes || first != rec.topology.payload_first || layout != GAUSSIAN_STRUCT_LAYOUT_VERSION ||
+				!all_zero(p_head + in.at, kPayloadRecordHeaderBytes - in.at)) {
+			return fail(ERR_FILE_CORRUPT, "v4_payload_record_header_mismatch");
+		}
+		if (gen != info.content_generation) {
+			return fail(ERR_FILE_CORRUPT, "v4_content_generation_mismatch");
+		}
+		return OK;
+	};
+	CryptoCore::SHA256Context ctx;
+	ctx.start();
+	auto verify_record_digest = [&]() -> Error {
+		uint8_t digest[32];
+		ctx.finish(digest);
+		// Preserve node-level source telemetry; store counters count the actual
+		// transport windows, whose total bytes equal this complete record.
+		stat_reads.fetch_add(1u);
+		stat_bytes.fetch_add(stored);
+		uint64_t seen = stat_largest.load();
+		while (stored > seen && !stat_largest.compare_exchange_weak(seen, stored)) {
+		}
+		if (memcmp(digest, rec.digest, sizeof(digest)) != 0) {
+			return fail(ERR_FILE_CORRUPT, "v4_payload_digest_mismatch");
+		}
+		return OK;
+	};
+	auto allocate_decoded = [&]() -> Error {
+		uint64_t gaussian_allocation = 0, sh_allocation = 0;
+		if (!gs_hlod_runtime::allocation_bytes(g_bytes, 1, gaussian_allocation) ||
+				!gs_hlod_runtime::allocation_bytes(s_bytes, 1, sh_allocation)) {
+			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		}
+		decoded_extent = gaussian_allocation + sh_allocation;
+		observe();
+		if (!gs_resize_or_fail(r_gaussians, int64_t(count), "V4 node gaussians") ||
+				!gs_resize_or_fail(r_sh, int64_t(uint64_t(count) * record_high_order), "V4 node SH")) {
+			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		}
+		return OK;
+	};
+	String why;
+	if (gsq) {
+		Error error = read_page(v4_page_descriptor(p_node, rec, info.sh_degree));
+		if (error != OK) { return error; }
+		const uint8_t *head = page.get_bytes().ptr();
+		error = validate_envelope(head);
+		if (error != OK) { return error; }
+		ctx.update(head, size_t(stored));
+		error = verify_record_digest();
+		if (error != OK) { return error; }
+		error = allocate_decoded();
+		if (error != OK) { return error; }
+		workspace_extent = gsq_decode_workspace_bytes();
+		observe();
+		error = p_store.lease_decoder(decoder, false);
+		if (error != OK) {
+			return fail(error, "v4_cannot_allocate_payload");
+		}
+		error = p_store.decode_gsq_subrange(page, decoder, uint32_t(kPayloadRecordHeaderBytes), count,
+				info.sh_degree, r_gaussians.ptrw(), r_sh.ptrw(), why);
+		if (error != OK) {
+			if (why == "gsq_page_layout_mismatch") {
+				return fail(ERR_FILE_CORRUPT, "v4_gsq_page_layout_mismatch");
+			}
+			return fail(error == ERR_OUT_OF_MEMORY ? error : ERR_FILE_CORRUPT, "v4_gsq_payload_invalid: " + why);
+		}
+	} else {
+		// Raw records need no contiguous stored copy. Keep one immutable catalog
+		// window at a time, hash ALL of it in record order, and copy its Gaussian
+		// and SH intersections directly into their final decoded allocations.
+		const uint64_t gaussian_end = kPayloadRecordHeaderBytes + g_bytes;
+		for (uint64_t offset = 0; offset < stored; offset += PayloadReadService::read_slice_bytes) {
+			const PayloadPageStore::PageDescriptor descriptor = v4_raw_window_descriptor(p_node, rec, info.sh_degree, offset);
+			Error error = read_page(descriptor);
+			if (error != OK) { return error; }
+			const uint8_t *window = page.get_bytes().ptr();
+			if (offset == 0u) {
+				if (descriptor.stored_bytes < kPayloadRecordHeaderBytes) {
+					return fail(ERR_FILE_CORRUPT, "v4_payload_record_size_inconsistent");
+				}
+				error = validate_envelope(window);
+				if (error != OK) { return error; }
+				error = allocate_decoded();
+				if (error != OK) { return error; }
+			}
+			ctx.update(window, descriptor.stored_bytes);
+			const uint64_t window_end = offset + descriptor.stored_bytes;
+			const uint64_t gaussian_begin = MAX(offset, kPayloadRecordHeaderBytes);
+			const uint64_t gaussian_copy_end = MIN(window_end, gaussian_end);
+			if (gaussian_copy_end > gaussian_begin) {
+				memcpy(reinterpret_cast<uint8_t *>(r_gaussians.ptrw()) + (gaussian_begin - kPayloadRecordHeaderBytes),
+						window + (gaussian_begin - offset), size_t(gaussian_copy_end - gaussian_begin));
+			}
+			const uint64_t sh_begin = MAX(offset, gaussian_end);
+			if (window_end > sh_begin) {
+				memcpy(reinterpret_cast<uint8_t *>(r_sh.ptrw()) + (sh_begin - gaussian_end),
+						window + (sh_begin - offset), size_t(window_end - sh_begin));
+			}
+			// wait() consumed this RequestKey and reset frees the real allocation
+			// before that same caller-local ticket is reused for the next window.
+			release_transport();
+		}
+		const Error error = verify_record_digest();
+		if (error != OK) { return error; }
+	}
+	// Same node-relative semantics, leaf reconstruction, and exact index metric
+	// comparisons as read_node_payload. V4 never imports chunk's BV-K9c policy.
+	if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {
+		return fail(ERR_FILE_CORRUPT, "v4_payload_invalid: " + why);
+	}
+	if (rec.is_leaf) {
+		reconstruct_leaf_positions(r_gaussians.ptrw(), count, rec.cell_center);
+	}
+	NodeMetrics metrics;
+	if (!compute_node_metrics(r_gaussians.ptr(), count, rec.cell_center, rec.is_leaf, metrics, why)) {
+		return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_invalid");
+	}
+	if (metrics.footprint != rec.metrics.footprint || metrics.dc_encoding != rec.metrics.dc_encoding ||
+			metrics.homogeneous_dc != rec.metrics.homogeneous_dc || metrics.center_exact != rec.metrics.center_exact) {
+		return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_mismatch");
+	}
+	release_transport();
+	r_reason = String();
+	p_store.end_capture(true, String());
+	return OK;
 }
 
 Error GaussianSplatHlodPagedSource::read_node_payload(uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const {
