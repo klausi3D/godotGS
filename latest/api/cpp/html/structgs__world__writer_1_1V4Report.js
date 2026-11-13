@@ -8,6 +8,7 @@ var structgs__world__writer_1_1V4Report =
     [ "peak_scratch_plus_output_bytes", "structgs__world__writer_1_1V4Report.html#aa3d07a14c2139a3d79e5fd76f430e2f9", null ],
     [ "reason", "structgs__world__writer_1_1V4Report.html#a9f22ca7721c644977986d0c2ee8a2a55", null ],
     [ "scratch_bytes_peak", "structgs__world__writer_1_1V4Report.html#ac88e2d61378c8443ebed7d5776d14f89", null ],
+    [ "scratch_delete_failures", "structgs__world__writer_1_1V4Report.html#a643ca5020751ee9df0eb7fe0caf9db38", null ],
     [ "scratch_measured", "structgs__world__writer_1_1V4Report.html#a57d5965d7b80b1899ada98f392d5e242", null ],
     [ "segments", "structgs__world__writer_1_1V4Report.html#a56c34b35b3bc66dd2e99f1532faec6b3", null ],
     [ "segments_deleted", "structgs__world__writer_1_1V4Report.html#a9a61eb6ef64b4ad789919ace30402b3e", null ],
