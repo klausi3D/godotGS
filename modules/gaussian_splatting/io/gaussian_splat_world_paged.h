@@ -41,6 +41,7 @@
 #include <cstdint>
 
 class GaussianSplatWorld;
+class PayloadPageStore;
 namespace gs_gsq {
 class DecodeContext;
 }
@@ -187,6 +188,14 @@ public:
 	// index pins to the raw size or bounds by the GSQ worst-case stored size (at most 16,384 splats).
 	// A replaced or truncated file is refused (length, record stamp and digest). Thread-safe.
 	Error read_node_payload(uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const;
+
+	// D3-2 runtime transport contract. The renderer owns the store through worker
+	// drain; installing the immutable V4 record catalog never changes this source.
+	Error install_in_page_store(PayloadPageStore &p_store, uint64_t p_generation) const;
+	// Same validation and decoded-digest policy as read_node_payload(), with the
+	// supplied store owning transport, decoder leases and stage accounting.
+	Error read_node_payload_from_store(PayloadPageStore &p_store, uint64_t p_requester, uint64_t p_ticket,
+			uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const;
 
 	Stats get_stats() const;
 

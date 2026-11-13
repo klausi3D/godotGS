@@ -17,6 +17,21 @@
 #include <cstring>
 #include <limits>
 
+Error GaussianSplatHlodPagedSource::install_in_page_store(PayloadPageStore &, uint64_t) const {
+	// D3-2 phase-1 stub: intentionally refuses. Existing callers remain on the
+	// unchanged offline path until phase 2 supplies transport and validation.
+	return ERR_UNAVAILABLE;
+}
+
+Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStore &, uint64_t, uint64_t,
+		uint32_t, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const {
+	// D3-2 phase-1 stub: intentionally refuses; never return a partial payload.
+	r_gaussians.clear();
+	r_sh.clear();
+	r_reason = "v4_page_store_unavailable";
+	return ERR_UNAVAILABLE;
+}
+
 namespace gs_world_paged {
 
 namespace {

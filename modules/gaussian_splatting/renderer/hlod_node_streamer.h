@@ -32,6 +32,8 @@
 
 #include <atomic>
 
+class PayloadPageStore;
+
 class HlodNodeStreamer : public RefCounted {
 public:
 	struct Config {
@@ -148,6 +150,10 @@ public:
 	// Sizes the residency model for `p_data` and the page budget. False if the tree or budget is unusable
 	// (root run larger than the atlas, empty tree). No GPU resource is created here.
 	bool init(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config, uint64_t p_world_generation, uint64_t p_device_generation);
+	// D3-2 runtime-store entry point. The renderer owns p_store through worker
+	// drain. Admission uses this streamer's Config, without chunk defaults.
+	Error init_with_page_store(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config,
+			uint64_t p_world_generation, uint64_t p_device_generation, PayloadPageStore &p_store);
 	// Waits for outstanding worker jobs (bounded: at most max_jobs_in_flight, each packs one node) and drops
 	// every pending payload. Idempotent. After this nothing refers to the snapshot but the caller.
 	void shutdown();
@@ -173,6 +179,77 @@ public:
 	// Gives the reservation back; the served snapshot and residency are exactly as before stage_edit().
 	bool cancel_staged_edit();
 #ifdef TESTS_ENABLED
+	// Ordinary-path observations only; shadow_ready is deliberately excluded.
+	// Sample actual storage under the mailbox/accounting locks, independently
+	// of token counters: service/stash, worker arrays/scratch, cached scratch,
+	// and packed output in every owner (including an unfinished upload).
+	struct TestSnapshot {
+		Error observation_error = ERR_UNAVAILABLE;
+		uint64_t stored_bytes = 0;
+		uint64_t decode_bytes = 0;
+		uint64_t idle_decoder_bytes = 0;
+		uint64_t worker_output_bytes = 0;
+		uint64_t mailbox_bytes = 0;
+		uint64_t ready_bytes = 0;
+		uint64_t partial_upload_bytes = 0;
+		uint64_t charged_bytes = 0;
+		uint64_t peak_retained_bytes = 0; // Real storage high-water, not token peak.
+		uint32_t peak_jobs_in_flight = 0;
+		uint64_t oversized_reservation_bytes = 0;
+		uint64_t reservations_acquired = 0;
+		uint64_t reservations_released = 0;
+		uint64_t live_reservations = 0;
+		uint64_t jobs_started = 0;
+		uint64_t admission_waits = 0;
+		uint32_t jobs_in_flight = 0;
+		uint32_t pending_tickets = 0;
+		uint32_t mailbox_outputs = 0;
+		uint32_t ready_outputs = 0;
+		uint64_t faults_triggered = 0;
+	};
+	// Append at the REAL metadata write / finish_upload boundary. The CPU sink
+	// substitutes device writes only; jobs, admission, validation and residency
+	// stay on the real path. Epochs come from the completed payload, never from
+	// the current source (tests independently know the expected epoch).
+	struct TestPublication {
+		uint32_t node = UINT32_MAX;
+		uint64_t source_instance_id = 0; // Immutable paged source owning this job.
+		uint64_t content_generation = 0; // V4 record stamp of the completed payload.
+		uint64_t world_generation = 0;
+		uint64_t device_generation = 0;
+		uint64_t request_generation = 0;
+		uint32_t metadata_splat_count = 0;
+	};
+	struct TestControl {
+		bool hold_uploads = false;
+		bool hold_mailbox = false;
+		bool hold_workers = false; // Before read/decode; teardown releases it.
+		bool cpu_upload_sink = false;
+		bool fail_validation = false;
+		bool fail_upload = false;
+	};
+	enum TestFault {
+		TEST_FAULT_NONE,
+		TEST_FAULT_DROP_OUTPUT_CHARGE,
+		TEST_FAULT_SKIP_PUBLICATION_GENERATION,
+	};
+	// Faults alter the REAL handoff/publication, never stats or a checker.
+	// Drop-output-charge releases the token at mailbox/ready while keeping the
+	// packed allocation. Skip-generation bypasses every publication epoch
+	// rejection (including NodeResidency's ticket gates) needed to write stale
+	// metadata AND finish as RESIDENT, while preserving the old provenance.
+	Error _test_set_control(const TestControl &p_control);
+	Error _test_set_fault(TestFault p_fault);
+	// Cumulative owner/peak counters survive epoch replacement and shutdown.
+	TestSnapshot _test_snapshot() const;
+	Vector<TestPublication> _test_publications() const;
+	// Invalidates the live epoch while retaining old in-flight/queued output:
+	// the real publication guard, rather than test queue deletion, must reject it.
+	Error _test_replace_source(const Ref<GaussianSplatHlodRuntimeData> &p_data,
+			uint64_t p_world_generation, uint64_t p_device_generation);
+	Error _test_cancel_node(uint32_t p_node); // Idempotent, uses real cancel path.
+	Error _test_evict_node(uint32_t p_node);
+
 	// Test seam: makes the metadata writes of the NEXT commit fail, which is COMMIT_UNUSABLE (the fail-closed path).
 	bool test_fail_commit_metadata = false;
 	// Test seam: the packed replacement payload of a staged leaf that is waiting for the publication boundary (raw route).

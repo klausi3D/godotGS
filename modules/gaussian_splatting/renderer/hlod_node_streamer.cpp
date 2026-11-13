@@ -13,6 +13,49 @@ HlodNodeStreamer::~HlodNodeStreamer() {
 	shutdown();
 }
 
+Error HlodNodeStreamer::init_with_page_store(const Ref<GaussianSplatHlodRuntimeData> &, const Config &,
+		uint64_t, uint64_t, PayloadPageStore &) {
+	// D3-2 phase-1 stub: intentionally refuses. No existing caller is migrated.
+	return ERR_UNAVAILABLE;
+}
+
+#ifdef TESTS_ENABLED
+Error HlodNodeStreamer::_test_set_control(const TestControl &) {
+	// D3-2 phase-1 stub: intentionally refuses; no decorative hold/fault wiring.
+	return ERR_UNAVAILABLE;
+}
+
+Error HlodNodeStreamer::_test_set_fault(TestFault) {
+	// D3-2 phase-1 stub: intentionally refuses.
+	return ERR_UNAVAILABLE;
+}
+
+HlodNodeStreamer::TestSnapshot HlodNodeStreamer::_test_snapshot() const {
+	// D3-2 phase-1 stub: intentionally refuses (observation_error != OK).
+	return TestSnapshot();
+}
+
+Vector<HlodNodeStreamer::TestPublication> HlodNodeStreamer::_test_publications() const {
+	// D3-2 phase-1 stub: intentionally refuses publication.
+	return Vector<TestPublication>();
+}
+
+Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeData> &, uint64_t, uint64_t) {
+	// D3-2 phase-1 stub: intentionally refuses.
+	return ERR_UNAVAILABLE;
+}
+
+Error HlodNodeStreamer::_test_cancel_node(uint32_t) {
+	// D3-2 phase-1 stub: intentionally refuses.
+	return ERR_UNAVAILABLE;
+}
+
+Error HlodNodeStreamer::_test_evict_node(uint32_t) {
+	// D3-2 phase-1 stub: intentionally refuses.
+	return ERR_UNAVAILABLE;
+}
+#endif
+
 bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config, uint64_t p_world_generation, uint64_t p_device_generation) {
 	shutdown();
 	if (p_data.is_null() || p_config.atlas_pages == 0 || p_config.page_splats == 0 || p_data->nodes.is_empty()) {
