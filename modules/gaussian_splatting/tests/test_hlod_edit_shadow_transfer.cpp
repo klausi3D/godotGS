@@ -296,7 +296,7 @@ struct Harness {
 	}
 };
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] A edit larger than ready window drains without deadlock") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] A edit larger than ready window drains without deadlock") {
 	Harness h;
 	if (!h.init() || !h.probe() || !h.warm() || !h.stage()) { return; }
 	CHECK(h.total_payload_bytes > 3 * h.cfg.max_inflight_read_bytes);
@@ -306,7 +306,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] A edit larger than ready wi
 	CHECK(h.sample.shadow_descriptor_payload_bytes == 0);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] B old revision serves until one begin_frame commit") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] B old revision serves until one begin_frame commit") {
 	Harness h;
 	if (!h.init() || !h.probe() || !h.warm() || !h.stage()) { return; }
 	const auto transferred = gs_pump_until([&]() {
@@ -328,7 +328,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] B old revision serves until
 	CHECK(h.revision(true) == REVISION_OK);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] C cancel mid transfer returns permits and shadow runs for reuse") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] C cancel mid transfer returns permits and shadow runs for reuse") {
 	Harness h;
 	if (!h.init() || !h.probe() || !h.warm() || !h.stage()) { return; }
 	const uint32_t free_before = h.streamer.get_residency().stats().pages_free + h.streamer.get_residency().stats().pages_shadow;
@@ -372,7 +372,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] C cancel mid transfer retur
 	if (!h.warm() || !h.stage() || !h.finish()) { return; }
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] D metadata failure after transfer is COMMIT_UNUSABLE") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] D metadata failure after transfer is COMMIT_UNUSABLE") {
 	Harness h;
 	if (!h.init() || !h.probe() || !h.warm() || !h.stage()) { return; }
 	const auto transferred = gs_pump_until([&]() { h.step(false); return !h.observation_ok || h.streamer.is_edit_ready(); });
@@ -387,7 +387,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] D metadata failure after tr
 	CHECK(h.streamer.get_data() == h.fixture.source.snapshot);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] E shadow upload failure cancels without publication") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] E shadow upload failure cancels without publication") {
 	Harness h;
 	if (!h.init() || !h.probe() || !h.warm() || !h.stage()) { return; }
 	h.control.hold_uploads = true;
@@ -403,12 +403,14 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] E shadow upload failure can
 	CHECK(h.streamer.get_telemetry().edit_commit_failures_total > 0);
 	CHECK(h.streamer.get_data() == h.fixture.source.snapshot);
 	CHECK(h.revision(false, true) == REVISION_OK);
+	h.step(false); // Transfer failure is reported at the next real begin_frame boundary.
+	CHECK(h.commit == Streamer::COMMIT_UPLOAD_FAILED);
 	const auto drained = gs_pump_until([&]() { h.step(false); return !h.observation_ok || h.sample.live_reservations == 0; });
 	if (!drained.ready() || !h.observation_ok) { FAIL("D3-3 failed transfer permits never drained: ", drained.describe()); return; }
 	CHECK(accounting_ok(h.sample, true));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] F final publication must fit the unchanged frame allowance") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] F final publication must fit the unchanged frame allowance") {
 	Harness h;
 	if (!h.init(true, false, true) || !h.probe() || !h.warm()) { return; }
 	const auto before = h.streamer.get_residency().stats();
@@ -439,7 +441,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] F final publication must fi
 	CHECK(normal.stage_edit(h.fixture.edited) == Streamer::EDIT_STAGED);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] G held shadow and ordinary jobs share one reservation envelope") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] G held shadow and ordinary jobs share one reservation envelope") {
 	for (bool default_envelope : { false, true }) {
 		Harness h;
 		if (!h.init(true, false, false, 16, true, false, default_envelope) || !h.probe() || !h.warm()) { return; }
@@ -474,7 +476,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] G held shadow and ordinary 
 	}
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] H no edit preserves ordinary upload and metadata identity") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserves ordinary upload and metadata identity") {
 	for (bool quantized : { false, true }) {
 		Harness h;
 		if (!h.init(quantized, true) || !h.warm(false)) { return; }
@@ -517,7 +519,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] H no edit preserves ordinar
 	}
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] I packing with uploads held does not make an edit ready") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] I packing with uploads held does not make an edit ready") {
 	Harness h;
 	if (!h.init(true, false, false, 1) || !h.probe() || !h.warm()) { return; }
 	h.control.hold_uploads = true;
@@ -533,7 +535,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] I packing with uploads held
 	if (!h.set_control() || !h.finish()) { return; }
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] J lifecycle exits drain pending worker packed and partial owners") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] J lifecycle exits drain pending worker packed and partial owners") {
 	enum Exit { CANCEL, TIMEOUT, BLOCKED, SHUTDOWN, SOURCE_GENERATION, DEVICE_GENERATION };
 	enum Owner { PENDING, WORKER, PACKED, PARTIAL };
 	for (Exit exit : { CANCEL, TIMEOUT, BLOCKED, SHUTDOWN, SOURCE_GENERATION, DEVICE_GENERATION }) {
@@ -602,7 +604,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] J lifecycle exits drain pen
 	}
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing early shadow metadata trips the revision checker") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] forcing early shadow metadata trips the revision checker") {
 	Harness h;
 	if (!h.init()) { return; }
 	const Error err = h.streamer._test_set_fault(Streamer::TEST_FAULT_EARLY_SHADOW_METADATA);
@@ -614,7 +616,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing early shadow metada
 	CHECK(h.revision(false, true) == EARLY_METADATA);
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing ready on pack trips the transfer readiness checker") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] forcing ready on pack trips the transfer readiness checker") {
 	Harness h;
 	if (!h.init(true, false, false, 1)) { return; }
 	const Error err = h.streamer._test_set_fault(Streamer::TEST_FAULT_READY_ON_PACK);
@@ -633,7 +635,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing ready on pack trips
 	CHECK_FALSE(ready_after_transfer(h.sample, h.streamer.is_edit_ready(), h.commit, h.fixture.leaves.size(), h.total_payload_bytes));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing leaked shadow permit trips the accounting checker") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] forcing leaked shadow permit trips the accounting checker") {
 	Harness h;
 	if (!h.init()) { return; }
 	const Error err = h.streamer._test_set_fault(Streamer::TEST_FAULT_LEAK_SHADOW_PERMIT);
@@ -651,7 +653,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing leaked shadow permi
 	CHECK_FALSE(accounting_ok(h.sample, true));
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow] forcing partial commit trips the mixed revision checker") {
+TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] forcing partial commit trips the mixed revision checker") {
 	Harness h;
 	if (!h.init()) { return; }
 	const Error err = h.streamer._test_set_fault(Streamer::TEST_FAULT_PARTIAL_COMMIT);

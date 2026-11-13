@@ -12,8 +12,10 @@
 // that is not resident-ready draws nothing even if a stale record named it.
 //
 // Package F1 (ADR 14.5, editable regions): stage_edit() takes an edited snapshot (lod/hlod_edit.*), reserves shadow
-// runs for the edited leaves, loads the replacement cut and packs the new leaf payloads on the same worker path;
-// commit_staged_edit() is the atomic publication boundary. Until it commits, nothing drawable changes: the old
+// runs for the edited leaves, loads the replacement cut and packs with the ordinary reservation ledger. update()
+// transfers payload slices into invisible shadow runs under the shared frame allowance, returning each CPU permit
+// after transfer and retaining only a per-leaf descriptor. commit_staged_edit() atomically publishes metadata at
+// begin_frame(), after every leaf is transferred. Until it commits, nothing drawable changes: the old
 // snapshot, its resident mask and its GPU metadata keep serving a consistent old cut. A paged (V4) file is never
 // written: unedited nodes keep reading from it, edited leaves come from the in-memory overlay of the edited snapshot.
 //
@@ -73,7 +75,7 @@ public:
 		uint32_t drawn = 0;
 		uint32_t requested_this_frame = 0;
 		uint32_t uploaded_this_frame = 0;
-		uint64_t uploaded_bytes_this_frame = 0;
+		uint64_t uploaded_bytes_this_frame = 0; // Payload bytes; metadata also consumes the edit-era frame allowance.
 		uint32_t skipped_groups_this_frame = 0;
 		uint32_t evicted_this_frame = 0;
 		uint32_t pages_capacity = 0;
@@ -106,7 +108,8 @@ public:
 		uint64_t payload_ready_bytes_peak = 0;
 		// Package F1.
 		bool edit_staged = false;
-		uint32_t edit_shadow_ready = 0; // Packed replacement payloads waiting for the publication boundary.
+		uint32_t edit_shadow_ready = 0; // Packed payloads waiting for (or part-way through) transfer in update().
+		uint32_t edit_shadow_transferred = 0; // Payload-free descriptors waiting for atomic publication.
 		uint32_t edit_shadow_total = 0;
 		uint64_t edit_revision = 0; // The revision of the snapshot currently served (0 = unedited).
 		uint64_t edits_committed_total = 0;
@@ -137,7 +140,7 @@ public:
 		EDIT_REJECTED_BUSY, // Inactive streamer, or another edit is staged.
 		EDIT_REJECTED_DATA, // Not a direct derivative of the served snapshot, or unusable on this route.
 		EDIT_REJECTED_NO_SPACE, // The shadow runs do not fit: nothing was changed.
-		EDIT_REJECTED_INFEASIBLE, // The replacement cut does not fit a registered view's caps: nothing was changed.
+		EDIT_REJECTED_INFEASIBLE, // Replacement cut or final metadata publication cannot fit: nothing was changed.
 		EDIT_REJECTED_NO_VIEW, // No view is registered, so feasibility cannot be shown: nothing was changed.
 		EDIT_REJECTED_LINEAGE, // Not derived from the served snapshot.
 	};
@@ -163,7 +166,7 @@ public:
 	bool is_active() const { return active; }
 	// Render-thread ownership check; the caller owns p_store through worker drain.
 	bool uses_page_store(const PayloadPageStore *p_store) const { return active && p_store != nullptr && page_store == p_store; }
-	// Render-thread derived ordinary cap; reservations include queued output.
+	// Render-thread derived shared cap; ordinary and shadow reservations include queued output.
 	uint64_t get_retained_byte_cap() const { return retained_byte_cap; }
 
 	// Retires freed runs; call once per frame before the selector reads resident_mask() or get_data(). With a device, this
@@ -180,13 +183,13 @@ public:
 	bool is_edit_staged() const { return active && residency.is_edit_staged(); }
 	bool is_edit_ready() const { return active && residency.edit_ready(); }
 	// The publication boundary (called by begin_frame(device, buffers)): when the replacement cut is complete and ready it
-	// uploads the new leaf payloads, flips the served snapshot and drops the stale ancestors in one step, so no draw built
+	// publishes the already transferred leaves' metadata, flips the snapshot and drops stale ancestors in one call, so no draw built
 	// after this can name a stale node or an old leaf version. Frames already submitted may still present (ADR 14.5).
 	EditCommitResult commit_staged_edit(RenderingDevice *p_device, const Buffers &p_buffers);
 	// Gives the reservation back; the served snapshot and residency are exactly as before stage_edit().
 	bool cancel_staged_edit();
 #ifdef TESTS_ENABLED
-	// Ordinary-path observations only; shadow_ready is deliberately excluded.
+	// Ordinary and shadow payload owners are disjoint; the reservation ledger totals are shared.
 	// Sample actual storage under the mailbox/accounting locks, independently
 	// of token counters: service/stash, worker arrays/scratch, cached scratch,
 	// and packed output in every owner (including an unfinished upload).
@@ -213,7 +216,6 @@ public:
 		uint32_t mailbox_outputs = 0;
 		uint32_t ready_outputs = 0;
 		uint64_t faults_triggered = 0;
-		// D3-3 phase 1: unavailable until shadow owners are independently observed.
 		// Owner byte fields above remain ordinary-only; ledger totals are shared.
 		Error shadow_observation_error = ERR_UNAVAILABLE;
 		uint64_t shadow_worker_output_bytes = 0;
@@ -267,7 +269,7 @@ public:
 		TEST_FAULT_NONE,
 		TEST_FAULT_DROP_OUTPUT_CHARGE,
 		TEST_FAULT_SKIP_PUBLICATION_GENERATION,
-		// D3-3 phase-1 stubs: rejected with ERR_UNAVAILABLE; no fault is installed.
+		// D3-3 controls alter actual transfer/readiness/publication/permit ownership.
 		TEST_FAULT_EARLY_SHADOW_METADATA,
 		TEST_FAULT_READY_ON_PACK,
 		TEST_FAULT_LEAK_SHADOW_PERMIT,
@@ -287,8 +289,7 @@ public:
 	TestSnapshot _test_snapshot() const;
 	Vector<TestPublication> _test_publications() const;
 	// Observation capability only, never an opt-in to production transfer behavior.
-	// Phase 1 fails closed without changing control/state/output arguments.
-	// The eventual trace records CPU-sink or device writes cumulatively, at the
+	// The trace records CPU-sink or device writes cumulatively, at the
 	// actual write boundary, including commit and eviction metadata/quantization.
 	Error _test_observe_shadow_transfers();
 	Error _test_shadow_writes(Vector<TestWrite> &r_writes) const;
@@ -302,7 +303,7 @@ public:
 
 	// Test seam: makes the metadata writes of the NEXT commit fail, which is COMMIT_UNUSABLE (the fail-closed path).
 	bool test_fail_commit_metadata = false;
-	// Test seam: the packed replacement payload of a staged leaf that is waiting for the publication boundary (raw route).
+	// Test seam: inspect a packed leaf BEFORE transfer frees its payload (raw route).
 	bool test_get_shadow_payload(uint32_t p_node, Vector<PackedGaussian> &r_raw, ChunkMetaGPU &r_meta) const {
 		for (uint32_t i = 0; i < shadow_ready.size(); ++i) {
 			if (shadow_ready[i].ticket.node == p_node) {
@@ -358,16 +359,20 @@ private:
 		uint32_t held_workers = 0;
 		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
 		Vector<TestPublication> publications;
+		bool observe_shadows = false;
+		uint64_t shadow_output[4] = {}, shadow_live = 0;
+		Vector<TestWrite> writes;
 #endif
 	};
 	class Reservation {
 		Ref<ReservationLedger> ledger;
 		uint64_t charge = 0, stored = 0, decoded = 0, output = 0, transport = 0;
 		bool oversized = false, running = true, token_live = true;
+		bool shadow = false;
 		OutputOwner owner = OUTPUT_WORKER;
 
 	public:
-		Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized, uint64_t p_transport);
+		Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized, uint64_t p_transport, bool p_shadow = false);
 		~Reservation();
 		Reservation(const Reservation &) = delete;
 		Reservation &operator=(const Reservation &) = delete;
@@ -423,11 +428,21 @@ private:
 		Vector<PackedGaussianQuantized> quantized;
 		ChunkMetaGPU meta = {};
 		ChunkQuantizationGPU quant = {};
+		uint64_t uploaded_bytes = 0; // Cursor only; the entire remaining allocation stays charged until completion.
+#ifdef TESTS_ENABLED
+		uint32_t test_first_write = UINT32_MAX;
+#endif
 		PackResult() = default;
 		PackResult(const PackResult &) = delete;
 		PackResult &operator=(const PackResult &) = delete;
 		PackResult(PackResult &&p_other) noexcept;
 		PackResult &operator=(PackResult &&p_other) noexcept;
+	};
+	struct ShadowTransfer {
+		gs_hlod_runtime::NodeResidency::Ticket ticket;
+		ChunkMetaGPU meta = {};
+		ChunkQuantizationGPU quant = {};
+		uint64_t bytes = 0; // No packed vector or permit survives successful transfer.
 	};
 	class Mailbox : public RefCounted {
 	public:
@@ -460,8 +475,24 @@ private:
 	void collect_finished_tasks(bool p_wait_all);
 	void drain_mailbox();
 	void release_staged_edit_data();
+	void drain_jobs_and_output(); // Teardown/fail-closed drain, preserving the last served snapshot.
+	EditCommitResult fail_commit();
+	void fail_shadow_upload();
+	bool upload_shadow_ready(RenderingDevice *p_device, const Buffers &p_buffers);
+	bool upload_edit_ordinary(RenderingDevice *p_device, const Buffers &p_buffers);
+	void upload_edit_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void upload_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void clear_evicted(RenderingDevice *p_device, const Buffers &p_buffers);
+	bool upload_available(RenderingDevice *p_device) const;
+	uint64_t upload_remaining() const;
+	Error write_atlas(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, uint64_t p_offset,
+			uint64_t p_bytes, const void *p_payload, bool p_shadow);
+	Error write_meta(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkMetaGPU &p_meta, bool p_shadow = false);
+	Error write_quant(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkQuantizationGPU &p_quant, bool p_shadow = false);
+#ifdef TESTS_ENABLED
+	void record_write(TestWrite::Kind p_kind, uint32_t p_node, uint64_t p_offset, uint64_t p_bytes,
+			bool p_shadow, const ChunkMetaGPU *p_meta = nullptr, const ChunkQuantizationGPU *p_quant = nullptr);
+#endif
 	void refresh_telemetry();
 
 	bool active = false;
@@ -476,11 +507,22 @@ private:
 	uint64_t store_generation = 0;
 #ifdef TESTS_ENABLED
 	Vector<ChunkMetaGPU> test_metadata; // Render-thread CPU device-write sink only.
+	Vector<ChunkQuantizationGPU> test_quantization;
+	LocalVector<std::unique_ptr<Reservation>> test_leaked_shadow_permits; // Real leak control, reclaimed on teardown.
 #endif
 	LocalVector<WorkerThreadPool::TaskID> tasks;
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> pending; // Requested, job not started.
-	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> shadow_pending; // Package F1: staged-edit tickets, job not started.
-	LocalVector<PackResult> shadow_ready; // Package F1: packed replacement payloads, uploaded at the publication boundary.
+	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> shadow_pending; // Tickets only; permits are acquired at worker admission.
+	LocalVector<PackResult> shadow_ready; // Charged packed/partial output, drained incrementally by update(), never by commit.
+	LocalVector<ShadowTransfer> shadow_transferred; // Bounded by kMaxEditedLeaves; contains no CPU payload storage.
+	LocalVector<uint32_t> staged_stale_nodes; // Ancestors whose metadata this transaction zeros at publication.
+	LocalVector<uint32_t> pending_metadata_clears; // Budgeted edit-era evictions, cleared before any run can be uploaded again.
+	uint64_t shadow_transferred_bytes = 0;
+	uint32_t shadow_transfer_count = 0; // Current/last edit; observations survive commit/cancel.
+	uint64_t staged_publication_bytes = 0;
+	uint64_t frame_written_bytes = 0; // Includes publication bytes before update() in this same frame.
+	bool frame_edit_uploads = false, in_edit_commit = false;
+	bool next_shadow_upload = true, next_shadow_job = true;
 	Ref<GaussianSplatHlodRuntimeData> staged_data; // Package F1: the edited snapshot, served after commit.
 	LocalVector<PackResult> ready; // Packed, waiting for the per-frame upload budget (still LOADING).
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> tickets_scratch;
@@ -492,6 +534,7 @@ private:
 	};
 	LocalVector<RegisteredView> views;
 	EditCommitResult last_commit_result = COMMIT_NOTHING;
+	EditCommitResult pending_commit_result = COMMIT_NOTHING; // Transfer failure reported at the next begin_frame().
 	bool edit_feasible(const Ref<GaussianSplatHlodRuntimeData> &p_edited) const;
 	LocalVector<uint32_t> drawn_scratch;
 	LocalVector<uint32_t> evicted_scratch;

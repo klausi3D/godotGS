@@ -1419,11 +1419,15 @@ Mechanism.
   is only ever expanded: it is never required to be resident, so edits in sibling branches compose (a second edit whose
   path crosses the first edit's stale nodes is admitted and commits). A staged edit that has not committed after
   `edit_timeout_frames` is cancelled and reported (`edit_event` "timeout"). The old snapshot, mask and GPU
-  metadata keep serving one consistent old cut while the shadow payloads are packed on the ordinary worker path and the
-  replacement children load as ordinary demand. When every shadow is packed and every replacement child is resident, the
-  streamer commits **inside** `begin_frame(device, buffers)`, so "commit, then select" is structural and cannot be skipped
-  by a caller (the renderer selects on `get_data()` after it): payloads go to the shadow
-  runs first, then the new metadata is written, then the residency flips (edited leaf takes its shadow run, the old run
+  metadata keep serving one consistent old cut while shadow payloads take permits from the ordinary reservation ledger
+  and the replacement children load as ordinary demand. `update()` incrementally transfers packed payloads into the
+  reserved, invisible shadow runs under the same frame upload allowance as ordinary uploads. Each transfer frees its
+  packed vectors and permit, retaining only a per-leaf transaction descriptor; packing alone is not transfer completion.
+  Admission also rejects an edit whose final metadata/quantization writes and stale-ancestor clears cannot fit that
+  unchanged frame allowance. Once every shadow is transferred and every replacement child is resident, the streamer
+  commits **inside** `begin_frame(device, buffers)`, so "commit, then select" is structural and cannot be skipped by a
+  caller (the renderer selects on `get_data()` after it): quantization and metadata are published atomically in this
+  call, without payload uploads, and the residency flips (edited leaf takes its shadow run, the old run
   and the stale runs retire after the retirement delay, stale metadata is zeroed) and the served snapshot changes in the
   same call. A draw built after the call can name neither a stale node nor an old leaf version; frames already submitted
   may still present (§14.8). A payload upload failure before any metadata write cancels the edit and changes nothing; a

@@ -25,8 +25,9 @@
 //                   the children of every stale node (the replacement cut the selector will draw), which therefore
 //                   cannot be evicted. Nothing drawable changes while the edit is only staged.
 //   edit_prefetch() the children of stale nodes that still need loading, as ordinary demand.
-//   finish_shadow() a packed shadow payload arrived (ticket checked against world, device and edit generation).
-//   commit_edit()   the atomic publication boundary: once every shadow is ready and every replacement child is
+//   finish_shadow() a packed shadow payload arrived (ticket checked against world, device, generation and run).
+//                   Packing alone is not ready: finish_shadow_transfer() marks the whole reserved run transferred.
+//   commit_edit()   the atomic publication boundary: once every shadow is transferred and every replacement child is
 //                   RESIDENT, each edited leaf takes its shadow run (the old run retires, any in-flight ticket of the
 //                   old content dies) and every stale node is dropped (mask 0, run retired, never requested again).
 //   cancel_edit()   gives the reservation back; the world is exactly as before the edit was staged.
@@ -203,6 +204,15 @@ public:
 	bool is_shadow_pending(const Ticket &p_ticket) const;
 	// A packed shadow payload arrived (true) or could not be built (false). False when the ticket is not current.
 	bool finish_shadow(const Ticket &p_ticket, bool p_success);
+	// True only for the current packed payload awaiting transfer into its reserved, still invisible shadow run.
+	bool is_shadow_packed(const Ticket &p_ticket) const;
+	// The whole packed payload reached its reserved run (true), or its transfer failed (false). Only a current
+	// packed ticket can become ready; stale generations and different runs are rejected without changing state.
+	bool finish_shadow_transfer(const Ticket &p_ticket, bool p_success = true);
+	// Observes the current reserved shadow run without retaining a payload. False before allocation and after
+	// cancellation/commit; includes packed and transferred shadows while the edit remains staged.
+	bool shadow_ticket(uint32_t p_node, Ticket &r_ticket) const;
+	// Every staged shadow is transferred, and every replacement child is resident.
 	bool edit_ready() const;
 	// A shadow payload failed or a replacement child can never load: the edit cannot commit and should be cancelled.
 	bool edit_blocked() const;
@@ -248,7 +258,7 @@ private:
 		// Package F1.
 		bool stale = false; // Ancestor of an edited leaf: never requested, never drawn, not protected, not pinned.
 		bool edit_hold = false; // Replacement child of a staged edit: protected until the edit commits or is cancelled.
-		enum ShadowState : uint8_t { SHADOW_NONE = 0, SHADOW_LOADING, SHADOW_READY, SHADOW_FAILED };
+		enum ShadowState : uint8_t { SHADOW_NONE = 0, SHADOW_LOADING, SHADOW_PACKED, SHADOW_READY, SHADOW_FAILED };
 		ShadowState shadow_state = SHADOW_NONE;
 		uint64_t shadow_key = 0;
 		uint32_t shadow_first = 0;
@@ -294,6 +304,7 @@ private:
 	void retire_run(Node &r_node);
 	void release_run_now(Node &r_node);
 	bool ticket_current(const Ticket &p_ticket, State p_expected) const;
+	bool shadow_ticket_current(const Ticket &p_ticket, Node::ShadowState p_expected) const;
 	// A completion was rejected: counted as harmless when the ticket's request was cancelled in this world and
 	// device generation, as real loss otherwise.
 	void count_rejected_completion(const Ticket &p_ticket);

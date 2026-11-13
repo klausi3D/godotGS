@@ -581,11 +581,12 @@ void NodeResidency::release_edit_state() {
 	for (uint32_t i = 0; i < staged_leaves.size(); ++i) {
 		Node &n = nodes.write[staged_leaves[i]];
 		if (n.shadow_key != 0) {
-			// The shadow payload is only uploaded at commit, so a staged (cancelled) run never reached the GPU.
+			// Transferred atlas bytes remain invisible until metadata publication. No submitted draw names this
+			// run, so cancellation can return it immediately, including a partly transferred run.
 			allocator.release_slot(n.shadow_key);
 		}
-		if (n.shadow_state == Node::SHADOW_LOADING) {
-			note_cancelled_generation(n.shadow_generation); // The cancelled edit's payload may still arrive.
+		if (n.shadow_state == Node::SHADOW_LOADING || n.shadow_state == Node::SHADOW_PACKED) {
+			note_cancelled_generation(n.shadow_generation); // A late pack or transfer completion is harmless.
 		}
 		n.shadow_key = 0;
 		n.shadow_first = n.shadow_pages = 0;
@@ -783,13 +784,18 @@ void NodeResidency::edit_prefetch(LocalVector<uint32_t> &r_demand) const {
 	}
 }
 
-bool NodeResidency::is_shadow_pending(const Ticket &p_ticket) const {
+bool NodeResidency::shadow_ticket_current(const Ticket &p_ticket, Node::ShadowState p_expected) const {
 	if (!edit_staged || !p_ticket.shadow || !p_ticket.valid() || p_ticket.world_generation != world_gen || p_ticket.device_generation != device_gen ||
 			p_ticket.node >= uint32_t(nodes.size())) {
 		return false;
 	}
 	const Node &n = nodes[p_ticket.node];
-	return n.shadow_state == Node::SHADOW_LOADING && n.shadow_generation == p_ticket.request_generation;
+	return n.shadow_state == p_expected && n.shadow_key != 0 && n.shadow_pages != 0 && n.shadow_generation == p_ticket.request_generation &&
+			n.shadow_first == p_ticket.first_page && n.shadow_pages == p_ticket.page_count;
+}
+
+bool NodeResidency::is_shadow_pending(const Ticket &p_ticket) const {
+	return shadow_ticket_current(p_ticket, Node::SHADOW_LOADING);
 }
 
 bool NodeResidency::finish_shadow(const Ticket &p_ticket, bool p_success) {
@@ -797,7 +803,39 @@ bool NodeResidency::finish_shadow(const Ticket &p_ticket, bool p_success) {
 		count_rejected_completion(p_ticket);
 		return false;
 	}
+	nodes.write[p_ticket.node].shadow_state = p_success ? Node::SHADOW_PACKED : Node::SHADOW_FAILED;
+	return true;
+}
+
+bool NodeResidency::is_shadow_packed(const Ticket &p_ticket) const {
+	return shadow_ticket_current(p_ticket, Node::SHADOW_PACKED);
+}
+
+bool NodeResidency::finish_shadow_transfer(const Ticket &p_ticket, bool p_success) {
+	if (!is_shadow_packed(p_ticket)) {
+		count_rejected_completion(p_ticket);
+		return false;
+	}
 	nodes.write[p_ticket.node].shadow_state = p_success ? Node::SHADOW_READY : Node::SHADOW_FAILED;
+	return true;
+}
+
+bool NodeResidency::shadow_ticket(uint32_t p_node, Ticket &r_ticket) const {
+	r_ticket = Ticket();
+	if (!edit_staged || p_node >= uint32_t(nodes.size())) {
+		return false;
+	}
+	const Node &n = nodes[p_node];
+	if (n.shadow_state == Node::SHADOW_NONE || n.shadow_key == 0 || n.shadow_pages == 0 || n.shadow_generation == 0) {
+		return false;
+	}
+	r_ticket.node = p_node;
+	r_ticket.first_page = n.shadow_first;
+	r_ticket.page_count = n.shadow_pages;
+	r_ticket.request_generation = n.shadow_generation;
+	r_ticket.world_generation = world_gen;
+	r_ticket.device_generation = device_gen;
+	r_ticket.shadow = true;
 	return true;
 }
 
