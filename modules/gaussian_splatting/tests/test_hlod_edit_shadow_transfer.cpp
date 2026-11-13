@@ -108,6 +108,7 @@ struct Harness {
 		gs_hlod_runtime::CutRequest view;
 		view.frustum_enabled = false;
 		view.camera = Vector3(0, 0, 1000);
+		view.focal_pixels = 100; // CutHistory rejects the zero default even with frustum culling disabled.
 		view.node_budget = fixture.source.node_count;
 		view.splat_budget = 1u << 30;
 		view.record_budget = 1.0e9;
@@ -433,6 +434,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] F final publicatio
 	gs_hlod_runtime::CutRequest view;
 	view.frustum_enabled = false;
 	view.camera = Vector3(0, 0, 1000);
+	view.focal_pixels = 100;
 	view.tau_pixels = 1.0e9;
 	view.node_budget = h.fixture.source.node_count;
 	view.splat_budget = 1u << 30;
