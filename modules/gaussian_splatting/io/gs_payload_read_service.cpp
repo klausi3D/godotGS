@@ -54,6 +54,12 @@ void PayloadReadService::shutdown() {
 	LocalVector<IdleHandle> closing;
 	{
 		MutexLock lock(mutex);
+		// A cancellation drain may have entered while shutdown was joining
+		// readers. Their acknowledgements now exist; let those waiters leave
+		// before destroying service state as well as the original ready waiters.
+		while (waiters > 0) {
+			ready_cv.wait(lock);
+		}
 		for (SelfList<Request>::List *list : { &pending, &ready }) {
 			while (SelfList<Request> *element = list->first()) {
 				Request *request = element->self();
@@ -118,28 +124,66 @@ bool PayloadReadService::cancel(uint64_t p_ticket) {
 		return false;
 	}
 	Request *request = found->value;
-	tickets.remove(found);
+	_cancel_locked(request);
+	return true;
+}
 
-	switch (request->state) {
+void PayloadReadService::cancel_and_wait(const LocalVector<uint64_t> &p_tickets) {
+	MutexLock lock(mutex);
+	LocalVector<Request *> draining;
+	for (uint64_t ticket : p_tickets) {
+		HashMap<uint64_t, Request *>::Iterator found = tickets.find(ticket);
+		if (!found) {
+			continue;
+		}
+		Request *request = found->value;
+		if (request->state == REQUEST_READING) {
+			request->cancel_waiting = true;
+			draining.push_back(request);
+		}
+		_cancel_locked(request);
+	}
+	if (draining.is_empty()) {
+		return;
+	}
+
+	// Every sibling has already been cancelled. Readers cannot acquire `mutex`
+	// until this waiter is counted, and transfer deletion only after their ack.
+	waiters++;
+	for (Request *request : draining) {
+		while (!request->read_drained) {
+			ready_cv.wait(lock);
+		}
+		memdelete(request);
+	}
+	waiters--;
+	ready_cv.notify_all(); // shutdown() may be waiting for the last drain waiter.
+}
+
+void PayloadReadService::_cancel_locked(Request *p_request) {
+	tickets.erase(p_request->ticket);
+	ready_cv.notify_all(); // A wait_ready() may be watching this exact ticket.
+
+	switch (p_request->state) {
 		case REQUEST_QUEUED:
-			pending.remove(&request->link);
+			pending.remove(&p_request->link);
 			counters.queued--;
 			counters.cancelled_queued++;
 			break;
 		case REQUEST_READING:
-			// The reader owns the request now and frees it, with its budget, when it stops.
-			request->cancelled.set();
+			// The reader frees its budget when it stops. A drain waiter, when present,
+			// owns request deletion; ordinary cancellation leaves deletion to the reader.
+			p_request->cancelled.set();
 			counters.cancelled_reading++;
-			return true;
+			return;
 		case REQUEST_READY:
-			ready.remove(&request->link);
+			ready.remove(&p_request->link);
 			counters.ready--;
 			counters.cancelled_ready++;
 			break;
 	}
-	counters.bytes_in_flight -= request->length;
-	memdelete(request);
-	return true;
+	counters.bytes_in_flight -= p_request->length;
+	memdelete(p_request);
 }
 
 PayloadReadService::Stats PayloadReadService::stats() const {
@@ -171,6 +215,22 @@ bool PayloadReadService::wait_completion(Completion &r_completion) {
 		ready_cv.notify_all(); // shutdown() may be waiting for the last waiter.
 	}
 	return taken;
+}
+
+bool PayloadReadService::wait_ready(uint64_t p_watch_ticket) {
+	MutexLock lock(mutex);
+	waiters++;
+	while (state == SERVICE_RUNNING && ready.first() == nullptr &&
+			(p_watch_ticket == 0 || tickets.has(p_watch_ticket))) {
+		ready_cv.wait(lock);
+	}
+	const bool available = state == SERVICE_RUNNING && ready.first() != nullptr &&
+			(p_watch_ticket == 0 || tickets.has(p_watch_ticket));
+	waiters--;
+	if (!available) {
+		ready_cv.notify_all(); // shutdown() may be waiting for the last waiter.
+	}
+	return available;
 }
 
 void PayloadReadService::release_handles() {
@@ -205,6 +265,7 @@ void PayloadReadService::_take_ready_locked(Completion &r_completion) {
 	r_completion.error = request->error;
 	r_completion.bytes = request->bytes;
 	memdelete(request);
+	ready_cv.notify_all(); // A wait_ready() watching this ticket must not remain blocked.
 }
 
 void PayloadReadService::_reader_entry(void *p_self) {
@@ -313,7 +374,18 @@ void PayloadReadService::_reader_loop() {
 		if (request->cancelled.is_set()) {
 			bytes.clear(); // The budget comes back only once the buffer is really gone.
 			counters.bytes_in_flight -= request->length;
-			memdelete(request);
+			if (request->cancel_waiting) {
+				// Only the explicit drain API waits for handle relinquishment. Keep
+				// ordinary completion publication and nonblocking cancel unchanged.
+				lock.temp_unlock();
+				handle.unref();
+				evicted.handle.unref();
+				lock.temp_relock();
+				request->read_drained = true;
+				ready_cv.notify_all();
+			} else {
+				memdelete(request);
+			}
 			continue;
 		}
 
@@ -324,9 +396,13 @@ void PayloadReadService::_reader_loop() {
 		} else if (!stopped) {
 			counters.completed_failed++;
 		}
+		// READY must have no untracked reader-local storage owner. On success
+		// the request holds the bytes; on failure no output buffer survives.
+		bytes.clear();
 		request->state = REQUEST_READY;
 		ready.add_last(&request->link);
 		counters.ready++;
-		ready_cv.notify_one();
+		// Drain waiters also use this condition variable and may not consume work.
+		ready_cv.notify_all();
 	}
 }

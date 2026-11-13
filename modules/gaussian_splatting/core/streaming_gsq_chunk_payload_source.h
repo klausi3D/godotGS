@@ -1,13 +1,10 @@
 #ifndef STREAMING_GSQ_CHUNK_PAYLOAD_SOURCE_H
 #define STREAMING_GSQ_CHUNK_PAYLOAD_SOURCE_H
 
-#include "../io/gs_payload_read_service.h"
-#include "../io/gsq/gsq_codec.h"
+#include "../io/gs_payload_page_store.h"
 #include "streaming_chunk_payload_source.h"
 
-#include "core/os/condition_variable.h"
 #include "core/os/mutex.h"
-#include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/safe_refcount.h"
 #include "core/variant/dictionary.h"
@@ -20,7 +17,7 @@
 // The world loader validates the page directory and hands it over; no page is read at load. A
 // capture runs on the caller's thread, which on the streaming route is an async pack worker
 // (StreamingUploadPipeline::build_pending_upload_from_pack_job): it reads every page the range
-// touches through this source's PayloadReadService (positional reads on the reader pool), checks
+// touches through its PayloadPageStore (positional reads on the reader pool), checks
 // each page against its directory entry and stored SHA-256, decodes it with a per-thread
 // gs_gsq::DecodeContext (one ZSTD_DCtx each, leased from a pool) and, when enabled, checks the
 // decoded digest. The pack worker then packs the result into the 176 B PackedGaussian, as for
@@ -47,9 +44,8 @@
 // the async path ran instead of a main-thread or resident fallback.
 //
 // Threading: configure() runs once before publication. Captures may run concurrently from any
-// thread. Completions of the shared read service are routed to their capture by ticket through
-// `dispatch_mutex` (one thread at a time waits on the service and parks foreign completions in
-// `dispatch_stash`).
+// thread. The store owns the reader service, completion routing, decoder pool and counters.
+// `state_mutex` serializes lazy store startup and the once-per-source failure log.
 class GsqPagedChunkPayloadSource : public ChunkPayloadSource {
 	GDCLASS(GsqPagedChunkPayloadSource, ChunkPayloadSource);
 
@@ -100,46 +96,20 @@ private:
 	uint32_t sh_first_order = 0;
 	uint32_t sh_high_order = 0;
 	AABB bounds;
-	gs_gsq::EncodeParams codec_params;
-	LocalVector<Page> pages;
+	LocalVector<PayloadPageStore::PageDescriptor> pages;
 	LocalVector<uint32_t> page_first_splat; // page_count + 1 entries; the last is splat_count
 	// Set before the source is published (like configure()); captures only read it.
 	bool verify_decoded_digest = true;
 
-	mutable PayloadReadService read_service;
-	mutable BinaryMutex state_mutex; // guards the fields below up to dispatch_mutex
+	mutable PayloadPageStore page_store;
+	mutable BinaryMutex state_mutex; // guards startup flags and failure_logged
 	mutable bool service_started = false;
 	mutable bool service_failed = false;
-	mutable LocalVector<gs_gsq::DecodeContext *> idle_decoders;
-	mutable String last_failure_reason;
-
 	mutable bool failure_logged = false;
-
-	mutable BinaryMutex dispatch_mutex; // guards the fields below
-	mutable ConditionVariable dispatch_cv;
-	mutable bool dispatch_pumping = false;
-	mutable HashMap<uint64_t, PayloadReadService::Completion> dispatch_stash;
-
-	mutable SafeNumeric<uint64_t> next_ticket;
-	mutable SafeNumeric<uint64_t> stat_captures;
-	mutable SafeNumeric<uint64_t> stat_captures_failed;
-	mutable SafeNumeric<uint64_t> stat_pages_decoded;
-	mutable SafeNumeric<uint64_t> stat_splats_decoded;
-	mutable SafeNumeric<uint64_t> stat_decode_nsec;
-	mutable SafeNumeric<uint64_t> stat_digest_nsec;
-	mutable SafeNumeric<uint64_t> stat_verify_nsec;
-	mutable SafeNumeric<uint64_t> stat_pages_digest_checked;
-	mutable SafeNumeric<uint64_t> stat_pages_on_workers;
-	mutable SafeNumeric<uint64_t> stat_pages_on_main;
-	mutable SafeNumeric<uint64_t> stat_page_failures;
-	mutable SafeNumeric<uint64_t> stat_stored_bytes_read;
+	mutable SafeNumeric<uint64_t> next_requester;
 
 	bool _ensure_service_started() const;
 	uint32_t _page_of(uint32_t p_splat) const;
-	// Waits for p_ticket's completion. False when the read service stopped first.
-	bool _dispatch_wait(uint64_t p_ticket, PayloadReadService::Completion *r_completion) const;
-	gs_gsq::DecodeContext *_lease_decoder() const;
-	void _return_decoder(gs_gsq::DecodeContext *p_decoder) const;
 	bool _fail(const String &p_reason) const;
 	bool _capture(const uint32_t *p_indices, uint32_t p_start, uint32_t p_count,
 			LocalVector<Gaussian> &r_gaussians, LocalVector<Vector3> &r_sh_high_order,

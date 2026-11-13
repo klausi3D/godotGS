@@ -333,6 +333,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][PayloadPageStore] service stash and call
 	Store::Config config;
 	config.reader_count = 1;
 	config.max_bytes_in_flight = 160; // Fixture capacity, not a runtime default.
+	config.admission_policy = Store::ADMIT_RETAINED_BYTES;
 	LocalVector<Store::PageDescriptor> pages = raw_descriptors();
 	pages[1].stored_bytes = 96;
 	pages[2].stored_bytes = 1;

@@ -3,14 +3,26 @@
 #include "gs_payload_read_service.h"
 #include "gsq/gsq_codec.h"
 
-// D3-1 transport/GSQ primitives. Phase 1 declares the contract only; the .cpp is
-// deliberately fail-closed. No directory interpretation, residency or GPU policy.
+#include "core/templates/pair.h"
+
+// D3-1 transport/GSQ primitives. No directory interpretation, residency or GPU
+// policy. Source installation/start/destruction belong to the owner; requests,
+// waits, requester cancellation, leases, captures and stats are thread-safe.
 class PayloadPageStore {
 public:
+	enum AdmissionPolicy {
+		ADMIT_SERVICE_BYTES_ONLY,
+		ADMIT_RETAINED_BYTES,
+	};
+
 	struct Config {
 		uint32_t reader_count = 2;
 		uint64_t max_bytes_in_flight = 64ull * 1024ull * 1024ull;
 		uint32_t max_idle_handles = 0;
+		// D3-1 chunk compatibility: only the read service limits admission.
+		// Accounting always includes completed stored bytes in either mode.
+		// Owners needing a bound over all stored owners must opt in explicitly.
+		AdmissionPolicy admission_policy = ADMIT_SERVICE_BYTES_ONLY;
 		// The chunk source currently retains its peak concurrent decoder count,
 		// without a fixed cap. UINT32_MAX preserves that behavior. Other owners may
 		// supply their existing cap; this is not a new runtime sizing setting.
@@ -51,7 +63,12 @@ public:
 	// all callers, stored pages and decoder leases, as for the existing source.
 	class StoredPage {
 		friend class PayloadPageStore;
-		Vector<uint8_t> empty_bytes;
+		PayloadPageStore *owner = nullptr;
+		Identity identity;
+		PageDescriptor descriptor;
+		Error error = ERR_UNAVAILABLE;
+		Vector<uint8_t> bytes;
+		uint64_t reserved_bytes = 0;
 
 	public:
 		StoredPage() = default;
@@ -69,6 +86,8 @@ public:
 
 	class DecoderLease {
 		friend class PayloadPageStore;
+		PayloadPageStore *owner = nullptr;
+		gs_gsq::DecodeContext *decoder = nullptr;
 
 	public:
 		DecoderLease() = default;
@@ -103,6 +122,7 @@ public:
 		uint64_t peak_service_bytes = 0;
 		uint64_t peak_stash_bytes = 0;
 		uint64_t peak_retained_bytes = 0;
+		uint64_t refused_retained_busy = 0; // Store-only refusals; not a read-service counter.
 		uint64_t reservations_acquired = 0;
 		uint64_t reservations_released = 0;
 		uint64_t live_reservations = 0;
@@ -142,7 +162,7 @@ public:
 
 	Error start(const Config &p_config);
 	// Owner operation, outside concurrent calls: drain old service/stash owners
-	// and close handles before installing a new path/generation/catalog. Counters
+	// and drop idle handles before installing a new path/generation/catalog. Counters
 	// are cumulative across replacement. Caller-held pages/leases must be returned.
 	Error replace_source(const String &p_path, uint64_t p_generation, const LocalVector<PageDescriptor> &p_pages);
 	// Ticket uniqueness is (requester, ticket) within a source generation, so two
@@ -165,7 +185,8 @@ public:
 			DecodedPage &r_page, String &r_reason);
 	// Adapter capture boundary; page decode counts stay separate from captures.
 	// Thread-local decode span is reset at begin and taken exactly once after end.
-	void begin_capture();
+	// The adapter's legacy null-index refusal counts a capture without resetting it.
+	void begin_capture(bool p_reset_decode_span = true);
 	void end_capture(bool p_success, const String &p_reason);
 	uint64_t take_thread_last_capture_decode_nsec();
 
@@ -187,4 +208,61 @@ public:
 	bool _test_dispatch_one_completion();
 	uint64_t _test_faults_triggered() const;
 #endif
+
+private:
+	using RequestKey = Pair<uint64_t, uint64_t>; // requester, local ticket
+	enum State {
+		NEW,
+		RUNNING,
+		STOPPING,
+		STOPPED,
+	};
+	struct Request {
+		uint64_t service_ticket = 0;
+		Identity identity;
+		PageDescriptor descriptor;
+		RequestKey route;
+		bool in_stash = false;
+		Error error = ERR_UNAVAILABLE;
+		Vector<uint8_t> bytes;
+		uint64_t reserved_bytes = 0;
+	};
+
+	// The service owns its own mutex/readers. Lock order, when both are needed:
+	// mutex -> read_service's mutex. Readers never call back into the store.
+	PayloadReadService read_service;
+	// Guards ALL fields below, including lifecycle, catalog, dispatch/stash,
+	// reservation counters, decoder pool, stage counters and test faults. Codec
+	// work runs outside it, using caller-owned StoredPage/DecoderLease instances.
+	// Those move-only instances must not themselves be shared concurrently.
+	mutable BinaryMutex mutex;
+	ConditionVariable dispatch_cv;
+	State state = NEW;
+	Config config;
+	String file_path;
+	uint64_t source_generation = 0;
+	HashMap<uint64_t, PageDescriptor> catalog;
+	uint64_t next_service_ticket = 0;
+	HashMap<RequestKey, uint64_t> request_keys;
+	HashMap<uint64_t, Request *> requests;
+	HashMap<RequestKey, Request *> dispatch_stash;
+	bool dispatch_pumping = false;
+	uint32_t waiters = 0;
+	LocalVector<gs_gsq::DecodeContext *> idle_decoders;
+	Stats counters;
+#ifdef TESTS_ENABLED
+	TestFault test_fault = TEST_FAULT_NONE;
+	uint64_t test_fault_count = 0;
+	uint64_t test_first_ticket = 0;
+	uint64_t test_second_ticket = 0;
+#endif
+
+	static bool _descriptors_equal(const PageDescriptor &p_a, const PageDescriptor &p_b);
+	bool _pump_locked(const MutexLock<BinaryMutex> &p_lock, uint64_t p_watch_ticket);
+	void _route_locked(PayloadReadService::Completion &p_completion);
+	void _take_stash_locked(const RequestKey &p_key, StoredPage &r_page);
+	void _discard_locked(Request *p_request);
+	void _drain_locked();
+	void _release_stored(uint64_t p_bytes);
+	void _return_decoder(gs_gsq::DecodeContext *p_decoder);
 };
