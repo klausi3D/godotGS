@@ -21,6 +21,7 @@ Run directly or through ``python tests/ci/run_module_tests.py --guard-only``.
 from __future__ import annotations
 
 import ast
+import copy
 import io
 import hashlib
 import json
@@ -2116,37 +2117,83 @@ class D25AutoTreeWorkflow(unittest.TestCase):
 
 
 class RealScanIdentity(_TempCase):
-    """Fake reports exercise lane decisions; stdout comes from a captured doctest run."""
+    """Run 43434714271 captured both producer outputs; negatives mutate deep copies."""
+
+    FIXTURES = HERE / "fixtures" / "d2_real_scan"
 
     def setUp(self):
         super().setUp()
         self.binary = self.tmp / "godot-tests"
         self.binary.write_bytes(b"test binary")
+        self.report_path = self.FIXTURES / "real_scan.doctest.json"
+        self.fixture = json.loads(self.report_path.read_text(encoding="utf-8"))
+        self.report = copy.deepcopy(self.fixture)
+        self.log = (self.FIXTURES / "real_scan.doctest_stdout.txt").read_text(encoding="utf-8")
         self.scan = self.tmp / "bicycle-30k.ply"
         self.scan.write_bytes(b"ply\nformat binary_little_endian 1.0\nelement vertex 6131954\nend_header\n")
-        self.log = (ROOT / "tests/ci/fixtures/doctest_c_thrash_release_tests_sample.txt").read_text(encoding="utf-8")
-        self.report = {
-            "status": "PASS", "input_vertex_count": 6_131_954, "stride": 7,
-            "input_file_size_bytes": self.scan.stat().st_size,
-            "input_sha256": hashlib.sha256(self.scan.read_bytes()).hexdigest(),
-            "subset_count": 875_994, "subset_rule": "vertex i iff i % 7 == 0",
-            "subset_sha256": "a" * 64, "tiles_planned": 21, "tiles_baked": 21,
-            "first_divergence": None,
-            "negative_control": {"detected": True, "first_divergence": {"node_index": 3, "field": "decoded_sha256"}},
-            "codecs": [{"codec": "gsq", "status": "PASS"}],
-        }
+        # Only this header exists on disk. Match the captured scan's logical size
+        # through stat, without allocating or reading 1.5 GB of fabricated data.
+        original_stat = Path.stat
+
+        def scan_stat(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if path == self.scan:
+                fields = list(result)
+                fields[6] = self.fixture["input_file_size_bytes"]
+                return os.stat_result(fields)
+            return result
+
+        stat_patch = mock.patch.object(Path, "stat", autospec=True, side_effect=scan_stat)
+        stat_patch.start()
+        self.addCleanup(stat_patch.stop)
         self.calls = []
 
     def runner(self, cmd, **kwargs):
         self.calls.append((cmd, kwargs))
         kwargs["stdout"].write(self.log)
         if self.report is not None:
-            Path(kwargs["env"]["GS_D2_REAL_SCAN_OUT"]).write_text(json.dumps(self.report), encoding="utf-8")
+            report_path = Path(kwargs["env"]["GS_D2_REAL_SCAN_OUT"])
+            shutil.copyfile(self.report_path, report_path)
+            if self.report != self.fixture:
+                report_path.write_text(json.dumps(self.report), encoding="utf-8")
         return _proc(cmd)
 
     def run_identity(self, **kwargs):
         with mock.patch.object(lane, "auto_tree_preflight", return_value=lane.EXIT_NOT_RUN):
             return lane.real_scan_identity(self.binary, self.out, self.scan, runner=self.runner, **kwargs)
+
+    def test_captured_fixture_hashes_match_provenance(self):
+        expected = {
+            "real_scan.doctest.json": "4999170a82af41624b53c52df85db4dc9828a9ce8411c008e26880ee07a4d0ce",
+            "real_scan.doctest_stdout.txt": "4db9ebda9d275d025a69b46aa43375396828946d68038de69986b10b7a7825c6",
+        }
+        for name, digest in expected.items():
+            with self.subTest(file=name):
+                self.assertEqual(hashlib.sha256((self.FIXTURES / name).read_bytes()).hexdigest(), digest)
+
+    def test_captured_fixture_satisfies_report_contract_and_requires_each_field(self):
+        self.assertIsNone(lane._real_scan_report_problem(self.fixture, 6_131_954, 7, 1_000_000))
+        required_paths = (
+            ("input_vertex_count",), ("stride",), ("subset_count",),
+            ("input_sha256",), ("subset_sha256",), ("input_file_size_bytes",), ("subset_rule",),
+            ("tiles_planned",), ("tiles_baked",), ("negative_control",),
+            ("negative_control", "detected"), ("negative_control", "first_divergence"),
+            ("negative_control", "first_divergence", "node_index"),
+            ("negative_control", "first_divergence", "field"),
+            ("codecs",), ("codecs", 0, "codec"), ("codecs", 0, "status"), ("codecs", 1, "status"),
+        )
+        for path in required_paths:
+            with self.subTest(missing=path):
+                mutated = copy.deepcopy(self.fixture)
+                parent = mutated
+                for key in path[:-1]:
+                    parent = parent[key]
+                del parent[path[-1]]
+                self.assertIsNotNone(lane._real_scan_report_problem(mutated, 6_131_954, 7, 1_000_000))
+
+    def test_negative_control_not_detected_is_not_pass(self):
+        self.report["negative_control"]["detected"] = False
+        self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
 
     def test_absent_data_is_distinct_not_run_without_launching_binary(self):
         self.scan.unlink()
@@ -2155,7 +2202,7 @@ class RealScanIdentity(_TempCase):
         self.assertEqual(self.calls, [])
 
     def test_full_mode_missing_report_maps_to_not_run(self):
-        self.report = {"status": "NOT_RUN", "reason_code": "real_scan_missing"}
+        self.report.update(status="NOT_RUN", reason_code="real_scan_missing")
         self.assertEqual(self.run_identity(), lane.EXIT_NOT_RUN)
         self.assertEqual(self.record("real_scan_identity")["data"]["reason_code"], "real_scan_missing")
 
@@ -2165,6 +2212,7 @@ class RealScanIdentity(_TempCase):
         self.assertIn("--test-case=" + lane.REAL_SCAN_TEST_CASE, cmd)
         self.assertEqual(kwargs["env"]["GS_D2_REAL_SCAN_PLY"], str(self.scan.resolve()))
         self.assertEqual(kwargs["env"]["GS_D2_REAL_SCAN_STRIDE"], "7")
+        self.assertEqual(Path(kwargs["env"]["GS_D2_REAL_SCAN_OUT"]).read_bytes(), self.report_path.read_bytes())
         self.assertLessEqual(kwargs["timeout"], 3600)
         record = self.record("real_scan_identity")
         self.assertEqual(record["data"]["identity"]["subset_count"], 875_994)
@@ -2202,33 +2250,44 @@ class RealScanIdentity(_TempCase):
         self.assertFalse(scratch_paths[0].exists())
 
     def test_mismatch_is_fail_and_keeps_first_divergent_node(self):
-        first = {"node_index": 17, "field": "cell.ix", "expected": "2", "actual": "3"}
+        first = copy.deepcopy(self.fixture["negative_control"]["first_divergence"])
         self.report.update(status="FAIL", first_divergence=first)
         self.assertEqual(self.run_identity(), lane.EXIT_FAIL)
         self.assertEqual(self.record("real_scan_identity")["data"]["first_divergence"], first)
 
     def test_no_report_cannot_reuse_stale_success(self):
-        (self.out / "real_scan.doctest.json").write_text(json.dumps(self.report), encoding="utf-8")
+        shutil.copyfile(self.report_path, self.out / "real_scan.doctest.json")
         self.report = None
         self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
         self.assertEqual(self.record("real_scan_identity")["data"]["reason_code"], "real_scan_report_missing")
 
     def test_empty_or_skipped_or_failed_doctest_is_not_proof(self):
         captured = self.log
-        for text in (captured.replace("test cases: 1 |", "test cases: 0 |"),
-                     captured.replace("assertions: 6 |", "assertions: 0 |"),
+        for text in (re.sub(r"(\[doctest\] test cases:\s*)1(\s*\|)", r"\g<1>0\2", captured, count=1),
+                     re.sub(r"(\[doctest\] assertions:\s*)\d+(\s*\|)", r"\g<1>0\2", captured, count=1),
                      captured + "\nGS_ENV_SKIP\n", captured.replace("SUCCESS", "FAILURE")):
             with self.subTest(log=text[-100:]):
                 self.log = text
                 self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
 
     def test_incomplete_identity_or_non_firing_control_is_not_pass(self):
-        original = json.loads(json.dumps(self.report))
-        for changes in ({"negative_control": {"detected": False}}, {"tiles_baked": 1},
-                        {"subset_count": 1_000_001}, {"input_sha256": ""}, {"codecs": []},
-                        {"status": "PASS", "first_divergence": {"node_index": 0, "field": "cell"}}):
-            with self.subTest(changes=changes):
-                self.report = {**original, **changes}
+        # Fault injection into captured output, never a new success-shaped report.
+        mutations = (
+            (("negative_control", "detected"), False),
+            (("codecs", 0, "status"), "FAIL"), (("codecs",), []),
+            (("tiles_planned",), 1), (("tiles_baked",), 1),
+            (("subset_count",), 1_000_001), (("input_vertex_count",), 6_131_955), (("stride",), 8),
+            (("input_sha256",), ""), (("subset_sha256",), ""),
+            (("input_file_size_bytes",), self.fixture["input_file_size_bytes"] + 1),
+            (("first_divergence",), self.fixture["negative_control"]["first_divergence"]),
+        )
+        for path, value in mutations:
+            with self.subTest(path=path, value=value):
+                self.report = copy.deepcopy(self.fixture)
+                parent = self.report
+                for key in path[:-1]:
+                    parent = parent[key]
+                parent[path[-1]] = copy.deepcopy(value)
                 self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
 
     def test_invalid_stride_does_not_launch(self):
@@ -2259,6 +2318,9 @@ class RealScanIdentity(_TempCase):
 
         def run(cmd, **kwargs):
             if kwargs["env"]["GS_D2_REAL_SCAN_STRIDE"] == "1":
+                # Mutate captured subset counts to exercise full-scan routing;
+                # this does not claim to be captured full-scan measurements.
+                self.report = copy.deepcopy(self.fixture)
                 self.report.update(stride=1, subset_count=6_131_954)
             return self.runner(cmd, **kwargs)
 
