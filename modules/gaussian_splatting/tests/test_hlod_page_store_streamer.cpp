@@ -423,10 +423,13 @@ static void generation_contract(bool p_fault, GenerationChange p_change, Holder 
 	if (p_fault) {
 		CHECK_MESSAGE(h.sample.faults_triggered > 0,
 				"D3-2 skip-generation fault never fired on a real stale completion (wiring removal must fail)");
-		CHECK_MESSAGE(!current && stale_published,
+		CHECK_MESSAGE(!current,
+				"D3-2 stale-publication checker must detect actual stale metadata and RESIDENT publication");
+		CHECK_MESSAGE(stale_published,
 				"D3-2 stale-publication checker must detect actual stale metadata and RESIDENT publication");
 	} else {
-		CHECK_MESSAGE(current && !stale_published, "D3-2 stale source/world/device completion was published");
+		CHECK_MESSAGE(current, "D3-2 stale source/world/device completion was published");
+		CHECK_MESSAGE(!stale_published, "D3-2 stale source/world/device completion was published");
 		CHECK_MESSAGE(no_residents(h), "D3-2 generation replacement must not make old output RESIDENT");
 		CHECK_MESSAGE(h.streamer._test_publications().is_empty(), "D3-2 stale generation wrote metadata");
 		CHECK_MESSAGE(h.sample.faults_triggered == 0, "D3-2 healthy generation path unexpectedly ran a fault");
@@ -490,7 +493,9 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] dropping the rea
 	}
 	CHECK_MESSAGE(h.sample.faults_triggered > 0,
 			"D3-2 drop-output-charge fault never fired on real output (wiring removal must fail)");
-	CHECK_MESSAGE(!h.bound_ok && h.byte_overrun,
+	CHECK_MESSAGE(!h.bound_ok,
+			"D3-2 saturation checker must detect the real retained-byte overrun after output charge is dropped");
+	CHECK_MESSAGE(h.byte_overrun,
 			"D3-2 saturation checker must detect the real retained-byte overrun after output charge is dropped");
 	h.streamer.shutdown();
 	h.store.shutdown();
