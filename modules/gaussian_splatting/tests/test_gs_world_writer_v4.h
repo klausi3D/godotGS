@@ -8,6 +8,7 @@
 
 #include "test_macros.h"
 #include "../core/gaussian_splat_world.h"
+#include "../core/gaussian_splat_hlod_bake_bounds.h"
 #include "../io/gs_world_writer_v4.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
@@ -707,6 +708,133 @@ static void check_leaf_metrics_position_round_trip(bool p_gsq, bool p_exact, boo
 		return;
 	}
 	CHECK(scratch_names.is_empty());
+}
+
+// #1432 (Codex review, finding 3): GSQ node bounds were inflated from decoded
+// node-relative support, but the reader returns leaf positions as
+// float(relative + centre). Codex's candidate: leaf centre x = 256, positions
+// {250.75, 256, 261.25}, middle scale 4, endpoint scales 0.25. Property: every
+// splat support the reader reconstructs lies inside its node's AABB and sphere,
+// measured exactly (double) in the node frame. Codec none is the legal control.
+static void check_reconstructed_support_inside_bounds(bool p_gsq) {
+	INFO("GSQ: ", p_gsq);
+	Paths paths;
+	if (!paths.create()) {
+		return;
+	}
+	GaussianSplatHlodTree tree;
+	tree.leaf_splat_count = 4;
+	tree.interior_splat_count = 1;
+	tree.nodes.resize(3);
+	LocalVector<V4Node> nodes;
+	nodes.resize(3);
+	V4BodyDesc desc[3];
+	LocalVector<Gaussian> bodies[3];
+	for (uint32_t i = 0; i < 3; ++i) {
+		GaussianSplatHlodNode &node = tree.nodes[i];
+		const bool leaf = i != 0;
+		node.cell.e = leaf ? 9 : 10;
+		node.cell.ix = i == 2 ? 1 : 0;
+		node.parent = leaf ? 0 : gs_hlod::kNoParent;
+		node.first_child = leaf ? 0 : 1;
+		node.child_count = leaf ? 0 : 2;
+		node.height = leaf ? 0 : 1;
+		node.flags = leaf ? gs_hlod::NODE_KIND_LEAF : gs_hlod::NODE_KIND_MERGED;
+		node.geometric_error = leaf ? 0.0f : 1.0f;
+		// Leaf 1 is tight on its exact input support (the middle splat, 3 x 4 m),
+		// so any reconstruction overshoot is visible rather than absorbed.
+		const real_t half = i == 1 ? 12.0f : (leaf ? 256.0f : 512.0f);
+		node.aabb_min = Vector3(-half, -half, -half);
+		node.aabb_max = Vector3(half, half, half);
+		node.radius = i == 1 ? 12.0f : (leaf ? 512.0f : 2048.0f);
+		node.payload_first = i == 0 ? 4 : (i == 1 ? 0 : 3);
+		node.payload_count = i == 1 ? 3 : 1;
+		nodes[i].topology = node;
+		desc[i].segment.bucket = i;
+		desc[i].segment.depth = leaf ? 1 : 0;
+		desc[i].is_leaf = leaf;
+		tree.node_cell_center(node, desc[i].cell_center);
+		for (uint32_t j = 0; j < node.payload_count; ++j) {
+			Gaussian g;
+			g.position = leaf ? Vector3(real_t(desc[i].cell_center[0]), real_t(desc[i].cell_center[1]), real_t(desc[i].cell_center[2])) : Vector3();
+			g.scale = Vector3(0.25f, 0.25f, 0.25f);
+			g.opacity = 0.6f;
+			g.sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
+			if (i == 1) {
+				const float xs[3] = { 250.75f, 256.0f, 261.25f };
+				g.position.x = xs[j];
+				if (j == 1) {
+					g.scale = Vector3(4.0f, 4.0f, 4.0f);
+				}
+			}
+			bodies[i].push_back(g);
+		}
+	}
+	String reason;
+	if (!gs_hlod_validate_tree(tree, &reason)) {
+		FAIL("invalid Codex candidate tree: ", reason.utf8().get_data());
+		return;
+	}
+	if (desc[1].cell_center[0] != 256.0) {
+		FAIL("Codex candidate needs leaf centre x = 256, got ", desc[1].cell_center[0]);
+		return;
+	}
+	PagedV4Spec spec;
+	spec.node_count = 3;
+	spec.leaf_splat_count = 4;
+	spec.interior_splat_count = 1;
+	spec.bounds = tree.node_world_aabb(tree.nodes[0]);
+	WriterV4 writer;
+	if (writer.begin_paged(paths.final_path, paths.scratch, spec, p_gsq ? gsq_v1_codec_params() : CodecParams(), Limits::unbounded()) != OK) {
+		FAIL("Codex candidate begin failed: ", writer.get_report().reason.utf8().get_data());
+		return;
+	}
+	for (uint32_t i : { 2u, 0u, 1u }) {
+		if (writer.append_node(desc[i], bodies[i].ptr(), nullptr, bodies[i].size(), nodes[i].body) != OK) {
+			FAIL("Codex candidate append failed: ", writer.get_report().full_reason.utf8().get_data());
+			return;
+		}
+	}
+	if (writer.finalize(nodes) != OK) {
+		FAIL("Codex candidate finalize failed: ", writer.get_report().full_reason.utf8().get_data());
+		return;
+	}
+	GaussianSplatHlodPagedSource source;
+	GaussianSplatHlodTree loaded;
+	Dictionary metadata;
+	if (source.open(paths.final_path, loaded, metadata, reason) != OK || source.get_nodes().size() != 3) {
+		FAIL("Codex candidate output did not open: ", reason.utf8().get_data());
+		return;
+	}
+	for (uint32_t i = 1; i < 3; ++i) {
+		const auto &record = source.get_nodes()[i];
+		Vector<Gaussian> payload;
+		Vector<Vector3> sh;
+		if (source.read_node_payload(i, payload, sh, reason) != OK || payload.size() != int(bodies[i].size())) {
+			FAIL("node ", i, " must read back: ", reason.utf8().get_data());
+			return;
+		}
+		// Reader output is absolute; shift it into the node frame exactly.
+		const double shift[3] = { -record.cell_center[0], -record.cell_center[1], -record.cell_center[2] };
+		const gs_hlod::SplatSpan span{ payload.ptr(), nullptr, uint32_t(payload.size()), 0 };
+		gs_hlod::bake_bounds::BoundsAccumulator support;
+		gs_hlod::bake_bounds::add_payload_bounds(span, shift, support);
+		double mid[3];
+		for (int a = 0; a < 3; ++a) {
+			const double lo = double(record.topology.aabb_min[a]);
+			const double hi = double(record.topology.aabb_max[a]);
+			CHECK_MESSAGE(support.lo[a] >= lo, "node ", i, " axis ", a, " undershoot ", lo - support.lo[a]);
+			CHECK_MESSAGE(support.hi[a] <= hi, "node ", i, " axis ", a, " overshoot ", support.hi[a] - hi);
+			mid[a] = 0.5 * (lo + hi);
+		}
+		const double radius = gs_hlod::bake_bounds::payload_radius(span, shift, mid);
+		CHECK_MESSAGE(radius <= double(record.topology.radius), "node ", i, " sphere overshoot ", radius - double(record.topology.radius));
+	}
+}
+
+TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO][HLOD][D2] reconstructed leaf support stays inside final node bounds (Codex candidate)") {
+	check_reconstructed_support_inside_bounds(false);
+	check_reconstructed_support_inside_bounds(true);
 }
 
 TEST_CASE("[WorldWriterV4][GaussianSplatting][WorldIO] reconstructed leaf metrics enforce resident refusal parity and W1 with a positive control") {
