@@ -991,9 +991,19 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	telemetry.skipped_groups_this_frame = requested.skipped_groups;
 	telemetry.blocked_groups_this_frame = requested.blocked_groups;
 	telemetry.fragmented_groups_this_frame = requested.fragmented_groups;
-	start_jobs();
-	drain_mailbox();
-	upload_ready(p_device, p_buffers);
+	if (residency.is_edit_staged()) {
+		// Preserve staged-edit ordering: a fast shadow job can reach readiness
+		// in this update, before the next begin_frame() publication boundary.
+		start_jobs();
+		drain_mailbox();
+		upload_ready(p_device, p_buffers);
+	} else {
+		drain_mailbox();
+		upload_ready(p_device, p_buffers);
+		// Completed output keeps its permit through upload/discard. Reuse the
+		// capacity returned above for pending jobs in this update, not next frame.
+		start_jobs();
+	}
 	const NodeResidency::Stats stats = residency.stats();
 	const bool nothing_moving = stats.loading + stats.uploading == 0 && pending.is_empty() && ready.is_empty();
 	telemetry.stall_frames = (p_desired_count != 0 && nothing_moving && requested.requested == 0) ? telemetry.stall_frames + 1 : 0;

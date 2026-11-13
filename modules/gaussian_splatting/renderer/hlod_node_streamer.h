@@ -160,6 +160,8 @@ public:
 	// every pending payload. Idempotent. After this nothing refers to the snapshot but the caller.
 	void shutdown();
 	bool is_active() const { return active; }
+	// Render-thread ownership check; the caller owns p_store through worker drain.
+	bool uses_page_store(const PayloadPageStore *p_store) const { return active && p_store != nullptr && page_store == p_store; }
 
 	// Retires freed runs; call once per frame before the selector reads resident_mask() or get_data(). With a device, this
 	// is also the publication boundary of a staged edit (package F1): when the replacement cut is complete and ready the

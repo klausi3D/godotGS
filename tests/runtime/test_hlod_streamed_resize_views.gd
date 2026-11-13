@@ -20,6 +20,9 @@ var _renderer: GaussianSplatRenderer
 var _subvp: SubViewport
 var _metrics: Dictionary = {"streamed_resize_status": "not_started"}
 var _deadline := 0
+var _paged_world: GaussianSplatWorld
+var _paged_path := ""
+var _failure_started := false
 
 
 func _init() -> void:
@@ -30,23 +33,47 @@ func _emit_metrics() -> void:
 	print("%s %s" % [GsRuntimeReport.METRICS_MARKER, JSON.stringify(_metrics, "", false, true)])
 
 
-func _cleanup() -> void:
+func _cleanup() -> bool:
 	if _renderer != null:
 		_renderer.test_set_hlod_route_limit_override(0)
+	if _node != null:
+		_node.clear_world()
 	_renderer = null
 	_node = null
 	if _scene != null:
 		_scene.queue_free()
 	_scene = null
+	_paged_world = null
+	if _paged_path.is_empty():
+		return true
+	# Let scene/director teardown drain the streamer before deleting its source.
+	# On Windows an outstanding read may hold the file; keep pumping, without a
+	# new timeout or a fixed frame allowance, until the original deadline.
+	while not _paged_path.is_empty():
+		await RenderingServer.frame_post_draw
+		if not FileAccess.file_exists(_paged_path) or DirAccess.remove_absolute(ProjectSettings.globalize_path(_paged_path)) == OK:
+			_paged_path = ""
+			return true
+		if Time.get_ticks_msec() >= _deadline:
+			break
+	push_error("%s Paged page-store fixture teardown did not release its source file within deadline" % GsRuntimeReport.FAIL_MARKER)
+	return false
+
+
+func _finish_failure() -> void:
+	await _cleanup()
+	quit(1)
 
 
 func _fail(reason: String) -> void:
+	if _failure_started:
+		return
+	_failure_started = true
 	_metrics["streamed_resize_status"] = "failed"
 	_metrics["reason"] = reason
 	push_error("%s %s" % [GsRuntimeReport.FAIL_MARKER, reason])
 	_emit_metrics()
-	_cleanup()
-	quit(1)
+	_finish_failure.call_deferred()
 
 
 func _check(condition: bool, reason: String) -> bool:
@@ -82,6 +109,12 @@ func _frame() -> Dictionary:
 		"has_owned": stats.has("hlod_owned_byte_upper_bound"),
 		"owned": int(stats.get("hlod_owned_byte_upper_bound", 0)),
 		"ready": int(stats.get("hlod_stream_ready_frames", 0)),
+		"source_generation": int(stats.get("hlod_source_generation", 0)),
+		"has_paged_fields": stats.has("hlod_stream_paged") and stats.has("hlod_stream_page_store_active") and stats.has("hlod_stream_nonresident_drawn") and stats.has("hlod_stream_payload_reads_total"),
+		"paged": bool(stats.get("hlod_stream_paged", false)),
+		"page_store_active": bool(stats.get("hlod_stream_page_store_active", false)),
+		"nonresident_drawn": int(stats.get("hlod_stream_nonresident_drawn", -1)),
+		"payload_reads": int(stats.get("hlod_stream_payload_reads_total", 0)),
 		"lit": _lit(get_root().get_texture().get_image()),
 		"sub_lit": 0,
 		"win": get_root().size,
@@ -150,6 +183,56 @@ func _build_world() -> GaussianSplatWorld:
 	if world.bake_hlod() != OK or not world.has_hlod_tree():
 		return null
 	return world
+
+
+func _run_paged_page_store_proof(world: GaussianSplatWorld) -> bool:
+	# save_hlod_paged(path) exposes no codec argument and writes codec-none.
+	# The targetless GPU doctest covers GSQ; this arm proves the native publisher.
+	_paged_path = "user://hlod_page_store_resize_%d_%d.gsplatworld" % [OS.get_process_id(), Time.get_ticks_usec()]
+	if not _check(world.save_hlod_paged(_paged_path) == OK, "Paged page-store fixture save_hlod_paged failed"):
+		return false
+	_paged_world = ResourceLoader.load(_paged_path, "GaussianSplatWorld", ResourceLoader.CACHE_MODE_IGNORE) as GaussianSplatWorld
+	if not _check(_paged_world != null and _paged_world.has_hlod_paged_source() and not _paged_world.has_resident_gaussian_data(), "Paged page-store fixture did not reload as a V4 paged world"):
+		return false
+	var previous_source := int(_renderer.get_render_stats().get("hlod_source_generation", 0))
+	_node.world = _paged_world # The setter reapplies the world through the real publisher.
+	var observed_source := false
+	var sampled := 0
+	var stable := 0
+	var reads := 0
+	var last: Dictionary = {}
+	while Time.get_ticks_msec() < _deadline:
+		var row: Dictionary = await _frame()
+		# A completed sample must meet the bound, including the readiness sample.
+		if Time.get_ticks_msec() >= _deadline:
+			break
+		if not observed_source:
+			# Do not mislabel the preceding resident world's last observation as
+			# a paged frame. Judge every frame once the new bundle is published,
+			# including loading frames before any node is ready to draw.
+			if int(row["source_generation"]) == 0 or int(row["source_generation"]) == previous_source:
+				continue
+			observed_source = true
+		sampled += 1
+		last = row
+		if not _check(bool(row["has_paged_fields"]), "Paged frame is missing mandatory page-store/streaming renderer stats"):
+			return false
+		if not _check(bool(row["paged"]), "Paged frame lost hlod_stream_paged"):
+			return false
+		if not _check(bool(row["page_store_active"]), "Paged frame is not using ResourceState's active PayloadPageStore"):
+			return false
+		if not _check(int(row["nonresident_drawn"]) == 0, "Paged frame drew a nonresident HLOD node"):
+			return false
+		reads = maxi(reads, int(row["payload_reads"]))
+		stable = stable + 1 if bool(row["active"]) and int(row["lit"]) > 0 and reads > 0 else 0
+		if stable >= 3:
+			break
+	_metrics["paged_page_store"] = {"codec": "none", "sampled_frames": sampled, "payload_reads": reads, "last_frame": last}
+	if not _check(Time.get_ticks_msec() < _deadline, "Paged page-store route never reached active, lit frames with payload reads within deadline"):
+		return false
+	if not _check(observed_source and sampled > 0 and reads > 0 and stable >= 3, "Paged page-store route did not publish a new source, read payloads, and finish active and lit"):
+		return false
+	return true
 
 
 func _run() -> void:
@@ -337,10 +420,16 @@ func _run() -> void:
 	if not _all_drawn(rows, "recovered at the startup size"):
 		return
 
+	# D3-2: a newly loaded V4 world must use ResourceState's runtime page store.
+	if not await _run_paged_page_store_proof(world):
+		return
+
+	if not await _cleanup():
+		_fail("Paged page-store fixture cleanup failed")
+		return
 	if not _check(Time.get_ticks_msec() < _deadline, "Proof completed after its deadline"):
 		return
 	_metrics["streamed_resize_status"] = "passed"
 	_emit_metrics()
 	_report.emit_pass()
-	_cleanup()
 	quit(0)
