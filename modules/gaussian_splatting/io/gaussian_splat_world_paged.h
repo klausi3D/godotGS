@@ -191,7 +191,8 @@ public:
 	Error read_node_payload(uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const;
 
 	// D3-2 runtime transport contract. The renderer owns the store through worker
-	// drain; installing the immutable V4 record catalog never changes this source.
+	// drain; installing the immutable catalog never changes this source. GSQ uses
+	// one full-record descriptor; codec-none uses bounded read-service windows.
 	Error install_in_page_store(PayloadPageStore &p_store, uint64_t p_generation) const;
 	// Same validation and decoded-digest policy as read_node_payload(), with the
 	// supplied store owning transport, decoder leases and stage accounting.
@@ -214,7 +215,7 @@ public:
 	// Test seam: the largest payload record this package can ever read in one call.
 	uint64_t get_max_record_bytes() const { return max_record_bytes; }
 	// Streamer admission: stored buffer + decoded arrays + decoder workspace for
-	// GSQ. Codec none covers the service's stored record AND decoded arrays. Excludes the
+	// GSQ. Codec none covers one bounded service window AND decoded arrays. Excludes the
 	// packed output (charged by the streamer) and idle pooled contexts.
 	uint64_t get_node_read_working_set_bytes(uint32_t p_node) const;
 

@@ -5,6 +5,8 @@ extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 #include "../io/gs_payload_page_store.h"
 #include "../renderer/hlod_node_streamer.h"
 
+#include <cstring>
+
 namespace TestHlodPageStoreStreamer {
 
 using Streamer = HlodNodeStreamer;
@@ -19,7 +21,8 @@ static uint64_t retained(const Streamer::TestSnapshot &p_sample) {
 			p_sample.worker_output_bytes + p_sample.mailbox_bytes + p_sample.ready_bytes + p_sample.partial_upload_bytes;
 }
 
-static bool bounded(const Streamer::TestSnapshot &p_sample, const Streamer::Config &p_config, bool p_allow_oversized = false) {
+static bool bounded(const Streamer::TestSnapshot &p_sample, const Streamer::Config &p_config,
+		uint64_t p_retained_cap, bool p_allow_oversized = false) {
 	if (p_sample.observation_error != OK || p_sample.jobs_in_flight > p_config.max_jobs_in_flight ||
 			p_sample.peak_jobs_in_flight > p_config.max_jobs_in_flight ||
 			p_sample.reservations_released > p_sample.reservations_acquired ||
@@ -33,9 +36,8 @@ static bool bounded(const Streamer::TestSnapshot &p_sample, const Streamer::Conf
 				p_sample.charged_bytes <= p_sample.oversized_reservation_bytes &&
 				retained(p_sample) <= p_sample.oversized_reservation_bytes;
 	}
-	return p_sample.charged_bytes <= p_config.max_inflight_read_bytes &&
-			retained(p_sample) <= p_config.max_inflight_read_bytes &&
-			(p_allow_oversized || p_sample.peak_retained_bytes <= p_config.max_inflight_read_bytes);
+	return p_sample.charged_bytes <= p_retained_cap && retained(p_sample) <= p_retained_cap &&
+			(p_allow_oversized || p_sample.peak_retained_bytes <= p_retained_cap);
 }
 
 struct Harness {
@@ -48,6 +50,7 @@ struct Harness {
 	LocalVector<gs_hlod_runtime::DesiredRecord> demand;
 	Streamer::TestSnapshot sample;
 	uint64_t largest_reservation = 0;
+	uint64_t retained_cap = 0;
 	bool observations_ok = true;
 	bool bound_ok = true;
 	bool byte_overrun = false;
@@ -63,8 +66,83 @@ struct Harness {
 		store.shutdown();
 	}
 
-	bool init(bool p_oversized = false, bool p_gsq = false) {
-		if (!fixture.build(p_gsq, 5, 256, 0)) {
+	bool node_reservation(uint32_t p_node, uint64_t &r_reservation, uint64_t &r_output) const {
+		if (fixture.source.is_null() || p_node >= uint32_t(fixture.source->get_nodes().size())) {
+			FAIL("D3-2 reservation oracle requires a valid source node");
+			return false;
+		}
+		const GaussianSplatHlodPagedSource::NodeRecord &node = fixture.source->get_nodes()[p_node];
+		const uint64_t count = node.topology.payload_count;
+		uint64_t gaussians = 0, sh = 0, window = 0;
+		if (!gs_hlod_runtime::allocation_bytes(count, sizeof(Gaussian), gaussians) ||
+				!gs_hlod_runtime::allocation_bytes(count * fixture.high_order, sizeof(Vector3), sh) ||
+				!gs_hlod_runtime::allocation_bytes(count, sizeof(PackedGaussian), r_output)) {
+			FAIL("D3-2 reservation oracle cannot represent decoded/packed allocation capacities");
+			return false;
+		}
+		const uint64_t packing_peak = gaussians + sh + r_output;
+		if (!fixture.gsq) {
+			// Independently count the complete decoded arrays plus ONE existing
+			// read-service slice. That window is gone before packing starts.
+			const uint64_t window_bytes = node.stored_bytes < PayloadReadService::read_slice_bytes ?
+					node.stored_bytes : PayloadReadService::read_slice_bytes;
+			if (!gs_hlod_runtime::allocation_bytes(window_bytes, 1, window)) {
+				FAIL("D3-2 reservation oracle cannot represent the codec-none read window");
+				return false;
+			}
+			const uint64_t reading_peak = window + gaussians + sh;
+			r_reservation = reading_peak > packing_peak ? reading_peak : packing_peak;
+		} else {
+			const uint64_t conservative = fixture.source->get_node_read_working_set_bytes(p_node) + count * sizeof(PackedGaussian);
+			r_reservation = conservative > packing_peak ? conservative : packing_peak;
+		}
+		return true;
+	}
+
+	bool expected_retained_cap(uint64_t &r_cap) const {
+		r_cap = config.max_inflight_read_bytes;
+		if (fixture.gsq) {
+			return true; // The GSQ route keeps the original input envelope.
+		}
+		uint64_t largest_normal = 0, largest_output = 0, uniform_base_cost = 0;
+		uint32_t normal_nodes = 0;
+		for (uint32_t node = 0; node < fixture.node_count; ++node) {
+			uint64_t reservation = 0, output = 0;
+			if (!node_reservation(node, reservation, output)) {
+				return false;
+			}
+			const uint64_t base_cost = fixture.source->get_nodes()[node].stored_bytes +
+					uint64_t(fixture.splats_per_node) * sizeof(PackedGaussian);
+			if (reservation > config.max_inflight_read_bytes || base_cost > config.max_inflight_read_bytes) {
+				continue; // Oversized nodes remain alone; they cannot expand the normal envelope.
+			}
+			// Production sorts arbitrary nodes by base cost. These writer fixtures
+			// have equal-sized codec-none nodes, so division independently gives
+			// the number of smallest costs that fit, capped by jobs and node count.
+			if (uniform_base_cost != 0 && uniform_base_cost != base_cost) {
+				FAIL("D3-2 retained-cap oracle requires its uniform production-written codec-none fixture");
+				return false;
+			}
+			uniform_base_cost = base_cost;
+			++normal_nodes;
+			largest_normal = reservation > largest_normal ? reservation : largest_normal;
+			largest_output = output > largest_output ? output : largest_output;
+		}
+		if (normal_nodes != 0 && uniform_base_cost != 0) {
+			uint64_t jobs = config.max_inflight_read_bytes / uniform_base_cost;
+			jobs = jobs < config.max_jobs_in_flight ? jobs : config.max_jobs_in_flight;
+			jobs = jobs < normal_nodes ? jobs : normal_nodes;
+			const uint64_t derived = jobs * (largest_normal + largest_output);
+			r_cap = derived > r_cap ? derived : r_cap;
+		}
+		return true;
+	}
+
+	bool init(bool p_oversized = false, bool p_gsq = false, bool p_base_parallelism = false) {
+		// The larger SH3 case reproduces the pre-migration per-node input size;
+		// the small fixture keeps saturation/cancellation cases cheap.
+		if (!fixture.build(p_gsq, p_base_parallelism ? 4 : 5,
+				p_base_parallelism ? 4206 : 256, p_base_parallelism ? 3 : 0)) {
 			return false;
 		}
 		if (fixture.source.is_null() || fixture.snapshot.is_null() ||
@@ -73,8 +151,10 @@ struct Harness {
 			return false;
 		}
 		for (uint32_t node = 0; node < fixture.node_count; ++node) {
-			const uint64_t reservation = fixture.source->get_node_read_working_set_bytes(node) +
-					uint64_t(fixture.splats_per_node) * sizeof(PackedGaussian);
+			uint64_t reservation = 0, output = 0;
+			if (!node_reservation(node, reservation, output)) {
+				return false;
+			}
 			if (reservation > largest_reservation) {
 				largest_reservation = reservation;
 			}
@@ -85,12 +165,11 @@ struct Harness {
 		}
 		// Small per-instance envelope makes saturation cheap. Frozen runtime
 		// defaults (16 jobs, 8 MiB, 32 MiB/frame) are never changed.
-		config.max_inflight_read_bytes = p_oversized ? largest_reservation - 1 : 2 * largest_reservation;
-		if (uint64_t(fixture.node_count) * fixture.splats_per_node * sizeof(PackedGaussian) <= config.max_inflight_read_bytes) {
-			FAIL("D3-2 saturation fixture must demand more packed output than its entire byte envelope");
-			return false;
+		if (!p_base_parallelism) {
+			config.max_inflight_read_bytes = p_oversized ? largest_reservation - 1 : 2 * largest_reservation;
 		}
-		config.atlas_pages = fixture.node_count; // One 256-splat node per default 1024-splat page.
+		config.atlas_pages = fixture.node_count *
+				((fixture.splats_per_node + config.page_splats - 1u) / config.page_splats);
 		PayloadPageStore::Config store_config;
 		store_config.reader_count = 1; // Deterministic test reader, not runtime sizing policy.
 		store_config.max_bytes_in_flight = config.max_inflight_read_bytes;
@@ -103,6 +182,19 @@ struct Harness {
 		}
 		if (streamer.init_with_page_store(fixture.snapshot, config, world, device, store) != OK) {
 			FAIL("D3-2 bounded ordinary streamer must initialize with the common store (phase-1 stub refuses)");
+			return false;
+		}
+		retained_cap = streamer.get_retained_byte_cap();
+		uint64_t expected_cap = 0;
+		if (!expected_retained_cap(expected_cap)) {
+			return false;
+		}
+		if (retained_cap != expected_cap || retained_cap < config.max_inflight_read_bytes) {
+			FAIL("D3-2 retained cap must equal the measured base-concurrency/output derivation");
+			return false;
+		}
+		if (uint64_t(fixture.node_count) * fixture.splats_per_node * sizeof(PackedGaussian) <= retained_cap) {
+			FAIL("D3-2 saturation fixture must demand more packed output than its entire byte envelope");
 			return false;
 		}
 		control.cpu_upload_sink = true;
@@ -133,13 +225,13 @@ struct Harness {
 		streamer.update(nullptr, Streamer::Buffers(), demand.ptr(), demand.size(), nullptr, 0);
 		sample = streamer._test_snapshot();
 		observations_ok = observations_ok && sample.observation_error == OK;
-		bound_ok = bound_ok && bounded(sample, config, p_oversized);
+		bound_ok = bound_ok && bounded(sample, config, retained_cap, p_oversized);
 		if (p_oversized) {
 			// High-water measurements catch exceptions that overlap entirely
 			// between frame snapshots, too. Every fixture node has this bound.
 			bound_ok = bound_ok && sample.peak_jobs_in_flight <= 1 && sample.peak_retained_bytes <= largest_reservation;
 		}
-		byte_overrun = byte_overrun || retained(sample) > config.max_inflight_read_bytes;
+		byte_overrun = byte_overrun || retained(sample) > retained_cap;
 	}
 
 	bool wait_held(bool p_oversized = false) {
@@ -151,10 +243,13 @@ struct Harness {
 			// independently require that the NEXT node cannot fit right now.
 			bool capacity_full = sample.oversized_reservation_bytes != 0;
 			if (sample.jobs_started < fixture.node_count) {
-				const uint64_t next = fixture.source->get_node_read_working_set_bytes(uint32_t(sample.jobs_started)) +
-						uint64_t(fixture.splats_per_node) * sizeof(PackedGaussian);
+				uint64_t next = 0, output = 0;
+				if (!node_reservation(uint32_t(sample.jobs_started), next, output)) {
+					observations_ok = false;
+					return true;
+				}
 				capacity_full = capacity_full || next > config.max_inflight_read_bytes ||
-						sample.charged_bytes > config.max_inflight_read_bytes - next;
+						sample.charged_bytes > retained_cap - next;
 			}
 			return !observations_ok || (sample.ready_outputs > 0 && sample.pending_tickets > 0 &&
 					sample.jobs_in_flight == 0 && sample.mailbox_outputs == 0 && sample.admission_waits > 0 && capacity_full);
@@ -271,6 +366,104 @@ static bool publications_current(const Harness &p_harness, uint64_t p_source, ui
 		}
 	}
 	return valid;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] codec-none SH3 preserves base read concurrency within the retained envelope") {
+	Harness h;
+	if (!h.init(false, false, true)) {
+		return;
+	}
+	if (h.fixture.node_count < 2 || h.fixture.high_order == 0) {
+		FAIL("D3-2 SH3 cross-window identity requires an interior node, a leaf and high-order SH");
+		return;
+	}
+	// Exercise bytes on BOTH sides of the 1 MiB transport boundary before any
+	// streamer job starts. The oracle regenerates source attributes independently;
+	// successful envelope/metric checks alone cannot prove the SH copy is exact.
+	for (uint32_t node : { 0u, h.fixture.node_count - 1u }) {
+		CAPTURE(node);
+		if (node >= uint32_t(h.fixture.source->get_nodes().size()) ||
+				h.fixture.source->get_nodes()[node].stored_bytes <= PayloadReadService::read_slice_bytes) {
+			FAIL("D3-2 SH3 identity target must exist and span more than one transport window");
+			return;
+		}
+		Vector<Gaussian> actual, expected;
+		Vector<Vector3> actual_sh, expected_sh;
+		String reason;
+		if (!h.fixture.expected_payload(node, expected, expected_sh)) {
+			return;
+		}
+		if (h.fixture.source->read_node_payload_from_store(h.store, uint64_t(0xd3204206u) + node, uint64_t(node) + 1u,
+					node, actual, actual_sh, reason) != OK) {
+			FAIL("D3-2 SH3 cross-window common-store read failed: ", reason.utf8().get_data());
+			return;
+		}
+		const uint64_t high_count = uint64_t(h.fixture.splats_per_node) * h.fixture.high_order;
+		if (uint64_t(actual.size()) != h.fixture.splats_per_node || uint64_t(expected.size()) != h.fixture.splats_per_node ||
+				uint64_t(actual_sh.size()) != high_count || uint64_t(expected_sh.size()) != high_count) {
+			FAIL("D3-2 SH3 cross-window identity requires complete Gaussian and SH arrays before byte comparison");
+			return;
+		}
+		CHECK_MESSAGE(std::memcmp(actual.ptr(), expected.ptr(), size_t(h.fixture.splats_per_node) * sizeof(Gaussian)) == 0,
+				"D3-2 SH3 cross-window Gaussian bytes differ from the independent codec-none oracle");
+		CHECK_MESSAGE(std::memcmp(actual_sh.ptr(), expected_sh.ptr(), size_t(high_count) * sizeof(Vector3)) == 0,
+				"D3-2 SH3 cross-window SH bytes differ from the independent codec-none oracle");
+	}
+	CHECK_MESSAGE(h.store.stats().peak_retained_bytes <= PayloadReadService::read_slice_bytes,
+			"D3-2 codec-none transport must retain at most one bounded window per direct read");
+	// Replay 48c49582803 admission independently: ready output had no charge;
+	// a concurrent read charged only its stored record plus logical packed copy.
+	// These frozen default inputs are the comparison, not a test-specific cap.
+	if (h.config.max_inflight_read_bytes != 8ull * 1024 * 1024 || h.config.max_jobs_in_flight != 16) {
+		FAIL("D3-2 base concurrency comparison requires unchanged 8 MiB and 16-job defaults");
+		return;
+	}
+	uint64_t base_bytes = 0;
+	uint32_t base_jobs = 0;
+	for (const GaussianSplatHlodPagedSource::NodeRecord &node : h.fixture.source->get_nodes()) {
+		const uint64_t cost = node.stored_bytes + uint64_t(node.topology.payload_count) * sizeof(PackedGaussian);
+		if (base_jobs >= h.config.max_jobs_in_flight ||
+				(base_jobs != 0 && base_bytes + cost > h.config.max_inflight_read_bytes)) {
+			break;
+		}
+		base_bytes += cost;
+		++base_jobs;
+	}
+	if (base_jobs <= 1 || base_jobs >= h.fixture.node_count) {
+		FAIL("D3-2 SH3 fixture must expose concurrent base admission with excess pending demand");
+		return;
+	}
+	// Hold before reads so worker speed cannot hide the number of jobs really
+	// admitted. Uploads remain enabled. Releasing this seam must then execute
+	// real common-store reads, packing and publication for every node.
+	h.control.hold_uploads = false;
+	h.control.hold_workers = true;
+	if (!h.set_control()) {
+		return;
+	}
+	const auto admitted = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || (h.sample.pending_tickets > 0 &&
+				(h.sample.admission_waits > 0 || h.sample.jobs_in_flight == h.config.max_jobs_in_flight));
+	});
+	if (!admitted.ready() || !h.observations_ok) {
+		FAIL("D3-2 SH3 workers never reached observable concurrent admission with pending demand");
+		return;
+	}
+	const uint32_t new_jobs = h.sample.peak_jobs_in_flight;
+	MESSAGE("D3-2 codec-none SH3 base concurrent jobs=", base_jobs, ", retained-path concurrent jobs=", new_jobs,
+			", derived retained cap=", h.retained_cap);
+	CHECK_MESSAGE(new_jobs >= base_jobs, "D3-2 retained admission reduced codec-none SH3 concurrency below base");
+	if (!h.finish_demand()) {
+		return;
+	}
+	MESSAGE("D3-2 codec-none SH3 observed retained peak=", h.sample.peak_retained_bytes, ", derived retained cap=", h.retained_cap);
+	CHECK_MESSAGE(h.bound_ok, "D3-2 codec-none SH3 storage exceeded its retained byte/job envelope");
+	CHECK_MESSAGE(h.sample.peak_retained_bytes <= h.retained_cap, "D3-2 codec-none SH3 actual retained storage exceeded its derived cap");
+	CHECK_MESSAGE(h.sample.peak_jobs_in_flight >= base_jobs, "D3-2 codec-none SH3 never sustained base concurrent job admission");
+	h.streamer.shutdown();
+	h.store.shutdown();
+	h.check_released();
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] held uploads bound every ordinary owner and resume pending demand") {

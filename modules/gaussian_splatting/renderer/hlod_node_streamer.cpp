@@ -35,10 +35,11 @@ void HlodNodeStreamer::ReservationLedger::observe_peak() {
 	peak_storage = MAX(peak_storage, bytes);
 }
 
-HlodNodeStreamer::Reservation::Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized) :
-		ledger(p_ledger), charge(p_charge), oversized(p_oversized) {
+HlodNodeStreamer::Reservation::Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized, uint64_t p_transport) :
+		ledger(p_ledger), charge(p_charge), transport(p_transport), oversized(p_oversized) {
 	MutexLock lock(ledger->mutex);
 	ledger->charged += charge;
+	ledger->transport_reserved += transport;
 	++ledger->acquired;
 	++ledger->live;
 	++ledger->jobs;
@@ -52,6 +53,7 @@ HlodNodeStreamer::Reservation::~Reservation() {
 	ledger->stored -= stored;
 	ledger->decoded -= decoded;
 	ledger->output[owner] -= output;
+	ledger->transport_reserved -= transport;
 	if (running) { --ledger->jobs; }
 	if (token_live) {
 		ledger->charged -= charge;
@@ -87,9 +89,15 @@ void HlodNodeStreamer::Reservation::move_output(OutputOwner p_owner) {
 void HlodNodeStreamer::Reservation::finish_work() {
 	MutexLock lock(ledger->mutex);
 	// This runs only after the stored page, decoder and decoded arrays are freed.
-	DEV_ASSERT(stored == 0 && decoded == 0 && output <= charge);
+	DEV_ASSERT(stored == 0 && decoded == 0 && transport == 0 && output <= charge);
 	ledger->charged -= charge - output;
 	charge = output;
+}
+
+void HlodNodeStreamer::Reservation::finish_transport() {
+	MutexLock lock(ledger->mutex);
+	ledger->transport_reserved -= transport;
+	transport = 0;
 }
 
 void HlodNodeStreamer::Reservation::finish_worker() {
@@ -152,6 +160,84 @@ Error HlodNodeStreamer::init_with_page_store(const Ref<GaussianSplatHlodRuntimeD
 	if (!init(p_data, p_config, p_world_generation, p_device_generation)) { return ERR_INVALID_DATA; }
 	page_store = &p_store;
 	store_generation = next_generation;
+	const Error budget_error = configure_retained_budget();
+	if (budget_error != OK) { shutdown(); return budget_error; }
+	return OK;
+}
+
+bool HlodNodeStreamer::node_reservation_bytes(const GaussianSplatHlodRuntimeData &p_source, uint32_t p_node,
+		bool p_use_store, uint64_t &r_bytes, uint64_t &r_output) const {
+	if (p_node >= uint32_t(p_source.nodes.size())) { return false; }
+	const uint64_t count = p_source.nodes[p_node].topology.payload_count;
+	r_output = storage_bytes(count, record_stride());
+	r_bytes = r_output;
+	if (r_output == UINT64_MAX) { return false; }
+	if (!p_source.is_paged() || p_source.find_edited(p_node)) { return true; }
+	const uint64_t read_working = p_source.paged_source->get_node_read_working_set_bytes(p_node);
+	const uint64_t gaussians = storage_bytes(count, sizeof(Gaussian));
+	const uint64_t sh = storage_bytes(count * p_source.high_order_count, sizeof(Vector3));
+	if (gaussians == UINT64_MAX || sh > UINT64_MAX - gaussians || r_output > UINT64_MAX - gaussians - sh) { return false; }
+	const uint64_t packing_peak = gaussians + sh + r_output;
+	if (p_use_store && p_source.paged_source->get_codec_id() == 0u) {
+		// Each raw transport window is freed before packing. Charge the larger
+		// actual overlap, never a full stored record beside decoded/output arrays.
+		r_bytes = MAX(read_working, packing_peak);
+	} else {
+		// Keep GSQ's existing conservative estimate and legacy admission intact.
+		const uint64_t packed = count * record_stride();
+		if (read_working > UINT64_MAX - packed) { return false; }
+		r_bytes = MAX(read_working + packed, packing_peak);
+	}
+	return r_bytes != UINT64_MAX;
+}
+
+Error HlodNodeStreamer::configure_retained_budget() {
+	retained_byte_cap = cfg.max_inflight_read_bytes;
+	if (!page_store || data.is_null() || !data->is_paged() || data->paged_source->get_codec_id() != 0u) { return OK; }
+	if (data->paged_source->get_nodes().size() != data->nodes.size()) { return ERR_INVALID_DATA; }
+	const uint32_t slots = MIN(cfg.max_jobs_in_flight, uint32_t(data->nodes.size()));
+	if (slots == 0) { return OK; }
+	Vector<uint64_t> smallest_base;
+	if (!gs_resize_or_fail(smallest_base, slots, "HLOD base admission measurements")) { return ERR_OUT_OF_MEMORY; }
+	uint32_t used = 0;
+	uint64_t largest_charge = 0, largest_output = 0;
+	for (uint32_t node = 0; node < uint32_t(data->nodes.size()); ++node) {
+		uint64_t charge = 0, output = 0;
+		if (!node_reservation_bytes(*data.ptr(), node, true, charge, output)) { return ERR_INVALID_DATA; }
+		const uint64_t packed = uint64_t(data->nodes[node].topology.payload_count) * record_stride();
+		const uint64_t stored = data->paged_source->get_nodes()[node].stored_bytes;
+		if (stored > UINT64_MAX - packed) { return ERR_INVALID_DATA; }
+		const uint64_t base = stored + packed;
+		// Oversized nodes retain the existing single-node exception, independent
+		// of this derived cap. They cannot inflate the normal-work allowance.
+		if (charge > cfg.max_inflight_read_bytes || base > cfg.max_inflight_read_bytes) { continue; }
+		largest_charge = MAX(largest_charge, charge);
+		largest_output = MAX(largest_output, output);
+		uint32_t position = used;
+		while (position > 0 && smallest_base[position - 1] > base) { --position; }
+		if (position >= slots) { continue; }
+		if (used < slots) { ++used; }
+		for (uint32_t i = used - 1; i > position; --i) { smallest_base.write[i] = smallest_base[i - 1]; }
+		smallest_base.write[position] = base;
+	}
+	uint32_t concurrency = 0;
+	uint64_t base_sum = 0;
+	for (uint32_t i = 0; i < used; ++i) {
+		if (smallest_base[i] > cfg.max_inflight_read_bytes - base_sum) { break; }
+		base_sum += smallest_base[i];
+		++concurrency;
+	}
+	// B is the explicit base input (8 MiB by default), J the unchanged job cap.
+	// K is the largest <=J count of this world's normal nodes whose base charges
+	// (stored + logical packed) fit B. R/O are their largest measured honest job
+	// and rounded output charges. Reserve K*R for work plus K*O for one completed
+	// batch retained across mailbox/ready/upload: C=max(B,K*(R+O)). No corpus or
+	// timing constant enters the formula. R,O<=B and K<=J bound C by max(B,2*J*B);
+	// all arithmetic is checked. Further held output still stops admission at C.
+	if (largest_output > UINT64_MAX - largest_charge) { return ERR_INVALID_DATA; }
+	const uint64_t per_slot = largest_charge + largest_output;
+	if (concurrency != 0 && per_slot > UINT64_MAX / concurrency) { return ERR_INVALID_DATA; }
+	retained_byte_cap = MAX(retained_byte_cap, uint64_t(concurrency) * per_slot);
 	return OK;
 }
 
@@ -238,7 +324,9 @@ Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeD
 	world_generation = p_world;
 	device_generation = p_device;
 	++store_generation;
-	return OK;
+	const Error budget_error = configure_retained_budget();
+	if (budget_error != OK) { shutdown(); }
+	return budget_error;
 }
 
 Error HlodNodeStreamer::_test_cancel_node(uint32_t p_node) {
@@ -275,6 +363,7 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 		return false;
 	}
 	cfg = p_config;
+	retained_byte_cap = p_config.max_inflight_read_bytes;
 	data = p_data;
 	world_generation = p_world_generation;
 	device_generation = p_device_generation;
@@ -407,6 +496,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 				d.paged_source->read_node_payload_from_store(*job->store, job->ticket.request_generation,
 						job->ticket.request_generation, job->ticket.node, gaussians, sh, why, &observation) :
 				d.paged_source->read_node_payload(job->ticket.node, gaussians, sh, why);
+		if (result.reservation) { result.reservation->finish_transport(); }
 		read_ok = read_error == OK;
 		if (read_error == OK) {
 			if (result.reservation) {
@@ -474,31 +564,26 @@ void HlodNodeStreamer::start_jobs() {
 		}
 		std::unique_ptr<Reservation> permit;
 		if (!p_shadow) {
-			const uint64_t packed_bytes = uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride();
-			uint64_t reservation_bytes = storage_bytes(source->nodes[p_ticket.node].topology.payload_count, record_stride());
-			if (read_bytes != 0) {
-				// Keep legacy input-only telemetry unchanged, but the ordinary permit
-				// always covers the conservative stored/decode/output lifetime.
-				const uint64_t read_working = source->paged_source->get_node_read_working_set_bytes(p_ticket.node);
-				if (read_working > UINT64_MAX - packed_bytes) { residency.fail_load(p_ticket); return true; }
-				reservation_bytes = read_working + packed_bytes;
-				const uint64_t decoded_gaussians = uint64_t(source->nodes[p_ticket.node].topology.payload_count) * sizeof(Gaussian);
-				const uint64_t decoded_sh = uint64_t(source->nodes[p_ticket.node].topology.payload_count) * source->high_order_count * sizeof(Vector3);
-				// Highly compressed large nodes can cross different CowData power-
-				// of-two boundaries for input and output. Preserve the conservative
-				// read estimate and also cover the actual post-read packing overlap.
-				const uint64_t packing_peak = storage_bytes(decoded_gaussians, 1) +
-						storage_bytes(decoded_sh, 1) + storage_bytes(packed_bytes, 1);
-				reservation_bytes = MAX(reservation_bytes, packing_peak);
+			uint64_t reservation_bytes = 0, output_bytes = 0;
+			if (!node_reservation_bytes(*source.ptr(), p_ticket.node, use_store, reservation_bytes, output_bytes)) {
+				residency.fail_load(p_ticket); return true;
 			}
-			if (reservation_bytes == UINT64_MAX) { residency.fail_load(p_ticket); return true; }
 			MutexLock lock(ledger->mutex);
 			const bool oversized = reservation_bytes > cfg.max_inflight_read_bytes;
-			if (ledger->oversized != 0 || (oversized ? ledger->live != 0 : ledger->charged > cfg.max_inflight_read_bytes - reservation_bytes)) {
+			const uint64_t transport = use_store && source->paged_source->get_codec_id() == 0u ?
+					MIN(read_bytes, PayloadReadService::read_slice_bytes) : 0;
+			// The larger retained cap must not overbook the unchanged read service.
+			// Promise one maximum raw window before starting; return that promise in
+			// the worker as soon as read_node_payload_from_store frees its last page.
+			const bool transport_full = !oversized && transport != 0 &&
+					(transport > cfg.max_inflight_read_bytes || ledger->transport_reserved > cfg.max_inflight_read_bytes - transport);
+			if (ledger->oversized != 0 || transport_full ||
+					(oversized ? ledger->live != 0 : ledger->charged > retained_byte_cap - reservation_bytes)) {
 				++ledger->admission_waits;
 				return false; // Pending tickets own no payload storage.
 			}
-			permit = std::make_unique<Reservation>(ledger, reservation_bytes, oversized);
+			permit = std::make_unique<Reservation>(ledger, reservation_bytes, oversized, transport);
+			if (use_store && source->paged_source->get_codec_id() == 0u) { reserved = reservation_bytes; }
 		}
 		if (counted) { read_stats->begin_read(reserved); }
 		Job *job = memnew(Job);

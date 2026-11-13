@@ -49,9 +49,9 @@ public:
 		uint32_t scale_bits = 0;
 		uint64_t upload_bytes_per_frame = 32ull * 1024 * 1024;
 		uint32_t max_jobs_in_flight = 16;
-		// Ordinary stored/decode/packed-output envelope. Reservations survive the
-		// mailbox, ready and upload handoffs. An oversized node is admitted alone
-		// and excludes further jobs until its output is uploaded or discarded.
+		// Base read-admission input. Codec-none store streams derive their retained
+		// cap from measured node allocations and base-equivalent concurrency; other
+		// paths retain this cap. A node above this input still runs alone.
 		uint64_t max_inflight_read_bytes = 8ull * 1024 * 1024;
 		uint32_t retire_delay_frames = 3;
 		// Package F1: a staged edit that has not committed after this many frames is cancelled and reported
@@ -96,8 +96,9 @@ public:
 		uint64_t payload_bytes_read_total = 0;
 		uint64_t payload_read_failures_total = 0;
 		uint32_t payload_reads_in_flight = 0;
-		// Peak sum of the working sets (file record + packed copy) of reads running at the same moment: the CPU payload
-		// working set. Bounded by Config::max_inflight_read_bytes (or one record, if one alone is larger), whatever
+		// Peak sum of the admitted working sets of reads running at the same moment. Store-backed codec-none uses
+		// actual window/decode/pack peaks and the derived retained cap; legacy reads retain record + packed accounting,
+		// bounded by Config::max_inflight_read_bytes (or one record, if one alone is larger), whatever
 		// the tree size.
 		uint64_t payload_in_flight_bytes_peak = 0;
 		uint64_t payload_largest_read_bytes = 0;
@@ -162,6 +163,8 @@ public:
 	bool is_active() const { return active; }
 	// Render-thread ownership check; the caller owns p_store through worker drain.
 	bool uses_page_store(const PayloadPageStore *p_store) const { return active && p_store != nullptr && page_store == p_store; }
+	// Render-thread derived ordinary cap; reservations include queued output.
+	uint64_t get_retained_byte_cap() const { return retained_byte_cap; }
 
 	// Retires freed runs; call once per frame before the selector reads resident_mask() or get_data(). With a device, this
 	// is also the publication boundary of a staged edit (package F1): when the replacement cut is complete and ready the
@@ -301,6 +304,7 @@ private:
 	public:
 		mutable Mutex mutex;
 		uint64_t charged = 0, acquired = 0, released = 0, live = 0, oversized = 0;
+		uint64_t transport_reserved = 0; // Raw windows promised to jobs, against the unchanged base read cap.
 		uint64_t jobs_started = 0, admission_waits = 0;
 		uint32_t jobs = 0, peak_jobs = 0;
 		// Storage observations are changed by allocation/free/handoff events,
@@ -318,18 +322,19 @@ private:
 	};
 	class Reservation {
 		Ref<ReservationLedger> ledger;
-		uint64_t charge = 0, stored = 0, decoded = 0, output = 0;
+		uint64_t charge = 0, stored = 0, decoded = 0, output = 0, transport = 0;
 		bool oversized = false, running = true, token_live = true;
 		OutputOwner owner = OUTPUT_WORKER;
 
 	public:
-		Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized);
+		Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized, uint64_t p_transport);
 		~Reservation();
 		Reservation(const Reservation &) = delete;
 		Reservation &operator=(const Reservation &) = delete;
 		void storage_changed(uint64_t p_stored, uint64_t p_decoded);
 		void output_changed(uint64_t p_bytes);
 		void move_output(OutputOwner p_owner);
+		void finish_transport(); // Last stored window freed; decoder/packing may still be running.
 		void finish_work(); // Input storage freed; keeps actual output capacity charged.
 		void finish_worker();
 #ifdef TESTS_ENABLED
@@ -346,7 +351,7 @@ private:
 		std::atomic<uint64_t> in_flight_bytes{ 0 };
 		std::atomic<uint64_t> in_flight_bytes_peak{ 0 };
 		std::atomic<uint64_t> largest{ 0 };
-		// `p_reserved` is the job's whole CPU working set while it runs: the file record plus the packed copy.
+		// `p_reserved` is the admitted job working set (the legacy path uses record + packed copy).
 		void begin_read(uint64_t p_reserved) {
 			in_flight.fetch_add(1);
 			const uint64_t now = in_flight_bytes.fetch_add(p_reserved) + p_reserved;
@@ -408,6 +413,9 @@ private:
 	};
 
 	static void run_job(void *p_userdata);
+	bool node_reservation_bytes(const GaussianSplatHlodRuntimeData &p_source, uint32_t p_node, bool p_use_store,
+			uint64_t &r_bytes, uint64_t &r_output) const;
+	Error configure_retained_budget();
 	void start_jobs();
 	void collect_finished_tasks(bool p_wait_all);
 	void drain_mailbox();
@@ -418,6 +426,7 @@ private:
 
 	bool active = false;
 	Config cfg;
+	uint64_t retained_byte_cap = 0; // Render-thread owned, immutable between source installations.
 	Ref<GaussianSplatHlodRuntimeData> data;
 	gs_hlod_runtime::NodeResidency residency;
 	Ref<Mailbox> mailbox;
