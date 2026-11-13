@@ -124,6 +124,9 @@ GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
     ("beyond_vram_flythrough.yml", "prime-world-cache"): "tests/runtime/flythrough/dispatch_lane.py",
     # D2-5 uses the same producer handoff for T0 and the two Tier A tree builds.
     ("beyond_vram_flythrough.yml", "prime-auto-tree"): "tests/runtime/flythrough/dispatch_lane.py",
+    # Real-scan jobs need the GPU label because only that runner has GS_TESTDATA.
+    ("beyond_vram_flythrough.yml", "real-scan-identity"): "tests/runtime/flythrough/dispatch_lane.py",
+    ("beyond_vram_flythrough.yml", "codec-probe"): "tests/runtime/flythrough/run_codec_probe.py",
 }
 
 # These expressions deliberately recognize commands, not text. A path in a step

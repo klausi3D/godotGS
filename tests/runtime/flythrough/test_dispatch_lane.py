@@ -2170,6 +2170,37 @@ class RealScanIdentity(_TempCase):
         self.assertEqual(record["data"]["identity"]["subset_count"], 875_994)
         self.assertEqual(record["data"]["full_scan"]["status"], "NOT_RUN")
 
+    def test_payload_scratch_is_outside_reports_and_removed(self):
+        scratch_paths = []
+
+        def run(cmd, **kwargs):
+            scratch = Path(kwargs["env"]["GS_D2_REAL_SCAN_SCRATCH"])
+            scratch_paths.append(scratch)
+            self.assertTrue(scratch.is_dir())
+            self.assertEqual(scratch.parent, self.out.resolve().parent)
+            self.assertFalse(scratch.is_relative_to(self.out.resolve()))
+            (scratch / "owned.manifest.json").write_text("{}", encoding="utf-8")
+            return self.runner(cmd, **kwargs)
+
+        with mock.patch.object(lane, "auto_tree_preflight", return_value=lane.EXIT_NOT_RUN):
+            for _ in range(2):
+                self.assertEqual(lane.real_scan_identity(self.binary, self.out, self.scan, runner=run), lane.EXIT_OK)
+        self.assertEqual(len(set(scratch_paths)), 2, "each invocation needs fresh owned scratch")
+        self.assertTrue(all(not path.exists() for path in scratch_paths))
+
+    def test_payload_scratch_is_removed_after_timeout(self):
+        scratch_paths = []
+
+        def timeout(cmd, **kwargs):
+            scratch = Path(kwargs["env"]["GS_D2_REAL_SCAN_SCRATCH"])
+            scratch_paths.append(scratch)
+            (scratch / "owned.manifest.json").write_text("{}", encoding="utf-8")
+            raise subprocess.TimeoutExpired(cmd, 3600)
+
+        self.assertEqual(lane.real_scan_identity(self.binary, self.out, self.scan, runner=timeout), lane.EXIT_FAIL)
+        self.assertEqual(len(scratch_paths), 1)
+        self.assertFalse(scratch_paths[0].exists())
+
     def test_mismatch_is_fail_and_keeps_first_divergent_node(self):
         first = {"node_index": 17, "field": "cell.ix", "expected": "2", "actual": "3"}
         self.report.update(status="FAIL", first_divergence=first)

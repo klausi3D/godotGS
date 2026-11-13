@@ -5,6 +5,7 @@
 // GS_D2_REAL_SCAN_PLY selects a read-only scan. Only vertex i % STRIDE == 0 is
 // copied, without decoding the full scan, to an owned temporary PLY. No derived
 // payload survives this case. GS_D2_REAL_SCAN_OUT is the reports-only JSON path.
+// GS_D2_REAL_SCAN_SCRATCH selects a separate scratch root (OS temp by default).
 #include "test_macros.h"
 #include "gs_gsq_bounds_test_helpers.h"
 
@@ -54,7 +55,10 @@ struct Run {
 
 	Run() {
 		report_path = OS::get_singleton()->get_environment("GS_D2_REAL_SCAN_OUT");
-		const String parent = report_path.is_empty() ? OS::get_singleton()->get_temp_path() : report_path.get_base_dir();
+		String parent = OS::get_singleton()->get_environment("GS_D2_REAL_SCAN_SCRATCH");
+		if (parent.is_empty()) {
+			parent = OS::get_singleton()->get_temp_path();
+		}
 		dir = parent.path_join("d2-real-scan-payload-" + itos(OS::get_singleton()->get_ticks_usec()));
 		report["schema"] = "godotgs-d2-real-scan-identity/1";
 		report["status"] = "FAIL";
@@ -698,7 +702,7 @@ inline bool run_case(Run &r_run) {
 		if (expected_source->open(reference, expected_tree, metadata, reason) != OK) {
 			return r_run.fail("independent_in_core_v4_reopen_failed");
 		}
-		if (expected_tree.nodes.size() != tree.nodes.size() || nodes.size() != int(tree.nodes.size()) || source->get_nodes().size() != int(tree.nodes.size())) {
+		if (expected_tree.nodes.size() != tree.nodes.size() || nodes.size() != int(tree.nodes.size()) || source->get_nodes().size() != int(tree.nodes.size()) || expected_source->get_nodes().size() != int(tree.nodes.size())) {
 			if (difference.is_empty()) {
 				difference = divergence(0, "independent_in_core_node_count", expected_tree.nodes.size(), tree.nodes.size());
 			}
@@ -734,7 +738,19 @@ inline bool run_case(Run &r_run) {
 			if (stored != String(entry.get("stored_sha256", ""))) {
 				keep_first(difference, divergence(i, "stored_sha256", entry.get("stored_sha256", ""), stored));
 			}
+			const String in_core_stored = String::hex_encode_buffer(expected_source->get_nodes()[i].digest, 32);
+			if (stored != in_core_stored) {
+				keep_first(difference, divergence(i, "stored_sha256_vs_in_core", in_core_stored, stored));
+			}
 			CHECK(actual.size() > 0);
+		}
+		// Both paths use the same spec/bounds and empty metadata. WriterV4 assigns
+		// final records in BFS order (io/gs_world_writer_v4.cpp:1459-1503), independent
+		// of scratch layout. The source fingerprint is manifest-only
+		// (core/gaussian_splat_hlod_auto_tree.cpp:1502-1508), so file bytes must agree.
+		// Preserve a concrete per-node divergence before diagnosing the whole file.
+		if (difference.is_empty() && row["file_sha256"] != row["in_core_file_sha256"]) {
+			difference = divergence(0, "file_sha256_vs_in_core", row["in_core_file_sha256"], row["file_sha256"]);
 		}
 		row["leaf_node_count"] = leaves;
 		row["interior_node_count"] = tree.nodes.size() - leaves;

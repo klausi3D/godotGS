@@ -10,6 +10,8 @@ name: Beyond-VRAM Fly-through
 # per-run verify; mincore <= 1 % before the cold pass, else INVALID cache_warm;
 # the host_cache label), a lane verdict with the section 9.1 exit mapping, and a
 # Monday liveness watchdog (GitHub-hosted).
+# Dispatch mode real_scan runs only the build, D2 real-scan identity and BV-C2
+# codec probe on the data-bearing GPU runner; it never primes the world cache.
 #
 # REPORT-ONLY: no job here is a required check and nothing gates a merge. The
 # gate verdict and the thresholds file are BV-09; hard correctness gates are
@@ -36,13 +38,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "flythrough (the lane), auto_tree (prime the HLOD tree only), or watchdog (liveness only)"
+        description: "flythrough (the lane), auto_tree (prime HLOD only), real_scan (D2 identity and codec probe only), or watchdog"
         required: false
         default: "flythrough"
         type: choice
         options:
           - "flythrough"
           - "auto_tree"
+          - "real_scan"
           - "watchdog"
       tier:
         description: "World tier: T0 (4.19M splats, smoke) or A (201M splats; also uses T0). The weekly schedule runs A."
@@ -71,7 +74,7 @@ on:
         default: "8"
         type: string
       scan_dir:
-        description: "Runner directory of real scans for the codec probe or auto_tree identity evidence (empty: $GS_REAL_SCAN_DIR; unavailable evidence is recorded)"
+        description: "Runner scan directory (empty: $GS_TESTDATA/3dgs-szenen for real_scan and codec probe; codec probe retains $GS_REAL_SCAN_DIR fallback if GS_TESTDATA is unset)"
         required: false
         default: ""
         type: string
@@ -86,7 +89,7 @@ on:
         default: false
         type: boolean
 
-run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
 permissions:
   contents: read
@@ -102,7 +105,7 @@ permissions:
 # mincore check right before each probe turns any warming by the other run into
 # INVALID cache_warm, never into a cold result.
 concurrency:
-  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || 'lane' }}
+  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || inputs.mode == 'real_scan' && 'real-scan' || 'lane' }}
   cancel-in-progress: false
 
 env:
@@ -193,7 +196,7 @@ jobs:
   # to the RTX 3080 runner (`rtx3080`), because the cache lives on its disk.
   prime-world-cache:
     name: Prime world cache (RTX 3080 runner)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.prime_world_cache }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && inputs.prime_world_cache }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
     timeout-minutes: 240
@@ -413,7 +416,7 @@ jobs:
   # the world cache it reads lives on that runner's disk.
   flythrough:
     name: Beyond-VRAM fly-through (report-only)
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: [build-linux-editor, prime-world-cache]
     # ADR section 9.1: 150 min, per-step timeouts below. Generation is the prime
@@ -637,21 +640,109 @@ jobs:
           python3 tests/runtime/flythrough/dispatch_lane.py cleanup --world-root "$BVW_WORLD_ROOT"
           df -P -B1 "$RUNNER_TEMP" "$BVW_CACHE_ROOT" || df -P -B1 "$RUNNER_TEMP"
 
+  # #1427 item 3: the real scan is read only. Scratch subset/world payloads stay
+  # under RUNNER_TEMP; the artifact allowlist below uploads only reports.
+  real-scan-identity:
+    name: D2 real-scan identity (RTX 3080 runner, report-only)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'real_scan' }}
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
+    needs: build-linux-editor
+    timeout-minutes: 90
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      NODEVICE_SELECT: '1'
+      BVW_SCAN_DIR: ${{ inputs.scan_dir }}
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 1
+          set-safe-directory: false
+
+      - name: Verify Python on runner
+        run: python3 --version
+
+      - name: Set contention record path
+        run: echo "GS_CI_GPU_CONTENTION_DIR=$RUNNER_TEMP/d2-real-scan/contention" >> "$GITHUB_ENV"
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      - name: Download binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+      - name: Real-scan D2 tiled vs in-core identity
+        timeout-minutes: 60
+        run: |
+          SCAN=""
+          if [ -n "$BVW_SCAN_DIR" ]; then
+            SCAN="$BVW_SCAN_DIR/bicycle-30k.ply"
+          elif [ -n "${GS_TESTDATA:-}" ]; then
+            SCAN="$GS_TESTDATA/3dgs-szenen/bicycle-30k.ply"
+          fi
+          python3 tests/runtime/flythrough/dispatch_lane.py real-scan-identity --godot-binary bin/godot.linuxbsd.editor.x86_64 --scan "$SCAN" --out "$RUNNER_TEMP/d2-real-scan"
+
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
+
+      - name: Upload real-scan identity reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2-real-scan-identity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/d2-real-scan/**/*.json
+            ${{ runner.temp }}/d2-real-scan/**/*.md
+            ${{ runner.temp }}/d2-real-scan/**/*.log
+          if-no-files-found: error
+          retention-days: 30
+
   # BV-C2 (ADR section 10 row BV-C2, sections 5.3/5.4, risks K3/K9): GSQ codec
   # ratio and single-core decode/pack throughput of the optimized producer
-  # binary, on generator subsets and on the real scans in `scan_dir`. CPU only,
-  # so it runs on a runner without the `gpu` label requirement and does not
-  # wait for the fly-through. Dispatch only: the weekly lane does not repeat it.
+  # binary, on generator subsets and on the real scans in `scan_dir`. Its work
+  # is CPU-only, but only the GPU runner has the read-only scan mount. Dispatch
+  # only (including real_scan): the weekly lane does not repeat it.
   # Report-only: tests/runtime/flythrough/run_codec_probe.py exits 0 with
   # verdict PARTIAL when real scans are MISSING, 1 on a failed or crashed case,
   # 3 when no report was written.
   codec-probe:
-    name: BV-C2 GSQ codec probe (Self-Hosted CPU, report-only)
+    name: BV-C2 GSQ codec probe (RTX 3080 runner, report-only)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      NODEVICE_SELECT: '1'
       BVW_SCAN_DIR: ${{ inputs.scan_dir }}
     defaults:
       run:
@@ -683,21 +774,42 @@ jobs:
       - name: Verify and install binary (pinned to github.sha)
         run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
 
+      - name: Set contention record path
+        run: echo "GS_CI_GPU_CONTENTION_DIR=$RUNNER_TEMP/gsq-probe/contention" >> "$GITHUB_ENV"
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
       - name: Codec probe (BV-C2)
         timeout-minutes: 30
         run: |
           if [ -n "$BVW_SCAN_DIR" ]; then
             python3 tests/runtime/flythrough/run_codec_probe.py --godot-binary bin/godot.linuxbsd.editor.x86_64 --out "$RUNNER_TEMP/gsq-probe" --scan-dir "$BVW_SCAN_DIR"
+          elif [ -n "${GS_TESTDATA:-}" ]; then
+            python3 tests/runtime/flythrough/run_codec_probe.py --godot-binary bin/godot.linuxbsd.editor.x86_64 --out "$RUNNER_TEMP/gsq-probe" --scan-dir "$GS_TESTDATA/3dgs-szenen"
           else
             python3 tests/runtime/flythrough/run_codec_probe.py --godot-binary bin/godot.linuxbsd.editor.x86_64 --out "$RUNNER_TEMP/gsq-probe"
           fi
+
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python3 tests/ci/runner_gpu_contention.py postflight
 
       - name: Upload codec probe report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gsq-codec-probe-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/gsq-probe/
+          path: |
+            ${{ runner.temp }}/gsq-probe/**/*.json
+            ${{ runner.temp }}/gsq-probe/**/*.md
+            ${{ runner.temp }}/gsq-probe/**/*.log
           if-no-files-found: error
           retention-days: 30
 
