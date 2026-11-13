@@ -821,8 +821,14 @@ uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t 
 			!gs_hlod_runtime::allocation_bytes(count * record_high_order, sizeof(Vector3), sh_allocation)) {
 		return UINT64_MAX;
 	}
+	if (info.codec_id == 0u) {
+		// Codec-none retains one complete StoredPage while copying directly into
+		// the decoded arrays. There is no second stored/decoded growth buffer or
+		// decoder workspace: charge the actual rounded allocations and headers.
+		return stored_allocation + gaussian_allocation + sh_allocation;
+	}
 	// Retain the existing conservative expression, while also covering the
-	// actual rounded allocations and CowData headers for very small nodes.
+	// actual rounded allocations and CowData headers for very small GSQ nodes.
 	return MAX(2 * (record.stored_bytes + decoded) + workspace,
 			stored_allocation + gaussian_allocation + sh_allocation + workspace);
 }
