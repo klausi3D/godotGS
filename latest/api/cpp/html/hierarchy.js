@@ -85,6 +85,7 @@ var hierarchy =
     [ "gs_hlod_runtime::NodeResidency::Config", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html", null ],
     [ "HlodNodeStreamer::Config", "structHlodNodeStreamer_1_1Config.html", null ],
     [ "NodeResidency::Config", "structNodeResidency_1_1Config.html", null ],
+    [ "PayloadPageStore::Config", "structPayloadPageStore_1_1Config.html", null ],
     [ "PayloadReadService::Config", "structPayloadReadService_1_1Config.html", null ],
     [ "GaussianStreamingTypes::ConfigOverrides", "structGaussianStreamingTypes_1_1ConfigOverrides.html", null ],
     [ "Control", null, [
@@ -119,6 +120,8 @@ var hierarchy =
     [ "GaussianRenderDebug::DebugState&lt; PreviewModeT, StageMetricsT, PipelineEventT &gt;", "structGaussianRenderDebug_1_1DebugState.html", null ],
     [ "ResourceOwnerMismatchContract::Decision", "structResourceOwnerMismatchContract_1_1Decision.html", null ],
     [ "gs_gsq::DecodeContext", "classgs__gsq_1_1DecodeContext.html", null ],
+    [ "PayloadPageStore::DecodedPage", "structPayloadPageStore_1_1DecodedPage.html", null ],
+    [ "PayloadPageStore::DecoderLease", "classPayloadPageStore_1_1DecoderLease.html", null ],
     [ "GsqPagedChunkPayloadSource::DecodeStats", "structGsqPagedChunkPayloadSource_1_1DecodeStats.html", null ],
     [ "GPUBufferManager::DeferredDeletionQueue", "classGPUBufferManager_1_1DeferredDeletionQueue.html", null ],
     [ "GaussianSplatSceneDirector::DeferredRendererWork", "classGaussianSplatSceneDirector_1_1DeferredRendererWork.html", null ],
@@ -227,6 +230,7 @@ var hierarchy =
     [ "IDebugOverlaySystem", "classIDebugOverlaySystem.html", [
       [ "DebugOverlaySystem", "classDebugOverlaySystem.html", null ]
     ] ],
+    [ "PayloadPageStore::Identity", "structPayloadPageStore_1_1Identity.html", null ],
     [ "GaussianSplatRenderer::IFrameMutationAccess", "classGaussianSplatRenderer_1_1IFrameMutationAccess.html", [
       [ "GaussianSplatRenderer::FrameStateProvider", "classGaussianSplatRenderer_1_1FrameStateProvider.html", null ]
     ] ],
@@ -391,6 +395,7 @@ var hierarchy =
     [ "GsqPagedChunkPayloadSource::Page", "structGsqPagedChunkPayloadSource_1_1Page.html", null ],
     [ "gs_gsq::PageBuilder", "classgs__gsq_1_1PageBuilder.html", null ],
     [ "gs_gsq::PageBuildStats", "structgs__gsq_1_1PageBuildStats.html", null ],
+    [ "PayloadPageStore::PageDescriptor", "structPayloadPageStore_1_1PageDescriptor.html", null ],
     [ "gs_world_writer::PagedV4Spec", "structgs__world__writer_1_1PagedV4Spec.html", null ],
     [ "gs_gsq::PageInfo", "structgs__gsq_1_1PageInfo.html", null ],
     [ "gs_gsq::PageRecord", "structgs__gsq_1_1PageRecord.html", null ],
@@ -415,6 +420,7 @@ var hierarchy =
     [ "GaussianSplatting::GpuPassTiming::PassTimingAccumulator", "classGaussianSplatting_1_1GpuPassTiming_1_1PassTimingAccumulator.html", null ],
     [ "GaussianSplatting::GpuPassTiming::PassTimingSnapshot", "structGaussianSplatting_1_1GpuPassTiming_1_1PassTimingSnapshot.html", null ],
     [ "TileProjectionLayout::Payload", "structTileProjectionLayout_1_1Payload.html", null ],
+    [ "PayloadPageStore", "classPayloadPageStore.html", null ],
     [ "PayloadReadService", "classPayloadReadService.html", null ],
     [ "GaussianSplatAsset::PayloadSnapshot", "structGaussianSplatAsset_1_1PayloadSnapshot.html", null ],
     [ "gs_hlod_pack::PayloadView", "structgs__hlod__pack_1_1PayloadView.html", null ],
@@ -690,7 +696,9 @@ var hierarchy =
     [ "gs_hlod_runtime::NodeResidency::Stats", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html", null ],
     [ "GsqAutoTreeSource::Stats", "structGsqAutoTreeSource_1_1Stats.html", null ],
     [ "NodeResidency::Stats", "structNodeResidency_1_1Stats.html", null ],
+    [ "PayloadPageStore::Stats", "structPayloadPageStore_1_1Stats.html", null ],
     [ "PayloadReadService::Stats", "structPayloadReadService_1_1Stats.html", null ],
+    [ "PayloadPageStore::StoredPage", "classPayloadPageStore_1_1StoredPage.html", null ],
     [ "GaussianMemoryStream::StreamBuffer", "structGaussianMemoryStream_1_1StreamBuffer.html", null ],
     [ "StreamingAnalyticsFrame", "classStreamingAnalyticsFrame.html", null ],
     [ "GaussianStreamingTypes::StreamingChunk", "structGaussianStreamingTypes_1_1StreamingChunk.html", null ],

@@ -1,7 +1,7 @@
 var searchData=
 [
   ['take_5fevicted_0',['take_evicted',['../classgs__hlod__runtime_1_1NodeResidency.html#a38aca86d6242d9be911cd871ab7b4446',1,'gs_hlod_runtime::NodeResidency::take_evicted()'],['../classNodeResidency.html#a38aca86d6242d9be911cd871ab7b4446',1,'NodeResidency::take_evicted()']]],
-  ['take_5fthread_5flast_5fcapture_5fdecode_5fnsec_1',['take_thread_last_capture_decode_nsec',['../classChunkPayloadSource.html#a391e3c168235c6fb2fa686172162681e',1,'ChunkPayloadSource::take_thread_last_capture_decode_nsec()'],['../classGsqPagedChunkPayloadSource.html#a2481b65034ea3b5bde29fe6836c9763a',1,'GsqPagedChunkPayloadSource::take_thread_last_capture_decode_nsec()']]],
+  ['take_5fthread_5flast_5fcapture_5fdecode_5fnsec_1',['take_thread_last_capture_decode_nsec',['../classChunkPayloadSource.html#a391e3c168235c6fb2fa686172162681e',1,'ChunkPayloadSource::take_thread_last_capture_decode_nsec()'],['../classGsqPagedChunkPayloadSource.html#a2481b65034ea3b5bde29fe6836c9763a',1,'GsqPagedChunkPayloadSource::take_thread_last_capture_decode_nsec()'],['../classPayloadPageStore.html#ae4495ad3cfb93a57fa34b85c675ff4d3',1,'PayloadPageStore::take_thread_last_capture_decode_nsec()']]],
   ['tally_5frows_2',['tally_rows',['../namespacegs__hlod__bundle.html#a84ea7cd0bbb53ca7859883b6ba584688',1,'gs_hlod_bundle']]],
   ['teardown_5fworld_5ffor_5fscenario_3',['teardown_world_for_scenario',['../classGaussianSplatSceneDirector.html#a730f5e941783e4a50234cb0d50eeef4d',1,'GaussianSplatSceneDirector']]],
   ['test_5fclear_5fculling_5fconfig_4',['test_clear_culling_config',['../classRenderDataOrchestrator.html#a32fd6e4566d4a4e11445a334d87d5cc0',1,'RenderDataOrchestrator']]],

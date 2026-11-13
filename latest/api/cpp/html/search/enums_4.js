@@ -5,5 +5,6 @@ var searchData=
   ['editstageresult_2',['EditStageResult',['../classHlodNodeStreamer.html#a296a308f121815961db48475963c577c',1,'HlodNodeStreamer']]],
   ['editstate_3',['EditState',['../classGaussianSplatHlodRuntimeData.html#af528ecb9e0cab9d2d80c4228921670ae',1,'GaussianSplatHlodRuntimeData']]],
   ['editstatus_4',['EditStatus',['../namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9e',1,'gs_hlod_runtime']]],
-  ['evictionresult_5',['EvictionResult',['../classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cb',1,'StreamingEvictionController']]]
+  ['encoding_5',['Encoding',['../classPayloadPageStore.html#a01a33b21e75c51d8d5e9b94eb99a4d56',1,'PayloadPageStore']]],
+  ['evictionresult_6',['EvictionResult',['../classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cb',1,'StreamingEvictionController']]]
 ];

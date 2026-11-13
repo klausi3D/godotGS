@@ -50,7 +50,7 @@ var searchData=
   ['velocity_47',['velocity',['../structStreamingVisibilityController_1_1CameraVelocityTracker.html#a83457d259508d7a113c372b73fdb33ef',1,'StreamingVisibilityController::CameraVelocityTracker']]],
   ['verify_48',['verify',['../classGaussianSplatWorldGenerator.html#ae0873e3ed2ddb40faefbcbb61732d5db',1,'GaussianSplatWorldGenerator']]],
   ['verify_5fbuffer_5fdevice_5fownership_49',['verify_buffer_device_ownership',['../classResourceOwnerMismatchContract.html#a0560c24cd5fc08d8bcc796380dcd4c29',1,'ResourceOwnerMismatchContract']]],
-  ['verify_5fnsec_50',['verify_nsec',['../structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1786d8283033e9b5727ffe16946b6b85',1,'GsqPagedChunkPayloadSource::DecodeStats']]],
+  ['verify_5fnsec_50',['verify_nsec',['../structGsqPagedChunkPayloadSource_1_1DecodeStats.html#a1786d8283033e9b5727ffe16946b6b85',1,'GsqPagedChunkPayloadSource::DecodeStats::verify_nsec'],['../structPayloadPageStore_1_1Stats.html#a9eb88def379bba2500f33cb04b88b878',1,'PayloadPageStore::Stats::verify_nsec']]],
   ['verify_5fpage_51',['verify_page',['../namespacegs__gsq.html#ade26980767342bc4e2a4169e6ee40972',1,'gs_gsq']]],
   ['verify_5freadback_52',['verify_readback',['../structgs__world__generator_1_1GenerateOptions.html#a17f3d843eeaace22700cb338fe57da8c',1,'gs_world_generator::GenerateOptions']]],
   ['verify_5ftexture_5fdevice_5fownership_53',['verify_texture_device_ownership',['../classResourceOwnerMismatchContract.html#a75a775bc84fc248022b0a363957fab54',1,'ResourceOwnerMismatchContract']]],

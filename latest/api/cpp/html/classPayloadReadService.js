@@ -15,6 +15,7 @@ var classPayloadReadService =
     [ "~PayloadReadService", "classPayloadReadService.html#a6cba66d8108110bbd8ce857dd5e8cbbb", null ],
     [ "PayloadReadService", "classPayloadReadService.html#a452da9dcc33ac2dce22b751f6893d671", null ],
     [ "cancel", "classPayloadReadService.html#afec8729b0455fe06ecdbf0d7e03fb67b", null ],
+    [ "cancel_and_wait", "classPayloadReadService.html#a73485721c6a8f6444bf35215e1efcd9b", null ],
     [ "operator=", "classPayloadReadService.html#a05a860384088707ff83418a0c30b8917", null ],
     [ "poll_completion", "classPayloadReadService.html#a9889fd4495cac7b8cf4779c2f0783db6", null ],
     [ "release_handles", "classPayloadReadService.html#a77d23dc316501cbac8bc04174b79f228", null ],
@@ -22,5 +23,6 @@ var classPayloadReadService =
     [ "start", "classPayloadReadService.html#a5cf96b4f2ba1b654273b5fc9d07da8e8", null ],
     [ "stats", "classPayloadReadService.html#a460b3c793118ae917a747f88068bd8aa", null ],
     [ "submit", "classPayloadReadService.html#a2fd2f45f37f2880f7eedda0d151046c3", null ],
-    [ "wait_completion", "classPayloadReadService.html#a47012fd473575bf3cb5b1c7bbfabecbc", null ]
+    [ "wait_completion", "classPayloadReadService.html#a47012fd473575bf3cb5b1c7bbfabecbc", null ],
+    [ "wait_ready", "classPayloadReadService.html#aee1b94fd1aff383f2a34684a3ad8d0cd", null ]
 ];

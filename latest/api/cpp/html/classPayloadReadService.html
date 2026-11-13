@@ -123,9 +123,11 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aa99de81c4e7cec6ee20fd651fb1794a9" id="r_aa99de81c4e7cec6ee20fd651fb1794a9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa99de81c4e7cec6ee20fd651fb1794a9">shutdown</a> ()</td></tr>
 <tr class="memitem:a2fd2f45f37f2880f7eedda0d151046c3" id="r_a2fd2f45f37f2880f7eedda0d151046c3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a1b9f5d286bde7d063fce3559e23e82ea">SubmitResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2fd2f45f37f2880f7eedda0d151046c3">submit</a> (const String &amp;p_file, uint64_t p_offset, uint64_t p_length, uint64_t p_ticket)</td></tr>
 <tr class="memitem:afec8729b0455fe06ecdbf0d7e03fb67b" id="r_afec8729b0455fe06ecdbf0d7e03fb67b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afec8729b0455fe06ecdbf0d7e03fb67b">cancel</a> (uint64_t p_ticket)</td></tr>
+<tr class="memitem:a73485721c6a8f6444bf35215e1efcd9b" id="r_a73485721c6a8f6444bf35215e1efcd9b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a73485721c6a8f6444bf35215e1efcd9b">cancel_and_wait</a> (const LocalVector&lt; uint64_t &gt; &amp;p_tickets)</td></tr>
 <tr class="memitem:a460b3c793118ae917a747f88068bd8aa" id="r_a460b3c793118ae917a747f88068bd8aa"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structPayloadReadService_1_1Stats.html">Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a460b3c793118ae917a747f88068bd8aa">stats</a> () const</td></tr>
 <tr class="memitem:a9889fd4495cac7b8cf4779c2f0783db6" id="r_a9889fd4495cac7b8cf4779c2f0783db6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9889fd4495cac7b8cf4779c2f0783db6">poll_completion</a> (<a class="el" href="structPayloadReadService_1_1Completion.html">Completion</a> &amp;r_completion)</td></tr>
 <tr class="memitem:a47012fd473575bf3cb5b1c7bbfabecbc" id="r_a47012fd473575bf3cb5b1c7bbfabecbc"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a47012fd473575bf3cb5b1c7bbfabecbc">wait_completion</a> (<a class="el" href="structPayloadReadService_1_1Completion.html">Completion</a> &amp;r_completion)</td></tr>
+<tr class="memitem:aee1b94fd1aff383f2a34684a3ad8d0cd" id="r_aee1b94fd1aff383f2a34684a3ad8d0cd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aee1b94fd1aff383f2a34684a3ad8d0cd">wait_ready</a> (uint64_t p_watch_ticket=0)</td></tr>
 <tr class="memitem:a77d23dc316501cbac8bc04174b79f228" id="r_a77d23dc316501cbac8bc04174b79f228"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a77d23dc316501cbac8bc04174b79f228">release_handles</a> ()</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
@@ -234,6 +236,23 @@ Static Public Attributes</h2></td></tr>
           <td class="memname">bool PayloadReadService::cancel </td>
           <td>(</td>
           <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a73485721c6a8f6444bf35215e1efcd9b" name="a73485721c6a8f6444bf35215e1efcd9b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a73485721c6a8f6444bf35215e1efcd9b">&#9670;&#160;</a></span>cancel_and_wait()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void PayloadReadService::cancel_and_wait </td>
+          <td>(</td>
+          <td class="paramtype">const LocalVector&lt; uint64_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>p_tickets</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -392,6 +411,23 @@ Static Public Attributes</h2></td></tr>
           <td class="memname">bool PayloadReadService::wait_completion </td>
           <td>(</td>
           <td class="paramtype"><a class="el" href="structPayloadReadService_1_1Completion.html">Completion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_completion</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aee1b94fd1aff383f2a34684a3ad8d0cd" name="aee1b94fd1aff383f2a34684a3ad8d0cd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aee1b94fd1aff383f2a34684a3ad8d0cd">&#9670;&#160;</a></span>wait_ready()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool PayloadReadService::wait_ready </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_watch_ticket</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span></td><td>)</td>
           <td></td>
         </tr>
       </table>
