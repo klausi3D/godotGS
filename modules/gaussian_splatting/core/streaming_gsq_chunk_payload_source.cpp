@@ -3,21 +3,11 @@
 #include "core/error/error_macros.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
-#include "core/os/thread.h"
 
-#include <chrono>
 #include <cstring>
 
-namespace {
-// BV-K9 (#1387): decode time of the last capture on this thread, taken by the pack worker right
-// after the capture so the pipeline can record decode apart from the read.
-thread_local uint64_t tls_last_capture_decode_nsec = 0;
-} // namespace
-
 uint64_t GsqPagedChunkPayloadSource::take_thread_last_capture_decode_nsec() const {
-	const uint64_t nsec = tls_last_capture_decode_nsec;
-	tls_last_capture_decode_nsec = 0;
-	return nsec;
+	return page_store.take_thread_last_capture_decode_nsec();
 }
 
 void GsqPagedChunkPayloadSource::_bind_methods() {
@@ -26,11 +16,7 @@ void GsqPagedChunkPayloadSource::_bind_methods() {
 
 GsqPagedChunkPayloadSource::~GsqPagedChunkPayloadSource() {
 	// No capture can be running: each one holds a reference to this source.
-	read_service.shutdown();
-	for (gs_gsq::DecodeContext *decoder : idle_decoders) {
-		memdelete(decoder);
-	}
-	idle_decoders.clear();
+	page_store.shutdown();
 }
 
 bool GsqPagedChunkPayloadSource::configure(const String &p_path, uint32_t p_splat_count, uint32_t p_sh_degree,
@@ -42,6 +28,8 @@ bool GsqPagedChunkPayloadSource::configure(const String &p_path, uint32_t p_spla
 	}
 	LocalVector<uint32_t> firsts;
 	firsts.resize(p_pages.size() + 1u);
+	LocalVector<PayloadPageStore::PageDescriptor> descriptors;
+	descriptors.resize(p_pages.size());
 	uint64_t total = 0;
 	for (uint32_t p = 0; p < p_pages.size(); p++) {
 		if (p_pages[p].splat_count == 0u || p_pages[p].splat_count > gs_gsq::kMaxPageSplats ||
@@ -53,6 +41,17 @@ bool GsqPagedChunkPayloadSource::configure(const String &p_path, uint32_t p_spla
 		if (total > uint64_t(p_splat_count)) {
 			return false;
 		}
+		PayloadPageStore::PageDescriptor &descriptor = descriptors[p];
+		descriptor.id = p;
+		descriptor.offset = p_pages[p].offset;
+		descriptor.stored_bytes = p_pages[p].stored_bytes;
+		descriptor.encoding = PayloadPageStore::GSQ_V1;
+		descriptor.splat_count = p_pages[p].splat_count;
+		descriptor.sh_degree = p_sh_degree;
+		descriptor.codec_params = p_codec_params;
+		memcpy(descriptor.stored_digest, p_pages[p].stored_digest, sizeof(descriptor.stored_digest));
+		memcpy(descriptor.decoded_digest, p_pages[p].decoded_digest, sizeof(descriptor.decoded_digest));
+		memcpy(descriptor.extent, p_pages[p].extent, sizeof(descriptor.extent));
 	}
 	if (total != uint64_t(p_splat_count)) {
 		return false;
@@ -65,8 +64,7 @@ bool GsqPagedChunkPayloadSource::configure(const String &p_path, uint32_t p_spla
 	sh_first_order = p_sh_first_order;
 	sh_high_order = p_sh_high_order;
 	bounds = p_bounds;
-	codec_params = p_codec_params;
-	pages = p_pages;
+	pages = descriptors;
 	page_first_splat = firsts;
 	return true;
 }
@@ -94,11 +92,13 @@ bool GsqPagedChunkPayloadSource::_ensure_service_started() const {
 	if (service_failed) {
 		return false;
 	}
-	PayloadReadService::Config config;
+	PayloadPageStore::Config config;
 	config.reader_count = kReaderCount;
 	config.max_bytes_in_flight = kMaxBytesInFlight;
 	config.max_idle_handles = kMaxIdleHandles;
-	if (read_service.start(config) != OK) {
+	config.admission_policy = PayloadPageStore::ADMIT_SERVICE_BYTES_ONLY;
+	if (page_store.start(config) != OK || page_store.replace_source(file_path, 1u, pages) != OK) {
+		page_store.shutdown();
 		service_failed = true;
 		return false;
 	}
@@ -106,60 +106,11 @@ bool GsqPagedChunkPayloadSource::_ensure_service_started() const {
 	return true;
 }
 
-bool GsqPagedChunkPayloadSource::_dispatch_wait(uint64_t p_ticket, PayloadReadService::Completion *r_completion) const {
-	MutexLock lock(dispatch_mutex);
-	while (true) {
-		if (const PayloadReadService::Completion *parked = dispatch_stash.getptr(p_ticket)) {
-			*r_completion = *parked;
-			dispatch_stash.erase(p_ticket);
-			return true;
-		}
-		if (dispatch_pumping) {
-			// Another capture is waiting on the service; it parks what it receives and wakes us.
-			dispatch_cv.wait(lock);
-			continue;
-		}
-		// This capture's ticket is still live in the service, so a completion will arrive.
-		dispatch_pumping = true;
-		lock.temp_unlock();
-		PayloadReadService::Completion completion;
-		const bool received = read_service.wait_completion(completion);
-		lock.temp_relock();
-		dispatch_pumping = false;
-		if (received) {
-			dispatch_stash.insert(completion.ticket, completion);
-		}
-		dispatch_cv.notify_all();
-		if (!received) {
-			return false;
-		}
-	}
-}
-
-gs_gsq::DecodeContext *GsqPagedChunkPayloadSource::_lease_decoder() const {
-	{
-		MutexLock lock(state_mutex);
-		if (!idle_decoders.is_empty()) {
-			gs_gsq::DecodeContext *decoder = idle_decoders[idle_decoders.size() - 1u];
-			idle_decoders.resize(idle_decoders.size() - 1u);
-			return decoder;
-		}
-	}
-	// One context per concurrent capture: the pool never exceeds the peak number of captures.
-	return memnew(gs_gsq::DecodeContext);
-}
-
-void GsqPagedChunkPayloadSource::_return_decoder(gs_gsq::DecodeContext *p_decoder) const {
-	MutexLock lock(state_mutex);
-	idle_decoders.push_back(p_decoder);
-}
-
 bool GsqPagedChunkPayloadSource::_fail(const String &p_reason) const {
-	stat_captures_failed.increment();
+	page_store.end_capture(false, p_reason);
 	bool log = false;
 	{
 		MutexLock lock(state_mutex);
-		last_failure_reason = p_reason;
 		log = !failure_logged;
 		failure_logged = true;
 	}
@@ -178,12 +129,12 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 	r_sh_high_order.clear();
 	r_sh_first_order_count = sh_first_order;
 	r_sh_high_order_count = sh_high_order;
-	tls_last_capture_decode_nsec = 0;
-	stat_captures.increment();
+	page_store.begin_capture();
 	if (!is_valid()) {
 		return _fail("gsq_source_not_configured");
 	}
 	if (p_count == 0u) {
+		page_store.end_capture(true, String());
 		return true;
 	}
 	if (p_indices == nullptr && (p_start >= splat_count || p_count > splat_count - p_start)) {
@@ -223,22 +174,18 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 	r_sh_high_order.resize(uint32_t(sh_total));
 
 	const uint32_t touched_count = touched.size();
+	const uint64_t requester = next_requester.increment();
 	LocalVector<uint64_t> tickets;
 	tickets.resize(touched_count);
 	uint32_t submitted = 0; // touched pages [0, submitted) hold a ticket
-	uint32_t taken = 0; // touched pages [0, taken) were received
 	String reason;
 	// Submits ahead up to the service's byte budget so the readers fetch the next pages while
 	// this thread decodes. False on a refusal that retrying cannot fix.
 	const auto submit_ahead = [&]() -> bool {
 		while (submitted < touched_count) {
-			const Page &page = pages[touched[submitted]];
-			const uint64_t ticket = next_ticket.increment();
-			// A file read, not a RenderingDevice submission. The #685 guard
-			// (tests/ci/check_device_submission_contract.py) matches every `.submit(` by name, so
-			// the call is spelled with its qualified name rather than weakening the guard.
+			const uint64_t ticket = uint64_t(submitted) + 1u;
 			const PayloadReadService::SubmitResult result =
-					read_service.PayloadReadService::submit(file_path, page.offset, page.stored_bytes, ticket);
+					page_store.request(requester, ticket, pages[touched[submitted]]);
 			if (result == PayloadReadService::SUBMIT_OK) {
 				tickets[submitted++] = ticket;
 				continue;
@@ -252,10 +199,13 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 		return true;
 	};
 
-	gs_gsq::DecodeContext *decoder = _lease_decoder();
-	const bool on_main_thread = Thread::is_main_thread();
-	LocalVector<Gaussian> page_gaussians;
-	LocalVector<Vector3> page_sh;
+	PayloadPageStore::DecoderLease decoder;
+	if (page_store.lease_decoder(decoder) != OK) {
+		r_gaussians.clear();
+		r_sh_high_order.clear();
+		return _fail("gsq_decoder_unavailable");
+	}
+	PayloadPageStore::DecodedPage decoded;
 	bool ok = true;
 	uint32_t cursor = 0; // into work
 	for (uint32_t t = 0; ok && t < touched_count; t++) {
@@ -269,118 +219,36 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 		if (!ok) {
 			break;
 		}
-		PayloadReadService::Completion completion;
-		if (!_dispatch_wait(tickets[t], &completion)) {
+		PayloadPageStore::StoredPage completion;
+		if (!page_store.wait(requester, tickets[t], completion)) {
 			reason = "gsq_read_service_stopped";
 			ok = false;
 			break;
 		}
-		taken = t + 1u;
 		ok = submit_ahead();
 		if (!ok) {
 			break;
 		}
 
 		const uint32_t page_index = touched[t];
-		const Page &page = pages[page_index];
-		stat_stored_bytes_read.add(uint64_t(completion.bytes.size()));
-		const std::chrono::steady_clock::time_point decode_begin = std::chrono::steady_clock::now();
-		if (completion.error != OK || uint64_t(completion.bytes.size()) != uint64_t(page.stored_bytes)) {
-			reason = vformat("gsq_read_failed: page %d (error %d, %d of %d bytes)", page_index, int(completion.error),
-					int64_t(completion.bytes.size()), page.stored_bytes);
+		if (page_store.decode_gsq_page(completion, decoder, verify_decoded_digest, decoded, reason) != OK) {
 			ok = false;
-		}
-		const uint8_t *bytes = completion.bytes.ptr();
-		String page_reason;
-		gs_gsq::PageInfo info;
-		if (ok && gs_gsq::verify_page(bytes, page.stored_bytes, info, page_reason) != OK) {
-			reason = vformat("page %d: %s", page_index, page_reason);
-			ok = false;
-		}
-		const uint64_t verify_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - decode_begin)
-						.count());
-		if (ok) {
-			bool matches = info.splat_count == page.splat_count && info.stored_bytes == page.stored_bytes && info.sh_degree == sh_degree &&
-					info.opacity_bits == codec_params.opacity_bits &&
-					memcmp(info.stored_digest, page.stored_digest, gs_gsq::kDigestBytes) == 0 &&
-					memcmp(info.position_min, page.extent, sizeof(float) * 3u) == 0 &&
-					memcmp(info.position_max, page.extent + 3, sizeof(float) * 3u) == 0;
-			for (int i = 0; i < 3; i++) {
-				matches = matches && info.sh_bits[i] == codec_params.sh_bits[i];
-			}
-			if (!matches) {
-				reason = vformat("gsq_page_mismatch: page %d differs from its page-table entry or the codec block", page_index);
-				ok = false;
-			}
-		}
-		if (ok) {
-			page_gaussians.resize(page.splat_count);
-			page_sh.resize(page.splat_count * sh_high_order);
-			Vector3 *sh_out = sh_high_order > 0u ? page_sh.ptr() : nullptr;
-			// The stored digest was verified above; each frame still checks its zstd checksum.
-			if (decoder->decode_range(bytes, page.stored_bytes, 0, page.splat_count, page_gaussians.ptr(), sh_out, page_reason, false) != OK) {
-				reason = vformat("page %d: %s", page_index, page_reason);
-				ok = false;
-			}
-		}
-		uint64_t digest_nsec = 0;
-		// BV-K9c: off on the streaming path (see the header); the stored-page verify above always runs.
-		const bool check_decoded_digest = verify_decoded_digest;
-		if (ok && check_decoded_digest) {
-			uint8_t digest[gs_gsq::kDigestBytes];
-			const std::chrono::steady_clock::time_point digest_begin = std::chrono::steady_clock::now();
-			gs_gsq::decoded_digest(page_gaussians.ptr(), sh_high_order > 0u ? page_sh.ptr() : nullptr, page.splat_count, sh_degree, digest);
-			digest_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
-					std::chrono::steady_clock::now() - digest_begin)
-							.count());
-			if (memcmp(digest, page.decoded_digest, gs_gsq::kDigestBytes) != 0) {
-				reason = vformat("gsq_decoded_digest_mismatch: page %d", page_index);
-				ok = false;
-			}
-		}
-		const uint64_t decode_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - decode_begin)
-						.count());
-		if (!ok) {
-			stat_page_failures.increment();
 			break;
-		}
-		stat_pages_decoded.increment();
-		stat_splats_decoded.add(page.splat_count);
-		stat_decode_nsec.add(decode_nsec);
-		stat_digest_nsec.add(digest_nsec);
-		stat_verify_nsec.add(verify_nsec);
-		if (check_decoded_digest) {
-			stat_pages_digest_checked.increment();
-		}
-		tls_last_capture_decode_nsec += decode_nsec;
-		if (on_main_thread) {
-			stat_pages_on_main.increment();
-		} else {
-			stat_pages_on_workers.increment();
 		}
 
 		const uint32_t first = page_first_splat[page_index];
 		for (; cursor < p_count && uint32_t(work[cursor] >> 32u) == page_index; cursor++) {
 			const uint32_t slot = uint32_t(work[cursor] & 0xffffffffull);
 			const uint32_t local = (p_indices ? p_indices[slot] : p_start + slot) - first;
-			r_gaussians[slot] = page_gaussians[local];
+			r_gaussians[slot] = decoded.gaussians[local];
 			for (uint32_t k = 0; k < sh_high_order; k++) {
-				r_sh_high_order[slot * sh_high_order + k] = page_sh[local * sh_high_order + k];
+				r_sh_high_order[slot * sh_high_order + k] = decoded.sh_high_order[local * sh_high_order + k];
 			}
 		}
 	}
 
-	// Nothing submitted may stay behind: a ticket the service still holds is cancelled, one
-	// another capture already received for us is collected from the stash and dropped.
-	for (uint32_t t = taken; t < submitted; t++) {
-		if (!read_service.cancel(tickets[t])) {
-			PayloadReadService::Completion discarded;
-			_dispatch_wait(tickets[t], &discarded);
-		}
-	}
-	_return_decoder(decoder);
+	// Drain all remaining service and stash owners, including failures before decode.
+	page_store.cancel_requester(requester);
 
 	if (ok && cursor != p_count) {
 		reason = "gsq_capture_incomplete";
@@ -391,6 +259,7 @@ bool GsqPagedChunkPayloadSource::_capture(const uint32_t *p_indices, uint32_t p_
 		r_sh_high_order.clear();
 		return _fail(reason);
 	}
+	page_store.end_capture(true, String());
 	return true;
 }
 
@@ -410,31 +279,29 @@ bool GsqPagedChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t *
 	if (p_indices == nullptr && p_count > 0u) {
 		r_gaussians.clear();
 		r_sh_high_order.clear();
-		stat_captures.increment();
+		page_store.begin_capture(false);
 		return _fail("gsq_capture_out_of_range: null index list");
 	}
 	return _capture(p_indices, 0, p_count, r_gaussians, r_sh_high_order, r_sh_first_order_count, r_sh_high_order_count);
 }
 
 GsqPagedChunkPayloadSource::DecodeStats GsqPagedChunkPayloadSource::get_decode_stats_struct() const {
+	const PayloadPageStore::Stats store_stats = page_store.stats();
 	DecodeStats stats;
-	stats.captures = stat_captures.get();
-	stats.captures_failed = stat_captures_failed.get();
-	stats.pages_decoded = stat_pages_decoded.get();
-	stats.splats_decoded = stat_splats_decoded.get();
-	stats.decode_nsec = stat_decode_nsec.get();
-	stats.digest_nsec = stat_digest_nsec.get();
-	stats.verify_nsec = stat_verify_nsec.get();
-	stats.pages_decoded_digest_checked = stat_pages_digest_checked.get();
-	stats.pages_decoded_on_worker_threads = stat_pages_on_workers.get();
-	stats.pages_decoded_on_main_thread = stat_pages_on_main.get();
-	stats.page_failures = stat_page_failures.get();
-	stats.stored_bytes_read = stat_stored_bytes_read.get();
-	{
-		MutexLock lock(state_mutex);
-		stats.last_failure_reason = last_failure_reason;
-	}
-	stats.reads = read_service.stats();
+	stats.captures = store_stats.captures;
+	stats.captures_failed = store_stats.captures_failed;
+	stats.pages_decoded = store_stats.pages_decoded;
+	stats.splats_decoded = store_stats.splats_decoded;
+	stats.decode_nsec = store_stats.decode_nsec;
+	stats.digest_nsec = store_stats.digest_nsec;
+	stats.verify_nsec = store_stats.verify_nsec;
+	stats.pages_decoded_digest_checked = store_stats.pages_decoded_digest_checked;
+	stats.pages_decoded_on_worker_threads = store_stats.pages_decoded_on_worker_threads;
+	stats.pages_decoded_on_main_thread = store_stats.pages_decoded_on_main_thread;
+	stats.page_failures = store_stats.page_failures;
+	stats.stored_bytes_read = store_stats.stored_bytes_read;
+	stats.last_failure_reason = store_stats.last_failure_reason;
+	stats.reads = store_stats.reads;
 	return stats;
 }
 

@@ -40,10 +40,11 @@
 // - Tickets are opaque to the service and unique among live requests. Generation checks
 //   (I-5) stay with the residency owner, which encodes the generation in the ticket.
 //
-// Threading: submit(), cancel(), stats(), poll_completion(), wait_completion() and
-// release_handles() are safe from any thread. start() and shutdown() belong to the owner,
+// Threading: submit(), cancel(), cancel_and_wait(), stats(), poll_completion(),
+// wait_completion(), wait_ready() and release_handles() are safe from any thread.
+// start() and shutdown() belong to the owner,
 // who must not call anything else concurrently with destruction: shutdown() wakes and
-// waits out callers already inside wait_completion(), but cannot protect a call that
+// waits out completion, ready and cancellation-drain waiters, but cannot protect a call that
 // starts after the object is gone. `mutex` guards every field declared after it; file
 // I/O runs outside it.
 class PayloadReadService {
@@ -107,12 +108,21 @@ public:
 	SubmitResult submit(const String &p_file, uint64_t p_offset, uint64_t p_length, uint64_t p_ticket);
 	// True when the ticket was live. False when it is unknown or already taken.
 	bool cancel(uint64_t p_ticket);
+	// Cancels every live listed ticket before waiting for any running read to drain.
+	// Running readers acknowledge after freeing their buffer and relinquishing
+	// their handle. Ordinary READY publication/handle-close timing stays unchanged.
+	// Missing or repeated tickets are harmless, as for repeated single cancellations.
+	void cancel_and_wait(const LocalVector<uint64_t> &p_tickets);
 	Stats stats() const;
 
 	// Takes the oldest result without blocking. Taking it frees its budget.
 	bool poll_completion(Completion &r_completion);
 	// Blocks until a result exists. False when the service stops first.
 	bool wait_completion(Completion &r_completion);
+	// Waits without taking a completion or releasing its byte reservation. A nonzero
+	// watched ticket also wakes and returns false when it is cancelled or taken.
+	// Zero watches only the service: ready work or shutdown ends the wait.
+	bool wait_ready(uint64_t p_watch_ticket = 0);
 
 	// Closes idle handles, and running reads drop theirs instead of pooling them. For a
 	// writer about to replace a file (#714): an open handle denies the rename on Windows.
@@ -145,8 +155,13 @@ private:
 		Error error = OK;
 		Vector<uint8_t> bytes;
 		// Set under the mutex, read by the reader between slices without it. A cancelled
-		// READING request has left `tickets` and belongs to its reader alone.
+		// READING request has left `tickets`. Normally its reader deletes it; when
+		// cancel_waiting is set, the cancelling waiter owns deletion after read_drained.
 		SafeFlag cancelled;
+		// Both guarded by `mutex`; the reader signals only after freeing its buffer
+		// and releasing the charged bytes. The waiter then deletes this request.
+		bool cancel_waiting = false;
+		bool read_drained = false;
 
 		Request() :
 				link(this) {}
@@ -169,6 +184,7 @@ private:
 	Error _read(Request &p_request, Ref<FileAccess> &r_handle, Vector<uint8_t> &r_bytes, uint64_t &r_read, bool &r_opened);
 	Ref<FileAccess> _take_idle_handle_locked(const String &p_file);
 	void _take_ready_locked(Completion &r_completion);
+	void _cancel_locked(Request *p_request);
 
 	Config config;
 	LocalVector<Thread *> readers;
@@ -181,9 +197,9 @@ private:
 
 	mutable BinaryMutex mutex;
 	ConditionVariable work_cv; // Readers: `pending` gained a request, or stopping.
-	ConditionVariable ready_cv; // wait_completion(): `ready` gained a result, or stopping. shutdown(): a waiter left.
+	ConditionVariable ready_cv; // Completion/ready/drain waiters and shutdown share state-change notifications.
 	ServiceState state = SERVICE_NEW;
-	uint32_t waiters = 0; // Threads inside wait_completion().
+	uint32_t waiters = 0; // Threads inside wait_completion(), wait_ready() or a cancellation drain.
 	uint64_t handle_epoch = 0; // release_handles() bumps it; a read leased in an older epoch drops its handle.
 	SelfList<Request>::List pending;
 	SelfList<Request>::List ready;
