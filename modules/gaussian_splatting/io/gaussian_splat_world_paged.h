@@ -131,8 +131,9 @@ bool validate_node_payload(const double p_cell_center[3], uint32_t p_sh_high_ord
 
 } // namespace gs_world_paged
 
-// An open V4 package. Immutable after open(); read_node_payload() is safe to call concurrently from any thread
-// (each call opens its own file handle and exclusively leases a pooled decoder), which is how the node streamer's worker jobs use it.
+// An open V4 package. Immutable after open(); both read methods are thread-safe.
+// Offline reads retain the independent direct-file path. Runtime workers use the
+// renderer-owned common store's transport and transient exclusive decoder leases.
 class GaussianSplatHlodPagedSource : public RefCounted {
 public:
 	struct NodeRecord {
@@ -194,15 +195,26 @@ public:
 	Error install_in_page_store(PayloadPageStore &p_store, uint64_t p_generation) const;
 	// Same validation and decoded-digest policy as read_node_payload(), with the
 	// supplied store owning transport, decoder leases and stage accounting.
+	// The caller owns this optional observer. Calls run on the reading worker,
+	// outside every store lock. Values describe allocated buffer capacities independently of
+	// reservation counters; stored bytes are announced before service submission
+	// to cover the service/stash lifetime, workspace is its conservative bound.
+	// Successful return transfers decoded ownership to the caller; the last event
+	// is (0, decoded bytes, 0), and the caller observes its eventual clear itself.
+	struct ReadStorageObserver {
+		virtual void storage_changed(uint64_t p_stored_bytes, uint64_t p_decoded_bytes, uint64_t p_workspace_bytes) = 0;
+		virtual ~ReadStorageObserver() = default;
+	};
 	Error read_node_payload_from_store(PayloadPageStore &p_store, uint64_t p_requester, uint64_t p_ticket,
-			uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason) const;
+			uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason,
+			ReadStorageObserver *p_observer = nullptr) const;
 
 	Stats get_stats() const;
 
 	// Test seam: the largest payload record this package can ever read in one call.
 	uint64_t get_max_record_bytes() const { return max_record_bytes; }
 	// Streamer admission: stored buffer + decoded arrays + decoder workspace for
-	// GSQ. Codec none retains its original record-byte reservation. Excludes the
+	// GSQ. Codec none covers the service's stored record AND decoded arrays. Excludes the
 	// packed output (charged by the streamer) and idle pooled contexts.
 	uint64_t get_node_read_working_set_bytes(uint32_t p_node) const;
 
@@ -219,6 +231,9 @@ private:
 	// owns a ZSTD_DCtx exclusively. Idle retention is bounded, active leases by callers.
 	mutable Mutex decoder_mutex;
 	mutable LocalVector<gs_gsq::DecodeContext *> idle_decoders;
+	// Guarded by decoder_mutex. Once installed for runtime, even concurrent
+	// offline leases return without retaining uncharged idle scratch.
+	mutable bool runtime_installed = false;
 	gs_gsq::DecodeContext *_lease_decoder() const;
 	void _return_decoder(gs_gsq::DecodeContext *p_decoder) const;
 	bool opened = false;

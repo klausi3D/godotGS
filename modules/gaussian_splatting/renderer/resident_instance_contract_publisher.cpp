@@ -28,6 +28,7 @@
 #include <cstring>
 #include <cstdint>
 #include <cmath>
+#include <memory>
 #ifdef TESTS_ENABLED
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_hlod_bake.h"
@@ -1557,13 +1558,17 @@ void GaussianSplatRenderer::release_hlod_resources() {
             get_instance_pipeline_buffers().atlas_gaussian_buffer == state.hlod_relative.buffers.atlas_gaussian_buffer) {
         clear_instance_pipeline_buffers();
     }
+    if (state.hlod_streamer.is_valid()) {
+        state.hlod_streamer->shutdown(); // Joins packers and returns stored pages/decoder leases before their owner is freed.
+        state.hlod_streamer.unref();
+    }
+    if (state.hlod_page_store) {
+        state.hlod_page_store->shutdown();
+        state.hlod_page_store.reset();
+    }
     release_hlod_bundle(state.hlod_canonical);
     release_hlod_bundle(state.hlod_relative);
     state.device_vram_ledger.clear_hlod_reports();
-    if (state.hlod_streamer.is_valid()) {
-        state.hlod_streamer->shutdown(); // Waits for in-flight packers; nothing references the freed buffers.
-        state.hlod_streamer.unref();
-    }
     state.hlod_streaming = false;
     state.hlod_stream_atlas_records = 0;
     state.hlod_stream_ready_frames = state.hlod_stream_loading_frames = state.hlod_stream_first_ready_frame = 0;
@@ -1622,6 +1627,7 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
             !rd->buffer_is_valid(sort.keys_buffer) || !rd->buffer_is_valid(sort.indices_buffer)) { return false; }
     if (streaming && hlod_streaming_unsupported_reason(nullptr) != nullptr) { return false; } // Release; republish decides again.
     if (streaming && (state.hlod_streamer.is_null() || !state.hlod_streamer->is_active() ||
+            (input->is_paged() && !state.hlod_page_store) ||
             state.hlod_streamer->get_residency().device_generation() != rd->get_device_instance_id() ||
             state.hlod_streamer->get_residency().world_generation() != uint64_t(input->get_instance_id()) ||
             state.hlod_stream_atlas_records == 0)) { return false; }
@@ -2286,15 +2292,50 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
             // An edited leaf may be larger than every captured one (up to 16,384 splats).
             relative.buffers.max_chunk_splats = hlod_dispatch_extent_for(relative.buffers.max_chunk_splats, *served.ptr());
         }
+        // Candidate lifetime mirrors ResourceState: streamer drain precedes store
+        // shutdown even on partial initialization or a failed readiness recheck.
+        std::unique_ptr<PayloadPageStore> page_store;
         Ref<HlodNodeStreamer> streamer;
+        auto discard_streamer = [&]() {
+            if (streamer.is_valid()) {
+                streamer->shutdown();
+                streamer.unref();
+            }
+            if (page_store) {
+                page_store->shutdown();
+                page_store.reset();
+            }
+        };
         if (built && streaming) {
             streamer.instantiate();
             // World generation = the immutable snapshot object, device generation = the device instance.
-            if (!streamer->init(served, stream_config, uint64_t(input->get_instance_id()), rd->get_device_instance_id())) {
-                streamer.unref();
+            bool initialized = false;
+            if (served->is_paged()) {
+                page_store = std::make_unique<PayloadPageStore>();
+                PayloadPageStore::Config store_config;
+                // These are HLOD's existing job/read bounds, not chunk-route
+                // defaults. The transport cap accommodates its one-node exception;
+                // continuous admission remains governed by the streamer envelope.
+                store_config.reader_count = stream_config.max_jobs_in_flight;
+                store_config.max_bytes_in_flight = MAX(stream_config.max_inflight_read_bytes,
+                        served->paged_source->get_max_record_bytes());
+                store_config.max_idle_handles = 0;
+                store_config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+                // Destroy idle decoder contexts, so their scratch never survives
+                // the job's working-set reservation or becomes an uncharged cache.
+                store_config.decoder_retention_cap = 0;
+                initialized = page_store->start(store_config) == OK &&
+                        streamer->init_with_page_store(served, stream_config, uint64_t(input->get_instance_id()),
+                                rd->get_device_instance_id(), *page_store) == OK;
+            } else {
+                initialized = streamer->init(served, stream_config, uint64_t(input->get_instance_id()), rd->get_device_instance_id());
+            }
+            if (!initialized) {
+                discard_streamer();
             }
         }
         if (!built || (streaming && streamer.is_null())) {
+            discard_streamer();
             release_hlod_bundle(canonical);
             release_hlod_bundle(relative);
             state.hlod_reason = "hlod_candidate_allocation_failed";
@@ -2317,6 +2358,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 quantized != g_quantization_config.per_chunk_quantization || owner_key != state.hlod_owner_key ||
                 (quantized && (position_bits != MIN(g_quantization_config.position_bits, GS_QUANTIZED_BITS_MAX) ||
                         scale_bits != MIN(g_quantization_config.scale_bits, GS_QUANTIZED_BITS_MAX) || quantize_scales != g_quantization_config.quantize_scales)) || after_bytes > route_limit) {
+            discard_streamer();
             release_hlod_bundle(canonical);
             release_hlod_bundle(relative);
             state.hlod_reason = "hlod_candidate_readiness_or_memory_failed";
@@ -2329,6 +2371,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         state.hlod_relative = std::move(relative);
         state.hlod_streaming = streaming;
         state.hlod_stream_atlas_records = stream_records;
+        state.hlod_page_store = std::move(page_store);
         state.hlod_streamer = streamer;
         if (served->has_edits()) { ++state.hlod_edit_rebuilds; }
         state.hlod_prepared_snapshot = input;

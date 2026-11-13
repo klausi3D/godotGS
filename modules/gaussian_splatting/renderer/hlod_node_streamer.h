@@ -31,6 +31,10 @@
 #include "servers/rendering/rendering_device.h"
 
 #include <atomic>
+#include <memory>
+#ifdef TESTS_ENABLED
+#include "core/os/semaphore.h"
+#endif
 
 class PayloadPageStore;
 
@@ -45,11 +49,9 @@ public:
 		uint32_t scale_bits = 0;
 		uint64_t upload_bytes_per_frame = 32ull * 1024 * 1024;
 		uint32_t max_jobs_in_flight = 16;
-		// Package E1 (V4 paged source): the CPU working set of payload reads. A job is started only while the reserved
-		// bytes (file record + packed copy) of all reads in flight plus its own stay within this cap (one read is always
-		// allowed, so a record larger than the cap still loads, alone). It bounds the memory of reads in flight. Packed
-		// payloads waiting for the per-frame upload budget (the `ready` queue) are OUTSIDE this cap and are measured
-		// separately (payload_ready_bytes_peak).
+		// Ordinary stored/decode/packed-output envelope. Reservations survive the
+		// mailbox, ready and upload handoffs. An oversized node is admitted alone
+		// and excludes further jobs until its output is uploaded or discarded.
 		uint64_t max_inflight_read_bytes = 8ull * 1024 * 1024;
 		uint32_t retire_delay_frames = 3;
 		// Package F1: a staged edit that has not committed after this many frames is cancelled and reported
@@ -234,6 +236,9 @@ public:
 		TEST_FAULT_SKIP_PUBLICATION_GENERATION,
 	};
 	// Faults alter the REAL handoff/publication, never stats or a checker.
+	// These seam methods belong to the render thread, like update()/shutdown().
+	// The ledger lock serializes worker-visible fields; pending/ready and the
+	// CPU device-write sink additionally rely on that render-thread confinement.
 	// Drop-output-charge releases the token at mailbox/ready while keeping the
 	// packed allocation. Skip-generation bypasses every publication epoch
 	// rejection (including NodeResidency's ticket gates) needed to write stale
@@ -286,6 +291,49 @@ public:
 	uint64_t record_stride() const { return cfg.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian); }
 
 private:
+	enum OutputOwner { OUTPUT_WORKER, OUTPUT_MAILBOX, OUTPUT_READY, OUTPUT_UPLOAD };
+	// The existing mailbox lock also guards admission, live storage observations
+	// and test controls. It is recursive so destruction during a locked handoff
+	// can release its token. No store call or task join runs under this lock.
+	class ReservationLedger : public RefCounted {
+	public:
+		mutable Mutex mutex;
+		uint64_t charged = 0, acquired = 0, released = 0, live = 0, oversized = 0;
+		uint64_t jobs_started = 0, admission_waits = 0;
+		uint32_t jobs = 0, peak_jobs = 0;
+		// Storage observations are changed by allocation/free/handoff events,
+		// independently of token charges (including under mutation controls).
+		uint64_t stored = 0, decoded = 0, output[4] = {}, peak_storage = 0;
+		void observe_peak(); // Caller holds mutex.
+#ifdef TESTS_ENABLED
+		TestControl control;
+		TestFault fault = TEST_FAULT_NONE;
+		uint64_t faults_triggered = 0;
+		uint32_t held_workers = 0;
+		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
+		Vector<TestPublication> publications;
+#endif
+	};
+	class Reservation {
+		Ref<ReservationLedger> ledger;
+		uint64_t charge = 0, stored = 0, decoded = 0, output = 0;
+		bool oversized = false, running = true, token_live = true;
+		OutputOwner owner = OUTPUT_WORKER;
+
+	public:
+		Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized);
+		~Reservation();
+		Reservation(const Reservation &) = delete;
+		Reservation &operator=(const Reservation &) = delete;
+		void storage_changed(uint64_t p_stored, uint64_t p_decoded);
+		void output_changed(uint64_t p_bytes);
+		void move_output(OutputOwner p_owner);
+		void finish_work(); // Input storage freed; keeps actual output capacity charged.
+		void finish_worker();
+#ifdef TESTS_ENABLED
+		void drop_output_charge(); // Only called by the real TESTS_ENABLED fault.
+#endif
+	};
 	// Counters the worker jobs update (atomics, co-owned like the mailbox so a late job never touches freed memory).
 	class ReadStats : public RefCounted {
 	public:
@@ -321,15 +369,23 @@ private:
 	struct PackResult {
 		gs_hlod_runtime::NodeResidency::Ticket ticket;
 		bool ok = false;
+		uint64_t source_instance_id = 0, content_generation = 0;
+		// Declared before the vectors: storage is destroyed before the permit.
+		std::unique_ptr<Reservation> reservation;
 		Vector<PackedGaussian> raw;
 		Vector<PackedGaussianQuantized> quantized;
-		ChunkMetaGPU meta;
-		ChunkQuantizationGPU quant;
+		ChunkMetaGPU meta = {};
+		ChunkQuantizationGPU quant = {};
+		PackResult() = default;
+		PackResult(const PackResult &) = delete;
+		PackResult &operator=(const PackResult &) = delete;
+		PackResult(PackResult &&p_other) noexcept;
+		PackResult &operator=(PackResult &&p_other) noexcept;
 	};
 	class Mailbox : public RefCounted {
 	public:
-		Mutex mutex;
-		LocalVector<PackResult> done; // Guarded by `mutex`.
+		Ref<ReservationLedger> ledger;
+		LocalVector<PackResult> done; // Guarded by ledger->mutex.
 	};
 	struct Job {
 		Ref<GaussianSplatHlodRuntimeData> data;
@@ -341,6 +397,12 @@ private:
 		uint64_t read_bytes = 0; // The record's stored bytes (paged source only).
 		uint64_t reserved_bytes = 0; // Record + packed copy, reserved against max_inflight_read_bytes at start.
 		bool counted = false; // begin_read() was called for this job, so end_read() must be.
+		PayloadPageStore *store = nullptr; // Borrowed; renderer drains jobs before store shutdown.
+		std::unique_ptr<Reservation> reservation;
+	};
+	struct ReadObservation : GaussianSplatHlodPagedSource::ReadStorageObserver {
+		Reservation *reservation = nullptr;
+		void storage_changed(uint64_t p_stored, uint64_t p_decoded, uint64_t p_workspace) override;
 	};
 
 	static void run_job(void *p_userdata);
@@ -358,6 +420,12 @@ private:
 	gs_hlod_runtime::NodeResidency residency;
 	Ref<Mailbox> mailbox;
 	Ref<ReadStats> read_stats;
+	Ref<ReservationLedger> ledger; // Kept after shutdown for cumulative observations.
+	PayloadPageStore *page_store = nullptr; // Render-thread field; jobs borrow an immutable copy.
+	uint64_t store_generation = 0;
+#ifdef TESTS_ENABLED
+	Vector<ChunkMetaGPU> test_metadata; // Render-thread CPU device-write sink only.
+#endif
 	LocalVector<WorkerThreadPool::TaskID> tasks;
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> pending; // Requested, job not started.
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> shadow_pending; // Package F1: staged-edit tickets, job not started.

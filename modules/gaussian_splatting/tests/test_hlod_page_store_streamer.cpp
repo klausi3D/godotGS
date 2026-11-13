@@ -145,8 +145,19 @@ struct Harness {
 	bool wait_held(bool p_oversized = false) {
 		const auto outcome = gs_pump_until([&]() {
 			step(p_oversized);
+			// A worker can release its working-set part after start_jobs() last
+			// refused admission. Historical admission_waits + jobs==0 therefore
+			// does not prove saturation. These fixtures start nodes in BFS order;
+			// independently require that the NEXT node cannot fit right now.
+			bool capacity_full = sample.oversized_reservation_bytes != 0;
+			if (sample.jobs_started < fixture.node_count) {
+				const uint64_t next = fixture.source->get_node_read_working_set_bytes(uint32_t(sample.jobs_started)) +
+						uint64_t(fixture.splats_per_node) * sizeof(PackedGaussian);
+				capacity_full = capacity_full || next > config.max_inflight_read_bytes ||
+						sample.charged_bytes > config.max_inflight_read_bytes - next;
+			}
 			return !observations_ok || (sample.ready_outputs > 0 && sample.pending_tickets > 0 &&
-					sample.jobs_in_flight == 0 && sample.mailbox_outputs == 0 && sample.admission_waits > 0);
+					sample.jobs_in_flight == 0 && sample.mailbox_outputs == 0 && sample.admission_waits > 0 && capacity_full);
 		});
 		if (!outcome.ready() || !observations_ok) {
 			FAIL("D3-2 held uploads never reached bounded ready output with pending demand and no blocked workers");

@@ -133,6 +133,8 @@ TREE_SOURCES: Tuple[str, ...] = (
     "modules/gaussian_splatting/io/gaussian_splat_world_paged.h",
     "modules/gaussian_splatting/io/gs_auto_tree_source.cpp",
     "modules/gaussian_splatting/io/gs_auto_tree_source.h",
+    "modules/gaussian_splatting/io/gs_payload_page_store.cpp",
+    "modules/gaussian_splatting/io/gs_payload_page_store.h",
     "modules/gaussian_splatting/io/gs_world_writer_v4.cpp",
     "modules/gaussian_splatting/io/gs_world_writer_v4.h",
     "modules/gaussian_splatting/io/gsq/gsq_writer_v4_memory.cpp",

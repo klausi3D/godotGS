@@ -89,9 +89,10 @@ struct ResourceState {
     // streamer decides which nodes are resident. Empty/false for the whole-tree bundle.
     bool hlod_streaming = false;
     uint32_t hlod_stream_atlas_records = 0;
-    // D3-2 owner slot (unpopulated in phase 1). Declared before the streamer so
-    // destruction drains workers before the store. Explicit teardown must keep
-    // the same order. One runtime service, never a process-global decoded cache.
+    // Render-thread-owned V4 runtime service. Declared before the streamer so
+    // destruction drains workers before the store. Explicit teardown keeps the
+    // same order; worker calls use the store's own mutex, never this owner slot.
+    // One service per active bundle, never a process-global decoded cache.
     std::unique_ptr<PayloadPageStore> hlod_page_store;
     Ref<HlodNodeStreamer> hlod_streamer;
     // Package F1: the last committed edited snapshot. It outlives the streamer and the prepared bundle: a rebuild (device
