@@ -10,7 +10,7 @@ Two halves, both GPU-free and binary-free:
   probe is NOT_RUN (exit 3) and never OK, a zero exit that leaves no manifest or
   summary is a failure, cleanup deletes only a marked world root.
 * ``.github/workflows/beyond_vram_flythrough.yml`` structure, read as text (the
-  guard lane has no PyYAML): dispatch-only, no continue-on-error, the disk
+  guard lane has no PyYAML): weekly/dispatch/watchdog routing, no continue-on-error, the disk
   preflight precedes and gates every step that writes to the world root, the
   upload and cleanup always run and cleanup runs after the upload, and the
   build is the optimized D-10 producer build.
@@ -1198,7 +1198,8 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("\npermissions:\n  contents: read\n\n", self.text)
         self.assertIn(
             "  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || "
-            "inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || 'lane' }}\n  cancel-in-progress: false\n",
+            "inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || "
+            "inputs.mode == 'real_scan' && 'real-scan' || 'lane' }}\n  cancel-in-progress: false\n",
             self.text,
         )
         # actions: read on the watchdog job only (ADR section 9.1).
@@ -1222,6 +1223,46 @@ class WorkflowContract(unittest.TestCase):
             gpu_if,
         )
 
+    def test_real_scan_dispatch_is_cheap_and_uploads_only_reports(self):
+        self.assertIn('          - "real_scan"', self.text)
+        job = _job_block(self.text, "real-scan-identity")
+        self.assertIn("    needs: build-linux-editor", job)
+        self.assertIn("    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]", job)
+        self.assertIn("inputs.mode == 'real_scan'", self.job_if(job))
+        steps = _steps(job)
+        identity = steps[self.index_of("real-scan-identity", steps)]
+        self.assertLessEqual(int(identity["timeout-minutes"]), 60)
+        self.assertIn("GS_TESTDATA", identity["run"])
+        self.assertIn("bicycle-30k.ply", identity["run"])
+        self.assertNotRegex("\n".join(job), r"dispatch_lane.py (?:probe|prime-cache|prime-auto-tree)\b")
+        for step in steps:
+            if step.get("uses", "").startswith("actions/upload-artifact"):
+                self.assertEqual(step["if"], "always()")
+        uploads = "\n".join(job).split("uses: actions/upload-artifact")[1:]
+        self.assertTrue(uploads)
+        for upload in uploads:
+            paths = upload.split("path:", 1)[1].split("      - ", 1)[0].splitlines()
+            globs = []
+            for path in paths:
+                if path.strip() == "|":
+                    continue
+                if path.strip() and not path.startswith("            "):
+                    break
+                if path.strip():
+                    globs.append(path.strip())
+            self.assertTrue(globs)
+            for path in globs:
+                self.assertRegex(path, r"\*\.(?:json|md|log)$")
+
+    def test_codec_probe_uses_data_runner_and_explicit_or_testdata_directory(self):
+        self.assertIn("    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]", self.codec)
+        self.assertTrue(D25AutoTreeWorkflow().enabled(self.job_if(self.codec), mode="real_scan"))
+        runs = "\n".join(s.get("run", "") for s in _steps(self.codec))
+        self.assertIn('"$GS_TESTDATA/3dgs-szenen"', runs)
+        self.assertIn('--scan-dir "$BVW_SCAN_DIR"', runs)
+        self.assertLess(runs.index('if [ -n "$BVW_SCAN_DIR" ]'),
+                        runs.index('elif [ -n "${GS_TESTDATA:-}" ]'))
+
     def test_the_build_is_the_optimized_producer_build(self) -> None:
         match = re.search(r'^  BVW_SCONS_ARGS: "([^"]+)"$', self.text, re.M)
         self.assertIsNotNone(match)
@@ -1240,8 +1281,8 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("linux_gpu_runner.sh stage-binary", build_runs)
         for steps in (self.steps, self.prime_steps, self.auto_tree_steps):
             self.assertIn("linux_gpu_runner.sh install-binary", "".join(s.get("run", "") for s in steps))
-        # Build upload; both primes, flythrough and codec-probe download.
-        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 5)
+        # Build upload; both primes, flythrough, identity and codec-probe download.
+        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 6)
 
     def test_the_cache_root_is_the_section_9_2_path(self) -> None:
         self.assertIn(f"  BVW_CACHE_ROOT: {wc.DEFAULT_CACHE_ROOT.as_posix()}\n", self.text)
@@ -1872,16 +1913,6 @@ class D25AutoTreeCache(_CacheCase):
         self.assertTrue(report["scratch_bytes"]["reason"])
         self.assertFalse(any(c[0] == "df" for c in runner.calls), "T0 uses its own job limits")
 
-    def test_real_scan_is_not_run_without_bound_in_core_digests(self):
-        scans = self.tmp / "real-scans"
-        scans.mkdir()
-        result = lane.real_scan_identity(self.out, str(scans))
-        self.assertEqual(result["status"], "NOT_RUN")
-        self.assertEqual(result["reason_code"], "in_core_per_node_digest_api_unavailable")
-        self.assertIsNone(result["leaf_count"])
-        self.assertIsNone(result["in_core_digests"])
-        self.assertTrue(result["scan_dir_present"])
-
     def test_job_limits_are_design_q4_and_t0_is_smaller(self):
         job, small = lane.auto_tree_job("A"), lane.auto_tree_job("T0")
         self.assertEqual(job["worker_count"], 16)
@@ -1896,6 +1927,12 @@ class D25AutoTreeCache(_CacheCase):
         self.assertEqual(small["max_tile_splats"], 262144)
         self.assertEqual(small["codec"], "gsq")
         self.assertNotIn("source_fingerprint", job)
+
+    def test_t0_preserves_a_real_scan_identity_failure(self):
+        with mock.patch.object(lane, "real_scan_identity", return_value=lane.EXIT_FAIL):
+            code = lane.auto_tree_t0(self.repo, self.binary, self.cache, self.out, "25", runner=FakeRunner())
+        self.assertEqual(code, lane.EXIT_FAIL)
+        self.assertEqual(self.record("auto_tree_t0")["data"]["real_scan_exit_code"], lane.EXIT_FAIL)
 
     def test_repeat_identity_match_publishes_key_and_removes_scratch(self):
         plain = self.ready_plain()
@@ -2000,8 +2037,16 @@ class D25AutoTreeWorkflow(unittest.TestCase):
                 self.assertNotIn("inputs.mode != 'auto_tree'", condition)
             elif name == "liveness-watchdog":
                 self.assertEqual(condition, f"${{{{ github.event.schedule == '{WATCHDOG_CRON}' || inputs.mode == 'watchdog' }}}}")
+            elif name == "real-scan-identity":
+                self.assertFalse(self.enabled(condition, mode="auto_tree"))
             else:
                 self.assertIn("inputs.mode != 'auto_tree'", condition, name)
+
+    def test_real_scan_mode_runs_only_build_identity_and_codec_probe(self):
+        job_names = re.findall(r"^  ([a-z][a-z0-9-]*):$", self.text.split("\njobs:\n", 1)[1], re.M)
+        enabled = {name for name in job_names
+                   if self.enabled(WorkflowContract.job_if(_job_block(self.text, name)), mode="real_scan")}
+        self.assertEqual(enabled, {"build-linux-editor", "real-scan-identity", "codec-probe"})
 
     def test_auto_tree_runner_binary_handoff_and_prepostflight(self):
         job = _job_block(self.text, "prime-auto-tree")
@@ -2068,6 +2113,151 @@ class D25AutoTreeWorkflow(unittest.TestCase):
                     if "runner_gpu_contention.py postflight" in step.get("run", ""))
         self.assertLess(paths, pre)
         self.assertLess(pre, post)
+
+
+class RealScanIdentity(_TempCase):
+    """Fake reports exercise lane decisions; stdout comes from a captured doctest run."""
+
+    def setUp(self):
+        super().setUp()
+        self.binary = self.tmp / "godot-tests"
+        self.binary.write_bytes(b"test binary")
+        self.scan = self.tmp / "bicycle-30k.ply"
+        self.scan.write_bytes(b"ply\nformat binary_little_endian 1.0\nelement vertex 6131954\nend_header\n")
+        self.log = (ROOT / "tests/ci/fixtures/doctest_c_thrash_release_tests_sample.txt").read_text(encoding="utf-8")
+        self.report = {
+            "status": "PASS", "input_vertex_count": 6_131_954, "stride": 7,
+            "input_file_size_bytes": self.scan.stat().st_size,
+            "input_sha256": hashlib.sha256(self.scan.read_bytes()).hexdigest(),
+            "subset_count": 875_994, "subset_rule": "vertex i iff i % 7 == 0",
+            "subset_sha256": "a" * 64, "tiles_planned": 21, "tiles_baked": 21,
+            "first_divergence": None,
+            "negative_control": {"detected": True, "first_divergence": {"node_index": 3, "field": "decoded_sha256"}},
+            "codecs": [{"codec": "gsq", "status": "PASS"}],
+        }
+        self.calls = []
+
+    def runner(self, cmd, **kwargs):
+        self.calls.append((cmd, kwargs))
+        kwargs["stdout"].write(self.log)
+        if self.report is not None:
+            Path(kwargs["env"]["GS_D2_REAL_SCAN_OUT"]).write_text(json.dumps(self.report), encoding="utf-8")
+        return _proc(cmd)
+
+    def run_identity(self, **kwargs):
+        with mock.patch.object(lane, "auto_tree_preflight", return_value=lane.EXIT_NOT_RUN):
+            return lane.real_scan_identity(self.binary, self.out, self.scan, runner=self.runner, **kwargs)
+
+    def test_absent_data_is_distinct_not_run_without_launching_binary(self):
+        self.scan.unlink()
+        self.assertEqual(self.run_identity(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("real_scan_identity")["data"]["reason_code"], "real_scan_missing")
+        self.assertEqual(self.calls, [])
+
+    def test_full_mode_missing_report_maps_to_not_run(self):
+        self.report = {"status": "NOT_RUN", "reason_code": "real_scan_missing"}
+        self.assertEqual(self.run_identity(), lane.EXIT_NOT_RUN)
+        self.assertEqual(self.record("real_scan_identity")["data"]["reason_code"], "real_scan_missing")
+
+    def test_success_runs_exact_case_in_real_mode_and_records_full_scan_absence(self):
+        self.assertEqual(self.run_identity(), lane.EXIT_OK)
+        cmd, kwargs = self.calls[0]
+        self.assertIn("--test-case=" + lane.REAL_SCAN_TEST_CASE, cmd)
+        self.assertEqual(kwargs["env"]["GS_D2_REAL_SCAN_PLY"], str(self.scan.resolve()))
+        self.assertEqual(kwargs["env"]["GS_D2_REAL_SCAN_STRIDE"], "7")
+        self.assertLessEqual(kwargs["timeout"], 3600)
+        record = self.record("real_scan_identity")
+        self.assertEqual(record["data"]["identity"]["subset_count"], 875_994)
+        self.assertEqual(record["data"]["full_scan"]["status"], "NOT_RUN")
+
+    def test_mismatch_is_fail_and_keeps_first_divergent_node(self):
+        first = {"node_index": 17, "field": "cell.ix", "expected": "2", "actual": "3"}
+        self.report.update(status="FAIL", first_divergence=first)
+        self.assertEqual(self.run_identity(), lane.EXIT_FAIL)
+        self.assertEqual(self.record("real_scan_identity")["data"]["first_divergence"], first)
+
+    def test_no_report_cannot_reuse_stale_success(self):
+        (self.out / "real_scan.doctest.json").write_text(json.dumps(self.report), encoding="utf-8")
+        self.report = None
+        self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
+        self.assertEqual(self.record("real_scan_identity")["data"]["reason_code"], "real_scan_report_missing")
+
+    def test_empty_or_skipped_or_failed_doctest_is_not_proof(self):
+        captured = self.log
+        for text in (captured.replace("test cases: 1 |", "test cases: 0 |"),
+                     captured.replace("assertions: 6 |", "assertions: 0 |"),
+                     captured + "\nGS_ENV_SKIP\n", captured.replace("SUCCESS", "FAILURE")):
+            with self.subTest(log=text[-100:]):
+                self.log = text
+                self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
+
+    def test_incomplete_identity_or_non_firing_control_is_not_pass(self):
+        original = json.loads(json.dumps(self.report))
+        for changes in ({"negative_control": {"detected": False}}, {"tiles_baked": 1},
+                        {"subset_count": 1_000_001}, {"input_sha256": ""}, {"codecs": []},
+                        {"status": "PASS", "first_divergence": {"node_index": 0, "field": "cell"}}):
+            with self.subTest(changes=changes):
+                self.report = {**original, **changes}
+                self.assertNotEqual(self.run_identity(), lane.EXIT_OK)
+
+    def test_invalid_stride_does_not_launch(self):
+        self.assertEqual(self.run_identity(stride=0), lane.EXIT_INVALID)
+        self.assertEqual(self.calls, [])
+
+    def test_full_scan_needs_existing_preflight_and_peak_estimate(self):
+        def admit(cache_root, out, **kwargs):
+            lane.write_record(out, "auto_tree_preflight", lane.EXIT_OK, "measured",
+                              {"mem_available_bytes": 20 * GIB})
+            return lane.EXIT_OK
+
+        with mock.patch.object(lane, "auto_tree_preflight", side_effect=admit) as admission:
+            code = lane.real_scan_identity(self.binary, self.out, self.scan, runner=self.runner)
+        self.assertEqual(code, lane.EXIT_OK)
+        admission.assert_called_once()
+        full = self.record("real_scan_identity")["data"]["full_scan"]
+        self.assertEqual(full["status"], "NOT_RUN")
+        self.assertEqual(full["reason_code"], "real_scan_peak_exceeds_available")
+        self.assertGreater(full["estimated_peak_bytes"], 20 * GIB)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_admitted_full_scan_really_runs_with_stride_one(self):
+        def admit(cache_root, out, **kwargs):
+            lane.write_record(out, "auto_tree_preflight", lane.EXIT_OK, "measured",
+                              {"mem_available_bytes": 30 * GIB})
+            return lane.EXIT_OK
+
+        def run(cmd, **kwargs):
+            if kwargs["env"]["GS_D2_REAL_SCAN_STRIDE"] == "1":
+                self.report.update(stride=1, subset_count=6_131_954)
+            return self.runner(cmd, **kwargs)
+
+        with mock.patch.object(lane, "auto_tree_preflight", side_effect=admit):
+            code = lane.real_scan_identity(self.binary, self.out, self.scan, runner=run)
+        self.assertEqual(code, lane.EXIT_OK)
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(self.calls[1][1]["env"]["GS_D2_REAL_SCAN_STRIDE"], "1")
+        self.assertEqual(self.record("real_scan_identity")["data"]["full_scan"]["status"], "PASS")
+
+    def test_bad_json_is_failure(self):
+        def malformed(cmd, **kwargs):
+            self.runner(cmd, **kwargs)
+            Path(kwargs["env"]["GS_D2_REAL_SCAN_OUT"]).write_text("{", encoding="utf-8")
+            return _proc(cmd)
+
+        self.assertEqual(lane.real_scan_identity(self.binary, self.out, self.scan, runner=malformed), lane.EXIT_FAIL)
+
+    def test_timeout_records_failure(self):
+        with mock.patch.object(lane, "auto_tree_preflight", return_value=lane.EXIT_NOT_RUN):
+            code = lane.real_scan_identity(self.binary, self.out, self.scan,
+                                          runner=mock.Mock(side_effect=subprocess.TimeoutExpired("godot", 3600)))
+        self.assertEqual(code, lane.EXIT_FAIL)
+
+    def test_cli_is_wired_to_real_scan_step(self):
+        with mock.patch.object(lane, "real_scan_identity", return_value=lane.EXIT_NOT_RUN) as identity:
+            code = lane.main(["real-scan-identity", "--godot-binary", str(self.binary),
+                              "--scan", str(self.scan), "--out", str(self.out)])
+        self.assertEqual(code, lane.EXIT_NOT_RUN)
+        identity.assert_called_once()
 
 
 if __name__ == "__main__":
