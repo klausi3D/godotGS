@@ -15,7 +15,6 @@
 #include "core/io/file_access.h"
 #include "core/os/os.h"
 
-#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -822,9 +821,8 @@ static void check_reconstructed_support_inside_bounds(bool p_gsq) {
 		gs_hlod::bake_bounds::add_payload_bounds(span, shift, support);
 		double mid[3];
 		for (int a = 0; a < 3; ++a) {
-			// MUTATION (temporary, reverted next commit): bounds 1 float32 ulp inward.
-			const double lo = double(std::nextafter(float(record.topology.aabb_min[a]), 1.0e30f));
-			const double hi = double(std::nextafter(float(record.topology.aabb_max[a]), -1.0e30f));
+			const double lo = double(record.topology.aabb_min[a]);
+			const double hi = double(record.topology.aabb_max[a]);
 			CHECK_MESSAGE(support.lo[a] >= lo, "node ", i, " axis ", a, " undershoot ", lo - support.lo[a]);
 			CHECK_MESSAGE(support.hi[a] <= hi, "node ", i, " axis ", a, " overshoot ", support.hi[a] - hi);
 			mid[a] = 0.5 * (lo + hi);
