@@ -1,6 +1,7 @@
 extern "C" int test_hlod_edit_shadow_transfer_cpp_force_link() { return 0; }
 
 #include "gs_hlod_edit_shadow_test_fixture.h"
+#include "gs_hlod_edit_test_pump.h"
 #include "../io/gs_payload_page_store.h"
 
 #include <initializer_list>
@@ -65,6 +66,7 @@ struct Harness {
 	Streamer::EditCommitResult commit = Streamer::COMMIT_NOTHING;
 	bool observation_ok = true;
 	bool ordinary_frame_ok = true;
+	bool force_timeout_frames = false; // Only J's deliberate timeout wait ages worker polls.
 	uint32_t observed_publications = 0;
 
 	~Harness() { streamer.shutdown(); store.shutdown(); } // Release deliberate holds before joining.
@@ -135,9 +137,14 @@ struct Harness {
 
 	void step(bool p_commit = true, bool p_observe = true) {
 		const Streamer::Buffers buffers;
-		streamer.begin_frame(nullptr, p_commit ? &buffers : nullptr);
-		commit = streamer.get_last_commit_result();
+		commit = TestGaussianSplatting::gs_hlod_edit_begin_frame(streamer, nullptr, p_commit ? &buffers : nullptr, force_timeout_frames);
 		streamer.update(nullptr, buffers, demand.ptr(), demand.size(), drawn.ptr(), drawn.size());
+		if (!force_timeout_frames) {
+			const auto &telemetry = streamer.get_telemetry();
+			CHECK(telemetry.edit_timeouts_total == 0);
+			CHECK(String(telemetry.edit_event) != "timeout");
+			if (telemetry.edit_timeouts_total != 0 || String(telemetry.edit_event) == "timeout") { observation_ok = false; }
+		}
 		sample = streamer._test_snapshot();
 		if (p_observe) {
 			const Error err = streamer._test_shadow_writes(writes);
@@ -583,6 +590,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] J lifecycle exits 
 				// Timeout retains its deliberate holds; all other paths must drain.
 				if (exit != TIMEOUT) { h.control.hold_workers = h.control.hold_uploads = false; }
 				if (!h.set_control()) { return; }
+				h.force_timeout_frames = exit == TIMEOUT;
 				const auto drained = gs_pump_until([&]() {
 					h.step(false);
 					if (exit == TIMEOUT && !h.streamer.is_edit_staged() && (h.control.hold_workers || h.control.hold_uploads)) {
@@ -593,7 +601,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] J lifecycle exits 
 				});
 				if (!drained.ready() || !h.observation_ok) { FAIL("D3-3 lifecycle never cancelled/drained: ", drained.describe()); return; }
 				CHECK(h.streamer.get_data() == h.fixture.source.snapshot);
-				if (exit == TIMEOUT) { CHECK(String(h.streamer.get_telemetry().edit_event) == "timeout"); }
+				if (exit == TIMEOUT) {
+					CHECK(String(h.streamer.get_telemetry().edit_event) == "timeout");
+					CHECK(h.streamer.get_telemetry().edit_timeouts_total == 1);
+				}
 				if (exit == BLOCKED) { CHECK(String(h.streamer.get_telemetry().edit_event) == "blocked"); }
 			} else {
 				h.sample = h.streamer._test_snapshot();

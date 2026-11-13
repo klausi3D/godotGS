@@ -1,5 +1,6 @@
 extern "C" int test_hlod_editable_regions_cpp_force_link() { return 0; }
 #include "test_macros.h"
+#include "gs_hlod_edit_test_pump.h"
 #include "gs_test_pump.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/gaussian_splat_world.h"
@@ -858,11 +859,18 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] the node streamer packs an e
 
 	// Without a device, the shadow job packs the edited leaf but its payload remains available for inspection:
 	// transfer has not happened, so neither residency readiness nor the served revision advances.
+	// Poll inside this frame: begin_frame() per poll would consume the edit's 1800-frame timeout before a slow worker runs.
+	const uint64_t packed_wait_age = streamer->get_residency().staged_edit_age_frames();
 	const auto packed_shadow = TestGaussianSplatting::gs_pump_until([&]() {
-		streamer->begin_frame();
 		streamer->update(nullptr, HlodNodeStreamer::Buffers(), nullptr, 0, nullptr, 0);
-		return streamer->get_telemetry().edit_shadow_ready == 1;
+#ifdef THREADS_ENABLED
+		Thread::yield();
+#endif
+		return streamer->get_telemetry().edit_shadow_ready == 1 || !streamer->is_edit_staged();
 	});
+	CHECK(streamer->get_telemetry().edit_timeouts_total == 0);
+	CHECK(String(streamer->get_telemetry().edit_event) == "staged");
+	CHECK(streamer->get_residency().staged_edit_age_frames() == packed_wait_age);
 	if (!packed_shadow.ready()) {
 		FAIL("edited leaf never became CPU-packed: ", packed_shadow.describe());
 		return;
@@ -970,8 +978,8 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 				record.node = n;
 				everything.push_back(record);
 			}
-			streamer->begin_frame(rd, &gpu.buffers); // Commits a ready staged edit before anything selects.
-			if (streamer->get_last_commit_result() == HlodNodeStreamer::COMMIT_DONE) {
+			const auto commit = TestGaussianSplatting::gs_hlod_edit_begin_frame(*streamer.ptr(), rd, &gpu.buffers); // Ready edits still commit before selection.
+			if (commit == HlodNodeStreamer::COMMIT_DONE) {
 				// The publication boundary itself: the moment commit returns, before this frame's update(), no stale ancestor
 				// can be drawn (its metadata is already zero) and the served snapshot is the edited one.
 				const Vector<uint8_t> at_boundary = rd->buffer_get_data(gpu.buffers.chunk_meta);
@@ -987,6 +995,12 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 			}
 			streamer->update(rd, gpu.buffers, everything.ptr(), everything.size(), nullptr, 0);
 			rd->swap_buffers(false);
+			CHECK(streamer->get_telemetry().edit_timeouts_total == 0);
+			CHECK(String(streamer->get_telemetry().edit_event) != "timeout");
+			if (streamer->get_telemetry().edit_timeouts_total != 0 || String(streamer->get_telemetry().edit_event) == "timeout") {
+				readback_valid = false;
+				return true;
+			}
 			return p_done();
 		});
 		if (!completed.ready()) {

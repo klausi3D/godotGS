@@ -1,5 +1,6 @@
 #include "test_macros.h"
 #include "gs_hlod_edit_shadow_test_fixture.h"
+#include "gs_hlod_edit_test_pump.h"
 #include "gs_test_pump.h"
 #include "../io/gs_payload_page_store.h"
 #include "core/object/callable_method_pointer.h"
@@ -408,8 +409,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow][World][SceneTree][RequiresG
 		return true;
 	};
 	const auto transferred = TestGaussianSplatting::gs_pump_until([&]() {
-		runtime.streamer.begin_frame(rd, &runtime.buffers);
-		const Streamer::EditCommitResult result = runtime.streamer.get_last_commit_result();
+		const Streamer::EditCommitResult result = TestGaussianSplatting::gs_hlod_edit_begin_frame(runtime.streamer, rd, &runtime.buffers);
 		if (result == Streamer::COMMIT_DONE) {
 			if (committed || complete_before_boundary != goldens.size()) {
 				FAIL("D3-3 GPU commit must occur once, after every shadow payload was observed transferred in update");
@@ -421,6 +421,11 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][D3Shadow][World][SceneTree][RequiresG
 		}
 		if (!observe(true)) { return true; }
 		update();
+		CHECK(runtime.streamer.get_telemetry().edit_timeouts_total == 0);
+		CHECK(String(runtime.streamer.get_telemetry().edit_event) != "timeout");
+		if (runtime.streamer.get_telemetry().edit_timeouts_total != 0 || String(runtime.streamer.get_telemetry().edit_event) == "timeout") {
+			failed = true; return true;
+		}
 		if (runtime.streamer.get_telemetry().uploaded_bytes_this_frame > config.upload_bytes_per_frame) {
 			FAIL("D3-3 GPU shadow transfers exceeded the unchanged per-frame upload allowance"); failed = true; return true;
 		}
