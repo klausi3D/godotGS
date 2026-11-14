@@ -89,6 +89,7 @@ var namespaces_dup =
     [ "gs_world_generator", "namespacegs__world__generator.html", "namespacegs__world__generator" ],
     [ "gs_world_paged", "namespacegs__world__paged.html", "namespacegs__world__paged" ],
     [ "gs_world_writer", "namespacegs__world__writer.html", "namespacegs__world__writer" ],
+    [ "GSUploadSizing", "namespaceGSUploadSizing.html", "namespaceGSUploadSizing" ],
     [ "QualitySH", "namespaceQualitySH.html", null ],
     [ "RenderingErrorCodes", "namespaceRenderingErrorCodes.html", [
       [ "command_buffer_synchronization_failed", "namespaceRenderingErrorCodes.html#a003f42775d3f6f37a81c8217cce029d9", null ],

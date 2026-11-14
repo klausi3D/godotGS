@@ -102,6 +102,10 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:ae08714d1d055eecde06d1b2dd7079c0c" id="r_ae08714d1d055eecde06d1b2dd7079c0c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae08714d1d055eecde06d1b2dd7079c0c">position_bits</a> = 0</td></tr>
 <tr class="memitem:ad0c92c19e73f8b46f2cca9bdf00e4dea" id="r_ad0c92c19e73f8b46f2cca9bdf00e4dea"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad0c92c19e73f8b46f2cca9bdf00e4dea">scale_bits</a> = 0</td></tr>
 <tr class="memitem:ad0df70b39f61d7f2ab4837e085fb3ac0" id="r_ad0df70b39f61d7f2ab4837e085fb3ac0"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad0df70b39f61d7f2ab4837e085fb3ac0">upload_bytes_per_frame</a> = 32ull * 1024 * 1024</td></tr>
+<tr class="memitem:ac961b0216f8d86be426f6375eeebbb7c" id="r_ac961b0216f8d86be426f6375eeebbb7c"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac961b0216f8d86be426f6375eeebbb7c">staging_upload_clamp_bytes</a> = 0</td></tr>
+<tr class="memitem:a303a9ad421f115a037f45cd10b28e2f6" id="r_a303a9ad421f115a037f45cd10b28e2f6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a303a9ad421f115a037f45cd10b28e2f6">logical_cpus</a> = 0</td></tr>
+<tr class="memitem:aa623f7c6f925a998a00292300b42e10a" id="r_aa623f7c6f925a998a00292300b42e10a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa623f7c6f925a998a00292300b42e10a">pool_threads</a> = 0</td></tr>
+<tr class="memitem:a90f45cedad354ccb3ce5aa73d9092fbe" id="r_a90f45cedad354ccb3ce5aa73d9092fbe"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a90f45cedad354ccb3ce5aa73d9092fbe">reserved_pool_threads</a> = 0</td></tr>
 <tr class="memitem:aa2864391a57060c8979a4627f820fb89" id="r_aa2864391a57060c8979a4627f820fb89"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa2864391a57060c8979a4627f820fb89">max_jobs_in_flight</a> = 16</td></tr>
 <tr class="memitem:a04640933883519d636b204de9b829864" id="r_a04640933883519d636b204de9b829864"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04640933883519d636b204de9b829864">max_inflight_read_bytes</a> = 8ull * 1024 * 1024</td></tr>
 <tr class="memitem:abb72e95b92e6f6b8a74aeb61b15917fd" id="r_abb72e95b92e6f6b8a74aeb61b15917fd"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb72e95b92e6f6b8a74aeb61b15917fd">retire_delay_frames</a> = 3</td></tr>
@@ -162,6 +166,20 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a303a9ad421f115a037f45cd10b28e2f6" name="a303a9ad421f115a037f45cd10b28e2f6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a303a9ad421f115a037f45cd10b28e2f6">&#9670;&#160;</a></span>logical_cpus</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodNodeStreamer::Config::logical_cpus = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a04640933883519d636b204de9b829864" name="a04640933883519d636b204de9b829864"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a04640933883519d636b204de9b829864">&#9670;&#160;</a></span>max_inflight_read_bytes</h2>
 
@@ -204,6 +222,20 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="aa623f7c6f925a998a00292300b42e10a" name="aa623f7c6f925a998a00292300b42e10a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa623f7c6f925a998a00292300b42e10a">&#9670;&#160;</a></span>pool_threads</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodNodeStreamer::Config::pool_threads = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ae08714d1d055eecde06d1b2dd7079c0c" name="ae08714d1d055eecde06d1b2dd7079c0c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ae08714d1d055eecde06d1b2dd7079c0c">&#9670;&#160;</a></span>position_bits</h2>
 
@@ -232,6 +264,20 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a90f45cedad354ccb3ce5aa73d9092fbe" name="a90f45cedad354ccb3ce5aa73d9092fbe"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a90f45cedad354ccb3ce5aa73d9092fbe">&#9670;&#160;</a></span>reserved_pool_threads</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t HlodNodeStreamer::Config::reserved_pool_threads = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="abb72e95b92e6f6b8a74aeb61b15917fd" name="abb72e95b92e6f6b8a74aeb61b15917fd"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#abb72e95b92e6f6b8a74aeb61b15917fd">&#9670;&#160;</a></span>retire_delay_frames</h2>
 
@@ -254,6 +300,20 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t HlodNodeStreamer::Config::scale_bits = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac961b0216f8d86be426f6375eeebbb7c" name="ac961b0216f8d86be426f6375eeebbb7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac961b0216f8d86be426f6375eeebbb7c">&#9670;&#160;</a></span>staging_upload_clamp_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Config::staging_upload_clamp_bytes = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

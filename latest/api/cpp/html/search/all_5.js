@@ -221,7 +221,7 @@ var searchData=
   ['depthgradient_218',['DepthGradient',['../structgs__shadow__caster_1_1DepthGradient.html',1,'gs_shadow_caster']]],
   ['dequantize_5fposition_219',['dequantize_position',['../structChunkQuantizationInfo.html#a590620a10b179f545860e9a7efe5673a',1,'ChunkQuantizationInfo']]],
   ['dequantize_5fscale_220',['dequantize_scale',['../structChunkQuantizationInfo.html#a4288d4406a0ecaa7f5c37756e08f5564',1,'ChunkQuantizationInfo']]],
-  ['dequeue_5fbatch_221',['dequeue_batch',['../structStreamingUploadPipeline_1_1PackThreadContext.html#a5dc2db0f95f957d28f9fe78cac65f97b',1,'StreamingUploadPipeline::PackThreadContext']]],
+  ['dequeue_5fbatch_221',['dequeue_batch',['../structStreamingUploadPipeline_1_1PackThreadContext.html#a5dc2db0f95f957d28f9fe78cac65f97b',1,'StreamingUploadPipeline::PackThreadContext::dequeue_batch'],['../namespaceGSUploadSizing.html#a75527a2a6b0705a789731108e62cdc8b',1,'GSUploadSizing::dequeue_batch()']]],
   ['desc_222',['desc',['../structgs__world__generator_1_1ChunkBuffers.html#ac9e23c03c593b3f12adcc03f42dd4c28',1,'gs_world_generator::ChunkBuffers::desc'],['../structgs__world__writer_1_1V4SpillRecord.html#aa6902c3080ddcb934cf1bc7360123d79',1,'gs_world_writer::V4SpillRecord::desc']]],
   ['describe_5fbackend_5fselection_5freason_223',['describe_backend_selection_reason',['../namespaceGaussianRenderRouteLabels.html#a05eae8c2f8a5e4a49c63690751cbdc68',1,'GaussianRenderRouteLabels']]],
   ['describe_5fcull_5froute_5freason_224',['describe_cull_route_reason',['../namespaceGaussianRenderRouteLabels.html#aa7575999894e0a33b05d7f265cf0ad5b',1,'GaussianRenderRouteLabels']]],

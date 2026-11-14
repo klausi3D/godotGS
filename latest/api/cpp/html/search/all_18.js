@@ -46,7 +46,7 @@ var searchData=
   ['window_5fstart_5fus_43',['window_start_us',['../structGaussianSplatPerformanceOverlay_1_1FrameClock.html#ac21a7a95b1a7c6420a82177d86875842',1,'GaussianSplatPerformanceOverlay::FrameClock']]],
   ['work_44',['work',['../structgs__hlod_1_1tiled__bake_1_1PlanNode.html#a9a3bcd48b69cb3683852c009be5f79e6',1,'gs_hlod::tiled_bake::PlanNode']]],
   ['work_5funits_45',['work_units',['../structgs__hlod_1_1QualityViewResult.html#a585d00e9f54af70aa3574b50c5e39cdd',1,'gs_hlod::QualityViewResult']]],
-  ['worker_5fcount_46',['worker_count',['../structgs__hlod_1_1TiledBakeParams.html#aa4aa88b162d39893d641e3033e26cd3c',1,'gs_hlod::TiledBakeParams']]],
+  ['worker_5fcount_46',['worker_count',['../structgs__hlod_1_1TiledBakeParams.html#aa4aa88b162d39893d641e3033e26cd3c',1,'gs_hlod::TiledBakeParams::worker_count'],['../namespaceGSUploadSizing.html#a9d869aed45703979c713fed740df9938',1,'GSUploadSizing::worker_count()']]],
   ['workgroup_5fcount_47',['workgroup_count',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html#a7ad0db83795e6771c4c0f678facb7c76',1,'TilePrefixScanStage::PrefixDispatchContext::workgroup_count'],['../structTileRenderer_1_1TilePrefixScanStage_1_1PrefixDispatchContext.html#a23df07676f4c48beb5bd845a8c249298',1,'TileRenderer::TilePrefixScanStage::PrefixDispatchContext::workgroup_count']]],
   ['workgroup_5fcount_5fx_48',['workgroup_count_x',['../structComputeCapabilityProbe.html#a283b5e68ded4b3afe9e656700381a05d',1,'ComputeCapabilityProbe']]],
   ['workgroup_5finvocations_49',['workgroup_invocations',['../structComputeCapabilityProbe.html#ac8de9c8bd99b4e4c592fe593b58a7636',1,'ComputeCapabilityProbe']]],

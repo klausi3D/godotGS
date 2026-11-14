@@ -628,6 +628,7 @@ var hierarchy =
     [ "GaussianSplatSceneDirector::SharedWorld", "structGaussianSplatSceneDirector_1_1SharedWorld.html", null ],
     [ "SHCompressionMetrics", "structSHCompressionMetrics.html", null ],
     [ "SHConfig", "structSHConfig.html", null ],
+    [ "GSUploadSizing::Slice", "structGSUploadSizing_1_1Slice.html", null ],
     [ "DeviceVramLedger::Snapshot", "structDeviceVramLedger_1_1Snapshot.html", null ],
     [ "gs_shadow_caster::LightFrameStats::Snapshot", "structgs__shadow__caster_1_1LightFrameStats_1_1Snapshot.html", null ],
     [ "StreamingLatencyHistogram::Snapshot", "structStreamingLatencyHistogram_1_1Snapshot.html", null ],

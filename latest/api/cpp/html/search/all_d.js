@@ -389,11 +389,12 @@ var searchData=
   ['log_5fsorting_5fperformance_386',['log_sorting_performance',['../gpu__sorting__config_8cpp.html#afc1909bf6398a99870722f1cdd4193ab',1,'log_sorting_performance(uint32_t element_count, float sort_time_ms, const String &amp;algorithm):&#160;gpu_sorting_config.cpp'],['../gpu__sorting__config_8h.html#afc1909bf6398a99870722f1cdd4193ab',1,'log_sorting_performance(uint32_t element_count, float sort_time_ms, const String &amp;algorithm):&#160;gpu_sorting_config.cpp']]],
   ['log_5fthrottle_5fframes_387',['LOG_THROTTLE_FRAMES',['../structGaussianRenderState_1_1StreamingState.html#aa523e911d4c815e7d0865ca936672b17',1,'GaussianRenderState::StreamingState']]],
   ['logging_5fconfig_2eh_388',['logging_config.h',['../logging__config_8h.html',1,'']]],
-  ['looping_389',['looping',['../structGaussianSplatting_1_1AnimationClip.html#ae068571e82a5ebf9cfadc0d6b20bf2a6',1,'GaussianSplatting::AnimationClip']]],
-  ['low_5fend_5fmode_390',['low_end_mode',['../structPainterlyConfig.html#ab6f384a75c97d650bd68ef28b7fa831e',1,'PainterlyConfig::low_end_mode'],['../structGaussianRenderConfig_1_1PainterlyConfig.html#a32056404258797195761263c266c67ba',1,'GaussianRenderConfig::PainterlyConfig::low_end_mode']]],
-  ['low_5fpass_5ffilter_391',['low_pass_filter',['../structRasterParams.html#a76defabf206601e65cf4de6ee4cb32d0',1,'RasterParams::low_pass_filter'],['../structTileRenderParamsGPU.html#a9949b7b64bd54ece12c5bd943d8cd090',1,'TileRenderParamsGPU::low_pass_filter'],['../structGaussianSplatting_1_1TileRenderParams.html#a7a2ad5917b9fb18ba275966cea6486cc',1,'GaussianSplatting::TileRenderParams::low_pass_filter']]],
-  ['low_5futilization_5fframes_392',['low_utilization_frames',['../structTileRenderer_1_1AdaptiveOverlapBudgetRuntimeState.html#ada7d2dcbe2ee9961a724626066171334',1,'TileRenderer::AdaptiveOverlapBudgetRuntimeState']]],
-  ['lub_393',['LUB',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a6b7678d7653d110d7c0a9b8c72c2dd4b',1,'spz']]],
-  ['luf_394',['LUF',['../namespacespz.html#a19b51669532d1278d8601657d1097df6ad84ae51df70f21738b169a4a0d26fb8f',1,'spz']]],
-  ['lz4_395',['LZ4',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70aca0c64c0de8f56bc573828ea6d764594',1,'GaussianSplatting']]]
+  ['logical_5fcpus_389',['logical_cpus',['../structHlodNodeStreamer_1_1Config.html#a303a9ad421f115a037f45cd10b28e2f6',1,'HlodNodeStreamer::Config']]],
+  ['looping_390',['looping',['../structGaussianSplatting_1_1AnimationClip.html#ae068571e82a5ebf9cfadc0d6b20bf2a6',1,'GaussianSplatting::AnimationClip']]],
+  ['low_5fend_5fmode_391',['low_end_mode',['../structPainterlyConfig.html#ab6f384a75c97d650bd68ef28b7fa831e',1,'PainterlyConfig::low_end_mode'],['../structGaussianRenderConfig_1_1PainterlyConfig.html#a32056404258797195761263c266c67ba',1,'GaussianRenderConfig::PainterlyConfig::low_end_mode']]],
+  ['low_5fpass_5ffilter_392',['low_pass_filter',['../structRasterParams.html#a76defabf206601e65cf4de6ee4cb32d0',1,'RasterParams::low_pass_filter'],['../structTileRenderParamsGPU.html#a9949b7b64bd54ece12c5bd943d8cd090',1,'TileRenderParamsGPU::low_pass_filter'],['../structGaussianSplatting_1_1TileRenderParams.html#a7a2ad5917b9fb18ba275966cea6486cc',1,'GaussianSplatting::TileRenderParams::low_pass_filter']]],
+  ['low_5futilization_5fframes_393',['low_utilization_frames',['../structTileRenderer_1_1AdaptiveOverlapBudgetRuntimeState.html#ada7d2dcbe2ee9961a724626066171334',1,'TileRenderer::AdaptiveOverlapBudgetRuntimeState']]],
+  ['lub_394',['LUB',['../namespacespz.html#a19b51669532d1278d8601657d1097df6a6b7678d7653d110d7c0a9b8c72c2dd4b',1,'spz']]],
+  ['luf_395',['LUF',['../namespacespz.html#a19b51669532d1278d8601657d1097df6ad84ae51df70f21738b169a4a0d26fb8f',1,'spz']]],
+  ['lz4_396',['LZ4',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70aca0c64c0de8f56bc573828ea6d764594',1,'GaussianSplatting']]]
 ];

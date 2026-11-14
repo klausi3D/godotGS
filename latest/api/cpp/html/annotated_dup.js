@@ -338,6 +338,9 @@ var annotated_dup =
       [ "V4Report", "structgs__world__writer_1_1V4Report.html", "structgs__world__writer_1_1V4Report" ],
       [ "WriterV4", "classgs__world__writer_1_1WriterV4.html", "classgs__world__writer_1_1WriterV4" ]
     ] ],
+    [ "GSUploadSizing", "namespaceGSUploadSizing.html", [
+      [ "Slice", "structGSUploadSizing_1_1Slice.html", "structGSUploadSizing_1_1Slice" ]
+    ] ],
     [ "ResidentAtlasBudget", "namespaceResidentAtlasBudget.html", [
       [ "SubsetPlan", "structResidentAtlasBudget_1_1SubsetPlan.html", "structResidentAtlasBudget_1_1SubsetPlan" ]
     ] ],

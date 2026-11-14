@@ -55,6 +55,8 @@ var dir_d02d02ccfbf78243378b2aff5a58b373 =
     [ "gaussian_streaming.cpp", "gaussian__streaming_8cpp.html", null ],
     [ "gaussian_streaming.h", "gaussian__streaming_8h.html", "gaussian__streaming_8h" ],
     [ "gs_project_settings.h", "gs__project__settings_8h.html", "gs__project__settings_8h" ],
+    [ "gs_upload_sizing.cpp", "gs__upload__sizing_8cpp.html", "gs__upload__sizing_8cpp" ],
+    [ "gs_upload_sizing.h", "gs__upload__sizing_8h.html", "gs__upload__sizing_8h" ],
     [ "gs_vector_alloc.h", "gs__vector__alloc_8h.html", "gs__vector__alloc_8h" ],
     [ "module_string_names.cpp", "module__string__names_8cpp.html", "module__string__names_8cpp" ],
     [ "module_string_names.h", "module__string__names_8h.html", "module__string__names_8h" ],
