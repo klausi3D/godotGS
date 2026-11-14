@@ -1,5 +1,14 @@
 var NAVTREEINDEX20 =
 {
+"gaussian__resource__preview__generator_8cpp.html":[2,0,0,0,4,14],
+"gaussian__resource__preview__generator_8h.html":[2,0,0,0,4,15],
+"gaussian__resource__preview__generator_8h_source.html":[2,0,0,0,4,15],
+"gaussian__scene__payload_8h.html":[2,0,0,0,11,0],
+"gaussian__scene__payload_8h_source.html":[2,0,0,0,11,0],
+"gaussian__scene__serializer_8cpp.html":[2,0,0,0,11,1],
+"gaussian__scene__serializer_8h.html":[2,0,0,0,11,2],
+"gaussian__scene__serializer_8h_source.html":[2,0,0,0,11,2],
+"gaussian__sh__rotation_8h.html":[2,0,0,0,3,10],
 "gaussian__sh__rotation_8h_source.html":[2,0,0,0,3,10],
 "gaussian__splat__asset_8cpp.html":[2,0,0,0,3,11],
 "gaussian__splat__asset_8cpp.html#ad5682c7afbc6e2ec4310c71b115ff803":[2,0,0,0,3,11,0],
@@ -240,14 +249,5 @@ var NAVTREEINDEX20 =
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a":[2,0,0,0,5,9,13,6],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf083c7f17a7110a20b865f9e6c6316ca":[2,0,0,0,5,9,13,9],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf37b4be0ce37e1b3a4c668c5f5c5bf61":[2,0,0,0,5,9,13,7],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3":[2,0,0,0,5,9,14],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a379cf16197e9684ff2fa892bbdf7d5af":[2,0,0,0,5,9,14,1],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a9daa79b56a04cd7de8ee15128dd2c99a":[2,0,0,0,5,9,14,2],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3ab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,14,0],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7b":[2,0,0,0,5,9,12],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba453ff96dc7e039691b670d8b246a54f5":[2,0,0,0,5,9,12,3],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba45de8a00d77faa4078a3e80a7759baf7":[2,0,0,0,5,9,12,2],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bab9e14d9b2886bcff408b85aefa780419":[2,0,0,0,5,9,12,0],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99":[2,0,0,0,5,9,12,1],
-"gpu__sorting__pipeline__interfaces_8h_source.html":[2,0,0,0,5,9]
+"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3":[2,0,0,0,5,9,14]
 };

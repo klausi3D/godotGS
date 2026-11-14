@@ -1,5 +1,15 @@
 var NAVTREEINDEX64 =
 {
+"structspz_1_1UnpackedGaussian.html#afbdf7440a5b34ad123078a95259ee472":[0,0,42,1,5],
+"structspz_1_1UnpackedGaussian.html#afbdf7440a5b34ad123078a95259ee472":[1,0,29,1,5],
+"sync__policy_8h.html":[2,0,0,0,5,31],
+"sync__policy_8h_source.html":[2,0,0,0,5,31],
+"thread__owned__mutex_8h.html":[2,0,0,0,3,111],
+"thread__owned__mutex_8h_source.html":[2,0,0,0,3,111],
+"tile__lighting__abi_8h.html":[2,0,0,0,12,97],
+"tile__lighting__abi_8h_source.html":[2,0,0,0,12,97],
+"tile__prefix__scan__utils_8h.html":[2,0,0,0,12,98],
+"tile__prefix__scan__utils_8h_source.html":[2,0,0,0,12,98],
 "tile__rasterizer_8cpp.html":[2,0,0,0,5,32],
 "tile__rasterizer_8cpp.html#a7958a82acba5e1c045f3402bcc5cf96c":[2,0,0,0,5,32,0],
 "tile__rasterizer_8cpp.html#a7958a82acba5e1c045f3402bcc5cf96cac9f1a6384b1c466d4612f513bd8e13ea":[2,0,0,0,5,32,0,0],

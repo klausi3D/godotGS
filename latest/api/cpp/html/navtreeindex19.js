@@ -1,5 +1,14 @@
 var NAVTREEINDEX19 =
 {
+"color__grading__resource_8cpp.html":[2,0,0,0,13,0],
+"color__grading__resource_8h.html":[2,0,0,0,13,1],
+"color__grading__resource_8h_source.html":[2,0,0,0,13,1],
+"compute__infrastructure_8cpp.html":[2,0,0,0,2,0],
+"compute__infrastructure_8h.html":[2,0,0,0,2,1],
+"compute__infrastructure_8h_source.html":[2,0,0,0,2,1],
+"coordinate-system-adobe_8h.html":[2,0,0,0,14,0,0],
+"coordinate-system-adobe_8h_source.html":[2,0,0,0,14,0,0],
+"culler__interfaces_8h.html":[2,0,0,0,5,0],
 "culler__interfaces_8h_source.html":[2,0,0,0,5,0],
 "debug__overlay__interfaces_8h.html":[2,0,0,0,5,1],
 "debug__overlay__interfaces_8h_source.html":[2,0,0,0,5,1],
@@ -240,14 +249,5 @@ var NAVTREEINDEX19 =
 "gaussian__importance_8h_source.html":[2,0,0,0,3,9],
 "gaussian__inspector__plugins_8cpp.html":[2,0,0,0,4,12],
 "gaussian__inspector__plugins_8h.html":[2,0,0,0,4,13],
-"gaussian__inspector__plugins_8h_source.html":[2,0,0,0,4,13],
-"gaussian__resource__preview__generator_8cpp.html":[2,0,0,0,4,14],
-"gaussian__resource__preview__generator_8h.html":[2,0,0,0,4,15],
-"gaussian__resource__preview__generator_8h_source.html":[2,0,0,0,4,15],
-"gaussian__scene__payload_8h.html":[2,0,0,0,11,0],
-"gaussian__scene__payload_8h_source.html":[2,0,0,0,11,0],
-"gaussian__scene__serializer_8cpp.html":[2,0,0,0,11,1],
-"gaussian__scene__serializer_8h.html":[2,0,0,0,11,2],
-"gaussian__scene__serializer_8h_source.html":[2,0,0,0,11,2],
-"gaussian__sh__rotation_8h.html":[2,0,0,0,3,10]
+"gaussian__inspector__plugins_8h_source.html":[2,0,0,0,4,13]
 };

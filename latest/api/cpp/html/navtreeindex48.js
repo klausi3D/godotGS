@@ -1,5 +1,15 @@
 var NAVTREEINDEX48 =
 {
+"structInstanceDepthParamsGPU.html#a15af96ee800b9353a2dc297e380f70fe":[1,0,147,10],
+"structInstanceDepthParamsGPU.html#a2783e2881020c2654e858e2845b2bd62":[1,0,147,2],
+"structInstanceDepthParamsGPU.html#a33a4d8d068f47a9484dd0b287f60f6ba":[1,0,147,3],
+"structInstanceDepthParamsGPU.html#a6b2dd36e954cf356c33d3efb7d569c14":[1,0,147,6],
+"structInstanceDepthParamsGPU.html#a778f63040503feadcf145b13e29c56f8":[1,0,147,0],
+"structInstanceDepthParamsGPU.html#a80803e69dcd41182c059a9120928dbef":[1,0,147,13],
+"structInstanceDepthParamsGPU.html#a95ba5990865d45364a38058e7382766a":[1,0,147,14],
+"structInstanceDepthParamsGPU.html#aac1ce89c1716d948bd9d99d8a9566893":[1,0,147,11],
+"structInstanceDepthParamsGPU.html#adbb4b7d421f2eba6a10d517a7896402a":[1,0,147,8],
+"structInstanceDepthParamsGPU.html#adf57f2daa2c570835f9ef1d0fc495516":[1,0,147,5],
 "structInstanceDepthParamsGPU.html#aefb161cea03a4801de7ce2f0b735f926":[1,0,147,12],
 "structInstanceDepthParamsGPU.html#af0b444a00bd10c1e178d68a983e080f1":[1,0,147,1],
 "structInstanceDepthParamsGPU.html#af0f1c16d10f0ebe0fcb451819fa1752b":[1,0,147,9],
@@ -239,15 +249,5 @@ var NAVTREEINDEX48 =
 "structPackedGaussian.html#aa039c1bdbd2e806909fff61af98817b7":[1,0,179,1],
 "structPackedGaussianQuantized.html":[1,0,180],
 "structPackedGaussianQuantized.html#a2ff771ae251de67092e736d4ecc2f1c2":[1,0,180,3],
-"structPackedGaussianQuantized.html#a661fbe52eca77e599f0621adb211d3f2":[1,0,180,2],
-"structPackedGaussianQuantized.html#a6a7576c434305f78895b4c0ea6ffadbb":[1,0,180,1],
-"structPackedGaussianQuantized.html#a8f16241c2940f19a81af3773e7daf8d7":[1,0,180,7],
-"structPackedGaussianQuantized.html#a909aed848a3578195cdb61162941572e":[1,0,180,5],
-"structPackedGaussianQuantized.html#a99c59f7596e92a6237a944dd44a2e635":[1,0,180,6],
-"structPackedGaussianQuantized.html#aa62c5e8f9c0bd158e43fca6b62181d53":[1,0,180,11],
-"structPackedGaussianQuantized.html#aac060848632fa5a46ae5ed87275df74a":[1,0,180,9],
-"structPackedGaussianQuantized.html#ab936e86ce2a20ca0dbab798da729f0be":[1,0,180,4],
-"structPackedGaussianQuantized.html#ac44bcb5da5cd716c375f4cc2cf80ef63":[1,0,180,0],
-"structPackedGaussianQuantized.html#ae21c8d66fec1c8f228276fc69666947a":[1,0,180,8],
-"structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564":[1,0,180,12]
+"structPackedGaussianQuantized.html#a661fbe52eca77e599f0621adb211d3f2":[1,0,180,2]
 };

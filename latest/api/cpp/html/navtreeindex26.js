@@ -1,5 +1,14 @@
 var NAVTREEINDEX26 =
 {
+"render__device__orchestrator_8h.html":[2,0,0,0,12,53],
+"render__device__orchestrator_8h_source.html":[2,0,0,0,12,53],
+"render__diagnostics__orchestrator_8cpp.html":[2,0,0,0,12,54],
+"render__diagnostics__orchestrator_8h.html":[2,0,0,0,12,55],
+"render__diagnostics__orchestrator_8h_source.html":[2,0,0,0,12,55],
+"render__facade__state__types_8h.html":[2,0,0,0,12,0,2],
+"render__facade__state__types_8h_source.html":[2,0,0,0,12,0,2],
+"render__frame__context__manager_8cpp.html":[2,0,0,0,12,56],
+"render__frame__context__manager_8h.html":[2,0,0,0,12,57],
 "render__frame__context__manager_8h_source.html":[2,0,0,0,12,57],
 "render__frame__types_8h.html":[2,0,0,0,12,0,3],
 "render__frame__types_8h_source.html":[2,0,0,0,12,0,3],
@@ -240,14 +249,5 @@ var NAVTREEINDEX26 =
 "streaming__quantization_8h_source.html":[2,0,0,0,3,98],
 "streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,99],
 "streaming__queue__pressure__controller_8h.html":[2,0,0,0,3,100],
-"streaming__queue__pressure__controller_8h_source.html":[2,0,0,0,3,100],
-"streaming__runtime__state_8h.html":[2,0,0,0,3,101],
-"streaming__runtime__state_8h_source.html":[2,0,0,0,3,101],
-"streaming__telemetry__adapter_8cpp.html":[2,0,0,0,3,102],
-"streaming__telemetry__adapter_8h.html":[2,0,0,0,3,103],
-"streaming__telemetry__adapter_8h_source.html":[2,0,0,0,3,103],
-"streaming__tier__cap__policy_8h.html":[2,0,0,0,3,104],
-"streaming__tier__cap__policy_8h_source.html":[2,0,0,0,3,104],
-"streaming__upload__pipeline_8cpp.html":[2,0,0,0,3,105],
-"streaming__upload__pipeline_8h.html":[2,0,0,0,3,106]
+"streaming__queue__pressure__controller_8h_source.html":[2,0,0,0,3,100]
 };

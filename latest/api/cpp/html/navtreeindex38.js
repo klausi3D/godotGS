@@ -1,5 +1,14 @@
 var NAVTREEINDEX38 =
 {
+"structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html":[1,0,107,0],
+"structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html#a203f5739cc4b7aa5e743ffb39cbdcdca":[1,0,107,0,1],
+"structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html#a661acf28684f3683b13eceb32a2ca107":[1,0,107,0,0],
+"structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html#a8956ea93115024e12418ff4d4037fb51":[1,0,107,0,3],
+"structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html#aa231bc9a4d6b80e1ab4cc86bb2afbc94":[1,0,107,0,2],
+"structGaussianSplatting_1_1AnimationChange.html":[0,0,12,22],
+"structGaussianSplatting_1_1AnimationChange.html":[1,0,9,21],
+"structGaussianSplatting_1_1AnimationChange.html#a0122b03a599cbb25ec2b38d963fc3e98":[0,0,12,22,2],
+"structGaussianSplatting_1_1AnimationChange.html#a0122b03a599cbb25ec2b38d963fc3e98":[1,0,9,21,2],
 "structGaussianSplatting_1_1AnimationChange.html#a77beb451454eee2fc1c74f4cfa11b4b1":[0,0,12,22,3],
 "structGaussianSplatting_1_1AnimationChange.html#a77beb451454eee2fc1c74f4cfa11b4b1":[1,0,9,21,3],
 "structGaussianSplatting_1_1AnimationChange.html#a79afcc2d62933c1727880a93bc9c6133":[0,0,12,22,1],
@@ -240,14 +249,5 @@ var NAVTREEINDEX38 =
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ac9e9fc4f712e735e9150c0e4c3bb276e":[1,0,9,11,7],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#acc3a96a4d61fd36162b264589367aa01":[0,0,12,12,11],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#acc3a96a4d61fd36162b264589367aa01":[1,0,9,11,11],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0769b8fa472534e32f40440a5aaab44":[0,0,12,12,8],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0769b8fa472534e32f40440a5aaab44":[1,0,9,11,8],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0a381dfda02c6328c69e380cb59f6c6":[0,0,12,12,2],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0a381dfda02c6328c69e380cb59f6c6":[1,0,9,11,2],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad23ca91ea31aa7bf7f338dc0431f16a3":[0,0,12,12,14],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad23ca91ea31aa7bf7f338dc0431f16a3":[1,0,9,11,14],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[0,0,12,12,3],
-"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ae716282ac65eb5d8201e29816543d249":[1,0,9,11,3],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html":[0,0,12,2,3],
-"structGaussianSplatting_1_1GpuPassTiming_1_1FrameDurations.html":[1,0,9,1,3]
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#ad0769b8fa472534e32f40440a5aaab44":[0,0,12,12,8]
 };

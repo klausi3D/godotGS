@@ -1,5 +1,15 @@
 var NAVTREEINDEX54 =
 {
+"structTileRenderParamsGPU.html#a2a2322660d11bde18fa5a87efb4333e6":[1,0,287,34],
+"structTileRenderParamsGPU.html#a2adbb827abf83b38adbc3a2a06b9011e":[1,0,287,45],
+"structTileRenderParamsGPU.html#a2d63a4a451cc0d9f20e9fbfebbb16b45":[1,0,287,31],
+"structTileRenderParamsGPU.html#a351ca2d684083eaa95dc263a0ac9616b":[1,0,287,21],
+"structTileRenderParamsGPU.html#a35a584105910bb8cd4e0e4dafac45098":[1,0,287,48],
+"structTileRenderParamsGPU.html#a43ff4925ef5f6becd800994cbd2d86bf":[1,0,287,1],
+"structTileRenderParamsGPU.html#a477b39cad8c71d4d08797599561e2956":[1,0,287,22],
+"structTileRenderParamsGPU.html#a4893ef4ca0c63d5d3f613775c90b539d":[1,0,287,35],
+"structTileRenderParamsGPU.html#a5000af413021163fb996dccd6d91f514":[1,0,287,49],
+"structTileRenderParamsGPU.html#a51421f5a405b6ddbfa94e3054927bc3e":[1,0,287,8],
 "structTileRenderParamsGPU.html#a574b12ac73fa30cf96319b6ee1e74fee":[1,0,287,5],
 "structTileRenderParamsGPU.html#a5c93aea28a2e7826dcaa27e28f8d7517":[1,0,287,40],
 "structTileRenderParamsGPU.html#a5f8dfe5ce5db6fd17166099a5aa6c558":[1,0,287,42],
@@ -239,15 +249,5 @@ var NAVTREEINDEX54 =
 "structgs_1_1settings_1_1GSLightingSettings.html#afd45c1b3ae8f692ac7b20812ab2a9c17":[0,0,16,0,2,3],
 "structgs_1_1settings_1_1GSLightingSettings.html#afd45c1b3ae8f692ac7b20812ab2a9c17":[1,0,11,0,2,3],
 "structgs_1_1settings_1_1GSSphereEffectorSettings.html":[0,0,16,0,0],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html":[1,0,11,0,0],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a1ee6202ea45a3bed5842cf7801e02aea":[0,0,16,0,0,10],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a1ee6202ea45a3bed5842cf7801e02aea":[1,0,11,0,0,10],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a338fec168ba12b6e76ef7304402cc91b":[0,0,16,0,0,7],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a338fec168ba12b6e76ef7304402cc91b":[1,0,11,0,0,7],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a37cf8bca3c4b66f7a004a812252b5669":[0,0,16,0,0,0],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a37cf8bca3c4b66f7a004a812252b5669":[1,0,11,0,0,0],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a64505b2b4206cf870f70b911e621681b":[0,0,16,0,0,5],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a64505b2b4206cf870f70b911e621681b":[1,0,11,0,0,5],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a8efa866c6f3fde33a2f18419bfc2ea9b":[0,0,16,0,0,6],
-"structgs_1_1settings_1_1GSSphereEffectorSettings.html#a8efa866c6f3fde33a2f18419bfc2ea9b":[1,0,11,0,0,6]
+"structgs_1_1settings_1_1GSSphereEffectorSettings.html":[1,0,11,0,0]
 };

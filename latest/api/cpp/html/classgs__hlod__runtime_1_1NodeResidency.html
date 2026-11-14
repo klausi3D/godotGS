@@ -144,6 +144,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ac68ce6b1153d129bd3245d605aa3c28b" id="r_ac68ce6b1153d129bd3245d605aa3c28b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac68ce6b1153d129bd3245d605aa3c28b">edit_prefetch</a> (LocalVector&lt; uint32_t &gt; &amp;r_demand) const</td></tr>
 <tr class="memitem:a5ab78b163c0ec2bcef735170d7c1217e" id="r_a5ab78b163c0ec2bcef735170d7c1217e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5ab78b163c0ec2bcef735170d7c1217e">is_shadow_pending</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
 <tr class="memitem:a2a31adb25970ae73250c63368fdd2d65" id="r_a2a31adb25970ae73250c63368fdd2d65"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2a31adb25970ae73250c63368fdd2d65">finish_shadow</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket, bool p_success)</td></tr>
+<tr class="memitem:ae8d9d75d1277531e54d474007bed2ee6" id="r_ae8d9d75d1277531e54d474007bed2ee6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae8d9d75d1277531e54d474007bed2ee6">is_shadow_packed</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
+<tr class="memitem:a442d8340d89a100ccb51878aeedb3092" id="r_a442d8340d89a100ccb51878aeedb3092"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a442d8340d89a100ccb51878aeedb3092">finish_shadow_transfer</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket, bool p_success=true)</td></tr>
+<tr class="memitem:a24499fe8f2619f115f0f14953ec22056" id="r_a24499fe8f2619f115f0f14953ec22056"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a24499fe8f2619f115f0f14953ec22056">shadow_ticket</a> (uint32_t p_node, <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;r_ticket) const</td></tr>
 <tr class="memitem:a946ed2930a38e7c2d35bf14f44b61490" id="r_a946ed2930a38e7c2d35bf14f44b61490"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a946ed2930a38e7c2d35bf14f44b61490">edit_ready</a> () const</td></tr>
 <tr class="memitem:acee4c8d00b429fbb76258b5e5d7e15fc" id="r_acee4c8d00b429fbb76258b5e5d7e15fc"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acee4c8d00b429fbb76258b5e5d7e15fc">edit_blocked</a> () const</td></tr>
 <tr class="memitem:a4fc017b07a5179143d239290c76adf3b" id="r_a4fc017b07a5179143d239290c76adf3b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4fc017b07a5179143d239290c76adf3b">commit_edit</a> ()</td></tr>
@@ -487,6 +490,27 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a442d8340d89a100ccb51878aeedb3092" name="a442d8340d89a100ccb51878aeedb3092"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a442d8340d89a100ccb51878aeedb3092">&#9670;&#160;</a></span>finish_shadow_transfer()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::NodeResidency::finish_shadow_transfer </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_success</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="aca59c9d168ab15f6917a79997e740ce0" name="aca59c9d168ab15f6917a79997e740ce0"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aca59c9d168ab15f6917a79997e740ce0">&#9670;&#160;</a></span>finish_upload()</h2>
 
@@ -618,6 +642,23 @@ Public Member Functions</h2></td></tr>
           <td class="memname">bool gs_hlod_runtime::NodeResidency::is_protected </td>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae8d9d75d1277531e54d474007bed2ee6" name="ae8d9d75d1277531e54d474007bed2ee6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae8d9d75d1277531e54d474007bed2ee6">&#9670;&#160;</a></span>is_shadow_packed()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::NodeResidency::is_shadow_packed </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span></td><td>)</td>
           <td> const</td>
         </tr>
       </table>
@@ -857,6 +898,27 @@ Public Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_page_count</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a24499fe8f2619f115f0f14953ec22056" name="a24499fe8f2619f115f0f14953ec22056"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a24499fe8f2619f115f0f14953ec22056">&#9670;&#160;</a></span>shadow_ticket()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::NodeResidency::shadow_ticket </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_ticket</em></span>&#160;) const</td>
         </tr>
       </table>
 </div><div class="memdoc">

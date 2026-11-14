@@ -10,6 +10,7 @@ var structHlodNodeStreamer_1_1Telemetry =
     [ "edit_revision", "structHlodNodeStreamer_1_1Telemetry.html#a4d675d33f26840f02d2eeee61b3b10f5", null ],
     [ "edit_shadow_ready", "structHlodNodeStreamer_1_1Telemetry.html#ad981886a5811ebe1e39b3c427519d178", null ],
     [ "edit_shadow_total", "structHlodNodeStreamer_1_1Telemetry.html#a828e38c798a7a6fca2615738601e0825", null ],
+    [ "edit_shadow_transferred", "structHlodNodeStreamer_1_1Telemetry.html#afac0b5a37efdccb43434d06691c9eafc", null ],
     [ "edit_staged", "structHlodNodeStreamer_1_1Telemetry.html#a8fe3566fcb61f2aba08cc0c744aa257e", null ],
     [ "edit_timeouts_total", "structHlodNodeStreamer_1_1Telemetry.html#a536b5b49fddebc8c2157838f3f833628", null ],
     [ "edit_waiting_for_space", "structHlodNodeStreamer_1_1Telemetry.html#aea8e80d4962c57baf7833992a870a5fd", null ],
