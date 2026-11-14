@@ -1269,5 +1269,98 @@ class D35Telemetry(unittest.TestCase):
             validator.assert_called_once_with(None, route="hlod", source_generation=7)
 
 
+class D36ObservationPolicy(unittest.TestCase):
+    """Constructed validation-policy cases, NOT captures of new C++ exports.
+
+    Real D3-5 captures above remain untouched. C++ doctests exercise the new
+    export wiring; these cases test the Python policy for bounds/row coverage.
+    """
+
+    def queues(self, route):
+        result = {}
+        for name in ("retained", "ready"):
+            result[name] = {"owner": ("hlod_shared_reservation_ledger" if route == "hlod"
+                                      else "payload_read_service" if name == "retained" else "chunk_upload_window"),
+                            "bytes": 4, "peak_bytes": 8, "byte_bound": 32,
+                            "jobs": 1, "peak_jobs": 2, "job_bound": 4}
+            absent = "job_bound" if route == "hlod" or name == "retained" else "byte_bound"
+            result[name][absent] = None
+            result[name][absent + "_reason"] = "no independent limit; admission uses the other quantity"
+            if route == "hlod":
+                result[name].update(peak_byte_bound=32, bound_violations=0)
+        return result
+
+    def test_route_owner_limits_are_scoped_without_inventing_independent_limits(self):
+        for route in ("chunk", "hlod"):
+            policy = self.queues(route)
+            summary = ps.queue_observations_summary(policy, route=route)
+            self.assertEqual(summary["status"], ps.OK, summary)
+            self.assertEqual(summary["retained"], policy["retained"])
+            self.assertIsNone(summary["retained"]["job_bound"])
+
+    def test_missing_real_bounds_or_occupancy_and_forged_owner_fail_closed(self):
+        for route in ("chunk", "hlod"):
+            for name in ("retained", "ready"):
+                for key in (("owner", "bytes", "peak_bytes", "jobs", "peak_jobs", "byte_bound", "job_bound")
+                            + (("peak_byte_bound", "bound_violations") if route == "hlod" else ())):
+                    policy = self.queues(route)
+                    del policy[name][key]
+                    with self.subTest(route=route, owner=name, key=key):
+                        self.assertNotEqual(ps.queue_observations_summary(policy, route=route)["status"], ps.OK)
+            policy = self.queues(route)
+            policy["retained"]["owner"] = "invented owner"
+            self.assertEqual(ps.queue_observations_summary(policy, route=route)["status"], ps.INVALID)
+
+    def test_unbounded_real_limit_and_missing_reason_are_not_evidence(self):
+        for mutation in (lambda q: q["retained"].update(byte_bound=None, byte_bound_reason="configured unbounded"),
+                         lambda q: q["retained"].pop("job_bound_reason"),
+                         lambda q: q["ready"].update(jobs=3, peak_jobs=2)):
+            policy = self.queues("hlod")
+            mutation(policy)
+            self.assertNotEqual(ps.queue_observations_summary(policy, route="hlod")["status"], ps.OK)
+
+    def test_new_counter_wiring_cannot_disappear_from_the_telemetry_validator(self):
+        capture = json.loads((HERE / "fixtures/d3_5/d3_5_hlod_test_results.json").read_text(encoding="utf-8"))
+        # Keep the real stage capture unchanged; appended records are explicitly
+        # the new observation policy under test, not a replacement engine fixture.
+        block = copy.deepcopy(capture["completed"]["payload_telemetry"])
+        counters = ("stale_generation_publications", "digest_verification_failures",
+                    "reads_refused_busy", "admission_waits", "upload_hold_frames")
+        block.update({key: 0 for key in counters}, queue_observations=self.queues("hlod"))
+        generation = capture["source_generation"]
+        self.assertEqual(ps.route_telemetry_summary(block, route="hlod", source_generation=generation)["status"], ps.OK)
+        for key in counters:
+            missing_counter = copy.deepcopy(block)
+            del missing_counter[key]
+            with self.subTest(key=key):
+                self.assertEqual(ps.route_telemetry_summary(missing_counter, route="hlod",
+                    source_generation=generation)["status"], ps.MISSING)
+        for key in counters[:2]:
+            broken = {**block, key: 1}
+            self.assertEqual(ps.route_telemetry_summary(broken, route="hlod", source_generation=generation)["status"], ps.INVALID)
+
+    def settings(self):
+        # A settings policy with two observed rows; not a fabricated trace fixture.
+        sample = {"project_settings_readback": {"fixed_policy": True},
+                  "node_readback": {"max_splat_count": 4194304},
+                  "camera": {"fov_deg": 107.5}, "resolution": [1280, 720],
+                  "sh_bands": 3, "visible_splats": 4194304, "drawn_splats": 4194304}
+        return [{"row": row, **copy.deepcopy(sample)} for row in (1, 2)]
+
+    def test_per_row_hlod_settings_can_be_proven_without_chunk_regulator(self):
+        summary = ps.shared_layers_settings_summary(self.settings(), [1, 2])
+        self.assertEqual(summary["status"], ps.OK, summary)
+        self.assertIs(summary["settings_drifted"], False)
+
+    def test_missing_duplicate_or_changed_settings_rows_fail_closed(self):
+        for mutation in (lambda s: s.pop(), lambda s: s.append(copy.deepcopy(s[0])),
+                         lambda s: s[1].pop("node_readback"),
+                         lambda s: s[1]["camera"].update(fov_deg=90),
+                         lambda s: s[1].update(sh_bands=0)):
+            samples = self.settings()
+            mutation(samples)
+            self.assertNotEqual(ps.shared_layers_settings_summary(samples, [1, 2])["status"], ps.OK)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -302,6 +302,7 @@ public:
 	// rejection (including NodeResidency's ticket gates) needed to write stale
 	// metadata AND finish as RESIDENT, while preserving the old provenance.
 	Error _test_set_control(const TestControl &p_control);
+	Error _test_set_upload_hold(bool p_hold); // Changes only the existing test upload hold.
 	Error _test_set_fault(TestFault p_fault);
 	// Cumulative owner/peak counters survive epoch replacement and shutdown.
 	TestSnapshot _test_snapshot() const;
@@ -363,9 +364,10 @@ private:
 	class ReservationLedger : public RefCounted {
 	public:
 		mutable Mutex mutex;
-		uint64_t charged = 0, acquired = 0, released = 0, live = 0, oversized = 0;
+		uint64_t charged = 0, acquired = 0, released = 0, live = 0, oversized = 0, peak_live = 0;
 		uint64_t transport_reserved = 0; // Raw windows promised to jobs, against the unchanged base read cap.
 		uint64_t jobs_started = 0, admission_waits = 0;
+		uint64_t collection_admission_waits_base = 0;
 		uint32_t jobs = 0, peak_jobs = 0;
 		// Storage observations are changed by allocation/free/handoff events,
 		// independently of token charges (including under mutation controls).
@@ -373,6 +375,11 @@ private:
 		// All measurement fields, including worker pack sums, use this same mutex.
 		uint64_t shadow_output[4] = {};
 		uint64_t owner_peak[4] = {}, stored_peak = 0, active_peak = 0, packed_peak = 0, shadow_peak = 0;
+		uint32_t output_jobs[4] = {}, ready_jobs_peak = 0;
+		uint64_t collection_storage_peak = 0, ready_output_peak = 0, stale_generation_publications = 0, upload_hold_frames = 0, oversized_events = 0;
+		// Actual D3 admission policy: normal cap, or one oversized reservation alone.
+		// Peak bounds are captured with their peaks; an old oversized node cannot hide a later escape.
+		uint64_t normal_byte_bound = 0, storage_peak_bound = 0, ready_peak_bound = 0, bound_violations = 0;
 		uint64_t pack_calls = 0, pack_nsec = 0;
 		uint64_t queue_residence_nsec = 0, queue_residence_samples = 0;
 		uint64_t upload_bytes = 0, upload_slices = 0, upload_completions = 0, upload_completion_nsec = 0;

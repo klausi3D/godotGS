@@ -321,6 +321,43 @@ def settings_drift(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     return rec
 
 
+def shared_layers_settings_summary(samples: object, rows: Sequence[int]) -> Dict[str, object]:
+    """D3-6 readbacks for the HLOD route, which has no chunk regulator.
+
+    These samples are taken by the probe in the same row as the trace. Every
+    measured row must have complete, stable process readbacks; a plan or a
+    one-time initial readback cannot substitute for the samples.
+    """
+    if not rows or not isinstance(samples, list):
+        return {"status": MISSING, "settings_drifted": None, "reason": "no measured settings samples"}
+    by_row = {}
+    dictionaries = ("project_settings_readback", "node_readback", "camera")
+    counters = ("sh_bands", "visible_splats", "drawn_splats")
+    keys = dictionaries + ("resolution",) + counters
+    for sample in samples:
+        if not isinstance(sample, dict) or type(sample.get("row")) is not int or sample["row"] in by_row:
+            return {"status": INVALID, "settings_drifted": None, "reason": "invalid or duplicate settings sample row"}
+        by_row[sample["row"]] = sample
+    baseline = None
+    for row in rows:
+        sample = by_row.get(row)
+        if (not isinstance(sample, dict) or any(not sample.get(key) for key in dictionaries)
+                or any(not isinstance(sample.get(key), dict) for key in dictionaries)
+                or not isinstance(sample.get("resolution"), list) or len(sample["resolution"]) != 2
+                or any(type(sample.get(key)) not in (int, float) or not math.isfinite(sample[key])
+                       or sample[key] < 0 for key in counters)):
+            return {"status": MISSING, "settings_drifted": None,
+                    "reason": f"measured row {row} lacks complete route settings readback"}
+        current = {key: sample[key] for key in keys}
+        if baseline is None:
+            baseline = current
+        elif current != baseline:
+            return {"status": INVALID, "settings_drifted": True,
+                    "reason": f"route settings changed in measured row {row}"}
+    return {"status": OK, "settings_drifted": False, "rows": len(rows), "rows_without_signal": 0,
+            "scope": "per-row process ProjectSettings, node, camera and viewport readbacks", "readback": baseline}
+
+
 def checkpoint_cap_fit(needed: object, cap: object) -> Dict[str, object]:
     """ADR M1 settle-where-fits criterion: does a checkpoint's needed set fit the chunk cap?
 
@@ -598,6 +635,113 @@ def overlap_drops(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     return rec
 
 
+def forward_progress_summary(records: object, *, route: str, windows: dict) -> Dict[str, object]:
+    """Recompute progress over existing probe settle windows, without a new limit.
+
+    ``windows`` is the process-read-back settle configuration (run_probe.SETTLE:
+    cold/stop/teleport deadlines). A shorter successful settle need not prove a
+    full stall window. A missed window needs complete native samples before it
+    can establish that demand persisted and no read/decode/upload progressed.
+    """
+    if not isinstance(records, list) or not records:
+        return {**missing("no native settle-window progress observations"), "windows": []}
+
+    def invalid(reason):
+        return {"status": INVALID, "reason": reason, "windows": []}
+
+    result = []
+    counter_keys = {"read_completions", "pages_decoded", "upload_completions", "upload_bytes"}
+    for record in records:
+        if not isinstance(record, dict):
+            return invalid("invalid forward-progress window")
+        deadline = windows.get(record.get("window"))
+        if (type(deadline) not in (int, float) or not math.isfinite(deadline) or deadline <= 0
+                or record.get("deadline_s") != deadline):
+            return invalid("forward-progress window differs from existing settle configuration")
+        if record.get("measured") is not True:
+            result.append({**record, "measured": False, "no_forward_progress": None,
+                           "reason": record.get("reason", "native progress snapshots unavailable")})
+            continue
+        samples = record.get("samples")
+        if not isinstance(samples, list) or len(samples) < 2:
+            return invalid("forward-progress window lacks native endpoints")
+        if (type(record.get("elapsed_usec")) not in (int, float) or not math.isfinite(record["elapsed_usec"])
+                or record["elapsed_usec"] < 0 or type(record.get("deadline_missed")) is not bool):
+            return invalid("forward-progress window lacks elapsed time or deadline outcome")
+        previous = None
+        for sample in samples:
+            if (not isinstance(sample, dict) or sample.get("measured") is not True
+                    or sample.get("route") != route or type(sample.get("row")) is not int
+                    or type(sample.get("t_usec")) is not int or type(sample.get("demand_outstanding")) is not bool
+                    or not isinstance(sample.get("progress_counts"), dict) or set(sample["progress_counts"]) != counter_keys
+                    or any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 or v != int(v)
+                           for v in sample["progress_counts"].values())):
+                return invalid("missing or invalid native progress sample")
+            if previous is not None and (sample["row"] != previous["row"] + 1 or sample["t_usec"] <= previous["t_usec"]
+                    or any(sample["progress_counts"][key] < previous["progress_counts"][key] for key in counter_keys)):
+                return invalid("progress samples omit a row, regress a counter or cross an epoch")
+            previous = sample
+        elapsed = samples[-1]["t_usec"] - samples[0]["t_usec"]
+        deltas = {key: samples[-1]["progress_counts"][key] - samples[0]["progress_counts"][key] for key in counter_keys}
+        stalled = (record.get("deadline_missed") is True and record["elapsed_usec"] >= deadline * 1_000_000
+                   and elapsed >= deadline * 1_000_000
+                   and all(sample["demand_outstanding"] for sample in samples) and not any(deltas.values()))
+        if record.get("no_forward_progress") is not stalled:
+            return invalid("claimed forward-progress outcome differs from native samples")
+        result.append({**record, "measured": True, "no_forward_progress": stalled,
+                       "observed_usec": elapsed, "progress_deltas": deltas})
+    return {"status": OK, "scope": "existing run_probe.SETTLE deadlines; native read/decode/upload progress", "windows": result}
+
+
+def queue_observations_summary(block: object, *, route: str) -> Dict[str, object]:
+    """Validate native bounded-owner observations without inventing limits.
+
+    HLOD output shares byte admission; chunk IO has byte admission and chunk
+    upload has job admission. An absent *independent* limit is explicitly null,
+    with a reason. Occupancy, peaks and every limit that actually exists remain
+    mandatory. This validates observations, not whether saturation is acceptable.
+    """
+    if not isinstance(block, dict) or not block:
+        return missing("no native bounded payload queue observations")
+    owners = {
+        "hlod": {"retained": "hlod_shared_reservation_ledger", "ready": "hlod_shared_reservation_ledger"},
+        "chunk": {"retained": "payload_read_service", "ready": "chunk_upload_window"},
+    }
+    if route not in owners:
+        return {"status": INVALID, "reason": "unknown queue route"}
+    result = {"status": OK}
+    for name, owner in owners[route].items():
+        queue = block.get(name)
+        if not isinstance(queue, dict):
+            return missing(f"missing {route} {name} queue")
+        if queue.get("owner") != owner:
+            return {"status": INVALID, "reason": f"wrong {route} {name} queue owner"}
+        for key in ("bytes", "peak_bytes", "jobs", "peak_jobs", "byte_bound", "job_bound"):
+            value = queue.get(key)
+            no_independent_limit = (
+                key == "job_bound" and (route == "hlod" or name == "retained")
+                or key == "byte_bound" and route == "chunk" and name == "ready")
+            if (no_independent_limit and key in queue and value is None
+                    and isinstance(queue.get(f"{key}_reason"), str) and queue[f"{key}_reason"].strip()):
+                continue
+            if type(value) not in (int, float) or not math.isfinite(value):
+                return missing(f"missing {route} {name} {key}")
+            if value < 0 or value != int(value) or (key.endswith("bound") and value <= 0):
+                return {"status": INVALID, "reason": f"invalid {route} {name} {key}"}
+        for current, peak in (("bytes", "peak_bytes"), ("jobs", "peak_jobs")):
+            if queue[current] > queue[peak]:
+                return {"status": INVALID, "reason": f"{route} {name} {current} exceeds peak"}
+        if route == "hlod":
+            for key in ("peak_byte_bound", "bound_violations"):
+                value = queue.get(key)
+                if type(value) not in (int, float) or not math.isfinite(value):
+                    return missing(f"missing {route} {name} {key}")
+                if value < 0 or value != int(value) or (key == "peak_byte_bound" and value == 0):
+                    return {"status": INVALID, "reason": f"invalid {route} {name} {key}"}
+        result[name] = dict(queue)
+    return result
+
+
 def route_telemetry_summary(block: object, *, route: str, source_generation: int) -> Dict[str, object]:
     """Validate required producer evidence against an independently observed source.
 
@@ -693,6 +837,20 @@ def route_telemetry_summary(block: object, *, route: str, source_generation: int
     if block.get("gpu_memory_usage_mb") is not None:
         if block.get("gpu_memory_usage_mb") == 0 or block.get("gpu_memory_status") != "measured":
             return invalid("unmeasured VRAM cannot be reported as zero")
+    if "queue_observations" in block:
+        queues = queue_observations_summary(block["queue_observations"], route=route)
+        if queues["status"] != OK:
+            return queues
+        counters = ("stale_generation_publications", "digest_verification_failures", "reads_refused_busy", "admission_waits")
+        if route == "hlod":
+            counters += ("upload_hold_frames",)
+        for key in counters:
+            if not numeric(block.get(key)) or isinstance(block.get(key), bool):
+                return missing(f"required {route} queue/publication counter absent: {key}")
+            if block[key] < 0 or block[key] != int(block[key]):
+                return invalid(f"invalid {key}")
+        if any(block[key] != 0 for key in ("stale_generation_publications", "digest_verification_failures")):
+            return invalid("producer reported a publication or verification failure")
     return {**block, "status": OK, "digest": {"status": digest_status, "nsec": digest_nsec}}
 
 

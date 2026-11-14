@@ -13,6 +13,14 @@ using Streamer = HlodNodeStreamer;
 using Residency = gs_hlod_runtime::NodeResidency;
 using TestGaussianSplatting::gs_pump_until;
 
+static Dictionary exported_queue(const Streamer &p_streamer, const char *p_owner) {
+	const Variant payload = p_streamer.get_payload_telemetry();
+	if (payload.get_type() != Variant::DICTIONARY) { FAIL("D3-6 real queue export is absent"); return Dictionary(); }
+	const Dictionary block = payload;
+	const Dictionary queues = block.get("queue_observations", Dictionary());
+	return queues.get(p_owner, Dictionary());
+}
+
 // D3 design 3.3 / 4.2 D3-2. This checker is deliberately outside production
 // code. It measures every payload owner, not just read-service or ready bytes.
 // The same checker runs under the healthy and drop-output-charge controls.
@@ -514,10 +522,19 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] oversized single
 	CHECK_MESSAGE(h.sample.jobs_started == 1, "D3-2 oversized output must block every other job until upload/discard");
 	CHECK_MESSAGE(h.sample.oversized_reservation_bytes == h.largest_reservation,
 			"D3-2 oversized reservation must be visible at its full size");
+	const Dictionary held = exported_queue(h.streamer, "retained");
+	CHECK(int64_t(held.get("byte_bound", -1)) == int64_t(h.largest_reservation));
+	CHECK(int64_t(held.get("jobs", -1)) == 1);
+	CHECK(int64_t(held.get("bound_violations", -1)) == 0);
 	if (!h.finish_demand(true)) {
 		return;
 	}
 	CHECK_MESSAGE(h.bound_ok, "D3-2 oversized progress must remain one-node-alone throughout transfer");
+	const Dictionary drained = exported_queue(h.streamer, "retained");
+	CHECK(int64_t(drained.get("byte_bound", -1)) == int64_t(h.retained_cap));
+	CHECK(int64_t(drained.get("peak_byte_bound", -1)) == int64_t(h.largest_reservation));
+	CHECK(int64_t(drained.get("peak_bytes", -1)) <= int64_t(drained.get("peak_byte_bound", -2)));
+	CHECK(int64_t(drained.get("bound_violations", -1)) == 0);
 	h.streamer.shutdown();
 	h.store.shutdown();
 	h.check_released();
@@ -624,7 +641,17 @@ static void generation_contract(bool p_fault, GenerationChange p_change, Holder 
 	}
 	bool stale_published = false;
 	const bool current = publications_current(h, expected_source_id, expected_content, new_world, new_device, stale_published);
+	const Variant observed = h.streamer.get_payload_telemetry();
+	if (observed.get_type() != Variant::DICTIONARY) {
+		FAIL("D3-6 publication counter must reach the real route-labelled export"); return;
+	}
+	const Dictionary telemetry = observed;
+	if (!telemetry.has("stale_generation_publications") || telemetry["stale_generation_publications"].get_type() != Variant::INT) {
+		FAIL("D3-6 actual stale-publication counter export was removed"); return;
+	}
 	if (p_fault) {
+		CHECK_MESSAGE(int64_t(telemetry["stale_generation_publications"]) > 0,
+				"D3-6 counter must detect actual stale publication when the real generation guards are bypassed");
 		CHECK_MESSAGE(h.sample.faults_triggered > 0,
 				"D3-2 skip-generation fault never fired on a real stale completion (wiring removal must fail)");
 		CHECK_MESSAGE(!current,
@@ -632,6 +659,7 @@ static void generation_contract(bool p_fault, GenerationChange p_change, Holder 
 		CHECK_MESSAGE(stale_published,
 				"D3-2 stale-publication checker must detect actual stale metadata and RESIDENT publication");
 	} else {
+		CHECK(int64_t(telemetry["stale_generation_publications"]) == 0);
 		CHECK_MESSAGE(current, "D3-2 stale source/world/device completion was published");
 		CHECK_MESSAGE(!stale_published, "D3-2 stale source/world/device completion was published");
 		CHECK_MESSAGE(no_residents(h), "D3-2 generation replacement must not make old output RESIDENT");
@@ -701,6 +729,9 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] dropping the rea
 			"D3-2 saturation checker must detect the real retained-byte overrun after output charge is dropped");
 	CHECK_MESSAGE(h.byte_overrun,
 			"D3-2 saturation checker must detect the real retained-byte overrun after output charge is dropped");
+	const Dictionary escaped = exported_queue(h.streamer, "retained");
+	CHECK_MESSAGE(int64_t(escaped.get("bound_violations", -1)) > 0,
+			"D3-6 export must retain the actual ownership/bound escape after the real output charge is dropped");
 	h.streamer.shutdown();
 	h.store.shutdown();
 	h.check_released();

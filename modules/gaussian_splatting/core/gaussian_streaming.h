@@ -307,6 +307,7 @@ public:
     SHCompressionMetrics get_total_sh_metrics() const { return total_sh_metrics; }
     Dictionary get_task_debug_state() const;
     Dictionary get_streaming_analytics() const;
+    Variant get_payload_telemetry(); // Owner-thread, merges the actual GSQ source and upload window.
     bool is_runtime_ready(String *r_reason = nullptr) const;
     // PR #352 helper: cheap probe used by tests/macros to skip work when no
     // streaming runtime is loadable. Wraps is_runtime_ready() so the call
@@ -491,7 +492,7 @@ public:
     void _test_evict_unrequested_chunks(uint32_t p_asset_id, AtlasAssetState &p_asset, LocalVector<StreamingChunk> &p_asset_chunks) {
         _evict_unrequested_chunks(p_asset_id, p_asset, p_asset_chunks);
     }
-    void _test_register_primary_asset_for_chunks() { _register_primary_asset(); }
+    uint32_t _test_register_primary_asset_for_chunks() { _register_primary_asset(); return PRIMARY_ASSET_ID; }
 	void _test_mark_chunk_loaded_for_eviction(uint32_t p_asset_id, uint32_t p_chunk_id, bool p_visible,
 			uint64_t p_last_loaded_frame, uint64_t p_last_used_frame, float p_distance);
 	void _test_reset_atlas_allocator(uint32_t p_capacity) { atlas_allocator.reset(p_capacity); }

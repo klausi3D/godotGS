@@ -99,6 +99,10 @@ public:
 		uint32_t queued = 0;
 		uint32_t reading = 0;
 		uint32_t ready = 0;
+		uint32_t peak_jobs = 0; // Under mutex, current live requests include ready completions.
+		uint64_t ready_bytes = 0, peak_ready_bytes = 0; // Successful completions retained by this service.
+		uint64_t collection_peak_bytes = 0, collection_peak_ready_bytes = 0;
+		uint32_t collection_peak_jobs = 0;
 	};
 
 	PayloadReadService() = default;
@@ -122,6 +126,7 @@ public:
 	// Missing or repeated tickets are harmless, as for repeated single cancellations.
 	void cancel_and_wait(const LocalVector<uint64_t> &p_tickets);
 	Stats stats() const;
+	void reset_observation_peaks(); // Owner collection boundary; does not alter admission or requests.
 
 	// Takes the oldest result without blocking. Taking it frees its budget.
 	bool poll_completion(Completion &r_completion);

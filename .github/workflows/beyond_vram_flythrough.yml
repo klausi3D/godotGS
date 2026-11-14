@@ -12,6 +12,15 @@ name: Beyond-VRAM Fly-through
 # Monday liveness watchdog (GitHub-hosted).
 # Dispatch mode real_scan runs only the build, D2 real-scan identity and BV-C2
 # codec probe on the data-bearing GPU runner; it never primes the world cache.
+# Dispatch mode shared_layers_t0 builds candidate + immutable pre-D3 binaries,
+# prepares one synthetic D2 T0 plain-GSQ/tree pair, and runs sequential chunk,
+# HLOD and migration arms on the 3080. Its comparison and independent final
+# verdict fail closed; VALID means usable diagnostic evidence, not a Tier A pass.
+# shared_layers_control=corrupt|saturate|skip_compare must each leave the run red.
+# Native queue/publication observations fail closed when absent. The tests-only
+# saturation hook holds real ready uploads; their observation is UNUSABLE.
+# All arms use shipped capacity settings. Ordinary backpressure is reported;
+# no-progress failures use only the existing cold/stop/teleport settle windows.
 #
 # REPORT-ONLY: no job here is a required check and nothing gates a merge. The
 # gate verdict and the thresholds file are BV-09; hard correctness gates are
@@ -38,7 +47,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "flythrough (the lane), auto_tree (prime HLOD only), real_scan (D2 identity and codec probe only), or watchdog"
+        description: "flythrough (the lane), auto_tree (prime HLOD), real_scan (identity/codec), shared_layers_t0 (paired synthetic diagnostic), or watchdog"
         required: false
         default: "flythrough"
         type: choice
@@ -46,7 +55,18 @@ on:
           - "flythrough"
           - "auto_tree"
           - "real_scan"
+          - "shared_layers_t0"
           - "watchdog"
+      shared_layers_control:
+        description: "shared_layers_t0 only: test-only forcing control; corrupt, saturate and skip_compare must be RED"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - "none"
+          - "corrupt"
+          - "saturate"
+          - "skip_compare"
       tier:
         description: "World tier: T0 (4.19M splats, smoke) or A (201M splats; also uses T0). The weekly schedule runs A."
         required: true
@@ -89,7 +109,7 @@ on:
         default: false
         type: boolean
 
-run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || inputs.mode == 'shared_layers_t0' && format('D3-6 paired T0 diagnostic ({0})', inputs.shared_layers_control || 'none') || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
 permissions:
   contents: read
@@ -105,7 +125,7 @@ permissions:
 # mincore check right before each probe turns any warming by the other run into
 # INVALID cache_warm, never into a cold result.
 concurrency:
-  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || inputs.mode == 'real_scan' && 'real-scan' || 'lane' }}
+  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || inputs.mode == 'real_scan' && 'real-scan' || inputs.mode == 'shared_layers_t0' && 'shared-layers-t0' || 'lane' }}
   cancel-in-progress: false
 
 env:
@@ -191,12 +211,218 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # D3-6 migration control: CPU-only build of the immutable parent of D3-1.
+  # Current checked-in tooling stages the old checkout; the one-command SHA
+  # override is the expected immutable build identity, not the candidate SHA.
+  build-pre-d3-editor:
+    name: Build immutable pre-D3 optimized editor (Self-Hosted CPU)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared_layers_t0' }}
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      PRE_D3_SHA: f2f19bcb580cc131615b3fa262a11d99e6abc70c
+    defaults:
+      run:
+        working-directory: repo-pre-d3
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout candidate build tooling
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 1
+          set-safe-directory: false
+
+      - name: Checkout immutable pre-D3 source
+        uses: actions/checkout@v4
+        with:
+          ref: f2f19bcb580cc131615b3fa262a11d99e6abc70c
+          path: repo-pre-d3
+          fetch-depth: 1
+          submodules: recursive
+          set-safe-directory: false
+
+      - name: Verify immutable checkout identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$PRE_D3_SHA"
+
+      - name: Check Linux runner build toolchain
+        run: bash "$GITHUB_WORKSPACE/repo/tests/ci/linux_gpu_runner.sh" check-tools --build-only
+
+      - name: Install SCons
+        working-directory: repo
+        run: bash "$GITHUB_WORKSPACE/repo/tests/ci/linux_gpu_runner.sh" venv
+
+      - name: Build immutable pre-D3 with identical optimized flags
+        run: |
+          # shellcheck disable=SC2086
+          python -m SCons $BVW_SCONS_ARGS
+
+      - name: Stage binary with immutable commit and measured digest
+        run: |
+          GITHUB_SHA="$PRE_D3_SHA" bash "$GITHUB_WORKSPACE/repo/tests/ci/linux_gpu_runner.sh" stage-binary bin/godot.linuxbsd.editor.x86_64 "$RUNNER_TEMP/godot-build-pred3"
+
+      - name: Upload immutable pre-D3 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-pred3-f2f19bcb580cc131615b3fa262a11d99e6abc70c
+          path: ${{ runner.temp }}/godot-build-pred3/
+          if-no-files-found: error
+          retention-days: 7
+
+  # D3-6: one GPU job owns every synthetic paired/migration arm sequentially.
+  # World payloads stay in the D2 scratch/cache root; only this dedicated
+  # output directory can enter the diagnostic artifact allowlist.
+  shared-layers-t0:
+    name: D3-6 paired T0 comparison (report-only)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared_layers_t0' }}
+    runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
+    needs: [build-linux-editor, build-pre-d3-editor]
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    env:
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+      NODEVICE_SELECT: '1'
+      SHARED_LAYERS_CONTROL: ${{ inputs.shared_layers_control || 'none' }}
+      PRE_D3_SHA: f2f19bcb580cc131615b3fa262a11d99e6abc70c
+    defaults:
+      run:
+        working-directory: repo
+        shell: bash
+    steps:
+      - name: Configure Git safe.directory for self-hosted workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --get-all safe.directory | grep -qxF '*' || git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+          set-safe-directory: false
+
+      - name: Set dedicated synthetic diagnostic paths
+        run: |
+          echo "SHARED_LAYERS_OUT=$RUNNER_TEMP/shared-layers-t0-out-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "SHARED_LAYERS_SCRATCH=$RUNNER_TEMP/shared-layers-t0-disk-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "GS_CI_GPU_CONTENTION_DIR=$RUNNER_TEMP/shared-layers-t0-out-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/contention" >> "$GITHUB_ENV"
+
+      - name: Check Linux GPU runner toolchain
+        run: bash tests/ci/linux_gpu_runner.sh check-tools
+
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python3 tests/ci/runner_gpu_contention.py preflight
+
+      - name: Preflight - runner GPU environment (#875)
+        run: python3 tests/ci/preflight_runner_gpu_environment.py
+
+      - name: Disk preflight (T0 scratch and enforced free margin)
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py disk-preflight --tier T0 --probe-gib 1 --world-root "$SHARED_LAYERS_SCRATCH" --out "$SHARED_LAYERS_OUT"
+
+      - name: Driver limits (vulkaninfo)
+        run: python3 tests/runtime/flythrough/dispatch_lane.py vulkan-limits --out "$SHARED_LAYERS_OUT"
+
+      - name: Download candidate binary built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/godot-build
+
+      - name: Verify and install candidate binary (pinned to github.sha)
+        run: bash tests/ci/linux_gpu_runner.sh install-binary "$RUNNER_TEMP/godot-build"
+
+      - name: Candidate build info and measured binary identity
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "$PWD/bin/godot.linuxbsd.editor.x86_64" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$SHARED_LAYERS_OUT"
+
+      - name: Download immutable pre-D3 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-linuxbsd-editor-tests-pred3-f2f19bcb580cc131615b3fa262a11d99e6abc70c
+          path: ${{ runner.temp }}/godot-build-pred3
+
+      - name: Verify pre-D3 artifact identity without replacing candidate
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, sys
+          sys.path.insert(0, 'tests/runtime/flythrough')
+          from dispatch_lane import _provenance, _sha256
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+          directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'godot-build-pred3'
+          provenance = _provenance(directory / 'build-provenance.txt')
+          name = 'godot.linuxbsd.editor.x86_64'
+          require(provenance['commit'] == os.environ['PRE_D3_SHA'], 'wrong immutable pre-D3 commit')
+          require(provenance['run_id'] == os.environ['GITHUB_RUN_ID'], 'foreign build run')
+          require(provenance['binary'] == name, 'wrong pre-D3 binary kind')
+          require({p.name for p in directory.iterdir()} == {name, 'build-provenance.txt'}, 'unexpected artifact members')
+          binary = directory / name
+          digest = _sha256(binary)
+          require(digest == provenance['sha256'], 'pre-D3 artifact digest mismatch')
+          binary.chmod(binary.stat().st_mode | 0o111)
+          PY
+
+      - name: Pre-D3 build info and measured binary identity
+        timeout-minutes: 5
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "$RUNNER_TEMP/godot-build-pred3/godot.linuxbsd.editor.x86_64" --provenance "$RUNNER_TEMP/godot-build-pred3/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$SHARED_LAYERS_OUT/pre-d3-build"
+
+      - name: Prepare one D2 T0 and run sequential paired and migration arms
+        timeout-minutes: 210
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py shared-layers-t0 --repo "$PWD" --godot-binary "$PWD/bin/godot.linuxbsd.editor.x86_64" --base-binary "$RUNNER_TEMP/godot-build-pred3/godot.linuxbsd.editor.x86_64" --base-build-info "$SHARED_LAYERS_OUT/pre-d3-build/build_info.json" --cache-root "$BVW_CACHE_ROOT" --out "$SHARED_LAYERS_OUT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL"
+
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: |
+          python3 tests/ci/runner_gpu_contention.py postflight --json "$SHARED_LAYERS_OUT/contention/postflight.json"
+
+      - name: Compare paired T0 evidence (VALID is report-only)
+        if: ${{ always() && inputs.shared_layers_control != 'skip_compare' }}
+        run: |
+          python3 tests/runtime/flythrough/compare_shared_layers_t0.py --experiment "$SHARED_LAYERS_OUT/experiment.json" --out "$SHARED_LAYERS_OUT" --contention-report "$SHARED_LAYERS_OUT/contention/postflight.json"
+
+      # Independent of the comparison step's id/outcome, so deleting the
+      # invocation or selecting skip_compare cannot manufacture VALID.
+      - name: Final diagnostic verdict (fail closed without current comparison)
+        if: always()
+        run: |
+          python3 tests/runtime/flythrough/compare_shared_layers_t0.py --require-report "$SHARED_LAYERS_OUT/comparison.json" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL"
+
+      - name: Upload synthetic diagnostic reports and screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-layers-t0-${{ inputs.shared_layers_control || 'none' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SHARED_LAYERS_OUT }}/**/*.json
+            ${{ env.SHARED_LAYERS_OUT }}/**/*.md
+            ${{ env.SHARED_LAYERS_OUT }}/**/*.log
+            ${{ env.SHARED_LAYERS_OUT }}/**/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 30
+
   # ADR section 9.1 job 1 (dispatch only): sweep orphans, clear the quarantine,
   # delete the old key, generate, fdatasync + fadvise, write `.complete`. Pinned
   # to the RTX 3080 runner (`rtx3080`), because the cache lives on its disk.
   prime-world-cache:
     name: Prime world cache (RTX 3080 runner)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && inputs.prime_world_cache }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && inputs.mode != 'shared_layers_t0' && inputs.prime_world_cache }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
     timeout-minutes: 240
@@ -416,7 +642,7 @@ jobs:
   # the world cache it reads lives on that runner's disk.
   flythrough:
     name: Beyond-VRAM fly-through (report-only)
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'real_scan' && inputs.mode != 'shared_layers_t0' && needs.build-linux-editor.result == 'success' && (needs.prime-world-cache.result == 'success' || needs.prime-world-cache.result == 'skipped') }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: [build-linux-editor, prime-world-cache]
     # ADR section 9.1: 150 min, per-step timeouts below. Generation is the prime
@@ -733,7 +959,7 @@ jobs:
   # 3 when no report was written.
   codec-probe:
     name: BV-C2 GSQ codec probe (RTX 3080 runner, report-only)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode != 'watchdog' && inputs.mode != 'auto_tree' && inputs.mode != 'shared_layers_t0' }}
     runs-on: [self-hosted, Linux, X64, gpu, rtx3080]
     needs: build-linux-editor
     timeout-minutes: 60

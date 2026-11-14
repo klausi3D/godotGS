@@ -40,7 +40,32 @@ same record is in `.github/workflows/AGENTS.md` and
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 | GS-COMBINED-1 Gate | `gs_combined_1.yml` | The game-scene acceptance gate of `docs/architecture/adr-one-route-many-producers.md` section 9: a streamed world (variant A chunk-streamed, variant B V4 paged HLOD), 32 movable splat objects, a pick target, an animated mesh character and five shadowed lights in one frame, judged per assertion by `tests/runtime/gs_combined_1_verdict.py`. | Two jobs. `gs-combined-1-gpu` builds an optimized editor with tests and runs `run_runtime_validation.py --profile gs-combined-1` on the self-hosted Linux GPU runner (RTX 3080), with the per-job fork guard; it uploads the records, verdicts and screenshots, and writes the per-assertion table to the job summary. `gs-combined-1` is the status: GitHub-hosted, `needs:` the GPU job, `if: ${{ always() }}` as its only job-level condition, and passes only when the GPU job's result is `success`. Runs on `pull_request`, the schedule and dispatch (no push trigger: nothing self-hosted runs on a push to `master`). **Reported, not required**: it is red until every assertion is live; `tests/runtime/gs_combined_1_expectations.json` lists each blocked assertion with its issue, and a blocked assertion is never green. Making `gs-combined-1` required is a maintainer decision, taken once that file blocks nothing. On `pull_request` the workflow is **path-filtered** (renderer, shaders, lod, core, io, nodes, the gate's own `tests/runtime/gs_combined_1*` and `test_gs_combined_1*` files, `run_runtime_validation.py` and the workflow file); the schedule and dispatch are unfiltered. A workflow-level path filter skips the whole workflow, the status job included, so a filtered PR reports **no** `gs-combined-1` status. That is acceptable only while the check is not required: **before `gs-combined-1` is made required, the path filter must be replaced with in-job change detection** (a job that always runs and reports), or every PR outside those paths blocks on a check that never reports. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Linux GPU runner (RTX 3080). **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode gpu-vulkan --skip-cpp` (`gpu-vulkan` resolves to the `x11` display driver on Linux, against the runner's real Xorg at `DISPLAY=:0`). |
-| Beyond-VRAM Fly-through | `beyond_vram_flythrough.yml` | BV-06b of `docs/architecture/adr-beyond-vram-worlds.md` (sections 9.1, 9.2, D-14): the full beyond-VRAM fly-through lane, grown from BV-06a's minimal dispatch probe. | `schedule` weekly Saturday 22:00 UTC (the lane, Tier A, at night so the single GPU runner is free during the day) and Monday 06:00 UTC (the liveness watchdog), plus `workflow_dispatch`; no PR or push trigger; **report-only, not a required check, gates nothing**. `build-linux-editor` (self-hosted, no `gpu` label) compiles the optimized producer binary (`target=editor optimize=speed_trace dev_build=no tests=yes`, ADR D-10) into its own object cache `/opt/actions-runner/godotgs-scons-cache-opt` (`cache_limit=15`) and hands it over as a commit-pinned artifact. `prime-world-cache` (dispatch with `prime_world_cache`, pinned to `[gpu, rtx3080]` because the cache lives on that disk, 240 min) runs `tests/runtime/flythrough/dispatch_lane.py prime-cache` under the cache's exclusive `flock`: sweep orphan keys, clear `quarantine/`, delete the old key delete-first, refuse `DID NOT RUN: disk` below the world budget + the 25 GiB margin, generate (BV-05), `fdatasync` + `POSIX_FADV_DONTNEED` every world file (D-14 item 1), write `.complete` last. `flythrough` (pinned to `[gpu, rtx3080]`, 150 min) runs the GPU preflights, then `dispatch_lane.py`: `df` preflight (disk probe + margin; the cached worlds already hold their bytes), O_DIRECT `dd` read/re-read with the D-14 `host_cache` label, `vulkaninfo` limits, `build_info`, `cache-check` (`NOT_RUN: cache absent` / `cache_stale` when the generator sources changed since the prime; every digest verified against the world's manifest, a mismatch moves the key to `quarantine/` and is INVALID; then fadvise again), and the BV-07 probe on the cached worlds, which first requires `mincore` residency <= 1 % (else INVALID `cache_warm`, probe not started) and records the probe tree's block-read bytes with the path oracle's expected unique stored bytes of every probed world: the D-14 record the gate verdict's V10 entry judges (BV-13a-2b; residency <= 1 % and read bytes >= 0.9 x the oracle, else INVALID `cache_warm`; no measurement is MISSING, never PASS). Right after `build_info`, `dispatch_lane.py doctest-proofs` (BV-13a-2b) runs the ADR 8.5 doctest proofs on the same release-tests binary, each case by exact name (C-thrash today; G7/G8/G9/G3/G2a/G10h-a are listed absent until their counters exist), in every run mode; no binary is NOT_RUN. Then `dispatch_lane.py controls` (BV-13a) runs the ADR 8.5 forcing controls on the cached T0 (`tests/runtime/flythrough/flythrough_controls.py`: C-starve, C-off, C-settings, C-warm), each asserting its exact `(gate, verdict, reason)` tuple through the BV-09 verdict module and judging V10 on its own D-14 record; a differing tuple or a harness failure makes the lane INVALID. They run after the cold probe because a control warms T0's pages. The contention postflight's outcome and every step record become one lane verdict (VOID > FAIL > INVALID > NOT_RUN > PASS, missing record = NOT_RUN) with the section 9.1 exit code; uploads `beyond-vram-flythrough-<tier>-<run_id>-<attempt>` (without the screenshots), `beyond-vram-screenshots-<tier>-<run_id>-<attempt>` (the probe's viewport PNG at every checkpoint, main run and controls) and `bvw-verdict-<run_id>-<attempt>` (`verdict.json`). Cache layout: `/opt/actions-runner/godotgs-world-cache/{CACHE_FORMAT,.lock,<world_id>/<gen_sha12>/,quarantine/}`. `codec-probe` (GPU-labelled RTX 3080 runner for its read-only scan mount, BV-C2, dispatch only including `real_scan`) runs the same binary's GSQ codec probe (`tests/runtime/flythrough/run_codec_probe.py`) and uploads `gsq-codec-probe-<run_id>-<attempt>`; report-only. `liveness-watchdog` (GitHub-hosted, `actions: read` on this job only; Monday schedule or dispatch with `mode=watchdog`) runs `tests/runtime/flythrough/lane_watchdog.py`: before M2 it fails unless a scheduled run in the last 9 days ended PASS, FAIL or INVALID (VOID, NOT_RUN and a missing verdict do not count) and on any run queued > 20 h; mode `m2` (BV-14) adds PASS within 9 days, two consecutive VOIDs and cancelled or replaced runs. Dispatch `mode=auto_tree` runs only the build and `prime-auto-tree` (RTX 3080, 240 min): scratch T0 plain-GSQ to V4 build, measured Tier A RAM/disk admission, two Tier A builds with repeat identity and oracle evidence, then verification of both cache keys. It requires a fresh `A-plain_v3_gsq` key and never re-primes it. Only JSON/log reports are uploaded. Dispatch `mode=real_scan` runs only the build, `real-scan-identity` (60-minute identity step) and codec probe on the GPU runner. It reads `$GS_TESTDATA/3dgs-szenen/bicycle-30k.ply` by default; scratch payloads stay under `$RUNNER_TEMP` and artifacts allow only JSON/MD/log reports. Concurrency group `bvw-<event>-lane` / `bvw-<event>-auto-tree` / `bvw-<event>-real-scan` / `bvw-<event>-watchdog`, never cancelled, so the watchdog can never replace the queued run it reports on. |
+| Beyond-VRAM Fly-through | `beyond_vram_flythrough.yml` | BV-06b of `docs/architecture/adr-beyond-vram-worlds.md` (sections 9.1, 9.2, D-14): the full beyond-VRAM fly-through lane, grown from BV-06a's minimal dispatch probe. | `schedule` weekly Saturday 22:00 UTC (the lane, Tier A, at night so the single GPU runner is free during the day) and Monday 06:00 UTC (the liveness watchdog), plus `workflow_dispatch`; no PR or push trigger; **report-only, not a required check, gates nothing**. `build-linux-editor` (self-hosted, no `gpu` label) compiles the optimized producer binary (`target=editor optimize=speed_trace dev_build=no tests=yes`, ADR D-10) into its own object cache `/opt/actions-runner/godotgs-scons-cache-opt` (`cache_limit=15`) and hands it over as a commit-pinned artifact. `prime-world-cache` (dispatch with `prime_world_cache`, pinned to `[gpu, rtx3080]` because the cache lives on that disk, 240 min) runs `tests/runtime/flythrough/dispatch_lane.py prime-cache` under the cache's exclusive `flock`: sweep orphan keys, clear `quarantine/`, delete the old key delete-first, refuse `DID NOT RUN: disk` below the world budget + the 25 GiB margin, generate (BV-05), `fdatasync` + `POSIX_FADV_DONTNEED` every world file (D-14 item 1), write `.complete` last. `flythrough` (pinned to `[gpu, rtx3080]`, 150 min) runs the GPU preflights, then `dispatch_lane.py`: `df` preflight (disk probe + margin; the cached worlds already hold their bytes), O_DIRECT `dd` read/re-read with the D-14 `host_cache` label, `vulkaninfo` limits, `build_info`, `cache-check` (`NOT_RUN: cache absent` / `cache_stale` when the generator sources changed since the prime; every digest verified against the world's manifest, a mismatch moves the key to `quarantine/` and is INVALID; then fadvise again), and the BV-07 probe on the cached worlds, which first requires `mincore` residency <= 1 % (else INVALID `cache_warm`, probe not started) and records the probe tree's block-read bytes with the path oracle's expected unique stored bytes of every probed world: the D-14 record the gate verdict's V10 entry judges (BV-13a-2b; residency <= 1 % and read bytes >= 0.9 x the oracle, else INVALID `cache_warm`; no measurement is MISSING, never PASS). Right after `build_info`, `dispatch_lane.py doctest-proofs` (BV-13a-2b) runs the ADR 8.5 doctest proofs on the same release-tests binary, each case by exact name (C-thrash today; G7/G8/G9/G3/G2a/G10h-a are listed absent until their counters exist), in every run mode; no binary is NOT_RUN. Then `dispatch_lane.py controls` (BV-13a) runs the ADR 8.5 forcing controls on the cached T0 (`tests/runtime/flythrough/flythrough_controls.py`: C-starve, C-off, C-settings, C-warm), each asserting its exact `(gate, verdict, reason)` tuple through the BV-09 verdict module and judging V10 on its own D-14 record; a differing tuple or a harness failure makes the lane INVALID. They run after the cold probe because a control warms T0's pages. The contention postflight's outcome and every step record become one lane verdict (VOID > FAIL > INVALID > NOT_RUN > PASS, missing record = NOT_RUN) with the section 9.1 exit code; uploads `beyond-vram-flythrough-<tier>-<run_id>-<attempt>` (without the screenshots), `beyond-vram-screenshots-<tier>-<run_id>-<attempt>` (the probe's viewport PNG at every checkpoint, main run and controls) and `bvw-verdict-<run_id>-<attempt>` (`verdict.json`). Cache layout: `/opt/actions-runner/godotgs-world-cache/{CACHE_FORMAT,.lock,<world_id>/<gen_sha12>/,quarantine/}`. `codec-probe` (GPU-labelled RTX 3080 runner for its read-only scan mount, BV-C2, dispatch only including `real_scan`) runs the same binary's GSQ codec probe (`tests/runtime/flythrough/run_codec_probe.py`) and uploads `gsq-codec-probe-<run_id>-<attempt>`; report-only. `liveness-watchdog` (GitHub-hosted, `actions: read` on this job only; Monday schedule or dispatch with `mode=watchdog`) runs `tests/runtime/flythrough/lane_watchdog.py`: before M2 it fails unless a scheduled run in the last 9 days ended PASS, FAIL or INVALID (VOID, NOT_RUN and a missing verdict do not count) and on any run queued > 20 h; mode `m2` (BV-14) adds PASS within 9 days, two consecutive VOIDs and cancelled or replaced runs. Dispatch `mode=auto_tree` runs only the build and `prime-auto-tree` (RTX 3080, 240 min): scratch T0 plain-GSQ to V4 build, measured Tier A RAM/disk admission, two Tier A builds with repeat identity and oracle evidence, then verification of both cache keys. It requires a fresh `A-plain_v3_gsq` key and never re-primes it. Only JSON/log reports are uploaded. Dispatch `mode=real_scan` runs only the build, `real-scan-identity` (60-minute identity step) and codec probe on the GPU runner. It reads `$GS_TESTDATA/3dgs-szenen/bicycle-30k.ply` by default; scratch payloads stay under `$RUNNER_TEMP` and artifacts allow only JSON/MD/log reports. Concurrency group `bvw-<event>-lane` / `bvw-<event>-auto-tree` / `bvw-<event>-real-scan` / `bvw-<event>-shared-layers-t0` / `bvw-<event>-watchdog`, never cancelled, so the watchdog can never replace the queued run it reports on. |
+
+Dispatch `mode=shared_layers_t0` adds a paired **report-only diagnostic**, with
+`shared_layers_control=none|corrupt|saturate|skip_compare` (default `none`, ignored
+by other modes). Only `build-linux-editor`, `build-pre-d3-editor`, and
+`shared-layers-t0` run in this mode. The CPU build job checks out immutable
+pre-D3 `f2f19bcb580cc131615b3fa262a11d99e6abc70c` (the parent of D3-1) and uses the
+same `BVW_SCONS_ARGS` as the candidate; its artifact name contains that full SHA.
+The single 3080 GPU job verifies both binaries' provenance, build run and measured
+digest, then prepares one synthetic 4,194,304-splat, 512 x 512 m T0 plain-GSQ
+world and its V4 tree through D2's `auto-tree-t0` path. It runs chunk and HLOD
+routes and pre-D3/candidate migration controls sequentially against retained
+inputs, with settings read back from each process, independent cold preparation,
+traces, route telemetry and synthetic screenshots. Missing required observations
+remain not-measured and make evidence UNUSABLE; a missing arm is NOT_RUN.
+`compare_shared_layers_t0.py` writes `comparison.json` and `comparison.md`; an
+independent `always()` final step requires a current VALID report. VALID means
+usable diagnostic evidence, never a Tier A pass. The three forcing controls must
+leave the workflow red, including `skip_compare`, which omits comparison and
+exercises the final step's missing-report check. No threshold or gate changes.
+Artifacts allow only JSON/Markdown/log reports and PNGs under the dedicated
+synthetic output directory; payloads and binaries stay out. This mode has its own
+`bvw-<event>-shared-layers-t0` concurrency group and never runs the real-scan jobs.
+The output and contention directories include the run id and attempt. Contention
+postflight writes its native JSON before comparison; comparison requires that
+record to be CLEAN, so a contended or unobserved run cannot produce VALID.
 
 ## Required Checks
 
@@ -116,7 +141,8 @@ contract-source ADR.
 | --- | --- | --- |
 | `baseline_qa.yml` | `debug_mode` | `true`, `false` |
 | `baseline_qa.yml` | `baseline_mode` | `compare`, `update` |
-| `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), or `watchdog` (only the liveness watchdog) |
+| `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), `shared_layers_t0` (candidate/pre-D3 builds and one sequential paired synthetic GPU diagnostic), or `watchdog` (only the liveness watchdog) |
+| `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Each forcing control must be red. Saturation holds actual ready HLOD uploads through the tests-only hook and requires native hold/queue evidence. |
 | `beyond_vram_flythrough.yml` | `tier` | `T0` (default, 4.19M-splat smoke world), `A` (the 201M-splat world, uncompressed plain v3; also uses `T0`). The weekly schedule runs `A`. |
 | `beyond_vram_flythrough.yml` | `prime_world_cache` | boolean (default `false`): regenerate the tier's worlds into the runner's world cache first (job `prime-world-cache`) |
 | `beyond_vram_flythrough.yml` | `disk_probe_gib` | integer string `1`-`64` (default `8`), size of the O_DIRECT disk-probe file |
@@ -188,6 +214,48 @@ the tiled build with an in-core bake of the same decoded subset. The report
 records per-node stored and canonical decoded digests, the first divergent node
 and field, and an input-perturbation negative control. Missing data is `NOT_RUN`
 (exit 3); missing reports or a doctest that ran no case or assertions cannot pass.
+
+D3-6 paired synthetic T0 and its three negative controls (dispatch once each):
+
+```bash
+gh workflow run beyond_vram_flythrough.yml --ref optd-d3-6-paired-t0 -f mode=shared_layers_t0 -f shared_layers_control=none
+gh workflow run beyond_vram_flythrough.yml --ref optd-d3-6-paired-t0 -f mode=shared_layers_t0 -f shared_layers_control=corrupt
+gh workflow run beyond_vram_flythrough.yml --ref optd-d3-6-paired-t0 -f mode=shared_layers_t0 -f shared_layers_control=saturate
+gh workflow run beyond_vram_flythrough.yml --ref optd-d3-6-paired-t0 -f mode=shared_layers_t0 -f shared_layers_control=skip_compare
+```
+
+This mode always prepares the fixed 4,194,304-splat, 512 × 512 m GSQ T0;
+`tier`, Tier A `encoding`, scan inputs and existing gate controls do not select
+its content or policy. One GPU job runs independently cold-prepared chunk,
+HLOD, pre-D3 V4 and candidate V4 processes sequentially, then the selected
+control. Corruption flips stored bytes in a copy of every V4 node payload.
+Contention postflight precedes comparison; finalization independently requires
+the current run/control's report and rechecks its bound experiment/artifacts.
+
+Route-labelled native exports include actual queue occupancy, high-water marks,
+existing bounds, stale-generation publications and digest-verification failures.
+An owner without an independent byte/job bound declares that fact with an explicit
+reason; no bound is invented from worker concurrency. HLOD settings are sampled
+from the process every trace row because that route has no chunk regulator.
+All measured arms use the shipped capacity settings. Admission waits, busy
+refusals and queue occupancy are backpressure observations, not by themselves a
+failure. Existing cold/stop/teleport settle windows record native read, decode and
+upload progress; outstanding demand with no forward progress across a full
+existing deadline is unusable evidence. No new time threshold is introduced.
+`saturate` runs an additional HLOD probe, holds real ready uploads through the
+tests-only hook, waits for native upload-hold/ready-byte evidence, and releases
+the hold. That observation makes comparison **UNUSABLE**. Failure to observe it
+before the deadline also fails the control. `skip_compare` omits comparison and
+the final verdict fails on the missing report. No diagnostic result is a Tier A
+pass. Physical proof still requires the runner dispatches and their artifacts.
+
+Metrics retain native CPU-stage scopes and cold/repeat labels. Unknown values
+have explicit not-measured reasons. #1441 is not closed: frame intervals and
+coherent GPU timings are captured when present, and a positive observed device
+ledger is retained, but the renderer's zero VRAM placeholder is never measured
+VRAM. External VRAM, unique uploads, staging allowance and common pre-D3 decoded
+bytes/digests remain not measured. Artifacts contain only dedicated synthetic
+JSON/Markdown/log reports and viewport PNGs; payloads stay in scratch.
 
 ## Renderer Release Gate Contract
 
@@ -298,7 +366,7 @@ if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.re
 
 - `baseline_qa.yml` — `gpu-tests` (form above, ANDed with "`changes` found a code change"). `changes` and `cpu-tests` are GitHub-hosted and run for fork PRs too.
 - `gaussian_production_gates.yml` — `build-linux-editor` (form above, ANDed with "schedule, or a dispatch asking for an openworld surface"), and `openworld-proof-evidence`, which carries a *narrower* guard: `if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && ...)`, so it never runs on a pull request at all, fork or same-repo. The workflow has no `pull_request` trigger since the CI diet; the guard is kept fail-closed.
-- `beyond_vram_flythrough.yml` — `build-linux-editor`, `prime-world-cache`, `prime-auto-tree`, `flythrough`, `real-scan-identity`, `codec-probe` (form above). `schedule` and `workflow_dispatch` only, so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted jobs fail-closed if a `pull_request` trigger is ever added. `liveness-watchdog` is GitHub-hosted.
+- `beyond_vram_flythrough.yml` — `build-linux-editor`, `build-pre-d3-editor`, `shared-layers-t0`, `prime-world-cache`, `prime-auto-tree`, `flythrough`, `real-scan-identity`, `codec-probe` (form above). `schedule` and `workflow_dispatch` only, so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted jobs fail-closed if a `pull_request` trigger is ever added. `build-pre-d3-editor` and `shared-layers-t0` additionally require dispatch `mode=shared_layers_t0`; the GPU diagnostic has explicit `contents: read` job permissions. `liveness-watchdog` is GitHub-hosted.
 - `gaussian_shader_validation.yml` — `shader-validation` (form above).
 - `release_ci_runtime.yml` — `build-linux-editor`, `runtime-release-ci` (form above). This workflow has no `pull_request` trigger (schedule + `workflow_dispatch` only), so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted job fail-closed if a `pull_request` trigger is ever added.
 - `gs_combined_1.yml` — `gs-combined-1-gpu` (form above), on `pull_request`, schedule and `workflow_dispatch` (no push trigger); fork PRs skip it. Its status job `gs-combined-1` runs on GitHub-hosted `ubuntu-latest`, `needs:` the GPU job and has `if: ${{ always() }}` as its only job-level condition, so it always reports: a skipped GPU job (a fork PR) fails the status with `gs_combined_requires_trusted_branch` instead of satisfying it, and a cancelled or failed one fails it too. `tests/ci/test_release_builds_runner_trust.py` (`GsCombinedGateShapeTests`) enforces the guard, the status job's runner, its `needs:`, its condition and its fail-closed step, with a mutation per property.
@@ -633,7 +701,7 @@ set fails both guards rather than passing. At
 the time of writing that set is `gpu-tests`
 (`baseline_qa.yml`), `openworld-proof-evidence`
 (`gaussian_production_gates.yml`), and `runtime-release-ci`
-(`release_ci_runtime.yml`), and `prime-world-cache`, `prime-auto-tree`, `flythrough`, `real-scan-identity` and `codec-probe` (`beyond_vram_flythrough.yml`), all on the Linux RTX 3080 runner, plus
+(`release_ci_runtime.yml`), and `prime-world-cache`, `prime-auto-tree`, `shared-layers-t0`, `flythrough`, `real-scan-identity` and `codec-probe` (`beyond_vram_flythrough.yml`), all on the Linux RTX 3080 runner, plus
 `export_smoke_linux` (`release_builds.yml`), also on the Linux runner, plus
 `export_smoke_windows` (`release_builds.yml`), which is skipped unless
 `GODOTGS_WINDOWS_GPU_RUNNER` is `true` and a Windows GPU workstation labelled `d3d12` exists.
@@ -641,7 +709,8 @@ the time of writing that set is `gpu-tests`
 The self-hosted jobs *without* the `gpu` label — `shader-validation`
 (`gaussian_shader_validation.yml`), the three `build-linux-editor` jobs
 (`gaussian_production_gates.yml`, `release_ci_runtime.yml`,
-`beyond_vram_flythrough.yml`) —
+`beyond_vram_flythrough.yml`), plus `build-pre-d3-editor`
+(`beyond_vram_flythrough.yml`) —
 may run on the Linux GPU runner (they match its `self-hosted, Linux, X64` labels)
 but do not create a Vulkan device, so they are deliberately out of scope. The
 GPU jobs those build jobs feed have no SCons step, so their ordering anchor is
@@ -696,6 +765,15 @@ take the job once one is registered.
   halves already accept; `prime-world-cache`, `prime-auto-tree` and `flythrough` resolve only that name and their
   `build_info` step fails if the SCons arguments it records are not the D-10
   producer flags.
+- **D3-6 migration identity.** `build-pre-d3-editor` compiles immutable
+  `f2f19bcb580cc131615b3fa262a11d99e6abc70c` with those same optimized flags.
+  The source checkout must equal that SHA before the current staging tool runs
+  with its expected `GITHUB_SHA` set to the immutable SHA for that command only.
+  Its separate artifact includes the full SHA. `shared-layers-t0` verifies the
+  artifact's exact members, commit, current run id and SHA256, keeps it separate
+  from the installed candidate, and executes `build-info` against each binary.
+  The migration arms consume identical retained V4 input; telemetry absent from
+  the old binary is explicitly not-measured, never a fabricated zero.
 - **A failed build is red, not hidden.** The GPU jobs are skipped behind a red
   `build-linux-editor`; none of them is a required check. On the
   `openworld-proof-evidence` events the build job does not inherit that job's

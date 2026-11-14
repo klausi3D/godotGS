@@ -1,0 +1,303 @@
+{
+ "provenance": {
+  "run_id": "43602195987",
+  "attempt": 1,
+  "head_sha": "6721bc153c3",
+  "source_directory": "shared-layers-t0-none-43602195987-1",
+  "capture": "Real synthetic T0 producer output; extracted without changing observations.",
+  "source_keys": [
+   "probe.overlap_drops_whole_run",
+   "probe.passes[*].overlap_drops",
+   "probe.passes[*].overlap_drops_checkpoints",
+   "probe.passes[*].overlap_drops_moving"
+  ],
+  "row_scope": "Trace row receiving the asynchronous readback, not the exact causing GPU frame. Download has no trace.bin; only first event rows per window are retained by the summary."
+ },
+ "arms": {
+  "chunk": {
+   "source_file": "chunk/arm.json",
+   "source_sha256": "fbf4340bedca1cfa61cdd38437a4cc421522460ab4e5e7b1ba24e4da67e7d8d3",
+   "whole_run": {
+    "drop_events": 5,
+    "binning_drop_events": 5,
+    "binning_tile_range_drop_events": 0,
+    "binning_budget_drop_events": 5,
+    "raster_tile_cap_drop_events": 0,
+    "sampled_dropped_records": 467265,
+    "first_drop_row": 13332,
+    "first_drop": {
+     "pass_index": 0,
+     "s_m": 0.0,
+     "segment": 16,
+     "state": 1,
+     "view": -1
+    },
+    "status": "OK"
+   },
+   "passes": [
+    {
+     "pass_index": 0,
+     "label": "first",
+     "overlap_drops": {
+      "drop_events": 1,
+      "binning_drop_events": 1,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 1,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 231437,
+      "first_drop_row": 13332,
+      "first_drop": {
+       "pass_index": 0,
+       "s_m": 0.0,
+       "segment": 16,
+       "state": 1,
+       "view": -1
+      }
+     },
+     "overlap_drops_checkpoints": {
+      "drop_events": 1,
+      "binning_drop_events": 1,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 1,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 231437,
+      "first_drop_row": 13332,
+      "first_drop": {
+       "pass_index": 0,
+       "s_m": 0.0,
+       "segment": 16,
+       "state": 1,
+       "view": -1
+      }
+     },
+     "overlap_drops_moving": {
+      "drop_events": 0,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 0,
+      "first_drop_row": null
+     }
+    },
+    {
+     "pass_index": 1,
+     "label": "repeat",
+     "overlap_drops": {
+      "drop_events": 4,
+      "binning_drop_events": 4,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 4,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 235828,
+      "first_drop_row": 13334,
+      "first_drop": {
+       "pass_index": 1,
+       "s_m": 0.0,
+       "segment": 0,
+       "state": 1,
+       "view": -1
+      }
+     },
+     "overlap_drops_checkpoints": {
+      "drop_events": 2,
+      "binning_drop_events": 2,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 2,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 231399,
+      "first_drop_row": 13334,
+      "first_drop": {
+       "pass_index": 1,
+       "s_m": 0.0,
+       "segment": 0,
+       "state": 1,
+       "view": -1
+      }
+     },
+     "overlap_drops_moving": {
+      "drop_events": 2,
+      "binning_drop_events": 2,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 2,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 4429,
+      "first_drop_row": 18053,
+      "first_drop": {
+       "pass_index": 1,
+       "s_m": 0.66192,
+       "segment": 5,
+       "state": 0,
+       "view": -1
+      }
+     }
+    }
+   ],
+   "first_event_segments": {
+    "source_file": "chunk/result.json",
+    "source_key": "segments",
+    "segments": [
+     {
+      "end_row": 13333,
+      "id": "S12",
+      "kind": "teleport",
+      "pass_index": 0,
+      "segment": 16,
+      "start_row": 13330
+     },
+     {
+      "end_row": 14143,
+      "id": "S0",
+      "kind": "hold",
+      "pass_index": 1,
+      "segment": 0,
+      "start_row": 13334
+     },
+     {
+      "end_row": 18253,
+      "id": "S5",
+      "kind": "move",
+      "pass_index": 1,
+      "segment": 5,
+      "start_row": 18051
+     }
+    ]
+   }
+  },
+  "hlod": {
+   "source_file": "hlod/arm.json",
+   "source_sha256": "a2bc30007e417b96456b7195eac9e41c2ba3feb6ca435112955ac4f69a2b55e2",
+   "whole_run": {
+    "drop_events": 21,
+    "binning_drop_events": 0,
+    "binning_tile_range_drop_events": 0,
+    "binning_budget_drop_events": 0,
+    "raster_tile_cap_drop_events": 21,
+    "sampled_dropped_records": 77821,
+    "first_drop_row": 3525,
+    "first_drop": {
+     "pass_index": 0,
+     "s_m": 4.1688,
+     "segment": 4,
+     "state": 0,
+     "view": -1
+    },
+    "status": "OK"
+   },
+   "passes": [
+    {
+     "pass_index": 0,
+     "label": "first",
+     "overlap_drops": {
+      "drop_events": 11,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 11,
+      "sampled_dropped_records": 38563,
+      "first_drop_row": 3525,
+      "first_drop": {
+       "pass_index": 0,
+       "s_m": 4.1688,
+       "segment": 4,
+       "state": 0,
+       "view": -1
+      }
+     },
+     "overlap_drops_checkpoints": {
+      "drop_events": 0,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 0,
+      "first_drop_row": null
+     },
+     "overlap_drops_moving": {
+      "drop_events": 11,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 11,
+      "sampled_dropped_records": 38563,
+      "first_drop_row": 3525,
+      "first_drop": {
+       "pass_index": 0,
+       "s_m": 4.1688,
+       "segment": 4,
+       "state": 0,
+       "view": -1
+      }
+     }
+    },
+    {
+     "pass_index": 1,
+     "label": "repeat",
+     "overlap_drops": {
+      "drop_events": 10,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 10,
+      "sampled_dropped_records": 39258,
+      "first_drop_row": 15468,
+      "first_drop": {
+       "pass_index": 1,
+       "s_m": 4.50744,
+       "segment": 4,
+       "state": 0,
+       "view": -1
+      }
+     },
+     "overlap_drops_checkpoints": {
+      "drop_events": 0,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 0,
+      "sampled_dropped_records": 0,
+      "first_drop_row": null
+     },
+     "overlap_drops_moving": {
+      "drop_events": 10,
+      "binning_drop_events": 0,
+      "binning_tile_range_drop_events": 0,
+      "binning_budget_drop_events": 0,
+      "raster_tile_cap_drop_events": 10,
+      "sampled_dropped_records": 39258,
+      "first_drop_row": 15468,
+      "first_drop": {
+       "pass_index": 1,
+       "s_m": 4.50744,
+       "segment": 4,
+       "state": 0,
+       "view": -1
+      }
+     }
+    }
+   ],
+   "first_event_segments": {
+    "source_file": "hlod/result.json",
+    "source_key": "segments",
+    "segments": [
+     {
+      "end_row": 5089,
+      "id": "S4",
+      "kind": "move",
+      "pass_index": 0,
+      "segment": 4,
+      "start_row": 3515
+     },
+     {
+      "end_row": 16960,
+      "id": "S4",
+      "kind": "move",
+      "pass_index": 1,
+      "segment": 4,
+      "start_row": 15458
+     }
+    ]
+   }
+  }
+ }
+}

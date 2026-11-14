@@ -1200,7 +1200,8 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn(
             "  group: bvw-${{ github.event_name }}-${{ (github.event.schedule == '0 6 * * 1' || "
             "inputs.mode == 'watchdog') && 'watchdog' || inputs.mode == 'auto_tree' && 'auto-tree' || "
-            "inputs.mode == 'real_scan' && 'real-scan' || 'lane' }}\n  cancel-in-progress: false\n",
+            "inputs.mode == 'real_scan' && 'real-scan' || inputs.mode == 'shared_layers_t0' && "
+            "'shared-layers-t0' || 'lane' }}\n  cancel-in-progress: false\n",
             self.text,
         )
         # actions: read on the watchdog job only (ADR section 9.1).
@@ -1282,8 +1283,17 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("linux_gpu_runner.sh stage-binary", build_runs)
         for steps in (self.steps, self.prime_steps, self.auto_tree_steps):
             self.assertIn("linux_gpu_runner.sh install-binary", "".join(s.get("run", "") for s in steps))
-        # Build upload; both primes, flythrough, identity and codec-probe download.
-        self.assertEqual(self.text.count("name: godot-linuxbsd-editor-tests-${{ github.sha }}"), 6)
+        # Each job using the candidate must name its exact commit-pinned artifact.
+        # Derive occurrences by job so removing one and adding a duplicate in
+        # another cannot preserve a misleading count.
+        jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", self.text.split("\njobs:\n", 1)[1], re.M)
+        artifact = "name: godot-linuxbsd-editor-tests-${{ github.sha }}"
+        users = {job: "\n".join(_job_block(self.text, job)).count(artifact) for job in jobs}
+        self.assertEqual({job for job, count in users.items() if count}, {
+            "build-linux-editor", "prime-world-cache", "prime-auto-tree", "flythrough",
+            "real-scan-identity", "codec-probe", "shared-layers-t0",
+        })
+        self.assertTrue(all(count == 1 for count in users.values() if count), users)
 
     def test_the_cache_root_is_the_section_9_2_path(self) -> None:
         self.assertIn(f"  BVW_CACHE_ROOT: {wc.DEFAULT_CACHE_ROOT.as_posix()}\n", self.text)
@@ -2038,7 +2048,7 @@ class D25AutoTreeWorkflow(unittest.TestCase):
                 self.assertNotIn("inputs.mode != 'auto_tree'", condition)
             elif name == "liveness-watchdog":
                 self.assertEqual(condition, f"${{{{ github.event.schedule == '{WATCHDOG_CRON}' || inputs.mode == 'watchdog' }}}}")
-            elif name == "real-scan-identity":
+            elif name in ("real-scan-identity", "build-pre-d3-editor", "shared-layers-t0"):
                 self.assertFalse(self.enabled(condition, mode="auto_tree"))
             else:
                 self.assertIn("inputs.mode != 'auto_tree'", condition, name)
@@ -2351,6 +2361,76 @@ class RealScanIdentity(_TempCase):
                               "--scan", str(self.scan), "--out", str(self.out)])
         self.assertEqual(code, lane.EXIT_NOT_RUN)
         identity.assert_called_once()
+
+
+class D36SharedLayersWorkflow(unittest.TestCase):
+    """The synthetic diagnostic owns one GPU job and an immutable CPU migration build."""
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text(encoding="utf-8")
+        self.evaluator = D25AutoTreeWorkflow()
+
+    def enabled_jobs(self, mode, *, text=None, fork=False):
+        text = self.text if text is None else text
+        names = re.findall(r"^  ([a-z][a-z0-9-]*):$", text.split("\njobs:\n", 1)[1], re.M)
+        return {name for name in names if self.evaluator.enabled(
+            WorkflowContract.job_if(_job_block(text, name)), mode=mode, fork=fork)}
+
+    def test_shared_mode_runs_only_two_cpu_builds_and_one_gpu_job(self):
+        self.assertEqual(self.enabled_jobs("shared_layers_t0"), {
+            "build-linux-editor", "build-pre-d3-editor", "shared-layers-t0",
+        })
+        self.assertEqual(self.enabled_jobs("shared_layers_t0", fork=True), set())
+        for mode in ("flythrough", "auto_tree", "real_scan", "watchdog"):
+            with self.subTest(mode=mode):
+                self.assertNotIn("shared-layers-t0", self.enabled_jobs(mode))
+                self.assertNotIn("build-pre-d3-editor", self.enabled_jobs(mode))
+
+    def test_mutation_missing_unrelated_mode_exclusion_is_detected(self):
+        mutant = self.text.replace(" && inputs.mode != 'shared_layers_t0'", "", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertIn("prime-world-cache", self.enabled_jobs("shared_layers_t0", text=mutant))
+
+    def test_distinct_run_name_and_concurrency(self):
+        for line in self.text.splitlines():
+            if line.startswith(("run-name:", "  group: bvw-")):
+                self.assertIn("inputs.mode == 'shared_layers_t0'", line)
+
+    def test_comparison_requires_postflight_and_unique_attempt_outputs(self):
+        steps = _steps(_job_block(self.text, "shared-layers-t0"))
+        paths = next(s["run"] for s in steps if s.get("name") == "Set dedicated synthetic diagnostic paths")
+        for variable in ("SHARED_LAYERS_OUT", "SHARED_LAYERS_SCRATCH", "GS_CI_GPU_CONTENTION_DIR"):
+            line = next(line for line in paths.splitlines() if f'"{variable}=' in line)
+            self.assertIn("$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT", line)
+        postflight = [(i, s) for i, s in enumerate(steps)
+                      if "runner_gpu_contention.py postflight" in s.get("run", "")]
+        compare = [(i, s) for i, s in enumerate(steps)
+                   if "compare_shared_layers_t0.py --experiment" in s.get("run", "")]
+        self.assertEqual(len(postflight), 1)
+        self.assertEqual(len(compare), 1)
+        self.assertLess(postflight[0][0], compare[0][0])
+        self.assertEqual(postflight[0][1]["if"], "always()")
+        self.assertIn('--json "$SHARED_LAYERS_OUT/contention/postflight.json"', postflight[0][1]["run"])
+        self.assertIn('--contention-report "$SHARED_LAYERS_OUT/contention/postflight.json"', compare[0][1]["run"])
+
+    def test_immutable_migration_build_uses_candidate_flags_and_pinned_artifact(self):
+        sha = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+        block = "\n".join(_job_block(self.text, "build-pre-d3-editor"))
+        self.assertIn("    runs-on: [self-hosted, Linux, X64]", block)
+        self.assertIn(f"ref: {sha}", block)
+        self.assertIn(f"PRE_D3_SHA: {sha}", block)
+        self.assertIn(f"name: godot-linuxbsd-editor-tests-pred3-{sha}", block)
+        runs = "\n".join(step.get("run", "") for step in _steps(block.splitlines()))
+        self.assertIn('test "$(git rev-parse HEAD)" = "$PRE_D3_SHA"', runs)
+        self.assertIn("python -m SCons $BVW_SCONS_ARGS", runs)
+        self.assertIn('GITHUB_SHA="$PRE_D3_SHA"', runs)
+        self.assertIn(" stage-binary ", runs)
+        gpu = "\n".join(_job_block(self.text, "shared-layers-t0"))
+        self.assertIn("needs: [build-linux-editor, build-pre-d3-editor]", gpu)
+        self.assertIn(f"name: godot-linuxbsd-editor-tests-pred3-{sha}", gpu)
+        for check in ("provenance['commit']", "provenance['run_id']", "provenance['binary']",
+                      "provenance['sha256']", "directory.iterdir()"):
+            self.assertIn(check, gpu)
 
 
 if __name__ == "__main__":
