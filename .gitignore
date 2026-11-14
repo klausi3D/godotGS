@@ -567,3 +567,5 @@ tests/visual_baselines/**/*.actual.png
 
 # GPU harness per-run report (regenerated on every run; not source).
 tests/ci/gpu_harness_report.json
+# Raw D3-5 producer captures (CI uploads these root copies).
+/d3_5_*_test_results.json

@@ -4,6 +4,7 @@
 #include "gsq/gsq_codec.h"
 
 #include "core/templates/pair.h"
+#include "core/variant/dictionary.h"
 
 // D3-1 transport/GSQ primitives. No directory interpretation, residency or GPU
 // policy. Source installation/start/destruction belong to the owner; requests,
@@ -114,6 +115,8 @@ public:
 	};
 
 	struct Stats {
+		uint64_t source_generation = 0; // Internal monotonic transport generation.
+		uint64_t collection_epoch = 0; // Immutable adapter source identity.
 		PayloadReadService::Stats reads;
 		// Current holders, with ready service completions included in service_bytes.
 		uint64_t service_bytes = 0;
@@ -140,6 +143,8 @@ public:
 		// Failed pages add stored bytes, page_failures, and the capture failure,
 		// but do not add successful-page stage times/counts. Not zstd timing.
 		uint64_t captures = 0;
+		uint64_t captures_on_worker_threads = 0;
+		uint64_t captures_on_main_thread = 0;
 		uint64_t captures_failed = 0;
 		uint64_t pages_verified = 0; // Successful decoded pages with stored verification.
 		uint64_t pages_decoded = 0;
@@ -154,6 +159,10 @@ public:
 		uint64_t stored_bytes_read = 0;
 		uint64_t page_failures = 0;
 		String last_failure_reason;
+#ifdef TESTS_ENABLED
+		uint64_t test_decode_delay_calls = 0;
+		uint64_t test_decode_delay_nsec = 0;
+#endif
 	};
 
 	PayloadPageStore() = default;
@@ -163,9 +172,12 @@ public:
 
 	Error start(const Config &p_config);
 	// Owner operation, outside concurrent calls: drain old service/stash owners
-	// and drop idle handles before installing a new path/generation/catalog. Counters
-	// are cumulative across replacement. Caller-held pages/leases must be returned.
-	Error replace_source(const String &p_path, uint64_t p_generation, const LocalVector<PageDescriptor> &p_pages);
+	// and drop idle handles before installing a new path/generation/catalog.
+	// stats() stays cumulative; get_telemetry() starts a new source collection.
+	// p_collection_epoch is the adapter's immutable source identity, independent
+	// of the monotonic transport generation. Caller-held pages/leases must be returned.
+	Error replace_source(const String &p_path, uint64_t p_generation, const LocalVector<PageDescriptor> &p_pages,
+			uint64_t p_collection_epoch = 0);
 	// Ticket uniqueness is (requester, ticket) within a source generation, so two
 	// requesters may use the same local ticket without crossing completions.
 	PayloadReadService::SubmitResult request(uint64_t p_requester, uint64_t p_ticket, const PageDescriptor &p_page);
@@ -177,6 +189,8 @@ public:
 	Error cancel_requester(uint64_t p_requester);
 	void shutdown(); // Idempotent; joins readers and drains stored/idle decoder owners.
 	Stats stats() const;
+	// Per-source measurement deltas; lifetime accounting in stats() stays cumulative.
+	Dictionary get_telemetry(const String &p_route) const;
 	bool uses_retained_admission() const;
 
 	// V4 uses transient leases so idle scratch cannot escape the streamer's
@@ -202,6 +216,7 @@ public:
 	uint64_t take_thread_last_capture_decode_nsec();
 
 #ifdef TESTS_ENABLED
+	Error _test_set_telemetry_delays(uint32_t p_read_usec, uint32_t p_decode_usec);
 	// Same compile gate as PayloadReadService::_test_set_read_hook: absent from
 	// non-test release templates. Faults alter the REAL dispatch handoff, never
 	// stats() or the checker. Set only while drained, before submitting requests.
@@ -261,6 +276,11 @@ private:
 	uint32_t waiters = 0;
 	LocalVector<gs_gsq::DecodeContext *> idle_decoders;
 	Stats counters;
+	Stats collection_base; // mutex; captured after old requests/decoders drain.
+#ifdef TESTS_ENABLED
+	uint32_t test_decode_delay_usec = 0; // mutex; delay executes outside the lock.
+	void _test_delay_decode();
+#endif
 #ifdef TESTS_ENABLED
 	TestFault test_fault = TEST_FAULT_NONE;
 	uint64_t test_fault_count = 0;

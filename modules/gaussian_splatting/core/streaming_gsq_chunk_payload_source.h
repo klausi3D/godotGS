@@ -32,7 +32,8 @@
 // so on this path it can catch only a decoder defect, which the codec golden-digest doctests and
 // the resident load (load_resident(), which still checks it) cover. The stored-page verify is
 // never skipped. Whether the check ran is exported (decoded_digest_verified,
-// pages_decoded_digest_checked), so a zero digest_nsec reads as "skipped", not as "free".
+// pages_decoded_digest_checked). D3-5's Dictionary labels digest_status=skipped
+// with digest_nsec=null; the legacy numeric DecodeStats retains its zero sum.
 //
 // Failure is visible, never repaired or skipped: a capture that meets a short read, a digest or
 // table mismatch or a refused decode returns false (the streaming system counts it in

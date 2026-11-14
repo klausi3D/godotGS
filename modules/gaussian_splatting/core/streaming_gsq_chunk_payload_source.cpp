@@ -97,7 +97,7 @@ bool GsqPagedChunkPayloadSource::_ensure_service_started() const {
 	config.max_bytes_in_flight = kMaxBytesInFlight;
 	config.max_idle_handles = kMaxIdleHandles;
 	config.admission_policy = PayloadPageStore::ADMIT_SERVICE_BYTES_ONLY;
-	if (page_store.start(config) != OK || page_store.replace_source(file_path, 1u, pages) != OK) {
+	if (page_store.start(config) != OK || page_store.replace_source(file_path, 1u, pages, uint64_t(get_instance_id())) != OK) {
 		page_store.shutdown();
 		service_failed = true;
 		return false;
@@ -306,28 +306,8 @@ GsqPagedChunkPayloadSource::DecodeStats GsqPagedChunkPayloadSource::get_decode_s
 }
 
 Dictionary GsqPagedChunkPayloadSource::get_decode_stats() const {
-	const DecodeStats stats = get_decode_stats_struct();
-	Dictionary d;
+	Dictionary d = page_store.get_telemetry("chunk");
 	d["page_count"] = int64_t(pages.size());
-	d["captures"] = int64_t(stats.captures);
-	d["captures_failed"] = int64_t(stats.captures_failed);
-	d["pages_decoded"] = int64_t(stats.pages_decoded);
-	d["splats_decoded"] = int64_t(stats.splats_decoded);
-	d["decode_nsec"] = int64_t(stats.decode_nsec);
-	d["digest_nsec"] = int64_t(stats.digest_nsec);
-	d["verify_nsec"] = int64_t(stats.verify_nsec);
 	d["decoded_digest_verified"] = verify_decoded_digest;
-	d["pages_decoded_digest_checked"] = int64_t(stats.pages_decoded_digest_checked);
-	d["pages_decoded_on_worker_threads"] = int64_t(stats.pages_decoded_on_worker_threads);
-	d["pages_decoded_on_main_thread"] = int64_t(stats.pages_decoded_on_main_thread);
-	d["page_failures"] = int64_t(stats.page_failures);
-	d["stored_bytes_read"] = int64_t(stats.stored_bytes_read);
-	d["last_failure_reason"] = stats.last_failure_reason;
-	d["reads_submitted"] = int64_t(stats.reads.submitted);
-	d["reads_completed_ok"] = int64_t(stats.reads.completed_ok);
-	d["reads_completed_failed"] = int64_t(stats.reads.completed_failed);
-	d["reads_refused_busy"] = int64_t(stats.reads.refused_busy);
-	d["read_bytes"] = int64_t(stats.reads.bytes_read);
-	d["read_handle_opens"] = int64_t(stats.reads.handle_opens);
 	return d;
 }

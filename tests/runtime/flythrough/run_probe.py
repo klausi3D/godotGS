@@ -544,6 +544,8 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["pool_placement"] = pool_placement(fs)
     out["latency_histograms"] = fs.get("streaming_latency_histograms", ps.missing("no latency histograms"))
     out["gsq_decode"] = ps.gsq_decode_split(result.get("gsq_decode_stats"))
+    out["payload_telemetry"] = ps.route_telemetry_summary(
+        result.get("payload_telemetry"), route=result.get("route"), source_generation=result.get("source_generation"))
     out["screenshots"] = screenshot_record(result.get("screenshots"))
     out["expected_unique_upload_flat"] = groundtruth["expected_unique_upload"]["flat"]
     ub = out["streaming_whole_run"].get("upload_bytes", {})

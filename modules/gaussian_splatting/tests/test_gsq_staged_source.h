@@ -263,7 +263,9 @@ TEST_CASE("[GaussianSplatting][WorldIO] paged GSQ chunks (bit 7): pack workers r
 	CHECK(int64_t(exported.get("pages_decoded_on_worker_threads", int64_t(-1))) == int64_t(expected_pages));
 	CHECK(int64_t(exported.get("pages_decoded_on_main_thread", int64_t(-1))) == 0);
 	CHECK(int64_t(exported.get("verify_nsec", int64_t(-1))) == int64_t(stats.verify_nsec));
-	CHECK(int64_t(exported.get("digest_nsec", int64_t(-1))) == int64_t(stats.digest_nsec));
+	// D3-5: retain numeric zero in the K9 struct, label skipped exported work.
+	CHECK(String(exported.get("digest_status", "")) == "skipped");
+	CHECK(exported.get("digest_nsec", int64_t(-1)).get_type() == Variant::NIL);
 	CHECK(exported.has("decoded_digest_verified"));
 	CHECK_FALSE(bool(exported.get("decoded_digest_verified", true)));
 	CHECK(int64_t(exported.get("pages_decoded_digest_checked", int64_t(-1))) == 0);

@@ -914,7 +914,7 @@ Error GaussianSplatHlodPagedSource::install_in_page_store(PayloadPageStore &p_st
 		}
 		idle_decoders.clear();
 	}
-	return p_store.replace_source(path, p_generation, pages);
+	return p_store.replace_source(path, p_generation, pages, uint64_t(get_instance_id()));
 }
 
 Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStore &p_store,

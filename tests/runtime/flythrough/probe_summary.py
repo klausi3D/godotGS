@@ -599,13 +599,101 @@ def overlap_drops(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
 
 
 def route_telemetry_summary(block: object, *, route: str, source_generation: int) -> Dict[str, object]:
-    """D3-5 phase-1 stub: required route/epoch evidence is not exported yet.
+    """Validate required producer evidence against an independently observed source.
 
-    The input is the verbatim payload_telemetry block from the renderer/probe
-    (HLOD) or get_decode_stats() (chunk), with an independently observed source
-    generation. Phase 2 supplies validation; absence must never imply zero work.
+    CPU stage sums are not wall latency or separately measured zstd time. This
+    report does not change any flythrough verdict or release threshold.
     """
-    return missing("D3-5 route-labelled telemetry is not implemented")
+    if not isinstance(block, dict) or not block:
+        return missing("no route-labelled payload telemetry")
+
+    def invalid(reason):
+        return {"status": INVALID, "reason": reason, "route": route}
+
+    def numeric(value):
+        return ((isinstance(value, int) and not isinstance(value, bool))
+                or (isinstance(value, float) and math.isfinite(value)))
+
+    if route not in ("hlod", "chunk"):
+        return invalid("unknown required route")
+    if "route" in block and block["route"] != route:
+        return invalid("payload telemetry belongs to another route")
+    if not numeric(source_generation) or source_generation == 0:
+        return missing("live source generation is unavailable")
+    for key in ("source_generation", "collection_epoch"):
+        if key in block and numeric(block[key]) and block[key] != source_generation:
+            return invalid(f"stale {key}: {block[key]} != {source_generation}")
+    numbers = (
+        "source_generation", "collection_epoch", "captures", "captures_failed",
+        "captures_on_worker_threads", "captures_on_main_thread", "pages_decoded", "splats_decoded",
+        "pages_decoded_on_worker_threads", "pages_decoded_on_main_thread", "page_failures",
+        "stored_bytes_read", "read_requests", "read_failures", "read_latency_nsec", "read_queue_nsec",
+        "verify_nsec", "decode_nsec", "decode_remainder_nsec", "pages_decoded_digest_checked",
+        "pages_decoded_digest_skipped",
+    )
+    owners = ("packed", "ready", "mailbox", "partial_transfer", "active", "stored", "shadow")
+    hlod_numbers = (
+        "pack_calls", "pack_nsec", "queue_residence_nsec", "queue_residence_samples",
+        "upload_bytes", "upload_bytes_this_frame", "upload_slices", "upload_completions", "upload_completion_nsec",
+    ) + tuple(f"{owner}_bytes{suffix}" for owner in owners for suffix in ("", "_peak"))
+    required_numbers = numbers + (hlod_numbers if route == "hlod" else ())
+    absent = [key for key in required_numbers if not numeric(block.get(key))]
+    for key in ("route", "last_failure_reason", "verify_scope", "stage_time_scope", "digest_status"):
+        if not isinstance(block.get(key), str):
+            absent.append(key)
+    if "digest_nsec" not in block:
+        absent.append("digest_nsec")
+    if absent:
+        return missing(f"required {route} telemetry absent: {absent}")
+    # Missing work outranks consistency checks: zero worker captures never proves
+    # that a producer's worker path ran, even if other counters claim work.
+    for key in ("captures", "captures_on_worker_threads", "pages_decoded", "splats_decoded",
+                "pages_decoded_on_worker_threads", "read_requests", "stored_bytes_read", "decode_nsec"):
+        if block[key] == 0:
+            return missing(f"no measured {key}")
+    unsigned = set(required_numbers) - {"source_generation", "collection_epoch"}
+    if any(block[key] < 0 for key in unsigned):
+        return invalid("negative measurement")
+    if any(block[key] != int(block[key]) for key in required_numbers):
+        return invalid("non-integer counter or nanosecond duration")
+    if any(block[key] != 0 for key in ("captures_failed", "page_failures", "read_failures")) or block["last_failure_reason"]:
+        return invalid("producer reported a payload failure")
+    if not block["verify_scope"] or block["stage_time_scope"] != "worker_cpu_sum":
+        return invalid("unknown verification or CPU timing scope")
+    for total, worker, main in (
+        ("captures", "captures_on_worker_threads", "captures_on_main_thread"),
+        ("pages_decoded", "pages_decoded_on_worker_threads", "pages_decoded_on_main_thread"),
+    ):
+        if block[total] != block[worker] + block[main]:
+            return invalid(f"inconsistent {total} thread counts")
+    checked, skipped = block["pages_decoded_digest_checked"], block["pages_decoded_digest_skipped"]
+    if checked + skipped != block["pages_decoded"]:
+        return invalid("digest counts do not cover decoded pages")
+    digest_status, digest_nsec = block["digest_status"], block["digest_nsec"]
+    if digest_status == "skipped":
+        if checked != 0 or skipped <= 0 or digest_nsec is not None:
+            return invalid("skipped digest must have skipped pages and no measured duration")
+        measured_digest = 0
+    elif digest_status in ("checked", "mixed"):
+        if (checked <= 0 or (digest_status == "checked" and skipped != 0)
+                or (digest_status == "mixed" and skipped <= 0) or not numeric(digest_nsec) or digest_nsec <= 0):
+            return invalid("checked digest lacks performed work")
+        measured_digest = digest_nsec
+    else:
+        return invalid("unknown decoded-digest status")
+    if block["decode_nsec"] != block["verify_nsec"] + block["decode_remainder_nsec"] + measured_digest:
+        return invalid("decode parts do not sum to the measured span")
+    if route == "hlod":
+        for key in ("pack_calls", "queue_residence_samples", "upload_bytes", "upload_slices", "upload_completions"):
+            if block[key] == 0:
+                return missing(f"no measured {key}")
+        for owner in owners:
+            if block[f"{owner}_bytes"] > block[f"{owner}_bytes_peak"]:
+                return invalid(f"{owner} bytes exceed their high-water mark")
+    if block.get("gpu_memory_usage_mb") is not None:
+        if block.get("gpu_memory_usage_mb") == 0 or block.get("gpu_memory_status") != "measured":
+            return invalid("unmeasured VRAM cannot be reported as zero")
+    return {**block, "status": OK, "digest": {"status": digest_status, "nsec": digest_nsec}}
 
 
 def gsq_decode_split(stats: object) -> Dict[str, object]:
@@ -619,6 +707,10 @@ def gsq_decode_split(stats: object) -> Dict[str, object]:
         return missing("no GSQ decode counters (not a paged-GSQ world, or an older probe)")
     keys = ("pages_decoded", "splats_decoded", "decode_nsec", "verify_nsec", "digest_nsec")
     vals = {k: stats.get(k) for k in keys}
+    # New route telemetry represents skipped work as null. Keep the historical
+    # K9 arithmetic/outputs while retaining the explicit skip label below.
+    if vals["digest_nsec"] is None and stats.get("digest_status") == "skipped":
+        vals["digest_nsec"] = 0
     absent = [k for k, v in vals.items() if not isinstance(v, (int, float)) or isinstance(v, bool)]
     if absent:
         return missing(f"decode counters absent: {absent}")
@@ -641,13 +733,14 @@ def gsq_decode_split(stats: object) -> Dict[str, object]:
         "splats_per_s_per_worker": splats / (total / 1e9),
     }
     out["dominant"] = max(parts, key=lambda k: parts[k])
-    # BV-K9c: the streaming load skips the decoded digest, so digest is 0 by design there. The
-    # source says whether it checked, so "skipped" is not read as "free"; None = older probe.
+    # BV-K9c: zero is the historical arithmetic sum for skipped work. D3-5
+    # publishes null for its duration and an explicit label, kept here too.
     verified = stats.get("decoded_digest_verified")
     checked = stats.get("pages_decoded_digest_checked")
     out["decoded_digest_verified"] = verified if isinstance(verified, bool) else None
     out["pages_decoded_digest_checked"] = (
         int(checked) if isinstance(checked, (int, float)) and not isinstance(checked, bool) else None)
+    out["digest_status"] = stats.get("digest_status", "skipped" if verified is False else None)
     return out
 
 

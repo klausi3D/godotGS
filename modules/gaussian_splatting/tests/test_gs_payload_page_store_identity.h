@@ -13,6 +13,7 @@
 #include "core/os/thread.h"
 
 #include <cstring>
+#include <string>
 
 namespace TestPayloadPageStoreIdentity {
 
@@ -185,8 +186,9 @@ inline void check_stats(const Fixture &p_fixture, const GsqPagedChunkPayloadSour
 	CHECK(stats.reads.ready == 0u);
 
 	const Dictionary exported = p_source.get_decode_stats();
-	// This is the frozen compatibility API, rather than a discovery list of implementation
-	// fields. An addition, removal or rename requires an explicit compatibility decision.
+	// Freeze the tests-enabled API, including D3-5's explicit additions. Any
+	// future key addition or removal requires a compatibility decision here.
+	CHECK(exported.size() == 41);
 	const char *const keys[] = {
 		"page_count", "captures", "captures_failed", "pages_decoded", "splats_decoded",
 		"decode_nsec", "digest_nsec", "verify_nsec", "decoded_digest_verified",
@@ -194,11 +196,19 @@ inline void check_stats(const Fixture &p_fixture, const GsqPagedChunkPayloadSour
 		"pages_decoded_on_main_thread", "page_failures", "stored_bytes_read",
 		"last_failure_reason", "reads_submitted", "reads_completed_ok",
 		"reads_completed_failed", "reads_refused_busy", "read_bytes", "read_handle_opens",
+		"route", "source_generation", "collection_epoch", "transport_generation",
+		"stage_time_scope", "read_time_scope", "verify_scope",
+		"captures_on_worker_threads", "captures_on_main_thread",
+		"pages_decoded_digest_skipped", "digest_status", "decode_remainder_nsec",
+		"read_requests", "read_latency_nsec", "read_queue_nsec", "read_failures",
+		"test_decode_delay_calls", "test_decode_delay_nsec",
+		"test_read_delay_calls", "test_read_delay_nsec",
 	};
-	CHECK(exported.size() == 21);
 	for (const char *key : keys) {
-		CHECK_MESSAGE(exported.has(key), "missing compatibility telemetry key: ", key);
+		CHECK_MESSAGE(exported.has(key), "missing compatibility telemetry key: ", std::string(key));
 	}
+	CHECK(String(exported.get("route", "")) == "chunk");
+	CHECK(int64_t(exported.get("collection_epoch", int64_t(0))) == int64_t(uint64_t(p_source.get_instance_id())));
 	CHECK(int64_t(exported.get("page_count", int64_t(-1))) == 5);
 	CHECK(int64_t(exported.get("captures", int64_t(-1))) == int64_t(expected_captures));
 	CHECK(int64_t(exported.get("captures_failed", int64_t(-1))) == 0);
@@ -218,14 +228,20 @@ inline void check_stats(const Fixture &p_fixture, const GsqPagedChunkPayloadSour
 	CHECK(int64_t(exported.get("read_handle_opens", int64_t(-1))) == int64_t(expected_pages));
 	CHECK(bool(exported.get("decoded_digest_verified", !p_digest_checked)) == p_digest_checked);
 	CHECK(int64_t(exported.get("decode_nsec", int64_t(-1))) == int64_t(stats.decode_nsec));
-	CHECK(int64_t(exported.get("digest_nsec", int64_t(-1))) == int64_t(stats.digest_nsec));
+	CHECK(String(exported.get("digest_status", "")) == (p_digest_checked ? "checked" : "skipped"));
+	if (p_digest_checked) {
+		CHECK(exported.get("digest_nsec", Variant()).get_type() == Variant::INT);
+		CHECK(int64_t(exported.get("digest_nsec", int64_t(-1))) == int64_t(stats.digest_nsec));
+	} else {
+		CHECK(exported.get("digest_nsec", int64_t(-1)).get_type() == Variant::NIL);
+	}
 	CHECK(int64_t(exported.get("verify_nsec", int64_t(-1))) == int64_t(stats.verify_nsec));
 }
 
 inline void identity(bool p_verify_digest) {
 	Fixture fixture(p_verify_digest ? "identity_checked" : "identity_skipped");
 	if (!fixture.valid) {
-		FAIL("could not construct the independent plain-GSQ reference: ", fixture.error.utf8().get_data());
+		FAIL("could not construct the independent plain-GSQ reference: ", std::string(fixture.error.utf8().get_data()));
 		return;
 	}
 	for (bool worker : { false, true }) {
@@ -293,7 +309,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][PayloadPageStoreIdentity] staged streami
 	using namespace TestPayloadPageStore;
 	Fixture fixture("identity_streaming_policy");
 	if (!fixture.valid) {
-		FAIL("could not construct the streaming-policy fixture: ", fixture.error.utf8().get_data());
+		FAIL("could not construct the streaming-policy fixture: ", std::string(fixture.error.utf8().get_data()));
 		return;
 	}
 	ResourceFormatLoaderGaussianSplatWorld loader;
