@@ -6,13 +6,15 @@ name: GS-COMBINED-1 Gate
 #
 # Two jobs, so that the runner trust boundary and a required status both hold (ADR 9.1):
 #   - `gs-combined-1-gpu` builds and runs the gate on the persistent self-hosted GPU
-#     runner. It carries the per-job fork guard: fork PR code never runs there.
+#     runner. It carries the per-job fork guard and skips draft PRs. Marking a PR
+#     ready_for_review and later pushes to that non-draft PR run the GPU job.
 #   - `gs-combined-1` is the status. It runs on a GitHub-hosted runner, `needs:` the GPU
 #     job, and has `if: ${{ always() }}` as its ONLY job-level condition: a job with
 #     `needs:` is skipped when its dependency is skipped or fails unless its own
 #     condition overrides that, and a skipped job satisfies a required check. Its step
 #     passes only if the GPU job's result is `success` on this head; a skipped GPU job
-#     (a fork PR) fails with `gs_combined_requires_trusted_branch`.
+#     fails with `gs_combined_not_run_draft` (NOT_RUN for a draft PR) or
+#     `gs_combined_requires_trusted_branch` (a fork PR). Neither skip passes.
 # tests/ci/test_release_builds_runner_trust.py enforces both shapes.
 #
 # Status (2026-11-04): REPORTED, NOT REQUIRED (and path-filtered on pull_request, see `on:`). The gate is red until every assertion is
@@ -31,6 +33,7 @@ on:
   # report a terminal status). Before `gs-combined-1` is made required, replace this
   # filter with in-job change detection: a job that always runs and reports.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'modules/gaussian_splatting/renderer/**'
       - 'modules/gaussian_splatting/shaders/**'
@@ -62,7 +65,7 @@ jobs:
   gs-combined-1-gpu:
     name: GS-COMBINED-1 GPU execution (self-hosted Linux GPU)
     # Never build/run untrusted fork PR code on the persistent self-hosted GPU runner.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: [self-hosted, Linux, X64, gpu]
     timeout-minutes: 150
     # #875: keep third-party Vulkan implicit layers out of this job's GPU processes.
@@ -185,6 +188,7 @@ jobs:
       - name: Fail closed on the GPU execution result
         env:
           GPU_RESULT: ${{ needs.gs-combined-1-gpu.result }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           echo "gs-combined-1-gpu result: ${GPU_RESULT}"
           case "${GPU_RESULT}" in
@@ -192,6 +196,10 @@ jobs:
               echo "GS-COMBINED-1 met on this head."
               ;;
             skipped)
+              if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$PR_DRAFT" = "true" ]; then
+                echo "::error::gs_combined_not_run_draft: NOT_RUN - draft pull request; the GPU execution runs when the PR is marked ready for review"
+                exit 1
+              fi
               echo "::error::gs_combined_requires_trusted_branch: the GPU execution job did not run (fork pull request). A maintainer must move the change to a same-repository branch."
               exit 1
               ;;
