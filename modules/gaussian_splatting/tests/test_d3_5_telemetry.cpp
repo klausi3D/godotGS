@@ -415,8 +415,8 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real chunk expor
 		Ref<GaussianStreamingSystem> streaming;
 		streaming.instantiate();
 		if (streaming.is_null()) { FAIL("D3-6 chunk runtime owner allocation failed"); return; }
-		streaming->_test_register_primary_asset_for_chunks();
-		auto *asset = streaming->_test_get_asset_state(GaussianStreamingSystem::PRIMARY_ASSET_ID);
+		const uint32_t asset_id = streaming->_test_register_primary_asset_for_chunks();
+		auto *asset = streaming->_test_get_asset_state(asset_id);
 		if (!asset) { FAIL("D3-6 actual chunk primary asset is absent"); return; }
 		asset->payload_source = run.source;
 		Ref<GaussianSplatRenderer> renderer;
