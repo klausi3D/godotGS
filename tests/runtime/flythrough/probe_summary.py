@@ -811,18 +811,32 @@ def route_telemetry_summary(block: object, *, route: str, source_generation: int
         if block[total] != block[worker] + block[main]:
             return invalid(f"inconsistent {total} thread counts")
     checked, skipped = block["pages_decoded_digest_checked"], block["pages_decoded_digest_skipped"]
-    if checked + skipped != block["pages_decoded"]:
+    # Historical checked/skipped captures predate this counter. Only those
+    # statuses can interpret its absence as zero; unavailable work needs its
+    # own explicit producer counter and cannot become a policy skip.
+    unavailable = block.get("pages_decoded_digest_unavailable", 0)
+    if (not numeric(unavailable) or isinstance(unavailable, bool)
+            or unavailable < 0 or unavailable != int(unavailable)):
+        return invalid("invalid pages_decoded_digest_unavailable")
+    if checked + skipped + unavailable != block["pages_decoded"]:
         return invalid("digest counts do not cover decoded pages")
     digest_status, digest_nsec = block["digest_status"], block["digest_nsec"]
     if digest_status == "skipped":
-        if checked != 0 or skipped <= 0 or digest_nsec is not None:
+        if checked != 0 or skipped <= 0 or unavailable != 0 or digest_nsec is not None:
             return invalid("skipped digest must have skipped pages and no measured duration")
         measured_digest = 0
+    elif digest_status == "not_available":
+        if checked != 0 or skipped != 0 or unavailable <= 0 or digest_nsec is not None:
+            return invalid("unavailable digest must have unavailable pages and no measured duration")
+        measured_digest = 0
     elif digest_status in ("checked", "mixed"):
-        if (checked <= 0 or (digest_status == "checked" and skipped != 0)
-                or (digest_status == "mixed" and skipped <= 0) or not numeric(digest_nsec) or digest_nsec <= 0):
+        kinds = sum(value > 0 for value in (checked, skipped, unavailable))
+        if ((digest_status == "checked" and (checked <= 0 or kinds != 1))
+                or (digest_status == "mixed" and kinds < 2)
+                or (checked > 0 and (not numeric(digest_nsec) or digest_nsec <= 0))
+                or (checked == 0 and digest_nsec is not None)):
             return invalid("checked digest lacks performed work")
-        measured_digest = digest_nsec
+        measured_digest = digest_nsec if checked > 0 else 0
     else:
         return invalid("unknown decoded-digest status")
     if block["decode_nsec"] != block["verify_nsec"] + block["decode_remainder_nsec"] + measured_digest:
@@ -867,7 +881,8 @@ def gsq_decode_split(stats: object) -> Dict[str, object]:
     vals = {k: stats.get(k) for k in keys}
     # New route telemetry represents skipped work as null. Keep the historical
     # K9 arithmetic/outputs while retaining the explicit skip label below.
-    if vals["digest_nsec"] is None and stats.get("digest_status") == "skipped":
+    if vals["digest_nsec"] is None and (stats.get("digest_status") in ("skipped", "not_available")
+            or (stats.get("digest_status") == "mixed" and stats.get("pages_decoded_digest_checked") == 0)):
         vals["digest_nsec"] = 0
     absent = [k for k, v in vals.items() if not isinstance(v, (int, float)) or isinstance(v, bool)]
     if absent:
@@ -898,6 +913,9 @@ def gsq_decode_split(stats: object) -> Dict[str, object]:
     out["decoded_digest_verified"] = verified if isinstance(verified, bool) else None
     out["pages_decoded_digest_checked"] = (
         int(checked) if isinstance(checked, (int, float)) and not isinstance(checked, bool) else None)
+    for key in ("pages_decoded_digest_skipped", "pages_decoded_digest_unavailable"):
+        count = stats.get(key)
+        out[key] = int(count) if isinstance(count, (int, float)) and not isinstance(count, bool) else None
     out["digest_status"] = stats.get("digest_status", "skipped" if verified is False else None)
     return out
 

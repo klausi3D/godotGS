@@ -28,6 +28,9 @@ public:
 		// without a fixed cap. UINT32_MAX preserves that behavior. Other owners may
 		// supply their existing cap; this is not a new runtime sizing setting.
 		uint32_t decoder_retention_cap = UINT32_MAX;
+		// Default-off diagnostic, fixed before workers start. No payload hashing
+		// or per-node storage is added to the default decode path.
+		bool collect_content_digests = false;
 	};
 
 	enum Encoding {
@@ -154,6 +157,7 @@ public:
 		uint64_t digest_nsec = 0;
 		uint64_t pages_decoded_digest_checked = 0;
 		uint64_t pages_decoded_digest_skipped = 0;
+		uint64_t pages_decoded_digest_unavailable = 0;
 		uint64_t pages_decoded_on_worker_threads = 0;
 		uint64_t pages_decoded_on_main_thread = 0;
 		uint64_t stored_bytes_read = 0;
@@ -192,6 +196,11 @@ public:
 	Stats stats() const;
 	// Per-source measurement deltas; lifetime accounting in stats() stays cumulative.
 	Dictionary get_telemetry(const String &p_route) const;
+	// Runtime identity, distinct from verification against an in-format digest.
+	// Adapter calls after ALL reconstruction/validation, before publication. IDs
+	// are source-local page/node ordinals; one entry per node, never per splat.
+	void record_decoded_content(uint64_t p_id, const Gaussian *p_gaussians, const Vector3 *p_sh,
+			uint32_t p_count, uint32_t p_sh_degree);
 	bool uses_retained_admission() const;
 
 	// V4 uses transient leases so idle scratch cannot escape the streamer's
@@ -278,6 +287,7 @@ private:
 	LocalVector<gs_gsq::DecodeContext *> idle_decoders;
 	Stats counters;
 	Stats collection_base; // mutex; captured after old requests/decoders drain.
+	HashMap<uint64_t, String> content_digests; // mutex; cleared at source replacement.
 #ifdef TESTS_ENABLED
 	uint32_t test_decode_delay_usec = 0; // mutex; delay executes outside the lock.
 	void _test_delay_decode();

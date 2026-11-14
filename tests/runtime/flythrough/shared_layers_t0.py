@@ -13,6 +13,7 @@ import copy
 import hashlib
 import json
 import math
+import re
 import shutil
 import struct
 import subprocess
@@ -22,6 +23,7 @@ from pathlib import Path
 import probe_summary as ps
 import run_probe as rp
 import world_cache as wc
+import verify_world_manifest as vm
 
 PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
 SCHEMA = "godotgs-shared-layers-t0-experiment/1"
@@ -129,6 +131,53 @@ def verified_binary(binary: Path, build_info: Path, expected: str) -> dict:
     return {"commit": expected, "sha256": actual["sha256"], "version": info.get("version")}
 
 
+def content_references(plain: Path, source: dict, derived: dict, w13: dict) -> dict:
+    """Read references from preparation, independently of every runtime arm.
+
+    Chunk keys are GSQ page-table ordinals. Tree keys are V4 node ordinals;
+    W13 produced each sidecar digest from its separate reopened-node decode.
+    These maps have distinct partitions and do not assert cross-route equality.
+    The preparation pipeline verifies both files before this extraction.
+    """
+    nodes = derived.get("nodes")
+    if (not isinstance(nodes, list) or not nodes or w13.get("available") is not True
+            or w13.get("passed") is not True or type(w13.get("nodes_verified")) is not int
+            or type(w13.get("node_count")) is not int
+            or w13["nodes_verified"] != len(nodes) or w13["node_count"] != len(nodes)):
+        raise ValueError("content reference requires complete independent W13 node verification")
+    hlod = {}
+    for index, node in enumerate(nodes):
+        digest = node.get("decoded_sha256") if isinstance(node, dict) else None
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ValueError(f"content reference has invalid HLOD node digest: {index}")
+        hlod[str(index)] = digest
+    codec = source.get("codec", {})
+    with plain.open("rb") as stream:
+        header = stream.read(vm.PREFIX_BYTES + vm.PAGED_EXTENSION_BYTES)
+        if len(header) != vm.PREFIX_BYTES + vm.PAGED_EXTENSION_BYTES:
+            raise ValueError("content reference GSQ header truncated")
+        # Use the complete GSQ extension layout used by the independent
+        # verifier: page_count precedes alignment; the table offset follows it.
+        extension = struct.unpack_from("<I4BfiIIQ", header, vm.PREFIX_BYTES)
+        count, alignment, offset = extension[-3:]
+        if (extension[0] != vm.CODEC_GSQ_V1 or alignment != vm.PAGE_ALIGNMENT
+                or type(codec.get("page_count")) is not int or count != codec["page_count"] or count <= 0
+                or offset < len(header) or offset + count * vm.PAGED_PAGE_RECORD_BYTES > plain.stat().st_size):
+            raise ValueError("content reference GSQ page directory invalid")
+        stream.seek(offset)
+        chunk, digest_set = {}, hashlib.sha256()
+        for index in range(count):
+            record = stream.read(vm.PAGED_PAGE_RECORD_BYTES)
+            if len(record) != vm.PAGED_PAGE_RECORD_BYTES:
+                raise ValueError("content reference GSQ page directory truncated")
+            digest = record[48:80]
+            digest_set.update(digest)
+            chunk[str(index)] = digest.hex()
+    if digest_set.hexdigest() != codec.get("decoded_digest_set_sha256"):
+        raise ValueError("content reference GSQ decoded digest set differs from prepared manifest")
+    return {"chunk": chunk, "hlod": hlod}
+
+
 def prepared_receipt(repo: Path, plain: Path, tree: Path, report: dict) -> dict:
     source = read_json(plain.with_suffix(".manifest.json"))
     derived = read_json(tree.with_suffix(".manifest.json"))
@@ -157,6 +206,12 @@ def prepared_receipt(repo: Path, plain: Path, tree: Path, report: dict) -> dict:
                           "source_fingerprint": derived["source_fingerprint"],
                           "content_generation": derived["content_generation"]},
         "w13": report["w13"],
+        "content_references": content_references(plain, source, derived, report["w13"]),
+        "content_reference_sources": {
+            "algorithm": "gs_gsq::decoded_digest SHA-256 (decoded gaussians and SH)",
+            "chunk": "prepared GSQ page-directory decoded digest, bound by the verified manifest digest set",
+            "hlod": "independent prepare/W13 reopened V4 node digests from the tree sidecar",
+            "scope": "per-route page/node content against preparation; no exact cross-route partition correspondence"},
         "builder_oracle": {"drawn_budget_splats": report["drawn_budget_splats"],
                            "drawn_budget_source": report["drawn_budget_source"],
                            "budget_frozen": False, "scope": "D2 builder oracle only; runtime uses the common 4M node cap"},
@@ -322,6 +377,7 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
             missing("transport completion retention high-water mark is not exported")),
         "oversized_node_events": payload.get("oversized_node_events",
             missing("oversized reservation event count is not exported")),
+        "content_digests": copy.deepcopy(payload.get("content_digests")),
     }
     first = (probe.get("passes") or [{}])[0]
     if route == "chunk":
@@ -367,6 +423,7 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
     plan = rp.path_plan(world, path, passes=2, screenshots={"dir": (out / "screenshots").as_posix(),
                                                          "moving_every_n": 100})
     plan["shared_layers_t0"] = True
+    plan["project_settings"]["rendering/gaussian_splatting/diagnostics/payload_content_digests"] = True
     if control == "saturate":
         # The only caller setting this is the additional, post-measurement
         # control arm. The probe binds the existing TESTS_ENABLED upload hold
@@ -421,6 +478,8 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
     arm = {"execution": "RAN", "source": source, "requested": request, "observed": observed,
            "probe": probe, "trace": {"file": run["trace"], "integrity": integrity},
            "artifact_root": str(out), "cache": cache,
+           "content_digests": copy.deepcopy(result.get("payload_telemetry", {}).get("content_digests"))
+                if isinstance(result.get("payload_telemetry"), dict) else None,
            "optional_measurements": native_metrics(result, run, trace, route, probe),
            "native": {"result": str(out / "result.json"), "process_failure": rp.process_failure(run),
                       "payload_telemetry": copy.deepcopy(result.get("payload_telemetry")),
@@ -452,6 +511,7 @@ def payload_behavior(result: dict, trace) -> dict:
             "decoded_digest": missing("immutable pre-D3 exposes no decoded-payload digest"),
             "decoded_splats": missing("immutable pre-D3 exposes no decoded-splat counter"),
             "decoded_pages": missing("resident atlas pages are not decoded payload pages; pre-D3 has no decode-page counter"),
+            "content_digests": copy.deepcopy((result.get("payload_telemetry") or {}).get("content_digests")),
             "stored_bytes_read": stats.get("hlod_stream_payload_bytes_read_total",
                                              missing("HLOD stored-byte counter absent")),
             "drawn_counts": [{"checkpoint": cp.get("checkpoint"), "pass_index": cp.get("pass_index"),

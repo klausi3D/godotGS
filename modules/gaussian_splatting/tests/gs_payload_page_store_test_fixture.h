@@ -42,10 +42,13 @@ struct Fixture {
 	PackedByteArray bytes;
 	uint64_t total_stored_bytes = 0;
 
-	explicit Fixture(const String &p_suffix) {
+	explicit Fixture(const String &p_suffix, bool p_change_payload = false) {
 		path = OS::get_singleton()->get_temp_path().path_join("gs_page_store_" + p_suffix + "_" +
 				itos(OS::get_singleton()->get_ticks_usec()) + ".gsplatworld");
-		const TestGSWorldPagedChunks::PCWorld world = TestGSWorldPagedChunks::pc_make(sh_degree);
+		TestGSWorldPagedChunks::PCWorld world = TestGSWorldPagedChunks::pc_make(sh_degree);
+		if (p_change_payload && !world.src.gaussians.is_empty()) {
+			world.src.gaussians[0].sh_dc.r += 0.5f;
+		}
 		bounds = world.spec.bounds;
 		uint32_t written_pages = 0;
 		if (TestGSWorldPagedChunks::pc_write(world, gs_world_writer::SourceMode::SINGLE_PASS,

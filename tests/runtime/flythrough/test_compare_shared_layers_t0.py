@@ -229,6 +229,19 @@ class ComparisonContract(unittest.TestCase):
             behavior["native_payload"] = copy.deepcopy(native["final_render_stats"])
             behavior["world_payload"] = copy.deepcopy(native["world_payload_readback"])
             behavior["route_evidence"] = copy.deepcopy(native["payload_behavior"]["route_evidence"])
+        # Constructed comparison-owned content contract, NOT native producer
+        # telemetry or a captured digest fixture. Real captures remain untouched.
+        prepared["content_references"] = {
+            route: {"0": _sha(f"{route} decoded node zero"), "1": _sha(f"{route} decoded node one")}
+            for route in ("chunk", "hlod")}
+        for route, arm in arms.items():
+            arm["content_digests"] = copy.deepcopy(prepared["content_references"][route])
+        migration["arms"]["candidate"]["payload_behavior"]["content_digests"] = copy.deepcopy(
+            prepared["content_references"]["hlod"])
+        # Default is a passing policy scenario. The captured C2 jitter is replayed
+        # separately below and must fail; do not bless it as identity here.
+        migration["arms"]["candidate"]["payload_behavior"]["drawn_counts"] = copy.deepcopy(
+            migration["arms"]["base"]["payload_behavior"]["drawn_counts"])
         return {"schema": "godotgs-shared-layers-t0-experiment/1", "run_id": "unit-policy-scenario",
                 "control": "none", "prepared": prepared, "arms": arms, "migration": migration}
 
@@ -247,11 +260,11 @@ class ComparisonContract(unittest.TestCase):
 
     def assert_verdict(self, verdict, reason=None):
         report = driver.compare(self.experiment)
-        self.assertEqual(report.get("verdict"), verdict, report)
+        self.assertEqual(report.get("verdict"), verdict, {k: report.get(k) for k in ("verdict", "reasons", "control_verdict")})
         self.assertEqual(report.get("exit_code"), {"VALID": 0, "UNUSABLE": 2, "NOT_RUN": 3}[verdict], report)
         self.assertIs(report.get("report_only"), True)
         if reason:
-            self.assertIn(reason, [item.get("code") for item in report.get("reasons", [])], report)
+            self.assertIn(reason, [item.get("code") for item in report.get("reasons", [])], report.get("reasons"))
         return report
 
     def test_valid_paired_policy_scenario_is_report_only(self):
@@ -409,7 +422,7 @@ class ComparisonContract(unittest.TestCase):
         control["native"]["payload_telemetry"]["upload_hold_frames"] = 1
         control["native"]["payload_telemetry"]["queue_observations"]["ready"]["bytes"] = 512
         self.experiment["control_receipt"] = {"status": "FORCED", "arm": control}
-        self.assert_verdict("UNUSABLE", "queue_saturation")
+        self.assert_verdict("VALID", "queue_saturation")
         control["native"]["payload_telemetry"]["upload_hold_frames"] = 0
         self.assert_verdict("UNUSABLE", "control_not_observed")
 
@@ -421,7 +434,7 @@ class ComparisonContract(unittest.TestCase):
         arm["probe"]["payload_telemetry"].update(captures_failed=1)
         self.experiment["control_receipt"] = {"status": "FORCED", "arm": arm,
             "source_sha256": self.experiment["prepared"]["tree_file_sha256"], "corrupt_sha256": corrupted_sha}
-        self.assert_verdict("UNUSABLE", "payload_failure")
+        self.assert_verdict("VALID", "payload_failure")
         arm["source"]["loaded_file_sha256"] = self.experiment["prepared"]["tree_file_sha256"]
         self.assert_verdict("UNUSABLE", "control_not_observed")
 
@@ -835,11 +848,13 @@ class ComparisonContract(unittest.TestCase):
 
     def test_real_same_binary_variation_is_reported_without_claiming_draw_identity(self):
         self.use_real_migration_observations()
-        report = self.assert_verdict("VALID")
+        report = self.assert_verdict("UNUSABLE", "content_unproven")
+        self.assertIn("migration_identity_mismatch", [r["code"] for r in report["reasons"]])
         observations = report["migration_observations"]
         self.assertEqual([(r["pass_index"], r["checkpoint"], r["candidate_minus_base"])
                           for r in observations["draw_differences"]], [(0, "C2", 2631), (1, "C7", -248069)])
         self.assertTrue(all(r["within_binary_variation_observed"] for r in observations["draw_differences"]))
+        self.assertEqual([r["assessment"] for r in observations["draw_differences"]], ["mismatch", "inconclusive"])
         self.assertEqual({(r["arm"], r["checkpoint"]) for r in observations["within_binary_changes"]},
                          {("base", "C7"), ("candidate", "C2")})
         reads = observations["native_payload"]["hlod_stream_payload_reads_total"]
@@ -889,13 +904,152 @@ class ComparisonContract(unittest.TestCase):
             native["hlod_stream_pages_resident"] = native["hlod_stream_pages_capacity"] + 1
             self.assert_verdict("UNUSABLE", "payload_failure")
 
-    def test_measured_decoded_payload_differences_still_fail(self):
-        for key in ("decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats"):
-            with self.scenario(key=key):
-                self.use_real_migration_observations()
-                for name, value in (("base", 10), ("candidate", 11)):
-                    self.experiment["migration"]["arms"][name]["payload_behavior"][key] = value
-                self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+    def test_runtime_content_contract_requires_independent_per_node_match(self):
+        # This replaces the invented measured-decoded-values test. The shepherd
+        # must add a real digest capture replay after the first producer run.
+        for route in ("chunk", "hlod", "candidate"):
+            with self.scenario(route=route):
+                digests = (self.arm(route)["content_digests"] if route != "candidate" else
+                           self.experiment["migration"]["arms"][route]["payload_behavior"]["content_digests"])
+                digests["0"], digests["1"] = digests["1"], digests["0"]
+                self.assert_verdict("UNUSABLE", "content_mismatch")
+
+    def test_content_evidence_absence_or_malformed_cannot_pass(self):
+        for route in ("chunk", "hlod", "candidate"):
+            for value in (None, {}, [], {"0": "not a digest"}, {"unknown": _sha("bytes")}):
+                with self.scenario(route=route, value=value):
+                    arm = (self.arm(route) if route != "candidate" else
+                           self.experiment["migration"]["arms"][route]["payload_behavior"])
+                    arm["content_digests"] = value
+                    self.assert_verdict("UNUSABLE", "content_mismatch" if isinstance(value, dict) and "unknown" in value
+                                        else "content_unproven")
+
+    def test_reference_cannot_be_missing_or_arm_self_certified(self):
+        for value in (None, {}, {"hlod": {"0": "malformed"}}):
+            with self.scenario(value=value):
+                self.experiment["prepared"]["content_references"] = value
+                self.assert_verdict("UNUSABLE", "content_reference_unproven")
+
+    def test_native_content_conflict_or_rewritten_export_cannot_pass(self):
+        with self.scenario(mutation="conflicting repeat"):
+            self.arm()["content_digests"]["0"] = "conflicting_runtime_digests"
+            self.assert_verdict("UNUSABLE", "content_mismatch")
+        with self.scenario(mutation="rewritten native export"):
+            self.use_scoped_observation_policy()
+            self.arm()["native"]["payload_telemetry"]["content_digests"] = {"0": _sha("different native bytes")}
+            self.assert_verdict("UNUSABLE", "content_mismatch")
+
+    def test_decoded_subset_is_verified_by_identity_without_requiring_all_nodes(self):
+        self.arm()["content_digests"].pop("1")
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["content_identity"]["hlod"]["nodes_checked"], 1)
+
+    def test_migration_content_scope_explicitly_excludes_unobservable_base(self):
+        report = self.assert_verdict("VALID")
+        identity = report["migration"]["content_identity"]
+        self.assertEqual(identity["status"], "NOT_MEASURED")
+        self.assertEqual(identity["candidate"]["status"], "MATCHED")
+        self.assertIn("NOT_MEASURED", driver.render_markdown(report))
+
+    def test_candidate_c7_one_is_outside_observed_base_variation(self):
+        self.use_real_migration_observations()
+        for row in self.experiment["migration"]["arms"]["candidate"]["payload_behavior"]["drawn_counts"]:
+            if row["checkpoint"] == "C7":
+                row["drawn_splats"] = 1
+        report = self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+        self.assertTrue(any(r["checkpoint"] == "C7" and r["assessment"] == "mismatch"
+                            for r in report["migration_observations"]["draw_differences"]))
+
+    def test_stable_base_candidate_only_c2_jitter_is_rejected(self):
+        self.use_real_migration_observations()
+        self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def test_candidate_inside_base_range_is_visible_inconclusive(self):
+        for row in self.experiment["migration"]["arms"]["candidate"]["payload_behavior"]["drawn_counts"]:
+            if row["checkpoint"] == "C7":
+                row["drawn_splats"] = 400_000
+        report = self.assert_verdict("VALID")
+        differences = report["migration_observations"]["draw_differences"]
+        self.assertTrue(differences)
+        self.assertTrue(all(d["assessment"] == "inconclusive" for d in differences))
+        self.assertIn("inconclusive", driver.render_markdown(report))
+
+    def set_detected_control(self, control):
+        if control == "saturate":
+            self.use_scoped_observation_policy()
+        self.experiment["control"] = control
+        arm = copy.deepcopy(self.arm())
+        receipt = {"status": "FORCED", "arm": arm}
+        if control == "corrupt":
+            receipt.update(source_sha256=self.experiment["prepared"]["tree_file_sha256"],
+                           corrupt_sha256=_sha("changed V4 bytes"))
+            arm["source"]["loaded_file_sha256"] = receipt["corrupt_sha256"]
+            arm["probe"]["payload_telemetry"].update(page_failures=1)
+        else:
+            arm["native"]["payload_telemetry"]["upload_hold_frames"] = 1
+        self.experiment["control_receipt"] = receipt
+        return arm
+
+    def write_and_require(self, control):
+        source = self.tmp / "control-experiment.json"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        out = self.tmp / "control-comparison"
+        code = driver.main(["--experiment", str(source), "--out", str(out)])
+        final = driver.main(["--require-report", str(out / "comparison.json"),
+                             "--run-id", self.experiment["run_id"], "--control", control])
+        return code, final, out / "comparison.json"
+
+    def test_detected_controls_succeed_only_with_bound_usable_main_arms(self):
+        for control in ("corrupt", "saturate"):
+            with self.scenario(control=control):
+                self.set_detected_control(control)
+                report = self.assert_verdict("VALID")
+                self.assertEqual(report["control_verdict"], "DETECTED")
+                code, final, path = self.write_and_require(control)
+                self.assertEqual((code, final), (0, 0))
+                self.assertNotEqual(driver.main(["--require-report", str(path), "--run-id", "another-run",
+                                                "--control", control]), 0)
+                self.assertNotEqual(driver.main(["--require-report", str(path), "--run-id", self.experiment["run_id"],
+                                                "--control", "saturate" if control == "corrupt" else "corrupt"]), 0)
+                self.arm("chunk")["content_digests"] = {}
+                self.assert_verdict("UNUSABLE", "content_unproven")
+
+    def test_control_crash_missing_trace_and_unobserved_cannot_succeed(self):
+        for control in ("corrupt", "saturate"):
+            for mutation in ("crash", "trace", "not_run", "unobserved"):
+                with self.scenario(control=control, mutation=mutation):
+                    arm = self.set_detected_control(control)
+                    if mutation == "crash":
+                        arm["observed"]["exit_code"] = 1
+                    elif mutation == "trace":
+                        arm["trace"]["file"] = "absent.trace.bin"
+                    elif mutation == "not_run":
+                        self.experiment["control_receipt"]["status"] = "NOT_RUN"
+                    else:
+                        arm["probe"]["payload_telemetry"]["page_failures"] = 0
+                        arm["observed"]["saturation"]["upload_hold_frames"] = 0
+                        if control == "saturate":
+                            arm["native"]["payload_telemetry"]["upload_hold_frames"] = 0
+                    report = driver.compare(self.experiment)
+                    self.assertNotEqual(report["verdict"], "VALID")
+                    self.assertEqual(report["control_verdict"], "NOT_RUN" if mutation == "not_run" else "NOT_DETECTED")
+                    code, final, _ = self.write_and_require(control)
+                    self.assertEqual((code, final), (3, 3) if mutation == "not_run" else (2, 2))
+
+    def test_saturate_control_hold_without_native_ready_work_is_not_detected(self):
+        arm = self.set_detected_control("saturate")
+        arm["native"]["payload_telemetry"].pop("queue_observations")
+        arm["observed"]["saturation"]["upload_hold_frames"] = 1
+        report = self.assert_verdict("UNUSABLE", "control_not_observed")
+        self.assertEqual(report["control_verdict"], "NOT_DETECTED")
+
+    def test_detected_control_never_launders_main_arm_drops(self):
+        for control in ("corrupt", "saturate"):
+            with self.scenario(control=control):
+                self.set_detected_control(control)
+                self.arm("chunk")["observed"]["failures"]["drop_events"] = 1
+                report = self.assert_verdict("UNUSABLE", "correctness_failure")
+                self.assertEqual(report["control_verdict"], "DETECTED")
 
     def test_real_overlap_record_loss_keeps_each_route_unusable(self):
         capture = _captured("d3_6/run43602195987_drops.json")
@@ -913,11 +1067,9 @@ class ComparisonContract(unittest.TestCase):
                 self.assert_verdict("UNUSABLE", "settings_mismatch")
 
     def test_corruption_receipt_is_checked_without_damaging_clean_measurements(self):
-        self.experiment["control"] = "corrupt"
-        arm = copy.deepcopy(self.arm())
+        arm = self.set_detected_control("corrupt")
         arm["probe"]["payload_telemetry"].update(page_failures=1, last_failure_reason="stored digest mismatch")
-        self.experiment["control_receipt"] = {"status": "FORCED", "arm": arm}
-        self.assert_verdict("UNUSABLE", "payload_failure")
+        self.assert_verdict("VALID", "payload_failure")
         self.assertEqual(self.arm()["probe"]["payload_telemetry"]["page_failures"], 0)
 
     def test_unavailable_saturation_hook_is_distinct_not_run(self):
@@ -926,8 +1078,7 @@ class ComparisonContract(unittest.TestCase):
         self.assert_verdict("NOT_RUN", "control_not_run")
 
     def test_failed_native_capture_keeps_failure_proof_through_lossy_summary(self):
-        self.experiment["control"] = "corrupt"
-        arm = copy.deepcopy(self.arm())
+        arm = self.set_detected_control("corrupt")
         raw = arm["probe"]["payload_telemetry"]
         raw.update(page_failures=1, captures_failed=1, last_failure_reason="stored digest mismatch")
         summary = ps.route_telemetry_summary(raw, route="hlod", source_generation=arm["observed"]["source_generation"])
@@ -935,8 +1086,7 @@ class ComparisonContract(unittest.TestCase):
         self.assertNotIn("page_failures", summary, "real validator deliberately emits a compact invalid record")
         arm["native"] = {"payload_telemetry": raw}
         arm["probe"]["payload_telemetry"] = summary
-        self.experiment["control_receipt"] = {"status": "FORCED", "arm": arm}
-        self.assert_verdict("UNUSABLE", "payload_failure")
+        self.assert_verdict("VALID", "payload_failure")
 
     def test_final_verdict_rejects_changed_trace_bytes_without_a_row_gap(self):
         source = self.tmp / "experiment.json"

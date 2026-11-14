@@ -56,16 +56,28 @@ inputs, with settings read back from each process, independent cold preparation,
 traces, route telemetry and synthetic screenshots. Missing required observations
 remain not-measured and make evidence UNUSABLE; a missing arm is NOT_RUN.
 `compare_shared_layers_t0.py` writes `comparison.json` and `comparison.md`; an
-independent `always()` final step requires a current VALID report. VALID means
-usable diagnostic evidence, never a Tier A pass. The three forcing controls must
-leave the workflow red, including `skip_compare`, which omits comparison and
-exercises the final step's missing-report check. No threshold or gate changes.
+independent `always()` final step binds the report to this run id and requested
+control. Ordinary runs require VALID, meaning usable diagnostic evidence, never
+a Tier A pass. `corrupt` and `saturate` succeed only when their attributable
+`payload_failure` or `queue_saturation` is observed on arm `control`, the report's
+`control_verdict` is DETECTED, and all non-control arms are otherwise usable.
+NOT_DETECTED, a crashed or missing control arm, and a report for another control
+or run fail; a NOT_RUN receipt keeps exit 3. `skip_compare` must stay red: it omits
+comparison and exercises the final step's missing-report check. No threshold or
+gate changes.
 Artifacts allow only JSON/Markdown/log reports and PNGs under the dedicated
 synthetic output directory; payloads and binaries stay out. This mode has its own
 `bvw-<event>-shared-layers-t0` concurrency group and never runs the real-scan jobs.
 The output and contention directories include the run id and attempt. Contention
 postflight writes its native JSON before comparison; comparison requires that
 record to be CLEAN, so a contended or unobserved run cannot produce VALID.
+Candidate content identity compares decoded chunk pages exactly with their GSQ
+directory digests and decoded HLOD nodes with the independent prepare/W13 node
+reference. The candidate migration arm must also match that reference. Migration
+content identity remains NOT_MEASURED because pre-D3 exposes no script API for
+decoded V4 runtime nodes. Exact cross-route identity is NOT_COMPARABLE: the tree
+re-encodes node-relative leaves, so its decoded values can differ from the source
+chunk pages.
 
 ## Required Checks
 
@@ -142,7 +154,7 @@ contract-source ADR.
 | `baseline_qa.yml` | `debug_mode` | `true`, `false` |
 | `baseline_qa.yml` | `baseline_mode` | `compare`, `update` |
 | `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), `shared_layers_t0` (candidate/pre-D3 builds and one sequential paired synthetic GPU diagnostic), or `watchdog` (only the liveness watchdog) |
-| `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Each forcing control must be red. Saturation holds actual ready HLOD uploads through the tests-only hook and requires native hold/queue evidence. |
+| `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Corrupt/saturate pass only with DETECTED and usable non-control arms; missing evidence fails. `skip_compare` must be red. Saturation holds actual ready HLOD uploads through the tests-only hook and requires native hold/queue evidence. |
 | `beyond_vram_flythrough.yml` | `tier` | `T0` (default, 4.19M-splat smoke world), `A` (the 201M-splat world, uncompressed plain v3; also uses `T0`). The weekly schedule runs `A`. |
 | `beyond_vram_flythrough.yml` | `prime_world_cache` | boolean (default `false`): regenerate the tier's worlds into the runner's world cache first (job `prime-world-cache`) |
 | `beyond_vram_flythrough.yml` | `disk_probe_gib` | integer string `1`-`64` (default `8`), size of the O_DIRECT disk-probe file |

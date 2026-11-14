@@ -1,5 +1,6 @@
 #include "gs_payload_page_store.h"
 
+#include "core/config/project_settings.h"
 #include "core/os/thread.h"
 #include "core/os/os.h"
 
@@ -127,6 +128,9 @@ Error PayloadPageStore::start(const Config &p_config) {
 		return ERR_INVALID_PARAMETER;
 	}
 	config = p_config;
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	config.collect_content_digests = config.collect_content_digests || (settings &&
+			bool(settings->get_setting("rendering/gaussian_splatting/diagnostics/payload_content_digests", false)));
 	PayloadReadService::Config read_config;
 	read_config.reader_count = config.reader_count;
 	read_config.max_bytes_in_flight = config.max_bytes_in_flight;
@@ -179,6 +183,7 @@ Error PayloadPageStore::replace_source(const String &p_path, uint64_t p_generati
 	file_path = p_path;
 	source_generation = p_generation;
 	catalog = replacement;
+	content_digests.clear();
 	dispatch_cv.notify_all();
 	return OK;
 }
@@ -432,6 +437,7 @@ void PayloadPageStore::shutdown() {
 	counters.decoders_idle = 0;
 	file_path = String();
 	catalog.clear();
+	content_digests.clear();
 	state = STOPPED;
 	dispatch_cv.notify_all();
 }
@@ -469,6 +475,7 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 		{ "verify_nsec", &Stats::verify_nsec }, { "decode_nsec", &Stats::decode_nsec },
 		{ "pages_decoded_digest_checked", &Stats::pages_decoded_digest_checked },
 		{ "pages_decoded_digest_skipped", &Stats::pages_decoded_digest_skipped },
+		{ "pages_decoded_digest_unavailable", &Stats::pages_decoded_digest_unavailable },
 #ifdef TESTS_ENABLED
 		{ "test_decode_delay_calls", &Stats::test_decode_delay_calls }, { "test_decode_delay_nsec", &Stats::test_decode_delay_nsec },
 #endif
@@ -476,8 +483,15 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 	for (const Counter &field : fields) { out[field.name] = int64_t(counters.*field.member - collection_base.*field.member); }
 	const uint64_t checked = counters.pages_decoded_digest_checked - collection_base.pages_decoded_digest_checked;
 	const uint64_t skipped = counters.pages_decoded_digest_skipped - collection_base.pages_decoded_digest_skipped;
+	const uint64_t unavailable = counters.pages_decoded_digest_unavailable - collection_base.pages_decoded_digest_unavailable;
 	const uint64_t digest = counters.digest_nsec - collection_base.digest_nsec;
-	out["digest_status"] = checked ? (skipped ? "mixed" : "checked") : (skipped ? "skipped" : "not_performed");
+	const uint32_t digest_kinds = uint32_t(checked != 0) + uint32_t(skipped != 0) + uint32_t(unavailable != 0);
+	out["digest_status"] = digest_kinds > 1 ? "mixed" : (checked ? "checked" : (skipped ? "skipped" : (unavailable ? "not_available" : "not_performed")));
+	Dictionary digests;
+	for (const KeyValue<uint64_t, String> &entry : content_digests) {
+		digests[String::num_uint64(entry.key)] = entry.value;
+	}
+	out["content_digests"] = digests;
 	out["digest_nsec"] = checked ? Variant(int64_t(digest)) : Variant();
 	out["decode_remainder_nsec"] = int64_t(counters.decode_nsec - collection_base.decode_nsec -
 			(counters.verify_nsec - collection_base.verify_nsec) - digest);
@@ -639,6 +653,10 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 			error = ERR_FILE_CORRUPT;
 		}
 	}
+	if (error == OK) {
+		record_decoded_content(page.id, r_page.gaussians.ptr(), high_order > 0u ? r_page.sh_high_order.ptr() : nullptr,
+				page.splat_count, page.sh_degree);
+	}
 	const uint64_t decode_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - decode_begin)
 					.count());
@@ -738,9 +756,9 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 		counters.splats_decoded += p_count;
 		counters.decode_nsec += decode_nsec;
 		counters.verify_nsec += verify_nsec;
-		// This is V4's existing policy: outer and GSQ stored digests, decoded
-		// semantics/bounds/metrics in its adapter, no canonical decoded digest.
-		counters.pages_decoded_digest_skipped++;
+		// V4 has no decoded REFERENCE digest in its format. A separately gated
+		// runtime content digest is recorded by the adapter after reconstruction.
+		counters.pages_decoded_digest_unavailable++;
 		if (Thread::is_main_thread()) {
 			counters.pages_decoded_on_main_thread++;
 		} else {
@@ -748,6 +766,25 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 		}
 	}
 	return OK;
+}
+
+void PayloadPageStore::record_decoded_content(uint64_t p_id, const Gaussian *p_gaussians, const Vector3 *p_sh,
+		uint32_t p_count, uint32_t p_sh_degree) {
+	// Config is immutable after start; caller holds its decode/capture lifetime.
+	if (!config.collect_content_digests) { return; }
+	uint8_t digest[gs_gsq::kDigestBytes];
+	gs_gsq::decoded_digest(p_gaussians, p_sh, p_count, p_sh_degree, digest);
+	const String value = String::hex_encode_buffer(digest, sizeof(digest));
+	MutexLock lock(mutex);
+	if (state != RUNNING) { return; }
+	String *previous = content_digests.getptr(p_id);
+	if (previous) {
+		// Never overwrite contradictory observations with a later good decode.
+		// Invalid hex is deliberate: required-evidence consumers fail closed.
+		if (*previous != value) { *previous = "conflicting_runtime_digests"; }
+	} else if (content_digests.size() < catalog.size()) {
+		content_digests.insert(p_id, value);
+	}
 }
 
 void PayloadPageStore::begin_capture(bool p_reset_decode_span) {

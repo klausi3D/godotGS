@@ -1227,6 +1227,44 @@ class D35Telemetry(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.assertEqual(self.summarize({**block, **mutation}, generation, "chunk")["status"], ps.INVALID)
 
+    def test_unavailable_reference_digest_has_a_distinct_counter_contract(self):
+        # Counter-policy unit input based on the old checked capture; these
+        # alterations are not presented as a new native producer capture.
+        block, generation = self.chunk("checked")
+        block = {**block, "digest_status": "not_available", "digest_nsec": None,
+                 "decode_remainder_nsec": block["decode_remainder_nsec"] + block["digest_nsec"],
+                 "pages_decoded_digest_checked": 0, "pages_decoded_digest_skipped": 0,
+                 "pages_decoded_digest_unavailable": block["pages_decoded"]}
+        result = self.summarize(block, generation, "chunk")
+        self.assertEqual(result["status"], ps.OK, result)
+        self.assertEqual(result["digest"], {"status": "not_available", "nsec": None})
+        for mutation in ({"pages_decoded_digest_unavailable": 0},
+                         {"pages_decoded_digest_unavailable": True},
+                         {"digest_status": "skipped"}, {"digest_nsec": 0}):
+            with self.subTest(mutation=mutation):
+                self.assertNotEqual(self.summarize({**block, **mutation}, generation, "chunk")["status"], ps.OK)
+
+    def test_checked_and_unavailable_reference_digests_are_mixed(self):
+        block, generation = self.chunk("checked")
+        # Constructed counter contract, not a claimed producer fixture.
+        block = {**block, "digest_status": "mixed", "pages_decoded_digest_unavailable": 1,
+                 "pages_decoded": block["pages_decoded"] + 1,
+                 "pages_decoded_on_worker_threads": block["pages_decoded_on_worker_threads"] + 1}
+        self.assertEqual(self.summarize(block, generation, "chunk")["status"], ps.OK)
+        self.assertEqual(self.summarize({**block, "digest_status": "checked"}, generation, "chunk")["status"], ps.INVALID)
+
+    def test_mixed_unverified_reference_work_has_no_measured_digest_duration(self):
+        block, generation = self.chunk("skipped")
+        # Contract-only counter mutation: skipped and unavailable are two
+        # different kinds of unperformed work, neither has measured hash time.
+        block = {**block, "digest_status": "mixed", "pages_decoded_digest_unavailable": 1,
+                 "pages_decoded": block["pages_decoded"] + 1,
+                 "pages_decoded_on_worker_threads": block["pages_decoded_on_worker_threads"] + 1}
+        result = self.summarize(block, generation, "chunk")
+        self.assertEqual(result["status"], ps.OK, result)
+        self.assertEqual(result["digest"], {"status": "mixed", "nsec": None})
+        self.assertEqual(self.summarize({**block, "digest_nsec": 0}, generation, "chunk")["status"], ps.INVALID)
+
     def test_chunk_cannot_supply_required_hlod_evidence(self):
         # Malformed route identity fails even before the absent stages are read.
         self.assertEqual(self.summarize({"route": "chunk", "source_generation": 7,
