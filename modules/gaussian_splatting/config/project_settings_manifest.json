@@ -486,6 +486,15 @@
       "test_coverage": "inventory_only"
     },
     {
+      "effective_state": "PayloadPageStore::Config.collect_content_digests",
+      "key": "rendering/gaussian_splatting/diagnostics/payload_content_digests",
+      "notes": "Default-off bounded per-node canonical decoded-content SHA-256 diagnostic (#1446). Read once when each payload store starts; no diagnostic hashing or collection on the default path. Runtime content digests are separate from verification against an in-format decoded reference.",
+      "owner": "PayloadPageStore",
+      "publicness": "debug_only",
+      "reload_semantics": "startup",
+      "test_coverage": "partial"
+    },
+    {
       "effective_state": "RenderDiagnosticsOrchestrator.perf_gate_budget_ms",
       "key": "rendering/gaussian_splatting/diagnostics/perf_gate_budget_ms",
       "test_coverage": "partial"

@@ -111,6 +111,7 @@ static void identity(bool p_gsq, bool p_store_path) {
 		config.max_idle_handles = 0;
 		config.decoder_retention_cap = 16;
 		config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+		config.collect_content_digests = true;
 		if (store.start(config) != OK) {
 			FAIL("D3-2 V4 identity requires a running common page store");
 			return;
@@ -137,9 +138,22 @@ static void identity(bool p_gsq, bool p_store_path) {
 		if (!check_packed(fixture, node, actual, actual_sh, expected, expected_sh)) {
 			return;
 		}
+		if (p_store_path) {
+			uint8_t digest[gs_gsq::kDigestBytes];
+			gs_gsq::decoded_digest(expected.ptr(), expected_sh.ptr(), fixture.splats_per_node, fixture.degree, digest);
+			const Dictionary digests = store.get_telemetry("hlod").get("content_digests", Dictionary());
+			CHECK(digests.size() == int64_t(node + 1));
+			CHECK(String(digests.get(String::num_uint64(node), "")) == String::hex_encode_buffer(digest, sizeof(digest)));
+		}
 	}
 	if (p_store_path) {
 		const PayloadPageStore::Stats stats = store.stats();
+		if (p_gsq) {
+			const Dictionary exported = store.get_telemetry("hlod");
+			CHECK(String(exported.get("digest_status", "")) == "not_available");
+			CHECK(stats.pages_decoded_digest_unavailable == fixture.node_count);
+			CHECK(stats.pages_decoded_digest_skipped == 0);
+		}
 		if (stats.reads.completed_ok != fixture.node_count || stats.reads.bytes_read == 0) {
 			FAIL("D3-2 V4 identity must perform every node read through the common store service");
 			return;

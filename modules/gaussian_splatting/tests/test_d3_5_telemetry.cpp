@@ -58,22 +58,25 @@ static void common(const Dictionary &p_block, const char *p_route, uint64_t p_ge
 	CHECK(String(p_block.get("verify_scope", "")).length() > 0);
 	CHECK(String(p_block.get("stage_time_scope", "")) == "worker_cpu_sum");
 	for (const char *key : { "verify_nsec", "decode_remainder_nsec", "read_latency_nsec", "read_queue_nsec",
-			"pages_decoded_digest_checked", "pages_decoded_digest_skipped" }) {
+			"pages_decoded_digest_checked", "pages_decoded_digest_skipped", "pages_decoded_digest_unavailable" }) {
 		CHECK_MESSAGE(number(p_block, key) >= 0, std::string(key));
 	}
 	CHECK(number(p_block, "captures") == number(p_block, "captures_on_worker_threads") + number(p_block, "captures_on_main_thread"));
 	CHECK(number(p_block, "pages_decoded") == number(p_block, "pages_decoded_on_worker_threads") + number(p_block, "pages_decoded_on_main_thread"));
-	CHECK(number(p_block, "pages_decoded") == number(p_block, "pages_decoded_digest_checked") + number(p_block, "pages_decoded_digest_skipped"));
+	CHECK(number(p_block, "pages_decoded") == number(p_block, "pages_decoded_digest_checked") +
+			number(p_block, "pages_decoded_digest_skipped") + number(p_block, "pages_decoded_digest_unavailable"));
 	const String digest = p_block.get("digest_status", "absent");
-	CHECK((digest == "checked" || digest == "skipped"));
-	if (digest == "skipped") {
+	CHECK((digest == "checked" || digest == "skipped" || digest == "not_available"));
+	if (digest == "skipped" || digest == "not_available") {
 		CHECK(number(p_block, "pages_decoded_digest_checked") == 0);
-		CHECK(number(p_block, "pages_decoded_digest_skipped") > 0);
+		CHECK(number(p_block, digest == "skipped" ? "pages_decoded_digest_skipped" : "pages_decoded_digest_unavailable") > 0);
+		CHECK(number(p_block, digest == "skipped" ? "pages_decoded_digest_unavailable" : "pages_decoded_digest_skipped") == 0);
 		CHECK(p_block.has("digest_nsec"));
 		CHECK(p_block.get("digest_nsec", -1).get_type() == Variant::NIL);
 	} else if (digest == "checked") {
 		CHECK(number(p_block, "pages_decoded_digest_checked") > 0);
 		CHECK(number(p_block, "pages_decoded_digest_skipped") == 0);
+		CHECK(number(p_block, "pages_decoded_digest_unavailable") == 0);
 		CHECK(number(p_block, "digest_nsec") > 0);
 	}
 	const int64_t digest_nsec = digest == "checked" ? number(p_block, "digest_nsec") : 0;

@@ -182,6 +182,39 @@ def _is_sha(value, length=64):
     return isinstance(value, str) and re.fullmatch(rf"[0-9a-f]{{{length}}}", value) is not None
 
 
+def _digest_map(value):
+    return (isinstance(value, dict) and bool(value)
+            and all(isinstance(node, str) and bool(node) and _is_sha(digest) for node, digest in value.items()))
+
+
+def _check_content(actual, reference, arm, problem):
+    """Compare decoded demand to preparation, never to that run's own output."""
+    if not _digest_map(reference):
+        problem("content_reference_unproven", "independent preparation node digest map is missing or malformed", arm)
+        return {"status": "NOT_MEASURED", "reason": "independent reference unavailable"}
+    if isinstance(actual, dict) and "conflicting_runtime_digests" in actual.values():
+        problem("content_mismatch", "same node produced conflicting decoded digests during runtime", arm)
+        return {"status": "MISMATCH", "reason": "conflicting runtime observations"}
+    if not _digest_map(actual):
+        problem("content_unproven", "runtime decoded-node digest map is missing, empty or malformed", arm)
+        return {"status": "NOT_MEASURED", "reason": "runtime content unavailable"}
+    mismatches = [node for node, digest in actual.items() if reference.get(node) != digest]
+    if mismatches:
+        problem("content_mismatch", f"unknown node or decoded content differs from preparation: {', '.join(sorted(mismatches))}", arm)
+    return {"status": "MISMATCH" if mismatches else "MATCHED", "nodes_checked": len(actual),
+            "reference_nodes": len(reference), "mismatched_nodes": sorted(mismatches),
+            "scope": "canonical decoded Gaussian and SH digest by route-local node identity; decoded nodes only"}
+
+
+def _draw_assessment(counts, key, metric):
+    base = [row[metric] for (_, checkpoint), row in counts[0].items()
+            if checkpoint == key[1] and metric in row]
+    candidate = [row.get(metric) for (_, checkpoint), row in counts[1].items() if checkpoint == key[1]]
+    if (len(set(base)) > 1 and all(_count(value) and min(base) <= value <= max(base) for value in candidate)):
+        return "inconclusive"
+    return "mismatch"
+
+
 def _trace_problem(path, expected=None):
     if not isinstance(path, str) or not Path(path).is_file():
         return "missing_trace", "trace file is absent"
@@ -315,6 +348,8 @@ def compare(experiment: dict) -> dict:
             reasons.append({"code": code, "detail": detail, **({"arm": arm} if arm else {})})
 
     prepared, arms = _dict(exp.get("prepared")), _dict(exp.get("arms"))
+    references = _dict(prepared.get("content_references"))
+    content_identity = {}
     if exp.get("schema") != EXPERIMENT_SCHEMA or not exp.get("run_id"):
         problem("experiment_invalid", "experiment schema or run identity is absent")
     if prepared.get("tier") != "T0" or prepared.get("splat_count") != 4_194_304 or prepared.get("extent_m") != [512, 512]:
@@ -337,6 +372,10 @@ def compare(experiment: dict) -> dict:
         if not arm or arm.get("execution") != "RAN":
             problem("missing_arm", "required arm did not execute", route, not_run=True)
             continue
+        content_identity[route] = _check_content(arm.get("content_digests"), references.get(route), route, problem)
+        raw_content = _dict(_dict(arm.get("native")).get("payload_telemetry")).get("content_digests")
+        if raw_content is not None and raw_content != arm.get("content_digests"):
+            problem("content_mismatch", "comparison content differs from native producer telemetry", route)
         source = _dict(arm.get("source"))
         for key in ("input_file_sha256", "generator_identity", "codec", "tree_file_sha256", "tree_identity"):
             if not _known(source.get(key)) or source.get(key) != prepared.get(key):
@@ -594,56 +633,74 @@ def compare(experiment: dict) -> dict:
             problem("migration_identity_mismatch", "migration resident-page capacity differs")
         if drawn_counts[0].keys() != drawn_counts[1].keys():
             problem("migration_unproven", "migration checkpoint coverage differs")
-        # A same-binary cold/repeat difference disproves rendered-count identity
-        # at that checkpoint. Keep it visible; stable cross-binary differences
-        # still fail. Never use this exception to excuse different payload bytes.
+        # Only the base establishes the observed range. Candidate-only jitter
+        # cannot enlarge it, and an in-range difference is inconclusive.
         for key in sorted(drawn_counts[0].keys() & drawn_counts[1].keys()):
             for metric in sorted(drawn_counts[0][key].keys() | drawn_counts[1][key].keys()):
                 values = [counts[key].get(metric) for counts in drawn_counts]
-                varies = any(len({row[metric] for (_, cp), row in counts.items()
-                                  if cp == key[1] and metric in row}) > 1 for counts in drawn_counts)
-                if values[0] != values[1] and not varies:
-                    problem("migration_identity_mismatch", f"self-consistent checkpoint {key[1]} {metric} differs")
-        for key in ("decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats"):
-            values = [_value(b.get(key)) for b in behaviors]
-            if all(v is not None for v in values) and values[0] != values[1]:
-                problem("migration_identity_mismatch", f"migration {key} differs")
+                if values[0] != values[1] and _draw_assessment(drawn_counts, key, metric) == "mismatch":
+                    problem("migration_identity_mismatch", f"checkpoint {key[1]} {metric} differs outside observed base range")
+    candidate_content = _check_content(_dict(_dict(migration_arms.get("candidate")).get("payload_behavior")).get(
+        "content_digests"), references.get("hlod"), "candidate", problem)
+    migration_identity = {"status": "NOT_MEASURED",
+        "reason": "immutable pre-D3 V4 decoded streaming payload is native-private; existing script APIs expose no decoded nodes",
+        "base": {"status": "NOT_MEASURED"}, "candidate": candidate_content,
+        "scope": "candidate decoded nodes checked against independent W13 reference; no base/candidate decoded-content equality claim"}
+    content_identity["cross_arm"] = {"status": "NOT_COMPARABLE",
+        "reason": "HLOD repartitions/reorders and re-quantizes node-relative source content; chunk pages and HLOD nodes have no exact digest correspondence",
+        "scope": "each route's decoded demand matches its own independent preparation reference"}
     control = exp.get("control", "none")
     receipt = _dict(exp.get("control_receipt"))
+    control_verdict = "NOT_REQUESTED"
     if control not in ("none", "corrupt", "saturate", "skip_compare"):
         problem("control_not_observed", "unknown negative control")
     if control in ("corrupt", "saturate"):
-        wanted = "payload_failure" if control == "corrupt" else "queue_saturation"
+        control_verdict = "NOT_DETECTED"
         if receipt.get("status") == "NOT_RUN":
+            control_verdict = "NOT_RUN"
             problem("control_not_run", receipt.get("reason", "forcing hook unavailable"), not_run=True)
-        elif "arm" in receipt or not any(r["code"] == wanted for r in reasons):
+        else:
             control_arm = _dict(receipt.get("arm"))
+            control_observed = _dict(control_arm.get("observed"))
+            control_trace = _dict(control_arm.get("trace"))
+            usable = (receipt.get("status") == "FORCED" and control_arm.get("execution") == "RAN"
+                      and type(control_observed.get("exit_code")) is int and control_observed["exit_code"] == 0
+                      and control_observed.get("final_marker") is True
+                      and _trace_problem(control_trace.get("file"), control_trace.get("integrity")) is None)
             control_telemetry = (_dict(_dict(control_arm.get("native")).get("payload_telemetry"))
                                  or _dict(_dict(control_arm.get("probe")).get("payload_telemetry")))
-            corruption_source = ("corrupt_sha256" not in receipt or (
+            corruption_source = (
                 _is_sha(receipt.get("corrupt_sha256")) and receipt.get("source_sha256") == prepared.get("tree_file_sha256")
                 and receipt["corrupt_sha256"] != receipt["source_sha256"]
                 and _dict(control_arm.get("source")).get("loaded_file_sha256") == receipt["corrupt_sha256"]
                 and control_telemetry.get("route") == "hlod" and _count(control_telemetry.get("read_requests"))
-                and control_telemetry["read_requests"] > 0))
-            if control == "corrupt" and corruption_source and any(_count(control_telemetry.get(k)) and control_telemetry[k] > 0
+                and control_telemetry["read_requests"] > 0)
+            if usable and control == "corrupt" and corruption_source and any(_count(control_telemetry.get(k)) and control_telemetry[k] > 0
                                            for k in ("page_failures", "captures_failed", "digest_verification_failures")):
                 problem("payload_failure", "corrupted V4 control produced a native payload verification failure", "control")
-            elif control == "saturate" and _saturation_evidence(control_arm):
+                control_verdict = "DETECTED"
+            elif (usable and control == "saturate" and control_telemetry.get("route") == "hlod"
+                  and _dict(control_arm.get("source")).get("loaded_file_sha256") == prepared.get("tree_file_sha256")
+                  and ps.queue_observations_summary(control_telemetry.get("queue_observations"), route="hlod").get("status") == ps.OK
+                  and _saturation_evidence(control_arm)):
                 problem("queue_saturation", "separate HLOD control observed bounded-pipeline pressure", "control")
+                control_verdict = "DETECTED"
             else:
-                problem("control_not_observed", f"{control} label has no attributable observed failure")
+                problem("control_not_observed", f"{control} lacks a successful control process/trace or attributable observed failure", "control")
     if control == "skip_compare":
         problem("comparison_skipped", "comparison invocation is deliberately removed", not_run=True)
     if exp.get("orchestration_problem") or exp.get("orchestration_error"):
         problem("orchestration_failed", str(exp.get("orchestration_problem", exp.get("orchestration_error"))))
-    verdict = "NOT_RUN" if absent_execution else "UNUSABLE" if reasons else "VALID"
+    unexpected = [r for r in reasons if not (control_verdict == "DETECTED" and r.get("arm") == "control"
+                  and r["code"] == ("payload_failure" if control == "corrupt" else "queue_saturation"))]
+    verdict = "NOT_RUN" if absent_execution else "UNUSABLE" if unexpected else "VALID"
     return {"schema": SCHEMA, "run_id": exp.get("run_id"), "control": control, "report_only": True,
             "verdict": verdict, "exit_code": EXIT_CODES[verdict], "reasons": reasons,
-            "prepared": copy.deepcopy(prepared), "migration": copy.deepcopy(migration),
+            "prepared": copy.deepcopy(prepared), "migration": {**copy.deepcopy(migration), "content_identity": migration_identity},
+            "content_identity": content_identity, "control_verdict": control_verdict,
             "migration_observations": _migration_observations(migration_arms),
             "control_receipt": copy.deepcopy(receipt),
-            "artifact_digests": _artifact_digests(arms, migration_arms),
+            "artifact_digests": _artifact_digests({**arms, **({"control": receipt["arm"]} if "arm" in receipt else {})}, migration_arms),
             "passes": {route: copy.deepcopy(_dict(_dict(arms.get(route)).get("probe")).get("passes", []))
                        for route in ("chunk", "hlod")},
             "forward_progress": {route: _progress_summary(arms.get(route), route) for route in ("chunk", "hlod")},
@@ -681,6 +738,7 @@ def _migration_observations(arms):
             if all(_count(v) for v in values) and values[0] != values[1]:
                 differences.append({"pass_index": key[0], "checkpoint": key[1], "metric": metric,
                     "base": values[0], "candidate": values[1], "candidate_minus_base": values[1] - values[0],
+                    "assessment": _draw_assessment([counts["base"], counts["candidate"]], key, metric),
                     "within_binary_variation_observed": any(c["checkpoint"] == key[1] and c["metric"] == metric for c in changes)})
     return {"scope": "same V4 source digest, actual common payload work and failure observations; aggregate work is scheduling-dependent",
             "native_payload": metrics, "draw_differences": differences, "within_binary_changes": changes,
@@ -693,6 +751,15 @@ def render_markdown(report: dict) -> str:
     lines = [f"# Shared layers T0: {report.get('verdict', 'NOT_RUN')}", "",
              "Report-only diagnostic; this is not a Tier A verdict. No performance regression threshold is applied.", "",
              "Worker stage times are CPU sums, not wall latency or separately measured zstd time.", ""]
+    lines += [f"Control verdict: {report.get('control_verdict', 'NOT_REQUESTED')}. "
+              "A detected control succeeds only when non-control arms are otherwise usable.", ""]
+    for route, identity in _dict(report.get("content_identity")).items():
+        lines.append(f"Content identity {route}: {json.dumps(identity, sort_keys=True)}.")
+    migration_identity = _dict(_dict(report.get("migration")).get("content_identity"))
+    lines += [f"Migration content identity: {migration_identity.get('status', 'NOT_MEASURED')}. "
+              f"{migration_identity.get('reason', 'No decoded content observation')}. "
+              f"{migration_identity.get('scope', '')}",
+              f"Migration candidate content check: {json.dumps(migration_identity.get('candidate', {}), sort_keys=True)}.", ""]
     for reason in report.get("reasons", []):
         lines.append(f"- {reason.get('arm', 'experiment')}: {reason.get('code')}: {reason.get('detail')}")
     lines += ["", "| Area / metric | chunk | hlod |", "| --- | --- | --- |"]
@@ -757,6 +824,8 @@ def _require_report(path, run_id, control):
             raise ValueError("report is malformed or belongs to a different run/control")
         if report.get("verdict") != "VALID":
             return EXIT_CODES.get(report.get("verdict"), EXIT_CODES["UNUSABLE"])
+        if (control in ("corrupt", "saturate") and report.get("control_verdict") != "DETECTED") or control == "skip_compare":
+            raise ValueError("requested negative control was not detected")
         bound = dict(report)
         seal = bound.pop("report_sha256", None)
         if seal != hashlib.sha256(_canonical(bound)).hexdigest():
@@ -777,7 +846,7 @@ def _require_report(path, run_id, control):
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         print(f"UNUSABLE: {exc}", file=sys.stderr)
         return EXIT_CODES["UNUSABLE"]
-    print("VALID: current report-only paired T0 evidence")
+    print(f"VALID: current report-only paired T0 evidence; control {report.get('control_verdict', 'NOT_REQUESTED')}")
     return 0
 
 

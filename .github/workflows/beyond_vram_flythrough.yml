@@ -16,9 +16,10 @@ name: Beyond-VRAM Fly-through
 # prepares one synthetic D2 T0 plain-GSQ/tree pair, and runs sequential chunk,
 # HLOD and migration arms on the 3080. Its comparison and independent final
 # verdict fail closed; VALID means usable diagnostic evidence, not a Tier A pass.
-# shared_layers_control=corrupt|saturate|skip_compare must each leave the run red.
+# corrupt|saturate succeed only with control_verdict=DETECTED and usable main arms.
+# shared_layers_control=skip_compare must leave the run red (comparison deleted).
 # Native queue/publication observations fail closed when absent. The tests-only
-# saturation hook holds real ready uploads; their observation is UNUSABLE.
+# saturation hook holds real ready uploads; detection needs native queue evidence.
 # All arms use shipped capacity settings. Ordinary backpressure is reported;
 # no-progress failures use only the existing cold/stop/teleport settle windows.
 #
@@ -58,7 +59,7 @@ on:
           - "shared_layers_t0"
           - "watchdog"
       shared_layers_control:
-        description: "shared_layers_t0 only: test-only forcing control; corrupt, saturate and skip_compare must be RED"
+        description: "shared_layers_t0 only: corrupt/saturate pass only when DETECTED with usable main arms; skip_compare must be RED"
         required: false
         default: "none"
         type: choice
@@ -398,8 +399,10 @@ jobs:
           python3 tests/runtime/flythrough/compare_shared_layers_t0.py --experiment "$SHARED_LAYERS_OUT/experiment.json" --out "$SHARED_LAYERS_OUT" --contention-report "$SHARED_LAYERS_OUT/contention/postflight.json"
 
       # Independent of the comparison step's id/outcome, so deleting the
-      # invocation or selecting skip_compare cannot manufacture VALID.
-      - name: Final diagnostic verdict (fail closed without current comparison)
+      # invocation or selecting skip_compare cannot manufacture success. Bind the
+      # current run id and requested control: none requires VALID; corrupt and
+      # saturate require DETECTED with usable non-control arms. NOT_RUN stays 3.
+      - name: Final diagnostic verdict (current VALID or detected control only)
         if: always()
         run: |
           python3 tests/runtime/flythrough/compare_shared_layers_t0.py --require-report "$SHARED_LAYERS_OUT/comparison.json" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL"

@@ -1126,6 +1126,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 			metrics.homogeneous_dc != rec.metrics.homogeneous_dc || metrics.center_exact != rec.metrics.center_exact) {
 		return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_mismatch");
 	}
+	p_store.record_decoded_content(p_node, r_gaussians.ptr(), r_sh.ptr(), count, info.sh_degree);
 	release_transport();
 	r_reason = String();
 	p_store.end_capture(true, String());

@@ -597,6 +597,130 @@ TEST_CASE("[GaussianSplatting][WorldIO][PayloadPageStore] decoder leases are exc
 	CHECK(store.stats().decoder_destroyed == 2);
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadPageStore] diagnostic content digests identify decoded pages and changed attributes") {
+	using namespace TestPayloadPageStoreContracts;
+	TestPayloadPageStore::Fixture fixture("content_identity");
+	TestPayloadPageStore::Fixture changed("content_identity_changed", true);
+	if (!fixture.valid || !changed.valid || fixture.pages.size() < 2 || changed.pages.is_empty() ||
+			fixture.reference_digests.size() < 2 || changed.reference_digests.is_empty()) {
+		FAIL("content identity requires actual writer-produced pages and independent codec references");
+		return;
+	}
+	String first_digest;
+	for (bool enabled : { false, true }) {
+		Store store;
+		Store::Config config;
+		config.collect_content_digests = enabled;
+		const LocalVector<Store::PageDescriptor> pages = gsq_descriptors(fixture);
+		if (!install(store, fixture.path, pages, config)) { return; }
+		for (uint32_t p = 0; p < 2; ++p) {
+			Store::DecodedPage decoded;
+			Error error = ERR_BUG;
+			String reason;
+			// The independent diagnostic must work even when chunk policy skips
+			// verification against the in-format reference.
+			if (!capture_page(store, pages[p], p + 1, false, decoded, error, reason) || error != OK) {
+				FAIL("diagnostic page capture failed");
+				return;
+			}
+		}
+		const Dictionary exported = store.get_telemetry("chunk");
+		if (!exported.has("content_digests") || exported["content_digests"].get_type() != Variant::DICTIONARY) {
+			FAIL("native telemetry must export a bounded per-page digest map");
+			return;
+		}
+		const Dictionary digests = exported["content_digests"];
+		CHECK(digests.size() == (enabled ? 2 : 0));
+		if (enabled) {
+			for (uint32_t p = 0; p < 2; ++p) {
+				CHECK(String(digests.get(String::num_uint64(pages[p].id), "")) ==
+						String::hex_encode_buffer(fixture.reference_digests[p].bytes, gs_gsq::kDigestBytes));
+			}
+			first_digest = digests.get(String::num_uint64(pages[0].id), "");
+			CHECK(String(digests.get(String::num_uint64(pages[0].id), "")) !=
+					String(digests.get(String::num_uint64(pages[1].id), "")));
+		}
+	}
+	Store changed_store;
+	Store::Config changed_config;
+	changed_config.collect_content_digests = true;
+	const LocalVector<Store::PageDescriptor> pages = gsq_descriptors(changed);
+	if (!install(changed_store, changed.path, pages, changed_config)) { return; }
+	Store::DecodedPage decoded;
+	Error error = ERR_BUG;
+	String reason;
+	if (!capture_page(changed_store, pages[0], 1, false, decoded, error, reason) || error != OK) {
+		FAIL("changed producer payload must decode");
+		return;
+	}
+	const Dictionary digests = changed_store.get_telemetry("chunk").get("content_digests", Dictionary());
+	const String changed_digest = digests.get(String::num_uint64(pages[0].id), "");
+	CHECK(changed_digest == String::hex_encode_buffer(changed.reference_digests[0].bytes, gs_gsq::kDigestBytes));
+	CHECK(changed_digest.length() == 64);
+	CHECK(changed_digest != first_digest);
+	if (decoded.gaussians.is_empty()) {
+		FAIL("conflicting diagnostic test requires the actual decoded producer payload");
+		return;
+	}
+	decoded.gaussians[0].sh_dc.r += 0.25f;
+	changed_store.record_decoded_content(pages[0].id, decoded.gaussians.ptr(), decoded.sh_high_order.ptr(),
+			decoded.gaussians.size(), changed.sh_degree);
+	CHECK(String(Dictionary(changed_store.get_telemetry("chunk").get("content_digests", Dictionary())).get(
+			String::num_uint64(pages[0].id), "")) == "conflicting_runtime_digests");
+	// A later repeat of the reference payload cannot erase the contradiction.
+	changed_store.record_decoded_content(pages[0].id, changed.reference.ptr(), changed.reference_sh.ptr(),
+			pages[0].splat_count, changed.sh_degree);
+	CHECK(String(Dictionary(changed_store.get_telemetry("chunk").get("content_digests", Dictionary())).get(
+			String::num_uint64(pages[0].id), "")) == "conflicting_runtime_digests");
+	if (changed_store.replace_source(changed.path, 8, pages) != OK) {
+		FAIL("replacement must start a fresh diagnostic collection");
+		return;
+	}
+	CHECK(Dictionary(changed_store.get_telemetry("chunk").get("content_digests", Dictionary())).is_empty());
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][PayloadPageStore] checked plus unavailable reference verification is mixed") {
+	using namespace TestPayloadPageStoreContracts;
+	TestPayloadPageStore::Fixture fixture("mixed_reference_status");
+	if (!fixture.valid || fixture.pages.size() < 2) {
+		FAIL("mixed reference status needs two real writer-produced pages");
+		return;
+	}
+	LocalVector<Store::PageDescriptor> pages = gsq_descriptors(fixture);
+	pages[1].encoding = Store::OPAQUE_BYTES; // Actual GSQ bytes via the V4 subrange contract.
+	Store store;
+	if (!install(store, fixture.path, pages)) { return; }
+	Store::DecodedPage checked;
+	Error error = ERR_BUG;
+	String reason;
+	if (!capture_page(store, pages[0], 1, true, checked, error, reason) || error != OK) {
+		FAIL("mixed reference status requires a checked successful page");
+		return;
+	}
+	Store::StoredPage stored;
+	Store::DecoderLease decoder;
+	if (!request(store, 42, 2, pages[1]) || !take(store, 42, 2, stored) || store.lease_decoder(decoder) != OK) {
+		FAIL("mixed reference status requires a real subrange transport and decoder");
+		return;
+	}
+	LocalVector<Gaussian> gaussians;
+	LocalVector<Vector3> sh;
+	gaussians.resize(pages[1].splat_count);
+	sh.resize(pages[1].splat_count * fixture.sh_high_order);
+	if (store.decode_gsq_subrange(stored, decoder, 0, pages[1].splat_count, fixture.sh_degree,
+			gaussians.ptr(), sh.ptr(), reason) != OK) {
+		FAIL("actual GSQ subrange must decode without an in-format reference");
+		return;
+	}
+	const Dictionary exported = store.get_telemetry("hlod");
+	CHECK(String(exported.get("digest_status", "")) == "mixed");
+	CHECK(int64_t(exported.get("pages_decoded_digest_checked", 0)) == 1);
+	CHECK(int64_t(exported.get("pages_decoded_digest_skipped", -1)) == 0);
+	CHECK(int64_t(exported.get("pages_decoded_digest_unavailable", 0)) == 1);
+	CHECK(int64_t(exported.get("pages_decoded", 0)) == 2);
+	CHECK(exported.get("digest_nsec", Variant()).get_type() == Variant::INT);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][PayloadPageStore] GSQ stage counters preserve checked and skipped digest meanings") {
 	using namespace TestPayloadPageStoreContracts;
 	TestPayloadPageStore::Fixture fixture("store_stages");

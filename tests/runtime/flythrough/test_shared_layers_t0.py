@@ -226,6 +226,44 @@ class RunnerPlumbing(unittest.TestCase):
         self.assertEqual(behavior["drawn_counts"][0]["drawn_splats"], native["checkpoints"][0]["drawn_splats"])
         self.assertIs(behavior["trace_drawn_splats_max"]["measured"], False)
 
+    def test_content_digest_envelope_preserves_native_map_without_filling_absence(self):
+        # Constructed interpreter-contract input; this is not a producer capture.
+        digests = {"0": "a" * 64, "9": "b" * 64}
+        native = {"payload_telemetry": {"content_digests": digests}}
+        behavior = shared.payload_behavior(native, None)
+        self.assertEqual(behavior.get("content_digests"), digests)
+        behavior["content_digests"]["0"] = "changed"
+        self.assertEqual(digests["0"], "a" * 64)
+        self.assertIsNone(shared.payload_behavior({}, None).get("content_digests"))
+        metrics = shared.native_metrics(native, {}, None, "hlod", {})
+        self.assertEqual(metrics.get("content_digests"), digests)
+
+    def test_preparation_reference_validation_uses_page_count_not_alignment(self):
+        # Deliberately malformed partial-file corpus, not a producer fixture or
+        # evidence of successful extraction from a real GSQ world. Its declared
+        # digest set disagrees with its table. The parser must reach that error
+        # using page_count, rather than mistaking the adjacent alignment field
+        # for a count. Successful producer-format extraction needs runner capture.
+        plain = self.tmp / "plain.gsplatworld"
+        table = bytearray(400)
+        struct.pack_into("<I4BfiIIQ", table, shared.vm.PREFIX_BYTES,
+                         shared.vm.CODEC_GSQ_V1, 6, 5, 5, 16, 0.00025, 3,
+                         2, shared.vm.PAGE_ALIGNMENT, 176)
+        table[176 + 48:176 + 80] = bytes.fromhex("ab" * 32)
+        table[288 + 48:288 + 80] = bytes.fromhex("cd" * 32)
+        plain.write_bytes(table)
+        source = {"codec": {"page_count": 2, "decoded_digest_set_sha256":
+                  shared.hashlib.sha256(bytes.fromhex("ab" * 32 + "cd" * 32)).hexdigest()}}
+        tree = {"nodes": [{"decoded_sha256": "1" * 64}, {"decoded_sha256": "2" * 64}]}
+        w13 = {"available": True, "passed": True, "nodes_verified": 2, "node_count": 2}
+        for bad in ({}, {**w13, "nodes_verified": 1}, {**w13, "passed": False}):
+            with self.subTest(w13=bad), self.assertRaisesRegex(ValueError, "content reference"):
+                shared.content_references(plain, source, tree, bad)
+        table[176 + 48] ^= 1
+        plain.write_bytes(table)
+        with self.assertRaisesRegex(ValueError, "content reference GSQ decoded digest set differs"):
+            shared.content_references(plain, source, tree, w13)
+
     def test_real_migration_payload_observations_are_retained_without_decode_invention(self):
         capture = self.captured("d3_6/run43602195987_migration.json")
         for name, arm in capture["arms"].items():
@@ -281,17 +319,25 @@ class RunnerPlumbing(unittest.TestCase):
         prepared = {key: {} for key in ("input_file_sha256", "generator_identity", "tree_file_sha256", "tree_identity")}
         prepared["codec"] = {"sh_bands": 3}
         calls = []
+        digests = {"7": "a" * 64}  # interpreter-contract input, not a captured producer
         def process(binary, plan, out, timeout):
             calls.append(copy.deepcopy(plan))
-            return {"result": {}, "trace": str(out / "trace.bin"), "exit_code": 1, "timed_out": False}
+            return {"result": {"payload_telemetry": {"content_digests": digests}},
+                    "trace": str(out / "trace.bin"), "exit_code": 1, "timed_out": False}
         with mock.patch.object(shared.rp, "trace_integrity", return_value=(None, {})):
             for control in ("none", "saturate"):
-                shared.run_arm(self.tmp / "candidate", self.tmp / "world", "hlod", prepared, path, {}, {},
+                arm = shared.run_arm(self.tmp / "candidate", self.tmp / "world", "hlod", prepared, path, {}, {},
                                self.tmp / control, process=process, prepare_cold=lambda world: {}, control=control)
+                self.assertEqual(arm.get("content_digests"), digests)
+                self.assertEqual(arm["payload_behavior"]["content_digests"], digests)
         self.assertNotIn("shared_layers_control", calls[0])
         self.assertEqual(calls[1]["shared_layers_control"], "saturate")
         for plan in calls:
-            self.assertEqual(plan["project_settings"], shared.rp.control_settings(None))
+            self.assertIs(plan["project_settings"].get(
+                "rendering/gaussian_splatting/diagnostics/payload_content_digests"), True)
+            self.assertEqual({key: value for key, value in plan["project_settings"].items()
+                              if key != "rendering/gaussian_splatting/diagnostics/payload_content_digests"},
+                             shared.rp.control_settings(None))
             self.assertEqual(plan["node"]["lod_bias"], 1.0)
 
     def test_prepare_reuses_d2_path_and_has_no_scan_parameter(self):

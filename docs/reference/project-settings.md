@@ -99,8 +99,8 @@ A default is shown as the C++ expression passed at registration (for example a n
 
 | Coverage | Count |
 | --- | ---: |
-| Keys in the manifest | 197 |
-| Registered by the module at startup | 185 |
+| Keys in the manifest | 198 |
+| Registered by the module at startup | 186 |
 | Read by the module but not registered | 7 |
 | Deprecated aliases (read only, never registered) | 5 |
 
@@ -470,6 +470,11 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><pre><code>rendering/gaussian_splatting/diagnostics/payload_content_digests</code></pre></td>
+      <td><pre><code>false</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/register_types.cpp</code></pre></td>
+    </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/diagnostics/perf_gate_budget_ms</code></pre></td>
       <td><pre><code>16.0f</code></pre></td>

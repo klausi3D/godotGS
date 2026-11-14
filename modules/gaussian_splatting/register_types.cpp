@@ -86,6 +86,7 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
         gs::initialize_module_string_names();
 
         GLOBAL_DEF("rendering/gaussian_splatting/diagnostics/startup_trace", true);
+        GLOBAL_DEF("rendering/gaussian_splatting/diagnostics/payload_content_digests", false);
         GSStartupTrace::get_singleton()->refresh_enabled();
         GSStartupTrace::get_singleton()->reset();
     }
