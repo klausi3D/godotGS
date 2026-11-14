@@ -1,5 +1,7 @@
 extern "C" int test_hlod_editable_regions_cpp_force_link() { return 0; }
 #include "test_macros.h"
+#include "gs_hlod_edit_test_pump.h"
+#include "gs_test_pump.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/gaussian_splat_world.h"
 #include "../io/gaussian_splat_world_io.h"
@@ -314,6 +316,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a staged edit changes noth
 	CHECK(sim.res.is_shadow_pending(tickets[0]));
 	CHECK(sim.res.finish_shadow(tickets[0], true));
 	CHECK_FALSE(sim.res.is_shadow_pending(tickets[0]));
+	CHECK(sim.res.is_shadow_packed(tickets[0]));
+	CHECK_FALSE(sim.res.edit_ready()); // Packed CPU bytes have not reached the reserved run yet.
+	GS_NEED(sim.res.finish_shadow_transfer(tickets[0]));
 	CHECK(sim.res.edit_ready());
 	sim.step();
 
@@ -374,6 +379,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] an edit invalidates the in
 	const Residency::EditedLeaf leaf = { 9, 1000 };
 	GS_NEED(sim.res.stage_edit(1, &leaf, 1, tickets) == Residency::EDIT_OK);
 	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	GS_NEED(sim.res.finish_shadow_transfer(tickets[0]));
 	GS_NEED(sim.res.commit_edit());
 	// The old load completes late: it is dropped, counted, and cannot touch the new version.
 	// The commit cancelled that load, so its late completion is the harmless kind, not a loss.
@@ -478,6 +484,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a replacement child that i
 	const Residency::EditedLeaf leaf = { 9, 1000 };
 	GS_NEED(sim.res.stage_edit(1, &leaf, 1, tickets) == Residency::EDIT_OK);
 	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	GS_NEED(sim.res.finish_shadow_transfer(tickets[0]));
 	CHECK_FALSE(sim.res.edit_ready()); // Shadow ready, replacement cut incomplete.
 	LocalVector<uint32_t> prefetch;
 	sim.res.edit_prefetch(prefetch);
@@ -509,6 +516,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a replacement child that c
 	const Residency::EditedLeaf leaf = { 9, 1000 };
 	GS_NEED(sim.res.stage_edit(1, &leaf, 1, tickets) == Residency::EDIT_OK);
 	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	GS_NEED(sim.res.finish_shadow_transfer(tickets[0]));
 	const uint32_t want[1] = { 3 };
 	// Fail the load of node 3 until it is permanently failed.
 	for (uint32_t attempt = 0; attempt < 3; ++attempt) {
@@ -849,12 +857,23 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][PagedV4] the node streamer packs an e
 	CHECK(streamer->get_data() == w.paged);
 	CHECK(streamer->get_data()->edit_revision == 0);
 
-	// The shadow job packs the edited leaf. Without a device nothing uploads, which is irrelevant here: the packed
-	// payload waits for the publication boundary.
-	for (int frame = 0; frame < 600 && streamer->get_telemetry().edit_shadow_ready < 1; ++frame) {
-		streamer->begin_frame();
+	// Without a device, the shadow job packs the edited leaf but its payload remains available for inspection:
+	// transfer has not happened, so neither residency readiness nor the served revision advances.
+	// Poll inside this frame: begin_frame() per poll would consume the edit's 1800-frame timeout before a slow worker runs.
+	const uint64_t packed_wait_age = streamer->get_residency().staged_edit_age_frames();
+	const auto packed_shadow = TestGaussianSplatting::gs_pump_until([&]() {
 		streamer->update(nullptr, HlodNodeStreamer::Buffers(), nullptr, 0, nullptr, 0);
-		OS::get_singleton()->delay_usec(1000);
+#ifdef THREADS_ENABLED
+		Thread::yield();
+#endif
+		return streamer->get_telemetry().edit_shadow_ready == 1 || !streamer->is_edit_staged();
+	});
+	CHECK(streamer->get_telemetry().edit_timeouts_total == 0);
+	CHECK(String(streamer->get_telemetry().edit_event) == "staged");
+	CHECK(streamer->get_residency().staged_edit_age_frames() == packed_wait_age);
+	if (!packed_shadow.ready()) {
+		FAIL("edited leaf never became CPU-packed: ", packed_shadow.describe());
+		return;
 	}
 	GS_NEED(streamer->get_telemetry().edit_shadow_ready == 1);
 	CHECK(streamer->get_telemetry().edit_staged);
@@ -948,9 +967,10 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 
 	// Everything that is not stale is demanded, so the whole tree streams in (children of one parent are consecutive in
 	// BFS order). A stale node is never requested.
-	auto pump = [&](uint32_t p_frames, const std::function<bool()> &p_done) {
+	auto pump = [&](const std::function<bool()> &p_done, const char *p_waited_for) {
 		LocalVector<DesiredRecord> everything;
-		for (uint32_t f = 0; f < p_frames && !p_done(); ++f) {
+		bool readback_valid = true;
+		const auto completed = TestGaussianSplatting::gs_pump_until([&]() {
 			everything.clear();
 			for (uint32_t n = 0; n < node_total; ++n) {
 				if (streamer->get_data()->is_stale(n)) { continue; }
@@ -958,26 +978,43 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 				record.node = n;
 				everything.push_back(record);
 			}
-			streamer->begin_frame(rd, &gpu.buffers); // Commits a ready staged edit before anything selects.
-			if (streamer->get_last_commit_result() == HlodNodeStreamer::COMMIT_DONE) {
+			const auto commit = TestGaussianSplatting::gs_hlod_edit_begin_frame(*streamer.ptr(), rd, &gpu.buffers); // Ready edits still commit before selection.
+			if (commit == HlodNodeStreamer::COMMIT_DONE) {
 				// The publication boundary itself: the moment commit returns, before this frame's update(), no stale ancestor
 				// can be drawn (its metadata is already zero) and the served snapshot is the edited one.
 				const Vector<uint8_t> at_boundary = rd->buffer_get_data(gpu.buffers.chunk_meta);
+				if (uint64_t(at_boundary.size()) != uint64_t(node_total) * sizeof(ChunkMetaGPU)) {
+					FAIL("atomic edit boundary metadata readback has the wrong byte count");
+					readback_valid = false;
+					return true;
+				}
 				const ChunkMetaGPU *boundary = reinterpret_cast<const ChunkMetaGPU *>(at_boundary.ptr());
 				for (uint32_t n = 0; n < node_total; ++n) {
 					if (streamer->get_data()->is_stale(n)) { CHECK(boundary[n].splat_count == 0); }
 				}
 			}
 			streamer->update(rd, gpu.buffers, everything.ptr(), everything.size(), nullptr, 0);
-			OS::get_singleton()->delay_usec(1000);
+			rd->swap_buffers(false);
+			CHECK(streamer->get_telemetry().edit_timeouts_total == 0);
+			CHECK(String(streamer->get_telemetry().edit_event) != "timeout");
+			if (streamer->get_telemetry().edit_timeouts_total != 0 || String(streamer->get_telemetry().edit_event) == "timeout") {
+				readback_valid = false;
+				return true;
+			}
+			return p_done();
+		});
+		if (!completed.ready()) {
+			FAIL(p_waited_for, " never became true: ", completed.describe());
+			return false;
 		}
+		return readback_valid;
 	};
 	auto nonstale_resident = [&]() {
 		uint32_t expected = 0;
 		for (uint32_t n = 0; n < node_total; ++n) { expected += streamer->get_data()->is_stale(n) ? 0u : 1u; }
 		return streamer->get_telemetry().resident == expected;
 	};
-	pump(3000, nonstale_resident);
+	if (!pump(nonstale_resident, "all nonstale nodes resident")) { return; }
 	GS_NEED(nonstale_resident());
 	CHECK(streamer->get_telemetry().failed_total == 0);
 
@@ -1006,7 +1043,7 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 	CHECK(streamer->get_data() == p_base);
 	const Vector<uint8_t> meta_staged = rd->buffer_get_data(gpu.buffers.chunk_meta);
 	CHECK(meta_staged == meta_before);
-	pump(3000, [&]() { return streamer->get_telemetry().edits_committed_total != 0; });
+	if (!pump([&]() { return streamer->get_telemetry().edits_committed_total != 0; }, "first staged edit committed")) { return; }
 	GS_NEED(streamer->get_telemetry().edits_committed_total == 1);
 	CHECK(streamer->get_telemetry().edit_commit_failures_total == 0);
 	CHECK(streamer->get_data() == edited);
@@ -1098,7 +1135,7 @@ static void run_gpu_edit(const Ref<GaussianSplatHlodRuntimeData> &p_base, const 
 		Ref<GaussianSplatHlodRuntimeData> edited2;
 		GS_NEED(make_edited_snapshot(edited, 1, &edit2, 1, edited2, reason) == EditStatus::OK);
 		GS_NEED(streamer->stage_edit(edited2) == HlodNodeStreamer::EDIT_STAGED);
-		pump(3000, [&]() { return streamer->get_telemetry().edits_committed_total >= 2 || !streamer->is_edit_staged(); });
+		if (!pump([&]() { return streamer->get_telemetry().edits_committed_total >= 2 || !streamer->is_edit_staged(); }, "second staged edit resolved")) { return; }
 		CHECK(streamer->get_telemetry().edits_committed_total == 2);
 		CHECK(streamer->get_data() == edited2);
 		verify(edited2, { { leaf, &edit }, { leaf2, &edit2 } }, meta_mid, atlas_mid);
@@ -1133,6 +1170,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a second edit in a sibling
 	GS_NEED(sim.res.stage_edit(1, &first, 1, tickets) == Residency::EDIT_OK);
 	GS_NEED(tickets.size() == 1);
 	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	GS_NEED(sim.res.finish_shadow_transfer(tickets[0]));
 	GS_NEED(sim.res.commit_edit());
 	CHECK(sim.res.is_stale(1));
 	CHECK(sim.res.state(1) == Residency::ABSENT);
@@ -1146,6 +1184,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][Residency] a second edit in a sibling
 	sim.res.edit_prefetch(prefetch);
 	CHECK(prefetch.size() == 0); // Everything required is resident already; node 1 is not among the demand.
 	GS_NEED(sim.res.finish_shadow(tickets[0], true));
+	GS_NEED(sim.res.finish_shadow_transfer(tickets[0]));
 	CHECK(sim.res.edit_ready());
 	CHECK_FALSE(sim.res.edit_blocked());
 	GS_NEED(sim.res.commit_edit());
