@@ -1660,6 +1660,8 @@ GS_COMBINED_WORKFLOW = WORKFLOW_DIR / "gs_combined_1.yml"
 GS_COMBINED_EXECUTION_JOB = "gs-combined-1-gpu"
 GS_COMBINED_STATUS_JOB = "gs-combined-1"
 GS_COMBINED_TRUSTED_REASON = "gs_combined_requires_trusted_branch"
+GS_COMBINED_DRAFT_REASON = "gs_combined_not_run_draft"
+GS_COMBINED_DRAFT_GUARD = "(github.event_name != 'pull_request' || !github.event.pull_request.draft)"
 NEEDS_LINE = re.compile(r"^    needs:\s*(.*)$")
 
 
@@ -1713,8 +1715,9 @@ def gs_combined_gate_violations(
     if self_hosted != {GS_COMBINED_EXECUTION_JOB}:
         problems.append(f"self-hosted jobs are {sorted(self_hosted)}, expected exactly [{GS_COMBINED_EXECUTION_JOB!r}]")
     for name in sorted(self_hosted):
-        if classify_guard(jobs[name]["if"]) != "standard":
-            problems.append(f"self-hosted job {name!r} does not carry the standard per-job fork guard (if={jobs[name]['if']!r})")
+        expected = f"({STANDARD_FORK_GUARD}) && {GS_COMBINED_DRAFT_GUARD}"
+        if _normalize_guard(jobs[name]["if"] or "") != expected:
+            problems.append(f"self-hosted job {name!r} must carry the standard fork guard AND the draft exclusion (if={jobs[name]['if']!r})")
     if GS_COMBINED_STATUS_JOB not in jobs:
         problems.append(f"status job {GS_COMBINED_STATUS_JOB!r} is missing")
         return problems
@@ -1730,6 +1733,8 @@ def gs_combined_gate_violations(
     required = {
         f"needs.{GS_COMBINED_EXECUTION_JOB}.result": "reads the execution job's result",
         GS_COMBINED_TRUSTED_REASON: "names the fork-PR reason",
+        GS_COMBINED_DRAFT_REASON: "names the draft-PR NOT_RUN reason",
+        "PR_DRAFT: ${{ github.event.pull_request.draft }}": "passes the draft flag through env",
         "success)": "passes only on success",
         "skipped)": "handles a skipped execution job",
         "*)": "fails every other result",
@@ -1737,8 +1742,14 @@ def gs_combined_gate_violations(
     for needle, why in required.items():
         if needle not in text:
             problems.append(f"status job step must contain {needle!r} ({why})")
-    if text.count("exit 1") < 2:
-        problems.append("status job must exit 1 for a skipped and for any non-success result")
+    skipped = text.split("skipped)", 1)[-1].split("*)", 1)[0]
+    if (text.count("exit 1") < 3 or "exit 0" in skipped or
+            not re.search(r'if \[ "\$GITHUB_EVENT_NAME" = "pull_request" \] && \[ "\$PR_DRAFT" = "true" \]; then\s*'
+                          r'echo "::error::gs_combined_not_run_draft: NOT_RUN[^\n]*\n\s*exit 1\s*fi', skipped)):
+        problems.append("status job must fail closed on draft, fork and every non-success result")
+    script = text.split("        run: |", 1)[-1]
+    if "${{" in script:
+        problems.append("status script must receive event data through env, never inline expressions")
     if "continue-on-error" in text:
         problems.append("status job must not use continue-on-error")
     return problems
@@ -1795,6 +1806,8 @@ def gs_combined_trigger_violations(lines: List[str]) -> List[str]:
         if event != "pull_request" and ("paths" in text or "paths-ignore" in text):
             problems.append(f"trigger {event!r} must stay unfiltered")
     pr_text = "\n".join(events.get("pull_request", []))
+    if "    types: [opened, synchronize, reopened, ready_for_review]" not in pr_text:
+        problems.append("pull_request types must include ready_for_review and subsequent pushes")
     if "paths-ignore" in pr_text:
         problems.append("pull_request must use an explicit `paths:` list, not paths-ignore")
     for needle in GS_COMBINED_PR_PATHS_REQUIRED:
@@ -1827,6 +1840,7 @@ class GsCombinedGateShapeTests(unittest.TestCase):
             "gate files dropped from the filter": ("      - 'tests/runtime/gs_combined_1*'\n", ""),
             "workflow file dropped from the filter": ("      - '.github/workflows/gs_combined_1.yml'\n", ""),
             "schedule removed": ("  schedule:\n", "  schedule_off:\n"),
+            "ready-for-review trigger removed": ("opened, synchronize, reopened, ready_for_review", "opened, synchronize, reopened"),
         }
         for label, (old, new) in mutations.items():
             with self.subTest(mutation=label):
@@ -1847,7 +1861,7 @@ class GsCombinedGateShapeTests(unittest.TestCase):
         self.assertIn(GS_COMBINED_TRUSTED_REASON, bullets[0])
 
     def test_mutations_are_caught(self) -> None:
-        guard = "if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
+        guard = "if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && " + GS_COMBINED_DRAFT_GUARD + " }}"
         mutations = {
             "fork guard removed": (guard, "if: ${{ true }}"),
             "fork guard narrowed to a lookalike": (
@@ -1865,6 +1879,10 @@ class GsCombinedGateShapeTests(unittest.TestCase):
               ;;
             *)"""),
             "result never read": ("needs.gs-combined-1-gpu.result", "github.run_id"),
+            "draft exclusion removed": (" && " + GS_COMBINED_DRAFT_GUARD, ""),
+            "draft skip passes": ("                exit 1\n              fi", "                exit 0\n              fi"),
+            "draft reason dropped": ("::error::" + GS_COMBINED_DRAFT_REASON, "::error::draft_skipped"),
+            "draft env wiring dropped": ("          PR_DRAFT: ${{ github.event.pull_request.draft }}\n", ""),
         }
         for label, (old, new) in mutations.items():
             with self.subTest(mutation=label):

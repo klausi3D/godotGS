@@ -1198,6 +1198,22 @@ class ComparisonContract(unittest.TestCase):
                                               "--contention-report", str(path)]), 2)
 
 
+class ScreenshotCadence(unittest.TestCase):
+    def test_run_arm_requests_every_400_moving_frames(self):
+        # Stop at plan construction: exercising the caller needs no engine or
+        # fabricated native probe results, and covers every route/control arm.
+        class PlanCaptured(Exception):
+            pass
+
+        for route, control in (("chunk", "none"), ("hlod", "none"), ("hlod", "saturate")):
+            with self.subTest(route=route, control=control), tempfile.TemporaryDirectory() as directory:
+                with mock.patch.object(shared.rp, "path_plan", side_effect=PlanCaptured) as make_plan:
+                    with self.assertRaises(PlanCaptured):
+                        shared.run_arm(Path("binary"), Path("world"), route, {}, {}, {}, {},
+                                       Path(directory), control=control)
+                self.assertEqual(make_plan.call_args.kwargs["screenshots"]["moving_every_n"], 400)
+
+
 class WorkflowContract(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")

@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from unittest import mock
@@ -1050,6 +1051,129 @@ class LaneVerdict(_TempCase):
         self.assertEqual(self.verdict()["cache"], {"host_cache": "present"})
 
 
+class BaselineQaGate(unittest.TestCase):
+    """Constructed API scheduling scenarios; no network or wall-clock waits."""
+
+    def run_gate(self, responses, *, event="workflow_dispatch", mode="flythrough",
+                 timeout_s=175 * 60, fetch_seconds=0):
+        self.now = 0
+        self.calls = []
+        self.sleeps = []
+        pending = iter(responses)
+        last = None
+
+        def fetch(path):
+            nonlocal last
+            self.calls.append((self.now, path))
+            self.now += fetch_seconds
+            last = next(pending, last)
+            if isinstance(last, Exception):
+                raise last
+            if isinstance(last, bytes):
+                return last
+            return json.dumps(last).encode()
+
+        def sleep(seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+        with tempfile.TemporaryDirectory() as directory:
+            summary, output = (Path(directory) / name for name in ("summary", "output"))
+            stream = io.StringIO()
+            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary),
+                                               "GITHUB_OUTPUT": str(output)}), redirect_stdout(stream):
+                code = lane.baseline_qa_gate("owner/repo", "abc123", event, mode,
+                    fetch=fetch, clock=lambda: self.now, sleep=sleep, timeout_s=timeout_s)
+            self.summary = summary.read_text(encoding="utf-8")
+            self.output = output.read_text(encoding="utf-8")
+            self.message = stream.getvalue()
+        return code
+
+    @staticmethod
+    def runs(status="completed", conclusion="success", *, run_id=42,
+             created_at="2026-11-14T00:00:00Z", run_attempt=1):
+        return {"workflow_runs": [{"id": run_id, "status": status, "conclusion": conclusion,
+                                  "created_at": created_at, "run_attempt": run_attempt}]}
+
+    def test_green_and_summary_and_output_are_bound_to_same_sha(self):
+        self.assertEqual(self.run_gate([self.runs()]), 0)
+        self.assertEqual(self.calls, [(0, "repos/owner/repo/actions/workflows/baseline_qa.yml/runs?head_sha=abc123")])
+        self.assertIn("baseline_qa_gate=green run=42", self.message)
+        self.assertIn("baseline_qa_gate=green run=42", self.summary)
+        self.assertIn("abc123", self.summary)
+        self.assertIn("outcome=green\n", self.output)
+        self.assertIn("run_id=42\n", self.output)
+
+    def test_late_creation_then_queued_and_in_progress_wait_for_success(self):
+        self.assertEqual(self.run_gate([{"workflow_runs": []}, self.runs("queued", None),
+                                       self.runs("in_progress", None), self.runs()]), 0)
+        self.assertEqual(self.sleeps, [60, 60, 60])
+        self.assertIn("baseline_qa_gate=green", self.summary)
+
+    def test_all_non_success_conclusions_fail(self):
+        for conclusion in ("failure", "cancelled", "timed_out", "action_required", "skipped",
+                           "neutral", "stale", "startup_failure", None, "unknown"):
+            with self.subTest(conclusion=conclusion):
+                self.assertEqual(self.run_gate([self.runs(conclusion=conclusion)]), 1)
+                self.assertIn(f"::error::baseline_qa_not_green: Baseline QA run 42 on abc123 ended {conclusion}; the GPU jobs did not run", self.message)
+                self.assertNotIn("outcome=green", self.output)
+
+    def test_newest_creation_and_attempt_override_an_older_green(self):
+        for newest in (self.runs(conclusion="failure", created_at="2026-11-14T00:01:00Z"),
+                       self.runs(conclusion="failure", run_attempt=2)):
+            # Deliberately unsorted: the response order must not select the green.
+            payload = {"workflow_runs": self.runs()["workflow_runs"] + newest["workflow_runs"]}
+            self.assertEqual(self.run_gate([payload]), 1)
+
+    def test_absent_is_ungated_only_after_five_minutes_and_is_never_green(self):
+        self.assertEqual(self.run_gate([{"workflow_runs": []}]), 0)
+        self.assertEqual([time for time, _ in self.calls], [0, 60, 120, 180, 240, 300])
+        self.assertIn("::notice::baseline_qa_gate=absent: no Baseline QA run exists for abc123", self.message)
+        self.assertIn("the fly-through runs ungated", self.message)
+        self.assertIn("baseline_qa_gate=absent", self.summary)
+        self.assertEqual(self.output, "outcome=absent\nrun_id=\n")
+
+    def test_run_first_appearing_at_grace_boundary_is_still_checked(self):
+        self.assertEqual(self.run_gate([{"workflow_runs": []}] * 5 + [self.runs(conclusion="failure")]), 1)
+
+    def test_api_errors_and_malformed_responses_fail_closed(self):
+        for response in (watchdog.WatchdogError("HTTP 403"), OSError("API unavailable"),
+                         subprocess.TimeoutExpired("gh", 120), b"invalid JSON",
+                         {}, {"workflow_runs": None}, {"workflow_runs": [{}]},
+                         {"workflow_runs": "bad"}):
+            with self.subTest(response=response):
+                self.assertEqual(self.run_gate([response]), 1)
+                self.assertIn("::error::baseline_qa_gate=error", self.message)
+                self.assertNotIn("outcome=absent", self.output)
+
+    def test_disappearing_observed_run_cannot_turn_into_absent(self):
+        self.assertEqual(self.run_gate([self.runs("in_progress", None), {"workflow_runs": []}]), 1)
+        self.assertIn("baseline_qa_gate=error", self.message)
+
+    def test_pending_run_times_out_and_late_success_cannot_pass(self):
+        self.assertEqual(self.run_gate([self.runs("in_progress", None)], timeout_s=125), 1)
+        self.assertEqual(self.now, 125)
+        self.assertIn("::error::baseline_qa_gate=timeout", self.message)
+        self.assertIn("run=42", self.summary)
+        self.assertEqual(self.run_gate([self.runs()], timeout_s=125, fetch_seconds=126), 1)
+        self.assertIn("baseline_qa_gate=timeout", self.message)
+
+    def test_schedule_and_watchdog_need_no_api_and_are_labelled(self):
+        for event, mode, label in (("schedule", "flythrough", "schedule"),
+                                   ("workflow_dispatch", "watchdog", "watchdog")):
+            with self.subTest(event=event, mode=mode):
+                self.assertEqual(self.run_gate([], event=event, mode=mode), 0)
+                self.assertEqual(self.calls, [])
+                self.assertIn(f"baseline_qa_gate=not_applicable ({label})", self.message)
+                self.assertIn("baseline_qa_gate=not_applicable", self.summary)
+
+    def test_cli_subcommand_calls_gate(self):
+        with mock.patch.object(lane, "baseline_qa_gate", return_value=1) as gate:
+            self.assertEqual(lane.main(["baseline-qa-gate", "--repo", "owner/repo", "--sha", "abc123",
+                                       "--event", "workflow_dispatch", "--mode", "real_scan"]), 1)
+        gate.assert_called_once_with("owner/repo", "abc123", "workflow_dispatch", "real_scan")
+
+
 class HostCacheLabel(_TempCase):
     def test_disk_throughput_records_the_label(self) -> None:
         self.admit()
@@ -1204,9 +1328,80 @@ class WorkflowContract(unittest.TestCase):
             "'shared-layers-t0' || 'lane' }}\n  cancel-in-progress: false\n",
             self.text,
         )
-        # actions: read on the watchdog job only (ADR section 9.1).
-        self.assertEqual(len(re.findall(r"^ +actions: read$", self.text, re.M)), 1)
+        # Read-only Actions API access belongs only to the two hosted jobs.
+        self.assertEqual(len(re.findall(r"^ +actions: read$", self.text, re.M)), 2)
         self.assertIn("      actions: read", self.watchdog)
+
+    def test_hosted_baseline_gate_is_wired_and_watchdog_is_independent(self):
+        gate = _job_block(self.text, "baseline-qa-gate")
+        self.assertIn("    name: Wait for green Baseline QA on this head (GitHub-hosted)", gate)
+        self.assertIn("    runs-on: ubuntu-latest", gate)
+        self.assertIn("    timeout-minutes: 180", gate)
+        permissions = re.search(r"(?m)^    permissions:\n((?:      [^\n]+\n)+)", "\n".join(gate)).group(1)
+        self.assertEqual(set(permissions.splitlines()), {"      actions: read", "      contents: read"})
+        self.assertIn("      GH_TOKEN: ${{ github.token }}", gate)
+        self.assertIn("      outcome: ${{ steps.gate.outputs.outcome }}", gate)
+        self.assertIn("      run_id: ${{ steps.gate.outputs.run_id }}", gate)
+        steps = _steps(gate)
+        self.assertEqual(sum("dispatch_lane.py baseline-qa-gate" in step.get("run", "") for step in steps), 1)
+        script = next(step["run"] for step in steps if "baseline-qa-gate" in step.get("run", ""))
+        for argument in ('--repo "$GITHUB_REPOSITORY"', '--sha "$GITHUB_SHA"',
+                         '--event "$GITHUB_EVENT_NAME"', '--mode "$MODE"'):
+            self.assertIn(argument, script)
+        self.assertIn("          MODE: ${{ inputs.mode }}", gate)
+        for name in ("build-linux-editor", "build-pre-d3-editor"):
+            block = _job_block(self.text, name)
+            self.assertIn("    needs: baseline-qa-gate", block)
+            self.assertIn("needs.baseline-qa-gate.result == 'success'", self.job_if(block))
+        self.assertFalse(any(line.startswith("    needs:") for line in self.watchdog))
+
+    def test_baseline_gate_routing_preserves_schedule_and_skips_watchdog(self):
+        gate = self.job_if(_job_block(self.text, "baseline-qa-gate"))
+        build = self.job_if(self.build)
+        evaluator = D25AutoTreeWorkflow()
+        self.assertTrue(evaluator.enabled(gate, event="schedule", schedule=LANE_CRON))
+        self.assertTrue(evaluator.enabled(build, event="schedule", schedule=LANE_CRON))
+        self.assertFalse(evaluator.enabled(gate, event="schedule", schedule=WATCHDOG_CRON))
+        for mode in ("flythrough", "auto_tree", "real_scan", "shared_layers_t0"):
+            self.assertTrue(evaluator.enabled(gate, mode=mode), mode)
+        self.assertFalse(evaluator.enabled(gate, mode="watchdog"))
+        for name in ("build-linux-editor", "build-pre-d3-editor"):
+            condition = self.job_if(_job_block(self.text, name))
+            for result in ("failure", "cancelled", "skipped"):
+                self.assertFalse(evaluator.enabled(condition, mode="shared_layers_t0", baseline_result=result))
+
+    def assert_gate_reaches_self_hosted_jobs(self, text):
+        names = re.findall(r"^  ([a-z][a-z0-9-]*):$", text.split("\njobs:\n", 1)[1], re.M)
+        blocks = {name: _job_block(text, name) for name in names}
+        dependencies = {}
+        for name, block in blocks.items():
+            needs = next((line.split("needs:", 1)[1].strip() for line in block
+                          if line.startswith("    needs:")), "")
+            dependencies[name] = [value.strip() for value in needs.strip("[]").split(",") if value.strip()]
+
+        def reaches_gate(name, seen):
+            if name == "baseline-qa-gate":
+                return True
+            self.assertNotIn(name, seen, "cyclic job dependencies")
+            return any(reaches_gate(dependency, seen | {name}) for dependency in dependencies[name])
+
+        hosted_on_runner = [name for name, block in blocks.items()
+                            if any(line.startswith("    runs-on:") and "self-hosted" in line for line in block)]
+        self.assertTrue(hosted_on_runner)
+        for name in hosted_on_runner:
+            self.assertTrue(reaches_gate(name, set()), f"{name} can reach the persistent runner without waiting for Baseline QA")
+
+    def test_gate_dependency_covers_every_self_hosted_job(self):
+        self.assert_gate_reaches_self_hosted_jobs(self.text)
+
+    def test_deleted_gate_dependency_wiring_is_detected(self):
+        for name in ("build-linux-editor", "build-pre-d3-editor"):
+            with self.subTest(job=name):
+                block = "\n".join(_job_block(self.text, name))
+                mutant = block.replace("    needs: baseline-qa-gate\n", "")
+                self.assertNotEqual(mutant, block)
+                with self.assertRaises(AssertionError):
+                    self.assert_gate_reaches_self_hosted_jobs(self.text.replace(block, mutant))
 
     def test_nothing_may_swallow_a_failure(self) -> None:
         self.assertNotIn("continue-on-error", self.text)
@@ -2000,13 +2195,14 @@ class D25AutoTreeWorkflow(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def enabled(self, condition, *, mode="auto_tree", fork=False):
+    def enabled(self, condition, *, mode="auto_tree", fork=False, event=None, schedule="", baseline_result="success"):
         """Evaluate only the boolean/comparison subset used by these job guards."""
-        values = {"github.event_name": "pull_request" if fork else "workflow_dispatch",
-                  "github.event.schedule": "", "github.repository": "owner/repo",
+        values = {"github.event_name": event or ("pull_request" if fork else "workflow_dispatch"),
+                  "github.event.schedule": schedule, "github.repository": "owner/repo",
                   "github.event.pull_request.head.repo.full_name": "fork/repo" if fork else "owner/repo",
                   "inputs.mode": mode, "inputs.prime_world_cache": True,
                   "needs.build-linux-editor.result": "success",
+                  "needs.baseline-qa-gate.result": baseline_result,
                   "needs.prime-world-cache.result": "skipped"}
         expression = condition.removeprefix("${{").removesuffix("}}").strip()
         for key in sorted(values, key=len, reverse=True):
@@ -2034,7 +2230,7 @@ class D25AutoTreeWorkflow(unittest.TestCase):
         self.assertIn("prime-auto-tree", job_names)
         enabled = {name for name in job_names
                    if self.enabled(WorkflowContract.job_if(_job_block(self.text, name)))}
-        self.assertEqual(enabled, {"build-linux-editor", "prime-auto-tree"})
+        self.assertEqual(enabled, {"baseline-qa-gate", "build-linux-editor", "prime-auto-tree"})
         for name in job_names:
             condition = WorkflowContract.job_if(_job_block(self.text, name))
             if name == "prime-auto-tree":
@@ -2044,7 +2240,7 @@ class D25AutoTreeWorkflow(unittest.TestCase):
                 self.assertFalse(self.enabled(condition, fork=True))
                 self.assertFalse(self.enabled(condition, mode="flythrough"))
                 self.assertFalse(self.enabled(condition, mode="watchdog"))
-            elif name == "build-linux-editor":
+            elif name in ("baseline-qa-gate", "build-linux-editor"):
                 self.assertNotIn("inputs.mode != 'auto_tree'", condition)
             elif name == "liveness-watchdog":
                 self.assertEqual(condition, f"${{{{ github.event.schedule == '{WATCHDOG_CRON}' || inputs.mode == 'watchdog' }}}}")
@@ -2057,7 +2253,7 @@ class D25AutoTreeWorkflow(unittest.TestCase):
         job_names = re.findall(r"^  ([a-z][a-z0-9-]*):$", self.text.split("\njobs:\n", 1)[1], re.M)
         enabled = {name for name in job_names
                    if self.enabled(WorkflowContract.job_if(_job_block(self.text, name)), mode="real_scan")}
-        self.assertEqual(enabled, {"build-linux-editor", "real-scan-identity", "codec-probe"})
+        self.assertEqual(enabled, {"baseline-qa-gate", "build-linux-editor", "real-scan-identity", "codec-probe"})
 
     def test_auto_tree_runner_binary_handoff_and_prepostflight(self):
         job = _job_block(self.text, "prime-auto-tree")
@@ -2378,7 +2574,7 @@ class D36SharedLayersWorkflow(unittest.TestCase):
 
     def test_shared_mode_runs_only_two_cpu_builds_and_one_gpu_job(self):
         self.assertEqual(self.enabled_jobs("shared_layers_t0"), {
-            "build-linux-editor", "build-pre-d3-editor", "shared-layers-t0",
+            "baseline-qa-gate", "build-linux-editor", "build-pre-d3-editor", "shared-layers-t0",
         })
         self.assertEqual(self.enabled_jobs("shared_layers_t0", fork=True), set())
         for mode in ("flythrough", "auto_tree", "real_scan", "watchdog"):

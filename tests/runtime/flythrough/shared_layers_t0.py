@@ -27,6 +27,9 @@ import verify_world_manifest as vm
 
 PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
 SCHEMA = "godotgs-shared-layers-t0-experiment/1"
+# Viewport readbacks stall the single GPU runner; quarter the moving captures.
+# The probe still captures every checkpoint independently of this cadence.
+MOVING_SCREENSHOT_EVERY_N = 400
 
 
 def read_json(path: Path) -> dict:
@@ -421,7 +424,7 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
             expected_commit: str | None = None, control: str = "none") -> dict:
     out.mkdir(parents=True, exist_ok=True)
     plan = rp.path_plan(world, path, passes=2, screenshots={"dir": (out / "screenshots").as_posix(),
-                                                         "moving_every_n": 100})
+                                                         "moving_every_n": MOVING_SCREENSHOT_EVERY_N})
     plan["shared_layers_t0"] = True
     plan["project_settings"]["rendering/gaussian_splatting/diagnostics/payload_content_digests"] = True
     if control == "saturate":

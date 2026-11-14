@@ -99,6 +99,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import flythrough_controls as fc  # noqa: E402
 import flythrough_verdict as fv  # noqa: E402
+import lane_watchdog as lw  # noqa: E402
 import world_cache as wc  # noqa: E402
 
 EXIT_OK = 0
@@ -260,6 +261,88 @@ def _announce(code: int, reason: str) -> None:
         print(f"::error title=NOT RUN::{reason}")
     else:
         print(f"::error::{reason}")
+
+
+# --------------------------------------------------------------------------
+# Baseline QA scheduling gate (GitHub-hosted; not fly-through evidence)
+# --------------------------------------------------------------------------
+
+BASELINE_QA_POLL_S = 60
+BASELINE_QA_GRACE_S = 5 * 60
+BASELINE_QA_TIMEOUT_S = 175 * 60  # Leave five minutes before the job's 180-minute cap.
+
+
+def baseline_qa_gate(
+    repo: str, sha: str, event: str, mode: str, *, fetch=lw.gh_api,
+    clock=time.monotonic, sleep=time.sleep, timeout_s: float = BASELINE_QA_TIMEOUT_S,
+) -> int:
+    """Wait for the newest Baseline QA run on this SHA; absence is labelled ungated.
+
+    Fetch, monotonic clock and sleep are injected for GPU/network-free tests.
+    Like the watchdog, gh api failures are errors, never an empty runs list.
+    """
+    run_id = ""
+
+    def finish(outcome: str, code: int, message: str) -> int:
+        print(message, flush=True)
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as stream:
+                stream.write(f"baseline_qa_gate={outcome} run={run_id or 'none'} sha={sha}\n\n{message}\n")
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output, "a", encoding="utf-8") as stream:
+                stream.write(f"outcome={outcome}\nrun_id={run_id}\n")
+        return code
+
+    if event == "schedule" or (event == "workflow_dispatch" and mode == "watchdog"):
+        label = "schedule" if event == "schedule" else "watchdog"
+        return finish("not_applicable", 0, f"baseline_qa_gate=not_applicable ({label})")
+    if event != "workflow_dispatch":
+        return finish("error", 1, f"::error::baseline_qa_gate=error: unsupported event {event}; the GPU jobs did not run")
+
+    started = clock()
+    deadline = started + timeout_s
+
+    def timed_out() -> int:
+        return finish("timeout", 1, f"::error::baseline_qa_gate=timeout: Baseline QA on {sha} did not resolve within {timeout_s:g}s; the GPU jobs did not run")
+
+    while True:
+        if clock() >= deadline:
+            return timed_out()
+        try:
+            payload = json.loads(fetch(f"repos/{repo}/actions/workflows/baseline_qa.yml/runs?head_sha={sha}"))
+            runs = payload["workflow_runs"]
+            if not isinstance(runs, list):
+                raise ValueError("workflow_runs is not a list")
+            # API ordering must not let an older green hide a newer failed run
+            # or a queued rerun. ISO UTC created_at timestamps sort chronologically.
+            newest = max(runs, key=lambda run: (run["created_at"], int(run["run_attempt"]), int(run["id"]))) if runs else None
+            if newest is not None:
+                run_id = str(int(newest["id"]))
+                status = newest["status"]
+                conclusion = newest["conclusion"]
+            elif run_id:
+                raise ValueError(f"previously observed run {run_id} disappeared")
+        except (lw.WatchdogError, OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as exc:
+            return finish("error", 1, f"::error::baseline_qa_gate=error: {exc}; the GPU jobs did not run")
+        # A slow API response may not manufacture a pass beyond the deadline.
+        now = clock()
+        if now >= deadline:
+            return timed_out()
+        if newest is not None:
+            if status == "completed":
+                if conclusion == "success":
+                    return finish("green", 0, f"baseline_qa_gate=green run={run_id}")
+                return finish("not_green", 1, f"::error::baseline_qa_not_green: Baseline QA run {run_id} on {sha} ended {conclusion}; the GPU jobs did not run")
+            if status not in ("queued", "in_progress", "pending", "waiting", "requested"):
+                return finish("error", 1, f"::error::baseline_qa_gate=error: run {run_id} has unknown status {status}; the GPU jobs did not run")
+            print(f"baseline_qa_gate=waiting run={run_id} status={status}", flush=True)
+        elif now - started >= BASELINE_QA_GRACE_S:
+            return finish("absent", 0, f"::notice::baseline_qa_gate=absent: no Baseline QA run exists for {sha} (e.g. a master head or a branch without a PR); the fly-through runs ungated")
+        else:
+            print(f"baseline_qa_gate=waiting: no Baseline QA run yet for {sha}", flush=True)
+        sleep(min(BASELINE_QA_POLL_S, deadline - now))
 
 
 # --------------------------------------------------------------------------
@@ -2148,6 +2231,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
+    p = sub.add_parser("baseline-qa-gate")
+    p.add_argument("--repo", required=True)
+    p.add_argument("--sha", required=True)
+    p.add_argument("--event", required=True)
+    p.add_argument("--mode", default="flythrough")
+
     def common(p: argparse.ArgumentParser, world: bool = True, out: bool = True) -> None:
         if world:
             p.add_argument("--world-root", type=Path, required=True)
@@ -2265,6 +2354,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "baseline-qa-gate":
+        return baseline_qa_gate(args.repo, args.sha, args.event, args.mode)
     if getattr(args, "out", None) is not None:
         args.out.mkdir(parents=True, exist_ok=True)
     if args.command == "disk-preflight":

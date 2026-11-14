@@ -10,6 +10,10 @@ name: Beyond-VRAM Fly-through
 # per-run verify; mincore <= 1 % before the cold pass, else INVALID cache_warm;
 # the host_cache label), a lane verdict with the section 9.1 exit mapping, and a
 # Monday liveness watchdog (GitHub-hosted).
+# Non-watchdog dispatches first wait on a GitHub-hosted scheduling gate for a
+# green Baseline QA run on the same SHA. After a five-minute creation grace,
+# an absent run is explicitly labelled ungated; API errors/timeouts fail closed.
+# The weekly schedule is not gated; the watchdog never depends on this gate.
 # Dispatch mode real_scan runs only the build, D2 real-scan identity and BV-C2
 # codec probe on the data-bearing GPU runner; it never primes the world cache.
 # Dispatch mode shared_layers_t0 builds candidate + immutable pre-D3 binaries,
@@ -141,6 +145,33 @@ env:
   BVW_CACHE_ROOT: /opt/actions-runner/godotgs-world-cache
 
 jobs:
+  baseline-qa-gate:
+    name: Wait for green Baseline QA on this head (GitHub-hosted)
+    if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      outcome: ${{ steps.gate.outputs.outcome }}
+      run_id: ${{ steps.gate.outputs.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Wait for Baseline QA on this SHA
+        id: gate
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          python3 tests/runtime/flythrough/dispatch_lane.py baseline-qa-gate \
+            --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" \
+            --event "$GITHUB_EVENT_NAME" --mode "$MODE"
+
   # Same split as #1319: compile on a runner WITHOUT the `gpu` label, hand the
   # binary to the GPU jobs as an artifact pinned to github.sha
   # (tests/ci/linux_gpu_runner.sh stage-binary / install-binary).
@@ -148,7 +179,8 @@ jobs:
     name: Build optimized Linux editor (Self-Hosted CPU)
     # No pull_request trigger, so the fork guard is trivially satisfied; it is
     # carried so the job stays fail-closed if one is added.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.schedule != '0 6 * * 1' && inputs.mode != 'watchdog' && needs.baseline-qa-gate.result == 'success' }}
+    needs: baseline-qa-gate
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     defaults:
@@ -217,7 +249,8 @@ jobs:
   # override is the expected immutable build identity, not the candidate SHA.
   build-pre-d3-editor:
     name: Build immutable pre-D3 optimized editor (Self-Hosted CPU)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared_layers_t0' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared_layers_t0' && needs.baseline-qa-gate.result == 'success' }}
+    needs: baseline-qa-gate
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     permissions:
