@@ -34,7 +34,7 @@ METRICS = {
     "correctness": ("exit_code", "final_marker", "actual_route", "read_failures", "decode_failures",
                     "stale_generation_publications", "nonresident_drawn_nodes", "overflow_events", "drop_events"),
     "io": ("stored_bytes", "requests", "queue_latency_ns", "read_latency_ns", "throughput_bytes_s",
-           "cancellations", "retained_completion_peak_bytes"),
+           "cancellations", "retained_completion_peak_bytes", "admission_waits", "reads_refused_busy"),
     "decode_pack": ("verify_ns", "decode_span_ns", "digest_ns", "decode_remainder_ns", "pack_ns",
                     "splats", "pages", "worker_captures", "main_thread_captures"),
     "cpu_memory": ("os_peak_rss_bytes", "active_bytes", "stored_bytes", "mailbox_bytes", "ready_bytes",
@@ -52,7 +52,14 @@ SETTINGS = ("camera_path_sha256", "camera_poses", "resolution", "codec", "sh_ban
             "drawn_splats", "timing_windows", "node_readback", "project_settings_readback")
 FAILURES = ("stale_generation_publications", "nonresident_drawn_nodes", "overflow_events", "drop_events",
             "digest_verification_failures", "hlod_stream_failed_total", "hlod_stream_late_dropped_total")
-SATURATION = ("hlod_stream_stall_frames", "hlod_stream_blocked_groups", "reads_refused_busy", "admission_waits")
+BACKPRESSURE = ("reads_refused_busy", "admission_waits")
+SATURATION = ("upload_hold_frames",)
+# These are the shipped HLOD Config inputs, not new diagnostic budgets.
+HLOD_CONFIG = {"configured_read_byte_cap": 8 * 1024 * 1024,
+               "configured_max_jobs_in_flight": 16,
+               "configured_upload_bytes_per_frame": 32 * 1024 * 1024,
+               "normal_retained_byte_bound": 8 * 1024 * 1024}
+HLOD_ONLY_FAILURES = ("nonresident_drawn_nodes", "hlod_stream_failed_total", "hlod_stream_late_dropped_total")
 
 
 def _dict(value):
@@ -75,6 +82,54 @@ def _value(value):
             return None
         return value.get("value")
     return value
+
+
+def _chunk_hlod_inapplicable(value, route, key):
+    """Only HLOD-owned observations can be inapplicable on the chunk route."""
+    return (route == "chunk" and key in HLOD_ONLY_FAILURES and isinstance(value, dict)
+            and value.get("measured") is False and value.get("applicable") is False
+            and value.get("scope") == "chunk" and bool(value.get("reason")))
+
+
+def _queue_escape(queue):
+    """Full occupancy is bounded back-pressure; only an actual escape fails."""
+    queue = _dict(queue)
+    if _count(queue.get("bound_violations")) and queue["bound_violations"] > 0:
+        return "native owner observed a bound violation"
+    for key, bound in (("bytes", "byte_bound"),
+                       ("peak_bytes", "peak_byte_bound" if "peak_byte_bound" in queue else "byte_bound"),
+                       ("jobs", "job_bound"), ("peak_jobs", "job_bound")):
+        if _count(queue.get(key)) and _count(queue.get(bound)) and queue[key] > queue[bound]:
+            return f"{key} above its observed {bound}"
+    return None
+
+
+def _saturation_evidence(arm):
+    """Observe bound escape or held work; ordinary admission waits are IO data."""
+    arm = _dict(arm)
+    payload = (_dict(_dict(arm.get("native")).get("payload_telemetry"))
+               or _dict(_dict(arm.get("probe")).get("payload_telemetry")))
+    observed = _dict(arm.get("observed"))
+    counters = _dict(observed.get("saturation"))
+    if "queue_observations" in payload:
+        queues = ps.queue_observations_summary(payload["queue_observations"], route=payload.get("route"))
+        if payload.get("route") != "hlod" or queues.get("status") != ps.OK:
+            return False
+        ready = _dict(queues.get("ready"))
+        if (_count(payload.get("upload_hold_frames")) and payload["upload_hold_frames"] > 0
+                and ready.get("peak_bytes", 0) > 0 and ready.get("peak_jobs", 0) > 0):
+            return True
+        return any(_queue_escape(queues.get(owner)) for owner in ("retained", "ready"))
+    if any(_count(counters.get(key)) and counters[key] > 0 for key in SATURATION):
+        return True
+    return any(_queue_escape(queue) for queue in _dict(observed.get("queues")).values())
+
+
+def _progress_summary(arm, route):
+    observed = _dict(_dict(arm).get("observed"))
+    settings = _dict(observed.get("settings"))
+    windows = _dict(_dict(settings.get("timing_windows")).get("settle"))
+    return ps.forward_progress_summary(observed.get("forward_progress"), route=route, windows=windows)
 
 
 def _known(value, *, nested=False):
@@ -169,6 +224,8 @@ def _route_metrics(arm):
     # A CPU sum is not wall-clock IO throughput.
     for key in ("throughput_bytes_s", "cancellations", "retained_completion_peak_bytes"):
         put("io", key, optional.get(key))
+    for key in BACKPRESSURE:
+        put("io", key, telemetry.get(key, _dict(obs.get("saturation")).get(key)))
     for key, source in (("verify_ns", "verify_nsec"), ("decode_span_ns", "decode_nsec"),
                         ("decode_remainder_ns", "decode_remainder_nsec"), ("pack_ns", "pack_nsec"),
                         ("splats", "splats_decoded"), ("pages", "pages_decoded"),
@@ -180,7 +237,9 @@ def _route_metrics(arm):
         put("cpu_memory", key, optional.get(key, telemetry.get(key)))
     queues = _dict(obs.get("queues"))
     for key, source in (("retained_bytes", "bytes"), ("retained_bytes_peak", "peak_bytes")):
-        put("cpu_memory", key, _dict(queues.get("retained")).get(source))
+        retained = _dict(queues.get("retained"))
+        put("cpu_memory", key, {"status": ps.OK, "value": retained.get(source),
+                                "scope": retained.get("owner", "comparison-observed retained payload owner")})
     for key, source in (("bytes_per_frame", "upload_bytes_this_frame"), ("total_bytes", "upload_bytes"),
                         ("slices", "upload_slices"), ("queue_residence_ns", "queue_residence_nsec"),
                         ("completion_latency_ns", "upload_completion_nsec")):
@@ -347,25 +406,87 @@ def compare(experiment: dict) -> dict:
             problem("no_gpu_residency", "no GPU-resident drawn data was observed", route)
         for key in FAILURES:
             value = _dict(observed.get("failures")).get(key)
+            if _chunk_hlod_inapplicable(value, route, key):
+                continue
             if not _count(value):
                 problem("missing_metric", f"required failure observation not measured: {key}", route)
             elif value != 0:
                 problem("correctness_failure", f"nonzero {key}", route)
-        for key in SATURATION:
+        native_queues = telemetry.get("queue_observations")
+        scoped_queues = ps.queue_observations_summary(native_queues, route=route) if native_queues is not None else None
+        if scoped_queues is not None and scoped_queues.get("status") != ps.OK:
+            problem("missing_metric", scoped_queues.get("reason", "invalid native queue observations"), route)
+        if scoped_queues is not None:
+            for key in ("stale_generation_publications", "digest_verification_failures"):
+                if telemetry.get(key) != _dict(observed.get("failures")).get(key):
+                    problem("invalid_metric", f"{key} disagrees with native failure observation", route)
+            if route == "hlod":
+                samples = _dict(arm.get("native")).get("shared_layers_settings_samples")
+                try:
+                    actual_trace = ps.read_trace(Path(trace["file"]))
+                    for record in passes if isinstance(passes, list) else []:
+                        measured = ps.shared_layers_settings_summary(samples, ps.measured_rows(actual_trace, record["pass_index"]))
+                        if measured.get("status") != ps.OK:
+                            problem("settings_mismatch", measured.get("reason", "no per-row HLOD settings proof"), route)
+                        else:
+                            for key, value in _dict(measured.get("readback")).items():
+                                if settings.get(key) != value:
+                                    problem("settings_mismatch", f"per-row HLOD {key} differs from initial readback", route)
+                except (OSError, ValueError, KeyError, ps.TraceError) as exc:
+                    problem("settings_mismatch", f"cannot validate HLOD settings rows: {exc}", route)
+                for key, shipped in HLOD_CONFIG.items():
+                    if telemetry.get(key) != shipped:
+                        problem("settings_mismatch", f"native HLOD {key} differs from its shipped Config default", route)
+                oversized, live = telemetry.get("oversized_reservation_bytes"), telemetry.get("live_reservations")
+                if not _count(oversized) or not _count(live):
+                    problem("missing_metric", "native oversized reservation ownership is unavailable", route)
+                else:
+                    if oversized != 0 and live != 1:
+                        problem("queue_saturation", "oversized reservation is not the sole live owner", route)
+                    effective = max(HLOD_CONFIG["normal_retained_byte_bound"], oversized)
+                    for owner in ("retained", "ready"):
+                        if _dict(scoped_queues.get(owner)).get("byte_bound") != effective:
+                            problem("settings_mismatch", f"{owner} bound is neither shipped admission nor its single-node exception", route)
+        for key in BACKPRESSURE + SATURATION:
             value = _dict(observed.get("saturation")).get(key)
+            # Upload holds are a HLOD-only test seam. Chunk has no such owner;
+            # its real service/ready-window bounds remain mandatory below.
+            if (key == "upload_hold_frames" and route == "chunk" and isinstance(value, dict)
+                    and value.get("measured") is False and value.get("applicable") is False
+                    and value.get("scope") == "chunk" and value.get("reason")):
+                continue
             if not _count(value):
                 problem("missing_metric", f"required saturation observation not measured: {key}", route)
-            elif value != 0:
+            elif scoped_queues is not None and telemetry.get(key) != value:
+                problem("invalid_metric", f"{key} disagrees with native queue observation", route)
+            elif key in SATURATION and value != 0:
                 problem("queue_saturation", f"nonzero {key}", route)
         for owner in ("retained", "ready"):
             queue = _dict(_dict(observed.get("queues")).get(owner))
+            native_queue = _dict(_dict(scoped_queues).get(owner))
+            if scoped_queues is not None and queue != native_queue:
+                problem("invalid_metric", f"{owner} queue disagrees with native owner observation", route)
             for key in ("bytes", "peak_bytes", "byte_bound", "jobs", "peak_jobs", "job_bound"):
+                if (scoped_queues is not None and scoped_queues.get("status") == ps.OK
+                        and key.endswith("bound") and key in native_queue and native_queue[key] is None):
+                    continue  # No independent bound at this owner; its real bound is checked below.
                 if not _count(queue.get(key)):
                     problem("missing_metric", f"{owner} {key} not measured", route)
-            for key, bound in (("bytes", "byte_bound"), ("peak_bytes", "byte_bound"),
-                               ("jobs", "job_bound"), ("peak_jobs", "job_bound")):
-                if _count(queue.get(key)) and _count(queue.get(bound)) and queue[key] >= queue[bound]:
-                    problem("queue_saturation", f"{owner} {key} at/over its observed {bound}", route)
+            escape = _queue_escape(queue)
+            if escape:
+                problem("queue_saturation", f"{owner} {escape}", route)
+        if "forward_progress" in observed:
+            if (_dict(arm.get("native")).get("forward_progress") is not None
+                    and arm["native"]["forward_progress"] != observed["forward_progress"]):
+                problem("invalid_metric", "forward-progress records disagree with native probe receipts", route)
+            progress = _progress_summary(arm, route)
+            if progress.get("status") == ps.INVALID:
+                problem("invalid_metric", progress.get("reason", "invalid forward-progress observations"), route)
+            for window in progress.get("windows", []):
+                if window.get("no_forward_progress") is True:
+                    problem("queue_saturation", "demand outstanding without progress for the existing settle deadline", route)
+                elif window.get("deadline_missed") is True and window.get("measured") is not True:
+                    problem("missing_metric", "deadline expired without complete native forward-progress observations", route)
         screenshots = _dict(probe.get("screenshots"))
         files = screenshots.get("files")
         if screenshots.get("status") != ps.OK or not isinstance(files, list) or not files:
@@ -442,13 +563,21 @@ def compare(experiment: dict) -> dict:
         wanted = "payload_failure" if control == "corrupt" else "queue_saturation"
         if receipt.get("status") == "NOT_RUN":
             problem("control_not_run", receipt.get("reason", "forcing hook unavailable"), not_run=True)
-        elif not any(r["code"] == wanted for r in reasons):
+        elif "arm" in receipt or not any(r["code"] == wanted for r in reasons):
             control_arm = _dict(receipt.get("arm"))
             control_telemetry = (_dict(_dict(control_arm.get("native")).get("payload_telemetry"))
                                  or _dict(_dict(control_arm.get("probe")).get("payload_telemetry")))
-            if control == "corrupt" and any(_count(control_telemetry.get(k)) and control_telemetry[k] > 0
-                                           for k in ("page_failures", "captures_failed", "read_failures")):
+            corruption_source = ("corrupt_sha256" not in receipt or (
+                _is_sha(receipt.get("corrupt_sha256")) and receipt.get("source_sha256") == prepared.get("tree_file_sha256")
+                and receipt["corrupt_sha256"] != receipt["source_sha256"]
+                and _dict(control_arm.get("source")).get("loaded_file_sha256") == receipt["corrupt_sha256"]
+                and control_telemetry.get("route") == "hlod" and _count(control_telemetry.get("read_requests"))
+                and control_telemetry["read_requests"] > 0))
+            if control == "corrupt" and corruption_source and any(_count(control_telemetry.get(k)) and control_telemetry[k] > 0
+                                           for k in ("page_failures", "captures_failed", "digest_verification_failures")):
                 problem("payload_failure", "corrupted V4 control produced a native payload verification failure", "control")
+            elif control == "saturate" and _saturation_evidence(control_arm):
+                problem("queue_saturation", "separate HLOD control observed bounded-pipeline pressure", "control")
             else:
                 problem("control_not_observed", f"{control} label has no attributable observed failure")
     if control == "skip_compare":
@@ -463,6 +592,7 @@ def compare(experiment: dict) -> dict:
             "artifact_digests": _artifact_digests(arms, migration_arms),
             "passes": {route: copy.deepcopy(_dict(_dict(arms.get(route)).get("probe")).get("passes", []))
                        for route in ("chunk", "hlod")},
+            "forward_progress": {route: _progress_summary(arms.get(route), route) for route in ("chunk", "hlod")},
             "measurement_scopes": {"decode_pack": "worker_cpu_sum; not zstd wall time",
                                    "io_latency": "reader_wall_sum and read queue sum",
                                    "frame_intervals": "time-weighted nearest rank, cold and repeat reported separately"},

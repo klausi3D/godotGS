@@ -17,8 +17,10 @@ name: Beyond-VRAM Fly-through
 # HLOD and migration arms on the 3080. Its comparison and independent final
 # verdict fail closed; VALID means usable diagnostic evidence, not a Tier A pass.
 # shared_layers_control=corrupt|saturate|skip_compare must each leave the run red.
-# Required unexported queue/publication observations remain UNUSABLE; the
-# unbound saturation forcing hook is NOT_RUN, not a demonstrated saturation.
+# Native queue/publication observations fail closed when absent. The tests-only
+# saturation hook holds real ready uploads; their observation is UNUSABLE.
+# All arms use shipped capacity settings. Ordinary backpressure is reported;
+# no-progress failures use only the existing cold/stop/teleport settle windows.
 #
 # REPORT-ONLY: no job here is a required check and nothing gates a merge. The
 # gate verdict and the thresholds file are BV-09; hard correctness gates are

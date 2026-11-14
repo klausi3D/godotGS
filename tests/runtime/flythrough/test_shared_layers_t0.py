@@ -111,6 +111,37 @@ class RunnerPlumbing(unittest.TestCase):
             self.assertIs(metric["measured"], False)
             self.assertTrue(metric["reason"])
 
+    def test_queue_mapping_preserves_native_owner_and_absent_independent_bounds(self):
+        # Constructed interpreter-policy input, not a claimed engine capture.
+        # Native C++ tests prove these fields are exported from their owners.
+        queues = {name: {"owner": "hlod_shared_reservation_ledger", "bytes": 13, "peak_bytes": 17,
+                         "byte_bound": 100, "jobs": 1, "peak_jobs": 2, "job_bound": None,
+                         "job_bound_reason": "shared bytes; no independent job bound"}
+                  for name in ("retained", "ready")}
+        result = {"route": "hlod", "payload_telemetry": {"queue_observations": queues,
+                  "stale_generation_publications": 0, "digest_verification_failures": 0,
+                  "admission_waits": 0, "upload_hold_frames": 0},
+                  "shared_layers_payload_peaks": {"upload_hold_frames": 4, "stale_generation_publications": 1}}
+        observed = shared.observations(result, 0)
+        self.assertEqual(observed["queues"], queues)
+        self.assertIsNone(observed["queues"]["ready"]["job_bound"])
+        self.assertEqual(observed["failures"]["stale_generation_publications"], 1)
+        self.assertEqual(observed["saturation"]["upload_hold_frames"], 4)
+        result["payload_telemetry"]["stale_generation_publications"] = 3
+        self.assertEqual(shared.observations(result, 0)["failures"]["stale_generation_publications"], 3)
+        observed["queues"]["ready"]["bytes"] = 99
+        self.assertEqual(queues["ready"]["bytes"], 13)
+
+    def test_chunk_hlod_only_observations_are_scoped_as_inapplicable_never_zero(self):
+        observed = shared.observations({"route": "chunk"}, 0)
+        for key in ("nonresident_drawn_nodes", "hlod_stream_failed_total", "hlod_stream_late_dropped_total"):
+            marker = observed["failures"][key]
+            self.assertIs(marker["measured"], False)
+            self.assertIs(marker["applicable"], False)
+            self.assertEqual(marker["scope"], "chunk")
+            self.assertTrue(marker["reason"])
+        self.assertNotIn("applicable", observed["failures"]["stale_generation_publications"])
+
     def test_no_result_cannot_manufacture_success_or_zero_failures(self):
         observed = shared.observations({}, 1)
         self.assertIs(observed["final_marker"], False)
@@ -173,6 +204,36 @@ class RunnerPlumbing(unittest.TestCase):
         self.assertEqual(behavior["drawn_counts"][0]["drawn_splats"], native["checkpoints"][0]["drawn_splats"])
         self.assertIs(behavior["trace_drawn_splats_max"]["measured"], False)
 
+    def test_cpu_sink_capture_cannot_claim_actual_migration_hlod_route(self):
+        native = self.captured("d3_5/d3_5_hlod_test_results.json")["completed"]
+        self.assertIs(native["hlod_active"], False)
+        result = {"final_render_stats": native, "route": "hlod"}
+        self.assertIsNone(shared.payload_behavior(result, None)["route"])
+
+    def test_capture_arm_forwards_the_real_saturation_probe_plan(self):
+        with mock.patch.object(shared, "run_arm", return_value={}) as run:
+            shared.capture_arm(self.tmp / "candidate", self.tmp / "world", "hlod", {}, {}, {}, {},
+                               self.tmp / "saturate", shared.PRE_D3, control="saturate")
+        self.assertEqual(run.call_args.kwargs.get("control"), "saturate")
+
+    def test_only_saturation_arm_sets_the_forcing_plan_and_all_arms_keep_shipped_caps(self):
+        path = shared.rp.probe_path.resolve_path(self.captured("bv07/tsmoke.manifest.json"))
+        prepared = {key: {} for key in ("input_file_sha256", "generator_identity", "tree_file_sha256", "tree_identity")}
+        prepared["codec"] = {"sh_bands": 3}
+        calls = []
+        def process(binary, plan, out, timeout):
+            calls.append(copy.deepcopy(plan))
+            return {"result": {}, "trace": str(out / "trace.bin"), "exit_code": 1, "timed_out": False}
+        with mock.patch.object(shared.rp, "trace_integrity", return_value=(None, {})):
+            for control in ("none", "saturate"):
+                shared.run_arm(self.tmp / "candidate", self.tmp / "world", "hlod", prepared, path, {}, {},
+                               self.tmp / control, process=process, prepare_cold=lambda world: {}, control=control)
+        self.assertNotIn("shared_layers_control", calls[0])
+        self.assertEqual(calls[1]["shared_layers_control"], "saturate")
+        for plan in calls:
+            self.assertEqual(plan["project_settings"], shared.rp.control_settings(None))
+            self.assertEqual(plan["node"]["lod_bias"], 1.0)
+
     def test_prepare_reuses_d2_path_and_has_no_scan_parameter(self):
         import dispatch_lane as lane
         calls = []
@@ -207,7 +268,7 @@ class RunnerPlumbing(unittest.TestCase):
         manifest = self.captured("bv07/tsmoke.manifest.json")
         plain, tree = self.tmp / "plain" / "world.gsplatworld", self.tmp / "tree" / "world.gsplatworld"
         calls = []
-        def capture(binary, world, route, prepared, path, truth, source_manifest, out, expected_commit):
+        def capture(binary, world, route, prepared, path, truth, source_manifest, out, expected_commit, control="none"):
             calls.append((out.name, binary, world))
             return {"execution": "RAN", "source": {"loaded_file_sha256": "controller policy digest"},
                     "observed": {"exit_code": 0, "final_marker": True, "settings": {}}, "payload_behavior": {},
@@ -230,13 +291,101 @@ class RunnerPlumbing(unittest.TestCase):
         self.assertEqual([call[2] for call in calls[:4]], [plain, tree, tree, tree])
         self.assertEqual([call[1].name for call in calls[:4]], ["candidate", "candidate", "base", "candidate"])
 
+    def test_saturation_control_runs_a_fifth_hlod_arm_after_all_clean_measurements(self):
+        import dispatch_lane as lane
+        manifest = self.captured("bv07/tsmoke.manifest.json")
+        plain, tree = self.tmp / "plain/world.gsplatworld", self.tmp / "tree/world.gsplatworld"
+        calls = []
+        # Controller preconditions, intentionally not native probe-format fixtures.
+        def capture(binary, world, route, prepared, path, truth, source_manifest, out, expected_commit, control="none"):
+            calls.append((out.name, world, route, control))
+            return {"execution": "RAN", "source": {"loaded_file_sha256": "policy digest"},
+                    "observed": {"exit_code": 0, "final_marker": True, "settings": {}}, "payload_behavior": {},
+                    "trace": {"file": str(out / "trace.bin")}, "cache": {},
+                    "native": {"shared_layers_control": {"hook_applied": control == "saturate", "observed": True}}}
+        with mock.patch.object(shared.subprocess, "run", return_value=mock.Mock(stdout="a" * 40 + "\n")), mock.patch.object(
+                shared, "verified_binary", side_effect=lambda binary, info, expected: {"commit": expected, "sha256": "b" * 64}), mock.patch.object(
+                shared.wc, "cache_lock", return_value=contextlib.nullcontext()), mock.patch.object(
+                lane, "prepare_auto_tree_t0", return_value={"plain": plain, "tree": tree, "report": {}}), mock.patch.object(
+                shared, "prepared_receipt", return_value={}), mock.patch.object(shared, "read_json", return_value=manifest), mock.patch.object(
+                shared, "capture_arm", side_effect=capture):
+            rc = shared.run(self.tmp, self.tmp / "candidate", self.tmp / "base", self.tmp / "base-info.json",
+                            self.tmp / "cache", self.tmp / "out", "unit-orchestration", "saturate")
+        self.assertEqual(rc, 0)
+        self.assertEqual([call[0] for call in calls], ["chunk", "hlod", "base", "candidate", "saturate"])
+        self.assertEqual(calls[-1][1:], (tree, "hlod", "saturate"))
+        receipt = json.loads((self.tmp / "out/experiment.json").read_text())["control_receipt"]
+        self.assertEqual(receipt["status"], "FORCED")
+        self.assertIs(receipt["observed"]["hook_applied"], True)
+
     def test_probe_retains_measurement_exports_and_separate_hlod_convergence(self):
         gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
         self.assertIn('"device_vram_ledger"]', gd)
         self.assertIn('_result["shared_layers_settings"]', gd)
         self.assertIn('_result["loaded_file_sha256"] = FileAccess.get_sha256', gd)
-        self.assertIn('int(_last_stats["hlod_stream_desired_nodes"]) == int(_last_stats["hlod_stream_resident_nodes"])', gd)
+        # Desired counts missing demand; resident counts the entire cache.
+        self.assertIn('int(_last_stats["hlod_stream_desired_nodes"]) == 0', gd)
+        self.assertNotIn('int(_last_stats["hlod_stream_desired_nodes"]) == int(_last_stats["hlod_stream_resident_nodes"])', gd)
+        self.assertIn('if not bool(_last_stats.get("hlod_active", false)):', gd)
         self.assertIn('int(ss["needed_not_resident_chunks"]) != 0', gd)
+        self.assertIn('_result["shared_layers_settings_samples"] = _shared_layers_settings_samples', gd)
+        self.assertIn('renderer.call("_test_set_shared_layers_saturation", true)', gd)
+        self.assertIn('int(payload.get("upload_hold_frames", 0)) > 0 and int(payload.get("ready_bytes", 0)) > 0', gd)
+        self.assertIn('renderer.call("_test_set_shared_layers_saturation", false)', gd)
+
+    def test_probe_applies_the_common_settings_without_a_diagnostic_capacity_override(self):
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        settings_loop = gd[gd.index('\tvar settings: Dictionary = _plan.get("project_settings", {})',
+                                    gd.index('func _run()')):gd.index('\tProjectSettings.emit_signal("settings_changed")',
+                                    gd.index('func _run()'))]
+        self.assertIn('ProjectSettings.set_setting(key, settings[key])', settings_loop)
+        self.assertNotIn('shared_layers_retained_mb', gd)
+        self.assertNotIn('shared_layers_retained_mb', (HERE / "shared_layers_t0.py").read_text(encoding="utf-8"))
+
+    def test_real_capture_settle_windows_are_retained_without_inventing_progress(self):
+        native = self.captured("bv07/tsmoke_path.result.json")
+        windows = shared.forward_progress_windows(native)
+        self.assertEqual(shared.observations(native, 0)["forward_progress"], windows)
+        expected = {(entry["pass_index"], entry["id"]) for entry in native["segments"] if "settle" in entry}
+        self.assertEqual({(entry["pass_index"], entry["segment"]) for entry in windows}, expected)
+        self.assertEqual(len(windows), len(expected))
+        self.assertTrue(windows)
+        for entry in windows:
+            self.assertIs(entry["measured"], False)
+            self.assertTrue(entry["reason"])
+            self.assertNotIn("no_forward_progress", entry)
+
+    def test_progress_receipts_prefer_all_segment_windows_and_preserve_native_samples(self):
+        # Constructed controller policy, not a fixture claiming native output.
+        cold = {"measured": True, "window": "cold_deadline_s", "samples": [{"completion_count": 1}]}
+        stop = {"measured": False, "reason": "no native initial observation"}
+        result = {"segments": [
+            {"id": "cold", "pass_index": 0, "settle": {"settled": True, "forward_progress": cold}},
+            {"id": "stop", "pass_index": 0, "settle": {"settled": True, "forward_progress": stop}}],
+            "checkpoints": [{"segment": "stop", "checkpoint": "C0", "pass_index": 0,
+                             "settle": {"settled": True, "forward_progress": stop}}]}
+        windows = shared.forward_progress_windows(result)
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(windows[0]["window"], "cold_deadline_s")
+        self.assertEqual(windows[0]["samples"], cold["samples"])
+        windows[0]["samples"].clear()
+        self.assertTrue(cold["samples"])
+
+    def test_progress_wiring_uses_existing_deadlines_and_read_decode_partial_upload_progress(self):
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        begin = gd.index('func _shared_layers_progress_snapshot()')
+        end = gd.index('func _pump_for(', begin)
+        progress = gd[begin:end]
+        for field in ("reads_completed_ok", "pages_decoded", "upload_completions", "upload_bytes",
+                      "upload_chunks_total", "upload_bytes_total", "needed_not_resident_chunks"):
+            self.assertIn('"' + field + '"', progress)
+        self.assertIn('int(deadline_s * 1000000.0)', progress)
+        self.assertIn('progress["observed_usec"] = observed_usec', progress)
+        self.assertIn('and observed_usec >= int(deadline_s * 1000000.0) and demand_throughout and not any_progress', progress)
+        self.assertIn('progress_samples.append(_shared_layers_progress_snapshot())', progress)
+        self.assertIn('await _pump_settle(float(settle_cfg.get(key, 10.0)), key)', gd)
+        self.assertNotIn('admission_waits', progress)
+        self.assertNotIn('reads_refused_busy', progress)
 
 
 if __name__ == "__main__":

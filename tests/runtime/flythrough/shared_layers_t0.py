@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Runner orchestration for the report-only D3-6 paired synthetic T0 experiment.
 
-No C++ observation is inferred from a requested setting or a missing key. Some
-publication/bound measurements currently exist only in unbound C++ test hooks;
-their explicit missing markers make the comparison UNUSABLE. This module runs
-only through dispatch_lane on the dedicated runner; unit tests inject producers.
+No C++ observation is inferred from a requested setting or a missing key. Native
+route-labelled diagnostics supply the bounded owners and publication counters;
+an absent observation remains explicit. This module runs only through
+dispatch_lane on the dedicated runner; unit tests inject producers.
 """
 
 from __future__ import annotations
@@ -150,7 +150,9 @@ def requested_settings(plan: dict, prepared: dict) -> dict:
             "drawn_splats": plan["node"]["max_splat_count"],
             "timing_windows": {"moving_passes": plan["passes"], "settle": plan["settle"]},
             "node_readback": {"max_splat_count": plan["node"]["max_splat_count"],
-                              "max_render_distance": plan["node"]["max_render_distance_m"], "lod_enabled": True},
+                              "max_render_distance": plan["node"]["max_render_distance_m"], "lod_enabled": True,
+                              "hlod_tau_px": plan["node"].get("hlod_tau_px", 0.0),
+                              "lod_bias": plan["node"].get("lod_bias", 1.0)},
             "project_settings_readback": plan["project_settings"]})
 
 
@@ -163,9 +165,30 @@ def process_settings(result: dict) -> dict:
     return settings
 
 
+def forward_progress_windows(result: dict) -> list:
+    """Retain producer settle receipts, including cold holds without checkpoints."""
+    windows, seen = [], set()
+    for source, entries in (("segment", result.get("segments", [])), ("checkpoint", result.get("checkpoints", []))):
+        for entry in entries:
+            settle = entry.get("settle")
+            if not isinstance(settle, dict):
+                continue
+            identity = (entry.get("pass_index"), entry.get("id") if source == "segment" else entry.get("segment"))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            receipt = copy.deepcopy(settle.get("forward_progress", missing("producer did not capture this settle window's progress")))
+            receipt.update(pass_index=entry.get("pass_index"), segment=identity[1],
+                           checkpoint=entry.get("checkpoint"), settled=settle.get("settled"),
+                           source=source)
+            windows.append(receipt)
+    return windows
+
+
 def observations(result: dict, exit_code: int) -> dict:
     final = result.get("final_render_stats", {})
     peaks = result.get("shared_layers_peaks", {})
+    payload_peaks = result.get("shared_layers_payload_peaks", {})
     payload = result.get("payload_telemetry") or {}
     route = result.get("route")
     world = result.get("world_payload_readback", {})
@@ -177,27 +200,38 @@ def observations(result: dict, exit_code: int) -> dict:
     def peak(key):
         return value(key, peaks)
 
+    def payload_peak(key):
+        values = [source[key] for source in (payload_peaks, payload) if key in source]
+        if values and all(type(item) in (int, float) for item in values):
+            return max(values)
+        return value(key, payload_peaks if key in payload_peaks else payload)
+
+    def hlod_peak(key):
+        return peak(key) if route == "hlod" else {"measured": False, "applicable": False, "scope": "chunk",
+            "reason": "chunk route has no HLOD node-residency owner"}
+
     resident = value("hlod_stream_drawn_nodes") if route == "hlod" else missing(
         "chunk route exposes resident chunks, not GPU-resident drawn nodes")
     mode = world.get("mode")
     fallback = (mode == "resident_only") if isinstance(mode, str) else missing("no world payload mode readback")
+    native_queues = payload.get("queue_observations") or {}
     queues = {}
     for owner in ("retained", "ready"):
-        queues[owner] = {
+        queues[owner] = copy.deepcopy(native_queues[owner]) if owner in native_queues else {
             "bytes": value(f"{owner}_bytes", payload), "peak_bytes": value(f"{owner}_bytes_peak", payload),
-            "byte_bound": missing(f"{owner} byte bound has no GDScript export; C++ TestSnapshot is unbound"),
-            "jobs": missing(f"{owner} jobs have no GDScript export"),
-            "peak_jobs": missing(f"{owner} job high-water mark has no GDScript export"),
-            "job_bound": missing(f"{owner} job bound has no GDScript export"),
+            "byte_bound": missing(f"process did not export {owner} byte bound"),
+            "jobs": missing(f"process did not export {owner} jobs"),
+            "peak_jobs": missing(f"process did not export {owner} job high-water mark"),
+            "job_bound": missing(f"process did not export {owner} job bound"),
         }
     failures = {
-        "stale_generation_publications": missing("publication generations are observable only by unbound C++ TestPublication"),
-        "nonresident_drawn_nodes": peak("hlod_stream_nonresident_drawn"),
+        "stale_generation_publications": payload_peak("stale_generation_publications"),
+        "nonresident_drawn_nodes": hlod_peak("hlod_stream_nonresident_drawn"),
         "overflow_events": peak("instance_count_overflow_events"),
         "drop_events": missing("drop totals require native per-frame summary"),
-        "digest_verification_failures": missing("payload page_failures is aggregate; no separate digest-failure count exported"),
-        "hlod_stream_failed_total": peak("hlod_stream_failed_total"),
-        "hlod_stream_late_dropped_total": peak("hlod_stream_late_dropped_total"),
+        "digest_verification_failures": payload_peak("digest_verification_failures"),
+        "hlod_stream_failed_total": hlod_peak("hlod_stream_failed_total"),
+        "hlod_stream_late_dropped_total": hlod_peak("hlod_stream_late_dropped_total"),
     }
     return {"settings": process_settings(result), "source_generation": result.get("source_generation"),
             "final_marker": result.get("ok") is True and result.get("reason") == "plan completed",
@@ -206,10 +240,14 @@ def observations(result: dict, exit_code: int) -> dict:
                         "hlod_stream_page_store_active": value("hlod_stream_page_store_active"),
                         "resident_materialized_fallback": fallback, "gpu_resident_drawn_nodes": resident},
             "failures": failures, "queues": queues,
-            "saturation": {"hlod_stream_stall_frames": peak("hlod_stream_stall_frames"),
-                           "hlod_stream_blocked_groups": peak("hlod_stream_blocked_groups"),
-                           "reads_refused_busy": value("reads_refused_busy", payload),
-                           "admission_waits": value("admission_waits", payload)}}
+            "saturation": {"reads_refused_busy": payload_peak("reads_refused_busy"),
+                           "admission_waits": payload_peak("admission_waits"),
+                           "upload_hold_frames": (payload_peak("upload_hold_frames") if route == "hlod" else {
+                               "measured": False, "applicable": False, "scope": "chunk",
+                               "reason": "chunk route has no HLOD upload-hold test seam"})},
+            "convergence": {"hlod_stream_stall_frames": hlod_peak("hlod_stream_stall_frames"),
+                            "hlod_stream_blocked_groups": hlod_peak("hlod_stream_blocked_groups")},
+            "forward_progress": forward_progress_windows(result)}
 
 
 def cold_prepare(world: Path) -> dict:
@@ -251,11 +289,15 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
                             "drawn_splats": cp.get("drawn_splats")} for cp in checkpoints]
                           or missing("no checkpoint drawn observations")),
         "drawn_fraction": missing("HLOD cut-selection denominator has no exported acceptance oracle"),
-        "cancellations": stats.get("hlod_stream_cancelled_total", missing("route does not export cancellation count")),
+        "cancellations": payload.get("cancellations", stats.get("hlod_stream_cancelled_total",
+            missing("route does not export cancellation count"))),
         "unique_bytes": missing("uploads have no common unique-payload identity observation"),
-        "staging_allowance_bytes": missing("effective upload slice cap is not the upload staging allowance"),
-        "retained_completion_peak_bytes": missing("transport completion retention high-water mark is not exported"),
-        "oversized_node_events": missing("oversized reservation events have no GDScript export"),
+        "staging_allowance_bytes": payload.get("staging_allowance_bytes",
+            missing("route does not export upload staging allowance")),
+        "retained_completion_peak_bytes": payload.get("retained_completion_peak_bytes",
+            missing("transport completion retention high-water mark is not exported")),
+        "oversized_node_events": payload.get("oversized_node_events",
+            missing("oversized reservation event count is not exported")),
     }
     first = (probe.get("passes") or [{}])[0]
     if route == "chunk":
@@ -279,11 +321,13 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
                          and trace.get(row, "needed_chunks") > 0)
             else:
                 names = ("hlod_stream_desired_nodes", "hlod_stream_resident_nodes", "hlod_stream_loading_nodes",
-                         "hlod_stream_nonresident_drawn", "hlod_stream_failed_nodes", "hlod_stream_drawn_nodes")
+                         "hlod_stream_nonresident_drawn", "hlod_stream_failed_nodes", "hlod_stream_drawn_nodes",
+                         "hlod_active", "hlod_stream_blocked_groups", "hlod_stream_fragmented_groups")
                 ready = all(name in trace.index for name in names)
                 if ready:
-                    ready = (trace.get(row, names[0]) > 0 and trace.get(row, names[0]) == trace.get(row, names[1])
-                             and all(trace.get(row, name) == 0 for name in names[2:5]) and trace.get(row, names[5]) > 0)
+                    ready = (trace.get(row, names[0]) == 0
+                             and all(trace.get(row, name) == 0 for name in names[2:5]) and trace.get(row, names[5]) > 0
+                             and trace.get(row, names[6]) == 1 and all(trace.get(row, name) == 0 for name in names[7:]))
             if ready:
                 complete.append(trace.get(row, "engine_frame"))
         if complete:
@@ -294,14 +338,21 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
 
 def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, truth: dict,
             manifest: dict, out: Path, process=rp.run_godot, prepare_cold=cold_prepare,
-            expected_commit: str | None = None) -> dict:
+            expected_commit: str | None = None, control: str = "none") -> dict:
     out.mkdir(parents=True, exist_ok=True)
     plan = rp.path_plan(world, path, passes=2, screenshots={"dir": (out / "screenshots").as_posix(),
                                                          "moving_every_n": 100})
     plan["shared_layers_t0"] = True
+    if control == "saturate":
+        # The only caller setting this is the additional, post-measurement
+        # control arm. The probe binds the existing TESTS_ENABLED upload hold
+        # and waits for its native ready-work observation before releasing it.
+        plan["shared_layers_control"] = control
     # Both routes use precisely the same runtime policy. D2's provisional 1M
     # builder oracle budget must not silently become a runtime setting.
     plan["node"]["lod_enabled"] = True
+    plan["node"]["hlod_tau_px"] = 0.0
+    plan["node"]["lod_bias"] = 1.0
     request = requested_settings(plan, prepared)
     cache = prepare_cold(world)
     run = process(binary, plan, out, 1800.0)
@@ -311,6 +362,15 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
         "payload_telemetry": ps.route_telemetry_summary(result.get("payload_telemetry"),
             route=result.get("route"), source_generation=result.get("source_generation")),
         "screenshots": rp.screenshot_record(result.get("screenshots"))})
+    settings_samples = float32_values(result.get("shared_layers_settings_samples"))
+    if route == "hlod" and settings_samples is not None and trace is not None:
+        # HLOD has no chunk VRAM regulator revision. Preserve that raw absence,
+        # then use actual per-row node/camera/project readbacks for this paired
+        # diagnostic's settings invariance instead.
+        for measured_pass in probe.get("passes", []):
+            measured_pass["chunk_settings_measured"] = measured_pass.get("settings_measured")
+            measured_pass["settings_measured"] = ps.shared_layers_settings_summary(
+                settings_samples, ps.measured_rows(trace, measured_pass["pass_index"]))
     observed = observations(result, run.get("exit_code"))
     observed["camera_application"] = camera_application(trace, path)
     observed["actual_checkpoint_poses"] = [{"pass_index": cp.get("pass_index"), "checkpoint": cp.get("checkpoint"),
@@ -340,6 +400,10 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
            "optional_measurements": native_metrics(result, run, trace, route, probe),
            "native": {"result": str(out / "result.json"), "process_failure": rp.process_failure(run),
                       "payload_telemetry": copy.deepcopy(result.get("payload_telemetry")),
+                      "shared_layers_control": copy.deepcopy(result.get("shared_layers_control")),
+                      "shared_layers_settings_samples": settings_samples,
+                      "shared_layers_payload_peaks": copy.deepcopy(result.get("shared_layers_payload_peaks")),
+                      "forward_progress": copy.deepcopy(observed["forward_progress"]),
                       "cold_pass_io": rp.cold_pass_io(result), "requested_route": route,
                       "engine_version": result.get("engine_version"), "expected_binary_commit": expected_commit,
                       "binary_identity_matches": runtime_hash == expected_commit if expected_commit is not None else None},
@@ -350,7 +414,13 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
 
 def payload_behavior(result: dict, trace) -> dict:
     stats = result.get("final_render_stats", {})
-    return {"route": result.get("route"), "loaded_file_sha256": result.get("loaded_file_sha256"),
+    # All three flags exist on immutable pre-D3. Resource shape alone is not
+    # proof that the process served HLOD streaming rather than a fallback.
+    actual_hlod = all(stats.get(key) is True for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged"))
+    actual_chunk = (result.get("route") == "chunk" and isinstance(stats.get("streaming_state"), dict))
+    return {"route": "hlod" if actual_hlod else "chunk" if actual_chunk else None,
+            "route_evidence": {key: stats.get(key) for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged")},
+            "loaded_file_sha256": result.get("loaded_file_sha256"),
             "decoded_bytes": missing("no route-common decoded byte counter exists on pre-D3 and candidate"),
             "stored_bytes_read": stats.get("hlod_stream_payload_bytes_read_total",
                                              missing("HLOD stored-byte counter absent")),
@@ -370,14 +440,16 @@ def migration_arm(arm: dict, identity: dict) -> dict:
             "camera_application": arm["observed"].get("camera_application"),
             "actual_checkpoint_poses": arm["observed"].get("actual_checkpoint_poses"),
             "settings_scope": arm["observed"].get("settings_scope"), "native": arm.get("native"),
-            "cache": arm["cache"], "legacy_unmeasured": missing("pre-D3 has no D3-5 payload telemetry or queue/publication exports")}
+            "cache": arm["cache"], "legacy_unmeasured": missing(
+                "pre-D3 has no D3-5 payload telemetry or queue/publication exports; all arms use shipped capacity settings")}
 
 
 def capture_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, truth: dict,
-                manifest: dict, out: Path, expected_commit: str) -> dict:
+                manifest: dict, out: Path, expected_commit: str, control: str = "none") -> dict:
     """A failed arm is recorded independently; later arms still get to run."""
     try:
-        return run_arm(binary, world, route, prepared, path, truth, manifest, out, expected_commit=expected_commit)
+        return run_arm(binary, world, route, prepared, path, truth, manifest, out,
+                       expected_commit=expected_commit, control=control)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, ps.TraceError) as exc:
         artifact = out / "result.json"
         arm = {"execution": "RAN" if artifact.exists() else "NOT_RUN",
@@ -473,9 +545,13 @@ def run(repo: Path, binary: Path, base_binary: Path, base_build_info: Path, cach
                                        "payload_telemetry": arm.get("native", {}).get("payload_telemetry")}
                 experiment["control_receipt"] = receipt
             elif control == "saturate":
-                experiment["control_receipt"] = {"status": "NOT_RUN", "reason":
-                    "HlodNodeStreamer::TestControl.hold_uploads and retained bound overrides have no GDScript binding; "
-                    "no legal Python/GDScript forcing hook exists. No saturation observation is fabricated."}
+                arm = capture_arm(binary, tree, "hlod", prepared, path, truth, manifest,
+                                  out / "controls" / "saturate", expected_commit=candidate_commit, control="saturate")
+                native_control = arm.get("native", {}).get("shared_layers_control") or {}
+                experiment["control_receipt"] = {
+                    "status": "FORCED" if native_control.get("hook_applied") is True else "FAILED",
+                    "forcing": "TESTS_ENABLED HlodNodeStreamer upload hold, applied only in this additional probe",
+                    "arm": arm, "observed": copy.deepcopy(native_control)}
             elif control == "skip_compare":
                 experiment["control_receipt"] = {"status": "FORCED", "reason": "workflow omits comparison invocation; separate final verdict requires its report"}
         write_json(out / "experiment.json", experiment)

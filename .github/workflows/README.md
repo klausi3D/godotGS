@@ -142,7 +142,7 @@ contract-source ADR.
 | `baseline_qa.yml` | `debug_mode` | `true`, `false` |
 | `baseline_qa.yml` | `baseline_mode` | `compare`, `update` |
 | `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), `shared_layers_t0` (candidate/pre-D3 builds and one sequential paired synthetic GPU diagnostic), or `watchdog` (only the liveness watchdog) |
-| `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Each forcing control must be red; missing forcing capability remains NOT_RUN rather than a successful control. |
+| `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Each forcing control must be red. Saturation holds actual ready HLOD uploads through the tests-only hook and requires native hold/queue evidence. |
 | `beyond_vram_flythrough.yml` | `tier` | `T0` (default, 4.19M-splat smoke world), `A` (the 201M-splat world, uncompressed plain v3; also uses `T0`). The weekly schedule runs `A`. |
 | `beyond_vram_flythrough.yml` | `prime_world_cache` | boolean (default `false`): regenerate the tier's worlds into the runner's world cache first (job `prime-world-cache`) |
 | `beyond_vram_flythrough.yml` | `disk_probe_gib` | integer string `1`-`64` (default `8`), size of the O_DIRECT disk-probe file |
@@ -232,14 +232,22 @@ control. Corruption flips stored bytes in a copy of every V4 node payload.
 Contention postflight precedes comparison; finalization independently requires
 the current run/control's report and rechecks its bound experiment/artifacts.
 
-Current observation limits are intentional and visible: retained/ready bounds,
-job occupancy, publication generations and a separate digest-failure counter
-have no usable script exports. Required missing observations make the main
-evidence **UNUSABLE**. The upload-hold/bound test hook is also unbound, so
-`saturate` is **NOT_RUN**, never a claimed successful or demonstrated control.
-Completing that physical proof needs separately exposed engine observations and
-a forcing hook. `skip_compare` omits comparison and the final verdict fails on
-the missing report. No diagnostic result is a Tier A pass.
+Route-labelled native exports include actual queue occupancy, high-water marks,
+existing bounds, stale-generation publications and digest-verification failures.
+An owner without an independent byte/job bound declares that fact with an explicit
+reason; no bound is invented from worker concurrency. HLOD settings are sampled
+from the process every trace row because that route has no chunk regulator.
+All measured arms use the shipped capacity settings. Admission waits, busy
+refusals and queue occupancy are backpressure observations, not by themselves a
+failure. Existing cold/stop/teleport settle windows record native read, decode and
+upload progress; outstanding demand with no forward progress across a full
+existing deadline is unusable evidence. No new time threshold is introduced.
+`saturate` runs an additional HLOD probe, holds real ready uploads through the
+tests-only hook, waits for native upload-hold/ready-byte evidence, and releases
+the hold. That observation makes comparison **UNUSABLE**. Failure to observe it
+before the deadline also fails the control. `skip_compare` omits comparison and
+the final verdict fails on the missing report. No diagnostic result is a Tier A
+pass. Physical proof still requires the runner dispatches and their artifacts.
 
 Metrics retain native CPU-stage scopes and cold/repeat labels. Unknown values
 have explicit not-measured reasons. #1441 is not closed: frame intervals and

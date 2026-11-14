@@ -47,7 +47,7 @@ static void common(const Dictionary &p_block, const char *p_route, uint64_t p_ge
 		CHECK_MESSAGE(number(p_block, key) > 0, std::string(key));
 	}
 	for (const char *key : { "captures_failed", "captures_on_main_thread", "pages_decoded_on_main_thread",
-			"page_failures", "read_failures" }) {
+			"page_failures", "read_failures", "digest_verification_failures" }) {
 		CHECK_MESSAGE(number(p_block, key) == 0, std::string(key));
 	}
 	CHECK(p_block.has("last_failure_reason"));
@@ -253,6 +253,32 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real HLOD export
 	CHECK(number(mailbox, "mailbox_bytes") == int64_t(mailbox_sample.mailbox_bytes));
 	CHECK(number(ready, "ready_bytes") == int64_t(ready_sample.ready_bytes));
 	CHECK(number(ready, "packed_bytes") >= number(ready, "ready_bytes"));
+	Dictionary queues, retained_queue, ready_queue;
+	if (!dictionary(ready, "queue_observations", queues) || !dictionary(queues, "retained", retained_queue) ||
+			!dictionary(queues, "ready", ready_queue)) { return; }
+	CHECK(String(retained_queue.get("owner", "")) == "hlod_shared_reservation_ledger");
+	CHECK(String(ready_queue.get("owner", "")) == "hlod_shared_reservation_ledger");
+	CHECK(number(retained_queue, "bytes") == int64_t(ready_sample.stored_bytes + ready_sample.decode_bytes +
+			ready_sample.worker_output_bytes + ready_sample.mailbox_bytes + ready_sample.ready_bytes + ready_sample.partial_upload_bytes));
+	CHECK(number(ready_queue, "bytes") == int64_t(ready_sample.ready_bytes + ready_sample.partial_upload_bytes));
+	CHECK(number(retained_queue, "byte_bound") == int64_t(run.streamer().get_retained_byte_cap()));
+	CHECK(number(ready_queue, "byte_bound") == number(retained_queue, "byte_bound"));
+	CHECK(number(ready_queue, "jobs") == int64_t(ready_sample.ready_outputs));
+	CHECK(number(retained_queue, "peak_bytes") >= number(retained_queue, "bytes"));
+	CHECK(number(ready_queue, "peak_jobs") >= number(ready_queue, "jobs"));
+	CHECK(retained_queue.has("job_bound"));
+	CHECK(retained_queue.get("job_bound", -1).get_type() == Variant::NIL);
+	CHECK(String(retained_queue.get("job_bound_reason", "")).length() > 0);
+	CHECK(number(ready, "stale_generation_publications") == 0);
+	CHECK(number(ready, "upload_hold_frames") > 0);
+	CHECK(number(ready, "admission_waits") >= 0);
+	CHECK(number(ready, "configured_read_byte_cap") == int64_t(run.config.max_inflight_read_bytes));
+	CHECK(number(ready, "configured_max_jobs_in_flight") == int64_t(run.config.max_jobs_in_flight));
+	CHECK(number(ready, "configured_upload_bytes_per_frame") == int64_t(run.config.upload_bytes_per_frame));
+	CHECK(number(retained_queue, "bound_violations") == 0);
+	CHECK(number(ready_queue, "bound_violations") == 0);
+	CHECK(number(retained_queue, "peak_bytes") <= number(retained_queue, "peak_byte_bound"));
+	CHECK(number(ready_queue, "peak_bytes") <= number(ready_queue, "peak_byte_bound"));
 	for (const char *owner : { "packed", "ready", "mailbox", "active", "stored", "shadow" }) {
 		const String key = String(owner) + "_bytes";
 		const String peak = key + "_peak";
@@ -280,6 +306,74 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real HLOD export
 	CHECK(atlas_bytes > 0);
 	CHECK(number(completed, "upload_bytes") == int64_t(atlas_bytes));
 	CHECK(number(completed, "upload_slices") == int64_t(atlas_slices));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-6 bound upload hold reaches native saturation and resumes") {
+	HlodRun run;
+	if (!run.init()) { return; }
+	run.control.hold_mailbox = false;
+	run.control.hold_uploads = false;
+	if (!run.set_control()) { return; }
+	if (!run.renderer->has_method("_test_set_shared_layers_saturation")) {
+		FAIL("D3-6 saturation forcing binding was removed");
+		return;
+	}
+	const Variant held = run.renderer->call("_test_set_shared_layers_saturation", true);
+	if (held.get_type() != Variant::INT || int64_t(held) != OK) {
+		FAIL("D3-6 forcing input did not reach the actual HLOD upload hold");
+		return;
+	}
+	if (!run.until("actual packed output held from upload", [&]() {
+		const Variant value = run.streamer().get_payload_telemetry();
+		if (value.get_type() != Variant::DICTIONARY) { return false; }
+		const Dictionary block = value;
+		return int64_t(block.get("upload_hold_frames", 0)) > 0 && int64_t(block.get("ready_bytes", 0)) > 0;
+	})) { return; }
+	CHECK(run.streamer().get_telemetry().resident == 0);
+	Dictionary block;
+	if (!dictionary(run.stats(), "payload_telemetry", block)) { return; }
+	CHECK(number(block, "upload_hold_frames") > 0);
+	CHECK(number(block, "ready_bytes") > 0);
+	const Variant released = run.renderer->call("_test_set_shared_layers_saturation", false);
+	if (released.get_type() != Variant::INT || int64_t(released) != OK) {
+		FAIL("D3-6 hold must be reversible without changing production defaults");
+		return;
+	}
+	if (!run.until("residency after releasing real upload hold", [&]() { return run.streamer().get_telemetry().resident == 1; })) { return; }
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-6 corrupted writer payload is read and exported as verification failure") {
+	HlodRun run;
+	if (!run.init()) { return; }
+	if (run.fixture.source->get_nodes().is_empty()) { FAIL("D3-6 corruption needs a real V4 node"); return; }
+	Error error = ERR_BUG;
+	Vector<uint8_t> bytes = FileAccess::get_file_as_bytes(run.fixture.path, &error);
+	const auto &record = run.fixture.source->get_nodes()[0];
+	if (error != OK || record.stored_bytes == 0 || record.offset > uint64_t(bytes.size()) ||
+			record.stored_bytes > uint64_t(bytes.size()) - record.offset) {
+		FAIL("D3-6 corruption must target bytes in the real stored payload"); return;
+	}
+	bytes.ptrw()[record.offset + record.stored_bytes - 1] ^= 1;
+	{
+		Ref<FileAccess> file = FileAccess::open(run.fixture.path, FileAccess::WRITE);
+		if (file.is_null() || !file->store_buffer(bytes.ptr(), bytes.size())) {
+			FAIL("D3-6 isolated writer payload could not be corrupted"); return;
+		}
+		file->flush();
+		if (file->get_error() != OK) { FAIL("D3-6 isolated corruption was not flushed"); return; }
+	}
+	run.control.hold_mailbox = false;
+	run.control.hold_uploads = false;
+	if (!run.set_control() || !run.until("native corruption failure", [&]() {
+		return run.streamer().get_telemetry().failed_total > 0;
+	})) { return; }
+	Dictionary block;
+	if (!dictionary(run.stats(), "payload_telemetry", block)) { return; }
+	CHECK(number(block, "read_requests") > 0);
+	CHECK(number(block, "digest_verification_failures") > 0);
+	CHECK(number(block, "captures_failed") > 0);
+	CHECK(String(block.get("last_failure_reason", "")).length() > 0);
+	CHECK(run.streamer().get_telemetry().resident == 0);
 }
 
 struct ChunkCapture {
@@ -318,6 +412,42 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real chunk expor
 		report[checked ? "checked" : "skipped"] = record;
 		common(stats, "chunk", uint64_t(run.source->get_instance_id()));
 		CHECK(String(stats.get("digest_status", "absent")) == (checked ? "checked" : "skipped"));
+		Ref<GaussianStreamingSystem> streaming;
+		streaming.instantiate();
+		if (streaming.is_null()) { FAIL("D3-6 chunk runtime owner allocation failed"); return; }
+		streaming->_test_register_primary_asset_for_chunks();
+		auto *asset = streaming->_test_get_asset_state(GaussianStreamingSystem::PRIMARY_ASSET_ID);
+		if (!asset) { FAIL("D3-6 actual chunk primary asset is absent"); return; }
+		asset->payload_source = run.source;
+		Ref<GaussianSplatRenderer> renderer;
+		renderer.instantiate();
+		if (renderer.is_null() || !renderer->debug_state_orchestrator) {
+			FAIL("D3-6 actual renderer diagnostics are absent"); return;
+		}
+		renderer->get_streaming_state().current_streaming_system = streaming;
+		RenderDiagnosticsOrchestrator::Dependencies deps;
+		deps.renderer = renderer.ptr();
+		deps.debug_state_orchestrator = renderer->debug_state_orchestrator.get();
+		deps.build_device_capability_report = []() { return Dictionary(); };
+		RenderDiagnosticsOrchestrator diagnostics(deps);
+		Dictionary block, queues, retained, ready;
+		if (!dictionary(diagnostics.build_render_stats(), "payload_telemetry", block) ||
+				!dictionary(block, "queue_observations", queues) || !dictionary(queues, "retained", retained) ||
+				!dictionary(queues, "ready", ready)) { return; }
+		CHECK(String(block.get("route", "")) == "chunk");
+		CHECK(number(block, "source_generation") == int64_t(uint64_t(run.source->get_instance_id())));
+		CHECK(String(retained.get("owner", "")) == "payload_read_service");
+		CHECK(String(ready.get("owner", "")) == "chunk_upload_window");
+		CHECK(number(retained, "byte_bound") > 0);
+		CHECK(number(retained, "peak_bytes") > 0);
+		CHECK(number(retained, "peak_jobs") > 0);
+		CHECK(number(ready, "bytes") == 0);
+		CHECK(number(ready, "jobs") == 0);
+		CHECK(ready.has("byte_bound"));
+		CHECK(ready.get("byte_bound", -1).get_type() == Variant::NIL);
+		CHECK(String(ready.get("byte_bound_reason", "")).length() > 0);
+		CHECK(number(block, "stale_generation_publications") == 0);
+		CHECK(number(block, "admission_waits") == 0);
 	}
 	capture("d3_5_chunk_test_results.json", report);
 }

@@ -9,6 +9,7 @@
 #include "core/os/thread.h"
 #include "core/string/ustring.h"
 #include "core/templates/safe_refcount.h"
+#include "core/variant/dictionary.h"
 #include "servers/rendering/rendering_device.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include <atomic>
@@ -78,6 +79,7 @@ public:
         // failed or came back short). packed_data is empty; the main thread records the
         // failure on the chunk instead of silently re-queueing it every frame.
         bool payload_read_failed = false;
+        uint64_t queue_allocation_bytes = 0; // Observation only, charged while this output is queued (pack_mutex).
         SHCompressionMetrics metrics;
         uint32_t bytes_uploaded = 0;
     };
@@ -311,6 +313,12 @@ public:
     Vector<PackedGaussian> upload_coalescing_scratch;
     std::atomic<uint32_t> pack_queue_depth_cached{0};
     std::atomic<uint32_t> upload_queue_depth_cached{0};
+    // Protected by pack_mutex, sampled at every queue mutation, including worker enqueue.
+    uint64_t ready_bytes = 0, ready_bytes_peak = 0;
+    uint32_t ready_jobs_peak = 0;
+    uint64_t admission_waits = 0; // Owner thread, like queue admission itself.
+    Dictionary get_queue_observations();
+    void reset_queue_observations(); // Owner thread; established pack mutex covers queue samples.
 
     void load_streaming_tuning_config_from_project_settings(GaussianStreamingSystem &system);
     void start_pack_threads(GaussianStreamingSystem &system);

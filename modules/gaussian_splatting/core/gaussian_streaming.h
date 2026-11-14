@@ -307,6 +307,7 @@ public:
     SHCompressionMetrics get_total_sh_metrics() const { return total_sh_metrics; }
     Dictionary get_task_debug_state() const;
     Dictionary get_streaming_analytics() const;
+    Variant get_payload_telemetry(); // Owner-thread, merges the actual GSQ source and upload window.
     bool is_runtime_ready(String *r_reason = nullptr) const;
     // PR #352 helper: cheap probe used by tests/macros to skip work when no
     // streaming runtime is loadable. Wraps is_runtime_ready() so the call

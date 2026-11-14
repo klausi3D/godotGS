@@ -13,8 +13,8 @@ policy scenario, not a captured producer output. In particular its T0 identities
 GPU drawing, queue/publication observations and tiny screenshot files are test
 preconditions, NOT measurements from those captures. D3-5 used a CPU upload sink;
 BV-07 used T-smoke on a 3090. Neither is usable paired T0 evidence. Phase 2 must
-collect the independent observations, including currently unexported bounds and
-publication counters, on the 3080 or return UNUSABLE/NOT_RUN. A test below removes
+collect the independent observations, including native bounds and publication
+counters, on the 3080 or return UNUSABLE/NOT_RUN. A test below removes
 those observations explicitly; telemetry alone cannot certify GPU evidence.
 
 Envelope contract: prepared describes the ONE T0; each arm has source receipts,
@@ -75,7 +75,7 @@ METRICS = {
     "correctness": ("exit_code", "final_marker", "actual_route", "read_failures", "decode_failures",
                     "stale_generation_publications", "nonresident_drawn_nodes", "overflow_events", "drop_events"),
     "io": ("stored_bytes", "requests", "queue_latency_ns", "read_latency_ns", "throughput_bytes_s",
-           "cancellations", "retained_completion_peak_bytes"),
+           "cancellations", "retained_completion_peak_bytes", "admission_waits", "reads_refused_busy"),
     "decode_pack": ("verify_ns", "decode_span_ns", "digest_ns", "decode_remainder_ns", "pack_ns",
                     "splats", "pages", "worker_captures", "main_thread_captures"),
     "cpu_memory": ("os_peak_rss_bytes", "active_bytes", "stored_bytes", "mailbox_bytes", "ready_bytes",
@@ -176,7 +176,7 @@ class ComparisonContract(unittest.TestCase):
                 for owner in ("retained", "ready")
             },
             "saturation": {"hlod_stream_stall_frames": 0, "hlod_stream_blocked_groups": 0,
-                           "reads_refused_busy": 0, "admission_waits": 0},
+                           "reads_refused_busy": 0, "admission_waits": 0, "upload_hold_frames": 0},
         }
         source = {k: copy.deepcopy(prepared[k]) for k in (
             "input_file_sha256", "generator_identity", "codec", "tree_file_sha256", "tree_identity")}
@@ -255,6 +255,168 @@ class ComparisonContract(unittest.TestCase):
         self.assertIn("report-only", text.lower())
         self.assertNotIn("Tier A PASS", text)
         self.assertNotIn("regression_threshold", report)
+
+    def use_scoped_observation_policy(self):
+        """New constructed policy envelope; NOT a capture of new engine fields.
+
+        The original native trace/stage captures stay intact. The generic queue
+        and settings validators build the comparison-owned observation records;
+        C++ doctests separately exercise the native exports and their wiring.
+        """
+        for route in ("chunk", "hlod"):
+            arm = self.arm(route)
+            queues = {}
+            for owner in ("retained", "ready"):
+                queues[owner] = {"owner": ("hlod_shared_reservation_ledger" if route == "hlod" else
+                                          "payload_read_service" if owner == "retained" else "chunk_upload_window"),
+                                 "bytes": 0, "peak_bytes": 1024, "byte_bound": 8192,
+                                 "jobs": 0, "peak_jobs": 1, "job_bound": 16}
+                absent = "job_bound" if route == "hlod" or owner == "retained" else "byte_bound"
+                queues[owner][absent] = None
+                queues[owner][absent + "_reason"] = "no independent limit at this native owner"
+                if route == "hlod":
+                    queues[owner].update(byte_bound=driver.HLOD_CONFIG["configured_read_byte_cap"],
+                        peak_byte_bound=driver.HLOD_CONFIG["configured_read_byte_cap"], bound_violations=0)
+            validated = ps.queue_observations_summary(queues, route=route)
+            self.assertEqual(validated["status"], ps.OK)
+            arm["observed"]["queues"] = {key: validated[key] for key in ("retained", "ready")}
+            raw = copy.deepcopy(arm["probe"]["payload_telemetry"])
+            raw.update(queue_observations=queues, stale_generation_publications=0,
+                       digest_verification_failures=0, reads_refused_busy=0, admission_waits=0)
+            saturation = {"reads_refused_busy": 0, "admission_waits": 0, "upload_hold_frames": 0}
+            if route == "hlod":
+                raw["upload_hold_frames"] = 0
+                raw.update(driver.HLOD_CONFIG)
+                raw.update(oversized_reservation_bytes=0, live_reservations=0)
+            else:
+                saturation["upload_hold_frames"] = {"measured": False, "applicable": False,
+                    "scope": "chunk", "reason": "no HLOD upload hold on this route"}
+                for key in driver.HLOD_ONLY_FAILURES:
+                    arm["observed"]["failures"][key] = {"measured": False, "applicable": False,
+                        "scope": "chunk", "reason": "no HLOD residency owner on this route"}
+            arm["observed"]["saturation"] = saturation
+            arm["native"] = {"payload_telemetry": raw}
+            arm["requested"]["camera"] = copy.deepcopy(rp.CAMERA)
+            arm["observed"]["settings"]["camera"] = copy.deepcopy(rp.CAMERA)
+            if route == "hlod":
+                settings = arm["observed"]["settings"]
+                trace = ps.read_trace(Path(arm["trace"]["file"]))
+                arm["native"]["shared_layers_settings_samples"] = [
+                    {"row": index, **{key: copy.deepcopy(settings[key]) for key in (
+                        "project_settings_readback", "node_readback", "camera", "resolution",
+                        "sh_bands", "visible_splats", "drawn_splats")}} for index in range(len(trace.rows))]
+        for arm in self.experiment["migration"]["arms"].values():
+            arm["settings_readback"]["camera"] = copy.deepcopy(rp.CAMERA)
+
+    def test_native_scoped_limits_and_hlod_row_settings_have_a_valid_path(self):
+        self.use_scoped_observation_policy()
+        self.assert_verdict("VALID")
+
+    def test_scoped_queues_cannot_hide_missing_limits_or_changed_observations(self):
+        for mutation in (lambda a: a["native"]["payload_telemetry"]["queue_observations"]["ready"].pop("byte_bound"),
+                         lambda a: a["observed"]["queues"]["retained"].update(bytes=2),
+                         lambda a: a["native"].pop("shared_layers_settings_samples"),
+                         lambda a: a["native"]["shared_layers_settings_samples"].pop()):
+            with self.scenario():
+                self.use_scoped_observation_policy()
+                mutation(self.arm())
+                self.assert_verdict("UNUSABLE")
+
+    def test_native_stable_cut_age_is_convergence_not_payload_saturation(self):
+        self.use_scoped_observation_policy()
+        self.arm()["observed"]["convergence"] = {"hlod_stream_stall_frames": 300}
+        self.assert_verdict("VALID")
+        self.arm()["native"]["payload_telemetry"]["admission_waits"] = 1
+        self.arm()["observed"]["saturation"]["admission_waits"] = 1
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["metrics"]["hlod"]["io"]["admission_waits"]["value"], 1)
+
+    def test_reintroduced_route_specific_cap_override_is_a_settings_mismatch(self):
+        for key in ("configured_read_byte_cap", "normal_retained_byte_bound"):
+            with self.scenario(key=key):
+                self.use_scoped_observation_policy()
+                self.arm()["native"]["payload_telemetry"][key] = 512 * 1024 * 1024
+                self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_legal_single_oversized_bound_is_not_a_changed_config_or_escape(self):
+        self.use_scoped_observation_policy()
+        raw = self.arm()["native"]["payload_telemetry"]
+        raw.update(oversized_reservation_bytes=12 * 1024 * 1024, live_reservations=1)
+        for owner in ("retained", "ready"):
+            queue = raw["queue_observations"][owner]
+            queue.update(bytes=12 * 1024 * 1024, byte_bound=12 * 1024 * 1024,
+                         peak_bytes=12 * 1024 * 1024, peak_byte_bound=12 * 1024 * 1024, jobs=1)
+            self.arm()["observed"]["queues"][owner] = copy.deepcopy(queue)
+        self.assert_verdict("VALID")
+        raw.update(oversized_reservation_bytes=0, live_reservations=0)
+        for owner in ("retained", "ready"):
+            queue = raw["queue_observations"][owner]
+            queue.update(bytes=0, byte_bound=driver.HLOD_CONFIG["normal_retained_byte_bound"], jobs=0)
+            self.arm()["observed"]["queues"][owner] = copy.deepcopy(queue)
+        self.assert_verdict("VALID")
+        # A later escaped allocation must remain visible even below an earlier
+        # legal oversized peak; it cannot be hidden by the historical maximum.
+        for source in (self.arm()["native"]["payload_telemetry"]["queue_observations"], self.arm()["observed"]["queues"]):
+            source["retained"]["bound_violations"] = 1
+        self.assert_verdict("UNUSABLE", "queue_saturation")
+
+    def progress_policy(self):
+        """Constructed progress policy over the real producer's existing deadline."""
+        for route in ("chunk", "hlod"):
+            for settings in (self.arm(route)["requested"], self.arm(route)["observed"]["settings"]):
+                settings["timing_windows"]["settle"] = copy.deepcopy(rp.SETTLE)
+        for arm in self.experiment["migration"]["arms"].values():
+            arm["settings_readback"]["timing_windows"]["settle"] = copy.deepcopy(rp.SETTLE)
+        deadline = rp.SETTLE["stop_deadline_s"]
+        samples = [{"row": index, "t_usec": int(index * deadline * 1_000_000), "route": "hlod", "measured": True,
+            "demand_outstanding": True, "progress_counts": {"read_completions": 1, "pages_decoded": 1,
+                "upload_completions": 0, "upload_bytes": 0}} for index in (0, 1)]
+        record = {"measured": True, "window": "stop_deadline_s", "deadline_s": deadline,
+                  "elapsed_usec": int(deadline * 1_000_000), "deadline_missed": True,
+                  "samples": samples, "no_forward_progress": True}
+        self.arm()["observed"]["forward_progress"] = [record]
+        return record
+
+    def test_no_forward_progress_for_existing_settle_deadline_is_unusable(self):
+        record = self.progress_policy()
+        report = self.assert_verdict("UNUSABLE", "queue_saturation")
+        self.assertTrue(report["forward_progress"]["hlod"]["windows"][0]["no_forward_progress"])
+        record["samples"][-1]["progress_counts"]["upload_bytes"] = 1
+        record["no_forward_progress"] = False
+        self.assert_verdict("VALID")  # Partial transfer progress also counts.
+
+    def test_short_or_incomplete_progress_window_cannot_claim_a_stall(self):
+        record = self.progress_policy()
+        record["samples"][-1]["t_usec"] -= 1
+        record["no_forward_progress"] = False
+        self.assert_verdict("VALID")
+        record["no_forward_progress"] = True
+        self.assert_verdict("UNUSABLE", "invalid_metric")
+        record.update(measured=False, reason="initial native snapshot absent")
+        self.assert_verdict("UNUSABLE", "missing_metric")
+
+    def test_separate_saturation_control_requires_native_held_ready_work(self):
+        self.use_scoped_observation_policy()
+        self.experiment["control"] = "saturate"
+        control = copy.deepcopy(self.arm())
+        control["native"]["payload_telemetry"]["upload_hold_frames"] = 1
+        control["native"]["payload_telemetry"]["queue_observations"]["ready"]["bytes"] = 512
+        self.experiment["control_receipt"] = {"status": "FORCED", "arm": control}
+        self.assert_verdict("UNUSABLE", "queue_saturation")
+        control["native"]["payload_telemetry"]["upload_hold_frames"] = 0
+        self.assert_verdict("UNUSABLE", "control_not_observed")
+
+    def test_corruption_control_proves_the_modified_v4_was_loaded_and_read(self):
+        self.experiment["control"] = "corrupt"
+        arm = copy.deepcopy(self.arm())
+        corrupted_sha = _sha("actual corrupted policy copy")
+        arm["source"]["loaded_file_sha256"] = corrupted_sha
+        arm["probe"]["payload_telemetry"].update(captures_failed=1)
+        self.experiment["control_receipt"] = {"status": "FORCED", "arm": arm,
+            "source_sha256": self.experiment["prepared"]["tree_file_sha256"], "corrupt_sha256": corrupted_sha}
+        self.assert_verdict("UNUSABLE", "payload_failure")
+        arm["source"]["loaded_file_sha256"] = self.experiment["prepared"]["tree_file_sha256"]
+        self.assert_verdict("UNUSABLE", "control_not_observed")
 
     def test_native_captures_without_independent_gpu_and_queue_observations_are_unusable(self):
         # A CPU-sink capture must never become a VALID paired GPU experiment.
@@ -453,15 +615,22 @@ class ComparisonContract(unittest.TestCase):
                 block[key] = 0
                 self.assert_verdict("UNUSABLE", "no_payload_work")
 
-    def test_queue_bytes_and_jobs_at_or_over_bound_are_unusable_even_after_drain(self):
+    def test_queue_bytes_and_jobs_above_bound_are_unusable_even_after_drain(self):
         for owner in ("ready", "retained"):
             for key, bound in (("bytes", "byte_bound"), ("peak_bytes", "byte_bound"),
                                ("jobs", "job_bound"), ("peak_jobs", "job_bound")):
-                for excess in (0, 1):
-                    with self.scenario(owner=owner, key=key, excess=excess):
-                        queue = self.arm()["observed"]["queues"][owner]
-                        queue[key] = queue[bound] + excess
-                        self.assert_verdict("UNUSABLE", "queue_saturation")
+                with self.scenario(owner=owner, key=key):
+                    queue = self.arm()["observed"]["queues"][owner]
+                    queue[key] = queue[bound] + 1
+                    self.assert_verdict("UNUSABLE", "queue_saturation")
+
+    def test_full_but_bounded_queues_with_admission_waits_are_valid(self):
+        for owner in ("retained", "ready"):
+            queue = self.arm()["observed"]["queues"][owner]
+            queue.update(bytes=queue["byte_bound"], peak_bytes=queue["byte_bound"],
+                         jobs=queue["job_bound"], peak_jobs=queue["job_bound"])
+        self.arm()["observed"]["saturation"].update(admission_waits=9, reads_refused_busy=3)
+        self.assert_verdict("VALID")
 
     def test_missing_queue_bound_is_unusable(self):
         for owner in ("ready", "retained"):
@@ -470,12 +639,9 @@ class ComparisonContract(unittest.TestCase):
                     self.arm()["observed"]["queues"][owner].pop(key)
                     self.assert_verdict("UNUSABLE", "missing_metric")
 
-    def test_saturation_or_stall_observations_are_unusable(self):
-        for key in tuple(self.arm()["observed"]["saturation"]):
-            with self.scenario(key=key):
-                counters = self.arm()["observed"]["saturation"]
-                counters[key] = 1
-                self.assert_verdict("UNUSABLE", "queue_saturation")
+    def test_held_ready_observation_is_unusable(self):
+        self.arm()["observed"]["saturation"]["upload_hold_frames"] = 1
+        self.assert_verdict("UNUSABLE", "queue_saturation")
 
     def test_nonfinite_or_negative_counter_is_unusable(self):
         for value in (-1, float("nan"), float("inf"), True):
@@ -498,7 +664,7 @@ class ComparisonContract(unittest.TestCase):
     def test_saturate_control_is_red_from_observed_queue_bound(self):
         self.experiment["control"] = "saturate"
         queue = self.arm()["observed"]["queues"]["ready"]
-        queue["byte_bound"] = queue["peak_bytes"]
+        queue["byte_bound"] = queue["peak_bytes"] - 1
         self.assert_verdict("UNUSABLE", "queue_saturation")
 
     def test_control_label_alone_does_not_prove_a_negative_control(self):

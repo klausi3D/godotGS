@@ -1568,6 +1568,10 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_streaming"] = resource_state.hlod_streaming;
     stats["hlod_stream_page_store_active"] = resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid() &&
             resource_state.hlod_streamer->uses_page_store(resource_state.hlod_page_store.get());
+    const auto &payload_streaming_state = state_view.get_streaming_state();
+    if (!resource_state.hlod_streaming && payload_streaming_state.current_streaming_system.is_valid()) {
+        stats["payload_telemetry"] = payload_streaming_state.current_streaming_system->get_payload_telemetry();
+    }
     if (resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid()) {
         stats["payload_telemetry"] = resource_state.hlod_streamer->get_payload_telemetry();
         const HlodNodeStreamer::Telemetry &t = resource_state.hlod_streamer->get_telemetry();
