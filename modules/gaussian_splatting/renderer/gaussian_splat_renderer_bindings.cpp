@@ -4,10 +4,30 @@
 
 #include "gaussian_splat_renderer.h"
 #ifdef TESTS_ENABLED
+#include "../io/gs_payload_page_store.h"
+#include "hlod_node_streamer.h"
+
+Error GaussianSplatRenderer::_test_set_payload_telemetry_delays(const Dictionary &p_delays) {
+	auto &state = get_resource_state();
+	if (!state.hlod_page_store) { return ERR_UNAVAILABLE; }
+	if (state.hlod_streamer.is_valid() && state.hlod_streamer->_test_snapshot().jobs_in_flight != 0) { return ERR_BUSY; }
+	const Variant read = p_delays.get("read_usec", Variant());
+	const Variant decode = p_delays.get("decode_usec", Variant());
+	if (read.get_type() != Variant::INT || decode.get_type() != Variant::INT ||
+			int64_t(read) < 0 || int64_t(read) > UINT32_MAX || int64_t(decode) < 0 || int64_t(decode) > UINT32_MAX) {
+		return ERR_INVALID_PARAMETER;
+	}
+	return state.hlod_page_store->_test_set_telemetry_delays(uint32_t(int64_t(read)), uint32_t(int64_t(decode)));
+}
+#endif
+#ifdef TESTS_ENABLED
 #include "../resources/color_grading_resource.h"
 #endif
 
 void GaussianSplatRenderer::_bind_methods() {
+#ifdef TESTS_ENABLED
+    ClassDB::bind_method(D_METHOD("_test_set_payload_telemetry_delays", "delays"), &GaussianSplatRenderer::_test_set_payload_telemetry_delays);
+#endif
     // Initialization
     ClassDB::bind_method(D_METHOD("initialize"), &GaussianSplatRenderer::initialize);
 

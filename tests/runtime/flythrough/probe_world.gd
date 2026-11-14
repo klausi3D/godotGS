@@ -122,6 +122,9 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
+	var payload_evidence := _payload_telemetry_result()
+	for key in payload_evidence:
+		_result[key] = payload_evidence[key]
 	_result["screenshots"] = {"dir": _shots.get("dir"), "moving_every_n": int(_shots.get("moving_every_n", 0)),
 			"taken": _shot_log}
 	if _trace != null:
@@ -137,6 +140,8 @@ func _finish(ok: bool, reason: String) -> void:
 
 # BV-K9b: the GSQ source's decode counters (verify, decode, decoded digest); null on other worlds.
 func _gsq_decode_stats():
+	if _is_hlod_payload_route():
+		return null
 	if _node == null or _node.world == null or not _node.world.has_method("get_chunk_payload_source"):
 		return null
 	var src = _node.world.get_chunk_payload_source()
@@ -145,12 +150,35 @@ func _gsq_decode_stats():
 	return src.get_decode_stats()
 
 
+func _is_hlod_payload_route() -> bool:
+	if bool(_last_stats.get("hlod_streaming", false)) or bool(_last_stats.get("hlod_active", false)):
+		return true
+	return _node != null and _node.world != null and _node.world.has_hlod_paged_source()
+
+
+func _payload_telemetry_result() -> Dictionary:
+	# Query live source identity independently of the cached renderer block. A
+	# replaced source with an older renderer sample must remain stale evidence.
+	if _is_hlod_payload_route():
+		var generation = null
+		if _node != null and _node.world != null and _node.world.has_method("get_hlod_payload_source_generation"):
+			generation = _node.world.get_hlod_payload_source_generation()
+		return {"route": "hlod", "source_generation": generation,
+				"payload_telemetry": _last_stats.get("payload_telemetry")}
+	if _node != null and _node.world != null:
+		var source = _node.world.get_chunk_payload_source()
+		if source != null and source.has_method("get_decode_stats"):
+			return {"route": "chunk", "source_generation": source.get_instance_id(),
+					"payload_telemetry": source.get_decode_stats()}
+	return {"route": null, "source_generation": null, "payload_telemetry": null}
+
+
 func _scalars(d: Dictionary) -> Dictionary:
 	var out := {}
 	for k in d.keys():
 		var v = d[k]
 		if v is Dictionary:
-			if str(k) == "streaming_latency_histograms":
+			if str(k) in ["streaming_latency_histograms", "payload_telemetry"]:
 				out[k] = v
 			continue
 		if v is Array:

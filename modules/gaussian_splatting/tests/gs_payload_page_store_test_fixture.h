@@ -4,9 +4,12 @@
 // The reference never calls PayloadPageStore or GsqPagedChunkPayloadSource: it decodes the
 // actual writer output through the codec API, in the page directory's order.
 
-#include "test_gs_world_paged_chunks.h"
+#include "gs_world_paged_chunks_test_fixture.h"
 
+#include "../core/gaussian_splat_world.h"
 #include "../core/streaming_gsq_chunk_payload_source.h"
+#include "../io/gaussian_splat_world_format.h"
+#include "../io/gaussian_splat_world_io.h"
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -57,7 +60,7 @@ struct Fixture {
 		if (gs_world_writer::gsq_encode_params(codec, codec_params, error) != OK) {
 			return;
 		}
-		bytes = TestGSWorldWriter::ww_read(path);
+		bytes = FileAccess::get_file_as_bytes(path);
 		const uint64_t extension = gs_world_format::kPrefixBytes;
 		if (uint64_t(bytes.size()) < extension + gs_world_format::kPagedExtensionBytes) {
 			error = "writer output has no complete paged extension";

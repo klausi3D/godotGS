@@ -1,6 +1,15 @@
 #include "gs_payload_read_service.h"
 
 #include "core/error/error_macros.h"
+#include "core/os/os.h"
+
+#include <chrono>
+
+namespace {
+uint64_t read_clock_nsec() {
+	return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+}
 
 PayloadReadService::~PayloadReadService() {
 	shutdown();
@@ -106,6 +115,7 @@ PayloadReadService::SubmitResult PayloadReadService::submit(const String &p_file
 	request->offset = p_offset;
 	request->length = p_length;
 	request->ticket = p_ticket;
+	request->queued_nsec = read_clock_nsec();
 	tickets.insert(p_ticket, request);
 	pending.add_last(&request->link);
 
@@ -314,6 +324,9 @@ void PayloadReadService::_reader_loop() {
 		Request *request = nullptr;
 		Ref<FileAccess> handle;
 		uint64_t leased_epoch = 0;
+#ifdef TESTS_ENABLED
+		uint32_t delay_usec = 0;
+#endif
 		{
 			MutexLock lock(mutex);
 			while (!stopping.is_set() && pending.first() == nullptr) {
@@ -325,6 +338,10 @@ void PayloadReadService::_reader_loop() {
 			request = pending.first()->self();
 			pending.remove(&request->link);
 			request->state = REQUEST_READING;
+			counters.queue_nsec += read_clock_nsec() - request->queued_nsec;
+#ifdef TESTS_ENABLED
+			delay_usec = test_read_delay_usec;
+#endif
 			counters.queued--;
 			counters.reading++;
 			handle = _take_idle_handle_locked(request->file);
@@ -337,7 +354,16 @@ void PayloadReadService::_reader_loop() {
 		Vector<uint8_t> bytes;
 		uint64_t bytes_read = 0;
 		bool opened = false;
+		const uint64_t read_started = read_clock_nsec();
+#ifdef TESTS_ENABLED
+		uint64_t delay_nsec = 0;
+		if (delay_usec != 0) {
+			OS::get_singleton()->delay_usec(delay_usec);
+			delay_nsec = read_clock_nsec() - read_started;
+		}
+#endif
 		const Error error = _read(*request, handle, bytes, bytes_read, opened);
+		const uint64_t read_elapsed = read_clock_nsec() - read_started;
 		// ERR_SKIP is a stop, not an I/O failure: the handle is healthy.
 		const bool stopped = error == ERR_SKIP;
 
@@ -345,6 +371,13 @@ void PayloadReadService::_reader_loop() {
 		IdleHandle evicted;
 		MutexLock lock(mutex);
 		counters.reading--;
+		counters.read_nsec += read_elapsed;
+#ifdef TESTS_ENABLED
+		if (delay_usec != 0) {
+			++counters.test_read_delay_calls;
+			counters.test_read_delay_nsec += delay_nsec;
+		}
+#endif
 		counters.bytes_read += bytes_read;
 		if (opened) {
 			counters.handle_opens++;
@@ -406,3 +439,12 @@ void PayloadReadService::_reader_loop() {
 		ready_cv.notify_all();
 	}
 }
+
+#ifdef TESTS_ENABLED
+Error PayloadReadService::_test_set_read_delay(uint32_t p_usec) {
+	MutexLock lock(mutex);
+	if (counters.queued || counters.reading || counters.ready) { return ERR_BUSY; }
+	test_read_delay_usec = p_usec;
+	return OK;
+}
+#endif

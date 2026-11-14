@@ -34,6 +34,7 @@
 #include "gaussian_gpu_layout.h"
 #include "hlod_node_pack.h"
 #include "servers/rendering/rendering_device.h"
+#include "core/variant/dictionary.h"
 
 #include <atomic>
 #include <memory>
@@ -349,6 +350,7 @@ public:
 			LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand);
 
 	const Telemetry &get_telemetry() const { return telemetry; }
+	Variant get_payload_telemetry() const; // Null when this route has no measured page store.
 	bool root_failed() const { return residency.root_permanently_failed(); }
 	uint64_t atlas_bytes_capacity() const { return uint64_t(cfg.atlas_pages) * cfg.page_splats * record_stride(); }
 	uint64_t record_stride() const { return cfg.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian); }
@@ -368,6 +370,13 @@ private:
 		// Storage observations are changed by allocation/free/handoff events,
 		// independently of token charges (including under mutation controls).
 		uint64_t stored = 0, decoded = 0, output[4] = {}, peak_storage = 0;
+		// All measurement fields, including worker pack sums, use this same mutex.
+		uint64_t shadow_output[4] = {};
+		uint64_t owner_peak[4] = {}, stored_peak = 0, active_peak = 0, packed_peak = 0, shadow_peak = 0;
+		uint64_t pack_calls = 0, pack_nsec = 0;
+		uint64_t queue_residence_nsec = 0, queue_residence_samples = 0;
+		uint64_t upload_bytes = 0, upload_slices = 0, upload_completions = 0, upload_completion_nsec = 0;
+		void reset_measurements(); // Caller holds mutex; ownership counters survive.
 		void observe_peak(); // Caller holds mutex.
 #ifdef TESTS_ENABLED
 		TestControl control;
@@ -377,7 +386,7 @@ private:
 		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
 		Vector<TestPublication> publications;
 		bool observe_shadows = false;
-		uint64_t shadow_output[4] = {}, shadow_live = 0;
+		uint64_t shadow_live = 0;
 		Vector<TestWrite> writes;
 #endif
 	};
@@ -446,6 +455,7 @@ private:
 		ChunkMetaGPU meta = {};
 		ChunkQuantizationGPU quant = {};
 		uint64_t uploaded_bytes = 0; // Cursor only; the entire remaining allocation stays charged until completion.
+		uint64_t queue_enter_nsec = 0, upload_start_nsec = 0;
 #ifdef TESTS_ENABLED
 		uint32_t test_first_write = UINT32_MAX;
 #endif
@@ -515,6 +525,8 @@ private:
 			const void *p_payload = nullptr);
 #endif
 	void refresh_telemetry();
+	void record_upload_slice(PackResult &p_result, uint64_t p_started_nsec, uint64_t p_bytes);
+	void record_upload_completion(const PackResult &p_result);
 
 	bool active = false;
 	Config cfg;

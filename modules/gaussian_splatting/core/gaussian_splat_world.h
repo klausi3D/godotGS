@@ -115,6 +115,7 @@ public:
     // world, which is the point of V4 avoiding. Returns OK also when nothing was paged.
     Error materialize_paged_resident(String &r_reason);
     Ref<GaussianSplatHlodPagedSource> get_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source; }
+    Variant get_hlod_payload_source_generation() const; // Live identity for telemetry validation; null if unavailable.
     bool has_hlod_paged_source() const { MutexLock lock(render_input_mutex); return hlod_paged_source.is_valid(); }
     // Explicit, opt-in V4 export of a resident complete HLOD world. Never called by save(), import or bake.
     Error save_hlod_paged(const String &p_path) const;

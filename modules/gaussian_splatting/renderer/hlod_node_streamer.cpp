@@ -6,6 +6,7 @@
 #include "../lod/hlod_edit.h"
 #include "../io/gs_payload_page_store.h"
 
+#include <chrono>
 #include <utility>
 
 using gs_hlod_runtime::NodeResidency;
@@ -17,7 +18,46 @@ HlodNodeStreamer::~HlodNodeStreamer() {
 	shutdown();
 }
 
+Variant HlodNodeStreamer::get_payload_telemetry() const {
+	// Render-thread owner fields; workers only mutate the ledger under its mutex.
+	if (!active || !page_store || ledger.is_null() || data.is_null() || !data->is_paged()) { return Variant(); }
+	Dictionary out = page_store->get_telemetry("hlod"); // Never take the store lock under the ledger lock.
+	MutexLock lock(ledger->mutex);
+	out["pack_calls"] = int64_t(ledger->pack_calls);
+	out["pack_nsec"] = int64_t(ledger->pack_nsec);
+	uint64_t packed = 0, shadow = 0;
+	for (uint32_t i = 0; i < 4; ++i) { packed += ledger->output[i]; shadow += ledger->shadow_output[i]; }
+	out["packed_bytes"] = int64_t(packed);
+	out["packed_bytes_peak"] = int64_t(ledger->packed_peak);
+	out["mailbox_bytes"] = int64_t(ledger->output[OUTPUT_MAILBOX]);
+	out["mailbox_bytes_peak"] = int64_t(ledger->owner_peak[OUTPUT_MAILBOX]);
+	out["ready_bytes"] = int64_t(ledger->output[OUTPUT_READY]);
+	out["ready_bytes_peak"] = int64_t(ledger->owner_peak[OUTPUT_READY]);
+	out["partial_transfer_bytes"] = int64_t(ledger->output[OUTPUT_UPLOAD]);
+	out["partial_transfer_bytes_peak"] = int64_t(ledger->owner_peak[OUTPUT_UPLOAD]);
+	out["active_bytes"] = int64_t(ledger->decoded + ledger->output[OUTPUT_WORKER]);
+	out["active_bytes_peak"] = int64_t(ledger->active_peak);
+	out["stored_bytes"] = int64_t(ledger->stored);
+	out["stored_bytes_peak"] = int64_t(ledger->stored_peak);
+	out["stored_bytes_scope"] = "admitted_stored_capacity";
+	out["shadow_bytes"] = int64_t(shadow);
+	out["shadow_bytes_peak"] = int64_t(ledger->shadow_peak);
+	out["shadow_bytes_scope"] = "packed_output";
+	out["queue_residence_nsec"] = int64_t(ledger->queue_residence_nsec);
+	out["queue_residence_samples"] = int64_t(ledger->queue_residence_samples);
+	out["upload_bytes"] = int64_t(ledger->upload_bytes);
+	out["upload_bytes_this_frame"] = int64_t(telemetry.uploaded_bytes_this_frame);
+	out["upload_slices"] = int64_t(ledger->upload_slices);
+	out["upload_completions"] = int64_t(ledger->upload_completions);
+	out["upload_completion_nsec"] = int64_t(ledger->upload_completion_nsec);
+	out["upload_time_scope"] = "cpu_submission_wall_sum"; // No fence/readback: not GPU execution time.
+	return out;
+}
+
 namespace {
+uint64_t payload_clock_nsec() {
+	return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 // Reuse the runtime's checked CowData allocation accounting, including the
 // rounded capacity and both headers (core/templates/cowdata.h).
 uint64_t storage_bytes(uint64_t p_count, uint64_t p_stride) {
@@ -34,6 +74,24 @@ uint64_t vector_storage_bytes(const Vector<T> &p_vector) {
 void HlodNodeStreamer::ReservationLedger::observe_peak() {
 	const uint64_t bytes = stored + decoded + output[0] + output[1] + output[2] + output[3];
 	peak_storage = MAX(peak_storage, bytes);
+	uint64_t packed = 0, shadow = 0;
+	for (uint32_t i = 0; i < 4; ++i) {
+		owner_peak[i] = MAX(owner_peak[i], output[i]);
+		packed += output[i];
+		shadow += shadow_output[i];
+	}
+	stored_peak = MAX(stored_peak, stored);
+	active_peak = MAX(active_peak, decoded + output[OUTPUT_WORKER]);
+	packed_peak = MAX(packed_peak, packed);
+	shadow_peak = MAX(shadow_peak, shadow);
+}
+
+void HlodNodeStreamer::ReservationLedger::reset_measurements() {
+	for (uint32_t i = 0; i < 4; ++i) { owner_peak[i] = 0; }
+	stored_peak = active_peak = packed_peak = shadow_peak = 0;
+	pack_calls = pack_nsec = queue_residence_nsec = queue_residence_samples = 0;
+	upload_bytes = upload_slices = upload_completions = upload_completion_nsec = 0;
+	observe_peak();
 }
 
 HlodNodeStreamer::Reservation::Reservation(const Ref<ReservationLedger> &p_ledger, uint64_t p_charge, bool p_oversized, uint64_t p_transport, bool p_shadow) :
@@ -57,9 +115,7 @@ HlodNodeStreamer::Reservation::~Reservation() {
 	ledger->stored -= stored;
 	ledger->decoded -= decoded;
 	ledger->output[owner] -= output;
-#ifdef TESTS_ENABLED
 	if (shadow) { ledger->shadow_output[owner] -= output; }
-#endif
 	ledger->transport_reserved -= transport;
 	if (running) { --ledger->jobs; }
 	if (token_live) {
@@ -85,9 +141,7 @@ void HlodNodeStreamer::Reservation::storage_changed(uint64_t p_stored, uint64_t 
 void HlodNodeStreamer::Reservation::output_changed(uint64_t p_bytes) {
 	MutexLock lock(ledger->mutex);
 	ledger->output[owner] = ledger->output[owner] - output + p_bytes;
-#ifdef TESTS_ENABLED
 	if (shadow) { ledger->shadow_output[owner] = ledger->shadow_output[owner] - output + p_bytes; }
-#endif
 	output = p_bytes;
 	ledger->observe_peak();
 }
@@ -96,13 +150,12 @@ void HlodNodeStreamer::Reservation::move_output(OutputOwner p_owner) {
 	MutexLock lock(ledger->mutex);
 	ledger->output[owner] -= output;
 	ledger->output[p_owner] += output;
-#ifdef TESTS_ENABLED
 	if (shadow) {
 		ledger->shadow_output[owner] -= output;
 		ledger->shadow_output[p_owner] += output;
 	}
-#endif
 	owner = p_owner;
+	ledger->observe_peak();
 }
 
 void HlodNodeStreamer::Reservation::finish_work() {
@@ -166,6 +219,8 @@ HlodNodeStreamer::PackResult &HlodNodeStreamer::PackResult::operator=(PackResult
 		meta = p_other.meta;
 		quant = p_other.quant;
 		uploaded_bytes = p_other.uploaded_bytes;
+		queue_enter_nsec = p_other.queue_enter_nsec;
+		upload_start_nsec = p_other.upload_start_nsec;
 #ifdef TESTS_ENABLED
 		test_first_write = p_other.test_first_write;
 #endif
@@ -399,6 +454,7 @@ Error HlodNodeStreamer::_test_replace_source(const Ref<GaussianSplatHlodRuntimeD
 	world_generation = p_world;
 	device_generation = p_device;
 	++store_generation;
+	{ MutexLock lock(ledger->mutex); ledger->reset_measurements(); }
 	const Error budget_error = configure_retained_budget();
 	if (budget_error != OK) { shutdown(); }
 	return budget_error;
@@ -571,6 +627,15 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		return sized;
 	};
 	bool read_ok = false;
+	const auto pack = [&](const gs_hlod_pack::PayloadView *p_view = nullptr) {
+		const uint64_t started = payload_clock_nsec();
+		const bool ok = gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out, p_view);
+		const uint64_t elapsed = payload_clock_nsec() - started;
+		MutexLock lock(job->mailbox->ledger->mutex);
+		++job->mailbox->ledger->pack_calls;
+		job->mailbox->ledger->pack_nsec += elapsed;
+		return ok;
+	};
 	const GaussianSplatHlodRuntimeData::EditedLeaf *edited_leaf = d.find_edited(job->ticket.node);
 	if (edited_leaf) {
 		// Package F1: an edited leaf is packed from its in-memory replacement payload, never from the file (a V4 package is
@@ -578,8 +643,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		gs_hlod_pack::PayloadView view;
 		view.gaussians = edited_leaf->gaussians.ptr();
 		view.sh = edited_leaf->sh.is_empty() ? nullptr : edited_leaf->sh.ptr();
-		result.ok = allocate_output() && uint64_t(edited_leaf->gaussians.size()) == count &&
-				gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out, &view);
+		result.ok = allocate_output() && uint64_t(edited_leaf->gaussians.size()) == count && pack(&view);
 	} else if (d.is_paged()) {
 		// Defer packed allocation until the stored record/decoder are freed. The
 		// conservative estimate covers input + decoded arrays, then decoded +
@@ -602,10 +666,10 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			gs_hlod_pack::PayloadView view;
 			view.gaussians = gaussians.ptr();
 			view.sh = sh.is_empty() ? nullptr : sh.ptr();
-			result.ok = allocate_output() && gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out, &view);
+			result.ok = allocate_output() && pack(&view);
 		}
 	} else {
-		result.ok = allocate_output() && gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out);
+		result.ok = allocate_output() && pack();
 	}
 	// The scoped decoded arrays above have been destroyed before releasing work.
 	if (job->counted) { job->stats->end_read(job->reserved_bytes, job->read_bytes, read_ok); }
@@ -624,6 +688,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			result.reservation->move_output(OUTPUT_MAILBOX);
 			result.reservation->finish_worker();
 		}
+		result.queue_enter_nsec = payload_clock_nsec();
 		job->mailbox->done.push_back(std::move(result));
 	}
 	memdelete(job);
@@ -1127,6 +1192,25 @@ Error HlodNodeStreamer::write_atlas(RenderingDevice *p_device, const Buffers &p_
 	return OK;
 }
 
+void HlodNodeStreamer::record_upload_slice(PackResult &p_result, uint64_t p_started_nsec, uint64_t p_bytes) {
+	MutexLock lock(ledger->mutex);
+	if (p_result.upload_start_nsec == 0) {
+		p_result.upload_start_nsec = p_started_nsec;
+		ledger->queue_residence_nsec += p_started_nsec - p_result.queue_enter_nsec;
+		++ledger->queue_residence_samples;
+	}
+	ledger->upload_bytes += p_bytes;
+	++ledger->upload_slices;
+}
+
+void HlodNodeStreamer::record_upload_completion(const PackResult &p_result) {
+	MutexLock lock(ledger->mutex);
+	if (p_result.upload_start_nsec != 0) {
+		ledger->upload_completion_nsec += payload_clock_nsec() - p_result.upload_start_nsec;
+		++ledger->upload_completions;
+	}
+}
+
 Error HlodNodeStreamer::write_meta(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkMetaGPU &p_meta, bool p_shadow) {
 	if (p_node >= residency.node_count()) { return ERR_INVALID_DATA; }
 	bool cpu_sink = false;
@@ -1206,14 +1290,17 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 	if (slice.bytes == 0) { return false; }
 	if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
 	const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
+	const uint64_t upload_started = payload_clock_nsec();
 	if (write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, true) != OK) {
 		fail_shadow_upload(); return true;
 	}
+	record_upload_slice(r, upload_started, slice.bytes);
 	r.uploaded_bytes += slice.bytes;
 	telemetry.uploaded_bytes_this_frame += slice.bytes;
 	telemetry.uploaded_bytes_total += slice.bytes;
 	if (slice.is_final) {
 		if (!residency.finish_shadow_transfer(r.ticket)) { fail_shadow_upload(); return true; }
+		record_upload_completion(r);
 #ifdef TESTS_ENABLED
 		if (ledger->fault == TEST_FAULT_EARLY_SHADOW_METADATA) {
 			// Actually expose this invisible run before commit; the same revision
@@ -1368,8 +1455,10 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	if (ok && slice.bytes != 0) {
 		if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
 		const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
+		const uint64_t upload_started = payload_clock_nsec();
 		ok = write_atlas(p_device, p_buffers, publication_ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, false) == OK;
 		if (ok) {
+			record_upload_slice(r, upload_started, slice.bytes);
 			r.uploaded_bytes += slice.bytes;
 			telemetry.uploaded_bytes_this_frame += slice.bytes;
 			telemetry.uploaded_bytes_total += slice.bytes;
@@ -1393,6 +1482,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	}
 	const bool finished = residency.finish_upload(publication_ticket, ok);
 	ok = ok && finished;
+	if (ok) { record_upload_completion(r); }
 #ifdef TESTS_ENABLED
 	if (ok) {
 		TestPublication publication;

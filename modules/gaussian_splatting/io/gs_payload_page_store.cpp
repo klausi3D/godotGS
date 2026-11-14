@@ -1,6 +1,7 @@
 #include "gs_payload_page_store.h"
 
 #include "core/os/thread.h"
+#include "core/os/os.h"
 
 #include <chrono>
 #include <cstring>
@@ -137,7 +138,8 @@ Error PayloadPageStore::start(const Config &p_config) {
 	return error;
 }
 
-Error PayloadPageStore::replace_source(const String &p_path, uint64_t p_generation, const LocalVector<PageDescriptor> &p_pages) {
+Error PayloadPageStore::replace_source(const String &p_path, uint64_t p_generation, const LocalVector<PageDescriptor> &p_pages,
+		uint64_t p_collection_epoch) {
 	if (p_path.is_empty() || p_generation == 0 || p_pages.is_empty()) {
 		return ERR_INVALID_PARAMETER;
 	}
@@ -166,6 +168,13 @@ Error PayloadPageStore::replace_source(const String &p_path, uint64_t p_generati
 	}
 	_drain_locked();
 	read_service.release_handles();
+	if (source_generation != 0) {
+		collection_base = counters;
+		collection_base.reads = read_service.stats();
+	}
+	// On FIRST installation, a lazy chunk capture has already begun. Include it.
+	counters.source_generation = p_generation;
+	counters.collection_epoch = p_collection_epoch != 0 ? p_collection_epoch : p_generation;
 	file_path = p_path;
 	source_generation = p_generation;
 	catalog = replacement;
@@ -433,6 +442,63 @@ PayloadPageStore::Stats PayloadPageStore::stats() const {
 	return result;
 }
 
+Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
+	MutexLock lock(mutex); // Established store -> read-service lock order.
+	const PayloadReadService::Stats reads = read_service.stats();
+	Dictionary out;
+	out["route"] = p_route;
+	out["source_generation"] = counters.collection_epoch ? Variant(int64_t(counters.collection_epoch)) : Variant();
+	out["collection_epoch"] = counters.collection_epoch ? Variant(int64_t(counters.collection_epoch)) : Variant();
+	out["transport_generation"] = int64_t(counters.source_generation);
+	out["stage_time_scope"] = "worker_cpu_sum";
+	out["read_time_scope"] = "reader_wall_sum";
+	out["verify_scope"] = p_route == "hlod" ? "gsq_header_and_stored_digest_inside_v4_record" : "gsq_header_and_stored_digest";
+	struct Counter {
+		const char *name;
+		uint64_t Stats::*member;
+	};
+	const Counter fields[] = {
+		{ "captures", &Stats::captures }, { "captures_failed", &Stats::captures_failed },
+		{ "captures_on_worker_threads", &Stats::captures_on_worker_threads }, { "captures_on_main_thread", &Stats::captures_on_main_thread },
+		{ "pages_decoded", &Stats::pages_decoded }, { "splats_decoded", &Stats::splats_decoded },
+		{ "pages_decoded_on_worker_threads", &Stats::pages_decoded_on_worker_threads },
+		{ "pages_decoded_on_main_thread", &Stats::pages_decoded_on_main_thread },
+		{ "page_failures", &Stats::page_failures }, { "stored_bytes_read", &Stats::stored_bytes_read },
+		{ "verify_nsec", &Stats::verify_nsec }, { "decode_nsec", &Stats::decode_nsec },
+		{ "pages_decoded_digest_checked", &Stats::pages_decoded_digest_checked },
+		{ "pages_decoded_digest_skipped", &Stats::pages_decoded_digest_skipped },
+#ifdef TESTS_ENABLED
+		{ "test_decode_delay_calls", &Stats::test_decode_delay_calls }, { "test_decode_delay_nsec", &Stats::test_decode_delay_nsec },
+#endif
+	};
+	for (const Counter &field : fields) { out[field.name] = int64_t(counters.*field.member - collection_base.*field.member); }
+	const uint64_t checked = counters.pages_decoded_digest_checked - collection_base.pages_decoded_digest_checked;
+	const uint64_t skipped = counters.pages_decoded_digest_skipped - collection_base.pages_decoded_digest_skipped;
+	const uint64_t digest = counters.digest_nsec - collection_base.digest_nsec;
+	out["digest_status"] = checked ? (skipped ? "mixed" : "checked") : (skipped ? "skipped" : "not_performed");
+	out["digest_nsec"] = checked ? Variant(int64_t(digest)) : Variant();
+	out["decode_remainder_nsec"] = int64_t(counters.decode_nsec - collection_base.decode_nsec -
+			(counters.verify_nsec - collection_base.verify_nsec) - digest);
+	out["last_failure_reason"] = (counters.captures_failed != collection_base.captures_failed ||
+			counters.page_failures != collection_base.page_failures) ? counters.last_failure_reason : String();
+	out["read_requests"] = int64_t(reads.submitted - collection_base.reads.submitted);
+	out["read_latency_nsec"] = int64_t(reads.read_nsec - collection_base.reads.read_nsec);
+	out["read_queue_nsec"] = int64_t(reads.queue_nsec - collection_base.reads.queue_nsec);
+	out["read_failures"] = int64_t(reads.completed_failed - collection_base.reads.completed_failed);
+	// Legacy chunk K9 aliases, taken from this SAME locked snapshot.
+	out["reads_submitted"] = int64_t(reads.submitted - collection_base.reads.submitted);
+	out["reads_completed_ok"] = int64_t(reads.completed_ok - collection_base.reads.completed_ok);
+	out["reads_completed_failed"] = int64_t(reads.completed_failed - collection_base.reads.completed_failed);
+	out["reads_refused_busy"] = int64_t(reads.refused_busy - collection_base.reads.refused_busy);
+	out["read_bytes"] = int64_t(reads.bytes_read - collection_base.reads.bytes_read);
+	out["read_handle_opens"] = int64_t(reads.handle_opens - collection_base.reads.handle_opens);
+#ifdef TESTS_ENABLED
+	out["test_read_delay_calls"] = int64_t(reads.test_read_delay_calls - collection_base.reads.test_read_delay_calls);
+	out["test_read_delay_nsec"] = int64_t(reads.test_read_delay_nsec - collection_base.reads.test_read_delay_nsec);
+#endif
+	return out;
+}
+
 bool PayloadPageStore::uses_retained_admission() const {
 	MutexLock lock(mutex);
 	return state == RUNNING && config.admission_policy == ADMIT_RETAINED_BYTES;
@@ -531,6 +597,9 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 	if (error == OK) {
 		r_page.gaussians.resize(page.splat_count);
 		r_page.sh_high_order.resize(page.splat_count * high_order);
+#ifdef TESTS_ENABLED
+		_test_delay_decode();
+#endif
 		error = p_decoder.decoder->decode_range(bytes, page.stored_bytes, 0, page.splat_count, r_page.gaussians.ptr(),
 				high_order > 0u ? r_page.sh_high_order.ptr() : nullptr, page_reason, false);
 		if (error != OK) {
@@ -559,6 +628,7 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 		r_page.sh_high_order.clear();
 		MutexLock lock(mutex);
 		counters.page_failures++;
+		counters.last_failure_reason = r_reason;
 		return error;
 	}
 	r_page.digest_status = p_verify_decoded_digest ? DIGEST_CHECKED : DIGEST_SKIPPED;
@@ -624,6 +694,10 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 		error = ERR_FILE_CORRUPT;
 	}
 	if (error == OK) {
+		// Verification is already measured; this delay belongs only to decode.
+#ifdef TESTS_ENABLED
+		_test_delay_decode();
+#endif
 		error = p_decoder.decoder->decode_range(bytes, page_bytes, 0, p_count, r_gaussians,
 				high_order != 0 ? r_sh : nullptr, r_reason, false);
 	}
@@ -632,6 +706,7 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 	if (error != OK) {
 		MutexLock lock(mutex);
 		counters.page_failures++;
+		counters.last_failure_reason = r_reason;
 		return error;
 	}
 	last_capture_decode_nsec += decode_nsec;
@@ -660,6 +735,8 @@ void PayloadPageStore::begin_capture(bool p_reset_decode_span) {
 	}
 	MutexLock lock(mutex);
 	counters.captures++;
+	if (Thread::is_main_thread()) { ++counters.captures_on_main_thread; }
+	else { ++counters.captures_on_worker_threads; }
 }
 
 void PayloadPageStore::end_capture(bool p_success, const String &p_reason) {
@@ -675,6 +752,30 @@ uint64_t PayloadPageStore::take_thread_last_capture_decode_nsec() {
 	last_capture_decode_nsec = 0;
 	return nsec;
 }
+
+#ifdef TESTS_ENABLED
+Error PayloadPageStore::_test_set_telemetry_delays(uint32_t p_read_usec, uint32_t p_decode_usec) {
+	MutexLock lock(mutex);
+	if (state != RUNNING) { return ERR_UNAVAILABLE; }
+	if (!requests.is_empty() || counters.decoders_leased != 0) { return ERR_BUSY; }
+	const Error error = read_service._test_set_read_delay(p_read_usec);
+	if (error != OK) { return error; }
+	test_decode_delay_usec = p_decode_usec;
+	return OK;
+}
+
+void PayloadPageStore::_test_delay_decode() {
+	uint32_t usec;
+	{ MutexLock lock(mutex); usec = test_decode_delay_usec; }
+	if (usec == 0) { return; }
+	const auto started = std::chrono::steady_clock::now();
+	OS::get_singleton()->delay_usec(usec);
+	const uint64_t elapsed = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count());
+	MutexLock lock(mutex);
+	++counters.test_decode_delay_calls;
+	counters.test_decode_delay_nsec += elapsed;
+}
+#endif
 
 #ifdef TESTS_ENABLED
 Error PayloadPageStore::_test_set_fault(TestFault p_fault) {

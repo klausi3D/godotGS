@@ -864,6 +864,10 @@ public:
     const StreamingState &get_streaming_state() const;
     ResourceState &get_resource_state();
     const ResourceState &get_resource_state() const;
+#ifdef TESTS_ENABLED
+    // Render-thread test owner only, before starting payload jobs; inert by default.
+    Error _test_set_payload_telemetry_delays(const Dictionary &p_delays);
+#endif
     uint64_t get_instance_pipeline_content_generation() const { return get_resource_state().instance_pipeline_content_generation; }
     TestDataState &get_test_data_state() { return test_data_state; }
     const TestDataState &get_test_data_state() const { return test_data_state; }

@@ -121,6 +121,7 @@ void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("bake_hlod"), &GaussianSplatWorld::bake_hlod);
     ClassDB::bind_method(D_METHOD("save_hlod_paged", "path"), &GaussianSplatWorld::save_hlod_paged);
     ClassDB::bind_method(D_METHOD("has_hlod_paged_source"), &GaussianSplatWorld::has_hlod_paged_source);
+    ClassDB::bind_method(D_METHOD("get_hlod_payload_source_generation"), &GaussianSplatWorld::get_hlod_payload_source_generation);
 	ClassDB::bind_method(D_METHOD("bake_hlod_offline", "limits", "candidate_path"),
 	                     &GaussianSplatWorld::bake_hlod_offline);
 	ClassDB::bind_method(D_METHOD("has_hlod_tree"), &GaussianSplatWorld::has_hlod_tree);
@@ -835,6 +836,11 @@ bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_t
 Dictionary GaussianSplatWorld::get_hlod_info() const {
     MutexLock lock(render_input_mutex);
     return hlod_tree.get_info();
+}
+
+Variant GaussianSplatWorld::get_hlod_payload_source_generation() const {
+    MutexLock lock(render_input_mutex);
+    return hlod_paged_source.is_valid() ? Variant(int64_t(uint64_t(hlod_paged_source->get_instance_id()))) : Variant();
 }
 
 // Probes the two allocations a payload copy makes (gaussians, then high-order SH).

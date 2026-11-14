@@ -83,6 +83,14 @@ public:
 		uint64_t cancelled_ready = 0;
 		uint64_t discarded_on_shutdown = 0;
 		uint64_t bytes_read = 0;
+		// CPU wall latency: enqueue -> reader admission, then actual IO only.
+		// Protected by mutex, like the existing completion counters.
+		uint64_t queue_nsec = 0;
+		uint64_t read_nsec = 0;
+#ifdef TESTS_ENABLED
+		uint64_t test_read_delay_calls = 0;
+		uint64_t test_read_delay_nsec = 0;
+#endif
 		uint64_t handle_opens = 0;
 		uint64_t handle_reuses = 0;
 		uint64_t open_handles = 0;
@@ -130,6 +138,7 @@ public:
 	void release_handles();
 
 #ifdef TESTS_ENABLED
+	Error _test_set_read_delay(uint32_t p_usec);
 	// Runs on a reader thread, outside the mutex, before each slice. Set before start().
 	typedef void (*ReadHook)(void *p_user, uint64_t p_ticket, uint64_t p_slice_offset);
 	void _test_set_read_hook(ReadHook p_hook, void *p_user) {
@@ -152,6 +161,7 @@ private:
 		uint64_t length = 0;
 		uint64_t ticket = 0;
 		RequestState state = REQUEST_QUEUED;
+		uint64_t queued_nsec = 0;
 		Error error = OK;
 		Vector<uint8_t> bytes;
 		// Set under the mutex, read by the reader between slices without it. A cancelled
@@ -206,4 +216,7 @@ private:
 	HashMap<uint64_t, Request *> tickets; // Every live ticket: QUEUED, READING or READY, never cancelled.
 	LocalVector<IdleHandle> idle_handles; // Oldest first, at most config.max_idle_handles.
 	Stats counters;
+#ifdef TESTS_ENABLED
+	uint32_t test_read_delay_usec = 0; // mutex; copied at dequeue, slept outside it.
+#endif
 };
