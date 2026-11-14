@@ -1,5 +1,13 @@
 var NAVTREEINDEX21 =
 {
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca555d75fb308aa9e44cb7ee4332d40f9b":[2,0,0,0,5,9,13,10],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca6fea10211453b38c2fbd9fd6b091d47c":[2,0,0,0,5,9,13,4],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca713d905c6c30ad44d432e4f91c0952db":[2,0,0,0,5,9,13,11],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca9a287329c9598465a3d79d783faf6b66":[2,0,0,0,5,9,13,2],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,13,0],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecabca10a47d740ed8ac685baefaaaecc88":[2,0,0,0,5,9,13,1],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecad37e92613a3b852e829476831beb2872":[2,0,0,0,5,9,13,3],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a":[2,0,0,0,5,9,13,6],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf083c7f17a7110a20b865f9e6c6316ca":[2,0,0,0,5,9,13,9],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf37b4be0ce37e1b3a4c668c5f5c5bf61":[2,0,0,0,5,9,13,7],
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3":[2,0,0,0,5,9,14],
@@ -241,13 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb":[0,0,15,2],
 "namespaceGSUploadSizing.html":[0,0,38],
 "namespaceGSUploadSizing.html#a0ed288aaaf7273fc3cbad41de6eba76d":[0,0,38,5],
-"namespaceGSUploadSizing.html#a51c85a867fb9dee09ae4b49616654387":[0,0,38,6],
-"namespaceGSUploadSizing.html#a6b8b774ff258268a87af2c543260293f":[0,0,38,4],
-"namespaceGSUploadSizing.html#a70dd042c1e3fbbcb5ed2cedc49a8e9d0":[0,0,38,3],
-"namespaceGSUploadSizing.html#a75527a2a6b0705a789731108e62cdc8b":[0,0,38,2],
-"namespaceGSUploadSizing.html#a9d869aed45703979c713fed740df9938":[0,0,38,7],
-"namespaceGSUploadSizing.html#add079d85f76a3f4cd201b1768bad8ee1":[0,0,38,1],
-"namespaceGaussianEffectiveConfig.html":[0,0,1],
-"namespaceGaussianRenderConfig.html":[0,0,2],
-"namespaceGaussianRenderDebug.html":[0,0,3]
+"namespaceGSUploadSizing.html#a51c85a867fb9dee09ae4b49616654387":[0,0,38,6]
 };

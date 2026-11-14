@@ -47,6 +47,7 @@ var classGaussianStreamingSystem =
     [ "get_lod_hysteresis_zone", "classGaussianStreamingSystem.html#ac4d61f1549ab052ec731114aa739a9b5", null ],
     [ "get_max_chunk_count_per_asset", "classGaussianStreamingSystem.html#aa2eb58ee59aafc16a44db4b2e5cf3f9c", null ],
     [ "get_max_chunk_splats", "classGaussianStreamingSystem.html#a88f631e91f1bb8206ba622455b878396", null ],
+    [ "get_payload_telemetry", "classGaussianStreamingSystem.html#a154a1529e76d98abbd55b700b336db66", null ],
     [ "get_pending_pack_jobs", "classGaussianStreamingSystem.html#ac0c086e6d4e4b7de67f98bba505d2540", null ],
     [ "get_pending_upload_jobs", "classGaussianStreamingSystem.html#af26db3cfbc98c517f8d1606410d20a17", null ],
     [ "get_pending_upload_retirement_bytes", "classGaussianStreamingSystem.html#a97f19fd86b940929a55c25109709ab86", null ],

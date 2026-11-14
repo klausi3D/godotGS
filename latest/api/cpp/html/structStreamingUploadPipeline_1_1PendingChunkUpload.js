@@ -12,5 +12,6 @@ var structStreamingUploadPipeline_1_1PendingChunkUpload =
     [ "payload_checksum", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#aa4dfc116e64243db5e353d6ec3116ed3", null ],
     [ "payload_checksum_valid", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#a3eadd76bd26bf60ee63a3f1079197572", null ],
     [ "payload_read_failed", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#ac801bdcfb477dc457189a8ce6bafb298", null ],
+    [ "queue_allocation_bytes", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#a1a0d2f4fd237bfa24fa57948324087ae", null ],
     [ "upload_sequence", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#acdfb8ffb85d2d4bef9d78740791bd5bc", null ]
 ];

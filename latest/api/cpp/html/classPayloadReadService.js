@@ -19,6 +19,7 @@ var classPayloadReadService =
     [ "operator=", "classPayloadReadService.html#a05a860384088707ff83418a0c30b8917", null ],
     [ "poll_completion", "classPayloadReadService.html#a9889fd4495cac7b8cf4779c2f0783db6", null ],
     [ "release_handles", "classPayloadReadService.html#a77d23dc316501cbac8bc04174b79f228", null ],
+    [ "reset_observation_peaks", "classPayloadReadService.html#ade8b206ed811f1ebcb2889e28c70f454", null ],
     [ "shutdown", "classPayloadReadService.html#aa99de81c4e7cec6ee20fd651fb1794a9", null ],
     [ "start", "classPayloadReadService.html#a5cf96b4f2ba1b654273b5fc9d07da8e8", null ],
     [ "stats", "classPayloadReadService.html#a460b3c793118ae917a747f88068bd8aa", null ],

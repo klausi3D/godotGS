@@ -1,5 +1,13 @@
 var NAVTREEINDEX20 =
 {
+"gaussian__import__preset_8h.html#aa2d5061aa1eb6dcdc76d601d472346d6":[2,0,0,0,6,4,3],
+"gaussian__import__preset_8h.html#af831e09bb971d042b8c1a1c860f180c0":[2,0,0,0,6,4,1],
+"gaussian__import__preset_8h_source.html":[2,0,0,0,6,4],
+"gaussian__import__settings__dialog_8cpp.html":[2,0,0,0,4,10],
+"gaussian__import__settings__dialog_8h.html":[2,0,0,0,4,11],
+"gaussian__import__settings__dialog_8h_source.html":[2,0,0,0,4,11],
+"gaussian__importance_8h.html":[2,0,0,0,3,9],
+"gaussian__importance_8h_source.html":[2,0,0,0,3,9],
 "gaussian__inspector__plugins_8cpp.html":[2,0,0,0,4,12],
 "gaussian__inspector__plugins_8h.html":[2,0,0,0,4,13],
 "gaussian__inspector__plugins_8h_source.html":[2,0,0,0,4,13],
@@ -241,13 +249,5 @@ var NAVTREEINDEX20 =
 "gpu__sorting__pipeline__interfaces_8h.html":[2,0,0,0,5,9],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ec":[2,0,0,0,5,9,13],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca09374ad61dfb958fc8274577327aa19e":[2,0,0,0,5,9,13,5],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca35cc6c86bf5cfc254d8708c9561e97b5":[2,0,0,0,5,9,13,8],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca555d75fb308aa9e44cb7ee4332d40f9b":[2,0,0,0,5,9,13,10],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca6fea10211453b38c2fbd9fd6b091d47c":[2,0,0,0,5,9,13,4],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca713d905c6c30ad44d432e4f91c0952db":[2,0,0,0,5,9,13,11],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca9a287329c9598465a3d79d783faf6b66":[2,0,0,0,5,9,13,2],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,13,0],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecabca10a47d740ed8ac685baefaaaecc88":[2,0,0,0,5,9,13,1],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecad37e92613a3b852e829476831beb2872":[2,0,0,0,5,9,13,3],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a":[2,0,0,0,5,9,13,6]
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca35cc6c86bf5cfc254d8708c9561e97b5":[2,0,0,0,5,9,13,8]
 };

@@ -1,5 +1,13 @@
 var NAVTREEINDEX26 =
 {
+"register__types_8cpp.html#a5c3368235dc93c1e40e169c0ec3fe553":[2,0,0,0,15,0],
+"register__types_8h.html":[2,0,0,0,16],
+"register__types_8h.html#a21549b99aac0bc832f5df5c261857a60":[2,0,0,0,16,1],
+"register__types_8h.html#a5c3368235dc93c1e40e169c0ec3fe553":[2,0,0,0,16,0],
+"register__types_8h_source.html":[2,0,0,0,16],
+"render__config__orchestrator_8cpp.html":[2,0,0,0,12,46],
+"render__config__orchestrator_8h.html":[2,0,0,0,12,47],
+"render__config__orchestrator_8h_source.html":[2,0,0,0,12,47],
 "render__config__types_8h.html":[2,0,0,0,12,0,0],
 "render__config__types_8h_source.html":[2,0,0,0,12,0,0],
 "render__data__orchestrator_8cpp.html":[2,0,0,0,12,48],
@@ -241,13 +249,5 @@ var NAVTREEINDEX26 =
 "streaming__config__overrides_8h.html":[2,0,0,0,3,86],
 "streaming__config__overrides_8h_source.html":[2,0,0,0,3,86],
 "streaming__diagnostics__surface_8cpp.html":[2,0,0,0,3,87],
-"streaming__eviction__controller_8cpp.html":[2,0,0,0,3,88],
-"streaming__eviction__controller_8h.html":[2,0,0,0,3,89],
-"streaming__eviction__controller_8h_source.html":[2,0,0,0,3,89],
-"streaming__global__atlas__registry_8cpp.html":[2,0,0,0,3,90],
-"streaming__global__atlas__registry_8h.html":[2,0,0,0,3,91],
-"streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,91],
-"streaming__gsq__chunk__payload__source_8cpp.html":[2,0,0,0,3,92],
-"streaming__gsq__chunk__payload__source_8h.html":[2,0,0,0,3,93],
-"streaming__gsq__chunk__payload__source_8h_source.html":[2,0,0,0,3,93]
+"streaming__eviction__controller_8cpp.html":[2,0,0,0,3,88]
 };

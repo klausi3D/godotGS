@@ -1,5 +1,13 @@
 var NAVTREEINDEX28 =
 {
+"structDebugCounterSnapshot.html#a917d59c2249e7843480b6e58636006b5":[1,0,60,10],
+"structDebugCounterSnapshot.html#aa4d85e14819b4f608eb54dcf85dbad9a":[1,0,60,20],
+"structDebugCounterSnapshot.html#ab4703485200b60e5aebc248cb1f681f0":[1,0,60,24],
+"structDebugCounterSnapshot.html#abbe596c209efed1a04b670b7b1582c8d":[1,0,60,11],
+"structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c":[1,0,60,2],
+"structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66":[1,0,60,13],
+"structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,60,22],
+"structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c":[1,0,60,16],
 "structDebugCounterSnapshot.html#af94cb2e8f93443163dd4f66e43af9cb5":[1,0,60,0],
 "structDebugCounterSnapshot.html#afc1e9093dea93649098be8439764cfcc":[1,0,60,7],
 "structDebugOverlayOptions.html":[1,0,62],
@@ -241,13 +249,5 @@ var NAVTREEINDEX28 =
 "structGPUSorterFactory_1_1AutoThresholds.html#a8ee1a285028961e0a000192a4ca07910":[1,0,120,2,1],
 "structGPUSorterFactory_1_1PolicyDecision.html":[1,0,120,1],
 "structGPUSorterFactory_1_1PolicyDecision.html#a2c6e8218403d99a9993c53fb7f0d9f56":[1,0,120,1,2],
-"structGPUSorterFactory_1_1PolicyDecision.html#a73d3bc4c83ad7ade4e79ab5af70423dc":[1,0,120,1,1],
-"structGPUSorterFactory_1_1PolicyDecision.html#a9565c54c5012297de4b8060669c0c819":[1,0,120,1,0],
-"structGPUSorterFactory_1_1PolicyProbe.html":[1,0,120,0],
-"structGPUSorterFactory_1_1PolicyProbe.html#a5fa5f84aeea1d67883819b3c607f1cdc":[1,0,120,0,1],
-"structGPUSorterFactory_1_1PolicyProbe.html#a94749b746c0901ac75f3eeef636e00a1":[1,0,120,0,0],
-"structGPUSorterFactory_1_1PolicyProbe.html#ad0dc63ca1e1beecb28ee6bdf64e09341":[1,0,120,0,2],
-"structGPUSortingConfig.html":[1,0,121],
-"structGPUSortingConfig.html#a0986fe432496ba3912942cfd7bf9158a":[1,0,121,4],
-"structGPUSortingConfig.html#a1338ec76d9fc536e1bbab4e8ec725fb4":[1,0,121,26]
+"structGPUSorterFactory_1_1PolicyDecision.html#a73d3bc4c83ad7ade4e79ab5af70423dc":[1,0,120,1,1]
 };

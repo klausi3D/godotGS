@@ -1,5 +1,13 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a0a9e75e8d5ebc9cb40642c6ac0da8f9b":[1,0,105,10,16],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a1070b341e0376f45ddaa0d421c8d52de":[1,0,105,10,13],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a1d26780c4b0b0168b302b53f6281f8e9":[1,0,105,10,12],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a2b09a3d5a845f59ffd8c247f831b8fa8":[1,0,105,10,14],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a4aa24e8848050caa70cb931b31a2d6d7":[1,0,105,10,11],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a5a99f46803db8cc2852dc88172bc234a":[1,0,105,10,10],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a6aa84964e545a331cab335bd751f3b66":[1,0,105,10,4],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a754cd4e8b22339d7b7ac4e2ee3df33f9":[1,0,105,10,18],
 "structGaussianSplatRenderer_1_1RasterStageInput.html#a7b9a29644c299bb6173e8fde88f2c223":[1,0,105,10,17],
 "structGaussianSplatRenderer_1_1RasterStageInput.html#a8880874bbf69b185fd48e1a399cbf62f":[1,0,105,10,6],
 "structGaussianSplatRenderer_1_1RasterStageInput.html#a8ce81e2a34290720d0ab426e4aaefb22":[1,0,105,10,8],
@@ -241,13 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatWorldSubmissionContract.html#ab9b7ef4849d1d93a525c737074dda2d2":[1,0,112,1],
 "structGaussianSplatWorldSubmissionContract.html#abb43dd2e7c34954d406677137217cf5a":[1,0,112,14],
 "structGaussianSplatWorldSubmissionContract.html#ac74a5c592e541eee5cf4aec4ffbd16dd":[1,0,112,18],
-"structGaussianSplatWorldSubmissionContract.html#ad0110d39133aa51a34318cfcc170744d":[1,0,112,6],
-"structGaussianSplatWorldSubmissionContract.html#ad5a062569fdba09d87539da0f446ad3b":[1,0,112,3],
-"structGaussianSplatWorldSubmissionContract.html#ad7fd0d14383c9e20a7a78a6689f9b695":[1,0,112,8],
-"structGaussianSplatWorldSubmissionContract.html#ae81477179ddd492fefbac782eb41eefc":[1,0,112,11],
-"structGaussianSplatWorldSubmissionContract.html#ae9296f9d06f6f3f7439d668580f14e59":[1,0,112,10],
-"structGaussianSplatWorldSubmissionContract.html#aeabc443b4a82d136137e3872e63283fe":[1,0,112,0],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html":[1,0,113],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a019a03346968d689a745f767cd8d31b2":[1,0,113,11],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a15c40d1598e523bb10c4b53e598da4aa":[1,0,113,22]
+"structGaussianSplatWorldSubmissionContract.html#ad0110d39133aa51a34318cfcc170744d":[1,0,112,6]
 };

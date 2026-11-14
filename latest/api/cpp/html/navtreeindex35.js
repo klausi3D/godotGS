@@ -1,5 +1,13 @@
 var NAVTREEINDEX35 =
 {
+"structGaussianRenderPipeline_1_1StageResult.html#a0c9326a0bd34909dc5953664fa2f3ae3":[0,0,7,2,9],
+"structGaussianRenderPipeline_1_1StageResult.html#a0c9326a0bd34909dc5953664fa2f3ae3":[1,0,6,2,9],
+"structGaussianRenderPipeline_1_1StageResult.html#a0d906694d299042389af9f4b2dbe8cb3":[0,0,7,2,13],
+"structGaussianRenderPipeline_1_1StageResult.html#a0d906694d299042389af9f4b2dbe8cb3":[1,0,6,2,13],
+"structGaussianRenderPipeline_1_1StageResult.html#a1788fa82b3250d337264b7fce25d96c9":[0,0,7,2,14],
+"structGaussianRenderPipeline_1_1StageResult.html#a1788fa82b3250d337264b7fce25d96c9":[1,0,6,2,14],
+"structGaussianRenderPipeline_1_1StageResult.html#a21ec7d45be9867955bf20f9c1382c8f0":[0,0,7,2,17],
+"structGaussianRenderPipeline_1_1StageResult.html#a21ec7d45be9867955bf20f9c1382c8f0":[1,0,6,2,17],
 "structGaussianRenderPipeline_1_1StageResult.html#a22639f288c3acb91b722aee4e878b06b":[0,0,7,2,24],
 "structGaussianRenderPipeline_1_1StageResult.html#a22639f288c3acb91b722aee4e878b06b":[1,0,6,2,24],
 "structGaussianRenderPipeline_1_1StageResult.html#a3404eb90ad17acceaa344f244c3a218e":[0,0,7,2,4],
@@ -241,13 +249,5 @@ var NAVTREEINDEX35 =
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#ae2c8f8eceed7b4afa62c259d58e505e3":[1,0,81,0,18],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#af422cf8c58782a104c0e461e2170851c":[1,0,81,0,7],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#af76677bc66bc172a72b22c1dbfcf17b3":[1,0,81,0,8],
-"structGaussianSplatAsset_1_1PayloadSnapshot.html#af86859b427743b57cd45f9458eca3845":[1,0,81,0,16],
-"structGaussianSplatAsset_1_1PayloadSnapshot.html#afc83f4265c06169d9149d81756ec3080":[1,0,81,0,11],
-"structGaussianSplatHlodBakeStats.html":[1,0,87],
-"structGaussianSplatHlodBakeStats.html#a6a1242c65a43b2bf51125e31590214b3":[1,0,87,3],
-"structGaussianSplatHlodBakeStats.html#aad131133dc5c766370a97e061554a8eb":[1,0,87,2],
-"structGaussianSplatHlodBakeStats.html#ab3befb58b087d9cd5fbbbc64a14a8d68":[1,0,87,1],
-"structGaussianSplatHlodBakeStats.html#acad930714783bcfdf6491357105499b8":[1,0,87,4],
-"structGaussianSplatHlodBakeStats.html#ad5bb33f8a0cf94c76c360b148f495cc8":[1,0,87,0],
-"structGaussianSplatHlodCell.html":[1,0,88]
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#af86859b427743b57cd45f9458eca3845":[1,0,81,0,16]
 };

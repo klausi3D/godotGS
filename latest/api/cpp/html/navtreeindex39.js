@@ -1,5 +1,13 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html":[1,0,9,11],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a0af8b3c1837fb84a6556a6da0c65f0d2":[0,0,12,12,10],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a0af8b3c1837fb84a6556a6da0c65f0d2":[1,0,9,11,10],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a13c2f41c66934ae706e16ada99bbfd06":[0,0,12,12,9],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a13c2f41c66934ae706e16ada99bbfd06":[1,0,9,11,9],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a3c5cffd793871dee0fca7b131f9bee80":[0,0,12,12,0],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a3c5cffd793871dee0fca7b131f9bee80":[1,0,9,11,0],
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a472e1f0c4893be99e00a708fda86aec6":[0,0,12,12,15],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a472e1f0c4893be99e00a708fda86aec6":[1,0,9,11,15],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a4f801088e433667d145840caac00ef62":[0,0,12,12,17],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a4f801088e433667d145840caac00ef62":[1,0,9,11,17],
@@ -241,13 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[1,0,9,12,0,3],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[0,0,12,13,0,0],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[1,0,9,12,0,0],
-"structGaussianSplatting_1_1PainterlyMetadata.html":[0,0,12,9],
-"structGaussianSplatting_1_1PainterlyMetadata.html":[1,0,9,8],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a02c84be0ab8f98028a4c500687d19d41":[0,0,12,9,4],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a02c84be0ab8f98028a4c500687d19d41":[1,0,9,8,4],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a1a26f235aa63e47fd2914aafa06414de":[0,0,12,9,5],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a1a26f235aa63e47fd2914aafa06414de":[1,0,9,8,5],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a3bb7cf6b59fa4fc77c63e12882547bc1":[0,0,12,9,3],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a3bb7cf6b59fa4fc77c63e12882547bc1":[1,0,9,8,3],
-"structGaussianSplatting_1_1PainterlyMetadata.html#a704fb2a0ed072d56b93f9128d156a9d8":[0,0,12,9,1]
+"structGaussianSplatting_1_1PainterlyMetadata.html":[0,0,12,9]
 };

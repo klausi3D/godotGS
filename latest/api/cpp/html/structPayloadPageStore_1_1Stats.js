@@ -15,6 +15,7 @@ var structPayloadPageStore_1_1Stats =
     [ "decoders_idle", "structPayloadPageStore_1_1Stats.html#a1f4eb258f5645472456c12e913db4de6", null ],
     [ "decoders_leased", "structPayloadPageStore_1_1Stats.html#a56eb804c2a14b1e0359acecd9ccd67d6", null ],
     [ "digest_nsec", "structPayloadPageStore_1_1Stats.html#a173fad4b3fcc441c6f54a0c2cf7be049", null ],
+    [ "digest_verification_failures", "structPayloadPageStore_1_1Stats.html#a440dfce557aed65a845c762db5644d5d", null ],
     [ "last_failure_reason", "structPayloadPageStore_1_1Stats.html#ab4de6dffc3e149c2fb86ecc35a36a0f3", null ],
     [ "live_reservations", "structPayloadPageStore_1_1Stats.html#a4324a9f003e2bb02a62c711cbb5db165", null ],
     [ "page_failures", "structPayloadPageStore_1_1Stats.html#afde1420772db1f4f521c68e6492e331b", null ],

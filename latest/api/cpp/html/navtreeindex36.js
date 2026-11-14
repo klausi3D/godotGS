@@ -1,5 +1,13 @@
 var NAVTREEINDEX36 =
 {
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#afc83f4265c06169d9149d81756ec3080":[1,0,81,0,11],
+"structGaussianSplatHlodBakeStats.html":[1,0,87],
+"structGaussianSplatHlodBakeStats.html#a6a1242c65a43b2bf51125e31590214b3":[1,0,87,3],
+"structGaussianSplatHlodBakeStats.html#aad131133dc5c766370a97e061554a8eb":[1,0,87,2],
+"structGaussianSplatHlodBakeStats.html#ab3befb58b087d9cd5fbbbc64a14a8d68":[1,0,87,1],
+"structGaussianSplatHlodBakeStats.html#acad930714783bcfdf6491357105499b8":[1,0,87,4],
+"structGaussianSplatHlodBakeStats.html#ad5bb33f8a0cf94c76c360b148f495cc8":[1,0,87,0],
+"structGaussianSplatHlodCell.html":[1,0,88],
 "structGaussianSplatHlodCell.html#a15f05bc39f7a58289d837eed3ce9a3cb":[1,0,88,3],
 "structGaussianSplatHlodCell.html#a297308bc85ff5212759c7dbcf6b4ce7e":[1,0,88,0],
 "structGaussianSplatHlodCell.html#a949bdb4486453b32d9699b7c9df33b49":[1,0,88,2],
@@ -241,13 +249,5 @@ var NAVTREEINDEX36 =
 "structGaussianSplatRenderer_1_1PipelineState.html#a3980478f62216b96aa2b441cfea856a9":[1,0,105,0,2],
 "structGaussianSplatRenderer_1_1PipelineState.html#a43c0a36ed3482a4d8c8dc461faed974d":[1,0,105,0,1],
 "structGaussianSplatRenderer_1_1PipelineState.html#ac6abf671c2bf7ae9574eb44a7f2a9e33":[1,0,105,0,0],
-"structGaussianSplatRenderer_1_1RasterStageInput.html":[1,0,105,10],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a0a9e75e8d5ebc9cb40642c6ac0da8f9b":[1,0,105,10,16],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a1070b341e0376f45ddaa0d421c8d52de":[1,0,105,10,13],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a1d26780c4b0b0168b302b53f6281f8e9":[1,0,105,10,12],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a2b09a3d5a845f59ffd8c247f831b8fa8":[1,0,105,10,14],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a4aa24e8848050caa70cb931b31a2d6d7":[1,0,105,10,11],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a5a99f46803db8cc2852dc88172bc234a":[1,0,105,10,10],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a6aa84964e545a331cab335bd751f3b66":[1,0,105,10,4],
-"structGaussianSplatRenderer_1_1RasterStageInput.html#a754cd4e8b22339d7b7ac4e2ee3df33f9":[1,0,105,10,18]
+"structGaussianSplatRenderer_1_1RasterStageInput.html":[1,0,105,10]
 };

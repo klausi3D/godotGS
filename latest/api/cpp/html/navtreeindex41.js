@@ -1,5 +1,13 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1TileDensityMetrics.html#a78fb7c7e58aee363fd0115d7d4f23323":[1,0,9,56,1],
+"structGaussianSplatting_1_1TileDensityMetrics.html#ab54f76ca443cae6474b18b29f8dd194a":[0,0,12,57,0],
+"structGaussianSplatting_1_1TileDensityMetrics.html#ab54f76ca443cae6474b18b29f8dd194a":[1,0,9,56,0],
+"structGaussianSplatting_1_1TileDensityMetrics.html#ad3f7b8c50401947689d6ede79b9d1c01":[0,0,12,57,4],
+"structGaussianSplatting_1_1TileDensityMetrics.html#ad3f7b8c50401947689d6ede79b9d1c01":[1,0,9,56,4],
+"structGaussianSplatting_1_1TileDeviceContext.html":[0,0,12,44],
+"structGaussianSplatting_1_1TileDeviceContext.html":[1,0,9,43],
+"structGaussianSplatting_1_1TileDeviceContext.html#a5fe09d1a432e2653c556901105807fc3":[0,0,12,44,2],
 "structGaussianSplatting_1_1TileDeviceContext.html#a5fe09d1a432e2653c556901105807fc3":[1,0,9,43,2],
 "structGaussianSplatting_1_1TileDeviceContext.html#a8025c9fab3b7ff7bedffd39dd461a2c8":[0,0,12,44,3],
 "structGaussianSplatting_1_1TileDeviceContext.html#a8025c9fab3b7ff7bedffd39dd461a2c8":[1,0,9,43,3],
@@ -241,13 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a6c1a45e6beb67b04a6c7f88bc170d544":[1,0,9,54,0],
 "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a76bc06ae077c70729bd89fc69d370e91":[0,0,12,55,1],
 "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a76bc06ae077c70729bd89fc69d370e91":[1,0,9,54,1],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a7ddae338118db778ac0183d261ccc84d":[0,0,12,55,8],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a7ddae338118db778ac0183d261ccc84d":[1,0,9,54,8],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a8a6d476f1261cb844c6047a26dda9664":[0,0,12,55,21],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a8a6d476f1261cb844c6047a26dda9664":[1,0,9,54,21],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a98551a9846b2a61d5c8094f55c088351":[0,0,12,55,20],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a98551a9846b2a61d5c8094f55c088351":[1,0,9,54,20],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#ab81e91dfe4e754a607c8a7d26db93984":[0,0,12,55,15],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#ab81e91dfe4e754a607c8a7d26db93984":[1,0,9,54,15],
-"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#abbc6b18d2d9f1503e89d6bb048e7624e":[0,0,12,55,17]
+"structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a7ddae338118db778ac0183d261ccc84d":[0,0,12,55,8]
 };

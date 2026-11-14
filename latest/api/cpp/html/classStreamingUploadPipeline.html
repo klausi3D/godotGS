@@ -112,6 +112,8 @@ Classes</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
+<tr class="memitem:ad3217b4c5ed638bed67f5e5184b376c4" id="r_ad3217b4c5ed638bed67f5e5184b376c4"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad3217b4c5ed638bed67f5e5184b376c4">get_queue_observations</a> ()</td></tr>
+<tr class="memitem:ad7f2f663a8cb7face6b509fab4b8dbcb" id="r_ad7f2f663a8cb7face6b509fab4b8dbcb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad7f2f663a8cb7face6b509fab4b8dbcb">reset_queue_observations</a> ()</td></tr>
 <tr class="memitem:a3f2982806450f4e19354d932e7d73bc0" id="r_a3f2982806450f4e19354d932e7d73bc0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3f2982806450f4e19354d932e7d73bc0">load_streaming_tuning_config_from_project_settings</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="memitem:a3bd8188df540b4d88138d1b405d7383a" id="r_a3bd8188df540b4d88138d1b405d7383a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3bd8188df540b4d88138d1b405d7383a">start_pack_threads</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="memitem:a2b64ec44ba6311b128b2c4293f53bfbd" id="r_a2b64ec44ba6311b128b2c4293f53bfbd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2b64ec44ba6311b128b2c4293f53bfbd">stop_pack_threads</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
@@ -206,6 +208,10 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a6ad4536806890bb71d7eb754166d8a38" id="r_a6ad4536806890bb71d7eb754166d8a38"><td class="memItemLeft" align="right" valign="top">Vector&lt; <a class="el" href="structPackedGaussian.html">PackedGaussian</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6ad4536806890bb71d7eb754166d8a38">upload_coalescing_scratch</a></td></tr>
 <tr class="memitem:aa52d23fb6b654a711be738f519d33581" id="r_aa52d23fb6b654a711be738f519d33581"><td class="memItemLeft" align="right" valign="top">std::atomic&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa52d23fb6b654a711be738f519d33581">pack_queue_depth_cached</a> {0}</td></tr>
 <tr class="memitem:a14834906163ce20181ac9e97cac8ee0f" id="r_a14834906163ce20181ac9e97cac8ee0f"><td class="memItemLeft" align="right" valign="top">std::atomic&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a14834906163ce20181ac9e97cac8ee0f">upload_queue_depth_cached</a> {0}</td></tr>
+<tr class="memitem:a92765b0a8ef3bf36f74e5424c179c5e3" id="r_a92765b0a8ef3bf36f74e5424c179c5e3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a92765b0a8ef3bf36f74e5424c179c5e3">ready_bytes</a> = 0</td></tr>
+<tr class="memitem:add3e8c46cc3df5435b5c6503f4432240" id="r_add3e8c46cc3df5435b5c6503f4432240"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#add3e8c46cc3df5435b5c6503f4432240">ready_bytes_peak</a> = 0</td></tr>
+<tr class="memitem:a31d3caf43e4c0bec15683748cfdbf03a" id="r_a31d3caf43e4c0bec15683748cfdbf03a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31d3caf43e4c0bec15683748cfdbf03a">ready_jobs_peak</a> = 0</td></tr>
+<tr class="memitem:a0af87e0a8870baf08420f0580b81cf7b" id="r_a0af87e0a8870baf08420f0580b81cf7b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0af87e0a8870baf08420f0580b81cf7b">admission_waits</a> = 0</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
@@ -470,6 +476,23 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ad3217b4c5ed638bed67f5e5184b376c4" name="ad3217b4c5ed638bed67f5e5184b376c4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad3217b4c5ed638bed67f5e5184b376c4">&#9670;&#160;</a></span>get_queue_observations()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Dictionary StreamingUploadPipeline::get_queue_observations </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a7f9302ec1cb15a9037d042000d61c073" name="a7f9302ec1cb15a9037d042000d61c073"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a7f9302ec1cb15a9037d042000d61c073">&#9670;&#160;</a></span>get_upload_queue_depth_cached()</h2>
 
@@ -620,6 +643,23 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ad7f2f663a8cb7face6b509fab4b8dbcb" name="ad7f2f663a8cb7face6b509fab4b8dbcb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad7f2f663a8cb7face6b509fab4b8dbcb">&#9670;&#160;</a></span>reset_queue_observations()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void StreamingUploadPipeline::reset_queue_observations </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a3bd8188df540b4d88138d1b405d7383a" name="a3bd8188df540b4d88138d1b405d7383a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3bd8188df540b4d88138d1b405d7383a">&#9670;&#160;</a></span>start_pack_threads()</h2>
 
@@ -655,6 +695,20 @@ Static Public Attributes</h2></td></tr>
 </div>
 </div>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="a0af87e0a8870baf08420f0580b81cf7b" name="a0af87e0a8870baf08420f0580b81cf7b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0af87e0a8870baf08420f0580b81cf7b">&#9670;&#160;</a></span>admission_waits</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::admission_waits = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ae8311be4f921a68c35891c663871e3e4" name="ae8311be4f921a68c35891c663871e3e4"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ae8311be4f921a68c35891c663871e3e4">&#9670;&#160;</a></span>async_pack_enabled</h2>
 
@@ -1421,6 +1475,48 @@ Static Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t StreamingUploadPipeline::read_bytes_cumulative = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a92765b0a8ef3bf36f74e5424c179c5e3" name="a92765b0a8ef3bf36f74e5424c179c5e3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a92765b0a8ef3bf36f74e5424c179c5e3">&#9670;&#160;</a></span>ready_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::ready_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="add3e8c46cc3df5435b5c6503f4432240" name="add3e8c46cc3df5435b5c6503f4432240"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#add3e8c46cc3df5435b5c6503f4432240">&#9670;&#160;</a></span>ready_bytes_peak</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StreamingUploadPipeline::ready_bytes_peak = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a31d3caf43e4c0bec15683748cfdbf03a" name="a31d3caf43e4c0bec15683748cfdbf03a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a31d3caf43e4c0bec15683748cfdbf03a">&#9670;&#160;</a></span>ready_jobs_peak</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t StreamingUploadPipeline::ready_jobs_peak = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

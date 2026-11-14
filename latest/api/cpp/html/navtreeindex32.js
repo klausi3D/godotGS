@@ -1,5 +1,13 @@
 var NAVTREEINDEX32 =
 {
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a7192447ac9f6b463363290bc516019cc":[0,0,4,6,3],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a7192447ac9f6b463363290bc516019cc":[1,0,3,6,3],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a719b8c9063d059dcdf2fc83b72875a08":[0,0,4,6,1],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a719b8c9063d059dcdf2fc83b72875a08":[1,0,3,6,1],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a8841c9b1ee85d2334b37840f0e3bdbf4":[0,0,4,6,5],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a8841c9b1ee85d2334b37840f0e3bdbf4":[1,0,3,6,5],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a9a33318bcde36c356f2286ccf030f88b":[0,0,4,6,6],
+"structGaussianRenderFacadeState_1_1ShadowBlitState.html#a9a33318bcde36c356f2286ccf030f88b":[1,0,3,6,6],
 "structGaussianRenderFacadeState_1_1ShadowBlitState.html#abdf32e392cd29eb29dcbd1d7a21d9e07":[0,0,4,6,7],
 "structGaussianRenderFacadeState_1_1ShadowBlitState.html#abdf32e392cd29eb29dcbd1d7a21d9e07":[1,0,3,6,7],
 "structGaussianRenderFacadeState_1_1ShadowBlitState.html#ad99ef5b85eca5f08546e0fbdb37404e4":[0,0,4,6,2],
@@ -241,13 +249,5 @@ var NAVTREEINDEX32 =
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a31e84f4fd0061c7251118b6624c73d16":[0,0,6,2,21],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a31e84f4fd0061c7251118b6624c73d16":[1,0,5,2,21],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a341fafeeeae3db7ce8f4cdef32bb3872":[0,0,6,2,86],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a341fafeeeae3db7ce8f4cdef32bb3872":[1,0,5,2,86],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a383e926664f8881b0153d8944b75bcf8":[0,0,6,2,41],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a383e926664f8881b0153d8944b75bcf8":[1,0,5,2,41],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a3af0ad9b0d3e93efa8ad76a93f310376":[0,0,6,2,48],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a3af0ad9b0d3e93efa8ad76a93f310376":[1,0,5,2,48],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a3e2a11cfbe6f13a263af3eebde6bf97d":[0,0,6,2,89],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a3e2a11cfbe6f13a263af3eebde6bf97d":[1,0,5,2,89],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a407bc9c7cde58f82e88616f790a6b9ab":[0,0,6,2,88],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a407bc9c7cde58f82e88616f790a6b9ab":[1,0,5,2,88]
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a341fafeeeae3db7ce8f4cdef32bb3872":[1,0,5,2,86]
 };

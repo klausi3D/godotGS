@@ -115,6 +115,12 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a8de2f70145b95b7a76dbbe14acf11300" id="r_a8de2f70145b95b7a76dbbe14acf11300"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8de2f70145b95b7a76dbbe14acf11300">queued</a> = 0</td></tr>
 <tr class="memitem:a8f0357a3a24ac5b3609c392b4288b8c1" id="r_a8f0357a3a24ac5b3609c392b4288b8c1"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8f0357a3a24ac5b3609c392b4288b8c1">reading</a> = 0</td></tr>
 <tr class="memitem:acc1d712af4d8f19a5b2f159c00d8da9a" id="r_acc1d712af4d8f19a5b2f159c00d8da9a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acc1d712af4d8f19a5b2f159c00d8da9a">ready</a> = 0</td></tr>
+<tr class="memitem:ae9dc7819d58e3e3fa91bf66b7d4c8775" id="r_ae9dc7819d58e3e3fa91bf66b7d4c8775"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae9dc7819d58e3e3fa91bf66b7d4c8775">peak_jobs</a> = 0</td></tr>
+<tr class="memitem:abc3870c92211eb9f6f358d9adc17a82b" id="r_abc3870c92211eb9f6f358d9adc17a82b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abc3870c92211eb9f6f358d9adc17a82b">ready_bytes</a> = 0</td></tr>
+<tr class="memitem:ae937207c10e7633a1220805c24d103bb" id="r_ae937207c10e7633a1220805c24d103bb"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae937207c10e7633a1220805c24d103bb">peak_ready_bytes</a> = 0</td></tr>
+<tr class="memitem:add9a90d3ee960980f63b31b1faa974bd" id="r_add9a90d3ee960980f63b31b1faa974bd"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#add9a90d3ee960980f63b31b1faa974bd">collection_peak_bytes</a> = 0</td></tr>
+<tr class="memitem:ae6d548fc399a45f15f6a786db86551c9" id="r_ae6d548fc399a45f15f6a786db86551c9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae6d548fc399a45f15f6a786db86551c9">collection_peak_ready_bytes</a> = 0</td></tr>
+<tr class="memitem:a57ebd76af595fce0b5d1436236eeb0e3" id="r_a57ebd76af595fce0b5d1436236eeb0e3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a57ebd76af595fce0b5d1436236eeb0e3">collection_peak_jobs</a> = 0</td></tr>
 </table>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
 <a id="a0fef762bdb0e3f023ece6ba7a211d817" name="a0fef762bdb0e3f023ece6ba7a211d817"></a>
@@ -181,6 +187,48 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t PayloadReadService::Stats::cancelled_ready = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="add9a90d3ee960980f63b31b1faa974bd" name="add9a90d3ee960980f63b31b1faa974bd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#add9a90d3ee960980f63b31b1faa974bd">&#9670;&#160;</a></span>collection_peak_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadReadService::Stats::collection_peak_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a57ebd76af595fce0b5d1436236eeb0e3" name="a57ebd76af595fce0b5d1436236eeb0e3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a57ebd76af595fce0b5d1436236eeb0e3">&#9670;&#160;</a></span>collection_peak_jobs</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t PayloadReadService::Stats::collection_peak_jobs = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae6d548fc399a45f15f6a786db86551c9" name="ae6d548fc399a45f15f6a786db86551c9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae6d548fc399a45f15f6a786db86551c9">&#9670;&#160;</a></span>collection_peak_ready_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadReadService::Stats::collection_peak_ready_bytes = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -285,6 +333,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ae9dc7819d58e3e3fa91bf66b7d4c8775" name="ae9dc7819d58e3e3fa91bf66b7d4c8775"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae9dc7819d58e3e3fa91bf66b7d4c8775">&#9670;&#160;</a></span>peak_jobs</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t PayloadReadService::Stats::peak_jobs = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae937207c10e7633a1220805c24d103bb" name="ae937207c10e7633a1220805c24d103bb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae937207c10e7633a1220805c24d103bb">&#9670;&#160;</a></span>peak_ready_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadReadService::Stats::peak_ready_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a97c1b26c803e73bac2bf5528f4b92711" name="a97c1b26c803e73bac2bf5528f4b92711"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a97c1b26c803e73bac2bf5528f4b92711">&#9670;&#160;</a></span>queue_nsec</h2>
 
@@ -349,6 +425,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t PayloadReadService::Stats::ready = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abc3870c92211eb9f6f358d9adc17a82b" name="abc3870c92211eb9f6f358d9adc17a82b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abc3870c92211eb9f6f358d9adc17a82b">&#9670;&#160;</a></span>ready_bytes</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadReadService::Stats::ready_bytes = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

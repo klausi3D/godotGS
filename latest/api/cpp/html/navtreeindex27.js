@@ -1,5 +1,13 @@
 var NAVTREEINDEX27 =
 {
+"streaming__eviction__controller_8h.html":[2,0,0,0,3,89],
+"streaming__eviction__controller_8h_source.html":[2,0,0,0,3,89],
+"streaming__global__atlas__registry_8cpp.html":[2,0,0,0,3,90],
+"streaming__global__atlas__registry_8h.html":[2,0,0,0,3,91],
+"streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,91],
+"streaming__gsq__chunk__payload__source_8cpp.html":[2,0,0,0,3,92],
+"streaming__gsq__chunk__payload__source_8h.html":[2,0,0,0,3,93],
+"streaming__gsq__chunk__payload__source_8h_source.html":[2,0,0,0,3,93],
 "streaming__latency__histogram_8h.html":[2,0,0,0,3,94],
 "streaming__latency__histogram_8h_source.html":[2,0,0,0,3,94],
 "streaming__layout__hint_8cpp.html":[2,0,0,0,3,95],
@@ -241,13 +249,5 @@ var NAVTREEINDEX27 =
 "structDebugCounterSnapshot.html#a84bddef08a245546dc1b7ba4de1a0522":[1,0,60,15],
 "structDebugCounterSnapshot.html#a8a085152735e6943b59aac4ec7a92785":[1,0,60,3],
 "structDebugCounterSnapshot.html#a8af522c3292b1dd8d2bb1febdab1f296":[1,0,60,5],
-"structDebugCounterSnapshot.html#a8c81a01d810518abdd7b10baf8832eb0":[1,0,60,8],
-"structDebugCounterSnapshot.html#a917d59c2249e7843480b6e58636006b5":[1,0,60,10],
-"structDebugCounterSnapshot.html#aa4d85e14819b4f608eb54dcf85dbad9a":[1,0,60,20],
-"structDebugCounterSnapshot.html#ab4703485200b60e5aebc248cb1f681f0":[1,0,60,24],
-"structDebugCounterSnapshot.html#abbe596c209efed1a04b670b7b1582c8d":[1,0,60,11],
-"structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c":[1,0,60,2],
-"structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66":[1,0,60,13],
-"structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,60,22],
-"structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c":[1,0,60,16]
+"structDebugCounterSnapshot.html#a8c81a01d810518abdd7b10baf8832eb0":[1,0,60,8]
 };
