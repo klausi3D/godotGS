@@ -11,6 +11,7 @@ extern "C" int test_d3_5_telemetry_cpp_force_link() { return 0; }
 #include "core/os/thread.h"
 
 #include <initializer_list>
+#include <string>
 
 // D3-5 phase 1: only existing C++ APIs; the future export is accessed by string.
 // The CPU sink replaces device writes, not transport, workers, packing or export.
@@ -20,7 +21,7 @@ using TestGaussianSplatting::gs_pump_until;
 
 static bool dictionary(const Dictionary &p_parent, const char *p_key, Dictionary &r_out) {
 	if (!p_parent.has(p_key) || p_parent[p_key].get_type() != Variant::DICTIONARY) {
-		FAIL("D3-5 required exported Dictionary is absent: ", p_key);
+		FAIL("D3-5 required exported Dictionary is absent: ", std::string(p_key));
 		return false;
 	}
 	r_out = p_parent[p_key];
@@ -29,7 +30,7 @@ static bool dictionary(const Dictionary &p_parent, const char *p_key, Dictionary
 
 static int64_t number(const Dictionary &p_block, const char *p_key) {
 	if (!p_block.has(p_key) || p_block[p_key].get_type() != Variant::INT) {
-		FAIL("D3-5 required integer measurement is absent: ", p_key);
+		FAIL("D3-5 required integer measurement is absent: ", std::string(p_key));
 		return -1;
 	}
 	return int64_t(p_block[p_key]);
@@ -43,11 +44,11 @@ static void common(const Dictionary &p_block, const char *p_route, uint64_t p_ge
 	CHECK(number(p_block, "collection_epoch") == int64_t(p_generation));
 	for (const char *key : { "captures", "captures_on_worker_threads", "pages_decoded", "splats_decoded",
 			"pages_decoded_on_worker_threads", "stored_bytes_read", "read_requests", "decode_nsec" }) {
-		CHECK_MESSAGE(number(p_block, key) > 0, key);
+		CHECK_MESSAGE(number(p_block, key) > 0, std::string(key));
 	}
 	for (const char *key : { "captures_failed", "captures_on_main_thread", "pages_decoded_on_main_thread",
 			"page_failures", "read_failures" }) {
-		CHECK_MESSAGE(number(p_block, key) == 0, key);
+		CHECK_MESSAGE(number(p_block, key) == 0, std::string(key));
 	}
 	CHECK(p_block.has("last_failure_reason"));
 	CHECK(String(p_block.get("last_failure_reason", "absent")).is_empty());
@@ -55,7 +56,7 @@ static void common(const Dictionary &p_block, const char *p_route, uint64_t p_ge
 	CHECK(String(p_block.get("stage_time_scope", "")) == "worker_cpu_sum");
 	for (const char *key : { "verify_nsec", "decode_remainder_nsec", "read_latency_nsec", "read_queue_nsec",
 			"pages_decoded_digest_checked", "pages_decoded_digest_skipped" }) {
-		CHECK_MESSAGE(number(p_block, key) >= 0, key);
+		CHECK_MESSAGE(number(p_block, key) >= 0, std::string(key));
 	}
 	CHECK(number(p_block, "captures") == number(p_block, "captures_on_worker_threads") + number(p_block, "captures_on_main_thread"));
 	CHECK(number(p_block, "pages_decoded") == number(p_block, "pages_decoded_on_worker_threads") + number(p_block, "pages_decoded_on_main_thread"));
@@ -91,7 +92,7 @@ static void capture(const char *p_name, const Dictionary &p_report) {
 	for (const String &path : { String(p_name), String("tests/output/d3_5").path_join(p_name) }) {
 		Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
 		if (file.is_null()) {
-			FAIL("D3-5 cannot write raw producer capture: ", path.utf8().get_data());
+			FAIL("D3-5 cannot write raw producer capture: ", std::string(path.utf8().get_data()));
 			return;
 		}
 		file->store_string(text);
@@ -174,7 +175,7 @@ struct HlodRun {
 	bool until(const char *p_condition, Predicate p_ready) {
 		const auto outcome = gs_pump_until([&]() { step(); return p_ready(); }, 10000000, 0);
 		if (!outcome.ready()) {
-			FAIL("D3-5 timed out waiting for ", p_condition, ": ", outcome.describe().utf8().get_data());
+			FAIL("D3-5 timed out waiting for ", std::string(p_condition), ": ", std::string(outcome.describe().utf8().get_data()));
 			return false;
 		}
 		return true;
