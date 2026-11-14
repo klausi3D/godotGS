@@ -598,6 +598,16 @@ def overlap_drops(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     return rec
 
 
+def route_telemetry_summary(block: object, *, route: str, source_generation: int) -> Dict[str, object]:
+    """D3-5 phase-1 stub: required route/epoch evidence is not exported yet.
+
+    The input is the verbatim payload_telemetry block from the renderer/probe
+    (HLOD) or get_decode_stats() (chunk), with an independently observed source
+    generation. Phase 2 supplies validation; absence must never imply zero work.
+    """
+    return missing("D3-5 route-labelled telemetry is not implemented")
+
+
 def gsq_decode_split(stats: object) -> Dict[str, object]:
     """BV-K9b: the GSQ decode span (the pipeline's "decode" stage) split into its parts, as
     per-page means in ms and shares of the span: the stored-page verify (header + stored

@@ -150,6 +150,8 @@
 	static const volatile int test_hlod_page_store_identity_cpp_force_link_anchor = test_hlod_page_store_identity_cpp_force_link();
 	extern "C" int test_hlod_page_store_streamer_cpp_force_link();
 	static const volatile int test_hlod_page_store_streamer_cpp_force_link_anchor = test_hlod_page_store_streamer_cpp_force_link();
+	extern "C" int test_d3_5_telemetry_cpp_force_link();
+	static const volatile int test_d3_5_telemetry_cpp_force_link_anchor = test_d3_5_telemetry_cpp_force_link();
 	extern "C" int test_hlod_page_store_gpu_cpp_force_link();
 	static const volatile int test_hlod_page_store_gpu_cpp_force_link_anchor = test_hlod_page_store_gpu_cpp_force_link();
 	extern "C" int test_hlod_scale_caps_cpp_force_link();

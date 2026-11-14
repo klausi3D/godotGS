@@ -1084,5 +1084,190 @@ class EntryPoint(unittest.TestCase):
         self.assertIn("_run_beyond_vram_probe_lane_tests,", text)
 
 
+class D35Telemetry(unittest.TestCase):
+    """Required evidence, independent of flythrough_verdict and release gates.
+
+    Positive cases ONLY consume the real C++ captures documented in d3_5/README.
+    Constructed dictionaries below are deliberately incomplete/invalid inputs.
+    These tuples prescribe the D3-5 measurement contract, not a coverage inventory.
+    """
+
+    COMMON_REQUIRED = (
+        "route", "source_generation", "collection_epoch", "captures", "captures_failed",
+        "captures_on_worker_threads", "captures_on_main_thread", "pages_decoded", "splats_decoded",
+        "pages_decoded_on_worker_threads", "pages_decoded_on_main_thread", "page_failures",
+        "last_failure_reason", "stored_bytes_read", "read_requests", "read_failures",
+        "read_latency_nsec", "read_queue_nsec", "verify_nsec", "verify_scope", "decode_nsec",
+        "decode_remainder_nsec", "digest_nsec", "digest_status", "pages_decoded_digest_checked",
+        "pages_decoded_digest_skipped", "stage_time_scope",
+    )
+    HLOD_REQUIRED = (
+        "pack_calls", "pack_nsec", "packed_bytes", "packed_bytes_peak", "ready_bytes", "ready_bytes_peak",
+        "mailbox_bytes", "mailbox_bytes_peak", "active_bytes", "active_bytes_peak",
+        "stored_bytes", "stored_bytes_peak", "shadow_bytes", "shadow_bytes_peak",
+        "queue_residence_nsec", "queue_residence_samples", "upload_bytes", "upload_bytes_this_frame",
+        "upload_slices", "upload_completions", "upload_completion_nsec",
+    )
+
+    def producer(self, name: str) -> dict:
+        path = HERE / "fixtures" / "d3_5" / name
+        self.assertTrue(path.is_file(), f"Required real producer capture absent: {path}. "
+                        "Capture the strict D3Telemetry cases on CI; never synthesize or skip it.")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def hlod(self, key="completed"):
+        report = self.producer("d3_5_hlod_test_results.json")
+        generation_key = "replacement_source_generation" if key == "replaced" else "source_generation"
+        result = report[key]  # verbatim renderer Dictionary serialized by C++
+        self.assertIn("payload_telemetry", result, "HLOD result JSON must carry its explicit telemetry block")
+        return result["payload_telemetry"], report[generation_key]
+
+    def chunk(self, digest="skipped"):
+        record = self.producer("d3_5_chunk_test_results.json")[digest]
+        return record["payload_telemetry"], record["source_generation"]
+
+    def summarize(self, block, generation, route="hlod"):
+        return ps.route_telemetry_summary(block, route=route, source_generation=generation)
+
+    def test_real_hlod_result_json_is_ok_with_worker_gsq_work(self):
+        block, generation = self.hlod()
+        result = self.summarize(block, generation)
+        self.assertEqual(result["status"], ps.OK, result)
+        self.assertEqual(result["route"], "hlod")
+        self.assertEqual(result["collection_epoch"], generation)
+        self.assertGreater(result["pages_decoded"], 0)
+        self.assertGreater(result["splats_decoded"], 0)
+        self.assertGreater(result["captures_on_worker_threads"], 0)
+        self.assertEqual(block["stage_time_scope"], "worker_cpu_sum")
+        for key in self.COMMON_REQUIRED + self.HLOD_REQUIRED:
+            with self.subTest(key=key):
+                self.assertIn(key, block)
+
+    def test_real_chunk_checked_and_skipped_blocks_remain_chunk(self):
+        for digest in ("checked", "skipped"):
+            with self.subTest(digest=digest):
+                block, generation = self.chunk(digest)
+                result = self.summarize(block, generation, "chunk")
+                self.assertEqual(result["status"], ps.OK, result)
+                self.assertEqual(result["route"], "chunk")
+                self.assertEqual(result["digest"]["status"], digest)
+                if digest == "checked":
+                    self.assertGreater(result["digest"]["nsec"], 0)
+                else:
+                    self.assertIsNone(result["digest"]["nsec"], "skipped work is not a 0 ns measurement")
+
+    def test_missing_block_and_missing_keys_are_missing(self):
+        self.assertEqual(self.summarize(None, 7)["status"], ps.MISSING)
+        self.assertEqual(self.summarize({}, 7)["status"], ps.MISSING)
+        for route, get_block, required in (
+            ("hlod", self.hlod, self.COMMON_REQUIRED + self.HLOD_REQUIRED),
+            ("chunk", self.chunk, self.COMMON_REQUIRED),
+        ):
+            block, generation = get_block()
+            for key in required:
+                with self.subTest(route=route, missing=key):
+                    mutated = copy.deepcopy(block)
+                    del mutated[key]
+                    self.assertEqual(self.summarize(mutated, generation, route)["status"], ps.MISSING)
+
+    def test_null_and_nonnumeric_required_measurements_are_missing(self):
+        block, generation = self.hlod()
+        for key in ("captures", "pages_decoded", "read_latency_nsec", "pack_nsec", "upload_slices"):
+            for value in (None, True, "0"):
+                with self.subTest(key=key, value=value):
+                    mutated = {**block, key: value}
+                    self.assertEqual(self.summarize(mutated, generation)["status"], ps.MISSING)
+
+    def test_stale_epoch_is_invalid_before_work_is_considered(self):
+        # Malformed: stale scope may never be interpreted as current zero work.
+        for block in (
+            {"route": "hlod", "source_generation": 6, "collection_epoch": 6},
+            {"route": "hlod", "source_generation": 7, "collection_epoch": 6},
+        ):
+            with self.subTest(block=block):
+                self.assertEqual(self.summarize(block, 7)["status"], ps.INVALID)
+
+    def test_replacement_epoch_cannot_relabel_previous_measurements(self):
+        old, old_generation = self.hlod()
+        new, new_generation = self.hlod("replaced")
+        self.assertNotEqual(old_generation, new_generation)
+        self.assertEqual(self.summarize(new, new_generation)["status"], ps.OK)
+        self.assertEqual(self.summarize(old, new_generation)["status"], ps.INVALID)
+        self.assertEqual(old["pages_decoded"], 1)
+        self.assertEqual(new["pages_decoded"], 1, "old-source totals must not be relabelled as a new collection")
+
+    def test_zero_work_or_zero_worker_captures_is_missing(self):
+        block, generation = self.hlod()
+        for key in ("captures", "captures_on_worker_threads", "pages_decoded", "splats_decoded",
+                    "pages_decoded_on_worker_threads"):
+            with self.subTest(key=key):
+                self.assertEqual(self.summarize({**block, key: 0}, generation)["status"], ps.MISSING)
+
+    def test_failures_negative_counters_and_inconsistent_stages_are_invalid(self):
+        block, generation = self.hlod()
+        mutations = (
+            {"captures_failed": 1}, {"page_failures": 1}, {"read_failures": 1},
+            {"last_failure_reason": "gsq_corrupt_page"}, {"verify_nsec": -1},
+            {"decode_remainder_nsec": block["decode_nsec"] + 1},
+            {"captures_on_worker_threads": block["captures"] + 1},
+            {"pages_decoded_on_main_thread": block["pages_decoded"] + 1},
+            {"pages_decoded_digest_checked": block["pages_decoded"] + 1},
+            {"ready_bytes_peak": -1}, {"ready_bytes": block["ready_bytes_peak"] + 1},
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.assertEqual(self.summarize({**block, **mutation}, generation)["status"], ps.INVALID)
+
+    def test_skipped_digest_is_labelled_and_never_zero_ns_free(self):
+        block, generation = self.chunk("skipped")
+        result = self.summarize(block, generation, "chunk")
+        self.assertEqual(result["status"], ps.OK, result)
+        self.assertEqual(result["digest"], {"status": "skipped", "nsec": None})
+        for mutation in ({"digest_status": "checked"}, {"digest_nsec": 0}):
+            with self.subTest(mutation=mutation):
+                self.assertEqual(self.summarize({**block, **mutation}, generation, "chunk")["status"], ps.INVALID)
+
+    def test_chunk_cannot_supply_required_hlod_evidence(self):
+        # Malformed route identity fails even before the absent stages are read.
+        self.assertEqual(self.summarize({"route": "chunk", "source_generation": 7,
+                                         "collection_epoch": 7}, 7)["status"], ps.INVALID)
+        hlod, generation = self.hlod()
+        self.assertEqual(self.summarize(hlod, generation, "chunk")["status"], ps.INVALID)
+        self.assertEqual(self.summarize(None, generation)["status"], ps.MISSING)
+        # The old probe's chunk-shaped gsq_decode_stats is not an HLOD block.
+        old_result = json.loads((FIX / "tsmoke_path.result.json").read_text(encoding="utf-8"))
+        self.assertEqual(self.summarize(old_result.get("payload_telemetry"), generation)["status"], ps.MISSING)
+
+    def test_unmeasured_vram_is_distinct_from_measured_zero(self):
+        block, generation = self.hlod()
+        self.assertEqual(self.summarize({**block, "gpu_memory_usage_mb": None}, generation)["status"], ps.OK)
+        self.assertEqual(self.summarize({**block, "gpu_memory_usage_mb": 0}, generation)["status"], ps.INVALID)
+        self.assertEqual(self.summarize({**block, "gpu_memory_usage_mb": 0,
+                                        "gpu_memory_status": "not_measured"}, generation)["status"], ps.INVALID)
+
+    def test_export_wiring_removal_is_missing(self):
+        report = self.producer("d3_5_hlod_test_results.json")
+        result = copy.deepcopy(report["completed"])
+        self.assertEqual(self.summarize(result.get("payload_telemetry"), report["source_generation"])["status"], ps.OK)
+        del result["payload_telemetry"]  # Remove the actual export, not a helper's validation.
+        self.assertEqual(self.summarize(result.get("payload_telemetry"), report["source_generation"])["status"], ps.MISSING)
+
+    def test_probe_summary_wires_hlod_result_to_route_validator(self):
+        # Malformed-input replay of a REAL probe result: only the declared route
+        # is changed; its missing HLOD block must survive as MISSING in summary.
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path, result = captured("tsmoke_path", Path(tmp))
+            result.update(route="hlod", source_generation=7)
+            result.pop("payload_telemetry", None)
+            m = manifest()
+            path = pp.resolve_path(m)
+            truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+            with mock.patch.object(ps, "route_telemetry_summary", wraps=ps.route_telemetry_summary) as validator:
+                summary = rp.summarise_path(ps.read_trace(trace_path), {"result": result}, path, truth, 1)
+            self.assertTrue("payload_telemetry" in summary, "the actual probe summarizer must preserve required route evidence")
+            self.assertEqual(summary["payload_telemetry"]["status"], ps.MISSING)
+            validator.assert_called_once_with(None, route="hlod", source_generation=7)
+
+
 if __name__ == "__main__":
     unittest.main()
