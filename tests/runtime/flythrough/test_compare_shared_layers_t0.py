@@ -59,6 +59,7 @@ def _load(name):
 ps = _load("probe_summary")
 rp = _load("run_probe")
 driver = _load("compare_shared_layers_t0")
+shared = _load("shared_layers_t0")
 workflow_pins = _load("test_dispatch_lane")
 
 PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
@@ -161,6 +162,7 @@ class ComparisonContract(unittest.TestCase):
         # New comparison protocol, explicitly constructed preconditions. These
         # MUST come from process observations in phase 2, never the request plan.
         observed = {
+            "camera_application": shared.camera_application(trace, self.path),
             "settings": copy.deepcopy(settings), "source_generation": generation,
             "final_marker": True, "exit_code": 0,
             "runtime": {"hlod_stream_paged": route == "hlod", "hlod_stream_page_store_active": route == "hlod",
@@ -206,9 +208,20 @@ class ComparisonContract(unittest.TestCase):
                             "binary_sha256": _sha(f"optimized binary {commit}"),
                             "final_marker": True, "trace_file": arms["hlod"]["trace"]["file"],
                             "input_file_sha256": prepared["tree_file_sha256"],
+                            # Constructed migration policy observations, using
+                            # real captured checkpoint counts. This is not a
+                            # captured old/new execution; see the module docstring.
+                            "payload_behavior": {
+                                "route": "hlod", "loaded_file_sha256": prepared["tree_file_sha256"],
+                                "drawn_counts": [{k: cp[k] for k in ("checkpoint", "pass_index", "drawn_splats")}
+                                                 for cp in self.result["checkpoints"]],
+                                "decoded_bytes": ps.missing("no common native decoded-byte observation"),
+                            },
                             "settings_readback": copy.deepcopy(arms["hlod"]["observed"]["settings"])}
                      for name, commit in (("base", PRE_D3), ("candidate", CANDIDATE))},
         }
+        for arm in migration["arms"].values():
+            arm["camera_application"] = copy.deepcopy(arms["hlod"]["observed"]["camera_application"])
         return {"schema": "godotgs-shared-layers-t0-experiment/1", "run_id": "unit-policy-scenario",
                 "control": "none", "prepared": prepared, "arms": arms, "migration": migration}
 
@@ -624,6 +637,78 @@ class ComparisonContract(unittest.TestCase):
         self.assertEqual(driver.main(["--require-report", str(report), "--run-id", self.experiment["run_id"]]), 0)
         self.assertNotEqual(driver.main(["--require-report", str(report), "--run-id", self.experiment["run_id"],
                                          "--control", "skip_compare"]), 0)
+
+    def test_migration_common_behavior_cannot_be_omitted_or_changed(self):
+        for missing in (True, False):
+            with self.scenario(missing=missing):
+                base = self.experiment["migration"]["arms"]["base"]
+                if missing:
+                    base.pop("payload_behavior")
+                    self.assert_verdict("UNUSABLE", "migration_unproven")
+                else:
+                    base["payload_behavior"]["drawn_counts"][0]["drawn_splats"] += 1
+                    self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def test_actual_camera_application_must_be_present_and_match(self):
+        for value in (None, {"matches": False, "reason": "changed camera path"}):
+            with self.scenario(value=value):
+                self.arm()["observed"]["camera_application"] = value
+                self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_corruption_receipt_is_checked_without_damaging_clean_measurements(self):
+        self.experiment["control"] = "corrupt"
+        arm = copy.deepcopy(self.arm())
+        arm["probe"]["payload_telemetry"].update(page_failures=1, last_failure_reason="stored digest mismatch")
+        self.experiment["control_receipt"] = {"status": "FORCED", "arm": arm}
+        self.assert_verdict("UNUSABLE", "payload_failure")
+        self.assertEqual(self.arm()["probe"]["payload_telemetry"]["page_failures"], 0)
+
+    def test_unavailable_saturation_hook_is_distinct_not_run(self):
+        self.experiment["control"] = "saturate"
+        self.experiment["control_receipt"] = {"status": "NOT_RUN", "reason": "no script binding for upload hold"}
+        self.assert_verdict("NOT_RUN", "control_not_run")
+
+    def test_failed_native_capture_keeps_failure_proof_through_lossy_summary(self):
+        self.experiment["control"] = "corrupt"
+        arm = copy.deepcopy(self.arm())
+        raw = arm["probe"]["payload_telemetry"]
+        raw.update(page_failures=1, captures_failed=1, last_failure_reason="stored digest mismatch")
+        summary = ps.route_telemetry_summary(raw, route="hlod", source_generation=arm["observed"]["source_generation"])
+        self.assertEqual(summary["status"], ps.INVALID)
+        self.assertNotIn("page_failures", summary, "real validator deliberately emits a compact invalid record")
+        arm["native"] = {"payload_telemetry": raw}
+        arm["probe"]["payload_telemetry"] = summary
+        self.experiment["control_receipt"] = {"status": "FORCED", "arm": arm}
+        self.assert_verdict("UNUSABLE", "payload_failure")
+
+    def test_final_verdict_rejects_changed_trace_bytes_without_a_row_gap(self):
+        source = self.tmp / "experiment.json"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        out = self.tmp / "comparison"
+        self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out)]), 0)
+        path = Path(self.arm()["trace"]["file"])
+        trace = ps.read_trace(path)
+        payload = bytearray(path.read_bytes())
+        header_end = 12 + struct.unpack_from("<I", payload, 8)[0]
+        values = list(trace.rows[0])
+        values[trace.index["px"]] += 1
+        struct.pack_into("<" + trace.types, payload, header_end, *values)
+        path.write_bytes(payload)
+        self.assertEqual(driver.main(["--require-report", str(out / "comparison.json"),
+                                      "--run-id", self.experiment["run_id"]]), 2)
+
+    def test_contention_postflight_is_bound_and_missing_signal_fails_closed(self):
+        source = self.tmp / "experiment.json"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        out = self.tmp / "comparison"
+        # These are explicit malformed policy records, not purported native
+        # contention captures. An absent/CLEAN-less verdict must fail closed.
+        for record in ({}, {"verdict": "BUSY"}):
+            with self.subTest(record=record):
+                path = self.tmp / "postflight.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out),
+                                              "--contention-report", str(path)]), 2)
 
 
 class WorkflowContract(unittest.TestCase):

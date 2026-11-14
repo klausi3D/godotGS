@@ -53,6 +53,15 @@ const DROP_FIELDS := [
 	["sampled_overlap_records_total", "q"], ["sampled_overlap_splats_total", "q"],
 ]
 
+# Diagnostic-only columns. Existing BV-07 traces keep their original layout;
+# the self-describing header advertises these only for the paired experiment.
+const SHARED_LAYER_FIELDS := [
+	["hlod_stream_desired_nodes", "q"], ["hlod_stream_resident_nodes", "q"],
+	["hlod_stream_loading_nodes", "q"], ["hlod_stream_drawn_nodes", "q"],
+	["hlod_stream_failed_nodes", "q"], ["hlod_stream_nonresident_drawn", "q"],
+	["hlod_stream_uploaded_bytes_this_frame", "q"], ["hlod_stream_uploaded_bytes_total", "q"],
+]
+
 # Field name, type ("q" int64 / "d" float64). Order is the row layout.
 var FIELDS := [
 	["row", "q"], ["engine_frame", "q"], ["t_usec", "q"], ["phase", "q"], ["pass_index", "q"],
@@ -84,6 +93,7 @@ var _camera: Camera3D
 var _node: GaussianSplatWorld3D
 var _last_stats: Dictionary = {}
 var _last_streaming: Dictionary = {}
+var _shared_layers_peaks: Dictionary = {}
 var _first_engine_frame := -1
 var _last_engine_frame := -1
 # Viewport captures (plan "screenshots": {"dir", "moving_every_n"}); see _screenshot().
@@ -121,7 +131,13 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["rows_written"] = _rows
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
+	_result["final_render_stats"] = _scalars(_last_stats)
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
+	if bool(_plan.get("shared_layers_t0", false)):
+		_result["shared_layers_peaks"] = _shared_layers_peaks
+		# Hash outside the measured path windows. This receipt comes from the
+		# process that actually loaded the file, independently of the Python plan.
+		_result["loaded_file_sha256"] = FileAccess.get_sha256(str(_plan.get("world", "")))
 	var payload_evidence := _payload_telemetry_result()
 	for key in payload_evidence:
 		_result[key] = payload_evidence[key]
@@ -178,7 +194,7 @@ func _scalars(d: Dictionary) -> Dictionary:
 	for k in d.keys():
 		var v = d[k]
 		if v is Dictionary:
-			if str(k) in ["streaming_latency_histograms", "payload_telemetry"]:
+			if str(k) in ["streaming_latency_histograms", "payload_telemetry", "device_vram_ledger"]:
 				out[k] = v
 			continue
 		if v is Array:
@@ -221,6 +237,13 @@ func _sample_and_write() -> void:
 	_last_stats = stats
 	var ss: Dictionary = stats.get("streaming_state", {}) if stats.get("streaming_state") is Dictionary else {}
 	_last_streaming = ss
+	if bool(_plan.get("shared_layers_t0", false)):
+		for key in ["hlod_stream_nonresident_drawn", "hlod_stream_stall_frames", "hlod_stream_blocked_groups",
+				"hlod_stream_failed_total", "hlod_stream_late_dropped_total", "hlod_stream_drawn_nodes",
+				"hlod_stream_resident_nodes", "rendered_splat_count", "instance_count_overflow_events",
+				"overflow_drop_events", "binning_drop_events", "raster_tile_cap_drop_events"]:
+			if stats.has(key):
+				_shared_layers_peaks[key] = max(int(_shared_layers_peaks.get(key, stats[key])), int(stats[key]))
 	var diag: Dictionary = ss.get("diagnostics", {}) if ss.get("diagnostics") is Dictionary else {}
 	var gpt: Dictionary = stats.get("gpu_pass_timing", {}) if stats.get("gpu_pass_timing") is Dictionary else {}
 	var passes: Dictionary = gpt.get("passes", {}) if gpt.get("passes") is Dictionary else {}
@@ -264,6 +287,9 @@ func _sample_and_write() -> void:
 	])
 	for f in DROP_FIELDS:
 		values.append(int(_g(stats, f[0], -1)))
+	if bool(_plan.get("shared_layers_t0", false)):
+		for f in SHARED_LAYER_FIELDS:
+			values.append(int(_g(stats, f[0], -1)))
 	for i in range(FIELDS.size()):
 		if FIELDS[i][1] == "q":
 			_trace.store_64(int(values[i]))
@@ -327,6 +353,19 @@ func _settled() -> bool:
 	# oracle on it settled while chunks were still in flight (holes on screen).
 	if _stats_pose_error() > 0.001:
 		return false
+	if bool(_plan.get("shared_layers_t0", false)) and _is_hlod_payload_route():
+		# Diagnostic HLOD convergence only. Never substitute chunk counts or
+		# claim the separate G6/G6t cut-settle acceptance oracle has run.
+		for key in ["hlod_stream_desired_nodes", "hlod_stream_resident_nodes", "hlod_stream_loading_nodes",
+				"hlod_stream_failed_nodes", "hlod_stream_nonresident_drawn", "hlod_stream_drawn_nodes"]:
+			if not _last_stats.has(key):
+				return false
+		return int(_last_stats["hlod_stream_desired_nodes"]) > 0 \
+				and int(_last_stats["hlod_stream_desired_nodes"]) == int(_last_stats["hlod_stream_resident_nodes"]) \
+				and int(_last_stats["hlod_stream_loading_nodes"]) == 0 \
+				and int(_last_stats["hlod_stream_failed_nodes"]) == 0 \
+				and int(_last_stats["hlod_stream_nonresident_drawn"]) == 0 \
+				and int(_last_stats["hlod_stream_drawn_nodes"]) > 0
 	var ss := _last_streaming
 	if not ss.has("needed_not_resident_chunks") or not ss.has("needed_chunks"):
 		return false
@@ -411,6 +450,10 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"needed_upload_pending_chunks": int(ss.get("needed_upload_pending_chunks", -1)),
 		"row": _rows - 1,
 		"t_usec": Time.get_ticks_usec(),
+		"actual_route": "hlod" if _is_hlod_payload_route() else "chunk",
+		"hlod_desired_nodes": _last_stats.get("hlod_stream_desired_nodes"),
+		"hlod_resident_nodes": _last_stats.get("hlod_stream_resident_nodes"),
+		"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),
 	}
 
 
@@ -585,6 +628,8 @@ func _run() -> void:
 		_fail_usage("plan %s is not a JSON object" % plan_path)
 		return
 	_plan = parsed
+	if bool(_plan.get("shared_layers_t0", false)):
+		FIELDS += SHARED_LAYER_FIELDS
 	_result = {"schema": RESULT_SCHEMA, "mode": _plan.get("mode"), "plan": plan_path,
 			"start_usec": Time.get_ticks_usec(), "adapter": RenderingServer.get_video_adapter_name(),
 			"adapter_vendor": RenderingServer.get_video_adapter_vendor(),
@@ -658,6 +703,37 @@ func _run() -> void:
 	_node.apply_world()
 	_result["node_readback"] = {"max_splat_count": _node.get_max_splat_count(),
 			"max_render_distance": _node.get_max_render_distance(), "lod_enabled": _node.is_lod_enabled()}
+	if bool(_plan.get("shared_layers_t0", false)):
+		var sidecar_path := str(_plan["world"]).get_basename() + ".manifest.json"
+		var sidecar = JSON.parse_string(FileAccess.get_file_as_string(sidecar_path))
+		var codec_params = null
+		if sidecar is Dictionary:
+			codec_params = sidecar.get("codec") if world_res.has_hlod_paged_source() else sidecar.get("writer", {}).get("codec")
+		if codec_params is Dictionary:
+			codec_params = codec_params.duplicate()
+			codec_params.erase("codec")
+		var node_readback: Dictionary = _result["node_readback"]
+		_result["shared_layers_settings"] = {
+			"camera_poses": _plan.get("path", {}).get("segments"),
+			"resolution": [get_root().size.x, get_root().size.y],
+			"camera": {"fov_deg": _camera.fov, "keep": "width" if _camera.keep_aspect == Camera3D.KEEP_WIDTH else "height",
+					"near_m": _camera.near, "far_m": _camera.far},
+			"codec": {"encoding": "gsq" if codec_params is Dictionary and int(codec_params.get("codec_id", -1)) == 1 else "unknown",
+					"sh_bands": world_res.get_sh_degree(), "params": codec_params,
+					"per_chunk_quantization": bool(ProjectSettings.get_setting("rendering/gaussian_splatting/compression/per_chunk_quantization"))},
+			"sh_bands": world_res.get_sh_degree(), "visible_splats": _node.get_max_splat_count(),
+			"drawn_splats": _node.get_max_splat_count(),
+			"timing_windows": {"moving_passes": _plan.get("passes"), "settle": _plan.get("settle")},
+			"node_readback": node_readback, "project_settings_readback": readback,
+		}
+		_result["shared_layers_settings_scope"] = {
+			"camera_poses": "process parsed arc-length path; application independently observed in trace px/py/pz/yaw_deg/pitch_deg and checkpoint poses",
+			"timing_windows": "process parsed timing configuration; observed segment and settle durations retained separately",
+			"codec": "producer sidecar codec parameters, independently verified against the generated file before the experiment and bound to process loaded_file_sha256",
+		}
+		_result["world_payload_readback"] = {"mode": world_res.get_payload_mode(),
+				"has_hlod_paged_source": world_res.has_hlod_paged_source(),
+				"sh_degree": world_res.get_sh_degree(), "splat_count": world_res.get_splat_count()}
 
 	var err := ""
 	if str(_plan.get("mode")) == "path":

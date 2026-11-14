@@ -1931,6 +1931,28 @@ def real_scan_identity(
     return code
 
 
+def prepare_auto_tree_t0(
+    repo: Path, godot_binary: Path, scratch: Path, out: Path,
+    runner: Runner = subprocess.run, verify: Callable[[Path], dict] = _verify_world,
+) -> dict:
+    """D2's synthetic T0 producer, retained for its caller's bounded lifetime.
+
+    This deliberately knows nothing about GS_TESTDATA. The paired diagnostic
+    calls the very same generation/build/verification path as auto-tree-t0.
+    """
+    source = scratch / "plain"
+    cmd = [sys.executable, str(_entry_point(repo, GENERATOR_ENTRY, "BV-05", "generator")),
+           "--godot-binary", str(godot_binary), "--tier", "T0", "--encoding", ENCODING_GSQ,
+           "--out", str(source)]
+    rc = _run_logged(cmd, out / "logs" / "T0.generate.log", runner, 600)
+    if rc != 0:
+        raise LaneError(f"T0 plain-GSQ generation exited {rc}")
+    tree = scratch / "tree" / WORLD_FILE_NAME
+    report = _auto_build(repo, godot_binary, source / WORLD_FILE_NAME, tree,
+                         out, "T0", auto_tree_job("T0"), runner, verify)
+    return {"plain": source / WORLD_FILE_NAME, "tree": tree, "report": report}
+
+
 def auto_tree_t0(
     repo: Path, godot_binary: Path, cache_root: Path, out: Path, run_id: str,
     runner: Runner = subprocess.run, verify: Callable[[Path], dict] = _verify_world,
@@ -1949,15 +1971,7 @@ def auto_tree_t0(
         parent = cache_root.parent
         parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="bvw-auto-tree-t0-", dir=parent) as scratch_dir:
-            scratch = Path(scratch_dir)
-            source = scratch / "plain"
-            cmd = [sys.executable, str(_entry_point(repo, GENERATOR_ENTRY, "BV-05", "generator")),
-                   "--godot-binary", str(godot_binary), "--tier", "T0", "--encoding", ENCODING_GSQ, "--out", str(source)]
-            rc = _run_logged(cmd, out / "logs" / "T0.generate.log", runner, 600)
-            if rc != 0:
-                raise LaneError(f"T0 plain-GSQ generation exited {rc}")
-            report = _auto_build(repo, godot_binary, source / WORLD_FILE_NAME, scratch / "tree" / WORLD_FILE_NAME,
-                                 out, "T0", auto_tree_job("T0"), runner, verify)
+            report = prepare_auto_tree_t0(repo, godot_binary, Path(scratch_dir), out, runner, verify)["report"]
             data["report"] = str(out / "T0.build.json")
             data["w13"] = report["w13"]
         code, reason = EXIT_OK, "T0 plain GSQ to V4 GSQ completed with W13 reopen and oracle; scratch removed"
@@ -2226,6 +2240,16 @@ def _parser() -> argparse.ArgumentParser:
         if name == "auto-tree-t0":
             p.add_argument("--scan-dir", default=None)
 
+    p = sub.add_parser("shared-layers-t0")
+    common(p, world=False)
+    p.add_argument("--repo", type=Path, default=ROOT)
+    p.add_argument("--godot-binary", type=Path, required=True)
+    p.add_argument("--base-binary", type=Path, required=True)
+    p.add_argument("--base-build-info", type=Path, required=True)
+    p.add_argument("--cache-root", type=Path, required=True)
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--control", choices=("none", "corrupt", "saturate", "skip_compare"), default="none")
+
     p = sub.add_parser("summarize")
     common(p, world=False)
     p.add_argument("--contention-outcome", default=None,
@@ -2272,6 +2296,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return prime_auto_tree(args.repo, args.godot_binary, args.cache_root, args.out, args.run_id)
     if args.command == "auto-tree-t0":
         return auto_tree_t0(args.repo, args.godot_binary, args.cache_root, args.out, args.run_id, scan_dir=args.scan_dir)
+    if args.command == "shared-layers-t0":
+        import shared_layers_t0
+
+        return shared_layers_t0.run(args.repo, args.godot_binary, args.base_binary, args.base_build_info,
+                                    args.cache_root, args.out, args.run_id, args.control)
     if args.command == "disk-throughput":
         return disk_throughput(args.world_root, args.out, args.probe_gib)
     if args.command == "vulkan-limits":

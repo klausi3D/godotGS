@@ -72,7 +72,11 @@ _CONTENTION_PREFLIGHT_COMMAND = re.compile(
 )
 _CONTENTION_POSTFLIGHT_COMMAND = re.compile(
     rf"^(?:&\s*)?{gpu_guard._PYTHON_COMMAND}\s+"
-    rf"[\"']?{re.escape(SCRIPT)}[\"']?\s+postflight[ \t]*$",
+    rf"[\"']?{re.escape(SCRIPT)}[\"']?\s+postflight"
+    # --json only selects the native postflight record's destination. It does
+    # not change the verdict or exit status. Recognize that exact supported
+    # option; unknown flags, shell tails and a missing path still fail closed.
+    r"(?:[ \t]+--json[ \t]+(?:\"[^\"\r\n]+\"|'[^'\r\n]+'|[^ \t\r\n;&|<>]+))?[ \t]*$",
     re.IGNORECASE,
 )
 
@@ -138,6 +142,25 @@ REQUIRED_HEADROOM_SEC = HEADROOM_MARGIN * OBSERVED_GPU_JOB_MINUTES_MAX * 60
 # --------------------------------------------------------------------------
 # The workflow contract
 # --------------------------------------------------------------------------
+
+
+class PostflightInvocationRecognition(unittest.TestCase):
+    def test_native_json_destination_preserves_executed_postflight_detection(self):
+        for destination in ('"$SHARED_LAYERS_OUT/contention/postflight.json"', "result.json", "'directory with spaces/result.json'"):
+            with self.subTest(destination=destination):
+                command = f"python3 {POSTFLIGHT_INVOCATION} --json {destination}"
+                lines = ["  diagnostic:", "    steps:", "      - name: Postflight", "        if: always()", f"        run: {command}"]
+                step = _one_step(lines, _CONTENTION_POSTFLIGHT_COMMAND, POSTFLIGHT_INVOCATION)
+                self.assertIsNotNone(step)
+                self.assertEqual(step.condition, "always()")
+
+    def test_json_option_cannot_hide_a_missing_invocation_or_swallow_failure(self):
+        invocation = f"python3 {POSTFLIGHT_INVOCATION}"
+        for command in (f"# {invocation} --json result.json", f"echo {invocation} --json result.json",
+                        f"{invocation} --json", f"{invocation} --unknown result.json",
+                        f"{invocation} --json result.json || true", f"{invocation} --json result.json; exit 0"):
+            with self.subTest(command=command):
+                self.assertIsNone(_CONTENTION_POSTFLIGHT_COMMAND.fullmatch(command))
 
 
 class GpuJobContentionContract(unittest.TestCase):
