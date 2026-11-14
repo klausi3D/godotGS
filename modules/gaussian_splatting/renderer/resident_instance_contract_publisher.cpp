@@ -2,6 +2,7 @@
 #include "resident_instance_contract_publisher.h"
 
 #include "../core/gs_vector_alloc.h"
+#include "../core/gs_upload_sizing.h"
 #include "gaussian_gpu_layout.h"
 #include "hlod_bundle_rows.h"
 #include "hlod_drawn_node.h"
@@ -22,6 +23,7 @@
 #include "resident_atlas_budget.h"
 #include "../core/gs_project_settings.h"
 #include "core/config/project_settings.h"
+#include "core/object/worker_thread_pool.h"
 #include "servers/rendering/rendering_device.h"
 
 #include <algorithm>
@@ -2227,6 +2229,18 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         }
         uint32_t stream_records = 0;
         HlodNodeStreamer::Config stream_config;
+        ProjectSettings *stream_settings = ProjectSettings::get_singleton();
+        stream_config.staging_upload_clamp_bytes = GSUploadSizing::staging_clamp_bytes(
+                gs::settings::get_uint(stream_settings, "rendering/rendering_device/staging_buffer/max_size_mb", 128u),
+                MAX<uint32_t>(2u, gs::settings::get_uint(stream_settings, "rendering/rendering_device/vsync/frame_queue_size", 2u)));
+        OS *stream_os = OS::get_singleton();
+        WorkerThreadPool *stream_pool = WorkerThreadPool::get_singleton();
+        stream_config.logical_cpus = stream_os ? uint32_t(MAX(0, stream_os->get_processor_count())) : 0u;
+        stream_config.pool_threads = stream_pool ? uint32_t(MAX(0, stream_pool->get_thread_count())) : 0u;
+        stream_config.reserved_pool_threads = 0;
+        // Keep HLOD's own 16 jobs / 8 MiB read cap / 32 MiB per frame. Runner
+        // defaults give 128 MiB / 2 = 64 MiB staging, above 32 MiB, and a
+        // 32-thread runner keeps 16 job slots; no chunk tuning is adopted.
         uint64_t candidate_bytes = whole_candidate_bytes;
         if (streaming) {
             uint64_t node_pages = 0;

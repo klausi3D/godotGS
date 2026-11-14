@@ -1,6 +1,7 @@
 #include "streaming_upload_pipeline.h"
 #include "gaussian_streaming.h"
 #include "gs_project_settings.h"
+#include "gs_upload_sizing.h"
 #include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "streaming_queue_pressure_controller.h"
 #include "streaming_tier_cap_policy.h"
@@ -246,42 +247,26 @@ uint64_t StreamingUploadPipeline::_test_get_payload_checksum_hash_calls() {
 
 
 uint64_t StreamingUploadPipeline::compute_staging_upload_clamp_bytes(uint32_t p_staging_max_mb, uint32_t p_frames_in_flight) {
-    if (p_staging_max_mb == 0 || p_frames_in_flight == 0) {
-        return 0;
-    }
-    return uint64_t(p_staging_max_mb) * 1024 * 1024 / p_frames_in_flight;
+    return GSUploadSizing::staging_clamp_bytes(p_staging_max_mb, p_frames_in_flight);
 }
 
 uint32_t StreamingUploadPipeline::compute_max_ready_upload_jobs(uint64_t p_frame_upload_limit_bytes, uint32_t p_max_pack_jobs_in_flight) {
-    if (p_frame_upload_limit_bytes == 0 || p_frame_upload_limit_bytes == UINT64_MAX) {
-        return 0;
-    }
     static constexpr uint64_t FULL_CHUNK_PACKED_BYTES = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
-    const uint64_t two_frames = p_frame_upload_limit_bytes * 2 / FULL_CHUNK_PACKED_BYTES;
-    return MAX(p_max_pack_jobs_in_flight, uint32_t(MIN<uint64_t>(two_frames, UINT32_MAX)));
+    return GSUploadSizing::ready_window(p_frame_upload_limit_bytes, FULL_CHUNK_PACKED_BYTES, p_max_pack_jobs_in_flight);
 }
 
 uint32_t StreamingUploadPipeline::compute_pack_dequeue_batch(uint32_t p_worker_threads, uint32_t p_max_pack_jobs_in_flight) {
-    if (p_worker_threads <= 1) {
-        // One worker: batching only saves mutex round trips, nobody else could take the work.
-        return PACK_DEQUEUE_BATCH_MAX;
-    }
-    if (p_max_pack_jobs_in_flight == 0) {
-        return 1; // unbounded window: no share to compute, never starve the other workers
-    }
-    return CLAMP(p_max_pack_jobs_in_flight / p_worker_threads, 1u, PACK_DEQUEUE_BATCH_MAX);
+    return GSUploadSizing::dequeue_batch(p_worker_threads, p_max_pack_jobs_in_flight, PACK_DEQUEUE_BATCH_MAX);
 }
 
 uint32_t StreamingUploadPipeline::compute_pack_worker_count(uint32_t p_setting, uint32_t p_logical_cpus) {
-    if (p_setting == 0) {
-        return 0;
-    }
-    return MIN(p_setting, MAX(2u, p_logical_cpus / 2u));
+    // Chunk historically treats 0 CPUs as a two-worker ceiling. The neutral
+    // helper treats 0 as unknown, so pass a known low count to preserve identity.
+    return GSUploadSizing::worker_count(p_setting, p_logical_cpus == 0 ? 1u : p_logical_cpus, 0, 0);
 }
 
 uint64_t StreamingUploadPipeline::get_frame_upload_limit_bytes() const {
-    const uint64_t configured = max_upload_bytes_per_frame == 0 ? UINT64_MAX : max_upload_bytes_per_frame;
-    return upload_staging_clamp_bytes_per_frame == 0 ? configured : MIN(configured, upload_staging_clamp_bytes_per_frame);
+    return GSUploadSizing::frame_limit_bytes(max_upload_bytes_per_frame, upload_staging_clamp_bytes_per_frame, true);
 }
 
 uint32_t StreamingUploadPipeline::get_pack_jobs_in_flight_for_admission() const {

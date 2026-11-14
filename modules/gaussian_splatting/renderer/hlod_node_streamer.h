@@ -10,6 +10,9 @@
 // (renderer/hlod_node_pack.*), (b) uploads completed payloads, bounded per frame, and (c) hands the selector
 // the resident mask. The atlas starts empty and every ChunkMetaGPU starts zeroed (splat_count 0), so a node
 // that is not resident-ready draws nothing even if a stale record named it.
+// Ordinary nodes that fit the full staging-clamped frame allowance keep whole-payload admission.
+// Larger nodes transfer record-aligned slices while LOADING; their CPU allocation stays charged.
+// Quantization then metadata publish only after the final payload slice, in a later frame if needed.
 //
 // Package F1 (ADR 14.5, editable regions): stage_edit() takes an edited snapshot (lod/hlod_edit.*), reserves shadow
 // runs for the edited leaves, loads the replacement cut and packs with the ordinary reservation ledger. update()
@@ -50,7 +53,7 @@ public:
 		uint32_t position_bits = 0;
 		uint32_t scale_bits = 0;
 		uint64_t upload_bytes_per_frame = 32ull * 1024 * 1024;
-		// D3-4 caller inputs; phase 1 declares them without changing scheduling.
+		// Caller inputs to shared sizing; upload_bytes_per_frame must be nonzero.
 		// Zero staging/CPU/pool means unknown, hence no clamp from that input.
 		// Publisher-like 128 MiB / 2 frames = 64 MiB leaves 32 MiB/frame;
 		// 32 logical CPUs and >=16 available pool threads leave the 16-job cap.
@@ -83,7 +86,7 @@ public:
 		uint32_t drawn = 0;
 		uint32_t requested_this_frame = 0;
 		uint32_t uploaded_this_frame = 0;
-		uint64_t uploaded_bytes_this_frame = 0; // Payload bytes; metadata also consumes the edit-era frame allowance.
+		uint64_t uploaded_bytes_this_frame = 0; // Payload bytes; metadata also consumes the shared frame allowance.
 		uint32_t skipped_groups_this_frame = 0;
 		uint32_t evicted_this_frame = 0;
 		uint32_t pages_capacity = 0;
@@ -285,8 +288,7 @@ public:
 		TEST_FAULT_READY_ON_PACK,
 		TEST_FAULT_LEAK_SHADOW_PERMIT,
 		TEST_FAULT_PARTIAL_COMMIT,
-		// D3-4 phase-1 declarations: installation deliberately fails until the
-		// controls can change the REAL allowance/final-slice path in phase 2.
+		// Controls change the real allowance/final-slice publication path.
 		TEST_FAULT_IGNORE_STAGING_CLAMP,
 		TEST_FAULT_EARLY_FINAL_SLICE,
 	};
@@ -495,10 +497,12 @@ private:
 	void fail_shadow_upload();
 	bool upload_shadow_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	bool upload_edit_ordinary(RenderingDevice *p_device, const Buffers &p_buffers);
+	bool upload_ordinary_ready(RenderingDevice *p_device, const Buffers &p_buffers, bool p_preserve_whole_nodes);
 	void upload_edit_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void upload_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void clear_evicted(RenderingDevice *p_device, const Buffers &p_buffers);
 	bool upload_available(RenderingDevice *p_device) const;
+	uint64_t upload_allowance() const;
 	uint64_t upload_remaining() const;
 	Error write_atlas(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, uint64_t p_offset,
 			uint64_t p_bytes, const void *p_payload, bool p_shadow);

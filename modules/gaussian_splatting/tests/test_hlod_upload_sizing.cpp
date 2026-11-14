@@ -137,7 +137,7 @@ struct Harness {
 		selected_count = history.select(*fixture.source.snapshot.ptr(), view).selected_count;
 		if (!p_check) { return; }
 		checker.consume(writes);
-		if (checker.violation == CLEAN && checker.payload_bytes < uint64_t(checker.golden.size())) {
+		if (checker.violation == CLEAN && checker.metadata_writes == 0) {
 			const auto state = streamer.get_residency().state(0);
 			if (streamer.resident_mask()[0] != 0 || selected_count != 0 ||
 					(state != Residency::LOADING && state != Residency::UPLOADING)) { checker.violation = DRAWN_EARLY; }
@@ -218,6 +218,30 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] subrecord allowance make
 	CHECK(h.streamer.resident_mask()[0] == 0);
 	CHECK(h.selected_count == 0);
 	CHECK(h.sample.live_reservations == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] complete payload waits nonresident for next frame metadata allowance") {
+	Harness h;
+	const uint64_t bytes = 257 * sizeof(PackedGaussianQuantized);
+	if (!h.init(true, bytes) || !h.packed() || !h.release()) {
+		FAIL("D3-4 deferred metadata preconditions failed"); return;
+	}
+	// All worker output is held ready already. This update fills the frame with
+	// one whole payload; quantization and metadata must wait for fresh allowance.
+	h.step();
+	if (!h.observations_ok || h.writes.size() != 1) { FAIL("D3-4 exact-payload allowance must issue one atlas write only"); return; }
+	CHECK(h.writes[0].kind == Streamer::TestWrite::ATLAS);
+	CHECK(h.writes[0].bytes == bytes);
+	CHECK(h.checker.violation == CLEAN);
+	CHECK(h.checker.metadata_writes == 0);
+	CHECK(h.checker.quant_writes == 0);
+	CHECK(h.streamer.resident_mask()[0] == 0);
+	CHECK(h.selected_count == 0);
+	CHECK(h.sample.live_reservations == 1);
+	CHECK(h.sample.partial_upload_bytes > 0);
+	if (!h.finish()) { return; }
+	CHECK(h.checker.atlas_writes == 1); // The publication-only frame must not reupload.
+	CHECK(h.checker.frame_bytes.size() == 2);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] nodes fitting the full allowance defer whole when only the remainder is small") {

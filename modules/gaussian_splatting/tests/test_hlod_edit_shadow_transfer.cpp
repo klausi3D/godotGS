@@ -72,14 +72,19 @@ struct Harness {
 	~Harness() { streamer.shutdown(); store.shutdown(); } // Release deliberate holds before joining.
 
 	bool init(bool p_quantized = true, bool p_identity = false, bool p_small_publication = false,
-			uint32_t p_edit_count = 16, bool p_competing_jobs = false, bool p_store_path = false, bool p_default_envelope = false) {
+			uint32_t p_edit_count = 16, bool p_competing_jobs = false, bool p_store_path = false, bool p_default_envelope = false,
+			bool p_oversized_identity = false) {
 		if (!WorkerThreadPool::get_singleton()) { FAIL("D3-3 needs the real worker pool"); return false; }
 		if (!fixture.build(4, 256, p_edit_count)) { return false; }
 		cfg = fixture.config(p_quantized);
 		if (p_identity) {
 			cfg.max_jobs_in_flight = 1; // Removes worker completion order from the identity oracle.
-			cfg.upload_bytes_per_frame = uint64_t(fixture.source.splats_per_node - 1) *
-					(p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian));
+			const uint64_t stride = p_quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+			// Keep the original whole-node write identity oracle for fitting nodes;
+			// exercise the replaced oversized exception separately in case H.
+			cfg.upload_bytes_per_frame = p_oversized_identity ? uint64_t(fixture.source.splats_per_node - 1) * stride :
+					uint64_t(fixture.source.splats_per_node) * stride + sizeof(ChunkMetaGPU) +
+							(p_quantized ? sizeof(ChunkQuantizationGPU) : 0);
 		}
 		if (p_competing_jobs) {
 			uint64_t gaussians = 0, output = 0, shadow = 0;
@@ -107,6 +112,9 @@ struct Harness {
 		} else if (!streamer.init(fixture.source.snapshot, cfg, 21, 41)) { FAIL("D3-3 real streamer init failed"); return false; }
 		control.cpu_upload_sink = true;
 		if (!set_control()) { return false; }
+		if (p_identity && streamer._test_observe_shadow_transfers() != OK) {
+			FAIL("D3-3 identity needs the actual ordinary write trace"); return false;
+		}
 		gs_hlod_runtime::CutRequest view;
 		view.frustum_enabled = false;
 		view.camera = Vector3(0, 0, 1000);
@@ -153,10 +161,40 @@ struct Harness {
 			const auto publications = streamer._test_publications();
 			const uint32_t count = publications.size() - observed_publications;
 			const uint64_t node_bytes = uint64_t(fixture.source.splats_per_node) * streamer.record_stride();
-			// Pre-D3-3 ordinary rule: the first whole node uploads even when it
-			// exceeds the configured allowance; subsequent nodes must fit it.
+			const uint32_t before = writes.size();
+			Vector<uint64_t> transferred;
+			if (streamer._test_shadow_writes(writes) != OK || writes.size() < before ||
+					transferred.resize(fixture.source.node_count) != OK ||
+					streamer.resident_mask().size() != fixture.source.node_count) {
+				FAIL("D3-3 identity needs complete actual-write and residency observations"); observation_ok = false; return;
+			}
+			transferred.fill(0);
+			uint64_t last_frame = UINT64_MAX, frame_bytes = 0, payload_this_frame = 0;
+			for (uint32_t i = 0; i < uint32_t(writes.size()); ++i) {
+				const auto &write = writes[i];
+				if (write.node >= fixture.source.node_count) {
+					FAIL("D3-3 identity write escaped the demanded node set"); observation_ok = false; return;
+				}
+				if (write.frame != last_frame) { last_frame = write.frame; frame_bytes = 0; }
+				ordinary_frame_ok = ordinary_frame_ok && write.bytes <= cfg.upload_bytes_per_frame &&
+						frame_bytes <= cfg.upload_bytes_per_frame - write.bytes;
+				frame_bytes += write.bytes;
+				if (write.kind == Streamer::TestWrite::ATLAS) {
+					transferred.write[write.node] += write.bytes;
+					if (i >= before) { payload_this_frame += write.bytes; }
+				} else { ordinary_frame_ok = ordinary_frame_ok && transferred[write.node] == node_bytes; }
+			}
+			for (uint32_t node = 0; node < fixture.source.node_count; ++node) {
+				if (transferred[node] > 0 && transferred[node] < node_bytes) {
+					const auto state = streamer.get_residency().state(node);
+					ordinary_frame_ok = ordinary_frame_ok && streamer.resident_mask()[node] == 0 &&
+							(state == Residency::LOADING || state == Residency::UPLOADING);
+				}
+			}
+			// Payload telemetry includes partial slices; completion telemetry counts
+			// only metadata publication, and every real write consumes the allowance.
 			ordinary_frame_ok = ordinary_frame_ok && count <= 1 &&
-					streamer.get_telemetry().uploaded_bytes_this_frame == count * node_bytes &&
+					streamer.get_telemetry().uploaded_bytes_this_frame == payload_this_frame &&
 					streamer.get_telemetry().uploaded_this_frame == count;
 			observed_publications = publications.size();
 		}
@@ -519,6 +557,65 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] H no edit preserve
 			CHECK(last.offset == uint64_t(node) * sizeof(ChunkMetaGPU));
 			CHECK(last.bytes == sizeof(ChunkMetaGPU));
 			CHECK(memcmp(&last.meta, &meta, sizeof(meta)) == 0);
+			total += expected.size();
+		}
+		CHECK(h.streamer.get_telemetry().uploaded_bytes_total == total);
+		CHECK(h.ordinary_frame_ok);
+		CHECK_FALSE(h.streamer.is_edit_staged());
+		CHECK(h.sample.live_reservations == 0);
+	}
+	for (bool quantized : { false, true }) {
+		Harness h;
+		if (!h.init(quantized, true, false, 16, false, false, false, true) || !h.warm(false)) { return; }
+		const auto publications = h.streamer._test_publications();
+		if (publications.size() != h.fixture.source.node_count) { FAIL("D3-4 bounded identity needs one publication per demanded node"); return; }
+		uint64_t total = 0;
+		const uint64_t stride = h.streamer.record_stride();
+		const uint32_t pages = (h.fixture.source.splats_per_node + h.cfg.page_splats - 1) / h.cfg.page_splats;
+		for (uint32_t node = 0; node < h.fixture.source.node_count; ++node) {
+			const auto &publication = publications[node];
+			const auto &writes = publication.writes;
+			const uint32_t publication_writes = quantized ? 2 : 1;
+			if (uint32_t(writes.size()) < publication_writes + 2) { FAIL("D3-4 oversized ordinary node must use multiple actual atlas writes"); return; }
+			const uint32_t atlas_writes = writes.size() - publication_writes;
+			Vector<uint8_t> expected;
+			ChunkMetaGPU meta = {};
+			ChunkQuantizationGPU quant = {};
+			if (!h.fixture.pack(node, false, h.cfg, node * pages * h.cfg.page_splats, expected, meta, quant)) { return; }
+			CHECK(publication.node == node);
+			CHECK(publication.metadata_splat_count == h.fixture.source.splats_per_node);
+			uint64_t transferred = 0;
+			for (uint32_t i = 0; i < atlas_writes; ++i) {
+				const auto &write = writes[i];
+				CHECK(write.kind == Streamer::TestWrite::ATLAS);
+				CHECK(write.node == node);
+				CHECK(write.offset == uint64_t(meta.atlas_base) * stride + transferred);
+				CHECK(write.bytes > 0);
+				CHECK(write.bytes % stride == 0);
+				CHECK(write.bytes <= h.cfg.upload_bytes_per_frame);
+				CHECK_FALSE(write.shadow);
+				CHECK_FALSE(write.during_commit);
+				if (transferred > uint64_t(expected.size()) || write.bytes > uint64_t(expected.size()) - transferred ||
+						uint64_t(write.payload.size()) != write.bytes) {
+					FAIL("D3-4 bounded identity slice escaped the packed golden or lost actual payload capture"); return;
+				}
+				CHECK(memcmp(write.payload.ptr(), expected.ptr() + transferred, size_t(write.bytes)) == 0);
+				if (i > 0) { CHECK(write.frame > writes[i - 1].frame); }
+				transferred += write.bytes;
+			}
+			CHECK(transferred == uint64_t(expected.size()));
+			if (quantized) {
+				CHECK(writes[atlas_writes].kind == Streamer::TestWrite::QUANTIZATION);
+				CHECK(writes[atlas_writes].offset == uint64_t(node) * sizeof(ChunkQuantizationGPU));
+				CHECK(writes[atlas_writes].bytes == sizeof(ChunkQuantizationGPU));
+				CHECK(memcmp(&writes[atlas_writes].quant, &quant, sizeof(quant)) == 0);
+			}
+			const auto &last = writes[writes.size() - 1];
+			CHECK(last.kind == Streamer::TestWrite::METADATA);
+			CHECK(last.offset == uint64_t(node) * sizeof(ChunkMetaGPU));
+			CHECK(last.bytes == sizeof(ChunkMetaGPU));
+			CHECK(memcmp(&last.meta, &meta, sizeof(meta)) == 0);
+			CHECK(last.frame >= writes[atlas_writes - 1].frame);
 			total += expected.size();
 		}
 		CHECK(h.streamer.get_telemetry().uploaded_bytes_total == total);
