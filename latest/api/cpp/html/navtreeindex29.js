@@ -1,5 +1,6 @@
 var NAVTREEINDEX29 =
 {
+"structGPUSorterFactory_1_1PolicyDecision.html#a73d3bc4c83ad7ade4e79ab5af70423dc":[1,0,120,1,1],
 "structGPUSorterFactory_1_1PolicyDecision.html#a9565c54c5012297de4b8060669c0c819":[1,0,120,1,0],
 "structGPUSorterFactory_1_1PolicyProbe.html":[1,0,120,0],
 "structGPUSorterFactory_1_1PolicyProbe.html#a5fa5f84aeea1d67883819b3c607f1cdc":[1,0,120,0,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX29 =
 "structGaussianRenderDebug_1_1DebugConfig.html":[1,0,2,2],
 "structGaussianRenderDebug_1_1DebugConfig.html#a40f5c03220e32621e6e539f53c07d6ee":[0,0,3,2,0],
 "structGaussianRenderDebug_1_1DebugConfig.html#a40f5c03220e32621e6e539f53c07d6ee":[1,0,2,2,0],
-"structGaussianRenderDebug_1_1DebugConfigBase.html":[0,0,3,1],
-"structGaussianRenderDebug_1_1DebugConfigBase.html":[1,0,2,1]
+"structGaussianRenderDebug_1_1DebugConfigBase.html":[0,0,3,1]
 };

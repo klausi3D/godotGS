@@ -1,5 +1,6 @@
 var NAVTREEINDEX23 =
 {
+"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0532b05e5f872b9d091dd6328d150a40":[0,0,12,3,2,10],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0655e58d7fc477d87b9250bf10fbb5f7":[0,0,12,3,2,7],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0abd865d39d8914bb155444cea9d6813":[0,0,12,3,2,41],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a1225fc1e3e2ef46de394b10fa5068f16":[0,0,12,3,2,32],
@@ -248,6 +249,5 @@ var NAVTREEINDEX23 =
 "namespacegs__hlod__bundle.html":[0,0,22],
 "namespacegs__hlod__bundle.html#a050885f762c72dc642f28e6d3e032984":[0,0,22,8],
 "namespacegs__hlod__bundle.html#a0c5e43a8feeb1cd73cbfc7a708bb438c":[0,0,22,13],
-"namespacegs__hlod__bundle.html#a16414fbf154011e40982799ac0ee909e":[0,0,22,16],
-"namespacegs__hlod__bundle.html#a187a747eac9af29232e87adee362f679":[0,0,22,42]
+"namespacegs__hlod__bundle.html#a16414fbf154011e40982799ac0ee909e":[0,0,22,16]
 };

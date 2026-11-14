@@ -22,6 +22,7 @@ var structPayloadPageStore_1_1Stats =
     [ "pages_decoded", "structPayloadPageStore_1_1Stats.html#a2a2ed60cf5f9cdd3b13954da9f76c4f5", null ],
     [ "pages_decoded_digest_checked", "structPayloadPageStore_1_1Stats.html#aa42c0b3e8a7f98f2a353dc4d3707ce3b", null ],
     [ "pages_decoded_digest_skipped", "structPayloadPageStore_1_1Stats.html#a6cfc3905932e46bba42b5fb41185653f", null ],
+    [ "pages_decoded_digest_unavailable", "structPayloadPageStore_1_1Stats.html#af738b9ce864150d55527e671b1b42434", null ],
     [ "pages_decoded_on_main_thread", "structPayloadPageStore_1_1Stats.html#ae035ab44f161983640cd7db1faafcdc1", null ],
     [ "pages_decoded_on_worker_threads", "structPayloadPageStore_1_1Stats.html#a1ca127f20dfae7498e4a11c2f8368435", null ],
     [ "pages_verified", "structPayloadPageStore_1_1Stats.html#a5a7b6235b867ba56137da4b6df599a60", null ],

@@ -1,5 +1,6 @@
 var NAVTREEINDEX27 =
 {
+"streaming__eviction__controller_8cpp.html":[2,0,0,0,3,88],
 "streaming__eviction__controller_8h.html":[2,0,0,0,3,89],
 "streaming__eviction__controller_8h_source.html":[2,0,0,0,3,89],
 "streaming__global__atlas__registry_8cpp.html":[2,0,0,0,3,90],
@@ -248,6 +249,5 @@ var NAVTREEINDEX27 =
 "structDebugCounterSnapshot.html#a6da56aeea4e32d3bc131203fe9f2597d":[1,0,60,9],
 "structDebugCounterSnapshot.html#a84bddef08a245546dc1b7ba4de1a0522":[1,0,60,15],
 "structDebugCounterSnapshot.html#a8a085152735e6943b59aac4ec7a92785":[1,0,60,3],
-"structDebugCounterSnapshot.html#a8af522c3292b1dd8d2bb1febdab1f296":[1,0,60,5],
-"structDebugCounterSnapshot.html#a8c81a01d810518abdd7b10baf8832eb0":[1,0,60,8]
+"structDebugCounterSnapshot.html#a8af522c3292b1dd8d2bb1febdab1f296":[1,0,60,5]
 };

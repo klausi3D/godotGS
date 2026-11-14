@@ -1,5 +1,6 @@
 var NAVTREEINDEX26 =
 {
+"register__types_8cpp.html#a21549b99aac0bc832f5df5c261857a60":[2,0,0,0,15,1],
 "register__types_8cpp.html#a5c3368235dc93c1e40e169c0ec3fe553":[2,0,0,0,15,0],
 "register__types_8h.html":[2,0,0,0,16],
 "register__types_8h.html#a21549b99aac0bc832f5df5c261857a60":[2,0,0,0,16,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX26 =
 "streaming__chunk__payload__source_8h_source.html":[2,0,0,0,3,85],
 "streaming__config__overrides_8h.html":[2,0,0,0,3,86],
 "streaming__config__overrides_8h_source.html":[2,0,0,0,3,86],
-"streaming__diagnostics__surface_8cpp.html":[2,0,0,0,3,87],
-"streaming__eviction__controller_8cpp.html":[2,0,0,0,3,88]
+"streaming__diagnostics__surface_8cpp.html":[2,0,0,0,3,87]
 };

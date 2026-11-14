@@ -1,5 +1,6 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1GaussianSplatStreamingConfig.html":[0,0,12,12],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html":[1,0,9,11],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a0af8b3c1837fb84a6556a6da0c65f0d2":[0,0,12,12,10],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a0af8b3c1837fb84a6556a6da0c65f0d2":[1,0,9,11,10],
@@ -248,6 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[0,0,12,13,0,3],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[1,0,9,12,0,3],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[0,0,12,13,0,0],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[1,0,9,12,0,0],
-"structGaussianSplatting_1_1PainterlyMetadata.html":[0,0,12,9]
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[1,0,9,12,0,0]
 };

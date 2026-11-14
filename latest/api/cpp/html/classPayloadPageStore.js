@@ -31,6 +31,7 @@ var classPayloadPageStore =
     [ "get_telemetry", "classPayloadPageStore.html#a68396c7103f5b883480f7cdf2e41b4a2", null ],
     [ "lease_decoder", "classPayloadPageStore.html#a6636b7c3785b406ad1d21b2d035fa28e", null ],
     [ "operator=", "classPayloadPageStore.html#a443076a3135e1075222a89a0856475aa", null ],
+    [ "record_decoded_content", "classPayloadPageStore.html#aaf381da323aeb56e28d9c3bf2fe61d2c", null ],
     [ "replace_source", "classPayloadPageStore.html#a4a26dc79523b9bdf44519f8001ddb38d", null ],
     [ "request", "classPayloadPageStore.html#ae74602edcef5ec13632d0107f581b751", null ],
     [ "shutdown", "classPayloadPageStore.html#ab7c9d38c5ac976782d7aedae56240f31", null ],

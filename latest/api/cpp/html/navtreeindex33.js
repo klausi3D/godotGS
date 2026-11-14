@@ -1,5 +1,6 @@
 var NAVTREEINDEX33 =
 {
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a341fafeeeae3db7ce8f4cdef32bb3872":[1,0,5,2,86],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a383e926664f8881b0153d8944b75bcf8":[0,0,6,2,41],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a383e926664f8881b0153d8944b75bcf8":[1,0,5,2,41],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a3af0ad9b0d3e93efa8ad76a93f310376":[0,0,6,2,48],
@@ -248,6 +249,5 @@ var NAVTREEINDEX33 =
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5246d389abeb31d1fb8dcda00fbd24c4":[1,0,6,7,23],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5daa2e6cb2800197c5b52231c072a95f":[0,0,7,7,1],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5daa2e6cb2800197c5b52231c072a95f":[1,0,6,7,1],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30":[0,0,7,7,9],
-"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30":[1,0,6,7,9]
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30":[0,0,7,7,9]
 };

@@ -131,6 +131,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ab7c9d38c5ac976782d7aedae56240f31" id="r_ab7c9d38c5ac976782d7aedae56240f31"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab7c9d38c5ac976782d7aedae56240f31">shutdown</a> ()</td></tr>
 <tr class="memitem:acd05381bdf034a39973e6732c2e96c0b" id="r_acd05381bdf034a39973e6732c2e96c0b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structPayloadPageStore_1_1Stats.html">Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acd05381bdf034a39973e6732c2e96c0b">stats</a> () const</td></tr>
 <tr class="memitem:a68396c7103f5b883480f7cdf2e41b4a2" id="r_a68396c7103f5b883480f7cdf2e41b4a2"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a68396c7103f5b883480f7cdf2e41b4a2">get_telemetry</a> (const String &amp;p_route) const</td></tr>
+<tr class="memitem:aaf381da323aeb56e28d9c3bf2fe61d2c" id="r_aaf381da323aeb56e28d9c3bf2fe61d2c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf381da323aeb56e28d9c3bf2fe61d2c">record_decoded_content</a> (uint64_t p_id, const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh, uint32_t p_count, uint32_t p_sh_degree)</td></tr>
 <tr class="memitem:ae72bb77ac26cfd21b7561be8b8f13932" id="r_ae72bb77ac26cfd21b7561be8b8f13932"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae72bb77ac26cfd21b7561be8b8f13932">uses_retained_admission</a> () const</td></tr>
 <tr class="memitem:a6636b7c3785b406ad1d21b2d035fa28e" id="r_a6636b7c3785b406ad1d21b2d035fa28e"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6636b7c3785b406ad1d21b2d035fa28e">lease_decoder</a> (<a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;r_lease, bool p_retain_on_return=true)</td></tr>
 <tr class="memitem:a4b363d6784680da4e6862fdbcd9d36f6" id="r_a4b363d6784680da4e6862fdbcd9d36f6"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4b363d6784680da4e6862fdbcd9d36f6">decode_gsq_page</a> (const <a class="el" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;p_page, <a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;p_decoder, bool p_verify_decoded_digest, <a class="el" href="structPayloadPageStore_1_1DecodedPage.html">DecodedPage</a> &amp;r_page, String &amp;r_reason)</td></tr>
@@ -465,6 +466,42 @@ Public Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel delete">delete</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaf381da323aeb56e28d9c3bf2fe61d2c" name="aaf381da323aeb56e28d9c3bf2fe61d2c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaf381da323aeb56e28d9c3bf2fe61d2c">&#9670;&#160;</a></span>record_decoded_content()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void PayloadPageStore::record_decoded_content </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structGaussian.html">Gaussian</a> *</td>          <td class="paramname"><span class="paramname"><em>p_gaussians</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Vector3 *</td>          <td class="paramname"><span class="paramname"><em>p_sh</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_sh_degree</em></span>&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>

@@ -1,5 +1,8 @@
 var NAVTREEINDEX57 =
 {
+"structgs__hlod_1_1TiledBakeChunk.html#abf0931524b083ecb7673ccefbe534b5b":[1,0,13,29,0],
+"structgs__hlod_1_1TiledBakeChunkInfo.html":[0,0,20,28],
+"structgs__hlod_1_1TiledBakeChunkInfo.html":[1,0,13,28],
 "structgs__hlod_1_1TiledBakeChunkInfo.html#a47bb27a019e49e5b3bdb3cd17246e0e2":[0,0,20,28,1],
 "structgs__hlod_1_1TiledBakeChunkInfo.html#a47bb27a019e49e5b3bdb3cd17246e0e2":[1,0,13,28,1],
 "structgs__hlod_1_1TiledBakeChunkInfo.html#a5b41bba72daf7d8eb397614cd660e00c":[0,0,20,28,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX57 =
 "structgs__hlod__bundle_1_1ObjectDemand.html":[1,0,15,4],
 "structgs__hlod__bundle_1_1ObjectDemand.html#a07da7dae0a7ea90bdf6167aa8a827bdd":[0,0,22,4,6],
 "structgs__hlod__bundle_1_1ObjectDemand.html#a07da7dae0a7ea90bdf6167aa8a827bdd":[1,0,15,4,6],
-"structgs__hlod__bundle_1_1ObjectDemand.html#a19cd8bad6163109e64a3b74982924d7a":[0,0,22,4,4],
-"structgs__hlod__bundle_1_1ObjectDemand.html#a19cd8bad6163109e64a3b74982924d7a":[1,0,15,4,4],
-"structgs__hlod__bundle_1_1ObjectDemand.html#a1d81adf77fd77d7f3d974401b0d6fd56":[0,0,22,4,2],
-"structgs__hlod__bundle_1_1ObjectDemand.html#a1d81adf77fd77d7f3d974401b0d6fd56":[1,0,15,4,2]
+"structgs__hlod__bundle_1_1ObjectDemand.html#a19cd8bad6163109e64a3b74982924d7a":[0,0,22,4,4]
 };

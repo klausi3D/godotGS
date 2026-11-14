@@ -1,5 +1,6 @@
 var NAVTREEINDEX36 =
 {
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#af86859b427743b57cd45f9458eca3845":[1,0,81,0,16],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#afc83f4265c06169d9149d81756ec3080":[1,0,81,0,11],
 "structGaussianSplatHlodBakeStats.html":[1,0,87],
 "structGaussianSplatHlodBakeStats.html#a6a1242c65a43b2bf51125e31590214b3":[1,0,87,3],
@@ -248,6 +249,5 @@ var NAVTREEINDEX36 =
 "structGaussianSplatRenderer_1_1PipelineState.html#a099cad178838e482f7e78732e4c57419":[1,0,105,0,3],
 "structGaussianSplatRenderer_1_1PipelineState.html#a3980478f62216b96aa2b441cfea856a9":[1,0,105,0,2],
 "structGaussianSplatRenderer_1_1PipelineState.html#a43c0a36ed3482a4d8c8dc461faed974d":[1,0,105,0,1],
-"structGaussianSplatRenderer_1_1PipelineState.html#ac6abf671c2bf7ae9574eb44a7f2a9e33":[1,0,105,0,0],
-"structGaussianSplatRenderer_1_1RasterStageInput.html":[1,0,105,10]
+"structGaussianSplatRenderer_1_1PipelineState.html#ac6abf671c2bf7ae9574eb44a7f2a9e33":[1,0,105,0,0]
 };

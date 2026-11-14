@@ -1,5 +1,8 @@
 var NAVTREEINDEX51 =
 {
+"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#a40d598dbbe18bef58cc5aaee4148fe83":[1,0,216,1,2],
+"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#a5ffc2508881779e0f4198f2fa0290a83":[1,0,216,1,0],
+"structRenderDiagnosticsOrchestrator_1_1Dependencies.html#aabd2b706a8a40f1f244b9f6161fe5dd9":[1,0,216,1,1],
 "structRenderDiagnosticsOrchestrator_1_1Dependencies.html#afaa61da114bfd9fb102844f70d0b5df7":[1,0,216,1,3],
 "structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html":[1,0,216,0],
 "structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html#a37870e0243762b1624a7f543b118b349":[1,0,216,0,3],
@@ -246,8 +249,5 @@ var NAVTREEINDEX51 =
 "structSortOperationParams.html#a2fda27697c758c335267193491f4466c":[1,0,250,3],
 "structSortOperationParams.html#a45e262046164176645427a7538eeca01":[1,0,250,1],
 "structSortOperationParams.html#a5b3ac9e80695ba98bd3dd68fd394e51d":[1,0,250,4],
-"structSortOperationParams.html#a7fdb9c4ba2252629ebee23ef6a2a0442":[1,0,250,2],
-"structSortOperationParams.html#aa2e3aa0edda298af32121a587207844b":[1,0,250,0],
-"structSortOperationResult.html":[1,0,251],
-"structSortOperationResult.html#a23a67cb3ea9246b3a248a8aa3ed96829":[1,0,251,6]
+"structSortOperationParams.html#a7fdb9c4ba2252629ebee23ef6a2a0442":[1,0,250,2]
 };

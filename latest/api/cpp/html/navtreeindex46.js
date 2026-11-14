@@ -1,5 +1,6 @@
 var NAVTREEINDEX46 =
 {
+"structGaussianStreamingTypes_1_1ChunkLayoutHint.html#a3e77435ea714900452efbde51e9a5761":[0,0,14,0,6],
 "structGaussianStreamingTypes_1_1ChunkLayoutHint.html#a3e77435ea714900452efbde51e9a5761":[1,0,10,0,6],
 "structGaussianStreamingTypes_1_1ChunkLayoutHint.html#a68ac7941bc63eaffb6ae1ddebfc70579":[0,0,14,0,3],
 "structGaussianStreamingTypes_1_1ChunkLayoutHint.html#a68ac7941bc63eaffb6ae1ddebfc70579":[1,0,10,0,3],
@@ -248,6 +249,5 @@ var NAVTREEINDEX46 =
 "structGaussianStreamingTypes_1_1SchedulerState.html#a9d71fc0d3e7c5be822139896864abf2e":[0,0,14,8,41],
 "structGaussianStreamingTypes_1_1SchedulerState.html#a9d71fc0d3e7c5be822139896864abf2e":[1,0,10,8,41],
 "structGaussianStreamingTypes_1_1SchedulerState.html#a9eba6f8345824430cf366ac7409c38e9":[0,0,14,8,8],
-"structGaussianStreamingTypes_1_1SchedulerState.html#a9eba6f8345824430cf366ac7409c38e9":[1,0,10,8,8],
-"structGaussianStreamingTypes_1_1SchedulerState.html#a9f6430b6f91dddd3d03881535f9b4e57":[0,0,14,8,5]
+"structGaussianStreamingTypes_1_1SchedulerState.html#a9eba6f8345824430cf366ac7409c38e9":[1,0,10,8,8]
 };
