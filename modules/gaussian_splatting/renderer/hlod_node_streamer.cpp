@@ -284,6 +284,8 @@ Error HlodNodeStreamer::_test_set_fault(TestFault p_fault) {
 	if (ledger.is_null() || !active) { return ERR_UNAVAILABLE; }
 	MutexLock lock(ledger->mutex);
 	if (ledger->live != 0 || ledger->jobs != 0) { return ERR_BUSY; }
+	// D3-4 phase-1 stub: the two sizing faults are declared but deliberately
+	// rejected until they can alter the real allowance/final-slice path.
 	if (p_fault < TEST_FAULT_NONE || p_fault > TEST_FAULT_PARTIAL_COMMIT) { return ERR_INVALID_PARAMETER; }
 	ledger->fault = p_fault;
 	ledger->faults_triggered = 0;
@@ -1060,7 +1062,7 @@ uint64_t HlodNodeStreamer::upload_remaining() const {
 
 #ifdef TESTS_ENABLED
 void HlodNodeStreamer::record_write(TestWrite::Kind p_kind, uint32_t p_node, uint64_t p_offset, uint64_t p_bytes,
-		bool p_shadow, const ChunkMetaGPU *p_meta, const ChunkQuantizationGPU *p_quant) {
+		bool p_shadow, const ChunkMetaGPU *p_meta, const ChunkQuantizationGPU *p_quant, const void *p_payload) {
 	MutexLock lock(ledger->mutex);
 	if (!ledger->observe_shadows && !ledger->control.cpu_upload_sink) { return; }
 	TestWrite write;
@@ -1073,6 +1075,10 @@ void HlodNodeStreamer::record_write(TestWrite::Kind p_kind, uint32_t p_node, uin
 	write.during_commit = in_edit_commit;
 	if (p_meta) { write.meta = *p_meta; }
 	if (p_quant) { write.quant = *p_quant; }
+	if (p_payload && ledger->control.cpu_upload_sink) {
+		if (write.payload.resize(p_bytes) != OK) { return; } // Missing capture fails the test's observation check.
+		memcpy(write.payload.ptrw(), p_payload, size_t(p_bytes));
+	}
 	ledger->writes.push_back(write);
 }
 #endif
@@ -1096,7 +1102,7 @@ Error HlodNodeStreamer::write_atlas(RenderingDevice *p_device, const Buffers &p_
 	}
 	frame_written_bytes += p_bytes;
 #ifdef TESTS_ENABLED
-	record_write(TestWrite::ATLAS, p_node, p_offset, p_bytes, p_shadow);
+	record_write(TestWrite::ATLAS, p_node, p_offset, p_bytes, p_shadow, nullptr, nullptr, p_payload);
 #endif
 	return OK;
 }

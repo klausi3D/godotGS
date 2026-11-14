@@ -50,6 +50,14 @@ public:
 		uint32_t position_bits = 0;
 		uint32_t scale_bits = 0;
 		uint64_t upload_bytes_per_frame = 32ull * 1024 * 1024;
+		// D3-4 caller inputs; phase 1 declares them without changing scheduling.
+		// Zero staging/CPU/pool means unknown, hence no clamp from that input.
+		// Publisher-like 128 MiB / 2 frames = 64 MiB leaves 32 MiB/frame;
+		// 32 logical CPUs and >=16 available pool threads leave the 16-job cap.
+		uint64_t staging_upload_clamp_bytes = 0;
+		uint32_t logical_cpus = 0;
+		uint32_t pool_threads = 0;
+		uint32_t reserved_pool_threads = 0;
 		uint32_t max_jobs_in_flight = 16;
 		// Base read-admission input. Codec-none store streams derive their retained
 		// cap from measured node allocations and base-equivalent concurrency; other
@@ -241,6 +249,9 @@ public:
 		bool during_commit = false;
 		ChunkMetaGPU meta = {};
 		ChunkQuantizationGPU quant = {};
+		// CPU sink only: capture the actual write arguments, so sizing tests can
+		// reconstruct the atlas independently of packing and telemetry.
+		Vector<uint8_t> payload;
 	};
 	// Append at the REAL metadata write / finish_upload boundary. The CPU sink
 	// substitutes device writes only; jobs, admission, validation and residency
@@ -274,6 +285,10 @@ public:
 		TEST_FAULT_READY_ON_PACK,
 		TEST_FAULT_LEAK_SHADOW_PERMIT,
 		TEST_FAULT_PARTIAL_COMMIT,
+		// D3-4 phase-1 declarations: installation deliberately fails until the
+		// controls can change the REAL allowance/final-slice path in phase 2.
+		TEST_FAULT_IGNORE_STAGING_CLAMP,
+		TEST_FAULT_EARLY_FINAL_SLICE,
 	};
 	// Faults alter the REAL handoff/publication, never stats or a checker.
 	// These seam methods belong to the render thread, like update()/shutdown().
@@ -491,7 +506,8 @@ private:
 	Error write_quant(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, const ChunkQuantizationGPU &p_quant, bool p_shadow = false);
 #ifdef TESTS_ENABLED
 	void record_write(TestWrite::Kind p_kind, uint32_t p_node, uint64_t p_offset, uint64_t p_bytes,
-			bool p_shadow, const ChunkMetaGPU *p_meta = nullptr, const ChunkQuantizationGPU *p_quant = nullptr);
+			bool p_shadow, const ChunkMetaGPU *p_meta = nullptr, const ChunkQuantizationGPU *p_quant = nullptr,
+			const void *p_payload = nullptr);
 #endif
 	void refresh_telemetry();
 
