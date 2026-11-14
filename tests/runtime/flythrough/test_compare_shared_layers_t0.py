@@ -3,6 +3,9 @@
 
 The small run43602195987 extracts now include real paired T0 observations;
 they omit trace binaries and cannot certify a complete local paired execution.
+The run43629131401 extract retains complete real content-reference/runtime maps
+and migration draw counts; tests plug these into the synthetic policy envelope,
+not a replay claiming that the original UNUSABLE GPU run was VALID.
 Other native probe inputs below come from the REAL BV-07 trace/result and D3-5 telemetry captures, with provenance
 in fixtures/bv07/README.md and fixtures/d3_5/README.md (CI run 43580666400).
 Summaries are built by the real producer-side Python helpers: summarise_path,
@@ -109,6 +112,7 @@ class ComparisonContract(unittest.TestCase):
         cls.hlod_capture = _captured("d3_5/d3_5_hlod_test_results.json")
         cls.chunk_capture = _captured("d3_5/d3_5_chunk_test_results.json")["skipped"]
         cls.migration_capture = _captured("d3_6/run43602195987_migration.json")
+        cls.content_capture = _captured("d3_6/run43629131401_content.json")
         cls.path = rp.probe_path.resolve_path(cls.manifest)
         cls.truth = rp.probe_groundtruth.build_groundtruth(
             cls.manifest, cls.path, rp.probe_path.checkpoints(cls.path), rp.CAMERA, rp.ASPECT)
@@ -905,14 +909,90 @@ class ComparisonContract(unittest.TestCase):
             self.assert_verdict("UNUSABLE", "payload_failure")
 
     def test_runtime_content_contract_requires_independent_per_node_match(self):
-        # This replaces the invented measured-decoded-values test. The shepherd
-        # must add a real digest capture replay after the first producer run.
+        # Synthetic contract coverage complements the complete captured-map
+        # regression below; these values are not claimed as producer output.
         for route in ("chunk", "hlod", "candidate"):
             with self.scenario(route=route):
                 digests = (self.arm(route)["content_digests"] if route != "candidate" else
                            self.experiment["migration"]["arms"][route]["payload_behavior"]["content_digests"])
                 digests["0"], digests["1"] = digests["1"], digests["0"]
                 self.assert_verdict("UNUSABLE", "content_mismatch")
+
+    def use_captured_content_digests(self):
+        """Only digest observations are real here; other preconditions stay synthetic."""
+        capture = self.content_capture
+        self.experiment["prepared"].update(copy.deepcopy(capture["prepared"]))
+        for route in ("chunk", "hlod"):
+            arm = self.arm(route)
+            arm["content_digests"] = copy.deepcopy(capture["arms"][route]["content_digests"])
+            # Keep the existing synthetic-envelope telemetry preconditions, and
+            # cross-check the real native map rather than duplicating the arm's
+            # comparison-envelope map as its own supposed producer evidence.
+            telemetry = copy.deepcopy(arm["probe"]["payload_telemetry"])
+            telemetry["content_digests"] = copy.deepcopy(
+                capture["arms"][route]["native"]["payload_telemetry"]["content_digests"])
+            arm["native"] = {"payload_telemetry": telemetry}
+        for name in ("base", "candidate"):
+            self.experiment["migration"]["arms"][name]["payload_behavior"]["content_digests"] = copy.deepcopy(
+                capture["migration"]["arms"][name]["payload_behavior"]["content_digests"])
+
+    def test_captured_runtime_content_digests_match_preparation(self):
+        self.use_captured_content_digests()
+        report = self.assert_verdict("VALID")
+        for route, count in (("chunk", 1284), ("hlod", 614)):
+            identity = report["content_identity"][route]
+            self.assertEqual(identity["status"], "MATCHED")
+            self.assertEqual(identity["nodes_checked"], count)
+            self.assertEqual(identity["reference_nodes"], count)
+        migration = report["migration"]["content_identity"]
+        self.assertEqual(migration["status"], "NOT_MEASURED")
+        self.assertEqual(migration["base"]["status"], "NOT_MEASURED")
+        self.assertEqual(migration["candidate"]["status"], "MATCHED")
+        self.assertEqual(migration["candidate"]["nodes_checked"], 614)
+        self.assertEqual(migration["candidate"]["reference_nodes"], 614)
+        self.assertIsNone(self.content_capture["migration"]["arms"]["base"]["payload_behavior"]["content_digests"])
+
+        for route, swap in (("hlod", True), ("chunk", False)):
+            with self.scenario(route=route, swap=swap):
+                digests = self.arm(route)["content_digests"]
+                first = next(iter(digests))
+                second = next(node for node, digest in digests.items() if digest != digests[first])
+                replacement = {first: digests[second]}
+                if swap:
+                    replacement[second] = digests[first]
+                # Malformed-input mutations use only captured values. Change
+                # both copies of the observed runtime map so preparation, not
+                # merely disagreement between duplicate exports, catches it.
+                digests.update(replacement)
+                self.arm(route)["native"]["payload_telemetry"]["content_digests"].update(replacement)
+                bad = self.assert_verdict("UNUSABLE", "content_mismatch")
+                self.assertTrue(any(r["code"] == "content_mismatch" and r.get("arm") == route
+                                    for r in bad["reasons"]))
+                self.assertEqual(bad["content_identity"][route]["status"], "MISMATCH")
+                self.assertEqual(bad["content_identity"][route]["mismatched_nodes"], sorted(replacement))
+        with self.scenario(mutation="missing migration candidate runtime map"):
+            self.experiment["migration"]["arms"]["candidate"]["payload_behavior"].pop("content_digests")
+            bad = self.assert_verdict("UNUSABLE", "content_unproven")
+            self.assertTrue(any(r["code"] == "content_unproven" and r.get("arm") == "candidate"
+                                for r in bad["reasons"]))
+            self.assertEqual(bad["migration"]["content_identity"]["candidate"]["status"], "NOT_MEASURED")
+
+    def test_captured_candidate_only_c4_c7_draw_jitter_is_rejected(self):
+        self.use_captured_content_digests()
+        for name in ("base", "candidate"):
+            self.experiment["migration"]["arms"][name]["payload_behavior"]["drawn_counts"] = copy.deepcopy(
+                self.content_capture["migration"]["arms"][name]["payload_behavior"]["drawn_counts"])
+        report = self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+        differences = report["migration_observations"]["draw_differences"]
+        self.assertEqual({(d["checkpoint"], d["pass_index"], d["assessment"]) for d in differences},
+                         {("C4", 1, "mismatch"), ("C7", 1, "mismatch")})
+        for checkpoint in ("C4", "C7"):
+            for name, distinct in (("base", 1), ("candidate", 2)):
+                rows = self.content_capture["migration"]["arms"][name]["payload_behavior"]["drawn_counts"]
+                self.assertEqual(len({row["drawn_splats"] for row in rows if row["checkpoint"] == checkpoint}), distinct)
+        self.assertEqual(report["content_identity"]["chunk"]["status"], "MATCHED")
+        self.assertEqual(report["content_identity"]["hlod"]["status"], "MATCHED")
+        self.assertEqual(report["migration"]["content_identity"]["candidate"]["status"], "MATCHED")
 
     def test_content_evidence_absence_or_malformed_cannot_pass(self):
         for route in ("chunk", "hlod", "candidate"):
