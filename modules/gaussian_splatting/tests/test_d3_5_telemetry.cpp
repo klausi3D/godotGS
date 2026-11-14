@@ -222,7 +222,7 @@ TEST_CASE("[GaussianSplatting][D3Telemetry] D3-6 render stats export the actual 
 	readback.generation = 6;
 	readback.pending_frame_counter = 11;
 	pipeline->_on_instance_count_readback(payload, 6);
-	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
+	CHECK(pipeline->get_instance_count_overflow_events() == 2u); // DISCRIMINATION PROOF (#1439): deliberately wrong, reverted in the next commit.
 	// Removing the stats export must fail here even while the owner still counts it.
 	CHECK(number(diagnostics.build_render_stats(), "instance_count_overflow_events") == 1);
 

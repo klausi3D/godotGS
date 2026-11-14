@@ -204,7 +204,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] cancelling a request mid-upload 
 	CHECK(sim.res.stats().pages_retiring == sim.res.pages_for(b.node));
 	CHECK(sim.res.stats().pages_free == 0);
 	sim.step(); // frame 4
-	CHECK(sim.request_result.skipped_groups == 1);
+	CHECK(sim.request_result.skipped_groups == 2); // DISCRIMINATION PROOF (#1439): deliberately wrong, reverted in the next commit.
 	CHECK(sim.tickets.size() == 0);
 	CHECK(sim.res.state(b.node) == Residency::ABSENT);
 	// After the retirement delay the run is free again and a new request (a new generation) is accepted.
