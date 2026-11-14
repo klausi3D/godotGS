@@ -186,9 +186,9 @@ inline void check_stats(const Fixture &p_fixture, const GsqPagedChunkPayloadSour
 	CHECK(stats.reads.ready == 0u);
 
 	const Dictionary exported = p_source.get_decode_stats();
-	// Freeze the tests-enabled API, including D3-5's explicit additions. Any
+	// Freeze the tests-enabled API, including D3-5/D3-6's explicit additions. Any
 	// future key addition or removal requires a compatibility decision here.
-	CHECK(exported.size() == 41);
+	CHECK(exported.size() == 48);
 	const char *const keys[] = {
 		"page_count", "captures", "captures_failed", "pages_decoded", "splats_decoded",
 		"decode_nsec", "digest_nsec", "verify_nsec", "decoded_digest_verified",
@@ -203,6 +203,9 @@ inline void check_stats(const Fixture &p_fixture, const GsqPagedChunkPayloadSour
 		"read_requests", "read_latency_nsec", "read_queue_nsec", "read_failures",
 		"test_decode_delay_calls", "test_decode_delay_nsec",
 		"test_read_delay_calls", "test_read_delay_nsec",
+		"digest_verification_failures", "cancellations",
+		"retained_completion_peak_bytes", "retained_completion_peak_scope",
+		"stored_stash_bytes_peak", "stored_stash_bytes_peak_scope", "queue_observations",
 	};
 	for (const char *key : keys) {
 		CHECK_MESSAGE(exported.has(key), "missing compatibility telemetry key: ", std::string(key));

@@ -28,6 +28,37 @@ extends SceneTree
 # Exit codes: 0 the plan ran to the end (the result JSON says what was measured);
 # 1 a step failed (reason in the result JSON); 2 usage / plan error.
 
+# Shared with shared_layers_t0.camera_path_sha256. Hash parsed process values,
+# not a requested digest; signed zero has one camera representation.
+func _camera_hash_value(value) -> Array:
+	if value is Dictionary:
+		var encoded: Array = ["object"]
+		var keys: Array = value.keys()
+		keys.sort()
+		for key in keys:
+			encoded.append([str(key).to_utf8_buffer().hex_encode(), _camera_hash_value(value[key])])
+		return encoded
+	if value is Array:
+		var encoded: Array = ["array"]
+		for item in value:
+			encoded.append(_camera_hash_value(item))
+		return encoded
+	if value is int or value is float:
+		var bytes := PackedByteArray()
+		bytes.resize(4)
+		bytes.encode_float(0, float(value))
+		if bytes.decode_float(0) == 0.0:
+			bytes.fill(0)
+		return ["number_f32", bytes.hex_encode()]
+	if value == null:
+		return ["null"]
+	return ["bool", value] if value is bool else ["string", str(value).to_utf8_buffer().hex_encode()]
+
+
+func _camera_path_sha256(segments) -> String:
+	return JSON.stringify(_camera_hash_value(segments)).sha256_text()
+
+
 const TRACE_MAGIC := "GSBV7TR1"
 const TRACE_SCHEMA := "godotgs-bv07-probe-trace/1"
 const RESULT_SCHEMA := "godotgs-bv07-probe-result/1"
@@ -51,6 +82,17 @@ const DROP_FIELDS := [
 	["binning_tile_range_drop_events", "q"], ["binning_budget_drop_events", "q"],
 	["raster_tile_cap_drop_events", "q"], ["sampled_dropped_records_total", "q"],
 	["sampled_overlap_records_total", "q"], ["sampled_overlap_splats_total", "q"],
+]
+
+# Diagnostic-only columns. Existing BV-07 traces keep their original layout;
+# the self-describing header advertises these only for the paired experiment.
+const SHARED_LAYER_FIELDS := [
+	["hlod_active", "q"],
+	["hlod_stream_desired_nodes", "q"], ["hlod_stream_resident_nodes", "q"],
+	["hlod_stream_loading_nodes", "q"], ["hlod_stream_drawn_nodes", "q"],
+	["hlod_stream_failed_nodes", "q"], ["hlod_stream_nonresident_drawn", "q"],
+	["hlod_stream_blocked_groups", "q"], ["hlod_stream_fragmented_groups", "q"],
+	["hlod_stream_uploaded_bytes_this_frame", "q"], ["hlod_stream_uploaded_bytes_total", "q"],
 ]
 
 # Field name, type ("q" int64 / "d" float64). Order is the row layout.
@@ -84,6 +126,9 @@ var _camera: Camera3D
 var _node: GaussianSplatWorld3D
 var _last_stats: Dictionary = {}
 var _last_streaming: Dictionary = {}
+var _shared_layers_peaks: Dictionary = {}
+var _shared_layers_payload_peaks: Dictionary = {}
+var _shared_layers_settings_samples: Array = []
 var _first_engine_frame := -1
 var _last_engine_frame := -1
 # Viewport captures (plan "screenshots": {"dir", "moving_every_n"}); see _screenshot().
@@ -121,7 +166,15 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["rows_written"] = _rows
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
+	_result["final_render_stats"] = _scalars(_last_stats)
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
+	if bool(_plan.get("shared_layers_t0", false)):
+		_result["shared_layers_peaks"] = _shared_layers_peaks
+		_result["shared_layers_payload_peaks"] = _shared_layers_payload_peaks
+		_result["shared_layers_settings_samples"] = _shared_layers_settings_samples
+		# Hash outside the measured path windows. This receipt comes from the
+		# process that actually loaded the file, independently of the Python plan.
+		_result["loaded_file_sha256"] = FileAccess.get_sha256(str(_plan.get("world", "")))
 	var payload_evidence := _payload_telemetry_result()
 	for key in payload_evidence:
 		_result[key] = payload_evidence[key]
@@ -168,8 +221,14 @@ func _payload_telemetry_result() -> Dictionary:
 	if _node != null and _node.world != null:
 		var source = _node.world.get_chunk_payload_source()
 		if source != null and source.has_method("get_decode_stats"):
+			# The renderer adds the real chunk upload-window/publication owner to
+			# the source's page-store counters. Live identity is queried separately
+			# so a cached renderer sample cannot hide source replacement.
+			var payload = _last_stats.get("payload_telemetry")
+			if not (payload is Dictionary and payload.get("route") == "chunk"):
+				payload = source.get_decode_stats()
 			return {"route": "chunk", "source_generation": source.get_instance_id(),
-					"payload_telemetry": source.get_decode_stats()}
+					"payload_telemetry": payload}
 	return {"route": null, "source_generation": null, "payload_telemetry": null}
 
 
@@ -178,7 +237,7 @@ func _scalars(d: Dictionary) -> Dictionary:
 	for k in d.keys():
 		var v = d[k]
 		if v is Dictionary:
-			if str(k) in ["streaming_latency_histograms", "payload_telemetry"]:
+			if str(k) in ["streaming_latency_histograms", "payload_telemetry", "device_vram_ledger"]:
 				out[k] = v
 			continue
 		if v is Array:
@@ -221,6 +280,34 @@ func _sample_and_write() -> void:
 	_last_stats = stats
 	var ss: Dictionary = stats.get("streaming_state", {}) if stats.get("streaming_state") is Dictionary else {}
 	_last_streaming = ss
+	if bool(_plan.get("shared_layers_t0", false)):
+		# Actual current node/camera/project policy for every trace row, including
+		# HLOD where chunk regulator revision fields do not exist.
+		var policy_readback := {}
+		for key in _plan.get("project_settings", {}).keys():
+			policy_readback[key] = ProjectSettings.get_setting(key)
+		_shared_layers_settings_samples.append({"row": _rows, "project_settings_readback": policy_readback,
+				"node_readback": {"max_splat_count": _node.get_max_splat_count(),
+						"max_render_distance": _node.get_max_render_distance(), "lod_enabled": _node.is_lod_enabled(),
+						"hlod_tau_px": _node.get_hlod_tau_px(), "lod_bias": _node.get_lod_bias()},
+				"camera": {"fov_deg": _camera.fov, "keep": "width" if _camera.keep_aspect == Camera3D.KEEP_WIDTH else "height",
+						"near_m": _camera.near, "far_m": _camera.far},
+				"resolution": [get_root().size.x, get_root().size.y], "sh_bands": _node.world.get_sh_degree(),
+				"visible_splats": _node.get_max_splat_count(), "drawn_splats": _node.get_max_splat_count()})
+		for key in ["hlod_stream_nonresident_drawn", "hlod_stream_stall_frames", "hlod_stream_blocked_groups",
+				"hlod_stream_failed_total", "hlod_stream_late_dropped_total", "hlod_stream_drawn_nodes",
+				"hlod_stream_resident_nodes", "rendered_splat_count", "instance_count_overflow_events",
+				"overflow_drop_events", "binning_drop_events", "raster_tile_cap_drop_events"]:
+			if stats.has(key):
+				_shared_layers_peaks[key] = max(int(_shared_layers_peaks.get(key, stats[key])), int(stats[key]))
+		var payload = _payload_telemetry_result().get("payload_telemetry")
+		if payload is Dictionary:
+			# Keep transient failures/pressure observable even if later frames drain
+			# the queues. These are actual native values, never requested controls.
+			for key in ["read_failures", "page_failures", "captures_failed", "digest_verification_failures",
+					"stale_generation_publications", "reads_refused_busy", "admission_waits", "upload_hold_frames"]:
+				if payload.has(key):
+					_shared_layers_payload_peaks[key] = max(int(_shared_layers_payload_peaks.get(key, payload[key])), int(payload[key]))
 	var diag: Dictionary = ss.get("diagnostics", {}) if ss.get("diagnostics") is Dictionary else {}
 	var gpt: Dictionary = stats.get("gpu_pass_timing", {}) if stats.get("gpu_pass_timing") is Dictionary else {}
 	var passes: Dictionary = gpt.get("passes", {}) if gpt.get("passes") is Dictionary else {}
@@ -264,6 +351,9 @@ func _sample_and_write() -> void:
 	])
 	for f in DROP_FIELDS:
 		values.append(int(_g(stats, f[0], -1)))
+	if bool(_plan.get("shared_layers_t0", false)):
+		for f in SHARED_LAYER_FIELDS:
+			values.append(int(_g(stats, f[0], -1)))
 	for i in range(FIELDS.size()):
 		if FIELDS[i][1] == "q":
 			_trace.store_64(int(values[i]))
@@ -327,6 +417,24 @@ func _settled() -> bool:
 	# oracle on it settled while chunks were still in flight (holes on screen).
 	if _stats_pose_error() > 0.001:
 		return false
+	if bool(_plan.get("shared_layers_t0", false)) and _is_hlod_payload_route():
+		# Diagnostic HLOD convergence only. Never substitute chunk counts or
+		# claim the separate G6/G6t cut-settle acceptance oracle has run.
+		if not bool(_last_stats.get("hlod_active", false)):
+			return false
+		for key in ["hlod_stream_desired_nodes", "hlod_stream_loading_nodes", "hlod_stream_failed_nodes", "hlod_stream_nonresident_drawn",
+				"hlod_stream_drawn_nodes", "hlod_stream_blocked_groups", "hlod_stream_fragmented_groups"]:
+			if not _last_stats.has(key):
+				return false
+		# Desired is new demand (excluding keep records); resident includes the
+		# entire cache. Equality would reject a healthy already-resident cut.
+		return int(_last_stats["hlod_stream_desired_nodes"]) == 0 \
+				and int(_last_stats["hlod_stream_loading_nodes"]) == 0 \
+				and int(_last_stats["hlod_stream_failed_nodes"]) == 0 \
+				and int(_last_stats["hlod_stream_nonresident_drawn"]) == 0 \
+				and int(_last_stats["hlod_stream_blocked_groups"]) == 0 \
+				and int(_last_stats["hlod_stream_fragmented_groups"]) == 0 \
+				and int(_last_stats["hlod_stream_drawn_nodes"]) > 0
 	var ss := _last_streaming
 	if not ss.has("needed_not_resident_chunks") or not ss.has("needed_chunks"):
 		return false
@@ -344,26 +452,116 @@ func _settled() -> bool:
 const SETTLE_STREAK := 3
 
 
-func _pump_settle(deadline_s: float) -> Dictionary:
+func _shared_layers_progress_snapshot() -> Dictionary:
+	var route := "hlod" if _is_hlod_payload_route() else "chunk"
+	var sample := {"row": _rows - 1, "t_usec": Time.get_ticks_usec(), "route": route, "measured": false}
+	var payload = _payload_telemetry_result().get("payload_telemetry")
+	if not (payload is Dictionary and payload.has("reads_completed_ok") and payload.has("pages_decoded")):
+		sample["reason"] = "native read/decode completion observations unavailable"
+		return sample
+	var counts := {"read_completions": int(payload["reads_completed_ok"]), "pages_decoded": int(payload["pages_decoded"])}
+	if route == "hlod":
+		if not (payload.has("upload_completions") and payload.has("upload_bytes") \
+				and _last_stats.has("hlod_stream_desired_nodes") and _last_stats.has("hlod_stream_loading_nodes")):
+			sample["reason"] = "HLOD completion or outstanding-demand observation unavailable"
+			return sample
+		sample["completion_count"] = int(payload["upload_completions"])
+		counts["upload_bytes"] = int(payload["upload_bytes"])
+		sample["demand_outstanding"] = int(_last_stats["hlod_stream_desired_nodes"]) > 0 \
+				or int(_last_stats["hlod_stream_loading_nodes"]) > 0
+		sample["scope"] = "native HLOD upload completions and desired/loading demand"
+	else:
+		if not (_last_streaming.has("upload_chunks_total") and _last_streaming.has("upload_bytes_total") \
+				and _last_streaming.has("needed_not_resident_chunks")):
+			sample["reason"] = "chunk upload completion or outstanding-demand observation unavailable"
+			return sample
+		sample["completion_count"] = int(_last_streaming["upload_chunks_total"])
+		counts["upload_bytes"] = int(_last_streaming["upload_bytes_total"])
+		sample["demand_outstanding"] = int(_last_streaming["needed_not_resident_chunks"]) > 0
+		sample["scope"] = "native chunk GPU uploads and needed-not-resident demand"
+	counts["upload_completions"] = sample["completion_count"]
+	for count in counts.values():
+		if int(count) < 0:
+			sample["reason"] = "negative native forward-progress observation"
+			return sample
+	sample["progress_counts"] = counts
+	sample["measured"] = true
+	return sample
+
+
+func _shared_layers_progress_result(samples: Array, start: int, end: int, deadline_s: float,
+		window: String, deadline_missed: bool) -> Dictionary:
+	var progress := {"measured": false, "window": window, "deadline_s": deadline_s,
+			"elapsed_usec": end - start, "deadline_missed": deadline_missed, "samples": samples,
+			"scope": "initial native snapshot and every frame across the existing settle window"}
+	if samples.is_empty():
+		progress["reason"] = "no native forward-progress samples"
+		return progress
+	var first: Dictionary = samples[0]
+	var observed_usec := int(samples[samples.size() - 1]["t_usec"]) - int(first["t_usec"])
+	progress["observed_usec"] = observed_usec
+	var previous := {}
+	var demand_throughout := true
+	for sample in samples:
+		if not bool(sample.get("measured", false)) or sample.get("route") != first.get("route"):
+			progress["reason"] = "native forward-progress observation unavailable or route changed"
+			return progress
+		var counts: Dictionary = sample["progress_counts"]
+		for key in counts:
+			if previous.has(key) and int(counts[key]) < int(previous[key]):
+				progress["reason"] = "native progress counter decreased during the settle window"
+				return progress
+		previous = counts
+		demand_throughout = demand_throughout and bool(sample["demand_outstanding"])
+	progress["measured"] = true
+	progress["route"] = first["route"]
+	progress["start_completions"] = int(first["completion_count"])
+	progress["end_completions"] = int(previous["upload_completions"])
+	progress["completion_delta"] = int(previous["upload_completions"]) - int(first["completion_count"])
+	var deltas := {}
+	var any_progress := false
+	for key in previous:
+		deltas[key] = int(previous[key]) - int(first["progress_counts"][key])
+		any_progress = any_progress or int(deltas[key]) > 0
+	progress["progress_deltas"] = deltas
+	progress["demand_outstanding_throughout"] = demand_throughout
+	progress["no_forward_progress"] = deadline_missed and end - start >= int(deadline_s * 1000000.0) \
+			and observed_usec >= int(deadline_s * 1000000.0) and demand_throughout and not any_progress
+	return progress
+
+
+func _pump_settle(deadline_s: float, window: String = "") -> Dictionary:
 	var start := Time.get_ticks_usec()
 	var deadline := start + int(deadline_s * 1000000.0)
 	var frames := 0
 	var streak := 0
 	var streak_start := 0
+	var progress_samples := []
+	var capture_progress := bool(_plan.get("shared_layers_t0", false))
+	if capture_progress:
+		progress_samples.append(_shared_layers_progress_snapshot())
 	while true:
 		await _frame()
 		frames += 1
 		var now := Time.get_ticks_usec()
+		if capture_progress:
+			progress_samples.append(_shared_layers_progress_snapshot())
 		if now > deadline:
-			return {"settled": false, "settle_usec": -1, "frames": frames, "deadline_s": deadline_s,
+			var missed := {"settled": false, "settle_usec": -1, "frames": frames, "deadline_s": deadline_s,
 					"reason": "settle_deadline_missed", "pose_error_m": _stats_pose_error()}
+			if capture_progress:
+				missed["forward_progress"] = _shared_layers_progress_result(progress_samples, start, now, deadline_s, window, true)
+			return missed
 		if _settled():
 			if streak == 0:
 				streak_start = now
 			streak += 1
 			if streak >= SETTLE_STREAK:
-				return {"settled": true, "settle_usec": streak_start - start, "frames": frames,
+				var settled := {"settled": true, "settle_usec": streak_start - start, "frames": frames,
 						"deadline_s": deadline_s, "pose_error_m": _stats_pose_error()}
+				if capture_progress:
+					settled["forward_progress"] = _shared_layers_progress_result(progress_samples, start, now, deadline_s, window, false)
+				return settled
 		else:
 			streak = 0
 	return {}
@@ -411,6 +609,10 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"needed_upload_pending_chunks": int(ss.get("needed_upload_pending_chunks", -1)),
 		"row": _rows - 1,
 		"t_usec": Time.get_ticks_usec(),
+		"actual_route": "hlod" if _is_hlod_payload_route() else "chunk",
+		"hlod_desired_nodes": _last_stats.get("hlod_stream_desired_nodes"),
+		"hlod_resident_nodes": _last_stats.get("hlod_stream_resident_nodes"),
+		"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),
 	}
 
 
@@ -517,7 +719,7 @@ func _run_path() -> String:
 					key = "teleport_deadline_s"
 				elif seg["kind"] == "hold":
 					key = "cold_deadline_s" if pass_index == 0 else "stop_deadline_s"
-				var settle: Dictionary = await _pump_settle(float(settle_cfg.get(key, 10.0)))
+				var settle: Dictionary = await _pump_settle(float(settle_cfg.get(key, 10.0)), key)
 				entry["settle"] = settle
 				var extra := float(seg.get("hold_after_ready_s", 0.0))
 				if extra > 0.0 and bool(settle.get("settled", false)):
@@ -571,6 +773,42 @@ func _run_sweep() -> String:
 
 # ------------------------------------------------------------------ main
 
+# This runs only in the additional post-measurement saturation arm. The ordinary
+# path never invokes the fault seam. Pumping remains deadline-bound and an upload
+# hold counts only once a real packed READY output is waiting for transfer.
+func _run_shared_layers_saturation() -> String:
+	var start := Time.get_ticks_usec()
+	var deadline := start + 30000000
+	var receipt := {"requested": "saturate", "hook_applied": false, "observed": false,
+			"deadline_s": 30.0}
+	var renderer = null
+	while true:
+		renderer = _node.get_renderer()
+		if not bool(receipt["hook_applied"]) and renderer != null \
+				and renderer.has_method("_test_set_shared_layers_saturation"):
+			var err: int = renderer.call("_test_set_shared_layers_saturation", true)
+			if err == OK:
+				receipt["hook_applied"] = true
+		await _frame()
+		var now := Time.get_ticks_usec()
+		var payload = _last_stats.get("payload_telemetry")
+		if now > deadline:
+			if renderer != null and renderer.has_method("_test_set_shared_layers_saturation"):
+				renderer.call("_test_set_shared_layers_saturation", false)
+			receipt["elapsed_usec"] = now - start
+			_result["shared_layers_control"] = receipt
+			return "saturation deadline missed: no native ready-work upload hold"
+		if bool(receipt["hook_applied"]) and payload is Dictionary \
+				and int(payload.get("upload_hold_frames", 0)) > 0 and int(payload.get("ready_bytes", 0)) > 0:
+			receipt["observed"] = true
+			receipt["elapsed_usec"] = now - start
+			receipt["payload_telemetry"] = payload.duplicate(true)
+			_screenshot("saturation_ready_upload_held")
+			renderer.call("_test_set_shared_layers_saturation", false)
+			_result["shared_layers_control"] = receipt
+			return ""
+	return "saturation loop ended without an observation"
+
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	var plan_path := ""
@@ -585,6 +823,8 @@ func _run() -> void:
 		_fail_usage("plan %s is not a JSON object" % plan_path)
 		return
 	_plan = parsed
+	if bool(_plan.get("shared_layers_t0", false)):
+		FIELDS += SHARED_LAYER_FIELDS
 	_result = {"schema": RESULT_SCHEMA, "mode": _plan.get("mode"), "plan": plan_path,
 			"start_usec": Time.get_ticks_usec(), "adapter": RenderingServer.get_video_adapter_name(),
 			"adapter_vendor": RenderingServer.get_video_adapter_vendor(),
@@ -650,6 +890,10 @@ func _run() -> void:
 	_node.set_max_render_distance(float(node_cfg.get("max_render_distance_m", 400.0)))
 	if node_cfg.has("lod_enabled"):
 		_node.set_lod_enabled(bool(node_cfg["lod_enabled"]))
+	if node_cfg.has("hlod_tau_px"):
+		_node.set_hlod_tau_px(float(node_cfg["hlod_tau_px"]))
+	if node_cfg.has("lod_bias"):
+		_node.set_lod_bias(float(node_cfg["lod_bias"]))
 	_scene.add_child(_node)
 	var first_pose = _plan.get("first_pose")
 	if first_pose != null:
@@ -658,9 +902,46 @@ func _run() -> void:
 	_node.apply_world()
 	_result["node_readback"] = {"max_splat_count": _node.get_max_splat_count(),
 			"max_render_distance": _node.get_max_render_distance(), "lod_enabled": _node.is_lod_enabled()}
+	if bool(_plan.get("shared_layers_t0", false)):
+		_result["node_readback"]["hlod_tau_px"] = _node.get_hlod_tau_px()
+		_result["node_readback"]["lod_bias"] = _node.get_lod_bias()
+		var sidecar_path := str(_plan["world"]).get_basename() + ".manifest.json"
+		var sidecar = JSON.parse_string(FileAccess.get_file_as_string(sidecar_path))
+		var codec_params = null
+		if sidecar is Dictionary:
+			codec_params = sidecar.get("codec") if world_res.has_hlod_paged_source() else sidecar.get("writer", {}).get("codec")
+		if codec_params is Dictionary:
+			codec_params = codec_params.duplicate()
+			codec_params.erase("codec")
+		var node_readback: Dictionary = _result["node_readback"]
+		_result["shared_layers_settings"] = {
+			"camera_path_sha256": _camera_path_sha256(_plan.get("path", {}).get("segments")),
+			"camera_poses": _plan.get("path", {}).get("segments"),
+			"resolution": [get_root().size.x, get_root().size.y],
+			"camera": {"fov_deg": _camera.fov, "keep": "width" if _camera.keep_aspect == Camera3D.KEEP_WIDTH else "height",
+					"near_m": _camera.near, "far_m": _camera.far},
+			"codec": {"encoding": "gsq" if codec_params is Dictionary and int(codec_params.get("codec_id", -1)) == 1 else "unknown",
+					"sh_bands": world_res.get_sh_degree(), "params": codec_params,
+					"per_chunk_quantization": bool(ProjectSettings.get_setting("rendering/gaussian_splatting/compression/per_chunk_quantization"))},
+			"sh_bands": world_res.get_sh_degree(), "visible_splats": _node.get_max_splat_count(),
+			"drawn_splats": _node.get_max_splat_count(),
+			"timing_windows": {"moving_passes": _plan.get("passes"), "settle": _plan.get("settle")},
+			"node_readback": node_readback, "project_settings_readback": readback,
+		}
+		_result["shared_layers_settings_scope"] = {
+			"camera_path_sha256": "SHA256 of typed JSON/f32 parsed path; signed zero normalized; independently checked from process camera_poses",
+			"camera_poses": "process parsed arc-length path; application independently observed in trace px/py/pz/yaw_deg/pitch_deg and checkpoint poses",
+			"timing_windows": "process parsed timing configuration; observed segment and settle durations retained separately",
+			"codec": "producer sidecar codec parameters, independently verified against the generated file before the experiment and bound to process loaded_file_sha256",
+		}
+		_result["world_payload_readback"] = {"mode": world_res.get_payload_mode(),
+				"has_hlod_paged_source": world_res.has_hlod_paged_source(),
+				"sh_degree": world_res.get_sh_degree(), "splat_count": world_res.get_splat_count()}
 
 	var err := ""
-	if str(_plan.get("mode")) == "path":
+	if bool(_plan.get("shared_layers_t0", false)) and _plan.get("shared_layers_control") == "saturate":
+		err = await _run_shared_layers_saturation()
+	elif str(_plan.get("mode")) == "path":
 		err = await _run_path()
 	elif str(_plan.get("mode")) == "sweep":
 		err = await _run_sweep()

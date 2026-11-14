@@ -1,0 +1,37 @@
+{
+  "provenance": {
+    "run_id": 43602195987,
+    "head_sha": "6721bc153c3edfdb883756681b650cd8c7485c81",
+    "source": "chunk/arm.json",
+    "source_sha256": "fbf4340bedca1cfa61cdd38437a4cc421522460ab4e5e7b1ba24e4da67e7d8d3",
+    "json_paths": {
+      "requested_row": "$.requested.camera_poses[11].table[0]",
+      "process_row": "$.observed.settings.camera_poses[11].table[0]"
+    },
+    "description": "Exact arc-length table row extracts; negative zero changed spelling during process JSON serialization. Original full path hashes retained as evidence."
+  },
+  "requested_row": [
+    0.0,
+    232.63999938964844,
+    12.0,
+    232.63999938964844,
+    28.390100479125977,
+    -0.0
+  ],
+  "process_row": [
+    0.0,
+    232.63999938964844,
+    12.0,
+    232.63999938964844,
+    28.390100479125977,
+    0.0
+  ],
+  "requested_original_path_sha256": "648e5f7515fcb5d4e81a785d54b18536781e606500cb9fec7e8f8d1162ff7137",
+  "process_original_path_sha256": "e43fe59b93d9dd3f41758681f1c9c3cc2da4cc65c5db3bd840eef09c62c338cd",
+  "camera_application": {
+    "matches": true,
+    "measured": true,
+    "precision": "exact engine float32 positions and Math degree/radian round-trip; no tolerance",
+    "rows_checked": 26604
+  }
+}

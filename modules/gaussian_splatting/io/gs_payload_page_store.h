@@ -158,6 +158,7 @@ public:
 		uint64_t pages_decoded_on_main_thread = 0;
 		uint64_t stored_bytes_read = 0;
 		uint64_t page_failures = 0;
+		uint64_t digest_verification_failures = 0; // Failed GSQ verification/decode or outer V4 stored digest.
 		String last_failure_reason;
 #ifdef TESTS_ENABLED
 		uint64_t test_decode_delay_calls = 0;

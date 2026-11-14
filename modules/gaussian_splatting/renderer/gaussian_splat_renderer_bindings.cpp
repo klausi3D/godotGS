@@ -19,6 +19,12 @@ Error GaussianSplatRenderer::_test_set_payload_telemetry_delays(const Dictionary
 	}
 	return state.hlod_page_store->_test_set_telemetry_delays(uint32_t(int64_t(read)), uint32_t(int64_t(decode)));
 }
+
+Error GaussianSplatRenderer::_test_set_shared_layers_saturation(bool p_hold_uploads) {
+	auto &state = get_resource_state();
+	if (!state.hlod_streaming || state.hlod_streamer.is_null()) { return ERR_UNAVAILABLE; }
+	return state.hlod_streamer->_test_set_upload_hold(p_hold_uploads);
+}
 #endif
 #ifdef TESTS_ENABLED
 #include "../resources/color_grading_resource.h"
@@ -27,6 +33,7 @@ Error GaussianSplatRenderer::_test_set_payload_telemetry_delays(const Dictionary
 void GaussianSplatRenderer::_bind_methods() {
 #ifdef TESTS_ENABLED
     ClassDB::bind_method(D_METHOD("_test_set_payload_telemetry_delays", "delays"), &GaussianSplatRenderer::_test_set_payload_telemetry_delays);
+    ClassDB::bind_method(D_METHOD("_test_set_shared_layers_saturation", "hold_uploads"), &GaussianSplatRenderer::_test_set_shared_layers_saturation);
 #endif
     // Initialization
     ClassDB::bind_method(D_METHOD("initialize"), &GaussianSplatRenderer::initialize);

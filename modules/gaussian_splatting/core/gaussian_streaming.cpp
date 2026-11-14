@@ -1,6 +1,7 @@
 #include "../renderer/sh_config.h"
 #include "../renderer/splat_ref_encoding.h"
 #include "gaussian_streaming.h"
+#include "streaming_gsq_chunk_payload_source.h"
 #include "../io/streaming_chunk_bake.h"
 #include "gs_project_settings.h"
 #include "gs_vector_alloc.h"
@@ -660,6 +661,7 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     // caller performs after this method returns.
     _stop_pack_threads();
     _clear_pending_uploads();
+    upload_pipeline.reset_queue_observations();
     streaming_initialized = false;
     last_streaming_update_usec = 0;
     last_streaming_frame_delta_seconds = ESTIMATED_FRAME_DELTA_60FPS;
@@ -688,6 +690,7 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     budget.stride_flip_dropped_prewrite_uploads = 0;
     budget.stale_sequence_dropped_uploads = 0;
     budget.stale_sequence_dropped_upload_retirements = 0;
+    budget.stale_generation_publications = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
@@ -1605,6 +1608,10 @@ void GaussianStreamingSystem::unregister_asset(uint32_t asset_id) {
 void GaussianStreamingSystem::set_chunk_payload_source(uint32_t asset_id, const Ref<ChunkPayloadSource> &p_source) {
     AtlasAssetState *asset = _get_asset_state(asset_id);
     ERR_FAIL_NULL_MSG(asset, vformat("[Streaming] set_chunk_payload_source: asset %d not registered.", asset_id));
+    if (asset_id == PRIMARY_ASSET_ID && asset->payload_source != p_source) {
+        upload_pipeline.reset_queue_observations();
+        budget.stale_generation_publications = 0;
+    }
     asset->payload_source = p_source;
     if (asset_id == PRIMARY_ASSET_ID && p_source.is_valid() && p_source->is_valid()) {
         if (source_data.is_null()) {
@@ -4030,6 +4037,9 @@ void GaussianStreamingSystem::_process_upload_retirements() {
         }
 
         _mark_upload_ticket_gpu_retired(chunk, ticket);
+        if (asset->generation != ticket.asset_generation || chunk.upload_sequence != ticket.upload_sequence) {
+            ++budget.stale_generation_publications;
+        }
         _complete_chunk_load_common(ticket.asset_id, ticket.chunk_idx, chunk);
         _record_successful_upload_retirement(budget, total_sh_metrics,
                 last_completed_upload_ticket_id, last_upload_completion_mode, ticket);
@@ -4553,6 +4563,25 @@ uint32_t GaussianStreamingSystem::get_visible_count() const {
         count += chunks[chunk_idx].count;
     }
     return count;
+}
+
+Variant GaussianStreamingSystem::get_payload_telemetry() {
+    const AtlasAssetState *primary = asset_registry.atlas_assets.getptr(PRIMARY_ASSET_ID);
+    Ref<GsqPagedChunkPayloadSource> source = primary ? primary->payload_source : Ref<ChunkPayloadSource>();
+    if (source.is_null()) { return Variant(); }
+    Dictionary out = source->get_decode_stats();
+    Dictionary queues = out.get("queue_observations", Dictionary());
+    const Dictionary ready = upload_pipeline.get_queue_observations();
+    queues["ready"] = ready;
+    out["queue_observations"] = queues;
+    out["ready_bytes"] = ready["bytes"];
+    out["ready_bytes_peak"] = ready["peak_bytes"];
+    out["ready_bytes_scope"] = "packed_allocation_capacity";
+    out["staging_allowance_bytes"] = int64_t(upload_pipeline.get_frame_upload_limit_bytes());
+    out["stale_generation_publications"] = int64_t(budget.stale_generation_publications);
+    out["admission_waits"] = int64_t(upload_pipeline.admission_waits);
+    out["stale_generation_rejections"] = int64_t(budget.stale_sequence_dropped_uploads + budget.stale_sequence_dropped_upload_retirements);
+    return out;
 }
 
 LocalVector<Gaussian> GaussianStreamingSystem::get_visible_gaussians() const {

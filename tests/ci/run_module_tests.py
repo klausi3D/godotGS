@@ -100,6 +100,9 @@ BEYOND_VRAM_LANE_TEST_SCRIPTS = (
     # BV-13a: the ADR 8.5 forcing controls and their lane step.
     ROOT / "tests" / "runtime" / "flythrough" / "test_flythrough_controls.py",
     ROOT / "tests" / "runtime" / "flythrough" / "test_build_auto_tree.py",
+    # D3-6: paired T0 comparison and its diagnostic workflow contract.
+    ROOT / "tests" / "runtime" / "flythrough" / "test_compare_shared_layers_t0.py",
+    ROOT / "tests" / "runtime" / "flythrough" / "test_shared_layers_t0.py",
 )
 # BV-09: the no-loosening guard of the beyond-VRAM thresholds file (ADR section 8.4).
 FLYTHROUGH_THRESHOLDS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_flythrough_thresholds.py"

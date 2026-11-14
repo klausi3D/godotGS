@@ -1,5 +1,6 @@
 #include "streaming_upload_pipeline.h"
 #include "gaussian_streaming.h"
+#include "gaussian_splat_hlod_runtime_data.h"
 #include "gs_project_settings.h"
 #include "gs_upload_sizing.h"
 #include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
@@ -585,6 +586,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
     }
 
     if (max_pack_jobs_in_flight > 0 && get_pack_jobs_in_flight_for_admission() >= max_pack_jobs_in_flight) {
+        ++admission_waits;
         StreamingQueuePressureController::mark_latched_state(
                 queue_pressure_active,
                 queue_pressure_source,
@@ -1468,6 +1470,8 @@ void StreamingUploadPipeline::enqueue_upload_job(PendingChunkUpload *p_job) {
     record_pack_mutex_wait(lock_wait_start_usec);
     if (p_job) {
         p_job->enqueue_usec = _ticks_usec_now();
+        gs_hlod_runtime::allocation_bytes(uint64_t(p_job->packed_data.size()), sizeof(PackedGaussian), p_job->queue_allocation_bytes);
+        ready_bytes += p_job->queue_allocation_bytes;
     }
     upload_queue.push_back(p_job);
     sync_cached_queue_depths_locked();
@@ -1554,6 +1558,31 @@ void StreamingUploadPipeline::compact_queues_locked() {
 void StreamingUploadPipeline::sync_cached_queue_depths_locked() {
     pack_queue_depth_cached.store(get_pack_queue_depth_unsafe(), std::memory_order_release);
     upload_queue_depth_cached.store(get_upload_queue_depth_unsafe(), std::memory_order_release);
+    ready_bytes_peak = MAX(ready_bytes_peak, ready_bytes);
+    ready_jobs_peak = MAX(ready_jobs_peak, get_upload_queue_depth_unsafe());
+}
+
+Dictionary StreamingUploadPipeline::get_queue_observations() {
+    MutexLock lock(pack_mutex);
+    Dictionary ready;
+    ready["owner"] = "chunk_upload_window";
+    ready["bytes"] = int64_t(ready_bytes);
+    ready["peak_bytes"] = int64_t(ready_bytes_peak);
+    ready["bytes_scope"] = "packed_allocation_capacity";
+    ready["byte_bound"] = Variant();
+    ready["byte_bound_reason"] = "ready window uses job-count admission; no independent byte limit";
+    ready["jobs"] = int64_t(get_upload_queue_depth_unsafe());
+    ready["peak_jobs"] = int64_t(ready_jobs_peak);
+    ready["job_bound"] = max_ready_upload_jobs ? Variant(int64_t(max_ready_upload_jobs)) : Variant();
+    ready["job_bound_reason"] = max_ready_upload_jobs ? String() : String("ready window is configured unbounded");
+    return ready;
+}
+
+void StreamingUploadPipeline::reset_queue_observations() {
+    MutexLock lock(pack_mutex);
+    ready_bytes_peak = ready_bytes;
+    ready_jobs_peak = get_upload_queue_depth_unsafe();
+    admission_waits = 0;
 }
 
 void StreamingUploadPipeline::record_pack_mutex_wait(uint64_t wait_start_usec) {
@@ -1636,6 +1665,7 @@ bool StreamingUploadPipeline::pop_upload_job(PendingChunkUpload *&job) {
     }
     job = upload_queue[upload_queue_read_idx++];
     if (job) {
+        ready_bytes -= job->queue_allocation_bytes;
         record_upload_queue_latency(job->enqueue_usec);
     }
     compact_queues_locked();
@@ -1674,6 +1704,7 @@ uint32_t StreamingUploadPipeline::consume_upload_jobs(uint32_t p_count) {
     while (consumed < p_count && upload_queue_read_idx < upload_queue.size()) {
         PendingChunkUpload *job = upload_queue[upload_queue_read_idx++];
         if (job) {
+            ready_bytes -= job->queue_allocation_bytes;
             record_upload_queue_latency(job->enqueue_usec);
         }
         consumed++;
@@ -1721,6 +1752,8 @@ void StreamingUploadPipeline::requeue_upload_job(PendingChunkUpload *job) {
     record_pack_mutex_wait(lock_wait_start_usec);
     if (job) {
         job->enqueue_usec = _ticks_usec_now();
+        gs_hlod_runtime::allocation_bytes(uint64_t(job->packed_data.size()), sizeof(PackedGaussian), job->queue_allocation_bytes);
+        ready_bytes += job->queue_allocation_bytes;
     }
     upload_queue.push_back(job);
     sync_cached_queue_depths_locked();
@@ -1775,6 +1808,7 @@ void StreamingUploadPipeline::cancel_chunk_jobs(
                 upload_write_idx++;
                 continue;
             }
+            ready_bytes -= job->queue_allocation_bytes;
             memdelete(job);
             release_slot = true;
         }
@@ -1877,6 +1911,7 @@ void StreamingUploadPipeline::cancel_asset_jobs(GaussianStreamingSystem &system,
             release.chunk_key = system._make_chunk_key(job->asset_id, job->chunk_idx);
             release.slot = job->buffer_slot;
             slots_to_release.push_back(release);
+            ready_bytes -= job->queue_allocation_bytes;
             memdelete(job);
         }
         upload_queue.resize(upload_write_idx);
@@ -1995,6 +2030,7 @@ void StreamingUploadPipeline::clear_pending_uploads(GaussianStreamingSystem &sys
         }
         upload_queue.clear();
         upload_queue_read_idx = 0;
+        ready_bytes = 0;
         sync_cached_queue_depths_locked();
     }
 

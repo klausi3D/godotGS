@@ -48,6 +48,7 @@ struct BudgetState {
     // Cumulative, and kept apart so each guard stays individually observable.
     uint64_t stale_sequence_dropped_uploads = 0;
     uint64_t stale_sequence_dropped_upload_retirements = 0;
+    uint64_t stale_generation_publications = 0; // Successful retirement boundary, not rejected/cancelled work.
 
     Dictionary get_vram_debug_stats() const;
     bool is_vram_budget_warning_active() const;

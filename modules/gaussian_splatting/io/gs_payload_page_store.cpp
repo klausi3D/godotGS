@@ -168,6 +168,7 @@ Error PayloadPageStore::replace_source(const String &p_path, uint64_t p_generati
 	}
 	_drain_locked();
 	read_service.release_handles();
+	read_service.reset_observation_peaks();
 	if (source_generation != 0) {
 		collection_base = counters;
 		collection_base.reads = read_service.stats();
@@ -464,6 +465,7 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 		{ "pages_decoded_on_worker_threads", &Stats::pages_decoded_on_worker_threads },
 		{ "pages_decoded_on_main_thread", &Stats::pages_decoded_on_main_thread },
 		{ "page_failures", &Stats::page_failures }, { "stored_bytes_read", &Stats::stored_bytes_read },
+		{ "digest_verification_failures", &Stats::digest_verification_failures },
 		{ "verify_nsec", &Stats::verify_nsec }, { "decode_nsec", &Stats::decode_nsec },
 		{ "pages_decoded_digest_checked", &Stats::pages_decoded_digest_checked },
 		{ "pages_decoded_digest_skipped", &Stats::pages_decoded_digest_skipped },
@@ -492,6 +494,23 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 	out["reads_refused_busy"] = int64_t(reads.refused_busy - collection_base.reads.refused_busy);
 	out["read_bytes"] = int64_t(reads.bytes_read - collection_base.reads.bytes_read);
 	out["read_handle_opens"] = int64_t(reads.handle_opens - collection_base.reads.handle_opens);
+	out["cancellations"] = int64_t(reads.cancelled_queued - collection_base.reads.cancelled_queued +
+			reads.cancelled_reading - collection_base.reads.cancelled_reading + reads.cancelled_ready - collection_base.reads.cancelled_ready);
+	out["retained_completion_peak_bytes"] = int64_t(reads.collection_peak_ready_bytes);
+	out["retained_completion_peak_scope"] = "read_service_ready_only";
+	out["stored_stash_bytes_peak"] = int64_t(counters.peak_stash_bytes);
+	out["stored_stash_bytes_peak_scope"] = "page_store_lifetime";
+	Dictionary queues, retained;
+	retained["owner"] = "payload_read_service";
+	retained["bytes"] = int64_t(reads.bytes_in_flight);
+	retained["peak_bytes"] = int64_t(reads.collection_peak_bytes);
+	retained["byte_bound"] = int64_t(config.max_bytes_in_flight);
+	retained["jobs"] = int64_t(reads.queued + reads.reading + reads.ready);
+	retained["peak_jobs"] = int64_t(reads.collection_peak_jobs);
+	retained["job_bound"] = Variant();
+	retained["job_bound_reason"] = "read service uses byte admission; no independent request-count limit";
+	queues["retained"] = retained;
+	out["queue_observations"] = queues;
 #ifdef TESTS_ENABLED
 	out["test_read_delay_calls"] = int64_t(reads.test_read_delay_calls - collection_base.reads.test_read_delay_calls);
 	out["test_read_delay_nsec"] = int64_t(reads.test_read_delay_nsec - collection_base.reads.test_read_delay_nsec);
@@ -628,6 +647,7 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 		r_page.sh_high_order.clear();
 		MutexLock lock(mutex);
 		counters.page_failures++;
+		if (error == ERR_FILE_CORRUPT) { counters.digest_verification_failures++; }
 		counters.last_failure_reason = r_reason;
 		return error;
 	}
@@ -706,6 +726,7 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 	if (error != OK) {
 		MutexLock lock(mutex);
 		counters.page_failures++;
+		if (error == ERR_FILE_CORRUPT) { counters.digest_verification_failures++; }
 		counters.last_failure_reason = r_reason;
 		return error;
 	}
@@ -743,6 +764,9 @@ void PayloadPageStore::end_capture(bool p_success, const String &p_reason) {
 	if (!p_success) {
 		MutexLock lock(mutex);
 		counters.captures_failed++;
+		// The V4 adapter verifies its outer stored digest before GSQ decode.
+		// Inner GSQ failures are already counted by decode_gsq_* above.
+		if (p_reason == "v4_payload_digest_mismatch") { counters.digest_verification_failures++; }
 		counters.last_failure_reason = p_reason;
 	}
 }

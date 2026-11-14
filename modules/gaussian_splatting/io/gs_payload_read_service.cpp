@@ -82,6 +82,7 @@ void PayloadReadService::shutdown() {
 		idle_handles.clear();
 		counters.queued = 0;
 		counters.ready = 0;
+		counters.ready_bytes = 0;
 		counters.bytes_in_flight = 0;
 		counters.open_handles = 0;
 		state = SERVICE_STOPPED;
@@ -121,8 +122,11 @@ PayloadReadService::SubmitResult PayloadReadService::submit(const String &p_file
 
 	counters.submitted++;
 	counters.queued++;
+	counters.peak_jobs = MAX(counters.peak_jobs, counters.queued + counters.reading + counters.ready);
+	counters.collection_peak_jobs = MAX(counters.collection_peak_jobs, counters.queued + counters.reading + counters.ready);
 	counters.bytes_in_flight += p_length;
 	counters.peak_bytes_in_flight = MAX(counters.peak_bytes_in_flight, counters.bytes_in_flight);
+	counters.collection_peak_bytes = MAX(counters.collection_peak_bytes, counters.bytes_in_flight);
 	work_cv.notify_one();
 	return SUBMIT_OK;
 }
@@ -189,6 +193,7 @@ void PayloadReadService::_cancel_locked(Request *p_request) {
 		case REQUEST_READY:
 			ready.remove(&p_request->link);
 			counters.ready--;
+			counters.ready_bytes -= uint64_t(p_request->bytes.size());
 			counters.cancelled_ready++;
 			break;
 	}
@@ -199,6 +204,13 @@ void PayloadReadService::_cancel_locked(Request *p_request) {
 PayloadReadService::Stats PayloadReadService::stats() const {
 	MutexLock lock(mutex);
 	return counters;
+}
+
+void PayloadReadService::reset_observation_peaks() {
+	MutexLock lock(mutex);
+	counters.collection_peak_bytes = counters.bytes_in_flight;
+	counters.collection_peak_jobs = counters.queued + counters.reading + counters.ready;
+	counters.collection_peak_ready_bytes = counters.ready_bytes;
 }
 
 bool PayloadReadService::poll_completion(Completion &r_completion) {
@@ -269,6 +281,7 @@ void PayloadReadService::_take_ready_locked(Completion &r_completion) {
 	ready.remove(&request->link);
 	tickets.erase(request->ticket);
 	counters.ready--;
+	counters.ready_bytes -= uint64_t(request->bytes.size());
 	counters.bytes_in_flight -= request->length;
 
 	r_completion.ticket = request->ticket;
@@ -435,6 +448,9 @@ void PayloadReadService::_reader_loop() {
 		request->state = REQUEST_READY;
 		ready.add_last(&request->link);
 		counters.ready++;
+		counters.ready_bytes += uint64_t(request->bytes.size());
+		counters.peak_ready_bytes = MAX(counters.peak_ready_bytes, counters.ready_bytes);
+		counters.collection_peak_ready_bytes = MAX(counters.collection_peak_ready_bytes, counters.ready_bytes);
 		// Drain waiters also use this condition variable and may not consume work.
 		ready_cv.notify_all();
 	}
