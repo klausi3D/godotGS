@@ -1,5 +1,8 @@
 var NAVTREEINDEX25 =
 {
+"namespacegs__world__writer.html#ae7bc0321423f7c3100461e0453e0ea54":[0,0,37,22],
+"namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3":[0,0,37,18],
+"namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3a0cf54c36daf17b7cd9938db0de5f62b8":[0,0,37,18,1],
 "namespacegs__world__writer.html#aee077a8a89b465678153f6c98812cdb3aecc316988635a087c91e9999d65b1f46":[0,0,37,18,0],
 "namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6":[0,0,37,16],
 "namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6a09d4d696b4e935115b9313e3c412509a":[0,0,37,16,4],
@@ -246,8 +249,5 @@ var NAVTREEINDEX25 =
 "register__types_8h_source.html":[2,0,0,0,16],
 "render__config__orchestrator_8cpp.html":[2,0,0,0,12,46],
 "render__config__orchestrator_8h.html":[2,0,0,0,12,47],
-"render__config__orchestrator_8h_source.html":[2,0,0,0,12,47],
-"render__config__types_8h.html":[2,0,0,0,12,0,0],
-"render__config__types_8h_source.html":[2,0,0,0,12,0,0],
-"render__data__orchestrator_8cpp.html":[2,0,0,0,12,48]
+"render__config__orchestrator_8h_source.html":[2,0,0,0,12,47]
 };

@@ -25,6 +25,7 @@ var classHlodNodeStreamer =
     [ "commit_staged_edit", "classHlodNodeStreamer.html#a7c6b7321644aa310e8fcf1beece2ed5c", null ],
     [ "get_data", "classHlodNodeStreamer.html#a8c589358f961a6192b6ff8d81dd87c13", null ],
     [ "get_last_commit_result", "classHlodNodeStreamer.html#a6659f41f5f04742f0b70367c971bbabc", null ],
+    [ "get_payload_telemetry", "classHlodNodeStreamer.html#a8970850b4a53b9929fb46e3af6a4fc00", null ],
     [ "get_residency", "classHlodNodeStreamer.html#ae03a8fcf679c8bc6f55795e2d3267b9d", null ],
     [ "get_retained_byte_cap", "classHlodNodeStreamer.html#a94559732c4df8d77d1b43d2c72876251", null ],
     [ "get_telemetry", "classHlodNodeStreamer.html#a290e7fff5bf385be4107db8b2885a102", null ],

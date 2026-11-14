@@ -1,5 +1,8 @@
 var NAVTREEINDEX21 =
 {
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf083c7f17a7110a20b865f9e6c6316ca":[2,0,0,0,5,9,13,9],
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf37b4be0ce37e1b3a4c668c5f5c5bf61":[2,0,0,0,5,9,13,7],
+"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3":[2,0,0,0,5,9,14],
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a379cf16197e9684ff2fa892bbdf7d5af":[2,0,0,0,5,9,14,1],
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a9daa79b56a04cd7de8ee15128dd2c99a":[2,0,0,0,5,9,14,2],
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3ab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,14,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGSUploadSizing.html#add079d85f76a3f4cd201b1768bad8ee1":[0,0,38,1],
 "namespaceGaussianEffectiveConfig.html":[0,0,1],
 "namespaceGaussianRenderConfig.html":[0,0,2],
-"namespaceGaussianRenderDebug.html":[0,0,3],
-"namespaceGaussianRenderFacadeState.html":[0,0,4],
-"namespaceGaussianRenderFacadeState.html#aa8b0a25cbbf13eaed8838b1c97b8b964":[0,0,4,7],
-"namespaceGaussianRenderFrame.html":[0,0,5]
+"namespaceGaussianRenderDebug.html":[0,0,3]
 };

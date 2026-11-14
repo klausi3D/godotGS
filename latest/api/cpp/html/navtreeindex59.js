@@ -1,5 +1,14 @@
 var NAVTREEINDEX59 =
 {
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acb58b377145f0c9bdbd8511e55a8ba10":[0,0,25,1,3,8],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acb58b377145f0c9bdbd8511e55a8ba10":[1,0,17,1,3,8],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acc387676084b37ad031448c68be87790":[0,0,25,1,3,2],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#acc387676084b37ad031448c68be87790":[1,0,17,1,3,2],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ad435ed7537f9ab64c8e3f721e51f488a":[0,0,25,1,3,25],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#ad435ed7537f9ab64c8e3f721e51f488a":[1,0,17,1,3,25],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#adc31b055b54c5e0ba68fc2e6eaba548c":[0,0,25,1,3,23],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#adc31b055b54c5e0ba68fc2e6eaba548c":[1,0,17,1,3,23],
+"structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#af510dc64c7846a85c66feee46d7b428b":[0,0,25,1,3,5],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#af510dc64c7846a85c66feee46d7b428b":[1,0,17,1,3,5],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#af974d7d5a80561e5d9e37a436d3bea0b":[0,0,25,1,3,18],
 "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html#af974d7d5a80561e5d9e37a436d3bea0b":[1,0,17,1,3,18],
@@ -240,14 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__shadow__caster_1_1FrameRecord.html#ac7642282557588f68ec8edd1f5bd023e":[0,0,28,0,5],
 "structgs__shadow__caster_1_1FrameRecord.html#ac7642282557588f68ec8edd1f5bd023e":[1,0,19,0,5],
 "structgs__shadow__caster_1_1FrameRecord.html#ad3fd155f6d9b814900004204ab587884":[0,0,28,0,10],
-"structgs__shadow__caster_1_1FrameRecord.html#ad3fd155f6d9b814900004204ab587884":[1,0,19,0,10],
-"structgs__shadow__caster_1_1FrameRecord.html#ae1f3a0c9f2dbaa771fbd12d0b492f14c":[0,0,28,0,9],
-"structgs__shadow__caster_1_1FrameRecord.html#ae1f3a0c9f2dbaa771fbd12d0b492f14c":[1,0,19,0,9],
-"structgs__shadow__caster_1_1FrameRecord.html#ae9c1eb29e527073fa94e3bb5c0c24456":[0,0,28,0,13],
-"structgs__shadow__caster_1_1FrameRecord.html#ae9c1eb29e527073fa94e3bb5c0c24456":[1,0,19,0,13],
-"structgs__shadow__caster_1_1FrameRecord.html#af871aed5ca646c4004533bff95bb1c87":[0,0,28,0,6],
-"structgs__shadow__caster_1_1FrameRecord.html#af871aed5ca646c4004533bff95bb1c87":[1,0,19,0,6],
-"structgs__shadow__caster_1_1FrameRecord.html#afcd902274f25e1c869206abeb051f515":[0,0,28,0,3],
-"structgs__shadow__caster_1_1FrameRecord.html#afcd902274f25e1c869206abeb051f515":[1,0,19,0,3],
-"structgs__shadow__caster_1_1FrameStats.html":[0,0,28,5]
+"structgs__shadow__caster_1_1FrameRecord.html#ad3fd155f6d9b814900004204ab587884":[1,0,19,0,10]
 };

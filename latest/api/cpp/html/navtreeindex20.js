@@ -1,5 +1,8 @@
 var NAVTREEINDEX20 =
 {
+"gaussian__inspector__plugins_8cpp.html":[2,0,0,0,4,12],
+"gaussian__inspector__plugins_8h.html":[2,0,0,0,4,13],
+"gaussian__inspector__plugins_8h_source.html":[2,0,0,0,4,13],
 "gaussian__resource__preview__generator_8cpp.html":[2,0,0,0,4,14],
 "gaussian__resource__preview__generator_8h.html":[2,0,0,0,4,15],
 "gaussian__resource__preview__generator_8h_source.html":[2,0,0,0,4,15],
@@ -246,8 +249,5 @@ var NAVTREEINDEX20 =
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,13,0],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecabca10a47d740ed8ac685baefaaaecc88":[2,0,0,0,5,9,13,1],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecad37e92613a3b852e829476831beb2872":[2,0,0,0,5,9,13,3],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a":[2,0,0,0,5,9,13,6],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf083c7f17a7110a20b865f9e6c6316ca":[2,0,0,0,5,9,13,9],
-"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaf37b4be0ce37e1b3a4c668c5f5c5bf61":[2,0,0,0,5,9,13,7],
-"gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3":[2,0,0,0,5,9,14]
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ecaeb0b89b81dc9525c531e5cb6fc70d67a":[2,0,0,0,5,9,13,6]
 };

@@ -1,5 +1,8 @@
 var NAVTREEINDEX16 =
 {
+"classStreamingGlobalAtlasRegistry.html#a5fa6fc61149028caa2c9f4b720638ebf":[1,0,270,10],
+"classStreamingGlobalAtlasRegistry.html#a7ed2818d1543a93e560e2d75ebc6c03e":[1,0,270,9],
+"classStreamingGlobalAtlasRegistry.html#aa43cd646a455cc2a24bfa7f2617e3cce":[1,0,270,6],
 "classStreamingGlobalAtlasRegistry.html#aae6933f08a750cd3148b0305161c4969":[1,0,270,8],
 "classStreamingGlobalAtlasRegistry.html#ab46882d54cdbe284ea845c99d685c6f4":[1,0,270,2],
 "classStreamingGlobalAtlasRegistry.html#ab8502788321cd608deaf44e722b1ff02":[1,0,270,16],
@@ -246,8 +249,5 @@ var NAVTREEINDEX16 =
 "classTileRenderer.html#a684256f9294c506130cf174875a42a0a":[1,0,285,177],
 "classTileRenderer.html#a68a5a40940f5322c606d691f162407a4":[1,0,285,57],
 "classTileRenderer.html#a69bfd7e61c6b8831c0b1051cb172e00d":[1,0,285,60],
-"classTileRenderer.html#a6a297d20fe4a81ca66a0555b2b9ad180":[1,0,285,90],
-"classTileRenderer.html#a6c0bfd693a6e457bbfa09a036f5dc59c":[1,0,285,43],
-"classTileRenderer.html#a6c56141486974d3a3d3c15a1530a78aa":[1,0,285,150],
-"classTileRenderer.html#a70697028b53d7d23c235c32a34a59dc4":[1,0,285,171]
+"classTileRenderer.html#a6a297d20fe4a81ca66a0555b2b9ad180":[1,0,285,90]
 };

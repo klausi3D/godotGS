@@ -1,5 +1,8 @@
 var NAVTREEINDEX26 =
 {
+"render__config__types_8h.html":[2,0,0,0,12,0,0],
+"render__config__types_8h_source.html":[2,0,0,0,12,0,0],
+"render__data__orchestrator_8cpp.html":[2,0,0,0,12,48],
 "render__data__orchestrator_8h.html":[2,0,0,0,12,49],
 "render__data__orchestrator_8h_source.html":[2,0,0,0,12,49],
 "render__debug__state__orchestrator_8cpp.html":[2,0,0,0,12,50],
@@ -246,8 +249,5 @@ var NAVTREEINDEX26 =
 "streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,91],
 "streaming__gsq__chunk__payload__source_8cpp.html":[2,0,0,0,3,92],
 "streaming__gsq__chunk__payload__source_8h.html":[2,0,0,0,3,93],
-"streaming__gsq__chunk__payload__source_8h_source.html":[2,0,0,0,3,93],
-"streaming__latency__histogram_8h.html":[2,0,0,0,3,94],
-"streaming__latency__histogram_8h_source.html":[2,0,0,0,3,94],
-"streaming__layout__hint_8cpp.html":[2,0,0,0,3,95]
+"streaming__gsq__chunk__payload__source_8h_source.html":[2,0,0,0,3,93]
 };

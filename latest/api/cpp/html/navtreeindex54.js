@@ -1,5 +1,14 @@
 var NAVTREEINDEX54 =
 {
+"structTileRasterizerStage.html#a90c41b0b404434b31bb183f4700eb303":[1,0,284,37],
+"structTileRasterizerStage.html#a91522d92dff4f606ac1e21875c161d88":[1,0,284,32],
+"structTileRasterizerStage.html#a922c2f4691a13b8b899ea6b4a049ff05":[1,0,284,2],
+"structTileRasterizerStage.html#a93beb5bab84d453f1cfb33aecee036a5":[1,0,284,24],
+"structTileRasterizerStage.html#aa21bbf03a366d0b20e76ac5d9e5bae0d":[1,0,284,40],
+"structTileRasterizerStage.html#aa5178f519b16445fdc2f864e887bd46e":[1,0,284,13],
+"structTileRasterizerStage.html#abb6a3280d452b127cbd81043dcb26670":[1,0,284,7],
+"structTileRasterizerStage.html#abc8a11d76dee587f23d8670cc3ce1216":[1,0,284,6],
+"structTileRasterizerStage.html#abe276c4ecf41c6a61a371a15615d30fa":[1,0,284,34],
 "structTileRasterizerStage.html#accbcceaf9d0a854a6cb3d83dcf8e94da":[1,0,284,10],
 "structTileRasterizerStage.html#ad3d94cc8d74865f8c2f91f1426c2335a":[1,0,284,9],
 "structTileRasterizerStage.html#ad48cc7673c0f0fa4083290f35e02c2ea":[1,0,284,31],
@@ -240,14 +249,5 @@ var NAVTREEINDEX54 =
 "structVRAMDebugStats.html#af7ea32371b4e28176ffb14f2deead9ec":[1,0,293,22],
 "structVisibleChunkRefGPU.html":[1,0,290],
 "structVisibleChunkRefGPU.html#a67ee8f6ceb3c9405ebf3e5a9e5a1cea0":[1,0,290,1],
-"structVisibleChunkRefGPU.html#ae6ac66c291c3c8fc0dc1817920f91bf2":[1,0,290,0],
-"struct__GSAtomicNoRenameGuard.html":[1,0,32],
-"struct__GSAtomicNoRenameGuard.html#a7582b0c51cb6fe8e7408f751f1fe7b56":[1,0,32,0],
-"structgs_1_1ModuleStringNames.html":[0,0,16,2],
-"structgs_1_1ModuleStringNames.html":[1,0,11,1],
-"structgs_1_1ModuleStringNames.html#a14fcd82dc9649a73331c0bd7a39dc7e5":[0,0,16,2,1],
-"structgs_1_1ModuleStringNames.html#a14fcd82dc9649a73331c0bd7a39dc7e5":[1,0,11,1,1],
-"structgs_1_1ModuleStringNames.html#a6638b993ca1e40f1f33b9a0858c14343":[0,0,16,2,5],
-"structgs_1_1ModuleStringNames.html#a6638b993ca1e40f1f33b9a0858c14343":[1,0,11,1,5],
-"structgs_1_1ModuleStringNames.html#a7c81be351278dea32cd17342d9339269":[0,0,16,2,3]
+"structVisibleChunkRefGPU.html#ae6ac66c291c3c8fc0dc1817920f91bf2":[1,0,290,0]
 };

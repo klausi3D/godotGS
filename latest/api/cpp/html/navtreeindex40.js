@@ -1,5 +1,8 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatting_1_1PainterlyMetadata.html#a704fb2a0ed072d56b93f9128d156a9d8":[1,0,9,8,1],
+"structGaussianSplatting_1_1PainterlyMetadata.html#aabf1d8b1a17d950b2e94d1bdaf351ce1":[0,0,12,9,2],
+"structGaussianSplatting_1_1PainterlyMetadata.html#aabf1d8b1a17d950b2e94d1bdaf351ce1":[1,0,9,8,2],
 "structGaussianSplatting_1_1PainterlyMetadata.html#abcc8471f82ef25e04ac5662cb374940f":[0,0,12,9,6],
 "structGaussianSplatting_1_1PainterlyMetadata.html#abcc8471f82ef25e04ac5662cb374940f":[1,0,9,8,6],
 "structGaussianSplatting_1_1PainterlyMetadata.html#ac178546a2cc6a9d16c34a04c2deba265":[0,0,12,9,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1TileDensityMetrics.html#ad3f7b8c50401947689d6ede79b9d1c01":[1,0,9,56,4],
 "structGaussianSplatting_1_1TileDeviceContext.html":[0,0,12,44],
 "structGaussianSplatting_1_1TileDeviceContext.html":[1,0,9,43],
-"structGaussianSplatting_1_1TileDeviceContext.html#a5fe09d1a432e2653c556901105807fc3":[0,0,12,44,2],
-"structGaussianSplatting_1_1TileDeviceContext.html#a5fe09d1a432e2653c556901105807fc3":[1,0,9,43,2],
-"structGaussianSplatting_1_1TileDeviceContext.html#a8025c9fab3b7ff7bedffd39dd461a2c8":[0,0,12,44,3],
-"structGaussianSplatting_1_1TileDeviceContext.html#a8025c9fab3b7ff7bedffd39dd461a2c8":[1,0,9,43,3]
+"structGaussianSplatting_1_1TileDeviceContext.html#a5fe09d1a432e2653c556901105807fc3":[0,0,12,44,2]
 };

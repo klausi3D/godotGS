@@ -316,7 +316,7 @@ var searchData=
   ['source_5fdevice_313',['source_device',['../structGaussianRenderFrame_1_1CrossDeviceOperation.html#aa7e598923e990069b7c07b02387bef2a',1,'GaussianRenderFrame::CrossDeviceOperation']]],
   ['source_5fdevice_5finstance_5fid_314',['source_device_instance_id',['../structRenderDeviceManager_1_1CrossDeviceOperation.html#a205bb76d71c9e15e4bb3d3c00b004f93',1,'RenderDeviceManager::CrossDeviceOperation']]],
   ['source_5fepoch_315',['source_epoch',['../classGaussianSplatHlodRuntimeData.html#aa40dae30b1e6dafeb38473662c07af0b',1,'GaussianSplatHlodRuntimeData']]],
-  ['source_5fgeneration_316',['source_generation',['../structPayloadPageStore_1_1Identity.html#a8979c18284bbe5a20c5704490cd967b0',1,'PayloadPageStore::Identity']]],
+  ['source_5fgeneration_316',['source_generation',['../structPayloadPageStore_1_1Identity.html#a8979c18284bbe5a20c5704490cd967b0',1,'PayloadPageStore::Identity::source_generation'],['../structPayloadPageStore_1_1Stats.html#ac05be3504b2438c58dd448ecfea49913',1,'PayloadPageStore::Stats::source_generation']]],
   ['source_5fid_317',['source_id',['../structgs__hlod_1_1tiled__bake_1_1Chunk.html#a27f84d199f3c3dd6c57dc87c5fdd3738',1,'gs_hlod::tiled_bake::Chunk']]],
   ['source_5findex_318',['source_index',['../structgs__gsq_1_1BuiltPage.html#aecb96425d13ac5193a1e5f1746e2b665',1,'gs_gsq::BuiltPage']]],
   ['source_5findex_5fcount_319',['source_index_count',['../structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html#ae25eedc89907b35efc38e3ad863d828c',1,'GaussianStreamingTypes::PrimaryChunkLayoutMetrics']]],

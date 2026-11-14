@@ -1,5 +1,14 @@
 var NAVTREEINDEX61 =
 {
+"structgs__world__generator_1_1Feature.html#aa2188b182933bae9e6adf24a3d71f935":[0,0,35,3,1],
+"structgs__world__generator_1_1Feature.html#aa2188b182933bae9e6adf24a3d71f935":[1,0,25,3,1],
+"structgs__world__generator_1_1Feature.html#ae33fbba06f6fae2b6bc77d8f9b6bbdb4":[0,0,35,3,7],
+"structgs__world__generator_1_1Feature.html#ae33fbba06f6fae2b6bc77d8f9b6bbdb4":[1,0,25,3,7],
+"structgs__world__generator_1_1Feature.html#af30b17077be4c31710f78a09a48c04f5":[0,0,35,3,3],
+"structgs__world__generator_1_1Feature.html#af30b17077be4c31710f78a09a48c04f5":[1,0,25,3,3],
+"structgs__world__generator_1_1GenerateOptions.html":[0,0,35,8],
+"structgs__world__generator_1_1GenerateOptions.html":[1,0,25,8],
+"structgs__world__generator_1_1GenerateOptions.html#a0ad9025d6488a6d6af703a2e16b874e6":[0,0,35,8,0],
 "structgs__world__generator_1_1GenerateOptions.html#a0ad9025d6488a6d6af703a2e16b874e6":[1,0,25,8,0],
 "structgs__world__generator_1_1GenerateOptions.html#a17f3d843eeaace22700cb338fe57da8c":[0,0,35,8,4],
 "structgs__world__generator_1_1GenerateOptions.html#a17f3d843eeaace22700cb338fe57da8c":[1,0,25,8,4],
@@ -240,14 +249,5 @@ var NAVTREEINDEX61 =
 "structgs__world__paged_1_1HeaderFields.html#ae8d4c51c00c80202eb0f23c6375641dd":[0,0,36,1,17],
 "structgs__world__paged_1_1HeaderFields.html#ae8d4c51c00c80202eb0f23c6375641dd":[1,0,26,1,17],
 "structgs__world__paged_1_1HeaderFields.html#af5ffd9ecbbecb05f2c1ce19f5e8f3dca":[0,0,36,1,4],
-"structgs__world__paged_1_1HeaderFields.html#af5ffd9ecbbecb05f2c1ce19f5e8f3dca":[1,0,26,1,4],
-"structgs__world__paged_1_1HeaderFields.html#afcfa3373706aaf74bce2c84085b88859":[0,0,36,1,15],
-"structgs__world__paged_1_1HeaderFields.html#afcfa3373706aaf74bce2c84085b88859":[1,0,26,1,15],
-"structgs__world__paged_1_1NodeMetrics.html":[0,0,36,0],
-"structgs__world__paged_1_1NodeMetrics.html":[1,0,26,0],
-"structgs__world__paged_1_1NodeMetrics.html#a8701f7db3a4cb0bd5dcbea0094a904a7":[0,0,36,0,2],
-"structgs__world__paged_1_1NodeMetrics.html#a8701f7db3a4cb0bd5dcbea0094a904a7":[1,0,26,0,2],
-"structgs__world__paged_1_1NodeMetrics.html#a98da242a7aa200618e0532320c5df37e":[0,0,36,0,3],
-"structgs__world__paged_1_1NodeMetrics.html#a98da242a7aa200618e0532320c5df37e":[1,0,26,0,3],
-"structgs__world__paged_1_1NodeMetrics.html#ac2b8da8ab513d69587f3ed50bb72c5ae":[0,0,36,0,0]
+"structgs__world__paged_1_1HeaderFields.html#af5ffd9ecbbecb05f2c1ce19f5e8f3dca":[1,0,26,1,4]
 };

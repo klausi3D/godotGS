@@ -1,5 +1,14 @@
 var NAVTREEINDEX50 =
 {
+"structQualityTierConfig.html#ab33d61564e9aa50efc6ee8241a81b334":[1,0,200,18],
+"structQualityTierConfig.html#ae4b0761998c8c79513847bcfec76a66d":[1,0,200,22],
+"structQualityTierConfig.html#af4bc72c30e6a0bbf08a4e68f0fe0024c":[1,0,200,7],
+"structQuantizationChunkGPU.html":[1,0,201],
+"structQuantizationChunkGPU.html#a004eefc8cde175a10bfbada7648bb129":[1,0,201,0],
+"structQuantizationChunkGPU.html#a2a52325737e92edb9851102d9a5e8979":[1,0,201,4],
+"structQuantizationChunkGPU.html#a4524a6842654b67fe86983ebd5408961":[1,0,201,3],
+"structQuantizationChunkGPU.html#ad11eee497aa4e3391b3c482b4739e034":[1,0,201,2],
+"structQuantizationChunkGPU.html#afa61d50738e2f67c731b127c207d6d85":[1,0,201,1],
 "structQuantizationConfig.html":[1,0,202],
 "structQuantizationConfig.html#a0c2f18e735471b2a1afbc5259db00416":[1,0,202,7],
 "structQuantizationConfig.html#a20842636b8e25ff8efc979c017f0aec6":[1,0,202,12],
@@ -240,14 +249,5 @@ var NAVTREEINDEX50 =
 "structRenderFrameContextManager_1_1ViewState.html":[1,0,217,1],
 "structRenderFrameContextManager_1_1ViewState.html#a074ae02964418718f5ca3d742297ab18":[1,0,217,1,4],
 "structRenderFrameContextManager_1_1ViewState.html#a214714b4fa0296399f7ab38d82922fe4":[1,0,217,1,1],
-"structRenderFrameContextManager_1_1ViewState.html#a2265f22649a01eb669192989c4caf861":[1,0,217,1,3],
-"structRenderFrameContextManager_1_1ViewState.html#a39cd6c0ab1d486d4a49f63a5a373549f":[1,0,217,1,2],
-"structRenderFrameContextManager_1_1ViewState.html#a66ef1a56fb3b0bef6fc2c3beb6e2b9a9":[1,0,217,1,5],
-"structRenderFrameContextManager_1_1ViewState.html#ab720378ec88707d7676457406dae5f34":[1,0,217,1,0],
-"structRenderFrameContextManager_1_1ViewState.html#afaf10d291b5390817af43d9152ad734c":[1,0,217,1,6],
-"structRenderInstancingOrchestrator_1_1Dependencies.html":[1,0,219,0],
-"structRenderInstancingOrchestrator_1_1Dependencies.html#a0354a056a062b0c394ca889dbc91f178":[1,0,219,0,3],
-"structRenderInstancingOrchestrator_1_1Dependencies.html#a21aee9a64a6c156026b091afcee6283e":[1,0,219,0,2],
-"structRenderInstancingOrchestrator_1_1Dependencies.html#a77a37aef0ae5d594656ffb2a9579544a":[1,0,219,0,4],
-"structRenderInstancingOrchestrator_1_1Dependencies.html#a79654266fedf106b252c10248cc394d2":[1,0,219,0,1]
+"structRenderFrameContextManager_1_1ViewState.html#a2265f22649a01eb669192989c4caf861":[1,0,217,1,3]
 };

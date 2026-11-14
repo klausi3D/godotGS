@@ -1,5 +1,8 @@
 var NAVTREEINDEX22 =
 {
+"namespaceGaussianRenderFacadeState.html":[0,0,4],
+"namespaceGaussianRenderFacadeState.html#aa8b0a25cbbf13eaed8838b1c97b8b964":[0,0,4,7],
+"namespaceGaussianRenderFrame.html":[0,0,5],
 "namespaceGaussianRenderPerformance.html":[0,0,6],
 "namespaceGaussianRenderPipeline.html":[0,0,7],
 "namespaceGaussianRenderPipeline.html#a10afbcc8d75b1ef8362c10f3ea77f3b5":[0,0,7,20],
@@ -246,8 +249,5 @@ var NAVTREEINDEX22 =
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a25578719ff9da8ccbe9fd300a51e8052":[0,0,12,3,2,18],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a2b6d9869ee8a69eb07f775452579b1ab":[0,0,12,3,2,17],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a2f97434062cf335c209f7a3d5a0a8363":[0,0,12,3,2,28],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a32065578095f3fe95c5861e2f628b9e3":[0,0,12,3,2,23],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a32201f7aa2642a93bc9906fb31cc4c07":[0,0,12,3,2,11],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a469f02e40eddf00dafc8694d8f62d51c":[0,0,12,3,2,26],
-"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a48cf11a3a5836f53486c57049b3d00b7":[0,0,12,3,2,36]
+"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a32065578095f3fe95c5861e2f628b9e3":[0,0,12,3,2,23]
 };

@@ -1,5 +1,8 @@
 var NAVTREEINDEX27 =
 {
+"streaming__latency__histogram_8h.html":[2,0,0,0,3,94],
+"streaming__latency__histogram_8h_source.html":[2,0,0,0,3,94],
+"streaming__layout__hint_8cpp.html":[2,0,0,0,3,95],
 "streaming__layout__hint_8h.html":[2,0,0,0,3,96],
 "streaming__layout__hint_8h_source.html":[2,0,0,0,3,96],
 "streaming__lod__policy_8cpp.html":[2,0,0,0,3,97],
@@ -246,8 +249,5 @@ var NAVTREEINDEX27 =
 "structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c":[1,0,60,2],
 "structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66":[1,0,60,13],
 "structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e":[1,0,60,22],
-"structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c":[1,0,60,16],
-"structDebugCounterSnapshot.html#af94cb2e8f93443163dd4f66e43af9cb5":[1,0,60,0],
-"structDebugCounterSnapshot.html#afc1e9093dea93649098be8439764cfcc":[1,0,60,7],
-"structDebugOverlayOptions.html":[1,0,62]
+"structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c":[1,0,60,16]
 };

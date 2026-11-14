@@ -1,5 +1,14 @@
 var NAVTREEINDEX60 =
 {
+"structgs__shadow__caster_1_1FrameRecord.html#ae1f3a0c9f2dbaa771fbd12d0b492f14c":[0,0,28,0,9],
+"structgs__shadow__caster_1_1FrameRecord.html#ae1f3a0c9f2dbaa771fbd12d0b492f14c":[1,0,19,0,9],
+"structgs__shadow__caster_1_1FrameRecord.html#ae9c1eb29e527073fa94e3bb5c0c24456":[0,0,28,0,13],
+"structgs__shadow__caster_1_1FrameRecord.html#ae9c1eb29e527073fa94e3bb5c0c24456":[1,0,19,0,13],
+"structgs__shadow__caster_1_1FrameRecord.html#af871aed5ca646c4004533bff95bb1c87":[0,0,28,0,6],
+"structgs__shadow__caster_1_1FrameRecord.html#af871aed5ca646c4004533bff95bb1c87":[1,0,19,0,6],
+"structgs__shadow__caster_1_1FrameRecord.html#afcd902274f25e1c869206abeb051f515":[0,0,28,0,3],
+"structgs__shadow__caster_1_1FrameRecord.html#afcd902274f25e1c869206abeb051f515":[1,0,19,0,3],
+"structgs__shadow__caster_1_1FrameStats.html":[0,0,28,5],
 "structgs__shadow__caster_1_1FrameStats.html":[1,0,19,5],
 "structgs__shadow__caster_1_1FrameStats.html#a13dc2f7e7b62c44cd9740bcf28c4714e":[0,0,28,5,8],
 "structgs__shadow__caster_1_1FrameStats.html#a13dc2f7e7b62c44cd9740bcf28c4714e":[1,0,19,5,8],
@@ -240,14 +249,5 @@ var NAVTREEINDEX60 =
 "structgs__world__generator_1_1Feature.html#a7c2efe1241a2bc9eec882638bdc7c5dd":[0,0,35,3,0],
 "structgs__world__generator_1_1Feature.html#a7c2efe1241a2bc9eec882638bdc7c5dd":[1,0,25,3,0],
 "structgs__world__generator_1_1Feature.html#a908050466c1d47436cb0be7088fa0220":[0,0,35,3,2],
-"structgs__world__generator_1_1Feature.html#a908050466c1d47436cb0be7088fa0220":[1,0,25,3,2],
-"structgs__world__generator_1_1Feature.html#aa2188b182933bae9e6adf24a3d71f935":[0,0,35,3,1],
-"structgs__world__generator_1_1Feature.html#aa2188b182933bae9e6adf24a3d71f935":[1,0,25,3,1],
-"structgs__world__generator_1_1Feature.html#ae33fbba06f6fae2b6bc77d8f9b6bbdb4":[0,0,35,3,7],
-"structgs__world__generator_1_1Feature.html#ae33fbba06f6fae2b6bc77d8f9b6bbdb4":[1,0,25,3,7],
-"structgs__world__generator_1_1Feature.html#af30b17077be4c31710f78a09a48c04f5":[0,0,35,3,3],
-"structgs__world__generator_1_1Feature.html#af30b17077be4c31710f78a09a48c04f5":[1,0,25,3,3],
-"structgs__world__generator_1_1GenerateOptions.html":[0,0,35,8],
-"structgs__world__generator_1_1GenerateOptions.html":[1,0,25,8],
-"structgs__world__generator_1_1GenerateOptions.html#a0ad9025d6488a6d6af703a2e16b874e6":[0,0,35,8,0]
+"structgs__world__generator_1_1Feature.html#a908050466c1d47436cb0be7088fa0220":[1,0,25,3,2]
 };

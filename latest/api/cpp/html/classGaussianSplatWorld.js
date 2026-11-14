@@ -19,6 +19,7 @@ var classGaussianSplatWorld =
     [ "get_gaussian_data", "classGaussianSplatWorld.html#ac6f1b4aa461a26fb099723fd71db50de", null ],
     [ "get_hlod_info", "classGaussianSplatWorld.html#a2bd34f1de92459008712a972ef2bd987", null ],
     [ "get_hlod_paged_source", "classGaussianSplatWorld.html#ade74f9b86d6b95d07d58b04642d693a9", null ],
+    [ "get_hlod_payload_source_generation", "classGaussianSplatWorld.html#acc61b8e8c8849d0bf564b1b3375dfbc9", null ],
     [ "get_hlod_tree", "classGaussianSplatWorld.html#a52fe5502e8d5755f5ae7ade3369369c9", null ],
     [ "get_metadata", "classGaussianSplatWorld.html#a20076339d5f070df7a32aa094f9537a3", null ],
     [ "get_payload_mode", "classGaussianSplatWorld.html#a952c0bb1c193d2318cd11f15a618406b", null ],

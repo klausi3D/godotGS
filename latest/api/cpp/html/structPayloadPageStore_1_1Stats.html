@@ -101,6 +101,8 @@ Collaboration diagram for PayloadPageStore::Stats:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
+<tr class="memitem:ac05be3504b2438c58dd448ecfea49913" id="r_ac05be3504b2438c58dd448ecfea49913"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac05be3504b2438c58dd448ecfea49913">source_generation</a> = 0</td></tr>
+<tr class="memitem:ab6ff1a0ae347b322b0a48deebb8ed7c6" id="r_ab6ff1a0ae347b322b0a48deebb8ed7c6"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab6ff1a0ae347b322b0a48deebb8ed7c6">collection_epoch</a> = 0</td></tr>
 <tr class="memitem:a84026be129c6f149a9bacbe4c6a03c02" id="r_a84026be129c6f149a9bacbe4c6a03c02"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structPayloadReadService_1_1Stats.html">PayloadReadService::Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a84026be129c6f149a9bacbe4c6a03c02">reads</a></td></tr>
 <tr class="memitem:af3dc0682b6420c346285ea0ef280b0c2" id="r_af3dc0682b6420c346285ea0ef280b0c2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af3dc0682b6420c346285ea0ef280b0c2">service_bytes</a> = 0</td></tr>
 <tr class="memitem:a289ab4402a381cc551faf1bb3dfca36d" id="r_a289ab4402a381cc551faf1bb3dfca36d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a289ab4402a381cc551faf1bb3dfca36d">stash_bytes</a> = 0</td></tr>
@@ -122,6 +124,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a1f4eb258f5645472456c12e913db4de6" id="r_a1f4eb258f5645472456c12e913db4de6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1f4eb258f5645472456c12e913db4de6">decoders_idle</a> = 0</td></tr>
 <tr class="memitem:ad658e94e59eeb159c0e0dc6820a34c89" id="r_ad658e94e59eeb159c0e0dc6820a34c89"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad658e94e59eeb159c0e0dc6820a34c89">peak_decoders_leased</a> = 0</td></tr>
 <tr class="memitem:ab319269531da0b1970d54be32c66aeb9" id="r_ab319269531da0b1970d54be32c66aeb9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab319269531da0b1970d54be32c66aeb9">captures</a> = 0</td></tr>
+<tr class="memitem:a48d423fb72f3817f09701dba8f1ed18f" id="r_a48d423fb72f3817f09701dba8f1ed18f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a48d423fb72f3817f09701dba8f1ed18f">captures_on_worker_threads</a> = 0</td></tr>
+<tr class="memitem:ade3184827cb964afdbe4a8bbcbbc9870" id="r_ade3184827cb964afdbe4a8bbcbbc9870"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade3184827cb964afdbe4a8bbcbbc9870">captures_on_main_thread</a> = 0</td></tr>
 <tr class="memitem:a1dd8c65f5ca89bd86231dcfb018f84db" id="r_a1dd8c65f5ca89bd86231dcfb018f84db"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1dd8c65f5ca89bd86231dcfb018f84db">captures_failed</a> = 0</td></tr>
 <tr class="memitem:a5a7b6235b867ba56137da4b6df599a60" id="r_a5a7b6235b867ba56137da4b6df599a60"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5a7b6235b867ba56137da4b6df599a60">pages_verified</a> = 0</td></tr>
 <tr class="memitem:a2a2ed60cf5f9cdd3b13954da9f76c4f5" id="r_a2a2ed60cf5f9cdd3b13954da9f76c4f5"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2a2ed60cf5f9cdd3b13954da9f76c4f5">pages_decoded</a> = 0</td></tr>
@@ -174,6 +178,48 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t PayloadPageStore::Stats::captures_failed = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ade3184827cb964afdbe4a8bbcbbc9870" name="ade3184827cb964afdbe4a8bbcbbc9870"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ade3184827cb964afdbe4a8bbcbbc9870">&#9670;&#160;</a></span>captures_on_main_thread</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::captures_on_main_thread = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a48d423fb72f3817f09701dba8f1ed18f" name="a48d423fb72f3817f09701dba8f1ed18f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a48d423fb72f3817f09701dba8f1ed18f">&#9670;&#160;</a></span>captures_on_worker_threads</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::captures_on_worker_threads = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab6ff1a0ae347b322b0a48deebb8ed7c6" name="ab6ff1a0ae347b322b0a48deebb8ed7c6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab6ff1a0ae347b322b0a48deebb8ed7c6">&#9670;&#160;</a></span>collection_epoch</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::collection_epoch = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -566,6 +612,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t PayloadPageStore::Stats::service_bytes = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac05be3504b2438c58dd448ecfea49913" name="ac05be3504b2438c58dd448ecfea49913"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac05be3504b2438c58dd448ecfea49913">&#9670;&#160;</a></span>source_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::source_generation = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

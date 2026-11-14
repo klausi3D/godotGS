@@ -1,5 +1,8 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a7b9a29644c299bb6173e8fde88f2c223":[1,0,105,10,17],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a8880874bbf69b185fd48e1a399cbf62f":[1,0,105,10,6],
+"structGaussianSplatRenderer_1_1RasterStageInput.html#a8ce81e2a34290720d0ab426e4aaefb22":[1,0,105,10,8],
 "structGaussianSplatRenderer_1_1RasterStageInput.html#aa254664ad8dc237d418883eb8c82f9dd":[1,0,105,10,1],
 "structGaussianSplatRenderer_1_1RasterStageInput.html#ab1188b5ba3bc84c2cdd6ca7d909673d1":[1,0,105,10,9],
 "structGaussianSplatRenderer_1_1RasterStageInput.html#ad1c6c80bcbea3d7b472f3f458987e388":[1,0,105,10,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatWorldSubmissionContract.html#aeabc443b4a82d136137e3872e63283fe":[1,0,112,0],
 "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html":[1,0,113],
 "structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a019a03346968d689a745f767cd8d31b2":[1,0,113,11],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a15c40d1598e523bb10c4b53e598da4aa":[1,0,113,22],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a19425691ad33c33071a0e45f470e6f78":[1,0,113,2],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a283f9c0bacce58674c99c80e49c4f666":[1,0,113,5],
-"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a339be0277dc67580206edfef31e3b1a9":[1,0,113,7]
+"structGaussianSplatWorldSubmissionRuntimeStateSnapshot.html#a15c40d1598e523bb10c4b53e598da4aa":[1,0,113,22]
 };

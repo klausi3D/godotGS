@@ -1,5 +1,8 @@
 var NAVTREEINDEX19 =
 {
+"classgs__world__writer_1_1WriterV4.html#ae92678e34a7bef14350002f7a7f1aac8":[1,0,27,15,9],
+"classgs__world__writer_1_1WriterV4.html#af65ff3257dc5a15c472d9a392905d2e4":[0,0,37,15,7],
+"classgs__world__writer_1_1WriterV4.html#af65ff3257dc5a15c472d9a392905d2e4":[1,0,27,15,7],
 "color__grading__resource_8cpp.html":[2,0,0,0,13,0],
 "color__grading__resource_8h.html":[2,0,0,0,13,1],
 "color__grading__resource_8h_source.html":[2,0,0,0,13,1],
@@ -246,8 +249,5 @@ var NAVTREEINDEX19 =
 "gaussian__import__settings__dialog_8h.html":[2,0,0,0,4,11],
 "gaussian__import__settings__dialog_8h_source.html":[2,0,0,0,4,11],
 "gaussian__importance_8h.html":[2,0,0,0,3,9],
-"gaussian__importance_8h_source.html":[2,0,0,0,3,9],
-"gaussian__inspector__plugins_8cpp.html":[2,0,0,0,4,12],
-"gaussian__inspector__plugins_8h.html":[2,0,0,0,4,13],
-"gaussian__inspector__plugins_8h_source.html":[2,0,0,0,4,13]
+"gaussian__importance_8h_source.html":[2,0,0,0,3,9]
 };
