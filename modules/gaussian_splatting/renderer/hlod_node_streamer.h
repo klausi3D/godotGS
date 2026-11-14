@@ -497,7 +497,8 @@ private:
 	void fail_shadow_upload();
 	bool upload_shadow_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	bool upload_edit_ordinary(RenderingDevice *p_device, const Buffers &p_buffers);
-	bool upload_ordinary_ready(RenderingDevice *p_device, const Buffers &p_buffers, bool p_preserve_whole_nodes);
+	bool upload_ordinary_ready(RenderingDevice *p_device, const Buffers &p_buffers, bool p_preserve_whole_nodes,
+			uint32_t p_ready_index, bool p_fail_without_device);
 	void upload_edit_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void upload_ready(RenderingDevice *p_device, const Buffers &p_buffers);
 	void clear_evicted(RenderingDevice *p_device, const Buffers &p_buffers);

@@ -1247,7 +1247,7 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 }
 
 bool HlodNodeStreamer::upload_edit_ordinary(RenderingDevice *p_device, const Buffers &p_buffers) {
-	return upload_ordinary_ready(p_device, p_buffers, !residency.is_edit_staged());
+	return upload_ordinary_ready(p_device, p_buffers, !residency.is_edit_staged(), 0, false);
 }
 
 void HlodNodeStreamer::upload_edit_ready(RenderingDevice *p_device, const Buffers &p_buffers) {
@@ -1267,22 +1267,33 @@ void HlodNodeStreamer::upload_edit_ready(RenderingDevice *p_device, const Buffer
 }
 
 void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_buffers) {
+	MutexLock lock(ledger->mutex);
 	if (!pending_metadata_clears.is_empty()) { return; }
-	while (upload_ordinary_ready(p_device, p_buffers, true)) {
+	uint32_t i = 0;
+	while (i < ready.size()) {
+		if (!upload_ordinary_ready(p_device, p_buffers, true, i, true)) {
+#ifdef TESTS_ENABLED
+			// Base no-edit semantics: held live entries do not prevent later
+			// stale/failed results from being discarded in this same update.
+			if (ledger->control.hold_uploads) { ++i; continue; }
+#endif
+			break; // A deferred fitting node still stops the scan, as on base.
+		}
 		// Validation/discard must run even with no remaining allowance, so a
 		// cancelled partial node returns its charged output immediately.
 	}
 }
 
-bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Buffers &p_buffers, bool p_preserve_whole_nodes) {
+bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Buffers &p_buffers, bool p_preserve_whole_nodes,
+		uint32_t p_ready_index, bool p_fail_without_device) {
 	MutexLock lock(ledger->mutex);
-	if (ready.is_empty()) { return false; }
+	if (p_ready_index >= ready.size()) { return false; }
 	const uint64_t stride = record_stride();
 	const uint64_t atlas_capacity = atlas_bytes_capacity();
-	PackResult &r = ready[0];
+	PackResult &r = ready[p_ready_index];
 	if (!r.ok) {
 		residency.fail_load(r.ticket); // A stale ticket is only counted as dropped.
-		ready.remove_at(0);
+		ready.remove_at(p_ready_index);
 		return true;
 	}
 	NodeResidency::Ticket publication_ticket = r.ticket;
@@ -1319,13 +1330,14 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 		} else {
 			residency.begin_upload(r.ticket); // Rejected and counted: cancelled or another epoch.
 		}
-		ready.remove_at(0);
+		ready.remove_at(p_ready_index);
 		return true;
 	}
 #ifdef TESTS_ENABLED
 	if (ledger->control.hold_uploads) { return false; }
 #endif
-	if (!upload_available(p_device)) { return false; }
+	const bool device_available = upload_available(p_device);
+	if (!device_available && !p_fail_without_device) { return false; } // Edit-era uploads keep holding.
 	const uint64_t count = cfg.quantized ? uint64_t(r.quantized.size()) : uint64_t(r.raw.size());
 	uint64_t bytes = 0, offset = 0;
 	const uint64_t metadata_bytes = sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0);
@@ -1336,6 +1348,16 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	const uint64_t remaining = upload_remaining();
 	if (ok && p_preserve_whole_nodes && r.uploaded_bytes == 0 && bytes <= upload_allowance() && bytes > remaining) {
 		return false; // A fitting node waits for a fresh frame, retaining one whole atlas write.
+	}
+	if (!device_available) {
+		// Base no-edit uploads fail without a device. Drop even a partial node's
+		// charged output exactly once, with no quantization or metadata write.
+		if (residency.begin_upload(publication_ticket)) {
+			if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
+			residency.finish_upload(publication_ticket, false);
+		}
+		ready.remove_at(p_ready_index);
+		return true;
 	}
 	const GSUploadSizing::Slice slice = GSUploadSizing::slice(bytes, r.uploaded_bytes, remaining, stride);
 	ok = ok && slice.valid;
@@ -1364,7 +1386,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	if (ok && (!final_slice || metadata_bytes > upload_remaining())) { return progressed; }
 	// Partial nodes remain LOADING: validate the full ticket on every slice,
 	// then transition through UPLOADING only at the metadata-last boundary.
-	if (!residency.begin_upload(publication_ticket)) { ready.remove_at(0); return true; }
+	if (!residency.begin_upload(publication_ticket)) { ready.remove_at(p_ready_index); return true; }
 	if (ok) {
 		ok = (!cfg.quantized || write_quant(p_device, p_buffers, publication_ticket.node, r.quant) == OK) &&
 				write_meta(p_device, p_buffers, publication_ticket.node, r.meta) == OK;
@@ -1391,7 +1413,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	if (ok) {
 		++telemetry.uploaded_this_frame;
 	}
-	ready.remove_at(0);
+	ready.remove_at(p_ready_index);
 	return true;
 }
 

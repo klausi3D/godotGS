@@ -341,6 +341,116 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] staging clamp bounds act
 	CHECK(h.checker.atlas_writes >= 3);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] unavailable ordinary device fails packed nodes and returns serialized read permits") {
+	TestHlodPageStore::Fixture fixture;
+	if (!WorkerThreadPool::get_singleton() || !fixture.build(false, 2, 257, 0)) {
+		FAIL("D3-4 deviceless admission requires the real worker pool and production-written paged corpus"); return;
+	}
+	LocalVector<gs_hlod_runtime::DesiredRecord> demand;
+	for (uint32_t node = 0; node < fixture.node_count; ++node) {
+		if (node != 0 && fixture.snapshot->nodes[node].topology.parent != 0) { continue; }
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		demand.push_back(wanted);
+	}
+	if (demand.size() < 3) { FAIL("D3-4 deviceless corpus needs a root and at least two children"); return; }
+	Streamer streamer;
+	Streamer::Config cfg;
+	cfg.atlas_pages = fixture.node_count;
+	cfg.max_inflight_read_bytes = 1; // Below one record: each oversize reservation must run alone.
+	// Use the original paged init/read path, as the regressed PagedV4 case does.
+	// No CPU sink is installed: the real unavailable-device branch must discard.
+	if (!streamer.init(fixture.snapshot, cfg, 21, 41) || streamer._test_observe_shadow_transfers() != OK) {
+		FAIL("D3-4 deviceless streamer or real write observations failed to initialize"); return;
+	}
+	Streamer::TestSnapshot sample;
+	Streamer::Telemetry telemetry;
+	Vector<Streamer::TestWrite> writes;
+	bool valid = true;
+	streamer.begin_frame(); // Polling must not age FAILED retry cooldowns or request timeouts.
+	const auto drained = gs_pump_until([&]() {
+#ifdef THREADS_ENABLED
+		Thread::yield();
+#endif
+		streamer.update(nullptr, Streamer::Buffers(), demand.ptr(), demand.size(), nullptr, 0);
+		sample = streamer._test_snapshot();
+		telemetry = streamer.get_telemetry();
+		valid = valid && sample.observation_error == OK && streamer._test_shadow_writes(writes) == OK &&
+				sample.jobs_in_flight <= 1 && sample.peak_jobs_in_flight <= 1 &&
+				telemetry.payload_reads_in_flight <= 1 && sample.live_reservations <= 1 &&
+				sample.reservations_released <= sample.reservations_acquired && writes.is_empty();
+		return !valid || (telemetry.payload_reads_total == demand.size() && sample.live_reservations == 0 &&
+				sample.jobs_in_flight == 0 && sample.pending_tickets == 0 && sample.ready_outputs == 0 && sample.mailbox_outputs == 0);
+	});
+	if (!drained.ready() || !valid) {
+		FAIL("D3-4 unavailable device never failed each packed node and released its serialized read permit: reads=",
+				telemetry.payload_reads_total, " wanted=", demand.size(), " live=", sample.live_reservations,
+				" ", drained.describe().utf8().get_data()); return;
+	}
+	CHECK(telemetry.payload_reads_total == demand.size());
+	CHECK(telemetry.failed_total == demand.size());
+	CHECK(telemetry.resident == 0);
+	CHECK(telemetry.uploaded_bytes_total == 0);
+	CHECK(sample.jobs_started == demand.size());
+	CHECK(sample.reservations_acquired == demand.size());
+	CHECK(sample.reservations_released == sample.reservations_acquired);
+	CHECK(sample.live_reservations == 0);
+	CHECK(sample.charged_bytes == 0);
+	CHECK(sample.partial_upload_bytes == 0);
+	CHECK(sample.ready_bytes == 0);
+	CHECK(sample.mailbox_bytes == 0);
+	CHECK(sample.worker_output_bytes == 0);
+	CHECK(sample.pending_tickets == 0);
+	CHECK(sample.jobs_in_flight == 0);
+	CHECK(sample.ready_outputs == 0);
+	CHECK(sample.mailbox_outputs == 0);
+	CHECK(writes.is_empty()); // Includes atlas, quantization and metadata writes.
+	CHECK(streamer._test_publications().is_empty());
+	for (const auto &wanted : demand) { CHECK(streamer.get_residency().state(wanted.node) == Residency::FAILED); }
+	// The same demand cannot retry inside this logical frame or release a permit twice.
+	streamer.update(nullptr, Streamer::Buffers(), demand.ptr(), demand.size(), nullptr, 0);
+	const auto repeated = streamer._test_snapshot();
+	CHECK(repeated.reservations_acquired == sample.reservations_acquired);
+	CHECK(repeated.reservations_released == sample.reservations_released);
+	CHECK(repeated.live_reservations == 0);
+	streamer.shutdown();
+
+	// Losing the sink after a bounded partial write must fail the ordinary node
+	// too, without publishing it or issuing another write into its reserved run.
+	Harness h;
+	if (!h.init(true, 64 * sizeof(PackedGaussianQuantized)) || !h.packed() || !h.release()) {
+		FAIL("D3-4 partial deviceless failure preconditions failed"); return;
+	}
+	h.step(); // Worker output is held ready already; this is one synchronous slice.
+	if (!h.observations_ok || h.checker.violation != CLEAN || h.checker.payload_bytes == 0 ||
+			h.checker.payload_bytes >= uint64_t(h.checker.golden.size()) || h.sample.live_reservations != 1) {
+		FAIL("D3-4 unavailable-device control needs a real invisible partial upload with its permit"); return;
+	}
+	const uint32_t writes_before = h.writes.size();
+	h.control.cpu_upload_sink = false;
+	if (h.streamer._test_set_control(h.control) != OK) { FAIL("D3-4 could not withdraw the CPU device sink"); return; }
+	const auto partial_drained = gs_pump_until([&]() {
+		h.streamer.update(nullptr, Streamer::Buffers(), &h.demand, 1, nullptr, 0);
+		h.sample = h.streamer._test_snapshot();
+		h.observations_ok = h.observations_ok && h.sample.observation_error == OK && h.streamer._test_shadow_writes(h.writes) == OK;
+		return !h.observations_ok || (h.sample.live_reservations == 0 && h.sample.ready_outputs == 0);
+	});
+	if (!partial_drained.ready() || !h.observations_ok) {
+		FAIL("D3-4 partial ordinary node kept its permit after losing the device: ", partial_drained.describe().utf8().get_data()); return;
+	}
+	CHECK(h.streamer.get_residency().state(0) == Residency::FAILED);
+	CHECK(h.streamer.resident_mask()[0] == 0);
+	CHECK(h.sample.reservations_acquired == 1);
+	CHECK(h.sample.reservations_released == 1);
+	CHECK(h.sample.charged_bytes == 0);
+	CHECK(h.sample.partial_upload_bytes == 0);
+	CHECK(uint32_t(h.writes.size()) == writes_before);
+	for (const auto &write : h.writes) { CHECK(write.kind == Streamer::TestWrite::ATLAS); }
+	CHECK(h.streamer._test_publications().is_empty());
+	h.streamer.update(nullptr, Streamer::Buffers(), &h.demand, 1, nullptr, 0);
+	CHECK(h.streamer._test_snapshot().reservations_released == 1);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Sizing] unknown staging and publisher defaults preserve whole-node uploads") {
 	for (uint64_t clamp : { uint64_t(0), uint64_t(128ull * 1024 * 1024 / 2) }) {
 		Harness h;
