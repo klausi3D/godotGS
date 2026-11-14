@@ -1,6 +1,7 @@
 #include "hlod_node_streamer.h"
 
 #include "../core/gaussian_streaming.h"
+#include "../core/gs_upload_sizing.h"
 #include "../core/gs_vector_alloc.h"
 #include "../lod/hlod_edit.h"
 #include "../io/gs_payload_page_store.h"
@@ -284,7 +285,7 @@ Error HlodNodeStreamer::_test_set_fault(TestFault p_fault) {
 	if (ledger.is_null() || !active) { return ERR_UNAVAILABLE; }
 	MutexLock lock(ledger->mutex);
 	if (ledger->live != 0 || ledger->jobs != 0) { return ERR_BUSY; }
-	if (p_fault < TEST_FAULT_NONE || p_fault > TEST_FAULT_PARTIAL_COMMIT) { return ERR_INVALID_PARAMETER; }
+	if (p_fault < TEST_FAULT_NONE || p_fault > TEST_FAULT_EARLY_FINAL_SLICE) { return ERR_INVALID_PARAMETER; }
 	ledger->fault = p_fault;
 	ledger->faults_triggered = 0;
 	return OK;
@@ -417,7 +418,10 @@ Error HlodNodeStreamer::_test_evict_node(uint32_t p_node) {
 
 bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config, uint64_t p_world_generation, uint64_t p_device_generation) {
 	shutdown();
-	if (p_data.is_null() || p_config.atlas_pages == 0 || p_config.page_splats == 0 || p_data->nodes.is_empty()) {
+	uint64_t atlas_bytes = 0;
+	if (p_data.is_null() || p_config.atlas_pages == 0 || p_config.page_splats == 0 || p_config.upload_bytes_per_frame == 0 ||
+			p_data->nodes.is_empty() || !GSUploadSizing::checked_byte_count(uint64_t(p_config.atlas_pages) * p_config.page_splats,
+					p_config.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian), atlas_bytes)) {
 		return false;
 	}
 	Vector<NodeResidency::NodeInfo> infos;
@@ -628,6 +632,9 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 void HlodNodeStreamer::start_jobs() {
 	collect_finished_tasks(false);
 	WorkerThreadPool *pool = WorkerThreadPool::get_singleton();
+	// Task concurrency is independent of the unchanged B/J inputs used to
+	// derive retained_byte_cap. IO reader_count belongs to the page store.
+	const uint32_t slots = GSUploadSizing::worker_count(cfg.max_jobs_in_flight, cfg.logical_cpus, cfg.pool_threads, cfg.reserved_pool_threads);
 	// Starts one worker job. `p_shadow` jobs pack an edited leaf of the STAGED snapshot into its reserved shadow run;
 	// ordinary jobs pack from the served snapshot. Returns false when the in-flight read cap defers the job.
 	auto start_one = [&](const NodeResidency::Ticket &p_ticket, bool p_shadow) {
@@ -715,7 +722,7 @@ void HlodNodeStreamer::start_jobs() {
 			}
 			return false;
 		};
-		while (pool && tasks.size() < cfg.max_jobs_in_flight) {
+		while (pool && tasks.size() < slots) {
 			if (take_one(next_shadow_job)) { next_shadow_job = !next_shadow_job; }
 			else if (!take_one(!next_shadow_job)) { break; }
 		}
@@ -723,7 +730,7 @@ void HlodNodeStreamer::start_jobs() {
 	}
 	// Replacement payloads of a staged edit first: they gate the publication boundary.
 	uint32_t shadow_consumed = 0;
-	while (shadow_consumed < shadow_pending.size() && tasks.size() < cfg.max_jobs_in_flight && pool) {
+	while (shadow_consumed < shadow_pending.size() && tasks.size() < slots && pool) {
 		const NodeResidency::Ticket ticket = shadow_pending[shadow_consumed];
 		if (staged_data.is_null() || !residency.is_shadow_pending(ticket)) {
 			++shadow_consumed;
@@ -741,7 +748,7 @@ void HlodNodeStreamer::start_jobs() {
 		shadow_pending.resize(shadow_pending.size() - shadow_consumed);
 	}
 	uint32_t consumed = 0;
-	while (consumed < pending.size() && tasks.size() < cfg.max_jobs_in_flight && pool) {
+	while (consumed < pending.size() && tasks.size() < slots && pool) {
 		const NodeResidency::Ticket ticket = pending[consumed];
 		if (!residency.is_pending(ticket)) {
 			++consumed;
@@ -843,7 +850,7 @@ HlodNodeStreamer::EditStageResult HlodNodeStreamer::stage_edit(const Ref<Gaussia
 	}
 	const uint64_t publication_bytes = uint64_t(edited_nodes.size() + stale_nodes.size()) *
 			(sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0));
-	if (publication_bytes > cfg.upload_bytes_per_frame || !edit_feasible(p_edited)) {
+	if (publication_bytes > upload_allowance() || !edit_feasible(p_edited)) {
 		++telemetry.edits_rejected_infeasible_total;
 		telemetry.edit_event = "rejected_infeasible";
 		return EDIT_REJECTED_INFEASIBLE;
@@ -1054,13 +1061,28 @@ bool HlodNodeStreamer::upload_available(RenderingDevice *p_device) const {
 	return p_device && p_device->get_device_instance_id() == device_generation;
 }
 
+uint64_t HlodNodeStreamer::upload_allowance() const {
+#ifdef TESTS_ENABLED
+	if (ledger.is_valid()) {
+		MutexLock lock(ledger->mutex);
+		if (ledger->fault == TEST_FAULT_IGNORE_STAGING_CLAMP && cfg.staging_upload_clamp_bytes != 0 &&
+				cfg.staging_upload_clamp_bytes < cfg.upload_bytes_per_frame) {
+			++ledger->faults_triggered;
+			return cfg.upload_bytes_per_frame; // Fault changes the REAL write allowance.
+		}
+	}
+#endif
+	return GSUploadSizing::frame_limit_bytes(cfg.upload_bytes_per_frame, cfg.staging_upload_clamp_bytes, false);
+}
+
 uint64_t HlodNodeStreamer::upload_remaining() const {
-	return frame_written_bytes < cfg.upload_bytes_per_frame ? cfg.upload_bytes_per_frame - frame_written_bytes : 0;
+	const uint64_t allowance = upload_allowance();
+	return frame_written_bytes < allowance ? allowance - frame_written_bytes : 0;
 }
 
 #ifdef TESTS_ENABLED
 void HlodNodeStreamer::record_write(TestWrite::Kind p_kind, uint32_t p_node, uint64_t p_offset, uint64_t p_bytes,
-		bool p_shadow, const ChunkMetaGPU *p_meta, const ChunkQuantizationGPU *p_quant) {
+		bool p_shadow, const ChunkMetaGPU *p_meta, const ChunkQuantizationGPU *p_quant, const void *p_payload) {
 	MutexLock lock(ledger->mutex);
 	if (!ledger->observe_shadows && !ledger->control.cpu_upload_sink) { return; }
 	TestWrite write;
@@ -1073,6 +1095,10 @@ void HlodNodeStreamer::record_write(TestWrite::Kind p_kind, uint32_t p_node, uin
 	write.during_commit = in_edit_commit;
 	if (p_meta) { write.meta = *p_meta; }
 	if (p_quant) { write.quant = *p_quant; }
+	if (p_payload && ledger->control.cpu_upload_sink) {
+		if (write.payload.resize(p_bytes) != OK) { return; } // Missing capture fails the test's observation check.
+		memcpy(write.payload.ptrw(), p_payload, size_t(p_bytes));
+	}
 	ledger->writes.push_back(write);
 }
 #endif
@@ -1096,7 +1122,7 @@ Error HlodNodeStreamer::write_atlas(RenderingDevice *p_device, const Buffers &p_
 	}
 	frame_written_bytes += p_bytes;
 #ifdef TESTS_ENABLED
-	record_write(TestWrite::ATLAS, p_node, p_offset, p_bytes, p_shadow);
+	record_write(TestWrite::ATLAS, p_node, p_offset, p_bytes, p_shadow, nullptr, nullptr, p_payload);
 #endif
 	return OK;
 }
@@ -1169,23 +1195,24 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 	if (!upload_available(p_device)) { return false; }
 	const uint64_t stride = record_stride();
 	const uint32_t count = cfg.quantized ? uint32_t(r.quantized.size()) : uint32_t(r.raw.size());
-	const uint64_t bytes = uint64_t(count) * stride;
+	uint64_t bytes = 0;
 	const uint64_t offset = uint64_t(r.ticket.first_page) * cfg.page_splats * stride;
-	if (!r.ok || count == 0 || count != r.meta.splat_count || count > uint64_t(r.ticket.page_count) * cfg.page_splats ||
+	if (!r.ok || !GSUploadSizing::checked_byte_count(count, stride, bytes) || count == 0 || count != r.meta.splat_count || count > uint64_t(r.ticket.page_count) * cfg.page_splats ||
 			offset > atlas_bytes_capacity() || bytes > atlas_bytes_capacity() - offset || r.uploaded_bytes > bytes) {
 		fail_shadow_upload(); return true;
 	}
-	const uint64_t slice = MIN(bytes - r.uploaded_bytes, upload_remaining()) & ~uint64_t(3);
-	if (slice == 0) { return false; }
+	const GSUploadSizing::Slice slice = GSUploadSizing::slice(bytes, r.uploaded_bytes, upload_remaining(), stride);
+	if (!slice.valid) { fail_shadow_upload(); return true; }
+	if (slice.bytes == 0) { return false; }
 	if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
 	const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
-	if (write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice, payload + r.uploaded_bytes, true) != OK) {
+	if (write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, true) != OK) {
 		fail_shadow_upload(); return true;
 	}
-	r.uploaded_bytes += slice;
-	telemetry.uploaded_bytes_this_frame += slice;
-	telemetry.uploaded_bytes_total += slice;
-	if (r.uploaded_bytes == bytes) {
+	r.uploaded_bytes += slice.bytes;
+	telemetry.uploaded_bytes_this_frame += slice.bytes;
+	telemetry.uploaded_bytes_total += slice.bytes;
+	if (slice.is_final) {
 		if (!residency.finish_shadow_transfer(r.ticket)) { fail_shadow_upload(); return true; }
 #ifdef TESTS_ENABLED
 		if (ledger->fault == TEST_FAULT_EARLY_SHADOW_METADATA) {
@@ -1220,73 +1247,7 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 }
 
 bool HlodNodeStreamer::upload_edit_ordinary(RenderingDevice *p_device, const Buffers &p_buffers) {
-	MutexLock lock(ledger->mutex);
-	if (ready.is_empty()) { return false; }
-	PackResult &r = ready[0];
-	const bool source_current = !page_store || (data->is_current() && data->is_paged() &&
-			r.source_instance_id == uint64_t(data->paged_source->get_instance_id()) && r.content_generation == data->paged_source->get_info().content_generation);
-	if (!r.ok || !source_current || r.ticket.world_generation != world_generation || r.ticket.device_generation != device_generation || !residency.is_pending(r.ticket)) {
-		if (!r.ok) { residency.fail_load(r.ticket); }
-		else if (residency.is_pending(r.ticket)) { residency.cancel(r.ticket.node); }
-		else { residency.begin_upload(r.ticket); }
-		ready.remove_at(0);
-		return true;
-	}
-#ifdef TESTS_ENABLED
-	if (ledger->control.hold_uploads) { return false; }
-#endif
-	if (!upload_available(p_device)) { return false; }
-	const uint64_t stride = record_stride();
-	const uint32_t count = cfg.quantized ? uint32_t(r.quantized.size()) : uint32_t(r.raw.size());
-	const uint64_t bytes = uint64_t(count) * stride;
-	const uint64_t offset = uint64_t(r.ticket.first_page) * cfg.page_splats * stride;
-	const uint64_t metadata_bytes = sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0);
-	bool ok = count != 0 && offset <= atlas_bytes_capacity() && bytes <= atlas_bytes_capacity() - offset &&
-			count <= uint64_t(r.ticket.page_count) * cfg.page_splats && r.uploaded_bytes <= bytes;
-	bool progressed = false;
-#ifdef TESTS_ENABLED
-	if (r.test_first_write == UINT32_MAX) { r.test_first_write = ledger->writes.size(); }
-#endif
-	if (ok && r.uploaded_bytes < bytes) {
-		const uint64_t slice = MIN(bytes - r.uploaded_bytes, upload_remaining()) & ~uint64_t(3);
-		if (slice == 0) { return false; }
-		if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
-		const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
-		ok = write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice, payload + r.uploaded_bytes, false) == OK;
-		if (ok) {
-			r.uploaded_bytes += slice;
-			telemetry.uploaded_bytes_this_frame += slice;
-			telemetry.uploaded_bytes_total += slice;
-			progressed = true;
-		}
-	}
-	if (ok && (r.uploaded_bytes != bytes || metadata_bytes > upload_remaining())) { return progressed; }
-	if (!residency.begin_upload(r.ticket)) { ready.remove_at(0); return true; }
-	if (ok) {
-		ok = (!cfg.quantized || write_quant(p_device, p_buffers, r.ticket.node, r.quant) == OK) &&
-				write_meta(p_device, p_buffers, r.ticket.node, r.meta) == OK;
-	}
-	const bool finished = residency.finish_upload(r.ticket, ok);
-	if (ok && finished) {
-		++telemetry.uploaded_this_frame;
-#ifdef TESTS_ENABLED
-		TestPublication publication;
-		publication.node = r.ticket.node;
-		publication.source_instance_id = r.source_instance_id;
-		publication.content_generation = r.content_generation;
-		publication.world_generation = r.ticket.world_generation;
-		publication.device_generation = r.ticket.device_generation;
-		publication.request_generation = r.ticket.request_generation;
-		publication.metadata_splat_count = r.meta.splat_count;
-		for (uint32_t w = r.test_first_write; w < uint32_t(ledger->writes.size()); ++w) {
-			const TestWrite &write = ledger->writes[w];
-			if (write.node == r.ticket.node && !write.shadow) { publication.writes.push_back(write); }
-		}
-		ledger->publications.push_back(publication);
-#endif
-	}
-	ready.remove_at(0);
-	return true;
+	return upload_ordinary_ready(p_device, p_buffers, !residency.is_edit_staged(), 0, false);
 }
 
 void HlodNodeStreamer::upload_edit_ready(RenderingDevice *p_device, const Buffers &p_buffers) {
@@ -1307,120 +1268,159 @@ void HlodNodeStreamer::upload_edit_ready(RenderingDevice *p_device, const Buffer
 
 void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_buffers) {
 	MutexLock lock(ledger->mutex);
-	const uint64_t stride = record_stride();
-	const uint64_t atlas_capacity = atlas_bytes_capacity();
-	uint64_t spent = 0;
+	if (!pending_metadata_clears.is_empty()) { return; }
 	uint32_t i = 0;
 	while (i < ready.size()) {
-		PackResult &r = ready[i];
-		if (!r.ok) {
-			residency.fail_load(r.ticket); // A stale ticket is only counted as dropped.
-			ready.remove_at(i);
-			continue;
-		}
-		NodeResidency::Ticket publication_ticket = r.ticket;
-		const bool source_current = !page_store || (data->is_current() && data->is_paged() &&
-				r.source_instance_id == uint64_t(data->paged_source->get_instance_id()) &&
-				r.content_generation == data->paged_source->get_info().content_generation);
-		bool current = source_current && r.ticket.world_generation == world_generation &&
-				r.ticket.device_generation == device_generation && residency.is_pending(r.ticket);
+		if (!upload_ordinary_ready(p_device, p_buffers, true, i, true)) {
 #ifdef TESTS_ENABLED
-		if (!current && ledger->fault == TEST_FAULT_SKIP_PUBLICATION_GENERATION && r.ticket.node < residency.node_count()) {
-			// Accepting stale output also has to bypass the model's independent
-			// ticket gates. Reticket the REAL old payload onto a current run, without
-			// altering its recorded source/world/device provenance or observations.
-			LocalVector<NodeResidency::Ticket> current_tickets;
-			const uint32_t node = r.ticket.node;
-			residency.request(&node, 1, current_tickets);
-			for (const NodeResidency::Ticket &ticket : current_tickets) {
-				if (ticket.node == node) {
-					publication_ticket = ticket;
-					current = true;
-					r.meta.atlas_base = ticket.first_page * cfg.page_splats;
-					r.quant.start_index = r.meta.atlas_base;
-					++ledger->faults_triggered;
-					break;
-				}
-			}
-		}
+			// Base no-edit semantics: held live entries do not prevent later
+			// stale/failed results from being discarded in this same update.
+			if (ledger->control.hold_uploads) { ++i; continue; }
 #endif
-		if (!current) {
-			if (residency.is_pending(r.ticket)) {
-				// Source freshness can fail even while the model's own ticket is
-				// current. Cancel it; begin_upload would incorrectly accept it.
-				residency.cancel(r.ticket.node);
-			} else {
-				residency.begin_upload(r.ticket); // Rejected and counted: cancelled or another epoch.
-			}
-			ready.remove_at(i);
-			continue;
+			break; // A deferred fitting node still stops the scan, as on base.
 		}
-#ifdef TESTS_ENABLED
-		if (ledger->control.hold_uploads) { ++i; continue; }
-#endif
-		const uint32_t count = r.quantized.is_empty() ? uint32_t(r.raw.size()) : uint32_t(r.quantized.size());
-		const uint64_t bytes = uint64_t(count) * stride;
-		if (spent != 0 && spent + bytes > cfg.upload_bytes_per_frame) {
-			break; // Keep the rest for the next frame; they stay LOADING (protected, not drawable).
-		}
-		if (!residency.begin_upload(publication_ticket)) {
-			ready.remove_at(i);
-			continue;
-		}
-		const uint64_t offset = uint64_t(publication_ticket.first_page) * cfg.page_splats * stride;
-		const bool fits = count != 0 && offset + bytes <= atlas_capacity && count <= publication_ticket.page_count * cfg.page_splats;
-		if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
-		bool ok = fits && upload_available(p_device);
-#ifdef TESTS_ENABLED
-		const bool cpu_sink = ledger->control.cpu_upload_sink;
-		const uint32_t first_write = ledger->writes.size();
-#endif
-		if (ok) {
-			const void *payload = cfg.quantized ? static_cast<const void *>(r.quantized.ptr()) : static_cast<const void *>(r.raw.ptr());
-			// Keep the legacy no-edit command order and whole-node admission rule.
-			ok = write_atlas(p_device, p_buffers, publication_ticket.node, offset, bytes, payload, false) == OK &&
-					(!cfg.quantized || write_quant(p_device, p_buffers, publication_ticket.node, r.quant) == OK) &&
-					write_meta(p_device, p_buffers, publication_ticket.node, r.meta) == OK;
-		}
-		const bool finished = residency.finish_upload(publication_ticket, ok);
-		ok = ok && finished;
-#ifdef TESTS_ENABLED
-		if (ok) {
-			TestPublication publication;
-			publication.node = r.ticket.node;
-			publication.source_instance_id = r.source_instance_id;
-			publication.content_generation = r.content_generation;
-			publication.world_generation = r.ticket.world_generation;
-			publication.device_generation = r.ticket.device_generation;
-			publication.request_generation = r.ticket.request_generation;
-			publication.metadata_splat_count = cpu_sink ? test_metadata[publication_ticket.node].splat_count : r.meta.splat_count;
-			for (uint32_t w = first_write; w < uint32_t(ledger->writes.size()); ++w) { publication.writes.push_back(ledger->writes[w]); }
-			ledger->publications.push_back(publication);
-		}
-#endif
-		if (ok) {
-			spent += bytes;
-			telemetry.uploaded_bytes_this_frame += bytes;
-			telemetry.uploaded_bytes_total += bytes;
-			++telemetry.uploaded_this_frame;
-		}
-		ready.remove_at(i);
+		// Validation/discard must run even with no remaining allowance, so a
+		// cancelled partial node returns its charged output immediately.
 	}
+}
+
+bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Buffers &p_buffers, bool p_preserve_whole_nodes,
+		uint32_t p_ready_index, bool p_fail_without_device) {
+	MutexLock lock(ledger->mutex);
+	if (p_ready_index >= ready.size()) { return false; }
+	const uint64_t stride = record_stride();
+	const uint64_t atlas_capacity = atlas_bytes_capacity();
+	PackResult &r = ready[p_ready_index];
+	if (!r.ok) {
+		residency.fail_load(r.ticket); // A stale ticket is only counted as dropped.
+		ready.remove_at(p_ready_index);
+		return true;
+	}
+	NodeResidency::Ticket publication_ticket = r.ticket;
+	const bool source_current = !page_store || (data->is_current() && data->is_paged() &&
+			r.source_instance_id == uint64_t(data->paged_source->get_instance_id()) &&
+			r.content_generation == data->paged_source->get_info().content_generation);
+	bool current = source_current && r.ticket.world_generation == world_generation &&
+			r.ticket.device_generation == device_generation && residency.is_pending(r.ticket);
+#ifdef TESTS_ENABLED
+	if (!current && ledger->fault == TEST_FAULT_SKIP_PUBLICATION_GENERATION && r.ticket.node < residency.node_count()) {
+		// Accepting stale output also has to bypass the model's independent
+		// ticket gates. Reticket the REAL old payload onto a current run, without
+		// altering its recorded source/world/device provenance or observations.
+		LocalVector<NodeResidency::Ticket> current_tickets;
+		const uint32_t node = r.ticket.node;
+		residency.request(&node, 1, current_tickets);
+		for (const NodeResidency::Ticket &ticket : current_tickets) {
+			if (ticket.node == node) {
+				publication_ticket = ticket;
+				current = true;
+				r.meta.atlas_base = ticket.first_page * cfg.page_splats;
+				r.quant.start_index = r.meta.atlas_base;
+				++ledger->faults_triggered;
+				break;
+			}
+		}
+	}
+#endif
+	if (!current) {
+		if (residency.is_pending(r.ticket)) {
+			// Source freshness can fail even while the model's own ticket is
+			// current. Cancel it; begin_upload would incorrectly accept it.
+			residency.cancel(r.ticket.node);
+		} else {
+			residency.begin_upload(r.ticket); // Rejected and counted: cancelled or another epoch.
+		}
+		ready.remove_at(p_ready_index);
+		return true;
+	}
+#ifdef TESTS_ENABLED
+	if (ledger->control.hold_uploads) { return false; }
+#endif
+	const bool device_available = upload_available(p_device);
+	if (!device_available && !p_fail_without_device) { return false; } // Edit-era uploads keep holding.
+	const uint64_t count = cfg.quantized ? uint64_t(r.quantized.size()) : uint64_t(r.raw.size());
+	uint64_t bytes = 0, offset = 0;
+	const uint64_t metadata_bytes = sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0);
+	bool ok = count != 0 && count == r.meta.splat_count && GSUploadSizing::checked_byte_count(count, stride, bytes) &&
+			GSUploadSizing::checked_byte_count(uint64_t(publication_ticket.first_page) * cfg.page_splats, stride, offset) &&
+			offset <= atlas_capacity && bytes <= atlas_capacity - offset &&
+			count <= uint64_t(publication_ticket.page_count) * cfg.page_splats;
+	const uint64_t remaining = upload_remaining();
+	if (ok && p_preserve_whole_nodes && r.uploaded_bytes == 0 && bytes <= upload_allowance() && bytes > remaining) {
+		return false; // A fitting node waits for a fresh frame, retaining one whole atlas write.
+	}
+	if (!device_available) {
+		// Base no-edit uploads fail without a device. Drop even a partial node's
+		// charged output exactly once, with no quantization or metadata write.
+		if (residency.begin_upload(publication_ticket)) {
+			if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
+			residency.finish_upload(publication_ticket, false);
+		}
+		ready.remove_at(p_ready_index);
+		return true;
+	}
+	const GSUploadSizing::Slice slice = GSUploadSizing::slice(bytes, r.uploaded_bytes, remaining, stride);
+	ok = ok && slice.valid;
+	bool progressed = false;
+#ifdef TESTS_ENABLED
+	if (r.test_first_write == UINT32_MAX) { r.test_first_write = ledger->writes.size(); }
+#endif
+	if (ok && slice.bytes != 0) {
+		if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
+		const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
+		ok = write_atlas(p_device, p_buffers, publication_ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, false) == OK;
+		if (ok) {
+			r.uploaded_bytes += slice.bytes;
+			telemetry.uploaded_bytes_this_frame += slice.bytes;
+			telemetry.uploaded_bytes_total += slice.bytes;
+			progressed = true;
+		}
+	}
+	bool final_slice = slice.is_final;
+#ifdef TESTS_ENABLED
+	if (ok && progressed && !final_slice && ledger->fault == TEST_FAULT_EARLY_FINAL_SLICE) {
+		final_slice = true; // Deliberately publish a REAL incomplete payload.
+		++ledger->faults_triggered;
+	}
+#endif
+	if (ok && (!final_slice || metadata_bytes > upload_remaining())) { return progressed; }
+	// Partial nodes remain LOADING: validate the full ticket on every slice,
+	// then transition through UPLOADING only at the metadata-last boundary.
+	if (!residency.begin_upload(publication_ticket)) { ready.remove_at(p_ready_index); return true; }
+	if (ok) {
+		ok = (!cfg.quantized || write_quant(p_device, p_buffers, publication_ticket.node, r.quant) == OK) &&
+				write_meta(p_device, p_buffers, publication_ticket.node, r.meta) == OK;
+	}
+	const bool finished = residency.finish_upload(publication_ticket, ok);
+	ok = ok && finished;
+#ifdef TESTS_ENABLED
+	if (ok) {
+		TestPublication publication;
+		publication.node = r.ticket.node;
+		publication.source_instance_id = r.source_instance_id;
+		publication.content_generation = r.content_generation;
+		publication.world_generation = r.ticket.world_generation;
+		publication.device_generation = r.ticket.device_generation;
+		publication.request_generation = r.ticket.request_generation;
+		publication.metadata_splat_count = ledger->control.cpu_upload_sink ? test_metadata[publication_ticket.node].splat_count : r.meta.splat_count;
+		for (uint32_t w = r.test_first_write; w < uint32_t(ledger->writes.size()); ++w) {
+			const TestWrite &write = ledger->writes[w];
+			if (write.node == publication_ticket.node && !write.shadow) { publication.writes.push_back(write); }
+		}
+		ledger->publications.push_back(publication);
+	}
+#endif
+	if (ok) {
+		++telemetry.uploaded_this_frame;
+	}
+	ready.remove_at(p_ready_index);
+	return true;
 }
 
 void HlodNodeStreamer::clear_evicted(RenderingDevice *p_device, const Buffers &p_buffers) {
 	residency.take_evicted(evicted_scratch);
 	const ChunkMetaGPU empty_meta = {};
 	const ChunkQuantizationGPU empty_quant = {};
-	if (!frame_edit_uploads && pending_metadata_clears.is_empty()) {
-		// No edit: retain the original immediate clear and command order.
-		for (uint32_t node : evicted_scratch) {
-			write_meta(p_device, p_buffers, node, empty_meta);
-			if (cfg.quantized) { write_quant(p_device, p_buffers, node, empty_quant); }
-		}
-		if (upload_available(p_device)) { telemetry.evicted_this_frame += evicted_scratch.size(); }
-		return;
-	}
 	for (uint32_t node : evicted_scratch) { pending_metadata_clears.push_back(node); }
 	const uint64_t bytes = sizeof(ChunkMetaGPU) + (cfg.quantized ? sizeof(ChunkQuantizationGPU) : 0);
 	while (!pending_metadata_clears.is_empty() && bytes <= upload_remaining() && upload_available(p_device)) {
@@ -1452,9 +1452,6 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	}
 	telemetry.requested_this_frame = telemetry.uploaded_this_frame = telemetry.skipped_groups_this_frame = telemetry.evicted_this_frame = 0;
 	telemetry.uploaded_bytes_this_frame = 0;
-	for (const PackResult &r : ready) {
-		if (r.uploaded_bytes != 0) { frame_edit_uploads = true; break; }
-	}
 	split_protection_and_demand(p_desired, p_desired_count, p_drawn, p_drawn_count, drawn_scratch, demand_scratch);
 	if (residency.is_edit_staged()) {
 		// The replacement cut of a staged edit is ordinary demand (whole transitions, same admission), ahead of the view's.
@@ -1499,9 +1496,10 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	telemetry.skipped_groups_this_frame = requested.skipped_groups;
 	telemetry.blocked_groups_this_frame = requested.blocked_groups;
 	telemetry.fragmented_groups_this_frame = requested.fragmented_groups;
-	bool partial_ordinary = false;
-	for (const PackResult &r : ready) { if (r.uploaded_bytes != 0) { partial_ordinary = true; break; } }
-	if (residency.is_edit_staged() || frame_edit_uploads || partial_ordinary) {
+	// Ordinary upload_ready now resumes partial cursors itself, with whole-node
+	// admission preserved for fitting nodes. An unfinished node does not enable
+	// the edit scheduler or bypass ticket validation after cancellation.
+	if (residency.is_edit_staged() || frame_edit_uploads) {
 		// Drain before admission: transferred output returns capacity for the
 		// next pending job in this update, so a transaction can exceed the window.
 		drain_mailbox();
