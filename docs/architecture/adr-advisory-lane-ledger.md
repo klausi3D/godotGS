@@ -347,6 +347,21 @@ see the note below the list.
 > | Repeated runs / flake check (the #846 bar) | **NOT_RUN** |
 > | Expected CI outcome until resolved | The strict lane FAILS in CI on any skipped marker: `runtime_lane_allowance` has no entry for this lane (allowance 0), and that ratchet refuses a NEW lane entry against the review base. Resolve by giving the skipping cases real coverage (GPU harness, or the #595 `GS_ENV_SKIP` conversion), never by demoting the lane |
 
+> **Historical promotion record: host `[HLOD]` and `[D3Telemetry]` -> strict (#1439).** 159 host
+> cases ran only in the advisory `[untagged]` safety net, and twice a real regression in them sat
+> under a required-green head (#1438, #1440). Counts after the promotion (derived from
+> `MODULE_TEST_FILTERS`): **31 lanes, 26 strict**; the advisory set is unchanged at 5.
+>
+> | Field | Value |
+> | --- | --- |
+> | Lanes | `GaussianSplatting [HLOD]` (`*GaussianSplatting*][HLOD]*`; excludes `[RequiresGPU]`, `[WorldIO]`, `[Config]`, `[SceneTree]`, `[VRAMBudgetRegulator]`) and `GaussianSplatting [D3Telemetry]` (`*GaussianSplatting*][D3Telemetry]*`; excludes `[RequiresGPU]`, `[WorldIO]`) |
+> | Why the excludes | De-duplication only: those cases already run in that tag's strict lane or in a required GPU batch |
+> | Corpus (derived, static) | 158 + 1 cases; `[untagged]` 364 -> 205; no case's lane set changed otherwise |
+> | Held in place by | `HlodStrictPromotionTests` in `tests/ci/test_check_test_lane_coverage.py` (the `[HLOD]` tag also covers GPU cases in required batches, so a `STRICT_COVERAGE_CONTRACTS` entry cannot express it) |
+> | Lane result before (`[untagged]`, CPU-Only QA run 43611011486, tree of `964b371cdb4`) | 358 tests, 11613 assertions, 0 failed, 7 skip markers |
+> | Lane result after (CPU-Only QA run 43643340709, `6d1e4bbfa61`) | `[HLOD]` 158 tests / 8970 assertions, `[D3Telemetry]` 1 / 4, `[untagged]` 199 / 2639 with the same 7 skip markers; 0 failed, 0 skip markers in the new lanes. Tests and assertions sum to the base figures exactly |
+> | Repeated runs / flake check (the #846 bar) | **NOT_RUN** as a campaign; only the CI runs of the promoting PR. The three node-streamer cases in `test_hlod_paged_package.cpp` had fixed 400/600-frame waits on worker reads and were converted to the `gs_test_pump.h` wall-clock deadline in the same change |
+
 ### Device-dependent Streaming Pipeline coverage (#1195)
 
 The corpus contains CPU regressions and device-dependent tests. The latter
