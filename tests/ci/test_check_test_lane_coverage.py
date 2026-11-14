@@ -652,5 +652,173 @@ class StreamingPipelineStrictPromotionTests(unittest.TestCase):
         self.assertEqual(self._uncovered(self.lanes, excluded), self.device_cases)
 
 
+class HlodStrictPromotionTests(unittest.TestCase):
+    """#1439: every [HLOD] / [D3Telemetry] case reaches strict CPU OR REQUIRED GPU coverage.
+
+    159 host cases ran only in the advisory `[untagged]` lane, and twice a real
+    regression in them sat under a required-green head (#1438, #1440). They now
+    run in the strict `GaussianSplatting [HLOD]` and `GaussianSplatting
+    [D3Telemetry]` lanes.
+
+    Like `Streaming Pipeline`, this cannot be a STRICT_COVERAGE_CONTRACTS entry: a
+    contract demands a strict MODULE lane for every case its tag matches, and the
+    `[HLOD]` tag also covers `[RequiresGPU]` cases that legitimately live in
+    required GPU batches. So the property is asserted here, from derived inputs
+    and doctest's own include / exclude semantics.
+
+    The second property is the other half of the promotion: a case the new lanes
+    run must not be run again by another module lane (the excludes on the lane
+    are de-duplication against [WorldIO], [Config], [SceneTree] and
+    [VRAMBudgetRegulator]). A new tag combination that breaks it needs a decision
+    about which lane owns the case, not a silent double run.
+    """
+
+    TAGS = ("*GaussianSplatting*][HLOD]*", "*GaussianSplatting*][D3Telemetry]*")
+    LANES = ("GaussianSplatting [HLOD]", "GaussianSplatting [D3Telemetry]")
+    # The files #1439 names. A floor on where the corpus lives, not a case list.
+    NAMED_SOURCES = (
+        "test_hlod_editable_regions.cpp",
+        "test_hlod_node_residency.cpp",
+        "test_hlod_paged_package.cpp",
+        "test_d3_5_telemetry.cpp",
+    )
+
+    def setUp(self):
+        self.runner = GUARD._load_module("_rmt_hlod", GUARD.CI_DIR / "run_module_tests.py")
+        self.harness = GUARD._load_module("_gpu_hlod", GUARD.CI_DIR / "run_gpu_harness.py")
+        linkage = GUARD._load_module("_ctl_hlod", GUARD.CI_DIR / "check_test_linkage.py")
+        self.cases, _ = GUARD._collect_corpus(linkage._strip_comments)
+        self.lanes = list(self.runner.MODULE_TEST_FILTERS)
+        self.batches = list(self.harness.BATCHES)
+        self.required = self.harness.REQUIRED_BATCHES
+        self.promoted = sorted(
+            {
+                name
+                for name, _ in self.cases
+                if any(GUARD._doctest_wildcmp(name, tag) for tag in self.TAGS)
+            }
+        )
+        self.device_cases = [
+            name for name in self.promoted if GUARD._doctest_wildcmp(name, "*][RequiresGPU]*")
+        ]
+        self.host_cases = [name for name in self.promoted if name not in self.device_cases]
+
+    def _strict_or_required(self, name, lanes, batches=None, required=None):
+        batches = self.batches if batches is None else batches
+        required = self.required if required is None else required
+        return any(
+            GUARD._lane_matches(name, inc, exc) for _, inc, exc, is_strict in lanes if is_strict
+        ) or any(
+            GUARD._lane_matches(name, batch.filters, batch.excludes)
+            for batch in batches
+            if batch.name in required
+        )
+
+    def _uncovered(self, lanes, batches=None, required=None):
+        return [
+            name
+            for name in self.promoted
+            if not self._strict_or_required(name, lanes, batches, required)
+        ]
+
+    def _run_by_the_new_lanes(self):
+        return [
+            name
+            for name in self.promoted
+            if any(
+                GUARD._lane_matches(name, inc, exc)
+                for lane, inc, exc, _ in self.lanes
+                if lane in self.LANES
+            )
+        ]
+
+    def test_the_corpus_is_not_empty(self):
+        """Non-vacuity. Floors, not equalities: writing another [HLOD] test must not red this."""
+        ran = self._run_by_the_new_lanes()
+        self.assertGreaterEqual(len(self.host_cases), 300, len(self.host_cases))
+        self.assertTrue(self.device_cases, "required GPU corpus is empty")
+        self.assertGreaterEqual(len(ran), 159, len(ran))
+        files = {file_name for name, file_name in self.cases if name in set(ran)}
+        for source in self.NAMED_SOURCES:
+            self.assertIn(source, files)
+
+    def test_both_lanes_exist_and_are_strict(self):
+        for lane in self.LANES:
+            with self.subTest(lane=lane):
+                found = [entry for entry in self.lanes if entry[0] == lane]
+                self.assertEqual(len(found), 1)
+                self.assertTrue(found[0][3], "lane is advisory")
+
+    def test_every_case_reaches_strict_cpu_or_required_gpu(self):
+        self.assertEqual([], self._uncovered(self.lanes))
+
+    def test_every_host_case_reaches_a_strict_cpu_lane(self):
+        """A GPU batch cannot stand in for a host case: only the module lanes count here."""
+        self.assertEqual(
+            [],
+            [
+                name
+                for name in self.host_cases
+                if not self._strict_or_required(name, self.lanes, batches=[])
+            ],
+        )
+
+    def test_no_case_the_new_lanes_run_is_run_by_another_module_lane(self):
+        twice = {}
+        for name in self._run_by_the_new_lanes():
+            lanes = [
+                lane for lane, inc, exc, _ in self.lanes if GUARD._lane_matches(name, inc, exc)
+            ]
+            if len(lanes) != 1:
+                twice[name] = lanes
+        self.assertEqual({}, twice)
+
+    def test_device_cases_are_excluded_from_the_new_lanes(self):
+        ran = set(self._run_by_the_new_lanes())
+        self.assertEqual([], [name for name in self.device_cases if name in ran])
+
+    def test_demoting_the_lanes_is_red(self):
+        expected = self._run_by_the_new_lanes()
+        demoted = [
+            (name, inc, exc, False if name in self.LANES else strict)
+            for name, inc, exc, strict in self.lanes
+        ]
+        self.assertTrue(expected)
+        self.assertEqual(self._uncovered(demoted), expected)
+
+    def test_deleting_the_lanes_is_red(self):
+        deleted = [lane for lane in self.lanes if lane[0] not in self.LANES]
+        self.assertEqual(self._uncovered(deleted), self._run_by_the_new_lanes())
+
+    def test_undoing_both_halves_of_the_promotion_is_red(self):
+        """Delete the lanes AND the scoped-tag entries: the cases fall back to [untagged]."""
+        expected = self._run_by_the_new_lanes()
+        mutated = []
+        for name, inc, exc, strict in self.lanes:
+            if name in self.LANES:
+                continue
+            if name == "GaussianSplatting [untagged]":
+                exc = tuple(e for e in exc if "][HLOD]" not in e and "][D3Telemetry]" not in e)
+            mutated.append((name, inc, exc, strict))
+        untagged = next(lane for lane in mutated if lane[0] == "GaussianSplatting [untagged]")
+        self.assertTrue(
+            all(GUARD._lane_matches(name, untagged[1], untagged[2]) for name in expected),
+            "the mutation did not return the cases to the advisory net",
+        )
+        self.assertEqual(self._uncovered(mutated), expected)
+
+    def test_the_named_files_hold_no_case_outside_strict_or_required_coverage(self):
+        """Retagging a case out of [HLOD] in the files #1439 names must not hide it."""
+        self.assertEqual(
+            [],
+            [
+                name
+                for name, file_name in self.cases
+                if file_name in self.NAMED_SOURCES
+                and not self._strict_or_required(name, self.lanes)
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 extern "C" int test_hlod_paged_package_cpp_force_link() { return 0; }
 #include "test_macros.h"
+#include "gs_test_pump.h"
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gs_vector_alloc.h"
@@ -580,9 +581,15 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][Residency] the node streamer reads
 		desired.push_back(root);
 	}
 	const uint64_t root_bytes = paged->paged_source->get_nodes()[0].stored_bytes;
-	for (int frame = 0; frame < 400 && streamer->get_telemetry().payload_reads_total < 1; ++frame) {
+	// The read is done by a worker job; the frames only poll for it. So the bound is wall clock, and expiry is a failure
+	// that names what never happened (tests/AGENTS.md; #1439) - a frame count would race the machine's speed.
+	const auto first_read = TestGaussianSplatting::gs_pump_until([&]() {
 		streamer->update(nullptr, HlodNodeStreamer::Buffers(), desired.ptr(), desired.size(), nullptr, 0);
 		OS::get_singleton()->delay_usec(2000);
+		return streamer->get_telemetry().payload_reads_total >= 1;
+	});
+	if (!first_read.ready()) {
+		FAIL_CHECK("the root's payload was never read by a worker job ", first_read.describe());
 	}
 	const HlodNodeStreamer::Telemetry t = streamer->get_telemetry();
 	CHECK(t.payload_reads_total >= 1);
@@ -631,9 +638,14 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][Residency] a failed read marks the
 	gs_hlod_runtime::DesiredRecord root;
 	root.node = 0;
 	// The failure is settled into the residency model by a later update (mailbox drain -> fail_load).
-	for (int frame = 0; frame < 400 && streamer->get_telemetry().failed_total == 0; ++frame) {
+	// Wall-clock bound, not a frame count: the failing read happens on a worker job (#1439).
+	const auto settled = TestGaussianSplatting::gs_pump_until([&]() {
 		streamer->update(nullptr, HlodNodeStreamer::Buffers(), &root, 1, nullptr, 0);
 		OS::get_singleton()->delay_usec(2000);
+		return streamer->get_telemetry().failed_total != 0;
+	});
+	if (!settled.ready()) {
+		FAIL_CHECK("the damaged root's read failure was never settled into the residency model ", settled.describe());
 	}
 	const HlodNodeStreamer::Telemetry t = streamer->get_telemetry();
 	CHECK(t.payload_read_failures_total >= 1);
@@ -683,10 +695,16 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][Residency] the in-flight read cap 
 	GS_NEED(streamer->init(paged, config, 1, 1));
 	streamer->begin_frame();
 	uint32_t max_concurrent = 0;
-	for (int frame = 0; frame < 600 && streamer->get_telemetry().payload_reads_total < wanted.size(); ++frame) {
+	// Serialized reads take as long as the worker jobs take, one after the other; a fixed 600-frame loop made the
+	// verdict depend on the machine (#1439). Pump until every wanted record was read or the wall-clock deadline expires.
+	const auto all_read = TestGaussianSplatting::gs_pump_until([&]() {
 		streamer->update(nullptr, HlodNodeStreamer::Buffers(), desired.ptr(), desired.size(), nullptr, 0);
 		max_concurrent = MAX(max_concurrent, streamer->get_telemetry().payload_reads_in_flight);
 		OS::get_singleton()->delay_usec(1000);
+		return streamer->get_telemetry().payload_reads_total >= wanted.size();
+	});
+	if (!all_read.ready()) {
+		FAIL_CHECK("the serialized reads never completed: ", streamer->get_telemetry().payload_reads_total, " of ", wanted.size(), " read ", all_read.describe());
 	}
 	const HlodNodeStreamer::Telemetry t = streamer->get_telemetry();
 	CHECK(t.payload_reads_total >= wanted.size()); // All of them were read, one after the other.

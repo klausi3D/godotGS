@@ -119,8 +119,10 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "ComputeInfra",
     "Config",
     "Container",
+    "D3Telemetry",  # #1439: promoted from the advisory [untagged] lane to a strict blocking lane.
     "DataAuthority",  # #846: promoted from the advisory [untagged] lane to a strict blocking lane.
     "Editor",
+    "HLOD",  # #1439: promoted from the advisory [untagged] lane to a strict blocking lane.
     "Importer",
     "MalformedCorpus",  # G2: the aggregate malformed-input gate (WorldIO/PLY/SPZ/Persistence).
     "Node",
@@ -223,6 +225,44 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # case in this corpus must reach some strict lane. Deleting this line without
     # retiring that contract fails the guard batch.
     ("GaussianSplatting [DataAuthority]", ("*GaussianSplatting*][DataAuthority]*",), ("*][RequiresGPU]*",), True),
+    # #1439: the host [HLOD] corpus (node residency, editable regions, view sets,
+    # shadow casters, runtime selection, the paged V4 node streamer, the resident
+    # atlas budget's HLOD cases) ran only in the advisory [untagged] lane, where
+    # _report_failed_lane() returns True ("advisory lane, continuing"). Twice a
+    # real regression in exactly these cases sat under a required-green head
+    # (#1438 head cafec76, #1440 head 45172a54e03) and was found only because
+    # someone read the advisory output by hand. They need no GPU, so they block.
+    #
+    # The excludes are de-duplication, not carve-outs: an [HLOD] case that also
+    # carries [WorldIO], [Config], [SceneTree] or [VRAMBudgetRegulator] already
+    # runs in that tag's strict lane and must not run a second time here; the
+    # [RequiresGPU] cases run in the required GPU batches (WorldSceneTree,
+    # HlodResize, GpuSorting). HlodStrictPromotionTests in
+    # test_check_test_lane_coverage.py asserts both halves from derived inputs:
+    # every [HLOD] case reaches strict CPU or required GPU, and no case this
+    # lane runs is run by another module lane.
+    (
+        "GaussianSplatting [HLOD]",
+        ("*GaussianSplatting*][HLOD]*",),
+        (
+            "*][RequiresGPU]*",
+            "*][WorldIO]*",
+            "*][Config]*",
+            "*][SceneTree]*",
+            "*][VRAMBudgetRegulator]*",
+        ),
+        True,
+    ),
+    # #1439: the one [D3Telemetry] case without [WorldIO] is the wiring-removal
+    # control for `instance_count_overflow_events`, the counter the paired T0
+    # comparator reads as its drop signal. A control that cannot fail CI is not a
+    # control. Its [WorldIO] siblings already run in the strict [WorldIO] lane.
+    (
+        "GaussianSplatting [D3Telemetry]",
+        ("*GaussianSplatting*][D3Telemetry]*",),
+        ("*][RequiresGPU]*", "*][WorldIO]*"),
+        True,
+    ),
     # Safety-net lane for unscoped [GaussianSplatting] tests.  Advisory because
     # doctest's --test-case-exclude parsing is unreliable beyond ~10 repeated
     # flags, so the exclude list cannot guarantee precise filtering.  Real
