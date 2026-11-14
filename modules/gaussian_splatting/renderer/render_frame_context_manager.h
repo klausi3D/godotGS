@@ -58,6 +58,8 @@ public:
 
 	struct FrameState {
 		std::atomic<uint32_t> visible_splat_count{0};
+		// Render-context metadata, alongside the existing count/stat state. -1 is unknown.
+		int64_t visible_splat_count_source_frame = -1;
 		uint32_t frame_counter = 0;
 		float sort_time_ms = 0.0f;
 		float render_time_ms = 0.0f;
@@ -78,6 +80,8 @@ public:
 
 	struct ViewState {
 		Transform3D last_camera_to_world_transform;
+		// Captured before completion increments FrameState::frame_counter.
+		int64_t last_camera_render_frame = -1;
 		Projection last_camera_projection;
 		Vector3 last_camera_position = Vector3(0, 0, 5);
 		Size2i manual_viewport_override = Size2i();

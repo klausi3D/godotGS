@@ -67,6 +67,7 @@ private:
 		uint32_t max_visible_splats = 0;
 		uint32_t visible_chunk_count = 0;
 		uint32_t sorted_count = 0;
+		int64_t count_source_frame = -1;
 		bool valid = false;
 	};
 	InstanceSortCache instance_sort_cache;

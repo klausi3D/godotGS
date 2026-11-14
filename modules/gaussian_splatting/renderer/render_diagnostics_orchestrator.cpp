@@ -488,6 +488,7 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 	r_metrics["gpu_memory_usage_mb"] = perf.gpu_memory_usage_mb;
 	r_metrics["uploaded_splat_count"] = static_cast<int64_t>(perf.uploaded_splat_count);
 	r_metrics["rendered_splat_count"] = static_cast<int64_t>(perf.rendered_splat_count);
+	r_metrics["rendered_splat_count_source_frame"] = perf.rendered_splat_count_source_frame;
 	r_metrics["using_real_data"] = perf.using_real_data;
 	r_metrics["sort_submission_time_ms"] = perf.sort_submission_time_ms;
 	r_metrics["sort_wait_time_ms"] = perf.sort_wait_time_ms;
@@ -1366,10 +1367,20 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	stats["using_scene_data_camera"] = view_state.using_scene_data;
 	// Debug: expose camera transform values to verify they're updating
 	stats["debug_cam_origin_x"] = view_state.last_camera_to_world_transform.origin.x;
+	// Same pre-completion counter domain as SortRuntimeState::frame_counter.
+	stats["render_frame_counter"] = view_state.last_camera_render_frame;
 	stats["debug_cam_origin_y"] = view_state.last_camera_to_world_transform.origin.y;
 	stats["debug_cam_origin_z"] = view_state.last_camera_to_world_transform.origin.z;
 	// Expose view matrix basis[0][0] as rotation indicator
 	stats["debug_cam_basis_00"] = view_state.last_camera_to_world_transform.basis[0][0];
+	const Vector3 camera_forward = -view_state.last_camera_to_world_transform.basis.get_column(2);
+	const Vector3 camera_up = view_state.last_camera_to_world_transform.basis.get_column(1);
+	stats["debug_cam_forward_x"] = camera_forward.x;
+	stats["debug_cam_forward_y"] = camera_forward.y;
+	stats["debug_cam_forward_z"] = camera_forward.z;
+	stats["debug_cam_up_x"] = camera_up.x;
+	stats["debug_cam_up_y"] = camera_up.y;
+	stats["debug_cam_up_z"] = camera_up.z;
 
 	if (debug_state_orchestrator) {
 		if (debug_config.enable_binning_counters || debug_config.dump_gpu_counters) {
@@ -2016,6 +2027,7 @@ void RenderDiagnosticsOrchestrator::finalize_frame_metrics(uint64_t p_frame_star
 
 	performance_state.metrics.total_frames_rendered++;
 	performance_state.metrics.rendered_splat_count = frame_state.visible_splat_count.load(std::memory_order_acquire);
+	performance_state.metrics.rendered_splat_count_source_frame = frame_state.visible_splat_count_source_frame;
 
 	// Update rolling average frame time (use frame-to-frame for true FPS)
 	float alpha = 0.1f; // Smoothing factor
