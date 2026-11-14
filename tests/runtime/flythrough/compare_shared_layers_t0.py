@@ -60,6 +60,13 @@ HLOD_CONFIG = {"configured_read_byte_cap": 8 * 1024 * 1024,
                "configured_upload_bytes_per_frame": 32 * 1024 * 1024,
                "normal_retained_byte_bound": 8 * 1024 * 1024}
 HLOD_ONLY_FAILURES = ("nonresident_drawn_nodes", "hlod_stream_failed_total", "hlod_stream_late_dropped_total")
+# These observations exist on immutable pre-D3 as well as the candidate.
+# Aggregate work varies with scheduling/rereads; positive work and zero failures
+# establish transport activity, not equality of rendered LOD demand.
+MIGRATION_WORK = ("hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_read_total",
+                  "hlod_stream_uploaded_bytes_total", "hlod_stream_pages_resident")
+MIGRATION_FAILURES = ("hlod_stream_payload_read_failures_total", "hlod_stream_failed_total",
+                      "hlod_stream_late_dropped_total", "hlod_stream_nonresident_drawn")
 
 
 def _dict(value):
@@ -526,7 +533,7 @@ def compare(experiment: dict) -> dict:
                 problem("migration_unproven", "migration camera application is unproven", name)
         if migration_arms["base"].get("binary_sha256") == migration_arms["candidate"].get("binary_sha256"):
             problem("migration_identity_mismatch", "pre-D3 and candidate binary digests are identical")
-        # Pre-D3 shares native payload/route/draw behavior, not D3-5 stages.
+        # Pre-D3 shares native payload/route behavior, not D3-5 decode stages.
         behaviors = [_dict(_dict(migration_arms[n]).get("payload_behavior")) for n in ("base", "candidate")]
         drawn_counts = []
         for name, behavior in zip(("base", "candidate"), behaviors):
@@ -546,12 +553,58 @@ def compare(experiment: dict) -> dict:
                 counts[key] = {"drawn_splats": splats}
                 if _count(row.get("drawn_nodes")):
                     counts[key]["drawn_nodes"] = row["drawn_nodes"]
+            settings = _dict(migration_arms[name].get("settings_readback"))
+            passes = _dict(settings.get("timing_windows")).get("moving_passes")
+            segments = settings.get("camera_poses")
+            segments = segments if isinstance(segments, list) else []
+            checkpoints = {s["checkpoint"] for s in segments if isinstance(s, dict)
+                           and isinstance(s.get("checkpoint"), str) and s["checkpoint"]}
+            if not _count(passes) or passes != 2 or not checkpoints:
+                problem("migration_unproven", "planned cold/repeat checkpoint coverage is missing", name)
+            elif set(counts) != {(index, cp) for index in range(int(passes)) for cp in checkpoints}:
+                problem("migration_unproven", "migration lacks a planned cold/repeat checkpoint", name)
             drawn_counts.append(counts)
             if behavior.get("loaded_file_sha256") != prepared.get("tree_file_sha256"):
                 problem("migration_identity_mismatch", "migration process payload digest differs", name)
-        if drawn_counts[0] != drawn_counts[1]:
-            problem("migration_identity_mismatch", "settled checkpoint draw counts differ for identical V4 input")
-        for key in ("decoded_bytes", "decoded_digest"):
+            native = _dict(behavior.get("native_payload"))
+            for key in MIGRATION_WORK:
+                if not _count(native.get(key)) or native[key] <= 0:
+                    problem("migration_unproven", f"missing or nonpositive common payload work: {key}", name)
+            for key in MIGRATION_FAILURES:
+                if not _count(native.get(key)):
+                    problem("migration_unproven", f"missing common payload failure observation: {key}", name)
+                elif native[key] != 0:
+                    problem("payload_failure", f"migration nonzero {key}", name)
+            capacity, resident = native.get("hlod_stream_pages_capacity"), native.get("hlod_stream_pages_resident")
+            if not _count(capacity) or capacity <= 0:
+                problem("migration_unproven", "common resident-page capacity is missing", name)
+            elif _count(resident) and resident > capacity:
+                problem("payload_failure", "migration resident atlas pages exceed capacity", name)
+            world = _dict(behavior.get("world_payload"))
+            if (world.get("has_hlod_paged_source") is not True or world.get("mode") != "hlod_paged_v4"
+                    or world.get("splat_count") != prepared.get("splat_count")
+                    or world.get("sh_degree") != _dict(prepared.get("codec")).get("sh_bands")
+                    or any(_dict(behavior.get("route_evidence")).get(key) is not True
+                           for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged"))):
+                problem("migration_unproven", "common process V4 payload shape/route is unproven", name)
+        if behaviors[0].get("world_payload") != behaviors[1].get("world_payload"):
+            problem("migration_identity_mismatch", "migration V4 payload shape differs")
+        if _dict(behaviors[0].get("native_payload")).get("hlod_stream_pages_capacity") != _dict(
+                behaviors[1].get("native_payload")).get("hlod_stream_pages_capacity"):
+            problem("migration_identity_mismatch", "migration resident-page capacity differs")
+        if drawn_counts[0].keys() != drawn_counts[1].keys():
+            problem("migration_unproven", "migration checkpoint coverage differs")
+        # A same-binary cold/repeat difference disproves rendered-count identity
+        # at that checkpoint. Keep it visible; stable cross-binary differences
+        # still fail. Never use this exception to excuse different payload bytes.
+        for key in sorted(drawn_counts[0].keys() & drawn_counts[1].keys()):
+            for metric in sorted(drawn_counts[0][key].keys() | drawn_counts[1][key].keys()):
+                values = [counts[key].get(metric) for counts in drawn_counts]
+                varies = any(len({row[metric] for (_, cp), row in counts.items()
+                                  if cp == key[1] and metric in row}) > 1 for counts in drawn_counts)
+                if values[0] != values[1] and not varies:
+                    problem("migration_identity_mismatch", f"self-consistent checkpoint {key[1]} {metric} differs")
+        for key in ("decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats"):
             values = [_value(b.get(key)) for b in behaviors]
             if all(v is not None for v in values) and values[0] != values[1]:
                 problem("migration_identity_mismatch", f"migration {key} differs")
@@ -588,6 +641,7 @@ def compare(experiment: dict) -> dict:
     return {"schema": SCHEMA, "run_id": exp.get("run_id"), "control": control, "report_only": True,
             "verdict": verdict, "exit_code": EXIT_CODES[verdict], "reasons": reasons,
             "prepared": copy.deepcopy(prepared), "migration": copy.deepcopy(migration),
+            "migration_observations": _migration_observations(migration_arms),
             "control_receipt": copy.deepcopy(receipt),
             "artifact_digests": _artifact_digests(arms, migration_arms),
             "passes": {route: copy.deepcopy(_dict(_dict(arms.get(route)).get("probe")).get("passes", []))
@@ -597,6 +651,41 @@ def compare(experiment: dict) -> dict:
                                    "io_latency": "reader_wall_sum and read queue sum",
                                    "frame_intervals": "time-weighted nearest rank, cold and repeat reported separately"},
             "metrics": {route: _route_metrics(arms.get(route)) for route in ("chunk", "hlod")}}
+
+
+def _migration_observations(arms):
+    behaviors = {name: _dict(_dict(arms.get(name)).get("payload_behavior")) for name in ("base", "candidate")}
+    native = {name: _dict(behavior.get("native_payload")) for name, behavior in behaviors.items()}
+    metrics = {}
+    for key in sorted(set(native["base"]) | set(native["candidate"])):
+        values = [native[name].get(key) for name in ("base", "candidate")]
+        metrics[key] = {name: measurement(native[name].get(key)) for name in native}
+        metrics[key]["candidate_minus_base"] = (measurement(values[1] - values[0])
+            if all(_number(v) for v in values) else not_measured("no two numeric common observations"))
+    counts, changes = {}, []
+    for name, behavior in behaviors.items():
+        rows = behavior.get("drawn_counts")
+        rows = rows if isinstance(rows, list) else []
+        counts[name] = {(row["pass_index"], row["checkpoint"]): row for row in rows if isinstance(row, dict)
+                        and _count(row.get("pass_index")) and isinstance(row.get("checkpoint"), str)}
+        for checkpoint in sorted({key[1] for key in counts[name]}):
+            for metric in ("drawn_splats", "drawn_nodes"):
+                samples = [{"pass_index": index, "value": row[metric]} for (index, cp), row in counts[name].items()
+                           if cp == checkpoint and _count(row.get(metric))]
+                if len({sample["value"] for sample in samples}) > 1:
+                    changes.append({"arm": name, "checkpoint": checkpoint, "metric": metric, "samples": samples})
+    differences = []
+    for key in sorted(counts["base"].keys() & counts["candidate"].keys()):
+        for metric in ("drawn_splats", "drawn_nodes"):
+            values = [counts[name][key].get(metric) for name in ("base", "candidate")]
+            if all(_count(v) for v in values) and values[0] != values[1]:
+                differences.append({"pass_index": key[0], "checkpoint": key[1], "metric": metric,
+                    "base": values[0], "candidate": values[1], "candidate_minus_base": values[1] - values[0],
+                    "within_binary_variation_observed": any(c["checkpoint"] == key[1] and c["metric"] == metric for c in changes)})
+    return {"scope": "same V4 source digest, actual common payload work and failure observations; aggregate work is scheduling-dependent",
+            "native_payload": metrics, "draw_differences": differences, "within_binary_changes": changes,
+            "decode": {name: {key: measurement(behavior.get(key)) for key in (
+                "decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats")} for name, behavior in behaviors.items()}}
 
 
 def render_markdown(report: dict) -> str:
@@ -623,6 +712,19 @@ def render_markdown(report: dict) -> str:
             lines.append(f"| {area} / {key} | {columns[0]} | {columns[1]} |")
     lines += ["", f"Migration base: `{_dict(report.get('migration')).get('base_commit', PRE_D3)}`.",
               "Pre-D3 measurements are limited to common native payload/route/draw observations; missing stages are not measured.", ""]
+    migration = _dict(report.get("migration_observations"))
+    lines += ["Aggregate payload work can differ with scheduling, cancellation, eviction and rereads.",
+              "The loaded-file SHA identifies source bytes; it is not a decoded-payload digest.", "",
+              "| Common payload observation | pre-D3 | candidate | candidate minus pre-D3 |", "| --- | --- | --- | --- |"]
+    for key, values in _dict(migration.get("native_payload")).items():
+        lines.append(f"| {key} | {cell(values.get('base'))} | {cell(values.get('candidate'))} | {cell(values.get('candidate_minus_base'))} |")
+    for difference in migration.get("draw_differences", []):
+        lines.append(f"Migration draw observation: {json.dumps(difference, sort_keys=True)}.")
+    for change in migration.get("within_binary_changes", []):
+        lines.append(f"Same-binary cold/repeat draw observation: {json.dumps(change, sort_keys=True)}.")
+    for name, values in _dict(migration.get("decode")).items():
+        for key, value in values.items():
+            lines.append(f"Migration {name} {key}: {cell(value)}.")
     for route, passes in _dict(report.get("passes")).items():
         for index, record in enumerate(passes):
             intervals = _dict(_dict(record).get("moving_frame_interval"))

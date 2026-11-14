@@ -64,6 +64,28 @@ def float32_values(value):
     return f32(value) if type(value) is float else value
 
 
+def camera_path_sha256(segments) -> str:
+    """Match the probe's typed JSON/f32 digest, including signed-zero normalization.
+
+    JSON number spellings are not camera identity: Godot serializes -0.0 as
+    0.0. All path numbers use engine f32 precision; type tags keep strings,
+    arrays and objects distinct. No coordinate tolerance is applied.
+    """
+    def encode(value):
+        if isinstance(value, dict):
+            return ["object", *[[key.encode("utf-8").hex(), encode(item)] for key, item in sorted(value.items())]]
+        if isinstance(value, list):
+            return ["array", *[encode(item) for item in value]]
+        if type(value) in (int, float):
+            number = f32(value)
+            return ["number_f32", struct.pack("<f", number if number != 0 else 0.0).hex()]
+        if value is None:
+            return ["null"]
+        return ["bool", value] if type(value) is bool else ["string", value.encode("utf-8").hex()]
+    return hashlib.sha256(json.dumps(encode(segments), ensure_ascii=False,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def camera_application(trace, path: dict) -> dict:
     """Check engine camera coordinates at every traced path row, exactly at f32.
 
@@ -142,7 +164,7 @@ def prepared_receipt(repo: Path, plain: Path, tree: Path, report: dict) -> dict:
 
 
 def requested_settings(plan: dict, prepared: dict) -> dict:
-    return float32_values({"camera_path_sha256": object_sha(float32_values(plan["path"]["segments"])),
+    return float32_values({"camera_path_sha256": camera_path_sha256(plan["path"]["segments"]),
             "camera_poses": plan["path"]["segments"], "resolution": plan["resolution"],
             "camera": plan["camera"], "codec": prepared["codec"],
             "sh_bands": prepared["codec"]["sh_bands"],
@@ -161,7 +183,9 @@ def process_settings(result: dict) -> dict:
     # from the process's parsed path, never copied from the requested plan hash.
     settings = float32_values(result.get("shared_layers_settings", {}))
     if "camera_poses" in settings:
-        settings["camera_path_sha256"] = object_sha(settings["camera_poses"])
+        # Earlier producers emitted the complete parsed path without its digest.
+        # Preserve a native digest when present: a wrong process digest must fail.
+        settings.setdefault("camera_path_sha256", camera_path_sha256(settings["camera_poses"]))
     return settings
 
 
@@ -421,7 +445,13 @@ def payload_behavior(result: dict, trace) -> dict:
     return {"route": "hlod" if actual_hlod else "chunk" if actual_chunk else None,
             "route_evidence": {key: stats.get(key) for key in ("hlod_streaming", "hlod_active", "hlod_stream_paged")},
             "loaded_file_sha256": result.get("loaded_file_sha256"),
+            "world_payload": copy.deepcopy(result.get("world_payload_readback")),
+            "native_payload": {key: copy.deepcopy(value) for key, value in stats.items()
+                               if key.startswith("hlod_stream_")},
             "decoded_bytes": missing("no route-common decoded byte counter exists on pre-D3 and candidate"),
+            "decoded_digest": missing("immutable pre-D3 exposes no decoded-payload digest"),
+            "decoded_splats": missing("immutable pre-D3 exposes no decoded-splat counter"),
+            "decoded_pages": missing("resident atlas pages are not decoded payload pages; pre-D3 has no decode-page counter"),
             "stored_bytes_read": stats.get("hlod_stream_payload_bytes_read_total",
                                              missing("HLOD stored-byte counter absent")),
             "drawn_counts": [{"checkpoint": cp.get("checkpoint"), "pass_index": cp.get("pass_index"),

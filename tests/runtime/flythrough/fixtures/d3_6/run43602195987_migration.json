@@ -1,0 +1,378 @@
+{
+ "provenance": {
+  "run_id": 43602195987,
+  "head_sha": "6721bc153c3edfdb883756681b650cd8c7485c81",
+  "artifact_root": "shared-layers-t0-none-43602195987-1",
+  "source_kind": "Real synthetic T0 runner producer output; exact JSON extracts, no fabricated envelope.",
+  "json_paths": {
+   "payload_behavior": "migration/{arm}/arm.json:$.payload_behavior",
+   "final_render_stats": "migration/{arm}/result.json:$.final_render_stats (selected existing keys)",
+   "world_payload_readback": "migration/{arm}/result.json:$.world_payload_readback",
+   "engine_version": "migration/{arm}/result.json:$.engine_version",
+   "gsq_decode_stats": "migration/{arm}/result.json:$.gsq_decode_stats",
+   "checkpoint_trace_rows": "migration/{arm}/result.json:$.checkpoints[*].row (same order as payload_behavior.drawn_counts)"
+  },
+  "source_sha256": {
+   "migration/base/arm.json": "5ce0bc9fbf6b0c0914689ae6568d00ee8306682f5087d07e4836a7a420e0e548",
+   "migration/base/result.json": "2609d35e713e857faf5c45a9d2e1d1849c06282f4ae2b4ed5422021098039238",
+   "migration/candidate/arm.json": "7b71aed1ee13018923cbaf6c0834ce5ec12b54239575cf7ba94bf1e58b4845ed",
+   "migration/candidate/result.json": "f4014cae6ea880fc884f6df59e10cc4a047e9f8b3697dc752c1e5f8014ef7a84"
+  }
+ },
+ "arms": {
+  "base": {
+   "payload_behavior": {
+    "D3_5_payload_stages": {
+     "measured": false,
+     "reason": "not a pre-D3 common measurement; use per-route candidate summary"
+    },
+    "decoded_bytes": {
+     "measured": false,
+     "reason": "no route-common decoded byte counter exists on pre-D3 and candidate"
+    },
+    "drawn_counts": [
+     {
+      "checkpoint": "C0",
+      "drawn_nodes": 221,
+      "drawn_splats": 603152,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C1",
+      "drawn_nodes": 80,
+      "drawn_splats": 266147,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C2",
+      "drawn_nodes": 132,
+      "drawn_splats": 204115,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C3",
+      "drawn_nodes": 111,
+      "drawn_splats": 948672,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C4",
+      "drawn_nodes": 156,
+      "drawn_splats": 948672,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C5",
+      "drawn_nodes": 183,
+      "drawn_splats": 88224,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C6",
+      "drawn_nodes": 70,
+      "drawn_splats": 355083,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C7",
+      "drawn_nodes": 221,
+      "drawn_splats": 355083,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C0",
+      "drawn_nodes": 221,
+      "drawn_splats": 603152,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C1",
+      "drawn_nodes": 80,
+      "drawn_splats": 266147,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C2",
+      "drawn_nodes": 132,
+      "drawn_splats": 204115,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C3",
+      "drawn_nodes": 111,
+      "drawn_splats": 948672,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C4",
+      "drawn_nodes": 156,
+      "drawn_splats": 948672,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C5",
+      "drawn_nodes": 183,
+      "drawn_splats": 88224,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C6",
+      "drawn_nodes": 70,
+      "drawn_splats": 355083,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C7",
+      "drawn_nodes": 221,
+      "drawn_splats": 603152,
+      "pass_index": 1
+     }
+    ],
+    "loaded_file_sha256": "1fcf238de9b758439e9c673f94742b006958b4a9d58ca069040aa48dbd7acc70",
+    "route": "hlod",
+    "route_evidence": {
+     "hlod_active": true,
+     "hlod_stream_paged": true,
+     "hlod_streaming": true
+    },
+    "stored_bytes_read": 210258174,
+    "trace_drawn_splats_max": 1347606
+   },
+   "final_render_stats": {
+    "hlod_stream_payload_reads_total": 629,
+    "hlod_stream_payload_bytes_read_total": 210258174,
+    "hlod_stream_payload_read_failures_total": 0,
+    "hlod_stream_payload_reads_in_flight": 0,
+    "hlod_stream_uploaded_bytes_total": 879393328,
+    "hlod_stream_pages_capacity": 5136,
+    "hlod_stream_pages_resident": 5131,
+    "hlod_stream_pages_in_flight": 0,
+    "hlod_stream_pages_retiring": 0,
+    "hlod_stream_failed_nodes": 0,
+    "hlod_stream_failed_total": 0,
+    "hlod_stream_permanently_failed_nodes": 0,
+    "hlod_stream_late_dropped_total": 0,
+    "hlod_stream_nonresident_drawn": 0,
+    "hlod_stream_cancelled_total": 15,
+    "hlod_stream_late_dropped_cancelled_total": 3,
+    "hlod_stream_evicted_total": 13,
+    "hlod_active": true,
+    "hlod_streaming": true,
+    "hlod_stream_paged": true
+   },
+   "world_payload_readback": {
+    "has_hlod_paged_source": true,
+    "mode": "hlod_paged_v4",
+    "sh_degree": 3,
+    "splat_count": 4194304
+   },
+   "engine_version": {
+    "build": "custom_build",
+    "hash": "f2f19bcb580cc131615b3fa262a11d99e6abc70c",
+    "hex": 263424,
+    "major": 4,
+    "minor": 5,
+    "patch": 0,
+    "status": "rc",
+    "string": "4.5-rc (custom_build)",
+    "timestamp": 1794557907
+   },
+   "gsq_decode_stats": null,
+   "checkpoint_trace_rows": [
+    1738,
+    3559,
+    5365,
+    7476,
+    7480,
+    12385,
+    13493,
+    13497,
+    14130,
+    15661,
+    17452,
+    19746,
+    19750,
+    24728,
+    25836,
+    25855
+   ]
+  },
+  "candidate": {
+   "payload_behavior": {
+    "D3_5_payload_stages": {
+     "measured": false,
+     "reason": "not a pre-D3 common measurement; use per-route candidate summary"
+    },
+    "decoded_bytes": {
+     "measured": false,
+     "reason": "no route-common decoded byte counter exists on pre-D3 and candidate"
+    },
+    "drawn_counts": [
+     {
+      "checkpoint": "C0",
+      "drawn_nodes": 221,
+      "drawn_splats": 603152,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C1",
+      "drawn_nodes": 80,
+      "drawn_splats": 266147,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C2",
+      "drawn_nodes": 132,
+      "drawn_splats": 206746,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C3",
+      "drawn_nodes": 111,
+      "drawn_splats": 948672,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C4",
+      "drawn_nodes": 156,
+      "drawn_splats": 948672,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C5",
+      "drawn_nodes": 183,
+      "drawn_splats": 88224,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C6",
+      "drawn_nodes": 70,
+      "drawn_splats": 355083,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C7",
+      "drawn_nodes": 221,
+      "drawn_splats": 355083,
+      "pass_index": 0
+     },
+     {
+      "checkpoint": "C0",
+      "drawn_nodes": 221,
+      "drawn_splats": 603152,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C1",
+      "drawn_nodes": 80,
+      "drawn_splats": 266147,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C2",
+      "drawn_nodes": 132,
+      "drawn_splats": 204115,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C3",
+      "drawn_nodes": 111,
+      "drawn_splats": 948672,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C4",
+      "drawn_nodes": 156,
+      "drawn_splats": 948672,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C5",
+      "drawn_nodes": 183,
+      "drawn_splats": 88224,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C6",
+      "drawn_nodes": 70,
+      "drawn_splats": 355083,
+      "pass_index": 1
+     },
+     {
+      "checkpoint": "C7",
+      "drawn_nodes": 221,
+      "drawn_splats": 355083,
+      "pass_index": 1
+     }
+    ],
+    "loaded_file_sha256": "1fcf238de9b758439e9c673f94742b006958b4a9d58ca069040aa48dbd7acc70",
+    "route": "hlod",
+    "route_evidence": {
+     "hlod_active": true,
+     "hlod_stream_paged": true,
+     "hlod_streaming": true
+    },
+    "stored_bytes_read": 207300796,
+    "trace_drawn_splats_max": 1348187
+   },
+   "final_render_stats": {
+    "hlod_stream_payload_reads_total": 618,
+    "hlod_stream_payload_bytes_read_total": 207300796,
+    "hlod_stream_payload_read_failures_total": 0,
+    "hlod_stream_payload_reads_in_flight": 0,
+    "hlod_stream_uploaded_bytes_total": 872497296,
+    "hlod_stream_pages_capacity": 5136,
+    "hlod_stream_pages_resident": 5136,
+    "hlod_stream_pages_in_flight": 0,
+    "hlod_stream_pages_retiring": 0,
+    "hlod_stream_failed_nodes": 0,
+    "hlod_stream_failed_total": 0,
+    "hlod_stream_permanently_failed_nodes": 0,
+    "hlod_stream_late_dropped_total": 0,
+    "hlod_stream_nonresident_drawn": 0,
+    "hlod_stream_cancelled_total": 12,
+    "hlod_stream_late_dropped_cancelled_total": 1,
+    "hlod_stream_evicted_total": 3,
+    "hlod_active": true,
+    "hlod_streaming": true,
+    "hlod_stream_paged": true
+   },
+   "world_payload_readback": {
+    "has_hlod_paged_source": true,
+    "mode": "hlod_paged_v4",
+    "sh_degree": 3,
+    "splat_count": 4194304
+   },
+   "engine_version": {
+    "build": "custom_build",
+    "hash": "6721bc153c3edfdb883756681b650cd8c7485c81",
+    "hex": 263424,
+    "major": 4,
+    "minor": 5,
+    "patch": 0,
+    "status": "rc",
+    "string": "4.5-rc (custom_build)",
+    "timestamp": 1794664503
+   },
+   "gsq_decode_stats": null,
+   "checkpoint_trace_rows": [
+    1765,
+    3504,
+    5279,
+    7471,
+    7475,
+    12323,
+    13431,
+    13435,
+    14077,
+    15587,
+    17326,
+    19494,
+    19498,
+    24503,
+    25611,
+    25615
+   ]
+  }
+ }
+}

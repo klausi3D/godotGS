@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """D3-6 phase 1: red contract tests; stdlib only, no engine invocation.
 
-There is no captured paired T0 GPU experiment yet. Native probe inputs below
-come from the REAL BV-07 trace/result and D3-5 telemetry captures, with provenance
+The small run43602195987 extracts now include real paired T0 observations;
+they omit trace binaries and cannot certify a complete local paired execution.
+Other native probe inputs below come from the REAL BV-07 trace/result and D3-5 telemetry captures, with provenance
 in fixtures/bv07/README.md and fixtures/d3_5/README.md (CI run 43580666400).
 Summaries are built by the real producer-side Python helpers: summarise_path,
 trace_integrity, route_telemetry_summary and screenshot_record. We do not author
@@ -107,6 +108,7 @@ class ComparisonContract(unittest.TestCase):
         cls.manifest = _captured("bv07/tsmoke.manifest.json")
         cls.hlod_capture = _captured("d3_5/d3_5_hlod_test_results.json")
         cls.chunk_capture = _captured("d3_5/d3_5_chunk_test_results.json")["skipped"]
+        cls.migration_capture = _captured("d3_6/run43602195987_migration.json")
         cls.path = rp.probe_path.resolve_path(cls.manifest)
         cls.truth = rp.probe_groundtruth.build_groundtruth(
             cls.manifest, cls.path, rp.probe_path.checkpoints(cls.path), rp.CAMERA, rp.ASPECT)
@@ -213,8 +215,7 @@ class ComparisonContract(unittest.TestCase):
                             # captured old/new execution; see the module docstring.
                             "payload_behavior": {
                                 "route": "hlod", "loaded_file_sha256": prepared["tree_file_sha256"],
-                                "drawn_counts": [{k: cp[k] for k in ("checkpoint", "pass_index", "drawn_splats")}
-                                                 for cp in self.result["checkpoints"]],
+                                "drawn_counts": copy.deepcopy(self.migration_capture["arms"][name]["payload_behavior"]["drawn_counts"]),
                                 "decoded_bytes": ps.missing("no common native decoded-byte observation"),
                             },
                             "settings_readback": copy.deepcopy(arms["hlod"]["observed"]["settings"])}
@@ -222,6 +223,12 @@ class ComparisonContract(unittest.TestCase):
         }
         for arm in migration["arms"].values():
             arm["camera_application"] = copy.deepcopy(arms["hlod"]["observed"]["camera_application"])
+        for name, arm in migration["arms"].items():
+            native = self.migration_capture["arms"][name]
+            behavior = arm["payload_behavior"]
+            behavior["native_payload"] = copy.deepcopy(native["final_render_stats"])
+            behavior["world_payload"] = copy.deepcopy(native["world_payload_readback"])
+            behavior["route_evidence"] = copy.deepcopy(native["payload_behavior"]["route_evidence"])
         return {"schema": "godotgs-shared-layers-t0-experiment/1", "run_id": "unit-policy-scenario",
                 "control": "none", "prepared": prepared, "arms": arms, "migration": migration}
 
@@ -804,7 +811,7 @@ class ComparisonContract(unittest.TestCase):
         self.assertNotEqual(driver.main(["--require-report", str(report), "--run-id", self.experiment["run_id"],
                                          "--control", "skip_compare"]), 0)
 
-    def test_migration_common_behavior_cannot_be_omitted_or_changed(self):
+    def test_migration_common_behavior_cannot_be_omitted_or_have_payload_failures(self):
         for missing in (True, False):
             with self.scenario(missing=missing):
                 base = self.experiment["migration"]["arms"]["base"]
@@ -812,8 +819,92 @@ class ComparisonContract(unittest.TestCase):
                     base.pop("payload_behavior")
                     self.assert_verdict("UNUSABLE", "migration_unproven")
                 else:
-                    base["payload_behavior"]["drawn_counts"][0]["drawn_splats"] += 1
-                    self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+                    base["payload_behavior"]["native_payload"]["hlod_stream_payload_read_failures_total"] = 1
+                    self.assert_verdict("UNUSABLE", "payload_failure")
+
+    def use_real_migration_observations(self):
+        for name, arm in self.experiment["migration"]["arms"].items():
+            native = self.migration_capture["arms"][name]
+            behavior = copy.deepcopy(native["payload_behavior"])
+            # Source receipts are constructed policy inputs in this envelope;
+            # only the observations come from the real run. Keep that explicit.
+            behavior["loaded_file_sha256"] = self.experiment["prepared"]["tree_file_sha256"]
+            behavior["native_payload"] = copy.deepcopy(native["final_render_stats"])
+            behavior["world_payload"] = copy.deepcopy(native["world_payload_readback"])
+            arm["payload_behavior"] = behavior
+
+    def test_real_same_binary_variation_is_reported_without_claiming_draw_identity(self):
+        self.use_real_migration_observations()
+        report = self.assert_verdict("VALID")
+        observations = report["migration_observations"]
+        self.assertEqual([(r["pass_index"], r["checkpoint"], r["candidate_minus_base"])
+                          for r in observations["draw_differences"]], [(0, "C2", 2631), (1, "C7", -248069)])
+        self.assertTrue(all(r["within_binary_variation_observed"] for r in observations["draw_differences"]))
+        self.assertEqual({(r["arm"], r["checkpoint"]) for r in observations["within_binary_changes"]},
+                         {("base", "C7"), ("candidate", "C2")})
+        reads = observations["native_payload"]["hlod_stream_payload_reads_total"]
+        self.assertEqual(reads["candidate_minus_base"]["value"], -11)
+        self.assertIs(observations["decode"]["base"]["decoded_digest"]["measured"], False)
+        self.assertIn("Same-binary cold/repeat draw observation", driver.render_markdown(report))
+
+    def test_self_consistent_cross_binary_draw_difference_still_fails(self):
+        self.use_real_migration_observations()
+        for row in self.experiment["migration"]["arms"]["candidate"]["payload_behavior"]["drawn_counts"]:
+            if row["checkpoint"] == "C1":
+                row["drawn_splats"] += 1  # Same difference in both passes.
+        self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def test_missing_or_zero_common_payload_work_is_unproven(self):
+        for key in driver.MIGRATION_WORK:
+            for value in (None, 0, ps.missing("not exported")):
+                with self.scenario(key=key, value=value):
+                    self.experiment["migration"]["arms"]["base"]["payload_behavior"]["native_payload"][key] = value
+                    self.assert_verdict("UNUSABLE", "migration_unproven")
+
+    def test_common_payload_failures_cannot_be_hidden_by_draw_variation(self):
+        for key in driver.MIGRATION_FAILURES:
+            with self.scenario(key=key):
+                self.use_real_migration_observations()
+                self.experiment["migration"]["arms"]["base"]["payload_behavior"]["native_payload"][key] = 1
+                self.assert_verdict("UNUSABLE", "payload_failure")
+
+    def test_two_migration_arms_cannot_share_the_same_missing_checkpoint(self):
+        for arm in self.experiment["migration"]["arms"].values():
+            arm["payload_behavior"]["drawn_counts"].pop()
+        self.assert_verdict("UNUSABLE", "migration_unproven")
+
+    def test_missing_common_payload_failure_is_not_zero(self):
+        for key in driver.MIGRATION_FAILURES:
+            with self.scenario(key=key):
+                self.experiment["migration"]["arms"]["base"]["payload_behavior"]["native_payload"].pop(key)
+                self.assert_verdict("UNUSABLE", "migration_unproven")
+
+    def test_migration_world_shape_and_page_capacity_are_required(self):
+        for key in ("world_payload", "route_evidence"):
+            with self.scenario(key=key):
+                self.experiment["migration"]["arms"]["base"]["payload_behavior"].pop(key)
+                self.assert_verdict("UNUSABLE", "migration_unproven")
+        with self.scenario(key="capacity escape"):
+            native = self.experiment["migration"]["arms"]["base"]["payload_behavior"]["native_payload"]
+            native["hlod_stream_pages_resident"] = native["hlod_stream_pages_capacity"] + 1
+            self.assert_verdict("UNUSABLE", "payload_failure")
+
+    def test_measured_decoded_payload_differences_still_fail(self):
+        for key in ("decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats"):
+            with self.scenario(key=key):
+                self.use_real_migration_observations()
+                for name, value in (("base", 10), ("candidate", 11)):
+                    self.experiment["migration"]["arms"][name]["payload_behavior"][key] = value
+                self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def test_real_overlap_record_loss_keeps_each_route_unusable(self):
+        capture = _captured("d3_6/run43602195987_drops.json")
+        for route, data in capture["arms"].items():
+            with self.scenario(route=route):
+                self.arm(route)["observed"]["failures"]["drop_events"] = data["whole_run"]["drop_events"]
+                report = self.assert_verdict("UNUSABLE", "correctness_failure")
+                self.assertEqual(report["metrics"][route]["correctness"]["drop_events"]["value"],
+                                 data["whole_run"]["drop_events"])
 
     def test_actual_camera_application_must_be_present_and_match(self):
         for value in (None, {"matches": False, "reason": "changed camera path"}):

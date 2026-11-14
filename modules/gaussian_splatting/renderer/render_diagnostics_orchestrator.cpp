@@ -1403,6 +1403,12 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
 	const bool has_gpu_sorter = sorting_state.gpu_sorter.is_valid();
 	stats["gpu_sorter_initialized"] = has_gpu_sorter;
 	stats["gpu_sorter_async_pipeline_ready"] = sorting_pipeline && sorting_pipeline->is_ready();
+	// The instance-count clamp is distinct from tile overlap-record drops. Export the
+	// existing always-on counter on the stats path used by runtime probes too; an
+	// absent pipeline cannot supply an observation and must not manufacture a zero.
+	if (sorting_pipeline) {
+		stats["instance_count_overflow_events"] = int64_t(sorting_pipeline->get_instance_count_overflow_events());
+	}
 	stats["rendering_device_ready"] = rendering_device != nullptr;
 	stats["sort_active_algorithm"] = sorting_state.active_sort_algorithm;
 	stats["sort_switch_reason"] = sorting_state.sort_switch_reason;

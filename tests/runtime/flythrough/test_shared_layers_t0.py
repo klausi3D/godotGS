@@ -60,7 +60,7 @@ class RunnerPlumbing(unittest.TestCase):
         self.assertEqual(shared.process_settings({}), {})
         policy = {"shared_layers_settings": {"camera_poses": [{"kind": "move", "pose": [1, 2, 3]}]}}
         result = shared.process_settings(policy)
-        self.assertEqual(result["camera_path_sha256"], shared.object_sha(policy["shared_layers_settings"]["camera_poses"]))
+        self.assertEqual(result["camera_path_sha256"], shared.camera_path_sha256(policy["shared_layers_settings"]["camera_poses"]))
         result["camera_poses"].clear()
         self.assertTrue(policy["shared_layers_settings"]["camera_poses"])
 
@@ -75,6 +75,28 @@ class RunnerPlumbing(unittest.TestCase):
         process_readback["camera_poses"] = path["segments"]
         actual = shared.process_settings({"shared_layers_settings": process_readback})
         self.assertEqual(actual, expected)
+
+    def test_real_run_camera_signed_zero_is_one_identity_and_changed_pose_is_not(self):
+        # Exact table-row extracts from run43602195987, not an invented producer.
+        capture = self.captured("d3_6/run43602195987_camera.json")
+        requested, process = capture["requested_row"], capture["process_row"]
+        self.assertNotEqual(shared.object_sha(requested), shared.object_sha(process))
+        self.assertEqual(shared.camera_path_sha256(requested), shared.camera_path_sha256(process))
+        self.assertNotEqual(capture["requested_original_path_sha256"], capture["process_original_path_sha256"])
+        self.assertIs(capture["camera_application"]["matches"], True)
+        changed = copy.deepcopy(process)
+        changed[1] += 1
+        self.assertNotEqual(shared.camera_path_sha256(requested), shared.camera_path_sha256(changed))
+        # Same f32 zero even when rounding creates it; no coordinate tolerance.
+        self.assertEqual(shared.camera_path_sha256([-1e-50]), shared.camera_path_sha256([0.0]))
+
+    def test_process_camera_digest_cannot_be_replaced_with_a_requested_digest(self):
+        row = self.captured("d3_6/run43602195987_camera.json")["process_row"]
+        result = {"shared_layers_settings": {"camera_poses": [row], "camera_path_sha256": "deliberately wrong"}}
+        self.assertEqual(shared.process_settings(result)["camera_path_sha256"], "deliberately wrong")
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.assertIn('"camera_path_sha256": _camera_path_sha256(_plan.get("path", {}).get("segments"))', gd)
+        self.assertIn('JSON.stringify(_camera_hash_value(segments)).sha256_text()', gd)
 
     def test_real_trace_camera_poses_verify_at_engine_float32_precision(self):
         manifest = self.captured("bv07/tsmoke.manifest.json")
@@ -203,6 +225,44 @@ class RunnerPlumbing(unittest.TestCase):
         self.assertIs(behavior["decoded_bytes"]["measured"], False)
         self.assertEqual(behavior["drawn_counts"][0]["drawn_splats"], native["checkpoints"][0]["drawn_splats"])
         self.assertIs(behavior["trace_drawn_splats_max"]["measured"], False)
+
+    def test_real_migration_payload_observations_are_retained_without_decode_invention(self):
+        capture = self.captured("d3_6/run43602195987_migration.json")
+        for name, arm in capture["arms"].items():
+            # Real selected result.json fields; field selection is documented in
+            # the extract provenance. No missing field is filled with zero.
+            behavior = shared.payload_behavior(arm, None)
+            self.assertEqual(behavior["route"], "hlod", name)
+            self.assertEqual(behavior["world_payload"], arm["world_payload_readback"])
+            for key, value in arm["final_render_stats"].items():
+                if key.startswith("hlod_stream_"):
+                    self.assertEqual(behavior["native_payload"][key], value)
+            for key in ("decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats"):
+                self.assertIs(behavior[key]["measured"], False)
+                self.assertTrue(behavior[key]["reason"])
+
+    def test_real_overlap_record_drops_reach_the_arm_failure_observation(self):
+        capture = self.captured("d3_6/run43602195987_drops.json")
+        path = shared.rp.probe_path.resolve_path(self.captured("bv07/tsmoke.manifest.json"))
+        trace_path = self.tmp / "trace.bin"
+        trace_path.write_bytes(gzip.decompress((HERE / "fixtures/bv07/tsmoke_path.trace.bin.gz").read_bytes()))
+        trace = shared.ps.read_trace(trace_path)
+        prepared = {key: {} for key in ("input_file_sha256", "generator_identity", "tree_file_sha256", "tree_identity")}
+        prepared["codec"] = {"sh_bands": 3}
+        native = self.captured("bv07/tsmoke_path.result.json")
+        for route, drops in capture["arms"].items():
+            # Combine independent real producer extracts to test the mapping,
+            # without claiming this is a newly captured paired execution.
+            probe = {"overlap_drops_whole_run": drops["whole_run"]}
+            with mock.patch.object(shared.rp, "trace_integrity", return_value=(trace, {})), mock.patch.object(
+                    shared.rp, "summarise_path", return_value=probe):
+                # Exercise the route-independent mapping through the HLOD branch:
+                # this older BV-07 trace has no chunk-residency proof columns.
+                arm = shared.run_arm(self.tmp / "binary", self.tmp / "world", "hlod", prepared, path, {}, {},
+                    self.tmp / route, prepare_cold=lambda world: {}, process=lambda *args: {
+                        "result": native, "trace": str(trace_path), "exit_code": 0, "timed_out": False})
+            self.assertEqual(arm["observed"]["failures"]["drop_events"], drops["whole_run"]["drop_events"])
+            self.assertGreater(arm["observed"]["failures"]["drop_events"], 0)
 
     def test_cpu_sink_capture_cannot_claim_actual_migration_hlod_route(self):
         native = self.captured("d3_5/d3_5_hlod_test_results.json")["completed"]

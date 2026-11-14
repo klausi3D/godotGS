@@ -3,13 +3,16 @@ extern "C" int test_d3_5_telemetry_cpp_force_link() { return 0; }
 #include "gs_hlod_page_store_test_fixture.h"
 #include "gs_payload_page_store_test_fixture.h"
 #include "gs_test_pump.h"
+#include "../interfaces/gpu_sorting_pipeline.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/hlod_node_streamer.h"
+#include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
 #include "../renderer/render_diagnostics_orchestrator.h"
 #include "core/io/json.h"
 #include "core/os/thread.h"
 
+#include <cstring>
 #include <initializer_list>
 #include <string>
 
@@ -190,6 +193,43 @@ struct HlodRun {
 		return diagnostics.build_render_stats(); // Actual renderer export, never a hand-built telemetry block.
 	}
 };
+
+TEST_CASE("[GaussianSplatting][D3Telemetry] D3-6 render stats export the actual instance clamp counter") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	if (renderer.is_null() || renderer->get_subsystem_state().sorting_pipeline.is_null()) {
+		FAIL("D3-6 needs the renderer's actual sorting pipeline");
+		return;
+	}
+	Ref<GPUSortingPipeline> pipeline = renderer->get_subsystem_state().sorting_pipeline;
+	RenderDiagnosticsOrchestrator::Dependencies deps;
+	deps.renderer = renderer.ptr();
+	deps.debug_state_orchestrator = renderer->debug_state_orchestrator.get();
+	deps.build_device_capability_report = []() { return Dictionary(); };
+	RenderDiagnosticsOrchestrator diagnostics(deps);
+	CHECK(number(diagnostics.build_render_stats(), "instance_count_overflow_events") == 0);
+
+	// Use the production readback consumer, not an invented exported Dictionary.
+	GaussianSplatting::IndirectDispatchLayout layout = {};
+	layout.element_count = 64;
+	layout.overflow_flag = 1;
+	layout.unclamped_total = 4096;
+	Vector<uint8_t> payload;
+	payload.resize(int(sizeof(layout)));
+	std::memcpy(payload.ptrw(), &layout, sizeof(layout));
+	auto &readback = pipeline->_test_instance_count_readback_state();
+	readback.pending = true;
+	readback.generation = 6;
+	readback.pending_frame_counter = 11;
+	pipeline->_on_instance_count_readback(payload, 6);
+	CHECK(pipeline->get_instance_count_overflow_events() == 1u);
+	// Removing the stats export must fail here even while the owner still counts it.
+	CHECK(number(diagnostics.build_render_stats(), "instance_count_overflow_events") == 1);
+
+	renderer->get_subsystem_state().sorting_pipeline.unref();
+	CHECK_FALSE(diagnostics.build_render_stats().has("instance_count_overflow_events"));
+	renderer->get_subsystem_state().sorting_pipeline = pipeline;
+}
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real HLOD export covers stages queues transfers and replacement epoch") {
 	// Both source files outlive the streamer's worker drain, including on failure.

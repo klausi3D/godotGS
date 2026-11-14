@@ -28,6 +28,37 @@ extends SceneTree
 # Exit codes: 0 the plan ran to the end (the result JSON says what was measured);
 # 1 a step failed (reason in the result JSON); 2 usage / plan error.
 
+# Shared with shared_layers_t0.camera_path_sha256. Hash parsed process values,
+# not a requested digest; signed zero has one camera representation.
+func _camera_hash_value(value) -> Array:
+	if value is Dictionary:
+		var encoded: Array = ["object"]
+		var keys: Array = value.keys()
+		keys.sort()
+		for key in keys:
+			encoded.append([str(key).to_utf8_buffer().hex_encode(), _camera_hash_value(value[key])])
+		return encoded
+	if value is Array:
+		var encoded: Array = ["array"]
+		for item in value:
+			encoded.append(_camera_hash_value(item))
+		return encoded
+	if value is int or value is float:
+		var bytes := PackedByteArray()
+		bytes.resize(4)
+		bytes.encode_float(0, float(value))
+		if bytes.decode_float(0) == 0.0:
+			bytes.fill(0)
+		return ["number_f32", bytes.hex_encode()]
+	if value == null:
+		return ["null"]
+	return ["bool", value] if value is bool else ["string", str(value).to_utf8_buffer().hex_encode()]
+
+
+func _camera_path_sha256(segments) -> String:
+	return JSON.stringify(_camera_hash_value(segments)).sha256_text()
+
+
 const TRACE_MAGIC := "GSBV7TR1"
 const TRACE_SCHEMA := "godotgs-bv07-probe-trace/1"
 const RESULT_SCHEMA := "godotgs-bv07-probe-result/1"
@@ -884,6 +915,7 @@ func _run() -> void:
 			codec_params.erase("codec")
 		var node_readback: Dictionary = _result["node_readback"]
 		_result["shared_layers_settings"] = {
+			"camera_path_sha256": _camera_path_sha256(_plan.get("path", {}).get("segments")),
 			"camera_poses": _plan.get("path", {}).get("segments"),
 			"resolution": [get_root().size.x, get_root().size.y],
 			"camera": {"fov_deg": _camera.fov, "keep": "width" if _camera.keep_aspect == Camera3D.KEEP_WIDTH else "height",
@@ -897,6 +929,7 @@ func _run() -> void:
 			"node_readback": node_readback, "project_settings_readback": readback,
 		}
 		_result["shared_layers_settings_scope"] = {
+			"camera_path_sha256": "SHA256 of typed JSON/f32 parsed path; signed zero normalized; independently checked from process camera_poses",
 			"camera_poses": "process parsed arc-length path; application independently observed in trace px/py/pz/yaw_deg/pitch_deg and checkpoint poses",
 			"timing_windows": "process parsed timing configuration; observed segment and settle durations retained separately",
 			"codec": "producer sidecar codec parameters, independently verified against the generated file before the experiment and bound to process loaded_file_sha256",
