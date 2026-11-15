@@ -566,6 +566,8 @@ struct TileRenderParams {
 	Vector2i cluster_viewport_size;
 	Vector2i viewport_size;
 	Transform3D world_to_camera_transform;
+	bool track_camera_cuts = true;
+	uint64_t camera_cut_hint_generation = 0;
 	Projection projection;
 	Projection render_projection;
 	// Per-splat scene-depth clip (mesh<->splat interleave, compositing slice D).

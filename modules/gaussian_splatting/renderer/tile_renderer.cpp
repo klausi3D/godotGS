@@ -926,10 +926,17 @@ private:
 					// same rule as the instance-count bootstrap): it gives the prefix pass a real total
 					// so the same-frame grow below runs. STRICT_ASYNC profiling keeps its timestamps
 					// instead and grows from the async overflow path a few frames later.
-					const bool overlap_bootstrap_sample = !allow_sync_readback && readback_policy.allow_sync_bootstrap &&
-							!params.hlod_relative && !renderer.global_sort_resources.overlap_bootstrap_sampled &&
-							overlap_base_count > 0u;
-					const bool overlap_sync_measurement = allow_sync_readback || overlap_bootstrap_sample;
+					const bool camera_cut = !params.hlod_relative && params.track_camera_cuts &&
+							renderer.camera_cut_detector.update(params.world_to_camera_transform.affine_inverse(),
+									params.projection, params.viewport_size, params.camera_cut_hint_generation);
+					const auto measurement = GaussianSplatting::overlap_measurement_decision(params.hlod_relative,
+							overlap_base_count > 0u, allow_sync_readback, readback_policy.allow_sync_bootstrap,
+							renderer.global_sort_resources.overlap_bootstrap_sampled, camera_cut);
+					// Owner-approved #1444 exception: one blocking demand sample on a cut,
+					// including timestamp-preserving profiling. Continuous frames stay async.
+					const bool overlap_cut_sample = measurement.cut;
+					const bool overlap_sync_measurement = measurement.sync;
+					double cut_readback_cpu_wall_ms = 0.0;
 				renderer.global_sort_resources.advance_tile_counts_buffer();
 			tile_counts_buffer_advanced = true;
 			if (renderer.global_sort_resources.capacity == 0 ||
@@ -994,12 +1001,22 @@ private:
 			uint32_t overlap_record_count = 0;
 			uint32_t raw_overlap_record_count = 0;
 			if (!renderer._update_global_tile_ranges(params.gaussian_buffer, params.sorted_indices, uniform_device, overlap_record_count,
-						raw_overlap_record_count, overlap_sync_measurement)) {
+						raw_overlap_record_count, overlap_sync_measurement,
+						overlap_cut_sample ? &cut_readback_cpu_wall_ms : nullptr)) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to build global tile ranges for rasterization");
 				return false;
 			}
 			if (overlap_sync_measurement) {
 				renderer.global_sort_resources.overlap_bootstrap_sampled = true;
+				if (!params.hlod_relative && params.track_camera_cuts) {
+					renderer.camera_cut_detector.measurement_completed();
+				}
+			}
+			if (overlap_cut_sample) {
+				++renderer.overlap_sync_cut_count;
+				renderer.overlap_sync_cut_last_frame = renderer.frame_state.current_frame_serial;
+				renderer.overlap_sync_cut_readback_cpu_wall_ms = cut_readback_cpu_wall_ms;
+				renderer.overlap_sync_cut_transform = params.world_to_camera_transform.affine_inverse();
 			}
 			// Feed the adaptive budget only REAL overlap measurements. On the default
 			// async path the first frames report raw_overlap_record_count = effective
@@ -1053,6 +1070,7 @@ private:
 				// and the shrink gate (capacity > effective_demand) could never open. Until
 				// the first real measurement lands, raw falls back to capacity, which keeps
 				// the shrink correctly disabled rather than firing on a guess.
+				const uint32_t measured_overlap_demand_raw = raw_overlap_record_count;
 				uint32_t measured_overlap_demand = raw_overlap_record_count;
 				if (adaptive_overlap_budget_suggested > 0u) {
 					measured_overlap_demand = MAX(measured_overlap_demand, adaptive_overlap_budget_suggested);
@@ -1090,9 +1108,16 @@ private:
 					overlap_record_count = 0;
 					raw_overlap_record_count = 0;
 					if (!renderer._update_global_tile_ranges(params.gaussian_buffer, params.sorted_indices,
-								uniform_device, overlap_record_count, raw_overlap_record_count, overlap_sync_measurement)) {
+								uniform_device, overlap_record_count, raw_overlap_record_count,
+								overlap_cut_sample ? false : overlap_sync_measurement)) {
 						GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to rebuild tile ranges after buffer resize");
 						return false;
+					}
+					if (overlap_cut_sample) {
+						// COUNT is unchanged; PREFIX rebuilt GPU ranges/indirect dispatch for
+						// the new capacity. Keep the real sample, without a second sync wait.
+						raw_overlap_record_count = measured_overlap_demand_raw;
+						overlap_record_count = MIN(raw_overlap_record_count, renderer._get_effective_overlap_capacity());
 					}
 					_update_adaptive_overlap_budget(&renderer, raw_overlap_record_count);
 					if (have_real_overlap_measurement) {
@@ -2038,6 +2063,11 @@ void TileRenderer::cleanup() {
     diagnostics = TileDiagnosticsState();
     config_state = TileConfigState();
     adaptive_controller.reset_state(config_state.tile_size);
+	camera_cut_detector = GaussianSplatting::CameraCutDetector();
+	overlap_sync_cut_count = 0;
+	overlap_sync_cut_last_frame = 0;
+	overlap_sync_cut_readback_cpu_wall_ms = 0.0;
+	overlap_sync_cut_transform = Transform3D();
 
     device_context.resource_rd = nullptr;
     device_context.submission_rd = nullptr;
@@ -2780,9 +2810,10 @@ void TileRenderer::_ensure_global_sort_resources(uint32_t p_visible_count, bool 
 	global_sort_resources.ensure_resources(p_visible_count, p_growth_headroom);
 }
 bool TileRenderer::_update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices,
-        RenderingDevice *p_device, uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback) {
+        RenderingDevice *p_device, uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback,
+        double *r_readback_cpu_wall_ms) {
     return prefix_scan_stage.update_global_tile_ranges(p_gaussian_buffer, p_sorted_indices, p_device, r_record_count,
-            r_raw_record_count, p_allow_sync_readback);
+            r_raw_record_count, p_allow_sync_readback, r_readback_cpu_wall_ms);
 }
 
 void TileRenderer::_reset_timestamp_tracking() {
