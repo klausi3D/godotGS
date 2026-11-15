@@ -244,6 +244,22 @@ class GroundTruth(unittest.TestCase):
 # --------------------------------------------------------------------------
 
 
+def admissible_checkpoint_policy(result):
+    """Construct only the newer admissibility inputs for legacy policy replays.
+
+    The captured trace, counts, settle receipts and fixture files stay unchanged;
+    these frame scalars are deliberately transplanted from run43717101341 chunk
+    C2. This is test policy construction, not provenance for the historical run.
+    """
+    result = copy.deepcopy(result)
+    result["route"] = "chunk"
+    result["static_sort_cache"] = {"enabled": False, "applicable": True}
+    for checkpoint in result["checkpoints"]:
+        checkpoint.update(actual_route="chunk", pose_first_frame=6100,
+                          rendered_splat_count_source_frame=6103, render_frame_counter=6105)
+    return result
+
+
 class CapturedTrace(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -323,7 +339,11 @@ class CapturedTrace(unittest.TestCase):
         # The fixture predates BV-POOL: the absent placement is MISSING, never device-local.
         self.assertEqual(s["pool_placement"]["status"], ps.MISSING)
         self.assertIsNone(s["pool_placement"]["device_local"])
-        self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
+        # The raw capture predates count provenance: settled alone is no longer
+        # admissible checkpoint evidence, although its other metrics still parse.
+        self.assertEqual(s["checkpoint_evidence"]["verdict"], "UNUSABLE")
+        self.assertTrue(any("checkpoint_unsettled" in problem for problem in
+                            rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}})))
 
     def _with_coverage_columns(self, needed_not_resident) -> "ps.Trace":
         """The captured trace with the gate-repair columns appended: needed_not_resident(i, row)
@@ -337,7 +357,8 @@ class CapturedTrace(unittest.TestCase):
 
     def test_the_captured_run_predates_the_coverage_columns(self) -> None:
         """An older driver's trace has no per-frame completeness: MISSING, never complete. It
-        adds no problems line: the coverage entry (G16) is report-only and judged in the verdict."""
+        adds no coverage problems line: G16 is report-only. Its missing checkpoint
+        provenance independently makes the historical evidence unusable."""
         m = manifest()
         path = pp.resolve_path(m)
         truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
@@ -348,7 +369,9 @@ class CapturedTrace(unittest.TestCase):
         self.assertIn("older probe driver", mc["reason"])
         self.assertEqual(s["screenshots"]["status"], ps.MISSING)
         self.assertIsNone(s["passes"][0]["checkpoints"][0]["needed_not_resident_chunks"])
-        self.assertEqual(rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}}), [])
+        self.assertEqual(s["checkpoint_evidence"]["verdict"], "UNUSABLE")
+        self.assertTrue(any("checkpoint_unsettled" in problem for problem in
+                            rp.required_path_metrics({"flythrough": s, "rss": {"peak_rss_bytes": ps.metric(1)}})))
 
     def test_moving_coverage_counts_every_frame_with_a_chunk_in_flight(self) -> None:
         m = manifest()
@@ -473,7 +496,9 @@ class CapturedTrace(unittest.TestCase):
 
     def _replay_checkpoints(self, edit) -> tuple:
         """Replay the captured run with edit(cp, cap) applied to each checkpoint record."""
-        result = copy.deepcopy(self.path_result)
+        # Supply legal new preconditions before the negative edit, so missing
+        # needed/cap fields still test their original property independently.
+        result = admissible_checkpoint_policy(self.path_result)
         tr = ps.read_trace(self.path_trace)
         for cp in result["checkpoints"]:
             edit(cp, tr.get(tr.rows[cp["row"]], "effective_max_chunks"))
@@ -1152,6 +1177,220 @@ class FrameBreakdown(unittest.TestCase):
         self.assertIn('"moving_frame_breakdown": ps.frame_breakdown(trace, moving)', probe)
 
 
+class CheckpointEvidence(unittest.TestCase):
+    """#1454: checkpoint evidence survives successful diagnostic process completion.
+
+    The minimal C2 records below are copied from run 43717101341's chunk,
+    HLOD and migration/base result.json outputs. Only unrelated fields and
+    forward_progress samples are omitted. These tests replay the records through
+    the summary using the existing captured trace; they do not claim that trace
+    belongs to this newer run or test its timing/cap metrics. Cache observations
+    are explicitly CONSTRUCTED policy inputs: that producer did not export them.
+    No test reads an external evidence directory.
+    """
+
+    CHUNK_C2 = {
+        "checkpoint": "C2", "segment": "S6", "pass_index": 0,
+        "actual_route": "chunk", "drawn_splats": 298066, "row": 6105,
+        "pose_first_frame": 6100, "render_frame_counter": 6105,
+        "rendered_splat_count_source_frame": 6103,
+        "settle": {"settled": True, "settle_usec": 9469, "frames": 5,
+                   "deadline_s": 15.0, "pose_error_m": 0.0},
+    }
+    HLOD_C2 = {
+        "checkpoint": "C2", "segment": "S6", "pass_index": 0,
+        "actual_route": "hlod", "drawn_splats": 204115, "row": 6767,
+        "pose_first_frame": 6759, "render_frame_counter": 6767,
+        "rendered_splat_count_source_frame": 6765,
+        "settle": {"settled": True, "settle_usec": 21212, "frames": 8,
+                   "deadline_s": 15.0, "pose_error_m": 0.0},
+    }
+    BASE_C2 = {
+        "checkpoint": "C2", "segment": "S6", "pass_index": 0,
+        "actual_route": "hlod", "drawn_splats": 204115, "row": 26752,
+        "pose_first_frame": -1, "render_frame_counter": -1,
+        "rendered_splat_count_source_frame": -1,
+        "settle": {"settled": False, "settle_usec": -1, "frames": 4845,
+                   "deadline_s": 15.0, "pose_error_m": 0.0,
+                   "reason": "settle_deadline_missed"},
+    }
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.trace_path, self.result = captured("tsmoke_path", Path(self._tmp.name))
+        self.trace = ps.read_trace(self.trace_path)
+        self.path = pp.resolve_path(manifest())
+        self.truth = gt.build_groundtruth(manifest(), self.path, pp.checkpoints(self.path),
+                                          rp.CAMERA, rp.ASPECT)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def replay(self, checkpoint, enabled=False):
+        result = copy.deepcopy(self.result)
+        result.update(ok=True, reason="plan completed", route=checkpoint["actual_route"],
+                      checkpoints=[copy.deepcopy(checkpoint)])
+        # CONSTRUCTED new observation, at run scope to exercise its propagation
+        # to individual checkpoint receipts. Zero hits does not reveal enabled.
+        result["static_sort_cache"] = {"enabled": enabled,
+                                        "applicable": checkpoint["actual_route"] == "chunk"}
+        result.setdefault("final_render_stats", {})["sort_cache_hits"] = 0
+        run = {"exit_code": 0, "timed_out": False, "result": result,
+               "trace": str(self.trace_path)}
+        return result, rp.summarise_path(self.trace, run, self.path, self.truth, 1)
+
+    def assert_evidence(self, summary, verdict, aggregate="VALID"):
+        cp = summary["passes"][0]["checkpoints"][0]
+        self.assertEqual(cp.get("evidence_verdict"), verdict,
+                         "checkpoint evidence must remain explicit beside process completion")
+        self.assertEqual(summary.get("checkpoint_evidence", {}).get("verdict"), aggregate)
+        if aggregate != "VALID":
+            self.assertIn(verdict, json.dumps(summary.get("checkpoint_evidence", {}).get("reasons", [])))
+        return cp
+
+    def test_deadline_missed_checkpoint_is_unusable_despite_ok_process(self):
+        result, summary = self.replay(self.BASE_C2)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["reason"], "plan completed")
+        self.assertFalse(summary["passes"][0]["checkpoints"][0]["settled"])
+        cp = self.assert_evidence(summary, "checkpoint_settle_deadline_missed", "UNUSABLE")
+        self.assertEqual(cp.get("settle"), self.BASE_C2["settle"])
+        self.assertEqual(cp["drawn_splats"], 204115, "retain diagnostic capture after the deadline")
+
+    def test_settled_checkpoint_preserves_provenance_and_valid_verdict(self):
+        _, summary = self.replay(self.CHUNK_C2)
+        cp = self.assert_evidence(summary, "VALID")
+        for key in ("settle", "pose_first_frame", "render_frame_counter", "rendered_splat_count_source_frame"):
+            self.assertEqual(cp.get(key), self.CHUNK_C2[key], key)
+
+    def test_run_probe_delegates_checkpoint_normalization_to_probe_summary(self):
+        normalize = getattr(ps, "checkpoint_evidence", None)
+        self.assertTrue(callable(normalize), "probe_summary must own checkpoint evidence normalization")
+        with mock.patch.object(ps, "checkpoint_evidence", wraps=normalize) as normalizer:
+            self.replay(self.BASE_C2)
+        self.assertTrue(normalizer.called, "deleting run_probe's normalization wiring must turn this red")
+        receipts = [arg for call in normalizer.call_args_list for arg in (*call.args, *call.kwargs.values())
+                    if isinstance(arg, dict)]
+        self.assertTrue(any(all(receipt.get(key) == value for key, value in self.BASE_C2.items())
+                            for receipt in receipts),
+                        "the normalizer must see the producer receipt, including its failed settle")
+
+    def test_required_path_metrics_rejects_unusable_evidence_even_when_settled(self):
+        # CONSTRUCTED consumer-policy case on the complete captured path. Keep
+        # every existing required metric legal so missing checkpoints, stale
+        # counts, or an unrelated metric cannot manufacture the rejection.
+        result = copy.deepcopy(self.result)
+        result.update(route="chunk", static_sort_cache={"enabled": False, "applicable": True})
+        for checkpoint in result["checkpoints"]:
+            # Policy-only transplantation of a known fresh frame triple onto
+            # every legacy receipt, not a capture of those old checkpoints.
+            for key in ("pose_first_frame", "render_frame_counter", "rendered_splat_count_source_frame"):
+                checkpoint[key] = self.CHUNK_C2[key]
+            checkpoint.update(actual_route="chunk", static_sort_cache={"enabled": False, "applicable": True})
+        summary = rp.summarise_path(self.trace, {"result": result}, self.path, self.truth, 1)
+        world = {"flythrough": summary, "rss": {"peak_rss_bytes": ps.metric(1)}}
+        self.assertEqual(rp.required_path_metrics(world), [])
+        cp = summary["passes"][0]["checkpoints"][2]
+        self.assertTrue(cp["settled"])
+        cp.update(evidence_verdict="static_sort_cache_unsupported",
+                  static_sort_cache={"enabled": True, "applicable": True})
+        summary["checkpoint_evidence"] = {
+            "verdict": "UNUSABLE", "reasons": ["static_sort_cache_unsupported"]}
+        problems = rp.required_path_metrics(world)
+        self.assertTrue(any("static_sort_cache_unsupported" in problem for problem in problems),
+                        "run_probe final validation must consume checkpoint evidence, even when settled")
+
+    def test_chunk_cache_enabled_is_unsupported_even_with_zero_hits(self):
+        _, summary = self.replay(self.CHUNK_C2, enabled=True)
+        cp = self.assert_evidence(summary, "static_sort_cache_unsupported", "UNUSABLE")
+        self.assertEqual(cp.get("static_sort_cache"), {"enabled": True, "applicable": True})
+
+    def test_chunk_cache_disabled_retains_valid_checkpoint_evidence(self):
+        _, summary = self.replay(self.CHUNK_C2, enabled=False)
+        cp = self.assert_evidence(summary, "VALID")
+        self.assertEqual(cp.get("static_sort_cache"), {"enabled": False, "applicable": True})
+
+    def test_chunk_cache_unavailable_is_explicit_despite_zero_hits(self):
+        _, summary = self.replay(self.CHUNK_C2, enabled=None)
+        cp = self.assert_evidence(summary, "static_sort_cache_state_unavailable", "UNUSABLE")
+        self.assertEqual(cp.get("static_sort_cache"), {"enabled": None, "applicable": True})
+
+    def test_hlod_cache_enabled_records_bypass_and_valid_evidence(self):
+        _, summary = self.replay(self.HLOD_C2, enabled=True)
+        cp = self.assert_evidence(summary, "VALID")
+        self.assertEqual(cp.get("static_sort_cache"), {"enabled": True, "applicable": False})
+
+    def test_hlod_cache_disabled_records_bypass_and_valid_evidence(self):
+        _, summary = self.replay(self.HLOD_C2, enabled=False)
+        cp = self.assert_evidence(summary, "VALID")
+        self.assertEqual(cp.get("static_sort_cache"), {"enabled": False, "applicable": False})
+
+    def test_hlod_cache_unavailable_preserves_unknown_state_and_bypass(self):
+        _, summary = self.replay(self.HLOD_C2, enabled=None)
+        cp = self.assert_evidence(summary, "VALID")
+        self.assertEqual(cp.get("static_sort_cache"), {"enabled": None, "applicable": False})
+
+
+class CheckpointRouteContext(unittest.TestCase):
+    def test_a_checkpoint_cannot_claim_hlod_to_bypass_known_chunk_cache(self):
+        checkpoint = copy.deepcopy(CheckpointEvidence.HLOD_C2)
+        evidence = ps.checkpoint_evidence(checkpoint, route="chunk", static_sort_cache={"enabled": True})
+        self.assertEqual(evidence["evidence_verdict"], "checkpoint_unsettled")
+        self.assertEqual(evidence["static_sort_cache"], {"enabled": True, "applicable": True})
+        self.assertIn("static_sort_cache_unsupported", evidence["evidence_reasons"])
+        checkpoint.pop("actual_route")
+        unknown = ps.checkpoint_evidence(checkpoint)
+        self.assertEqual(unknown["evidence_verdict"], "checkpoint_unsettled")
+        self.assertIsNone(unknown["static_sort_cache"]["applicable"])
+
+
+class CheckpointEvidenceWiring(unittest.TestCase):
+    """Textual GDScript wiring checks only; these do not execute Godot.
+
+    Summary policy is exercised above. Actual renderer-state observation and
+    checkpoint export still require a Godot runtime run in the implementation phase.
+    """
+
+    def setUp(self):
+        self.gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+
+    def body(self, name):
+        match = re.search(rf"^func {name}\([^\n]*\)[^\n]*:\n(.*?)(?=^func |\Z)",
+                          self.gd, re.M | re.S)
+        self.assertIsNotNone(match, f"production helper {name} is missing")
+        return match.group(1)
+
+    def test_driver_reads_actual_static_cache_state_with_explicit_unavailability(self):
+        methods = re.findall(r"^func [^\n]+\n(.*?)(?=^func |\Z)", self.gd, re.M | re.S)
+        observers = [body for body in methods if 'has_method("is_static_sort_cache_enabled")' in body]
+        self.assertTrue(observers, "query actual renderer cache state; zero hits cannot imply disabled")
+        observer = "\n".join(observers)
+        self.assertIn("get_renderer()", observer)
+        self.assertRegex(observer, r'\.call\("is_static_sort_cache_enabled"\)|\.is_static_sort_cache_enabled\(\)')
+        self.assertIn('"enabled"', observer)
+        self.assertIn("null", observer, "an unavailable getter must retain an explicit unknown enabled state")
+        self.assertNotIn("sort_cache_hits", observer)
+
+    def test_driver_records_cache_route_exclusion_and_hlod_bypass(self):
+        self.assertTrue('"static_sort_cache_unsupported"' in self.gd,
+                        "enabled chunk cache must name the exclusion in checkpoint/run evidence")
+        cache_methods = [body for body in re.findall(r"^func [^\n]+\n(.*?)(?=^func |\Z)",
+                                                    self.gd, re.M | re.S)
+                         if '"applicable"' in body and '"enabled"' in body]
+        self.assertTrue(cache_methods, "record cache applicability separately from enabled state")
+        self.assertTrue(any("_is_hlod_payload_route()" in body for body in cache_methods),
+                        "HLOD applicability must use the actual route, which bypasses this cache")
+        self.assertIn('"static_sort_cache"', self.body("_checkpoint"))
+        self.assertIn('"static_sort_cache"', self.body("_finish"))
+
+    def test_driver_exports_checkpoint_and_run_verdicts_beside_process_ok(self):
+        self.assertIn('"evidence_verdict"', self.body("_checkpoint"))
+        self.assertIn('"checkpoint_settle_deadline_missed"', self.gd)
+        finish = self.body("_finish")
+        self.assertIn('_result["ok"] = ok', finish, "process completion remains distinct")
+        self.assertIn('"checkpoint_evidence"', finish)
+
+
 class CountProvenance(unittest.TestCase):
     """Scalar predicate replay plus textual wiring; this does not execute GDScript.
 
@@ -1417,6 +1656,8 @@ class EntryPoint(unittest.TestCase):
 
     def test_captured_path_run_gives_a_complete_summary(self) -> None:
         trace, result = captured("tsmoke_path", self.tmp)
+        # Entry-point policy replay; the raw historical receipt is tested above.
+        result = admissible_checkpoint_policy(result)
         run = {"exit_code": 0, "timed_out": False, "wall_s": 1.0, "result": result,
                "rss": {"peak_rss_bytes": ps.metric(123, unit="bytes"), "samples": 1}, "log": "", "trace": str(trace)}
         out = self.tmp / "out"

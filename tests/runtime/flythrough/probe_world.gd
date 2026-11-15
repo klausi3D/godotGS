@@ -5,7 +5,7 @@ extends SceneTree
 #   godot --path <project> --script tests/runtime/flythrough/probe_world.gd -- --plan <plan.json>
 #
 # run_probe.py writes the plan and parses what this script leaves behind; it is the
-# only caller. This script does three things and decides nothing:
+# only caller. This script records measurements and checkpoint evidence:
 #
 #   * It applies the plan's settings, loads ONE world on the chunk-streaming route and
 #     renders it at the plan's resolution with vsync off.
@@ -24,6 +24,12 @@ extends SceneTree
 # wait is a loop over rendered frames bounded by wall clock, never a frame count, and
 # the condition must hold on a frame that ENDED before the deadline. A missed deadline
 # is recorded as such, never as settled.
+# A captured checkpoint and ok=true only mean the plan completed. Checkpoint
+# evidence separately requires settlement and count provenance for this pose.
+# The chunk route's sort/static_cache_enabled setting (default false) is excluded:
+# a cache hit need not publish a fresh count. Read its actual renderer state;
+# zero cache hits cannot prove disabled. HLOD bypasses this cache and records that
+# applicability separately, including when the getter is unavailable.
 #
 # Exit codes: 0 the plan ran to the end (the result JSON says what was measured);
 # 1 a step failed (reason in the result JSON); 2 usage / plan error.
@@ -204,6 +210,8 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
 	_result["final_render_stats"] = _scalars(_last_stats)
+	_result["static_sort_cache"] = _static_sort_cache_state()
+	_result["checkpoint_evidence"] = _checkpoint_evidence_result()
 	_result["overlap_sync_cuts"] = {"count": _sync_cut_count, "events": _sync_cut_events}
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
 	_result["overlap_drop_frames"] = {"count": _drop_frame_count, "events": _drop_frame_events,
@@ -247,6 +255,47 @@ func _is_hlod_payload_route() -> bool:
 	if bool(_last_stats.get("hlod_streaming", false)) or bool(_last_stats.get("hlod_active", false)):
 		return true
 	return _node != null and _node.world != null and _node.world.has_hlod_paged_source()
+
+
+func _static_sort_cache_state() -> Dictionary:
+	# Observe configuration, never infer it from counters. The chunk cache is
+	# bypassed by the HLOD route (render_sorting_orchestrator's HLOD branch).
+	var enabled = null
+	var renderer = _node.get_renderer() if _node != null else null
+	if renderer != null and renderer.has_method("is_static_sort_cache_enabled"):
+		enabled = renderer.call("is_static_sort_cache_enabled")
+	return {"enabled": enabled, "applicable": not _is_hlod_payload_route()}
+
+
+func _checkpoint_evidence_verdict(settle: Dictionary, cache: Dictionary) -> String:
+	if str(settle.get("reason", "")) == "settle_deadline_missed" \
+			or bool(settle.get("forward_progress", {}).get("deadline_missed", false)):
+		return "checkpoint_settle_deadline_missed"
+	if settle.get("settled") != true or not _count_sample_is_fresh(_last_stats, _pose_first_frame):
+		return "checkpoint_unsettled"
+	if bool(cache.get("applicable", true)):
+		if cache.get("enabled") == true:
+			return "static_sort_cache_unsupported"
+		if cache.get("enabled") == null:
+			return "static_sort_cache_state_unavailable"
+	return "VALID"
+
+
+func _checkpoint_evidence_result() -> Dictionary:
+	var reasons := []
+	var checkpoints := []
+	for checkpoint in _result.get("checkpoints", []):
+		var verdict := str(checkpoint.get("evidence_verdict", "checkpoint_unsettled"))
+		checkpoints.append({"checkpoint": checkpoint.get("checkpoint"),
+				"pass_index": checkpoint.get("pass_index"), "evidence_verdict": verdict,
+				"evidence_reasons": checkpoint.get("evidence_reasons", [])})
+		for checkpoint_reason in checkpoint.get("evidence_reasons", [verdict]):
+			if checkpoint_reason != "VALID" and not reasons.has(checkpoint_reason):
+				reasons.append(checkpoint_reason)
+	if checkpoints.is_empty():
+		reasons.append("checkpoint_unsettled")
+	return {"verdict": "VALID" if reasons.is_empty() else "UNUSABLE",
+			"reasons": reasons, "checkpoints": checkpoints}
 
 
 func _payload_telemetry_result() -> Dictionary:
@@ -760,8 +809,23 @@ func _maybe_inject(checkpoint: String, pass_index: int) -> void:
 
 func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary:
 	var ss := _last_streaming
+	var cache := _static_sort_cache_state()
+	var verdict := _checkpoint_evidence_verdict(settle, cache)
+	var reasons := []
+	if verdict != "VALID":
+		reasons.append(verdict)
+	# Keep cache exclusion visible even when settlement also missed its deadline.
+	if bool(cache.get("applicable", true)):
+		var cache_reason := ""
+		if cache.get("enabled") == true:
+			cache_reason = "static_sort_cache_unsupported"
+		elif cache.get("enabled") == null:
+			cache_reason = "static_sort_cache_state_unavailable"
+		if not cache_reason.is_empty() and not reasons.has(cache_reason):
+			reasons.append(cache_reason)
 	return {
 		"checkpoint": name, "segment": seg_id, "pass_index": _ctx["pass_index"], "settle": settle,
+		"static_sort_cache": cache, "evidence_verdict": verdict, "evidence_reasons": reasons,
 		"pose": [_camera.global_position.x, _camera.global_position.y, _camera.global_position.z,
 				_camera.rotation_degrees.y, _camera.rotation_degrees.x],
 		"drawn_splats": int(_last_stats.get("rendered_splat_count", -1)),

@@ -24,7 +24,9 @@ from typing import Optional, Sequence
 
 import probe_summary as ps
 
-PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+# Pre-D3 source f2f19bcb580cc131615b3fa262a11d99e6abc70c plus #1453
+# count/camera provenance only, published on bv-pre-d3-provenance.
+PRE_D3 = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
 SCHEMA = "godotgs-shared-layers-t0-comparison/1"
 EXPERIMENT_SCHEMA = "godotgs-shared-layers-t0-experiment/1"
 EXIT_CODES = {"VALID": 0, "UNUSABLE": 2, "NOT_RUN": 3}
@@ -215,6 +217,66 @@ def _draw_assessment(counts, key, metric):
     return "mismatch"
 
 
+def _admissible_draw_counts(rows):
+    # Keep the original numeric count shape. Optional unmeasured node counts
+    # must not enter a range as None, nor hide a one-sided metric difference.
+    return {(row["pass_index"], row["checkpoint"]):
+            {metric: row[metric] for metric in ("drawn_splats", "drawn_nodes") if _count(row.get(metric))}
+            for row in rows if row.get("evidence_verdict") == "VALID"
+            and _count(row.get("pass_index")) and isinstance(row.get("checkpoint"), str)
+            and _count(row.get("drawn_splats")) and row["drawn_splats"] > 0}
+
+
+def _checkpoint_reason(record, *, reference=False):
+    verdict = record.get("evidence_verdict")
+    if verdict == "VALID":
+        return None
+    if verdict in ("static_sort_cache_unsupported", "static_sort_cache_state_unavailable"):
+        return verdict
+    return "migration_reference_unsettled" if reference else "checkpoint_unsettled"
+
+
+def _checkpoint_observations(arms, migration_arms, problem):
+    """Recompute admissibility from receipts, never from a cached VALID token.
+
+    Inadmissible observations remain visible but cannot establish a reference
+    range or a mismatch. Process completion is independent of this evidence.
+    """
+    records, migration_rows = [], {name: [] for name in ("base", "candidate")}
+
+    def capture(row, arm, route, cache):
+        record = ps.checkpoint_evidence(row, route=route, static_sort_cache=cache)
+        record["arm"] = arm
+        records.append(record)
+        reason = _checkpoint_reason(record, reference=arm == "migration_base")
+        if reason:
+            problem(reason, f"pass {record.get('pass_index')} checkpoint {record.get('checkpoint')}: "
+                    f"{record.get('evidence_verdict')}", arm)
+        for exclusion in record.get("evidence_reasons", []):
+            if exclusion in ("static_sort_cache_unsupported", "static_sort_cache_state_unavailable"):
+                problem(exclusion, f"checkpoint {record.get('checkpoint')}: actual chunk sort cache state", arm)
+        return record
+
+    for route in ("chunk", "hlod"):
+        arm = _dict(arms.get(route))
+        cache = _dict(arm.get("observed")).get("static_sort_cache")
+        passes = _dict(arm.get("probe")).get("passes")
+        for measured_pass in passes if isinstance(passes, list) else []:
+            measured_pass = _dict(measured_pass)
+            rows = measured_pass.get("checkpoints")
+            if not isinstance(rows, list) or not rows:
+                problem("checkpoint_unsettled", "no checkpoint evidence in measured pass", route)
+                continue
+            for row in rows:
+                capture({**_dict(row), "pass_index": measured_pass.get("pass_index")}, route, route, cache)
+    for name in ("base", "candidate"):
+        arm = _dict(migration_arms.get(name))
+        rows = _dict(arm.get("payload_behavior")).get("drawn_counts")
+        for row in rows if isinstance(rows, list) else []:
+            migration_rows[name].append(capture(_dict(row), "migration_" + name, "hlod", arm.get("static_sort_cache")))
+    return ps.checkpoint_evidence_summary(records), migration_rows
+
+
 def _trace_problem(path, expected=None):
     if not isinstance(path, str) or not Path(path).is_file():
         return "missing_trace", "trace file is absent"
@@ -352,6 +414,8 @@ def compare(experiment: dict) -> dict:
             reasons.append({"code": code, "detail": detail, **({"arm": arm} if arm else {})})
 
     prepared, arms = _dict(exp.get("prepared")), _dict(exp.get("arms"))
+    checkpoint_evidence, migration_rows = _checkpoint_observations(
+        arms, _dict(_dict(exp.get("migration")).get("arms")), problem)
     references = _dict(prepared.get("content_references"))
     content_identity = {}
     if exp.get("schema") != EXPERIMENT_SCHEMA or not exp.get("run_id"):
@@ -637,13 +701,15 @@ def compare(experiment: dict) -> dict:
             problem("migration_identity_mismatch", "migration resident-page capacity differs")
         if drawn_counts[0].keys() != drawn_counts[1].keys():
             problem("migration_unproven", "migration checkpoint coverage differs")
-        # Only the base establishes the observed range. Candidate-only jitter
-        # cannot enlarge it, and an in-range difference is inconclusive.
-        for key in sorted(drawn_counts[0].keys() & drawn_counts[1].keys()):
-            for metric in sorted(drawn_counts[0][key].keys() | drawn_counts[1][key].keys()):
-                values = [counts[key].get(metric) for counts in drawn_counts]
-                if values[0] != values[1] and _draw_assessment(drawn_counts, key, metric) == "mismatch":
-                    problem("migration_identity_mismatch", f"checkpoint {key[1]} {metric} differs outside observed base range")
+    migration_observations = _migration_observations(migration_arms, migration_rows)
+    usable_counts = [_admissible_draw_counts(migration_rows[name]) for name in ("base", "candidate")]
+    # Preserve #1448's comparison, including one-sided optional measurements.
+    # Only admissible samples participate in either side of its range test.
+    for key in sorted(usable_counts[0].keys() & usable_counts[1].keys()):
+        for metric in sorted(usable_counts[0][key].keys() | usable_counts[1][key].keys()):
+            values = [counts[key].get(metric) for counts in usable_counts]
+            if values[0] != values[1] and _draw_assessment(usable_counts, key, metric) == "mismatch":
+                problem("migration_identity_mismatch", f"checkpoint {key[1]} {metric} differs outside observed base range")
     candidate_content = _check_content(_dict(_dict(migration_arms.get("candidate")).get("payload_behavior")).get(
         "content_digests"), references.get("hlod"), "candidate", problem)
     migration_identity = {"status": "NOT_MEASURED",
@@ -702,7 +768,8 @@ def compare(experiment: dict) -> dict:
             "verdict": verdict, "exit_code": EXIT_CODES[verdict], "reasons": reasons,
             "prepared": copy.deepcopy(prepared), "migration": {**copy.deepcopy(migration), "content_identity": migration_identity},
             "content_identity": content_identity, "control_verdict": control_verdict,
-            "migration_observations": _migration_observations(migration_arms),
+            "migration_observations": migration_observations,
+            "checkpoint_evidence": checkpoint_evidence,
             "control_receipt": copy.deepcopy(receipt),
             "artifact_digests": _artifact_digests({**arms, **({"control": receipt["arm"]} if "arm" in receipt else {})}, migration_arms),
             "passes": {route: copy.deepcopy(_dict(_dict(arms.get(route)).get("probe")).get("passes", []))
@@ -717,7 +784,7 @@ def compare(experiment: dict) -> dict:
             "metrics": {route: _route_metrics(arms.get(route)) for route in ("chunk", "hlod")}}
 
 
-def _migration_observations(arms):
+def _migration_observations(arms, checkpoint_rows):
     behaviors = {name: _dict(_dict(arms.get(name)).get("payload_behavior")) for name in ("base", "candidate")}
     native = {name: _dict(behavior.get("native_payload")) for name, behavior in behaviors.items()}
     metrics = {}
@@ -726,29 +793,45 @@ def _migration_observations(arms):
         metrics[key] = {name: measurement(native[name].get(key)) for name in native}
         metrics[key]["candidate_minus_base"] = (measurement(values[1] - values[0])
             if all(_number(v) for v in values) else not_measured("no two numeric common observations"))
-    counts, changes = {}, []
-    for name, behavior in behaviors.items():
-        rows = behavior.get("drawn_counts")
-        rows = rows if isinstance(rows, list) else []
+    counts, admissible, changes = {}, {}, []
+    for name, rows in checkpoint_rows.items():
         counts[name] = {(row["pass_index"], row["checkpoint"]): row for row in rows if isinstance(row, dict)
                         and _count(row.get("pass_index")) and isinstance(row.get("checkpoint"), str)}
-        for checkpoint in sorted({key[1] for key in counts[name]}):
+        admissible[name] = _admissible_draw_counts(rows)
+        for checkpoint in sorted({key[1] for key in admissible[name]}):
             for metric in ("drawn_splats", "drawn_nodes"):
-                samples = [{"pass_index": index, "value": row[metric]} for (index, cp), row in counts[name].items()
+                samples = [{"pass_index": index, "value": row[metric]} for (index, cp), row in admissible[name].items()
                            if cp == checkpoint and _count(row.get(metric))]
                 if len({sample["value"] for sample in samples}) > 1:
                     changes.append({"arm": name, "checkpoint": checkpoint, "metric": metric, "samples": samples})
-    differences = []
-    for key in sorted(counts["base"].keys() & counts["candidate"].keys()):
+    differences, pairs = [], []
+    for key in sorted(counts["base"].keys() | counts["candidate"].keys()):
+        base, candidate = counts["base"].get(key, {}), counts["candidate"].get(key, {})
+        reason = _checkpoint_reason(base, reference=True) or _checkpoint_reason(candidate)
+        pair = {"pass_index": key[0], "checkpoint": key[1],
+                "assessment": "INCONCLUSIVE" if reason else "equal"}
+        if reason:
+            pair["reason"] = reason
+        pairs.append(pair)
         for metric in ("drawn_splats", "drawn_nodes"):
-            values = [counts[name][key].get(metric) for name in ("base", "candidate")]
-            if all(_count(v) for v in values) and values[0] != values[1]:
+            values = [row.get(metric) for row in (base, candidate)]
+            if values[0] != values[1]:
+                # #1448 is unchanged for usable observations. Only admissible
+                # base samples establish its range; invalid candidate samples
+                # cannot poison the all-candidate range assessment either.
+                usable = not reason and key in admissible["base"] and key in admissible["candidate"]
+                assessment = _draw_assessment([admissible["base"], admissible["candidate"]], key, metric) if usable else "INCONCLUSIVE"
+                if usable:
+                    pair["assessment"] = assessment if pair["assessment"] != "mismatch" else "mismatch"
+                if not all(_count(v) for v in values):
+                    continue
                 differences.append({"pass_index": key[0], "checkpoint": key[1], "metric": metric,
                     "base": values[0], "candidate": values[1], "candidate_minus_base": values[1] - values[0],
-                    "assessment": _draw_assessment([counts["base"], counts["candidate"]], key, metric),
+                    "assessment": assessment, **({"reason": reason} if reason else {}),
                     "within_binary_variation_observed": any(c["checkpoint"] == key[1] and c["metric"] == metric for c in changes)})
     return {"scope": "same V4 source digest, actual common payload work and failure observations; aggregate work is scheduling-dependent",
             "native_payload": metrics, "draw_differences": differences, "within_binary_changes": changes,
+            "checkpoint_pairs": pairs,
             "decode": {name: {key: measurement(behavior.get(key)) for key in (
                 "decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats")} for name, behavior in behaviors.items()}}
 
@@ -961,6 +1044,22 @@ def render_markdown(report: dict) -> str:
               f"Migration candidate content check: {json.dumps(migration_identity.get('candidate', {}), sort_keys=True)}.", ""]
     for reason in report.get("reasons", []):
         lines.append(f"- {reason.get('arm', 'experiment')}: {reason.get('code')}: {reason.get('detail')}")
+    evidence = _dict(report.get("checkpoint_evidence"))
+    lines += ["", "## Checkpoint evidence (#1454)", "",
+              f"Checkpoint evidence: {evidence.get('verdict', 'NOT_MEASURED')}. "
+              "Process completion does not establish checkpoint admissibility.", "",
+              "| arm | pass | checkpoint | verdict / reasons | pose first / count source / render frame | cache enabled / applicable |",
+              "| --- | --- | --- | --- | --- | --- |"]
+    for record in evidence.get("checkpoints", []):
+        record = _dict(record)
+        cache = _dict(record.get("static_sort_cache"))
+        values = (record.get("arm"), record.get("pass_index"), record.get("checkpoint"),
+                  f"{record.get('evidence_verdict')} / {', '.join(record.get('evidence_reasons', []))}",
+                  f"{record.get('pose_first_frame')} / {record.get('rendered_splat_count_source_frame')} / "
+                  f"{record.get('render_frame_counter')}", f"{cache.get('enabled')} / {cache.get('applicable')}")
+        lines.append("| " + " | ".join(str(value).replace("|", "/").replace("\n", " ") for value in values) + " |")
+    for pair in _dict(report.get("migration_observations")).get("checkpoint_pairs", []):
+        lines.append(f"Migration checkpoint pair: {json.dumps(pair, sort_keys=True)}.")
     lines += ["", "| Area / metric | chunk | hlod |", "| --- | --- | --- |"]
 
     def cell(rec):
@@ -1026,6 +1125,9 @@ def _require_report(path, run_id, control):
             raise ValueError("report is malformed or belongs to a different run/control")
         if report.get("verdict") != "VALID":
             return EXIT_CODES.get(report.get("verdict"), EXIT_CODES["UNUSABLE"])
+        evidence = _dict(report.get("checkpoint_evidence"))
+        if evidence.get("verdict") != "VALID" or not evidence.get("checkpoints"):
+            raise ValueError("checkpoint admissibility validation is absent or unusable")
         if (control in ("corrupt", "saturate") and report.get("control_verdict") != "DETECTED") or control == "skip_compare":
             raise ValueError("requested negative control was not detected")
         bound = dict(report)
