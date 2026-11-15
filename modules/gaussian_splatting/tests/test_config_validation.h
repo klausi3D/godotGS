@@ -1405,8 +1405,11 @@ TEST_CASE("[GaussianSplatting][Config] The default high preset's raster tile cap
 	// #1444: on the HLOD route, dense content at grazing angles put 12,398 records into one 16x16
 	// tile while the "high" preset rasterized at most 12,288, so the farthest records were not
 	// drawn. The owner raised the high cap to 16,384 (2026-11-15): the largest legal HLOD node
-	// (gs_hlod::kMaxNodeSplats), and the existing "ultra" value. The rasterizer already walks a
-	// tile in SPLATS_PER_TILE batches, so the cap bounds time, not shared memory.
+	// (gs_hlod::kMaxNodeSplats). The rasterizer already walks a tile in SPLATS_PER_TILE batches,
+	// so the cap bounds time, not shared memory.
+	// #1461: at 16,384 the densest shared_layers_t0 tile still held 18,311 records (19,046 on the
+	// migration arm of the same binary), so the owner raised the high cap to 24,576 (2026-11-15).
+	// "ultra" follows to 24,576 only so that the preset order stays monotonic.
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	if (!project_settings) {
 		FAIL("ProjectSettings singleton is missing; the preset/sentinel path cannot be exercised");
@@ -1414,12 +1417,13 @@ TEST_CASE("[GaussianSplatting][Config] The default high preset's raster tile cap
 	}
 
 	const GPUSortingConfig high = GPUSortingConfig::preset_high();
-	CHECK(high.max_raster_splats_per_tile == 16384u);
+	CHECK(high.max_raster_splats_per_tile == 24576u);
 	CHECK(high.max_raster_splats_per_tile >= gs_hlod::kMaxNodeSplats);
-	// Only the high preset moved: the other presets keep their caps and the order stays monotonic.
+	// Only high and ultra moved (#1461): low and medium keep their caps and the order stays monotonic.
 	CHECK(GPUSortingConfig::preset_low().max_raster_splats_per_tile == 4096u);
 	CHECK(GPUSortingConfig::preset_medium().max_raster_splats_per_tile == 8192u);
-	CHECK(GPUSortingConfig::preset_ultra().max_raster_splats_per_tile == 16384u);
+	CHECK(GPUSortingConfig::preset_ultra().max_raster_splats_per_tile == 24576u);
+	CHECK(GPUSortingConfig::preset_low().max_raster_splats_per_tile <= GPUSortingConfig::preset_medium().max_raster_splats_per_tile);
 	CHECK(GPUSortingConfig::preset_medium().max_raster_splats_per_tile < high.max_raster_splats_per_tile);
 	CHECK(high.max_raster_splats_per_tile <= GPUSortingConfig::preset_ultra().max_raster_splats_per_tile);
 
@@ -1432,7 +1436,7 @@ TEST_CASE("[GaussianSplatting][Config] The default high preset's raster tile cap
 	project_settings->set_setting(preset_path, "high");
 	project_settings->set_setting(raster_cap_path, 0);
 	g_gpu_sorting_config.load_from_project_settings();
-	CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == 16384u);
+	CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == 24576u);
 	g_gpu_sorting_config = previous_global_config;
 }
 
