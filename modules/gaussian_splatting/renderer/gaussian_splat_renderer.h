@@ -632,6 +632,9 @@ public:
     std::unique_ptr<RenderOutputOrchestrator> output_orchestrator;
     std::unique_ptr<IRenderThreadDispatcher> render_thread_dispatcher;
     std::atomic<bool> teardown_resources_started{false};
+    // Main-thread hint -> render thread. A generation coalesces hints without
+    // losing one arriving during a measurement or an empty/failed frame.
+    std::atomic<uint64_t> camera_cut_hint_generation{0};
 
     InstancePipelineBuffers instance_pipeline_buffers;
     PublishedInstanceAssetRemap instance_asset_remap;
@@ -1843,6 +1846,8 @@ public:
      * @note Bypasses sort caching and always performs a fresh sort.
      */
     void force_sort_for_view(const Transform3D &p_world_to_camera_transform);
+    void notify_camera_cut() { camera_cut_hint_generation.fetch_add(1, std::memory_order_relaxed); }
+    uint64_t get_camera_cut_hint_generation() const { return camera_cut_hint_generation.load(std::memory_order_relaxed); }
 
     /// @}
 

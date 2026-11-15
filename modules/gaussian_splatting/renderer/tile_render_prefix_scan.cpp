@@ -59,11 +59,16 @@ static void _release_uniform_set(RenderingDevice *p_device, RID &p_uniform_set) 
 }
 
 template <typename T>
-static bool _readback_typed_buffer(RenderingDevice *p_device, RID p_buffer, uint64_t p_offset, Vector<uint8_t> &r_bytes, const T *&r_ptr) {
+static bool _readback_typed_buffer(RenderingDevice *p_device, RID p_buffer, uint64_t p_offset, Vector<uint8_t> &r_bytes, const T *&r_ptr,
+		double *r_readback_cpu_wall_ms = nullptr) {
 	if (!p_device) {
 		return false;
 	}
+	const uint64_t start = r_readback_cpu_wall_ms ? OS::get_singleton()->get_ticks_usec() : 0;
 	r_bytes = gs_device_utils::safe_buffer_get_data(p_device, p_buffer, p_offset, sizeof(T));
+	if (r_readback_cpu_wall_ms) {
+		*r_readback_cpu_wall_ms += double(OS::get_singleton()->get_ticks_usec() - start) / 1000.0;
+	}
 	if ((size_t)r_bytes.size() < sizeof(T)) {
 		return false;
 	}
@@ -221,7 +226,7 @@ RID TileRenderer::TilePrefixScanStage::create_prefix_param_uniform_set(Rendering
 }
 
 bool TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback(RenderingDevice *p_device, const PrefixParams &p_params,
-        uint32_t &r_record_count, uint32_t &r_raw_record_count) {
+        uint32_t &r_record_count, uint32_t &r_raw_record_count, double *r_readback_cpu_wall_ms) {
     ERR_FAIL_NULL_V(p_device, false);
     if (p_params.total_tiles == 0u) {
         r_record_count = 0u;
@@ -230,7 +235,11 @@ bool TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback(RenderingDevice 
     }
 
     const uint64_t counts_bytes = uint64_t(p_params.total_tiles) * sizeof(uint32_t);
+    const uint64_t readback_start = r_readback_cpu_wall_ms ? OS::get_singleton()->get_ticks_usec() : 0;
     Vector<uint8_t> counts_data = gs_device_utils::safe_buffer_get_data(p_device, owner.global_sort_resources.get_tile_counts_buffer(), 0, counts_bytes);
+    if (r_readback_cpu_wall_ms) {
+        *r_readback_cpu_wall_ms += double(OS::get_singleton()->get_ticks_usec() - readback_start) / 1000.0;
+    }
     if (uint64_t(counts_data.size()) != counts_bytes) {
         GS_LOG_ERROR_DEFAULT(vformat("[TileRenderer] CPU prefix fallback failed to read tile counts (expected=%s bytes, got=%d)",
                 String::num_uint64(counts_bytes), counts_data.size()));
@@ -291,7 +300,7 @@ bool TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback(RenderingDevice 
 
 bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices,
         RenderingDevice *p_device,
-		uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback) {
+		uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback, double *r_readback_cpu_wall_ms) {
 	RenderingDevice *device = p_device ? p_device : owner._get_resource_device();
 	if (!device) {
 		return false;
@@ -341,7 +350,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 				pass1_exceeds_limit ? 1u : 0u,
 				pass2_exceeds_limit ? 1u : 0u,
 				pass3_exceeds_limit ? 1u : 0u));
-		return run_cpu_prefix_fallback(device, prefix_params, r_record_count, r_raw_record_count);
+		return run_cpu_prefix_fallback(device, prefix_params, r_record_count, r_raw_record_count, r_readback_cpu_wall_ms);
 	}
 
 	RID prefix_param_uniform_set = create_prefix_param_uniform_set(device, prefix_params);
@@ -434,7 +443,11 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 	owner.timing_state.prefix_timestamp.label = prefix_label;
 
 	if (allow_sync_readback) {
+		const uint64_t wait_start = r_readback_cpu_wall_ms ? OS::get_singleton()->get_ticks_usec() : 0;
 		owner._flush_pending_submission(true);
+		if (r_readback_cpu_wall_ms) {
+			*r_readback_cpu_wall_ms += double(OS::get_singleton()->get_ticks_usec() - wait_start) / 1000.0;
+		}
 		uint64_t prefix_end_usec = OS::get_singleton()->get_ticks_usec();
 		owner.timing_state.last_prefix_cpu_sync_fallback_ms = float(prefix_end_usec - prefix_start_usec) / 1000.0f;
 		owner.timing_state.prefix_cpu_sync_fallback_valid = true;
@@ -520,7 +533,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 	if (owner.global_sort_resources.indirect_dispatch_buffer.is_valid()) {
 		Vector<uint8_t> indirect_bytes;
 		const IndirectDispatchReadback *indirect = nullptr;
-		if (_readback_typed_buffer(device, owner.global_sort_resources.indirect_dispatch_buffer, 0, indirect_bytes, indirect)) {
+		if (_readback_typed_buffer(device, owner.global_sort_resources.indirect_dispatch_buffer, 0, indirect_bytes, indirect, r_readback_cpu_wall_ms)) {
 			total_records = indirect->element_count;
 			raw_total_records = indirect->unclamped_total;
 			// DEBUG: Log indirect buffer values
@@ -535,7 +548,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 		} else {
 			Vector<uint8_t> total_bytes;
 			const uint32_t *total_ptr = nullptr;
-			if (!_readback_typed_buffer(device, owner.global_sort_resources.prefix_total_buffer, 0, total_bytes, total_ptr)) {
+			if (!_readback_typed_buffer(device, owner.global_sort_resources.prefix_total_buffer, 0, total_bytes, total_ptr, r_readback_cpu_wall_ms)) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to read global overlap total");
 				free_prefix_param_set();
 				return false;
@@ -553,7 +566,7 @@ bool TileRenderer::TilePrefixScanStage::update_global_tile_ranges(const RID &p_g
 		// Cached/estimated values are used by default to avoid per-frame GPU/CPU stalls.
 		Vector<uint8_t> total_bytes;
 		const uint32_t *total_ptr = nullptr;
-		if (!_readback_typed_buffer(device, owner.global_sort_resources.prefix_total_buffer, 0, total_bytes, total_ptr)) {
+		if (!_readback_typed_buffer(device, owner.global_sort_resources.prefix_total_buffer, 0, total_bytes, total_ptr, r_readback_cpu_wall_ms)) {
 			GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to read global overlap total");
 			free_prefix_param_set();
 			return false;

@@ -345,6 +345,27 @@ def cold_prepare(world: Path) -> dict:
         return {"label": "NOT_RUN", "independently_prepared": False, "repeat_label": "repeat", "reason": str(exc)}
 
 
+def sync_cut_measurements(result: dict) -> dict:
+    """Report native cut waits, including absent/incomplete event coverage honestly."""
+    source = result.get("overlap_sync_cuts", {})
+    absent = {"status": "not_measured", "reason": "sync-cut counter or complete per-cut observations unavailable"}
+    if not isinstance(source, dict):
+        return absent
+    count, events = source.get("count"), source.get("events")
+    if type(count) is not int or count < 0 or not isinstance(events, list) or len(events) != count:
+        return absent
+    for index, event in enumerate(events, 1):
+        if (not isinstance(event, dict) or event.get("count") != index
+                or type(event.get("frame_serial")) is not int or event["frame_serial"] <= 0
+                or type(event.get("cpu_wall_ms")) not in (int, float)
+                or not math.isfinite(event["cpu_wall_ms"]) or event["cpu_wall_ms"] < 0):
+            return absent
+    value = {"count": count, "frames": [e["frame_serial"] for e in events],
+            "windows": [e.get("window", "not_measured") for e in events],
+            "cpu_wall_ms_per_cut": [e["cpu_wall_ms"] for e in events], "events": copy.deepcopy(events)}
+    return {"status": ps.OK, "value": value, **value}
+
+
 def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> dict:
     """Expose existing measurements; do not replace an absent route counter by 0."""
     stats = result.get("final_render_stats", {})
@@ -362,6 +383,7 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
                                       "hlod_resident_nodes": cp.get("hlod_resident_nodes"),
                                       "scope": "route diagnostic observation; no G6/G6t acceptance claim"})
     metrics = {
+        "overlap_sync_cuts": sync_cut_measurements(result),
         "os_peak_rss_bytes": run.get("rss", {}).get("peak_rss_bytes"),
         "device_vram_ledger": stats.get("device_vram_ledger"),
         "gpu_memory_usage_mb": missing("#1441 renderer placeholder is not measured VRAM"),

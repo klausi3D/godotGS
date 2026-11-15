@@ -928,6 +928,10 @@ void RenderDebugStateOrchestrator::append_drop_telemetry(Dictionary &r_stats) co
 	// zero drop count as evidence only over a window in which it advanced.
 	const TileRenderer *tr = tile_renderer->ptr();
 	r_stats["drop_signal_samples"] = static_cast<int64_t>(tr->get_drop_signal_samples());
+	r_stats["overlap_sync_cut_count"] = static_cast<int64_t>(tr->get_overlap_sync_cut_count());
+	r_stats["overlap_sync_cut_last_frame"] = static_cast<int64_t>(tr->get_overlap_sync_cut_last_frame());
+	r_stats["overlap_sync_cut_readback_cpu_wall_ms"] = tr->get_overlap_sync_cut_readback_cpu_wall_ms();
+	r_stats["overlap_sync_cut_transform"] = tr->get_overlap_sync_cut_transform();
 	r_stats["overflow_drop_events"] = static_cast<int64_t>(tr->get_overflow_drop_events());
 	r_stats["binning_drop_events"] = static_cast<int64_t>(tr->get_binning_drop_events());
 	r_stats["binning_tile_range_drop_events"] = static_cast<int64_t>(tr->get_binning_tile_range_drop_events());

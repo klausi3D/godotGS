@@ -22,6 +22,7 @@
 #include "tile_render_types.h"
 #include "tile_render_resources.h"
 #include "tile_prefix_scan_utils.h"
+#include "camera_cut_policy.h"
 
 class GPUPerformanceMonitor;
 class IGPUSorter;
@@ -116,6 +117,10 @@ public:
     DebugCounterSnapshot get_debug_counters() const;
     OverflowStatsSnapshot get_overflow_stats() const;
     uint64_t get_overflow_stats_frame_serial() const { return debug_stats.cached_overflow_frame_serial; }
+    uint64_t get_overlap_sync_cut_count() const { return overlap_sync_cut_count; }
+    uint64_t get_overlap_sync_cut_last_frame() const { return overlap_sync_cut_last_frame; }
+    double get_overlap_sync_cut_readback_cpu_wall_ms() const { return overlap_sync_cut_readback_cpu_wall_ms; }
+    Transform3D get_overlap_sync_cut_transform() const { return overlap_sync_cut_transform; }
     SplatAuditSnapshot get_splat_audit_snapshot() const;
 
     // Note: tile_raster_pipeline is created lazily during first render (needs framebuffer format)
@@ -515,7 +520,7 @@ private:
     void _ensure_global_projection_buffer(uint32_t p_visible_count);
     void _ensure_global_sort_resources(uint32_t p_visible_count, bool p_growth_headroom = false);
 	bool _update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices, RenderingDevice *p_device,
-			uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback);
+			uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback, double *r_readback_cpu_wall_ms = nullptr);
     bool _validate_tile_grid(const char *p_context) const;
     bool _validate_resource_owner(const RID &p_resource, const BufferOwnership &p_owner, RenderingDevice *p_device,
             const char *p_label) const;
@@ -596,6 +601,12 @@ private:
     // SH degree the amortized colour cache was last filled at (sh_config_note_band_level).
     uint32_t sh_cache_band_level = UINT32_MAX;
     TileFrameState frame_state;
+    // Render-thread only; reset together with frame_state on cleanup.
+    GaussianSplatting::CameraCutDetector camera_cut_detector;
+    uint64_t overlap_sync_cut_count = 0;
+    uint64_t overlap_sync_cut_last_frame = 0;
+    double overlap_sync_cut_readback_cpu_wall_ms = 0.0;
+    Transform3D overlap_sync_cut_transform;
     TileDeviceContext device_context;
     bool gpu_timestamp_capture_enabled = true;
     TileRenderTargets render_targets;

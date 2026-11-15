@@ -14,6 +14,7 @@ import contextlib
 import gzip
 import importlib.util
 import json
+import re
 import struct
 import sys
 import tempfile
@@ -30,6 +31,49 @@ spec.loader.exec_module(shared)
 
 
 class RunnerPlumbing(unittest.TestCase):
+    def test_sync_cuts_absent_counter_is_not_measured_never_zero(self):
+        for result in ({}, {"overlap_sync_cuts": {"events": []}}):
+            measured = shared.sync_cut_measurements(result)
+            self.assertEqual(measured["status"], "not_measured")
+            self.assertNotEqual(measured.get("count"), 0)
+
+    def test_sync_cuts_report_native_frames_windows_and_cpu_wait(self):
+        # Constructed policy inputs, not a captured engine-format fixture.
+        source = {"count": 2, "events": [
+            {"count": 1, "frame_serial": 42, "cpu_wall_ms": 3.5, "window": "teleport", "segment": "S12", "pass_index": 0},
+            {"count": 2, "frame_serial": 81, "cpu_wall_ms": 1.25, "window": "moving", "segment": "S3", "pass_index": 1}]}
+        measured = shared.sync_cut_measurements({"overlap_sync_cuts": source})
+        self.assertEqual(measured["count"], 2)
+        self.assertEqual(measured["frames"], [42, 81])
+        self.assertEqual(measured["windows"], ["teleport", "moving"])
+        self.assertEqual(measured["cpu_wall_ms_per_cut"], [3.5, 1.25])
+        self.assertEqual(shared.sync_cut_measurements({"overlap_sync_cuts": {"count": 0, "events": []}})["count"], 0)
+        source["events"].pop()
+        self.assertEqual(shared.sync_cut_measurements({"overlap_sync_cuts": source})["status"], "not_measured")
+
+    def test_sync_cuts_production_wiring_is_present(self):
+        # Static wiring proof only; the strict host cases exercise policy behavior.
+        root = HERE.parents[2]
+        tile = (root / "modules/gaussian_splatting/renderer/tile_renderer.cpp").read_text(encoding="utf-8")
+        self.assertTrue(re.search(r"const auto measurement = GaussianSplatting::overlap_measurement_decision\(", tile),
+                        "chunk renderer must call the host-tested measurement decision")
+        self.assertIn("const bool overlap_sync_measurement = measurement.sync;", tile)
+        self.assertIn("overlap_cut_sample ? false : overlap_sync_measurement", tile)
+        self.assertIn('"overlap_sync_cuts": sync_cut_measurements(result)',
+                      (HERE / "shared_layers_t0.py").read_text(encoding="utf-8"))
+        probe = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.assertIn("_sample_sync_cuts(stats)", probe)
+        self.assertIn('_result["overlap_sync_cuts"] =', probe)
+        self.assertIn('stats.get("overlap_sync_cut_transform")', probe)
+        self.assertIn('native_transform.is_equal_approx(sample["transform"])', probe)
+
+    def test_sync_cuts_native_metrics_retains_the_report(self):
+        source = {"overlap_sync_cuts": {"count": 0, "events": []}}
+        metrics = shared.native_metrics(source, {}, None, "chunk", {})
+        self.assertEqual(metrics["overlap_sync_cuts"]["count"], 0)
+        source.pop("overlap_sync_cuts")
+        self.assertEqual(shared.native_metrics(source, {}, None, "chunk", {})["overlap_sync_cuts"]["status"], "not_measured")
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

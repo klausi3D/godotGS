@@ -46,7 +46,7 @@ METRICS = {
     "rendering": ("first_complete_frame", "stop_convergence", "teleport_convergence", "drawn_nodes",
                   "drawn_splats", "drawn_fraction", "screenshots"),
     "performance": ("moving_frame_p95_ms", "moving_frame_p99_ms", "per_segment", "frame_coherent_gpu",
-                    "device_ledger_vram_bytes", "external_vram_bytes"),
+                    "device_ledger_vram_bytes", "external_vram_bytes", "overlap_sync_cuts"),
 }
 SETTINGS = ("camera_path_sha256", "camera_poses", "resolution", "codec", "sh_bands", "visible_splats",
             "drawn_splats", "timing_windows", "node_readback", "project_settings_readback")
@@ -295,6 +295,10 @@ def _route_metrics(arm):
     for q in (95, 99):
         put("performance", f"moving_frame_p{q}_ms", intervals.get(f"p{q}_time_weighted"))
     put("performance", "per_segment", first.get("segments"))
+    put("performance", "overlap_sync_cuts", optional.get("overlap_sync_cuts"),
+        "not_measured: sync-cut counter or per-cut CPU wall times unavailable")
+    if not out["performance"]["overlap_sync_cuts"]["measured"]:
+        out["performance"]["overlap_sync_cuts"]["status"] = "not_measured"
     gpu = _dict(first.get("moving_gpu"))
     if _dict(_dict(gpu.get("coherent_total_ms")).get("mean")).get("status") == ps.OK:
         put("performance", "frame_coherent_gpu", gpu)
