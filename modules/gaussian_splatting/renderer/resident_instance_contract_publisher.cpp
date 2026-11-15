@@ -1381,6 +1381,7 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
     p_renderer->track_resource_owner(r_rid, p_rd);
     r_bundle.owned[r_bundle.owned_count++] = r_rid;
     r_bundle.bytes += p_bytes;
+    r_bundle.host_staged_bytes += gs_hlod_bundle::creation_host_staged_bytes(p_bytes, p_data != nullptr);
     return true;
 }
 

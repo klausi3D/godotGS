@@ -1583,6 +1583,10 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_route_owned_bytes"] = int64_t(ledger_snapshot.admitted_device_bytes); // ledger + device buffers, as last admitted
     // Node streaming (package D). Loading, ready and failed are separate counts (ADR 14.2).
     stats["hlod_streaming"] = resource_state.hlod_streaming;
+    // #1466: the published bundles' device bytes, and the host bytes their creation staged (payload vectors that
+    // RenderingDevice copies through a transfer staging buffer). A buffer cleared on the device stages nothing.
+    stats["hlod_bundle_device_bytes"] = int64_t(resource_state.hlod_canonical.bytes + resource_state.hlod_relative.bytes);
+    stats["hlod_bundle_host_staged_bytes"] = int64_t(resource_state.hlod_canonical.host_staged_bytes + resource_state.hlod_relative.host_staged_bytes);
     stats["hlod_stream_page_store_active"] = resource_state.hlod_streaming && resource_state.hlod_streamer.is_valid() &&
             resource_state.hlod_streamer->uses_page_store(resource_state.hlod_page_store.get());
     const auto &payload_streaming_state = state_view.get_streaming_state();
