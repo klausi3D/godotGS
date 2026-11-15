@@ -37,6 +37,7 @@ const uint GS_MAX_TILE_KEY_TILE_BITS = 15u;
 const uint GS_MAX_TILE_KEY_TILE_MASK = 0x7fffu;
 const uint GS_MAX_TILE_KEY_RECORDS_MAX = 0x1ffffu;
 
+// The atomicMax key of one tile: record count (saturated) above the tile index; 0 when the index does not fit.
 GS_DROP_INLINE uint gs_pack_max_tile_key(uint records, uint tile_idx) {
     if (tile_idx > GS_MAX_TILE_KEY_TILE_MASK) {
         return 0u; // not encodable: never wins against an encodable tile with records
@@ -45,10 +46,12 @@ GS_DROP_INLINE uint gs_pack_max_tile_key(uint records, uint tile_idx) {
     return (clamped_records << GS_MAX_TILE_KEY_TILE_BITS) | tile_idx;
 }
 
+// The (saturated) record count stored in a key.
 GS_DROP_INLINE uint gs_max_tile_key_records(uint key) {
     return key >> GS_MAX_TILE_KEY_TILE_BITS;
 }
 
+// The tile index stored in a key; meaningful only when gs_max_tile_key_identifies holds.
 GS_DROP_INLINE uint gs_max_tile_key_tile(uint key) {
     return key & GS_MAX_TILE_KEY_TILE_MASK;
 }
