@@ -104,6 +104,19 @@ def _captured(name):
 
 
 class ComparisonContract(unittest.TestCase):
+    def test_sync_cut_reporting_preserves_missing_counter_and_measured_zero(self):
+        absent = driver._route_metrics({})["performance"]["overlap_sync_cuts"]
+        self.assertIs(absent["measured"], False)
+        self.assertEqual(absent["status"], "not_measured")
+        self.assertIsNone(absent["value"])
+        source = shared.sync_cut_measurements({"overlap_sync_cuts": {"count": 0, "events": []}})
+        present = driver._route_metrics({"optional_measurements": {"overlap_sync_cuts": source}})
+        self.assertIs(present["performance"]["overlap_sync_cuts"]["measured"], True)
+        self.assertEqual(present["performance"]["overlap_sync_cuts"]["value"]["count"], 0)
+        missing = shared.sync_cut_measurements({})
+        missing_report = driver._route_metrics({"optional_measurements": {"overlap_sync_cuts": missing}})
+        self.assertIs(missing_report["performance"]["overlap_sync_cuts"]["measured"], False)
+
     @classmethod
     def setUpClass(cls):
         cls.trace_bytes = gzip.decompress((HERE / "fixtures/bv07/tsmoke_path.trace.bin.gz").read_bytes())

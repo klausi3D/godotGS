@@ -176,11 +176,11 @@
         bool dispatch_pass2_command(const PrefixDispatchContext &p_context,
                 const GaussianSplatting::TilePrefixPass2ControlLayout &p_control) const;
         bool run_cpu_prefix_fallback(RenderingDevice *p_device, const PrefixParams &p_params,
-                uint32_t &r_record_count, uint32_t &r_raw_record_count);
+                uint32_t &r_record_count, uint32_t &r_raw_record_count, double *r_readback_cpu_wall_ms = nullptr);
         uint64_t dispatch_prefix(uint32_t p_dispatch_x, RID p_pipeline, RID p_buffer_uniform_set, RID p_param_uniform_set,
                 RenderingDevice *p_submission_device, bool p_requires_sync);
         bool update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices, RenderingDevice *p_device,
-                uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback);
+                uint32_t &r_record_count, uint32_t &r_raw_record_count, bool p_allow_sync_readback, double *r_readback_cpu_wall_ms = nullptr);
 
         TileRenderer &owner;
         RID cached_binning_prefix_uniform_set;

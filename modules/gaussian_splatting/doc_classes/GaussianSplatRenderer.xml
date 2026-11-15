@@ -41,6 +41,14 @@
 				Returns the currently assigned PainterlyMaterial resource, or [code]null[/code] if none is set.
 			</description>
 		</method>
+		<method name="notify_camera_cut">
+			<return type="void" />
+			<description>
+				Call after a camera cut or teleport, including switching cameras at a similar pose. The next chunk-route frame with splats takes one synchronous overlap-demand measurement and can grow its record allocation before binning. Several calls before that frame coalesce. The first frame uses the existing bootstrap measurement. This deliberately stalls the CPU for GPU readback on that frame; ordinary motion uses asynchronous readback. HLOD-relative rendering is unaffected.
+				Large pose, lens, or viewport discontinuities are detected automatically. Smaller cuts should use this hint. Obtain this renderer with [method GaussianSplatNode.get_renderer].
+				[method get_render_stats] exports [code]overlap_sync_cut_count[/code], [code]overlap_sync_cut_last_frame[/code] (tile-renderer frame serial), [code]overlap_sync_cut_transform[/code] (camera to world), and [code]overlap_sync_cut_readback_cpu_wall_ms[/code] for the last cut. The last value measures CPU wall time spent flushing/waiting and reading synchronous demand, not GPU execution time. Bootstrap measurements are excluded from the cut count. Keys are absent until a tile renderer exists; consumers must report missing measurements explicitly.
+			</description>
+		</method>
 		<method name="force_sort_for_view">
 			<return type="void" />
 			<param index="0" name="camera_transform" type="Transform3D" />

@@ -794,6 +794,10 @@ uint64_t RenderPipelineStages::compute_raster_params_signature(const GaussianSpl
 	// features) never call invalidate_cached_render().
 	uint64_t seed = HASH_MURMUR3_SEED;
 	seed = _hash_u64(static_cast<uint64_t>(p_viewport_format), seed);
+	if (!p_renderer.get_instance_pipeline_buffers().hlod_relative && !p_renderer.is_shadow_instance_filter_enabled()) {
+		// A hint must reach the next chunk raster, even when its pose is unchanged.
+		seed = _hash_u64(p_renderer.get_camera_cut_hint_generation(), seed);
+	}
 
 	// Painterly: every PainterlyConfig field reaches PainterlyPassGraph::configure()
 	// or the painterly config block; only `enabled` was in the key (painterly_active).
@@ -2360,6 +2364,8 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	render_params.frame_serial = GaussianSplatting::GpuPassTiming::current_frame_serial();
 	render_params.viewport_size = Vector2i(width, height);
 	render_params.world_to_camera_transform = p_world_to_camera_transform;
+	render_params.track_camera_cuts = !renderer->is_shadow_instance_filter_enabled();
+	render_params.camera_cut_hint_generation = renderer->get_camera_cut_hint_generation();
 	render_params.projection = p_projection;
 	render_params.render_projection = p_render_projection;
 	render_params.tile_size = TileRenderer::DEFAULT_TILE_SIZE;

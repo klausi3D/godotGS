@@ -44,6 +44,7 @@ void GaussianSplatRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_painterly_material", "material"), &GaussianSplatRenderer::set_painterly_material);
     ClassDB::bind_method(D_METHOD("get_painterly_material"), &GaussianSplatRenderer::get_painterly_material);
     ClassDB::bind_method(D_METHOD("force_sort_for_view", "camera_transform"), &GaussianSplatRenderer::force_sort_for_view);
+    ClassDB::bind_method(D_METHOD("notify_camera_cut"), &GaussianSplatRenderer::notify_camera_cut);
 
     // Rendering configuration
     ClassDB::bind_method(D_METHOD("set_render_mode", "mode"), &GaussianSplatRenderer::set_render_mode);

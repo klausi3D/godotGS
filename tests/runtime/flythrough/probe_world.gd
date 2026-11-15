@@ -161,6 +161,11 @@ var _iv_telemetry_usec := 0
 var _iv_capture_usec := 0
 var _iv_captures := 0
 var _iv_yield_usec := -1
+# Native counters, separate from the binary trace schema. Retain requested-pose
+# context because render stats can lag the probe by 1-2 frames at window boundaries.
+var _sync_cut_count = "not_measured"
+var _sync_cut_events := []
+var _sync_cut_pose_windows := []
 
 
 func _init() -> void:
@@ -192,6 +197,7 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["end_usec"] = Time.get_ticks_usec()
 	_result["final_streaming"] = _scalars(_last_streaming)
 	_result["final_render_stats"] = _scalars(_last_stats)
+	_result["overlap_sync_cuts"] = {"count": _sync_cut_count, "events": _sync_cut_events}
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
 	if bool(_plan.get("shared_layers_t0", false)):
 		_result["shared_layers_peaks"] = _shared_layers_peaks
@@ -303,6 +309,7 @@ func _sample_and_write() -> void:
 		stats = r.get_render_stats()
 	var stats_usec := Time.get_ticks_usec() - t_stats
 	_last_stats = stats
+	_sample_sync_cuts(stats)
 	_update_pose_first_frame()
 	var ss: Dictionary = stats.get("streaming_state", {}) if stats.get("streaming_state") is Dictionary else {}
 	_last_streaming = ss
@@ -424,6 +431,15 @@ func _set_pose(p: Array) -> void:
 		_pose_first_frame = -1
 	_camera.global_position = Vector3(float(p[0]), float(p[1]), float(p[2]))
 	_camera.rotation_degrees = Vector3(float(p[4]), float(p[3]), 0.0)
+	var context := {"pass_index": _ctx["pass_index"], "window": "not_measured", "segment": "not_measured"}
+	var segments: Array = _plan.get("path", {}).get("segments", [])
+	var si := int(_ctx["segment"])
+	if int(_ctx["phase"]) == 0 and si >= 0 and si < segments.size():
+		context["segment"] = segments[si]["id"]
+		context["window"] = "moving" if segments[si]["kind"] == "move" else segments[si]["kind"]
+	_sync_cut_pose_windows.append({"transform": _camera.global_transform, "context": context})
+	if _sync_cut_pose_windows.size() > 16:
+		_sync_cut_pose_windows.pop_front()
 
 
 func _interp(table: Array, s: float) -> Array:
@@ -447,6 +463,32 @@ func _interp(table: Array, s: float) -> Array:
 	for i in range(1, 6):
 		out.append(float(a[i]) + (float(b[i]) - float(a[i])) * f)
 	return out
+
+
+func _sample_sync_cuts(stats: Dictionary) -> void:
+	if not stats.has("overlap_sync_cut_count"):
+		_sync_cut_count = "not_measured"
+		return
+	var count := int(stats["overlap_sync_cut_count"])
+	var previous := int(_sync_cut_count) if _sync_cut_count is int else 0
+	_sync_cut_count = count
+	if count <= previous:
+		return
+	var event := {"count": count, "frame_serial": stats.get("overlap_sync_cut_last_frame", "not_measured"),
+			"cpu_wall_ms": stats.get("overlap_sync_cut_readback_cpu_wall_ms", "not_measured"),
+			"observed_row": _rows, "window": "not_measured", "segment": "not_measured"}
+	var native_transform = stats.get("overlap_sync_cut_transform")
+	if native_transform is Transform3D:
+		var position: Vector3 = native_transform.origin
+		event["camera_position"] = [position.x, position.y, position.z]
+		# Match the native cut pose, never simply label a delayed sample with the
+		# probe's current segment. An unmatched pose stays explicitly not_measured.
+		for i in range(_sync_cut_pose_windows.size() - 1, -1, -1):
+			var sample: Dictionary = _sync_cut_pose_windows[i]
+			if native_transform.is_equal_approx(sample["transform"]):
+				event.merge(sample["context"], true)
+				break
+	_sync_cut_events.append(event)
 
 
 # Distance between the camera the last render stats describe and the probe camera. The
