@@ -5369,9 +5369,9 @@ base above:</p>
 <td>A-03, #1222</td>
 </tr>
 <tr>
-<td>Per-tile raster cap <code>GS_MAX_RASTER_SPLATS_PER_TILE</code>: records past the cap (the farthest in the tile) are not drawn. The default project setting is the <code>high</code> preset, so <strong>at default settings the cap is 16384</strong> (12288 before #1444). The <code>low</code>, <code>medium</code> and <code>ultra</code> presets set 4096, 8192 and 16384. 65536 is the automatic fallback when no recognized preset is set. A positive project value of <code>max_raster_splats_per_tile</code> overrides the cap under any preset, so an explicit override can also select 65536 under a named preset.</td>
-<td><code>GS_MAX_RASTER_SPLATS_PER_TILE</code> in <code>shaders/tile_rasterizer_compute.glsl</code>; in <code>renderer/gpu_sorting_config.cpp</code>: the <code>GPU_PRESET_PATH</code> <code>GLOBAL_DEF</code> (default <code>high</code>), <code>GPUSortingConfig::preset_high()</code> (16384; 12288 before #1444), <code>preset_low()</code>, <code>preset_medium()</code> and <code>preset_ultra()</code>, and <code>GPUSortingConfig::load_from_project_settings()</code> (the override rule and the 65536 fallback)</td>
-<td>A-13 (#1137 is closed; #1444 raised the <code>high</code> cap from 12288 to 16384 with owner approval, the other presets are unchanged)</td>
+<td>Per-tile raster cap <code>GS_MAX_RASTER_SPLATS_PER_TILE</code>: records past the cap (the farthest in the tile) are not drawn. The default project setting is the <code>high</code> preset, so <strong>at default settings the cap is 24576</strong> (12288 before #1444, 16384 before #1461). The <code>low</code>, <code>medium</code> and <code>ultra</code> presets set 4096, 8192 and 24576. 65536 is the automatic fallback when no recognized preset is set. A positive project value of <code>max_raster_splats_per_tile</code> overrides the cap under any preset, so an explicit override can also select 65536 under a named preset.</td>
+<td><code>GS_MAX_RASTER_SPLATS_PER_TILE</code> in <code>shaders/tile_rasterizer_compute.glsl</code>; in <code>renderer/gpu_sorting_config.cpp</code>: the <code>GPU_PRESET_PATH</code> <code>GLOBAL_DEF</code> (default <code>high</code>), <code>GPUSortingConfig::preset_high()</code> (24576; 12288 before #1444, 16384 before #1461), <code>preset_low()</code>, <code>preset_medium()</code> and <code>preset_ultra()</code>, and <code>GPUSortingConfig::load_from_project_settings()</code> (the override rule and the 65536 fallback)</td>
+<td>A-13 (#1137 is closed; #1444 raised the <code>high</code> cap from 12288 to 16384 and #1461 raised it to 24576, both with owner approval; #1461 also raised <code>ultra</code> from 16384 to 24576 to keep the preset order monotonic; <code>low</code> and <code>medium</code> are unchanged)</td>
 </tr>
 </tbody>
 </table></div>
@@ -5442,7 +5442,7 @@ self-referential baseline cannot show a defect it already contains.</p>
    this item. This record does not resolve the conflict and exempts none of them; open
    question 3 asks the owner to resolve it.</li>
 <li><strong>The default preset's raster cap is a stop-gap at default settings.</strong> The default
-   project setting is the <code>high</code> preset, whose cap of 16384 (12288 before #1444) still drops records
+   project setting is the <code>high</code> preset, whose cap of 24576 (12288 before #1444, 16384 before #1461) still drops records
    (<a href="#problem">Problem</a>). Under item 2, CLN-RQ07-1 is required for parity at default
    settings; it is not optional preset tidying. As written, CLN-RQ07-1 brings every preset
    to the 65536 cap. Its one exception: a preset may keep a lower cap if the PR

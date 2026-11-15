@@ -6088,7 +6088,7 @@ exceed the limit, and what was behind the front-most records shows as a <strong>
 black (background) rectangle</strong>. The limit is
 <code>rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile</code>; in Project Settings
 it reads <code>0</code>, which means "use the <code>gpu_sorting/gpu_preset</code> limit". The default <code>high</code>
-preset's limit is <strong>16,384</strong> (12,288 before #1444; low 4,096, medium 8,192, ultra 16,384).</p>
+preset's limit is <strong>24,576</strong> (12,288 before #1444, 16,384 before #1461; low 4,096, medium 8,192, ultra 24,576).</p>
 <p><strong>Affects:</strong> dense real scans viewed from a distance at the default settings. Measured on an
 RTX 3090 (Vulkan) at 960×540 on four scans from GrandmasHouse: up to 2,295 missing pixels
 per view, starting between about 6 m and 23 m depending on the scan, and in one large scan
