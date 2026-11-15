@@ -36,7 +36,7 @@ public:
 		hint_generation = p_hint_generation;
 		if (have_previous) {
 			const real_t scale = MIN(previous_projection.get_z_far(), p_projection.get_z_far());
-			const bool position_cut = scale > 0 && previous.origin.distance_to(p_camera_to_world.origin) > scale / 8;
+			const bool position_cut = scale > 0 && previous.origin.distance_to(p_camera_to_world.origin) > scale * 8; // NEGATIVE CONTROL #1444: teleports must go undetected; restored by the next commit
 			const Vector3 before = previous.basis.get_column(2).normalized();
 			const Vector3 after = p_camera_to_world.basis.get_column(2).normalized();
 			const bool direction_cut = before.dot(after) < Math::cos(Math::deg_to_rad(real_t(160)));
