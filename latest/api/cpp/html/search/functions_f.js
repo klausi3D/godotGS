@@ -41,8 +41,9 @@ var searchData=
   ['overflowautotuner_38',['OverflowAutoTuner',['../classOverflowAutoTuner.html#af55b44118cc1168e0fbd7f1cccc72f72',1,'OverflowAutoTuner']]],
   ['overlap_5fdemand_5festimate_39',['overlap_demand_estimate',['../namespaceGaussianSplatting.html#a486844aac24e3c1f378e4b408cbaeb17',1,'GaussianSplatting']]],
   ['overlap_5fgrow_5ftarget_40',['overlap_grow_target',['../namespaceGaussianSplatting.html#a0f76538ec79b7081126e86da672e5dca',1,'GaussianSplatting']]],
-  ['overlap_5frecords_5fper_5fsplat_5fq8_41',['overlap_records_per_splat_q8',['../namespaceGaussianSplatting.html#af6ee745c57b6fe48f753f607c2f12d17',1,'GaussianSplatting']]],
-  ['overlap_5fresize_5fpreflight_42',['overlap_resize_preflight',['../namespaceGaussianSplatting.html#abd0ef330a2a4296acc9406ce89e50852',1,'GaussianSplatting']]],
-  ['overlap_5fsort_5ftotal_5fbytes_43',['overlap_sort_total_bytes',['../namespaceGPUSortingConstants.html#a275b1787bebeb947be42da11d9fcf2b6',1,'GPUSortingConstants']]],
-  ['owner_5fid_44',['owner_id',['../classGaussianSplatSceneDirector_1_1SubmissionStore.html#a00e293951b32b99d16380b1de1481fc3',1,'GaussianSplatSceneDirector::SubmissionStore']]]
+  ['overlap_5fmeasurement_5fdecision_41',['overlap_measurement_decision',['../namespaceGaussianSplatting.html#a700d4951d419cffd88e49776dcce8762',1,'GaussianSplatting']]],
+  ['overlap_5frecords_5fper_5fsplat_5fq8_42',['overlap_records_per_splat_q8',['../namespaceGaussianSplatting.html#af6ee745c57b6fe48f753f607c2f12d17',1,'GaussianSplatting']]],
+  ['overlap_5fresize_5fpreflight_43',['overlap_resize_preflight',['../namespaceGaussianSplatting.html#abd0ef330a2a4296acc9406ce89e50852',1,'GaussianSplatting']]],
+  ['overlap_5fsort_5ftotal_5fbytes_44',['overlap_sort_total_bytes',['../namespaceGPUSortingConstants.html#a275b1787bebeb947be42da11d9fcf2b6',1,'GPUSortingConstants']]],
+  ['owner_5fid_45',['owner_id',['../classGaussianSplatSceneDirector_1_1SubmissionStore.html#a00e293951b32b99d16380b1de1481fc3',1,'GaussianSplatSceneDirector::SubmissionStore']]]
 ];

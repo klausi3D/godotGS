@@ -109,6 +109,8 @@ var annotated_dup =
       [ "AnimationChange", "structGaussianSplatting_1_1AnimationChange.html", "structGaussianSplatting_1_1AnimationChange" ],
       [ "ChangeEntry", "structGaussianSplatting_1_1ChangeEntry.html", "structGaussianSplatting_1_1ChangeEntry" ],
       [ "GaussianIncrementalSaver", "classGaussianSplatting_1_1GaussianIncrementalSaver.html", "classGaussianSplatting_1_1GaussianIncrementalSaver" ],
+      [ "CameraCutDetector", "classGaussianSplatting_1_1CameraCutDetector.html", "classGaussianSplatting_1_1CameraCutDetector" ],
+      [ "OverlapMeasurementDecision", "structGaussianSplatting_1_1OverlapMeasurementDecision.html", "structGaussianSplatting_1_1OverlapMeasurementDecision" ],
       [ "PassColors", "structGaussianSplatting_1_1PassColors.html", null ],
       [ "ScopedGpuMarker", "classGaussianSplatting_1_1ScopedGpuMarker.html", "classGaussianSplatting_1_1ScopedGpuMarker" ],
       [ "ScopedGpuMarkerEx", "classGaussianSplatting_1_1ScopedGpuMarkerEx.html", "classGaussianSplatting_1_1ScopedGpuMarkerEx" ],

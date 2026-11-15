@@ -132,6 +132,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a64f017d499db3dfb5ab1703c46355891" id="r_a64f017d499db3dfb5ab1703c46355891"><td class="memItemLeft" align="right" valign="top">Vector2i&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a64f017d499db3dfb5ab1703c46355891">cluster_viewport_size</a></td></tr>
 <tr class="memitem:aa608636d960c841c0886cab66e0ca42d" id="r_aa608636d960c841c0886cab66e0ca42d"><td class="memItemLeft" align="right" valign="top">Vector2i&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa608636d960c841c0886cab66e0ca42d">viewport_size</a></td></tr>
 <tr class="memitem:a561f2aec98cfef06bee8b141871b312c" id="r_a561f2aec98cfef06bee8b141871b312c"><td class="memItemLeft" align="right" valign="top">Transform3D&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a561f2aec98cfef06bee8b141871b312c">world_to_camera_transform</a></td></tr>
+<tr class="memitem:a5264f92b04f81558d2bd2d0738e740de" id="r_a5264f92b04f81558d2bd2d0738e740de"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5264f92b04f81558d2bd2d0738e740de">track_camera_cuts</a> = true</td></tr>
+<tr class="memitem:a8205a0230f384db25af9e9b86eaabb10" id="r_a8205a0230f384db25af9e9b86eaabb10"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8205a0230f384db25af9e9b86eaabb10">camera_cut_hint_generation</a> = 0</td></tr>
 <tr class="memitem:a54e433df066adb27f87250cedc6b1467" id="r_a54e433df066adb27f87250cedc6b1467"><td class="memItemLeft" align="right" valign="top">Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a54e433df066adb27f87250cedc6b1467">projection</a></td></tr>
 <tr class="memitem:a5055f3e5addeceea196aaf1a63428894" id="r_a5055f3e5addeceea196aaf1a63428894"><td class="memItemLeft" align="right" valign="top">Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5055f3e5addeceea196aaf1a63428894">render_projection</a></td></tr>
 <tr class="memitem:ac3ee83364df623cf8489d80ebe503f89" id="r_ac3ee83364df623cf8489d80ebe503f89"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac3ee83364df623cf8489d80ebe503f89">scene_depth_texture</a></td></tr>
@@ -264,6 +266,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">float GaussianSplatting::TileRenderParams::alpha_floor = 0.0f</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8205a0230f384db25af9e9b86eaabb10" name="a8205a0230f384db25af9e9b86eaabb10"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8205a0230f384db25af9e9b86eaabb10">&#9670;&#160;</a></span>camera_cut_hint_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileRenderParams::camera_cut_hint_generation = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1818,6 +1834,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t GaussianSplatting::TileRenderParams::total_gaussians = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5264f92b04f81558d2bd2d0738e740de" name="a5264f92b04f81558d2bd2d0738e740de"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5264f92b04f81558d2bd2d0738e740de">&#9670;&#160;</a></span>track_camera_cuts</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatting::TileRenderParams::track_camera_cuts = true</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -3,6 +3,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "render_types", "dir_e91e54465c16cd2241a3bdce04dd58b3.html", "dir_e91e54465c16cd2241a3bdce04dd58b3" ],
     [ "batched_async_readback.cpp", "batched__async__readback_8cpp.html", null ],
     [ "batched_async_readback.h", "batched__async__readback_8h.html", "batched__async__readback_8h" ],
+    [ "camera_cut_policy.h", "camera__cut__policy_8h.html", "camera__cut__policy_8h" ],
     [ "debug_overlay_methods.cpp", "debug__overlay__methods_8cpp.html", null ],
     [ "device_vram_ledger.h", "device__vram__ledger_8h.html", "device__vram__ledger_8h" ],
     [ "float16_utils.cpp", "float16__utils_8cpp.html", "float16__utils_8cpp" ],

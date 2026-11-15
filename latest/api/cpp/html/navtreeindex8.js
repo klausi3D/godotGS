@@ -1,5 +1,16 @@
 var NAVTREEINDEX8 =
 {
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2605f7845d7e74fff516a806ce964c28":[0,0,12,6,28],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2605f7845d7e74fff516a806ce964c28":[1,0,9,5,28],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2f7101a3596ab0de166c87931cca8a50":[0,0,12,6,34],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2f7101a3596ab0de166c87931cca8a50":[1,0,9,5,34],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a3190e71302ccb3e8952a36dc99139efe":[0,0,12,6,9],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a3190e71302ccb3e8952a36dc99139efe":[1,0,9,5,9],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a34b970c7cd1b86b2e4b2284211ff21eb":[0,0,12,6,16],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a34b970c7cd1b86b2e4b2284211ff21eb":[1,0,9,5,16],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a354b6b8b1d97877d5d0e5a0117173fbd":[0,0,12,6,45],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a354b6b8b1d97877d5d0e5a0117173fbd":[1,0,9,5,45],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a3b43927775225871fb3928d4080a7e0d":[0,0,12,6,42],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a3b43927775225871fb3928d4080a7e0d":[1,0,9,5,42],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a42dfefcd4d4bf0b2d000423955e85da8":[0,0,12,6,40],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a42dfefcd4d4bf0b2d000423955e85da8":[1,0,9,5,40],
@@ -238,16 +249,5 @@ var NAVTREEINDEX8 =
 "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#afd4f9b38c908b453882fdf9f385d8918":[0,0,12,2,0,4],
 "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#afd4f9b38c908b453882fdf9f385d8918":[1,0,9,1,0,4],
 "classGaussianSplatting_1_1HierarchicalSplatStructure.html":[0,0,12,16],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html":[1,0,9,15],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a0a15967774f6a9b23aa3ead736e6717f":[0,0,12,16,15],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a0a15967774f6a9b23aa3ead736e6717f":[1,0,9,15,15],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a24ec492f308a51cb1504dbaed0d311a3":[0,0,12,16,6],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a24ec492f308a51cb1504dbaed0d311a3":[1,0,9,15,6],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a29e24fc361ca07c1d2258956ea629d23":[0,0,12,16,9],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a29e24fc361ca07c1d2258956ea629d23":[1,0,9,15,9],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a31034ee67c839a70ecf1611cbfb6435d":[0,0,12,16,14],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a31034ee67c839a70ecf1611cbfb6435d":[1,0,9,15,14],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a4ebe5a8ede35948b4cfec39998d5d976":[0,0,12,16,13],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a4ebe5a8ede35948b4cfec39998d5d976":[1,0,9,15,13],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html#a5d6f9dfe2676e27833e451a3157e495b":[0,0,12,16,8]
+"classGaussianSplatting_1_1HierarchicalSplatStructure.html":[1,0,9,15]
 };

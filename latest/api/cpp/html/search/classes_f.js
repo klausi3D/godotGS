@@ -14,6 +14,7 @@ var searchData=
   ['outputcopyresult_11',['OutputCopyResult',['../structOutputCopyResult.html',1,'']]],
   ['overflowautotuneconfig_12',['OverflowAutoTuneConfig',['../structOverflowAutoTuneConfig.html',1,'']]],
   ['overflowautotuner_13',['OverflowAutoTuner',['../classOverflowAutoTuner.html',1,'']]],
-  ['overlapworldneed_14',['OverlapWorldNeed',['../structgs__hlod__bundle_1_1OverlapWorldNeed.html',1,'gs_hlod_bundle']]],
-  ['ownermismatchremediationresult_15',['OwnerMismatchRemediationResult',['../structOwnerMismatchRemediationResult.html',1,'']]]
+  ['overlapmeasurementdecision_14',['OverlapMeasurementDecision',['../structGaussianSplatting_1_1OverlapMeasurementDecision.html',1,'GaussianSplatting']]],
+  ['overlapworldneed_15',['OverlapWorldNeed',['../structgs__hlod__bundle_1_1OverlapWorldNeed.html',1,'gs_hlod_bundle']]],
+  ['ownermismatchremediationresult_16',['OwnerMismatchRemediationResult',['../structOwnerMismatchRemediationResult.html',1,'']]]
 ];

@@ -591,6 +591,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memdesc:a0d79ee5cdfe261ebfb91ac1c5b249c41"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns a dictionary of overflow stats, triggering a GPU readback.  <br /></td></tr>
 <tr class="memitem:a518bb1204cbfb0639944059c0627dae3" id="r_a518bb1204cbfb0639944059c0627dae3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a518bb1204cbfb0639944059c0627dae3">force_sort_for_view</a> (const Transform3D &amp;p_world_to_camera_transform)</td></tr>
 <tr class="memdesc:a518bb1204cbfb0639944059c0627dae3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Forces a depth sort for the given view transform.  <br /></td></tr>
+<tr class="memitem:ac16caa34a9c48508f6c0f0bb8f41de48" id="r_ac16caa34a9c48508f6c0f0bb8f41de48"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac16caa34a9c48508f6c0f0bb8f41de48">notify_camera_cut</a> ()</td></tr>
+<tr class="memitem:acc9f30b8ee89af964e2f6b5acb0afadc" id="r_acc9f30b8ee89af964e2f6b5acb0afadc"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acc9f30b8ee89af964e2f6b5acb0afadc">get_camera_cut_hint_generation</a> () const</td></tr>
 <tr id="pub-methods-9" class="groupHeader"><td colspan="2"><div class="groupHeader">Engine Integration</div></td></tr>
 <tr><td colspan="2" class="ititle"><div class="groupText"><p>Methods called by RendererSceneRenderRD for scene rendering. </p>
 </div></td></tr>
@@ -675,6 +677,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a7f7587fb1edce941e9ee9c879687c70f" id="r_a7f7587fb1edce941e9ee9c879687c70f"><td class="memItemLeft" align="right" valign="top">std::unique_ptr&lt; <a class="el" href="classRenderOutputOrchestrator.html">RenderOutputOrchestrator</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f7587fb1edce941e9ee9c879687c70f">output_orchestrator</a></td></tr>
 <tr class="memitem:aba1c4edc4be09ab2f4f4caa35691b61c" id="r_aba1c4edc4be09ab2f4f4caa35691b61c"><td class="memItemLeft" align="right" valign="top">std::unique_ptr&lt; <a class="el" href="classIRenderThreadDispatcher.html">IRenderThreadDispatcher</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aba1c4edc4be09ab2f4f4caa35691b61c">render_thread_dispatcher</a></td></tr>
 <tr class="memitem:a01e965ecf50f0fc4878665d5e14425a2" id="r_a01e965ecf50f0fc4878665d5e14425a2"><td class="memItemLeft" align="right" valign="top">std::atomic&lt; bool &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a01e965ecf50f0fc4878665d5e14425a2">teardown_resources_started</a> {false}</td></tr>
+<tr class="memitem:ad4e16279e37d69b1260b499bf3a8aed5" id="r_ad4e16279e37d69b1260b499bf3a8aed5"><td class="memItemLeft" align="right" valign="top">std::atomic&lt; uint64_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad4e16279e37d69b1260b499bf3a8aed5">camera_cut_hint_generation</a> {0}</td></tr>
 <tr class="memitem:a49831d92435b336bb0aa175ba9d83ce1" id="r_a49831d92435b336bb0aa175ba9d83ce1"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a63e992c84a5ac8a74405a07b90fb4ab2">InstancePipelineBuffers</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a49831d92435b336bb0aa175ba9d83ce1">instance_pipeline_buffers</a></td></tr>
 <tr class="memitem:a495b29d54b3e2457b1c30bdc26a598bb" id="r_a495b29d54b3e2457b1c30bdc26a598bb"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a850e05e36aa427ee0147488a340b1da9">PublishedInstanceAssetRemap</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a495b29d54b3e2457b1c30bdc26a598bb">instance_asset_remap</a></td></tr>
 <tr class="memitem:abb58695217589ff23fb695dc1e142eaf" id="r_abb58695217589ff23fb695dc1e142eaf"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb58695217589ff23fb695dc1e142eaf">instance_pipeline_buffers_valid</a> = false</td></tr>
@@ -4566,6 +4569,31 @@ Usage</h2>
 
 </div>
 </div>
+<a id="acc9f30b8ee89af964e2f6b5acb0afadc" name="acc9f30b8ee89af964e2f6b5acb0afadc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acc9f30b8ee89af964e2f6b5acb0afadc">&#9670;&#160;</a></span>get_camera_cut_hint_generation()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatRenderer::get_camera_cut_hint_generation </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a9ed1a9157635932d433a2c2fb1331d39" name="a9ed1a9157635932d433a2c2fb1331d39"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a9ed1a9157635932d433a2c2fb1331d39">&#9670;&#160;</a></span>get_camera_projection()</h2>
 
@@ -8400,6 +8428,31 @@ Usage</h2>
 
 </div>
 </div>
+<a id="ac16caa34a9c48508f6c0f0bb8f41de48" name="ac16caa34a9c48508f6c0f0bb8f41de48"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac16caa34a9c48508f6c0f0bb8f41de48">&#9670;&#160;</a></span>notify_camera_cut()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatRenderer::notify_camera_cut </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a1f317102714da2bf2286b7476c613f0b" name="a1f317102714da2bf2286b7476c613f0b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a1f317102714da2bf2286b7476c613f0b">&#9670;&#160;</a></span>prepare_hlod_frame()</h2>
 
@@ -12060,6 +12113,20 @@ Usage</h2>
       <table class="memname">
         <tr>
           <td class="memname">String GaussianSplatRenderer::cached_streaming_route_policy_source = &quot;default_fallback&quot;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad4e16279e37d69b1260b499bf3a8aed5" name="ad4e16279e37d69b1260b499bf3a8aed5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad4e16279e37d69b1260b499bf3a8aed5">&#9670;&#160;</a></span>camera_cut_hint_generation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::atomic&lt;uint64_t&gt; GaussianSplatRenderer::camera_cut_hint_generation {0}</td>
         </tr>
       </table>
 </div><div class="memdoc">

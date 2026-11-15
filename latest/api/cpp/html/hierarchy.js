@@ -49,6 +49,7 @@ var hierarchy =
     [ "GaussianSplatting::HierarchicalSplatStructure::BuildParams", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html", null ],
     [ "gs_gsq::BuiltPage", "structgs__gsq_1_1BuiltPage.html", null ],
     [ "OutputCompositor::CachedFramebuffer", "structOutputCompositor_1_1CachedFramebuffer.html", null ],
+    [ "GaussianSplatting::CameraCutDetector", "classGaussianSplatting_1_1CameraCutDetector.html", null ],
     [ "StreamingVisibilityController::CameraVelocityTracker", "structStreamingVisibilityController_1_1CameraVelocityTracker.html", null ],
     [ "CanvasLayer", null, [
       [ "GaussianSplatPerformanceOverlay", "classGaussianSplatPerformanceOverlay.html", null ]
@@ -379,6 +380,7 @@ var hierarchy =
     [ "OutputCopyParams", "structOutputCopyParams.html", null ],
     [ "OutputCopyResult", "structOutputCopyResult.html", null ],
     [ "OverflowAutoTuneConfig", "structOverflowAutoTuneConfig.html", null ],
+    [ "GaussianSplatting::OverlapMeasurementDecision", "structGaussianSplatting_1_1OverlapMeasurementDecision.html", null ],
     [ "gs_hlod_bundle::OverlapWorldNeed", "structgs__hlod__bundle_1_1OverlapWorldNeed.html", null ],
     [ "OwnerMismatchRemediationResult", "structOwnerMismatchRemediationResult.html", null ],
     [ "PackedGaussian", "structPackedGaussian.html", null ],

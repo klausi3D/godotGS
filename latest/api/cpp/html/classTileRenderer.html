@@ -164,6 +164,10 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a506cefe334647dcf2eee419aaa132ed6" id="r_a506cefe334647dcf2eee419aaa132ed6"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a77c74c22b69227e46ce6780318e15354">DebugCounterSnapshot</a><a class="el" href="structDebugCounterSnapshot.html">DebugCounterSnapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a506cefe334647dcf2eee419aaa132ed6">get_debug_counters</a> () const</td></tr>
 <tr class="memitem:a723902ebd0abd7a0a6ac28248917ef46" id="r_a723902ebd0abd7a0a6ac28248917ef46"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a87102b3edbed976a1cf8c54e32db035b">OverflowStatsSnapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a723902ebd0abd7a0a6ac28248917ef46">get_overflow_stats</a> () const</td></tr>
 <tr class="memitem:ae74c74e2ae781c212d5bd5fe87e961a9" id="r_ae74c74e2ae781c212d5bd5fe87e961a9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae74c74e2ae781c212d5bd5fe87e961a9">get_overflow_stats_frame_serial</a> () const</td></tr>
+<tr class="memitem:ababebaf9059ba6cd48990b0dcefdd318" id="r_ababebaf9059ba6cd48990b0dcefdd318"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ababebaf9059ba6cd48990b0dcefdd318">get_overlap_sync_cut_count</a> () const</td></tr>
+<tr class="memitem:ab4e54a61617f69107147bed6e346bc8f" id="r_ab4e54a61617f69107147bed6e346bc8f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab4e54a61617f69107147bed6e346bc8f">get_overlap_sync_cut_last_frame</a> () const</td></tr>
+<tr class="memitem:a9ec578b9dc7309b881a6d9448da581f4" id="r_a9ec578b9dc7309b881a6d9448da581f4"><td class="memItemLeft" align="right" valign="top">double&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ec578b9dc7309b881a6d9448da581f4">get_overlap_sync_cut_readback_cpu_wall_ms</a> () const</td></tr>
+<tr class="memitem:a6ae55b9b57ed6945043ee7eaf47d2dbd" id="r_a6ae55b9b57ed6945043ee7eaf47d2dbd"><td class="memItemLeft" align="right" valign="top">Transform3D&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6ae55b9b57ed6945043ee7eaf47d2dbd">get_overlap_sync_cut_transform</a> () const</td></tr>
 <tr class="memitem:ac186a996167bfaeedb40565872a4769b" id="r_ac186a996167bfaeedb40565872a4769b"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a8410fd020f881ed69ca1e3f0b5811abf">SplatAuditSnapshot</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac186a996167bfaeedb40565872a4769b">get_splat_audit_snapshot</a> () const</td></tr>
 <tr class="memitem:aa937a9f91bec69ac0c9468d9100980cd" id="r_aa937a9f91bec69ac0c9468d9100980cd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa937a9f91bec69ac0c9468d9100980cd">is_initialized</a> () const</td></tr>
 <tr class="memitem:aeea41e4d972d791eb82b5072a769e37f" id="r_aeea41e4d972d791eb82b5072a769e37f"><td class="memItemLeft" align="right" valign="top">RenderingDevice *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeea41e4d972d791eb82b5072a769e37f">get_active_device</a> () const</td></tr>
@@ -2178,6 +2182,106 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">int TileRenderer::get_overflow_tile_count </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ababebaf9059ba6cd48990b0dcefdd318" name="ababebaf9059ba6cd48990b0dcefdd318"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ababebaf9059ba6cd48990b0dcefdd318">&#9670;&#160;</a></span>get_overlap_sync_cut_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_overlap_sync_cut_count </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab4e54a61617f69107147bed6e346bc8f" name="ab4e54a61617f69107147bed6e346bc8f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab4e54a61617f69107147bed6e346bc8f">&#9670;&#160;</a></span>get_overlap_sync_cut_last_frame()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_overlap_sync_cut_last_frame </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9ec578b9dc7309b881a6d9448da581f4" name="a9ec578b9dc7309b881a6d9448da581f4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9ec578b9dc7309b881a6d9448da581f4">&#9670;&#160;</a></span>get_overlap_sync_cut_readback_cpu_wall_ms()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">double TileRenderer::get_overlap_sync_cut_readback_cpu_wall_ms </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6ae55b9b57ed6945043ee7eaf47d2dbd" name="a6ae55b9b57ed6945043ee7eaf47d2dbd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6ae55b9b57ed6945043ee7eaf47d2dbd">&#9670;&#160;</a></span>get_overlap_sync_cut_transform()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Transform3D TileRenderer::get_overlap_sync_cut_transform </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>

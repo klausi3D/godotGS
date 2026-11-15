@@ -18,10 +18,11 @@ var searchData=
   ['note_5fexternal_5fframe_5fserial_15',['note_external_frame_serial',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a653952f17667d7dd7e105b3b5c13dcee',1,'GaussianSplatting::GpuPassTiming']]],
   ['note_5fsorted_5fframe_5fpublished_16',['note_sorted_frame_published',['../structGaussianSplatting_1_1TileGlobalSortResources.html#a028b9ecde5ff4e304ff2f7fc2fa52db9',1,'GaussianSplatting::TileGlobalSortResources']]],
   ['note_5fsuccessful_5feviction_17',['note_successful_eviction',['../classResidencyBudgetController.html#a5d9c84875fa4408a8c57e7cb74204512',1,'ResidencyBudgetController']]],
-  ['notify_5fcompleted_18',['notify_completed',['../classIRenderThreadDispatcher.html#a32d4de0097c995128d5a25cec760da51',1,'IRenderThreadDispatcher::notify_completed()'],['../classRenderThreadDispatcher.html#a1e1f06d20b5cd03b8c6546ed94acc208',1,'RenderThreadDispatcher::notify_completed()']]],
-  ['notify_5ferror_19',['notify_error',['../classGaussianRenderingDiagnostics.html#a5a36234cec50b0ffab7190c21eef4e9c',1,'GaussianRenderingDiagnostics']]],
-  ['notify_5fframe_5fcompleted_20',['notify_frame_completed',['../classGaussianRenderingDiagnostics.html#a42e7186c4311f3a447ab9cc16e3db80c',1,'GaussianRenderingDiagnostics']]],
-  ['notify_5frecovery_21',['notify_recovery',['../classGaussianRenderingDiagnostics.html#a874efbca34267491288351432b723665',1,'GaussianRenderingDiagnostics']]],
-  ['notify_5frenderer_5fdebug_5fhud_5fsources_5fchanged_22',['notify_renderer_debug_hud_sources_changed',['../classGaussianSplatSceneDirector.html#a9b92e496f0329b5fc43add1ba4d4e5a8',1,'GaussianSplatSceneDirector']]],
-  ['notify_5frenderer_5fstate_5fchange_23',['notify_renderer_state_change',['../classInteractiveStateManager.html#af9a254dfe39b9932d06f165800a720ae',1,'InteractiveStateManager']]]
+  ['notify_5fcamera_5fcut_18',['notify_camera_cut',['../classGaussianSplatRenderer.html#ac16caa34a9c48508f6c0f0bb8f41de48',1,'GaussianSplatRenderer']]],
+  ['notify_5fcompleted_19',['notify_completed',['../classIRenderThreadDispatcher.html#a32d4de0097c995128d5a25cec760da51',1,'IRenderThreadDispatcher::notify_completed()'],['../classRenderThreadDispatcher.html#a1e1f06d20b5cd03b8c6546ed94acc208',1,'RenderThreadDispatcher::notify_completed()']]],
+  ['notify_5ferror_20',['notify_error',['../classGaussianRenderingDiagnostics.html#a5a36234cec50b0ffab7190c21eef4e9c',1,'GaussianRenderingDiagnostics']]],
+  ['notify_5fframe_5fcompleted_21',['notify_frame_completed',['../classGaussianRenderingDiagnostics.html#a42e7186c4311f3a447ab9cc16e3db80c',1,'GaussianRenderingDiagnostics']]],
+  ['notify_5frecovery_22',['notify_recovery',['../classGaussianRenderingDiagnostics.html#a874efbca34267491288351432b723665',1,'GaussianRenderingDiagnostics']]],
+  ['notify_5frenderer_5fdebug_5fhud_5fsources_5fchanged_23',['notify_renderer_debug_hud_sources_changed',['../classGaussianSplatSceneDirector.html#a9b92e496f0329b5fc43add1ba4d4e5a8',1,'GaussianSplatSceneDirector']]],
+  ['notify_5frenderer_5fstate_5fchange_24',['notify_renderer_state_change',['../classInteractiveStateManager.html#af9a254dfe39b9932d06f165800a720ae',1,'InteractiveStateManager']]]
 ];

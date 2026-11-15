@@ -122,9 +122,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aa094e4f280e63242f1e3cc475f86ee45" id="r_aa094e4f280e63242f1e3cc475f86ee45"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa094e4f280e63242f1e3cc475f86ee45">dispatch_pass2_hierarchical</a> (const <a class="el" href="structTilePrefixScanStage_1_1PrefixDispatchContext.html">PrefixDispatchContext</a> &amp;p_context) const</td></tr>
 <tr class="memitem:a182b335a4868907957ca5023bc7b59de" id="r_a182b335a4868907957ca5023bc7b59de"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a182b335a4868907957ca5023bc7b59de">dispatch_pass3</a> (const <a class="el" href="structTilePrefixScanStage_1_1PrefixDispatchContext.html">PrefixDispatchContext</a> &amp;p_context) const</td></tr>
 <tr class="memitem:a0044b6e95784d276aebd4c7268d38da8" id="r_a0044b6e95784d276aebd4c7268d38da8"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0044b6e95784d276aebd4c7268d38da8">dispatch_pass2_command</a> (const <a class="el" href="structTilePrefixScanStage_1_1PrefixDispatchContext.html">PrefixDispatchContext</a> &amp;p_context, const <a class="el" href="structGaussianSplatting_1_1TilePrefixPass2ControlLayout.html">GaussianSplatting::TilePrefixPass2ControlLayout</a> &amp;p_control) const</td></tr>
-<tr class="memitem:ae5a77372b11d211d2d8764fdb14cbfb2" id="r_ae5a77372b11d211d2d8764fdb14cbfb2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae5a77372b11d211d2d8764fdb14cbfb2">run_cpu_prefix_fallback</a> (RenderingDevice *p_device, const <a class="el" href="#a45387d64235e01e4fd19a84206f3479e">PrefixParams</a> &amp;p_params, uint32_t &amp;r_record_count, uint32_t &amp;r_raw_record_count)</td></tr>
+<tr class="memitem:aea197d25f2da002c1646c091143b3cee" id="r_aea197d25f2da002c1646c091143b3cee"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aea197d25f2da002c1646c091143b3cee">run_cpu_prefix_fallback</a> (RenderingDevice *p_device, const <a class="el" href="#a45387d64235e01e4fd19a84206f3479e">PrefixParams</a> &amp;p_params, uint32_t &amp;r_record_count, uint32_t &amp;r_raw_record_count, double *r_readback_cpu_wall_ms=nullptr)</td></tr>
 <tr class="memitem:a751c326a74e550e3b6102fa688cf1b00" id="r_a751c326a74e550e3b6102fa688cf1b00"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a751c326a74e550e3b6102fa688cf1b00">dispatch_prefix</a> (uint32_t p_dispatch_x, RID p_pipeline, RID p_buffer_uniform_set, RID p_param_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync)</td></tr>
-<tr class="memitem:ae17ea75630b9688080ebb4e3d2b18a31" id="r_ae17ea75630b9688080ebb4e3d2b18a31"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae17ea75630b9688080ebb4e3d2b18a31">update_global_tile_ranges</a> (const RID &amp;p_gaussian_buffer, const RID &amp;p_sorted_indices, RenderingDevice *p_device, uint32_t &amp;r_record_count, uint32_t &amp;r_raw_record_count, bool p_allow_sync_readback)</td></tr>
+<tr class="memitem:a4dd4907ade7f3c722fc9147f9e71bfbc" id="r_a4dd4907ade7f3c722fc9147f9e71bfbc"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4dd4907ade7f3c722fc9147f9e71bfbc">update_global_tile_ranges</a> (const RID &amp;p_gaussian_buffer, const RID &amp;p_sorted_indices, RenderingDevice *p_device, uint32_t &amp;r_record_count, uint32_t &amp;r_raw_record_count, bool p_allow_sync_readback, double *r_readback_cpu_wall_ms=nullptr)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-attribs" class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
@@ -398,8 +398,8 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="ae5a77372b11d211d2d8764fdb14cbfb2" name="ae5a77372b11d211d2d8764fdb14cbfb2"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae5a77372b11d211d2d8764fdb14cbfb2">&#9670;&#160;</a></span>run_cpu_prefix_fallback()</h2>
+<a id="aea197d25f2da002c1646c091143b3cee" name="aea197d25f2da002c1646c091143b3cee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aea197d25f2da002c1646c091143b3cee">&#9670;&#160;</a></span>run_cpu_prefix_fallback()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -422,15 +422,20 @@ Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_raw_record_count</em></span>&#160;)</td>
+          <td class="paramtype">uint32_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_raw_record_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double *</td>          <td class="paramname"><span class="paramname"><em>r_readback_cpu_wall_ms</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
 </div>
 </div>
-<a id="ae17ea75630b9688080ebb4e3d2b18a31" name="ae17ea75630b9688080ebb4e3d2b18a31"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae17ea75630b9688080ebb4e3d2b18a31">&#9670;&#160;</a></span>update_global_tile_ranges()</h2>
+<a id="a4dd4907ade7f3c722fc9147f9e71bfbc" name="a4dd4907ade7f3c722fc9147f9e71bfbc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4dd4907ade7f3c722fc9147f9e71bfbc">&#9670;&#160;</a></span>update_global_tile_ranges()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -463,7 +468,12 @@ Public Attributes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_allow_sync_readback</em></span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_allow_sync_readback</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double *</td>          <td class="paramname"><span class="paramname"><em>r_readback_cpu_wall_ms</em></span><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

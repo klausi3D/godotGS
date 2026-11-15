@@ -124,6 +124,8 @@ Classes</h2></td></tr>
 <tr class="memitem:AnimationChange" id="r_AnimationChange"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1AnimationChange.html">AnimationChange</a></td></tr>
 <tr class="memitem:ChangeEntry" id="r_ChangeEntry"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1ChangeEntry.html">ChangeEntry</a></td></tr>
 <tr class="memitem:GaussianIncrementalSaver" id="r_GaussianIncrementalSaver"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatting_1_1GaussianIncrementalSaver.html">GaussianIncrementalSaver</a></td></tr>
+<tr class="memitem:CameraCutDetector" id="r_CameraCutDetector"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatting_1_1CameraCutDetector.html">CameraCutDetector</a></td></tr>
+<tr class="memitem:OverlapMeasurementDecision" id="r_OverlapMeasurementDecision"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1OverlapMeasurementDecision.html">OverlapMeasurementDecision</a></td></tr>
 <tr class="memitem:PassColors" id="r_PassColors"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1PassColors.html">PassColors</a></td></tr>
 <tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Color scheme for different GPU pass types.  <a href="structGaussianSplatting_1_1PassColors.html#details">More...</a><br /></td></tr>
 <tr class="memitem:ScopedGpuMarker" id="r_ScopedGpuMarker"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatting_1_1ScopedGpuMarker.html">ScopedGpuMarker</a></td></tr>
@@ -290,6 +292,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a1b14825de218568e7550559505c9fbdc" id="r_a1b14825de218568e7550559505c9fbdc"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b14825de218568e7550559505c9fbdc">debug_trace_record_instance_flags</a> (uint32_t p_total, uint32_t p_rotation_identity, uint32_t p_scale_identity, uint32_t p_translation_zero, uint32_t p_fully_identity)</td></tr>
 <tr class="memitem:a0e092045a4ca3ec8d4a66fd6eb62430c" id="r_a0e092045a4ca3ec8d4a66fd6eb62430c"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e092045a4ca3ec8d4a66fd6eb62430c">debug_trace_get_data_flow_snapshot</a> ()</td></tr>
 <tr class="memitem:a9709e486ea9813e8006455627b425551" id="r_a9709e486ea9813e8006455627b425551"><td class="memItemLeft" align="right" valign="top">Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9709e486ea9813e8006455627b425551">debug_trace_get_recent_events</a> ()</td></tr>
+<tr class="memitem:a700d4951d419cffd88e49776dcce8762" id="r_a700d4951d419cffd88e49776dcce8762"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatting_1_1OverlapMeasurementDecision.html">OverlapMeasurementDecision</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a700d4951d419cffd88e49776dcce8762">overlap_measurement_decision</a> (bool p_hlod_relative, bool p_has_work, bool p_debug_sync, bool p_allow_bootstrap, bool p_bootstrap_sampled, bool p_camera_cut)</td></tr>
 <tr class="memitem:af6ee745c57b6fe48f753f607c2f12d17" id="r_af6ee745c57b6fe48f753f607c2f12d17"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af6ee745c57b6fe48f753f607c2f12d17">overlap_records_per_splat_q8</a> (uint32_t p_raw_records, uint32_t p_visible_splats)</td></tr>
 <tr class="memitem:a486844aac24e3c1f378e4b408cbaeb17" id="r_a486844aac24e3c1f378e4b408cbaeb17"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a486844aac24e3c1f378e4b408cbaeb17">overlap_demand_estimate</a> (uint32_t p_visible_splats, uint32_t p_measured_records_per_splat_q8)</td></tr>
 <tr class="memitem:a0f76538ec79b7081126e86da672e5dca" id="r_a0f76538ec79b7081126e86da672e5dca"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0f76538ec79b7081126e86da672e5dca">overlap_grow_target</a> (uint32_t p_requested_records, uint32_t p_capacity, uint32_t p_hard_cap)</td></tr>
@@ -1377,6 +1380,55 @@ Variables</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_hard_cap</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a700d4951d419cffd88e49776dcce8762" name="a700d4951d419cffd88e49776dcce8762"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a700d4951d419cffd88e49776dcce8762">&#9670;&#160;</a></span>overlap_measurement_decision()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structGaussianSplatting_1_1OverlapMeasurementDecision.html">OverlapMeasurementDecision</a> GaussianSplatting::overlap_measurement_decision </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_hlod_relative</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_has_work</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_debug_sync</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_allow_bootstrap</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_bootstrap_sampled</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_camera_cut</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
