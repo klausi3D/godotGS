@@ -1487,6 +1487,205 @@ class CountProvenance(unittest.TestCase):
         self.assertIn("_camera.global_transform.basis.y", orientation)
 
 
+class SettleStreakProvenance(unittest.TestCase):
+    """#1455: replay scalar decisions and the production pump without Godot.
+
+    Frame numbers for the count/streak boundary come from the issue's diagnosed
+    candidate p1 C7 (pose 32081, render 32093, count source/streak start 32090).
+    Sequences, digests and clocks below are CONSTRUCTED policy inputs, not captured
+    producer receipts. The replay supplies settled route/pose state; it does not
+    exercise camera matching, streaming, GPU readbacks or wall-clock timing.
+
+    Optional pure helpers use the seams _count_sample_is_after_streak(stats,
+    streak_first_frame) and _settle_digest_is_stable(stats, streak_digest). Before
+    they exist, fall back to today's pose-fresh count gate and digest-blind streak.
+    Thus the old predicate fails assertions, rather than a missing-helper lookup.
+    Replaying the pump as well catches helpers whose callers are never wired up.
+    """
+
+    POSE_FIRST = 32081
+    STREAK_FIRST = 32090
+
+    def setUp(self):
+        self.gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.streak_required = int(re.search(r"^const SETTLE_STREAK := (\d+)$", self.gd, re.M)[1])
+
+    def compile_body(self, name, env, optional=False):
+        match = re.search(rf"^func {name}\(([^\n]*)\)[^\n]*:\n(.*?)(?=^func |\Z)",
+                          self.gd, re.M | re.S)
+        if optional and match is None:
+            return
+        self.assertIsNotNone(match, f"existing production function {name} is missing")
+        args = re.sub(r":\s*\w+", "", match[1])
+        body = match[2].split("\n\n\n")[0]
+        body = re.sub(r"\bvar (\w+)(?:\s*:\s*\w+)?\s*:?=", r"\1 =", body)
+        for gd, py in (("true", "True"), ("false", "False"), ("null", "None")):
+            body = re.sub(rf"\b{gd}\b", py, body)
+        body = body.replace("await _frame()", "_frame()")
+        exec(f"def {name}({args}):\n" + body, env)
+
+    def helpers(self, stats=None):
+        env = {"typeof": type, "TYPE_INT": int, "TYPE_STRING": str,
+               "_pose_first_frame": self.POSE_FIRST, "_last_stats": stats or {}}
+        self.compile_body("_count_sample_is_fresh", env)
+        # These fallbacks are the current production decisions, not the fix.
+        env["_count_sample_is_after_streak"] = lambda stats, first: env["_count_sample_is_fresh"](
+            stats, self.POSE_FIRST)
+        env["_settle_digest_is_stable"] = lambda stats, digest: True
+        for name in ("_count_sample_is_after_streak", "_settle_digest_is_stable"):
+            self.compile_body(name, env, optional=True)
+        return env
+
+    def sample(self, render, source, **extra):
+        return {"render_frame_counter": render, "rendered_splat_count_source_frame": source, **extra}
+
+    def replay_pump(self, samples):
+        env = self.helpers()
+        tick = 0
+        frame = 0
+
+        def next_frame():
+            nonlocal tick, frame
+            env["_last_stats"] = samples[min(frame, len(samples) - 1)]
+            frame += 1
+            tick += 1000
+
+        env.update({
+            "Time": mock.Mock(get_ticks_usec=lambda: tick),
+            "SETTLE_STREAK": self.streak_required, "_plan": {},
+            "_frame": next_frame, "_update_pose_first_frame": lambda: None,
+            "_stats_pose_error": lambda: 0.0,
+            "_settled": lambda: env["_last_stats"].get("demand_settled", True)
+            and env["_count_sample_is_fresh"](env["_last_stats"], self.POSE_FIRST),
+        })
+        self.compile_body("_pump_settle", env)
+        # All supplied samples finish before this deadline; the next poll misses
+        # it. No real clock or arbitrary iteration cap determines acceptance.
+        return env["_pump_settle"]((len(samples) + 0.5) / 1000.0)
+
+    def verdict(self, stats, settle, cache=None):
+        env = self.helpers(stats)
+        self.compile_body("_checkpoint_evidence_verdict", env)
+        return env["_checkpoint_evidence_verdict"](
+            settle, {"applicable": False} if cache is None else cache)
+
+    def test_count_source_must_be_strictly_after_streak_start(self):
+        env = self.helpers()
+        for source, expected in ((32089, False), (32090, False), (32091, True)):
+            with self.subTest(source=source):
+                stats = self.sample(32093, source)
+                accepted = 3 >= self.streak_required \
+                    and env["_count_sample_is_fresh"](stats, self.POSE_FIRST) \
+                    and env["_count_sample_is_after_streak"](stats, self.STREAK_FIRST)
+                self.assertEqual(accepted, expected,
+                                 f"count source {source} must be > streak start 32090; pose freshness is insufficient")
+
+    def test_pump_keeps_polling_until_count_describes_the_streak(self):
+        samples = [self.sample(frame, 32090) for frame in range(32090, 32094)]
+        samples.append(self.sample(32094, 32091))
+        receipt = self.replay_pump(samples)
+        self.assertTrue(receipt["settled"], receipt)
+        self.assertEqual(receipt["frames"], 5,
+                         "the pump must wait past the three-frame streak for a count sourced after frame 32090")
+        self.assertEqual(receipt.get("streak_first_frame"), 32090)
+
+    def test_old_count_cannot_settle_even_with_a_long_streak(self):
+        receipt = self.replay_pump([self.sample(frame, 32090) for frame in range(32090, 32099)])
+        self.assertFalse(receipt["settled"],
+                         "a long settled streak cannot make a count sourced at its first frame valid")
+        self.assertEqual(receipt.get("reason"), "settle_deadline_missed")
+        self.assertEqual(receipt.get("streak_first_frame"), 32090)
+
+    def test_digest_helper_rejects_a_changed_drawn_node_set(self):
+        stable = self.helpers()["_settle_digest_is_stable"]
+        self.assertTrue(stable({"hlod_drawn_node_digest": "cut-a"}, "cut-a"))
+        self.assertFalse(stable({"hlod_drawn_node_digest": "cut-b"}, "cut-a"),
+                         "a changed drawn-node digest must restart the settled streak")
+
+    def test_digest_change_restarts_streak_at_the_changed_frame(self):
+        samples = [self.sample(frame, frame - 1, hlod_drawn_node_digest=digest)
+                   for frame, digest in ((32090, "cut-a"), (32091, "cut-a"),
+                                         (32092, "cut-b"), (32093, "cut-b"), (32094, "cut-b"))]
+        receipt = self.replay_pump(samples)
+        self.assertTrue(receipt["settled"], receipt)
+        self.assertEqual(receipt["frames"], 5,
+                         "a digest change on frame 32092 must restart, rather than finish, the streak")
+        self.assertEqual(receipt.get("streak_first_frame"), 32092)
+        self.assertEqual(receipt.get("streak_digest"), "cut-b")
+        self.assertEqual(receipt["settle_usec"], 3000)
+
+    def test_nonsettled_sample_restarts_streak_and_count_barrier(self):
+        samples = [self.sample(32090, 32089), self.sample(32091, 32090, demand_settled=False),
+                   self.sample(32092, 32091), self.sample(32093, 32092),
+                   self.sample(32094, 32092), self.sample(32095, 32093)]
+        receipt = self.replay_pump(samples)
+        self.assertTrue(receipt["settled"], receipt)
+        self.assertEqual(receipt["frames"], 6,
+                         "after demand resumes, the old streak's count barrier cannot be reused")
+        self.assertEqual(receipt.get("streak_first_frame"), 32092)
+        self.assertEqual(receipt["settle_usec"], 3000)
+
+    def test_absent_or_null_digest_does_not_block_or_fabricate_identity(self):
+        stable = self.helpers()["_settle_digest_is_stable"]
+        for digest_stats in ({}, {"hlod_drawn_node_digest": None}):
+            with self.subTest(digest_stats=digest_stats):
+                self.assertTrue(stable(digest_stats, "cut-a"))
+                receipt = self.replay_pump([self.sample(frame, frame - 1, **digest_stats)
+                                            for frame in range(32090, 32093)])
+                self.assertTrue(receipt["settled"], "the pinned base/chunk route need not export a digest")
+                self.assertIsNone(receipt.get("streak_digest"), "never fabricate a missing digest")
+
+    def test_missing_or_invalid_count_source_never_settles(self):
+        for value in (None, -1, "32091", 32091.0, True, 32099):
+            with self.subTest(source=value):
+                receipt = self.replay_pump([self.sample(frame, value) for frame in range(32090, 32094)])
+                self.assertFalse(receipt["settled"], "an invalid/future count source cannot settle")
+                self.assertEqual(receipt.get("reason"), "settle_deadline_missed")
+        receipt = self.replay_pump([{"render_frame_counter": frame} for frame in range(32090, 32094)])
+        self.assertFalse(receipt["settled"], "an absent count source cannot settle")
+        self.assertEqual(receipt.get("reason"), "settle_deadline_missed")
+
+    def test_settle_receipt_records_streak_first_frame_and_available_digest(self):
+        for digest_stats in ({}, {"hlod_drawn_node_digest": None},
+                             {"hlod_drawn_node_digest": "cut-a"}, {"hlod_drawn_node_digest": ""}):
+            with self.subTest(digest_stats=digest_stats):
+                receipt = self.replay_pump([self.sample(frame, frame - 1, **digest_stats)
+                                            for frame in range(32090, 32093)])
+                self.assertTrue(receipt["settled"], receipt)
+                self.assertEqual(receipt.get("streak_first_frame"), 32090,
+                                 "settle receipts must export the streak's render frame, not just elapsed time")
+                self.assertEqual(receipt.get("streak_digest"), digest_stats.get("hlod_drawn_node_digest"))
+
+    def test_checkpoint_verdict_rejects_count_at_or_before_streak_start(self):
+        for source in (32089, 32090):
+            with self.subTest(source=source):
+                self.assertEqual(self.verdict(self.sample(32093, source),
+                                              {"settled": True, "streak_first_frame": 32090}),
+                                 "checkpoint_unsettled",
+                                 "checkpoint evidence must independently require a count after the streak start")
+
+    def test_checkpoint_verdict_rejects_missing_or_invalid_streak_start(self):
+        for settle in ({"settled": True}, *({"settled": True, "streak_first_frame": value}
+                                          for value in (None, -1, "32090", 32090.0, True, 32094))):
+            with self.subTest(settle=settle):
+                self.assertEqual(self.verdict(self.sample(32093, 32091), settle), "checkpoint_unsettled",
+                                 "without a valid streak-first render frame the count cannot prove settlement")
+
+    def test_checkpoint_verdict_preserves_valid_deadline_and_cache_results(self):
+        stats = self.sample(32093, 32091)
+        settle = {"settled": True, "streak_first_frame": 32090}
+        self.assertEqual(self.verdict(stats, settle), "VALID")
+        for enabled, expected in ((False, "VALID"), (True, "static_sort_cache_unsupported"),
+                                  (None, "static_sort_cache_state_unavailable")):
+            with self.subTest(enabled=enabled):
+                self.assertEqual(self.verdict(stats, settle, {"applicable": True, "enabled": enabled}), expected)
+        for deadline in ({"reason": "settle_deadline_missed"},
+                         {"forward_progress": {"deadline_missed": True}}):
+            with self.subTest(deadline=deadline):
+                self.assertEqual(self.verdict(self.sample(32093, 32090), {**settle, **deadline}),
+                                 "checkpoint_settle_deadline_missed")
+
+
 class CoverageWiring(unittest.TestCase):
     """Gate repair: deleting any wire of the completeness signal turns this red."""
 
