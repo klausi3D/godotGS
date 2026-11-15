@@ -940,6 +940,9 @@ void RenderDebugStateOrchestrator::append_drop_telemetry(Dictionary &r_stats) co
 	r_stats["sampled_dropped_records_total"] = static_cast<int64_t>(tr->get_sampled_dropped_records_total());
 	r_stats["sampled_overlap_records_total"] = static_cast<int64_t>(tr->get_sampled_overlap_records_total());
 	r_stats["sampled_overlap_splats_total"] = static_cast<int64_t>(tr->get_sampled_overlap_splats_total());
+	// #1457/#1461: the sampled frames that lost records (per-tile record maximum, its tile, the
+	// record allocation). Values that were not measured are the string "not_measured", never 0.
+	tr->append_drop_frame_telemetry(r_stats);
 }
 
 Dictionary RenderDebugStateOrchestrator::get_pipeline_trace_snapshot() const {

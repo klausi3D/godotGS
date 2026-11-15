@@ -691,11 +691,12 @@ void TileProjectionBuffers::ensure_projection_buffer(uint32_t p_visible_count) {
 	// sweeps (e.g. 250K..3.74M), so this >1 GB buffer must never grow/shrink-cycle:
 	// an earlier 8x instantaneous shrink hysteresis was not wide enough and freed +
 	// recreated the buffer hundreds of times per session, stalling the driver and
-	// transiently double-allocating. We therefore default to ONLY-GROW (hold the
-	// session high-water mark; release wholesale on teardown / scene change).
+	// transiently double-allocating. Without `bounded_buffer_shrink_enabled` the
+	// buffer is therefore ONLY-GROW (hold the session high-water mark; release
+	// wholesale on teardown / scene change).
 	//
-	// When `bounded_buffer_shrink_enabled` is set (opt-in, primarily for low-end
-	// GPUs that cannot afford to pin peak VRAM for the whole session), we instead
+	// With `bounded_buffer_shrink_enabled` (on by default since GS-PERF-S2, see
+	// gpu_sorting_config.h; a project setting can turn it off) we instead
 	// use the shared wide-hysteresis resize plan: it reclaims the buffer only after
 	// demand stays at/below half capacity for TILE_SCRATCH_SHRINK_HYSTERESIS_FRAMES
 	// consecutive frames — far wider than the streak that caused the old cycling.
@@ -1271,13 +1272,13 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 				desired_key_config.depth_bits != key_config.depth_bits ||
 				desired_key_config.enable_tie_breaker != key_config.enable_tie_breaker;
 
-		// Bounded shrink (opt-in): when overlap demand stays well below the reserved
+		// Bounded shrink (bounded_buffer_shrink_enabled, on by default): when overlap demand stays well below the reserved
 		// sort capacity for a wide hysteresis window, recreate the sorter at the lower
 		// demand so the (up to >1 GB) key/value buffers are reclaimed. The hysteresis is
 		// wide and resets on any demand recovery, so a shrink is bounded to views that hold
 		// low overlap for the full window: a slow sweep that stays below the trigger for
 		// >240 frames between high-demand views can still shrink and later re-grow — bounded,
-		// not impossible (default-off makes the occasional realloc acceptable). Growth and
+		// not impossible (GS-PERF-S2 measured the occasional realloc as no hitch). Growth and
 		// key-config changes keep their existing dedicated triggers below; this only adds a
 		// shrink trigger.
 		//
@@ -1292,8 +1293,8 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 		// Residual edge (accepted): a demand spike on the exact trigger frame shrinks off
 		// the prior frame's low measurement, then the post-count grow path re-grows the
 		// same frame — a single, self-correcting re-count, not sustained thrash. A pending-
-		// shrink state machine would remove even that, at a complexity cost not worth it
-		// for a default-off knob.
+		// shrink state machine would remove even that, at a complexity cost judged not
+		// worth it for one self-correcting re-count.
 		uint32_t effective_demand = MAX<uint32_t>(attempt_elements, last_observed_demand);
 		// Cap the demand to max_overlap_records: the prefix path clamps usable records to it,
 		// so any capacity above the cap is dead VRAM. Clamping the demand here (together with
@@ -1308,7 +1309,7 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count, bool p_
 		// at the lower capacity. On a GPU that lacks RadixSort indirect support the sorter is
 		// disabled and every translucent global-composite frame is rejected (#586); the
 		// key/value buffers then stay at their high-water capacity and are not reclaimed by
-		// this path. That is an accepted limitation of the opt-in shrink on an already-degraded
+		// this path. That is an accepted limitation of the bounded shrink on an already-degraded
 		// (rejecting) fallback — reclaiming there would need a separate sorter-less
 		// buffer-resize path, which is not worth the added complexity for that narrow,
 		// low-capability-GPU case.

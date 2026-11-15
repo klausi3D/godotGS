@@ -25,7 +25,10 @@
         // production frame.
         // #1393: p_binning_splats is the splats this frame dispatched to tile binning; it travels
         // with the sample so records per splat pair a frame's records with its own splats.
-        void poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial, uint32_t p_binning_splats = 0);
+        // #1457: p_overlap_allocation_records is the record capacity this frame's prefix scan
+        // clamped to (0 = no scan this frame), reported with a sampled frame that lost records.
+        void poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial, uint32_t p_binning_splats = 0,
+                uint32_t p_overlap_allocation_records = 0);
         void on_overflow_signal_readback(const Vector<uint8_t> &p_data);
         // BV-04b: always-on async readback of the HLOD route's per-level record counters
         // (HlodLevelRecordStatsGPU, tile_binning.glsl binding 24). Polled at the end of a frame
@@ -129,7 +132,8 @@
         // poll_overflow_drop_signal resets the signal word right after its copy (read-and-reset),
         // so each set bit is counted by exactly one readback (PR #508 over-count fix, #1137 review).
         mutable AsyncReadbackState overflow_signal_readback;
-        mutable uint32_t overflow_signal_requested_splats = 0; // #1393: binning splats of the sampled frame
+        // #1393/#1457: host context of the sampled frame (binning splats, record allocation, grid, cap).
+        mutable GaussianSplatting::TileOverflowSampleContext overflow_signal_context;
         mutable AsyncReadbackState hlod_level_stats_readback; // BV-04b
     };
 

@@ -84,6 +84,8 @@ TileRenderer::TilePrefixScanStage::PrefixParams TileRenderer::TilePrefixScanStag
     prefix_params.workgroup_stride = GaussianSplatting::kTilePrefixPassLocalSize;
     prefix_params.total_workgroups = GaussianSplatting::tile_prefix_compute_total_workgroups(owner.grid_state.total_tiles);
     prefix_params.global_sort_capacity = owner._get_effective_overlap_capacity();
+    // #1457: the capacity this frame's scan clamps element_count to, for the drop-frame telemetry.
+    owner.diagnostics.last_prefix_scan_capacity = prefix_params.global_sort_capacity;
     return prefix_params;
 }
 

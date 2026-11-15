@@ -635,6 +635,142 @@ def overlap_drops(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
     return rec
 
 
+#: The exported spelling of a value that was not measured (the renderer's drop-frame export and
+#: probe_world.gd use the same string). Never replaced by 0.
+NOT_MEASURED = "not_measured"
+
+#: #1457: the two parts of a pass's checkpoint drop window, by the probe's row state. Together
+#: they are exactly ``overlap_drops_checkpoints`` (every settle and hold row of the pass).
+CHECKPOINT_DROP_WINDOWS = (
+    ("settle_window", "overlap_drops_checkpoints_settle_window", STATE_SETTLING),
+    ("settled_pose", "overlap_drops_checkpoints_settled_pose", STATE_HOLD),
+)
+CHECKPOINT_DROP_SPLIT_SCOPE = (
+    "settle_window = rows while the probe waits for a checkpoint to settle (the frames after a stop or a "
+    "teleport); settled_pose = the hold rows after the settle. Both are dropped records (missing splats) and "
+    "both stay failures; the split only says where they were observed. A drop is credited to the row whose "
+    "stats saw the readback, a frame or more after the frame that dropped, so a drop in the last frames of "
+    "one window can be credited to the next.")
+_DROP_WINDOW_KEYS = ("rows", "readback_samples", "drop_events", "binning_tile_range_drop_events",
+                     "binning_budget_drop_events", "raster_tile_cap_drop_events", "sampled_dropped_records")
+
+
+def checkpoint_drop_windows(trace: Trace, pass_index: int) -> Dict[str, object]:
+    """#1457: one pass's checkpoint drops, split into the settle window and the settled pose."""
+    return {key: overlap_drops(trace, rows_where(trace, phase=0, pass_index=pass_index, state=state))
+            for _label, key, state in CHECKPOINT_DROP_WINDOWS}
+
+
+def checkpoint_drop_split(passes: object) -> Dict[str, object]:
+    """#1457 (report-only): the checkpoint drops of each pass, settle window beside settled pose.
+
+    Reads the two windows `checkpoint_drop_windows` put into a pass record. A window that is not OK
+    (no readback completed in its rows, an older summary without the split) is ``not_measured``
+    with its reason, never zero drops. Nothing here changes a verdict: the comparator and G10
+    keep failing on drops in either window.
+    """
+    out = []
+    for record in passes if isinstance(passes, list) else []:
+        if not isinstance(record, dict):
+            continue
+        entry: Dict[str, object] = {"pass_index": record.get("pass_index")}
+        for label, key, _state in CHECKPOINT_DROP_WINDOWS:
+            window = record.get(key)
+            if isinstance(window, dict) and window.get("status") == OK:
+                entry[label] = {"status": OK, **{name: window.get(name) for name in _DROP_WINDOW_KEYS}}
+            else:
+                reason = (window.get("reason", "window not OK") if isinstance(window, dict)
+                          else "the pass summary carries no split checkpoint window")
+                entry[label] = {"status": NOT_MEASURED, "reason": reason}
+        out.append(entry)
+    if not out:
+        return missing("no pass summary to split")
+    value = {"scope": CHECKPOINT_DROP_SPLIT_SCOPE, "passes": out}
+    return {"status": OK, "value": value, **value}
+
+
+_DROP_FRAME_INT_KEYS = ("frame_serial", "dropped_records", "raster_cap_dropped_records", "raster_truncated_tiles",
+                        "overlap_records_attempted", "raster_tile_cap")
+_DROP_FRAME_OPTIONAL_KEYS = ("max_tile_records", "max_tile_x", "max_tile_y", "overlap_allocation_records")
+DROP_FRAME_SCOPE = (
+    "sampled frames whose own counters show lost overlap records, from the renderer's always-on drop readback "
+    "(no extra readback). max_tile_records is the most records any tile reserved in that frame, max_tile its "
+    "tile, overlap_allocation_records the record capacity of that frame, overlap_records_attempted the demand. "
+    "A drop event whose dropping frame was not the sampled one has no entry; observed_* is the probe row that "
+    "saw the sample, a frame or more after the frame itself.")
+
+
+def _count(value: object) -> Optional[int]:
+    return value if type(value) is int and value >= 0 else None
+
+
+def drop_frame_summary(source: object) -> Dict[str, object]:
+    """#1457/#1461: the sampled frames that lost overlap records (probe_world.gd ``overlap_drop_frames``).
+
+    - MISSING when the probe result has no such block or the renderer did not publish the counter
+      (an older binary): there is no number, and none is invented.
+    - INVALID when the block contradicts itself (events that do not add up to the counter, a frame
+      without its required counters): its numbers are not reported.
+    - OK otherwise, also with zero drop frames. Per-frame values the renderer exported as
+      ``not_measured`` stay ``not_measured``; maxima are taken over measured values only and are
+      MISSING when there is none.
+    """
+    if not isinstance(source, dict):
+        return {"status": MISSING, "reason": "the probe result has no overlap_drop_frames block (older probe)"}
+    count, events, unrecorded = _count(source.get("count")), source.get("events"), _count(source.get("events_not_recorded"))
+    if count is None:
+        return {"status": MISSING, "reason": "the renderer did not publish drop_frame_samples (older binary)"}
+    if not isinstance(events, list) or unrecorded is None or len(events) + unrecorded != count:
+        return {"status": INVALID, "reason": "drop-frame events and events_not_recorded do not add up to the counter"}
+    frames: List[Dict[str, object]] = []
+    for index, event in enumerate(events):
+        frame = event.get("frame") if isinstance(event, dict) else None
+        if not isinstance(frame, dict) or any(_count(frame.get(key)) is None for key in _DROP_FRAME_INT_KEYS):
+            return {"status": INVALID, "reason": f"drop-frame event {index} lacks its frame counters"}
+        if frame["dropped_records"] <= 0 or frame["raster_cap_dropped_records"] > frame["dropped_records"]:
+            return {"status": INVALID, "reason": f"drop-frame event {index} has inconsistent lost-record counters"}
+        entry: Dict[str, object] = {key: frame[key] for key in _DROP_FRAME_INT_KEYS}
+        for key in _DROP_FRAME_OPTIONAL_KEYS:
+            value = _count(frame.get(key))
+            entry[key] = value if value is not None else NOT_MEASURED
+        entry["binning_dropped_records"] = frame["dropped_records"] - frame["raster_cap_dropped_records"]
+        entry["max_tile_records_over_cap"] = (
+            entry["max_tile_records"] - frame["raster_tile_cap"]
+            if entry["max_tile_records"] != NOT_MEASURED and frame["raster_tile_cap"] > 0 else NOT_MEASURED)
+        entry["overlap_records_over_allocation"] = (
+            frame["overlap_records_attempted"] - entry["overlap_allocation_records"]
+            if entry["overlap_allocation_records"] != NOT_MEASURED else NOT_MEASURED)
+        for key in ("observed_row", "observed_phase", "observed_pass_index", "observed_segment", "observed_state"):
+            value = event.get(key)
+            entry[key] = value if type(value) is int else NOT_MEASURED
+        frames.append(entry)
+
+    def peak(selected: List[Dict[str, object]], key: str, reason: str) -> Dict[str, object]:
+        values = [f[key] for f in selected if f[key] != NOT_MEASURED]
+        return metric(max(values), unit="records") if values else missing(reason, "records")
+
+    cap_frames = [f for f in frames if f["raster_cap_dropped_records"] > 0]
+    binning_frames = [f for f in frames if f["binning_dropped_records"] > 0]
+    value = {
+        "scope": DROP_FRAME_SCOPE,
+        "drop_frames": count,
+        "drop_frames_described": len(frames),
+        "drop_frames_not_described": unrecorded,
+        "max_tile_records_peak": peak(frames, "max_tile_records", "no sampled dropping frame carried a per-tile record maximum"),
+        "raster_cap_frames": len(cap_frames),
+        "raster_cap_max_tile_records_peak": peak(
+            cap_frames, "max_tile_records", "no sampled frame lost records at the per-tile raster cap"),
+        "raster_cap_dropped_records": sum(f["raster_cap_dropped_records"] for f in frames),
+        "binning_frames": len(binning_frames),
+        "binning_dropped_records": sum(f["binning_dropped_records"] for f in frames),
+        "binning_overlap_records_over_allocation_peak": peak(
+            binning_frames, "overlap_records_over_allocation",
+            "no sampled frame with a binning drop carried its record allocation"),
+        "frames": frames,
+    }
+    return {"status": OK, "value": value, **value}
+
+
 def forward_progress_summary(records: object, *, route: str, windows: dict) -> Dict[str, object]:
     """Recompute progress over existing probe settle windows, without a new limit.
 

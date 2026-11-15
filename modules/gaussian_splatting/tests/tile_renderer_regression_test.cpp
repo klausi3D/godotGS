@@ -2283,6 +2283,7 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow
 
             // --- Phase 2: overflow. The dense workload must drive the counter above baseline. ---
             const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();
+            const uint64_t baseline_drop_frames = tile_renderer->get_drop_frame_samples();
             uint32_t clamped_seen = 0;
             String overflow_error;
             if (!render_scene(OVERFLOW_TEST_SPLAT_COUNT, 24, clamped_seen, overflow_error)) {
@@ -2297,6 +2298,50 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow
                         "did not provoke a binning overlap-record drop; clamped>0 => the Channel A resident-signal "
                         "telemetry did not fire.",
                         baseline_drop_events, drop_events, clamped_seen);
+                return r;
+            }
+
+            // #1457: each lost record is counted once. In this scene only the global overlap budget
+            // drops records (the cap is far above any tile here), so the sampled dropping frame lost
+            // exactly the records EMIT attempted beyond the allocation, plus any raster-cap loss.
+            // The old accounting added the cut tile's tail a second time in the rasterizer.
+            if (tile_renderer->get_drop_frame_samples() <= baseline_drop_frames) {
+                r.error_message = vformat(
+                        "The drop readback raised overflow_drop_events (%d->%d) but no sampled frame carried "
+                        "lost records (drop_frame_samples=%d): the dropping frame was not captured.",
+                        baseline_drop_events, drop_events, int(tile_renderer->get_drop_frame_samples()));
+                return r;
+            }
+            const GaussianSplatting::TileDropFrameSample drop_frame = tile_renderer->get_last_drop_frame();
+            if (!drop_frame.allocation_measured || drop_frame.overlap_records_attempted <= drop_frame.overlap_allocation_records) {
+                r.error_message = vformat(
+                        "The sampled dropping frame is not a measured budget overflow (allocation_measured=%s "
+                        "attempted=%d allocation=%d dropped=%d).",
+                        drop_frame.allocation_measured ? "true" : "false", int(drop_frame.overlap_records_attempted),
+                        int(drop_frame.overlap_allocation_records), int(drop_frame.dropped_records));
+                return r;
+            }
+            const uint64_t expected_lost = uint64_t(drop_frame.overlap_records_attempted - drop_frame.overlap_allocation_records) +
+                    uint64_t(drop_frame.raster_cap_dropped_records);
+            if (uint64_t(drop_frame.dropped_records) != expected_lost) {
+                r.error_message = vformat(
+                        "Lost overlap records are not counted once: the sampled frame %d reports %d dropped records, "
+                        "but EMIT attempted %d against an allocation of %d (%d lost there) and the raster cap dropped %d.",
+                        int(drop_frame.frame_serial), int(drop_frame.dropped_records), int(drop_frame.overlap_records_attempted),
+                        int(drop_frame.overlap_allocation_records),
+                        int(drop_frame.overlap_records_attempted - drop_frame.overlap_allocation_records),
+                        int(drop_frame.raster_cap_dropped_records));
+                return r;
+            }
+            // #1461: the dropping frame carries its per-tile record maximum and that tile.
+            if (drop_frame.max_tile_records == 0u || !drop_frame.max_tile_identified ||
+                    drop_frame.max_tile_x >= uint32_t(TEST_VIEWPORT_WIDTH / TEST_TILE_SIZE) ||
+                    drop_frame.max_tile_y >= uint32_t(TEST_VIEWPORT_HEIGHT / TEST_TILE_SIZE)) {
+                r.error_message = vformat(
+                        "The sampled dropping frame has no usable per-tile record maximum (max_tile_records=%d "
+                        "identified=%s tile=(%d,%d)).",
+                        int(drop_frame.max_tile_records), drop_frame.max_tile_identified ? "true" : "false",
+                        int(drop_frame.max_tile_x), int(drop_frame.max_tile_y));
                 return r;
             }
 

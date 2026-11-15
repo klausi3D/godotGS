@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `191` documented functions, `28` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
+Coverage summary: `195` documented functions, `28` undocumented functions, `78` documented uniform fields, `118` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -572,6 +572,40 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_compute_receiver_bias(float representative_radius)</code></pre></td>
       <td>Computes the canonical receiver bias for shadow sampling. Per the contract documented in gs_render_params.glsl:77-80 and gaussian_gpu_layout.h:456-459: shadow_bias_config.x is the scale-by-radius multiplier, .y is the minimum bias, .z is the optional maximum clamp (>0.0 enables it). Pass representative_radius = max(g.scale.x, g.scale.y, g.scale.z) from the per-splat path. Pass 0.0 from paths without a radius source — the result collapses to the .y minimum, clamped by .z.</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_overlap_drop_accounting.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_overlap_drop_accounting.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_pack_max_tile_key(uint records, uint tile_idx)</code></pre></td>
+      <td>The atomicMax key of one tile: record count (saturated) above the tile index; 0 when the index does not fit.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_max_tile_key_records(uint key)</code></pre></td>
+      <td>The (saturated) record count stored in a key.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_max_tile_key_tile(uint key)</code></pre></td>
+      <td>The tile index stored in a key; meaningful only when gs_max_tile_key_identifies holds.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_max_tile_key_identifies(uint key, uint max_records)</code></pre></td>
+      <td>True when the key's tile is a tile that holds exactly max_records records.</td>
     </tr>
   </tbody>
 </table>

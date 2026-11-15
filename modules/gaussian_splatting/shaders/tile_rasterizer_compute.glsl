@@ -94,9 +94,13 @@ layout(set = 0, binding = 3, std430) buffer OverflowStatisticsBuffer {
     uint raster_reject_quadratic;     // quadratic > GS_RASTER_ALPHA_REJECT_Q (spatial extent)
     uint raster_reject_lod_opacity;   // base_opacity * lod_blend <= GS_RASTER_ALPHA_THRESHOLD
     uint raster_reject_blend_alpha;   // blend_alpha <= 0 after remaining-alpha multiply
-    uint overflow_drop_signal;        // C4b (G4): trailing drop flag; layout-parity with the
-                                      // 88-byte host mirror + tile_binning.glsl. Written here
+    uint overflow_drop_signal;        // C4b (G4): sticky drop flag; layout-parity with the
+                                      // host mirror + tile_binning.glsl. Written here
                                       // only by the per-tile raster cap (#1137).
+    // #1457/#1461: per-frame words after the signal (no earlier offset moves).
+    uint raster_cap_dropped_records;  // records past GS_MAX_RASTER_SPLATS_PER_TILE (subset of overflow_splats_clamped)
+    uint max_tile_records;            // atomicMax: most records COUNT reserved for any tile
+    uint max_tile_key;                // atomicMax: gs_pack_max_tile_key(records, tile index)
 } overflow_stats;
 
 layout(set = 0, binding = 4, std430) readonly buffer ProjectionBuffer {
@@ -163,6 +167,17 @@ void main() {
         uint original_splat_count = total_splat_count;
         // Use GPU's current-frame element_count, capped to the actual sorted_values buffer capacity.
         uint record_count = gs_get_clamped_overlap_record_count();
+        // #1461: the tile's record demand (COUNT's reservation), before any clamp.
+        if (total_splat_count > 0u) {
+            atomicMax(overflow_stats.max_tile_records, total_splat_count);
+            atomicMax(overflow_stats.max_tile_key, gs_pack_max_tile_key(total_splat_count, tile_idx));
+        }
+        // #1457: records this clamp loses, by the shared accounting (the host tests run the same text).
+        uint unreadable_records = gs_raster_unreadable_written_records(range_start, total_splat_count,
+                indirect_dispatch.element_count, record_count);
+        if (unreadable_records > 0u) {
+            atomicAdd(overflow_stats.overflow_splats_clamped, unreadable_records);
+        }
         if (range_start >= record_count) {
             if (total_splat_count > 0u) {
                 atomicAdd(overflow_stats.overflow_tile_count, 1u);
@@ -171,7 +186,6 @@ void main() {
         } else {
             uint available_records = record_count - range_start;
             if (total_splat_count > available_records) {
-                atomicAdd(overflow_stats.overflow_splats_clamped, total_splat_count - available_records);
                 total_splat_count = available_records;
             }
         }
@@ -188,6 +202,7 @@ void main() {
     if (gl_LocalInvocationIndex == 0 && splat_count > uint(GS_MAX_RASTER_SPLATS_PER_TILE)) {
         atomicAdd(overflow_stats.overflow_tile_count, 1u);
         atomicAdd(overflow_stats.overflow_splats_clamped, splat_count - uint(GS_MAX_RASTER_SPLATS_PER_TILE));
+        atomicAdd(overflow_stats.raster_cap_dropped_records, splat_count - uint(GS_MAX_RASTER_SPLATS_PER_TILE));
         // #1137: the records past the cap are the farthest of the tile and are not drawn.
         // Raise the resident C4b drop signal so production warns instead of dropping silently.
         atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_RASTER_TILE_CAP);

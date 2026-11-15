@@ -1,0 +1,121 @@
+{
+ "arms": {
+  "chunk": {
+   "overlap_drop_frames": {
+    "count": 0,
+    "events": [],
+    "events_not_recorded": 0
+   }
+  },
+  "hlod": {
+   "overlap_drop_frames": {
+    "count": 5,
+    "events": [
+     {
+      "count": 1,
+      "frame": {
+       "dropped_records": 804,
+       "frame_serial": 5043,
+       "max_tile_records": 17188,
+       "max_tile_x": 23,
+       "max_tile_y": 35,
+       "overlap_allocation_records": 100000000,
+       "overlap_records_attempted": 451942,
+       "raster_cap_dropped_records": 804,
+       "raster_tile_cap": 16384,
+       "raster_truncated_tiles": 1
+      },
+      "observed_pass_index": 0,
+      "observed_phase": 0,
+      "observed_row": 5043,
+      "observed_segment": 4,
+      "observed_state": 0
+     },
+     {
+      "count": 2,
+      "frame": {
+       "dropped_records": 1798,
+       "frame_serial": 5047,
+       "max_tile_records": 18182,
+       "max_tile_x": 22,
+       "max_tile_y": 36,
+       "overlap_allocation_records": 100000000,
+       "overlap_records_attempted": 421734,
+       "raster_cap_dropped_records": 1798,
+       "raster_tile_cap": 16384,
+       "raster_truncated_tiles": 1
+      },
+      "observed_pass_index": 0,
+      "observed_phase": 0,
+      "observed_row": 5047,
+      "observed_segment": 4,
+      "observed_state": 0
+     },
+     {
+      "count": 3,
+      "frame": {
+       "dropped_records": 2393,
+       "frame_serial": 20104,
+       "max_tile_records": 18311,
+       "max_tile_x": 23,
+       "max_tile_y": 35,
+       "overlap_allocation_records": 100000000,
+       "overlap_records_attempted": 510930,
+       "raster_cap_dropped_records": 2393,
+       "raster_tile_cap": 16384,
+       "raster_truncated_tiles": 2
+      },
+      "observed_pass_index": 1,
+      "observed_phase": 0,
+      "observed_row": 20104,
+      "observed_segment": 4,
+      "observed_state": 0
+     },
+     {
+      "count": 4,
+      "frame": {
+       "dropped_records": 806,
+       "frame_serial": 20106,
+       "max_tile_records": 16901,
+       "max_tile_x": 22,
+       "max_tile_y": 35,
+       "overlap_allocation_records": 100000000,
+       "overlap_records_attempted": 489702,
+       "raster_cap_dropped_records": 806,
+       "raster_tile_cap": 16384,
+       "raster_truncated_tiles": 2
+      },
+      "observed_pass_index": 1,
+      "observed_phase": 0,
+      "observed_row": 20106,
+      "observed_segment": 4,
+      "observed_state": 0
+     },
+     {
+      "count": 5,
+      "frame": {
+       "dropped_records": 836,
+       "frame_serial": 20108,
+       "max_tile_records": 17220,
+       "max_tile_x": 22,
+       "max_tile_y": 36,
+       "overlap_allocation_records": 100000000,
+       "overlap_records_attempted": 481598,
+       "raster_cap_dropped_records": 836,
+       "raster_tile_cap": 16384,
+       "raster_truncated_tiles": 1
+      },
+      "observed_pass_index": 1,
+      "observed_phase": 0,
+      "observed_row": 20108,
+      "observed_segment": 4,
+      "observed_state": 0
+     }
+    ],
+    "events_not_recorded": 0
+   }
+  }
+ },
+ "extract": "result.json overlap_drop_frames of the chunk and hlod arms, verbatim (probe_world.gd output of the renderer's drop_frame export)",
+ "source": "Beyond-VRAM Fly-through run 43717101341, mode shared_layers_t0, head 5b06f2c4c09f5c5648537e7207786bcab04e626e, RTX 3080 runner"
+}

@@ -7,8 +7,11 @@
 #include "core/math/vector2i.h"
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
+#include "core/variant/dictionary.h"
+#include "core/variant/variant.h"
 #include "gaussian_gpu_layout.h"
 #include "gpu_pass_timing.h"
+#include "overlap_drop_accounting.h"
 #include "servers/rendering/rendering_device.h"
 
 #include "../core/gs_project_settings.h"
@@ -159,13 +162,56 @@ struct TileOverflowStatsSnapshot {
 	// OVERFLOW_DROP_SIGNAL_* channels (binning EMIT drop, raster per-tile cap); read back every
 	// production frame to raise a one-shot WARN + bump TileDiagnosticsState::overflow_drop_events.
 	uint32_t overflow_drop_signal = 0;
+	// #1457/#1461: per-frame words written by the rasterizers, placed after the sticky signal so
+	// no earlier offset moves (clear_counters clears them with the counters above; the signal
+	// word between them stays sticky).
+	//  - raster_cap_dropped_records: records past the per-tile raster cap, a subset of
+	//    overflow_splats_clamped.
+	//  - max_tile_records: the most overlap records COUNT reserved for any tile (atomicMax).
+	//  - max_tile_key: gs_pack_max_tile_key(records, tile index), see
+	//    shaders/includes/gs_overlap_drop_accounting.glsl.
+	uint32_t raster_cap_dropped_records = 0;
+	uint32_t max_tile_records = 0;
+	uint32_t max_tile_key = 0;
 };
 
 // C4b: anchor the host mirror size so tests/ci/check_gaussian_layout_sync.py can validate
 // this struct against the OverflowStats / OverflowStatisticsBuffer SSBO (binding 3) declared
-// in tile_binning.glsl + the two tile_rasterizer shaders. 22 uint32_t fields, std430-tight.
-static_assert(sizeof(TileOverflowStatsSnapshot) == 88,
-		"TileOverflowStatsSnapshot must match the 88-byte binding-3 OverflowStats SSBO layout");
+// in tile_binning.glsl + the two tile_rasterizer shaders. 25 uint32_t fields, std430-tight.
+static_assert(sizeof(TileOverflowStatsSnapshot) == 100,
+		"TileOverflowStatsSnapshot must match the 100-byte binding-3 OverflowStats SSBO layout");
+// The record-loss membership capture reserves fixed slots for the leading 88 bytes (through the
+// signal word); the words after it are not part of that capture.
+static constexpr uint32_t TILE_OVERFLOW_STATS_SIGNAL_END_BYTES = 88u;
+static_assert(offsetof(TileOverflowStatsSnapshot, overflow_drop_signal) + sizeof(uint32_t) == TILE_OVERFLOW_STATS_SIGNAL_END_BYTES,
+		"overflow_drop_signal must stay the 22nd word of the OverflowStats SSBO");
+
+// #1457/#1461: host context of one drop-signal sample, captured when its readback is issued.
+struct TileOverflowSampleContext {
+	uint64_t frame_serial = 0;
+	uint32_t binning_splats = 0; // 0: the sampled frame ran no tile binning
+	// Record capacity the sampled frame's prefix scan clamped to (0: no scan was built).
+	uint32_t overlap_allocation_records = 0;
+	uint32_t tiles_x = 0;
+	uint32_t total_tiles = 0;
+	uint32_t raster_tile_cap = 0;
+};
+
+// #1457/#1461: one SAMPLED frame that lost overlap records (overflow_splats_clamped != 0).
+struct TileDropFrameSample {
+	uint64_t frame_serial = 0;
+	uint32_t dropped_records = 0; // every channel, each lost record once
+	uint32_t raster_cap_dropped_records = 0; // the part lost at the per-tile raster cap
+	uint32_t raster_truncated_tiles = 0;
+	uint32_t overlap_records_attempted = 0; // EMIT's demand, dropped records included
+	uint32_t max_tile_records = 0; // 0: not measured (the rasterizer wrote no maximum)
+	bool max_tile_identified = false;
+	uint32_t max_tile_x = 0;
+	uint32_t max_tile_y = 0;
+	bool allocation_measured = false;
+	uint32_t overlap_allocation_records = 0;
+	uint32_t raster_tile_cap = 0;
+};
 
 #ifdef TESTS_ENABLED
 // Default-off record-loss diagnostic; no production ABI change. GLSL mirrors these offsets.
@@ -477,6 +523,129 @@ struct TileDiagnosticsState {
 	mutable uint64_t sampled_dropped_records_total = 0;
 	mutable uint64_t sampled_overlap_records_total = 0;
 	mutable uint64_t sampled_overlap_splats_total = 0;
+	// #1457/#1461: what the same readback says about the frames that lost records.
+	//  - sampled_max_tile_records: the most recently sampled frame's largest per-tile record
+	//    reservation (drop or no drop).
+	//  - sampled_raster_cap_dropped_records_total: the raster-cap part of
+	//    sampled_dropped_records_total.
+	//  - drop_frame_samples: sampled frames whose own counters show lost records. A drop event
+	//    whose dropping frame was not the sampled one adds nothing here (not measured, not 0).
+	//  - last_drop_frame / drop_frame_max_tile_records_peak: the latest such frame, and the
+	//    largest per-tile reservation over all of them.
+	mutable uint32_t sampled_max_tile_records = 0;
+	mutable uint64_t sampled_raster_cap_dropped_records_total = 0;
+	mutable uint64_t drop_frame_samples = 0;
+	mutable TileDropFrameSample last_drop_frame;
+	mutable uint32_t drop_frame_max_tile_records_peak = 0;
+	// The pure counter update of one drop-signal sample (the readback callback adds the warnings).
+	// drop_events semantics are unchanged: one per read-interval with a set signal bit.
+	void record_overflow_sample(const TileOverflowStatsSnapshot &p_sample, const TileOverflowSampleContext &p_context) const {
+		const uint32_t drop_signal = p_sample.overflow_drop_signal;
+		sampled_dropped_records = p_sample.overflow_splats_clamped;
+		sampled_raster_truncated_tiles = p_sample.overflow_tile_count;
+		sampled_drop_frame_serial = p_context.frame_serial;
+		// #1393: cumulative totals over the sampled frames. Records and splats are added only for a
+		// frame that ran tile binning (its splats were recorded at the poll), so the pair stays matched.
+		drop_signal_samples++;
+		sampled_dropped_records_total += p_sample.overflow_splats_clamped;
+		sampled_raster_cap_dropped_records_total += p_sample.raster_cap_dropped_records;
+		sampled_max_tile_records = p_sample.max_tile_records;
+		if (p_context.binning_splats > 0u) {
+			sampled_overlap_records_total += p_sample.overflow_splats_aggregated;
+			sampled_overlap_splats_total += p_context.binning_splats;
+		}
+		if ((drop_signal & ~OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
+			binning_drop_events++;
+		}
+		if ((drop_signal & OVERFLOW_DROP_SIGNAL_BINNING_TILE_RANGE) != 0u) {
+			binning_tile_range_drop_events++;
+		}
+		if ((drop_signal & OVERFLOW_DROP_SIGNAL_BINNING_BUDGET) != 0u) {
+			binning_budget_drop_events++;
+		}
+		if ((drop_signal & OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
+			raster_tile_cap_drop_events++;
+		}
+		if (drop_signal != 0u) {
+			// Read-intervals with at least one drop on any channel; each interval once, because the
+			// poll reset the sticky word right after its copy.
+			overflow_drop_events++;
+		}
+		if (p_sample.overflow_splats_clamped == 0u) {
+			return;
+		}
+		TileDropFrameSample frame;
+		frame.frame_serial = p_context.frame_serial;
+		frame.dropped_records = p_sample.overflow_splats_clamped;
+		frame.raster_cap_dropped_records = p_sample.raster_cap_dropped_records;
+		frame.raster_truncated_tiles = p_sample.overflow_tile_count;
+		frame.overlap_records_attempted = p_sample.overflow_splats_aggregated;
+		frame.max_tile_records = p_sample.max_tile_records;
+		const uint32_t tile_index = gs_overlap_drop::gs_max_tile_key_tile(p_sample.max_tile_key);
+		if (gs_overlap_drop::gs_max_tile_key_identifies(p_sample.max_tile_key, p_sample.max_tile_records) &&
+				p_context.tiles_x > 0u && tile_index < p_context.total_tiles) {
+			frame.max_tile_identified = true;
+			frame.max_tile_x = tile_index % p_context.tiles_x;
+			frame.max_tile_y = tile_index / p_context.tiles_x;
+		}
+		frame.allocation_measured = p_context.binning_splats > 0u && p_context.overlap_allocation_records > 0u;
+		frame.overlap_allocation_records = frame.allocation_measured ? p_context.overlap_allocation_records : 0u;
+		frame.raster_tile_cap = p_context.raster_tile_cap;
+		last_drop_frame = frame;
+		drop_frame_samples++;
+		drop_frame_max_tile_records_peak = MAX(drop_frame_max_tile_records_peak, frame.max_tile_records);
+	}
+	// Render-stats export of the fields above. A value that was not measured is the string
+	// "not_measured", never 0.
+	void append_drop_frame_telemetry(Dictionary &r_stats) const {
+		const String not_measured = "not_measured";
+		r_stats["sampled_raster_cap_dropped_records_total"] = static_cast<int64_t>(sampled_raster_cap_dropped_records_total);
+		if (drop_signal_samples > 0u) {
+			r_stats["sampled_max_tile_records"] = static_cast<int64_t>(sampled_max_tile_records);
+		} else {
+			r_stats["sampled_max_tile_records"] = not_measured;
+		}
+		r_stats["drop_frame_samples"] = static_cast<int64_t>(drop_frame_samples);
+		if (drop_frame_samples == 0u) {
+			r_stats["drop_frame"] = not_measured;
+			r_stats["drop_frame_max_tile_records_peak"] = not_measured;
+			return;
+		}
+		const TileDropFrameSample &frame = last_drop_frame;
+		Dictionary out;
+		out["frame_serial"] = static_cast<int64_t>(frame.frame_serial);
+		out["dropped_records"] = static_cast<int64_t>(frame.dropped_records);
+		out["raster_cap_dropped_records"] = static_cast<int64_t>(frame.raster_cap_dropped_records);
+		out["raster_truncated_tiles"] = static_cast<int64_t>(frame.raster_truncated_tiles);
+		out["overlap_records_attempted"] = static_cast<int64_t>(frame.overlap_records_attempted);
+		out["raster_tile_cap"] = static_cast<int64_t>(frame.raster_tile_cap);
+		if (frame.max_tile_records > 0u) {
+			out["max_tile_records"] = static_cast<int64_t>(frame.max_tile_records);
+		} else {
+			out["max_tile_records"] = not_measured;
+		}
+		if (frame.max_tile_identified) {
+			out["max_tile_x"] = static_cast<int64_t>(frame.max_tile_x);
+			out["max_tile_y"] = static_cast<int64_t>(frame.max_tile_y);
+		} else {
+			out["max_tile_x"] = not_measured;
+			out["max_tile_y"] = not_measured;
+		}
+		if (frame.allocation_measured) {
+			out["overlap_allocation_records"] = static_cast<int64_t>(frame.overlap_allocation_records);
+		} else {
+			out["overlap_allocation_records"] = not_measured;
+		}
+		r_stats["drop_frame"] = out;
+		if (drop_frame_max_tile_records_peak > 0u) {
+			r_stats["drop_frame_max_tile_records_peak"] = static_cast<int64_t>(drop_frame_max_tile_records_peak);
+		} else {
+			r_stats["drop_frame_max_tile_records_peak"] = not_measured;
+		}
+	}
+	// Record capacity the current frame's prefix scan was built with (0 = none this frame);
+	// consumed by the frame's drop-signal poll like last_overlap_binning_splats.
+	mutable uint32_t last_prefix_scan_capacity = 0;
 	// Splats the current frame dispatched to tile binning (0 = no binning this frame); consumed by
 	// the frame's drop-signal poll so a sample pairs its records with its own frame's splats.
 	uint32_t last_overlap_binning_splats = 0;

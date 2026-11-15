@@ -6,9 +6,11 @@ extern "C" int test_d3_5_telemetry_cpp_force_link() { return 0; }
 #include "../interfaces/gpu_sorting_pipeline.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/hlod_node_streamer.h"
+#include "../renderer/overlap_drop_accounting.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
 #include "../renderer/render_diagnostics_orchestrator.h"
+#include "../renderer/tile_render_types.h"
 #include "core/io/json.h"
 #include "core/os/thread.h"
 
@@ -232,6 +234,261 @@ TEST_CASE("[GaussianSplatting][D3Telemetry] D3-6 render stats export the actual 
 	renderer->get_subsystem_state().sorting_pipeline.unref();
 	CHECK_FALSE(diagnostics.build_render_stats().has("instance_count_overflow_events"));
 	renderer->get_subsystem_state().sorting_pipeline = pipeline;
+}
+
+// #1457: one frame's overlap-record loss, channel by channel, with the arithmetic the shaders run.
+// Tile binning's EMIT pass drops (and counts) each record whose index lies at or past the emit
+// limit (tile_binning.glsl). The rasterizers add gs_raster_unreadable_written_records for their
+// availability clamp and the overage past the per-tile cap; that function is the shader source
+// itself (shaders/includes/gs_overlap_drop_accounting.glsl, compiled here through
+// renderer/overlap_drop_accounting.h), and compile_shaders.py's overlap_drop_single_count
+// contract pins that both rasterizers call it and add nothing else.
+struct DropModelTile {
+	uint32_t start;
+	uint32_t count;
+};
+
+struct DropModelTotals {
+	uint64_t demanded = 0;
+	uint64_t drawn = 0;
+	uint64_t binning = 0;
+	uint64_t raster_clamp = 0;
+	uint64_t raster_cap = 0;
+	uint64_t counted() const { return binning + raster_clamp + raster_cap; }
+	uint64_t lost() const { return demanded - drawn; }
+};
+
+static DropModelTotals drop_model(std::initializer_list<DropModelTile> p_tiles, uint32_t p_emit_limit,
+		uint32_t p_readable_limit, uint32_t p_cap) {
+	DropModelTotals totals;
+	for (const DropModelTile &tile : p_tiles) {
+		totals.demanded += tile.count;
+		for (uint32_t offset = 0; offset < tile.count; offset++) {
+			if (tile.start + offset >= p_emit_limit) {
+				totals.binning++; // EMIT: record index past the overlap budget, counted once there
+			}
+		}
+		totals.raster_clamp += gs_overlap_drop::gs_raster_unreadable_written_records(
+				tile.start, tile.count, p_emit_limit, p_readable_limit);
+		// Records the rasterizer can read (ground truth, independent of the counters).
+		uint32_t readable = 0;
+		if (tile.start < p_readable_limit) {
+			readable = MIN(tile.count, p_readable_limit - tile.start);
+		}
+		if (readable > p_cap) {
+			totals.raster_cap += readable - p_cap;
+		}
+		totals.drawn += MIN(readable, p_cap);
+	}
+	return totals;
+}
+
+TEST_CASE("[GaussianSplatting][D3Telemetry] D3-7 each lost overlap record is counted once across binning and raster") {
+	const uint32_t no_cap = 1u << 20;
+	{
+		// The #1457 shape: the overlap budget (60) cuts the second tile. EMIT counts its 30 lost
+		// records and the third tile's 30; the rasterizer must add nothing for them.
+		const DropModelTotals t = drop_model({ { 0, 40 }, { 40, 50 }, { 90, 30 } }, 60, 60, no_cap);
+		CHECK(t.lost() == 60);
+		CHECK(t.binning == 60);
+		CHECK_MESSAGE(t.raster_clamp == 0, "the rasterizer re-counted records tile binning already counted");
+		CHECK(t.counted() == t.lost());
+	}
+	{
+		// No loss: nothing is counted on any channel.
+		const DropModelTotals t = drop_model({ { 0, 40 }, { 40, 50 }, { 90, 30 } }, 120, 120, no_cap);
+		CHECK(t.lost() == 0);
+		CHECK(t.counted() == 0);
+	}
+	{
+		// The rasterizer's own loss: EMIT wrote up to 100, but only 60 records are readable. The 40
+		// written-but-unreadable records are counted by the rasterizer, the 20 past 100 by EMIT.
+		const DropModelTotals t = drop_model({ { 0, 40 }, { 40, 50 }, { 90, 30 } }, 100, 60, no_cap);
+		CHECK(t.lost() == 60);
+		CHECK(t.binning == 20);
+		CHECK(t.raster_clamp == 40);
+		CHECK(t.counted() == t.lost());
+	}
+	{
+		// The per-tile cap alone.
+		const DropModelTotals t = drop_model({ { 0, 100 } }, 1000, 1000, 64);
+		CHECK(t.raster_cap == 36);
+		CHECK(t.counted() == t.lost());
+	}
+	{
+		// Budget cut and cap in one frame: 36 at the cap of the first tile, 50 past the budget in
+		// the second (whose 50 readable records stay under the cap).
+		const DropModelTotals t = drop_model({ { 0, 100 }, { 100, 100 } }, 150, 150, 64);
+		CHECK(t.binning == 50);
+		CHECK(t.raster_cap == 36);
+		CHECK(t.lost() == 86);
+		CHECK(t.counted() == t.lost());
+	}
+	{
+		// Every cut position over a small grid: the three channels always add up to the loss.
+		for (uint32_t emit_limit = 0; emit_limit <= 130; emit_limit += 5) {
+			for (uint32_t readable_limit = 0; readable_limit <= emit_limit; readable_limit += 5) {
+				const DropModelTotals t = drop_model({ { 0, 40 }, { 40, 0 }, { 40, 50 }, { 90, 30 } },
+						emit_limit, readable_limit, 45);
+				CHECK_MESSAGE(t.counted() == t.lost(), "emit_limit=", emit_limit, " readable_limit=", readable_limit);
+			}
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][D3Telemetry] D3-7 per-tile maximum key names a tile only when it can") {
+	using namespace gs_overlap_drop;
+	// Ordered by record count first, tile index second.
+	CHECK(gs_pack_max_tile_key(500, 3) > gs_pack_max_tile_key(499, 32767));
+	CHECK(gs_pack_max_tile_key(500, 4) > gs_pack_max_tile_key(500, 3));
+	const uint32_t key = gs_pack_max_tile_key(18000, 4007);
+	CHECK(gs_max_tile_key_records(key) == 18000u);
+	CHECK(gs_max_tile_key_tile(key) == 4007u);
+	CHECK(gs_max_tile_key_identifies(key, 18000));
+	// A tile index the key cannot hold never wins, and a smaller tile's key does not identify the maximum.
+	CHECK(gs_pack_max_tile_key(18000, 40000) == 0u);
+	CHECK_FALSE(gs_max_tile_key_identifies(gs_pack_max_tile_key(17000, 12), 18000));
+	// A record count the key cannot hold saturates; the exact maximum then exposes the mismatch.
+	CHECK_FALSE(gs_max_tile_key_identifies(gs_pack_max_tile_key(200000, 12), 200000));
+	CHECK(gs_max_tile_key_identifies(gs_pack_max_tile_key(GS_MAX_TILE_KEY_RECORDS_MAX, 12), GS_MAX_TILE_KEY_RECORDS_MAX));
+	// No records: nothing is identified (tile 0 is not a default answer).
+	CHECK_FALSE(gs_max_tile_key_identifies(0u, 0u));
+}
+
+static bool not_measured(const Dictionary &p_block, const char *p_key) {
+	return p_block.has(p_key) && p_block[p_key].get_type() == Variant::STRING && String(p_block[p_key]) == "not_measured";
+}
+
+TEST_CASE("[GaussianSplatting][D3Telemetry] D3-7 drop-frame export carries the per-tile maximum its tile and the allocation") {
+	using GaussianSplatting::TileOverflowSampleContext;
+	using GaussianSplatting::TileOverflowStatsSnapshot;
+	GaussianSplatting::TileDiagnosticsState diagnostics;
+	{
+		// Nothing sampled yet: absent measurements are "not_measured", never 0.
+		Dictionary stats;
+		diagnostics.append_drop_frame_telemetry(stats);
+		CHECK(number(stats, "drop_frame_samples") == 0);
+		CHECK(not_measured(stats, "drop_frame"));
+		CHECK(not_measured(stats, "drop_frame_max_tile_records_peak"));
+		CHECK(not_measured(stats, "sampled_max_tile_records"));
+	}
+
+	TileOverflowSampleContext context;
+	context.frame_serial = 5;
+	context.binning_splats = 100;
+	context.overlap_allocation_records = 400000;
+	context.tiles_x = 120;
+	context.total_tiles = 120 * 68;
+	context.raster_tile_cap = 16384;
+
+	// A sampled frame without loss is a sample, but not a drop frame.
+	TileOverflowStatsSnapshot clean;
+	clean.overflow_splats_aggregated = 9000;
+	clean.max_tile_records = 900;
+	clean.max_tile_key = gs_overlap_drop::gs_pack_max_tile_key(900, 37);
+	diagnostics.record_overflow_sample(clean, context);
+	{
+		Dictionary stats;
+		diagnostics.append_drop_frame_telemetry(stats);
+		CHECK(number(stats, "drop_frame_samples") == 0);
+		CHECK(not_measured(stats, "drop_frame"));
+		CHECK(number(stats, "sampled_max_tile_records") == 900);
+	}
+	CHECK(diagnostics.drop_signal_samples == 1u);
+	CHECK(diagnostics.overflow_drop_events == 0u);
+
+	// A frame the per-tile raster cap truncated: tile (47, 33) reserved 18000 records.
+	TileOverflowStatsSnapshot capped;
+	capped.overflow_tile_count = 2;
+	capped.overflow_splats_clamped = 3000;
+	capped.raster_cap_dropped_records = 3000;
+	capped.overflow_splats_aggregated = 250000;
+	capped.max_tile_records = 18000;
+	capped.max_tile_key = gs_overlap_drop::gs_pack_max_tile_key(18000, 120 * 33 + 47);
+	capped.overflow_drop_signal = GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP;
+	context.frame_serial = 9;
+	diagnostics.record_overflow_sample(capped, context);
+	{
+		Dictionary stats;
+		diagnostics.append_drop_frame_telemetry(stats);
+		CHECK(number(stats, "drop_frame_samples") == 1);
+		CHECK(number(stats, "drop_frame_max_tile_records_peak") == 18000);
+		CHECK(number(stats, "sampled_raster_cap_dropped_records_total") == 3000);
+		Dictionary frame;
+		if (dictionary(stats, "drop_frame", frame)) {
+			CHECK(number(frame, "frame_serial") == 9);
+			CHECK(number(frame, "dropped_records") == 3000);
+			CHECK(number(frame, "raster_cap_dropped_records") == 3000);
+			CHECK(number(frame, "raster_truncated_tiles") == 2);
+			CHECK(number(frame, "overlap_records_attempted") == 250000);
+			CHECK(number(frame, "max_tile_records") == 18000);
+			CHECK(number(frame, "max_tile_x") == 47);
+			CHECK(number(frame, "max_tile_y") == 33);
+			CHECK(number(frame, "overlap_allocation_records") == 400000);
+			CHECK(number(frame, "raster_tile_cap") == 16384);
+		}
+	}
+	// drop_events semantics are unchanged: one per read-interval with a set signal bit.
+	CHECK(diagnostics.overflow_drop_events == 1u);
+	CHECK(diagnostics.raster_tile_cap_drop_events == 1u);
+	CHECK(diagnostics.binning_drop_events == 0u);
+	CHECK(diagnostics.sampled_dropped_records_total == 3000u);
+
+	// A budget drop in a frame whose context was not captured (no binning splats) and whose
+	// maximum the key cannot name: the count is exported, tile and allocation are not measured.
+	TileOverflowStatsSnapshot budget;
+	budget.overflow_splats_clamped = 500;
+	budget.overflow_splats_aggregated = 900000;
+	budget.max_tile_records = 200000;
+	budget.max_tile_key = gs_overlap_drop::gs_pack_max_tile_key(200000, 12);
+	budget.overflow_drop_signal = GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING | GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING_BUDGET;
+	context.frame_serial = 12;
+	context.binning_splats = 0;
+	diagnostics.record_overflow_sample(budget, context);
+	{
+		Dictionary stats;
+		diagnostics.append_drop_frame_telemetry(stats);
+		CHECK(number(stats, "drop_frame_samples") == 2);
+		CHECK(number(stats, "drop_frame_max_tile_records_peak") == 200000);
+		Dictionary frame;
+		if (dictionary(stats, "drop_frame", frame)) {
+			CHECK(number(frame, "frame_serial") == 12);
+			CHECK(number(frame, "dropped_records") == 500);
+			CHECK(number(frame, "raster_cap_dropped_records") == 0);
+			CHECK(number(frame, "max_tile_records") == 200000);
+			CHECK(not_measured(frame, "max_tile_x"));
+			CHECK(not_measured(frame, "max_tile_y"));
+			CHECK(not_measured(frame, "overlap_allocation_records"));
+		}
+	}
+	CHECK(diagnostics.overflow_drop_events == 2u);
+	CHECK(diagnostics.binning_drop_events == 1u);
+	CHECK(diagnostics.binning_budget_drop_events == 1u);
+	CHECK(diagnostics.binning_tile_range_drop_events == 0u);
+	CHECK(diagnostics.sampled_dropped_records_total == 3500u);
+	// Records and splats pair only for frames that ran tile binning (#1393).
+	CHECK(diagnostics.sampled_overlap_records_total == 259000u);
+	CHECK(diagnostics.sampled_overlap_splats_total == 200u);
+
+	// A drop frame for which the rasterizer wrote no maximum: not measured, and the peak keeps
+	// the largest measured value.
+	TileOverflowStatsSnapshot no_max;
+	no_max.overflow_splats_clamped = 7;
+	context.frame_serial = 13;
+	diagnostics.record_overflow_sample(no_max, context);
+	{
+		Dictionary stats;
+		diagnostics.append_drop_frame_telemetry(stats);
+		CHECK(number(stats, "drop_frame_samples") == 3);
+		CHECK(number(stats, "drop_frame_max_tile_records_peak") == 200000);
+		Dictionary frame;
+		if (dictionary(stats, "drop_frame", frame)) {
+			CHECK(not_measured(frame, "max_tile_records"));
+			CHECK(not_measured(frame, "max_tile_x"));
+		}
+	}
+	// Events follow the signal word only: a sampled frame without a set bit adds none.
+	CHECK(diagnostics.overflow_drop_events == 2u);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Telemetry] D3-5 real HLOD export covers stages queues transfers and replacement epoch") {

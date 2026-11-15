@@ -172,7 +172,7 @@ void TileRenderer::TileRendererDebugStats::on_splat_audit_readback(const Vector<
 }
 
 void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial,
-        uint32_t p_binning_splats) {
+        uint32_t p_binning_splats, uint32_t p_overlap_allocation_records) {
     // C4b / exit criterion G4 ("no silent degradation"): always-on production readback of the
     // resident OverflowStats SSBO (binding 3). The full-buffer overflow readback
     // (get_overflow_stats / dump_gpu_debug_counters) is debug-gated, so a pure production frame
@@ -194,16 +194,23 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
     if (p_frame_serial == 0 || overflow_signal_readback.pending) {
         return;
     }
-    // #1137: read the whole 88-byte snapshot rather than only the signal word, so the same
+    // #1137: read the whole snapshot rather than only the signal word, so the same
     // production readback also yields the sampled frame's drop counts (overflow_splats_clamped /
     // overflow_tile_count; per-frame, cleared by clear_counters). The copy is recorded after the
     // raster pass, so it sees both the binning and the raster-cap writers of this frame.
+    // #1457/#1461: the same copy carries the frame's per-tile record maximum and raster-cap loss;
+    // the host context of the sampled frame (splats, record allocation, grid, cap) travels with it.
     overflow_signal_readback.requested_frame_serial = p_frame_serial;
     Callable callback = callable_mp(&owner, &TileRenderer::_on_overflow_signal_readback);
     Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, 0, sizeof(OverflowStatsSnapshot));
     if (err == OK) {
         overflow_signal_readback.pending = true;
-        overflow_signal_requested_splats = p_binning_splats;
+        overflow_signal_context = GaussianSplatting::TileOverflowSampleContext();
+        overflow_signal_context.binning_splats = p_binning_splats;
+        overflow_signal_context.overlap_allocation_records = p_overlap_allocation_records;
+        overflow_signal_context.tiles_x = owner.grid_state.tiles_x;
+        overflow_signal_context.total_tiles = owner.grid_state.total_tiles;
+        overflow_signal_context.raster_tile_cap = TileRenderer::_get_effective_raster_tile_cap();
         const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
         p_device->buffer_clear(overflow_statistics_buffer, signal_offset, sizeof(uint32_t));
     }
@@ -258,34 +265,20 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
 		print_line("[RECORD-LOSS] FIRST_SAMPLED_LOSS " + JSON::stringify(membership_first_loss_sample));
 	}
 #endif
-	owner.diagnostics.sampled_dropped_records = sample.overflow_splats_clamped;
-    owner.diagnostics.sampled_raster_truncated_tiles = sample.overflow_tile_count;
-    owner.diagnostics.sampled_drop_frame_serial = overflow_signal_readback.requested_frame_serial;
-    // #1393: cumulative totals over the sampled frames. Records and splats are added only for a
-    // frame that ran tile binning (its splats were recorded at the poll), so the pair stays matched.
-    owner.diagnostics.drop_signal_samples++;
-    owner.diagnostics.sampled_dropped_records_total += sample.overflow_splats_clamped;
-    if (overflow_signal_requested_splats > 0u) {
-        owner.diagnostics.sampled_overlap_records_total += sample.overflow_splats_aggregated;
-        owner.diagnostics.sampled_overlap_splats_total += overflow_signal_requested_splats;
-    }
-    overflow_signal_requested_splats = 0u;
-    if ((drop_signal & ~GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
-        owner.diagnostics.binning_drop_events++;
-    }
-    if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING_TILE_RANGE) != 0u) {
-        owner.diagnostics.binning_tile_range_drop_events++;
-    }
-    if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING_BUDGET) != 0u) {
-        owner.diagnostics.binning_budget_drop_events++;
-    }
+	// The counters (#1137, #1393, #1457, #1461) are updated by the pure
+	// TileDiagnosticsState::record_overflow_sample; this callback adds only the warnings.
+	const bool first_raster_cap_event = owner.diagnostics.raster_tile_cap_drop_events == 0u;
+	GaussianSplatting::TileOverflowSampleContext context = overflow_signal_context;
+	context.frame_serial = overflow_signal_readback.requested_frame_serial;
+	overflow_signal_context = GaussianSplatting::TileOverflowSampleContext();
+	owner.diagnostics.record_overflow_sample(sample, context);
     if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
         // #1137: a rasterizer truncated a tile at GS_MAX_RASTER_SPLATS_PER_TILE. Records are
         // depth-sorted, so the farthest content of the densest tiles is missing: tile-shaped
         // holes in far views. Previously only counted on the debug-gated path (silent).
         // Warned once per renderer (on its first event), not once per process, so every
         // renderer that loses content says so.
-        if (owner.diagnostics.raster_tile_cap_drop_events == 0u) {
+        if (first_raster_cap_event) {
             WARN_PRINT(vformat("[TileRenderer] Per-tile raster cap reached: a %dx%d px tile held more than "
                     "%d overlap records, and the records past the cap (the farthest ones) were not drawn "
                     "(sampled frame: %d tiles truncated by the rasterizer, %d records dropped in all). Dense far views show tile-shaped holes. "
@@ -296,7 +289,6 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
                     int(TileRenderer::_get_effective_raster_tile_cap()),
                     int(sample.overflow_tile_count), int(sample.overflow_splats_clamped)));
         }
-        owner.diagnostics.raster_tile_cap_drop_events++;
     }
     if ((drop_signal & ~GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
         // The binning channel, or any bit this build does not know (fail loud, not silent).
@@ -308,13 +300,6 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
                 "exhausted); some splats are not being rendered. Increase the overlap-record "
                 "budget or reduce splat density. Shown once; see the overflow_drop_events "
                 "counter for the running total.");
-    }
-    if (drop_signal != 0u) {
-        // overflow_drop_events counts CPU read-intervals in which at least one drop occurred on
-        // any channel (the signal is sticky between reads, so this is reliably non-zero whenever
-        // drops happen -- it is NOT a per-frame count; the warning is the primary signal). Each
-        // interval is counted exactly once because poll reset the word right after its copy.
-        owner.diagnostics.overflow_drop_events++;
     }
 }
 
@@ -875,7 +860,7 @@ void TileRenderer::TileRendererDebugStats::membership_before_emit(RenderingDevic
 	membership_copy(p_device, owner.instance_pipeline_buffers.indirect_count_buffer, 12u, 87u, 4u);
 	membership_copy(p_device, owner.instance_pipeline_buffers.indirect_dispatch_buffer, 0, 91u, 12u);
 	membership_copy(p_device, owner.global_sort_resources.indirect_dispatch_buffer, 0, 32u, 24u);
-	membership_copy(p_device, overflow_statistics_buffer, 0, 40u, sizeof(OverflowStatsSnapshot));
+	membership_copy(p_device, overflow_statistics_buffer, 0, 40u, GaussianSplatting::TILE_OVERFLOW_STATS_SIGNAL_END_BYTES);
 	membership_copy(p_device, owner.uniform_buffers.param_uniform_buffer, 0, Membership::EMIT_PARAMS,
 	                sizeof(TileRenderParamsGPU));
 }
@@ -888,7 +873,7 @@ void TileRenderer::TileRendererDebugStats::membership_after_emit(RenderingDevice
 	++membership_emit_completed;
 	membership_copy(p_device, owner.global_sort_resources.get_tile_counts_buffer(), 0, Membership::ALL_POST_CURSOR,
 	                owner.grid_state.total_tiles * 4u);
-	membership_copy(p_device, overflow_statistics_buffer, 0, 64u, sizeof(OverflowStatsSnapshot));
+	membership_copy(p_device, overflow_statistics_buffer, 0, 64u, GaussianSplatting::TILE_OVERFLOW_STATS_SIGNAL_END_BYTES);
 	// Full payload is not observable until the actual raster completes on this device/frame.
 }
 
@@ -936,7 +921,7 @@ void TileRenderer::TileRendererDebugStats::membership_after_raster(RenderingDevi
 	membership_metadata["raster_frame_serial"] = String::num_uint64(owner.frame_state.current_frame_serial);
 	membership_metadata["raster_process_frame"] = String::num_uint64(Engine::get_singleton()->get_process_frames());
 	membership_metadata["raster_device_generation"] = String::num_uint64(p_device->get_device_instance_id());
-	membership_copy(p_device, overflow_statistics_buffer, 0, 96u, sizeof(OverflowStatsSnapshot));
+	membership_copy(p_device, overflow_statistics_buffer, 0, 96u, GaussianSplatting::TILE_OVERFLOW_STATS_SIGNAL_END_BYTES);
 	membership_copy(p_device, owner.global_sort_resources.indirect_dispatch_buffer, 0, 128u, 24u);
 	membership_request(p_device);
 }
@@ -1173,13 +1158,16 @@ void TileRenderer::TileRendererDebugStats::clear_counters(RenderingDevice *p_dev
 	if (debug_counter_buffer.is_valid()) {
 		p_device->buffer_clear(debug_counter_buffer, 0, sizeof(DebugCounterSnapshot));
 	}
-	// C4b (G4): the trailing overflow_drop_signal (last uint) is a STICKY drop flag, so clear
-	// only the per-frame prefix [0, size - 4) here. The signal word is reset ONLY by
-	// poll_overflow_drop_signal, right after the copy that reads it (read-and-reset), so no bit
-	// can be cleared before a readback has seen it (#1137 review).
+	// C4b (G4): overflow_drop_signal is a STICKY drop flag, so clear only the per-frame words
+	// around it: the counters before it and the #1457/#1461 words after it. The signal word is
+	// reset ONLY by poll_overflow_drop_signal, right after the copy that reads it
+	// (read-and-reset), so no bit can be cleared before a readback has seen it (#1137 review).
 	if (overflow_statistics_buffer.is_valid()) {
-		p_device->buffer_clear(overflow_statistics_buffer, 0,
-				static_cast<uint32_t>(sizeof(OverflowStatsSnapshot) - sizeof(uint32_t)));
+		const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
+		const uint32_t tail_offset = signal_offset + static_cast<uint32_t>(sizeof(uint32_t));
+		p_device->buffer_clear(overflow_statistics_buffer, 0, signal_offset);
+		p_device->buffer_clear(overflow_statistics_buffer, tail_offset,
+				static_cast<uint32_t>(sizeof(OverflowStatsSnapshot)) - tail_offset);
 	}
 	// BV-04b: per-frame HLOD level record counters (the poll's copy is recorded before the next clear).
 	if (hlod_level_stats_buffer.is_valid()) {

@@ -403,6 +403,11 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
         "oversized_node_events": payload.get("oversized_node_events",
             missing("oversized reservation event count is not exported")),
         "content_digests": copy.deepcopy(payload.get("content_digests")),
+        # #1457/#1461 (report-only): the sampled dropping frames (per-tile record maximum, its
+        # tile, the record allocation) and the checkpoint drops split into settle window and
+        # settled pose. Neither replaces the drop_events failure; absent values stay not measured.
+        "overlap_drop_frames": ps.drop_frame_summary(result.get("overlap_drop_frames")),
+        "checkpoint_drop_split": ps.checkpoint_drop_split(probe.get("passes")),
     }
     first = (probe.get("passes") or [{}])[0]
     if route == "chunk":

@@ -3841,8 +3841,9 @@ void TileRenderer::_poll_overflow_drop_telemetry() {
 	// #1393: the splats this frame dispatched to tile binning travel with the sample (consumed
 	// here, so a frame that skipped binning never pairs an older frame's splats with its records).
 	debug_stats.poll_overflow_drop_signal(_get_resource_device(), frame_state.current_frame_serial,
-			diagnostics.last_overlap_binning_splats);
+			diagnostics.last_overlap_binning_splats, diagnostics.last_prefix_scan_capacity);
 	diagnostics.last_overlap_binning_splats = 0u;
+	diagnostics.last_prefix_scan_capacity = 0u; // #1457: consumed like the splats above
 	// BV-04b: records per splat per HLOD level, only for frames whose emit pass ran on the HLOD route
 	// (the only route that binds and writes the counters).
 	if (instance_pipeline_buffers.hlod_relative) {
