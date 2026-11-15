@@ -214,10 +214,11 @@ public:
 
 	// Test seam: the largest payload record this package can ever read in one call.
 	uint64_t get_max_record_bytes() const { return max_record_bytes; }
-	// Streamer admission: stored buffer + decoded arrays + decoder workspace for
-	// GSQ. Codec none covers one bounded service window AND decoded arrays. Excludes the
-	// packed output (charged by the streamer) and idle pooled contexts.
-	uint64_t get_node_read_working_set_bytes(uint32_t p_node) const;
+	// Streamer admission, excluding packed output (charged separately) and idle
+	// decoder contexts. Store reads charge the rounded stored/decoded allocations
+	// plus workspace: one raw window for codec-none, one complete record for GSQ.
+	// The default preserves conservative GSQ accounting for offline/shadow reads.
+	uint64_t get_node_read_working_set_bytes(uint32_t p_node, bool p_use_store = false) const;
 
 	// Writes `p_world` (a resident, complete HLOD world) as a V4 package, atomically. Opt-in and explicit: no
 	// save, import or bake path calls it. The world's payload is read through the runtime snapshot, so the same

@@ -63,8 +63,8 @@ public:
 		uint32_t pool_threads = 0;
 		uint32_t reserved_pool_threads = 0;
 		uint32_t max_jobs_in_flight = 16;
-		// Base read-admission input. Codec-none store streams derive their retained
-		// cap from measured node allocations and base-equivalent concurrency; other
+		// Base read-admission input. Codec-none and GSQ store streams derive their
+		// retained cap from node allocations and base-equivalent concurrency; other
 		// paths retain this cap. A node above this input still runs alone.
 		uint64_t max_inflight_read_bytes = 8ull * 1024 * 1024;
 		uint32_t retire_delay_frames = 3;
@@ -110,8 +110,8 @@ public:
 		uint64_t payload_bytes_read_total = 0;
 		uint64_t payload_read_failures_total = 0;
 		uint32_t payload_reads_in_flight = 0;
-		// Peak sum of the admitted working sets of reads running at the same moment. Store-backed codec-none uses
-		// actual window/decode/pack peaks and the derived retained cap; legacy reads retain record + packed accounting,
+		// Peak sum of the admitted working sets of reads running at the same moment. Both store codecs use
+		// rounded read/decode/pack phase peaks and the derived retained cap; legacy reads retain record + packed accounting,
 		// bounded by Config::max_inflight_read_bytes (or one record, if one alone is larger), whatever
 		// the tree size.
 		uint64_t payload_in_flight_bytes_peak = 0;
@@ -366,7 +366,7 @@ private:
 	public:
 		mutable Mutex mutex;
 		uint64_t charged = 0, acquired = 0, released = 0, live = 0, oversized = 0, peak_live = 0;
-		uint64_t transport_reserved = 0; // Raw windows promised to jobs, against the unchanged base read cap.
+		uint64_t transport_reserved = 0; // Raw windows or whole GSQ records promised against the unchanged base read cap.
 		uint64_t jobs_started = 0, admission_waits = 0;
 		uint64_t collection_admission_waits_base = 0;
 		uint32_t jobs = 0, peak_jobs = 0;
@@ -492,7 +492,7 @@ private:
 		Ref<Mailbox> mailbox;
 		Ref<ReadStats> stats;
 		uint64_t read_bytes = 0; // The record's stored bytes (paged source only).
-		uint64_t reserved_bytes = 0; // Record + packed copy, reserved against max_inflight_read_bytes at start.
+		uint64_t reserved_bytes = 0; // Honest store working set; non-store reads retain conservative read + packed accounting.
 		bool counted = false; // begin_read() was called for this job, so end_read() must be.
 		PayloadPageStore *store = nullptr; // Borrowed; renderer drains jobs before store shutdown.
 		std::unique_ptr<Reservation> reservation;
@@ -539,6 +539,10 @@ private:
 	bool active = false;
 	Config cfg;
 	uint64_t retained_byte_cap = 0; // Render-thread owned, immutable between source installations.
+	// Derivation inputs share retained_byte_cap's render-thread ownership.
+	uint32_t normal_retained_concurrency = 0;
+	uint64_t normal_retained_job_charge = 0;
+	uint64_t normal_retained_output_charge = 0;
 	Ref<GaussianSplatHlodRuntimeData> data;
 	gs_hlod_runtime::NodeResidency residency;
 	Ref<Mailbox> mailbox;

@@ -805,7 +805,7 @@ GaussianSplatHlodPagedSource::Stats GaussianSplatHlodPagedSource::get_stats() co
 	return s;
 }
 
-uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t p_node) const {
+uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t p_node, bool p_use_store) const {
 	if (!opened || p_node >= uint32_t(nodes.size())) {
 		return 0;
 	}
@@ -814,6 +814,29 @@ uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t 
 	// Vector capacity growth as well as all simultaneously live decode buffers.
 	const uint64_t count = record.topology.payload_count;
 	const uint64_t decoded = count * (sizeof(Gaussian) + uint64_t(record_high_order) * sizeof(Vector3));
+	// #1466(b), store decode phase: gsq_writer_v4_memory.cpp:41 includes
+	// ZSTD_estimateDCtxSize(), sizeof(DecodeContext) (including its LUTs), and
+	// 2 * 4096 * 74 = 606208 raw-scratch bytes. HLOD disables idle retention
+	// (resident_instance_contract_publisher.cpp:2340) and leases transiently
+	// in read_node_payload_from_store (lease_decoder(false)).
+	// raw is LocalVector<uint8_t> (gsq_codec.h:135); reserve() in
+	// core/templates/local_vector.h:163 grows to max(2, old + ceil(old/2),
+	// requested). Starting empty, raw.resize(raw_bytes) (gsq_codec.cpp:900)
+	// therefore has at most 303104 bytes of capacity: the largest sub-block
+	// comes first, raw_bytes <= kSubBlockSplats * 74, and later blocks shrink.
+	// Thus 606208 - 303104 = 303104 bytes remain for transient overhead.
+	// The outer record SHA in read_node_payload_from_store and inner stored SHA
+	// (gsq_codec.cpp:321) each memalloc(sizeof(mbedtls_sha256_context)):
+	// 104 bytes, or 108 with SHA224, plus at most 16 bytes of Godot header
+	// (core/crypto/crypto_core.cpp:138; core/os/memory.h:55, memory.cpp:97).
+	// Both need <= 2*(108+16) = 248 bytes; scratch and DecodeContext headers
+	// need another 2*16 = 32, leaving 303104 - 248 - 32 = 302824 bytes.
+	// Vendored zstd/decompress/zstd_decompress.c:229,1197,1662,1144 uses
+	// sizeof(ZSTD_DCtx) and single-shot output in caller-owned raw storage.
+	// ZSTD_allocateLiteralsBuffer (zstd_decompress_block.c:80) uses that output
+	// or the DCtx's inline litExtraBuffer; no separate window is allocated for
+	// the modern, dictionary-free GSQ frames. Keep W's existing conservative
+	// scratch allowance to cover every decode allocation above.
 	const uint64_t workspace = info.codec_id == 0u ? 0u : gsq_decode_workspace_bytes();
 	uint64_t stored_allocation = 0, gaussian_allocation = 0, sh_allocation = 0;
 	const uint64_t transport_bytes = info.codec_id == 0u ?
@@ -829,8 +852,14 @@ uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes(uint32_t 
 		// transport storage is gone before the caller allocates packed output.
 		return stored_allocation + gaussian_allocation + sh_allocation;
 	}
-	// Retain the existing conservative expression, while also covering the
-	// actual rounded allocations and CowData headers for very small GSQ nodes.
+	if (p_use_store) {
+		// Phase A of read_node_payload_from_store: one whole stored GSQ record,
+		// decoded arrays and W coexist. release_transport destroys the decoder
+		// and sole page allocation before run_job allocates packed output.
+		return stored_allocation + gaussian_allocation + sh_allocation + workspace;
+	}
+	// Retain the existing conservative expression for offline/shadow reads,
+	// while covering rounded allocations and CowData headers for small nodes.
 	return MAX(2 * (record.stored_bytes + decoded) + workspace,
 			stored_allocation + gaussian_allocation + sh_allocation + workspace);
 }
