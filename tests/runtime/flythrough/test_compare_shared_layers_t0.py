@@ -1198,6 +1198,97 @@ class ComparisonContract(unittest.TestCase):
                                               "--contention-report", str(path)]), 2)
 
 
+    # ---- #1445: wall-clock and game-relevant frame time, side by side
+
+    def frame_breakdown_block(self, hitch=False):
+        """A probe_summary.frame_breakdown block computed from constructed rows (the arithmetic is
+        the point): 8 clean 4 ms frames and one holding a 400 ms viewport capture. NOT a captured
+        trace: the captured BV-07 trace every arm replays predates the breakdown columns."""
+        fields = ["row", "t_usec", "pass_index", "segment", "state", "s_m", *ps.BREAKDOWN_COLUMNS]
+        rows, t = [(0, 1_000_000, 0, 2, ps.STATE_MOVING, 0.0, -1, -1, -1, -1, -1, 1.0, 10)], 1_000_000
+        for i in range(1, 10):
+            capture = 400_000 if i == 9 else 0
+            engine = 300_000 if hitch and i == 5 else 3600
+            t += 300 + capture + 100 + engine
+            rows.append((i, t, 0, 2, ps.STATE_MOVING, 1.5 * i, 300, capture, 100, engine, int(capture > 0), 1.0, 10 + i))
+        trace = ps.Trace(fields, "qqqqqd" + "qqqqqdq", rows, 0)
+        block = ps.frame_breakdown(trace, list(range(10)))
+        self.assertEqual(block["status"], ps.OK, block)
+        return block
+
+    def use_frame_breakdown(self, hitch=False):
+        block = self.frame_breakdown_block(hitch)
+        for route in ("chunk", "hlod"):
+            for record in self.arm(route)["probe"]["passes"]:
+                record["moving_frame_breakdown"] = copy.deepcopy(block)
+                record["measured_frame_breakdown"] = copy.deepcopy(block)
+        for arm in self.experiment["migration"]["arms"].values():
+            arm["frame_time"] = ps.frame_time_passes(self.arm("hlod")["probe"])
+        return block
+
+    def test_frame_time_reports_wall_clock_and_game_relevant_side_by_side(self):
+        block = self.use_frame_breakdown()
+        report = self.assert_verdict("VALID")
+        self.assertEqual(set(report["frame_time"]), {"chunk", "hlod", "migration_base", "migration_candidate"})
+        for arm, passes in report["frame_time"].items():
+            self.assertEqual(len(passes), 1, arm)
+            self.assertEqual(passes[0]["moving_frame_breakdown"], block, arm)
+            # The old wall-clock block is carried unchanged beside the new one.
+            self.assertEqual(passes[0]["moving_frame_interval"],
+                             self.arm("chunk" if arm == "chunk" else "hlod")["probe"]["passes"][0]["moving_frame_interval"])
+        self.assertIn("game-relevant", report["measurement_scopes"]["frame_time"])
+        text = driver.render_markdown(report)
+        for arm in ("chunk", "hlod", "migration_base", "migration_candidate"):
+            # frames | wall p50/p95/p99 | game p50/p95/p99 | harness | shares | GPU | slow frames.
+            # Time-weighted: the one capture frame holds over half the wall time, so it is the
+            # wall-clock median too, while the engine needed 3.6 ms for every frame.
+            self.assertRegex(text, rf"\| {arm}, cold, moving \| 9 \| 404\.00 / 404\.00 / 404\.00 \| "
+                                   r"3\.60 / 3\.60 / 3\.60 \| 400\.40 / 400\.40 / 400\.40 \| "
+                                   r"2\.1 / 5\.4 / 0\.2 / 91\.7 / 0\.6 \| not measured / not measured \| 1 / 1 / 0 \(0\) \|")
+            self.assertIn(f"{arm} cold: 0 game-relevant frame(s) over 50 ms", text)
+        # The existing wall-clock line stays, now saying what it contains.
+        self.assertRegex(text, r"chunk cold: moving frame p95/p99 ms = \S+ / \S+ \(wall clock, probe work included")
+
+    def test_a_game_relevant_hitch_is_named_with_its_row_and_changes_no_verdict(self):
+        self.use_frame_breakdown(hitch=True)
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["reasons"], [])
+        text = driver.render_markdown(report)
+        self.assertIn("hlod cold: 1 game-relevant frame(s) over 50 ms in the moving + checkpoint rows, 0 of them "
+                      "right after a viewport capture; the longest 1:", text)
+        self.assertIn("- row 5 (segment 2, moving): engine frame 300.0 ms, wall 300.4 ms, renderer CPU 1.0 ms, "
+                      "GPU not measured ms", text)
+        self.assertRegex(text, r"\| hlod, cold, moving \| 9 \| [^|]+\| 300\.00 / 300\.00 / 300\.00 \|")
+
+    def test_frame_time_without_a_breakdown_is_not_measured_and_changes_no_verdict(self):
+        # The captured trace has no breakdown columns (a driver older than #1445), and the
+        # constructed migration arms carry no frame-time record at all.
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["reasons"], [])
+        for route in ("chunk", "hlod"):
+            record = report["frame_time"][route][0]
+            self.assertEqual(record["moving_frame_breakdown"]["status"], ps.MISSING)
+            self.assertNotIn("game_frame", record["moving_frame_breakdown"])
+            self.assertEqual(record["moving_frame_interval"]["p95_time_weighted"]["status"], ps.OK)
+        self.assertEqual(report["frame_time"]["migration_base"], [])
+        text = driver.render_markdown(report)
+        table = text[text.index("## Frame time: wall clock and game-relevant"):]
+        self.assertIn("| chunk, cold, moving | not measured: the trace has no frame breakdown columns", table)
+        self.assertIn("(driver older than #1445)", table)
+        self.assertIn("| migration_base | not measured: the arm carries no frame-time record |", table)
+        # Wall clock is still reported for the moving rows; nothing unmeasured reads as a number.
+        wall = report["frame_time"]["chunk"][0]["moving_frame_interval"]
+        self.assertIn(f"| not measured / {wall['p95_time_weighted']['value']:.2f} / "
+                      f"{wall['p99_time_weighted']['value']:.2f} |", table)
+        for line in table.splitlines():
+            if line.startswith("| migration_"):
+                self.assertNotRegex(line, r"\d", line)
+        self.assertNotRegex(table, r"\|\s*0(?:\.0+)?\s*\|")
+        # A report written before the block existed renders the same way, never as zeros.
+        report.pop("frame_time")
+        self.assertIn("| hlod | not measured: the arm carries no frame-time record |", driver.render_markdown(report))
+
+
 class ScreenshotCadence(unittest.TestCase):
     def test_run_arm_requests_every_400_moving_frames(self):
         # Stop at plan construction: exercising the caller needs no engine or

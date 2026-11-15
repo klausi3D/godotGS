@@ -533,6 +533,9 @@ def migration_arm(arm: dict, identity: dict) -> dict:
             "camera_application": arm["observed"].get("camera_application"),
             "actual_checkpoint_poses": arm["observed"].get("actual_checkpoint_poses"),
             "settings_scope": arm["observed"].get("settings_scope"), "native": arm.get("native"),
+            # #1445: the driver script is the same for both binaries, so the pre-D3 arm reports its
+            # wall-clock and game-relevant frame times too (report-only).
+            "frame_time": ps.frame_time_passes(arm.get("probe")),
             "cache": arm["cache"], "legacy_unmeasured": missing(
                 "pre-D3 has no D3-5 payload telemetry or queue/publication exports; all arms use shipped capacity settings")}
 

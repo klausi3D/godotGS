@@ -308,6 +308,24 @@ class RunnerPlumbing(unittest.TestCase):
         result = {"final_render_stats": native, "route": "hlod"}
         self.assertIsNone(shared.payload_behavior(result, None)["route"])
 
+    def test_migration_arm_keeps_the_frame_time_blocks_and_never_invents_them(self):
+        # #1445. Constructed arm envelope (this module's own shape); the blocks are opaque here.
+        blocks = {"moving_frame_interval": {"frames": 3}, "moving_frame_breakdown": {"status": "OK", "frames": 3},
+                  "measured_frame_breakdown": {"status": "MISSING", "reason": "driver older than #1445"}}
+        arm = {"execution": "RAN", "observed": {"exit_code": 0, "final_marker": True, "settings": {}},
+               "trace": {"file": "trace.bin"}, "source": {"loaded_file_sha256": "0" * 64},
+               "payload_behavior": {}, "cache": {},
+               "probe": {"passes": [{"pass_index": 0, "label": "first", "segments": {"S1": {}}, **blocks}]}}
+        identity = {"commit": "c" * 40, "sha256": "d" * 64}
+        self.assertEqual(shared.migration_arm(arm, identity)["frame_time"],
+                         [{"pass_index": 0, "label": "first", **blocks}])
+        # An arm without a path summary (no trace) has no record: the report renders "not measured".
+        for probe in ({}, {"passes": None}, None):
+            self.assertEqual(shared.migration_arm({**arm, "probe": probe}, identity)["frame_time"], [])
+        older = shared.migration_arm({**arm, "probe": {"passes": [{"pass_index": 0, "label": "first"}]}}, identity)
+        self.assertEqual(older["frame_time"], [{"pass_index": 0, "label": "first", "moving_frame_interval": None,
+                                                "moving_frame_breakdown": None, "measured_frame_breakdown": None}])
+
     def test_capture_arm_forwards_the_real_saturation_probe_plan(self):
         with mock.patch.object(shared, "run_arm", return_value={}) as run:
             shared.capture_arm(self.tmp / "candidate", self.tmp / "world", "hlod", {}, {}, {}, {},

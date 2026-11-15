@@ -95,6 +95,23 @@ const SHARED_LAYER_FIELDS := [
 	["hlod_stream_uploaded_bytes_this_frame", "q"], ["hlod_stream_uploaded_bytes_total", "q"],
 ]
 
+# #1445: who spent the wall-clock interval that ENDS at this row (t_usec minus the previous row's
+# t_usec), in the order it happens. The four *_usec parts add up to that interval exactly:
+#   telemetry  the previous row's _sample_and_write (render-stats query, per-row samples, trace row)
+#   capture    viewport readbacks, PNG encode and write (_screenshot) since the previous row
+#   script     the rest of this driver's work before it handed control back to the engine
+#   engine     from that hand-over to this row's frame_post_draw: the engine's frame, which is
+#              what a game without the probe pays (scene step, render CPU, submit, present)
+# -1 where the driver could not split the interval (the first row): probe_summary.frame_breakdown
+# reads that as not measured, never as zero. render_cpu_ms is the renderer's frame_time_ms and
+# renderer_frames_total its total_frames_rendered (a row where it did not advance repeats a held
+# value); -1 when the renderer does not publish the key.
+const BREAKDOWN_FIELDS := [
+	["frame_harness_telemetry_usec", "q"], ["frame_harness_capture_usec", "q"],
+	["frame_harness_script_usec", "q"], ["frame_engine_usec", "q"], ["frame_captures", "q"],
+	["render_cpu_ms", "d"], ["renderer_frames_total", "q"],
+]
+
 # Field name, type ("q" int64 / "d" float64). Order is the row layout.
 var FIELDS := [
 	["row", "q"], ["engine_frame", "q"], ["t_usec", "q"], ["phase", "q"], ["pass_index", "q"],
@@ -115,7 +132,7 @@ var FIELDS := [
 	["prefix_ms", "d"], ["binning_ms", "d"], ["overlap_sort_ms", "d"], ["raster_ms", "d"],
 	["resolve_ms", "d"], ["composite_ms", "d"],
 	["gpu_frame_ms", "d"], ["gpu_frame_valid", "q"], ["stats_usec", "q"], ["static_memory_bytes", "q"],
-] + DROP_FIELDS
+] + DROP_FIELDS + BREAKDOWN_FIELDS
 
 var _plan: Dictionary = {}
 var _result: Dictionary = {}
@@ -136,6 +153,14 @@ var _shots := {}
 var _shot_log := []
 # Per-row context set by the phase code.
 var _ctx := {"phase": 0, "pass_index": 0, "segment": -1, "view": -1, "state": ST_LOADING, "s_m": 0.0}
+# #1445 frame breakdown, all in Time.get_ticks_usec(): the previous row's t_usec (-1 before the
+# first row), how long its _sample_and_write took, the capture time and count since then, and
+# when this driver last handed control back to the engine (_frame()).
+var _iv_prev_t_usec := -1
+var _iv_telemetry_usec := 0
+var _iv_capture_usec := 0
+var _iv_captures := 0
+var _iv_yield_usec := -1
 
 
 func _init() -> void:
@@ -352,6 +377,7 @@ func _sample_and_write() -> void:
 	])
 	for f in DROP_FIELDS:
 		values.append(int(_g(stats, f[0], -1)))
+	values.append_array(_frame_breakdown_values(t_usec, stats))
 	if bool(_plan.get("shared_layers_t0", false)):
 		for f in SHARED_LAYER_FIELDS:
 			values.append(int(_g(stats, f[0], -1)))
@@ -361,9 +387,31 @@ func _sample_and_write() -> void:
 		else:
 			_trace.store_double(float(values[i]))
 	_rows += 1
+	# The next row's interval starts at this row's t_usec; everything up to here is its telemetry.
+	_iv_prev_t_usec = t_usec
+	_iv_capture_usec = 0
+	_iv_captures = 0
+	_iv_telemetry_usec = Time.get_ticks_usec() - t_usec
+
+
+# BREAKDOWN_FIELDS for the row sampled at t_usec, in order. The parts are measured, never
+# derived from each other except script (the hand-over minus the two timed parts), so they add up
+# to t_usec - _iv_prev_t_usec by construction; probe_summary.frame_breakdown re-checks that.
+func _frame_breakdown_values(t_usec: int, stats: Dictionary) -> Array:
+	var parts := [-1, -1, -1, -1, -1]
+	if _iv_prev_t_usec >= 0 and _iv_yield_usec >= _iv_prev_t_usec + _iv_telemetry_usec + _iv_capture_usec \
+			and t_usec >= _iv_yield_usec:
+		parts = [_iv_telemetry_usec, _iv_capture_usec,
+				_iv_yield_usec - _iv_prev_t_usec - _iv_telemetry_usec - _iv_capture_usec,
+				t_usec - _iv_yield_usec, _iv_captures]
+	parts.append(float(_g(stats, "frame_time_ms", -1.0)))
+	parts.append(int(_g(stats, "total_frames_rendered", -1)))
+	return parts
 
 
 func _frame() -> void:
+	# The driver's own work ends here: from this stamp to the resume below is the engine's frame.
+	_iv_yield_usec = Time.get_ticks_usec()
 	await RenderingServer.frame_post_draw
 	_sample_and_write()
 
@@ -668,13 +716,15 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 # off, else the log entry ("file" on success, "error" otherwise). The readback stalls the
 # process; a checkpoint caller renders one HOLD frame afterwards so the stall lands in a hold
 # row, never in a moving row's frame interval. Moving captures (moving_every_n) do perturb the
-# moving intervals; the result records that they were on.
+# moving intervals; the result records that they were on, and each row's frame_harness_capture_usec
+# says by how much (#1445).
 func _screenshot(name: String) -> Dictionary:
 	var dir := str(_shots.get("dir", ""))
 	if dir.is_empty():
 		return {}
 	var entry := {"name": name, "row": _rows - 1, "pass_index": _ctx["pass_index"],
 			"segment": _ctx["segment"], "state": _ctx["state"]}
+	var t_capture := Time.get_ticks_usec()
 	var tex := get_root().get_texture()
 	var img: Image = tex.get_image() if tex != null else null
 	if img == null or img.is_empty():
@@ -686,6 +736,11 @@ func _screenshot(name: String) -> Dictionary:
 			entry["error"] = "save_png failed (%d)" % err
 		else:
 			entry["file"] = file
+	# #1445: the readback, encode and write are this driver's work, charged to the capture part of
+	# the next row's interval (BREAKDOWN_FIELDS) and recorded per capture.
+	entry["capture_usec"] = Time.get_ticks_usec() - t_capture
+	_iv_capture_usec += int(entry["capture_usec"])
+	_iv_captures += 1
 	_shot_log.append(entry)
 	return entry
 

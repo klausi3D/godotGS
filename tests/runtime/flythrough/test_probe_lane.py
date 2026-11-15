@@ -732,6 +732,217 @@ class OverlapDrops(unittest.TestCase):
         self.assertIn("debug_state_orchestrator->append_drop_telemetry(stats);", stats)
 
 
+def _breakdown_trace(frames, *, columns=True):
+    """Constructed frame-breakdown rows (the arithmetic is the point): each entry is the interval
+    ENDING at that row, in usec per part; ``unsplit`` a row the driver could not split (its -1).
+    Row 0 is the first frame of a trace: no interval, no breakdown."""
+    fields = ["row", "t_usec", "pass_index", "segment", "view", "state", "s_m",
+              "gpu_frame_ms", "gpu_frame_valid", "upload_bytes_total", "upload_chunks_total",
+              "read_bytes_total", "loaded_chunks", "needed_not_resident_chunks", "upload_stall_wall_ms"]
+    types = "qqqqqqd" + "dqqqqqqd"
+    if columns:
+        fields += list(ps.BREAKDOWN_COLUMNS)
+        types += "qqqqqdq"
+    rows = []
+    t = 1_000_000
+    frames_total = 10
+    for i, f in enumerate([None] + list(frames)):
+        f = dict(f or {})
+        split = i > 0 and not f.get("unsplit")
+        parts = [f.get(k, 0) for k in ("telemetry", "capture", "script", "engine")] if split else [-1] * 4
+        if i > 0:
+            t += f["wall_usec"] if "wall_usec" in f else sum(parts)
+        frames_total += f.get("renderer_frames", 1)
+        row = [i, t, 0, f.get("segment", 2), -1, f.get("state", ps.STATE_MOVING), 1.5 * i,
+               f.get("gpu_ms", 3.0), f.get("gpu_valid", 1), f.get("upload_bytes_total", 4096 * i), i,
+               0, 5, f.get("not_resident", 0), 0.0]
+        if columns:
+            row += parts + [(1 if f.get("capture") else 0) if split else -1,
+                            f.get("cpu_ms", 1.0), -1 if f.get("no_renderer") else frames_total]
+        rows.append(tuple(row))
+    return ps.Trace(fields, types, rows, 0)
+
+
+class FrameBreakdown(unittest.TestCase):
+    """#1445: each frame interval split into the engine's frame and the probe driver's own work, so
+    the game-relevant frame time is reported apart from the harness overhead."""
+
+    #: 8 clean 4 ms frames, then one whose interval holds a 400 ms screenshot readback.
+    HARNESS = [{"telemetry": 300, "script": 100, "engine": 3600}] * 8 + [
+        {"telemetry": 300, "script": 100, "capture": 400_000, "engine": 3600}]
+
+    def test_harness_work_is_excluded_from_the_game_frame_and_kept_in_the_wall_frame(self) -> None:
+        tr = _breakdown_trace(self.HARNESS)
+        rows = list(range(len(tr.rows)))
+        rec = ps.frame_breakdown(tr, rows)
+        self.assertEqual(rec["status"], ps.OK, rec)
+        self.assertEqual(rec["frames"], 9)
+        # The wall-clock numbers are the existing metric, value for value.
+        old = ps.interval_stats(ps.frame_intervals(tr, rows))
+        for key in ("mean", "p95_time_weighted", "p99_time_weighted", "max"):
+            self.assertEqual(rec["wall_frame"][key], old[key], key)
+        self.assertEqual(rec["wall_frame"]["p95_time_weighted"]["value"], 404.0)
+        self.assertEqual(rec["wall_frame"]["frames_over_250ms"], 1)
+        # The engine needed 3.6 ms for every one of them.
+        game = rec["game_frame"]
+        for key in ("p50_time_weighted", "p95_time_weighted", "p99_time_weighted", "p50_frames", "p95_frames",
+                    "p99_frames", "max"):
+            self.assertEqual(game[key], ps.metric(3.6, unit="ms"), key)
+        self.assertEqual((game["frames_over_50ms"], game["frames_over_250ms"]), (0, 0))
+        self.assertEqual(rec["harness_frame"]["max"]["value"], 400.4)
+        totals = rec["totals_ms"]
+        self.assertAlmostEqual(totals["wall"], 436.0)
+        self.assertAlmostEqual(totals["game_frame"] + totals["telemetry"] + totals["capture"] + totals["script"],
+                               totals["wall"])
+        share = rec["wall_share_pct"]
+        self.assertAlmostEqual(share["capture"]["value"], 100.0 * 400.0 / 436.0)
+        self.assertAlmostEqual(share["game_frame"]["value"], 100.0 * 32.4 / 436.0)
+        self.assertAlmostEqual(share["renderer_cpu"]["value"] + share["engine_other"]["value"],
+                               share["game_frame"]["value"])
+        self.assertAlmostEqual(sum(share[k]["value"] for k in (
+            "renderer_cpu", "engine_other", "script", "capture", "telemetry")), 100.0)
+        slow = rec["slow_frames"]
+        self.assertEqual((slow["wall_over_50ms"], slow["wall_over_50ms_harness_only"], slow["game_over_50ms"]),
+                         (1, 1, 0))
+        self.assertEqual(slow["listed"], [])
+        self.assertEqual((rec["captures"], rec["frames_with_capture"]), (1, 1))
+
+    def test_a_slow_engine_frame_is_a_game_hitch_and_says_what_the_frame_did(self) -> None:
+        frames = [dict(f) for f in self.HARNESS]
+        frames[4] = {"telemetry": 300, "script": 100, "engine": 300_000, "cpu_ms": 280.0, "segment": 7,
+                     "upload_bytes_total": 9_000_000, "not_resident": 3}
+        tr = _breakdown_trace(frames)
+        rec = ps.frame_breakdown(tr, list(range(len(tr.rows))))
+        self.assertEqual(rec["status"], ps.OK, rec)
+        self.assertEqual(rec["game_frame"]["max"]["value"], 300.0)
+        self.assertEqual(rec["game_frame"]["frames_over_250ms"], 1)
+        self.assertEqual(rec["game_frame"]["p95_time_weighted"]["value"], 300.0)
+        slow = rec["slow_frames"]
+        self.assertEqual((slow["wall_over_50ms"], slow["wall_over_50ms_harness_only"], slow["game_over_50ms"],
+                          slow["game_over_250ms"], slow["game_over_50ms_with_capture_in_interval"]), (2, 1, 1, 1, 0))
+        (hitch,) = slow["listed"]
+        self.assertEqual((hitch["row"], hitch["segment"], hitch["game_frame_ms"], hitch["render_cpu_ms"]),
+                         (5, 7, 300.0, 280.0))
+        self.assertEqual(hitch["upload_bytes_delta"], 9_000_000 - 4096 * 4)
+        self.assertEqual(hitch["needed_not_resident_chunks"], 3)
+        self.assertEqual(hitch["captures_in_interval"], 0)
+
+    def test_an_older_driver_reads_as_not_measured_never_as_zero(self) -> None:
+        # A real trace captured before #1445: it has no breakdown columns.
+        with tempfile.TemporaryDirectory() as tmp:
+            trace, result = captured("tsmoke_path", Path(tmp))
+            tr = ps.read_trace(trace)
+            rec = ps.frame_breakdown(tr, ps.rows_where(tr, phase=0, state=ps.STATE_MOVING))
+            self.assertEqual(rec["status"], ps.MISSING)
+            self.assertIn("older than #1445", rec["reason"])
+            for key in ("game_frame", "harness_frame", "wall_share_pct", "totals_ms"):
+                self.assertNotIn(key, rec)
+            m = manifest()
+            path = pp.resolve_path(m)
+            truth = gt.build_groundtruth(m, path, pp.checkpoints(path), rp.CAMERA, rp.ASPECT)
+            p0 = rp.summarise_path(tr, {"result": result, "trace": str(trace)}, path, truth, 1)["passes"][0]
+            # The old wall-clock block is still there and still measured; the new blocks are not.
+            self.assertEqual(p0["moving_frame_interval"]["p95_time_weighted"]["status"], ps.OK)
+            for key in ("moving_frame_breakdown", "measured_frame_breakdown"):
+                self.assertEqual(p0[key]["status"], ps.MISSING, key)
+        self.assertEqual(ps.frame_breakdown(_breakdown_trace(self.HARNESS, columns=False), [1, 2])["status"], ps.MISSING)
+        self.assertEqual(ps.frame_breakdown(_breakdown_trace(self.HARNESS), [])["status"], ps.MISSING)
+        self.assertEqual(ps.frame_breakdown(_breakdown_trace(self.HARNESS), [0])["status"], ps.MISSING)
+
+    def test_a_frame_the_driver_could_not_split_is_not_measured(self) -> None:
+        frames = [dict(f) for f in self.HARNESS]
+        frames[2] = {"unsplit": True, "wall_usec": 4000}
+        tr = _breakdown_trace(frames)
+        rec = ps.frame_breakdown(tr, list(range(len(tr.rows))))
+        self.assertEqual(rec["status"], ps.MISSING)
+        self.assertIn("1 of 9", rec["reason"])
+        self.assertIn("row 3", rec["reason"])
+        self.assertNotIn("game_frame", rec)
+
+    def test_parts_that_do_not_add_up_to_the_interval_are_invalid(self) -> None:
+        frames = [dict(f) for f in self.HARNESS]
+        frames[5] = {"telemetry": 300, "script": 100, "engine": 3600, "wall_usec": 9000}
+        tr = _breakdown_trace(frames)
+        rec = ps.frame_breakdown(tr, list(range(len(tr.rows))))
+        self.assertEqual(rec["status"], ps.INVALID)
+        self.assertIn("row 6", rec["reason"])
+        self.assertNotIn("game_frame", rec)
+
+    def test_renderer_cpu_counts_fresh_renderer_frames_only_and_absence_is_missing(self) -> None:
+        frames = [dict(f) for f in self.HARNESS]
+        # A held sample: the renderer finished no frame in this interval, the stat repeats.
+        frames[1] = {**frames[1], "renderer_frames": 0, "cpu_ms": 1.0}
+        tr = _breakdown_trace(frames)
+        rec = ps.frame_breakdown(tr, list(range(len(tr.rows))))
+        self.assertEqual(rec["renderer"]["cpu_fresh_frames"], 8)
+        self.assertAlmostEqual(rec["totals_ms"]["renderer_cpu"], 8.0)
+        self.assertEqual(rec["renderer"]["gpu_frame_ms"]["samples"], 9)
+        frames[3] = {**frames[3], "no_renderer": True}
+        rec = ps.frame_breakdown(_breakdown_trace(frames), list(range(len(tr.rows))))
+        self.assertEqual(rec["status"], ps.OK, "the engine/harness split does not need the renderer's stat")
+        self.assertEqual(rec["game_frame"]["p95_time_weighted"]["value"], 3.6)
+        for key in ("renderer_cpu", "engine_other"):
+            self.assertEqual(rec["wall_share_pct"][key]["status"], ps.MISSING, key)
+        self.assertEqual(rec["renderer"]["cpu_ms"]["status"], ps.MISSING)
+        self.assertNotIn("renderer_cpu", rec["totals_ms"])
+
+    def test_capture_cost_is_reported_per_run_and_absent_timing_is_missing(self) -> None:
+        shots = {"dir": "/x/screenshots", "moving_every_n": 400, "taken": [
+            {"name": "p0_C1", "file": "p0_C1.png", "capture_usec": 300_000},
+            {"name": "p0_s01_row0000400", "file": "p0_s01_row0000400.png", "capture_usec": 100_000}]}
+        rec = rp.screenshot_record(shots)
+        self.assertEqual(rec["capture_ms"], {"samples": 2, "total": 400.0, "mean": 200.0, "max": 300.0})
+        self.assertIn("moving_frame_breakdown", rec["note"])
+        # An older driver did not time its captures: not measured, never 0 ms.
+        del shots["taken"][1]["capture_usec"]
+        self.assertEqual(rp.screenshot_record(shots)["capture_ms"]["status"], ps.MISSING)
+        self.assertEqual(rp.screenshot_record({"dir": "/x", "moving_every_n": 0, "taken": []})["capture_ms"]["status"],
+                         ps.MISSING)
+
+    def test_the_wall_clock_block_keeps_its_meaning(self) -> None:
+        self.assertEqual(set(ps.interval_stats([1.0, 2.0])), {
+            "frames", "mean", "p95_time_weighted", "p99_time_weighted", "max", "frames_over_50ms",
+            "frames_over_50ms_pct", "frames_over_250ms"})
+        # Still time-weighted nearest rank (ADR 8.3): one 100 ms frame among twenty 1 ms frames
+        # holds 5/6 of the wall time, so it is the p95 although 95 % of the frames took 1 ms.
+        old = ps.interval_stats([1.0] * 20 + [100.0])
+        self.assertEqual((old["p95_time_weighted"]["value"], old["p99_time_weighted"]["value"], old["max"]["value"]),
+                         (100.0, 100.0, 100.0))
+        self.assertAlmostEqual(old["mean"]["value"], 120.0 / 21)
+        self.assertEqual((old["frames"], old["frames_over_50ms"], old["frames_over_250ms"]), (21, 1, 0))
+        self.assertEqual(ps.nearest_rank([1.0] * 20 + [100.0], 0.95), 1.0)
+        tr = _breakdown_trace(self.HARNESS)
+        self.assertEqual(ps.frame_intervals(tr, [9]), [404.0], "row-to-row wall clock, harness work included")
+
+    def test_the_driver_writes_every_column_and_times_its_own_work(self) -> None:
+        """Wiring: probe_world.gd traces exactly BREAKDOWN_COLUMNS, stamps the hand-over to the engine
+        in the one place frames are awaited, charges the readback to the capture part, and the
+        renderer publishes the CPU stat (deleting any of these turns this red)."""
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        block = gd[gd.index("const BREAKDOWN_FIELDS"):]
+        block = block[:block.index("\n]\n")]
+        self.assertEqual(tuple(re.findall(r'\["([a-z_]+)", "[qd]"\]', block)), ps.BREAKDOWN_COLUMNS)
+        self.assertIn("] + DROP_FIELDS + BREAKDOWN_FIELDS", gd)
+        self.assertEqual(gd.count("await RenderingServer.frame_post_draw"), 1)
+        self.assertIn("\t_iv_yield_usec = Time.get_ticks_usec()\n\tawait RenderingServer.frame_post_draw\n"
+                      "\t_sample_and_write()", gd)
+        shot = gd[gd.index("func _screenshot("):]
+        shot = shot[:shot.index("\n\n\n")]
+        self.assertIn("_iv_capture_usec += ", shot)
+        self.assertIn("_iv_captures += 1", shot)
+        sample = gd[gd.index("func _sample_and_write("):]
+        sample = sample[:sample.index("\n\n\n")]
+        self.assertIn("values.append_array(_frame_breakdown_values(t_usec, stats))", sample)
+        self.assertRegex(sample, r"_iv_telemetry_usec = Time\.get_ticks_usec\(\) - t_usec$")
+        stats = (ROOT / "modules" / "gaussian_splatting" / "renderer" / "render_diagnostics_orchestrator.cpp").read_text(
+            encoding="utf-8")
+        for key in ("frame_time_ms", "total_frames_rendered"):
+            self.assertIn(f'r_metrics["{key}"]', stats, key)
+            self.assertIn(f'"{key}"', gd, key)
+        probe = (HERE / "run_probe.py").read_text(encoding="utf-8")
+        self.assertIn('"moving_frame_breakdown": ps.frame_breakdown(trace, moving)', probe)
+
+
 class CountProvenance(unittest.TestCase):
     """Scalar predicate replay plus textual wiring; this does not execute GDScript.
 
