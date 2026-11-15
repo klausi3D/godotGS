@@ -580,6 +580,24 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut reports the record demand only 
 	cut = history.select(data, r);
 	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
 	CHECK(cut.record_demand == doctest::Approx(2.0));
+	// A root over the splat cap, and below it frontiers whose splats and nodes fit but whose records do not ({1, 2} = 4,
+	// then 10, then 16 against a cap of 3.2): no frontier fits, and only records are missing. The demand is the cheapest
+	// such frontier, or a streamed world with a small storage would stay blank with nothing asking for growth.
+	history.invalidate();
+	data.nodes.write[0].topology.payload_count = 100;
+	r.record_budget = 4;
+	r.splat_budget = 16;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
+	CHECK(cut.record_demand == doctest::Approx(4.0));
+	// With the storage that demand asks for (80 percent of 6.5 admits 4, then stops at 10) the same view draws.
+	history.invalidate();
+	r.record_budget = 6.5;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.selected_splats == 4);
+	CHECK(cut.record_demand == doctest::Approx(10.0)); // Now the ordinary refinement names the next step.
+	data.nodes.write[0].topology.payload_count = 2;
 	// A root over the splat cap is not a record demand.
 	history.invalidate();
 	r.record_budget = 100000;
