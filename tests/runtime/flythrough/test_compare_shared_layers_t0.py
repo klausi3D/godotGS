@@ -1288,6 +1288,85 @@ class ComparisonContract(unittest.TestCase):
         report.pop("frame_time")
         self.assertIn("| hlod | not measured: the arm carries no frame-time record |", driver.render_markdown(report))
 
+    def use_overlap_drop_blocks(self, settle_drops=0, settled_drops=0):
+        """Constructed #1457/#1461 inputs (the reporting is the point), built by the producer-side
+        helpers: the hlod arm with one raster-cap dropping frame, the chunk arm with checkpoint
+        drops in the named window. NOT captured: the captured BV-07 trace predates this telemetry."""
+        def window(drops):
+            fields = ["row", "pass_index", "segment", "view", "state", "s_m", *ps.DROP_COUNTERS]
+            totals, rows = dict.fromkeys(ps.DROP_COUNTERS, 0), []
+            for i in range(4):
+                totals["drop_signal_samples"] += 1
+                if i < drops:
+                    for key, step in (("overflow_drop_events", 1), ("binning_drop_events", 1),
+                                      ("binning_budget_drop_events", 1), ("sampled_dropped_records_total", 245)):
+                        totals[key] += step
+                rows.append((i, 0, 3, -1, ps.STATE_SETTLING, 0.0, *[totals[k] for k in ps.DROP_COUNTERS]))
+            return ps.overlap_drops(ps.Trace(fields, "qqqqqd" + "q" * len(ps.DROP_COUNTERS), rows, 0), list(range(4)))
+
+        frame = {"frame_serial": 900, "dropped_records": 3000, "raster_cap_dropped_records": 3000,
+                 "raster_truncated_tiles": 2, "overlap_records_attempted": 250000, "raster_tile_cap": 16384,
+                 "max_tile_records": 18000, "max_tile_x": 47, "max_tile_y": 33, "overlap_allocation_records": 400000}
+        event = {"count": 1, "observed_row": 12, "observed_phase": 0, "observed_pass_index": 0,
+                 "observed_segment": 4, "observed_state": ps.STATE_MOVING, "frame": frame}
+        self.arm("hlod")["optional_measurements"]["overlap_drop_frames"] = ps.drop_frame_summary(
+            {"count": 1, "events": [event], "events_not_recorded": 0})
+        self.arm("chunk")["optional_measurements"]["overlap_drop_frames"] = ps.drop_frame_summary(
+            {"count": 0, "events": [], "events_not_recorded": 0})
+        passes = [{"pass_index": 0, "overlap_drops_checkpoints_settle_window": window(settle_drops),
+                   "overlap_drops_checkpoints_settled_pose": window(settled_drops)}]
+        self.arm("chunk")["optional_measurements"]["checkpoint_drop_split"] = ps.checkpoint_drop_split(passes)
+
+    def test_overlap_drop_report_carries_the_tile_maximum_and_changes_no_verdict(self):
+        self.use_overlap_drop_blocks()
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["reasons"], [])
+        frames = report["overlap_drop_report"]["hlod"]["drop_frames"]
+        self.assertEqual((frames["status"], frames["raster_cap_frames"]), (ps.OK, 1))
+        self.assertEqual(frames["raster_cap_max_tile_records_peak"]["value"], 18000)
+        text = driver.render_markdown(report)
+        table = text[text.index("## Overlap drops: where and how large (#1457, #1461)"):]
+        self.assertIn("| hlod | pass 0, segment 4, moving | 900 | 3000 (3000) | 18000 | 47, 33 | 16384 | 1616 | "
+                      "250000 | 400000 | -150000 |", table)
+        self.assertIn("hlod: 1 sampled dropping frames (0 not described, 0 more in the JSON); raster-cap frames 1, "
+                      "their largest per-tile record count 18000.", table)
+        self.assertIn("| chunk | no sampled frame lost records (0 drop frames) |", table)
+        self.assertIn("| chunk, cold | ", table)
+        self.assertIn(" | 0 / 0 | 0 / 0 |", table)
+        # The hlod arm carries no split here: not measured, never a zero.
+        self.assertIn("| hlod | ", table)
+        self.assertRegex(table, r"\| hlod \| [^|]+ \| not measured: [^|]+ \| not measured: [^|]+ \|")
+
+    def test_settle_window_and_settled_pose_drops_are_both_failures(self):
+        """#1457: the split only labels. `drop_events` keeps the arm UNUSABLE wherever the drops were."""
+        for settle, settled in ((1, 0), (0, 1)):
+            with self.scenario(settle=settle, settled=settled):
+                self.use_overlap_drop_blocks(settle_drops=settle, settled_drops=settled)
+                self.arm("chunk")["observed"]["failures"]["drop_events"] = 1
+                report = self.assert_verdict("UNUSABLE", "correctness_failure")
+                split = report["overlap_drop_report"]["chunk"]["checkpoint_drop_split"]["passes"][0]
+                self.assertEqual((split["settle_window"]["drop_events"], split["settled_pose"]["drop_events"]),
+                                 (settle, settled))
+                table = driver.render_markdown(report)
+                self.assertIn(f" | {settle} / {245 * settle} | {settled} / {245 * settled} |", table)
+
+    def test_overlap_drop_report_without_telemetry_is_not_measured(self):
+        # The captured arms predate the telemetry: no drop columns, no drop-frame block.
+        report = self.assert_verdict("VALID")
+        for route in ("chunk", "hlod"):
+            entry = report["overlap_drop_report"][route]
+            self.assertEqual(entry["drop_frames"]["status"], ps.NOT_MEASURED, entry)
+            self.assertEqual(entry["whole_run"]["status"], ps.NOT_MEASURED, entry)
+            self.assertNotIn("frames", entry["drop_frames"])
+        text = driver.render_markdown(report)
+        table = text[text.index("## Overlap drops: where and how large (#1457, #1461)"):]
+        for route in ("chunk", "hlod"):
+            self.assertRegex(table, rf"\| {route} \| not measured: [^|]+(\| not measured: [^|]+){{9}}\|")
+        self.assertNotRegex(table, r"\|\s*0(?:\.0+)?\s*\|")
+        # A report written before the block existed renders the same way.
+        report.pop("overlap_drop_report")
+        self.assertIn("| hlod | not measured: no drop-frame record |", driver.render_markdown(report))
+
 
 class ScreenshotCadence(unittest.TestCase):
     def test_run_arm_requests_every_400_moving_frames(self):

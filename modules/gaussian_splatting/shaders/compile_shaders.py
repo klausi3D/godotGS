@@ -36,6 +36,18 @@ ISSUE_RASTER_BOUNDS = "#51"
 ISSUE_SORTER_MATRIX = "#525"
 ISSUE_ORTHO_PROJECTION = "#1156"
 ISSUE_COLOR_PACK = "#1168"
+ISSUE_DROP_ACCOUNTING = "#1457"
+
+# #1457: the rasterizers' writers of overflow_splats_clamped. The last pattern inspects every
+# atomicAdd on that word, not one: only the shared availability-clamp count and the per-tile cap
+# overage may be added (tile binning counts its own drops, once, in tile_binning.glsl).
+RASTER_DROP_SINGLE_COUNT_PATTERNS = (
+    r"gs_raster_unreadable_written_records\(range_start, total_splat_count,\s*"
+    r"indirect_dispatch\.element_count, record_count\)",
+    r"atomicAdd\(overflow_stats\.overflow_splats_clamped, unreadable_records\);",
+    r"\A(?![\s\S]*atomicAdd\(overflow_stats\.overflow_splats_clamped,"
+    r"(?!\s*(?:unreadable_records|splat_count - uint\(GS_MAX_RASTER_SPLATS_PER_TILE\))\);))",
+)
 
 SECTION_TAG_RE = re.compile(r"^\s*#\[(compute|vertex|fragment)\]\s*$")
 VERSION_DEFINES_RE = re.compile(r"^\s*#VERSION_DEFINES\s*$")
@@ -1413,6 +1425,34 @@ ABI_CONTRACTS: tuple[ValidationContract, ...] = (
                 patterns=(
                     r"uint record_count = gs_get_clamped_overlap_record_count\(\);",
                 ),
+            ),
+        ),
+    ),
+    ValidationContract(
+        key="overlap_drop_single_count",
+        issue_id=ISSUE_DROP_ACCOUNTING,
+        description=(
+            "Tile rasterizers take their availability-clamp loss from the shared accounting the host tests run; "
+            "overflow_splats_clamped has no other raster writer than that and the per-tile cap."
+        ),
+        files=(
+            FilePatternSet(
+                path=SHADERS_DIR / "includes" / "tile_raster_common.glsl",
+                patterns=(r'#include "gs_overlap_drop_accounting\.glsl"',),
+            ),
+            FilePatternSet(
+                path=SHADERS_DIR / "includes" / "gs_overlap_drop_accounting.glsl",
+                patterns=(
+                    r"GS_DROP_INLINE uint gs_raster_unreadable_written_records\(uint range_start, uint range_count, uint emit_limit,",
+                ),
+            ),
+            FilePatternSet(
+                path=SHADERS_DIR / "tile_rasterizer_compute.glsl",
+                patterns=RASTER_DROP_SINGLE_COUNT_PATTERNS,
+            ),
+            FilePatternSet(
+                path=SHADERS_DIR / "tile_rasterizer.glsl",
+                patterns=RASTER_DROP_SINGLE_COUNT_PATTERNS,
             ),
         ),
     ),

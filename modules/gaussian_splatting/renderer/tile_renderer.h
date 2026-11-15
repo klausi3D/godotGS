@@ -298,6 +298,11 @@ public:
     uint64_t get_sampled_dropped_records_total() const { return diagnostics.sampled_dropped_records_total; }
     uint64_t get_sampled_overlap_records_total() const { return diagnostics.sampled_overlap_records_total; }
     uint64_t get_sampled_overlap_splats_total() const { return diagnostics.sampled_overlap_splats_total; }
+    // #1457/#1461: sampled frames that lost records, the latest of them, and the render-stats
+    // export of both (TileDiagnosticsState documents each field).
+    uint64_t get_drop_frame_samples() const { return diagnostics.drop_frame_samples; }
+    const GaussianSplatting::TileDropFrameSample &get_last_drop_frame() const { return diagnostics.last_drop_frame; }
+    void append_drop_frame_telemetry(Dictionary &r_stats) const { diagnostics.append_drop_frame_telemetry(r_stats); }
 
     void set_debug_log_resolve(bool p_enabled);
     bool get_debug_log_resolve() const { return diagnostics.debug_log_resolve; }

@@ -248,12 +248,18 @@ layout(set = 0, binding = 3, std430) buffer OverflowStats {
     // ORs in GS_OVERFLOW_DROP_BINNING (a channel bit, NOT a second count; the rasterizers OR
     // in GS_OVERFLOW_DROP_RASTER_TILE_CAP, #1137) whenever an overlap record is dropped below,
     // co-located with the existing overflow_splats_clamped atomicAdd. The host reads back
-    // this 88-byte buffer every production frame (a small always-on async readback) to raise a
+    // this buffer every production frame (a small always-on async readback) to raise a
     // WARN_PRINT_ONCE + bump the persistent overflow_drop_events counter, so overlap-record
     // overflow is loud + counted in production instead of silently dropped. The drop COUNT
     // stays in overflow_splats_clamped (reused, no redundant GPU counter). Sticky: only the
     // host poll resets this word, right after the copy that reads it (read-and-reset, #1137).
     uint overflow_drop_signal;
+    // #1457/#1461: per-frame words written only by the rasterizers (declared here for layout
+    // parity). They follow the sticky signal so no earlier offset moves; the host clears them
+    // every frame with the counters above.
+    uint raster_cap_dropped_records;  // records past GS_MAX_RASTER_SPLATS_PER_TILE (subset of overflow_splats_clamped)
+    uint max_tile_records;            // atomicMax: most records COUNT reserved for any tile
+    uint max_tile_key;                // atomicMax: gs_pack_max_tile_key(records, tile index)
 } overflow_stats;
 
 layout(set = 0, binding = 5, std430) buffer TileCounts {

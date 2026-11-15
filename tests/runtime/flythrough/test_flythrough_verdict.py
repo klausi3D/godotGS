@@ -520,6 +520,36 @@ class Gates(_Case):
         self.assertEqual((row["observed"], row["evidence"]), (2, fv.EVIDENCE_PRESENT))
         self.assertIn("binning budget 2", row["reason"])
         self.assertIn(">= 20 records dropped", row["reason"])
+        # An older summary without the #1457 split says so instead of reporting 0 per part.
+        self.assertIn("settle window not measured, settled pose not measured", row["reason"])
+
+    def test_g10_fails_on_settle_window_drops_and_on_settled_pose_drops_alike(self) -> None:
+        """#1457: the split is a label. Drops only in the settle window fail exactly like drops only
+        at the settled pose, and the reason names the part."""
+        for drops_settle, drops_settled in ((2, 0), (0, 2), (1, 1)):
+            self.setUp()
+            for p in self.passes():
+                p["overlap_drops_checkpoints_settle_window"] = drop_window()
+                p["overlap_drops_checkpoints_settled_pose"] = drop_window()
+            self.passes()[1]["overlap_drops_checkpoints"] = drop_window(drops=2, samples=8)
+            self.passes()[1]["overlap_drops_checkpoints_settle_window"] = drop_window(drops=drops_settle)
+            self.passes()[1]["overlap_drops_checkpoints_settled_pose"] = drop_window(drops=drops_settled)
+            result = self.assert_entry("G10", fv.FAIL, "overflow_at_checkpoint: 2 drop intervals")
+            row = self.row(result, "G10")
+            self.assertEqual(row["observed"], 2)
+            self.assertIn(f"settle window {drops_settle}, settled pose {drops_settled}", row["reason"])
+        # The split cannot pass what the checkpoint window fails, nor fail what it passes.
+        self.setUp()
+        for p in self.passes():
+            p["overlap_drops_checkpoints_settle_window"] = drop_window(drops=3)
+            p["overlap_drops_checkpoints_settled_pose"] = drop_window(drops=3)
+        self.assert_entry("G10", fv.PASS, "0 drop intervals")
+        self.setUp()
+        self.passes()[0]["overlap_drops_checkpoints"] = drop_window(drops=1)
+        for p in self.passes():
+            p["overlap_drops_checkpoints_settle_window"] = drop_window()
+            p["overlap_drops_checkpoints_settled_pose"] = drop_window()
+        self.assert_entry("G10", fv.FAIL, "overflow_at_checkpoint: 1 drop intervals")
 
     def test_g10_zero_drops_need_a_completed_readback(self) -> None:
         """Absence is never a pass: a window without a readback, or without the columns, is MISSING."""

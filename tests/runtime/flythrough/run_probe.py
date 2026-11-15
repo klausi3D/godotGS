@@ -528,6 +528,10 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             "overlap_drops_moving": ps.overlap_drops(trace, moving),
             "overlap_drops_checkpoints": ps.overlap_drops(trace, ps.rows_where(
                 trace, phase=0, pass_index=pass_index, state={ps.STATE_SETTLING, ps.STATE_HOLD})),
+            # #1457 (report-only): the same checkpoint window in its two parts, the settle rows
+            # (the frames after a stop or a teleport) and the hold rows at the settled pose. The
+            # window above still decides; a drop in either part is a drop.
+            **ps.checkpoint_drop_windows(trace, pass_index),
         })
     all_rows = ps.rows_where(trace, phase=0)
     out["streaming_whole_run"] = ps.streaming_counters(trace, all_rows)
@@ -564,6 +568,9 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["overlap_drops_whole_run"] = ps.overlap_drops(trace, all_rows)
     out["records_per_splat"] = out["overlap_drops_whole_run"].get("records_per_splat") or ps.missing(
         f"no drop telemetry: {out['overlap_drops_whole_run'].get('reason', 'no value')}")
+    # #1457/#1461: the sampled frames that lost records (per-tile record maximum, its tile, the
+    # record allocation), whole process. Absent telemetry is MISSING, never zero.
+    out["overlap_drop_frames"] = ps.drop_frame_summary(result.get("overlap_drop_frames"))
     return out
 
 

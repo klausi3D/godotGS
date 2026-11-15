@@ -601,6 +601,22 @@ def g6_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
 OVERFLOW_AT_CHECKPOINT = "overflow_at_checkpoint"
 
 
+def _checkpoint_split_detail(passes: Any) -> str:
+    """#1457 (report-only): the checkpoint drop intervals named by where they were observed, the
+    settle window or the settled pose. The verdict above counts both; a part that was not
+    measured is said so, never read as 0."""
+    parts = []
+    for key, text in (("overlap_drops_checkpoints_settle_window", "settle window"),
+                      ("overlap_drops_checkpoints_settled_pose", "settled pose")):
+        windows = [p.get(key) if isinstance(p, dict) else None for p in passes]
+        if windows and all(isinstance(w, dict) and w.get("status") == OK and type(w.get("drop_events")) is int
+                           for w in windows):
+            parts.append(f"{text} {sum(w['drop_events'] for w in windows)}")
+        else:
+            parts.append(f"{text} not measured")
+    return ", ".join(parts)
+
+
 def g10_overflow(entry: dict, limit: Any, ctx: Ctx) -> Result:
     """#1393, ADR G10: overlap records dropped (missing splats) at the checkpoints.
 
@@ -633,7 +649,7 @@ def g10_overflow(entry: dict, limit: Any, ctx: Ctx) -> Result:
         raise Missing("; ".join(absent))
     detail = (f"{events} drop intervals in {samples} readbacks at the checkpoints (binning tile range "
               f"{sites['tile_range']}, binning budget {sites['budget']}, raster cap {sites['raster_cap']}; "
-              f">= {records} records dropped in the sampled frames)")
+              f">= {records} records dropped in the sampled frames; {_checkpoint_split_detail(ctx.passes())})")
     if not _compare(entry["op"], events, _finite(limit, "limit")):
         return FAIL, events, f"{OVERFLOW_AT_CHECKPOINT}: {detail}"
     return PASS, events, detail

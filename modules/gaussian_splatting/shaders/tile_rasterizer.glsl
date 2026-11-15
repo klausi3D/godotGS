@@ -90,9 +90,13 @@ layout(set = 0, binding = 3, std430) buffer OverflowStatisticsBuffer {
     uint raster_reject_quadratic;     // quadratic > GS_RASTER_ALPHA_REJECT_Q (spatial extent)
     uint raster_reject_lod_opacity;   // base_opacity * lod_blend <= GS_RASTER_ALPHA_THRESHOLD
     uint raster_reject_blend_alpha;   // blend_alpha <= 0 after remaining-alpha multiply
-    uint overflow_drop_signal;        // C4b (G4): trailing drop flag; layout-parity with the
-                                      // 88-byte host mirror + tile_binning.glsl. Written here
+    uint overflow_drop_signal;        // C4b (G4): sticky drop flag; layout-parity with the
+                                      // host mirror + tile_binning.glsl. Written here
                                       // only by the per-tile raster cap (#1137).
+    // #1457/#1461: per-frame words after the signal (no earlier offset moves).
+    uint raster_cap_dropped_records;  // records past GS_MAX_RASTER_SPLATS_PER_TILE (subset of overflow_splats_clamped)
+    uint max_tile_records;            // atomicMax: most records COUNT reserved for any tile
+    uint max_tile_key;                // atomicMax: gs_pack_max_tile_key(records, tile index)
 } overflow_stats;
 
 layout(set = 0, binding = 4, std430) readonly buffer ProjectionBuffer {
@@ -150,6 +154,20 @@ void main() {
     // is not counted 256 times. The origin pixel of every tile lies inside the viewport.
     const bool tile_counter_fragment = all(equal(ivec2(frag_coord - vec2(0.5)), tile_coord * TILE_SIZE));
 
+    if (tile_counter_fragment) {
+        // #1461: the tile's record demand (COUNT's reservation), before any clamp.
+        if (total_splat_count > 0u) {
+            atomicMax(overflow_stats.max_tile_records, total_splat_count);
+            atomicMax(overflow_stats.max_tile_key, gs_pack_max_tile_key(total_splat_count, tile_idx));
+        }
+        // #1457: records this clamp loses, by the shared accounting (the host tests run the same text).
+        uint unreadable_records = gs_raster_unreadable_written_records(range_start, total_splat_count,
+                indirect_dispatch.element_count, record_count);
+        if (unreadable_records > 0u) {
+            atomicAdd(overflow_stats.overflow_splats_clamped, unreadable_records);
+        }
+    }
+
     // Clamp to available records first.
     if (range_start >= record_count) {
         if (total_splat_count > 0u && tile_counter_fragment) {
@@ -159,9 +177,6 @@ void main() {
     } else {
         uint available_records = record_count - range_start;
         if (total_splat_count > available_records) {
-            if (tile_counter_fragment) {
-                atomicAdd(overflow_stats.overflow_splats_clamped, total_splat_count - available_records);
-            }
             total_splat_count = available_records;
         }
     }
@@ -173,6 +188,7 @@ void main() {
     if (splat_count > uint(GS_MAX_RASTER_SPLATS_PER_TILE) && tile_counter_fragment) {
         atomicAdd(overflow_stats.overflow_tile_count, 1u);
         atomicAdd(overflow_stats.overflow_splats_clamped, splat_count - uint(GS_MAX_RASTER_SPLATS_PER_TILE));
+        atomicAdd(overflow_stats.raster_cap_dropped_records, splat_count - uint(GS_MAX_RASTER_SPLATS_PER_TILE));
         atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_RASTER_TILE_CAP);
     }
     splat_count = min(splat_count, uint(GS_MAX_RASTER_SPLATS_PER_TILE));

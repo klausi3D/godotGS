@@ -732,6 +732,191 @@ class OverlapDrops(unittest.TestCase):
         self.assertIn("debug_state_orchestrator->append_drop_telemetry(stats);", stats)
 
 
+def _checkpoint_trace(rows):
+    """Constructed rows of one pass (the arithmetic is the point): each entry is (row state,
+    counter increments or None for a row without the telemetry)."""
+    fields = ["row", "phase", "pass_index", "segment", "view", "state", "s_m", *ps.DROP_COUNTERS]
+    totals = dict.fromkeys(ps.DROP_COUNTERS, 0)
+    out = []
+    for i, (state, inc) in enumerate(rows):
+        if inc is None:
+            values = [-1] * len(ps.DROP_COUNTERS)
+        else:
+            for k, v in inc.items():
+                totals[k] += v
+            values = [totals[k] for k in ps.DROP_COUNTERS]
+        out.append((i, 0, 0, 3, -1, state, 1.5 * i, *values))
+    return ps.Trace(fields, "qqqqqqd" + "q" * len(ps.DROP_COUNTERS), out, 0)
+
+
+class CheckpointDropSplit(unittest.TestCase):
+    """#1457: the checkpoint drop window split into settle window and settled pose (report-only)."""
+
+    SAMPLE = {"drop_signal_samples": 1, "sampled_overlap_records_total": 1000, "sampled_overlap_splats_total": 100}
+    ROWS = [
+        (ps.STATE_MOVING, dict(SAMPLE, overflow_drop_events=1, raster_tile_cap_drop_events=1,
+                               sampled_dropped_records_total=11)),
+        (ps.STATE_SETTLING, dict(SAMPLE, overflow_drop_events=1, binning_drop_events=1,
+                                 binning_budget_drop_events=1, sampled_dropped_records_total=245)),
+        (ps.STATE_SETTLING, dict(SAMPLE)),
+        (ps.STATE_HOLD, dict(SAMPLE)),
+        (ps.STATE_HOLD, dict(SAMPLE, overflow_drop_events=1, raster_tile_cap_drop_events=1,
+                             sampled_dropped_records_total=5)),
+    ]
+
+    def test_the_two_parts_are_exactly_the_checkpoint_window(self) -> None:
+        trace = _checkpoint_trace(self.ROWS)
+        windows = ps.checkpoint_drop_windows(trace, 0)
+        self.assertEqual(set(windows), {key for _label, key, _state in ps.CHECKPOINT_DROP_WINDOWS})
+        settle = windows["overlap_drops_checkpoints_settle_window"]
+        settled = windows["overlap_drops_checkpoints_settled_pose"]
+        self.assertEqual((settle["status"], settle["rows"], settle["drop_events"], settle["sampled_dropped_records"],
+                          settle["binning_budget_drop_events"]), (ps.OK, 2, 1, 245, 1))
+        self.assertEqual((settled["status"], settled["rows"], settled["drop_events"], settled["sampled_dropped_records"],
+                          settled["raster_tile_cap_drop_events"]), (ps.OK, 2, 1, 5, 1))
+        # The moving row's drop belongs to neither part, and the parts add up to the window G10 reads.
+        union = ps.overlap_drops(trace, ps.rows_where(trace, phase=0, pass_index=0,
+                                                      state={ps.STATE_SETTLING, ps.STATE_HOLD}))
+        for key in ("rows", "readback_samples", "drop_events", "sampled_dropped_records"):
+            self.assertEqual(settle[key] + settled[key], union[key], key)
+
+    def test_the_report_keeps_both_parts_and_never_turns_absence_into_zero(self) -> None:
+        trace = _checkpoint_trace(self.ROWS)
+        record = {"pass_index": 0, **ps.checkpoint_drop_windows(trace, 0)}
+        split = ps.checkpoint_drop_split([record])
+        self.assertEqual(split["status"], ps.OK)
+        entry = split["passes"][0]
+        self.assertEqual((entry["settle_window"]["drop_events"], entry["settled_pose"]["drop_events"]), (1, 1))
+        self.assertEqual((entry["settle_window"]["sampled_dropped_records"],
+                          entry["settled_pose"]["sampled_dropped_records"]), (245, 5))
+        self.assertIn("both stay failures", split["scope"])
+        # No readback landed in the hold rows: that part is not measured, with the producer's reason.
+        quiet = _checkpoint_trace([(ps.STATE_SETTLING, dict(self.SAMPLE)), (ps.STATE_HOLD, {}), (ps.STATE_HOLD, {})])
+        entry = ps.checkpoint_drop_split([{"pass_index": 0, **ps.checkpoint_drop_windows(quiet, 0)}])["passes"][0]
+        self.assertEqual(entry["settle_window"]["status"], ps.OK)
+        self.assertEqual(entry["settled_pose"]["status"], ps.NOT_MEASURED)
+        self.assertIn("unproven", entry["settled_pose"]["reason"])
+        self.assertNotIn("drop_events", entry["settled_pose"])
+        # A summary that predates the split has neither part.
+        entry = ps.checkpoint_drop_split([{"pass_index": 1}])["passes"][0]
+        self.assertEqual((entry["settle_window"]["status"], entry["settled_pose"]["status"]),
+                         (ps.NOT_MEASURED, ps.NOT_MEASURED))
+        self.assertEqual(ps.checkpoint_drop_split(None)["status"], ps.MISSING)
+
+    def test_the_path_summary_publishes_the_split(self) -> None:
+        """Wiring: run_probe puts both windows into every pass record."""
+        src = (HERE / "run_probe.py").read_text(encoding="utf-8")
+        body = src[src.index("def summarise_path"):]
+        body = body[:body.index("\ndef ")]
+        self.assertIn("**ps.checkpoint_drop_windows(trace, pass_index),", body)
+
+
+def _drop_frame(**overrides):
+    """One renderer drop-frame export (TileDiagnosticsState::append_drop_frame_telemetry keys)."""
+    frame = {"frame_serial": 900, "dropped_records": 3000, "raster_cap_dropped_records": 3000,
+             "raster_truncated_tiles": 2, "overlap_records_attempted": 250000, "raster_tile_cap": 16384,
+             "max_tile_records": 18000, "max_tile_x": 47, "max_tile_y": 33, "overlap_allocation_records": 400000}
+    frame.update(overrides)
+    return frame
+
+
+def _drop_event(count, frame, **observed):
+    event = {"count": count, "observed_row": 10 * count, "observed_phase": 0, "observed_pass_index": 0,
+             "observed_segment": 4, "observed_state": ps.STATE_MOVING, "frame": frame}
+    event.update(observed)
+    return event
+
+
+class DropFrames(unittest.TestCase):
+    """#1457/#1461: the sampled dropping frames (per-tile record maximum, tile, allocation)."""
+
+    def test_raster_cap_and_budget_frames_are_reported_with_their_numbers(self) -> None:
+        budget = _drop_frame(frame_serial=1500, dropped_records=245, raster_cap_dropped_records=0,
+                             raster_truncated_tiles=0, overlap_records_attempted=205000,
+                             overlap_allocation_records=160000, max_tile_records=700,
+                             max_tile_x=ps.NOT_MEASURED, max_tile_y=ps.NOT_MEASURED)
+        rec = ps.drop_frame_summary({"count": 3, "events_not_recorded": 1, "events": [
+            _drop_event(1, _drop_frame()), _drop_event(3, budget, observed_state=ps.STATE_SETTLING)]})
+        self.assertEqual(rec["status"], ps.OK, rec)
+        self.assertEqual((rec["drop_frames"], rec["drop_frames_described"], rec["drop_frames_not_described"]), (3, 2, 1))
+        self.assertEqual((rec["raster_cap_frames"], rec["raster_cap_dropped_records"]), (1, 3000))
+        self.assertEqual(rec["raster_cap_max_tile_records_peak"]["value"], 18000)
+        self.assertEqual(rec["max_tile_records_peak"]["value"], 18000)
+        self.assertEqual((rec["binning_frames"], rec["binning_dropped_records"]), (1, 245))
+        self.assertEqual(rec["binning_overlap_records_over_allocation_peak"]["value"], 45000)
+        cap, cut = rec["frames"]
+        self.assertEqual((cap["max_tile_records"], cap["max_tile_x"], cap["max_tile_y"], cap["max_tile_records_over_cap"]),
+                         (18000, 47, 33, 1616))
+        self.assertEqual((cut["max_tile_x"], cut["max_tile_y"]), (ps.NOT_MEASURED, ps.NOT_MEASURED))
+        self.assertEqual((cut["overlap_records_over_allocation"], cut["observed_state"]), (45000, ps.STATE_SETTLING))
+
+    def test_not_measured_values_stay_not_measured(self) -> None:
+        frame = _drop_frame(max_tile_records=ps.NOT_MEASURED, max_tile_x=ps.NOT_MEASURED, max_tile_y=ps.NOT_MEASURED,
+                            overlap_allocation_records=ps.NOT_MEASURED)
+        rec = ps.drop_frame_summary({"count": 1, "events_not_recorded": 0, "events": [_drop_event(1, frame)]})
+        self.assertEqual(rec["status"], ps.OK, rec)
+        only = rec["frames"][0]
+        for key in ("max_tile_records", "max_tile_records_over_cap", "overlap_allocation_records",
+                    "overlap_records_over_allocation"):
+            self.assertEqual(only[key], ps.NOT_MEASURED, key)
+        for key in ("max_tile_records_peak", "raster_cap_max_tile_records_peak"):
+            self.assertEqual((rec[key]["status"], rec[key]["value"]), (ps.MISSING, None), key)
+        # No dropping frame at all: a count of 0 frames, and still no invented maximum.
+        none = ps.drop_frame_summary({"count": 0, "events_not_recorded": 0, "events": []})
+        self.assertEqual((none["status"], none["drop_frames"], none["frames"]), (ps.OK, 0, []))
+        self.assertEqual(none["max_tile_records_peak"]["status"], ps.MISSING)
+
+    def test_absent_or_contradictory_telemetry_is_never_a_number(self) -> None:
+        self.assertEqual(ps.drop_frame_summary(None)["status"], ps.MISSING)
+        older = ps.drop_frame_summary({"count": ps.NOT_MEASURED, "events": [], "events_not_recorded": 0})
+        self.assertEqual(older["status"], ps.MISSING)
+        self.assertIn("older binary", older["reason"])
+        lost = ps.drop_frame_summary({"count": 2, "events_not_recorded": 0, "events": [_drop_event(1, _drop_frame())]})
+        self.assertEqual(lost["status"], ps.INVALID)
+        self.assertNotIn("frames", lost)
+        bare = ps.drop_frame_summary({"count": 1, "events_not_recorded": 0,
+                                      "events": [_drop_event(1, {"frame_serial": 3})]})
+        self.assertEqual(bare["status"], ps.INVALID)
+        more_cap_than_total = _drop_frame(dropped_records=10, raster_cap_dropped_records=11)
+        self.assertEqual(ps.drop_frame_summary({"count": 1, "events_not_recorded": 0,
+                                                "events": [_drop_event(1, more_cap_than_total)]})["status"], ps.INVALID)
+
+    def test_every_stage_carries_the_drop_frame(self) -> None:
+        """Wiring, renderer to comparator: deleting a key, the export call or a hand-over turns this red."""
+        renderer = ROOT / "modules" / "gaussian_splatting" / "renderer"
+        types = (renderer / "tile_render_types.h").read_text(encoding="utf-8")
+        export = types[types.index("void append_drop_frame_telemetry(Dictionary &r_stats) const"):]
+        export = export[:export.index("\n\t}\n")]
+        for name in ps._DROP_FRAME_INT_KEYS + ps._DROP_FRAME_OPTIONAL_KEYS:
+            self.assertIn(f'out["{name}"] = static_cast<int64_t>(frame.{name});', export, name)
+        for name in ("drop_frame_samples", "drop_frame"):
+            self.assertIn(f'r_stats["{name}"] = ', export, name)
+        for name in ps._DROP_FRAME_OPTIONAL_KEYS:  # every optional value has a not-measured branch
+            self.assertIn(f'out["{name}"] = not_measured;', export, name)
+        self.assertIn('r_stats["drop_frame"] = not_measured;', export)
+        src = (renderer / "render_debug_state_orchestrator.cpp").read_text(encoding="utf-8")
+        body = src[src.index("void RenderDebugStateOrchestrator::append_drop_telemetry"):]
+        self.assertIn("tr->append_drop_frame_telemetry(r_stats);", body[:body.index("\n}\n")])
+        callback = (renderer / "tile_render_debug_stats.cpp").read_text(encoding="utf-8")
+        self.assertIn("owner.diagnostics.record_overflow_sample(sample, context);", callback)
+        self.assertIn("diagnostics.last_overlap_binning_splats, diagnostics.last_prefix_scan_capacity);",
+                      (renderer / "tile_renderer.cpp").read_text(encoding="utf-8"))
+        gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        sample = gd[gd.index("func _sample_and_write() -> void:"):]
+        self.assertIn("\t_sample_drop_frames(stats)\n", sample[:sample.index("\nfunc ")])
+        self.assertIn('_result["overlap_drop_frames"] = {"count": _drop_frame_count, "events": _drop_frame_events,', gd)
+        for key in ("observed_row", "observed_phase", "observed_pass_index", "observed_segment", "observed_state"):
+            self.assertIn(f'"{key}": ', gd, key)
+        self.assertIn('out["overlap_drop_frames"] = ps.drop_frame_summary(result.get("overlap_drop_frames"))',
+                      (HERE / "run_probe.py").read_text(encoding="utf-8"))
+        paired = (HERE / "shared_layers_t0.py").read_text(encoding="utf-8")
+        self.assertIn('"overlap_drop_frames": ps.drop_frame_summary(result.get("overlap_drop_frames")),', paired)
+        self.assertIn('"checkpoint_drop_split": ps.checkpoint_drop_split(probe.get("passes")),', paired)
+        compare = (HERE / "compare_shared_layers_t0.py").read_text(encoding="utf-8")
+        self.assertIn('"overlap_drop_report": _overlap_drop_report(arms),', compare)
+        self.assertIn('lines += _overlap_drop_lines(report.get("overlap_drop_report"))', compare)
+
+
 def _breakdown_trace(frames, *, columns=True):
     """Constructed frame-breakdown rows (the arithmetic is the point): each entry is the interval
     ENDING at that row, in usec per part; ``unsplit`` a row the driver could not split (its -1).

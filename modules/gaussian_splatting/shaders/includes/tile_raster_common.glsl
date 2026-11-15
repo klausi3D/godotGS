@@ -3,6 +3,7 @@
 
 #include "gs_instance_layout.glsl"
 #include "gs_alpha_threshold.glsl"
+#include "gs_overlap_drop_accounting.glsl"
 
 const uint GS_DEBUG_SPLAT_AUDIT_MAX_SAMPLES = 64u;
 const uint GS_DEBUG_SPLAT_AUDIT_MATCHES_MAX = 4u;

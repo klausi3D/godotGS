@@ -138,6 +138,13 @@ var _plan: Dictionary = {}
 var _result: Dictionary = {}
 var _trace: FileAccess
 var _rows := 0
+# #1457/#1461: the sampled frames that lost overlap records, read from get_render_stats() (the
+# renderer's always-on drop readback; the probe issues none). Kept beside the binary trace, whose
+# schema does not change. "not_measured" while the renderer does not publish the counter.
+const DROP_FRAME_EVENT_LIMIT := 4096
+var _drop_frame_count = "not_measured"
+var _drop_frame_events := []
+var _drop_frame_events_not_recorded := 0
 var _scene: Node3D
 var _camera: Camera3D
 var _node: GaussianSplatWorld3D
@@ -193,6 +200,8 @@ func _finish(ok: bool, reason: String) -> void:
 	_result["final_streaming"] = _scalars(_last_streaming)
 	_result["final_render_stats"] = _scalars(_last_stats)
 	_result["gsq_decode_stats"] = _gsq_decode_stats()
+	_result["overlap_drop_frames"] = {"count": _drop_frame_count, "events": _drop_frame_events,
+			"events_not_recorded": _drop_frame_events_not_recorded}
 	if bool(_plan.get("shared_layers_t0", false)):
 		_result["shared_layers_peaks"] = _shared_layers_peaks
 		_result["shared_layers_payload_peaks"] = _shared_layers_payload_peaks
@@ -294,6 +303,28 @@ func _g(d: Dictionary, k: String, fallback = 0):
 	return d.get(k, fallback) if d.has(k) and d[k] != null else fallback
 
 
+# #1457/#1461: record the renderer's latest sampled dropping frame whenever its counter advanced.
+# The renderer keeps only the latest one, so frames it sampled between two probe rows are
+# counted in events_not_recorded, never described by a neighbour. observed_* is this row's
+# context: the sample is a frame or more older than the row that sees it.
+func _sample_drop_frames(stats: Dictionary) -> void:
+	if not stats.has("drop_frame_samples"):
+		return
+	var count := int(stats["drop_frame_samples"])
+	var previous := int(_drop_frame_count) if _drop_frame_count is int else 0
+	_drop_frame_count = count
+	if count <= previous:
+		return
+	var frame = stats.get("drop_frame")
+	if not (frame is Dictionary) or _drop_frame_events.size() >= DROP_FRAME_EVENT_LIMIT:
+		_drop_frame_events_not_recorded += count - previous
+		return
+	_drop_frame_events_not_recorded += count - previous - 1
+	_drop_frame_events.append({"count": count, "observed_row": _rows, "observed_phase": _ctx["phase"],
+			"observed_pass_index": _ctx["pass_index"], "observed_segment": _ctx["segment"],
+			"observed_state": _ctx["state"], "frame": frame})
+
+
 func _sample_and_write() -> void:
 	var t_usec := Time.get_ticks_usec()
 	var stats := {}
@@ -306,6 +337,7 @@ func _sample_and_write() -> void:
 	_update_pose_first_frame()
 	var ss: Dictionary = stats.get("streaming_state", {}) if stats.get("streaming_state") is Dictionary else {}
 	_last_streaming = ss
+	_sample_drop_frames(stats)
 	if bool(_plan.get("shared_layers_t0", false)):
 		# Actual current node/camera/project policy for every trace row, including
 		# HLOD where chunk regulator revision fields do not exist.

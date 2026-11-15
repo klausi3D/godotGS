@@ -709,6 +709,7 @@ def compare(experiment: dict) -> dict:
                                    "frame_intervals": "time-weighted nearest rank, cold and repeat reported separately",
                                    "frame_time": FRAME_TIME_SCOPE},
             "frame_time": _frame_time(arms, migration_arms),
+            "overlap_drop_report": _overlap_drop_report(arms),
             "metrics": {route: _route_metrics(arms.get(route)) for route in ("chunk", "hlod")}}
 
 
@@ -756,6 +757,102 @@ FRAME_TIME_SCOPE = ("wall = interval between trace rows, the probe's own work in
                     "both time-weighted nearest rank; report-only, no threshold")
 STATE_NAMES = {ps.STATE_MOVING: "moving", ps.STATE_SETTLING: "settling", ps.STATE_HOLD: "hold"}
 HITCH_LINES_PER_PASS = 5
+
+
+DROP_FRAME_LINES_PER_ARM = 40
+
+
+def _overlap_drop_report(arms):
+    """#1457/#1461: where each arm dropped overlap records and how large the dropping frames were.
+    Report-only: the verdict keeps reading `drop_events` (correctness), which counts drops in the
+    settle window and at the settled pose alike. An absent block is not measured, never zero."""
+    out = {}
+    for route in ("chunk", "hlod"):
+        arm = _dict(arms.get(route))
+        optional = _dict(arm.get("optional_measurements"))
+        whole = _dict(_dict(arm.get("probe")).get("overlap_drops_whole_run"))
+        split, frames = optional.get("checkpoint_drop_split"), optional.get("overlap_drop_frames")
+        out[route] = {
+            "whole_run": ({key: whole.get(key) for key in ("status", "readback_samples", "drop_events",
+                           "binning_tile_range_drop_events", "binning_budget_drop_events",
+                           "raster_tile_cap_drop_events", "sampled_dropped_records")}
+                          if whole.get("status") == ps.OK else
+                          {"status": ps.NOT_MEASURED, "reason": whole.get("reason", "the arm carries no whole-run drop window")}),
+            "checkpoint_drop_split": (copy.deepcopy(split) if isinstance(split, dict) and split.get("status") == ps.OK else
+                                      {"status": ps.NOT_MEASURED, "reason": _dict(split).get(
+                                          "reason", "the arm carries no checkpoint drop split")}),
+            "drop_frames": (copy.deepcopy(frames) if isinstance(frames, dict) and frames.get("status") == ps.OK else
+                            {"status": ps.NOT_MEASURED, "reason": _dict(frames).get(
+                                "reason", "the arm carries no drop-frame record")}),
+        }
+    return out
+
+
+def _overlap_drop_lines(report):
+    def clean(value):
+        if value is None or value == ps.NOT_MEASURED:
+            return "not measured"
+        return str(value).replace("|", "/").replace("\n", " ")
+
+    def window(record):
+        record = _dict(record)
+        if record.get("status") != ps.OK:
+            return "not measured: " + clean(record.get("reason", "no window"))
+        return f"{clean(record.get('drop_events'))} / {clean(record.get('sampled_dropped_records'))}"
+
+    lines = ["", "## Overlap drops: where and how large (#1457, #1461)", "",
+             "Report-only. `drop_events` in the correctness table decides, and it counts drops in the settle "
+             "window and at the settled pose alike: both are missing splats. Cells are drop intervals / lost "
+             "records in the sampled frames (a lower bound; each lost record once). " + ps.CHECKPOINT_DROP_SPLIT_SCOPE, "",
+             "| arm, pass | whole run | checkpoint settle window | checkpoint settled pose |", "| --- | --- | --- | --- |"]
+    report = _dict(report)
+    for route in ("chunk", "hlod"):
+        entry = _dict(report.get(route))
+        whole, split = window(entry.get("whole_run")), _dict(entry.get("checkpoint_drop_split"))
+        passes = split.get("passes") if split.get("status") == ps.OK else None
+        if not isinstance(passes, list) or not passes:
+            reason = "not measured: " + clean(split.get("reason", "no checkpoint drop split"))
+            lines.append(f"| {route} | {whole} | {reason} | {reason} |")
+            continue
+        for index, record in enumerate(passes):
+            record = _dict(record)
+            lines.append(f"| {route}, {'cold' if index == 0 else 'repeat'} | {whole if index == 0 else 'see cold row'} | "
+                         f"{window(record.get('settle_window'))} | {window(record.get('settled_pose'))} |")
+    lines += ["", ps.DROP_FRAME_SCOPE.capitalize(), "",
+              "| arm | observed at (pass, segment, state) | frame | lost records (raster-cap part) | "
+              "max records in one tile | tile x, y | raster tile cap | max minus cap | records attempted | "
+              "record allocation | attempted minus allocation |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    summary = []
+    for route in ("chunk", "hlod"):
+        frames = _dict(_dict(report.get(route)).get("drop_frames"))
+        if frames.get("status") != ps.OK:
+            lines.append(f"| {route} | " + " | ".join(
+                ["not measured: " + clean(frames.get("reason", "no drop-frame record"))] * 10) + " |")
+            continue
+        described = frames.get("frames") if isinstance(frames.get("frames"), list) else []
+        if not described:
+            lines.append(f"| {route} | " + " | ".join(
+                [f"no sampled frame lost records ({clean(frames.get('drop_frames'))} drop frames)"] * 10) + " |")
+        for frame in described[:DROP_FRAME_LINES_PER_ARM]:
+            frame = _dict(frame)
+            state = STATE_NAMES.get(frame.get("observed_state"), clean(frame.get("observed_state")))
+            lines.append(
+                f"| {route} | pass {clean(frame.get('observed_pass_index'))}, segment "
+                f"{clean(frame.get('observed_segment'))}, {state} | {clean(frame.get('frame_serial'))} | "
+                f"{clean(frame.get('dropped_records'))} ({clean(frame.get('raster_cap_dropped_records'))}) | "
+                f"{clean(frame.get('max_tile_records'))} | {clean(frame.get('max_tile_x'))}, {clean(frame.get('max_tile_y'))} | "
+                f"{clean(frame.get('raster_tile_cap'))} | {clean(frame.get('max_tile_records_over_cap'))} | "
+                f"{clean(frame.get('overlap_records_attempted'))} | {clean(frame.get('overlap_allocation_records'))} | "
+                f"{clean(frame.get('overlap_records_over_allocation'))} |")
+        peak = _dict(frames.get("raster_cap_max_tile_records_peak"))
+        summary.append(
+            f"{route}: {clean(frames.get('drop_frames'))} sampled dropping frames "
+            f"({clean(frames.get('drop_frames_not_described'))} not described, "
+            f"{max(len(described) - DROP_FRAME_LINES_PER_ARM, 0)} more in the JSON); raster-cap frames "
+            f"{clean(frames.get('raster_cap_frames'))}, their largest per-tile record count "
+            f"{clean(peak.get('value')) if peak.get('status') == ps.OK else 'not measured'}.")
+    return lines + [""] + summary
 
 
 def _frame_time(arms, migration_arms):
@@ -898,6 +995,7 @@ def render_markdown(report: dict) -> str:
                          f"{cell(measurement(intervals.get('p99_time_weighted')))} "
                          "(wall clock, probe work included; see the frame-time table).")
     lines += _frame_time_lines(report.get("frame_time"))
+    lines += _overlap_drop_lines(report.get("overlap_drop_report"))
     return "\n".join(lines)
 
 
