@@ -145,7 +145,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	if (!root_stale && !available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
 	if (!std::isfinite(root_cost)) { return out; }
-	const double record_cap = 0.8 * p_request.record_budget; // The 80 percent admission factor.
+	const double record_cap = kRecordAdmissionFactor * p_request.record_budget; // The 80 percent admission factor.
 	selected.write[0] = 0;
 	selected_position.write[0] = 0;
 	out.selected_count = 1;
@@ -157,6 +157,8 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		// expansion sequence is a fixed prefix order and raising a budget only stops it earlier.
 		// Work is bounded by a visit limit and uses the preallocated heap/selection storage.
 		const bool caps_exceeded = out.selected_splats > p_request.splat_budget || root_cost > record_cap;
+		// #1472: the root's splats fit and only its records do not. Reported whatever the bootstrap finds below.
+		if (root_cost > record_cap && out.selected_splats <= p_request.splat_budget) { out.record_demand = root_cost; }
 		out.budget_bound = caps_exceeded;
 		out.bootstrapped = caps_exceeded;
 		out.edit_forced = root_stale;
@@ -300,19 +302,28 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const int64_t d_splats = int64_t(child_splats) - int64_t(n.payload_count);
 			const int64_t d_count = int64_t(visible_children) - 1;
 			const double d_cost = child_cost - cost(parent);
-			if (int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
+			const bool other_caps_fit = int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
 					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
-					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap &&
-					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget)) {
+					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget);
+			const double planned_cost = MAX(0.0, out.estimated_records + plan_cost + d_cost);
+			if (other_caps_fit && planned_cost <= record_cap) {
 				push_group(missing_children, missing_count);
 				plan_pages += child_pages;
 				plan_splats += d_splats;
 				plan_count += d_count;
 				plan_cost += d_cost;
+			} else if (other_caps_fit) {
+				// #1472: only the record cap keeps this group from being requested. It never becomes resident, so it
+				// never shows as a refused refinement either: name the demand here.
+				out.record_demand = MAX(out.record_demand, planned_cost);
 			}
 			continue;
 		}
 		if (next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > record_cap) {
+			// #1472: refused by the record cap alone (the splats and nodes fit).
+			if (next_splats <= p_request.splat_budget && next_count <= p_request.node_budget) {
+				out.record_demand = MAX(out.record_demand, next_cost);
+			}
 			out.budget_bound = true;
 			break; // ADR: first cap refusal stops the whole priority walk.
 		}

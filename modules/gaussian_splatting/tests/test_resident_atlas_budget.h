@@ -699,8 +699,11 @@ TEST_CASE("[GaussianSplatting][HLOD][Paged] a frame the tile stage refuses is no
 
 TEST_CASE("[GaussianSplatting][ResidentAtlasBudget][HLOD][Paged] the first overlap seed of a large paged tree is priced and refused before it allocates (#1131)") {
     using namespace ResidentAtlasBudget;
-    // Both seeds (provision_paged_hlod_route and the per-view block of prepare_hlod_frame) decide with this: 50 records
-    // per leaf, clamped by the configured max_overlap_records (default 100M), 24 B per record with 64-bit keys.
+    // Both seeds (provision_paged_hlod_route and the per-view block of prepare_hlod_frame) are priced with this decision,
+    // 24 B per record with 64-bit keys. The record counts below are the former seed rule (50 records per leaf, clamped by
+    // the configured max_overlap_records, default 100M): since #1472 the seed follows the drawn budget and is smaller
+    // (gs_hlod_bundle::world_overlap_seed_records, tested in test_hlod_world_instances.cpp), but the pricing is the same
+    // and a seed of any size must still be refused before it allocates when it does not fit.
     const uint64_t per_record = 24;
     const uint32_t hard_cap = 100000000;
     auto seed_of = [&](uint64_t p_leaves) { return uint32_t(MIN<uint64_t>(MIN<uint64_t>(p_leaves * 50u, UINT32_MAX), hard_cap)); };

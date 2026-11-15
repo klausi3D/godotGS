@@ -179,6 +179,12 @@ struct ResourceState {
     gs_hlod_bundle::OverlapWorldNeed hlod_overlap_world_need;
     uint32_t hlod_overlap_capacity_records = 0;
     uint64_t hlod_instance_overlap_growths = 0;
+    // #1472: the storage the last world cut asked for because the record cap alone refused a step
+    // (gs_hlod_bundle::world_demand_overlap_records; 0: none), the bundle build it belongs to, and how often the route
+    // grew the storage for it (cumulative). Consumed at the next frame's safe point. Render thread only.
+    uint32_t hlod_world_overlap_demand_records = 0;
+    uint64_t hlod_world_overlap_demand_build = 0;
+    uint64_t hlod_world_overlap_growths = 0;
     uint64_t hlod_instance_view_frame = 0; // Renderer frame counter of the view these counters describe.
     LocalVector<DrawnNodeGPU> hlod_instance_draws; // Scratch: this view's instance records (also drawn by an idle bundle).
     // Splat shadow casters (#1095, #1163; renderer/hlod_shadow_caster_plan.h). The record names the draw list the last

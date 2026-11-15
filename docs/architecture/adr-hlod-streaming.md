@@ -1288,9 +1288,11 @@ Contracts implemented:
   compositor scratch ledger, the sort capacity). They are provisioned explicitly, without drawing
   (`TileRenderer::provision_hlod_route`, `OutputCompositor::ensure_hlod_scratch`, sorter sized from the bounded
   world + instance draw budget, `gs_hlod_bundle::relative_capacity`, since #1417),
-  so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded as a
-  canonical warmup frame of the same world would (50 records per leaf, capped by the sorting config) and grows at a safe
-  point before a frame when measured demand exceeded it (`grow_hlod_overlap_storage`, within the ledger headroom).
+  so the route publishes on the first frame whether or not the camera sees the world. The overlap storage is seeded from the
+  world's drawn budget (`gs_hlod_bundle::world_overlap_seed_records`, since #1472: 3/2 of the splats the world can draw,
+  never more than the former 50 records per leaf, capped by the sorting config) and grows at a safe point before a frame,
+  within the ledger headroom: when measured demand exceeded it (`grow_hlod_overlap_storage`), or when the cut's record cap
+  alone refused a step (`CutHistory::Result::record_demand`), since the storage is the cut's record budget.
   After the first seed the tile grid has one provisioner for paged and streamed worlds: the per-view block of
   `prepare_hlod_frame` (`hlod_view_grid_action`, from the D1 resize fix), which runs after the growth, so it reads the grown
   overlap capacity. `provision_paged_hlod_route` keeps only the compositor scratch and that first seed. The first seed is
