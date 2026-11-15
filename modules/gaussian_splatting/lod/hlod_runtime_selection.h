@@ -65,8 +65,8 @@ public:
 		double estimated_records = 0.0;
 		bool budget_bound = false;
 		// #1472: the record estimate of the largest step the RECORD cap alone refused (0: it refused none): a refinement
-		// or a residency demand whose splats, nodes and pages fit, or a root that needs the bootstrap only for its
-		// records. The overlap storage is the record budget, so this is what a storage sized below the view's demand
+		// or a residency demand whose splats, nodes and pages fit, or the cheapest bootstrap frontier (the root included)
+		// that fits every other cap. The overlap storage is the record budget, so this is what a storage sized below the view's demand
 		// costs the cut; the route grows the storage from it instead of leaving the cut coarse. A refusal by another
 		// cap reports nothing: more records would not admit it.
 		double record_demand = 0.0;

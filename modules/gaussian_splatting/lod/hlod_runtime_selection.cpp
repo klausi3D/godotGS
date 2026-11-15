@@ -157,8 +157,6 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		// expansion sequence is a fixed prefix order and raising a budget only stops it earlier.
 		// Work is bounded by a visit limit and uses the preallocated heap/selection storage.
 		const bool caps_exceeded = out.selected_splats > p_request.splat_budget || root_cost > record_cap;
-		// #1472: the root's splats fit and only its records do not. Reported whatever the bootstrap finds below.
-		if (root_cost > record_cap && out.selected_splats <= p_request.splat_budget) { out.record_demand = root_cost; }
 		out.budget_bound = caps_exceeded;
 		out.bootstrapped = caps_exceeded;
 		out.edit_forced = root_stale;
@@ -186,6 +184,11 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		};
 		push_expandable(0, root_cost);
 		while (!fits()) {
+			// #1472: a frontier (the root included) whose splats and nodes fit and that holds no stale node is refused by
+			// the record cap alone. The cheapest one is the demand: reported whatever the bootstrap finds or fails below.
+			if (stale_selected == 0 && out.selected_splats <= p_request.splat_budget && out.selected_count <= p_request.node_budget) {
+				out.record_demand = out.record_demand > 0.0 ? MIN(out.record_demand, out.estimated_records) : out.estimated_records;
+			}
 			if (heap_count == 0) {
 				return fail(missing_residency ? BOOTSTRAP_MISSING_RESIDENCY : BOOTSTRAP_INFEASIBLE);
 			}
