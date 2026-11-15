@@ -46,6 +46,7 @@ var namespaces_dup =
       [ "_validate_loaded_chunk_invariant", "namespacegs__chunk__invariants.html#accf021ea0c502bf978e9ba1e17a8af08", null ],
       [ "_validate_pending_upload_chunk_invariant", "namespacegs__chunk__invariants.html#afab71aab02ae3a07af59477eb9f87d72", null ]
     ] ],
+    [ "gs_count_provenance", "namespacegs__count__provenance.html", "namespacegs__count__provenance" ],
     [ "gs_device_utils", "namespacegs__device__utils.html", [
       [ "has_outstanding_submit", "namespacegs__device__utils.html#ae36668e43038c9453652c64f6fb436d2", null ],
       [ "is_local_device", "namespacegs__device__utils.html#addf09e8087b490af1eb2e10b5b559b47", null ],

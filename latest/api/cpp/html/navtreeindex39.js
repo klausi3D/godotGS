@@ -1,5 +1,13 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a9fa88a4cfcf831e5884765904b5b7814":[0,0,12,11,13],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#a9fa88a4cfcf831e5884765904b5b7814":[1,0,9,10,13],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#ad521d226860a1bb3a7983f2f04491b11":[0,0,12,11,3],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#ad521d226860a1bb3a7983f2f04491b11":[1,0,9,10,3],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#ad79db8767c6cc2bb4ede7fb8d79ae40c":[0,0,12,11,12],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#ad79db8767c6cc2bb4ede7fb8d79ae40c":[1,0,9,10,12],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#ae6b44efc03d3a95931a2f2fc57f4aa01":[0,0,12,11,6],
+"structGaussianSplatting_1_1GaussianSplatLODConfig.html#ae6b44efc03d3a95931a2f2fc57f4aa01":[1,0,9,10,6],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html":[0,0,12,12],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html":[1,0,9,11],
 "structGaussianSplatting_1_1GaussianSplatStreamingConfig.html#a0af8b3c1837fb84a6556a6da0c65f0d2":[0,0,12,12,10],
@@ -241,13 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1Keyframe.html#aec39dfeb5e6449322e3fc3b4c78dd4e6":[0,0,12,7,1],
 "structGaussianSplatting_1_1Keyframe.html#aec39dfeb5e6449322e3fc3b4c78dd4e6":[1,0,9,6,1],
 "structGaussianSplatting_1_1PainterlyManager_1_1Settings.html":[0,0,12,13,0],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html":[1,0,9,12,0],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a4d3fbe8c1dd887f9acb9dcd77cb40e16":[0,0,12,13,0,1],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a4d3fbe8c1dd887f9acb9dcd77cb40e16":[1,0,9,12,0,1],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a96fd08e0cb2856872a3c986407b88ef9":[0,0,12,13,0,2],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a96fd08e0cb2856872a3c986407b88ef9":[1,0,9,12,0,2],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[0,0,12,13,0,3],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[1,0,9,12,0,3],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[0,0,12,13,0,0],
-"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[1,0,9,12,0,0]
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html":[1,0,9,12,0]
 };

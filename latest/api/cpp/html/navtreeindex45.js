@@ -1,5 +1,13 @@
 var NAVTREEINDEX45 =
 {
+"structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html#ae887e5999b29a8c774b0ced14352bbed":[0,0,12,51,7],
+"structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html#ae887e5999b29a8c774b0ced14352bbed":[1,0,9,50,7],
+"structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html#af205b23fcff9bc0e2172a3c3092b6762":[0,0,12,51,0],
+"structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html#af205b23fcff9bc0e2172a3c3092b6762":[1,0,9,50,0],
+"structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html#afc999a6fe8c6f1fbc2711ead47c8c3d5":[0,0,12,51,3],
+"structGaussianSplatting_1_1TileSubpixelVisibilityBuffers.html#afc999a6fe8c6f1fbc2711ead47c8c3d5":[1,0,9,50,3],
+"structGaussianSplatting_1_1TileTimestampRange.html":[0,0,12,60],
+"structGaussianSplatting_1_1TileTimestampRange.html":[1,0,9,59],
 "structGaussianSplatting_1_1TileTimestampRange.html#a092d91584fea2ab7fe491f427fcf7c29":[0,0,12,60,2],
 "structGaussianSplatting_1_1TileTimestampRange.html#a092d91584fea2ab7fe491f427fcf7c29":[1,0,9,59,2],
 "structGaussianSplatting_1_1TileTimestampRange.html#a5d0987242c5f71400b58410e69c3cae5":[0,0,12,60,0],
@@ -241,13 +249,5 @@ var NAVTREEINDEX45 =
 "structGaussianStreamingTypes_1_1BudgetState.html#ab4518f6f40d51e65127aa4287ba16b21":[0,0,14,7,0],
 "structGaussianStreamingTypes_1_1BudgetState.html#ab4518f6f40d51e65127aa4287ba16b21":[1,0,10,7,0],
 "structGaussianStreamingTypes_1_1BudgetState.html#aba72dad6a7f82179691d480836eb7312":[0,0,14,7,3],
-"structGaussianStreamingTypes_1_1BudgetState.html#aba72dad6a7f82179691d480836eb7312":[1,0,10,7,3],
-"structGaussianStreamingTypes_1_1BudgetState.html#ae05fb0675e7c59b8d4c69674d56a2107":[0,0,14,7,13],
-"structGaussianStreamingTypes_1_1BudgetState.html#ae05fb0675e7c59b8d4c69674d56a2107":[1,0,10,7,13],
-"structGaussianStreamingTypes_1_1BudgetState.html#af0d046ed88c9db7bb15d0c1a6a570a7b":[0,0,14,7,15],
-"structGaussianStreamingTypes_1_1BudgetState.html#af0d046ed88c9db7bb15d0c1a6a570a7b":[1,0,10,7,15],
-"structGaussianStreamingTypes_1_1BudgetState.html#af4f13f85c15412a17ebce2d133c504a5":[0,0,14,7,7],
-"structGaussianStreamingTypes_1_1BudgetState.html#af4f13f85c15412a17ebce2d133c504a5":[1,0,10,7,7],
-"structGaussianStreamingTypes_1_1ChunkLayoutHint.html":[0,0,14,0],
-"structGaussianStreamingTypes_1_1ChunkLayoutHint.html":[1,0,10,0]
+"structGaussianStreamingTypes_1_1BudgetState.html#aba72dad6a7f82179691d480836eb7312":[1,0,10,7,3]
 };

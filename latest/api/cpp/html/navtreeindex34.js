@@ -1,5 +1,11 @@
 var NAVTREEINDEX34 =
 {
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a42f1ff81eb853f27a7306e6b46d61bb5":[1,0,6,7,12],
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5246d389abeb31d1fb8dcda00fbd24c4":[0,0,7,7,23],
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5246d389abeb31d1fb8dcda00fbd24c4":[1,0,6,7,23],
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5daa2e6cb2800197c5b52231c072a95f":[0,0,7,7,1],
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5daa2e6cb2800197c5b52231c072a95f":[1,0,6,7,1],
+"structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30":[0,0,7,7,9],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a619feb710f17dee05484cd141162eb30":[1,0,6,7,9],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a6414e19692137f2e2e3683f699558a6f":[0,0,7,7,20],
 "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a6414e19692137f2e2e3683f699558a6f":[1,0,6,7,20],
@@ -243,11 +249,5 @@ var NAVTREEINDEX34 =
 "structGaussianRenderPipeline_1_1StageMetrics.html#ac0d896ee56ffbbbea68ff7653b3c4722":[1,0,6,10,10],
 "structGaussianRenderPipeline_1_1StageMetrics.html#ac25e9e3b79aab639987889c7f4483ab3":[0,0,7,10,19],
 "structGaussianRenderPipeline_1_1StageMetrics.html#ac25e9e3b79aab639987889c7f4483ab3":[1,0,6,10,19],
-"structGaussianRenderPipeline_1_1StageMetrics.html#ac506095c7d234530c3ae1ccefc7757c2":[0,0,7,10,11],
-"structGaussianRenderPipeline_1_1StageMetrics.html#ac506095c7d234530c3ae1ccefc7757c2":[1,0,6,10,11],
-"structGaussianRenderPipeline_1_1StageResult.html":[0,0,7,2],
-"structGaussianRenderPipeline_1_1StageResult.html":[1,0,6,2],
-"structGaussianRenderPipeline_1_1StageResult.html#a05510efcc471f5f2cb2371595919f9e6":[0,0,7,2,12],
-"structGaussianRenderPipeline_1_1StageResult.html#a05510efcc471f5f2cb2371595919f9e6":[1,0,6,2,12],
-"structGaussianRenderPipeline_1_1StageResult.html#a09bb09324777e84eef03110f936b0e3b":[0,0,7,2,15]
+"structGaussianRenderPipeline_1_1StageMetrics.html#ac506095c7d234530c3ae1ccefc7757c2":[0,0,7,10,11]
 };

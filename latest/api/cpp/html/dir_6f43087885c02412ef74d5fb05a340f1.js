@@ -31,6 +31,7 @@ var dir_6f43087885c02412ef74d5fb05a340f1 =
     [ "render_thread_dispatcher.cpp", "render__thread__dispatcher_8cpp.html", null ],
     [ "render_thread_dispatcher.h", "render__thread__dispatcher_8h.html", "render__thread__dispatcher_8h" ],
     [ "renderer_interfaces.h", "renderer__interfaces_8h.html", "renderer__interfaces_8h" ],
+    [ "splat_count_sample.h", "splat__count__sample_8h.html", "splat__count__sample_8h" ],
     [ "sync_policy.h", "sync__policy_8h.html", "sync__policy_8h" ],
     [ "tile_rasterizer.cpp", "tile__rasterizer_8cpp.html", "tile__rasterizer_8cpp" ],
     [ "tile_rasterizer.h", "tile__rasterizer_8h.html", "tile__rasterizer_8h" ]

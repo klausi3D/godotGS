@@ -87,6 +87,7 @@ var structGaussianRenderPerformance_1_1PerformanceMetrics =
     [ "raster_tile_splat_capacity", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#ae6d9794b2d096267fd8803e5961f17e3", null ],
     [ "raster_total_tiles", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#af28625963106d14f07486d37b68add55", null ],
     [ "rendered_splat_count", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a341fafeeeae3db7ce8f4cdef32bb3872", null ],
+    [ "rendered_splat_count_source_frame", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6d74677b87d1aa788899a700eb3666d1", null ],
     [ "sort_cache_hits", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#ae494e8cbb5cb156a9f6ea6ffec0d4e92", null ],
     [ "sort_cache_misses", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a407bc9c7cde58f82e88616f790a6b9ab", null ],
     [ "sort_cached_fallback_count", "structGaussianRenderPerformance_1_1PerformanceMetrics.html#a3e2a11cfbe6f13a263af3eebde6bf97d", null ],

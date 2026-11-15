@@ -177,6 +177,9 @@ var annotated_dup =
       ] ],
       [ "ModuleStringNames", "structgs_1_1ModuleStringNames.html", "structgs_1_1ModuleStringNames" ]
     ] ],
+    [ "gs_count_provenance", "namespacegs__count__provenance.html", [
+      [ "Sample", "structgs__count__provenance_1_1Sample.html", "structgs__count__provenance_1_1Sample" ]
+    ] ],
     [ "gs_gsq", "namespacegs__gsq.html", [
       [ "EncodeParams", "structgs__gsq_1_1EncodeParams.html", "structgs__gsq_1_1EncodeParams" ],
       [ "PageInfo", "structgs__gsq_1_1PageInfo.html", "structgs__gsq_1_1PageInfo" ],

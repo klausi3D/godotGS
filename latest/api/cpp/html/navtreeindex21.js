@@ -1,5 +1,6 @@
 var NAVTREEINDEX21 =
 {
+"gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca09374ad61dfb958fc8274577327aa19e":[2,0,0,0,5,9,13,5],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca35cc6c86bf5cfc254d8708c9561e97b5":[2,0,0,0,5,9,13,8],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca555d75fb308aa9e44cb7ee4332d40f9b":[2,0,0,0,5,9,13,10],
 "gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35eca6fea10211453b38c2fbd9fd6b091d47c":[2,0,0,0,5,9,13,4],
@@ -248,6 +249,5 @@ var NAVTREEINDEX21 =
 "namespaceGPUSortingConstants.html#a8be0606e65c1d0ae544dd5ca8e4bd729":[0,0,15,4],
 "namespaceGPUSortingConstants.html#abb04a6e7836b1cee8774df6774487e2a":[0,0,15,5],
 "namespaceGPUSortingConstants.html#add1c3e8e25f968cd13d455603455feeb":[0,0,15,2],
-"namespaceGSUploadSizing.html":[0,0,38],
-"namespaceGSUploadSizing.html#a0ed288aaaf7273fc3cbad41de6eba76d":[0,0,38,5]
+"namespaceGSUploadSizing.html":[0,0,39]
 };

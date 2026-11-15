@@ -26,6 +26,7 @@ var structGaussianRenderState_1_1SortingState =
     [ "sort_keys_external", "structGaussianRenderState_1_1SortingState.html#a36261f569976601cb508ef54582396d6", null ],
     [ "sort_switch_reason", "structGaussianRenderState_1_1SortingState.html#a4320e33645b7338b161709189346223b", null ],
     [ "sorted_splat_count", "structGaussianRenderState_1_1SortingState.html#ad69f539f05b1ec2d1671861172ef3417", null ],
+    [ "sorted_splat_count_source_frame", "structGaussianRenderState_1_1SortingState.html#abacb099ea587abaeaf589abd4e5e99ca", null ],
     [ "sorter_init_degraded_reported", "structGaussianRenderState_1_1SortingState.html#a54ed9a159b0da9b046e98acdf27ff3e3", null ],
     [ "sorter_init_failure_count", "structGaussianRenderState_1_1SortingState.html#a1a0209126b889a2d7cf89308577daa60", null ],
     [ "sorter_needs_rebuild", "structGaussianRenderState_1_1SortingState.html#a3fb0782340e1eaba8b7aea00ff115a1b", null ],

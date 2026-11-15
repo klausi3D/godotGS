@@ -1,5 +1,7 @@
 var NAVTREEINDEX26 =
 {
+"rasterizer__interfaces_8h_source.html":[2,0,0,0,5,25],
+"register__types_8cpp.html":[2,0,0,0,15],
 "register__types_8cpp.html#a21549b99aac0bc832f5df5c261857a60":[2,0,0,0,15,1],
 "register__types_8cpp.html#a5c3368235dc93c1e40e169c0ec3fe553":[2,0,0,0,15,0],
 "register__types_8h.html":[2,0,0,0,16],
@@ -209,6 +211,8 @@ var NAVTREEINDEX26 =
 "splat-types_8h_source.html":[2,0,0,0,14,0,5],
 "splat-utils_8h.html":[2,0,0,0,14,0,6],
 "splat-utils_8h_source.html":[2,0,0,0,14,0,6],
+"splat__count__sample_8h.html":[2,0,0,0,5,31],
+"splat__count__sample_8h_source.html":[2,0,0,0,5,31],
 "splat__ref__encoding_8h.html":[2,0,0,0,12,96],
 "splat__ref__encoding_8h.html#aac3beb997cfb28446ada332d14002112":[2,0,0,0,12,96,1],
 "splat__ref__encoding_8h.html#abc5fd197131b3fce3a00c3124c137685":[2,0,0,0,12,96,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX26 =
 "streaming__chunk__invariants_8h.html":[2,0,0,0,3,83],
 "streaming__chunk__invariants_8h_source.html":[2,0,0,0,3,83],
 "streaming__chunk__payload__source_8cpp.html":[2,0,0,0,3,84],
-"streaming__chunk__payload__source_8h.html":[2,0,0,0,3,85],
-"streaming__chunk__payload__source_8h_source.html":[2,0,0,0,3,85],
-"streaming__config__overrides_8h.html":[2,0,0,0,3,86],
-"streaming__config__overrides_8h_source.html":[2,0,0,0,3,86],
-"streaming__diagnostics__surface_8cpp.html":[2,0,0,0,3,87]
+"streaming__chunk__payload__source_8h.html":[2,0,0,0,3,85]
 };

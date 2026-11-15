@@ -25,6 +25,7 @@ var classGPUSortingPipeline =
     [ "get_max_elements", "classGPUSortingPipeline.html#a2ceacc215f26fef19f0fa5f007dae08a", null ],
     [ "get_metrics", "classGPUSortingPipeline.html#a1aa4ec05cbc4ea48ce27b419b2a7f92a", null ],
     [ "get_name", "classGPUSortingPipeline.html#aa01958bad19e7491503399bdf849a264", null ],
+    [ "get_published_instance_count_source_frame", "classGPUSortingPipeline.html#a3a5b7fba39625ca7919e31defb78f83e", null ],
     [ "get_sort_buffer_capacity", "classGPUSortingPipeline.html#a5aacd4d7bf254c8f29846618dfad2922", null ],
     [ "get_sort_indices_buffer", "classGPUSortingPipeline.html#a6c215e4776bf3a3067bb23d33ae5d3a3", null ],
     [ "get_sort_resource_device", "classGPUSortingPipeline.html#a2260be6779a47f21980d24767b3fc586", null ],

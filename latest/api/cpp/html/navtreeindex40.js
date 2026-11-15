@@ -1,5 +1,13 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a4d3fbe8c1dd887f9acb9dcd77cb40e16":[0,0,12,13,0,1],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a4d3fbe8c1dd887f9acb9dcd77cb40e16":[1,0,9,12,0,1],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a96fd08e0cb2856872a3c986407b88ef9":[0,0,12,13,0,2],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#a96fd08e0cb2856872a3c986407b88ef9":[1,0,9,12,0,2],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[0,0,12,13,0,3],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#aa6305c3d7709ca30bd53d3486e8fb197":[1,0,9,12,0,3],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[0,0,12,13,0,0],
+"structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd":[1,0,9,12,0,0],
 "structGaussianSplatting_1_1PainterlyMetadata.html":[0,0,12,9],
 "structGaussianSplatting_1_1PainterlyMetadata.html":[1,0,9,8],
 "structGaussianSplatting_1_1PainterlyMetadata.html#a02c84be0ab8f98028a4c500687d19d41":[0,0,12,9,4],
@@ -241,13 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#ae1a56ac654151ba2d9403e0419cfa9a0":[0,0,12,54,28],
 "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#ae1a56ac654151ba2d9403e0419cfa9a0":[1,0,9,53,28],
 "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#af269cb3ca25f3c39fe53ddf1eacba2f4":[0,0,12,54,14],
-"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#af269cb3ca25f3c39fe53ddf1eacba2f4":[1,0,9,53,14],
-"structGaussianSplatting_1_1TileDensityMetrics.html":[0,0,12,57],
-"structGaussianSplatting_1_1TileDensityMetrics.html":[1,0,9,56],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a26b7dd92f4bf1375168b6eb97b6b725e":[0,0,12,57,5],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a26b7dd92f4bf1375168b6eb97b6b725e":[1,0,9,56,5],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a35902837d8204679f23e89bc8870338b":[0,0,12,57,3],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a35902837d8204679f23e89bc8870338b":[1,0,9,56,3],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a47f7c224290d510cb370f01c2ec90e71":[0,0,12,57,2],
-"structGaussianSplatting_1_1TileDensityMetrics.html#a47f7c224290d510cb370f01c2ec90e71":[1,0,9,56,2]
+"structGaussianSplatting_1_1TileDebugCounterSnapshot.html#af269cb3ca25f3c39fe53ddf1eacba2f4":[1,0,9,53,14]
 };
