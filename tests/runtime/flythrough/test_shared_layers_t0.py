@@ -82,6 +82,153 @@ class RunnerPlumbing(unittest.TestCase):
     def captured(self, name):
         return json.loads((HERE / "fixtures" / name).read_text(encoding="utf-8"))
 
+    def settle_capture_1454(self, name):
+        # Selected native result.json fields from run43717101341, arm paths
+        # chunk/, migration/base/, migration/candidate/. Read with python -I;
+        # samples within forward_progress are omitted. Tests never read the
+        # evidence directory. Verdict/cache additions below are policy inputs,
+        # not fields claimed to have existed in these producer captures.
+        checkpoints = {
+            "chunk": {"checkpoint": "C0", "segment": "S0", "pass_index": 0,
+                      "drawn_splats": 598694, "hlod_drawn_nodes": None,
+                      "rendered_splat_count_source_frame": 1342,
+                      "render_frame_counter": 1344, "pose_first_frame": 0,
+                      "settle": {"deadline_s": 90.0, "frames": 327, "pose_error_m": 0.0,
+                                 "settle_usec": 2162194, "settled": True,
+                                 "forward_progress": {"deadline_s": 90.0,
+                                                      "deadline_missed": False,
+                                                      "elapsed_usec": 2171690}}},
+            "base": {"checkpoint": "C0", "segment": "S0", "pass_index": 0,
+                     "drawn_splats": 603152, "hlod_drawn_nodes": 221,
+                     "rendered_splat_count_source_frame": -1,
+                     "render_frame_counter": -1, "pose_first_frame": -1,
+                     "settle": {"deadline_s": 90.0, "frames": 13644, "pose_error_m": 0.0,
+                                "settle_usec": -1, "settled": False,
+                                "reason": "settle_deadline_missed",
+                                "forward_progress": {"deadline_s": 90.0,
+                                                     "deadline_missed": True,
+                                                     "elapsed_usec": 90003056}}},
+            "candidate": {"checkpoint": "C0", "segment": "S0", "pass_index": 0,
+                          "drawn_splats": 603152, "hlod_drawn_nodes": 221,
+                          "rendered_splat_count_source_frame": 2410,
+                          "render_frame_counter": 2413, "pose_first_frame": 0,
+                          "settle": {"deadline_s": 90.0, "frames": 1702, "pose_error_m": 0.0,
+                                     "settle_usec": 8001288, "settled": True,
+                                     "forward_progress": {"deadline_s": 90.0,
+                                                          "deadline_missed": False,
+                                                          "elapsed_usec": 8016402}}},
+        }
+        route = "chunk" if name == "chunk" else "hlod"
+        return {"ok": True, "reason": "plan completed", "route": route,
+                "checkpoints": [copy.deepcopy(checkpoints[name])]}
+
+    def test_pre_d3_pin_requires_immutable_provenance_base(self):
+        # Policy pin: f2f19bcb580cc131615b3fa262a11d99e6abc70c plus only #1453.
+        # Historical captured binary identities must not be rewritten.
+        self.assertEqual(shared.PRE_D3, "5a438363cd6939bca1041d738e2bfa10f2b024f2")
+
+    def test_payload_behavior_keeps_settle_and_count_provenance_receipts(self):
+        for name in ("chunk", "base", "candidate"):
+            with self.subTest(arm=name):
+                result = self.settle_capture_1454(name)
+                # Constructed readback policy isolates settle/provenance from
+                # unavailable-cache-state handling; the raw capture stays intact.
+                result["static_sort_cache"] = {"enabled": False,
+                                               "applicable": result["route"] == "chunk"}
+                native_cp = result["checkpoints"][0]
+                receipt = shared.payload_behavior(result, None)["drawn_counts"][0]
+                for field in ("settle", "rendered_splat_count_source_frame",
+                              "render_frame_counter", "pose_first_frame"):
+                    self.assertEqual(receipt.get(field), native_cp[field], field)
+                self.assertEqual(receipt.get("evidence_verdict"),
+                                 "checkpoint_settle_deadline_missed" if name == "base" else "VALID")
+                # The retained receipt must not alias the native producer record.
+                receipt["settle"]["settled"] = "changed"
+                self.assertIs(native_cp["settle"]["settled"], name != "base")
+
+    def test_observations_deadline_miss_survives_successful_process_completion(self):
+        result = self.settle_capture_1454("base")
+        observed = shared.observations(result, 0)
+        self.assertIs(observed["final_marker"], True)
+        self.assertEqual(observed["exit_code"], 0)
+        evidence = observed.get("checkpoint_evidence", {})
+        self.assertEqual(evidence.get("verdict"), "UNUSABLE")
+        self.assertIn("checkpoint_settle_deadline_missed", evidence.get("reasons", []))
+        self.assertIs(result["ok"], True)
+        self.assertEqual(result["reason"], "plan completed")
+
+    def test_run_arm_propagates_deadline_miss_without_discarding_capture(self):
+        path = shared.rp.probe_path.resolve_path(self.captured("bv07/tsmoke.manifest.json"))
+        prepared = {key: {} for key in ("input_file_sha256", "generator_identity",
+                                        "tree_file_sha256", "tree_identity")}
+        prepared["codec"] = {"sh_bands": 3}
+        for route in ("chunk", "hlod"):
+            with self.subTest(route=route):
+                result = self.settle_capture_1454("base")
+                # Route mutation deliberately tests this module's receipt policy;
+                # this is not claimed to be a second captured engine execution.
+                result["route"] = route
+                output = self.tmp / route
+                with mock.patch.object(shared.rp, "trace_integrity", return_value=(None, {})):
+                    arm = shared.run_arm(self.tmp / "binary", self.tmp / "world", route,
+                        prepared, path, {}, {}, output, prepare_cold=lambda world: {},
+                        process=lambda *args: {"result": result, "trace": str(output / "trace.bin"),
+                                               "exit_code": 0, "timed_out": False})
+                self.assertEqual(arm["execution"], "RAN")
+                self.assertIs(arm["observed"]["final_marker"], True)
+                evidence = arm["observed"].get("checkpoint_evidence", {})
+                self.assertEqual(evidence.get("verdict"), "UNUSABLE")
+                self.assertIn("checkpoint_settle_deadline_missed", evidence.get("reasons", []))
+                cp = arm["payload_behavior"]["drawn_counts"][0]
+                self.assertEqual(cp.get("evidence_verdict"), "checkpoint_settle_deadline_missed")
+                self.assertEqual(cp.get("settle"), result["checkpoints"][0]["settle"])
+                persisted = json.loads((output / "arm.json").read_text(encoding="utf-8"))
+                self.assertEqual(persisted["observed"].get("checkpoint_evidence"), evidence)
+                self.assertEqual(persisted["payload_behavior"]["drawn_counts"][0], cp)
+
+    def test_migration_arm_keeps_checkpoint_evidence_and_actual_cache_receipt(self):
+        # Constructed normalized receipt contract; native settle/count fields
+        # come unchanged from the selected producer capture above.
+        result = self.settle_capture_1454("base")
+        checkpoint = {**result["checkpoints"][0],
+                      "evidence_verdict": "checkpoint_settle_deadline_missed"}
+        evidence = {"verdict": "UNUSABLE", "reasons": ["checkpoint_settle_deadline_missed"],
+                    "checkpoints": [checkpoint]}
+        cache = {"enabled": True, "applicable": False}
+        arm = {"execution": "RAN", "observed": {"exit_code": 0, "final_marker": True,
+               "settings": {}, "checkpoint_evidence": evidence, "static_sort_cache": cache},
+               "trace": {"file": "trace.bin"}, "source": {"loaded_file_sha256": "0" * 64},
+               "payload_behavior": {"drawn_counts": [checkpoint]}, "cache": {}, "probe": {}}
+        receipt = shared.migration_arm(arm, {"commit": "c" * 40, "sha256": "d" * 64})
+        self.assertIs(receipt["final_marker"], True)
+        self.assertEqual(receipt.get("checkpoint_evidence"), evidence)
+        self.assertEqual(receipt.get("static_sort_cache"), cache)
+        self.assertEqual(receipt["payload_behavior"]["drawn_counts"][0], checkpoint)
+
+    def test_static_cache_receipts_distinguish_chunk_exclusion_and_hlod_bypass(self):
+        # New probe readback contract, constructed deliberately. enabled=None
+        # means unavailable getter; zero hits never substitutes for that state.
+        for route in ("chunk", "hlod"):
+            for enabled in (True, False, None):
+                with self.subTest(route=route, enabled=enabled):
+                    result = self.settle_capture_1454("chunk" if route == "chunk" else "candidate")
+                    cache = {"enabled": enabled, "applicable": route == "chunk"}
+                    result["static_sort_cache"] = copy.deepcopy(cache)
+                    result["final_render_stats"] = {"sort_cache_hits": 0}
+                    reason = ("static_sort_cache_unsupported" if enabled is True else
+                              "static_sort_cache_state_unavailable" if enabled is None else None)
+                    verdict = reason if route == "chunk" and reason else "VALID"
+                    observed = shared.observations(result, 0)
+                    self.assertEqual(observed.get("static_sort_cache"), cache)
+                    self.assertIs(observed["final_marker"], True)
+                    evidence = observed.get("checkpoint_evidence", {})
+                    self.assertEqual(evidence.get("verdict"), "VALID" if verdict == "VALID" else "UNUSABLE")
+                    if verdict != "VALID":
+                        self.assertIn(verdict, evidence.get("reasons", []))
+                    cp = shared.payload_behavior(result, None)["drawn_counts"][0]
+                    self.assertEqual(cp.get("static_sort_cache"), cache)
+                    self.assertEqual(cp.get("evidence_verdict"), verdict)
+
     def test_binary_identity_checks_immutable_commit_and_actual_bytes(self):
         binary = self.tmp / "godot.linuxbsd.editor.x86_64"
         binary.write_bytes(b"identity test bytes, not an engine executable")
