@@ -703,5 +703,209 @@ class RunnerPlumbing(unittest.TestCase):
         self.assertNotIn('reads_refused_busy', progress)
 
 
+class PressureVariant(unittest.TestCase):
+    """#1471: the unconstrained T0 keeps the whole tree resident, so its eviction and
+    budget checks cannot fail. The pressure variant caps the HLOD atlas and the drawn
+    budget through existing settings; these tests cover its plumbing only."""
+
+    T0_TREE_PAGES = 5136  # run 43742475749: hlod_stream_pages_capacity of the unconstrained T0
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.tmp = Path(temporary.name)
+
+    def request(self, pages=T0_TREE_PAGES):
+        with mock.patch.object(shared, "tree_page_count", return_value=pages):
+            return shared.pressure_request(self.tmp / "tree.gsplatworld")
+
+    def test_page_arithmetic_constants_are_the_engine_ones(self):
+        root = HERE.parents[2] / "modules/gaussian_splatting/renderer"
+        layout = (root / "gaussian_gpu_layout.h").read_text(encoding="utf-8")
+        record = re.search(r"static_assert\(sizeof\(PackedGaussian\) == (\d+),", layout)
+        self.assertIsNotNone(record, "PackedGaussian size pin not found")
+        self.assertEqual(shared.PRESSURE_RECORD_BYTES, int(record.group(1)))
+        streamer = (root / "hlod_node_streamer.h").read_text(encoding="utf-8")
+        page = re.search(r"DEFAULT_PAGE_SPLATS = (\d+);", streamer)
+        self.assertIsNotNone(page, "HLOD page size not found")
+        self.assertEqual(shared.PRESSURE_PAGE_SPLATS, int(page.group(1)))
+        # The cap must be a setting the publisher actually reads for the streamed atlas.
+        publisher = (root / "resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        self.assertIn(f'"{shared.PRESSURE_ATLAS_SETTING}"', publisher)
+        self.assertIn("ledger.atlas_limit(atlas_override)", publisher)
+        # The uncompressed stride only holds while the lane keeps quantization off.
+        self.assertEqual(shared.rp.TUNED_SETTINGS["rendering/gaussian_splatting/compression/per_chunk_quantization"], 0)
+
+    def test_tree_pages_are_counted_from_the_v4_node_directory(self):
+        # Constructed directory (same layout corrupt_copy and verify_v4 read), not a writer fixture.
+        corpus = bytearray(4096 + 65536)
+        struct.pack_into("<II", corpus, 0, 0x57505347, 4)
+        struct.pack_into("<I", corpus, 40, 3)
+        for index, splats in enumerate((1, 1024, 1025)):
+            struct.pack_into("<QI", corpus, 4096 + 64 + index * 256 + 88, 0, splats)
+        tree = self.tmp / "tree.gsplatworld"
+        tree.write_bytes(corpus)
+        self.assertEqual(shared.tree_page_count(tree), 1 + 1 + 2)
+        struct.pack_into("<QI", corpus, 4096 + 64 + 256 + 88, 0, 0)
+        tree.write_bytes(corpus)
+        with self.assertRaises(ValueError):
+            shared.tree_page_count(tree)
+        tree.write_bytes(b"not a v4 file")
+        with self.assertRaises(ValueError):
+            shared.tree_page_count(tree)
+
+    def test_request_caps_the_t0_atlas_inside_the_band_and_the_drawn_budget_at_1m(self):
+        request = self.request()
+        self.assertEqual(request["name"], "pressure")
+        self.assertEqual(request["tree_pages"], self.T0_TREE_PAGES)
+        self.assertEqual(request["atlas_setting"], shared.PRESSURE_ATLAS_SETTING)
+        self.assertEqual(request["atlas_fraction_band"], [0.20, 0.25])
+        self.assertEqual(request["drawn_budget_splats"], 1_000_000)
+        page_bytes = shared.PRESSURE_PAGE_SPLATS * shared.PRESSURE_RECORD_BYTES
+        self.assertEqual(request["requested_atlas_pages"], (request["atlas_override_mb"] << 20) // page_bytes)
+        fraction = request["requested_atlas_pages"] / request["tree_pages"]
+        self.assertTrue(0.20 <= fraction <= 0.25, fraction)
+        self.assertEqual(request["chunk_arm"]["role"], "unconstrained_reference")
+        self.assertTrue(request["chunk_arm"]["reason"])
+
+    def test_request_refuses_a_tree_the_whole_mib_setting_cannot_cap_in_band(self):
+        for pages in (0, 1, 10):
+            with self.subTest(pages=pages), self.assertRaises(ValueError):
+                self.request(pages)
+
+    def run_arm(self, route, pressure, result=None):
+        path = shared.rp.probe_path.resolve_path(json.loads(
+            (HERE / "fixtures/bv07/tsmoke.manifest.json").read_text(encoding="utf-8")))
+        prepared = {key: {} for key in ("input_file_sha256", "generator_identity", "tree_file_sha256", "tree_identity")}
+        prepared["codec"] = {"sh_bands": 3}
+        plans = []
+
+        def process(binary, plan, out, timeout):
+            plans.append(copy.deepcopy(plan))
+            return {"result": result or {}, "trace": str(out / "trace.bin"), "exit_code": 1, "timed_out": False}
+        extra = {} if pressure is None else {"pressure": pressure}
+        with mock.patch.object(shared.rp, "trace_integrity", return_value=(None, {})):
+            arm = shared.run_arm(self.tmp / "candidate", self.tmp / "world", route, prepared, path, {}, {},
+                                 self.tmp / f"{route}-{len(extra)}", process=process,
+                                 prepare_cold=lambda world: {}, **extra)
+        return arm, plans[0]
+
+    def test_only_the_pressure_variant_changes_the_plan_and_both_routes_get_the_same_policy(self):
+        request = self.request()
+        for route in ("chunk", "hlod"):
+            with self.subTest(route=route):
+                arm, plan = self.run_arm(route, None)
+                self.assertNotIn(shared.PRESSURE_ATLAS_SETTING, plan["project_settings"])
+                self.assertEqual(plan["node"]["max_splat_count"], shared.rp.TUNED_VISIBLE_CAP)
+                self.assertNotIn("pressure", arm)
+                arm, plan = self.run_arm(route, request)
+                self.assertEqual(plan["project_settings"][shared.PRESSURE_ATLAS_SETTING], request["atlas_override_mb"])
+                self.assertEqual(plan["node"]["max_splat_count"], 1_000_000)
+                self.assertEqual(arm["requested"]["visible_splats"], 1_000_000)
+                self.assertEqual(arm["requested"]["project_settings_readback"][shared.PRESSURE_ATLAS_SETTING],
+                                 request["atlas_override_mb"])
+                self.assertEqual(arm["pressure"]["route"], route)
+                persisted = json.loads((Path(arm["artifact_root"]) / "arm.json").read_text(encoding="utf-8"))
+                self.assertEqual(persisted["pressure"], arm["pressure"])
+
+    def test_absent_pressure_observations_stay_not_measured_never_zero(self):
+        request = self.request()
+        observed = shared.pressure_observations({}, None, "hlod", request)
+        for key in ("atlas_pages_capacity", "evicted_total", "budget_bound_frames", "payload_reads_total", "rereads"):
+            self.assertIs(observed[key].get("measured"), False, key)
+            self.assertTrue(observed[key].get("reason"), key)
+        self.assertEqual(observed["constraint"], "applied")
+        self.assertEqual(observed["settles"], [])
+        chunk = shared.pressure_observations({}, None, "chunk", request)
+        self.assertEqual(chunk["constraint"], "not_applied")
+        self.assertEqual(chunk["role"], "unconstrained_reference")
+        self.assertIs(chunk["evicted_chunks"].get("measured"), False)
+        self.assertNotIn("evicted_total", chunk)
+
+    def test_pressure_observations_copy_native_counters_and_teleport_settle_receipts(self):
+        # Constructed counters around the documented result shape; the settle receipts are the
+        # real BV-07 capture's, which predates forward-progress receipts (kept as not measured).
+        result = json.loads((HERE / "fixtures/bv07/tsmoke_path.result.json").read_text(encoding="utf-8"))
+        result["final_render_stats"] = {"hlod_stream_pages_capacity": 1152, "hlod_stream_pages_resident": 1100,
+                                        "hlod_stream_evicted_total": 41, "hlod_budget_bound_frames": 7,
+                                        "hlod_stream_payload_reads_total": 700}
+        result["payload_telemetry"] = {"content_digests": {str(i): "a" * 64 for i in range(614)}}
+        observed = shared.pressure_observations(result, None, "hlod", self.request())
+        self.assertEqual(observed["atlas_pages_capacity"], 1152)
+        self.assertEqual(observed["evicted_total"], 41)
+        self.assertEqual(observed["budget_bound_frames"], 7)
+        self.assertEqual(observed["rereads"], 700 - 614)
+        kinds = {(s["pass_index"], s["id"]): s["kind"] for s in result["segments"]}
+        teleports = [cp for cp in result["checkpoints"] if kinds[(cp["pass_index"], cp["segment"])] == "teleport"]
+        self.assertTrue(teleports)
+        rows = [row for row in observed["settles"] if row["kind"] == "teleport"]
+        self.assertEqual(len(rows), len(teleports))
+        self.assertEqual(rows[0]["frames"], teleports[0]["settle"]["frames"])
+        self.assertEqual(rows[0]["settle_ms"], teleports[0]["settle"]["settle_usec"] / 1000.0)
+        self.assertEqual(rows[0]["drawn_splats"], teleports[0]["drawn_splats"])
+        self.assertIs(rows[0]["streaming_work"].get("measured"), False)
+        teleports[0]["settle"]["forward_progress"] = {"measured": True, "progress_deltas": {"upload_completions": 9}}
+        again = shared.pressure_observations(result, None, "hlod", self.request())
+        self.assertEqual([r for r in again["settles"] if r["kind"] == "teleport"][0]["streaming_work"],
+                         {"upload_completions": 9})
+
+    def orchestrate(self, variant, control="none"):
+        import dispatch_lane as lane
+        manifest = json.loads((HERE / "fixtures/bv07/tsmoke.manifest.json").read_text(encoding="utf-8"))
+        plain, tree = self.tmp / "plain/world.gsplatworld", self.tmp / "tree/world.gsplatworld"
+        calls = []
+
+        def capture(binary, world, route, prepared, path, truth, source_manifest, out, expected_commit, **extra):
+            calls.append((out.name, extra))
+            return {"execution": "RAN", "source": {"loaded_file_sha256": "policy digest"},
+                    "observed": {"exit_code": 0, "final_marker": True, "settings": {}}, "payload_behavior": {},
+                    "trace": {"file": str(out / "trace.bin")}, "cache": {}, "native": {}}
+        with mock.patch.object(shared.subprocess, "run", return_value=mock.Mock(stdout="a" * 40 + "\n")), mock.patch.object(
+                shared, "verified_binary", side_effect=lambda binary, info, expected: {"commit": expected, "sha256": "b" * 64}), mock.patch.object(
+                shared.wc, "cache_lock", return_value=contextlib.nullcontext()), mock.patch.object(
+                lane, "prepare_auto_tree_t0", return_value={"plain": plain, "tree": tree, "report": {}}), mock.patch.object(
+                shared, "prepared_receipt", return_value={}), mock.patch.object(shared, "read_json", return_value=manifest), mock.patch.object(
+                shared, "tree_page_count", return_value=self.T0_TREE_PAGES), mock.patch.object(
+                shared, "capture_arm", side_effect=capture):
+            rc = shared.run(self.tmp, self.tmp / "candidate", self.tmp / "base", self.tmp / "base-info.json",
+                            self.tmp / "cache", self.tmp / "out", "unit-orchestration", control, variant=variant)
+        return rc, calls, json.loads((self.tmp / "out/experiment.json").read_text(encoding="utf-8"))
+
+    def test_run_gives_all_four_arms_the_same_pressure_request_and_records_it(self):
+        rc, calls, experiment = self.orchestrate("pressure")
+        self.assertEqual(rc, 0)
+        self.assertEqual([name for name, _ in calls], ["chunk", "hlod", "base", "candidate"])
+        request = self.request()
+        for name, extra in calls:
+            self.assertEqual(extra.get("pressure"), request, name)
+        self.assertEqual(experiment["variant"], request)
+
+    def test_unconstrained_run_is_unchanged(self):
+        rc, calls, experiment = self.orchestrate("unconstrained")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("variant", experiment)
+        for name, extra in calls:
+            self.assertNotIn("pressure", extra, name)
+
+    def test_pressure_with_a_negative_control_or_an_unknown_variant_is_not_run(self):
+        for variant, control in (("pressure", "corrupt"), ("pressure", "saturate"), ("tighter", "none")):
+            with self.subTest(variant=variant, control=control):
+                rc, calls, experiment = self.orchestrate(variant, control)
+                self.assertEqual(rc, 3)
+                self.assertEqual(calls, [])
+                self.assertIn("variant", experiment["orchestration_error"])
+
+    def test_dispatch_command_forwards_the_variant_and_defaults_to_unconstrained(self):
+        import dispatch_lane as lane
+        base = ["shared-layers-t0", "--repo", str(self.tmp), "--godot-binary", str(self.tmp / "candidate"),
+                "--base-binary", str(self.tmp / "base"), "--base-build-info", str(self.tmp / "base-info.json"),
+                "--cache-root", str(self.tmp / "cache"), "--out", str(self.tmp / "out"), "--run-id", "unit"]
+        for extra, expected in (([], "unconstrained"), (["--variant", "pressure"], "pressure")):
+            with self.subTest(extra=extra), mock.patch.object(shared, "run", return_value=0) as run:
+                self.assertEqual(lane.main(base + extra), 0)
+                self.assertEqual(run.call_args.kwargs, {"variant": expected})
+                self.assertEqual(run.call_args.args[-2:], ("unit", "none"))
+
+
 if __name__ == "__main__":
     unittest.main()
