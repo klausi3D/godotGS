@@ -1064,7 +1064,7 @@ func _run() -> void:
 	if bool(_plan.get("shared_layers_t0", false)):
 		FIELDS += SHARED_LAYER_FIELDS
 	_result = {"schema": RESULT_SCHEMA, "mode": _plan.get("mode"), "plan": plan_path,
-			"start_usec": Time.get_ticks_usec(), "adapter": RenderingServer.get_video_adapter_name(),
+			"start_usec": Time.get_ticks_usec(), "start_unix_s": Time.get_unix_time_from_system(), "adapter": RenderingServer.get_video_adapter_name(),
 			"adapter_vendor": RenderingServer.get_video_adapter_vendor(),
 			"api_version": RenderingServer.get_video_adapter_api_version(),
 			"is_debug_build": OS.is_debug_build(), "engine_version": Engine.get_version_info(),

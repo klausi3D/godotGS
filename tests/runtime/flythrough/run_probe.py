@@ -210,24 +210,33 @@ class RssSampler(threading.Thread):
         super().__init__(daemon=True)
         self.proc = proc
         self.samples: List[Tuple[float, int]] = []
+        # #1466: every sample with the OS high-water mark read beside it (None where the OS has none),
+        # so the peak can be placed in time and not only sized.
+        self.rows: List[Tuple[float, int, Optional[int]]] = []
         self.peak_reported: Optional[int] = None
         self._t0 = time.monotonic()
+        self.t0_unix_s = time.time()
 
     def run(self) -> None:
         while self.proc.poll() is None:
             rss, hwm = sample_rss(self.proc.pid)
             if rss is not None:
-                self.samples.append((round(time.monotonic() - self._t0, 3), rss))
+                t_s = round(time.monotonic() - self._t0, 3)
+                self.samples.append((t_s, rss))
+                self.rows.append((t_s, rss, hwm))
             if hwm is not None:
                 self.peak_reported = max(self.peak_reported or 0, hwm)
             time.sleep(RSS_POLL_S)
 
     def result(self) -> Dict[str, object]:
         if not self.samples:
-            return {"peak_rss_bytes": ps.missing(f"no RSS sample on {sys.platform}", "bytes"), "samples": 0}
+            reason = f"no RSS sample on {sys.platform}"
+            return {"peak_rss_bytes": ps.missing(reason, "bytes"), "samples": 0,
+                    **ps.rss_timeline([], self.t0_unix_s, RSS_POLL_S)}
         peak_sampled = max(s[1] for s in self.samples)
         peak = max(peak_sampled, self.peak_reported or 0)
         return {
+            **ps.rss_timeline(self.rows, self.t0_unix_s, RSS_POLL_S),
             "peak_rss_bytes": ps.metric(peak, unit="bytes"),
             "peak_rss_source": "VmHWM / PeakWorkingSetSize (OS high-water mark)" if self.peak_reported else "polled",
             "peak_rss_sampled_bytes": peak_sampled,
