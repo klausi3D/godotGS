@@ -41,7 +41,7 @@ struct HlodCutTelemetry {
 				digest *= UINT64_C(1099511628211);
 			}
 		}
-		drawn_digest = String::num_uint64(digest, 16).pad_zeros(16);
+		drawn_digest = String::num_uint64(digest, 16).lpad(16, "0"); // pad_zeros() would pad after a leading hex letter.
 		hysteresis_held.resize(p_cut.hysteresis_held_count);
 		residency_missed.resize(p_cut.residency_missed_count);
 		residency_missed_demanded.resize(p_cut.residency_missed_count);
