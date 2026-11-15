@@ -449,6 +449,7 @@ HlodNodeStreamer::TestSnapshot HlodNodeStreamer::_test_snapshot() const {
 	}
 	// V4 leases are transient, so there are no retained idle decoder contexts.
 	result.charged_bytes = ledger->charged;
+	result.transport_reserved_bytes = ledger->transport_reserved;
 	result.peak_retained_bytes = ledger->peak_storage;
 	result.peak_jobs_in_flight = ledger->peak_jobs;
 	result.oversized_reservation_bytes = ledger->oversized;

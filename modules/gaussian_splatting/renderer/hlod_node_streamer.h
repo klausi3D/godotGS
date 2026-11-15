@@ -215,6 +215,7 @@ public:
 		uint64_t ready_bytes = 0;
 		uint64_t partial_upload_bytes = 0;
 		uint64_t charged_bytes = 0;
+		uint64_t transport_reserved_bytes = 0; // Promised stored bytes, under ledger->mutex.
 		uint64_t peak_retained_bytes = 0; // Real storage high-water, not token peak.
 		uint32_t peak_jobs_in_flight = 0;
 		uint64_t oversized_reservation_bytes = 0;
