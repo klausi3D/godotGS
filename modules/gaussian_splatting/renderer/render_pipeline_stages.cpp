@@ -1358,10 +1358,14 @@ void RenderPipelineStages::execute_frame_entry(const RenderFrameContext &p_frame
 	frame_context.snapshot.cull_visible_domain = GaussianSplatRenderer::IndexDomain::UNKNOWN;
 	frame_context.snapshot.sorted_index_domain = GaussianSplatRenderer::IndexDomain::UNKNOWN;
 	GaussianSplatRenderer::FrameState &frame_state_ref = state_mut.get_frame_state_mut();
+	frame_state_ref.visible_splat_count_source_frame = -1;
+	int64_t snapshot_count_source_frame = frame_state_ref.frame_counter; // Empty/skip snapshot is known now.
 	GaussianSplatRenderer::SortingState &sorting_state_ref = sorting_state;
 	auto update_counts_from_snapshot = [&]() {
 		frame_state_ref.visible_splat_count.store(frame_context.snapshot.visible_splats, std::memory_order_release);
+		frame_state_ref.visible_splat_count_source_frame = snapshot_count_source_frame;
 		sorting_state_ref.sorted_splat_count = frame_context.snapshot.sorted_splats;
+		sorting_state_ref.sorted_splat_count_source_frame = snapshot_count_source_frame;
 	};
 
 	if (!frame_plan.has_render_data) {
@@ -1484,15 +1488,21 @@ void RenderPipelineStages::execute_frame_entry(const RenderFrameContext &p_frame
 	}
 	frame_context.snapshot.cull_visible_domain = cull_output.visible_domain;
 	frame_context.snapshot.sorted_index_domain = sort_output.output_domain;
+	// Only sorted-count branches carry the sort publication's provenance.
+	snapshot_count_source_frame = sorting_state_ref.sorted_splat_count_source_frame;
 	if (sort_output.output_domain == GaussianSplatRenderer::IndexDomain::SPLAT_REF) {
 		frame_context.snapshot.visible_splats = sort_output.sorted_count;
 	} else if (sort_output.output_domain == GaussianSplatRenderer::IndexDomain::GAUSSIAN_GLOBAL) {
 		frame_context.snapshot.visible_splats =
 				(sort_output.sorted_count > 0 ? sort_output.sorted_count : cull_output.visible_count);
+		if (sort_output.sorted_count == 0) {
+			snapshot_count_source_frame = -1;
+		}
 	} else if (cull_output.visible_domain == GaussianSplatRenderer::IndexDomain::CHUNK_REF) {
 		frame_context.snapshot.visible_splats = sort_output.sorted_count;
 	} else {
 		frame_context.snapshot.visible_splats = cull_output.visible_count;
+		snapshot_count_source_frame = -1;
 	}
 	frame_context.snapshot.sorted_splats = sort_output.sorted_count;
 	update_counts_from_snapshot();
@@ -2811,6 +2821,7 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::render_base
 		auto &metrics = performance_state.metrics;
 		metrics.total_frames_rendered++;
 		metrics.rendered_splat_count = 0;
+		metrics.rendered_splat_count_source_frame = frame_state.frame_counter;
 
 		float alpha = 0.05f;
 		if (metrics.total_frames_rendered == 1) {

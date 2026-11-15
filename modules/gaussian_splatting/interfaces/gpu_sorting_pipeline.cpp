@@ -560,9 +560,8 @@ void GPUSortingPipeline::shutdown() {
     sort_readback_state.pending = false;
     sort_readback_state.generation++;
     _reset_instance_count_readback_state(true);
-    last_instance_visible_splat_count = 0;
-    last_instance_visible_splat_count_valid = false;
-    last_instance_visible_splat_count_frame = 0;
+    last_instance_count = {};
+    last_published_instance_count_source_frame = -1;
     last_compute_error = String();
 }
 
@@ -988,7 +987,7 @@ void GPUSortingPipeline::_note_instance_count_overflow(uint32_t p_frame_counter)
     // clamped, so some splats are not sorted or rendered). Count + WARN exactly once per
     // production frame: the SAME frame can be sampled by the sync bootstrap/recovery path AND
     // then fall through to the async readback (accepted because request_frame ==
-    // last_instance_visible_splat_count_frame), which would otherwise double-count one frame.
+    // last_instance_count.frame), which would otherwise double-count one frame.
     if (instance_overflow_frame_valid && p_frame_counter == last_instance_overflow_frame) {
         return;
     }
@@ -1009,7 +1008,7 @@ void GPUSortingPipeline::_on_instance_count_readback(const Vector<uint8_t> &p_da
     const uint32_t request_frame = instance_count_readback_state.pending_frame_counter;
     instance_count_readback_state.pending = false;
     instance_count_readback_state.pending_frame_counter = 0;
-    if (request_frame < last_instance_visible_splat_count_frame) {
+    if (request_frame < last_instance_count.frame) {
         return;
     }
     if (p_data.size() < static_cast<int>(sizeof(GaussianSplatting::IndirectDispatchLayout))) {
@@ -1017,9 +1016,9 @@ void GPUSortingPipeline::_on_instance_count_readback(const Vector<uint8_t> &p_da
     }
     const auto *indirect =
             reinterpret_cast<const GaussianSplatting::IndirectDispatchLayout *>(p_data.ptr());
-    last_instance_visible_splat_count = indirect->element_count;
-    last_instance_visible_splat_count_valid = true;
-    last_instance_visible_splat_count_frame = request_frame;
+    if (!last_instance_count.accept(indirect->element_count, request_frame)) {
+        return;
+    }
     if (indirect->overflow_flag != 0u) {
         _note_instance_count_overflow(request_frame);
     }
@@ -1068,9 +1067,9 @@ bool GPUSortingPipeline::_capture_instance_count_sync(RenderingDevice *p_device,
 
     const auto *indirect =
             reinterpret_cast<const GaussianSplatting::IndirectDispatchLayout *>(count_data.ptr());
-    last_instance_visible_splat_count = indirect->element_count;
-    last_instance_visible_splat_count_valid = true;
-    last_instance_visible_splat_count_frame = p_frame_counter;
+    // A synchronous capture is authoritative for this pass, as before.
+    last_instance_count = {};
+    last_instance_count.accept(indirect->element_count, p_frame_counter);
     if (indirect->overflow_flag != 0u) {
         _note_instance_count_overflow(p_frame_counter);
     }
@@ -1243,9 +1242,8 @@ void GPUSortingPipeline::set_instance_pipeline_inputs(const InstancePipelineInpu
 void GPUSortingPipeline::clear_instance_pipeline_inputs() {
     instance_inputs = InstancePipelineInputs();
     instance_inputs_valid = false;
-    last_instance_visible_splat_count = 0;
-    last_instance_visible_splat_count_valid = false;
-    last_instance_visible_splat_count_frame = 0;
+    last_instance_count = {};
+    last_published_instance_count_source_frame = -1;
     _reset_instance_count_readback_state(true);
 }
 
@@ -2390,7 +2388,11 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
                             inputs.max_visible_chunks, inputs.max_chunk_splats, max_visible_splats),
                     true);
         }
-        last_instance_visible_splat_count = 0;
+        last_instance_count.count = 0;
+        // Preserve the legacy bootstrap-valid flag and rejection frame: changing
+        // either would change readback/render behaviour after this zero path.
+        last_instance_count.source_valid = false;
+        last_published_instance_count_source_frame = int64_t(sort_ctx.runtime.frame_counter);
         *sort_ctx.runtime.sorted_splat_count = 0;
         sort_ctx.runtime.visible_splat_count->store(0, std::memory_order_release);
         *sort_ctx.runtime.sort_submission_time_ms = 0.0f;
@@ -2964,7 +2966,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
 
     // Bootstrap with one synchronous sample so startup/reset frames do not
     // publish zero visible splats before async callbacks arrive.
-    if (!last_instance_visible_splat_count_valid &&
+    if (!last_instance_count.valid &&
             !instance_count_readback_state.bootstrap_sync_attempted &&
             readback_policy.allow_sync_bootstrap &&
             compute_rd &&
@@ -3013,8 +3015,10 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     }
 
     uint32_t resolved_visible = 0;
-    if (last_instance_visible_splat_count_valid) {
-        resolved_visible = MIN(last_instance_visible_splat_count, current_frame_safe_max);
+    int64_t resolved_visible_source_frame = -1;
+    if (last_instance_count.valid) {
+        resolved_visible = MIN(last_instance_count.count, current_frame_safe_max);
+        resolved_visible_source_frame = last_instance_count.source_frame();
     }
 
     if (compute_rd && inputs.instance_count_buffer.is_valid() && !instance_count_readback_state.pending) {
@@ -3029,6 +3033,9 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
                 enqueue_sync_fallback_used = _capture_instance_count_sync(
                         compute_rd, inputs.instance_count_buffer, sort_ctx.runtime.frame_counter,
                         current_frame_safe_max, &resolved_visible);
+                if (enqueue_sync_fallback_used) {
+                    resolved_visible_source_frame = last_instance_count.source_frame();
+                }
             }
             GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] Instance pipeline async count readback enqueue failed: err=%d", int(count_err)));
             if (trace_enabled) {
@@ -3043,6 +3050,8 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         }
     }
     *sort_ctx.runtime.sorted_splat_count = resolved_visible;
+    // A current-frame bound on an older sample does not refresh its provenance.
+    last_published_instance_count_source_frame = resolved_visible_source_frame;
     sort_ctx.runtime.visible_splat_count->store(resolved_visible, std::memory_order_release);
     if (trace_enabled) {
         GaussianSplatting::debug_trace_record_event("sort",
@@ -3269,8 +3278,8 @@ SortingMetrics GPUSortingPipeline::get_metrics() const {
         // records last_element_count = 0 / known = false. Backfill the already-resolved instance
         // visible count (from the prior-frame async count readback; no new GPU work / readback).
         // Guarded so it never clobbers a real count set by the sync / non-indirect sort paths.
-        if (!metrics.last_element_count_known && last_instance_visible_splat_count_valid) {
-            metrics.last_element_count = last_instance_visible_splat_count;
+        if (!metrics.last_element_count_known && last_instance_count.valid) {
+            metrics.last_element_count = last_instance_count.count;
             metrics.last_element_count_known = true;
         }
         return metrics;

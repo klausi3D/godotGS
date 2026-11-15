@@ -109,6 +109,9 @@ bool RenderOutputOrchestrator::render_for_view(const Transform3D &p_world_to_cam
 	// Derive camera_to_world from the world_to_camera (view) matrix
 	Transform3D camera_to_world = p_world_to_camera_transform.affine_inverse();
 	view_state->last_camera_to_world_transform = camera_to_world;
+	view_state->last_camera_render_frame = frame_state.frame_counter;
+	frame_state.visible_splat_count_source_frame = -1;
+	state_mut.get_performance_state_mut().metrics.rendered_splat_count_source_frame = -1;
 	view_state->last_camera_projection = p_cam_projection;
 	view_state->last_camera_position = camera_to_world.origin;
 

@@ -128,6 +128,7 @@ struct SortingState {
 	bool sorting_in_progress = false;
 	bool sorting_initialized = false;
 	uint32_t sorted_splat_count = 0;
+	int64_t sorted_splat_count_source_frame = -1;
 	// Depth sorts executed in renderer frame `sort_dispatch_frame` (RenderSortingOrchestrator::sort_gaussians_for_view).
 	uint64_t sort_dispatch_frame = UINT64_MAX;
 	uint32_t sort_dispatches_frame = 0;

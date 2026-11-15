@@ -229,15 +229,18 @@ static void _reset_sort_metrics(GaussianSplatRenderer::FrameState &p_frame_state
 	p_performance_state.metrics.async_overlap_efficiency = 0.0f;
 }
 
-static void _store_visible_splat_count(GaussianSplatRenderer::FrameState &p_frame_state, uint32_t p_count) {
+static void _store_visible_splat_count(GaussianSplatRenderer::FrameState &p_frame_state, uint32_t p_count,
+		int64_t p_source_frame = -1) {
 	p_frame_state.visible_splat_count.store(p_count, std::memory_order_release);
+	p_frame_state.visible_splat_count_source_frame = p_source_frame;
 }
 
 static void _publish_rendered_splat_count(GaussianSplatRenderer::FrameState &p_frame_state,
-		GaussianSplatRenderer::PerformanceState &p_performance_state, uint32_t p_count) {
-	_store_visible_splat_count(p_frame_state, p_count);
+		GaussianSplatRenderer::PerformanceState &p_performance_state, uint32_t p_count, int64_t p_source_frame) {
+	_store_visible_splat_count(p_frame_state, p_count, p_source_frame);
 	p_performance_state.metrics.rendered_splat_count =
 			p_frame_state.visible_splat_count.load(std::memory_order_acquire);
+	p_performance_state.metrics.rendered_splat_count_source_frame = p_source_frame;
 }
 } // namespace
 
@@ -1060,7 +1063,8 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 		GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] %s; reusing previous sorted indices", p_reason));
 		reset_sort_metrics();
 		debug_state.sort_route_uid = p_route_uid;
-		_publish_rendered_splat_count(frame_state, performance_state, sorting_state.sorted_splat_count);
+		_publish_rendered_splat_count(frame_state, performance_state, sorting_state.sorted_splat_count,
+				sorting_state.sorted_splat_count_source_frame);
 		set_active_sort_algorithm(sorting_state.active_sort_algorithm, p_reason);
 		return true;
 	};
@@ -1093,7 +1097,9 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 				// Do not reuse; fall through to execute a fresh sort below.
 			} else {
 				sorting_state.sorted_splat_count = cached_count;
-				_publish_rendered_splat_count(frame_state, performance_state, cached_count);
+				sorting_state.sorted_splat_count_source_frame = instance_sort_cache.count_source_frame;
+				_publish_rendered_splat_count(frame_state, performance_state, cached_count,
+						sorting_state.sorted_splat_count_source_frame);
 				reset_sort_metrics();
 				debug_state.sort_route_uid = RenderRouteUID::INSTANCE_SORT_CACHED;
 				sorting_state.last_sort_world_to_camera_transform = p_world_to_camera_transform;
@@ -1118,6 +1124,8 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 		const bool _gpu_sort_ok = sorting_pipeline && sorting_pipeline->sort_gaussians_gpu(p_world_to_camera_transform,
 				_build_sort_frame_context(state_view, state_mut, view_state));
 		if (_gpu_sort_ok) {
+			sorting_state.sorted_splat_count_source_frame = sorting_pipeline->get_published_instance_count_source_frame();
+			frame_state.visible_splat_count_source_frame = sorting_state.sorted_splat_count_source_frame;
 			sort_executed = true;
 			debug_state.sort_route_uid = RenderRouteUID::INSTANCE_SORT_GPU;
 			sorting_state.last_sort_world_to_camera_transform = p_world_to_camera_transform;
@@ -1149,8 +1157,9 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 
 	if (available_splats == 0) {
 		debug_state.sort_route_uid = RenderRouteUID::COMMON_SKIP_NO_VISIBLE;
-		_store_visible_splat_count(frame_state, 0);
+		_store_visible_splat_count(frame_state, 0, frame_state.frame_counter);
 		sorting_state.sorted_splat_count = 0;
+		sorting_state.sorted_splat_count_source_frame = frame_state.frame_counter;
 		_reset_sort_metrics(frame_state, performance_state);
 		// Fix: Reset cull_params_dirty on early return to prevent stuck dirty state
 		gpu_culler->get_config().cull_params_dirty = false;
@@ -1229,7 +1238,11 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 			// previous sorted buffer without trusting a possibly stale CPU-side count.
 			const uint32_t reused_count = instance_pipeline_active ? sorting_state.sorted_splat_count : available_splats;
 			sorting_state.sorted_splat_count = reused_count;
-			_publish_rendered_splat_count(frame_state, performance_state, reused_count);
+			if (!instance_pipeline_active) {
+				sorting_state.sorted_splat_count_source_frame = frame_state.frame_counter;
+			}
+			_publish_rendered_splat_count(frame_state, performance_state, reused_count,
+					sorting_state.sorted_splat_count_source_frame);
 		} else if (available_splats > 0) {
 			// No reusable sorted buffer on a camera-stable frame. Publishing an
 			// unsorted identity order or seeding from current cull order would
@@ -1395,7 +1408,8 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 
 		sort_executed = true;
 		sorting_state.sorted_splat_count = available_splats;
-		_publish_rendered_splat_count(frame_state, performance_state, available_splats);
+		sorting_state.sorted_splat_count_source_frame = frame_state.frame_counter;
+		_publish_rendered_splat_count(frame_state, performance_state, available_splats, frame_state.frame_counter);
 		frame_state.sort_time_ms = cpu_time_ms;
 		performance_state.metrics.sort_submission_time_ms = cpu_time_ms;
 		performance_state.metrics.sort_wait_time_ms = 0.0f;
@@ -1505,6 +1519,9 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 	if (sorting_pipeline &&
 			sorting_pipeline->sort_gaussians_gpu(p_world_to_camera_transform,
 					_build_sort_frame_context(state_view, state_mut, view_state))) {
+		sorting_state.sorted_splat_count_source_frame = instance_pipeline_active
+				? sorting_pipeline->get_published_instance_count_source_frame() : -1;
+		frame_state.visible_splat_count_source_frame = sorting_state.sorted_splat_count_source_frame;
 		sort_executed = true;
 		debug_state.sort_route_uid = RenderRouteUID::INSTANCE_SORT_GPU;
 		sorting_state.last_sort_world_to_camera_transform = p_world_to_camera_transform;
@@ -1784,6 +1801,7 @@ void RenderSortingOrchestrator::_update_instance_sort_cache_with_camera(const Tr
 	instance_sort_cache.max_visible_splats = p_max_visible_splats;
 	instance_sort_cache.visible_chunk_count = p_visible_chunk_count;
 	instance_sort_cache.sorted_count = p_sorted_count;
+	instance_sort_cache.count_source_frame = renderer->get_sorting_state().sorted_splat_count_source_frame;
 	instance_sort_cache.valid = true;
 }
 

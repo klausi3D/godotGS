@@ -2,6 +2,7 @@
 #define GS_GPU_SORTING_PIPELINE_H
 
 #include "gpu_sorting_pipeline_interfaces.h"
+#include "splat_count_sample.h"
 #include "render_device_manager.h"
 #include "core/object/ref_counted.h"
 #include "core/math/transform_3d.h"
@@ -77,7 +78,8 @@ public:
     GPUSorterFactory::SortingAlgorithm get_forced_sort_algorithm() const { return forced_sort_algorithm; }
     void set_instance_pipeline_inputs(const InstancePipelineInputs &p_inputs);
     void clear_instance_pipeline_inputs();
-    uint32_t get_last_instance_visible_splat_count() const { return last_instance_visible_splat_count; }
+    uint32_t get_last_instance_visible_splat_count() const { return last_instance_count.count; }
+    int64_t get_published_instance_count_source_frame() const { return last_published_instance_count_source_frame; }
     // C4b (exit criterion G4, "no silent degradation"): running count of frames in which the
     // instance-count clamp shader raised its overflow_flag (the visible splat count exceeded
     // the sort/dispatch capacity and was clamped). Surfaced in the binning debug dict.
@@ -87,9 +89,10 @@ public:
         instance_count_readback_state.generation++;
         instance_count_readback_state.pending_frame_counter = 0;
         instance_count_readback_state.bootstrap_sync_attempted = true;
-        last_instance_visible_splat_count = p_count;
-        last_instance_visible_splat_count_valid = true;
-        last_instance_visible_splat_count_frame = p_frame_counter;
+        last_instance_count.count = p_count;
+        last_instance_count.valid = true;
+        last_instance_count.frame = p_frame_counter;
+        last_instance_count.source_valid = true;
     }
 #ifdef TESTS_ENABLED
     // Test-only accessors. Mirror the pattern used in core/gaussian_streaming.h
@@ -105,12 +108,13 @@ public:
     auto &_test_instance_count_readback_state() { return instance_count_readback_state; }
     ISortResultSink *_test_get_sort_result_sink() const { return sort_result_sink; }
     void _test_set_last_instance_visible_splat_count_state(uint32_t p_count, bool p_valid, uint32_t p_frame) {
-        last_instance_visible_splat_count = p_count;
-        last_instance_visible_splat_count_valid = p_valid;
-        last_instance_visible_splat_count_frame = p_frame;
+        last_instance_count.count = p_count;
+        last_instance_count.valid = p_valid;
+        last_instance_count.frame = p_frame;
+        last_instance_count.source_valid = p_valid;
     }
-    bool _test_get_last_instance_visible_splat_count_valid() const { return last_instance_visible_splat_count_valid; }
-    uint32_t _test_get_last_instance_visible_splat_count_frame() const { return last_instance_visible_splat_count_frame; }
+    bool _test_get_last_instance_visible_splat_count_valid() const { return last_instance_count.valid; }
+    uint32_t _test_get_last_instance_visible_splat_count_frame() const { return last_instance_count.frame; }
 #endif
     String get_last_compute_error() const { return last_compute_error; }
 
@@ -231,14 +235,14 @@ private:
 
     InstancePipelineInputs instance_inputs;
     bool instance_inputs_valid = false;
-    uint32_t last_instance_visible_splat_count = 0;
-    bool last_instance_visible_splat_count_valid = false;
-    uint32_t last_instance_visible_splat_count_frame = 0;
+    // The measured count and its request frame are one cache entry.
+    gs_count_provenance::Sample last_instance_count;
+    int64_t last_published_instance_count_source_frame = -1;
     // C4b (G4): persistent count of frames whose instance-count clamp raised overflow_flag.
     // Bumped (once per frame) from both the async readback and the sync bootstrap/recovery path.
     uint32_t instance_count_overflow_events = 0;
     // C4b (G4): frame-keyed de-dup for the counter above. A single production frame can be
-    // sampled by BOTH the sync path (which sets last_instance_visible_splat_count_frame) AND
+    // sampled by BOTH the sync path (which sets last_instance_count.frame) AND
     // the async callback (accepted at request_frame == that same frame); both funnel their
     // frame counter through _note_instance_count_overflow(), which counts/WARNs at most once
     // per distinct frame. `_valid` distinguishes "never counted" from "counted frame 0".

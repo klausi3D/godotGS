@@ -52,6 +52,7 @@ struct PerformanceMetrics {
 	float gpu_memory_usage_mb = 0.0f;
 	uint32_t uploaded_splat_count = 0;
 	uint32_t rendered_splat_count = 0;
+	int64_t rendered_splat_count_source_frame = -1;
 	bool using_real_data = false;
 	String data_source = GaussianRenderPipeline::SplatDataSource::kSourceNone;
 	String data_source_error;
@@ -190,6 +191,8 @@ struct PerformanceMetrics {
 };
 
 inline void PerformanceMetrics::reset_raster_frame_stats() {
+	// A reset invalidates the measurement until finalization republishes count + source.
+	rendered_splat_count_source_frame = -1;
 	raster_path_reason = String();
 	raster_compute_allowed = false;
 	raster_total_tiles = 0;
