@@ -812,7 +812,9 @@ class CheckpointDropSplit(unittest.TestCase):
 
 
 def _drop_frame(**overrides):
-    """One renderer drop-frame export (TileDiagnosticsState::append_drop_frame_telemetry keys)."""
+    """A CONSTRUCTED drop frame for the arithmetic and malformed-input cases below (the numbers are
+    the point). The producer's real format is covered by the captured run in
+    DropFrames.test_the_captured_runner_export_parses_with_its_real_numbers."""
     frame = {"frame_serial": 900, "dropped_records": 3000, "raster_cap_dropped_records": 3000,
              "raster_truncated_tiles": 2, "overlap_records_attempted": 250000, "raster_tile_cap": 16384,
              "max_tile_records": 18000, "max_tile_x": 47, "max_tile_y": 33, "overlap_allocation_records": 400000}
@@ -829,6 +831,28 @@ def _drop_event(count, frame, **observed):
 
 class DropFrames(unittest.TestCase):
     """#1457/#1461: the sampled dropping frames (per-tile record maximum, tile, allocation)."""
+
+    def test_the_captured_runner_export_parses_with_its_real_numbers(self) -> None:
+        """The producer's format, captured: the result.json blocks probe_world.gd wrote from the
+        renderer's drop_frame export on the RTX 3080 runner (fixtures/d3_6/README.md, run
+        43717101341). Not authored and not edited."""
+        capture = json.loads((HERE / "fixtures" / "d3_6" / "run43717101341_drop_frames.json").read_text(encoding="utf-8"))
+        hlod = ps.drop_frame_summary(capture["arms"]["hlod"]["overlap_drop_frames"])
+        self.assertEqual(hlod["status"], ps.OK, hlod)
+        self.assertEqual((hlod["drop_frames"], hlod["drop_frames_described"], hlod["drop_frames_not_described"]), (5, 5, 0))
+        self.assertEqual((hlod["raster_cap_frames"], hlod["raster_cap_dropped_records"], hlod["binning_frames"]), (5, 6637, 0))
+        self.assertEqual(hlod["raster_cap_max_tile_records_peak"]["value"], 18311)
+        self.assertEqual([f["max_tile_records"] for f in hlod["frames"]], [17188, 18182, 18311, 16901, 17220])
+        self.assertEqual([(f["max_tile_x"], f["max_tile_y"]) for f in hlod["frames"]],
+                         [(23, 35), (22, 36), (23, 35), (22, 35), (22, 36)])
+        for frame in hlod["frames"]:
+            # Every captured value is a measured integer; none fell back to not_measured.
+            self.assertTrue(all(type(frame[key]) is int for key in ps._DROP_FRAME_INT_KEYS + ps._DROP_FRAME_OPTIONAL_KEYS), frame)
+            self.assertEqual((frame["raster_tile_cap"], frame["observed_state"]), (16384, ps.STATE_MOVING))
+            self.assertGreater(frame["max_tile_records"], frame["raster_tile_cap"])
+        chunk = ps.drop_frame_summary(capture["arms"]["chunk"]["overlap_drop_frames"])
+        self.assertEqual((chunk["status"], chunk["drop_frames"], chunk["frames"]), (ps.OK, 0, []))
+        self.assertEqual(chunk["max_tile_records_peak"]["status"], ps.MISSING)
 
     def test_raster_cap_and_budget_frames_are_reported_with_their_numbers(self) -> None:
         budget = _drop_frame(frame_serial=1500, dropped_records=245, raster_cap_dropped_records=0,

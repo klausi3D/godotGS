@@ -144,3 +144,15 @@ These constructed tests do not change the original run's verdict: its report
 was **UNUSABLE** for real chunk/HLOD `drop_events` (#1444) and migration draw
 differences. A passing content check does not excuse those failures or certify
 a new paired GPU execution.
+
+## run43717101341_drop_frames.json (#1457, #1461)
+
+Captured, not authored: the `overlap_drop_frames` blocks of the chunk and hlod
+arms' `result.json` from Beyond-VRAM Fly-through run 43717101341
+(`shared_layers_t0`, head `5b06f2c4c09f5c5648537e7207786bcab04e626e`, RTX 3080
+runner), copied verbatim. `probe_world.gd` wrote them from the renderer's
+`drop_frame` export in `get_render_stats()`. The chunk arm had no dropping
+frame; the hlod arm had five, all at the per-tile raster cap of 16,384.
+`test_probe_lane.py` (`DropFrames.test_the_captured_runner_export_parses_with_its_real_numbers`)
+parses them with `probe_summary.drop_frame_summary`. The run's report was
+**UNUSABLE** for the hlod arm's `drop_events`; this extract does not change that.
