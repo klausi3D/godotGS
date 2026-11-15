@@ -541,7 +541,10 @@ GPUSortingConfig GPUSortingConfig::preset_high() {
     config.target_sort_time_ms = 2.0f;       // Tight timing target
     config.max_sort_elements = 30000000;     // 30M splats max
     config.max_overlap_records = 100000000;  // 100M overlap records (~1.2 GB VRAM)
-    config.max_raster_splats_per_tile = 12288;
+    // #1444: 16384 (was 12288) = the largest legal HLOD node (gs_hlod::kMaxNodeSplats) and the "ultra"
+    // value; raised with owner approval. The rasterizer walks a tile in SPLATS_PER_TILE batches, so the
+    // cap bounds raster time for the densest tile, not shared memory.
+    config.max_raster_splats_per_tile = 16384;
 
     // Radix parameters - optimized for throughput
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower (larger histograms, lower occupancy)
