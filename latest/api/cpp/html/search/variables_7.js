@@ -96,5 +96,8 @@ var searchData=
   ['grading_93',['grading',['../structgs__hlod__bundle_1_1Rows.html#ab9639e115dec2ecc9efc6c24f7112020',1,'gs_hlod_bundle::Rows']]],
   ['ground_5fflatten_5fshift_94',['ground_flatten_shift',['../structgs__world__generator_1_1Params.html#a4d0c9e1efdfba119a7af2f472d8c6513',1,'gs_world_generator::Params']]],
   ['growth_5fslack_5fpercent_95',['growth_slack_percent',['../structGaussianSplatting_1_1TileBufferShrinkPolicy.html#ab84b84bf6a5963756a872f756413341d',1,'GaussianSplatting::TileBufferShrinkPolicy']]],
-  ['gs_5fsplat_5fref_5fatlas_5findex_5fmask_96',['GS_SPLAT_REF_ATLAS_INDEX_MASK',['../namespacegs__splat__ref.html#abfcf275ee63142e2c2e2ba7b74af5357',1,'gs_splat_ref']]]
+  ['gs_5fmax_5ftile_5fkey_5frecords_5fmax_96',['GS_MAX_TILE_KEY_RECORDS_MAX',['../namespacegs__overlap__drop.html#aba6eeea88ec1a54b2387ce22784e715d',1,'gs_overlap_drop']]],
+  ['gs_5fmax_5ftile_5fkey_5ftile_5fbits_97',['GS_MAX_TILE_KEY_TILE_BITS',['../namespacegs__overlap__drop.html#a1ed078c54bc4bdb14227619482639b05',1,'gs_overlap_drop']]],
+  ['gs_5fmax_5ftile_5fkey_5ftile_5fmask_98',['GS_MAX_TILE_KEY_TILE_MASK',['../namespacegs__overlap__drop.html#af56ee38e198d2d479b3058395255d592',1,'gs_overlap_drop']]],
+  ['gs_5fsplat_5fref_5fatlas_5findex_5fmask_99',['GS_SPLAT_REF_ATLAS_INDEX_MASK',['../namespacegs__splat__ref.html#abfcf275ee63142e2c2e2ba7b74af5357',1,'gs_splat_ref']]]
 ];

@@ -70,6 +70,17 @@ var namespaces_dup =
     [ "gs_hlod_runtime", "namespacegs__hlod__runtime.html", "namespacegs__hlod__runtime" ],
     [ "gs_layout_hint", "namespacegs__layout__hint.html", "namespacegs__layout__hint" ],
     [ "gs_logger", "namespacegs__logger.html", "namespacegs__logger" ],
+    [ "gs_overlap_drop", "namespacegs__overlap__drop.html", [
+      [ "uint", "namespacegs__overlap__drop.html#ae9b88bca686c230ee1b94d8fdb015cbe", null ],
+      [ "gs_max_tile_key_identifies", "namespacegs__overlap__drop.html#aac7a5d0ab8ad02bbe445053420070289", null ],
+      [ "gs_max_tile_key_records", "namespacegs__overlap__drop.html#a63ba7edfe3f5bd49a21912e7fe11d0f7", null ],
+      [ "gs_max_tile_key_tile", "namespacegs__overlap__drop.html#aeae371da27052cac4524523e41488659", null ],
+      [ "gs_pack_max_tile_key", "namespacegs__overlap__drop.html#a59c8efe6e27fceb4bd7d768ac83838be", null ],
+      [ "gs_raster_unreadable_written_records", "namespacegs__overlap__drop.html#ad1f4daf179f8ce81e950a511394c7c70", null ],
+      [ "GS_MAX_TILE_KEY_RECORDS_MAX", "namespacegs__overlap__drop.html#aba6eeea88ec1a54b2387ce22784e715d", null ],
+      [ "GS_MAX_TILE_KEY_TILE_BITS", "namespacegs__overlap__drop.html#a1ed078c54bc4bdb14227619482639b05", null ],
+      [ "GS_MAX_TILE_KEY_TILE_MASK", "namespacegs__overlap__drop.html#af56ee38e198d2d479b3058395255d592", null ]
+    ] ],
     [ "gs_shadow_caster", "namespacegs__shadow__caster.html", "namespacegs__shadow__caster" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
     [ "gs_splat_ref", "namespacegs__splat__ref.html", [

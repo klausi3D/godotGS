@@ -142,6 +142,8 @@ var annotated_dup =
       [ "TileAdaptiveSettings", "structGaussianSplatting_1_1TileAdaptiveSettings.html", "structGaussianSplatting_1_1TileAdaptiveSettings" ],
       [ "TileDebugCounterSnapshot", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html", "structGaussianSplatting_1_1TileDebugCounterSnapshot" ],
       [ "TileOverflowStatsSnapshot", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html", "structGaussianSplatting_1_1TileOverflowStatsSnapshot" ],
+      [ "TileOverflowSampleContext", "structGaussianSplatting_1_1TileOverflowSampleContext.html", "structGaussianSplatting_1_1TileOverflowSampleContext" ],
+      [ "TileDropFrameSample", "structGaussianSplatting_1_1TileDropFrameSample.html", "structGaussianSplatting_1_1TileDropFrameSample" ],
       [ "TileSplatAuditSnapshot", "structGaussianSplatting_1_1TileSplatAuditSnapshot.html", "structGaussianSplatting_1_1TileSplatAuditSnapshot" ],
       [ "TileDensityMetrics", "structGaussianSplatting_1_1TileDensityMetrics.html", "structGaussianSplatting_1_1TileDensityMetrics" ],
       [ "TileRenderStats", "structGaussianSplatting_1_1TileRenderStats.html", "structGaussianSplatting_1_1TileRenderStats" ],

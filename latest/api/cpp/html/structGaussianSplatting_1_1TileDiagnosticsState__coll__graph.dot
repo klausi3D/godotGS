@@ -4,6 +4,7 @@ digraph "GaussianSplatting::TileDiagnosticsState"
   bgcolor="transparent";
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
+  rankdir="LR";
   Node1 [id="Node000001",label="GaussianSplatting::\lTileDiagnosticsState",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip=" "];
   Node2 -> Node1 [id="edge1_Node000001_Node000002",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">last_render_stats</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
@@ -14,4 +15,7 @@ digraph "GaussianSplatting::TileDiagnosticsState"
   Node4 -> Node1 [id="edge3_Node000001_Node000004",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">hlod_level_records</TD></TR>
 </TABLE>> ,fontcolor="grey" ];
   Node4 [id="Node000004",label="GaussianSplatting::\lHlodLevelRecordSample",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1HlodLevelRecordSample.html",tooltip=" "];
+  Node5 -> Node1 [id="edge4_Node000001_Node000005",dir="back",color="darkorchid3",style="dashed",tooltip=" ",label=<<TABLE CELLBORDER="0" BORDER="0"><TR><TD VALIGN="top" ALIGN="LEFT" CELLPADDING="1" CELLSPACING="0">last_drop_frame</TD></TR>
+</TABLE>> ,fontcolor="grey" ];
+  Node5 [id="Node000005",label="GaussianSplatting::\lTileDropFrameSample",height=0.2,width=0.4,color="gray40", fillcolor="white", style="filled",URL="$structGaussianSplatting_1_1TileDropFrameSample.html",tooltip=" "];
 }

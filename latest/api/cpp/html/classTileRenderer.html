@@ -271,6 +271,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a9d08add7e535f237a4136d596e1f7e8b" id="r_a9d08add7e535f237a4136d596e1f7e8b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9d08add7e535f237a4136d596e1f7e8b">get_sampled_dropped_records_total</a> () const</td></tr>
 <tr class="memitem:ab2154223e604792e8e9923ef6687914e" id="r_ab2154223e604792e8e9923ef6687914e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab2154223e604792e8e9923ef6687914e">get_sampled_overlap_records_total</a> () const</td></tr>
 <tr class="memitem:a8aa3627809f62532ae4114e2286ffbd9" id="r_a8aa3627809f62532ae4114e2286ffbd9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8aa3627809f62532ae4114e2286ffbd9">get_sampled_overlap_splats_total</a> () const</td></tr>
+<tr class="memitem:a9332728e77e900c42ac41f5a2c52977e" id="r_a9332728e77e900c42ac41f5a2c52977e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9332728e77e900c42ac41f5a2c52977e">get_drop_frame_samples</a> () const</td></tr>
+<tr class="memitem:a344aa6cff47d0558bb601efe82855a97" id="r_a344aa6cff47d0558bb601efe82855a97"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussianSplatting_1_1TileDropFrameSample.html">GaussianSplatting::TileDropFrameSample</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a344aa6cff47d0558bb601efe82855a97">get_last_drop_frame</a> () const</td></tr>
+<tr class="memitem:a5ce2ecd8a5acca51e27843b58496b437" id="r_a5ce2ecd8a5acca51e27843b58496b437"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5ce2ecd8a5acca51e27843b58496b437">append_drop_frame_telemetry</a> (Dictionary &amp;r_stats) const</td></tr>
 <tr class="memitem:a9902583924f74060eef3ecedd6bd85d1" id="r_a9902583924f74060eef3ecedd6bd85d1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9902583924f74060eef3ecedd6bd85d1">set_debug_log_resolve</a> (bool p_enabled)</td></tr>
 <tr class="memitem:aa4f2e61218f4820379c339180a37906b" id="r_aa4f2e61218f4820379c339180a37906b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4f2e61218f4820379c339180a37906b">get_debug_log_resolve</a> () const</td></tr>
 <tr class="memitem:adc8abe7f47c5cff20f7f5adadfad8585" id="r_adc8abe7f47c5cff20f7f5adadfad8585"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc8abe7f47c5cff20f7f5adadfad8585">get_visible_splat_count</a> () const</td></tr>
@@ -794,6 +797,31 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a5ce2ecd8a5acca51e27843b58496b437" name="a5ce2ecd8a5acca51e27843b58496b437"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5ce2ecd8a5acca51e27843b58496b437">&#9670;&#160;</a></span>append_drop_frame_telemetry()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void TileRenderer::append_drop_frame_telemetry </td>
+          <td>(</td>
+          <td class="paramtype">Dictionary &amp;</td>          <td class="paramname"><span class="paramname"><em>r_stats</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ad096a0fd3dcd714bd214c8509bcbb133" name="ad096a0fd3dcd714bd214c8509bcbb133"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ad096a0fd3dcd714bd214c8509bcbb133">&#9670;&#160;</a></span>clamp_hlod_overlap_records()</h2>
 
@@ -1260,6 +1288,31 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a9332728e77e900c42ac41f5a2c52977e" name="a9332728e77e900c42ac41f5a2c52977e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9332728e77e900c42ac41f5a2c52977e">&#9670;&#160;</a></span>get_drop_frame_samples()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t TileRenderer::get_drop_frame_samples </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="acebc16ea02e3f8cd5693d3e2663c0303" name="acebc16ea02e3f8cd5693d3e2663c0303"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#acebc16ea02e3f8cd5693d3e2663c0303">&#9670;&#160;</a></span>get_drop_signal_samples()</h2>
 
@@ -1681,6 +1734,31 @@ Friends</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">int TileRenderer::get_index_mismatch_count </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a344aa6cff47d0558bb601efe82855a97" name="a344aa6cff47d0558bb601efe82855a97"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a344aa6cff47d0558bb601efe82855a97">&#9670;&#160;</a></span>get_last_drop_frame()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const <a class="el" href="structGaussianSplatting_1_1TileDropFrameSample.html">GaussianSplatting::TileDropFrameSample</a> &amp; TileRenderer::get_last_drop_frame </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>

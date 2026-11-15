@@ -7,6 +7,8 @@ var tile__render__types_8h =
     [ "GaussianSplatting::TileAdaptiveSettings", "structGaussianSplatting_1_1TileAdaptiveSettings.html", "structGaussianSplatting_1_1TileAdaptiveSettings" ],
     [ "GaussianSplatting::TileDebugCounterSnapshot", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html", "structGaussianSplatting_1_1TileDebugCounterSnapshot" ],
     [ "GaussianSplatting::TileOverflowStatsSnapshot", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html", "structGaussianSplatting_1_1TileOverflowStatsSnapshot" ],
+    [ "GaussianSplatting::TileOverflowSampleContext", "structGaussianSplatting_1_1TileOverflowSampleContext.html", "structGaussianSplatting_1_1TileOverflowSampleContext" ],
+    [ "GaussianSplatting::TileDropFrameSample", "structGaussianSplatting_1_1TileDropFrameSample.html", "structGaussianSplatting_1_1TileDropFrameSample" ],
     [ "GaussianSplatting::TileSplatAuditSnapshot", "structGaussianSplatting_1_1TileSplatAuditSnapshot.html", "structGaussianSplatting_1_1TileSplatAuditSnapshot" ],
     [ "GaussianSplatting::TileDensityMetrics", "structGaussianSplatting_1_1TileDensityMetrics.html", "structGaussianSplatting_1_1TileDensityMetrics" ],
     [ "GaussianSplatting::TileRenderStats", "structGaussianSplatting_1_1TileRenderStats.html", "structGaussianSplatting_1_1TileRenderStats" ],
