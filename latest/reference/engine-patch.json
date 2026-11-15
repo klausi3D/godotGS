@@ -2456,7 +2456,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "fd37297cd146c0aadf80d408e5bf4ab49faa48ea",
+    "head_commit": "0c4c37846ee2182dc55abfd3ca4f1c33453858d7",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
