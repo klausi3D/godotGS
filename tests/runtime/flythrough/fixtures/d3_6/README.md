@@ -1,5 +1,15 @@
 # D3-6 real T0 extracts
 
+The live migration control now pins pre-D3 + provenance
+`5a438363cd6939bca1041d738e2bfa10f2b024f2` (`bv-pre-d3-provenance`): original
+pre-#1453 source `f2f19bcb580cc131615b3fa262a11d99e6abc70c` plus #1453 only.
+Captured identities and measurements below are historical and remain unchanged.
+They do not gain the new provenance retrospectively: current comparison requires
+successful settlement and `0 <= pose_first_frame <= rendered_splat_count_source_frame <= render_frame_counter`.
+Missing or invalid reference evidence is `migration_reference_unsettled`, with
+an INCONCLUSIVE pair and UNUSABLE report; invalid non-reference checkpoints use
+`checkpoint_unsettled`. Usable pairs retain the #1448 drawn-count rule.
+
 The camera, drop and migration extracts are small JSON projections of synthetic
 T0 producer output from workflow run **43602195987**, attempt 1, head
 `6721bc153c3edfdb883756681b650cd8c7485c81`. The source artifact is

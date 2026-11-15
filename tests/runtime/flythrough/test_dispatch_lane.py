@@ -2610,7 +2610,7 @@ class D36SharedLayersWorkflow(unittest.TestCase):
         self.assertIn('--contention-report "$SHARED_LAYERS_OUT/contention/postflight.json"', compare[0][1]["run"])
 
     def test_immutable_migration_build_uses_candidate_flags_and_pinned_artifact(self):
-        sha = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+        sha = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
         block = "\n".join(_job_block(self.text, "build-pre-d3-editor"))
         self.assertIn("    runs-on: [self-hosted, Linux, X64]", block)
         self.assertIn(f"ref: {sha}", block)

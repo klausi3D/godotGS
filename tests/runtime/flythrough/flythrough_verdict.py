@@ -447,6 +447,8 @@ def m1_settle(entry: dict, limit: Any, ctx: Ctx) -> Result:
         for c in p.get("checkpoints") or []:
             seen += 1
             label = f"pass {p.get('pass_index')} {c.get('checkpoint')}"
+            if c.get("evidence_verdict", "VALID") != "VALID":
+                problems.append(f"{label}: {c['evidence_verdict']}")
             fit = c.get("cap_fit")
             if not isinstance(fit, dict):
                 absent.append(f"{label}: no needed/cap record")

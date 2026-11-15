@@ -68,6 +68,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import copy
 import ctypes
 import hashlib
 import json
@@ -481,7 +482,10 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             row = cp.get("row")
             cap = (trace.get(trace.rows[row], "effective_max_chunks")
                    if isinstance(row, int) and 0 <= row < len(trace.rows) else None)
+            evidence = ps.checkpoint_evidence(cp, route=result.get("route"),
+                                               static_sort_cache=result.get("static_sort_cache"))
             checkpoints.append({
+                **evidence,
                 "checkpoint": cp["checkpoint"],
                 "segment": cp["segment"],
                 "settled": settle.get("settled"),
@@ -571,6 +575,9 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     # #1457/#1461: the sampled frames that lost records (per-tile record maximum, its tile, the
     # record allocation), whole process. Absent telemetry is MISSING, never zero.
     out["overlap_drop_frames"] = ps.drop_frame_summary(result.get("overlap_drop_frames"))
+    out["checkpoint_evidence"] = ps.checkpoint_evidence_summary(
+        [cp for measured_pass in out["passes"] for cp in measured_pass["checkpoints"]])
+    out["static_sort_cache"] = copy.deepcopy(result.get("static_sort_cache"))
     return out
 
 
@@ -607,6 +614,12 @@ def screenshot_record(shots: object) -> Dict[str, object]:
 def required_path_metrics(world_summary: dict) -> List[str]:
     problems = []
     fl = world_summary.get("flythrough", {})
+    evidence = fl.get("checkpoint_evidence")
+    checkpoint_reasons = {c.get("evidence_verdict") for p in fl.get("passes", [])
+                          for c in p.get("checkpoints", []) if c.get("evidence_verdict") != "VALID"}
+    if (isinstance(evidence, dict) and evidence.get("verdict") != "VALID"
+            and (not evidence.get("reasons") or not set(evidence["reasons"]).issubset(checkpoint_reasons))):
+        problems.append(f"checkpoint evidence {evidence.get('verdict')}: {evidence.get('reasons', [])}")
     for p in fl.get("passes", []):
         if p["moving_frame_interval"].get("frames", 0) == 0:
             problems.append(f"pass {p['pass_index']}: no moving frame")
@@ -620,6 +633,8 @@ def required_path_metrics(world_summary: dict) -> List[str]:
         if got != EXPECTED_CHECKPOINTS:
             problems.append(f"pass {p['pass_index']}: checkpoints {got}, expected {EXPECTED_CHECKPOINTS}")
         for c in p.get("checkpoints", []):
+            if c.get("evidence_verdict", "VALID") != "VALID":
+                problems.append(f"pass {p['pass_index']} {c['checkpoint']}: {c['evidence_verdict']}")
             fit = c.get("cap_fit") or ps.missing("no needed/cap record")
             if fit.get("status") == ps.INVALID:
                 # ADR M1: needed > cap needs a priority proof, not a settle. Until that check
@@ -629,7 +644,7 @@ def required_path_metrics(world_summary: dict) -> List[str]:
             if fit.get("status") != ps.OK:
                 problems.append(f"pass {p['pass_index']} {c['checkpoint']}: "
                                 f"{fit.get('reason', 'no needed/cap record')}")
-            if not c.get("settled"):
+            if not c.get("settled") and c.get("evidence_verdict", "VALID") == "VALID":
                 # tests/AGENTS.md: a missed pump deadline is a failure that names what never
                 # became true, never a silent pass.
                 problems.append(f"pass {p['pass_index']} {c['checkpoint']}: "

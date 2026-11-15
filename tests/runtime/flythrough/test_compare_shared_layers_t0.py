@@ -66,7 +66,7 @@ driver = _load("compare_shared_layers_t0")
 shared = _load("shared_layers_t0")
 workflow_pins = _load("test_dispatch_lane")
 
-PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+PRE_D3 = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
 PRE_D3_SOURCE_1454 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
 PROVENANCE_BASE_1454 = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
 CANDIDATE = "6343fdba2690b1066123bb299f65110ff5e0e285"
@@ -137,6 +137,8 @@ class ComparisonContract(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.tmp = Path(temporary.name)
         self.experiment = self.make_experiment()
+        for arm in self.experiment["migration"]["arms"].values():
+            self.apply_migration_admissibility_policy(arm)
 
     def make_arm(self, route, prepared):
         directory = self.tmp / route
@@ -152,6 +154,13 @@ class ComparisonContract(unittest.TestCase):
         generation = record["source_generation"]
         result = {**copy.deepcopy(self.result), "route": route, "source_generation": generation,
                   "payload_telemetry": copy.deepcopy(record["payload_telemetry"])}
+        # Constructed admissibility for this comparison-owned policy envelope,
+        # not a claim about the legacy producer. Frame scalars are the modern
+        # run43717101341 candidate C2 receipt also used by checkpoint_policy_1454.
+        result["static_sort_cache"] = {"enabled": False, "applicable": route == "chunk"}
+        for checkpoint in result["checkpoints"]:
+            checkpoint.update(actual_route=route, pose_first_frame=6966,
+                              rendered_splat_count_source_frame=6971, render_frame_counter=6973)
         run = {"result": result, "trace": str(trace_path)}
         trace, integrity = rp.trace_integrity(run)
         self.assertEqual(integrity["status"], ps.OK)
@@ -864,6 +873,18 @@ class ComparisonContract(unittest.TestCase):
             behavior["native_payload"] = copy.deepcopy(native["final_render_stats"])
             behavior["world_payload"] = copy.deepcopy(native["world_payload_readback"])
             arm["payload_behavior"] = behavior
+            self.apply_migration_admissibility_policy(arm)
+
+    def apply_migration_admissibility_policy(self, arm):
+        # Preserve captured counts/native work while constructing admissibility
+        # for count/range policy tests. Historical JSON remains unchanged and
+        # this envelope does not claim that the old base exported provenance.
+        source = self.experiment["arms"]["hlod"]["probe"]["passes"][0]["checkpoints"][0]
+        keys = ("settle", "pose_first_frame", "rendered_splat_count_source_frame",
+                "render_frame_counter", "evidence_verdict", "evidence_reasons", "static_sort_cache")
+        for row in arm["payload_behavior"]["drawn_counts"]:
+            row.update({key: copy.deepcopy(source[key]) for key in keys})
+        arm["static_sort_cache"] = {"enabled": False, "applicable": False}
 
     def test_real_same_binary_variation_is_reported_without_claiming_draw_identity(self):
         self.use_real_migration_observations()
@@ -997,6 +1018,7 @@ class ComparisonContract(unittest.TestCase):
         for name in ("base", "candidate"):
             self.experiment["migration"]["arms"][name]["payload_behavior"]["drawn_counts"] = copy.deepcopy(
                 self.content_capture["migration"]["arms"][name]["payload_behavior"]["drawn_counts"])
+            self.apply_migration_admissibility_policy(self.experiment["migration"]["arms"][name])
         report = self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
         differences = report["migration_observations"]["draw_differences"]
         self.assertEqual({(d["checkpoint"], d["pass_index"], d["assessment"]) for d in differences},
@@ -1068,6 +1090,14 @@ class ComparisonContract(unittest.TestCase):
         self.assertTrue(differences)
         self.assertTrue(all(d["assessment"] == "inconclusive" for d in differences))
         self.assertIn("inconclusive", driver.render_markdown(report))
+
+    def test_usable_pair_preserves_the_one_sided_drawn_node_mismatch(self):
+        # #1448 compared the union of measured count fields. An absent optional
+        # node count cannot silently erase that existing comparison.
+        for side in ("base", "candidate"):
+            with self.scenario(side=side):
+                self.migration_checkpoint_1454(side).pop("drawn_nodes")
+                self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
 
     def checkpoint_policy_1454(self):
         """Constructed comparison policy, not an instrumented-base execution.

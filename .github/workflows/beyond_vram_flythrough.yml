@@ -16,7 +16,7 @@ name: Beyond-VRAM Fly-through
 # The weekly schedule is not gated; the watchdog never depends on this gate.
 # Dispatch mode real_scan runs only the build, D2 real-scan identity and BV-C2
 # codec probe on the data-bearing GPU runner; it never primes the world cache.
-# Dispatch mode shared_layers_t0 builds candidate + immutable pre-D3 binaries,
+# Dispatch mode shared_layers_t0 builds candidate + immutable pre-D3 + provenance binaries,
 # prepares one synthetic D2 T0 plain-GSQ/tree pair, and runs sequential chunk,
 # HLOD and migration arms on the 3080. Its comparison and independent final
 # verdict fail closed; VALID means usable diagnostic evidence, not a Tier A pass.
@@ -244,11 +244,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # D3-6 migration control: CPU-only build of the immutable parent of D3-1.
+  # D3-6 migration control: immutable pre-D3 + #1453 provenance-only export.
+  # bv-pre-d3-provenance is the original D3-1 parent
+  # f2f19bcb580cc131615b3fa262a11d99e6abc70c plus #1453 only.
+  # The public branch keeps this SHA reachable for checkout@v4 with depth 1.
   # Current checked-in tooling stages the old checkout; the one-command SHA
   # override is the expected immutable build identity, not the candidate SHA.
   build-pre-d3-editor:
-    name: Build immutable pre-D3 optimized editor (Self-Hosted CPU)
+    name: Build immutable pre-D3 + provenance optimized editor (Self-Hosted CPU)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared_layers_t0' && needs.baseline-qa-gate.result == 'success' }}
     needs: baseline-qa-gate
     runs-on: [self-hosted, Linux, X64]
@@ -256,7 +259,7 @@ jobs:
     permissions:
       contents: read
     env:
-      PRE_D3_SHA: f2f19bcb580cc131615b3fa262a11d99e6abc70c
+      PRE_D3_SHA: 5a438363cd6939bca1041d738e2bfa10f2b024f2
     defaults:
       run:
         working-directory: repo-pre-d3
@@ -274,10 +277,10 @@ jobs:
           fetch-depth: 1
           set-safe-directory: false
 
-      - name: Checkout immutable pre-D3 source
+      - name: Checkout immutable pre-D3 + provenance source
         uses: actions/checkout@v4
         with:
-          ref: f2f19bcb580cc131615b3fa262a11d99e6abc70c
+          ref: 5a438363cd6939bca1041d738e2bfa10f2b024f2
           path: repo-pre-d3
           fetch-depth: 1
           submodules: recursive
@@ -294,7 +297,7 @@ jobs:
         working-directory: repo
         run: bash "$GITHUB_WORKSPACE/repo/tests/ci/linux_gpu_runner.sh" venv
 
-      - name: Build immutable pre-D3 with identical optimized flags
+      - name: Build immutable pre-D3 + provenance with identical optimized flags
         run: |
           # shellcheck disable=SC2086
           python -m SCons $BVW_SCONS_ARGS
@@ -303,10 +306,10 @@ jobs:
         run: |
           GITHUB_SHA="$PRE_D3_SHA" bash "$GITHUB_WORKSPACE/repo/tests/ci/linux_gpu_runner.sh" stage-binary bin/godot.linuxbsd.editor.x86_64 "$RUNNER_TEMP/godot-build-pred3"
 
-      - name: Upload immutable pre-D3 binary
+      - name: Upload immutable pre-D3 + provenance binary
         uses: actions/upload-artifact@v4
         with:
-          name: godot-linuxbsd-editor-tests-pred3-f2f19bcb580cc131615b3fa262a11d99e6abc70c
+          name: godot-linuxbsd-editor-tests-pred3-5a438363cd6939bca1041d738e2bfa10f2b024f2
           path: ${{ runner.temp }}/godot-build-pred3/
           if-no-files-found: error
           retention-days: 7
@@ -329,7 +332,7 @@ jobs:
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
       NODEVICE_SELECT: '1'
       SHARED_LAYERS_CONTROL: ${{ inputs.shared_layers_control || 'none' }}
-      PRE_D3_SHA: f2f19bcb580cc131615b3fa262a11d99e6abc70c
+      PRE_D3_SHA: 5a438363cd6939bca1041d738e2bfa10f2b024f2
     defaults:
       run:
         working-directory: repo
@@ -383,13 +386,13 @@ jobs:
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "$PWD/bin/godot.linuxbsd.editor.x86_64" --provenance "$RUNNER_TEMP/godot-build/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$SHARED_LAYERS_OUT"
 
-      - name: Download immutable pre-D3 binary
+      - name: Download immutable pre-D3 + provenance binary
         uses: actions/download-artifact@v4
         with:
-          name: godot-linuxbsd-editor-tests-pred3-f2f19bcb580cc131615b3fa262a11d99e6abc70c
+          name: godot-linuxbsd-editor-tests-pred3-5a438363cd6939bca1041d738e2bfa10f2b024f2
           path: ${{ runner.temp }}/godot-build-pred3
 
-      - name: Verify pre-D3 artifact identity without replacing candidate
+      - name: Verify pre-D3 + provenance artifact identity without replacing candidate
         run: |
           python3 - <<'PY'
           import os, pathlib, sys
@@ -411,7 +414,7 @@ jobs:
           binary.chmod(binary.stat().st_mode | 0o111)
           PY
 
-      - name: Pre-D3 build info and measured binary identity
+      - name: Pre-D3 + provenance build info and measured binary identity
         timeout-minutes: 5
         run: |
           python3 tests/runtime/flythrough/dispatch_lane.py build-info --godot-binary "$RUNNER_TEMP/godot-build-pred3/godot.linuxbsd.editor.x86_64" --provenance "$RUNNER_TEMP/godot-build-pred3/build-provenance.txt" --scons-args "$BVW_SCONS_ARGS" --out "$SHARED_LAYERS_OUT/pre-d3-build"
