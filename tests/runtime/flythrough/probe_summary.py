@@ -957,6 +957,217 @@ def measured_rows(trace: Trace, pass_index: int) -> List[int]:
 
 
 # --------------------------------------------------------------------------
+# Frame-time breakdown (#1445)
+# --------------------------------------------------------------------------
+
+#: The four parts of the wall-clock interval that ENDS at a row, in the order they happen
+#: (probe_world.gd BREAKDOWN_FIELDS). They add up to ``t_usec[i] - t_usec[i - 1]`` exactly.
+BREAKDOWN_PARTS = (
+    "frame_harness_telemetry_usec", "frame_harness_capture_usec", "frame_harness_script_usec",
+    "frame_engine_usec",
+)
+BREAKDOWN_COLUMNS = BREAKDOWN_PARTS + ("frame_captures", "render_cpu_ms", "renderer_frames_total")
+BREAKDOWN_SCOPE = (
+    "per row: the wall-clock interval since the previous row = the driver's telemetry (stats query "
+    "and trace row) + its viewport captures (readback, PNG encode, write) + its remaining script "
+    "work + the engine frame. game_frame is the engine frame alone: everything between the driver "
+    "handing control back and the next frame_post_draw (scene step, render CPU, submit, present), "
+    "which is what a game without the probe pays per frame. wall_frame is the unchanged "
+    "moving_frame_interval quantity. renderer_cpu is the renderer's own frame_time_ms, counted once "
+    "per finished renderer frame; engine_other is the engine frame outside it. GPU time runs in "
+    "parallel with the CPU parts and is reported beside them, never added to them."
+)
+#: Slow game frames listed per block, longest first (the counts cover all of them).
+HITCH_LIST_LIMIT = 20
+#: Cumulative counters whose per-row advance says what a slow frame did (absent columns are left out).
+HITCH_DELTA_COLUMNS = (
+    "upload_bytes_total", "upload_chunks_total", "read_bytes_total", "hlod_stream_uploaded_bytes_total",
+)
+HITCH_VALUE_COLUMNS = (
+    "loaded_chunks", "needed_not_resident_chunks", "needed_upload_pending_chunks", "upload_stall_wall_ms",
+    "chunks_evicted_this_frame", "hlod_stream_loading_nodes", "hlod_stream_desired_nodes",
+    "hlod_stream_uploaded_bytes_this_frame", "drawn_splats",
+)
+
+
+def frame_time_distribution(values_ms: Sequence[float]) -> Dict[str, object]:
+    """Frame-time percentiles two ways: time-weighted (ADR 8.3, the share of wall time spent in
+    frames at least this long) and per frame (the share of frames)."""
+    if not values_ms:
+        return {"frames": 0, "mean": missing("no frame interval", "ms")}
+    out: Dict[str, object] = {"frames": len(values_ms), "mean": metric(mean(values_ms), unit="ms")}
+    for q in (50, 95, 99):
+        out[f"p{q}_time_weighted"] = metric(time_weighted_percentile(values_ms, q / 100.0), unit="ms")
+    for q in (50, 95, 99):
+        out[f"p{q}_frames"] = metric(nearest_rank(values_ms, q / 100.0), unit="ms")
+    out["max"] = metric(max(values_ms), unit="ms")
+    out["frames_over_50ms"] = sum(1 for v in values_ms if v > SLOW_FRAME_MS)
+    out["frames_over_250ms"] = sum(1 for v in values_ms if v > HITCH_FRAME_MS)
+    return out
+
+
+def frame_breakdown(trace: Trace, rows: Sequence[int]) -> Dict[str, object]:
+    """#1445: split the selected rows' frame intervals into the engine's frame and the probe's work.
+
+    Statuses (absence of a signal is never a pass, and never a zero):
+
+    - MISSING when the trace has no breakdown columns (a driver older than #1445), no selected row
+      has an interval, or any selected row carries the driver's -1 (it could not split that
+      interval). No number is reported then; ``moving_frame_interval`` is unaffected.
+    - INVALID when a row's parts do not add up to its wall-clock interval, or a part is negative.
+    - OK otherwise. The renderer's CPU share additionally needs ``frame_time_ms`` and
+      ``total_frames_rendered`` on every row; without them that share and ``engine_other`` are
+      MISSING while the engine/harness split stays OK.
+    """
+    absent = [n for n in BREAKDOWN_COLUMNS if n not in trace.index]
+    if absent:
+        return {"status": MISSING,
+                "reason": f"the trace has no frame breakdown columns {absent} (driver older than #1445)"}
+    sel = [i for i in rows if i > 0]
+    if not sel:
+        return {"status": MISSING, "reason": "no frame interval in the selected rows"}
+    t = trace.col("t_usec")
+    parts = {name: trace.col(name) for name in BREAKDOWN_PARTS}
+    unsplit = [i for i in sel if any(parts[name][i] < 0 for name in BREAKDOWN_PARTS)]
+    if unsplit:
+        negative = [i for i in unsplit if any(parts[name][i] < -1 for name in BREAKDOWN_PARTS)]
+        if negative:
+            return {"status": INVALID, "reason": f"negative frame part at row {negative[0]}"}
+        return {"status": MISSING, "reason": f"{len(unsplit)} of {len(sel)} selected frames carry no "
+                f"breakdown (first at row {unsplit[0]}): the driver could not split them"}
+    for i in sel:
+        if sum(parts[name][i] for name in BREAKDOWN_PARTS) != t[i] - t[i - 1]:
+            return {"status": INVALID, "reason": f"the frame parts of row {i} add up to "
+                    f"{sum(parts[name][i] for name in BREAKDOWN_PARTS)} usec, its interval is {t[i] - t[i - 1]} usec"}
+    telemetry, capture, script, engine = (parts[name] for name in BREAKDOWN_PARTS)
+    wall_ms = [(t[i] - t[i - 1]) / 1000.0 for i in sel]
+    game_ms = [engine[i] / 1000.0 for i in sel]
+    harness_ms = [(telemetry[i] + capture[i] + script[i]) / 1000.0 for i in sel]
+    totals = {
+        "wall": sum(wall_ms), "game_frame": sum(game_ms), "harness": sum(harness_ms),
+        "telemetry": sum(telemetry[i] for i in sel) / 1000.0, "capture": sum(capture[i] for i in sel) / 1000.0,
+        "script": sum(script[i] for i in sel) / 1000.0,
+    }
+    wall_total = totals["wall"]
+
+    def share(value_ms: Optional[float], reason: str = "") -> Dict[str, object]:
+        if value_ms is None:
+            return missing(reason, "%")
+        if wall_total <= 0.0:
+            return missing("no wall time in the selected rows", "%")
+        return metric(100.0 * value_ms / wall_total, unit="%")
+
+    # The renderer's own CPU time. A row whose renderer frame counter did not advance repeats the
+    # previous frame's number (a held sample): counted once, with the frame that produced it.
+    cpu, frames_total = trace.col("render_cpu_ms"), trace.col("renderer_frames_total")
+    no_cpu = [i for i in sel if cpu[i] < 0.0 or frames_total[i] < 0 or frames_total[i - 1] < 0]
+    renderer: Dict[str, object] = {}
+    if no_cpu:
+        reason = (f"{len(no_cpu)} of {len(sel)} selected rows (first {no_cpu[0]}) lack the renderer's "
+                  "frame_time_ms / total_frames_rendered, on this row or the one before")
+        renderer["cpu_ms"] = missing(reason, "ms")
+        cpu_share = engine_other_share = missing(reason, "%")
+        fresh_cpu: Dict[int, float] = {}
+    else:
+        fresh_cpu = {i: float(cpu[i]) for i in sel if frames_total[i] > frames_total[i - 1]}
+        values = list(fresh_cpu.values())
+        renderer["cpu_ms"] = ({"mean": metric(mean(values), unit="ms"),
+                               "p50_frames": metric(nearest_rank(values, 0.5), unit="ms"),
+                               "p95_frames": metric(nearest_rank(values, 0.95), unit="ms"),
+                               "max": metric(max(values), unit="ms"), "samples": len(values)}
+                              if values else missing("the renderer finished no frame in the selected rows", "ms"))
+        renderer["cpu_fresh_frames"] = len(values)
+        totals["renderer_cpu"] = sum(values)
+        totals["engine_other"] = totals["game_frame"] - totals["renderer_cpu"]
+        cpu_share = share(totals["renderer_cpu"])
+        engine_other_share = (share(totals["engine_other"]) if totals["engine_other"] >= 0.0 else metric(
+            None, INVALID, "the renderer's CPU time exceeds the engine frame time of these rows", "%"))
+    if "gpu_frame_ms" in trace.index and "gpu_frame_valid" in trace.index:
+        gpu, gpu_valid = trace.col("gpu_frame_ms"), trace.col("gpu_frame_valid")
+        values = [float(gpu[i]) for i in sel if gpu_valid[i] == 1]
+        renderer["gpu_frame_ms"] = ({
+            "mean": metric(mean(values), unit="ms"), "p50_frames": metric(nearest_rank(values, 0.5), unit="ms"),
+            "p95_frames": metric(nearest_rank(values, 0.95), unit="ms"), "max": metric(max(values), unit="ms"),
+            "samples": len(values),
+            "scope": "the renderer's last valid GPU frame time as each row saw it (a held value repeats); "
+                     "parallel to the CPU parts, not a share of them",
+        } if values else missing("no selected row carries a valid GPU frame time", "ms"))
+    else:
+        renderer["gpu_frame_ms"] = missing("the trace has no gpu_frame_ms column", "ms")
+
+    captures = trace.col("frame_captures")
+    slow_game = [i for i in sel if engine[i] / 1000.0 > SLOW_FRAME_MS]
+    slow_wall = [i for i in sel if (t[i] - t[i - 1]) / 1000.0 > SLOW_FRAME_MS]
+    listed = []
+    for i in sorted(slow_game, key=lambda i: (-engine[i], i))[:HITCH_LIST_LIMIT]:
+        row = trace.rows[i]
+        entry: Dict[str, object] = {
+            "row": i, "game_frame_ms": engine[i] / 1000.0, "wall_frame_ms": (t[i] - t[i - 1]) / 1000.0,
+            "harness_telemetry_ms": telemetry[i] / 1000.0, "harness_capture_ms": capture[i] / 1000.0,
+            "harness_script_ms": script[i] / 1000.0, "captures_in_interval": captures[i],
+            "render_cpu_ms": fresh_cpu.get(i),
+        }
+        for name in ("pass_index", "segment", "view", "state", "s_m", "engine_frame"):
+            if name in trace.index:
+                entry[name] = trace.get(row, name)
+        if "gpu_frame_ms" in trace.index and "gpu_frame_valid" in trace.index:
+            entry["gpu_frame_ms"] = trace.get(row, "gpu_frame_ms") if trace.get(row, "gpu_frame_valid") == 1 else None
+        for name in HITCH_DELTA_COLUMNS:
+            if name in trace.index:
+                now, before = trace.get(row, name), trace.get(trace.rows[i - 1], name)
+                entry[name.replace("_total", "") + "_delta"] = now - before if now >= 0 and before >= 0 else None
+        for name in HITCH_VALUE_COLUMNS:
+            if name in trace.index:
+                value = trace.get(row, name)
+                entry[name] = value if value >= 0 else None
+        listed.append(entry)
+    return {
+        "status": OK,
+        "scope": BREAKDOWN_SCOPE,
+        "frames": len(sel),
+        "wall_frame": frame_time_distribution(wall_ms),
+        "game_frame": frame_time_distribution(game_ms),
+        "harness_frame": frame_time_distribution(harness_ms),
+        "totals_ms": totals,
+        "wall_share_pct": {
+            "game_frame": share(totals["game_frame"]), "harness": share(totals["harness"]),
+            "renderer_cpu": cpu_share, "engine_other": engine_other_share,
+            "script": share(totals["script"]), "capture": share(totals["capture"]),
+            "telemetry": share(totals["telemetry"]),
+        },
+        "captures": sum(captures[i] for i in sel),
+        "frames_with_capture": sum(1 for i in sel if captures[i] > 0),
+        "renderer": renderer,
+        "slow_frames": {
+            "threshold_ms": SLOW_FRAME_MS, "hitch_threshold_ms": HITCH_FRAME_MS,
+            "wall_over_50ms": len(slow_wall),
+            # Slow by the wall clock although the engine frame itself was not: the probe's own work.
+            "wall_over_50ms_harness_only": sum(1 for i in slow_wall if engine[i] / 1000.0 <= SLOW_FRAME_MS),
+            "game_over_50ms": len(slow_game),
+            "game_over_250ms": sum(1 for i in slow_game if engine[i] / 1000.0 > HITCH_FRAME_MS),
+            # The driver read the viewport back just before this engine frame: the stall may be its echo.
+            "game_over_50ms_with_capture_in_interval": sum(1 for i in slow_game if captures[i] > 0),
+            "listed_limit": HITCH_LIST_LIMIT,
+            "listed": listed,
+        },
+    }
+
+
+FRAME_TIME_PASS_KEYS = ("moving_frame_interval", "moving_frame_breakdown", "measured_frame_breakdown")
+
+
+def frame_time_passes(probe: object) -> List[Dict[str, object]]:
+    """The frame-time blocks of a path summary's passes, for reports that carry nothing else of it."""
+    passes = probe.get("passes") if isinstance(probe, dict) else None
+    out = []
+    for record in passes if isinstance(passes, list) else []:
+        if isinstance(record, dict):
+            out.append({"pass_index": record.get("pass_index"), "label": record.get("label"),
+                        **{key: record.get(key) for key in FRAME_TIME_PASS_KEYS}})
+    return out
+
+
+# --------------------------------------------------------------------------
 # F / k
 # --------------------------------------------------------------------------
 

@@ -507,6 +507,11 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
             "label": "first" if pass_index == 0 else "repeat",
             "host_cache": "not_controlled here (the lane's probe step records the D-14 cold proof, V10)",
             "moving_frame_interval": ps.interval_stats(ps.frame_intervals(trace, moving)),
+            # #1445: the same intervals split into the engine's frame (game-relevant) and the
+            # driver's own work (telemetry, captures, script). The wall-clock block above keeps
+            # its meaning; these never replace it. "measured" adds the checkpoint settles and holds.
+            "moving_frame_breakdown": ps.frame_breakdown(trace, moving),
+            "measured_frame_breakdown": ps.frame_breakdown(trace, measured),
             "moving_gpu": ps.gpu_breakdown(trace, moving),
             # Gate repair (G16): per-frame completeness of the moving rows.
             "moving_coverage": ps.moving_coverage(trace, moving, expected_at),
@@ -573,6 +578,13 @@ def screenshot_record(shots: object) -> Dict[str, object]:
     errors = [f"{s.get('name')}: {s.get('error')}" for s in taken if s.get("error")]
     rec: Dict[str, object] = {"dir": SCREENSHOT_DIR, "moving_every_n": shots.get("moving_every_n"),
                               "files": [s["file"] for s in taken if s.get("file")], "errors": errors}
+    # #1445: what each capture (readback, PNG encode, write) cost the driver, by its own clock.
+    timed = [s.get("capture_usec") for s in taken]
+    if taken and all(type(v) in (int, float) and v >= 0 for v in timed):
+        rec["capture_ms"] = {"samples": len(timed), "total": sum(timed) / 1000.0,
+                             "mean": sum(timed) / 1000.0 / len(timed), "max": max(timed) / 1000.0}
+    else:
+        rec["capture_ms"] = ps.missing("no capture, or the driver did not time its captures (older than #1445)", "ms")
     if not shots.get("dir"):
         rec.update(status=ps.MISSING, reason="screenshots were off in the plan")
     elif errors:
@@ -580,7 +592,8 @@ def screenshot_record(shots: object) -> Dict[str, object]:
     else:
         rec["status"] = ps.OK
     if shots.get("moving_every_n"):
-        rec["note"] = "moving captures were on: their readbacks perturb the moving frame intervals"
+        rec["note"] = ("moving captures were on: their readbacks perturb the moving frame intervals "
+                       "(moving_frame_breakdown reports the frame time without them)")
     return rec
 
 

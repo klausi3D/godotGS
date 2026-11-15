@@ -706,7 +706,9 @@ def compare(experiment: dict) -> dict:
             "forward_progress": {route: _progress_summary(arms.get(route), route) for route in ("chunk", "hlod")},
             "measurement_scopes": {"decode_pack": "worker_cpu_sum; not zstd wall time",
                                    "io_latency": "reader_wall_sum and read queue sum",
-                                   "frame_intervals": "time-weighted nearest rank, cold and repeat reported separately"},
+                                   "frame_intervals": "time-weighted nearest rank, cold and repeat reported separately",
+                                   "frame_time": FRAME_TIME_SCOPE},
+            "frame_time": _frame_time(arms, migration_arms),
             "metrics": {route: _route_metrics(arms.get(route)) for route in ("chunk", "hlod")}}
 
 
@@ -744,6 +746,102 @@ def _migration_observations(arms):
             "native_payload": metrics, "draw_differences": differences, "within_binary_changes": changes,
             "decode": {name: {key: measurement(behavior.get(key)) for key in (
                 "decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats")} for name, behavior in behaviors.items()}}
+
+
+FRAME_TIME_ARMS = ("chunk", "hlod", "migration_base", "migration_candidate")
+FRAME_TIME_ROWS = (("moving", "moving_frame_breakdown"),
+                   ("moving + checkpoint settle/hold", "measured_frame_breakdown"))
+FRAME_TIME_SCOPE = ("wall = interval between trace rows, the probe's own work included (unchanged metric); "
+                    "game-relevant = the engine frame alone, without the probe's telemetry, captures and script; "
+                    "both time-weighted nearest rank; report-only, no threshold")
+STATE_NAMES = {ps.STATE_MOVING: "moving", ps.STATE_SETTLING: "settling", ps.STATE_HOLD: "hold"}
+HITCH_LINES_PER_PASS = 5
+
+
+def _frame_time(arms, migration_arms):
+    """#1445: each arm's wall-clock and game-relevant frame time, side by side. Report-only:
+    nothing here feeds the verdict, and an absent block stays absent (rendered as not measured)."""
+    out = {route: ps.frame_time_passes(_dict(arms.get(route)).get("probe")) for route in ("chunk", "hlod")}
+    for name in ("base", "candidate"):
+        record = _dict(migration_arms.get(name)).get("frame_time")
+        out["migration_" + name] = copy.deepcopy(record) if isinstance(record, list) else []
+    return out
+
+
+def _frame_time_lines(frame_time):
+    def num(record, digits=2):
+        value = _value(record) if isinstance(record, dict) else None
+        return f"{value:.{digits}f}" if _number(value) else "not measured"
+
+    def triple(dist):
+        dist = _dict(dist)
+        return " / ".join(num(dist.get(f"p{q}_time_weighted")) for q in (50, 95, 99))
+
+    def clean(text):
+        return "not measured" if text is None else str(text).replace("|", "/").replace("\n", " ")
+
+    lines = ["", "## Frame time: wall clock and game-relevant (#1445)", "",
+             "Wall clock is the interval between trace rows (the unchanged moving-frame metric) and includes the "
+             "probe's own work. Game-relevant is the engine frame alone: the same interval without the probe's "
+             "telemetry rows, viewport captures (readback, PNG encode, write) and script. p50 / p95 / p99 are "
+             "time-weighted nearest rank; shares are of wall time; GPU time runs in parallel and is no share. "
+             "Report-only, no threshold.", "",
+             "| arm, pass, rows | frames | wall ms p50 / p95 / p99 | game-relevant ms p50 / p95 / p99 | "
+             "harness ms p50 / p95 / p99 | wall share %: renderer CPU / engine other / script / capture / telemetry | "
+             "GPU frame ms mean / p95 | frames over 50 ms: wall / harness-only / game (game over 250 ms) |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    hitches = []
+    frame_time = _dict(frame_time)
+    for arm in FRAME_TIME_ARMS:
+        passes = frame_time.get(arm)
+        if not isinstance(passes, list) or not passes:
+            lines.append(f"| {arm} | " + " | ".join(
+                ["not measured: the arm carries no frame-time record"] * 7) + " |")
+            continue
+        for index, record in enumerate(passes):
+            record = _dict(record)
+            label = "cold" if index == 0 else "repeat"
+            for rows_label, key in FRAME_TIME_ROWS:
+                breakdown = _dict(record.get(key))
+                name = f"{arm}, {label}, {rows_label}"
+                if breakdown.get("status") != ps.OK:
+                    reason = "not measured: " + clean(breakdown.get("reason", "the summary carries no frame breakdown"))
+                    wall = reason
+                    if key == "moving_frame_breakdown":
+                        # The old wall-clock block does not depend on the breakdown columns.
+                        wall = triple(record.get("moving_frame_interval"))
+                    lines.append(f"| {name} | {reason} | {wall} | " + " | ".join([reason] * 5) + " |")
+                    continue
+                share = _dict(breakdown.get("wall_share_pct"))
+                gpu = _dict(_dict(breakdown.get("renderer")).get("gpu_frame_ms"))
+                slow = _dict(breakdown.get("slow_frames"))
+                lines.append(
+                    f"| {name} | {breakdown.get('frames')} | {triple(breakdown.get('wall_frame'))} | "
+                    f"{triple(breakdown.get('game_frame'))} | {triple(breakdown.get('harness_frame'))} | "
+                    + " / ".join(num(share.get(k), 1) for k in (
+                        "renderer_cpu", "engine_other", "script", "capture", "telemetry"))
+                    + f" | {num(gpu.get('mean'))} / {num(gpu.get('p95_frames'))} | "
+                    f"{slow.get('wall_over_50ms')} / {slow.get('wall_over_50ms_harness_only')} / "
+                    f"{slow.get('game_over_50ms')} ({slow.get('game_over_250ms')}) |")
+                if key != "measured_frame_breakdown":
+                    continue
+                listed = slow.get("listed") if isinstance(slow.get("listed"), list) else []
+                hitches.append(f"{arm} {label}: {slow.get('game_over_50ms')} game-relevant frame(s) over 50 ms in the "
+                               f"moving + checkpoint rows, {slow.get('game_over_50ms_with_capture_in_interval')} of them "
+                               "right after a viewport capture"
+                               + (f"; the longest {min(len(listed), HITCH_LINES_PER_PASS)}:" if listed else "."))
+                for entry in listed[:HITCH_LINES_PER_PASS]:
+                    entry = _dict(entry)
+                    ms = {k: (f"{entry[k]:.1f}" if _number(entry.get(k)) else "not measured")
+                          for k in ("game_frame_ms", "wall_frame_ms", "render_cpu_ms", "gpu_frame_ms")}
+                    hitches.append(
+                        f"- row {entry.get('row')} (segment {entry.get('segment')}, "
+                        f"{STATE_NAMES.get(entry.get('state'), entry.get('state'))}): engine frame {ms['game_frame_ms']} ms, "
+                        f"wall {ms['wall_frame_ms']} ms, renderer CPU {ms['render_cpu_ms']} ms, GPU {ms['gpu_frame_ms']} ms, "
+                        f"chunk upload bytes {clean(entry.get('upload_bytes_delta'))}, "
+                        f"HLOD upload bytes {clean(entry.get('hlod_stream_uploaded_bytes_delta'))}, "
+                        f"captures just before {entry.get('captures_in_interval')}")
+    return lines + [""] + hitches
 
 
 def render_markdown(report: dict) -> str:
@@ -797,7 +895,9 @@ def render_markdown(report: dict) -> str:
             intervals = _dict(_dict(record).get("moving_frame_interval"))
             lines.append(f"{route} {'cold' if index == 0 else 'repeat'}: moving frame p95/p99 ms = "
                          f"{cell(measurement(intervals.get('p95_time_weighted')))} / "
-                         f"{cell(measurement(intervals.get('p99_time_weighted')))}.")
+                         f"{cell(measurement(intervals.get('p99_time_weighted')))} "
+                         "(wall clock, probe work included; see the frame-time table).")
+    lines += _frame_time_lines(report.get("frame_time"))
     return "\n".join(lines)
 
 
