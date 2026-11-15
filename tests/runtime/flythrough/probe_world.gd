@@ -844,6 +844,14 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"hlod_desired_nodes": _last_stats.get("hlod_stream_desired_nodes"),
 		"hlod_resident_nodes": _last_stats.get("hlod_stream_resident_nodes"),
 		"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),
+		# Optional cut diagnostics: older binaries must retain null, never an invented empty cut.
+		"hlod_drawn_node_ids": _last_stats.get("hlod_drawn_node_ids"),
+		"hlod_drawn_node_digest": _last_stats.get("hlod_drawn_node_digest"),
+		"hlod_cut_hysteresis_held": _last_stats.get("hlod_cut_hysteresis_held"),
+		"hlod_cut_budget_bound": _last_stats.get("hlod_cut_budget_bound"),
+		"hlod_cut_first_cap_refused_node": _last_stats.get("hlod_cut_first_cap_refused_node"),
+		"hlod_cut_residency_missed": _last_stats.get("hlod_cut_residency_missed"),
+		"hlod_cut_residency_missed_demanded": _last_stats.get("hlod_cut_residency_missed_demanded"),
 	}
 
 

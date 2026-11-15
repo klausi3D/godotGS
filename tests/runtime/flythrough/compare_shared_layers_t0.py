@@ -832,8 +832,29 @@ def _migration_observations(arms, checkpoint_rows):
     return {"scope": "same V4 source digest, actual common payload work and failure observations; aggregate work is scheduling-dependent",
             "native_payload": metrics, "draw_differences": differences, "within_binary_changes": changes,
             "checkpoint_pairs": pairs,
+            "candidate_drawn_id_repeat": _candidate_drawn_id_repeat(checkpoint_rows.get("candidate", [])),
             "decode": {name: {key: measurement(behavior.get(key)) for key in (
                 "decoded_bytes", "decoded_digest", "decoded_pages", "decoded_splats")} for name, behavior in behaviors.items()}}
+
+
+def _candidate_drawn_id_repeat(rows):
+    """Report-only pass-0/pass-1 set differences; absent IDs are never an empty cut."""
+    by_checkpoint = {}
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("checkpoint"), str):
+            by_checkpoint.setdefault(row["checkpoint"], []).append(row)
+    out = []
+    for checkpoint, samples in sorted(by_checkpoint.items()):
+        passes = [[row for row in samples if type(row.get("pass_index")) is int and row["pass_index"] == index]
+                  for index in (0, 1)]
+        ids = [samples[0].get("hlod_drawn_node_ids") if len(samples) == 1 else None for samples in passes]
+        measured = all(isinstance(nodes, list) and all(type(node) is int and node >= 0 for node in nodes)
+                       and len(set(nodes)) == len(nodes) for nodes in ids)
+        difference = sorted(set(ids[0]) ^ set(ids[1])) if measured else None
+        out.append({"checkpoint": checkpoint, "measured": measured,
+                    "symmetric_difference": difference, "count": len(difference) if measured else None,
+                    **({} if measured else {"reason": "two unique passes with drawn node IDs are unavailable or malformed"})})
+    return out
 
 
 FRAME_TIME_ARMS = ("chunk", "hlod", "migration_base", "migration_candidate")
@@ -1087,6 +1108,11 @@ def render_markdown(report: dict) -> str:
         lines.append(f"Migration draw observation: {json.dumps(difference, sort_keys=True)}.")
     for change in migration.get("within_binary_changes", []):
         lines.append(f"Same-binary cold/repeat draw observation: {json.dumps(change, sort_keys=True)}.")
+    for change in migration.get("candidate_drawn_id_repeat", []):
+        difference = (f"{change['count']} node IDs {json.dumps(change['symmetric_difference'])}"
+                      if change.get("measured") is True else "not measured: " + str(change.get("reason")))
+        lines.append(f"Candidate {change.get('checkpoint')} pass-0/pass-1 drawn-ID symmetric difference "
+                     f"(report-only): {difference}.")
     for name, values in _dict(migration.get("decode")).items():
         for key, value in values.items():
             lines.append(f"Migration {name} {key}: {cell(value)}.")

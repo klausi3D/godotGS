@@ -238,6 +238,8 @@ public:
 	// available while the view is LOADING (that is when it matters). Count 0 and null for an unknown view or
 	// when the view was not selected. Valid until the next select/admit/remove.
 	const DesiredRecord *desired(uint64_t p_view_key, uint32_t &r_count) const;
+	// Report-only selector diagnostics for one instance, valid until the next select/admit/remove.
+	const CutHistory *cut_diagnostics(uint64_t p_view_key, uint64_t p_instance_key, CutHistory::Result &r_result) const;
 	// Origin revision every record of the view's published draw set was computed against (0 when none).
 	uint64_t drawn_origin_revision(uint64_t p_view_key) const;
 
@@ -245,7 +247,8 @@ public:
 	// Returns false on overflow or a malformed snapshot.
 	bool ledger(const SelectionSnapshot &p_snapshot, Ledger &r_ledger) const;
 	// Full charge of one view: GPU-side sort/record/draw bytes from its caps, plus the actually allocated
-	// CPU side (cut workspaces and tie ranks, and the published plus staging draw records).
+	// CPU selection side (cut workspaces and tie ranks, and published plus staging draw records).
+	// Report-only diagnostic scratch is counted in allocated_bytes(), outside admission policy.
 	static bool view_cost(const ResidencyBudget &p_budget, const Caps &p_caps, uint64_t p_history_bytes,
 			uint64_t p_draw_capacity, uint64_t &r_bytes);
 	// Bytes one instance slot allocates for an asset with `p_nodes` nodes.
@@ -262,6 +265,7 @@ private:
 		uint64_t content_revision = 0;
 		uint64_t policy = 0;
 		CutHistory history;
+		CutHistory::Result last_cut;
 		Vector<uint32_t> tie_rank; // Rank of each node's NodeKey: array-order independent tie-break.
 	};
 	struct View {

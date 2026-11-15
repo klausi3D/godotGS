@@ -1730,6 +1730,13 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_auto_route_demotion_cause"] = resource_state.hlod_auto_route_demotion.cause;
     stats["hlod_owned_byte_upper_bound"] = int64_t(ledger_snapshot.admitted_device_bytes);
     stats["hlod_selected_nodes"] = resource_state.hlod_selected_nodes;
+    {
+        const HlodCutTelemetry &cut = resource_state.hlod_cut_telemetry;
+        // A failed publication/tile refusal must not label an undrawn selection as drawn.
+        const bool drawn_valid = cut.valid && resource_state.hlod_frame_active &&
+                uint32_t(cut.drawn_ids.size()) == resource_state.hlod_selected_nodes;
+        cut.append_stats(stats, drawn_valid);
+    }
     stats["hlod_selected_parents"] = resource_state.hlod_selected_parents;
     stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);
     // BV-04b: records per splat per HLOD level. Slot i = level (node height) i, slot
