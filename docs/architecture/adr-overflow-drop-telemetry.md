@@ -117,3 +117,17 @@ go non-zero and the WARN fires once. Classify with `scripts/agentic/classify_cha
   every rendered frame, not only when the global-sort EMIT pass ran, because the rasterizers
   write the signal too. The fragment rasterizer's drop counters now count each tile once,
   from the tile-origin fragment; they used to count once per fragment.
+- **Addendum (#1457, #1461): each lost record once, and the dropping frame.** A tile cut by
+  the global overlap budget was counted twice in `overflow_splats_clamped`: tile binning's
+  EMIT pass counted each record past the budget, and the rasterizer's availability clamp
+  added the same tile's tail again. The rasterizers now take that count from
+  `shaders/includes/gs_overlap_drop_accounting.glsl`, which counts only records EMIT wrote but
+  the rasterizer cannot read (none in normal operation). The host compiles the same file
+  (`renderer/overlap_drop_accounting.h`) for its tests. `overflow_drop_events` is unchanged.
+  The snapshot grows from 88 to 100 bytes with three per-frame words after the signal word
+  (`raster_cap_dropped_records`, `max_tile_records`, `max_tile_key`); the signal keeps its
+  offset and stays sticky, and `clear_counters` clears the words on both sides of it. The
+  same async copy therefore yields, for a sampled frame that lost records, the largest
+  per-tile record reservation, that tile, and the record allocation of the frame
+  (`drop_frame` in `get_render_stats()`). Values that were not measured are exported as
+  `"not_measured"`. No new readback and no synchronous wait were added.

@@ -8,19 +8,23 @@
 #endif
 
 // Records of one tile range [range_start, range_start + range_count) that the rasterizer adds to
-// overflow_splats_clamped for its availability clamp. readable_limit is the rasterizer's record
-// limit (the frame's record count clamped to the sorted-value capacity); emit_limit is the limit
-// tile binning's EMIT pass wrote against (indirect_dispatch.element_count).
+// overflow_splats_clamped for its availability clamp: the records tile binning's EMIT pass WROTE
+// (index below emit_limit, indirect_dispatch.element_count) that the rasterizer cannot READ (index
+// at or past readable_limit, that count clamped to the sorted-value capacity).
+//
+// Records at or past emit_limit are not counted here. EMIT dropped each of them and counted it
+// once (tile_binning.glsl); counting the cut tile's tail again was the #1457 double count. With
+// readable_limit == emit_limit, the normal case, this is 0 for every tile.
 GS_DROP_INLINE uint gs_raster_unreadable_written_records(uint range_start, uint range_count, uint emit_limit,
         uint readable_limit) {
-    // Legacy accounting (the #1457 double count): the whole tail of a tile that straddles
-    // readable_limit, although EMIT already counted every record at or past emit_limit.
-    uint limit = readable_limit <= emit_limit ? readable_limit : emit_limit;
-    if (range_start >= limit) {
-        return 0u;
+    uint range_end = range_start + range_count;
+    if (range_end < range_start) {
+        range_end = 0xffffffffu; // a corrupt range must not wrap
     }
-    uint available_records = limit - range_start;
-    return range_count > available_records ? range_count - available_records : 0u;
+    // Both limits clamped into the tile's range; readable_limit never exceeds emit_limit.
+    uint written_end = emit_limit < range_start ? range_start : (emit_limit > range_end ? range_end : emit_limit);
+    uint readable_end = readable_limit < range_start ? range_start : (readable_limit > range_end ? range_end : readable_limit);
+    return written_end > readable_end ? written_end - readable_end : 0u;
 }
 
 // Per-tile record maximum (#1461). A frame's rasterizer raises two words with atomicMax: the
