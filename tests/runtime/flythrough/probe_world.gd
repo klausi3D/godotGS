@@ -191,6 +191,7 @@ func _sample_and_write() -> void:
 		stats = r.get_render_stats()
 	var stats_usec := Time.get_ticks_usec() - t_stats
 	_last_stats = stats
+	_update_pose_first_frame()
 	var ss: Dictionary = stats.get("streaming_state", {}) if stats.get("streaming_state") is Dictionary else {}
 	_last_streaming = ss
 	var diag: Dictionary = ss.get("diagnostics", {}) if ss.get("diagnostics") is Dictionary else {}
@@ -252,6 +253,9 @@ func _frame() -> void:
 # ------------------------------------------------------------------ helpers
 
 func _set_pose(p: Array) -> void:
+	if _camera.global_position != Vector3(float(p[0]), float(p[1]), float(p[2])) \
+			or _camera.rotation_degrees != Vector3(float(p[4]), float(p[3]), 0.0):
+		_pose_first_frame = -1
 	_camera.global_position = Vector3(float(p[0]), float(p[1]), float(p[2]))
 	_camera.rotation_degrees = Vector3(float(p[4]), float(p[3]), 0.0)
 
@@ -290,6 +294,41 @@ func _stats_pose_error() -> float:
 	return o.distance_to(_camera.global_position)
 
 
+func _stats_orientation_matches() -> bool:
+	# basis[0][0] alone cannot distinguish yaw signs or pitch. These two vectors
+	# come from the same native camera snapshot as debug_cam_origin_*.
+	for key in ["debug_cam_forward_x", "debug_cam_forward_y", "debug_cam_forward_z",
+			"debug_cam_up_x", "debug_cam_up_y", "debug_cam_up_z"]:
+		if not _last_stats.has(key):
+			return false
+	var forward := Vector3(float(_last_stats["debug_cam_forward_x"]), float(_last_stats["debug_cam_forward_y"]), float(_last_stats["debug_cam_forward_z"]))
+	var up := Vector3(float(_last_stats["debug_cam_up_x"]), float(_last_stats["debug_cam_up_y"]), float(_last_stats["debug_cam_up_z"]))
+	return forward.distance_to(-_camera.global_transform.basis.z) <= 0.001 \
+			and up.distance_to(_camera.global_transform.basis.y) <= 0.001
+
+
+var _pose_first_frame: int = -1
+
+
+func _update_pose_first_frame() -> void:
+	if _stats_pose_error() > 0.001 or not _stats_orientation_matches() \
+			or typeof(_last_stats.get("render_frame_counter")) != TYPE_INT \
+			or int(_last_stats.get("render_frame_counter", -1)) < 0:
+		_pose_first_frame = -1
+		return
+	if _pose_first_frame < 0:
+		_pose_first_frame = int(_last_stats["render_frame_counter"])
+
+
+func _count_sample_is_fresh(stats: Dictionary, pose_first_frame: int) -> bool:
+	var source_frame = stats.get("rendered_splat_count_source_frame", -1)
+	var render_frame = stats.get("render_frame_counter", -1)
+	if typeof(source_frame) != TYPE_INT or typeof(render_frame) != TYPE_INT:
+		return false
+	return pose_first_frame >= 0 and render_frame >= pose_first_frame \
+			and source_frame >= pose_first_frame and source_frame <= render_frame
+
+
 func _settled() -> bool:
 	# Flat settle condition (ADR section 7.3 pass B): missing chunks = 0, on a ready route,
 	# with something drawn, in stats that describe this pose. A missing key reads as not
@@ -297,7 +336,9 @@ func _settled() -> bool:
 	# "Missing" means not GPU-resident: needed_not_resident_chunks counts queued, in-flight
 	# and loaded-but-not-uploaded chunks. needed_unserved_chunks leaves those out, so an
 	# oracle on it settled while chunks were still in flight (holes on screen).
-	if _stats_pose_error() > 0.001:
+	if _stats_pose_error() > 0.001 or not _stats_orientation_matches():
+		return false
+	if not _count_sample_is_fresh(_last_stats, _pose_first_frame):
 		return false
 	var ss := _last_streaming
 	if not ss.has("needed_not_resident_chunks") or not ss.has("needed_chunks"):
@@ -324,6 +365,7 @@ func _pump_settle(deadline_s: float) -> Dictionary:
 	var streak_start := 0
 	while true:
 		await _frame()
+		_update_pose_first_frame()
 		frames += 1
 		var now := Time.get_ticks_usec()
 		if now > deadline:
@@ -375,6 +417,9 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"pose": [_camera.global_position.x, _camera.global_position.y, _camera.global_position.z,
 				_camera.rotation_degrees.y, _camera.rotation_degrees.x],
 		"drawn_splats": int(_last_stats.get("rendered_splat_count", -1)),
+		"rendered_splat_count_source_frame": _last_stats.get("rendered_splat_count_source_frame", -1),
+		"render_frame_counter": _last_stats.get("render_frame_counter", -1),
+		"pose_first_frame": _pose_first_frame,
 		"visible_chunk_splats": int(ss.get("visible_splats", -1)),
 		"loaded_chunks": int(ss.get("loaded_chunks", -1)),
 		"needed_chunks": int(ss.get("needed_chunks", -1)),

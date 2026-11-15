@@ -120,6 +120,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		root_frame_state.render_time_ms = 0.0f;
 		root_frame_state.sort_time_ms = 0.0f;
 		metrics.rendered_splat_count = 0;
+		metrics.rendered_splat_count_source_frame = root_frame_state.frame_counter;
 		metrics.sort_submission_time_ms = 0.0f;
 		metrics.sort_wait_time_ms = 0.0f;
 		metrics.sort_input_build_time_ms = 0.0f;
@@ -127,6 +128,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		metrics.async_sort_waited = false;
 		metrics.async_overlap_efficiency = 0.0f;
 		root_frame_state.visible_splat_count.store(0, std::memory_order_release);
+		root_frame_state.visible_splat_count_source_frame = root_frame_state.frame_counter;
 		root_sorting_state.sorted_splat_count = 0;
 		renderer->get_debug_state().last_stage_metrics = GaussianSplatRenderer::StageMetrics();
 		renderer->get_debug_state().last_stage_metrics_valid = false;
@@ -135,6 +137,8 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 	}
 
 	uint64_t instanced_frame_start_usec = OS::get_singleton()->get_ticks_usec();
+	int64_t aggregate_count_source_frame = -1;
+	bool aggregate_count_source_valid = true;
 	uint64_t frames_before_instances = metrics.total_frames_rendered;
 	float avg_before_instances = metrics.avg_frame_time_ms;
 	float peak_before_instances = metrics.peak_frame_time_ms;
@@ -314,6 +318,11 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		const GaussianSplatRenderer::FrameState &render_frame_state = frame_state_view.get_frame_state_view();
 		accumulated_render_time_ms += render_frame_state.render_time_ms;
 		accumulated_rendered_splats += metrics.rendered_splat_count;
+		const int64_t source_frame = metrics.rendered_splat_count_source_frame;
+		aggregate_count_source_valid = aggregate_count_source_valid && source_frame >= 0;
+		if (aggregate_count_source_frame < 0 || source_frame < aggregate_count_source_frame) {
+			aggregate_count_source_frame = source_frame;
+		}
 		aggregated_visible_splats += render_frame_state.visible_splat_count.load(std::memory_order_acquire);
 		any_render_performed = any_render_performed || output_cache.has_valid_render;
 		if (output_cache.last_viewport_copy_success) {
@@ -332,6 +341,8 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 
 	root_frame_state.render_time_ms = accumulated_render_time_ms;
 	metrics.rendered_splat_count = accumulated_rendered_splats;
+	metrics.rendered_splat_count_source_frame = aggregate_count_source_valid ? aggregate_count_source_frame : -1;
+	root_frame_state.visible_splat_count_source_frame = metrics.rendered_splat_count_source_frame;
 	root_frame_state.visible_splat_count.store(
 			static_cast<uint32_t>(MIN<uint64_t>(aggregated_visible_splats, UINT32_MAX)),
 			std::memory_order_release);

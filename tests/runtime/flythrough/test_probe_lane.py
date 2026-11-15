@@ -732,6 +732,102 @@ class OverlapDrops(unittest.TestCase):
         self.assertIn("debug_state_orchestrator->append_drop_telemetry(stats);", stats)
 
 
+class CountProvenance(unittest.TestCase):
+    """Scalar predicate replay plus textual wiring; this does not execute GDScript.
+
+    Translate only the small scalar helper's Python-compatible statements, rather
+    than testing a second handwritten implementation. Camera/loop wiring remains
+    structural and requires a Godot run for behavioural evidence.
+    """
+
+    def setUp(self):
+        self.gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+
+    def body(self, name):
+        match = re.search(rf"^func {name}\([^\n]*\)[^\n]*:\n(.*?)(?=^func |\Z)",
+                          self.gd, re.M | re.S)
+        self.assertIsNotNone(match, f"production helper {name} is missing")
+        return match.group(1).split("\n\n\n")[0]
+
+    def fresh(self, stats, first=20):
+        body = self.body("_count_sample_is_fresh")
+        body = re.sub(r"\bvar (\w+)\s*:?=", r"\1 =", body)
+        body = re.sub(r"\bfalse\b", "False", body)
+        env = {"typeof": lambda v: type(v), "TYPE_INT": int}
+        exec("def predicate(stats, pose_first_frame):\n" + body, env)
+        return env["predicate"](stats, first)
+
+    def test_stale_count_cannot_settle(self):
+        self.assertFalse(self.fresh({"render_frame_counter": 22,
+                                     "rendered_splat_count_source_frame": 19}))
+
+    def test_missing_or_invalid_provenance_cannot_settle(self):
+        for stats in ({}, {"render_frame_counter": 22},
+                      {"render_frame_counter": 22, "rendered_splat_count_source_frame": -1},
+                      {"render_frame_counter": 22, "rendered_splat_count_source_frame": "20"},
+                      {"rendered_splat_count_source_frame": 20}):
+            with self.subTest(stats=stats):
+                self.assertFalse(self.fresh(stats))
+
+    def test_fresh_count_including_boundary_can_settle(self):
+        for source in (20, 22):
+            self.assertTrue(self.fresh({"render_frame_counter": 22,
+                                       "rendered_splat_count_source_frame": source}))
+        self.assertFalse(self.fresh({"render_frame_counter": 22,
+                                    "rendered_splat_count_source_frame": 20}, -1))
+        self.assertFalse(self.fresh({"render_frame_counter": 22,
+                                    "rendered_splat_count_source_frame": 23}))
+
+    def test_provenance_gates_both_routes_and_is_recorded(self):
+        settled = self.body("_settled")
+        self.assertIn("if not _count_sample_is_fresh(_last_stats, _pose_first_frame):", settled)
+        self.assertLess(settled.index("_count_sample_is_fresh"), settled.index("_is_hlod_payload_route"))
+        loop = self.body("_pump_settle")
+        self.assertLess(loop.index("await _frame()"), loop.index("_update_pose_first_frame()"))
+        self.assertLess(loop.index("_update_pose_first_frame()"), loop.index("if _settled():"))
+        tracker = self.body("_update_pose_first_frame")
+        self.assertIn("_stats_pose_error() > 0.001", tracker)
+        self.assertIn("not _stats_orientation_matches()", tracker)
+        self.assertIn("_pose_first_frame = -1", tracker)
+        self.assertIn("if _pose_first_frame < 0:", tracker)
+        self.assertIn('_pose_first_frame = int(_last_stats["render_frame_counter"])', tracker)
+        self.assertIn("_pose_first_frame = -1", self.body("_set_pose"))
+        checkpoint = self.body("_checkpoint")
+        for key in ("render_frame_counter", "rendered_splat_count_source_frame", "pose_first_frame"):
+            self.assertIn(f'"{key}":', checkpoint)
+
+    def test_native_readback_and_host_case_are_wired(self):
+        module = ROOT / "modules/gaussian_splatting"
+        pipeline = (module / "interfaces/gpu_sorting_pipeline.cpp").read_text(encoding="utf-8")
+        callback = pipeline.split("void GPUSortingPipeline::_on_instance_count_readback", 1)[1].split("\n}", 1)[0]
+        self.assertIn("if (!last_instance_count.accept(indirect->element_count, request_frame))", callback)
+        self.assertIn("resolved_visible_source_frame = last_instance_count.source_frame();", pipeline)
+        self.assertIn("last_published_instance_count_source_frame = resolved_visible_source_frame;", pipeline)
+        anchor = (module / "tests/test_gaussian_splatting.h").read_text(encoding="utf-8")
+        self.assertIn("test_splat_count_sample_cpp_force_link_anchor = test_splat_count_sample_cpp_force_link();", anchor)
+
+    def test_native_source_and_camera_frame_reach_stats(self):
+        renderer = ROOT / "modules/gaussian_splatting/renderer"
+        sorting = (renderer / "render_sorting_orchestrator.cpp").read_text(encoding="utf-8")
+        self.assertIn("frame_context.runtime.frame_counter = frame_state.frame_counter;", sorting)
+        self.assertEqual(sorting.count("sorting_pipeline->get_published_instance_count_source_frame()"), 2)
+        self.assertIn("sorting_state.sorted_splat_count_source_frame = instance_sort_cache.count_source_frame;", sorting)
+        diagnostics = (renderer / "render_diagnostics_orchestrator.cpp").read_text(encoding="utf-8")
+        self.assertIn('r_metrics["rendered_splat_count_source_frame"] = perf.rendered_splat_count_source_frame;', diagnostics)
+        self.assertIn('stats["render_frame_counter"] = view_state.last_camera_render_frame;', diagnostics)
+        self.assertIn("performance_state.metrics.rendered_splat_count_source_frame = frame_state.visible_splat_count_source_frame;", diagnostics)
+        scene = (renderer / "gaussian_splat_renderer.cpp").read_text(encoding="utf-8")
+        self.assertIn("get_view_state().last_camera_render_frame = get_frame_state().frame_counter;", scene)
+        orientation = self.body("_stats_orientation_matches")
+        for vector in ("forward", "up"):
+            for axis in "xyz":
+                key = f"debug_cam_{vector}_{axis}"
+                self.assertIn(f'stats["{key}"]', diagnostics)
+                self.assertIn(f'"{key}"', orientation)
+        self.assertIn("_camera.global_transform.basis.z", orientation)
+        self.assertIn("_camera.global_transform.basis.y", orientation)
+
+
 class CoverageWiring(unittest.TestCase):
     """Gate repair: deleting any wire of the completeness signal turns this red."""
 

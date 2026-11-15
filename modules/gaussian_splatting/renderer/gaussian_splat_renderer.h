@@ -1913,7 +1913,10 @@ public:
      * @brief Sets the camera transform for the next render pass.
      * @param p_transform Camera world transform.
      */
-    void set_camera_transform(const Transform3D &p_transform) override { get_view_state().last_camera_to_world_transform = p_transform; }
+    void set_camera_transform(const Transform3D &p_transform) override {
+        get_view_state().last_camera_to_world_transform = p_transform;
+        get_view_state().last_camera_render_frame = -1; // No rendered frame established by a setter.
+    }
 
     /**
      * @brief Sets the camera projection for the next render pass.

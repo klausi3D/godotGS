@@ -406,6 +406,7 @@ class GaussianSplatRenderer::ScopedShadowPassState {
 	Size2i saved_manual_viewport;
 	RD::DataFormat saved_manual_format = RD::DATA_FORMAT_MAX;
 	Transform3D saved_camera_transform;
+	int64_t saved_camera_render_frame = -1;
 	Projection saved_camera_projection;
 	bool saved_using_scene_data = false;
 	Ref<OutputCompositor> saved_output_compositor;
@@ -419,6 +420,7 @@ public:
 			saved_manual_viewport(p_renderer.get_view_state().manual_viewport_override),
 			saved_manual_format(p_renderer.get_view_state().manual_viewport_format_override),
 			saved_camera_transform(p_renderer.get_view_state().last_camera_to_world_transform),
+			saved_camera_render_frame(p_renderer.get_view_state().last_camera_render_frame),
 			saved_camera_projection(p_renderer.get_view_state().last_camera_projection),
 			saved_using_scene_data(p_renderer.get_view_state().using_scene_data),
 			saved_output_compositor(p_renderer.subsystem_state.output_compositor),
@@ -426,6 +428,7 @@ public:
 		view_state.manual_viewport_override = p_descriptor.atlas_rect.size;
 		view_state.manual_viewport_format_override = p_descriptor.viewport_format;
 		view_state.last_camera_to_world_transform = p_descriptor.light_transform;
+		view_state.last_camera_render_frame = -1;
 		view_state.last_camera_projection = p_descriptor.light_projection;
 		view_state.using_scene_data = false;
 		renderer.subsystem_state.output_compositor = p_shadow_output_compositor;
@@ -436,6 +439,7 @@ public:
 		view_state.manual_viewport_override = saved_manual_viewport;
 		view_state.manual_viewport_format_override = saved_manual_format;
 		view_state.last_camera_to_world_transform = saved_camera_transform;
+		view_state.last_camera_render_frame = saved_camera_render_frame;
 		view_state.last_camera_projection = saved_camera_projection;
 		view_state.using_scene_data = saved_using_scene_data;
 		renderer.subsystem_state.output_compositor = saved_output_compositor;
@@ -1322,9 +1326,13 @@ void GaussianSplatRenderer::publish_sorted_indices(const SortPublicationPayload 
     }
 
     sorting_state.sorted_splat_count = available_splats;
+    // This sink also accepts asynchronous publications without a request frame.
+    sorting_state.sorted_splat_count_source_frame = -1;
     get_frame_state().visible_splat_count.store(available_splats, std::memory_order_release);
+    get_frame_state().visible_splat_count_source_frame = -1;
     get_performance_state().metrics.rendered_splat_count =
             get_frame_state().visible_splat_count.load(std::memory_order_acquire);
+    get_performance_state().metrics.rendered_splat_count_source_frame = -1;
 }
 
 GaussianSplatRenderer::~GaussianSplatRenderer() {
@@ -2545,6 +2553,7 @@ uint32_t GaussianSplatRenderer::get_render_view_count(const RenderDataRD *p_rend
 
 void GaussianSplatRenderer::_finish_skipped_scene_instance_frame(const StageMetrics &p_stage_metrics) {
     get_frame_state().visible_splat_count.store(0, std::memory_order_release);
+    get_frame_state().visible_splat_count_source_frame = get_frame_state().frame_counter;
     get_frame_state().render_time_ms = 0.0f;
     get_frame_state().sort_time_ms = 0.0f;
     get_sorting_state().sorted_splat_count = 0;
@@ -2656,6 +2665,9 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
 
     get_view_state().last_camera_position = cam_transform.origin;
     get_view_state().last_camera_to_world_transform = cam_transform;
+    get_view_state().last_camera_render_frame = get_frame_state().frame_counter;
+    get_frame_state().visible_splat_count_source_frame = -1;
+    get_performance_state().metrics.rendered_splat_count_source_frame = -1;
     get_view_state().last_camera_projection = cam_projection;
 
     // Always derive a view-space transform (world -> camera) once and reuse it throughout the frame.
@@ -2897,6 +2909,7 @@ void GaussianSplatRenderer::tick_streaming_only(const Transform3D &p_camera_to_w
     }
 
     get_view_state().last_camera_to_world_transform = p_camera_to_world_transform;
+    get_view_state().last_camera_render_frame = -1; // Streaming-only tick, no rendered pose.
     get_view_state().last_camera_projection = p_projection;
 
     streaming_orchestrator->tick_streaming_only(p_camera_to_world_transform, p_projection, backend_plan);
@@ -3246,6 +3259,7 @@ void GaussianSplatRenderer::publish_route_skip_stage_metrics(const String &p_rou
     get_performance_state().metrics.cull_route_reason = p_cull_route_reason;
     get_performance_state().metrics.raster_path = "skipped";
     get_frame_state().visible_splat_count.store(0, std::memory_order_release);
+    get_frame_state().visible_splat_count_source_frame = get_frame_state().frame_counter;
     get_frame_state().render_time_ms = 0.0f;
     get_frame_state().sort_time_ms = 0.0f;
     get_sorting_state().sorted_splat_count = 0;
