@@ -33,6 +33,17 @@ SCHEMA = "godotgs-shared-layers-t0-experiment/1"
 # The probe still captures every checkpoint independently of this cadence.
 MOVING_SCREENSHOT_EVERY_N = 400
 
+# #1471: the unconstrained T0 keeps the whole HLOD tree resident, so eviction, budget-bound
+# selection and teleport convergence cannot fail there. The pressure variant caps the streamed
+# atlas and the drawn budget through settings that already exist; it adds no renderer knob.
+VARIANTS = ("unconstrained", "pressure")
+# Read by the HLOD publisher for the streamed atlas (DeviceVramLedger::atlas_limit); whole MiB.
+PRESSURE_ATLAS_SETTING = "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb"
+PRESSURE_ATLAS_FRACTION = (0.20, 0.25)  # Of the tree's pages (#1471).
+PRESSURE_DRAWN_BUDGET_SPLATS = 1_000_000  # D2's builder-oracle budget, here as the node cap.
+PRESSURE_PAGE_SPLATS = 1024  # HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS
+PRESSURE_RECORD_BYTES = 176  # sizeof(PackedGaussian); the lane keeps per-chunk quantization off.
+
 
 def read_json(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -452,9 +463,107 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
     return metrics
 
 
+def tree_page_count(tree: Path) -> int:
+    """Atlas pages the whole V4 tree needs: every node's splats rounded up to pages.
+
+    Read from the file's node directory (the layout corrupt_copy and verify_v4 read), so the
+    pressure cap's denominator is independent of anything the runtime reports."""
+    pages = 0
+    with tree.open("rb") as stream:
+        header = stream.read(4096)
+        if len(header) != 4096 or struct.unpack_from("<II", header) != (0x57505347, 4):
+            raise ValueError("pressure variant requires a V4 tree")
+        node_count = struct.unpack_from("<I", header, 40)[0]
+        if not 0 < node_count <= 1 << 20:
+            raise ValueError("pressure variant requires a bounded nonempty node directory")
+        for index in range(node_count):
+            stream.seek(4096 + (index // 255) * 65536 + 64 + (index % 255) * 256 + 88)
+            entry = stream.read(12)
+            if len(entry) != 12:
+                raise ValueError("pressure variant: V4 node directory truncated")
+            splats = struct.unpack("<QI", entry)[1]
+            if splats <= 0:
+                raise ValueError(f"pressure variant: V4 node {index} has no payload")
+            pages += (splats + PRESSURE_PAGE_SPLATS - 1) // PRESSURE_PAGE_SPLATS
+    return pages
+
+
+def pressure_request(tree: Path) -> dict:
+    """The pressure variant's settings for this tree. A request, never an observation: the
+    comparison requires the process readback and the native atlas capacity separately."""
+    low, high = PRESSURE_ATLAS_FRACTION
+    total = tree_page_count(tree)
+    page_bytes = PRESSURE_PAGE_SPLATS * PRESSURE_RECORD_BYTES
+    megabytes = int((low + high) / 2 * total * page_bytes) >> 20
+    pages = (megabytes << 20) // page_bytes
+    if megabytes <= 0 or not low * total <= pages <= high * total:
+        raise ValueError(f"pressure variant: no whole-MiB atlas override caps a {total}-page tree to "
+                         f"{low:.0%}-{high:.0%} of its pages")
+    return {"name": "pressure", "issue": "#1471", "atlas_setting": PRESSURE_ATLAS_SETTING,
+            "atlas_override_mb": megabytes, "tree_pages": total, "requested_atlas_pages": pages,
+            "atlas_fraction_band": [low, high], "drawn_budget_splats": PRESSURE_DRAWN_BUDGET_SPLATS,
+            "page_splats": PRESSURE_PAGE_SPLATS, "record_bytes": PRESSURE_RECORD_BYTES,
+            "tree_pages_source": "V4 node directory of the prepared tree, read before any arm runs",
+            "chunk_arm": {"role": "unconstrained_reference", "reason": (
+                "every arm gets the same settings and the same 1M node cap, but the atlas override is read "
+                "only by the resident/HLOD publisher: the chunk streaming system has its own VRAM regulator "
+                "and no page cap that corresponds to a fraction of an HLOD tree, so no equivalent chunk "
+                "constraint is claimed and no pressure evidence is required of the chunk arm")}}
+
+
+def pressure_observations(result: dict, trace, route: str, pressure: dict) -> dict:
+    """What the process reported about pressure. An absent counter stays not measured."""
+    stats = result.get("final_render_stats", {})
+    payload = result.get("payload_telemetry") or {}
+
+    def stat(key):
+        return stats[key] if key in stats else missing(f"process did not export {key}")
+
+    kinds = {(entry.get("pass_index"), entry.get("id")): entry.get("kind") for entry in result.get("segments", [])}
+    settles = []
+    for cp in result.get("checkpoints", []):
+        kind = kinds.get((cp.get("pass_index"), cp.get("segment")))
+        if kind not in ("stop", "teleport"):
+            continue
+        settle = cp.get("settle") if isinstance(cp.get("settle"), dict) else {}
+        progress = settle.get("forward_progress") if isinstance(settle.get("forward_progress"), dict) else {}
+        usec = settle.get("settle_usec")
+        row = {"checkpoint": cp.get("checkpoint"), "pass_index": cp.get("pass_index"), "kind": kind,
+               "settled": settle.get("settled", missing("checkpoint has no settle receipt")),
+               "settle_ms": (usec / 1000.0 if type(usec) in (int, float) and usec >= 0
+                             else missing("no settle time: the window never settled or was not captured")),
+               "streaming_work": (copy.deepcopy(progress["progress_deltas"])
+                                  if progress.get("measured") is True and isinstance(progress.get("progress_deltas"), dict)
+                                  else missing(progress.get("reason", "producer did not capture this settle window's progress"))),
+               "drawn_splats": cp.get("drawn_splats", missing("checkpoint has no drawn count")),
+               "drawn_nodes": cp.get("hlod_drawn_nodes", missing("checkpoint has no drawn-node count"))}
+        if "frames" in settle:
+            row["frames"] = settle["frames"]
+        settles.append(row)
+    out = {"route": route, "settles": settles,
+           "scope": "final native counters and each stop/teleport checkpoint's settle receipt; report inputs only"}
+    if route != "hlod":
+        out.update(constraint="not_applied", role=pressure["chunk_arm"]["role"], reason=pressure["chunk_arm"]["reason"])
+        evicted = (trace.col("chunks_evicted_this_frame")
+                   if trace is not None and "chunks_evicted_this_frame" in trace.index else None)
+        out["evicted_chunks"] = (sum(evicted) if evicted and all(value >= 0 for value in evicted)
+                                 else missing("no complete per-frame chunk eviction column in the trace"))
+        return out
+    reads, digests = stats.get("hlod_stream_payload_reads_total"), payload.get("content_digests")
+    out.update(constraint="applied", atlas_pages_capacity=stat("hlod_stream_pages_capacity"),
+               pages_resident_final=stat("hlod_stream_pages_resident"),
+               evicted_total=stat("hlod_stream_evicted_total"),
+               budget_bound_frames=stat("hlod_budget_bound_frames"),
+               payload_reads_total=stat("hlod_stream_payload_reads_total"),
+               rereads=(max(reads - len(digests), 0) if type(reads) is int and isinstance(digests, dict) and digests
+                        else missing("needs the native read total and the decoded-node digest map")),
+               rereads_scope="payload reads beyond one per distinct decoded node")
+    return out
+
+
 def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, truth: dict,
             manifest: dict, out: Path, process=rp.run_godot, prepare_cold=cold_prepare,
-            expected_commit: str | None = None, control: str = "none") -> dict:
+            expected_commit: str | None = None, control: str = "none", pressure: dict | None = None) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     plan = rp.path_plan(world, path, passes=2, screenshots={"dir": (out / "screenshots").as_posix(),
                                                          "moving_every_n": MOVING_SCREENSHOT_EVERY_N})
@@ -470,6 +579,11 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
     plan["node"]["lod_enabled"] = True
     plan["node"]["hlod_tau_px"] = 0.0
     plan["node"]["lod_bias"] = 1.0
+    if pressure is not None:
+        # #1471 pressure variant only: an existing atlas limit and the node's drawn budget,
+        # identical for every arm. Nothing else differs from the unconstrained plan.
+        plan["project_settings"][pressure["atlas_setting"]] = pressure["atlas_override_mb"]
+        plan["node"]["max_splat_count"] = pressure["drawn_budget_splats"]
     request = requested_settings(plan, prepared)
     cache = prepare_cold(world)
     run = process(binary, plan, out, 1800.0)
@@ -527,6 +641,8 @@ def run_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, t
                       "engine_version": result.get("engine_version"), "expected_binary_commit": expected_commit,
                       "binary_identity_matches": runtime_hash == expected_commit if expected_commit is not None else None},
            "payload_behavior": payload_behavior(result, trace)}
+    if pressure is not None:
+        arm["pressure"] = pressure_observations(result, trace, route, pressure)
     write_json(out / "arm.json", arm)
     return arm
 
@@ -577,11 +693,13 @@ def migration_arm(arm: dict, identity: dict) -> dict:
 
 
 def capture_arm(binary: Path, world: Path, route: str, prepared: dict, path: dict, truth: dict,
-                manifest: dict, out: Path, expected_commit: str, control: str = "none") -> dict:
+                manifest: dict, out: Path, expected_commit: str, control: str = "none",
+                pressure: dict | None = None) -> dict:
     """A failed arm is recorded independently; later arms still get to run."""
     try:
         return run_arm(binary, world, route, prepared, path, truth, manifest, out,
-                       expected_commit=expected_commit, control=control)
+                       expected_commit=expected_commit, control=control,
+                       **({} if pressure is None else {"pressure": pressure}))
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, ps.TraceError) as exc:
         artifact = out / "result.json"
         arm = {"execution": "RAN" if artifact.exists() else "NOT_RUN",
@@ -629,14 +747,19 @@ def corrupt_copy(source: Path, target: Path) -> dict:
 
 
 def run(repo: Path, binary: Path, base_binary: Path, base_build_info: Path, cache_root: Path,
-        out: Path, run_id: str, control: str = "none") -> int:
+        out: Path, run_id: str, control: str = "none", variant: str = "unconstrained") -> int:
     import dispatch_lane as lane
 
     out.mkdir(parents=True, exist_ok=True)
     experiment = {"schema": SCHEMA, "run_id": run_id, "control": control, "prepared": {},
                   "arms": {}, "migration": {"base_commit": PRE_D3, "candidate_commit": None, "arms": {}}}
     write_json(out / "experiment.json", experiment)
+    extra = {}  # Stays empty for the unconstrained variant: its arms and its record are unchanged.
     try:
+        if variant not in VARIANTS:
+            raise ValueError(f"unknown shared-layers variant: {variant}")
+        if variant == "pressure" and control != "none":
+            raise ValueError("the pressure variant runs without a negative control; dispatch the control unconstrained")
         candidate_commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
                                           capture_output=True, text=True, check=True).stdout.strip()
         candidate = verified_binary(binary, out / "build_info.json", candidate_commit)
@@ -651,6 +774,12 @@ def run(repo: Path, binary: Path, base_binary: Path, base_build_info: Path, cach
             plain, tree = paths["plain"], paths["tree"]
             prepared = prepared_receipt(repo, plain, tree, paths["report"])
             experiment["prepared"] = prepared
+            if variant == "pressure":
+                extra["pressure"] = pressure_request(tree)
+                experiment["variant"] = copy.deepcopy(extra["pressure"])
+                if isinstance(prepared.get("builder_oracle"), dict):
+                    prepared["builder_oracle"]["scope"] = (
+                        "D2 builder oracle only; the pressure variant requests the same 1M as the runtime node cap")
             manifest = read_json(plain.with_suffix(".manifest.json"))
             path = rp.probe_path.resolve_path(manifest)
             truth = rp.probe_groundtruth.build_groundtruth(manifest, path, rp.probe_path.checkpoints(path), rp.CAMERA, rp.ASPECT)
@@ -658,11 +787,11 @@ def run(repo: Path, binary: Path, base_binary: Path, base_build_info: Path, cach
             write_json(out / "world.groundtruth.json", truth)
             for route, world in (("chunk", plain), ("hlod", tree)):
                 experiment["arms"][route] = capture_arm(binary, world, route, prepared, path, truth, manifest, out / route,
-                                                         expected_commit=candidate_commit)
+                                                         expected_commit=candidate_commit, **extra)
                 write_json(out / "experiment.json", experiment)
             for name, executable, identity in (("base", base_binary, base), ("candidate", binary, candidate)):
                 arm = capture_arm(executable, tree, "hlod", prepared, path, truth, manifest, out / "migration" / name,
-                                  expected_commit=identity["commit"])
+                                  expected_commit=identity["commit"], **extra)
                 experiment["migration"]["arms"][name] = migration_arm(arm, identity)
                 write_json(out / "experiment.json", experiment)
             # Negative controls execute only AFTER every independently prepared

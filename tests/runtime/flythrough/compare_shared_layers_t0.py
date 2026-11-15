@@ -69,6 +69,14 @@ MIGRATION_WORK = ("hlod_stream_payload_reads_total", "hlod_stream_payload_bytes_
                   "hlod_stream_uploaded_bytes_total", "hlod_stream_pages_resident")
 MIGRATION_FAILURES = ("hlod_stream_payload_read_failures_total", "hlod_stream_failed_total",
                       "hlod_stream_late_dropped_total", "hlod_stream_nonresident_drawn")
+# #1471 pressure variant: comparison-owned policy, never read from the experiment. The
+# unconstrained T0 holds the whole tree, so its eviction/budget checks cannot fail; this
+# variant is usable only with evidence that the HLOD route was actually under pressure.
+VARIANTS = ("unconstrained", "pressure")
+PRESSURE_ATLAS_SETTING = "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb"
+PRESSURE_ATLAS_BAND = (0.20, 0.25)
+PRESSURE_DRAWN_BUDGET_SPLATS = 1_000_000
+PRESSURE_WORK = ("upload_completions", "upload_bytes", "read_completions", "pages_decoded")
 
 
 def _dict(value):
@@ -402,6 +410,109 @@ def _artifact_digests(arms, migration_arms):
     return result
 
 
+def _pressure_assessment(exp, arms, problem):
+    """#1471: require evidence that the pressure variant put the HLOD route under pressure.
+
+    Every requirement has its own reason code, and "not measured" is a different code from
+    "measured zero". The chunk arm is the reference: it gets the same settings, no claim of an
+    equivalent constraint, and no pressure requirement. Nothing here relaxes another check."""
+    request = exp.get("variant")
+    low, high = PRESSURE_ATLAS_BAND
+    valid_request = (isinstance(request, dict) and request.get("name") == "pressure"
+                     and request.get("atlas_setting") == PRESSURE_ATLAS_SETTING
+                     and _count(request.get("atlas_override_mb")) and request["atlas_override_mb"] > 0
+                     and _count(request.get("tree_pages")) and request["tree_pages"] > 0
+                     and request.get("atlas_fraction_band") == [low, high]
+                     and request.get("drawn_budget_splats") == PRESSURE_DRAWN_BUDGET_SPLATS)
+    if not valid_request:
+        problem("pressure_variant_invalid", "pressure request is malformed or differs from the comparison policy "
+                f"({low:.0%}-{high:.0%} of the tree pages, {PRESSURE_DRAWN_BUDGET_SPLATS} drawn splats)")
+        return {"hlod": {"requirements": [{"name": "request", "satisfied": False, "observed": None}]}, "chunk": {}}
+    cap, tree_pages = request["atlas_override_mb"], request["tree_pages"]
+    not_applied = []
+    for route in ("chunk", "hlod"):
+        arm = _dict(arms.get(route))
+        for label, settings in (("requested", _dict(arm.get("requested"))),
+                                ("process readback", _dict(_dict(arm.get("observed")).get("settings")))):
+            if (_dict(settings.get("project_settings_readback")).get(PRESSURE_ATLAS_SETTING) != cap
+                    or _dict(settings.get("node_readback")).get("max_splat_count") != PRESSURE_DRAWN_BUDGET_SPLATS
+                    or settings.get("visible_splats") != PRESSURE_DRAWN_BUDGET_SPLATS
+                    or settings.get("drawn_splats") != PRESSURE_DRAWN_BUDGET_SPLATS):
+                not_applied.append(f"{route} {label}")
+                problem("pressure_not_applied", f"{label} lacks the {cap} MiB atlas cap or the "
+                        f"{PRESSURE_DRAWN_BUDGET_SPLATS} drawn budget", route)
+    hlod = _dict(arms.get("hlod"))
+    observed = hlod.get("pressure")
+    requirements = [{"name": "settings applied", "satisfied": not not_applied,
+                     "observed": not_applied or f"{cap} MiB atlas cap and {PRESSURE_DRAWN_BUDGET_SPLATS} drawn budget, "
+                                                "requested and read back on both routes"}]
+
+    def require(name, satisfied, value, code, detail):
+        requirements.append({"name": name, "satisfied": bool(satisfied), "observed": copy.deepcopy(value)})
+        if not satisfied:
+            problem(code, detail, "hlod")
+
+    chunk = _dict(_dict(arms.get("chunk")).get("pressure"))
+    chunk_report = {"role": chunk.get("role", "unconstrained_reference"), "constraint": chunk.get("constraint", "not_applied"),
+                    "reason": chunk.get("reason", _dict(request.get("chunk_arm")).get("reason")),
+                    "evicted_chunks": copy.deepcopy(chunk.get("evicted_chunks", not_measured("chunk arm carries no pressure record"))),
+                    "settles": copy.deepcopy(chunk.get("settles", []))}
+    if not isinstance(observed, dict) or observed.get("route") != "hlod":
+        require("pressure record", False, None, "pressure_evidence_missing",
+                "the HLOD arm carries no pressure observations")
+        return {"hlod": {"requirements": requirements}, "chunk": chunk_report}
+    capacity = observed.get("atlas_pages_capacity")
+    fraction = capacity / tree_pages if _count(capacity) else None
+    if fraction is None:
+        require("atlas cap", False, capacity, "pressure_atlas_cap_unobserved", "native atlas page capacity not measured")
+    else:
+        require("atlas cap", low <= fraction <= high, capacity, "pressure_atlas_cap_out_of_band",
+                f"native atlas capacity {capacity} of {tree_pages} tree pages is {fraction:.1%}, outside {low:.0%}-{high:.0%}")
+    for name, key, absent, zero in (("evictions", "evicted_total", "pressure_evictions_unmeasured", "pressure_no_evictions"),
+                                    ("budget-bound frames", "budget_bound_frames", "pressure_budget_bound_unmeasured",
+                                     "pressure_no_budget_bound_frames")):
+        value = observed.get(key)
+        if not _count(value):
+            require(name, False, value, absent, f"{key} not measured")
+        else:
+            require(name, value > 0, value, zero, f"{key} is 0: the route was never under this pressure")
+    teleports = [row for row in observed.get("settles") if isinstance(row, dict) and row.get("kind") == "teleport"] \
+        if isinstance(observed.get("settles"), list) else []
+    measured = bool(teleports) and all(
+        _count(row.get("frames")) and row["frames"] > 0 and _number(row.get("settle_ms")) and row["settle_ms"] >= 0
+        and isinstance(row.get("streaming_work"), dict) and row["streaming_work"].get("measured") is not False
+        and all(_count(row["streaming_work"].get(key)) for key in PRESSURE_WORK)
+        for row in teleports if row.get("settled") is True)
+    unsettled = [row.get("checkpoint") for row in teleports if row.get("settled") is not True]
+    working = [row for row in teleports if row.get("settled") is True and measured
+               and any(row["streaming_work"][key] > 0 for key in PRESSURE_WORK)]
+    summary = [{key: row.get(key) for key in ("checkpoint", "pass_index", "settled", "frames", "settle_ms")}
+               for row in teleports]
+    if unsettled:
+        require("teleport settle", False, summary, "pressure_teleport_not_converged",
+                f"teleport checkpoint(s) did not settle: {', '.join(str(name) for name in unsettled)}")
+    elif not measured:
+        require("teleport settle", False, summary, "pressure_teleport_settle_unmeasured",
+                "no teleport settle, or one without frames, time or native streaming-work deltas")
+    else:
+        require("teleport settle", bool(working), summary, "pressure_teleport_settle_trivial",
+                "no teleport settle window read, decoded or uploaded anything: nothing had to stream")
+    queues = _dict(_dict(hlod.get("observed")).get("queues"))
+    violations = {owner: _dict(queues.get(owner)).get("bound_violations") for owner in ("retained", "ready")}
+    require("bound violations measured", all(_count(value) for value in violations.values()), violations,
+            "pressure_bound_unmeasured", "native queue bound_violations not measured")
+    telemetry = _dict(_dict(hlod.get("native")).get("payload_telemetry")) or _dict(_dict(hlod.get("probe")).get("payload_telemetry"))
+    failures = {key: telemetry.get(key) for key in ("read_failures", "page_failures")}
+    require("read/decode failures measured", all(_count(value) for value in failures.values()), failures,
+            "pressure_failures_unmeasured", "native read/decode failure counters not measured")
+    return {"hlod": {**{key: copy.deepcopy(observed.get(key)) for key in (
+                        "constraint", "atlas_pages_capacity", "pages_resident_final", "evicted_total",
+                        "budget_bound_frames", "payload_reads_total", "rereads", "rereads_scope", "settles")},
+                     "atlas_fraction_observed": fraction, "bound_violations": violations,
+                     "read_decode_failures": failures, "requirements": requirements},
+            "chunk": chunk_report}
+
+
 def compare(experiment: dict) -> dict:
     """Validate required evidence; retain all reasons and optional measurement gaps."""
     exp = _dict(experiment)
@@ -719,6 +830,8 @@ def compare(experiment: dict) -> dict:
     content_identity["cross_arm"] = {"status": "NOT_COMPARABLE",
         "reason": "HLOD repartitions/reorders and re-quantizes node-relative source content; chunk pages and HLOD nodes have no exact digest correspondence",
         "scope": "each route's decoded demand matches its own independent preparation reference"}
+    # #1471: only an experiment that records a variant is assessed; the unconstrained report is unchanged.
+    pressure = _pressure_assessment(exp, arms, problem) if "variant" in exp else None
     control = exp.get("control", "none")
     receipt = _dict(exp.get("control_receipt"))
     control_verdict = "NOT_REQUESTED"
@@ -765,6 +878,7 @@ def compare(experiment: dict) -> dict:
                   and r["code"] == ("payload_failure" if control == "corrupt" else "queue_saturation"))]
     verdict = "NOT_RUN" if absent_execution else "UNUSABLE" if unexpected else "VALID"
     return {"schema": SCHEMA, "run_id": exp.get("run_id"), "control": control, "report_only": True,
+            **({} if pressure is None else {"variant": copy.deepcopy(exp["variant"]), "pressure": pressure}),
             "verdict": verdict, "exit_code": EXIT_CODES[verdict], "reasons": reasons,
             "prepared": copy.deepcopy(prepared), "migration": {**copy.deepcopy(migration), "content_identity": migration_identity},
             "content_identity": content_identity, "control_verdict": control_verdict,
@@ -1028,6 +1142,56 @@ def _frame_time_lines(frame_time):
     return lines + [""] + hitches
 
 
+def _pressure_lines(report):
+    """#1471: the pressure variant's request, its required evidence and each settle window."""
+    pressure, request = _dict(report.get("pressure")), _dict(report.get("variant"))
+
+    def clean(value):
+        if isinstance(value, dict) and value.get("measured") is False:
+            return "not measured: " + str(value.get("reason", "no observation")).replace("|", "/").replace("\n", " ")
+        if value is None:
+            return "not measured"
+        return (json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else str(value)).replace("|", "/")
+
+    hlod, chunk = _dict(pressure.get("hlod")), _dict(pressure.get("chunk"))
+    fraction = hlod.get("atlas_fraction_observed")
+    lines = ["", "## Pressure variant (#1471)", "",
+             f"Requested: `{request.get('atlas_setting')}` = {clean(request.get('atlas_override_mb'))} MiB "
+             f"({clean(request.get('requested_atlas_pages'))} of {clean(request.get('tree_pages'))} tree pages) and a "
+             f"drawn budget of {clean(request.get('drawn_budget_splats'))} splats, for every arm. "
+             "A request is not evidence: each row below is a process observation, and a missing or zero one "
+             "makes the run UNUSABLE with its own reason.", "",
+             f"Chunk arm: {str(chunk.get('role', 'unconstrained_reference')).replace('_', ' ')}, constraint "
+             f"{str(chunk.get('constraint', 'not_applied')).replace('_', ' ')}. {clean(chunk.get('reason'))} "
+             f"Chunk evictions observed: {clean(chunk.get('evicted_chunks'))}.", "",
+             "| HLOD pressure evidence | observed | required | satisfied |", "| --- | --- | --- | --- |"]
+    needs = {"settings applied": "requested and read back on both routes", "atlas cap": "native capacity within 20-25 % of the tree pages", "evictions": "> 0",
+             "budget-bound frames": "> 0", "teleport settle": "every teleport settles, at least one with streaming work",
+             "bound violations measured": "measured (nonzero fails as queue_saturation)",
+             "read/decode failures measured": "measured (nonzero fails as payload_failure)"}
+    for item in hlod.get("requirements") or []:
+        item = _dict(item)
+        lines.append(f"| {item.get('name')} | {clean(item.get('observed'))} | {needs.get(item.get('name'), 'present')} | "
+                     f"{'yes' if item.get('satisfied') is True else 'NO'} |")
+    lines += ["", f"HLOD atlas: capacity {clean(hlod.get('atlas_pages_capacity'))} pages "
+              f"({f'{fraction:.1%}' if _number(fraction) else 'not measured'} of the tree), resident at exit "
+              f"{clean(hlod.get('pages_resident_final'))}; payload reads {clean(hlod.get('payload_reads_total'))}, "
+              f"re-reads {clean(hlod.get('rereads'))} ({clean(hlod.get('rereads_scope'))}).", "",
+              "| arm | settle window | settled | frames | settle ms | streaming work in the window | drawn splats / nodes |",
+              "| --- | --- | --- | --- | --- | --- | --- |"]
+    for route, entry in (("chunk", chunk), ("hlod", hlod)):
+        rows = entry.get("settles") if isinstance(entry.get("settles"), list) else []
+        if not rows:
+            lines.append(f"| {route} | " + " | ".join(["not measured: no settle receipts"] * 6) + " |")
+        for row in rows:
+            row = _dict(row)
+            lines.append(f"| {route} | {row.get('kind')} {row.get('checkpoint')}, "
+                         f"{'cold' if row.get('pass_index') == 0 else 'repeat'} | {clean(row.get('settled'))} | "
+                         f"{clean(row.get('frames'))} | {clean(row.get('settle_ms'))} | {clean(row.get('streaming_work'))} | "
+                         f"{clean(row.get('drawn_splats'))} / {clean(row.get('drawn_nodes'))} |")
+    return lines
+
+
 def render_markdown(report: dict) -> str:
     """Keep measurement scopes and unavailable values visible."""
     lines = [f"# Shared layers T0: {report.get('verdict', 'NOT_RUN')}", "",
@@ -1097,6 +1261,8 @@ def render_markdown(report: dict) -> str:
                          f"{cell(measurement(intervals.get('p95_time_weighted')))} / "
                          f"{cell(measurement(intervals.get('p99_time_weighted')))} "
                          "(wall clock, probe work included; see the frame-time table).")
+    if "pressure" in report:
+        lines += _pressure_lines(report)
     lines += _frame_time_lines(report.get("frame_time"))
     lines += _overlap_drop_lines(report.get("overlap_drop_report"))
     return "\n".join(lines)
@@ -1114,7 +1280,14 @@ def _canonical(value):
     return json.dumps(_safe_json(value), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
-def _require_report(path, run_id, control):
+def _report_variant(report):
+    """The variant a report was assessed as. A report without the block is the unconstrained one."""
+    if "variant" not in report:
+        return "unconstrained"
+    return _dict(report["variant"]).get("name") if _dict(report["variant"]).get("name") != "unconstrained" else None
+
+
+def _require_report(path, run_id, control, variant="unconstrained"):
     if not path.is_file():
         print("NOT_RUN: comparison report absent; comparison invocation may have been removed", file=sys.stderr)
         return EXIT_CODES["NOT_RUN"]
@@ -1123,6 +1296,9 @@ def _require_report(path, run_id, control):
         if (report.get("schema") != SCHEMA or report.get("run_id") != run_id or report.get("control") != control
                 or report.get("report_only") is not True):
             raise ValueError("report is malformed or belongs to a different run/control")
+        if _report_variant(report) != variant:
+            # #1471: an unconstrained VALID report must never satisfy a pressure dispatch, or the reverse.
+            raise ValueError(f"report was not assessed as the dispatched {variant} variant")
         if report.get("verdict") != "VALID":
             return EXIT_CODES.get(report.get("verdict"), EXIT_CODES["UNUSABLE"])
         evidence = _dict(report.get("checkpoint_evidence"))
@@ -1163,11 +1339,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--run-id")
     parser.add_argument("--contention-report", type=Path)
     parser.add_argument("--control", choices=("none", "corrupt", "saturate", "skip_compare"), default="none")
+    parser.add_argument("--variant", choices=VARIANTS, default="unconstrained",
+                        help="#1471: the dispatched variant; the experiment and the report must be of this variant")
     args = parser.parse_args(argv)
     if args.require_report:
         if not args.run_id:
             parser.error("--require-report needs --run-id")
-        return _require_report(args.require_report, args.run_id, args.control)
+        return _require_report(args.require_report, args.run_id, args.control, args.variant)
     if not args.out:
         parser.error("--experiment needs --out")
     try:
@@ -1176,6 +1354,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.run_id and report.get("run_id") != args.run_id:
             report["reasons"].append({"code": "run_identity_mismatch", "detail": "experiment is from another workflow attempt"})
             report.update(verdict="UNUSABLE", exit_code=2)
+        if _report_variant(report) != args.variant:
+            report["reasons"].append({"code": "variant_mismatch", "detail": (
+                f"dispatched variant is {args.variant}; the experiment records "
+                f"{_report_variant(report) or 'an invalid variant'}")})
+            if report["verdict"] != "NOT_RUN":
+                report.update(verdict="UNUSABLE", exit_code=2)
         if args.contention_report:
             try:
                 contention = json.loads(args.contention_report.read_text(encoding="utf-8"))
