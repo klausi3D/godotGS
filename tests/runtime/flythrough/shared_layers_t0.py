@@ -25,7 +25,9 @@ import run_probe as rp
 import world_cache as wc
 import verify_world_manifest as vm
 
-PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+# Immutable provenance base: original pre-#1453 source
+# f2f19bcb580cc131615b3fa262a11d99e6abc70c plus only #1453's count provenance.
+PRE_D3 = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
 SCHEMA = "godotgs-shared-layers-t0-experiment/1"
 # Viewport readbacks stall the single GPU runner; quarter the moving captures.
 # The probe still captures every checkpoint independently of this cadence.
@@ -316,6 +318,10 @@ def observations(result: dict, exit_code: int) -> dict:
         "hlod_stream_late_dropped_total": hlod_peak("hlod_stream_late_dropped_total"),
     }
     return {"settings": process_settings(result), "source_generation": result.get("source_generation"),
+            "static_sort_cache": copy.deepcopy(result.get("static_sort_cache")),
+            "checkpoint_evidence": ps.checkpoint_evidence_summary([
+                ps.checkpoint_evidence(cp, route=route, static_sort_cache=result.get("static_sort_cache"))
+                for cp in result.get("checkpoints", [])]),
             "final_marker": result.get("ok") is True and result.get("reason") == "plan completed",
             "exit_code": exit_code,
             "runtime": {"hlod_stream_paged": value("hlod_stream_paged"),
@@ -544,8 +550,9 @@ def payload_behavior(result: dict, trace) -> dict:
             "content_digests": copy.deepcopy((result.get("payload_telemetry") or {}).get("content_digests")),
             "stored_bytes_read": stats.get("hlod_stream_payload_bytes_read_total",
                                              missing("HLOD stored-byte counter absent")),
-            "drawn_counts": [{"checkpoint": cp.get("checkpoint"), "pass_index": cp.get("pass_index"),
-                              "drawn_splats": cp.get("drawn_splats"), "drawn_nodes": cp.get("hlod_drawn_nodes")}
+            "drawn_counts": [{**ps.checkpoint_evidence(cp, route=result.get("route"),
+                                                      static_sort_cache=result.get("static_sort_cache")),
+                              "drawn_nodes": cp.get("hlod_drawn_nodes")}
                              for cp in result.get("checkpoints", [])],
             "trace_drawn_splats_max": max(trace.col("drawn_splats")) if trace and trace.rows else missing("no trace"),
             "D3_5_payload_stages": missing("not a pre-D3 common measurement; use per-route candidate summary")}
@@ -560,6 +567,8 @@ def migration_arm(arm: dict, identity: dict) -> dict:
             "camera_application": arm["observed"].get("camera_application"),
             "actual_checkpoint_poses": arm["observed"].get("actual_checkpoint_poses"),
             "settings_scope": arm["observed"].get("settings_scope"), "native": arm.get("native"),
+            "checkpoint_evidence": copy.deepcopy(arm["observed"].get("checkpoint_evidence")),
+            "static_sort_cache": copy.deepcopy(arm["observed"].get("static_sort_cache")),
             # #1445: the driver script is the same for both binaries, so the pre-D3 arm reports its
             # wall-clock and game-relevant frame times too (report-only).
             "frame_time": ps.frame_time_passes(arm.get("probe")),

@@ -21,6 +21,7 @@ Standard library only.
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import struct
@@ -71,6 +72,76 @@ def metric(value, status: str = OK, reason: str = "", unit: str = "") -> Dict[st
 
 def missing(reason: str, unit: str = "") -> Dict[str, object]:
     return metric(None, MISSING, reason, unit)
+
+
+def checkpoint_evidence(checkpoint: dict, *, route: Optional[str] = None,
+                        static_sort_cache: Optional[dict] = None) -> Dict[str, object]:
+    """Normalize a captured checkpoint without promoting process completion to evidence.
+
+    The cached chunk sort cannot prove a current-pose count. HLOD bypasses that
+    cache, including when its enabled-state getter is unavailable. Neither zero
+    cache hits nor a requested setting substitutes for the actual getter state.
+    """
+    record = copy.deepcopy(checkpoint)
+    reported_route = record.get("actual_route")
+    contextual_route = route if route in ("chunk", "hlod") else None
+    route = contextual_route or (reported_route if reported_route in ("chunk", "hlod") else None)
+    route_mismatch = (contextual_route is not None and "actual_route" in record
+                      and reported_route != contextual_route)
+    cache = record.get("static_sort_cache", static_sort_cache)
+    enabled = cache.get("enabled") if isinstance(cache, dict) else None
+    enabled = enabled if type(enabled) is bool else None
+    record["static_sort_cache"] = {"enabled": enabled, "applicable": route == "chunk" if route else None}
+    settle = record.get("settle")
+    settle = settle if isinstance(settle, dict) else {}
+    progress = settle.get("forward_progress")
+    progress = progress if isinstance(progress, dict) else {}
+    frames = [record.get(key) for key in ("pose_first_frame", "rendered_splat_count_source_frame",
+                                         "render_frame_counter")]
+    explicit = record.get("evidence_verdict")
+    if isinstance(explicit, str) and explicit != "VALID":
+        verdict = explicit
+    elif settle.get("reason") == "settle_deadline_missed" or progress.get("deadline_missed") is True:
+        verdict = "checkpoint_settle_deadline_missed"
+    elif settle.get("settled") is not True:
+        verdict = "checkpoint_unsettled"
+    elif not (all(type(frame) is int for frame in frames) and 0 <= frames[0] <= frames[1] <= frames[2]):
+        verdict = "checkpoint_unsettled"
+    elif route is None or route_mismatch:
+        verdict = "checkpoint_unsettled"
+    elif route == "chunk" and enabled is True:
+        verdict = "static_sort_cache_unsupported"
+    elif route == "chunk" and enabled is None:
+        verdict = "static_sort_cache_state_unavailable"
+    else:
+        verdict = "VALID"
+    record["evidence_verdict"] = verdict
+    # Settlement and cache exclusion can both fail for the same captured pose.
+    # Keep the primary verdict stable while retaining every independent reason.
+    native_reasons = record.get("evidence_reasons")
+    reasons = [reason for reason in (native_reasons if isinstance(native_reasons, list) else [])
+               if isinstance(reason, str) and reason != "VALID"]
+    if verdict != "VALID":
+        reasons.append(verdict)
+    if route == "chunk" and enabled is not False:
+        reasons.append("static_sort_cache_unsupported" if enabled is True else "static_sort_cache_state_unavailable")
+    record["evidence_reasons"] = list(dict.fromkeys(reasons))
+    if verdict == "VALID" and reasons:
+        record["evidence_verdict"] = reasons[0]
+    return record
+
+
+def checkpoint_evidence_summary(records: Sequence[dict]) -> Dict[str, object]:
+    """Aggregate already normalized required checkpoints; an empty set is unusable."""
+    checkpoints = copy.deepcopy(list(records))
+    reasons = list(dict.fromkeys(reason for cp in checkpoints
+                                for reason in (cp.get("evidence_reasons") or
+                                               [cp.get("evidence_verdict", "checkpoint_unsettled")])
+                                if reason != "VALID"))
+    if not checkpoints:
+        reasons.append("checkpoint_evidence_missing")
+    return {"verdict": "UNUSABLE" if reasons else "VALID", "reasons": reasons,
+            "checkpoints": checkpoints}
 
 
 # --------------------------------------------------------------------------

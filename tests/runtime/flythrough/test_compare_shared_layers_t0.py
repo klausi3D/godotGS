@@ -66,7 +66,9 @@ driver = _load("compare_shared_layers_t0")
 shared = _load("shared_layers_t0")
 workflow_pins = _load("test_dispatch_lane")
 
-PRE_D3 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+PRE_D3 = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
+PRE_D3_SOURCE_1454 = "f2f19bcb580cc131615b3fa262a11d99e6abc70c"
+PROVENANCE_BASE_1454 = "5a438363cd6939bca1041d738e2bfa10f2b024f2"
 CANDIDATE = "6343fdba2690b1066123bb299f65110ff5e0e285"
 WORKFLOW = ROOT / ".github/workflows/beyond_vram_flythrough.yml"
 DRIVER = "tests/runtime/flythrough/compare_shared_layers_t0.py"
@@ -135,6 +137,8 @@ class ComparisonContract(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.tmp = Path(temporary.name)
         self.experiment = self.make_experiment()
+        for arm in self.experiment["migration"]["arms"].values():
+            self.apply_migration_admissibility_policy(arm)
 
     def make_arm(self, route, prepared):
         directory = self.tmp / route
@@ -150,6 +154,13 @@ class ComparisonContract(unittest.TestCase):
         generation = record["source_generation"]
         result = {**copy.deepcopy(self.result), "route": route, "source_generation": generation,
                   "payload_telemetry": copy.deepcopy(record["payload_telemetry"])}
+        # Constructed admissibility for this comparison-owned policy envelope,
+        # not a claim about the legacy producer. Frame scalars are the modern
+        # run43717101341 candidate C2 receipt also used by checkpoint_policy_1454.
+        result["static_sort_cache"] = {"enabled": False, "applicable": route == "chunk"}
+        for checkpoint in result["checkpoints"]:
+            checkpoint.update(actual_route=route, pose_first_frame=6966,
+                              rendered_splat_count_source_frame=6971, render_frame_counter=6973)
         run = {"result": result, "trace": str(trace_path)}
         trace, integrity = rp.trace_integrity(run)
         self.assertEqual(integrity["status"], ps.OK)
@@ -862,6 +873,18 @@ class ComparisonContract(unittest.TestCase):
             behavior["native_payload"] = copy.deepcopy(native["final_render_stats"])
             behavior["world_payload"] = copy.deepcopy(native["world_payload_readback"])
             arm["payload_behavior"] = behavior
+            self.apply_migration_admissibility_policy(arm)
+
+    def apply_migration_admissibility_policy(self, arm):
+        # Preserve captured counts/native work while constructing admissibility
+        # for count/range policy tests. Historical JSON remains unchanged and
+        # this envelope does not claim that the old base exported provenance.
+        source = self.experiment["arms"]["hlod"]["probe"]["passes"][0]["checkpoints"][0]
+        keys = ("settle", "pose_first_frame", "rendered_splat_count_source_frame",
+                "render_frame_counter", "evidence_verdict", "evidence_reasons", "static_sort_cache")
+        for row in arm["payload_behavior"]["drawn_counts"]:
+            row.update({key: copy.deepcopy(source[key]) for key in keys})
+        arm["static_sort_cache"] = {"enabled": False, "applicable": False}
 
     def test_real_same_binary_variation_is_reported_without_claiming_draw_identity(self):
         self.use_real_migration_observations()
@@ -995,6 +1018,7 @@ class ComparisonContract(unittest.TestCase):
         for name in ("base", "candidate"):
             self.experiment["migration"]["arms"][name]["payload_behavior"]["drawn_counts"] = copy.deepcopy(
                 self.content_capture["migration"]["arms"][name]["payload_behavior"]["drawn_counts"])
+            self.apply_migration_admissibility_policy(self.experiment["migration"]["arms"][name])
         report = self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
         differences = report["migration_observations"]["draw_differences"]
         self.assertEqual({(d["checkpoint"], d["pass_index"], d["assessment"]) for d in differences},
@@ -1066,6 +1090,274 @@ class ComparisonContract(unittest.TestCase):
         self.assertTrue(differences)
         self.assertTrue(all(d["assessment"] == "inconclusive" for d in differences))
         self.assertIn("inconclusive", driver.render_markdown(report))
+
+    def test_usable_pair_preserves_the_one_sided_drawn_node_mismatch(self):
+        # #1448 compared the union of measured count fields. An absent optional
+        # node count cannot silently erase that existing comparison.
+        for side in ("base", "candidate"):
+            with self.scenario(side=side):
+                self.migration_checkpoint_1454(side).pop("drawn_nodes")
+                self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def checkpoint_policy_1454(self):
+        """Constructed comparison policy, not an instrumented-base execution.
+
+        Receipt scalars are copied from run 43717101341 migration/candidate
+        result.json, cold C2. Applying them to the existing envelope's other
+        checkpoint identities/counts is deliberate policy construction. The
+        historical captures and their missing provenance remain untouched.
+        New cache/verdict fields below prescribe the #1454 comparison contract;
+        they were not exported by that captured producer.
+        """
+        receipt = {
+            "settle": {"settled": True, "settle_usec": 26767, "frames": 7,
+                       "deadline_s": 15.0, "pose_error_m": 0.0},
+            "rendered_splat_count_source_frame": 6971,
+            "pose_first_frame": 6966, "render_frame_counter": 6973,
+            "evidence_verdict": "VALID",
+        }
+        for name, arm in self.experiment["migration"]["arms"].items():
+            arm["static_sort_cache"] = {"enabled": False, "applicable": False}
+            for row in arm["payload_behavior"]["drawn_counts"]:
+                row.update(copy.deepcopy(receipt))
+                row["static_sort_cache"] = copy.deepcopy(arm["static_sort_cache"])
+        for route, arm in self.experiment["arms"].items():
+            state = {"enabled": False, "applicable": route == "chunk"}
+            arm["observed"]["static_sort_cache"] = copy.deepcopy(state)
+            for measured_pass in arm["probe"]["passes"]:
+                for row in measured_pass["checkpoints"]:
+                    row.update(copy.deepcopy(receipt))
+                    row["settled"] = True
+                    row["static_sort_cache"] = copy.deepcopy(state)
+
+    def migration_checkpoint_1454(self, name="base", pass_index=0, checkpoint="C2"):
+        return next(row for row in self.experiment["migration"]["arms"][name]["payload_behavior"]["drawn_counts"]
+                    if row["pass_index"] == pass_index and row["checkpoint"] == checkpoint)
+
+    @staticmethod
+    def miss_checkpoint_1454(row):
+        # Actual run 43717101341 migration/base cold C2 settle receipt. Keep a
+        # deliberately stale VALID summary token: raw evidence must win.
+        row["settle"] = {"settled": False, "settle_usec": -1, "frames": 4845,
+                         "deadline_s": 15.0, "pose_error_m": 0.0,
+                         "reason": "settle_deadline_missed"}
+        if "settled" in row:
+            row["settled"] = False
+
+    def assert_inconclusive_pair_1454(self, report, reason):
+        pairs = report.get("migration_observations", {}).get("checkpoint_pairs", [])
+        pair = next((row for row in pairs if row.get("pass_index") == 0 and row.get("checkpoint") == "C2"), {})
+        self.assertEqual(pair.get("assessment"), "INCONCLUSIVE", pair)
+        self.assertEqual(pair.get("reason"), reason, pair)
+        differences = report.get("migration_observations", {}).get("draw_differences", [])
+        self.assertFalse(any(row.get("pass_index") == 0 and row.get("checkpoint") == "C2"
+                             and row.get("assessment") == "mismatch"
+                             for row in differences), differences)
+
+    def test_1454_unsettled_reference_is_unusable_even_with_equal_counts(self):
+        self.checkpoint_policy_1454()
+        row = self.migration_checkpoint_1454()
+        self.assertEqual(row["drawn_splats"], self.migration_checkpoint_1454("candidate")["drawn_splats"])
+        self.miss_checkpoint_1454(row)
+        report = self.assert_verdict("UNUSABLE", "migration_reference_unsettled")
+        self.assert_inconclusive_pair_1454(report, "migration_reference_unsettled")
+
+    def test_1454_missing_reference_settlement_is_unusable(self):
+        for missing in ("settle", "settled"):
+            with self.scenario(missing=missing):
+                self.checkpoint_policy_1454()
+                row = self.migration_checkpoint_1454()
+                (row if missing == "settle" else row["settle"]).pop(missing)
+                self.assert_verdict("UNUSABLE", "migration_reference_unsettled")
+
+    def test_1454_reference_provenance_must_belong_to_the_pose(self):
+        changes = [(key, None) for key in ("rendered_splat_count_source_frame", "pose_first_frame", "render_frame_counter")]
+        changes += [("rendered_splat_count_source_frame", 6965),
+                    ("rendered_splat_count_source_frame", 6974),
+                    ("rendered_splat_count_source_frame", -1),
+                    ("pose_first_frame", -1), ("rendered_splat_count_source_frame", "6971")]
+        for key, value in changes:
+            with self.scenario(key=key, value=value):
+                self.checkpoint_policy_1454()
+                row = self.migration_checkpoint_1454()
+                if value is None:
+                    row.pop(key)
+                else:
+                    row[key] = value
+                self.assert_verdict("UNUSABLE", "migration_reference_unsettled")
+
+    def test_1454_candidate_admissibility_is_symmetric(self):
+        for mutation in ("unsettled", "missing_settle", "missing_settled", "missing_source",
+                         "missing_pose_first", "missing_render_frame", "stale_source", "future_source"):
+            with self.scenario(mutation=mutation):
+                self.checkpoint_policy_1454()
+                row = self.migration_checkpoint_1454("candidate")
+                if mutation == "unsettled":
+                    self.miss_checkpoint_1454(row)
+                elif mutation == "missing_settle":
+                    row.pop("settle")
+                elif mutation == "missing_settled":
+                    row["settle"].pop("settled")
+                elif mutation == "missing_source":
+                    row.pop("rendered_splat_count_source_frame")
+                elif mutation == "missing_pose_first":
+                    row.pop("pose_first_frame")
+                elif mutation == "missing_render_frame":
+                    row.pop("render_frame_counter")
+                else:
+                    row["rendered_splat_count_source_frame"] = 6965 if mutation == "stale_source" else 6974
+                report = self.assert_verdict("UNUSABLE", "checkpoint_unsettled")
+                self.assert_inconclusive_pair_1454(report, "checkpoint_unsettled")
+
+    def test_1454_paired_chunk_and_hlod_checkpoints_require_admissibility(self):
+        for route in ("chunk", "hlod"):
+            for mutation in ("unsettled", "missing_settle", "missing_settled", "missing_source",
+                             "missing_pose_first", "missing_render_frame", "stale_source", "future_source"):
+                with self.scenario(route=route, mutation=mutation):
+                    self.checkpoint_policy_1454()
+                    row = self.arm(route)["probe"]["passes"][0]["checkpoints"][2]
+                    if mutation == "unsettled":
+                        self.miss_checkpoint_1454(row)
+                    elif mutation == "missing_settle":
+                        row.pop("settle")
+                        row.pop("settled")
+                    elif mutation == "missing_settled":
+                        row["settle"].pop("settled")
+                        row.pop("settled")
+                    elif mutation == "missing_source":
+                        row.pop("rendered_splat_count_source_frame")
+                    elif mutation == "missing_pose_first":
+                        row.pop("pose_first_frame")
+                    elif mutation == "missing_render_frame":
+                        row.pop("render_frame_counter")
+                    else:
+                        row["rendered_splat_count_source_frame"] = 6965 if mutation == "stale_source" else 6974
+                    self.assert_verdict("UNUSABLE", "checkpoint_unsettled")
+
+    def test_1454_unsettled_base_cannot_widen_the_reference_range(self):
+        self.checkpoint_policy_1454()
+        base = self.migration_checkpoint_1454()
+        base["drawn_splats"] = 100_000  # Constructed range mutation, not a capture.
+        self.miss_checkpoint_1454(base)
+        for index in (0, 1):
+            self.migration_checkpoint_1454("candidate", index)["drawn_splats"] = 150_000
+        report = self.assert_verdict("UNUSABLE", "migration_reference_unsettled")
+        self.assert_inconclusive_pair_1454(report, "migration_reference_unsettled")
+        # The usable repeat pair must still use the admissible base range:
+        # 150k was inside the old [100k, 204115] range but is outside [204115].
+        self.assertIn("migration_identity_mismatch", [row["code"] for row in report["reasons"]])
+        differences = report.get("migration_observations", {}).get("draw_differences", [])
+        self.assertTrue(any(row.get("pass_index") == 1 and row.get("checkpoint") == "C2"
+                            and row.get("assessment") == "mismatch" for row in differences), differences)
+
+    def test_1454_unsettled_different_counts_are_not_a_migration_mismatch(self):
+        self.checkpoint_policy_1454()
+        base = self.migration_checkpoint_1454()
+        self.miss_checkpoint_1454(base)
+        base["drawn_splats"] = 1
+        report = self.assert_verdict("UNUSABLE", "migration_reference_unsettled")
+        self.assertNotIn("migration_identity_mismatch", [row["code"] for row in report["reasons"]])
+        self.assert_inconclusive_pair_1454(report, "migration_reference_unsettled")
+
+    def test_1454_unsettled_candidate_cannot_poison_a_usable_pair_assessment(self):
+        self.checkpoint_policy_1454()
+        # Constructed count policy: both base samples are admissible. The
+        # usable repeat candidate is inside their range; the cold candidate is
+        # inadmissible and cannot turn that repeat assessment into a mismatch.
+        self.migration_checkpoint_1454("base", 0)["drawn_splats"] = 100_000
+        self.migration_checkpoint_1454("base", 1)["drawn_splats"] = 200_000
+        cold = self.migration_checkpoint_1454("candidate", 0)
+        cold["drawn_splats"] = 999_999
+        self.miss_checkpoint_1454(cold)
+        self.migration_checkpoint_1454("candidate", 1)["drawn_splats"] = 150_000
+        report = self.assert_verdict("UNUSABLE", "checkpoint_unsettled")
+        self.assert_inconclusive_pair_1454(report, "checkpoint_unsettled")
+        self.assertNotIn("migration_identity_mismatch", [row["code"] for row in report["reasons"]])
+        differences = report.get("migration_observations", {}).get("draw_differences", [])
+        self.assertTrue(any(row.get("pass_index") == 1 and row.get("checkpoint") == "C2"
+                            and row.get("assessment") == "inconclusive" for row in differences), differences)
+
+    def test_1454_usable_pairs_keep_the_1448_drawn_count_rule(self):
+        self.checkpoint_policy_1454()
+        equal = self.assert_verdict("VALID")
+        self.assertEqual(equal.get("checkpoint_evidence", {}).get("verdict"), "VALID")
+        for index in (0, 1):
+            self.migration_checkpoint_1454("candidate", index)["drawn_splats"] += 1
+        self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def test_1454_json_reports_each_checkpoint_even_when_counts_equal(self):
+        self.checkpoint_policy_1454()
+        report = self.assert_verdict("VALID")
+        evidence = report.get("checkpoint_evidence", {})
+        self.assertEqual(evidence.get("verdict"), "VALID", evidence)
+        rows = evidence.get("checkpoints", [])
+        self.assertEqual({row.get("arm") for row in rows},
+                         {"chunk", "hlod", "migration_base", "migration_candidate"})
+        for row in rows:
+            self.assertEqual(row.get("evidence_verdict"), "VALID", row)
+            for key in ("checkpoint", "pass_index", "settle", "rendered_splat_count_source_frame",
+                        "pose_first_frame", "render_frame_counter", "static_sort_cache"):
+                self.assertIn(key, row)
+
+    def test_1454_markdown_names_the_checkpoint_deadline_verdict(self):
+        self.checkpoint_policy_1454()
+        self.miss_checkpoint_1454(self.migration_checkpoint_1454())
+        text = driver.render_markdown(driver.compare(self.experiment))
+        for token in ("migration_reference_unsettled", "checkpoint_settle_deadline_missed", "INCONCLUSIVE", "C2"):
+            with self.subTest(token=token):
+                self.assertIn(token, text)
+
+    def test_1454_static_cache_policy_is_checked_for_each_paired_route(self):
+        for route in ("chunk", "hlod"):
+            for enabled in (True, False, None):
+                with self.scenario(route=route, enabled=enabled):
+                    self.checkpoint_policy_1454()
+                    state = {"enabled": enabled, "applicable": route == "chunk"}
+                    self.arm(route)["observed"]["static_sort_cache"] = state
+                    for row in self.arm(route)["probe"]["passes"][0]["checkpoints"]:
+                        row["static_sort_cache"] = copy.deepcopy(state)
+                    verdict = "UNUSABLE" if route == "chunk" and enabled is not False else "VALID"
+                    reason = ("static_sort_cache_unsupported" if enabled is True else "static_sort_cache_state_unavailable")
+                    report = self.assert_verdict(verdict, reason if verdict == "UNUSABLE" else None)
+                    self.assertEqual(report.get("checkpoint_evidence", {}).get("verdict"), verdict)
+
+    def test_1454_cli_unsettled_reference_exits_two_and_keeps_diagnostics(self):
+        self.checkpoint_policy_1454()
+        self.miss_checkpoint_1454(self.migration_checkpoint_1454())
+        source, out = self.tmp / "settle-experiment.json", self.tmp / "settle-comparison"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out)]), 2)
+        report = json.loads((out / "comparison.json").read_text(encoding="utf-8"))
+        self.assertEqual(report.get("checkpoint_evidence", {}).get("verdict"), "UNUSABLE")
+        self.assertTrue((out / "comparison.md").is_file())
+        self.assertTrue(self.arm("hlod")["probe"]["screenshots"]["files"])
+
+    def test_1454_require_report_rejects_missing_checkpoint_validation(self):
+        self.checkpoint_policy_1454()
+        source, out = self.tmp / "settle-experiment.json", self.tmp / "settle-comparison"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        self.assertEqual(driver.main(["--experiment", str(source), "--out", str(out)]), 0)
+        path = out / "comparison.json"
+        report = json.loads(path.read_text(encoding="utf-8"))
+        # Model a formerly valid, correctly sealed report without #1454's
+        # validation. A broken checksum must not be what makes this test red.
+        report.pop("checkpoint_evidence", None)
+        report.pop("report_sha256", None)
+        report["report_sha256"] = hashlib.sha256(driver._canonical(report)).hexdigest()
+        path.write_text(json.dumps(report), encoding="utf-8")
+        self.assertEqual(driver.main(["--require-report", str(path), "--run-id", self.experiment["run_id"]]), 2)
+
+    def test_1454_require_report_revalidates_unsettled_checkpoint_with_valid_seal(self):
+        self.checkpoint_policy_1454()
+        self.miss_checkpoint_1454(self.migration_checkpoint_1454())
+        source, out = self.tmp / "settle-experiment.json", self.tmp / "settle-comparison"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        driver.main(["--experiment", str(source), "--out", str(out)])
+        self.assertEqual(driver.main(["--require-report", str(out / "comparison.json"),
+                                      "--run-id", self.experiment["run_id"]]), 2)
+
+    def test_1454_comparator_pins_the_provenance_base(self):
+        self.assertEqual(driver.PRE_D3, PROVENANCE_BASE_1454)
 
     def set_detected_control(self, control):
         if control == "saturate":
@@ -1414,6 +1706,31 @@ class WorkflowContract(unittest.TestCase):
         for control in ("none", "corrupt", "saturate", "skip_compare"):
             self.assertRegex(block, rf'(?m)^          - [\"\x27]?{control}[\"\x27]?\s*$')
         self.assertRegex(block, r'(?m)^        default:\s*[\"\x27]?none[\"\x27]?\s*$')
+
+    def test_1454_workflow_pins_the_provenance_base_checkout_and_artifacts(self):
+        # Derive locations rather than pinning a job ID that phase 3 may rename.
+        pins = re.findall(r"(?m)^\s+PRE_D3_SHA:\s*([0-9a-f]{40})\s*$", self.text)
+        self.assertTrue(pins, "migration build/run SHA environments are missing")
+        for value in pins:
+            with self.subTest(surface="PRE_D3_SHA", value=value):
+                self.assertEqual(value, PROVENANCE_BASE_1454)
+        with self.subTest(surface="checkout"):
+            self.assertRegex(self.text, rf"(?m)^\s+ref:\s*{PROVENANCE_BASE_1454}\s*$")
+        artifacts = re.findall(r"(?m)^\s+name:\s*(godot-linuxbsd-editor-tests-[^\s]+)\s*$", self.text)
+        migration_artifacts = [value for value in artifacts if "pred3" in value or "provenance" in value]
+        self.assertTrue(migration_artifacts, "migration upload/download artifact names are missing")
+        for value in migration_artifacts:
+            with self.subTest(surface="artifact", value=value):
+                self.assertIn(PROVENANCE_BASE_1454, value)
+
+    def test_1454_provenance_base_is_named_and_original_source_is_documented(self):
+        readme = (ROOT / ".github/workflows/README.md").read_text(encoding="utf-8")
+        self.assertIn(PROVENANCE_BASE_1454, readme)
+        self.assertIn(PRE_D3_SOURCE_1454, readme, "retain the original pre-#1453 source identity")
+        self.assertIn("#1453", readme)
+        names = re.findall(r"(?m)^\s+(?:- )?name:\s*(.+)$", self.text)
+        self.assertTrue(any("provenance" in name.lower() and "pre-d3" in name.lower() for name in names),
+                        "the migration build must identify pre-D3 + provenance")
 
     def test_job_is_dispatch_only_fork_guarded_on_the_3080_with_read_only_permissions(self):
         job = self.job()

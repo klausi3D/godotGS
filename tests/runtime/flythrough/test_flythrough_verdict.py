@@ -388,6 +388,22 @@ class Validity(_Case):
         result = self.assert_entry("M1-settle", fv.INVALID, "MISSING")
         self.assertEqual(self.row(result, "M1-settle")["evidence"], fv.EVIDENCE_MISSING)
 
+    def test_1454_m1_rejects_unusable_checkpoint_evidence_despite_settled(self) -> None:
+        # Constructed consumer-policy additions to the captured summary. The
+        # new verdict field is deliberately inconsistent with the old settled
+        # flag: deleting its consumer must not let process success/cap fit win.
+        for reason in ("checkpoint_settle_deadline_missed", "static_sort_cache_unsupported"):
+            with self.subTest(reason=reason):
+                self.setUp()
+                for measured_pass in self.passes():
+                    for cp in measured_pass["checkpoints"]:
+                        cp["evidence_verdict"] = "VALID"
+                self.assert_entry("M1-settle", fv.PASS)
+                cp = self.passes()[0]["checkpoints"][1]
+                self.assertTrue(cp["settled"])
+                cp["evidence_verdict"] = reason
+                self.assert_entry("M1-settle", fv.INVALID, reason)
+
     def test_m1_measured_overflow_is_present_evidence(self) -> None:
         cp = self.passes()[0]["checkpoints"][1]
         cp["cap_fit"] = {"status": "INVALID", "chunk_cap": 320, "needed_chunks": 399, "settle_required": False,

@@ -46,8 +46,14 @@ Dispatch `mode=shared_layers_t0` adds a paired **report-only diagnostic**, with
 `shared_layers_control=none|corrupt|saturate|skip_compare` (default `none`, ignored
 by other modes). The hosted `baseline-qa-gate`, `build-linux-editor`,
 `build-pre-d3-editor`, and `shared-layers-t0` run in this mode. The CPU build job checks out immutable
-pre-D3 `f2f19bcb580cc131615b3fa262a11d99e6abc70c` (the parent of D3-1) and uses the
-same `BVW_SCONS_ARGS` as the candidate; its artifact name contains that full SHA.
+pre-D3 + provenance `5a438363cd6939bca1041d738e2bfa10f2b024f2`, reachable on
+`bv-pre-d3-provenance`: original pre-#1453 source
+`f2f19bcb580cc131615b3fa262a11d99e6abc70c` (the parent of D3-1) plus only #1453's
+count-provenance export. It uses the same `BVW_SCONS_ARGS` as the candidate;
+its artifact name contains the full provenance-base SHA. `actions/checkout@v4`
+uses that reachable SHA as `ref` with `fetch-depth: 1`, matching the existing
+immutable checkout style. Both migration binaries run the candidate checkout's
+probe and Python tooling; historical captured identities remain unchanged.
 The single 3080 GPU job verifies both binaries' provenance, build run and measured
 digest, then prepares one synthetic 4,194,304-splat, 512 x 512 m T0 plain-GSQ
 world and its V4 tree through D2's `auto-tree-t0` path. It runs chunk and HLOD
@@ -56,6 +62,28 @@ inputs, with settings read back from each process, independent cold preparation,
 traces, route telemetry and synthetic screenshots. Moving-frame screenshots use
 a cadence of every 400 frames to reduce GPU runner time; every checkpoint still
 captures independently, and the main lane moving-capture default stays 0.
+Every checkpoint retains its settle receipt, count source frame, pose first
+frame, render frame, and separate `evidence_verdict`/`evidence_reasons`; process
+`ok` only records plan completion. Admissible evidence requires `settled=true`
+and `0 <= pose_first_frame <= rendered_splat_count_source_frame <= render_frame_counter`.
+An unsettled/provenance-invalid migration reference is
+`migration_reference_unsettled`; an invalid candidate, chunk or HLOD checkpoint
+is `checkpoint_unsettled`. Pair assessments are INCONCLUSIVE and the report is
+UNUSABLE (exit 2), including equal counts. Unusable pairs cannot widen a reference
+range or become migration mismatches; usable pairs retain the #1448 drawn-count rule.
+Deadline misses remain visible as `checkpoint_settle_deadline_missed`, with
+diagnostic captures retained. The JSON/markdown report exposes these receipts,
+and `--require-report` revalidates checkpoint evidence before accepting a report.
+
+The probe excludes the chunk route when renderer `sort/static_cache_enabled`
+(default false) is enabled: cache hits may retain an earlier count source frame.
+It queries the actual `is_static_sort_cache_enabled()` getter with `has_method`;
+enabled state yields `static_sort_cache_unsupported`, while an unavailable getter
+stays explicitly unknown and yields `static_sort_cache_state_unavailable`.
+Neither zero cache hits nor successful process completion proves admissibility.
+The HLOD route bypasses this static cache and records `applicable=false`, retaining
+the observed enabled state even when it is unknown. No renderer cache behavior,
+threshold, budget, or runtime/GPU proof changes with this exclusion.
 Missing required observations
 remain not-measured and make evidence UNUSABLE; a missing arm is NOT_RUN.
 `compare_shared_layers_t0.py` writes `comparison.json` and `comparison.md`; an
@@ -781,8 +809,10 @@ take the job once one is registered.
   `build_info` step fails if the SCons arguments it records are not the D-10
   producer flags.
 - **D3-6 migration identity.** `build-pre-d3-editor` compiles immutable
-  `f2f19bcb580cc131615b3fa262a11d99e6abc70c` with those same optimized flags.
-  The source checkout must equal that SHA before the current staging tool runs
+  pre-D3 + provenance `5a438363cd6939bca1041d738e2bfa10f2b024f2` with those same
+  optimized flags. Its pre-#1453 source is
+  `f2f19bcb580cc131615b3fa262a11d99e6abc70c`; only #1453 was cherry-picked.
+  The source checkout must equal the provenance-base SHA before the current staging tool runs
   with its expected `GITHUB_SHA` set to the immutable SHA for that command only.
   Its separate artifact includes the full SHA. `shared-layers-t0` verifies the
   artifact's exact members, commit, current run id and SHA256, keeps it separate
