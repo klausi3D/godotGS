@@ -168,6 +168,12 @@ class ComparisonContract(unittest.TestCase):
         self.assertEqual(probe["payload_telemetry"]["status"], ps.OK)
         self.assertEqual(probe["payload_telemetry"], ps.route_telemetry_summary(
             record["payload_telemetry"], route=route, source_generation=generation))
+        if route == "hlod":
+            # Constructed comparison-policy inputs, not fields from the legacy capture.
+            base = driver.HLOD_CONFIG["configured_read_byte_cap"]
+            probe["payload_telemetry"].update(
+                normal_retained_concurrency=1, normal_retained_job_charge=base // 2,
+                normal_retained_output_charge=base // 2, normal_retained_byte_bound=base)
 
         # File existence tests, not claimed viewport captures. Build the native
         # screenshot summary with its real Python producer, not an invented shape.
@@ -335,7 +341,10 @@ class ComparisonContract(unittest.TestCase):
             if route == "hlod":
                 raw["upload_hold_frames"] = 0
                 raw.update(driver.HLOD_CONFIG)
-                raw.update(oversized_reservation_bytes=0, live_reservations=0)
+                base = driver.HLOD_CONFIG["configured_read_byte_cap"]
+                raw.update(normal_retained_concurrency=1, normal_retained_job_charge=base // 2,
+                           normal_retained_output_charge=base // 2, normal_retained_byte_bound=base,
+                           oversized_reservation_bytes=0, live_reservations=0)
             else:
                 saturation["upload_hold_frames"] = {"measured": False, "applicable": False,
                     "scope": "chunk", "reason": "no HLOD upload hold on this route"}
@@ -380,10 +389,118 @@ class ComparisonContract(unittest.TestCase):
         self.assertEqual(report["metrics"]["hlod"]["io"]["admission_waits"]["value"], 1)
 
     def test_reintroduced_route_specific_cap_override_is_a_settings_mismatch(self):
-        for key in ("configured_read_byte_cap", "normal_retained_byte_bound"):
+        for key in ("configured_read_byte_cap", "configured_max_jobs_in_flight",
+                    "configured_upload_bytes_per_frame", "normal_retained_byte_bound"):
             with self.scenario(key=key):
                 self.use_scoped_observation_policy()
                 self.arm()["native"]["payload_telemetry"][key] = 512 * 1024 * 1024
+                self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def set_retained_derivation(self, k, r, o, *, bound=None):
+        """Construct policy inputs and consistent queue observations, not a native capture."""
+        raw = self.arm()["native"]["payload_telemetry"]
+        base = driver.HLOD_CONFIG["configured_read_byte_cap"]
+        normal = max(base, k * (r + o)) if bound is None else bound
+        raw.update(normal_retained_concurrency=k, normal_retained_job_charge=r,
+                   normal_retained_output_charge=o, normal_retained_byte_bound=normal)
+        effective = max(normal, raw["oversized_reservation_bytes"])
+        for owner in ("retained", "ready"):
+            queue = raw["queue_observations"][owner]
+            queue.update(byte_bound=effective, peak_byte_bound=effective)
+            self.arm()["observed"]["queues"][owner] = copy.deepcopy(queue)
+        return raw
+
+    def test_derived_retained_cap_above_base_and_zero_derivation_are_valid(self):
+        base = 8 * 1024 * 1024
+        for k, r, o in ((2, 6 * 1024 * 1024, 2 * 1024 * 1024), (16, base, base), (0, 0, 0)):
+            with self.scenario(k=k, r=r, o=o):
+                self.use_scoped_observation_policy()
+                self.set_retained_derivation(k, r, o)
+                self.assert_verdict("VALID")
+
+    def test_retained_derivation_survives_summary_and_native_fallback(self):
+        self.use_scoped_observation_policy()
+        raw = self.set_retained_derivation(2, 6 * 1024 * 1024, 2 * 1024 * 1024)
+        summary = ps.route_telemetry_summary(raw, route="hlod", source_generation=raw["source_generation"])
+        for key in ("normal_retained_concurrency", "normal_retained_job_charge",
+                    "normal_retained_output_charge", "normal_retained_byte_bound"):
+            self.assertEqual(summary[key], raw[key])
+        self.arm()["probe"]["payload_telemetry"] = summary
+        self.arm()["native"].pop("payload_telemetry")
+        self.assert_verdict("VALID")
+
+    def test_retained_bound_must_equal_the_exact_derivation(self):
+        expected = 2 * (6 * 1024 * 1024 + 2 * 1024 * 1024)
+        for delta in (-1, 1):
+            with self.scenario(delta=delta):
+                self.use_scoped_observation_policy()
+                self.set_retained_derivation(2, 6 * 1024 * 1024, 2 * 1024 * 1024, bound=expected + delta)
+                self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_retained_concurrency_cannot_exceed_the_pinned_job_cap(self):
+        self.use_scoped_observation_policy()
+        self.set_retained_derivation(17, 4 * 1024 * 1024, 4 * 1024 * 1024)
+        self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_retained_job_charge_cannot_exceed_the_pinned_read_cap(self):
+        self.use_scoped_observation_policy()
+        self.set_retained_derivation(1, 8 * 1024 * 1024 + 1, 0)
+        self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_retained_output_charge_cannot_exceed_the_pinned_read_cap(self):
+        self.use_scoped_observation_policy()
+        self.set_retained_derivation(1, 0, 8 * 1024 * 1024 + 1)
+        self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_retained_derivation_inputs_must_all_be_present(self):
+        for key in ("normal_retained_concurrency", "normal_retained_job_charge", "normal_retained_output_charge"):
+            with self.scenario(key=key):
+                self.use_scoped_observation_policy()
+                self.arm()["native"]["payload_telemetry"].pop(key)
+                self.assert_verdict("UNUSABLE", "missing_metric")
+
+    def test_retained_derivation_is_required_without_native_queues(self):
+        for key in ("normal_retained_concurrency", "normal_retained_job_charge", "normal_retained_output_charge"):
+            with self.scenario(key=key):
+                raw = self.arm()["probe"]["payload_telemetry"]
+                self.assertNotIn("queue_observations", raw)
+                raw.pop(key)
+                self.assert_verdict("UNUSABLE", "missing_metric")
+
+    def test_retained_bound_is_exact_without_native_queues(self):
+        raw = self.arm()["probe"]["payload_telemetry"]
+        self.assertNotIn("queue_observations", raw)
+        raw["normal_retained_byte_bound"] += 1
+        self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_retained_derivation_is_checked_with_invalid_oversized_ownership(self):
+        self.use_scoped_observation_policy()
+        raw = self.set_retained_derivation(2, 6 * 1024 * 1024, 2 * 1024 * 1024, bound=16 * 1024 * 1024 + 1)
+        raw["oversized_reservation_bytes"] = None
+        self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_retained_derivation_inputs_must_be_non_negative_integers(self):
+        for key in ("normal_retained_concurrency", "normal_retained_job_charge", "normal_retained_output_charge"):
+            for value in (None, -1, 1.0, True, "1"):
+                with self.scenario(key=key, value=value):
+                    self.use_scoped_observation_policy()
+                    self.arm()["native"]["payload_telemetry"][key] = value
+                    self.assert_verdict("UNUSABLE", "missing_metric")
+
+    def test_zero_retained_concurrency_requires_zero_charges(self):
+        for r, o in ((1, 0), (0, 1)):
+            with self.scenario(r=r, o=o):
+                self.use_scoped_observation_policy()
+                self.set_retained_derivation(0, r, o)
+                self.assert_verdict("UNUSABLE", "settings_mismatch")
+
+    def test_queue_bound_cannot_keep_base_when_normal_bound_is_derived(self):
+        for owner in ("retained", "ready"):
+            with self.scenario(owner=owner):
+                self.use_scoped_observation_policy()
+                raw = self.set_retained_derivation(2, 6 * 1024 * 1024, 2 * 1024 * 1024)
+                raw["queue_observations"][owner]["byte_bound"] = 8 * 1024 * 1024
+                self.arm()["observed"]["queues"][owner] = copy.deepcopy(raw["queue_observations"][owner])
                 self.assert_verdict("UNUSABLE", "settings_mismatch")
 
     def test_legal_single_oversized_bound_is_not_a_changed_config_or_escape(self):
@@ -399,7 +516,7 @@ class ComparisonContract(unittest.TestCase):
         raw.update(oversized_reservation_bytes=0, live_reservations=0)
         for owner in ("retained", "ready"):
             queue = raw["queue_observations"][owner]
-            queue.update(bytes=0, byte_bound=driver.HLOD_CONFIG["normal_retained_byte_bound"], jobs=0)
+            queue.update(bytes=0, byte_bound=raw["normal_retained_byte_bound"], jobs=0)
             self.arm()["observed"]["queues"][owner] = copy.deepcopy(queue)
         self.assert_verdict("VALID")
         # A later escaped allocation must remain visible even below an earlier

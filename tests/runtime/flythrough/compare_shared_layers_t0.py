@@ -59,8 +59,7 @@ SATURATION = ("upload_hold_frames",)
 # These are the shipped HLOD Config inputs, not new diagnostic budgets.
 HLOD_CONFIG = {"configured_read_byte_cap": 8 * 1024 * 1024,
                "configured_max_jobs_in_flight": 16,
-               "configured_upload_bytes_per_frame": 32 * 1024 * 1024,
-               "normal_retained_byte_bound": 8 * 1024 * 1024}
+               "configured_upload_bytes_per_frame": 32 * 1024 * 1024}
 HLOD_ONLY_FAILURES = ("nonresident_drawn_nodes", "hlod_stream_failed_total", "hlod_stream_late_dropped_total")
 # These observations exist on immutable pre-D3 as well as the candidate.
 # Aggregate work varies with scheduling/rereads; positive work and zero failures
@@ -81,6 +80,31 @@ def _number(value):
 
 def _count(value, *, signed=False):
     return _number(value) and value == int(value) and (signed or value >= 0)
+
+
+def _check_hlod_retained_budget(telemetry, queues, oversized, problem, route):
+    """Validate native D3-2 derivation and the corresponding live queue bounds."""
+    keys = ("normal_retained_concurrency", "normal_retained_job_charge",
+            "normal_retained_output_charge", "normal_retained_byte_bound")
+    inputs = [telemetry.get(key) for key in keys]
+    if any(type(value) is not int or value < 0 for value in inputs):
+        problem("missing_metric", "native HLOD retained derivation requires non-negative integer K/R/O/bound", route)
+        return
+    k, r, o, bound = inputs
+    b = HLOD_CONFIG["configured_read_byte_cap"]
+    j = HLOD_CONFIG["configured_max_jobs_in_flight"]
+    if not (
+        (1 <= k <= j or (k == 0 and r == 0 and o == 0 and bound == b))
+        and r <= b and o <= b
+        and bound == max(b, k * (r + o))
+    ):
+        problem("settings_mismatch", "native HLOD retained bound differs from max(B, K*(R+O)) or its K/R/O limits", route)
+    if queues is None or not _count(oversized):
+        return
+    effective = max(bound, oversized)
+    for owner in ("retained", "ready"):
+        if _dict(queues.get(owner)).get("byte_bound") != effective:
+            problem("settings_mismatch", f"{owner} bound differs from native normal admission or its single-node exception", route)
 
 
 def _value(value):
@@ -528,6 +552,8 @@ def compare(experiment: dict) -> dict:
                 problem("correctness_failure", f"nonzero {key}", route)
         native_queues = telemetry.get("queue_observations")
         scoped_queues = ps.queue_observations_summary(native_queues, route=route) if native_queues is not None else None
+        if route == "hlod":
+            _check_hlod_retained_budget(telemetry, scoped_queues, telemetry.get("oversized_reservation_bytes"), problem, route)
         if scoped_queues is not None and scoped_queues.get("status") != ps.OK:
             problem("missing_metric", scoped_queues.get("reason", "invalid native queue observations"), route)
         if scoped_queues is not None:
@@ -557,10 +583,6 @@ def compare(experiment: dict) -> dict:
                 else:
                     if oversized != 0 and live != 1:
                         problem("queue_saturation", "oversized reservation is not the sole live owner", route)
-                    effective = max(HLOD_CONFIG["normal_retained_byte_bound"], oversized)
-                    for owner in ("retained", "ready"):
-                        if _dict(scoped_queues.get(owner)).get("byte_bound") != effective:
-                            problem("settings_mismatch", f"{owner} bound is neither shipped admission nor its single-node exception", route)
         for key in BACKPRESSURE + SATURATION:
             value = _dict(observed.get("saturation")).get(key)
             # Upload holds are a HLOD-only test seam. Chunk has no such owner;
