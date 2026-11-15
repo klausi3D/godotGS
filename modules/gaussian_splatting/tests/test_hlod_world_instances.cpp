@@ -596,7 +596,7 @@ TEST_CASE("[GaussianSplatting][HLOD] a stationary view with objects grows the ov
 		uint64_t capacity = 0;
 		uint32_t growths = 0;
 	};
-	const uint64_t seed = 1280000u; // leaf_count * 50, the world's seed rule.
+	const uint64_t seed = 1280000u; // The world's seed (gs_hlod_bundle::world_overlap_seed_records); the sequence holds for any.
 	const double objects = 64000.4;
 	Storage storage;
 	storage.capacity = seed; // Provisioned by the world's seed.
@@ -644,6 +644,140 @@ TEST_CASE("[GaussianSplatting][HLOD] a stationary view with objects grows the ov
 	CHECK(world_plus_objects_overlap_growth(UINT32_MAX, 1.0e12) == UINT32_MAX);
 	for (double d : { 0.0, 1.0, 7.3, 64000.4, 1.0e9 }) { CHECK(world_plus_objects_overlap_growth(5000u, d) >= world_plus_objects_overlap_records(5000u, d)); }
 	CHECK(world_overlap_need(OverlapWorldNeed(), 0u, 7u) == 7u);
+}
+
+// #1472: the overlap storage of a streamed or paged world was seeded with 50 records for EVERY leaf, capped only by
+// max_overlap_records. On shared-layers T0 (run 43742475749) that is the cap, 100M records = 2.9 GB of the device ledger,
+// for a cut whose estimate is 2.7M; the atlas pool can only grow into what the seed leaves.
+TEST_CASE("[GaussianSplatting][HLOD] the world's overlap seed follows the drawn budget, never every leaf, the former rule or the record cap (#1472)") {
+	const uint32_t hard_cap = 100000000u; // The default max_overlap_records (renderer/gpu_sorting_config.h).
+	auto clamped = [&](uint32_t p_records) { return MIN(p_records, hard_cap); }; // TileRenderer::clamp_hlod_overlap_records.
+	auto former = [](uint32_t p_leaves) { return uint32_t(MIN<uint64_t>(uint64_t(p_leaves) * 50u, UINT32_MAX)); };
+	const uint32_t t0_leaves = 4194304u;
+	CHECK(clamped(former(t0_leaves)) == hard_cap);
+	uint32_t previous = 0;
+	for (int max_splats : { 250000, 750000, 1000000, 2000000, 4194304, 8000000, INT32_MAX }) {
+		const uint64_t drawn = world_need_splats(t0_leaves, max_splats);
+		const uint32_t seed = world_overlap_seed_records(t0_leaves, max_splats);
+		// It follows the estimate: 3/2 of the splats the world can draw, never below the floor.
+		CHECK(uint64_t(seed) == MAX<uint64_t>(drawn + drawn / 2u, WORLD_OVERLAP_SEED_FLOOR_RECORDS));
+		CHECK(seed >= previous); // A larger drawn budget never seeds less.
+		previous = seed;
+		CHECK(seed <= former(t0_leaves)); // Never more than before.
+		CHECK(clamped(seed) <= hard_cap);
+		CHECK(uint64_t(clamped(seed)) * 10u < uint64_t(hard_cap)); // No longer the cap: under a tenth of it.
+	}
+	// A world whose former seed is below the floor keeps it exactly: nothing changes for small worlds.
+	for (uint32_t leaves : { 1u, 16u, 1000u, 20000u }) {
+		CHECK(world_overlap_seed_records(leaves, INT32_MAX) == leaves * 50u);
+		CHECK(world_overlap_seed_records(leaves, 1) == leaves * 50u);
+	}
+	// In between it is the floor (Holzbank, 252326 leaves, seeded 12.6M records before).
+	CHECK(world_overlap_seed_records(252326u, INT32_MAX) == uint32_t(WORLD_OVERLAP_SEED_FLOOR_RECORDS));
+	CHECK(world_overlap_seed_records(0u, 1000000) == 0u);
+	// Every count stays inside 32 bits, and under the cap once clamped.
+	const uint32_t huge = world_overlap_seed_records(UINT32_MAX, INT32_MAX);
+	CHECK(huge == 3221225470u); // 3/2 of INT32_MAX splats.
+	CHECK(clamped(huge) == hard_cap);
+	CHECK(world_overlap_seed_records(UINT32_MAX, 0) == uint32_t(WORLD_OVERLAP_SEED_FLOOR_RECORDS)); // max_splats <= 0 draws one splat.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] the storage asked for a refused record demand admits it under the selector's factor, next to the objects (#1472)") {
+	for (double demand : { 1.0, 10.0, 16.0, 2715339.82, 8.0e7 }) {
+		const uint32_t records = world_demand_overlap_records(demand, 0.0);
+		CHECK(gs_hlod_runtime::kRecordAdmissionFactor * double(records) >= demand); // The selector admits the demand.
+		CHECK(double(records) <= demand / gs_hlod_runtime::kRecordAdmissionFactor + 2.0); // And no more than that.
+		CHECK(world_demand_overlap_records(demand, 64000.4) == records + 64001u); // The objects' reserve is held next to it.
+		CHECK(world_demand_overlap_records(demand, NAN) == records);
+		CHECK(world_demand_overlap_records(demand, -3.0) == records);
+		CHECK(world_demand_overlap_growth(records) >= records);
+	}
+	// No demand asks for nothing; an absurd one saturates (the caller clamps it to the configured cap).
+	CHECK(world_demand_overlap_records(0.0, 5.0) == 0u);
+	CHECK(world_demand_overlap_records(-1.0, 0.0) == 0u);
+	CHECK(world_demand_overlap_records(NAN, 0.0) == 0u);
+	CHECK(world_demand_overlap_records(INFINITY, 0.0) == 0u);
+	CHECK(world_demand_overlap_records(1.0e12, 0.0) == UINT32_MAX);
+	CHECK(world_demand_overlap_growth(100u) == 150u); // The slack a measured overflow gets (grow_hlod_overlap_storage).
+	CHECK(world_demand_overlap_growth(UINT32_MAX) == UINT32_MAX);
+}
+
+// The same synthetic tree as test_hlod_runtime_selection.cpp: root (2 splats) -> two interiors (2 each) -> four leaves
+// (4 each), no footprint, so a cut's record estimate is its splat count: 2, 4, 10, 16 along the refinement.
+static void overlap_seed_tree(GaussianSplatHlodRuntimeData &r_data) {
+	r_data.nodes.resize(7);
+	for (int i = 0; i < 7; ++i) {
+		auto &n = r_data.nodes.write[i];
+		n.bounds_center = Vector3(0, 0, -10);
+		n.topology.payload_count = i < 3 ? 2 : 4;
+		n.topology.geometric_error = i == 0 ? 4.0f : (i < 3 ? 2.0f : 0.0f);
+		if (i < 3) {
+			n.topology.first_child = i * 2 + 1;
+			n.topology.child_count = 2;
+		}
+	}
+}
+
+// The storage is the cut's record budget (the selector admits 80 percent of it), so a seed below the view's demand does
+// not overflow: it holds the cut coarse, and the measured-overflow growth never sees it. This drives the publisher's
+// sequence (prepare_hlod_frame) with the real selector: grow at the safe point from the demand the last cut reported,
+// clamped by the configured cap, then select with the storage as the record budget.
+TEST_CASE("[GaussianSplatting][HLOD] a seed below the view's demand grows from the refused record demand, settles, and stops at the record cap (#1472)") {
+	GaussianSplatHlodRuntimeData data;
+	overlap_seed_tree(data);
+	struct Route {
+		uint32_t storage = 0;
+		uint32_t hard_cap = UINT32_MAX;
+		uint32_t growths = 0;
+		gs_hlod_runtime::CutHistory history;
+		gs_hlod_runtime::CutHistory::Result cut;
+	};
+	auto frame = [&](Route &r_route) {
+		const uint32_t wanted = world_demand_overlap_records(r_route.cut.record_demand, 0.0);
+		if (MIN(wanted, r_route.hard_cap) > r_route.storage) {
+			r_route.storage = MIN(world_demand_overlap_growth(wanted), r_route.hard_cap);
+			++r_route.growths;
+		}
+		gs_hlod_runtime::CutRequest request;
+		request.frustum_enabled = false;
+		request.focal_pixels = 100;
+		request.tau_pixels = 1;
+		request.splat_budget = 100;
+		request.node_budget = 7;
+		request.record_budget = double(r_route.storage);
+		r_route.cut = r_route.history.select(data, request);
+	};
+	Route route;
+	GS_NEED(route.history.reserve(7));
+	route.storage = 5u; // An under-estimate: 80 percent of it admits the two interiors (4 records) and nothing finer.
+	frame(route);
+	CHECK(route.cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(route.cut.selected_splats == 4);
+	CHECK(route.cut.budget_bound);
+	CHECK(route.cut.record_demand == doctest::Approx(10.0)); // The refinement only the record cap refused.
+	for (int f = 0; f < 8; ++f) { frame(route); }
+	CHECK(route.cut.selected_splats == 16); // Every leaf: the cut the quality rule asks for.
+	CHECK_FALSE(route.cut.budget_bound);
+	CHECK(route.cut.record_demand == 0.0);
+	CHECK(route.growths >= 1u);
+	CHECK(route.growths <= 3u);
+	CHECK(gs_hlod_runtime::kRecordAdmissionFactor * double(route.storage) >= 16.0);
+	// Settled: unchanged content never grows it again.
+	const uint32_t settled = route.storage, growths = route.growths;
+	for (int f = 0; f < 20; ++f) { frame(route); }
+	CHECK(route.storage == settled);
+	CHECK(route.growths == growths);
+	// The configured cap bounds the growth: the storage stops at it, once, and the cut stays explicitly budget-bound.
+	Route capped;
+	GS_NEED(capped.history.reserve(7));
+	capped.storage = 5u;
+	capped.hard_cap = 12u;
+	for (int f = 0; f < 10; ++f) { frame(capped); }
+	CHECK(capped.storage == 12u);
+	CHECK(capped.growths == 1u);
+	CHECK(capped.cut.selected_splats == 4);
+	CHECK(capped.cut.budget_bound);
+	CHECK(capped.cut.record_demand == doctest::Approx(10.0));
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][SceneDirector] a resident world's contract clamps max_splats to its data count but keeps the view cap") {

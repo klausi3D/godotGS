@@ -520,4 +520,72 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut plans demand in atlas pages, an
 	history.select(data, r);
 	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
 }
+// #1472: the record budget is the allocated overlap storage. A storage below the view's demand does not overflow, it
+// holds the cut coarse, so the selector names the step the record cap ALONE refused and the route can grow the storage.
+TEST_CASE("[GaussianSplatting][HLOD] runtime cut reports the record demand only the record cap refused (#1472)") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data); // No footprint: a cut's record estimate is its splat count (2, 4, 10, 16 along the refinement).
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	auto cut = history.select(data, r);
+	CHECK(cut.selected_splats == 16);
+	CHECK_FALSE(cut.budget_bound);
+	CHECK(cut.record_demand == 0.0); // Nothing was refused.
+	// 80 percent of 12.5 admits 10 records: the cut {3, 4, 2}. Refining node 2 (16 records, 16 splats) is refused by
+	// the record cap alone.
+	history.invalidate();
+	r.record_budget = 12.5;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.selected_splats == 10);
+	CHECK(cut.budget_bound);
+	CHECK(cut.record_demand == doctest::Approx(16.0));
+	// The splat cap refuses the same step: more records would not admit it, so no record demand is reported.
+	history.invalidate();
+	r.record_budget = 100000;
+	r.splat_budget = 10;
+	cut = history.select(data, r);
+	CHECK(cut.selected_splats == 10);
+	CHECK(cut.budget_bound);
+	CHECK(cut.record_demand == 0.0);
+	r.record_budget = 12.5; // Both caps refuse it: still nothing more records alone would admit.
+	history.invalidate();
+	cut = history.select(data, r);
+	CHECK(cut.selected_splats == 10);
+	CHECK(cut.record_demand == 0.0);
+	// A streamed world: only the interiors are resident. The cut {1, 2} cannot move, and the record cap keeps the second
+	// child group from even being requested, which never shows as an overflow or as a refused refinement.
+	history.invalidate();
+	r.splat_budget = 100;
+	uint8_t interiors[7] = { 1, 1, 1, 0, 0, 0, 0 };
+	r.resident = interiors; r.resident_count = 7;
+	cut = history.select(data, r);
+	CHECK(cut.selected_count == 2);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+	CHECK(cut.record_demand == doctest::Approx(16.0));
+	// The page budget refuses that group instead: no record demand.
+	history.invalidate();
+	r.record_budget = 100000;
+	r.page_splats = 1024;
+	r.page_budget = 5;
+	cut = history.select(data, r);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+	CHECK(cut.record_demand == 0.0);
+	// A root that needs the bootstrap for its records alone reports its own estimate, also when no frontier fits.
+	history.invalidate();
+	r.resident = nullptr; r.resident_count = 0;
+	r.page_splats = 0; r.page_budget = 0;
+	r.record_budget = 2; // 80 percent is below the root's two records.
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
+	CHECK(cut.record_demand == doctest::Approx(2.0));
+	// A root over the splat cap is not a record demand.
+	history.invalidate();
+	r.record_budget = 100000;
+	r.splat_budget = 1;
+	cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
+	CHECK(cut.record_demand == 0.0);
+}
 }

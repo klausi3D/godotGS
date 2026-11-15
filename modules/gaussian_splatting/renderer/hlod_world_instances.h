@@ -234,6 +234,20 @@ inline uint32_t canonical_capacity(uint32_t p_leaf_count, const InstanceRegion &
 	return total > UINT32_MAX ? UINT32_MAX : uint32_t(total);
 }
 
+// #1472, the world's overlap-record seed. Tests-first commit: these keep the former behaviour (50 records for every leaf,
+// no growth from a record-bound cut); the next commit implements the rule the tests state.
+constexpr uint64_t WORLD_OVERLAP_RECORDS_PER_LEAF = 50;
+constexpr uint64_t WORLD_OVERLAP_SEED_FLOOR_RECORDS = uint64_t(1) << 20;
+inline uint32_t world_overlap_seed_records(uint32_t p_leaf_count, int) {
+	return uint32_t(MIN<uint64_t>(uint64_t(p_leaf_count) * WORLD_OVERLAP_RECORDS_PER_LEAF, UINT32_MAX));
+}
+inline uint32_t world_demand_overlap_records(double, double) {
+	return 0u;
+}
+inline uint32_t world_demand_overlap_growth(uint32_t p_records) {
+	return p_records;
+}
+
 // One visible object's demand in one view.
 struct ObjectDemand {
 	uint64_t instance_key = 0; // Stable instance id (the node's ObjectID): breaks importance ties.

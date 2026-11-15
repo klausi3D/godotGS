@@ -749,6 +749,34 @@ TEST_CASE("[GaussianSplatting][HLOD] a drawn node that loses residency never sta
 	CHECK(same(nodes_of(set, 1), { 3, 4, 5, 6 }));
 }
 
+// #1472: the route sizes the overlap storage from this, so the view result must carry what the selector reported.
+TEST_CASE("[GaussianSplatting][HLOD] a view result carries the record demand only the record cap refused (#1472)") {
+	auto tree = make_tree(IDENT);
+	for (int leg = 0; leg < 2; ++leg) {
+		// Leg 0: 80 percent of 12.5 records admits 10; refining the second interior (16) is refused by records alone.
+		// Leg 1: the splat cap refuses the same step, which more records would not admit.
+		const Caps c = leg == 0 ? caps(100, 8, 12.5) : caps(10, 8, 1000);
+		auto snap = snapshot(tree);
+		snap.instances.write[0].caps = c;
+		ViewSpec v = perspective(1);
+		v.caps = c;
+		ViewSet set;
+		CHECK(set.admit_view(snap, v).status == ViewSet::ADMITTED);
+		snap.views.push_back(v);
+		Vector<ViewSet::ViewResult> results;
+		run(set, snap, results);
+		if (results.size() != 1) { FAIL("expected one result"); return; }
+		CHECK(results[0].readiness == ViewSet::READY);
+		CHECK(results[0].budget_bound);
+		CHECK(results[0].selected_splats == 10);
+		if (leg == 0) {
+			CHECK(results[0].record_demand == doctest::Approx(16.0));
+		} else {
+			CHECK(results[0].record_demand == 0.0);
+		}
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] equal-priority ties break on the stable key, not the array index, under budget pressure") {
 	auto a = make_tree(IDENT);
 	auto b = make_tree(SWAPPED); // Same hierarchy, sibling order reversed in the array.
