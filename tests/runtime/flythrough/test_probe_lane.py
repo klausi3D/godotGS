@@ -903,6 +903,14 @@ class FrameBreakdown(unittest.TestCase):
         self.assertEqual(set(ps.interval_stats([1.0, 2.0])), {
             "frames", "mean", "p95_time_weighted", "p99_time_weighted", "max", "frames_over_50ms",
             "frames_over_50ms_pct", "frames_over_250ms"})
+        # Still time-weighted nearest rank (ADR 8.3): one 100 ms frame among twenty 1 ms frames
+        # holds 5/6 of the wall time, so it is the p95 although 95 % of the frames took 1 ms.
+        old = ps.interval_stats([1.0] * 20 + [100.0])
+        self.assertEqual((old["p95_time_weighted"]["value"], old["p99_time_weighted"]["value"], old["max"]["value"]),
+                         (100.0, 100.0, 100.0))
+        self.assertAlmostEqual(old["mean"]["value"], 120.0 / 21)
+        self.assertEqual((old["frames"], old["frames_over_50ms"], old["frames_over_250ms"]), (21, 1, 0))
+        self.assertEqual(ps.nearest_rank([1.0] * 20 + [100.0], 0.95), 1.0)
         tr = _breakdown_trace(self.HARNESS)
         self.assertEqual(ps.frame_intervals(tr, [9]), [404.0], "row-to-row wall clock, harness work included")
 
