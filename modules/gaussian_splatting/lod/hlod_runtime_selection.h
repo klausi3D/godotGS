@@ -81,7 +81,7 @@ public:
 		int32_t first_cap_refused_node = -1;
 		uint32_t hysteresis_held_count = 0;
 		uint32_t residency_missed_count = 0;
-		// Prepared snapshots measure headroom; unprepared snapshots use zero reserve without claiming a measurement.
+		// Effective headroom: measured zero when the whole live tree fits; unprepared uses zero without a measurement.
 		PlacementReserveState placement_reserve_state = RESERVE_ABSENT;
 		bool placement_reserve_measured = false;
 		uint64_t placement_reserve_pages = 0;

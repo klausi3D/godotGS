@@ -22,6 +22,7 @@ public:
 	//    on the route (the quantized record stores all 32 bits since #1413). Was 32,768.
 	static constexpr uint64_t MAX_PAYLOAD = UINT32_MAX;
 	static constexpr uint32_t MAX_NODES = gs_world_paged::kMaxNodes;
+	static constexpr uint32_t DEFAULT_PAGE_SPLATS = 1024;
 	// A deliberate budget: the CPU memory one snapshot (tables, payload, histories, packing scratch) may hold.
 	static constexpr uint64_t CPU_BYTE_LIMIT = uint64_t(1) << 30;
 	// A deliberate budget: the default of the device bytes a WHOLE-TREE (not streamed) HLOD bundle pair may own
@@ -64,8 +65,11 @@ public:
 	// Prepared before publication; immutable readers (including render/streaming threads) never update this cache.
 	// One node is one contiguous atlas allocation. Stale ancestors have no resident payload and are excluded.
 	uint32_t max_node_payload_count = 0;
+	// Exact sum of individually rounded live-node runs, valid only for placement_page_splats.
+	uint64_t placement_node_pages = 0;
+	uint32_t placement_page_splats = 0;
 	bool placement_reserve_prepared = false;
-	void prepare_placement_reserve(); // Call after populating nodes/edit_state, including edit/rebase replacements.
+	void prepare_placement_reserve(uint32_t p_page_splats = DEFAULT_PAGE_SPLATS); // After final nodes/edit_state, including edit/rebase.
 	Vector<Gaussian> parents;
 	Vector<Vector3> parent_sh;
 	// Package E1: a snapshot of a V4 paged world describes the nodes (topology, footprint, DC metrics) from the

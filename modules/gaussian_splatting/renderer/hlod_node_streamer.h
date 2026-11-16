@@ -50,6 +50,7 @@ public:
 	struct Config {
 		uint32_t atlas_pages = 0;
 		static constexpr uint32_t DEFAULT_PAGE_SPLATS = 1024;
+		static_assert(DEFAULT_PAGE_SPLATS == GaussianSplatHlodRuntimeData::DEFAULT_PAGE_SPLATS, "Snapshot placement cache must use the streamer's page geometry.");
 		uint32_t page_splats = DEFAULT_PAGE_SPLATS;
 		bool quantized = false;
 		uint32_t position_bits = 0;

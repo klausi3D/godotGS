@@ -528,11 +528,13 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] placement reserv
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][Edit] placement reserve is refreshed after a growing edit rebase and shrink (#1483)") {
 	TestHlodPageStore::Fixture fixture;
-	if (!fixture.build(false, 1, 256, 0)) { return; }
+	if (!fixture.build(false, 3, 256, 0)) { return; } // Whole tree stays larger than the pressure-test atlas.
 	CHECK(fixture.snapshot->placement_reserve_prepared);
 	CHECK(fixture.snapshot->max_node_payload_count == 256);
+	CHECK(fixture.snapshot->placement_node_pages == 15);
+	CHECK(fixture.snapshot->placement_page_splats == 1024);
 	gs_hlod_runtime::LeafEdit edit;
-	edit.node = 1;
+	edit.node = 7;
 	Vector<Gaussian> samples;
 	if (!fixture.expected_payload(edit.node, samples, edit.sh) || samples.is_empty() ||
 			!gs_resize_or_fail(edit.gaussians, 2049, "reserve growing edit fixture")) {
@@ -546,6 +548,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][Edit] placement reserve i
 	}
 	CHECK(edited->placement_reserve_prepared);
 	CHECK(edited->max_node_payload_count == 2049);
+	CHECK(edited->placement_node_pages == 14); // Three stale ancestors excluded; the grown leaf costs three pages.
 	CHECK(fixture.snapshot->max_node_payload_count == 256);
 	Ref<GaussianSplatHlodRuntimeData> fresh, rebased;
 	if (fixture.world->capture_hlod_runtime_snapshot(fresh, reason) != OK || fresh.is_null() ||
@@ -554,23 +557,25 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][Edit] placement reserve i
 	}
 	CHECK(fresh->placement_reserve_prepared);
 	CHECK(fresh->max_node_payload_count == 256);
+	CHECK(fresh->placement_node_pages == 15);
 	CHECK(rebased->placement_reserve_prepared);
 	CHECK(rebased->max_node_payload_count == 2049);
+	CHECK(rebased->placement_node_pages == 14);
 	gs_hlod_runtime::CutRequest request;
 	request.frustum_enabled = false;
 	request.focal_pixels = 1;
 	request.tau_pixels = 1e9;
 	request.record_budget = 1e9;
 	request.splat_budget = 10000;
-	request.node_budget = 3;
+	request.node_budget = 15;
 	request.page_splats = 1024;
-	request.page_budget = 7; // Live leaves cost 3+1, with three pages of headroom.
+	request.page_budget = 9; // Forced frontier {2,4,7,8} costs 1+1+3+1, with three pages of headroom.
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(15)) { FAIL("cut workspace unavailable"); return; }
 	const auto cut = history.select(*rebased.ptr(), request);
 	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
 	CHECK(cut.placement_reserve_pages == 3);
-	CHECK(cut.demanded_closure_pages == 4);
+	CHECK(cut.demanded_closure_pages == 6);
 	edit.gaussians = samples;
 	Ref<GaussianSplatHlodRuntimeData> shrunk;
 	if (gs_hlod_runtime::make_edited_snapshot(rebased, 1, &edit, 1, shrunk, reason) != gs_hlod_runtime::EditStatus::OK || shrunk.is_null()) {
@@ -578,6 +583,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][Edit] placement reserve i
 	}
 	CHECK(shrunk->placement_reserve_prepared);
 	CHECK(shrunk->max_node_payload_count == 256);
+	CHECK(shrunk->placement_node_pages == 12);
 	CHECK(rebased->max_node_payload_count == 2049);
 	const auto smaller = history.select(*shrunk.ptr(), request);
 	CHECK(smaller.status == gs_hlod_runtime::CutHistory::COMPLETE);
