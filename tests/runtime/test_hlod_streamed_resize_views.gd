@@ -315,6 +315,26 @@ func _run() -> void:
 		return
 	var baseline_refused := int(rows[-1]["refused_views"])
 
+	# #1466: the streamed atlas has no payload at creation (the node streamer pages it in), so creating it must not stage
+	# a host vector of its size. Its world pages are 176 B records here (per_chunk_quantization is 0 above). The tables and
+	# the instance rows do carry a payload, so the staged count is positive: zero would mean the counter is not wired.
+	var bundle_stats := _renderer.get_render_stats()
+	if not _check(bundle_stats.has("hlod_bundle_host_staged_bytes") and bundle_stats.has("hlod_bundle_device_bytes") and bundle_stats.has("hlod_stream_atlas_records"),
+			"Streamed bundle host-staging stats are missing"):
+		return
+	var staged_bytes := int(bundle_stats["hlod_bundle_host_staged_bytes"])
+	var device_bytes := int(bundle_stats["hlod_bundle_device_bytes"])
+	var atlas_bytes := int(bundle_stats["hlod_stream_atlas_records"]) * 176
+	_metrics["bundle_host_staged_bytes"] = staged_bytes
+	_metrics["bundle_device_bytes"] = device_bytes
+	_metrics["bundle_stream_atlas_bytes"] = atlas_bytes
+	if not _check(bool(bundle_stats.get("hlod_streaming", false)) and atlas_bytes > 0 and staged_bytes > 0,
+			"Streamed bundle host-staging sample is not a live streamed bundle (atlas %d B, staged %d B)" % [atlas_bytes, staged_bytes]):
+		return
+	if not _check(staged_bytes + atlas_bytes <= device_bytes,
+			"Streamed atlas was staged from host memory: %d B staged of a %d B bundle whose streamed atlas is %d B" % [staged_bytes, device_bytes, atlas_bytes]):
+		return
+
 	# 1. A held resize (the F1 repro): drawn at a size other than the startup size, and again at the startup size.
 	_set_size(Vector2i(256, 144))
 	rows = await _run_frames(14, 4)

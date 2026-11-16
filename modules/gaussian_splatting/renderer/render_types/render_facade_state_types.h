@@ -60,6 +60,9 @@ struct HlodBundle {
     uint32_t owned_count = 0;
     uint64_t device_id = 0;
     uint64_t bytes = 0;
+    // Host bytes staged while creating owned[] (gs_hlod_bundle::creation_host_staged_bytes): held by the host, transiently,
+    // on top of the device allocation. Diagnostic only; not part of the VRAM ledger.
+    uint64_t host_staged_bytes = 0;
     uint64_t generation = 0;
     bool quantized = false;
     Vector<DrawnNodeGPU> draw_entries;

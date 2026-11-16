@@ -1372,15 +1372,25 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
     // Fail after one real allocation, so rollback must release a partial candidate.
     if (r_bundle.owned_count == 1 && p_renderer->test_hlod_publication_refuses(4)) { return false; }
 #endif
+    // #1466: a buffer without a payload is created empty and zeroed on the device. Building it from a zero-filled host
+    // vector held its size twice on the host (the vector, then RenderingDevice's transfer staging buffer): 1.85 GB for
+    // the 925.6 MB streamed atlas of T0.
+    const uint64_t staged_bytes = gs_hlod_bundle::creation_host_staged_bytes(p_bytes, p_data != nullptr);
     Vector<uint8_t> initial;
-    if (!gs_resize_or_fail(initial, p_bytes, "HLOD candidate upload")) { return false; }
-    if (p_data) { memcpy(initial.ptrw(), p_data, p_bytes); } else { initial.fill(0); }
+    if (staged_bytes != 0) {
+        if (!gs_resize_or_fail(initial, p_bytes, "HLOD candidate upload")) { return false; }
+        if (p_data) { memcpy(initial.ptrw(), p_data, p_bytes); } else { initial.fill(0); }
+    }
     r_rid = p_rd->storage_buffer_create(uint32_t(p_bytes), initial,
             p_indirect ? RD::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT : 0);
     if (!r_rid.is_valid()) { return false; }
     p_renderer->track_resource_owner(r_rid, p_rd);
     r_bundle.owned[r_bundle.owned_count++] = r_rid;
     r_bundle.bytes += p_bytes;
+    r_bundle.host_staged_bytes += staged_bytes;
+    // The buffer is owned before it is cleared: a refused clear leaves undefined content, so the candidate fails and the
+    // caller's rollback releases this buffer with the rest (release_hlod_bundle), like any later failure.
+    if (staged_bytes == 0 && p_rd->buffer_clear(r_rid, 0, uint32_t(p_bytes)) != OK) { return false; }
     return true;
 }
 

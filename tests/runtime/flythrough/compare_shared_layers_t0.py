@@ -55,6 +55,26 @@ SETTINGS = ("camera_path_sha256", "camera_poses", "resolution", "codec", "sh_ban
 FAILURES = ("stale_generation_publications", "nonresident_drawn_nodes", "overflow_events", "drop_events",
             "digest_verification_failures", "hlod_stream_failed_total", "hlod_stream_late_dropped_total")
 BACKPRESSURE = ("reads_refused_busy", "admission_waits")
+# #1466: `admission_waits` is one name for two counters. Reporting policy only: the verdict still
+# requires each route's own count and compares neither against the other.
+ADMISSION_WAIT_SCOPES = {
+    "hlod": ("node-streamer ledger refusals: counted whenever the ledger cannot admit the next node load, which "
+             "ends that admission pass (renderer/hlod_node_streamer.cpp); not comparable with chunk"),
+    "chunk": ("upload-pipeline refusals at the pack in-flight cap only (core/streaming_upload_pipeline.cpp); "
+              "the caller's enqueue-headroom pre-gates stop most blocked frames before this counter, so "
+              "back-pressure can be present at 0; not comparable with hlod"),
+}
+ADMISSION_WAIT_COMPARABILITY = {
+    "status": "not_comparable",
+    "reason": ("hlod counts every admission pass its ledger ends by refusing a node load; chunk counts only refusals that reach "
+               "the upload pipeline's pack in-flight check, behind the caller's enqueue-headroom pre-gates "
+               "(core/gaussian_streaming.cpp, core/streaming_visibility_controller.cpp, "
+               "core/streaming_queue_pressure_controller.cpp). A chunk count of 0 is therefore not absence of "
+               "back-pressure, and no comparable chunk counter is exported."),
+    "scopes": ADMISSION_WAIT_SCOPES,
+}
+#: Points of an arm's RSS timeline printed in the markdown; the JSON keeps every exported point.
+RSS_TIMELINE_MARKDOWN_POINTS = 12
 SATURATION = ("upload_hold_frames",)
 # These are the shipped HLOD Config inputs, not new diagnostic budgets.
 HLOD_CONFIG = {"configured_read_byte_cap": 8 * 1024 * 1024,
@@ -336,6 +356,12 @@ def _route_metrics(arm):
         put("io", key, optional.get(key))
     for key in BACKPRESSURE:
         put("io", key, telemetry.get(key, _dict(obs.get("saturation")).get(key)))
+    # #1466: the two routes count different events under this name. The value stays what each
+    # route measured; the scope says what it is, so the row is not read as chunk < hlod.
+    route = telemetry.get("route")
+    if out["io"]["admission_waits"]["measured"] and route in ADMISSION_WAIT_SCOPES:
+        out["io"]["admission_waits"]["scope"] = ADMISSION_WAIT_SCOPES[route]
+        out["io"]["admission_waits"]["comparable_across_routes"] = False
     for key, source in (("verify_ns", "verify_nsec"), ("decode_span_ns", "decode_nsec"),
                         ("decode_remainder_ns", "decode_remainder_nsec"), ("pack_ns", "pack_nsec"),
                         ("splats", "splats_decoded"), ("pages", "pages_decoded"),
@@ -895,6 +921,8 @@ def compare(experiment: dict) -> dict:
                                    "frame_time": FRAME_TIME_SCOPE},
             "frame_time": _frame_time(arms, migration_arms),
             "overlap_drop_report": _overlap_drop_report(arms),
+            "host_rss": _host_rss(arms),
+            "route_comparability": {"admission_waits": copy.deepcopy(ADMISSION_WAIT_COMPARABILITY)},
             "metrics": {route: _route_metrics(arms.get(route)) for route in ("chunk", "hlod")}}
 
 
@@ -1054,6 +1082,73 @@ def _overlap_drop_lines(report):
             f"{clean(frames.get('raster_cap_frames'))}, their largest per-tile record count "
             f"{clean(peak.get('value')) if peak.get('status') == ps.OK else 'not measured'}.")
     return lines + [""] + summary
+
+
+def _host_rss(arms):
+    """#1466: each arm's RSS peak, where it sits and the timeline. Report-only; absent stays not measured."""
+    out = {}
+    for route in ("chunk", "hlod"):
+        optional = _dict(_dict(arms.get(route)).get("optional_measurements"))
+        timeline = optional.get("os_rss_timeline")
+        out[route] = {
+            "peak_bytes": measurement(optional.get("os_peak_rss_bytes"), "the arm exported no RSS peak"),
+            "peak_location": measurement(optional.get("os_rss_peak_location"), "the arm exported no RSS peak location"),
+            "timeline": (copy.deepcopy(timeline) if _dict(timeline).get("status") == ps.OK
+                         and isinstance(timeline.get("points"), list) and timeline["points"]
+                         else not_measured(str(_dict(timeline).get("reason", "the arm exported no RSS timeline")))),
+        }
+    return out
+
+
+def _host_rss_lines(host_rss):
+    def clean(text):
+        return str(text).replace("|", "/").replace("\n", " ")
+
+    def gib(value):
+        return f"{value / 2 ** 30:.2f} GiB" if _number(value) else "not measured"
+
+    lines = ["", "## Host RSS: peak, where it sits, timeline (#1466)", "",
+             "The peak is the OS high-water mark of the probe process. Its window is the pair of 0.2 s samples "
+             "between which that mark reached its final value, mapped onto the trace through one wall-clock "
+             "reading per process. Timeline points are the largest polled RSS per bucket. Report-only, no threshold.", ""]
+    for route in ("chunk", "hlod"):
+        record = _dict(_dict(host_rss).get(route))
+        peak, location, timeline = (_dict(record.get(key)) for key in ("peak_bytes", "peak_location", "timeline"))
+        lines.append(f"- {route}: peak " + (gib(peak.get("value")) + f" ({peak.get('value')} B)" if peak.get("measured") is True
+                     else "not measured: " + clean(peak.get("reason", "measurement unavailable"))) + ".")
+        if location.get("measured") is not True:
+            lines.append(f"  - peak location not measured: {clean(location.get('reason', 'measurement unavailable'))}.")
+        else:
+            value = _dict(location.get("value"))
+            rows = _dict(value.get("rows"))
+            where = clean(value.get("position"))
+            if rows.get("count"):
+                first, last = _dict(rows.get("first")), _dict(rows.get("last"))
+                where += (f", trace rows {first.get('row')}..{last.get('row')} (phase {first.get('phase')}, pass "
+                          f"{first.get('pass_index')}, segment {first.get('segment')}, "
+                          f"{STATE_NAMES.get(first.get('state'), first.get('state'))})")
+            lines.append(f"  - peak reached {clean(value.get('window_s'))} s after process start "
+                         f"({clean(value.get('window_s_after_apply_world'))} s after apply_world; first trace row at "
+                         f"t_usec {clean(value.get('first_trace_row_t_usec'))}, window t_usec {clean(value.get('window_t_usec'))}): "
+                         f"{where}; source {clean(value.get('peak_source'))}.")
+        if timeline.get("status") != ps.OK:
+            lines.append(f"  - timeline not measured: {clean(timeline.get('reason', 'measurement unavailable'))}.")
+            continue
+        points = timeline["points"]
+        step = max(1, math.ceil(len(points) / RSS_TIMELINE_MARKDOWN_POINTS))
+        shown = [max(points[i:i + step], key=lambda p: p[1]) for i in range(0, len(points), step)]
+        lines.append(f"  - timeline ({len(points)} points in the JSON, {timeline.get('source_samples')} samples; largest of "
+                     f"each {step}): " + ", ".join(f"{p[0]:.1f} s {gib(p[1])}" for p in shown) + ".")
+    return lines
+
+
+def _admission_wait_lines(comparability):
+    record = _dict(_dict(comparability).get("admission_waits"))
+    if not record:
+        return []
+    return ["", "## Admission waits across routes (#1466)", "",
+            f"`io / admission_waits` is {str(record.get('status', 'not measured')).replace('_', ' ')} between chunk and "
+            f"hlod: {record.get('reason', 'no reason recorded')}", ""]
 
 
 def _frame_time(arms, migration_arms):
@@ -1263,6 +1358,8 @@ def render_markdown(report: dict) -> str:
                          "(wall clock, probe work included; see the frame-time table).")
     if "pressure" in report:
         lines += _pressure_lines(report)
+    lines += _admission_wait_lines(report.get("route_comparability"))
+    lines += _host_rss_lines(report.get("host_rss"))
     lines += _frame_time_lines(report.get("frame_time"))
     lines += _overlap_drop_lines(report.get("overlap_drop_report"))
     return "\n".join(lines)
