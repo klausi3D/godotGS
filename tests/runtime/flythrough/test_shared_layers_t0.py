@@ -761,15 +761,39 @@ class PressureVariant(unittest.TestCase):
         self.assertEqual(shared.rp.TUNED_SETTINGS["rendering/gaussian_splatting/compression/per_chunk_quantization"], 0)
 
     def test_tree_pages_are_counted_from_the_v4_node_directory(self):
-        # Constructed directory (same layout corrupt_copy and verify_v4 read), not a writer fixture.
+        # Constructed directory (the offsets corrupt_copy and verify_v4 read), NOT a V4 writer
+        # fixture: it shares the parser's layout assumption and proves only the arithmetic and
+        # the refusals. No engine binary exists in this lane to capture a real tree, so the
+        # assumption itself is checked where a real tree exists: on every run, against the
+        # producer's sidecar totals (the mismatch cases below), and by the comparison, which
+        # requires the native atlas capacity to land inside the band this count defines.
         corpus = bytearray(4096 + 65536)
         struct.pack_into("<II", corpus, 0, 0x57505347, 4)
         struct.pack_into("<I", corpus, 40, 3)
         for index, splats in enumerate((1, 1024, 1025)):
             struct.pack_into("<QI", corpus, 4096 + 64 + index * 256 + 88, 0, splats)
         tree = self.tmp / "tree.gsplatworld"
+        sidecar = tree.with_suffix(".manifest.json")
+
+        def totals(nodes=3, leaves=1025, interiors=1025):
+            sidecar.write_text(json.dumps({"totals": {"node_count": nodes, "leaf_splat_count": leaves,
+                                                      "interior_splat_count": interiors}}), encoding="utf-8")
         tree.write_bytes(corpus)
+        totals()
         self.assertEqual(shared.tree_page_count(tree), 1 + 1 + 2)
+        # A directory read that disagrees with the producer's totals is refused, never used.
+        for wrong in ({"nodes": 4}, {"leaves": 1024}, {"interiors": 0}):
+            with self.subTest(wrong=wrong):
+                totals(**wrong)
+                with self.assertRaises(ValueError):
+                    shared.tree_page_count(tree)
+        for text in ("{}", json.dumps({"totals": {"node_count": 3}}),
+                     json.dumps({"totals": {"node_count": 3, "leaf_splat_count": None, "interior_splat_count": 2050}})):
+            with self.subTest(sidecar=text):
+                sidecar.write_text(text, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    shared.tree_page_count(tree)
+        totals()
         struct.pack_into("<QI", corpus, 4096 + 64 + 256 + 88, 0, 0)
         tree.write_bytes(corpus)
         with self.assertRaises(ValueError):

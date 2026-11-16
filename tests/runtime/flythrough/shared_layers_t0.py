@@ -470,8 +470,17 @@ def tree_page_count(tree: Path) -> int:
     """Atlas pages the whole V4 tree needs: every node's splats rounded up to pages.
 
     Read from the file's node directory (the layout corrupt_copy and verify_v4 read), so the
-    pressure cap's denominator is independent of anything the runtime reports."""
-    pages = 0
+    pressure cap's denominator is independent of anything the runtime reports.
+
+    The directory offsets are this harness's assumption about the writer. They are checked on
+    every run against the producer's own sidecar totals (node count and leaf + interior splat
+    count): a wrong offset fails closed here instead of producing a wrong cap."""
+    totals = read_json(tree.with_suffix(".manifest.json")).get("totals")
+    expected = [totals.get(key) for key in ("node_count", "leaf_splat_count", "interior_splat_count")] \
+        if isinstance(totals, dict) else []
+    if len(expected) != 3 or any(type(value) not in (int, float) or value != int(value) or value < 0 for value in expected):
+        raise ValueError("pressure variant: the tree sidecar carries no producer totals to check the directory against")
+    pages = splat_sum = 0
     with tree.open("rb") as stream:
         header = stream.read(4096)
         if len(header) != 4096 or struct.unpack_from("<II", header) != (0x57505347, 4):
@@ -487,7 +496,11 @@ def tree_page_count(tree: Path) -> int:
             splats = struct.unpack("<QI", entry)[1]
             if splats <= 0:
                 raise ValueError(f"pressure variant: V4 node {index} has no payload")
+            splat_sum += splats
             pages += (splats + PRESSURE_PAGE_SPLATS - 1) // PRESSURE_PAGE_SPLATS
+    if node_count != expected[0] or splat_sum != expected[1] + expected[2]:
+        raise ValueError(f"pressure variant: V4 directory read ({node_count} nodes, {splat_sum} splats) differs from the "
+                         f"producer sidecar totals ({expected[0]} nodes, {expected[1] + expected[2]} splats)")
     return pages
 
 
