@@ -66,7 +66,7 @@ func _camera_path_sha256(segments) -> String:
 
 
 const TRACE_MAGIC := "GSBV7TR1"
-const TRACE_SCHEMA := "godotgs-bv07-probe-trace/1"
+const TRACE_SCHEMA := "godotgs-bv07-probe-trace/2"
 const RESULT_SCHEMA := "godotgs-bv07-probe-result/1"
 
 const PASS_NAMES := ["cull", "projection", "presort", "overlap_count", "prefix", "binning",
@@ -97,8 +97,45 @@ const SHARED_LAYER_FIELDS := [
 	["hlod_stream_desired_nodes", "q"], ["hlod_stream_resident_nodes", "q"],
 	["hlod_stream_loading_nodes", "q"], ["hlod_stream_drawn_nodes", "q"],
 	["hlod_stream_failed_nodes", "q"], ["hlod_stream_nonresident_drawn", "q"],
-	["hlod_stream_blocked_groups", "q"], ["hlod_stream_fragmented_groups", "q"],
+	["hlod_stream_blocked_groups", "q"],
 	["hlod_stream_uploaded_bytes_this_frame", "q"], ["hlod_stream_uploaded_bytes_total", "q"],
+]
+
+# #1483: report-only pressure diagnostics. Every absent native observation is -1
+# in the trace and null in checkpoint snapshots, including on older binaries.
+# Cumulative *_total fields also get endpoint deltas across the existing settle
+# window. Victim events are bounded natively and copied only into checkpoints.
+const HLOD_PRESSURE_FIELDS := [
+	["hlod_stream_pressure_measured", "q"], ["hlod_stream_skipped_groups_total", "q"],
+	["hlod_stream_pressure_epoch", "q"], ["hlod_stream_frames", "q"],
+	["hlod_stream_fragmented_groups", "q"], ["hlod_stream_pages_capacity", "q"],
+	["hlod_stream_pages_free", "q"], ["hlod_stream_largest_free_run", "q"],
+	["hlod_stream_evicted_total", "q"], ["hlod_stream_stall_frames", "q"],
+	["hlod_stream_pages_in_flight", "q"], ["hlod_stream_pages_retiring", "q"],
+	["hlod_stream_requested_this_frame", "q"],
+	["hlod_stream_allocation_refused_total", "q"], ["hlod_stream_allocation_no_contiguous_run_total", "q"],
+	["hlod_stream_allocation_protected_capacity_total", "q"], ["hlod_stream_allocation_over_page_budget_total", "q"],
+	["hlod_stream_allocation_pending_retire_total", "q"], ["hlod_stream_allocation_eviction_limit_total", "q"],
+	["hlod_stream_allocation_other_total", "q"],
+	["hlod_stream_closure_measured", "q"], ["hlod_stream_demanded_closure_pages", "q"],
+	["hlod_stream_bootstrap_bypass_pages", "q"], ["hlod_stream_resident_refinement_bypass_pages", "q"],
+	["hlod_stream_bootstrap_bypass_over_budget", "q"], ["hlod_stream_resident_refinement_bypass_over_budget", "q"],
+	["hlod_stream_page_budget", "q"],
+	["hlod_stream_page_refused_groups", "q"], ["hlod_stream_page_refused_groups_total", "q"],
+	["hlod_stream_evicted_in_cut_total", "q"], ["hlod_stream_evicted_in_transition_total", "q"],
+	["hlod_stream_evicted_neither_total", "q"], ["hlod_stream_eviction_events_dropped_total", "q"],
+	["hlod_stream_eviction_events_truncated_total", "q"],
+	["hlod_stream_gate_measured", "q"], ["hlod_stream_refusing_gate", "q"],
+	["hlod_stream_loading_count", "q"], ["hlod_stream_pending_count", "q"], ["hlod_stream_ready_count", "q"],
+	["hlod_stream_live_reservations", "q"], ["hlod_stream_oversized_reservation_bytes", "q"],
+	["hlod_stream_oversized_latch", "q"], ["hlod_stream_oversized_wait_live", "q"],
+	["hlod_stream_cancelled_running_jobs_measured", "q"], ["hlod_stream_cancelled_running_jobs", "q"],
+	["hlod_stream_gate_none_frames_total", "q"], ["hlod_stream_gate_allocation_refused_frames_total", "q"],
+	["hlod_stream_gate_oversized_latch_frames_total", "q"], ["hlod_stream_gate_transport_budget_frames_total", "q"],
+	["hlod_stream_gate_oversized_wait_live_frames_total", "q"], ["hlod_stream_gate_retained_budget_frames_total", "q"],
+	["hlod_stream_gate_worker_permit_frames_total", "q"],
+	["hlod_stream_gate_metadata_clear_frames_total", "q"], ["hlod_stream_gate_request_budget_frames_total", "q"],
+	["hlod_stream_gate_failed_dependency_frames_total", "q"],
 ]
 
 # #1445: who spent the wall-clock interval that ENDS at this row (t_usec minus the previous row's
@@ -144,6 +181,18 @@ var _plan: Dictionary = {}
 var _result: Dictionary = {}
 var _trace: FileAccess
 var _rows := 0
+# The native event export contains this stream frame only. Keep a bounded probe
+# history between checkpoints; sequence gaps and overwritten entries are explicit.
+const HLOD_PRESSURE_VICTIM_LIMIT := 4096
+var _hlod_pressure_victims := []
+var _hlod_pressure_victim_next := 0
+var _hlod_pressure_victim_count := 0
+var _hlod_pressure_victim_last_sequence := 0
+var _hlod_pressure_victim_dropped := 0
+var _hlod_pressure_victim_sequence_gaps := 0
+var _hlod_pressure_victim_epoch := -1
+var _hlod_pressure_victim_epoch_resets := 0
+var _hlod_pressure_victim_epoch_discarded := 0
 # #1457/#1461: the sampled frames that lost overlap records, read from get_render_stats() (the
 # renderer's always-on drop readback; the probe issues none). Kept beside the binary trace, whose
 # schema does not change. "not_measured" while the renderer does not publish the counter.
@@ -359,6 +408,102 @@ func _g(d: Dictionary, k: String, fallback = 0):
 	return d.get(k, fallback) if d.has(k) and d[k] != null else fallback
 
 
+func _sample_hlod_pressure_victims(stats: Dictionary) -> void:
+	var epoch := int(_g(stats, "hlod_stream_pressure_epoch", -1))
+	if epoch <= 0:
+		return # Native sequence identity is unavailable; do not mix reset histories.
+	if epoch != _hlod_pressure_victim_epoch:
+		if _hlod_pressure_victim_epoch >= 0:
+			_hlod_pressure_victim_epoch_resets += 1
+			_hlod_pressure_victim_epoch_discarded += _hlod_pressure_victim_count
+		_hlod_pressure_victim_epoch = epoch
+		_hlod_pressure_victim_next = 0
+		_hlod_pressure_victim_count = 0
+		_hlod_pressure_victim_last_sequence = 0
+		_hlod_pressure_victim_sequence_gaps = 0
+	var events = stats.get("hlod_stream_eviction_events")
+	if not (events is Array):
+		return
+	if _hlod_pressure_victims.is_empty():
+		_hlod_pressure_victims.resize(HLOD_PRESSURE_VICTIM_LIMIT)
+	for event in events:
+		if not (event is Dictionary and event.has("sequence")):
+			continue
+		var sequence := int(event["sequence"])
+		if sequence <= _hlod_pressure_victim_last_sequence:
+			continue # Render stats can repeat the same native stream frame.
+		_hlod_pressure_victim_sequence_gaps += sequence - _hlod_pressure_victim_last_sequence - 1
+		_hlod_pressure_victim_last_sequence = sequence
+		if _hlod_pressure_victim_count == HLOD_PRESSURE_VICTIM_LIMIT:
+			_hlod_pressure_victim_dropped += 1
+		else:
+			_hlod_pressure_victim_count += 1
+		_hlod_pressure_victims[_hlod_pressure_victim_next] = event
+		_hlod_pressure_victim_next = (_hlod_pressure_victim_next + 1) % HLOD_PRESSURE_VICTIM_LIMIT
+
+
+func _hlod_pressure_snapshot() -> Dictionary:
+	var values := {}
+	var unavailable := []
+	for field in HLOD_PRESSURE_FIELDS:
+		var key: String = field[0]
+		var value = _last_stats.get(key)
+		if value == null or int(value) < 0:
+			values[key] = null
+			unavailable.append(key)
+		else:
+			values[key] = int(value)
+	return {"row": _rows - 1, "frame": _last_stats.get("render_frame_counter"),
+			"epoch": _last_stats.get("hlod_stream_pressure_epoch"),
+			"measured": int(_g(_last_stats, "hlod_stream_pressure_measured", -1)) == 1 \
+					or int(_g(_last_stats, "hlod_stream_closure_measured", -1)) == 1 \
+					or int(_g(_last_stats, "hlod_stream_gate_measured", -1)) == 1,
+			"complete": unavailable.is_empty(), "values": values, "unmeasured_fields": unavailable}
+
+
+func _hlod_pressure_settle_window(first: Dictionary) -> Dictionary:
+	var last := _hlod_pressure_snapshot()
+	var same_epoch: bool = bool(first.get("epoch") != null and int(first.get("epoch")) > 0 \
+			and first.get("epoch") == last.get("epoch"))
+	var deltas := {}
+	for field in HLOD_PRESSURE_FIELDS:
+		var key: String = field[0]
+		if not key.ends_with("_total"):
+			continue
+		var before = first.get("values", {}).get(key)
+		var after = last["values"].get(key)
+		var measured: bool = bool(same_epoch and before != null and after != null and int(after) >= int(before))
+		deltas[key] = {"measured": measured, "value": int(after) - int(before) if measured else null}
+		if not measured:
+			deltas[key]["reason"] = "native epoch unavailable or changed, or counter absent/decreased at an endpoint"
+	return {"report_only": true, "scope": "initial and final native snapshots of the existing settle window",
+			"start": first, "end": last, "counter_deltas": deltas}
+
+
+func _hlod_pressure_checkpoint(settle: Dictionary) -> Dictionary:
+	var measured := _last_stats.has("hlod_stream_eviction_events") \
+			and int(_g(_last_stats, "hlod_stream_pressure_measured", -1)) == 1 \
+			and _hlod_pressure_victim_epoch >= 0 \
+			and int(_g(_last_stats, "hlod_stream_pressure_epoch", -1)) == _hlod_pressure_victim_epoch
+	var native_evictions = _last_stats.get("hlod_stream_evicted_total")
+	var sequence_gaps = _hlod_pressure_victim_sequence_gaps \
+			+ max(0, int(native_evictions) - _hlod_pressure_victim_last_sequence) if native_evictions != null else null
+	var events := []
+	var first := (_hlod_pressure_victim_next - _hlod_pressure_victim_count + HLOD_PRESSURE_VICTIM_LIMIT) % HLOD_PRESSURE_VICTIM_LIMIT
+	for offset in range(_hlod_pressure_victim_count):
+		events.append(_hlod_pressure_victims[(first + offset) % HLOD_PRESSURE_VICTIM_LIMIT].duplicate(true))
+	return {"report_only": true, "snapshot": _hlod_pressure_snapshot(),
+			"settle_window": settle.get("hlod_pressure", {"measured": false, "reason": "no pressure settle snapshots"}),
+			"eviction_victims": {"measured": measured, "events": events if measured else null,
+					"epoch": _hlod_pressure_victim_epoch if measured else null,
+					"epoch_resets_total": _hlod_pressure_victim_epoch_resets,
+					"epoch_discarded_count": _hlod_pressure_victim_epoch_discarded,
+					"capacity": HLOD_PRESSURE_VICTIM_LIMIT, "dropped_count": _hlod_pressure_victim_dropped if measured else null,
+					"sequence_gaps_total": sequence_gaps if measured else null,
+					"class_names": ["in_cut", "in_transition", "neither"],
+					"scope": "last observed native events; frame is the native streamer frame, sequence gaps count unobserved events"}}
+
+
 # #1457/#1461: record the renderer's latest sampled dropping frame whenever its counter advanced.
 # The renderer keeps only the latest one, so frames it sampled between two probe rows are
 # counted in events_not_recorded, never described by a neighbour. observed_* is this row's
@@ -396,6 +541,7 @@ func _sample_and_write() -> void:
 	_last_streaming = ss
 	_sample_drop_frames(stats)
 	if bool(_plan.get("shared_layers_t0", false)):
+		_sample_hlod_pressure_victims(stats)
 		# Actual current node/camera/project policy for every trace row, including
 		# HLOD where chunk regulator revision fields do not exist.
 		var policy_readback := {}
@@ -469,6 +615,8 @@ func _sample_and_write() -> void:
 	values.append_array(_frame_breakdown_values(t_usec, stats))
 	if bool(_plan.get("shared_layers_t0", false)):
 		for f in SHARED_LAYER_FIELDS:
+			values.append(int(_g(stats, f[0], -1)))
+		for f in HLOD_PRESSURE_FIELDS:
 			values.append(int(_g(stats, f[0], -1)))
 	for i in range(FIELDS.size()):
 		if FIELDS[i][1] == "q":
@@ -772,6 +920,7 @@ func _pump_settle(deadline_s: float, window: String = "") -> Dictionary:
 	var streak_digest = null
 	var progress_samples := []
 	var capture_progress := bool(_plan.get("shared_layers_t0", false))
+	var pressure_start := _hlod_pressure_snapshot() if capture_progress else {}
 	if capture_progress:
 		progress_samples.append(_shared_layers_progress_snapshot())
 	while true:
@@ -787,6 +936,7 @@ func _pump_settle(deadline_s: float, window: String = "") -> Dictionary:
 					"streak_first_frame": streak_first_frame, "streak_digest": streak_digest}
 			if capture_progress:
 				missed["forward_progress"] = _shared_layers_progress_result(progress_samples, start, now, deadline_s, window, true)
+				missed["hlod_pressure"] = _hlod_pressure_settle_window(pressure_start)
 			return missed
 		if _settled():
 			if streak == 0 or not _settle_digest_is_stable(_last_stats, streak_digest):
@@ -802,6 +952,7 @@ func _pump_settle(deadline_s: float, window: String = "") -> Dictionary:
 						"streak_first_frame": streak_first_frame, "streak_digest": streak_digest}
 				if capture_progress:
 					settled["forward_progress"] = _shared_layers_progress_result(progress_samples, start, now, deadline_s, window, false)
+					settled["hlod_pressure"] = _hlod_pressure_settle_window(pressure_start)
 				return settled
 		else:
 			streak = 0
@@ -882,6 +1033,7 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"hlod_cut_first_cap_refused_node": _last_stats.get("hlod_cut_first_cap_refused_node"),
 		"hlod_cut_residency_missed": _last_stats.get("hlod_cut_residency_missed"),
 		"hlod_cut_residency_missed_demanded": _last_stats.get("hlod_cut_residency_missed_demanded"),
+		"hlod_pressure": _hlod_pressure_checkpoint(settle),
 	}
 
 
@@ -1101,6 +1253,7 @@ func _run() -> void:
 	_plan = parsed
 	if bool(_plan.get("shared_layers_t0", false)):
 		FIELDS += SHARED_LAYER_FIELDS
+		FIELDS += HLOD_PRESSURE_FIELDS
 	_result = {"schema": RESULT_SCHEMA, "mode": _plan.get("mode"), "plan": plan_path,
 			"start_usec": Time.get_ticks_usec(), "start_unix_s": Time.get_unix_time_from_system(), "adapter": RenderingServer.get_video_adapter_name(),
 			"adapter_vendor": RenderingServer.get_video_adapter_vendor(),

@@ -109,6 +109,20 @@ public:
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
+		// Report-only pressure observations, reset with the residency table. Each finally skipped allocation
+		// group increments refused and exactly one reason; failed/retry-blocked and request-capped groups do not.
+		bool pressure_measured = false;
+		uint64_t allocation_refused_total = 0;
+		uint64_t allocation_no_contiguous_run_total = 0;
+		uint64_t allocation_protected_capacity_total = 0;
+		uint64_t allocation_over_page_budget_total = 0;
+		uint64_t allocation_pending_retire_total = 0;
+		uint64_t allocation_eviction_limit_total = 0;
+		uint64_t allocation_other_total = 0;
+		uint64_t evicted_in_cut_total = 0;
+		uint64_t evicted_in_transition_total = 0;
+		uint64_t evicted_neither_total = 0;
+		uint64_t eviction_events_dropped_total = 0; // Oldest events overwritten by the bounded report ring.
 		// Package F1.
 		bool edit_staged = false;
 		bool edit_waiting_for_space = false; // Admitted, but the shadow runs are not allocated yet (pages retiring or to be freed).
@@ -119,6 +133,19 @@ public:
 		uint64_t edits_rejected_total = 0;
 		uint64_t committed_edit_revision = 0;
 	};
+
+	enum EvictionClass : uint8_t {
+		EVICTION_IN_CUT = 0,
+		EVICTION_IN_TRANSITION,
+		EVICTION_NEITHER,
+	};
+	struct EvictionEvent {
+		uint64_t sequence = 0; // Monotonic within one reset(), starting at 1.
+		uint64_t frame = 0;
+		uint32_t node = UINT32_MAX;
+		EvictionClass classification = EVICTION_NEITHER;
+	};
+	static constexpr uint32_t EVICTION_EVENT_CAPACITY = 4096;
 
 	enum EditResult : uint8_t {
 		EDIT_OK = 0,
@@ -157,6 +184,14 @@ public:
 	// view per frame, after its selection.
 	void protect_drawn(const uint32_t *p_nodes, uint32_t p_count);
 	bool is_protected(uint32_t p_node) const;
+	// Report-only: marks parents of currently missing demanded children, so resident siblings can be
+	// classified before ANY group is processed. Does not protect nodes or alter admission/eviction policy.
+	// request() calls this automatically; the owner may call it before advance_edit() as well.
+	void observe_demand(const uint32_t *p_demand, uint32_t p_count);
+	uint32_t eviction_event_count() const { return eviction_events_count; }
+	// Chronological retained ring, oldest first. Like all residency state, owner-thread only; renderer
+	// cross-thread snapshots must use the streamer's established mutex.
+	bool eviction_event(uint32_t p_index, EvictionEvent &r_event) const;
 
 	// Demand (Desired(view)) in priority order, children of one parent consecutive. Each parent's missing
 	// children are admitted as one whole transition: every run is allocated or none is. A group that does not
@@ -252,6 +287,9 @@ private:
 		uint64_t last_drawn_frame = 0;
 		uint64_t last_demand_frame = 0;
 		uint64_t protected_frame = UINT64_MAX; // == current_frame while protected.
+		// Observational marks only: never read by protection, selection, allocation or admission decisions.
+		uint64_t observed_cut_frame = UINT64_MAX;
+		uint64_t observed_transition_frame = UINT64_MAX; // This parent has a missing demanded child.
 		uint64_t retry_after_frame = 0;
 		uint64_t demand_pass = 0; // request() pass that last listed this node (duplicate demand is one demand).
 		uint32_t failures = 0;
@@ -287,6 +325,10 @@ private:
 	uint32_t evictions_this_frame = 0;
 	uint32_t pages_retiring = 0;
 	Stats totals;
+	LocalVector<EvictionEvent> eviction_events; // Sized once by reset(), never grown on the frame path.
+	uint32_t eviction_events_next = 0, eviction_events_count = 0;
+	void record_eviction(uint32_t p_node);
+	void record_allocation_refusal(uint32_t p_pages, uint32_t p_exclude_parent);
 	// Package F1: the staged edit.
 	bool edit_staged = false;
 	uint64_t staged_revision = 0;

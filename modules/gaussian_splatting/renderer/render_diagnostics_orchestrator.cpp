@@ -1626,6 +1626,42 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_stall_frames"] = t.stall_frames;
         stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;
         stats["hlod_stream_fragmented_groups"] = t.fragmented_groups_this_frame;
+        // Step 0 pressure observations are report-only. Keep a missing sample
+        // distinct from a measured zero, including before the first update.
+        stats["hlod_stream_pressure_measured"] = t.pressure_measured;
+        stats["hlod_stream_pressure_epoch"] = t.pressure_measured ? int64_t(t.pressure_epoch) : -1;
+        stats["hlod_stream_pages_free"] = t.pressure_measured ? int64_t(t.pages_free) : -1;
+        stats["hlod_stream_largest_free_run"] = t.pressure_measured ? int64_t(t.largest_free_run) : -1;
+        stats["hlod_stream_allocation_refused_total"] = t.pressure_measured ? int64_t(t.allocation_refused_total) : -1;
+        stats["hlod_stream_allocation_no_contiguous_run_total"] = t.pressure_measured ? int64_t(t.allocation_no_contiguous_run_total) : -1;
+        stats["hlod_stream_allocation_protected_capacity_total"] = t.pressure_measured ? int64_t(t.allocation_protected_capacity_total) : -1;
+        stats["hlod_stream_allocation_over_page_budget_total"] = t.pressure_measured ? int64_t(t.allocation_over_page_budget_total) : -1;
+        stats["hlod_stream_allocation_pending_retire_total"] = t.pressure_measured ? int64_t(t.allocation_pending_retire_total) : -1;
+        stats["hlod_stream_allocation_eviction_limit_total"] = t.pressure_measured ? int64_t(t.allocation_eviction_limit_total) : -1;
+        stats["hlod_stream_allocation_other_total"] = t.pressure_measured ? int64_t(t.allocation_other_total) : -1;
+        stats["hlod_stream_evicted_in_cut_total"] = t.pressure_measured ? int64_t(t.evicted_in_cut_total) : -1;
+        stats["hlod_stream_evicted_in_transition_total"] = t.pressure_measured ? int64_t(t.evicted_in_transition_total) : -1;
+        stats["hlod_stream_evicted_neither_total"] = t.pressure_measured ? int64_t(t.evicted_neither_total) : -1;
+        stats["hlod_stream_eviction_events_dropped_total"] = t.pressure_measured ? int64_t(t.eviction_events_dropped_total) : -1;
+        stats["hlod_stream_eviction_events_truncated_total"] = t.pressure_measured ? int64_t(t.eviction_events_truncated_total) : -1;
+        stats["hlod_stream_eviction_events"] = resource_state.hlod_streamer->get_pressure_eviction_events();
+        stats["hlod_stream_gate_measured"] = t.gate_measured;
+        stats["hlod_stream_pending_count"] = t.gate_measured ? int64_t(t.pending_count) : -1;
+        stats["hlod_stream_ready_count"] = t.gate_measured ? int64_t(t.ready_count) : -1;
+        stats["hlod_stream_loading_count"] = t.gate_measured ? int64_t(t.loading) : -1;
+        stats["hlod_stream_live_reservations"] = t.gate_measured ? int64_t(t.live_reservations) : -1;
+        stats["hlod_stream_oversized_reservation_bytes"] = t.gate_measured ? int64_t(t.oversized_reservation_bytes) : -1;
+        stats["hlod_stream_oversized_latch"] = t.gate_measured ? int64_t(t.oversized_latch) : -1;
+        stats["hlod_stream_oversized_wait_live"] = t.gate_measured ? int64_t(t.oversized_wait_live) : -1;
+        stats["hlod_stream_cancelled_running_jobs_measured"] = t.cancelled_running_jobs_measured;
+        stats["hlod_stream_cancelled_running_jobs"] = -1; // Worker TaskIDs carry no cancellation state.
+        stats["hlod_stream_refusing_gate"] = t.gate_measured ? int64_t(t.refusing_gate) : -1;
+        const char *gate_names[] = { "none", "allocation_refused", "oversized_latch", "transport_budget",
+            "oversized_wait_live", "retained_budget", "worker_permit", "metadata_clear", "request_budget", "failed_dependency" };
+        static_assert(sizeof(gate_names) / sizeof(gate_names[0]) == HlodNodeStreamer::REFUSING_GATE_COUNT, "Every refusing gate needs a report name");
+        for (uint32_t gate = 0; gate < HlodNodeStreamer::REFUSING_GATE_COUNT; ++gate) {
+            stats[String("hlod_stream_gate_") + gate_names[gate] + "_frames_total"] = t.gate_measured ? int64_t(t.gate_frames_total[gate]) : -1;
+        }
         // Package E1: V4 paged package reads (0 for a resident snapshot).
         stats["hlod_stream_paged"] = resource_state.hlod_snapshot.is_valid() && resource_state.hlod_snapshot->is_paged();
         stats["hlod_stream_payload_reads_total"] = int64_t(t.payload_reads_total);

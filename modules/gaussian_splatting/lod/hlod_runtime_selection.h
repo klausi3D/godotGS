@@ -32,11 +32,9 @@ struct CutRequest {
 	// the node index as the tie-break (the pre-existing behaviour).
 	const uint32_t *tie_rank = nullptr;
 	uint32_t tie_rank_count = 0;
-	// Page plan for the residency demand (ADR 6.6): when page_splats != 0, a node occupies ceil(payload / page)
-	// atlas pages and the demand is only issued for a transition whose pages fit page_budget together with the
-	// pages of everything that stays resident - the cut and every ancestor of it. The cut itself is still
-	// decided by the splat/node/record caps; this only keeps the streamer from being asked for runs the atlas
-	// cannot hold.
+	// Page admission for the cut and residency demand (ADR 6.6): when page_splats != 0, a node occupies
+	// ceil(payload / page) atlas pages. Every transition must fit page_budget together with the cut, every
+	// ancestor of it, and already demanded transitions. Parents stay charged during parent/child overlap.
 	uint32_t page_splats = 0;
 	uint64_t page_budget = 0;
 };
@@ -63,7 +61,7 @@ public:
 		uint32_t visited_nodes = 0;
 		uint64_t selected_splats = 0;
 		double estimated_records = 0.0;
-		bool budget_bound = false;
+		bool budget_bound = false; // Existing splat/node/record selection caps only; pages use page_refused_groups.
 		// #1472: the record estimate of the largest step the RECORD cap alone refused (0: it refused none): a refinement
 		// or a residency demand whose splats, nodes and pages fit, or the cheapest bootstrap frontier (the root included)
 		// that fits every other cap. The overlap storage is the record budget, so this is what a storage sized below the view's demand
@@ -77,11 +75,22 @@ public:
 		int32_t first_cap_refused_node = -1;
 		uint32_t hysteresis_held_count = 0;
 		uint32_t residency_missed_count = 0;
+		// Report-only union of the current cut, its ancestors, and every visible child of an
+		// issued transition (including resident siblings). Parents remain charged during overlap.
+		// These fields never participate in selection or admission. page_splats == 0 is unmeasured.
+		bool closure_measured = false;
+		uint64_t demanded_closure_pages = 0;
+		uint64_t page_budget = 0;
+		uint64_t bootstrap_bypass_pages = 0;
+		uint64_t resident_refinement_bypass_pages = 0;
+		bool bootstrap_bypass_over_budget = false;
+		bool resident_refinement_bypass_over_budget = false;
+		uint32_t page_refused_groups = 0; // Ready or missing child groups whose page-cap predicate failed (root included).
 	};
 	enum DiagnosticFlag : uint8_t { HYSTERESIS_HELD = 1, RESIDENCY_MISSED = 2, MISS_DEMANDED = 4 };
 	// Per-node flags, valid until the next select/invalidate/reserve. HYSTERESIS_HELD means an
 	// ordinary transition actually taken solely in the history band, never a bootstrap expansion.
-	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node]; }
+	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node] & (HYSTERESIS_HELD | RESIDENCY_MISSED | MISS_DEMANDED); }
 	bool reserve(uint32_t p_nodes);
 	void invalidate();
 	// Desired(view) (ADR 14.1), ordered by the selector's own refinement priority (highest first): the
@@ -102,18 +111,22 @@ public:
 	Result select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request);
 	uint32_t selected_node(uint32_t p_index) const { return selected[p_index]; }
 	uint64_t allocated_bytes() const;
-	// Selection workspace charge (CowData-rounded); 0 if the count overflows. Report-only
-	// diagnostic scratch is excluded to preserve admission policy; allocated_bytes() includes it.
+	// Selection workspace charge (CowData-rounded); 0 if the count overflows. The existing diagnostic
+	// byte (also holding the page-plan bit) stays excluded to preserve the charge; allocated_bytes() includes it.
 	static uint64_t workspace_bytes(uint32_t p_nodes);
 
 private:
+	// Spare bits in already admitted diagnostic scratch; no additional allocation or admission charge.
+	enum PageDiagnosticFlag : uint8_t { PAGE_ACCOUNTED = 8, BOOTSTRAP_PAGE_ACCOUNTED = 16, RESIDENT_PAGE_ACCOUNTED = 32 };
+	// Separate policy bit in the same preallocated byte: an emitted group's pages are reserved exactly once.
+	enum PagePlanFlag : uint8_t { TRANSITION_PLANNED = 64 };
 	struct Candidate { uint32_t node = 0; uint32_t tie = 0; double priority = 0.0; };
 	Vector<Candidate> heap;
 	Vector<uint32_t> selected;
 	Vector<uint32_t> selected_position;
 	Vector<uint64_t> refined;
 	Vector<uint32_t> demand;
-	Vector<uint8_t> diagnostics; // Preallocated; cleared per selection, never consulted by selection.
+	Vector<uint8_t> diagnostics; // Preallocated; cleared per selection. Only TRANSITION_PLANNED participates in admission.
 	uint32_t demand_size = 0;
 	uint32_t partial_size = 0;
 	uint64_t epoch = 0;

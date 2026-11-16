@@ -586,6 +586,7 @@ def summarise_path(trace: ps.Trace, run: dict, path: dict, groundtruth: dict, pa
     out["overlap_drop_frames"] = ps.drop_frame_summary(result.get("overlap_drop_frames"))
     out["checkpoint_evidence"] = ps.checkpoint_evidence_summary(
         [cp for measured_pass in out["passes"] for cp in measured_pass["checkpoints"]])
+    out["hlod_pressure"] = ps.hlod_pressure_summary(result.get("checkpoints"), trace)
     out["static_sort_cache"] = copy.deepcopy(result.get("static_sort_cache"))
     return out
 

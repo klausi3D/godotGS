@@ -390,6 +390,159 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] the protected closure prevents e
 	CHECK(sim.res.is_protected(13));
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][Residency] pressure telemetry distinguishes measured zero, fullness and fragmentation") {
+	{
+		Sim sim;
+		CHECK_FALSE(sim.res.stats().pressure_measured);
+		if (!one_page_tree(sim, 16)) { FAIL("residency setup failed"); return; }
+		if (!make_resident_at(sim.res, 0, 1)) { FAIL("could not make root resident"); return; }
+		sim.res.begin_frame(2);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t demand[2] = { 1, 2 };
+		const auto result = sim.res.request(demand, 2, tickets);
+		CHECK(result.requested == 2);
+		const auto stats = sim.res.stats();
+		CHECK(stats.pressure_measured);
+		CHECK(stats.allocation_refused_total == 0);
+		CHECK(stats.allocation_no_contiguous_run_total == 0);
+		CHECK(stats.allocation_protected_capacity_total == 0);
+		CHECK(stats.pages_free == 13);
+		CHECK(stats.largest_free_run == 13);
+	}
+	{
+		Sim sim;
+		if (!one_page_tree(sim, 4)) { FAIL("residency setup failed"); return; }
+		for (uint32_t n : { 0u, 1u, 3u, 7u }) {
+			if (!make_resident_at(sim.res, n, 5)) { FAIL("could not fill the atlas"); return; }
+		}
+		sim.res.begin_frame(20);
+		const uint32_t drawn[1] = { 7 };
+		sim.res.protect_drawn(drawn, 1);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t demand[2] = { 13, 14 };
+		const auto result = sim.res.request(demand, 2, tickets);
+		CHECK(result.skipped_groups == 1);
+		CHECK(result.evicted == 0);
+		CHECK(tickets.size() == 0);
+		const auto stats = sim.res.stats();
+		CHECK(stats.pressure_measured);
+		CHECK(stats.pages_free == 0);
+		CHECK(stats.largest_free_run == 0);
+		CHECK(stats.allocation_refused_total == 1);
+		CHECK(stats.allocation_protected_capacity_total == 1);
+		CHECK(stats.allocation_no_contiguous_run_total == 0);
+		CHECK(stats.skipped_groups_total == stats.allocation_refused_total);
+	}
+	{
+		// Root at page 0, node 2 at pages 1-2, node 4 at page 3. After evicting 2 there
+		// are three free pages, split by protected node 4. Node 3 needs three contiguous pages.
+		Residency res;
+		Vector<Residency::NodeInfo> infos;
+		infos.resize(5);
+		const uint32_t splats[5] = { 1000, 1000, 1500, 2500, 1000 };
+		const uint32_t parents[5] = { UINT32_MAX, 0, 0, 1, 0 };
+		for (uint32_t i = 0; i < 5; ++i) {
+			infos.write[i].splat_count = splats[i];
+			infos.write[i].parent = parents[i];
+		}
+		if (!res.reset(infos, config(5, 0), 1, 1)) { FAIL("residency setup failed"); return; }
+		for (uint32_t n : { 0u, 2u, 4u }) {
+			if (!make_resident_at(res, n, n + 1u)) { FAIL("could not arrange atlas runs"); return; }
+		}
+		res.begin_frame(10);
+		if (!res.evict(2)) { FAIL("could not create the fragmented free runs"); return; }
+		const uint32_t drawn[1] = { 4 };
+		res.protect_drawn(drawn, 1);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t demand[1] = { 3 };
+		const auto result = res.request(demand, 1, tickets);
+		CHECK(result.skipped_groups == 1);
+		CHECK(result.fragmented_groups == 1);
+		CHECK(result.evicted == 0);
+		CHECK(tickets.size() == 0);
+		const auto stats = res.stats();
+		CHECK(stats.pressure_measured);
+		CHECK(stats.pages_free == 3);
+		CHECK(stats.largest_free_run == 2);
+		CHECK(stats.allocation_refused_total == 1);
+		CHECK(stats.allocation_no_contiguous_run_total == 1);
+		CHECK(stats.allocation_protected_capacity_total == 0);
+		CHECK(stats.allocation_over_page_budget_total == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction observations include future transition siblings without protecting them") {
+	Sim sim;
+	if (!one_page_tree(sim, 6)) { FAIL("residency setup failed"); return; }
+	for (uint32_t n : { 0u, 1u, 3u, 7u, 8u, 9u }) {
+		if (!make_resident_at(sim.res, n, 5)) { FAIL("could not make node resident"); return; }
+	}
+	sim.res.begin_frame(20);
+	const uint32_t drawn[1] = { 7 };
+	sim.res.protect_drawn(drawn, 1);
+	CHECK_FALSE(sim.res.evict(7));
+	CHECK_FALSE(sim.res.evict(3));
+	LocalVector<Residency::Ticket> tickets;
+	// Higher-priority group 13/14 evicts 8 and 9. Missing child 10 is demanded later, so
+	// its resident sibling 9 is a transition dependency even before that group is visited.
+	const uint32_t demand[3] = { 13, 14, 10 };
+	const auto result = sim.res.request(demand, 3, tickets);
+	CHECK(result.evicted == 2);
+	CHECK(sim.res.state(8) == Residency::ABSENT);
+	CHECK(sim.res.state(9) == Residency::ABSENT);
+	for (uint32_t n : { 0u, 1u, 3u, 7u }) { CHECK(sim.res.state(n) == Residency::RESIDENT); }
+	const auto stats = sim.res.stats();
+	CHECK(stats.evicted_total == 2);
+	CHECK(stats.evicted_in_cut_total == 0);
+	CHECK(stats.evicted_in_transition_total == 1);
+	CHECK(stats.evicted_neither_total == 1);
+	CHECK(stats.eviction_events_dropped_total == 0);
+	CHECK(sim.res.eviction_event_count() == 2);
+	Residency::EvictionEvent first, second;
+	if (!sim.res.eviction_event(0, first) || !sim.res.eviction_event(1, second)) {
+		FAIL("two actual eviction events were not retained"); return;
+	}
+	CHECK(first.sequence == 1);
+	CHECK(first.frame == 20);
+	CHECK(first.node == 8);
+	CHECK(first.classification == Residency::EVICTION_NEITHER);
+	CHECK(second.sequence == 2);
+	CHECK(second.frame == 20);
+	CHECK(second.node == 9);
+	CHECK(second.classification == Residency::EVICTION_IN_TRANSITION);
+	CHECK_FALSE(sim.res.eviction_event(2, second));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction report ring retains the newest events and counts overwritten observations") {
+	Sim sim;
+	if (!one_page_tree(sim, 2)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1)) { FAIL("could not make root resident"); return; }
+	const uint32_t count = Residency::EVICTION_EVENT_CAPACITY + 3u;
+	for (uint32_t i = 0; i < count; ++i) {
+		if (!make_resident_at(sim.res, 7, 2u + uint64_t(i) * 2u)) {
+			FAIL("could not reload the next real eviction victim"); return;
+		}
+		sim.res.begin_frame(3u + uint64_t(i) * 2u);
+		if (!sim.res.evict(7)) { FAIL("expected a real unprotected eviction"); return; }
+	}
+	CHECK(sim.res.eviction_event_count() == Residency::EVICTION_EVENT_CAPACITY);
+	const auto stats = sim.res.stats();
+	CHECK(stats.evicted_total == count);
+	CHECK(stats.evicted_neither_total == count);
+	CHECK(stats.evicted_in_cut_total == 0);
+	CHECK(stats.eviction_events_dropped_total == 3);
+	Residency::EvictionEvent first, last;
+	if (!sim.res.eviction_event(0, first) || !sim.res.eviction_event(Residency::EVICTION_EVENT_CAPACITY - 1u, last)) {
+		FAIL("bounded ring lost a retained endpoint"); return;
+	}
+	CHECK(first.sequence == 4);
+	CHECK(first.frame == 9);
+	CHECK(last.sequence == count);
+	CHECK(last.frame == 3u + uint64_t(count - 1u) * 2u);
+	CHECK(last.node == 7);
+	CHECK(last.classification == Residency::EVICTION_NEITHER);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction order is least recently drawn, then finest level, then index") {
 	Sim sim;
 	if (!one_page_tree(sim, 6)) { FAIL("residency setup failed"); return; }

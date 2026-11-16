@@ -15,6 +15,9 @@ struct HlodCutTelemetry {
 	Array residency_missed_demanded;
 	bool budget_bound = false;
 	int32_t first_cap_refused_node = -1;
+	// Render-thread-owned scalar observations; capture and export use the existing stats boundary.
+	gs_hlod_runtime::CutHistory::Result page_report;
+	uint64_t page_refused_groups_total = 0; // Cumulative diagnostic captures, never a policy input.
 
 	void append_stats(Dictionary &r_stats, bool p_drawn_valid) const {
 		const bool drawn_valid = valid && p_drawn_valid;
@@ -26,6 +29,16 @@ struct HlodCutTelemetry {
 		r_stats["hlod_cut_residency_missed"] = valid ? Variant(residency_missed) : Variant();
 		// Array has reference semantics: a retained stats snapshot must survive the next capture.
 		r_stats["hlod_cut_residency_missed_demanded"] = valid ? Variant(residency_missed_demanded.duplicate()) : Variant();
+		const bool pages_measured = valid && page_report.closure_measured;
+		r_stats["hlod_stream_closure_measured"] = pages_measured;
+		r_stats["hlod_stream_demanded_closure_pages"] = pages_measured ? Variant(int64_t(page_report.demanded_closure_pages)) : Variant();
+		r_stats["hlod_stream_page_budget"] = pages_measured ? Variant(int64_t(page_report.page_budget)) : Variant();
+		r_stats["hlod_stream_bootstrap_bypass_pages"] = pages_measured ? Variant(int64_t(page_report.bootstrap_bypass_pages)) : Variant();
+		r_stats["hlod_stream_resident_refinement_bypass_pages"] = pages_measured ? Variant(int64_t(page_report.resident_refinement_bypass_pages)) : Variant();
+		r_stats["hlod_stream_bootstrap_bypass_over_budget"] = pages_measured ? Variant(page_report.bootstrap_bypass_over_budget) : Variant();
+		r_stats["hlod_stream_resident_refinement_bypass_over_budget"] = pages_measured ? Variant(page_report.resident_refinement_bypass_over_budget) : Variant();
+		r_stats["hlod_stream_page_refused_groups"] = pages_measured ? Variant(int64_t(page_report.page_refused_groups)) : Variant();
+		r_stats["hlod_stream_page_refused_groups_total"] = pages_measured ? Variant(int64_t(page_refused_groups_total)) : Variant();
 	}
 
 	void capture(const gs_hlod_runtime::CutHistory &p_history, const gs_hlod_runtime::CutHistory::Result &p_cut,
@@ -56,6 +69,10 @@ struct HlodCutTelemetry {
 		}
 		budget_bound = p_cut.budget_bound || p_cut.first_cap_refused_node >= 0;
 		first_cap_refused_node = p_cut.first_cap_refused_node;
+		page_report = p_cut;
+		if (p_cut.status != gs_hlod_runtime::CutHistory::INVALID && p_cut.closure_measured) {
+			page_refused_groups_total += p_cut.page_refused_groups;
+		}
 		valid = p_cut.status != gs_hlod_runtime::CutHistory::INVALID;
 	}
 };

@@ -34,6 +34,7 @@
 #include "gaussian_gpu_layout.h"
 #include "hlod_node_pack.h"
 #include "servers/rendering/rendering_device.h"
+#include "core/variant/array.h"
 #include "core/variant/dictionary.h"
 
 #include <atomic>
@@ -77,6 +78,23 @@ public:
 		RID chunk_meta;
 		RID quantization; // Invalid when not quantized.
 	};
+	// Report-only ordinal contract for the flythrough trace. Admission reasons
+	// preserve the order of the existing short-circuit predicate in start_jobs().
+	enum RefusingGate : uint8_t {
+		REFUSING_NONE = 0,
+		REFUSING_ALLOCATION = 1,
+		REFUSING_OVERSIZED_LATCH = 2,
+		REFUSING_TRANSPORT_BUDGET = 3,
+		REFUSING_OVERSIZED_WAIT_LIVE = 4,
+		REFUSING_RETAINED_BUDGET = 5,
+		REFUSING_WORKER_PERMIT = 6,
+		REFUSING_METADATA_CLEAR = 7,
+		REFUSING_REQUEST_BUDGET = 8,
+		REFUSING_FAILED_DEPENDENCY = 9,
+		REFUSING_GATE_COUNT,
+	};
+	static RefusingGate classify_admission_refusal(bool p_oversized_latch, bool p_transport_full,
+			bool p_oversized_wait_live, bool p_retained_full);
 	// Per frame and cumulative, for diagnostics. Loading, ready and failed are reported separately (ADR 14.2).
 	struct Telemetry {
 		uint32_t desired = 0; // Nodes the view wants and does not have.
@@ -105,6 +123,26 @@ public:
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
 		uint32_t blocked_groups_this_frame = 0;
 		uint32_t fragmented_groups_this_frame = 0;
+		// Owner-thread snapshots; worker-visible ledger values are sampled under
+		// ReservationLedger::mutex, the existing admission/mailbox lock.
+		bool pressure_measured = false;
+		uint64_t pressure_epoch = 0; // Process-unique successful init identity; report-only, independent of reused world/device IDs.
+		uint32_t pages_free = 0, largest_free_run = 0;
+		uint64_t allocation_refused_total = 0;
+		uint64_t allocation_no_contiguous_run_total = 0, allocation_protected_capacity_total = 0;
+		uint64_t allocation_over_page_budget_total = 0, allocation_pending_retire_total = 0;
+		uint64_t allocation_eviction_limit_total = 0, allocation_other_total = 0;
+		uint64_t evicted_in_cut_total = 0, evicted_in_transition_total = 0, evicted_neither_total = 0;
+		uint64_t eviction_events_dropped_total = 0, eviction_events_truncated_total = 0;
+		bool gate_measured = false;
+		uint32_t pending_count = 0, ready_count = 0;
+		uint64_t live_reservations = 0, oversized_reservation_bytes = 0;
+		bool oversized_latch = false, oversized_wait_live = false;
+		// TaskIDs do not expose whether their request was cancelled. There is no
+		// separate cancellation latch; unavailable must remain distinct from zero.
+		bool cancelled_running_jobs_measured = false;
+		RefusingGate refusing_gate = REFUSING_NONE;
+		uint64_t gate_frames_total[REFUSING_GATE_COUNT] = {};
 		// Package E1 (V4 paged source only; all 0 for a resident snapshot): node payloads read from the file.
 		uint64_t payload_reads_total = 0;
 		uint64_t payload_bytes_read_total = 0;
@@ -352,6 +390,7 @@ public:
 			LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand);
 
 	const Telemetry &get_telemetry() const { return telemetry; }
+	Array get_pressure_eviction_events() const; // Current-frame batch only; probe retains its capped history.
 	Variant get_payload_telemetry() const; // Null when this route has no measured page store.
 	bool root_failed() const { return residency.root_permanently_failed(); }
 	uint64_t atlas_bytes_capacity() const { return uint64_t(cfg.atlas_pages) * cfg.page_splats * record_stride(); }
@@ -586,6 +625,11 @@ private:
 	uint64_t world_generation = 0;
 	uint64_t device_generation = 0;
 	uint64_t frame = 0;
+	uint64_t frame_eviction_start_total = 0, frame_eviction_truncated = 0;
+	RefusingGate frame_admission_refusing_gate = REFUSING_NONE;
+	uint64_t gate_counted_frame = UINT64_MAX;
+	mutable uint64_t eviction_export_frame = UINT64_MAX, eviction_export_total = UINT64_MAX;
+	mutable Array eviction_export; // Cached bounded current-frame report batch, never worker-owned.
 	Telemetry telemetry;
 };
 

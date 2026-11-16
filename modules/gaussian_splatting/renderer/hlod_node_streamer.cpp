@@ -18,6 +18,36 @@ HlodNodeStreamer::~HlodNodeStreamer() {
 	shutdown();
 }
 
+HlodNodeStreamer::RefusingGate HlodNodeStreamer::classify_admission_refusal(bool p_oversized_latch,
+		bool p_transport_full, bool p_oversized_wait_live, bool p_retained_full) {
+	if (p_oversized_latch) { return REFUSING_OVERSIZED_LATCH; }
+	if (p_transport_full) { return REFUSING_TRANSPORT_BUDGET; }
+	if (p_oversized_wait_live) { return REFUSING_OVERSIZED_WAIT_LIVE; }
+	if (p_retained_full) { return REFUSING_RETAINED_BUDGET; }
+	return REFUSING_NONE;
+}
+
+Array HlodNodeStreamer::get_pressure_eviction_events() const {
+	// Residency, frame and this cache are render-thread-owned. Workers never
+	// touch them. Build only the current-frame batch at the report boundary;
+	// avoid copying the native 4096-entry ring on every metrics query.
+	if (eviction_export_frame == frame && eviction_export_total == telemetry.evicted_total) { return eviction_export; }
+	eviction_export = Array(); // Do not mutate a prior report's shared Array.
+	for (uint32_t i = residency.eviction_event_count(); i > 0; --i) {
+		NodeResidency::EvictionEvent event;
+		if (!residency.eviction_event(i - 1, event) || event.frame != frame) { break; }
+		Dictionary item;
+		item["sequence"] = int64_t(event.sequence);
+		item["frame"] = int64_t(event.frame);
+		item["node"] = event.node;
+		item["class"] = int(event.classification);
+		eviction_export.push_front(item);
+	}
+	eviction_export_frame = frame;
+	eviction_export_total = telemetry.evicted_total;
+	return eviction_export;
+}
+
 Variant HlodNodeStreamer::get_payload_telemetry() const {
 	// Render-thread owner fields; workers only mutate the ledger under its mutex.
 	if (!active || !page_store || ledger.is_null() || data.is_null() || !data->is_paged()) { return Variant(); }
@@ -603,6 +633,10 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	ledger->observe_peak();
 	mailbox->ledger = ledger;
 	frame = 0;
+	frame_eviction_start_total = frame_eviction_truncated = 0;
+	gate_counted_frame = eviction_export_frame = eviction_export_total = UINT64_MAX;
+	frame_admission_refusing_gate = REFUSING_NONE;
+	eviction_export.clear();
 	frame_written_bytes = shadow_transferred_bytes = staged_publication_bytes = 0;
 	shadow_transfer_count = 0;
 	frame_edit_uploads = in_edit_commit = false;
@@ -613,6 +647,10 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	test_quantization.clear();
 #endif
 	telemetry = Telemetry();
+	// A reset restarts residency counters and eviction sequence numbers, even
+	// when the same world/device snapshot is reused. Reports need that boundary.
+	static std::atomic<uint64_t> pressure_epoch_serial{ 0 };
+	telemetry.pressure_epoch = pressure_epoch_serial.fetch_add(1, std::memory_order_relaxed) + 1;
 	telemetry.pages_capacity = p_config.atlas_pages;
 	telemetry.edit_revision = p_data->edit_revision;
 	active = true;
@@ -843,6 +881,11 @@ void HlodNodeStreamer::start_jobs() {
 					(transport > cfg.max_inflight_read_bytes || ledger->transport_reserved > cfg.max_inflight_read_bytes - transport);
 			if (ledger->oversized != 0 || transport_full ||
 					(oversized ? ledger->live != 0 : ledger->charged > retained_byte_cap - reservation_bytes)) {
+				// Observe inside the unchanged decision branch, under its existing
+				// ledger lock. These values never participate in admission.
+				frame_admission_refusing_gate = classify_admission_refusal(ledger->oversized != 0, transport_full,
+						oversized && ledger->live != 0, !oversized && ledger->charged > retained_byte_cap - reservation_bytes);
+				telemetry.oversized_wait_live = telemetry.oversized_wait_live || (oversized && ledger->live != 0);
 				++ledger->admission_waits;
 				return false; // Pending tickets own no payload storage.
 			}
@@ -867,6 +910,7 @@ void HlodNodeStreamer::start_jobs() {
 		job->reservation = std::move(permit);
 		const WorkerThreadPool::TaskID task = pool->add_native_task(&HlodNodeStreamer::run_job, job, false, "HlodNodePack");
 		if (task == WorkerThreadPool::INVALID_TASK_ID) {
+			frame_admission_refusing_gate = REFUSING_WORKER_PERMIT;
 			if (counted) { read_stats->end_read(reserved, read_bytes, false); }
 			memdelete(job); // Returns the permit exactly once, without a worker.
 			return false;
@@ -892,6 +936,9 @@ void HlodNodeStreamer::start_jobs() {
 		while (pool && tasks.size() < slots) {
 			if (take_one(next_shadow_job)) { next_shadow_job = !next_shadow_job; }
 			else if (!take_one(!next_shadow_job)) { break; }
+		}
+		if ((!shadow_pending.is_empty() || !pending.is_empty()) && (!pool || tasks.size() >= slots) && frame_admission_refusing_gate == REFUSING_NONE) {
+			frame_admission_refusing_gate = REFUSING_WORKER_PERMIT;
 		}
 		return;
 	}
@@ -931,6 +978,9 @@ void HlodNodeStreamer::start_jobs() {
 			pending[i - consumed] = pending[i];
 		}
 		pending.resize(pending.size() - consumed);
+	}
+	if ((!shadow_pending.is_empty() || !pending.is_empty()) && (!pool || tasks.size() >= slots) && frame_admission_refusing_gate == REFUSING_NONE) {
+		frame_admission_refusing_gate = REFUSING_WORKER_PERMIT;
 	}
 }
 
@@ -1154,6 +1204,8 @@ void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_b
 	last_commit_result = pending_commit_result;
 	pending_commit_result = COMMIT_NOTHING;
 	if (!active) { return; }
+	frame_eviction_start_total = telemetry.evicted_total;
+	frame_eviction_truncated = 0;
 	residency.begin_frame(++frame);
 	frame_written_bytes = 0;
 	frame_edit_uploads = residency.is_edit_staged() || !pending_metadata_clears.is_empty();
@@ -1652,6 +1704,8 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	}
 	telemetry.requested_this_frame = telemetry.uploaded_this_frame = telemetry.skipped_groups_this_frame = telemetry.evicted_this_frame = 0;
 	telemetry.uploaded_bytes_this_frame = 0;
+	frame_admission_refusing_gate = REFUSING_NONE;
+	telemetry.oversized_wait_live = false;
 	split_protection_and_demand(p_desired, p_desired_count, p_drawn, p_drawn_count, drawn_scratch, demand_scratch);
 	if (residency.is_edit_staged()) {
 		// The replacement cut of a staged edit is ordinary demand (whole transitions, same admission), ahead of the view's.
@@ -1668,6 +1722,7 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	}
 	// Protection first (ADR 14.1): drawn versions and their ancestors cannot be evicted by this frame's requests.
 	residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
+	residency.observe_demand(demand_scratch.ptr(), demand_scratch.size()); // Victim classification only, before edit-era eviction too.
 	tickets_scratch.clear();
 	const bool draining_metadata = !pending_metadata_clears.is_empty();
 	if (residency.is_edit_staged()) {
@@ -1723,6 +1778,22 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	telemetry.stall_frames = (p_desired_count != 0 && nothing_moving && requested.requested == 0) ? telemetry.stall_frames + 1 : 0;
 	telemetry.desired = demand_scratch.size();
 	telemetry.drawn = p_drawn_count;
+	const RefusingGate previous_gate = telemetry.refusing_gate;
+	telemetry.refusing_gate = REFUSING_NONE;
+	if (!pending.is_empty() || !shadow_pending.is_empty()) {
+		telemetry.refusing_gate = frame_admission_refusing_gate;
+	} else if (!demand_scratch.is_empty()) {
+		if (requested.skipped_groups != 0) { telemetry.refusing_gate = REFUSING_ALLOCATION; }
+		else if (draining_metadata) { telemetry.refusing_gate = REFUSING_METADATA_CLEAR; }
+		else if (requested.capped) { telemetry.refusing_gate = REFUSING_REQUEST_BUDGET; }
+		else if (requested.blocked_groups != 0) { telemetry.refusing_gate = REFUSING_FAILED_DEPENDENCY; }
+	}
+	// A bundle may be updated more than once in a frame. Replace that frame's
+	// observation rather than counting its views as separate frames.
+	if (gate_counted_frame == frame) { --telemetry.gate_frames_total[previous_gate]; }
+	++telemetry.gate_frames_total[telemetry.refusing_gate];
+	gate_counted_frame = frame;
+	telemetry.gate_measured = true;
 	refresh_telemetry();
 }
 
@@ -1760,6 +1831,35 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.evicted_total = s.evicted_total;
 	telemetry.failed_total = s.failed_total;
 	telemetry.skipped_groups_total = s.skipped_groups_total;
+	telemetry.pressure_measured = s.pressure_measured;
+	telemetry.pages_free = s.pages_free;
+	telemetry.largest_free_run = s.largest_free_run;
+	telemetry.allocation_refused_total = s.allocation_refused_total;
+	telemetry.allocation_no_contiguous_run_total = s.allocation_no_contiguous_run_total;
+	telemetry.allocation_protected_capacity_total = s.allocation_protected_capacity_total;
+	telemetry.allocation_over_page_budget_total = s.allocation_over_page_budget_total;
+	telemetry.allocation_pending_retire_total = s.allocation_pending_retire_total;
+	telemetry.allocation_eviction_limit_total = s.allocation_eviction_limit_total;
+	telemetry.allocation_other_total = s.allocation_other_total;
+	telemetry.evicted_in_cut_total = s.evicted_in_cut_total;
+	telemetry.evicted_in_transition_total = s.evicted_in_transition_total;
+	telemetry.evicted_neither_total = s.evicted_neither_total;
+	telemetry.eviction_events_dropped_total = s.eviction_events_dropped_total;
+	// More than a ring's worth of evictions in one frame is explicitly lossy.
+	// The cumulative sequence also lets the probe detect any unsampled frames.
+	const uint64_t frame_evictions = s.evicted_total - frame_eviction_start_total;
+	const uint64_t truncated = frame_evictions > NodeResidency::EVICTION_EVENT_CAPACITY ?
+			frame_evictions - NodeResidency::EVICTION_EVENT_CAPACITY : 0;
+	telemetry.eviction_events_truncated_total += truncated - frame_eviction_truncated;
+	frame_eviction_truncated = truncated;
+	telemetry.pending_count = pending.size() + shadow_pending.size();
+	telemetry.ready_count = ready.size() + shadow_ready.size();
+	if (ledger.is_valid()) {
+		MutexLock lock(ledger->mutex);
+		telemetry.live_reservations = ledger->live;
+		telemetry.oversized_reservation_bytes = ledger->oversized;
+		telemetry.oversized_latch = ledger->oversized != 0;
+	}
 	uint64_t ready_bytes = 0;
 	for (uint32_t i = 0; i < ready.size(); ++i) {
 		ready_bytes += uint64_t(ready[i].raw.size()) * sizeof(PackedGaussian) + uint64_t(ready[i].quantized.size()) * sizeof(PackedGaussianQuantized);

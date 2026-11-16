@@ -932,6 +932,7 @@ def compare(experiment: dict) -> dict:
             "content_identity": content_identity, "control_verdict": control_verdict,
             "migration_observations": migration_observations,
             "checkpoint_evidence": checkpoint_evidence,
+            "hlod_pressure_report": _hlod_pressure_report(arms),
             "control_receipt": copy.deepcopy(receipt),
             "artifact_digests": _artifact_digests({**arms, **({"control": receipt["arm"]} if "arm" in receipt else {})}, migration_arms),
             "passes": {route: copy.deepcopy(_dict(_dict(arms.get(route)).get("probe")).get("passes", []))
@@ -1280,6 +1281,66 @@ def _frame_time_lines(frame_time):
     return lines + [""] + hitches
 
 
+def _hlod_pressure_report(arms):
+    """#1483 diagnostics are copied after acceptance is decided; never call problem()."""
+    report = {}
+    for route in ("chunk", "hlod"):
+        probe = _dict(_dict(arms.get(route)).get("probe"))
+        observation = probe.get("hlod_pressure")
+        checkpoints = [checkpoint for measured_pass in probe.get("passes", []) if isinstance(measured_pass, dict)
+                       for checkpoint in measured_pass.get("checkpoints", []) if isinstance(checkpoint, dict)] \
+            if isinstance(probe.get("passes"), list) else []
+        report[route] = (copy.deepcopy(observation) if isinstance(observation, dict)
+                         else ps.hlod_pressure_summary(checkpoints))
+    return report
+
+
+def _hlod_pressure_lines(report):
+    """Pressure diagnostics have no acceptance status or threshold."""
+    report = _dict(report)
+    lines = ["", "## HLOD pressure diagnostics (#1483)", "",
+             "Report-only. Missing observations stay not measured; no value in this table changes the verdict.", "",
+             "| arm / checkpoint | closure pages / cap | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+
+    def clean(value):
+        return "not measured" if value is None else str(value).replace("|", "/").replace("\n", " ")
+
+    for route in ("chunk", "hlod"):
+        rows = _dict(report.get(route)).get("checkpoints")
+        rows = rows if isinstance(rows, list) else []
+        if not rows:
+            lines.append(f"| {route} | " + " | ".join(["not measured"] * 7) + " |")
+        for row in rows:
+            row = _dict(row)
+            receipt = _dict(row.get("observation"))
+            values = _dict(_dict(receipt.get("snapshot")).get("values"))
+            deltas = _dict(_dict(receipt.get("settle_window")).get("counter_deltas"))
+
+            def val(key):
+                return clean(values.get("hlod_stream_" + key))
+
+            def delta(key):
+                value = _dict(deltas.get("hlod_stream_" + key + "_total"))
+                return clean(value.get("value")) if value.get("measured") is True else "not measured"
+
+            gate = values.get("hlod_stream_refusing_gate")
+            gate_name = ps.HLOD_REFUSING_GATE_NAMES.get(gate, "not measured") if type(gate) is int else "not measured"
+            victims = _dict(receipt.get("eviction_victims"))
+            events = victims.get("events")
+            history = (f"{len(events)} retained; {clean(victims.get('dropped_count'))} overwritten; "
+                       f"{clean(victims.get('sequence_gaps_total'))} unobserved"
+                       if victims.get("measured") is True and isinstance(events, list) else "not measured")
+            lines.append(f"| {route} / {clean(row.get('checkpoint'))} pass {clean(row.get('pass_index'))} | "
+                         f"{val('demanded_closure_pages')} / {val('page_budget')} | "
+                         f"{val('pages_free')} / {val('largest_free_run')} | "
+                         f"{val('fragmented_groups')} / {val('skipped_groups_total')} | "
+                         f"{delta('allocation_refused')} | in_cut {delta('evicted_in_cut')}, "
+                         f"in_transition {delta('evicted_in_transition')}, neither {delta('evicted_neither')} | "
+                         f"{clean(gate_name)} | {history} |")
+    return lines
+
+
 def _pressure_lines(report):
     """#1471: the pressure variant's request, its required evidence and each settle window."""
     pressure, request = _dict(report.get("pressure")), _dict(report.get("variant"))
@@ -1406,6 +1467,7 @@ def render_markdown(report: dict) -> str:
                          "(wall clock, probe work included; see the frame-time table).")
     if "pressure" in report:
         lines += _pressure_lines(report)
+    lines += _hlod_pressure_lines(report.get("hlod_pressure_report"))
     lines += _admission_wait_lines(report.get("route_comparability"))
     lines += _host_rss_lines(report.get("host_rss"))
     lines += _frame_time_lines(report.get("frame_time"))
