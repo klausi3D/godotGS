@@ -10,6 +10,9 @@ namespace gs_hlod_runtime {
 // of the node's bounding radius, so a camera inside a node's sphere (or in the shell up to radius x 1.25 outside it) gets
 // a finite estimate. A heuristic, not a bound (see CutHistory::select()).
 constexpr double kCostInsideDistanceFraction = 0.25;
+// The admission factor of the overlap-record cap (ADR 6.5): a cut is admitted while its record estimate stays within this
+// fraction of the record budget (the allocated overlap storage). The estimate is a heuristic, so the rest is its margin.
+constexpr double kRecordAdmissionFactor = 0.8;
 
 struct CutRequest {
 	Vector3 camera;
@@ -61,6 +64,12 @@ public:
 		uint64_t selected_splats = 0;
 		double estimated_records = 0.0;
 		bool budget_bound = false;
+		// #1472: the record estimate of the largest step the RECORD cap alone refused (0: it refused none): a refinement
+		// or a residency demand whose splats, nodes and pages fit, or the cheapest bootstrap frontier (the root included)
+		// that fits every other cap. The overlap storage is the record budget, so this is what a storage sized below the view's demand
+		// costs the cut; the route grows the storage from it instead of leaving the cut coarse. A refusal by another
+		// cap reports nothing: more records would not admit it.
+		double record_demand = 0.0;
 		bool bootstrapped = false; // Root failed admission and a child frontier was selected instead.
 		bool edit_forced = false; // Package F1: stale ancestors of edited leaves were replaced by their children (ADR 14.5).
 		// Report-only diagnostics of this invocation. A refusal includes a demand-plan/page cap or

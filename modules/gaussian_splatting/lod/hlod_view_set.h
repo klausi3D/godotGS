@@ -189,6 +189,7 @@ public:
 		uint64_t visited_nodes = 0; // Summed over the view's instances.
 		double estimated_records = 0.0;
 		bool budget_bound = false;
+		double record_demand = 0.0; // Summed CutHistory::Result::record_demand (#1472); 0: the record cap refused nothing.
 		bool edit_forced = false; // Package F1: a stale ancestor of an edited leaf was replaced by its children in this cut.
 		uint64_t draw_generation = 0; // Bumped only when a new complete draw set is published.
 		uint64_t origin_revision = 0; // Origin revision this selection was computed against.

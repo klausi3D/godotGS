@@ -161,7 +161,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	if (!root_stale && !available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
 	if (!std::isfinite(root_cost)) { return out; }
-	const double record_cap = 0.8 * p_request.record_budget; // The 80 percent admission factor.
+	const double record_cap = kRecordAdmissionFactor * p_request.record_budget; // The 80 percent admission factor.
 	selected.write[0] = 0;
 	selected_position.write[0] = 0;
 	out.selected_count = 1;
@@ -200,6 +200,11 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		};
 		push_expandable(0, root_cost);
 		while (!fits()) {
+			// #1472: a frontier (the root included) whose splats and nodes fit and that holds no stale node is refused by
+			// the record cap alone. The cheapest one is the demand: reported whatever the bootstrap finds or fails below.
+			if (stale_selected == 0 && out.selected_splats <= p_request.splat_budget && out.selected_count <= p_request.node_budget) {
+				out.record_demand = out.record_demand > 0.0 ? MIN(out.record_demand, out.estimated_records) : out.estimated_records;
+			}
 			if (heap_count == 0) {
 				return fail(missing_residency ? BOOTSTRAP_MISSING_RESIDENCY : BOOTSTRAP_INFEASIBLE);
 			}
@@ -317,22 +322,30 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const int64_t d_count = int64_t(visible_children) - 1;
 			const double d_cost = child_cost - cost(parent);
 			bool demanded = false;
-			if (int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
+			const bool other_caps_fit = int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
 					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
-					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap &&
-					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget)) {
+					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget);
+			const double planned_cost = MAX(0.0, out.estimated_records + plan_cost + d_cost);
+			if (other_caps_fit && planned_cost <= record_cap) {
 				demanded = push_group(missing_children, missing_count);
 				plan_pages += child_pages;
 				plan_splats += d_splats;
 				plan_count += d_count;
 				plan_cost += d_cost;
 			} else {
+				// #1472: when only the record cap keeps this group from being requested, it never becomes resident, so it
+				// never shows as a refused refinement either: name the demand here.
+				if (other_caps_fit) { out.record_demand = MAX(out.record_demand, planned_cost); }
 				refused(parent);
 			}
 			missed(parent, demanded);
 			continue;
 		}
 		if (next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > record_cap) {
+			// #1472: refused by the record cap alone (the splats and nodes fit).
+			if (next_splats <= p_request.splat_budget && next_count <= p_request.node_budget) {
+				out.record_demand = MAX(out.record_demand, next_cost);
+			}
 			out.budget_bound = true;
 			refused(parent);
 			break; // ADR: first cap refusal stops the whole priority walk.

@@ -1978,13 +1978,15 @@ bool GaussianSplatRenderer::provision_paged_hlod_route(RenderSceneBuffersRD *p_r
     // The tile grid is not provisioned here: prepare_hlod_frame's per-view provisioner (hlod_view_grid_action) sizes it for
     // every view of a streamed or paged world, per view and per frame. Only the first overlap seed stays: the publication
     // needs the tile ledger and overlap storage before the route's first frame. The relative route never grows the overlap
-    // storage while drawing, so seed it as a canonical warmup frame of the same world would (every leaf may be visible, 50
-    // records each; the sorting config caps it); growth afterwards is the measured safe-point growth in prepare_hlod_frame.
+    // storage while drawing, so seed it from the world's drawn budget (gs_hlod_bundle::world_overlap_seed_records, #1472;
+    // the sorting config caps it); growth afterwards is the safe-point growth in prepare_hlod_frame (a measured overflow,
+    // or the record demand the cut's record cap refused).
     if (tile->get_allocated_overlap_capacity() == 0) {
         // Priced exactly like prepare_hlod_frame's per-view seed (same clamp, same bytes per record, same decision): the
         // grid for this view plus the seeded records must fit the route's ledger headroom, or nothing is allocated and the
         // route says why. Unpriced, a tree of millions of leaves seeded GBs past the limit and was refused for good after.
-        const uint32_t overlap = tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX)));
+        const uint32_t overlap = tile->clamp_hlod_overlap_records(
+                gs_hlod_bundle::world_overlap_seed_records(input->leaf_count, get_performance_settings().max_splats));
         uint64_t route_bytes = 0, live_textures = 0;
         if (!get_hlod_owned_byte_upper_bound(route_bytes) || !tile->get_hlod_texture_byte_upper_bound(live_textures)) {
             r_reason = "hlod_paged_resource_ledger_unavailable";
@@ -2535,6 +2537,10 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     uint64_t route_bytes = 0;
     if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
     state.device_vram_ledger.admit_device_bytes(route_bytes);
+    // #1472: the world's overlap seed, from its drawn budget and no longer from every leaf; the same value at every use
+    // below and in provision_paged_hlod_route().
+    const uint32_t world_overlap_seed = tile->clamp_hlod_overlap_records(
+            gs_hlod_bundle::world_overlap_seed_records(input->leaf_count, get_performance_settings().max_splats));
     // The frame's scratch request (admitted by prepare_hlod_scratch below). The scratch covers the atlas the frame draws
     // from (its total_gaussians), not the tree's splat count; PR1b: plus the instance region at the atlas tail.
     const uint32_t total = ResidentAtlasBudget::hlod_relative_atlas_records(state.hlod_streaming, state.hlod_stream_atlas_records,
@@ -2562,7 +2568,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
             if (!tile->get_hlod_texture_byte_upper_bound(live_textures)) { return fallback("resource_ledger_unavailable"); }
             const Vector2i grid = tile->get_provisioned_viewport();
             const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
-            const uint32_t seed = overlap_now == 0 ? tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))) : 0u;
+            const uint32_t seed = overlap_now == 0 ? world_overlap_seed : 0u;
             grid_bytes = ResidentAtlasBudget::hlod_view_grid_outstanding_bytes(grid.x, grid.y, p_context.viewport_size.x, p_context.viewport_size.y,
                     overlap_now, live_textures,
                     tile->estimate_hlod_texture_bytes_for_viewport(p_context.viewport_size) + uint64_t(seed) * tile->get_hlod_overlap_bytes_per_record());
@@ -2579,6 +2585,23 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     if (tile->grow_hlod_overlap_storage(ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes))) {
         if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
         state.device_vram_ledger.admit_device_bytes(route_bytes);
+    }
+    // #1472, the same safe point: the storage is the cut's record budget, so a storage below the view's demand never
+    // overflows; it holds the cut coarse. The last cut of this bundle named the record demand its cap alone refused
+    // (below, after the selection): grow to it, with slack, else exactly. Optional like the growth above, clamped to the
+    // configured cap like the seed; refused (headroom) or at the cap, the cut stays budget-bound and says so
+    // (hlod_budget_bound_frames), and the demand is reported again by the next cut.
+    if (state.hlod_world_overlap_demand_records != 0) {
+        const uint32_t wanted = state.hlod_world_overlap_demand_build == state.hlod_bundle_builds ? state.hlod_world_overlap_demand_records : 0u;
+        state.hlod_world_overlap_demand_records = 0;
+        const uint64_t headroom = ResidentAtlasBudget::hlod_optional_growth_headroom(route_limit, route_bytes, mandatory_bytes);
+        if (wanted != 0 && tile->clamp_hlod_overlap_records(wanted) > tile->get_allocated_overlap_capacity() &&
+                (tile->ensure_hlod_overlap_capacity(gs_hlod_bundle::world_demand_overlap_growth(wanted), headroom) ||
+                        tile->ensure_hlod_overlap_capacity(wanted, headroom))) {
+            ++state.hlod_world_overlap_growths;
+            if (!get_hlod_owned_byte_upper_bound(route_bytes)) { return fallback("resource_ledger_unavailable"); }
+            state.device_vram_ledger.admit_device_bytes(route_bytes);
+        }
     }
     // PR1b: this view's visible node instances and their demand (ADR 4.5), computed here, at the same safe point, from
     // the same camera, frustum, focal length and tile area the world's ViewSpec uses below. Their overlap-record estimate
@@ -2628,7 +2651,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // holds the objects' estimate of earlier frames, so it is not the world's need, and the requirement is absolute
         // (world need + this view's estimate, once). Unchanged content never grows it again.
         const uint64_t world_need = gs_hlod_bundle::world_overlap_need(state.hlod_overlap_world_need, tile->get_allocated_overlap_capacity(),
-                demands.is_empty() ? 0u : tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))));
+                demands.is_empty() ? 0u : world_overlap_seed);
         world_record_need = double(world_need);
         if (!demands.is_empty()) {
             const uint32_t wanted = gs_hlod_bundle::world_plus_objects_overlap_records(world_need, demand_records);
@@ -2658,10 +2681,11 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         uint64_t live_textures = 0;
         if (!tile->get_hlod_texture_byte_upper_bound(live_textures)) { return fallback("resource_ledger_unavailable"); }
         const uint32_t overlap_now = tile->get_allocated_overlap_capacity();
-        // Seed the overlap storage only when no canonical warmup ever created it (every leaf may be visible, 50 records each;
-        // the sorting config caps it); otherwise the resize keeps the capacity and rebuilds the grid-sized buffers.
-        // It is capped at the configured max_overlap_records (as the allocation is) and priced at the real bytes per record.
-        const uint32_t seed = overlap_now == 0 ? tile->clamp_hlod_overlap_records(uint32_t(MIN<uint64_t>(uint64_t(input->leaf_count) * 50u, UINT32_MAX))) : 0u;
+        // Seed the overlap storage only when no canonical warmup ever created it (from the world's drawn budget, #1472:
+        // gs_hlod_bundle::world_overlap_seed_records); otherwise the resize keeps the capacity and rebuilds the grid-sized
+        // buffers. It is capped at the configured max_overlap_records (as the allocation is) and priced at the real bytes
+        // per record.
+        const uint32_t seed = overlap_now == 0 ? world_overlap_seed : 0u;
         const uint64_t seed_bytes = uint64_t(seed) * tile->get_hlod_overlap_bytes_per_record();
         const uint64_t wanted_bytes = tile->estimate_hlod_texture_bytes_for_viewport(view_size) + seed_bytes;
         const auto action = ResidentAtlasBudget::hlod_view_grid_action(grid.x, grid.y, view_size.x, view_size.y, overlap_now, live_textures,
@@ -2877,6 +2901,13 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
     const HlodViewOutcome outcome = frame_context_manager.select_hlod_view(identity, input->get_instance_id(), snapshot, spec);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
+    // #1472: what the record cap alone refused this cut (a refinement, a residency demand or the root), as the storage
+    // that would admit it next to the objects' reserve. The next frame's safe point grows the storage to it (above).
+    if (outcome.view.record_demand > 0.0) {
+        state.hlod_world_overlap_demand_records = MAX(state.hlod_world_overlap_demand_records,
+                gs_hlod_bundle::world_demand_overlap_records(outcome.view.record_demand, admission.records));
+        state.hlod_world_overlap_demand_build = state.hlod_bundle_builds;
+    }
     gs_hlod_runtime::CutHistory::Result diagnostic_cut;
     const gs_hlod_runtime::CutHistory *diagnostic_history = frame_context_manager.get_hlod_view_set().cut_diagnostics(
             RenderFrameContextManager::hlod_view_key(identity), instance.instance_key, diagnostic_cut);

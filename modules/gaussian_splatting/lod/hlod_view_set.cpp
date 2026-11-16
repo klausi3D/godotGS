@@ -581,6 +581,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.visited_nodes += cut.visited_nodes;
 			result.estimated_records += cut.estimated_records;
 			result.budget_bound = result.budget_bound || cut.budget_bound;
+			result.record_demand += cut.record_demand;
 			result.edit_forced = result.edit_forced || cut.edit_forced;
 			for (uint32_t k = 0; k < slot.history.demand_count(); ++k) {
 				if (view.desired_count >= uint32_t(view.desired.size())) {

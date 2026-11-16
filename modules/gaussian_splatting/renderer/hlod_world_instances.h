@@ -234,6 +234,44 @@ inline uint32_t canonical_capacity(uint32_t p_leaf_count, const InstanceRegion &
 	return total > UINT32_MAX ? UINT32_MAX : uint32_t(total);
 }
 
+// #1472, the world's overlap-record seed: what a streamed or paged world's overlap storage is created with, before any
+// frame measured or estimated its demand. It was 50 records for EVERY leaf (what a canonical warmup frame of the whole
+// world would allocate), capped only by max_overlap_records: 100M records, 2.9 GB of the device ledger, for a 4.2M-leaf
+// world whose cut is estimated at 2.7M records. The pool can only grow into what the seed leaves.
+//
+// The seed now follows the estimate: 3/2 of the splats the world can draw, W = min(leaf_count, max_splats) (PR1a's world
+// cap; a drawn splat is at least one record, the rest is the slack every other growth of this storage gets). It is never
+// above the former rule, and never below a floor that is cheap (2^20 records, about 30 MB) unless the former rule was
+// already below it, so a small world is seeded exactly as before. The caller clamps it to the configured cap
+// (TileRenderer::clamp_hlod_overlap_records), as before.
+//
+// A seed below a view's demand does not overflow: the storage is the cut's record budget (world_view_caps), so the
+// selector holds the cut coarse instead, and the measured-overflow growth never sees it. The selector therefore reports
+// the record demand its cap alone refused (CutHistory::Result::record_demand) and the route grows the storage to it at
+// the same safe point, by the same call the objects' estimate uses (TileRenderer::ensure_hlod_overlap_capacity).
+constexpr uint64_t WORLD_OVERLAP_RECORDS_PER_LEAF = 50; // The former seed rule: now only the upper bound.
+constexpr uint64_t WORLD_OVERLAP_SEED_FLOOR_RECORDS = uint64_t(1) << 20;
+inline uint32_t world_overlap_seed_records(uint32_t p_leaf_count, int p_max_splats) {
+	const uint64_t every_leaf = uint64_t(p_leaf_count) * WORLD_OVERLAP_RECORDS_PER_LEAF;
+	const uint64_t drawn = world_need_splats(p_leaf_count, p_max_splats);
+	const uint64_t estimate = MAX<uint64_t>(drawn + drawn / 2u, WORLD_OVERLAP_SEED_FLOOR_RECORDS);
+	return uint32_t(MIN<uint64_t>(MIN<uint64_t>(every_leaf, estimate), UINT32_MAX));
+}
+// The storage that admits a world cut of `p_world_demand` estimated records under the selector's admission factor, next
+// to the objects' reserve the world's record budget is reduced by (one record of rounding margin). 0: no demand.
+inline uint32_t world_demand_overlap_records(double p_world_demand, double p_object_records) {
+	if (!std::isfinite(p_world_demand) || p_world_demand <= 0.0) { return 0u; }
+	const double objects = std::isfinite(p_object_records) && p_object_records > 0.0 ? std::ceil(p_object_records) : 0.0;
+	const double wanted = std::ceil(p_world_demand / gs_hlod_runtime::kRecordAdmissionFactor) + 1.0 + objects;
+	return wanted >= double(UINT32_MAX) ? UINT32_MAX : uint32_t(wanted);
+}
+// What the route grows the storage to for that requirement: 3/2 of it (the slack grow_hlod_overlap_storage gives a
+// measured overflow), so a camera whose demand rises a little each frame does not reallocate the storage on every rise.
+// The route falls back to the exact requirement when the slack does not fit the headroom.
+inline uint32_t world_demand_overlap_growth(uint32_t p_records) {
+	return uint32_t(MIN<uint64_t>(uint64_t(p_records) + p_records / 2u, UINT32_MAX));
+}
+
 // One visible object's demand in one view.
 struct ObjectDemand {
 	uint64_t instance_key = 0; // Stable instance id (the node's ObjectID): breaks importance ties.
