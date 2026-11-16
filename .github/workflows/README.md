@@ -99,7 +99,7 @@ budget-bound frame), so its eviction, budget-bound and teleport-convergence chec
 cannot fail there. The variant changes two existing settings for every arm and adds
 no renderer knob: `rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb`,
 computed from the prepared tree's V4 node directory so the streamed atlas holds
-20-25 % of the tree's pages, and the node's `max_splat_count` at 1,000,000. The
+20-25 % of the tree's pages, and the node's `max_splat_count` at 250,000. The
 comparison then requires process observations on the HLOD arm, each with its own
 reason: native atlas capacity inside the band (`pressure_atlas_cap_unobserved`,
 `pressure_atlas_cap_out_of_band`), `hlod_stream_evicted_total > 0`
@@ -212,7 +212,7 @@ contract-source ADR.
 | `baseline_qa.yml` | `baseline_mode` | `compare`, `update` |
 | `beyond_vram_flythrough.yml` | `mode` | `flythrough` (default, the lane), `auto_tree` (build and prime `A-v4_gsq_auto` only), `real_scan` (build, D2 identity and BV-C2 codec probe only), `shared_layers_t0` (candidate/pre-D3 builds and one sequential paired synthetic GPU diagnostic), or `watchdog` (only the liveness watchdog) |
 | `beyond_vram_flythrough.yml` | `shared_layers_control` | `none` (default), `corrupt`, `saturate`, or `skip_compare`; used only in `mode=shared_layers_t0`. Corrupt/saturate pass only with DETECTED and usable non-control arms; missing evidence fails. `skip_compare` must be red. Saturation holds actual ready HLOD uploads through the tests-only hook and requires native hold/queue evidence. |
-| `beyond_vram_flythrough.yml` | `shared_layers_variant` | `unconstrained` (default, the unchanged run) or `pressure` (#1471); used only in `mode=shared_layers_t0`, with `shared_layers_control=none`. Pressure caps the HLOD atlas to 20-25 % of the tree's pages and the drawn budget to 1M on every arm, and is UNUSABLE with a named reason without observed evictions, budget-bound frames and a teleport settle that streamed. |
+| `beyond_vram_flythrough.yml` | `shared_layers_variant` | `unconstrained` (default, the unchanged run) or `pressure` (#1471); used only in `mode=shared_layers_t0`, with `shared_layers_control=none`. Pressure caps the HLOD atlas to 20-25 % of the tree's pages and the drawn budget to 250k on every arm, and is UNUSABLE with a named reason without observed evictions, budget-bound frames and a teleport settle that streamed. |
 | `beyond_vram_flythrough.yml` | `tier` | `T0` (default, 4.19M-splat smoke world), `A` (the 201M-splat world, uncompressed plain v3; also uses `T0`). The weekly schedule runs `A`. |
 | `beyond_vram_flythrough.yml` | `prime_world_cache` | boolean (default `false`): regenerate the tier's worlds into the runner's world cache first (job `prime-world-cache`) |
 | `beyond_vram_flythrough.yml` | `disk_probe_gib` | integer string `1`-`64` (default `8`), size of the O_DIRECT disk-probe file |

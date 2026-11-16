@@ -1897,17 +1897,24 @@ class ComparisonContract(unittest.TestCase):
 
     # ---- #1471: the T0 pressure variant must prove that pressure happened ----
 
+    def test_pressure_drawn_budget_is_pinned_to_250k_in_runner_and_comparator(self):
+        for name, module in (("runner", shared), ("comparator", driver)):
+            with self.subTest(module=name):
+                self.assertEqual(module.PRESSURE_DRAWN_BUDGET_SPLATS, 250_000)
+
     def use_pressure_policy(self):
         """Constructed policy envelope for the pressure variant, not a captured pressure run.
 
         The request is built by the real orchestration helper for the measured T0 tree size
-        (5,136 pages, run 43742475749). The per-arm pressure block is built by the real
+        (5,136 pages, run 43742475749), with the owner-decided 250k drawn budget pinned
+        independently of the runner constant. The per-arm pressure block is built by the real
         producer-side helper from the captured BV-07 result; the native counters and the
         settle windows' streaming work are constructed preconditions, because no pressure
         run existed when these tests were written.
         """
         with mock.patch.object(shared, "tree_page_count", return_value=5136):
             request = shared.pressure_request(Path("tree.gsplatworld"))
+        request["drawn_budget_splats"] = 250_000
         self.experiment["variant"] = copy.deepcopy(request)
         setting, cap = request["atlas_setting"], request["atlas_override_mb"]
         records = [arm[key] for arm in self.experiment["arms"].values() for key in ("requested",)]
@@ -1915,8 +1922,8 @@ class ComparisonContract(unittest.TestCase):
         records += [arm["settings_readback"] for arm in self.experiment["migration"]["arms"].values()]
         for settings in records:
             settings["project_settings_readback"][setting] = cap
-            settings["node_readback"]["max_splat_count"] = 1_000_000
-            settings.update(visible_splats=1_000_000, drawn_splats=1_000_000)
+            settings["node_readback"]["max_splat_count"] = 250_000
+            settings.update(visible_splats=250_000, drawn_splats=250_000)
         self.use_scoped_observation_policy()
         for route in ("chunk", "hlod"):
             result = copy.deepcopy(self.result)
@@ -2048,6 +2055,7 @@ class ComparisonContract(unittest.TestCase):
     def test_pressure_request_must_equal_the_comparator_policy(self):
         for label, mutate in (("fraction band", lambda v: v.update(atlas_fraction_band=[0.0, 1.0])),
                               ("drawn budget", lambda v: v.update(drawn_budget_splats=4_000_000)),
+                              ("old 1M drawn budget", lambda v: v.update(drawn_budget_splats=1_000_000)),
                               ("tree pages", lambda v: v.pop("tree_pages")),
                               ("name", lambda v: v.update(name="unconstrained")),
                               ("cap", lambda v: v.update(atlas_override_mb=0))):
@@ -2062,15 +2070,16 @@ class ComparisonContract(unittest.TestCase):
 
     def test_pressure_drawn_budget_must_be_requested_and_read_back_on_both_routes(self):
         for route in ("chunk", "hlod"):
-            with self.scenario(route=route):
-                self.use_pressure_policy()
-                for arm in self.experiment["arms"].values():
-                    arm["requested"]["node_readback"]["max_splat_count"] = 4_000_000
-                    arm["observed"]["settings"]["node_readback"]["max_splat_count"] = 4_000_000
-                for arm in self.experiment["migration"]["arms"].values():
-                    arm["settings_readback"]["node_readback"]["max_splat_count"] = 4_000_000
-                report = self.assert_verdict("UNUSABLE", "pressure_not_applied")
-                self.assertIn(route, [r.get("arm") for r in report["reasons"] if r["code"] == "pressure_not_applied"])
+            for budget in (1_000_000, 4_000_000):
+                with self.scenario(route=route, budget=budget):
+                    self.use_pressure_policy()
+                    for arm in self.experiment["arms"].values():
+                        arm["requested"]["node_readback"]["max_splat_count"] = budget
+                        arm["observed"]["settings"]["node_readback"]["max_splat_count"] = budget
+                    for arm in self.experiment["migration"]["arms"].values():
+                        arm["settings_readback"]["node_readback"]["max_splat_count"] = budget
+                    report = self.assert_verdict("UNUSABLE", "pressure_not_applied")
+                    self.assertIn(route, [r.get("arm") for r in report["reasons"] if r["code"] == "pressure_not_applied"])
 
     def test_pressure_keeps_every_correctness_failure_fatal(self):
         for key in ("nonresident_drawn_nodes", "stale_generation_publications"):
