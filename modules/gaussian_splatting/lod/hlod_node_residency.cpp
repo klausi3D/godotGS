@@ -564,6 +564,8 @@ bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 	if (p_success) {
 		n.state = RESIDENT;
 		n.failures = 0;
+		n.retry_later_failures = 0;
+		n.last_failure_class = FAILURE_PERMANENT;
 		n.last_drawn_frame = current_frame; // A fresh node is not the first eviction victim.
 		mask.write[p_ticket.node] = 1;
 		++totals.completed_total;
@@ -571,6 +573,8 @@ bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 	}
 	n.state = FAILED;
 	n.request_generation = 0;
+	n.retry_later_failures = 0;
+	n.last_failure_class = FAILURE_PERMANENT;
 	++n.failures;
 	n.retry_after_frame = current_frame + uint64_t(cfg.retry_delay_frames) * n.failures;
 	++totals.failed_total;
@@ -579,7 +583,6 @@ bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 }
 
 bool NodeResidency::fail_load(const Ticket &p_ticket, FailureClass p_class) {
-	(void)p_class; // Stage 1: preserve the existing failure accounting for the RED tests.
 	if (!ticket_current(p_ticket, LOADING)) {
 		count_rejected_completion(p_ticket);
 		return false;
@@ -587,8 +590,22 @@ bool NodeResidency::fail_load(const Ticket &p_ticket, FailureClass p_class) {
 	Node &n = nodes.write[p_ticket.node];
 	n.state = FAILED;
 	n.request_generation = 0;
-	++n.failures;
-	n.retry_after_frame = current_frame + uint64_t(cfg.retry_delay_frames) * n.failures;
+	if (p_class == FAILURE_RETRY_LATER) {
+		n.last_failure_class = FAILURE_RETRY_LATER;
+		if (n.retry_later_failures != UINT32_MAX) { ++n.retry_later_failures; }
+		const uint32_t shift = std::min(n.retry_later_failures - 1u, 16u);
+		// Promote before shifting: even UINT32_MAX << 16 fits in uint64_t.
+		const uint64_t backoff = std::max<uint64_t>(1, std::min<uint64_t>(
+				uint64_t(cfg.retry_delay_frames) << shift, cfg.retry_later_max_delay_frames));
+		n.retry_after_frame = current_frame > UINT64_MAX - backoff ? UINT64_MAX : current_frame + backoff;
+		++totals.failed_retry_later_total;
+	} else {
+		n.last_failure_class = FAILURE_PERMANENT;
+		n.retry_later_failures = 0;
+		++n.failures;
+		n.retry_after_frame = current_frame + uint64_t(cfg.retry_delay_frames) * n.failures;
+		++totals.failed_permanent_total;
+	}
 	++totals.failed_total;
 	release_run_now(n); // Nothing reached the GPU.
 	return true;
@@ -638,7 +655,11 @@ NodeResidency::Stats NodeResidency::stats() const {
 			case RESIDENT: ++s.resident; s.pages_resident += n.pages; break;
 			case FAILED:
 				++s.failed;
-				if (n.failures >= cfg.max_failures) { ++s.permanently_failed; }
+				if (n.failures >= cfg.max_failures) {
+					++s.permanently_failed;
+				} else if (n.last_failure_class == FAILURE_RETRY_LATER) {
+					++s.retry_later_waiting;
+				}
 				break;
 		}
 	}
@@ -979,6 +1000,8 @@ bool NodeResidency::commit_edit() {
 		n.request_generation = ++request_serial; // Any ticket made for the old content is dead.
 		n.state = RESIDENT;
 		n.failures = 0;
+		n.retry_later_failures = 0;
+		n.last_failure_class = FAILURE_PERMANENT;
 		n.last_drawn_frame = current_frame;
 		mask.write[index] = 1;
 		n.shadow_key = 0;
@@ -1005,6 +1028,8 @@ bool NodeResidency::commit_edit() {
 		n.state = ABSENT;
 		n.request_generation = 0;
 		n.failures = 0;
+		n.retry_later_failures = 0;
+		n.last_failure_class = FAILURE_PERMANENT;
 		mask.write[index] = 0;
 		retire_run(n);
 		if (was_resident) {

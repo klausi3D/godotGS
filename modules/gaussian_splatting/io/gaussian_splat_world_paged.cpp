@@ -1011,7 +1011,9 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		observe(); // Covers the real service -> stash -> caller allocation.
 		const PayloadReadService::SubmitResult submitted = p_store.request(p_requester, p_ticket, p_descriptor);
 		if (submitted != PayloadReadService::SUBMIT_OK) {
-			return fail(submitted == PayloadReadService::SUBMIT_BUSY ? ERR_BUSY : ERR_UNAVAILABLE,
+			return fail(submitted == PayloadReadService::SUBMIT_BUSY ? ERR_BUSY :
+					(submitted == PayloadReadService::SUBMIT_NOT_RUNNING || submitted == PayloadReadService::SUBMIT_DUPLICATE_TICKET ?
+							ERR_UNAVAILABLE : ERR_INVALID_DATA),
 					"v4_page_store_request_refused");
 		}
 		if (!p_store.wait(p_requester, p_ticket, page)) {

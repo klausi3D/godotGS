@@ -674,12 +674,12 @@ static bool request_failure_root(Residency &r_res, uint64_t &r_frame, Residency:
 	return false;
 }
 
-TEST_CASE("[GaussianSplatting][HLOD][Residency] load error policy retries only busy, OOM and unavailable") {
+TEST_CASE("[GaussianSplatting][HLOD][Residency] load error policy retries only busy, OOM, unavailable and cancelled reads") {
 	// Enumerate the Error domain so file, corruption, validation, I/O and unknown
 	// policy codes (including ERR_BUG, ERR_LINK_FAILED and FAILED) all fail closed.
 	for (int value = OK; value < ERR_MAX; ++value) {
 		const Error error = static_cast<Error>(value);
-		const FailureClass expected = error == ERR_BUSY || error == ERR_OUT_OF_MEMORY || error == ERR_UNAVAILABLE ?
+		const FailureClass expected = error == ERR_BUSY || error == ERR_OUT_OF_MEMORY || error == ERR_UNAVAILABLE || error == ERR_SKIP ?
 				FAILURE_RETRY_LATER : FAILURE_PERMANENT;
 		INFO("Error code: ", value);
 		CHECK(classify_load_error(error) == expected);
@@ -687,7 +687,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] load error policy retries only b
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][Residency] transient load failures exceed max failures and still become resident") {
-	const Error errors[] = { ERR_BUSY, ERR_OUT_OF_MEMORY, ERR_UNAVAILABLE };
+	const Error errors[] = { ERR_BUSY, ERR_OUT_OF_MEMORY, ERR_UNAVAILABLE, ERR_SKIP };
 	for (Error error : errors) {
 		INFO("transient Error code: ", int(error));
 		Residency res;

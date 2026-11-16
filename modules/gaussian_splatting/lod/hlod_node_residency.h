@@ -46,15 +46,17 @@ namespace gs_hlod_runtime {
 
 enum FailureClass : uint8_t { FAILURE_PERMANENT = 0, FAILURE_RETRY_LATER };
 
-// Load-error policy: BUSY, OUT_OF_MEMORY and UNAVAILABLE (cancelled/not-running)
-// retry later. All other errors fail closed: corrupt records/digests/decodes,
+// Load-error policy: ERR_BUSY, ERR_OUT_OF_MEMORY, ERR_UNAVAILABLE and ERR_SKIP
+// retry later (ERR_SKIP reaches HLOD only for read-service cancellation/shutdown).
+// All other errors fail closed: corrupt records/digests/decodes,
 // layout mismatches, missing/unopenable files, changed lengths, EOF and I/O errors.
 inline FailureClass classify_load_error(Error p_error) {
 	switch (p_error) {
 		case ERR_BUSY:
 		case ERR_OUT_OF_MEMORY:
 		case ERR_UNAVAILABLE:
-			return FAILURE_PERMANENT; // Stage 1: policy surface only; behavior remains inert.
+		case ERR_SKIP:
+			return FAILURE_RETRY_LATER;
 		default:
 			return FAILURE_PERMANENT;
 	}
@@ -88,7 +90,7 @@ public:
 		// A LOADING request that was not demanded for this many frames is cancelled.
 		uint32_t cancel_grace_frames = 4;
 		uint32_t retry_delay_frames = 8;
-		uint32_t retry_later_max_delay_frames = 64;
+		uint32_t retry_later_max_delay_frames = 64; // Zero is treated as one frame.
 		uint32_t max_failures = 3;
 		bool pin_root = true; // The root is the complete coarse fallback; it is never evicted.
 		uint64_t committed_edit_revision = 0; // Package F1: the edit revision of the snapshot this table describes.

@@ -757,6 +757,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			sized = gs_resize_or_fail(result.raw, count, "HLOD node payload");
 			out.raw = result.raw.ptrw();
 		}
+		if (!sized && count != 0) { result.failure_class = gs_hlod_runtime::FAILURE_RETRY_LATER; }
 		if (result.reservation) {
 			result.reservation->output_changed(vector_storage_bytes(result.raw) + vector_storage_bytes(result.quantized));
 		}
@@ -780,6 +781,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		view.gaussians = edited_leaf->gaussians.ptr();
 		view.sh = edited_leaf->sh.is_empty() ? nullptr : edited_leaf->sh.ptr();
 		result.ok = allocate_output() && uint64_t(edited_leaf->gaussians.size()) == count && pack(&view);
+		if (uint64_t(edited_leaf->gaussians.size()) != count) { result.failure_class = gs_hlod_runtime::FAILURE_PERMANENT; }
 	} else if (d.is_paged()) {
 		// Defer packed allocation until read_node_payload_from_store frees its
 		// stored record/decoder. The reservation covers the larger of stored +
@@ -803,6 +805,8 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			view.gaussians = gaussians.ptr();
 			view.sh = sh.is_empty() ? nullptr : sh.ptr();
 			result.ok = allocate_output() && pack(&view);
+		} else {
+			result.failure_class = gs_hlod_runtime::classify_load_error(read_error);
 		}
 	} else {
 		result.ok = allocate_output() && pack();
@@ -815,7 +819,10 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			result.reservation->storage_changed(0, 0);
 			result.reservation->finish_work();
 #ifdef TESTS_ENABLED
-			if (job->mailbox->ledger->control.fail_validation) { result.ok = false; }
+			if (job->mailbox->ledger->control.fail_validation) {
+				result.ok = false;
+				result.failure_class = gs_hlod_runtime::FAILURE_PERMANENT;
+			}
 			if (job->mailbox->ledger->fault == TEST_FAULT_DROP_OUTPUT_CHARGE) {
 				result.reservation->drop_output_charge();
 				++job->mailbox->ledger->faults_triggered;
@@ -1534,7 +1541,7 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	const uint64_t atlas_capacity = atlas_bytes_capacity();
 	PackResult &r = ready[p_ready_index];
 	if (!r.ok) {
-		residency.fail_load(r.ticket); // A stale ticket is only counted as dropped.
+		residency.fail_load(r.ticket, r.failure_class); // A stale ticket is only counted as dropped.
 		ready.remove_at(p_ready_index);
 		return true;
 	}
