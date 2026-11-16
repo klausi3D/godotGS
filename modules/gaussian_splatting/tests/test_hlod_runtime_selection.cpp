@@ -720,7 +720,8 @@ TEST_CASE("[GaussianSplatting][HLOD] page-feasible resident refinement keeps a c
 	CHECK(cut.demanded_closure_pages == 1);
 	CHECK(binary_cut_and_demand_pages(data, history, cut, r.page_splats) <= r.page_budget);
 	CHECK(cut.first_cap_refused_node == 0);
-	CHECK(cut.page_refused_groups > 0); // Page-specific observation; no decision about the renderer's budget-frame counter.
+	CHECK(cut.page_refused_groups > 0); // Page-specific observation, separate from the renderer's budget-frame counter.
+	CHECK_FALSE(cut.budget_bound); // Page-only binds do not broaden the comparator's existing counter.
 	CHECK_FALSE(cut.resident_refinement_bypass_over_budget);
 	CHECK(demand_of(history).empty());
 }
@@ -838,6 +839,72 @@ TEST_CASE("[GaussianSplatting][HLOD] resident refinement cannot spend page headr
 	CHECK(binary_cut_and_demand_pages(data, history, cut, r.page_splats) <= r.page_budget);
 	CHECK(cut.first_cap_refused_node == 2);
 	CHECK(cut.page_refused_groups > 0);
+	CHECK_FALSE(cut.budget_bound);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] bootstrap demand reserves page headroom and is charged once when revisited (#1483)") {
+	GaussianSplatHlodRuntimeData data;
+	heavy_root_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.splat_budget = 60;
+	r.page_splats = 16;
+	r.page_budget = 15;
+	uint8_t resident[7] = { 1, 1, 1, 0, 0, 1, 1 };
+	r.resident = resident; r.resident_count = 7;
+	SUBCASE("pending bootstrap demand leaves no room for the other resident branch") {
+		// Root+interiors cost 13; missing {3,4} reserve two. Resident {5,6} would need two more.
+		const auto waiting = history.select(data, r);
+		CHECK(waiting.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
+		CHECK(waiting.selected_count == 0); // No frontier satisfies both the page and splat caps yet.
+		CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+		CHECK(waiting.demanded_closure_pages == 15);
+		CHECK(waiting.page_refused_groups == 1);
+		std::vector<uint32_t> kept;
+		for (uint32_t i = 0; i < history.partial_frontier_count(); ++i) { kept.push_back(history.partial_frontier_node(i)); }
+		std::sort(kept.begin(), kept.end());
+		CHECK(kept == std::vector<uint32_t>{ 1, 2 });
+		resident[3] = resident[4] = 1;
+		const auto ready = history.select(data, r);
+		CHECK(ready.status == gs_hlod_runtime::CutHistory::COMPLETE);
+		CHECK(selected_of(history, ready) == std::vector<uint32_t>{ 2, 3, 4 });
+		CHECK(covers_without_overlap(history, ready.selected_count, 7));
+		CHECK(binary_cut_and_demand_pages(data, history, ready, r.page_splats) == 15);
+		CHECK(ready.budget_bound); // The page-only refusal must not clear the earlier bootstrap splat bind.
+	}
+	SUBCASE("ordinary refinement revisits an already reserved bootstrap group") {
+		r.page_budget = 17;
+		const auto cut = history.select(data, r);
+		CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+		CHECK(selected_of(history, cut) == std::vector<uint32_t>{ 1, 5, 6 });
+		CHECK(covers_without_overlap(history, cut.selected_count, 7));
+		CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 3, 4 }); // Existing demand-list duplicate semantics.
+		CHECK(cut.demanded_closure_pages == 17);
+		CHECK(binary_cut_and_demand_pages(data, history, cut, r.page_splats) == 17);
+		CHECK(cut.page_refused_groups == 0); // Revisited group needs zero additional pages, not another two.
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] an impossible root page closure is explicit and emits no unfulfillable demand (#1483)") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.page_splats = 1;
+	r.page_budget = 1; // Root alone needs two pages, retained in every possible frontier's closure.
+	uint8_t resident[7] = { 1, 1, 1, 1, 1, 1, 1 };
+	SUBCASE("resident root") {}
+	SUBCASE("missing root") { resident[0] = 0; }
+	r.resident = resident; r.resident_count = 7;
+	const auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
+	CHECK(cut.selected_count == 0);
+	CHECK(cut.first_cap_refused_node == 0);
+	CHECK(cut.page_refused_groups == 1);
+	CHECK_FALSE(cut.budget_bound);
+	CHECK(demand_of(history).empty());
 }
 
 TEST_CASE("[GaussianSplatting][HLOD] pressure closure counts ancestors and complete transition overlap without changing demand") {
