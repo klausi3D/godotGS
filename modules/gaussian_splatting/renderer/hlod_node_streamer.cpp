@@ -21,11 +21,15 @@ HlodNodeStreamer::~HlodNodeStreamer() {
 void HlodNodeStreamer::Config::set_worker_pool(uint32_t p_logical_cpus, uint32_t p_pool_threads) {
 	logical_cpus = p_logical_cpus;
 	pool_threads = p_pool_threads;
-	reserved_pool_threads = 0;
+	// These jobs wait for the separate IO service. Reserve the pool capacity
+	// beyond HLOD's ceiling, and at least one slot for other engine work when
+	// HLOD could otherwise fill the pool. Preserve progress on a one-thread
+	// pool; an unknown pool size imposes no reservation or clamp.
+	reserved_pool_threads = pool_threads <= 1 ? 0 : MAX(1u, pool_threads - MIN(pool_threads, max_jobs_in_flight));
 }
 
 uint32_t HlodNodeStreamer::Config::page_store_reader_count() const {
-	return max_jobs_in_flight;
+	return MAX(1u, GSUploadSizing::worker_count(max_jobs_in_flight, logical_cpus, pool_threads, reserved_pool_threads));
 }
 
 HlodNodeStreamer::RefusingGate HlodNodeStreamer::classify_admission_refusal(bool p_oversized_latch,
@@ -669,11 +673,28 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	return true;
 }
 
+void HlodNodeStreamer::cancel_outstanding_jobs() {
+	if (ledger.is_null()) { return; }
+	{
+		MutexLock lock(ledger->mutex);
+		// Mark EVERY sibling before draining any requester. A worker cannot
+		// publish after this boundary, or start another stage/window unnoticed.
+		for (const Task &task : tasks) { task.cancellation->cancelled.store(true); }
+	}
+	// Never call the store under the ledger lock: a draining reader/observer
+	// may need it. Task controls outlive Job, including completed tasks.
+	for (const Task &task : tasks) {
+		if (task.cancellation->store) {
+			task.cancellation->store->cancel_requester(task.cancellation->requester);
+		}
+	}
+}
+
 void HlodNodeStreamer::collect_finished_tasks(bool p_wait_all) {
 	WorkerThreadPool *pool = WorkerThreadPool::get_singleton();
 	for (uint32_t i = 0; i < tasks.size();) {
-		if (pool && (p_wait_all || pool->is_task_completed(tasks[i]))) {
-			pool->wait_for_task_completion(tasks[i]); // Returns at once for a completed task and releases it.
+		if (pool && (p_wait_all || pool->is_task_completed(tasks[i].id))) {
+			pool->wait_for_task_completion(tasks[i].id); // Returns at once for a completed task and releases it.
 			tasks[i] = tasks[tasks.size() - 1];
 			tasks.resize(tasks.size() - 1);
 		} else if (!pool) {
@@ -697,6 +718,7 @@ void HlodNodeStreamer::shutdown() {
 }
 
 void HlodNodeStreamer::drain_jobs_and_output() {
+	cancel_outstanding_jobs(); // Teardown only; source replacement still joins without cancelling old output.
 #ifdef TESTS_ENABLED
 	if (ledger.is_valid()) {
 		MutexLock lock(ledger->mutex);
@@ -760,6 +782,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 	out.quant = &result.quant;
 	out.metrics = &metrics;
 	const auto allocate_output = [&]() -> bool {
+		if (job->cancellation->cancelled.load()) { return false; }
 		bool sized = count != 0;
 		if (sized && job->params.quantized) {
 			sized = gs_resize_or_fail(result.quantized, count, "HLOD node payload (quantized)");
@@ -775,6 +798,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 	};
 	bool read_ok = false;
 	const auto pack = [&](const gs_hlod_pack::PayloadView *p_view = nullptr) {
+		if (job->cancellation->cancelled.load()) { return false; }
 		const uint64_t started = payload_clock_nsec();
 		const bool ok = gs_hlod_pack::pack_node(d, job->ticket.node, job->params, job->atlas_base, out, p_view);
 		const uint64_t elapsed = payload_clock_nsec() - started;
@@ -784,7 +808,11 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		return ok;
 	};
 	const GaussianSplatHlodRuntimeData::EditedLeaf *edited_leaf = d.find_edited(job->ticket.node);
-	if (edited_leaf) {
+	if (job->cancellation->cancelled.load()) {
+		// Use the ordinary failed-job cleanup below, including read stats and
+		// the reservation. No request, decode, pack or mailbox ownership begins.
+		if (result.reservation) { result.reservation->finish_transport(); }
+	} else if (edited_leaf) {
 		// Package F1: an edited leaf is packed from its in-memory replacement payload, never from the file (a V4 package is
 		// immutable) and never from the base snapshot's leaf.
 		gs_hlod_pack::PayloadView view;
@@ -800,13 +828,14 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		String why;
 		ReadObservation observation;
 		observation.reservation = result.reservation.get();
+		observation.cancellation = job->cancellation;
 		const Error read_error = job->store ?
 				d.paged_source->read_node_payload_from_store(*job->store, job->ticket.request_generation,
 						job->ticket.request_generation, job->ticket.node, gaussians, sh, why, &observation) :
 				d.paged_source->read_node_payload(job->ticket.node, gaussians, sh, why);
 		if (result.reservation) { result.reservation->finish_transport(); }
 		read_ok = read_error == OK;
-		if (read_error == OK) {
+		if (read_ok && !job->cancellation->cancelled.load()) {
 			if (result.reservation) {
 				result.reservation->storage_changed(0, vector_storage_bytes(gaussians) + vector_storage_bytes(sh));
 			}
@@ -827,19 +856,23 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 			result.reservation->finish_work();
 #ifdef TESTS_ENABLED
 			if (job->mailbox->ledger->control.fail_validation) { result.ok = false; }
-			if (job->mailbox->ledger->fault == TEST_FAULT_DROP_OUTPUT_CHARGE) {
+			if (!job->cancellation->cancelled.load() && job->mailbox->ledger->fault == TEST_FAULT_DROP_OUTPUT_CHARGE) {
 				result.reservation->drop_output_charge();
 				++job->mailbox->ledger->faults_triggered;
 			}
 #endif
-			result.reservation->move_output(OUTPUT_MAILBOX);
+			if (!job->cancellation->cancelled.load()) { result.reservation->move_output(OUTPUT_MAILBOX); }
 			result.reservation->finish_worker();
 		}
-		result.queue_enter_nsec = payload_clock_nsec();
-		job->mailbox->done.push_back(std::move(result));
+		// The canceller holds this same lock when setting the token. A result
+		// already published before cancellation remains owned until the drain.
+		if (!job->cancellation->cancelled.load()) {
+			result.queue_enter_nsec = payload_clock_nsec();
+			job->mailbox->done.push_back(std::move(result));
 #ifdef TESTS_ENABLED
-		++job->mailbox->ledger->mailbox_publications;
+			++job->mailbox->ledger->mailbox_publications;
 #endif
+		}
 	}
 	memdelete(job);
 }
@@ -922,6 +955,11 @@ void HlodNodeStreamer::start_jobs() {
 		job->mailbox = mailbox;
 		job->stats = read_stats;
 		job->store = use_store ? page_store : nullptr;
+		Ref<JobCancellation> cancellation;
+		cancellation.instantiate();
+		cancellation->store = job->store;
+		cancellation->requester = p_ticket.request_generation;
+		job->cancellation = cancellation;
 		job->reservation = std::move(permit);
 		const WorkerThreadPool::TaskID task = pool->add_native_task(&HlodNodeStreamer::run_job, job, false, "HlodNodePack");
 		if (task == WorkerThreadPool::INVALID_TASK_ID) {
@@ -930,7 +968,10 @@ void HlodNodeStreamer::start_jobs() {
 			memdelete(job); // Returns the permit exactly once, without a worker.
 			return false;
 		}
-		tasks.push_back(task);
+		Task tracked;
+		tracked.id = task;
+		tracked.cancellation = cancellation;
+		tasks.push_back(tracked);
 		return true;
 	};
 	if (residency.is_edit_staged()) {
@@ -1460,7 +1501,12 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 	if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
 	const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
 	const uint64_t upload_started = payload_clock_nsec();
-	if (write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, true) != OK) {
+	// Shadow output is also render-thread owned; retain its entire allocation
+	// and charge while the device call runs without the worker ledger mutex.
+	lock.temp_unlock();
+	const Error upload_error = write_atlas(p_device, p_buffers, r.ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, true);
+	lock.temp_relock();
+	if (upload_error != OK) {
 		fail_shadow_upload(); return true;
 	}
 	record_upload_slice(r, upload_started, slice.bytes);
@@ -1474,7 +1520,10 @@ bool HlodNodeStreamer::upload_shadow_ready(RenderingDevice *p_device, const Buff
 		if (ledger->fault == TEST_FAULT_EARLY_SHADOW_METADATA) {
 			// Actually expose this invisible run before commit; the same revision
 			// checker as the positive case must reject the device/CPU-sink write.
-			if (write_meta(p_device, p_buffers, r.ticket.node, r.meta, true) == OK) { ++ledger->faults_triggered; }
+			lock.temp_unlock();
+			const Error metadata_error = write_meta(p_device, p_buffers, r.ticket.node, r.meta, true);
+			lock.temp_relock();
+			if (metadata_error == OK) { ++ledger->faults_triggered; }
 		}
 #endif
 		ShadowTransfer transfer;
@@ -1523,7 +1572,8 @@ void HlodNodeStreamer::upload_edit_ready(RenderingDevice *p_device, const Buffer
 }
 
 void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_buffers) {
-	MutexLock lock(ledger->mutex);
+	// ready/pending/residency belong to the render thread. The helper locks
+	// accounting handoffs, but must be able to fully unlock around device calls.
 	if (!pending_metadata_clears.is_empty()) { return; }
 	uint32_t i = 0;
 	while (i < ready.size()) {
@@ -1531,6 +1581,7 @@ void HlodNodeStreamer::upload_ready(RenderingDevice *p_device, const Buffers &p_
 #ifdef TESTS_ENABLED
 			// Base no-edit semantics: held live entries do not prevent later
 			// stale/failed results from being discarded in this same update.
+			MutexLock lock(ledger->mutex);
 			if (ledger->control.hold_uploads) { ++i; continue; }
 #endif
 			break; // A deferred fitting node still stops the scan, as on base.
@@ -1625,7 +1676,13 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 		if (r.reservation) { r.reservation->move_output(OUTPUT_UPLOAD); }
 		const uint8_t *payload = cfg.quantized ? reinterpret_cast<const uint8_t *>(r.quantized.ptr()) : reinterpret_cast<const uint8_t *>(r.raw.ptr());
 		const uint64_t upload_started = payload_clock_nsec();
+		// The queue and vectors are confined to this render thread. Workers only
+		// mutate mailbox/accounting: keep the full OUTPUT_UPLOAD allocation and
+		// permit charged across the unlocked call, then commit cursor/counters
+		// under the lock. Every worker invariant observation sees a complete owner.
+		lock.temp_unlock();
 		ok = write_atlas(p_device, p_buffers, publication_ticket.node, offset + r.uploaded_bytes, slice.bytes, payload + r.uploaded_bytes, false) == OK;
+		lock.temp_relock();
 		if (ok) {
 			record_upload_slice(r, upload_started, slice.bytes);
 			r.uploaded_bytes += slice.bytes;
@@ -1646,8 +1703,10 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	// then transition through UPLOADING only at the metadata-last boundary.
 	if (!residency.begin_upload(publication_ticket)) { ready.remove_at(p_ready_index); return true; }
 	if (ok) {
+		lock.temp_unlock();
 		ok = (!cfg.quantized || write_quant(p_device, p_buffers, publication_ticket.node, r.quant) == OK) &&
 				write_meta(p_device, p_buffers, publication_ticket.node, r.meta) == OK;
+		lock.temp_relock();
 	}
 	const bool finished = residency.finish_upload(publication_ticket, ok);
 	ok = ok && finished;
