@@ -271,7 +271,8 @@ func _checkpoint_evidence_verdict(settle: Dictionary, cache: Dictionary) -> Stri
 	if str(settle.get("reason", "")) == "settle_deadline_missed" \
 			or bool(settle.get("forward_progress", {}).get("deadline_missed", false)):
 		return "checkpoint_settle_deadline_missed"
-	if settle.get("settled") != true or not _count_sample_is_fresh(_last_stats, _pose_first_frame):
+	if settle.get("settled") != true or not _count_sample_is_fresh(_last_stats, _pose_first_frame) \
+			or not _count_sample_is_after_streak(_last_stats, settle.get("streak_first_frame")):
 		return "checkpoint_unsettled"
 	if bool(cache.get("applicable", true)):
 		if cache.get("enabled") == true:
@@ -618,6 +619,23 @@ func _count_sample_is_fresh(stats: Dictionary, pose_first_frame: int) -> bool:
 			and source_frame >= pose_first_frame and source_frame <= render_frame
 
 
+func _count_sample_is_after_streak(stats: Dictionary, streak_first_frame: Variant) -> bool:
+	var source_frame = stats.get("rendered_splat_count_source_frame", -1)
+	var render_frame = stats.get("render_frame_counter", -1)
+	if typeof(streak_first_frame) != TYPE_INT or typeof(source_frame) != TYPE_INT \
+			or typeof(render_frame) != TYPE_INT:
+		return false
+	# A readback sourced at the first settled frame can still precede its final
+	# upload arrival. Require a later source frame within the current streak.
+	return streak_first_frame >= 0 and source_frame > streak_first_frame and source_frame <= render_frame
+
+
+func _settle_digest_is_stable(stats: Dictionary, streak_digest: Variant) -> bool:
+	var digest = stats.get("hlod_drawn_node_digest")
+	# Older binaries and the chunk route may not export a drawn-node digest.
+	return typeof(digest) != TYPE_STRING or digest == streak_digest
+
+
 func _settled() -> bool:
 	# Flat settle condition (ADR section 7.3 pass B): missing chunks = 0, on a ready route,
 	# with something drawn, in stats that describe this pose. A missing key reads as not
@@ -657,8 +675,10 @@ func _settled() -> bool:
 	return int(_last_stats.get("rendered_splat_count", 0)) > 0
 
 
-# Pump frames until _settled() holds on SETTLE_STREAK consecutive frames, the last of
-# which ended before the deadline. Returns {settled, settle_usec, frames, deadline_s}.
+# Pump until _settled() holds on SETTLE_STREAK consecutive frames with a stable drawn
+# digest (when available) and a count sourced strictly after the streak's first render
+# frame. The accepting frame must end before the deadline; receipts include the
+# streak_first_frame and optional streak_digest alongside the existing settle fields.
 # settle_usec is measured to the first frame of the streak (when the condition began to
 # hold); the streak is a fixed lower bound, never an upper one.
 const SETTLE_STREAK := 3
@@ -748,6 +768,8 @@ func _pump_settle(deadline_s: float, window: String = "") -> Dictionary:
 	var frames := 0
 	var streak := 0
 	var streak_start := 0
+	var streak_first_frame := -1
+	var streak_digest = null
 	var progress_samples := []
 	var capture_progress := bool(_plan.get("shared_layers_t0", false))
 	if capture_progress:
@@ -761,22 +783,30 @@ func _pump_settle(deadline_s: float, window: String = "") -> Dictionary:
 			progress_samples.append(_shared_layers_progress_snapshot())
 		if now > deadline:
 			var missed := {"settled": false, "settle_usec": -1, "frames": frames, "deadline_s": deadline_s,
-					"reason": "settle_deadline_missed", "pose_error_m": _stats_pose_error()}
+					"reason": "settle_deadline_missed", "pose_error_m": _stats_pose_error(),
+					"streak_first_frame": streak_first_frame, "streak_digest": streak_digest}
 			if capture_progress:
 				missed["forward_progress"] = _shared_layers_progress_result(progress_samples, start, now, deadline_s, window, true)
 			return missed
 		if _settled():
-			if streak == 0:
+			if streak == 0 or not _settle_digest_is_stable(_last_stats, streak_digest):
+				streak = 0
 				streak_start = now
+				streak_first_frame = int(_last_stats["render_frame_counter"])
+				var digest = _last_stats.get("hlod_drawn_node_digest")
+				streak_digest = digest if typeof(digest) == TYPE_STRING else null
 			streak += 1
-			if streak >= SETTLE_STREAK:
+			if streak >= SETTLE_STREAK and _count_sample_is_after_streak(_last_stats, streak_first_frame):
 				var settled := {"settled": true, "settle_usec": streak_start - start, "frames": frames,
-						"deadline_s": deadline_s, "pose_error_m": _stats_pose_error()}
+						"deadline_s": deadline_s, "pose_error_m": _stats_pose_error(),
+						"streak_first_frame": streak_first_frame, "streak_digest": streak_digest}
 				if capture_progress:
 					settled["forward_progress"] = _shared_layers_progress_result(progress_samples, start, now, deadline_s, window, false)
 				return settled
 		else:
 			streak = 0
+			streak_first_frame = -1
+			streak_digest = null
 	return {}
 
 
@@ -844,6 +874,14 @@ func _checkpoint(name: String, seg_id: String, settle: Dictionary) -> Dictionary
 		"hlod_desired_nodes": _last_stats.get("hlod_stream_desired_nodes"),
 		"hlod_resident_nodes": _last_stats.get("hlod_stream_resident_nodes"),
 		"hlod_drawn_nodes": _last_stats.get("hlod_stream_drawn_nodes"),
+		# Optional cut diagnostics: older binaries must retain null, never an invented empty cut.
+		"hlod_drawn_node_ids": _last_stats.get("hlod_drawn_node_ids"),
+		"hlod_drawn_node_digest": _last_stats.get("hlod_drawn_node_digest"),
+		"hlod_cut_hysteresis_held": _last_stats.get("hlod_cut_hysteresis_held"),
+		"hlod_cut_budget_bound": _last_stats.get("hlod_cut_budget_bound"),
+		"hlod_cut_first_cap_refused_node": _last_stats.get("hlod_cut_first_cap_refused_node"),
+		"hlod_cut_residency_missed": _last_stats.get("hlod_cut_residency_missed"),
+		"hlod_cut_residency_missed_demanded": _last_stats.get("hlod_cut_residency_missed_demanded"),
 	}
 
 

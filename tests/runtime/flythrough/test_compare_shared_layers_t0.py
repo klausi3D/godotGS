@@ -1176,6 +1176,35 @@ class ComparisonContract(unittest.TestCase):
                 self.migration_checkpoint_1454(side).pop("drawn_nodes")
                 self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
 
+    def test_cut_diagnostics_pass_through_without_affecting_comparison_rules(self):
+        before = driver.compare(self.experiment)
+        diagnostics = {"hlod_drawn_node_digest": "0123456789abcdef", "hlod_cut_hysteresis_held": [1],
+                       "hlod_cut_budget_bound": True, "hlod_cut_first_cap_refused_node": 7,
+                       "hlod_cut_residency_missed": [2], "hlod_cut_residency_missed_demanded": [False]}
+        for index, ids in enumerate(([1, 2], [1, 4])):
+            self.migration_checkpoint_1454("candidate", index).update(diagnostics, hlod_drawn_node_ids=ids)
+        row = self.migration_checkpoint_1454("base")
+        for key in (*diagnostics, "hlod_drawn_node_ids"):
+            row[key] = None
+        after = driver.compare(self.experiment)
+        for key in ("verdict", "exit_code", "reasons"):
+            self.assertEqual(after[key], before[key], key)
+        for key in ("draw_differences", "checkpoint_pairs", "within_binary_changes"):
+            self.assertEqual(after["migration_observations"][key], before["migration_observations"][key], key)
+        observations = after["migration_observations"]["candidate_drawn_id_repeat"]
+        c2 = next(record for record in observations if record["checkpoint"] == "C2")
+        self.assertEqual(c2["symmetric_difference"], [2, 4])
+        receipts = after["checkpoint_evidence"]["checkpoints"]
+        candidate = next(record for record in receipts if record["arm"] == "migration_candidate"
+                         and record["pass_index"] == 0 and record["checkpoint"] == "C2")
+        base = next(record for record in receipts if record["arm"] == "migration_base"
+                    and record["pass_index"] == 0 and record["checkpoint"] == "C2")
+        for key, value in diagnostics.items():
+            self.assertEqual(candidate[key], value)
+            self.assertIsNone(base[key])
+        self.assertEqual(candidate["hlod_drawn_node_ids"], [1, 2])
+        self.assertIsNone(base["hlod_drawn_node_ids"])
+
     def checkpoint_policy_1454(self):
         """Constructed comparison policy, not an instrumented-base execution.
 

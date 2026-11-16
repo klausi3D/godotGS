@@ -1586,6 +1586,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_stream_ready_frames = state.hlod_stream_loading_frames = state.hlod_stream_first_ready_frame = 0;
     state.hlod_stream_frames = 0;
     state.hlod_prepared_snapshot.unref();
+    state.hlod_cut_telemetry.valid = false;
     state.hlod_active = false;
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
@@ -2425,6 +2426,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 
 bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_context) {
     auto &state = get_resource_state();
+    state.hlod_cut_telemetry.valid = false;
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = state.hlod_cpu_cut_usec = 0;
@@ -2875,6 +2877,14 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
     const HlodViewOutcome outcome = frame_context_manager.select_hlod_view(identity, input->get_instance_id(), snapshot, spec);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
+    gs_hlod_runtime::CutHistory::Result diagnostic_cut;
+    const gs_hlod_runtime::CutHistory *diagnostic_history = frame_context_manager.get_hlod_view_set().cut_diagnostics(
+            RenderFrameContextManager::hlod_view_key(identity), instance.instance_key, diagnostic_cut);
+    if (outcome.view.view_key == RenderFrameContextManager::hlod_view_key(identity) && diagnostic_history &&
+            diagnostic_cut.status != gs_hlod_runtime::CutHistory::INVALID) {
+        state.hlod_cut_telemetry.capture(*diagnostic_history, diagnostic_cut, world_nodes,
+                outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u);
+    }
     if (state.hlod_streaming) {
         // Desired(view) is demand only: it requests, it never makes anything drawable. It is available while the
         // view is still loading, which is exactly when the coarse frontier has to be requested.

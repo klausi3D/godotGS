@@ -16,7 +16,9 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	Vector<uint32_t> new_selected, new_positions;
 	Vector<uint64_t> new_refined;
 	Vector<uint32_t> new_demand;
+	Vector<uint8_t> new_diagnostics;
 	if (!gs_resize_or_fail(new_demand, p_nodes, "HLOD cut demand") ||
+			!gs_resize_or_fail(new_diagnostics, p_nodes, "HLOD cut diagnostics") ||
 			!gs_resize_or_fail(new_heap, p_nodes, "HLOD cut heap") ||
 			!gs_resize_or_fail(new_selected, p_nodes, "HLOD cut selection") ||
 			!gs_resize_or_fail(new_positions, p_nodes, "HLOD cut positions") ||
@@ -24,11 +26,13 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 		return false;
 	}
 	new_refined.fill(0);
+	new_diagnostics.fill(0);
 	heap = std::move(new_heap);
 	selected = std::move(new_selected);
 	selected_position = std::move(new_positions);
 	refined = std::move(new_refined);
 	demand = std::move(new_demand);
+	diagnostics = std::move(new_diagnostics);
 	demand_size = 0;
 	capacity = p_nodes;
 	epoch = 0;
@@ -38,6 +42,7 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 void CutHistory::invalidate() {
 	demand_size = 0;
 	refined.fill(0);
+	diagnostics.fill(0);
 	epoch = 0;
 }
 
@@ -50,11 +55,14 @@ uint64_t CutHistory::workspace_bytes(uint32_t p_nodes) {
 }
 
 uint64_t CutHistory::allocated_bytes() const {
-	return workspace_bytes(capacity);
+	uint64_t diagnostic_bytes = 0;
+	allocation_bytes(capacity, sizeof(uint8_t), diagnostic_bytes);
+	return workspace_bytes(capacity) + diagnostic_bytes;
 }
 
 CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request) {
 	Result out;
+	diagnostics.fill(0);
 	const uint32_t count = p_data.nodes.size();
 	if (count == 0 || count > capacity || p_request.node_budget == 0 || p_request.node_budget > capacity ||
 			!p_request.camera.is_finite() || !std::isfinite(p_request.focal_pixels) || p_request.focal_pixels <= 0 ||
@@ -76,10 +84,18 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	// A group is demanded whole or not at all: a truncated group would request part of a transition that can
 	// then never complete.
 	auto push_group = [&](const uint32_t *p_nodes, uint32_t p_count) {
-		if (demand_size + p_count > capacity) { return; }
+		if (demand_size + p_count > capacity) { return false; }
 		for (uint32_t i = 0; i < p_count; ++i) { demand.write[demand_size++] = p_nodes[i]; }
+		return true;
 	};
 	auto push_demand = [&](uint32_t p_node) { push_group(&p_node, 1); };
+	auto refused = [&](uint32_t p_node) {
+		if (out.first_cap_refused_node < 0) { out.first_cap_refused_node = int32_t(p_node); }
+	};
+	auto missed = [&](uint32_t p_node, bool p_demanded) {
+		if (!(diagnostics[p_node] & RESIDENCY_MISSED)) { ++out.residency_missed_count; }
+		diagnostics.write[p_node] |= RESIDENCY_MISSED | (p_demanded ? MISS_DEMANDED : 0);
+	};
 	const uint64_t previous = epoch++;
 	uint32_t heap_count = 0;
 	auto available = [&](uint32_t p_node) { return !p_request.resident || p_request.resident[p_node] != 0; };
@@ -228,11 +244,11 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				// Parent stays; no partial replacement. The bootstrap needs this expansion, so every missing
 				// visible child is demanded together (a whole transition, never a subset).
 				missing_residency = true;
-				push_group(missing_children, missing_count);
+				missed(parent, push_group(missing_children, missing_count));
 				continue;
 			}
 			const uint32_t next_count = out.selected_count - 1 + visible_children;
-			if (next_count > p_request.node_budget) { continue; } // Node cap refuses this expansion only.
+			if (next_count > p_request.node_budget) { refused(parent); continue; } // Node cap refuses this expansion only.
 			const double next_cost = MAX(0.0, out.estimated_records - cost(parent)) + child_cost;
 			if (!std::isfinite(next_cost)) { return fail(BOOTSTRAP_ARITHMETIC); }
 			const uint32_t removed = selected_position[parent];
@@ -300,20 +316,25 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const int64_t d_splats = int64_t(child_splats) - int64_t(n.payload_count);
 			const int64_t d_count = int64_t(visible_children) - 1;
 			const double d_cost = child_cost - cost(parent);
+			bool demanded = false;
 			if (int64_t(out.selected_splats) + plan_splats + d_splats <= int64_t(p_request.splat_budget) &&
 					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
 					MAX(0.0, out.estimated_records + plan_cost + d_cost) <= record_cap &&
 					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget)) {
-				push_group(missing_children, missing_count);
+				demanded = push_group(missing_children, missing_count);
 				plan_pages += child_pages;
 				plan_splats += d_splats;
 				plan_count += d_count;
 				plan_cost += d_cost;
+			} else {
+				refused(parent);
 			}
+			missed(parent, demanded);
 			continue;
 		}
 		if (next_splats > p_request.splat_budget || next_count > p_request.node_budget || next_cost > record_cap) {
 			out.budget_bound = true;
+			refused(parent);
 			break; // ADR: first cap refusal stops the whole priority walk.
 		}
 		closure_pages += child_pages;
@@ -325,6 +346,13 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			selected.write[out.selected_count] = children[j];
 			selected_position.write[children[j]] = out.selected_count++;
 			enqueue(children[j]);
+		}
+		if (previous != 0 && refined[parent] == previous) {
+			const double e = error(parent);
+			if (e > p_request.tau_pixels && e <= 1.25 * p_request.tau_pixels) {
+				diagnostics.write[parent] |= HYSTERESIS_HELD;
+				++out.hysteresis_held_count;
+			}
 		}
 		refined.write[parent] = epoch;
 		out.selected_splats = next_splats;

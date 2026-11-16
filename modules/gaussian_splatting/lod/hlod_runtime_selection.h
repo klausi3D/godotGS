@@ -63,7 +63,16 @@ public:
 		bool budget_bound = false;
 		bool bootstrapped = false; // Root failed admission and a child frontier was selected instead.
 		bool edit_forced = false; // Package F1: stale ancestors of edited leaves were replaced by their children (ADR 14.5).
+		// Report-only diagnostics of this invocation. A refusal includes a demand-plan/page cap or
+		// bootstrap node cap; budget_bound above retains its existing selection semantics.
+		int32_t first_cap_refused_node = -1;
+		uint32_t hysteresis_held_count = 0;
+		uint32_t residency_missed_count = 0;
 	};
+	enum DiagnosticFlag : uint8_t { HYSTERESIS_HELD = 1, RESIDENCY_MISSED = 2, MISS_DEMANDED = 4 };
+	// Per-node flags, valid until the next select/invalidate/reserve. HYSTERESIS_HELD means an
+	// ordinary transition actually taken solely in the history band, never a bootstrap expansion.
+	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node]; }
 	bool reserve(uint32_t p_nodes);
 	void invalidate();
 	// Desired(view) (ADR 14.1), ordered by the selector's own refinement priority (highest first): the
@@ -84,7 +93,8 @@ public:
 	Result select(const GaussianSplatHlodRuntimeData &p_data, const CutRequest &p_request);
 	uint32_t selected_node(uint32_t p_index) const { return selected[p_index]; }
 	uint64_t allocated_bytes() const;
-	// Bytes `reserve(p_nodes)` allocates (CowData-rounded); 0 if the count overflows.
+	// Selection workspace charge (CowData-rounded); 0 if the count overflows. Report-only
+	// diagnostic scratch is excluded to preserve admission policy; allocated_bytes() includes it.
 	static uint64_t workspace_bytes(uint32_t p_nodes);
 
 private:
@@ -94,6 +104,7 @@ private:
 	Vector<uint32_t> selected_position;
 	Vector<uint64_t> refined;
 	Vector<uint32_t> demand;
+	Vector<uint8_t> diagnostics; // Preallocated; cleared per selection, never consulted by selection.
 	uint32_t demand_size = 0;
 	uint32_t partial_size = 0;
 	uint64_t epoch = 0;
