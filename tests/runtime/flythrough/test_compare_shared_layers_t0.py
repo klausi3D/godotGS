@@ -1974,7 +1974,9 @@ class ComparisonContract(unittest.TestCase):
                 "hlod_stream_evicted_in_cut_total": {"measured": True, "value": 999999}}},
             "eviction_victims": {"measured": True, "events": [{"sequence": 1, "frame": 2, "node": 3, "class": 0}],
                                   "dropped_count": 10000, "sequence_gaps_total": 20000}},
-            {"snapshot": {"values": []}, "settle_window": "malformed", "eviction_victims": None})
+            {"snapshot": {"values": []}, "settle_window": "malformed", "eviction_victims": None},
+            *({"report_only": True, "snapshot": {"values": {"hlod_stream_placement_reserve_pages": value}}}
+              for value in (None, 0, 3, 999999, -1)))
         for failure in (False, True):
             experiment = copy.deepcopy(self.experiment)
             if failure:
@@ -2007,6 +2009,25 @@ class ComparisonContract(unittest.TestCase):
                         self.assertIn("999999 / 1", markdown)
                         self.assertIn("oversized_latch", markdown)
                         self.assertIn("10000 overwritten; 20000 unobserved", markdown)
+
+    def test_placement_reserve_diagnostics_table_distinguishes_absence_from_measured_zero(self):
+        # Report-only semantic receipts; no native capture or settlement evidence is claimed.
+        key = "hlod_stream_placement_reserve_pages"
+        for values, expected in (({}, "not measured"), ({key: None}, "not measured"),
+                                 ({key: 0}, "0"), ({key: 3}, "3"), ({key: 999999}, "999999")):
+            with self.subTest(values=values):
+                receipt = {"report_only": True, "snapshot": {"values": values}}
+                report = {"hlod_pressure_report": {"hlod": {"checkpoints": [
+                    {"checkpoint": "C5", "pass_index": 0, "observation": receipt}]}}}
+                markdown = driver.render_markdown(report)
+                headers = next(line for line in markdown.splitlines() if line.startswith("| arm / checkpoint |"))
+                columns = [cell.strip().lower() for cell in headers.split("|")[1:-1]]
+                self.assertIn("placement reserve pages", columns)
+                rows = [line for line in markdown.splitlines() if line.startswith("| hlod / C5 pass 0 |")]
+                self.assertEqual(len(rows), 1)
+                cells = [cell.strip() for cell in rows[0].split("|")[1:-1]]
+                self.assertEqual(len(cells), len(columns))
+                self.assertEqual(cells[columns.index("placement reserve pages")], expected)
 
     def test_pressure_variant_without_pressure_evidence_is_a_named_non_pass(self):
         def teleports(arm):

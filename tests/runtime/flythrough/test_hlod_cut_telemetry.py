@@ -125,7 +125,8 @@ class HlodPressureTelemetry(unittest.TestCase):
         for field in ("hlod_stream_pressure_measured", "hlod_stream_frames", "hlod_stream_allocation_refused_total",
                       "hlod_stream_skipped_groups_total", "hlod_stream_fragmented_groups",
                       "hlod_stream_pages_free", "hlod_stream_largest_free_run",
-                      "hlod_stream_demanded_closure_pages", "hlod_stream_bootstrap_bypass_pages",
+                      "hlod_stream_demanded_closure_pages", "hlod_stream_placement_reserve_pages",
+                      "hlod_stream_bootstrap_bypass_pages",
                       "hlod_stream_resident_refinement_bypass_pages", "hlod_stream_page_refused_groups_total",
                       "hlod_stream_evicted_in_cut_total", "hlod_stream_evicted_in_transition_total",
                       "hlod_stream_evicted_neither_total", "hlod_stream_refusing_gate",
@@ -222,6 +223,63 @@ class HlodPressureTelemetry(unittest.TestCase):
         self.assertEqual(observation["delta"], {"measured": True, "value": 0})
         self.assertIs(ps.hlod_pressure_summary([], zero)["trace"]["measured"], False,
                       "a counter without the native measurement marker is not a new pressure capture")
+
+    def test_placement_reserve_observation_is_declared_on_selection_and_streamer(self):
+        root = HERE.parents[2] / "modules/gaussian_splatting"
+        for path in (root / "lod/hlod_runtime_selection.h", root / "renderer/hlod_node_streamer.h"):
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertIsNotNone(re.search(r"bool\s+placement_reserve_measured\s*=\s*false\s*;", source),
+                                     "reserve availability must default to unmeasured")
+                self.assertIsNotNone(re.search(r"uint64_t\s+placement_reserve_pages\s*=\s*0\s*;", source),
+                                     "selection and streamer must carry the observed reserve pages")
+
+    def test_placement_reserve_is_handed_from_selection_to_streamer(self):
+        root = HERE.parents[2] / "modules/gaussian_splatting/renderer"
+        publisher = (root / "resident_instance_contract_publisher.cpp").read_text(encoding="utf-8")
+        # Discover the handoff method rather than prescribing a new C++ API in red tests.
+        handoff = re.search(r"state\.hlod_streamer->(\w+)\([^;]*\bdiagnostic_cut\b[^;]*\);", publisher)
+        self.assertIsNotNone(handoff, "the selection observation must cross the streamer boundary")
+        streamer = (root / "hlod_node_streamer.cpp").read_text(encoding="utf-8")
+        body = re.search(rf"void HlodNodeStreamer::{handoff.group(1)}\([^{{]*\{{(.*?)(?=\n\}})", streamer, re.S)
+        self.assertIsNotNone(body, "the publisher's handoff must have a streamer implementation")
+        for field in ("placement_reserve_measured", "placement_reserve_pages"):
+            self.assertTrue(field in body.group(1), f"streamer handoff must capture {field}")
+
+    def test_placement_reserve_native_export_is_nullable_and_owned_by_streamer(self):
+        root = HERE.parents[2] / "modules/gaussian_splatting/renderer"
+        key = "hlod_stream_placement_reserve_pages"
+        native = (root / "render_diagnostics_orchestrator.cpp").read_text(encoding="utf-8")
+        exports = re.findall(rf'stats\["{key}"\]\s*=\s*([^;]+);', native)
+        self.assertEqual(len(exports), 1, "reserve must have one render-stats export")
+        expression = exports[0]
+        self.assertRegex(expression, r"\bt\.placement_reserve_measured\s*\?")
+        self.assertIn("t.placement_reserve_pages", expression)
+        self.assertRegex(expression, r":\s*Variant\(\)\s*$", "absent selection must export null, never measured zero")
+        closure = (root / "hlod_cut_telemetry.h").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(rf'r_stats\["{key}"\]\s*=', closure),
+                          "direct cut telemetry must not overwrite the streamer's observation")
+
+    def test_placement_reserve_gauge_preserves_zero_absence_and_reset(self):
+        # Constructed semantic inputs, not recordings of the native producer.
+        key = "hlod_stream_placement_reserve_pages"
+        for fields, values in ((["row"], (0,)), ([key], ()), ([key], (-1,)), ([key], (3, -1))):
+            with self.subTest(fields=fields, values=values):
+                trace = ps.Trace(fields, "q", [(value,) for value in values], 0)
+                observation = ps.hlod_pressure_column(trace, list(range(len(trace.rows))), key)
+                self.assertIs(observation["measured"], False)
+                self.assertIsNone(observation["value"])
+                self.assertTrue(observation["reason"])
+        for values in ((0, 0), (3, 3), (7, 0)):
+            with self.subTest(values=values):
+                trace = ps.Trace([key], "q", [(value,) for value in values], 0)
+                observation = ps.hlod_pressure_column(trace, [0, 1], key)
+                self.assertIs(observation["measured"], True)
+                self.assertEqual(observation["value"], values[-1])
+                self.assertEqual(observation["max"], max(values))
+                self.assertNotIn("delta", observation, "reserve is a gauge, not a cumulative counter")
+                summary = ps.hlod_pressure_summary([], trace)
+                self.assertEqual(summary["trace"]["columns"][key], observation)
 
     def test_trace_counter_deltas_and_checkpoint_receipts_are_report_only(self):
         key = "hlod_stream_allocation_refused_total"
