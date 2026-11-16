@@ -802,13 +802,13 @@ class PressureVariant(unittest.TestCase):
         with self.assertRaises(ValueError):
             shared.tree_page_count(tree)
 
-    def test_request_caps_the_t0_atlas_inside_the_band_and_the_drawn_budget_at_1m(self):
+    def test_request_caps_the_t0_atlas_inside_the_band_and_the_drawn_budget_at_250k(self):
         request = self.request()
         self.assertEqual(request["name"], "pressure")
         self.assertEqual(request["tree_pages"], self.T0_TREE_PAGES)
         self.assertEqual(request["atlas_setting"], shared.PRESSURE_ATLAS_SETTING)
         self.assertEqual(request["atlas_fraction_band"], [0.20, 0.25])
-        self.assertEqual(request["drawn_budget_splats"], 1_000_000)
+        self.assertEqual(request["drawn_budget_splats"], 250_000)
         page_bytes = shared.PRESSURE_PAGE_SPLATS * shared.PRESSURE_RECORD_BYTES
         self.assertEqual(request["requested_atlas_pages"], (request["atlas_override_mb"] << 20) // page_bytes)
         fraction = request["requested_atlas_pages"] / request["tree_pages"]
@@ -848,8 +848,8 @@ class PressureVariant(unittest.TestCase):
                 self.assertNotIn("pressure", arm)
                 arm, plan = self.run_arm(route, request)
                 self.assertEqual(plan["project_settings"][shared.PRESSURE_ATLAS_SETTING], request["atlas_override_mb"])
-                self.assertEqual(plan["node"]["max_splat_count"], 1_000_000)
-                self.assertEqual(arm["requested"]["visible_splats"], 1_000_000)
+                self.assertEqual(plan["node"]["max_splat_count"], 250_000)
+                self.assertEqual(arm["requested"]["visible_splats"], 250_000)
                 self.assertEqual(arm["requested"]["project_settings_readback"][shared.PRESSURE_ATLAS_SETTING],
                                  request["atlas_override_mb"])
                 self.assertEqual(arm["pressure"]["route"], route)
