@@ -466,6 +466,10 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 		out["node_load_nsec"] = int64_t(counters.node_load_nsec - collection_base.node_load_nsec);
 		out["node_load_scope"] = "successful_runtime_node_load_wall_sum_including_io_wait";
 		out["nodes_loaded"] = int64_t(counters.nodes_loaded - collection_base.nodes_loaded);
+		// HLOD-only: chunk pages have no enclosing record digest, and their
+		// telemetry key set is pinned by the chunk adapter identity test.
+		out["pages_stored_digest_covered_by_record"] = int64_t(counters.pages_stored_digest_covered_by_record -
+				collection_base.pages_stored_digest_covered_by_record);
 	}
 	struct Counter {
 		const char *name;
@@ -480,7 +484,6 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 		{ "page_failures", &Stats::page_failures }, { "stored_bytes_read", &Stats::stored_bytes_read },
 		{ "digest_verification_failures", &Stats::digest_verification_failures },
 		{ "verify_nsec", &Stats::verify_nsec }, { "decode_nsec", &Stats::decode_nsec },
-		{ "pages_stored_digest_covered_by_record", &Stats::pages_stored_digest_covered_by_record },
 		{ "pages_decoded_digest_checked", &Stats::pages_decoded_digest_checked },
 		{ "pages_decoded_digest_skipped", &Stats::pages_decoded_digest_skipped },
 		{ "pages_decoded_digest_unavailable", &Stats::pages_decoded_digest_unavailable },
