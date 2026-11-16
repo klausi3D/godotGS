@@ -3,6 +3,7 @@ extern "C" int test_hlod_page_store_identity_cpp_force_link() { return 0; }
 #include "gs_hlod_page_store_test_fixture.h"
 #include "../io/gs_payload_page_store.h"
 #include "../renderer/hlod_node_pack.h"
+#include "core/config/project_settings.h"
 #include "core/io/file_access.h"
 
 #include <cstring>
@@ -148,9 +149,21 @@ static void identity(bool p_gsq, bool p_store_path) {
 	}
 	if (p_store_path) {
 		const PayloadPageStore::Stats stats = store.stats();
+		const Dictionary exported = store.get_telemetry("hlod");
+		CHECK(int64_t(exported.get("record_verify_nsec", -1)) > 0);
+		CHECK(int64_t(exported.get("node_load_nsec", -1)) >= int64_t(exported.get("record_verify_nsec", -1)));
+		CHECK(int64_t(exported.get("nodes_loaded", -1)) == fixture.node_count);
+		CHECK(String(exported.get("record_verify_scope", "")) == "v4_record_envelope_sha256_and_optional_payload_validation_worker_cpu_sum");
+		CHECK(String(exported.get("node_load_scope", "")) == "successful_runtime_node_load_wall_sum_including_io_wait");
+		// V4 carries no decoded reference digest, so no decoded-digest stage
+		// ran. Its unavailable timing stays NIL, outside this subtraction.
+		CHECK(exported.get("digest_nsec", Variant()).get_type() == Variant::NIL);
+		CHECK(int64_t(exported.get("decode_remainder_nsec", -1)) == int64_t(exported.get("decode_nsec", -2)) -
+				int64_t(exported.get("verify_nsec", -3)));
 		if (p_gsq) {
-			const Dictionary exported = store.get_telemetry("hlod");
 			CHECK(String(exported.get("digest_status", "")) == "not_available");
+			CHECK(String(exported.get("verify_scope", "")) == "gsq_header_parse_only_stored_bytes_covered_by_v4_record_digest");
+			CHECK(int64_t(exported.get("pages_stored_digest_covered_by_record", -1)) == fixture.node_count);
 			CHECK(stats.pages_decoded_digest_unavailable == fixture.node_count);
 			CHECK(stats.pages_decoded_digest_skipped == 0);
 		}
@@ -289,6 +302,19 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3StoreIdentity] common s
 			}
 		}
 	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][RuntimeVerify] full runtime payload validation defaults on") {
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	if (!settings) {
+		FAIL("runtime validation default requires ProjectSettings");
+		return;
+	}
+	const String key = "rendering/gaussian_splatting/hlod/runtime_full_payload_validation";
+	CHECK(settings->has_setting(key));
+	const Variant initial = settings->property_get_revert(key);
+	CHECK(initial.get_type() == Variant::BOOL);
+	CHECK(bool(initial));
 }
 
 } // namespace TestHlodPageStoreIdentity

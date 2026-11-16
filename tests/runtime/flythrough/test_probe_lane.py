@@ -2414,6 +2414,47 @@ class D35Telemetry(unittest.TestCase):
             validator.assert_called_once_with(None, route="hlod", source_generation=7)
 
 
+class RuntimeNodeWorkTelemetryPolicy(unittest.TestCase):
+    """Constructed optional-counter policy; legacy producer captures stay unchanged."""
+
+    def sample(self):
+        capture = json.loads((HERE / "fixtures/d3_5/d3_5_hlod_test_results.json").read_text(encoding="utf-8"))
+        block = copy.deepcopy(capture["completed"]["payload_telemetry"])
+        # These values test the consumer contract, not newly captured engine work.
+        block.update(record_verify_nsec=block["decode_nsec"] + 1,
+                     record_verify_scope="v4_record_envelope_sha256_and_optional_payload_validation_worker_cpu_sum",
+                     node_load_nsec=3 * block["decode_nsec"],
+                     node_load_scope="successful_runtime_node_load_wall_sum_including_io_wait", nodes_loaded=2)
+        return block, capture["source_generation"]
+
+    def test_optional_record_work_stays_outside_the_decode_span(self):
+        block, generation = self.sample()
+        result = ps.route_telemetry_summary(block, route="hlod", source_generation=generation)
+        self.assertEqual(result["status"], ps.OK, result)
+        for key in ("record_verify_nsec", "record_verify_scope", "node_load_nsec", "node_load_scope", "nodes_loaded"):
+            self.assertEqual(result.get(key), block[key])
+        without_node_work = {k: v for k, v in block.items() if k not in (
+            "record_verify_nsec", "record_verify_scope", "node_load_nsec", "node_load_scope", "nodes_loaded")}
+        self.assertEqual(ps.gsq_decode_split(result), ps.gsq_decode_split(without_node_work))
+        legacy = ps.route_telemetry_summary(without_node_work, route="hlod", source_generation=generation)
+        self.assertEqual(legacy["status"], ps.OK, legacy)
+        for key in ("record_verify_nsec", "node_load_nsec", "nodes_loaded"):
+            self.assertNotIn(key, legacy, "an old capture must not acquire a zero measurement")
+
+    def test_optional_record_work_rejects_invalid_counters_and_missing_scopes(self):
+        for key in ("record_verify_nsec", "node_load_nsec", "nodes_loaded"):
+            for value in (-1, True, 0.5, None):
+                block, generation = self.sample()
+                block[key] = value
+                with self.subTest(key=key, value=value):
+                    self.assertEqual(ps.route_telemetry_summary(block, route="hlod", source_generation=generation)["status"], ps.INVALID)
+        for key in ("record_verify_scope", "node_load_scope"):
+            block, generation = self.sample()
+            del block[key]
+            with self.subTest(key=key):
+                self.assertEqual(ps.route_telemetry_summary(block, route="hlod", source_generation=generation)["status"], ps.INVALID)
+
+
 class D36ObservationPolicy(unittest.TestCase):
     """Constructed validation-policy cases, NOT captures of new C++ exports.
 
