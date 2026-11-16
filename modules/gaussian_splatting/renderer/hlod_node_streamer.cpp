@@ -83,6 +83,9 @@ Variant HlodNodeStreamer::get_payload_telemetry() const {
 	out["configured_max_jobs_in_flight"] = int64_t(cfg.max_jobs_in_flight);
 	out["configured_upload_bytes_per_frame"] = int64_t(cfg.upload_bytes_per_frame);
 	out["normal_retained_byte_bound"] = int64_t(retained_byte_cap);
+	out["normal_retained_concurrency"] = int64_t(normal_retained_concurrency);
+	out["normal_retained_job_charge"] = int64_t(normal_retained_job_charge);
+	out["normal_retained_output_charge"] = int64_t(normal_retained_output_charge);
 	out["oversized_reservation_bytes"] = int64_t(ledger->oversized);
 	out["live_reservations"] = int64_t(ledger->live);
 	out["oversized_node_events"] = int64_t(ledger->oversized_events);
@@ -315,17 +318,19 @@ bool HlodNodeStreamer::node_reservation_bytes(const GaussianSplatHlodRuntimeData
 	r_bytes = r_output;
 	if (r_output == UINT64_MAX) { return false; }
 	if (!p_source.is_paged() || p_source.find_edited(p_node)) { return true; }
-	const uint64_t read_working = p_source.paged_source->get_node_read_working_set_bytes(p_node);
+	const uint64_t read_working = p_source.paged_source->get_node_read_working_set_bytes(p_node, p_use_store);
 	const uint64_t gaussians = storage_bytes(count, sizeof(Gaussian));
 	const uint64_t sh = storage_bytes(count * p_source.high_order_count, sizeof(Vector3));
 	if (gaussians == UINT64_MAX || sh > UINT64_MAX - gaussians || r_output > UINT64_MAX - gaussians - sh) { return false; }
 	const uint64_t packing_peak = gaussians + sh + r_output;
-	if (p_use_store && p_source.paged_source->get_codec_id() == 0u) {
-		// Each raw transport window is freed before packing. Charge the larger
-		// actual overlap, never a full stored record beside decoded/output arrays.
+	if (p_use_store) {
+		// #1466(b): read_node_payload_from_store::release_transport frees the
+		// raw window or complete GSQ record and decoder before allocate_output.
+		// Charge MAX(phase A: stored+decoded+workspace, phase B: decoded+output);
+		// all Vector terms use rounded CowData allocations, including output.
 		r_bytes = MAX(read_working, packing_peak);
 	} else {
-		// Keep GSQ's existing conservative estimate and legacy admission intact.
+		// Preserve conservative offline/shadow admission for both codecs.
 		const uint64_t packed = count * record_stride();
 		if (read_working > UINT64_MAX - packed) { return false; }
 		r_bytes = MAX(read_working + packed, packing_peak);
@@ -335,12 +340,15 @@ bool HlodNodeStreamer::node_reservation_bytes(const GaussianSplatHlodRuntimeData
 
 Error HlodNodeStreamer::configure_retained_budget() {
 	retained_byte_cap = cfg.max_inflight_read_bytes;
+	normal_retained_concurrency = 0;
+	normal_retained_job_charge = 0;
+	normal_retained_output_charge = 0;
 	const auto observe_bound = [&]() {
 		MutexLock lock(ledger->mutex);
 		ledger->normal_byte_bound = retained_byte_cap;
 		ledger->observe_peak();
 	};
-	if (!page_store || data.is_null() || !data->is_paged() || data->paged_source->get_codec_id() != 0u) { observe_bound(); return OK; }
+	if (!page_store || data.is_null() || !data->is_paged()) { observe_bound(); return OK; }
 	if (data->paged_source->get_nodes().size() != data->nodes.size()) { return ERR_INVALID_DATA; }
 	const uint32_t slots = MIN(cfg.max_jobs_in_flight, uint32_t(data->nodes.size()));
 	if (slots == 0) { observe_bound(); return OK; }
@@ -374,17 +382,24 @@ Error HlodNodeStreamer::configure_retained_budget() {
 		base_sum += smallest_base[i];
 		++concurrency;
 	}
-	// B is the explicit base input (8 MiB by default), J the unchanged job cap.
-	// K is the largest <=J count of this world's normal nodes whose base charges
-	// (stored + logical packed) fit B. R/O are their largest measured honest job
-	// and rounded output charges. Reserve K*R for work plus K*O for one completed
-	// batch retained across mailbox/ready/upload: C=max(B,K*(R+O)). No corpus or
-	// timing constant enters the formula. R,O<=B and K<=J bound C by max(B,2*J*B);
-	// all arithmetic is checked. Further held output still stops admission at C.
+	// D3-2 applies to codec-none and GSQ store streams. B is the explicit base
+	// input (8 MiB by default), J the unchanged job cap. K is the largest <=J
+	// count of normal nodes whose base charges (stored + logical packed) fit B.
+	// R is their largest honest node_reservation_bytes(..., true) charge:
+	// for GSQ, MAX(rounded stored + decoded + W, rounded decoded + output),
+	// with W derived in get_node_read_working_set_bytes. O is their largest
+	// rounded output allocation, storage_bytes(count, record_stride()).
+	// Reserve K*R for work plus K*O for one completed batch retained across
+	// mailbox/ready/upload: C=max(B,K*(R+O)). No corpus or timing constant enters
+	// the formula. R,O<=B and K<=J bound C by max(B,2*J*B); all arithmetic is
+	// checked. Further held output still stops admission at C.
 	if (largest_output > UINT64_MAX - largest_charge) { return ERR_INVALID_DATA; }
 	const uint64_t per_slot = largest_charge + largest_output;
 	if (concurrency != 0 && per_slot > UINT64_MAX / concurrency) { return ERR_INVALID_DATA; }
 	retained_byte_cap = MAX(retained_byte_cap, uint64_t(concurrency) * per_slot);
+	normal_retained_concurrency = concurrency;
+	normal_retained_job_charge = largest_charge;
+	normal_retained_output_charge = largest_output;
 	observe_bound();
 	return OK;
 }
@@ -449,6 +464,7 @@ HlodNodeStreamer::TestSnapshot HlodNodeStreamer::_test_snapshot() const {
 	}
 	// V4 leases are transient, so there are no retained idle decoder contexts.
 	result.charged_bytes = ledger->charged;
+	result.transport_reserved_bytes = ledger->transport_reserved;
 	result.peak_retained_bytes = ledger->peak_storage;
 	result.peak_jobs_in_flight = ledger->peak_jobs;
 	result.oversized_reservation_bytes = ledger->oversized;
@@ -574,6 +590,9 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	}
 	cfg = p_config;
 	retained_byte_cap = p_config.max_inflight_read_bytes;
+	normal_retained_concurrency = 0;
+	normal_retained_job_charge = 0;
+	normal_retained_output_charge = 0;
 	data = p_data;
 	world_generation = p_world_generation;
 	device_generation = p_device_generation;
@@ -723,9 +742,9 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		view.sh = edited_leaf->sh.is_empty() ? nullptr : edited_leaf->sh.ptr();
 		result.ok = allocate_output() && uint64_t(edited_leaf->gaussians.size()) == count && pack(&view);
 	} else if (d.is_paged()) {
-		// Defer packed allocation until the stored record/decoder are freed. The
-		// conservative estimate covers input + decoded arrays, then decoded +
-		// packed output, without three rounded buffers overlapping unnecessarily.
+		// Defer packed allocation until read_node_payload_from_store frees its
+		// stored record/decoder. The reservation covers the larger of stored +
+		// decoded + workspace and decoded + packed output (#1466(b)).
 		Vector<Gaussian> gaussians;
 		Vector<Vector3> sh;
 		String why;
@@ -789,16 +808,18 @@ void HlodNodeStreamer::start_jobs() {
 		// Edited leaves need no file read, but their packed output takes the SAME reservation below.
 		if (source->is_paged() && !source->find_edited(p_ticket.node) && p_ticket.node < uint32_t(source->paged_source->get_nodes().size())) {
 			read_bytes = source->paged_source->get_nodes()[p_ticket.node].stored_bytes;
-			// The offline codec-none reader reads straight into decoded outputs;
-			// only the store transport has a simultaneously retained stored buffer.
-			const uint64_t read_working = !use_store && source->paged_source->get_codec_id() == 0 ?
-					read_bytes : source->paged_source->get_node_read_working_set_bytes(p_ticket.node);
-			if (read_working > UINT64_MAX - uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride()) {
-				if (p_shadow) { residency.finish_shadow(p_ticket, false); } else { residency.fail_load(p_ticket); }
-				return true; // Invalid shape: consumed, with no task or allocation.
+			if (!use_store) {
+				// Preserve legacy non-store telemetry. The offline codec-none reader
+				// reads straight into decoded outputs; GSQ keeps its conservative bound.
+				const uint64_t read_working = source->paged_source->get_codec_id() == 0 ?
+						read_bytes : source->paged_source->get_node_read_working_set_bytes(p_ticket.node);
+				if (read_working > UINT64_MAX - uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride()) {
+					if (p_shadow) { residency.finish_shadow(p_ticket, false); } else { residency.fail_load(p_ticket); }
+					return true; // Invalid shape: consumed, with no task or allocation.
+				}
+				reserved = read_working +
+						uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride();
 			}
-			reserved = read_working +
-					uint64_t(source->nodes[p_ticket.node].topology.payload_count) * record_stride();
 			counted = true;
 		}
 		std::unique_ptr<Reservation> permit;
@@ -810,11 +831,14 @@ void HlodNodeStreamer::start_jobs() {
 			}
 			MutexLock lock(ledger->mutex);
 			const bool oversized = reservation_bytes > cfg.max_inflight_read_bytes;
-			const uint64_t transport = use_store && source->paged_source->get_codec_id() == 0u ?
-					MIN(read_bytes, PayloadReadService::read_slice_bytes) : 0;
+			const uint64_t transport = use_store ?
+					(source->paged_source->get_codec_id() == 0u ? MIN(read_bytes, PayloadReadService::read_slice_bytes) : read_bytes) : 0;
 			// The larger retained cap must not overbook the unchanged read service.
-			// Promise one maximum raw window before starting; return that promise in
-			// the worker as soon as read_node_payload_from_store frees its last page.
+			// Promise one raw window or GSQ's whole record; finish_transport returns
+			// it after read_node_payload_from_store releases its final stored page.
+			// Oversized jobs bypass transport_full and still require ledger->live==0.
+			// The runtime store's max(B, largest record) accepts that one record even
+			// when it exceeds B (resident_instance_contract_publisher.cpp:2334).
 			const bool transport_full = !oversized && transport != 0 &&
 					(transport > cfg.max_inflight_read_bytes || ledger->transport_reserved > cfg.max_inflight_read_bytes - transport);
 			if (ledger->oversized != 0 || transport_full ||
@@ -823,7 +847,7 @@ void HlodNodeStreamer::start_jobs() {
 				return false; // Pending tickets own no payload storage.
 			}
 			permit = std::make_unique<Reservation>(ledger, reservation_bytes, oversized, transport, p_shadow);
-			if (use_store && source->paged_source->get_codec_id() == 0u) { reserved = reservation_bytes; }
+			if (use_store) { reserved = reservation_bytes; } // Honest admitted charge for both store codecs.
 		}
 		if (counted) { read_stats->begin_read(reserved); }
 		Job *job = memnew(Job);

@@ -2,6 +2,7 @@ extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 
 #include "gs_hlod_page_store_test_fixture.h"
 #include "gs_test_pump.h"
+#include "../io/gaussian_splat_world_paged.h"
 #include "../io/gs_payload_page_store.h"
 #include "../renderer/hlod_node_streamer.h"
 
@@ -101,58 +102,77 @@ struct Harness {
 			const uint64_t reading_peak = window + gaussians + sh;
 			r_reservation = reading_peak > packing_peak ? reading_peak : packing_peak;
 		} else {
-			const uint64_t conservative = fixture.source->get_node_read_working_set_bytes(p_node) + count * sizeof(PackedGaussian);
-			r_reservation = conservative > packing_peak ? conservative : packing_peak;
+			// The complete GSQ record and transient decoder coexist with both
+			// decoded arrays. They are freed before packed output is allocated.
+			if (!gs_hlod_runtime::allocation_bytes(node.stored_bytes, 1, window)) {
+				FAIL("GSQ charge oracle cannot represent the complete stored allocation");
+				return false;
+			}
+			const uint64_t reading_peak = window + gaussians + sh + gs_world_paged::gsq_decode_workspace_bytes();
+			r_reservation = reading_peak > packing_peak ? reading_peak : packing_peak;
 		}
 		return true;
 	}
 
 	bool expected_retained_cap(uint64_t &r_cap) const {
 		r_cap = config.max_inflight_read_bytes;
-		if (fixture.gsq) {
-			return true; // The GSQ route keeps the original input envelope.
-		}
-		uint64_t largest_normal = 0, largest_output = 0, uniform_base_cost = 0;
-		uint32_t normal_nodes = 0;
+		uint64_t largest_normal = 0, largest_output = 0;
+		Vector<uint64_t> base_costs;
 		for (uint32_t node = 0; node < fixture.node_count; ++node) {
 			uint64_t reservation = 0, output = 0;
 			if (!node_reservation(node, reservation, output)) {
 				return false;
 			}
-			const uint64_t base_cost = fixture.source->get_nodes()[node].stored_bytes +
-					uint64_t(fixture.splats_per_node) * sizeof(PackedGaussian);
+			const auto &record = fixture.source->get_nodes()[node];
+			const uint64_t base_cost = record.stored_bytes + uint64_t(record.topology.payload_count) * sizeof(PackedGaussian);
 			if (reservation > config.max_inflight_read_bytes || base_cost > config.max_inflight_read_bytes) {
-				continue; // Oversized nodes remain alone; they cannot expand the normal envelope.
+				continue; // Oversized nodes cannot expand the normal envelope.
 			}
-			// Production sorts arbitrary nodes by base cost. These writer fixtures
-			// have equal-sized codec-none nodes, so division independently gives
-			// the number of smallest costs that fit, capped by jobs and node count.
-			if (uniform_base_cost != 0 && uniform_base_cost != base_cost) {
-				FAIL("D3-2 retained-cap oracle requires its uniform production-written codec-none fixture");
-				return false;
-			}
-			uniform_base_cost = base_cost;
-			++normal_nodes;
+			base_costs.push_back(base_cost);
 			largest_normal = reservation > largest_normal ? reservation : largest_normal;
 			largest_output = output > largest_output ? output : largest_output;
 		}
-		if (normal_nodes != 0 && uniform_base_cost != 0) {
-			uint64_t jobs = config.max_inflight_read_bytes / uniform_base_cost;
-			jobs = jobs < config.max_jobs_in_flight ? jobs : config.max_jobs_in_flight;
-			jobs = jobs < normal_nodes ? jobs : normal_nodes;
-			const uint64_t derived = jobs * (largest_normal + largest_output);
-			r_cap = derived > r_cap ? derived : r_cap;
+		// Sort the complete independently measured corpus, rather than repeat
+		// production's bounded insertion algorithm. Compressed sizes may differ.
+		base_costs.sort();
+		uint64_t base_sum = 0;
+		uint32_t jobs = 0;
+		for (uint64_t cost : base_costs) {
+			if (jobs == config.max_jobs_in_flight || cost > config.max_inflight_read_bytes - base_sum) {
+				break;
+			}
+			base_sum += cost;
+			++jobs;
 		}
+		const uint64_t derived = uint64_t(jobs) * (largest_normal + largest_output);
+		r_cap = derived > r_cap ? derived : r_cap;
 		return true;
 	}
 
 	bool init(bool p_oversized = false, bool p_gsq = false, bool p_base_parallelism = false) {
 		// The larger SH3 case reproduces the pre-migration per-node input size;
-		// the small fixture keeps saturation/cancellation cases cheap.
+		// the small fixture keeps saturation/cancellation cases cheap. GSQ needs
+		// enough output to saturate C despite its fixed decoder workspace.
 		if (!fixture.build(p_gsq, p_base_parallelism ? 4 : 5,
-				p_base_parallelism ? 4206 : 256, p_base_parallelism ? 3 : 0)) {
+				p_base_parallelism ? 4206 : (p_gsq ? 4096 : 256), p_base_parallelism ? 3 : 0)) {
 			return false;
 		}
+		return start(p_oversized, p_base_parallelism);
+	}
+
+	bool init_gsq_sh3(bool p_oversized = false, bool p_single_node = false) {
+		// 11000 splats fit B with the honest rounded phase maximum, but the
+		// old double-stored/decoded-plus-output estimate exceeds B.
+		// 16384 splats exceed B even with the honest charge.
+		if (!fixture.build(true, p_single_node ? 0 : 2, p_oversized ? 16384 : 11000, 3)) {
+			return false;
+		}
+		// Each new case asserts its own contract after initialization, so a cap
+		// mismatch cannot prevent the charge/concurrency assertions from running.
+		return start(p_oversized, true, true);
+	}
+
+	bool start(bool p_oversized, bool p_base_parallelism, bool p_gsq_contract = false) {
 		if (fixture.source.is_null() || fixture.snapshot.is_null() ||
 				fixture.source->get_nodes().size() != fixture.node_count || !WorkerThreadPool::get_singleton()) {
 			FAIL("D3-2 streamer fixture requires a paged source, complete topology and worker pool");
@@ -181,8 +201,14 @@ struct Harness {
 		PayloadPageStore::Config store_config;
 		store_config.reader_count = 1; // Deterministic test reader, not runtime sizing policy.
 		store_config.max_bytes_in_flight = config.max_inflight_read_bytes;
+		for (const auto &record : fixture.source->get_nodes()) {
+			if (record.stored_bytes > store_config.max_bytes_in_flight) {
+				store_config.max_bytes_in_flight = record.stored_bytes;
+			}
+		}
 		store_config.max_idle_handles = 0;
-		store_config.decoder_retention_cap = config.max_jobs_in_flight;
+		store_config.decoder_retention_cap = 0; // Runtime HLOD uses transient leases.
+		store_config.collect_content_digests = false;
 		store_config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
 		if (store.start(store_config) != OK) {
 			FAIL("D3-2 streamer fixture requires a running retained-byte page store");
@@ -197,11 +223,11 @@ struct Harness {
 		if (!expected_retained_cap(expected_cap)) {
 			return false;
 		}
-		if (retained_cap != expected_cap || retained_cap < config.max_inflight_read_bytes) {
+		if (!p_gsq_contract && (retained_cap != expected_cap || retained_cap < config.max_inflight_read_bytes)) {
 			FAIL("D3-2 retained cap must equal the measured base-concurrency/output derivation");
 			return false;
 		}
-		if (uint64_t(fixture.node_count) * fixture.splats_per_node * sizeof(PackedGaussian) <= retained_cap) {
+		if (!p_gsq_contract && uint64_t(fixture.node_count) * fixture.splats_per_node * sizeof(PackedGaussian) <= retained_cap) {
 			FAIL("D3-2 saturation fixture must demand more packed output than its entire byte envelope");
 			return false;
 		}
@@ -310,7 +336,7 @@ struct Harness {
 		const PayloadPageStore::Stats stats = store.stats();
 		if (sample.observation_error != OK || sample.reservations_acquired == 0 ||
 				sample.reservations_acquired != sample.reservations_released || sample.live_reservations != 0 ||
-				sample.charged_bytes != 0 || retained(sample) != 0 || stats.live_reservations != 0 ||
+				sample.charged_bytes != 0 || sample.transport_reserved_bytes != 0 || retained(sample) != 0 || stats.live_reservations != 0 ||
 				stats.reservations_acquired != stats.reservations_released || stats.retained_bytes != 0 ||
 				stats.decoders_leased != 0 || stats.reads.bytes_in_flight != 0) {
 			FAIL("D3-2 drain must release every streamer/store reservation exactly once with zero retained payload");
@@ -374,6 +400,221 @@ static bool publications_current(const Harness &p_harness, uint64_t p_source, ui
 		}
 	}
 	return valid;
+}
+
+// Freeze only the owner's inputs, never a measured charge/cap. All expected
+// byte counts below come from this production-written fixture's actual records.
+static bool gsq_sh3_contract_fixture(const Harness &p_harness) {
+	if (p_harness.fixture.source.is_null() || p_harness.fixture.source->get_codec_id() != gs_gsq::kCodecId ||
+			p_harness.fixture.degree != 3 || p_harness.fixture.high_order != 12 ||
+			p_harness.config.max_inflight_read_bytes != 8ull * 1024 * 1024 ||
+			p_harness.config.max_jobs_in_flight != 16) {
+		FAIL("GSQ working-set cases require a GSQ SH3 V4 fixture and unchanged 8 MiB / 16-job inputs");
+		return false;
+	}
+	return true;
+}
+
+static bool hold_gsq_workers(Harness &p_harness) {
+	p_harness.control.hold_workers = true;
+	if (!p_harness.set_control()) {
+		return false;
+	}
+	const auto admitted = gs_pump_until([&]() {
+		p_harness.step();
+		return !p_harness.observations_ok || (p_harness.sample.jobs_started > 0 &&
+				(p_harness.sample.pending_tickets == 0 || p_harness.sample.admission_waits > 0 ||
+						p_harness.sample.jobs_in_flight == p_harness.config.max_jobs_in_flight));
+	});
+	if (!admitted.ready() || !p_harness.observations_ok) {
+		FAIL("GSQ workers never reached observable admission before the read/decode hold");
+		return false;
+	}
+	return true;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] GSQ SH3 charge equals the rounded decode or pack phase maximum") {
+	Harness h;
+	if (!h.init_gsq_sh3(false, true) || !gsq_sh3_contract_fixture(h)) {
+		return;
+	}
+	if (h.fixture.source->get_nodes().size() != 1 || h.fixture.node_count != 1) {
+		FAIL("GSQ per-job peak requires exactly one source node and one reservation");
+		return;
+	}
+	const auto &record = h.fixture.source->get_nodes()[0];
+	const uint64_t count = record.topology.payload_count;
+	uint64_t stored = 0, gaussians = 0, sh = 0, output = 0;
+	if (!gs_hlod_runtime::allocation_bytes(record.stored_bytes, 1, stored) ||
+			!gs_hlod_runtime::allocation_bytes(count, sizeof(Gaussian), gaussians) ||
+			!gs_hlod_runtime::allocation_bytes(count * h.fixture.high_order, sizeof(Vector3), sh) ||
+			!gs_hlod_runtime::allocation_bytes(count, sizeof(PackedGaussian), output)) {
+		FAIL("GSQ exact-charge oracle cannot represent every independently rounded allocation");
+		return;
+	}
+	const uint64_t workspace = gs_world_paged::gsq_decode_workspace_bytes();
+	const uint64_t phase_a = stored + gaussians + sh + workspace;
+	const uint64_t phase_b = gaussians + sh + output;
+	const uint64_t expected = phase_a > phase_b ? phase_a : phase_b;
+	const uint64_t decoded_logical = count * (sizeof(Gaussian) + h.fixture.high_order * sizeof(Vector3));
+	const uint64_t doubled_read = 2 * (record.stored_bytes + decoded_logical) + workspace;
+	const uint64_t old_read = doubled_read > phase_a ? doubled_read : phase_a;
+	const uint64_t old_with_output = old_read + count * sizeof(PackedGaussian);
+	const uint64_t old_charge = old_with_output > phase_b ? old_with_output : phase_b;
+	if (expected > h.config.max_inflight_read_bytes || old_charge <= h.config.max_inflight_read_bytes) {
+		FAIL("GSQ exact-charge fixture must change from oversized to normal solely through honest accounting");
+		return;
+	}
+	if (!hold_gsq_workers(h)) {
+		return;
+	}
+	if (h.sample.live_reservations != 1 || h.sample.jobs_in_flight != 1) {
+		FAIL("GSQ exact-charge observation must contain one complete, unshrunk job reservation");
+		return;
+	}
+	const uint64_t admitted_charge = h.sample.charged_bytes;
+	CHECK_MESSAGE(admitted_charge == expected, "GSQ store charge must equal MAX(stored+decoded+workspace, decoded+rounded output)");
+	CHECK_MESSAGE(admitted_charge < old_charge, "GSQ store charge still uses the old conservative expression");
+	CHECK_MESSAGE(h.sample.oversized_reservation_bytes == 0, "An honest normal GSQ node must not take the oversized exception");
+	h.control.hold_workers = false;
+	if (!h.set_control()) {
+		return;
+	}
+	const auto packed = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || (h.sample.ready_outputs == 1 && h.sample.jobs_in_flight == 0 &&
+				h.sample.mailbox_outputs == 0);
+	});
+	if (!packed.ready() || !h.observations_ok) {
+		FAIL("GSQ exact-charge job never completed a real store read and packed its held output");
+		return;
+	}
+	CHECK_MESSAGE(h.store.stats().reads.completed_ok == 1, "Per-job peak requires a successful real stored-record read");
+	CHECK_MESSAGE(h.sample.peak_retained_bytes > output, "Per-job peak must observe decoded storage, not only retained output");
+	CHECK_MESSAGE(h.sample.peak_retained_bytes <= admitted_charge, "Observed per-job storage exceeds its actual reservation");
+	CHECK_MESSAGE(h.sample.peak_retained_bytes <= expected, "Phase maximum undercharges observed stored/decoded/output storage");
+	CHECK_MESSAGE(int64_t(exported_queue(h.streamer, "retained").get("bound_violations", -1)) == 0,
+			"GSQ exact charge must remain an upper bound at every allocation event");
+	if (!h.finish_demand()) {
+		return;
+	}
+	h.streamer.shutdown();
+	h.store.shutdown();
+	h.check_released();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] normal GSQ SH3 nodes load concurrently within retained and transport bounds") {
+	Harness h;
+	if (!h.init_gsq_sh3() || !gsq_sh3_contract_fixture(h)) {
+		return;
+	}
+	uint64_t expected_cap = 0;
+	if (!h.expected_retained_cap(expected_cap)) {
+		return;
+	}
+	if (h.largest_reservation > h.config.max_inflight_read_bytes || expected_cap <= h.config.max_inflight_read_bytes) {
+		FAIL("GSQ concurrency fixture must contain normal nodes and derive a retained cap above B");
+		return;
+	}
+	if (!hold_gsq_workers(h)) {
+		return;
+	}
+	CHECK_MESSAGE(h.sample.peak_jobs_in_flight > 1, "Normal GSQ nodes still serialize at the 8 MiB input budget");
+	const Dictionary admitted = exported_queue(h.streamer, "retained");
+	CHECK_MESSAGE(int64_t(admitted.get("peak_jobs", -1)) > 1, "GSQ must have multiple simultaneously live reservations");
+	CHECK_MESSAGE(h.sample.oversized_reservation_bytes == 0, "Normal GSQ jobs must not acquire oversized reservations");
+	if (h.sample.jobs_started == 0 || h.sample.jobs_started > h.fixture.node_count) {
+		FAIL("GSQ transport oracle requires the admitted BFS prefix of existing fixture nodes");
+		return;
+	}
+	uint64_t promised_stored = 0;
+	for (uint32_t node = 0; node < uint32_t(h.sample.jobs_started); ++node) {
+		promised_stored += h.fixture.source->get_nodes()[node].stored_bytes;
+	}
+	CHECK_MESSAGE(h.sample.transport_reserved_bytes == promised_stored, "Each GSQ job must promise its whole stored record before starting");
+	CHECK_MESSAGE(h.sample.transport_reserved_bytes <= h.config.max_inflight_read_bytes, "GSQ promises overbook the unchanged read-service budget");
+	CHECK_MESSAGE(h.sample.charged_bytes <= expected_cap, "Admitted GSQ jobs exceed the independently derived retained cap");
+	if (!h.finish_demand()) {
+		return;
+	}
+	const auto stats = h.store.stats();
+	CHECK_MESSAGE(h.bound_ok, "GSQ charged or live storage escaped the retained cap during loading or upload");
+	CHECK_MESSAGE(h.sample.peak_retained_bytes <= expected_cap, "GSQ actual storage peak exceeded the derived cap");
+	CHECK_MESSAGE(int64_t(exported_queue(h.streamer, "retained").get("bound_violations", -1)) == 0,
+			"GSQ retained referee observed an undercharge or cap escape");
+	CHECK_MESSAGE(h.sample.jobs_started == h.fixture.node_count, "Every GSQ node must start exactly once");
+	CHECK_MESSAGE(stats.reads.completed_ok == h.fixture.node_count, "Every GSQ node must complete its whole-record read");
+	CHECK_MESSAGE(stats.refused_retained_busy == 0, "Retained page-store admission must never reject an admitted GSQ job");
+	CHECK_MESSAGE(stats.reads.refused_busy == 0, "Read-service BUSY must be prevented by GSQ transport promises");
+	CHECK_MESSAGE(stats.reads.completed_failed == 0, "GSQ concurrent reads must not fail");
+	CHECK_MESSAGE(h.streamer.get_telemetry().payload_read_failures_total == 0, "Every admitted GSQ node must load without ERR_BUSY or another read failure");
+	h.streamer.shutdown();
+	h.store.shutdown();
+	h.check_released();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] GSQ SH3 retained cap derives from base concurrency and honest job plus output charges") {
+	Harness h;
+	if (!h.init_gsq_sh3() || !gsq_sh3_contract_fixture(h)) {
+		return;
+	}
+	uint64_t expected_cap = 0;
+	if (!h.expected_retained_cap(expected_cap)) {
+		return;
+	}
+	if (expected_cap <= h.config.max_inflight_read_bytes) {
+		FAIL("GSQ cap fixture must independently derive K*(R+O) above B");
+		return;
+	}
+	CHECK_MESSAGE(h.retained_cap == expected_cap, "GSQ normal cap must equal max(B, K*(largest honest charge + largest rounded output))");
+	const Variant payload = h.streamer.get_payload_telemetry();
+	if (payload.get_type() != Variant::DICTIONARY) {
+		FAIL("GSQ normal cap must be exported by the actual measured page-store route");
+		return;
+	}
+	const Dictionary block = payload;
+	CHECK_MESSAGE(int64_t(block.get("normal_retained_byte_bound", -1)) == int64_t(expected_cap),
+			"GSQ telemetry must expose the independently derived normal retained bound");
+	CHECK_MESSAGE(int64_t(exported_queue(h.streamer, "retained").get("byte_bound", -1)) == int64_t(expected_cap),
+			"GSQ ledger referee must use the derived bound before jobs start");
+	CHECK_MESSAGE(h.retained_cap > h.config.max_inflight_read_bytes, "GSQ still skips the D3-2 retained-cap derivation");
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] oversized GSQ SH3 nodes retain the single-flight exception") {
+	Harness h;
+	if (!h.init_gsq_sh3(true) || !gsq_sh3_contract_fixture(h)) {
+		return;
+	}
+	if (h.largest_reservation <= h.config.max_inflight_read_bytes) {
+		FAIL("Oversized GSQ fixture must exceed B with its independently computed honest charge");
+		return;
+	}
+	if (!h.wait_held(true)) {
+		return;
+	}
+	CHECK_MESSAGE(h.sample.live_reservations == 1, "An oversized GSQ node must be the only live reservation through upload");
+	CHECK_MESSAGE(h.sample.jobs_started == 1, "Held oversized GSQ output must block every subsequent node");
+	CHECK_MESSAGE(h.sample.oversized_reservation_bytes == h.largest_reservation, "Oversized GSQ must charge its full honest phase maximum");
+	CHECK_MESSAGE(int64_t(exported_queue(h.streamer, "retained").get("peak_jobs", -1)) == 1,
+			"Oversized GSQ reservations must never overlap between frame observations");
+	const Variant payload = h.streamer.get_payload_telemetry();
+	if (payload.get_type() != Variant::DICTIONARY) {
+		FAIL("Oversized GSQ events must be reported by the measured store route");
+		return;
+	}
+	const Dictionary block = payload;
+	CHECK_MESSAGE(int64_t(block.get("oversized_node_events", -1)) > 0, "Oversized GSQ admission must retain its explicit event");
+	if (!h.finish_demand(true)) {
+		return;
+	}
+	CHECK_MESSAGE(h.bound_ok, "Oversized GSQ must remain one node alone throughout decode, packing and transfer");
+	CHECK_MESSAGE(h.sample.peak_jobs_in_flight == 1, "Oversized GSQ worker jobs must remain single-flight");
+	const Dictionary drained = exported_queue(h.streamer, "retained");
+	CHECK_MESSAGE(int64_t(drained.get("peak_jobs", -1)) == 1, "Oversized GSQ live reservations must remain single-flight");
+	CHECK_MESSAGE(int64_t(drained.get("bound_violations", -1)) == 0, "Oversized GSQ must never undercharge its real storage");
+	h.streamer.shutdown();
+	h.store.shutdown();
+	h.check_released();
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] codec-none SH3 preserves base read concurrency within the retained envelope") {
