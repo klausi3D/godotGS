@@ -1778,6 +1778,186 @@ class ComparisonContract(unittest.TestCase):
         report.pop("overlap_drop_report")
         self.assertIn("| hlod | not measured: no drop-frame record |", driver.render_markdown(report))
 
+    # ---- #1471: the T0 pressure variant must prove that pressure happened ----
+
+    def use_pressure_policy(self):
+        """Constructed policy envelope for the pressure variant, not a captured pressure run.
+
+        The request is built by the real orchestration helper for the measured T0 tree size
+        (5,136 pages, run 43742475749). The per-arm pressure block is built by the real
+        producer-side helper from the captured BV-07 result; the native counters and the
+        settle windows' streaming work are constructed preconditions, because no pressure
+        run existed when these tests were written.
+        """
+        with mock.patch.object(shared, "tree_page_count", return_value=5136):
+            request = shared.pressure_request(Path("tree.gsplatworld"))
+        self.experiment["variant"] = copy.deepcopy(request)
+        setting, cap = request["atlas_setting"], request["atlas_override_mb"]
+        records = [arm[key] for arm in self.experiment["arms"].values() for key in ("requested",)]
+        records += [arm["observed"]["settings"] for arm in self.experiment["arms"].values()]
+        records += [arm["settings_readback"] for arm in self.experiment["migration"]["arms"].values()]
+        for settings in records:
+            settings["project_settings_readback"][setting] = cap
+            settings["node_readback"]["max_splat_count"] = 1_000_000
+            settings.update(visible_splats=1_000_000, drawn_splats=1_000_000)
+        self.use_scoped_observation_policy()
+        for route in ("chunk", "hlod"):
+            result = copy.deepcopy(self.result)
+            result["final_render_stats"] = {"hlod_stream_pages_capacity": request["requested_atlas_pages"],
+                                            "hlod_stream_pages_resident": 1100, "hlod_stream_evicted_total": 41,
+                                            "hlod_budget_bound_frames": 7, "hlod_stream_payload_reads_total": 700}
+            kinds = {(s["pass_index"], s["id"]): s["kind"] for s in result["segments"]}
+            for checkpoint in result["checkpoints"]:
+                if kinds.get((checkpoint["pass_index"], checkpoint["segment"])) == "teleport":
+                    checkpoint["settle"]["forward_progress"] = {
+                        "measured": True, "progress_deltas": {"upload_completions": 9, "upload_bytes": 4096,
+                                                              "read_completions": 9, "pages_decoded": 12}}
+            self.arm(route)["pressure"] = shared.pressure_observations(result, None, route, request)
+        return request
+
+    def test_pressure_variant_with_pressure_evidence_is_valid_and_reported(self):
+        request = self.use_pressure_policy()
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["variant"], request)
+        hlod = report["pressure"]["hlod"]
+        self.assertEqual(hlod["evicted_total"], 41)
+        self.assertEqual(hlod["budget_bound_frames"], 7)
+        self.assertEqual(hlod["atlas_pages_capacity"], request["requested_atlas_pages"])
+        self.assertTrue(0.20 <= hlod["atlas_fraction_observed"] <= 0.25)
+        self.assertTrue(all(item["satisfied"] for item in hlod["requirements"]), hlod["requirements"])
+        self.assertEqual(report["pressure"]["chunk"]["role"], "unconstrained_reference")
+        text = driver.render_markdown(report)
+        self.assertIn("## Pressure variant (#1471)", text)
+        self.assertIn("unconstrained reference", text)
+        self.assertRegex(text, r"\| hlod \| teleport [^|]*\| [^|]*\| \d+ \| [0-9.]+ \|")
+
+    def test_unconstrained_report_carries_no_pressure_block_and_requires_none(self):
+        report = self.assert_verdict("VALID")
+        self.assertNotIn("variant", report)
+        self.assertNotIn("pressure", report)
+        self.assertNotIn("Pressure variant", driver.render_markdown(report))
+
+    def test_pressure_variant_without_pressure_evidence_is_a_named_non_pass(self):
+        def teleports(arm):
+            return [row for row in arm["pressure"]["settles"] if row["kind"] == "teleport"]
+
+        def every_teleport(update):
+            return lambda arm: [update(row) for row in teleports(arm)]
+
+        setting = shared.PRESSURE_ATLAS_SETTING
+        mutations = {
+            "pressure_evidence_missing": lambda a: a.pop("pressure"),
+            "pressure_no_evictions": lambda a: a["pressure"].update(evicted_total=0),
+            "pressure_evictions_unmeasured": lambda a: a["pressure"].update(
+                evicted_total=shared.missing("process did not export hlod_stream_evicted_total")),
+            "pressure_no_budget_bound_frames": lambda a: a["pressure"].update(budget_bound_frames=0),
+            "pressure_budget_bound_unmeasured": lambda a: a["pressure"].pop("budget_bound_frames"),
+            "pressure_atlas_cap_unobserved": lambda a: a["pressure"].update(atlas_pages_capacity=None),
+            # The unconstrained T0: the whole tree fits, so the cap never bound.
+            "pressure_atlas_cap_out_of_band": lambda a: a["pressure"].update(atlas_pages_capacity=5136),
+            "pressure_teleport_settle_trivial": every_teleport(lambda row: row.update(
+                streaming_work={"upload_completions": 0, "upload_bytes": 0, "read_completions": 0, "pages_decoded": 0})),
+            "pressure_teleport_settle_unmeasured": every_teleport(lambda row: row.update(
+                streaming_work=shared.missing("producer did not capture this settle window's progress"))),
+            "pressure_teleport_not_converged": lambda a: teleports(a)[0].update(settled=False),
+            "pressure_bound_unmeasured": lambda a: a["observed"]["queues"]["ready"].pop("bound_violations"),
+            "pressure_failures_unmeasured": lambda a: a["native"]["payload_telemetry"].pop("read_failures"),
+            "pressure_not_applied": lambda a: a["observed"]["settings"]["project_settings_readback"].pop(setting),
+        }
+        for code, mutate in mutations.items():
+            with self.scenario(code=code):
+                self.use_pressure_policy()
+                mutate(self.arm("hlod"))
+                report = self.assert_verdict("UNUSABLE", code)
+                named = [r for r in report["reasons"] if r["code"] == code]
+                self.assertEqual(named[0].get("arm"), "hlod")
+                self.assertFalse(all(item["satisfied"] for item in report["pressure"]["hlod"]["requirements"]))
+        for label, mutate in (("no teleports", lambda a: a["pressure"].update(
+                settles=[row for row in a["pressure"]["settles"] if row["kind"] != "teleport"])),
+                              ("frames", every_teleport(lambda row: row.pop("frames"))),
+                              ("ms", every_teleport(lambda row: row.update(settle_ms=-0.001)))):
+            with self.scenario(teleport=label):
+                self.use_pressure_policy()
+                mutate(self.arm("hlod"))
+                self.assert_verdict("UNUSABLE", "pressure_teleport_settle_unmeasured")
+
+    def test_pressure_request_must_equal_the_comparator_policy(self):
+        for label, mutate in (("fraction band", lambda v: v.update(atlas_fraction_band=[0.0, 1.0])),
+                              ("drawn budget", lambda v: v.update(drawn_budget_splats=4_000_000)),
+                              ("tree pages", lambda v: v.pop("tree_pages")),
+                              ("name", lambda v: v.update(name="unconstrained")),
+                              ("cap", lambda v: v.update(atlas_override_mb=0))):
+            with self.scenario(request=label):
+                self.use_pressure_policy()
+                mutate(self.experiment["variant"])
+                self.assert_verdict("UNUSABLE", "pressure_variant_invalid")
+        with self.scenario(request="not an object"):
+            self.use_pressure_policy()
+            self.experiment["variant"] = "pressure"
+            self.assert_verdict("UNUSABLE", "pressure_variant_invalid")
+
+    def test_pressure_drawn_budget_must_be_requested_and_read_back_on_both_routes(self):
+        for route in ("chunk", "hlod"):
+            with self.scenario(route=route):
+                self.use_pressure_policy()
+                for arm in self.experiment["arms"].values():
+                    arm["requested"]["node_readback"]["max_splat_count"] = 4_000_000
+                    arm["observed"]["settings"]["node_readback"]["max_splat_count"] = 4_000_000
+                for arm in self.experiment["migration"]["arms"].values():
+                    arm["settings_readback"]["node_readback"]["max_splat_count"] = 4_000_000
+                report = self.assert_verdict("UNUSABLE", "pressure_not_applied")
+                self.assertIn(route, [r.get("arm") for r in report["reasons"] if r["code"] == "pressure_not_applied"])
+
+    def test_pressure_keeps_every_correctness_failure_fatal(self):
+        for key in ("nonresident_drawn_nodes", "stale_generation_publications"):
+            with self.scenario(key=key):
+                self.use_pressure_policy()
+                self.arm("hlod")["observed"]["failures"][key] = 1
+                if key in self.arm("hlod")["native"]["payload_telemetry"]:
+                    self.arm("hlod")["native"]["payload_telemetry"][key] = 1
+                self.assert_verdict("UNUSABLE", "correctness_failure")
+        with self.scenario(key="bound_violations"):
+            self.use_pressure_policy()
+            for holder in (self.arm("hlod")["observed"]["queues"],
+                           self.arm("hlod")["native"]["payload_telemetry"]["queue_observations"]):
+                holder["ready"]["bound_violations"] = 1
+            self.assert_verdict("UNUSABLE", "queue_saturation")
+        with self.scenario(key="read_failures"):
+            self.use_pressure_policy()
+            self.arm("hlod")["native"]["payload_telemetry"]["read_failures"] = 1
+            self.assert_verdict("UNUSABLE", "payload_failure")
+
+    def write_report(self, *extra):
+        source, out = self.tmp / "experiment.json", self.tmp / "report"
+        source.write_text(json.dumps(self.experiment), encoding="utf-8")
+        code = driver.main(["--experiment", str(source), "--out", str(out), *extra])
+        return code, out / "comparison.json"
+
+    def test_cli_binds_the_requested_variant_to_the_experiment_and_the_final_verdict(self):
+        run = ["--run-id", self.experiment["run_id"]]
+        with self.scenario(case="pressure requested, unconstrained experiment"):
+            code, path = self.write_report("--variant", "pressure")
+            self.assertEqual(code, 2)
+            report = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn("variant_mismatch", [r["code"] for r in report["reasons"]])
+            self.assertNotEqual(driver.main(["--require-report", str(path), *run, "--variant", "pressure"]), 0)
+        with self.scenario(case="unconstrained requested, pressure experiment"):
+            self.use_pressure_policy()
+            code, path = self.write_report()
+            self.assertEqual(code, 2)
+            self.assertIn("variant_mismatch", [r["code"] for r in json.loads(path.read_text(encoding="utf-8"))["reasons"]])
+        with self.scenario(case="unconstrained report cannot satisfy a pressure final verdict"):
+            code, path = self.write_report()
+            self.assertEqual(code, 0)
+            self.assertEqual(driver.main(["--require-report", str(path), *run]), 0)
+            self.assertNotEqual(driver.main(["--require-report", str(path), *run, "--variant", "pressure"]), 0)
+        with self.scenario(case="pressure report"):
+            self.use_pressure_policy()
+            code, path = self.write_report("--variant", "pressure")
+            self.assertEqual(code, 0)
+            self.assertEqual(driver.main(["--require-report", str(path), *run, "--variant", "pressure"]), 0)
+            self.assertNotEqual(driver.main(["--require-report", str(path), *run]), 0)
+
 
 class ScreenshotCadence(unittest.TestCase):
     def test_run_arm_requests_every_400_moving_frames(self):
@@ -1812,6 +1992,38 @@ class WorkflowContract(unittest.TestCase):
         for control in ("none", "corrupt", "saturate", "skip_compare"):
             self.assertRegex(block, rf'(?m)^          - [\"\x27]?{control}[\"\x27]?\s*$')
         self.assertRegex(block, r'(?m)^        default:\s*[\"\x27]?none[\"\x27]?\s*$')
+
+    VARIANT_FLAG = '--variant "$SHARED_LAYERS_VARIANT"'
+
+    def variant_steps(self, text=None):
+        """The three steps that must carry the dispatched variant: orchestration, comparison, final verdict."""
+        steps = workflow_pins._steps(self.job(text))
+        return {"orchestration": [s for s in steps if "dispatch_lane.py shared-layers-t0" in s.get("run", "")],
+                "comparison": [s for s in steps if DRIVER in s.get("run", "") and "--experiment" in s["run"]],
+                "final": [s for s in steps if DRIVER in s.get("run", "") and "--require-report" in s["run"]]}
+
+    def test_1471_pressure_variant_is_a_dispatch_choice_defaulting_to_unconstrained(self):
+        self.assertRegex(self.text, r"(?m)^      shared_layers_variant:")
+        block = re.search(r"(?ms)^      shared_layers_variant:\n(.*?)(?=^      \w+:|^\S|\Z)", self.text).group(1)
+        self.assertEqual(re.findall(r'(?m)^          - "(\w+)"\s*$', block), ["unconstrained", "pressure"])
+        self.assertRegex(block, r'(?m)^        default: "unconstrained"\s*$')
+        self.assertIn("      SHARED_LAYERS_VARIANT: ${{ inputs.shared_layers_variant || 'unconstrained' }}\n",
+                      "\n".join(self.job()) + "\n")
+
+    def test_1471_variant_reaches_orchestration_comparison_and_the_final_verdict(self):
+        for name, steps in self.variant_steps().items():
+            with self.subTest(step=name):
+                self.assertEqual(len(steps), 1)
+                self.assertIn(self.VARIANT_FLAG, steps[0]["run"])
+
+    def test_1471_pressure_runs_are_named_and_archived_apart_from_unconstrained_ones(self):
+        name = next(line for line in self.text.splitlines() if line.startswith("run-name:"))
+        self.assertIn("inputs.shared_layers_variant == 'pressure'", name)
+        upload = next(line for line in self.job() if line.strip().startswith("name: shared-layers-t0-"))
+        self.assertIn("inputs.shared_layers_variant == 'pressure' && 'pressure-' || ''", upload)
+        readme = (ROOT / ".github/workflows/README.md").read_text(encoding="utf-8")
+        self.assertIn("shared_layers_variant", readme)
+        self.assertIn("#1471", readme)
 
     def test_1454_workflow_pins_the_provenance_base_checkout_and_artifacts(self):
         # Derive locations rather than pinning a job ID that phase 3 may rename.

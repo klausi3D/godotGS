@@ -26,6 +26,12 @@ name: Beyond-VRAM Fly-through
 # saturation hook holds real ready uploads; detection needs native queue evidence.
 # All arms use shipped capacity settings. Ordinary backpressure is reported;
 # no-progress failures use only the existing cold/stop/teleport settle windows.
+# shared_layers_variant=pressure (#1471) is the same paired run with the HLOD atlas
+# capped to 20-25 % of the tree's pages (existing resident atlas override) and a 1M
+# drawn budget on every arm. It is usable only with observed pressure: evictions > 0,
+# budget-bound frames > 0, a teleport settle that had to stream; otherwise UNUSABLE
+# with a named reason. The chunk arm stays the unconstrained reference. The default
+# variant, unconstrained, is the unchanged run.
 #
 # REPORT-ONLY: no job here is a required check and nothing gates a merge. The
 # gate verdict and the thresholds file are BV-09; hard correctness gates are
@@ -72,6 +78,14 @@ on:
           - "corrupt"
           - "saturate"
           - "skip_compare"
+      shared_layers_variant:
+        description: "shared_layers_t0 only: pressure (#1471) caps the HLOD atlas to 20-25 % of the tree pages and the drawn budget to 1M, and is UNUSABLE without observed evictions, budget-bound frames and a streaming teleport settle; control must be none"
+        required: false
+        default: "unconstrained"
+        type: choice
+        options:
+          - "unconstrained"
+          - "pressure"
       tier:
         description: "World tier: T0 (4.19M splats, smoke) or A (201M splats; also uses T0). The weekly schedule runs A."
         required: true
@@ -114,7 +128,7 @@ on:
         default: false
         type: boolean
 
-run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || inputs.mode == 'shared_layers_t0' && format('D3-6 paired T0 diagnostic ({0})', inputs.shared_layers_control || 'none') || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
+run-name: ${{ (github.event.schedule == '0 6 * * 1' || inputs.mode == 'watchdog') && 'Beyond-VRAM liveness watchdog' || inputs.mode == 'auto_tree' && 'Beyond-VRAM auto tree A-v4_gsq_auto' || inputs.mode == 'real_scan' && 'D2 real-scan identity and codec probe' || inputs.mode == 'shared_layers_t0' && format('D3-6 paired T0 diagnostic ({0}{1})', inputs.shared_layers_variant == 'pressure' && 'pressure, ' || '', inputs.shared_layers_control || 'none') || format('Beyond-VRAM fly-through {0} {1}', inputs.tier || 'A', inputs.encoding || 'plain_v3_gsq') }}
 
 permissions:
   contents: read
@@ -332,6 +346,7 @@ jobs:
       DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
       NODEVICE_SELECT: '1'
       SHARED_LAYERS_CONTROL: ${{ inputs.shared_layers_control || 'none' }}
+      SHARED_LAYERS_VARIANT: ${{ inputs.shared_layers_variant || 'unconstrained' }}
       PRE_D3_SHA: 5a438363cd6939bca1041d738e2bfa10f2b024f2
     defaults:
       run:
@@ -422,7 +437,7 @@ jobs:
       - name: Prepare one D2 T0 and run sequential paired and migration arms
         timeout-minutes: 210
         run: |
-          python3 tests/runtime/flythrough/dispatch_lane.py shared-layers-t0 --repo "$PWD" --godot-binary "$PWD/bin/godot.linuxbsd.editor.x86_64" --base-binary "$RUNNER_TEMP/godot-build-pred3/godot.linuxbsd.editor.x86_64" --base-build-info "$SHARED_LAYERS_OUT/pre-d3-build/build_info.json" --cache-root "$BVW_CACHE_ROOT" --out "$SHARED_LAYERS_OUT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL"
+          python3 tests/runtime/flythrough/dispatch_lane.py shared-layers-t0 --repo "$PWD" --godot-binary "$PWD/bin/godot.linuxbsd.editor.x86_64" --base-binary "$RUNNER_TEMP/godot-build-pred3/godot.linuxbsd.editor.x86_64" --base-build-info "$SHARED_LAYERS_OUT/pre-d3-build/build_info.json" --cache-root "$BVW_CACHE_ROOT" --out "$SHARED_LAYERS_OUT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL" --variant "$SHARED_LAYERS_VARIANT"
 
       - name: Postflight - GPU contention verdict (#875)
         if: always()
@@ -432,22 +447,24 @@ jobs:
       - name: Compare paired T0 evidence (VALID is report-only)
         if: ${{ always() && inputs.shared_layers_control != 'skip_compare' }}
         run: |
-          python3 tests/runtime/flythrough/compare_shared_layers_t0.py --experiment "$SHARED_LAYERS_OUT/experiment.json" --out "$SHARED_LAYERS_OUT" --contention-report "$SHARED_LAYERS_OUT/contention/postflight.json"
+          python3 tests/runtime/flythrough/compare_shared_layers_t0.py --experiment "$SHARED_LAYERS_OUT/experiment.json" --out "$SHARED_LAYERS_OUT" --contention-report "$SHARED_LAYERS_OUT/contention/postflight.json" --variant "$SHARED_LAYERS_VARIANT"
 
       # Independent of the comparison step's id/outcome, so deleting the
       # invocation or selecting skip_compare cannot manufacture success. Bind the
       # current run id and requested control: none requires VALID; corrupt and
       # saturate require DETECTED with usable non-control arms. NOT_RUN stays 3.
+      # The dispatched variant is bound too (#1471): an unconstrained VALID report
+      # never satisfies a pressure dispatch.
       - name: Final diagnostic verdict (current VALID or detected control only)
         if: always()
         run: |
-          python3 tests/runtime/flythrough/compare_shared_layers_t0.py --require-report "$SHARED_LAYERS_OUT/comparison.json" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL"
+          python3 tests/runtime/flythrough/compare_shared_layers_t0.py --require-report "$SHARED_LAYERS_OUT/comparison.json" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --control "$SHARED_LAYERS_CONTROL" --variant "$SHARED_LAYERS_VARIANT"
 
       - name: Upload synthetic diagnostic reports and screenshots only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shared-layers-t0-${{ inputs.shared_layers_control || 'none' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: shared-layers-t0-${{ inputs.shared_layers_variant == 'pressure' && 'pressure-' || '' }}${{ inputs.shared_layers_control || 'none' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.SHARED_LAYERS_OUT }}/**/*.json
             ${{ env.SHARED_LAYERS_OUT }}/**/*.md

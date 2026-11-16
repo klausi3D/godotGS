@@ -2338,6 +2338,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--cache-root", type=Path, required=True)
     p.add_argument("--run-id", required=True)
     p.add_argument("--control", choices=("none", "corrupt", "saturate", "skip_compare"), default="none")
+    p.add_argument("--variant", choices=("unconstrained", "pressure"), default="unconstrained",
+                   help="#1471: pressure caps the HLOD atlas and the drawn budget and requires pressure evidence")
 
     p = sub.add_parser("summarize")
     common(p, world=False)
@@ -2391,7 +2393,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         import shared_layers_t0
 
         return shared_layers_t0.run(args.repo, args.godot_binary, args.base_binary, args.base_build_info,
-                                    args.cache_root, args.out, args.run_id, args.control)
+                                    args.cache_root, args.out, args.run_id, args.control, variant=args.variant)
     if args.command == "disk-throughput":
         return disk_throughput(args.world_root, args.out, args.probe_gib)
     if args.command == "vulkan-limits":
