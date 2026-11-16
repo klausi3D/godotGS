@@ -18,6 +18,7 @@ var structGaussianRenderFacadeState_1_1ResourceState =
     [ "hlod_content_serial", "structGaussianRenderFacadeState_1_1ResourceState.html#a484f5978be7d941ccf31db15d63f0e61", null ],
     [ "hlod_cpu_cut_usec", "structGaussianRenderFacadeState_1_1ResourceState.html#a65e8f8c7b3cca7694820adcc61b7cb45", null ],
     [ "hlod_cpu_prepare_usec", "structGaussianRenderFacadeState_1_1ResourceState.html#a916d022ca85a7c903bf3db0a506e70fc", null ],
+    [ "hlod_cut_telemetry", "structGaussianRenderFacadeState_1_1ResourceState.html#a768cac1cead5d8b17cd668b91bc547c6", null ],
     [ "hlod_draw_list_uploads", "structGaussianRenderFacadeState_1_1ResourceState.html#a25d799032247c502e536bff313bd4095", null ],
     [ "hlod_edit_blank_frames", "structGaussianRenderFacadeState_1_1ResourceState.html#ab93889f93a306d13d47fa31cf5eb7966", null ],
     [ "hlod_edit_event", "structGaussianRenderFacadeState_1_1ResourceState.html#a8f01f0072d04f36e50706d474d55a786", null ],

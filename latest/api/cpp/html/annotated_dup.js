@@ -468,6 +468,7 @@ var annotated_dup =
     [ "GSStartupTrace", "classGSStartupTrace.html", "classGSStartupTrace" ],
     [ "GSStartupTraceScope", "classGSStartupTraceScope.html", "classGSStartupTraceScope" ],
     [ "GSStartupTraceSnapshot", "structGSStartupTraceSnapshot.html", "structGSStartupTraceSnapshot" ],
+    [ "HlodCutTelemetry", "structHlodCutTelemetry.html", "structHlodCutTelemetry" ],
     [ "HlodFallback", "structHlodFallback.html", "structHlodFallback" ],
     [ "HlodLevelRecordStatsGPU", "structHlodLevelRecordStatsGPU.html", "structHlodLevelRecordStatsGPU" ],
     [ "HlodNodeStreamer", "classHlodNodeStreamer.html", "classHlodNodeStreamer" ],

@@ -219,6 +219,7 @@ var hierarchy =
     [ "gs_world_format::HeaderLayout", "structgs__world__format_1_1HeaderLayout.html", null ],
     [ "GaussianSplatting::HierarchicalSplatStructure", "classGaussianSplatting_1_1HierarchicalSplatStructure.html", null ],
     [ "GaussianRenderFacadeState::HlodBundle", "structGaussianRenderFacadeState_1_1HlodBundle.html", null ],
+    [ "HlodCutTelemetry", "structHlodCutTelemetry.html", null ],
     [ "HlodFallback", "structHlodFallback.html", null ],
     [ "GaussianSplatting::HlodLevelRecordSample", "structGaussianSplatting_1_1HlodLevelRecordSample.html", null ],
     [ "HlodLevelRecordStatsGPU", "structHlodLevelRecordStatsGPU.html", null ],

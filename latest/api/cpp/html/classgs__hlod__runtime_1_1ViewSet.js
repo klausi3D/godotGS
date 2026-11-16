@@ -25,6 +25,7 @@ var classgs__hlod__runtime_1_1ViewSet =
     ] ],
     [ "admit_view", "classgs__hlod__runtime_1_1ViewSet.html#a286a24577eba68674abea4f2a265815e", null ],
     [ "allocated_bytes", "classgs__hlod__runtime_1_1ViewSet.html#a0ce71f3bd35dcc86316530579ac2f96e", null ],
+    [ "cut_diagnostics", "classgs__hlod__runtime_1_1ViewSet.html#a720bd3f523beb2c78f611e90d4116e76", null ],
     [ "desired", "classgs__hlod__runtime_1_1ViewSet.html#a9e3bc5851ce7f012b660c69420b4f20a", null ],
     [ "drawn", "classgs__hlod__runtime_1_1ViewSet.html#a681908226c42eff83720cf25fa44614d", null ],
     [ "drawn_origin_revision", "classgs__hlod__runtime_1_1ViewSet.html#abe142284bf979410c794ffb55daac8a4", null ],

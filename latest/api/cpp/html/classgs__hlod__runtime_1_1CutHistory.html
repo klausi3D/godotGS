@@ -112,9 +112,14 @@ Public Types</h2></td></tr>
 , <a class="el" href="#a4a237ae21eeecf3f5a72bf474936b044a471326e6dea7901dc72143cb4cf547f4">BOOTSTRAP_INFEASIBLE</a>
 <br />
  }</td></tr>
+<tr class="memitem:a80f108e04b0cb2f6ecfc91d32e6c2c2c" id="r_a80f108e04b0cb2f6ecfc91d32e6c2c2c"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2c">DiagnosticFlag</a> : uint8_t { <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f">HYSTERESIS_HELD</a> = 1
+, <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152">RESIDENCY_MISSED</a> = 2
+, <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8">MISS_DEMANDED</a> = 4
+ }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
+<tr class="memitem:a51909fa0a996df3634b80a5d22e8ee7c" id="r_a51909fa0a996df3634b80a5d22e8ee7c"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a51909fa0a996df3634b80a5d22e8ee7c">diagnostic_flags</a> (uint32_t p_node) const</td></tr>
 <tr class="memitem:af4cd05bf0c94fa612f5d914e0b916019" id="r_af4cd05bf0c94fa612f5d914e0b916019"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af4cd05bf0c94fa612f5d914e0b916019">reserve</a> (uint32_t p_nodes)</td></tr>
 <tr class="memitem:aa11db9fdb5f997a7f2365ed051461852" id="r_aa11db9fdb5f997a7f2365ed051461852"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa11db9fdb5f997a7f2365ed051461852">invalidate</a> ()</td></tr>
 <tr class="memitem:a1d368a172d18c8a53aeecf141ba0b674" id="r_a1d368a172d18c8a53aeecf141ba0b674"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1d368a172d18c8a53aeecf141ba0b674">demand_count</a> () const</td></tr>
@@ -130,6 +135,25 @@ Static Public Member Functions</h2></td></tr>
 <tr class="memitem:ac802ff6a93017d6f95449f74ef320178" id="r_ac802ff6a93017d6f95449f74ef320178"><td class="memItemLeft" align="right" valign="top">static uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac802ff6a93017d6f95449f74ef320178">workspace_bytes</a> (uint32_t p_nodes)</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
+<a id="a80f108e04b0cb2f6ecfc91d32e6c2c2c" name="a80f108e04b0cb2f6ecfc91d32e6c2c2c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a80f108e04b0cb2f6ecfc91d32e6c2c2c">&#9670;&#160;</a></span>DiagnosticFlag</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2c">gs_hlod_runtime::CutHistory::DiagnosticFlag</a> : uint8_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f" name="a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f"></a>HYSTERESIS_HELD&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152" name="a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152"></a>RESIDENCY_MISSED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8" name="a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8"></a>MISS_DEMANDED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a id="a4a237ae21eeecf3f5a72bf474936b044" name="a4a237ae21eeecf3f5a72bf474936b044"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a4a237ae21eeecf3f5a72bf474936b044">&#9670;&#160;</a></span>SelectStatus</h2>
 
@@ -210,6 +234,31 @@ Static Public Member Functions</h2></td></tr>
           <td class="memname">uint32_t gs_hlod_runtime::CutHistory::demand_node </td>
           <td>(</td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_index</em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a51909fa0a996df3634b80a5d22e8ee7c" name="a51909fa0a996df3634b80a5d22e8ee7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a51909fa0a996df3634b80a5d22e8ee7c">&#9670;&#160;</a></span>diagnostic_flags()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint8_t gs_hlod_runtime::CutHistory::diagnostic_flags </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span></td><td>)</td>
           <td> const</td>
         </tr>
       </table>

@@ -1,6 +1,11 @@
 var classgs__hlod__runtime_1_1CutHistory =
 [
     [ "Result", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html", "structgs__hlod__runtime_1_1CutHistory_1_1Result" ],
+    [ "DiagnosticFlag", "classgs__hlod__runtime_1_1CutHistory.html#a80f108e04b0cb2f6ecfc91d32e6c2c2c", [
+      [ "HYSTERESIS_HELD", "classgs__hlod__runtime_1_1CutHistory.html#a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f", null ],
+      [ "RESIDENCY_MISSED", "classgs__hlod__runtime_1_1CutHistory.html#a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152", null ],
+      [ "MISS_DEMANDED", "classgs__hlod__runtime_1_1CutHistory.html#a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8", null ]
+    ] ],
     [ "SelectStatus", "classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044", [
       [ "COMPLETE", "classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044af15dffdf2731a8615bec639f8c9ec524", null ],
       [ "EMPTY", "classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044acdd14239d90c5135289e09c68a0e045b", null ],
@@ -14,6 +19,7 @@ var classgs__hlod__runtime_1_1CutHistory =
     [ "allocated_bytes", "classgs__hlod__runtime_1_1CutHistory.html#a329f364c2559dd5ec9f747251a397cf2", null ],
     [ "demand_count", "classgs__hlod__runtime_1_1CutHistory.html#a1d368a172d18c8a53aeecf141ba0b674", null ],
     [ "demand_node", "classgs__hlod__runtime_1_1CutHistory.html#aa39c00838d5d720381c27a80f01e4350", null ],
+    [ "diagnostic_flags", "classgs__hlod__runtime_1_1CutHistory.html#a51909fa0a996df3634b80a5d22e8ee7c", null ],
     [ "invalidate", "classgs__hlod__runtime_1_1CutHistory.html#aa11db9fdb5f997a7f2365ed051461852", null ],
     [ "partial_frontier_count", "classgs__hlod__runtime_1_1CutHistory.html#a85030f5726849fb0eb90181d149960c3", null ],
     [ "partial_frontier_node", "classgs__hlod__runtime_1_1CutHistory.html#a53e6e8f7d8eef22a15c0958cde191bd1", null ],
