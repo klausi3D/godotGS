@@ -35,10 +35,13 @@ var namespacegs__hlod__bundle =
     [ "tally_rows", "namespacegs__hlod__bundle.html#a84ea7cd0bbb53ca7859883b6ba584688", null ],
     [ "visible_chunk_capacity", "namespacegs__hlod__bundle.html#a461196fc677f4afb6399acc8052ef838", null ],
     [ "visible_chunk_capacity", "namespacegs__hlod__bundle.html#a782ff555991399b5f13b051316db12a6", null ],
+    [ "world_demand_overlap_growth", "namespacegs__hlod__bundle.html#a15a6c4c205b320df8da4a170a2dc8eee", null ],
+    [ "world_demand_overlap_records", "namespacegs__hlod__bundle.html#ae8daadd939292344b2453dfd79793ecb", null ],
     [ "world_floor_records", "namespacegs__hlod__bundle.html#aebeacd0f06c3d498d8f69784d754b6cd", null ],
     [ "world_floor_splats", "namespacegs__hlod__bundle.html#a73e1a358a0b3d8534bec90592ed9f75f", null ],
     [ "world_need_splats", "namespacegs__hlod__bundle.html#ac48033ad04b30efd84fd3d3c483f34b2", null ],
     [ "world_overlap_need", "namespacegs__hlod__bundle.html#a3c7ddbe7677d51ed0ea4539eea095427", null ],
+    [ "world_overlap_seed_records", "namespacegs__hlod__bundle.html#a9e5a0a493a544b5e073c4489d0ff3d20", null ],
     [ "world_plus_objects_overlap_growth", "namespacegs__hlod__bundle.html#ace189ac73a478e95713b25c5a32b927f", null ],
     [ "world_plus_objects_overlap_records", "namespacegs__hlod__bundle.html#af49a448e746707c3fdafd1783bd1b188", null ],
     [ "world_view_caps", "namespacegs__hlod__bundle.html#ae72f22de6f4e32708849f9e6f4aa7879", null ],
@@ -47,5 +50,7 @@ var namespacegs__hlod__bundle =
     [ "WORLD_DENSE_ID", "namespacegs__hlod__bundle.html#ab696adeaf274924c8f0a36bc6ef65bf6", null ],
     [ "WORLD_FLOOR_DENOMINATOR", "namespacegs__hlod__bundle.html#a5d07f490c6e2af20a636add3b5f612a6", null ],
     [ "WORLD_FLOOR_NUMERATOR", "namespacegs__hlod__bundle.html#ace143557f0a0682c639d8d69cbe0c48e", null ],
+    [ "WORLD_OVERLAP_RECORDS_PER_LEAF", "namespacegs__hlod__bundle.html#a86025d47eff86c4acb8e9b91948bfae8", null ],
+    [ "WORLD_OVERLAP_SEED_FLOOR_RECORDS", "namespacegs__hlod__bundle.html#a2b4edf47ebc32cbca8f264e5d690047a", null ],
     [ "WORLD_ROW", "namespacegs__hlod__bundle.html#a187a747eac9af29232e87adee362f679", null ]
 ];

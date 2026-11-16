@@ -135,6 +135,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ac48033ad04b30efd84fd3d3c483f34b2" id="r_ac48033ad04b30efd84fd3d3c483f34b2"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac48033ad04b30efd84fd3d3c483f34b2">world_need_splats</a> (uint32_t p_leaf_count, int p_max_splats)</td></tr>
 <tr class="memitem:a32f5ff18d83edeb33e2824e722921222" id="r_a32f5ff18d83edeb33e2824e722921222"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a32f5ff18d83edeb33e2824e722921222">relative_capacity</a> (uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
 <tr class="memitem:a0c5e43a8feeb1cd73cbfc7a708bb438c" id="r_a0c5e43a8feeb1cd73cbfc7a708bb438c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c5e43a8feeb1cd73cbfc7a708bb438c">canonical_capacity</a> (uint32_t p_leaf_count, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
+<tr class="memitem:a9e5a0a493a544b5e073c4489d0ff3d20" id="r_a9e5a0a493a544b5e073c4489d0ff3d20"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e5a0a493a544b5e073c4489d0ff3d20">world_overlap_seed_records</a> (uint32_t p_leaf_count, int p_max_splats)</td></tr>
+<tr class="memitem:ae8daadd939292344b2453dfd79793ecb" id="r_ae8daadd939292344b2453dfd79793ecb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae8daadd939292344b2453dfd79793ecb">world_demand_overlap_records</a> (double p_world_demand, double p_object_records)</td></tr>
+<tr class="memitem:a15a6c4c205b320df8da4a170a2dc8eee" id="r_a15a6c4c205b320df8da4a170a2dc8eee"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a15a6c4c205b320df8da4a170a2dc8eee">world_demand_overlap_growth</a> (uint32_t p_records)</td></tr>
 <tr class="memitem:ad92628d7c9d827f39f255edf27f3328b" id="r_ad92628d7c9d827f39f255edf27f3328b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad92628d7c9d827f39f255edf27f3328b">admits_before</a> (const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;p_a, const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> &amp;p_b)</td></tr>
 <tr class="memitem:a050885f762c72dc642f28e6d3e032984" id="r_a050885f762c72dc642f28e6d3e032984"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a050885f762c72dc642f28e6d3e032984">admit_objects</a> (const <a class="el" href="structgs__hlod__bundle_1_1ObjectDemand.html">ObjectDemand</a> *p_demands, uint32_t p_count, const <a class="el" href="structgs__hlod__bundle_1_1ObjectShare.html">ObjectShare</a> &amp;p_share, <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;r_admission)</td></tr>
 <tr class="memitem:ae72f22de6f4e32708849f9e6f4aa7879" id="r_ae72f22de6f4e32708849f9e6f4aa7879"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae72f22de6f4e32708849f9e6f4aa7879">world_view_caps</a> (uint32_t p_leaf_count, int p_max_splats, uint64_t p_view_cap, bool p_streaming, uint64_t p_stream_records, double p_records, const <a class="el" href="structgs__hlod__bundle_1_1Admission.html">Admission</a> &amp;p_admission, uint64_t &amp;r_splat_budget, double &amp;r_record_budget)</td></tr>
@@ -150,6 +153,8 @@ Variables</h2></td></tr>
 <tr class="memitem:ace143557f0a0682c639d8d69cbe0c48e" id="r_ace143557f0a0682c639d8d69cbe0c48e"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace143557f0a0682c639d8d69cbe0c48e">WORLD_FLOOR_NUMERATOR</a> = 1</td></tr>
 <tr class="memitem:a5d07f490c6e2af20a636add3b5f612a6" id="r_a5d07f490c6e2af20a636add3b5f612a6"><td class="memItemLeft" align="right" valign="top">constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5d07f490c6e2af20a636add3b5f612a6">WORLD_FLOOR_DENOMINATOR</a> = 2</td></tr>
 <tr class="memitem:ad92285d4724b46921d5f4c82b4303eca" id="r_ad92285d4724b46921d5f4c82b4303eca"><td class="memItemLeft" align="right" valign="top">constexpr const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad92285d4724b46921d5f4c82b4303eca">INSTANCE_REFUSAL_REASON</a> = &quot;hlod_instance_reserve_exceeds_object_share&quot;</td></tr>
+<tr class="memitem:a86025d47eff86c4acb8e9b91948bfae8" id="r_a86025d47eff86c4acb8e9b91948bfae8"><td class="memItemLeft" align="right" valign="top">constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a86025d47eff86c4acb8e9b91948bfae8">WORLD_OVERLAP_RECORDS_PER_LEAF</a> = 50</td></tr>
+<tr class="memitem:a2b4edf47ebc32cbca8f264e5d690047a" id="r_a2b4edf47ebc32cbca8f264e5d690047a"><td class="memItemLeft" align="right" valign="top">constexpr uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2b4edf47ebc32cbca8f264e5d690047a">WORLD_OVERLAP_SEED_FLOOR_RECORDS</a> = uint64_t(1) &lt;&lt; 20</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Enumeration Type Documentation</h2>
 <a id="af66c1700ac5f6460060b8b0b095067aa" name="af66c1700ac5f6460060b8b0b095067aa"></a>
@@ -1015,6 +1020,60 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a15a6c4c205b320df8da4a170a2dc8eee" name="a15a6c4c205b320df8da4a170a2dc8eee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a15a6c4c205b320df8da4a170a2dc8eee">&#9670;&#160;</a></span>world_demand_overlap_growth()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::world_demand_overlap_growth </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_records</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae8daadd939292344b2453dfd79793ecb" name="ae8daadd939292344b2453dfd79793ecb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae8daadd939292344b2453dfd79793ecb">&#9670;&#160;</a></span>world_demand_overlap_records()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::world_demand_overlap_records </td>
+          <td>(</td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_world_demand</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">double</td>          <td class="paramname"><span class="paramname"><em>p_object_records</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="aebeacd0f06c3d498d8f69784d754b6cd" name="aebeacd0f06c3d498d8f69784d754b6cd"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aebeacd0f06c3d498d8f69784d754b6cd">&#9670;&#160;</a></span>world_floor_records()</h2>
 
@@ -1117,6 +1176,35 @@ Variables</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_seed</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a9e5a0a493a544b5e073c4489d0ff3d20" name="a9e5a0a493a544b5e073c4489d0ff3d20"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9e5a0a493a544b5e073c4489d0ff3d20">&#9670;&#160;</a></span>world_overlap_seed_records()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_bundle::world_overlap_seed_records </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_leaf_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>p_max_splats</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -1350,6 +1438,50 @@ Variables</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_hlod_bundle::WORLD_FLOOR_NUMERATOR = 1</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a86025d47eff86c4acb8e9b91948bfae8" name="a86025d47eff86c4acb8e9b91948bfae8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a86025d47eff86c4acb8e9b91948bfae8">&#9670;&#160;</a></span>WORLD_OVERLAP_RECORDS_PER_LEAF</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::WORLD_OVERLAP_RECORDS_PER_LEAF = 50</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2b4edf47ebc32cbca8f264e5d690047a" name="a2b4edf47ebc32cbca8f264e5d690047a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2b4edf47ebc32cbca8f264e5d690047a">&#9670;&#160;</a></span>WORLD_OVERLAP_SEED_FLOOR_RECORDS</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::WORLD_OVERLAP_SEED_FLOOR_RECORDS = uint64_t(1) &lt;&lt; 20</td>
         </tr>
       </table>
   </td>

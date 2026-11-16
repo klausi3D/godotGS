@@ -10,6 +10,7 @@ var structgs__hlod__runtime_1_1ViewSet_1_1ViewResult =
     [ "origin_changed", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#a6231b254c3b2c2bb40099171ec2cf215", null ],
     [ "origin_revision", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#a88c695bb7c02fed6a34920e0606cfc0b", null ],
     [ "readiness", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#a6cc312e960f341dcab12c6af2d19866d", null ],
+    [ "record_demand", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#a3abb954c3169eb3158f687e1ea54376d", null ],
     [ "reservation_exceeded", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#aabc4ab712da4b4943c6efe7088c4d167", null ],
     [ "selected_splats", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#aa19e5b7565d7a0faf81245d49e7d8893", null ],
     [ "view_key", "structgs__hlod__runtime_1_1ViewSet_1_1ViewResult.html#abc0f9ce45028241dc1f74aa851abef81", null ],

@@ -1,5 +1,17 @@
 var NAVTREEINDEX49 =
 {
+"structLODDebugStats.html#a9e96c089c5eb998700548eee2fde3f20":[1,0,173,8],
+"structLODDebugStats.html#aa8678da07d6569bbd40d402c945ee7cc":[1,0,173,11],
+"structLODDebugStats.html#ab8ea44bb0915751cf4db94f1dc4a40c7":[1,0,173,5],
+"structLODDebugStats.html#ae8da235b22876bda60ab3d13d5dc301b":[1,0,173,0],
+"structLODDebugStats.html#afd5caa6fd086554dfd458d1417a68cda":[1,0,173,2],
+"structLODDebugStats.html#afe77eb7e2d9e7ad0cd89d60a448e6c36":[1,0,173,7],
+"structLastSortGpuTimestamp.html":[1,0,170],
+"structLastSortGpuTimestamp.html#a42721ce53fa3e782fc79f644e6a0b5df":[1,0,170,2],
+"structLastSortGpuTimestamp.html#a8c4fbd2ecab66e4867ec4b1d3363a6f2":[1,0,170,3],
+"structLastSortGpuTimestamp.html#ac7fc85dc5dd821183979234fb97be059":[1,0,170,0],
+"structLastSortGpuTimestamp.html#add26cbc56648df5bbccfba34ccf45c8e":[1,0,170,1],
+"structNodeResidency_1_1Config.html":[1,0,174,1],
 "structNodeResidency_1_1Config.html#a1c01e4d40f43a3007a7b66f776392bc1":[1,0,174,1,0],
 "structNodeResidency_1_1Config.html#a50b93f3dba6192171861f7244bc75c44":[1,0,174,1,3],
 "structNodeResidency_1_1Config.html#a7c0846d6aaca8ac24d059cfd5a3cc8d0":[1,0,174,1,7],
@@ -237,17 +249,5 @@ var NAVTREEINDEX49 =
 "structPainterlyPerformance.html#a6f89b47336061931099ec1e3c4c362dc":[1,0,190,1],
 "structPainterlyPerformance.html#a7f9fd89cd721876c37fb1eef15054042":[1,0,190,4],
 "structPainterlyPerformance.html#aac1e2d05d7bf0c387db4b1455fcaf547":[1,0,190,5],
-"structPainterlyRenderInput.html":[1,0,192],
-"structPainterlyRenderInput.html#a05d5fb489587ace30ba8b64ca0a8ef10":[1,0,192,3],
-"structPainterlyRenderInput.html#a1e8628a110dd06bd80d1d50051ee99ec":[1,0,192,6],
-"structPainterlyRenderInput.html#a2245f412957332d4e5e00694dcfc5d3d":[1,0,192,2],
-"structPainterlyRenderInput.html#a4197caa60d99eb7f133a4308206a7c43":[1,0,192,8],
-"structPainterlyRenderInput.html#a77279e06e3324588d2620da5899e24ec":[1,0,192,1],
-"structPainterlyRenderInput.html#a7fe3bdefdfb64d496a69e9e27f0114a2":[1,0,192,9],
-"structPainterlyRenderInput.html#abca5b34a7eaa7bc28dc18d1eb143dd8e":[1,0,192,7],
-"structPainterlyRenderInput.html#acc59c787c77834bba2171562c6d25dbf":[1,0,192,4],
-"structPainterlyRenderInput.html#ae21201f83c13650e39a807086553a37d":[1,0,192,5],
-"structPainterlyRenderInput.html#af4f383202834248ee162ec148547597f":[1,0,192,0],
-"structPainterlyRenderResult.html":[1,0,193],
-"structPainterlyRenderResult.html#a6fdc5ae414851792322da1d1a3662d70":[1,0,193,1]
+"structPainterlyRenderInput.html":[1,0,192]
 };

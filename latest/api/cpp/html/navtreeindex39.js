@@ -1,5 +1,17 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html":[0,0,12,0,3],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html":[1,0,9,0,3],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#a2d64d6946381f167542eebd8af3af434":[0,0,12,0,3,1],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#a2d64d6946381f167542eebd8af3af434":[1,0,9,0,3,1],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ab9a961e0ab078210f31be12d8c3e16b7":[0,0,12,0,3,0],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ab9a961e0ab078210f31be12d8c3e16b7":[1,0,9,0,3,0],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ae46d6359bc7c7eac4829dd75aa3cd06c":[0,0,12,0,3,3],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ae46d6359bc7c7eac4829dd75aa3cd06c":[1,0,9,0,3,3],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#af9da00cc57004b1297dbdf0291927318":[0,0,12,0,3,2],
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#af9da00cc57004b1297dbdf0291927318":[1,0,9,0,3,2],
+"structGaussianSplatting_1_1GaussianData.html":[0,0,12,10],
+"structGaussianSplatting_1_1GaussianData.html":[1,0,9,9],
 "structGaussianSplatting_1_1GaussianData.html#a05f1ba043de48aec25abc62e53658c75":[0,0,12,10,8],
 "structGaussianSplatting_1_1GaussianData.html#a05f1ba043de48aec25abc62e53658c75":[1,0,9,9,8],
 "structGaussianSplatting_1_1GaussianData.html#a1bd625adc40308875e626b23db958af6":[0,0,12,10,7],
@@ -237,17 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#adb81ad6016e659c0e931c406101a60fc":[0,0,12,16,0,3],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#adb81ad6016e659c0e931c406101a60fc":[1,0,9,15,0,3],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#af7228481cebc9cbae252440a578ca7f6":[0,0,12,16,0,5],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#af7228481cebc9cbae252440a578ca7f6":[1,0,9,15,0,5],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html":[0,0,12,16,4],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html":[1,0,9,15,4],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a2eec18db0f4e6dd11fe05f16ce615586":[0,0,12,16,4,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a2eec18db0f4e6dd11fe05f16ce615586":[1,0,9,15,4,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a33f53256bbb04b77e57aa66cb21d3843":[0,0,12,16,4,0],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a33f53256bbb04b77e57aa66cb21d3843":[1,0,9,15,4,0],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a3811acd7adb108ea45dd5f0dda64571d":[0,0,12,16,4,3],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a3811acd7adb108ea45dd5f0dda64571d":[1,0,9,15,4,3],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a9afe14f1ee5cccec40b4cd8778564a8b":[0,0,12,16,4,4],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#a9afe14f1ee5cccec40b4cd8778564a8b":[1,0,9,15,4,4],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#adda03c60ef3192ae4e5328e012e0c28e":[0,0,12,16,4,2],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1TreeStats.html#adda03c60ef3192ae4e5328e012e0c28e":[1,0,9,15,4,2]
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html#af7228481cebc9cbae252440a578ca7f6":[1,0,9,15,0,5]
 };

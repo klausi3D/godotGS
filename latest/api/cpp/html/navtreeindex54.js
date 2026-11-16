@@ -1,5 +1,17 @@
 var NAVTREEINDEX54 =
 {
+"structStreamingUploadPipeline_1_1UploadBudgetState.html":[1,0,278,7],
+"structStreamingUploadPipeline_1_1UploadBudgetState.html#a366cd43b0f493a00846eed846de67235":[1,0,278,7,1],
+"structStreamingUploadPipeline_1_1UploadBudgetState.html#a7cca97a3432b1f8c00b07fe96fa96dca":[1,0,278,7,2],
+"structStreamingUploadPipeline_1_1UploadBudgetState.html#a9a1427824f27f468bee1e79cbe8f3584":[1,0,278,7,0],
+"structStreamingUploadPipeline_1_1UploadBudgetState.html#af8c721e150efa3cddb8b5825beae6137":[1,0,278,7,3],
+"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html":[1,0,278,1],
+"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a6b192575956f46f26b0a15b486cfb97a":[1,0,278,1,3],
+"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c":[1,0,278,1,1],
+"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a9637c45a3c04099278d8bc9aea186652":[1,0,278,1,2],
+"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#ac24266c3882d042d5c7ab919c77f3579":[1,0,278,1,0],
+"structStreamingUploadPipeline_1_1UploadCoalescingPlan.html":[1,0,278,2],
+"structStreamingUploadPipeline_1_1UploadCoalescingPlan.html#a3efe212979ed669faed405d321779d0a":[1,0,278,2,0],
 "structStreamingUploadPipeline_1_1UploadCoalescingPlan.html#a3fe0dfc797917717319942cfdef04904":[1,0,278,2,1],
 "structStreamingVisibilityController_1_1CameraVelocityTracker.html":[1,0,279,1],
 "structStreamingVisibilityController_1_1CameraVelocityTracker.html#a0a6a437e0ac28ab6d4e84cd9e690e146":[1,0,279,1,3],
@@ -237,17 +249,5 @@ var NAVTREEINDEX54 =
 "structTileRenderParamsGPU.html#ab2788a4b39d38342cafbb13a9927c274":[1,0,290,46],
 "structTileRenderParamsGPU.html#ab835754f234d72c19c7a78c0911b3d90":[1,0,290,11],
 "structTileRenderParamsGPU.html#abb23258e18b799b7e079a5da969ea686":[1,0,290,10],
-"structTileRenderParamsGPU.html#abfc663562e814140d55a1523b88abdf3":[1,0,290,7],
-"structTileRenderParamsGPU.html#ac14f568905c833f3c13d39c1e2045587":[1,0,290,39],
-"structTileRenderParamsGPU.html#ac94249908aa1de06ffbd3c6ed2b407ce":[1,0,290,0],
-"structTileRenderParamsGPU.html#adf1c53b1c4d5864022926a971d092b58":[1,0,290,43],
-"structTileRenderParamsGPU.html#ae591c36b81831e164b966c3a03f31702":[1,0,290,4],
-"structTileRenderParamsGPU.html#ae642ff2220a9477dcc2e429601893e95":[1,0,290,47],
-"structTileRenderParamsGPU.html#af57dda89e52430e49320a9aee0488c8c":[1,0,290,12],
-"structTileRenderParamsGPU.html#af73d872f8b62e0053ff85c43ac80275a":[1,0,290,14],
-"structTileRendererDebugStats.html":[1,0,288],
-"structTileRendererDebugStats.html#a0336c59c1deb29fa0b94175e16ca7441":[1,0,288,42],
-"structTileRendererDebugStats.html#a03789420616dfef6829f391c40e14e26":[1,0,288,27],
-"structTileRendererDebugStats.html#a04401b933561b4b8e2d5834532dea0dd":[1,0,288,12],
-"structTileRendererDebugStats.html#a0cde3b3a12c4dfb64dcf9ea42197f0c1":[1,0,288,25]
+"structTileRenderParamsGPU.html#abfc663562e814140d55a1523b88abdf3":[1,0,290,7]
 };

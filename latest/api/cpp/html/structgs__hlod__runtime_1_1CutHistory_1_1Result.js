@@ -6,6 +6,7 @@ var structgs__hlod__runtime_1_1CutHistory_1_1Result =
     [ "estimated_records", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#aca90c564834beb183c27056cbfbdb9a9", null ],
     [ "first_cap_refused_node", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#acd0e584f21527b475d089d081cf4061a", null ],
     [ "hysteresis_held_count", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#a1e4a359fc93ef5132997db32c081f970", null ],
+    [ "record_demand", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#ac4fc0902bae7187e91a387cc451277f8", null ],
     [ "residency_missed_count", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#a660d43093f71ecd7b3b30be1faa07d14", null ],
     [ "selected_count", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#a94bc811d4884910b7e05d73eb39c6578", null ],
     [ "selected_splats", "structgs__hlod__runtime_1_1CutHistory_1_1Result.html#a507fc3fad9d69546f440387fb153164d", null ],

@@ -1,5 +1,17 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#a5a0a44fa434b41d0541fd9d3a000eb8a":[1,0,106,11,6],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#a5b8ea2e3d406bc08997c0b1062a82fa1":[1,0,106,11,3],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#a91fa43a2fef6aae81086540cae5bca1b":[1,0,106,11,2],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#aa829fa88cb27e3e750c6936f09e16fdd":[1,0,106,11,7],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#abe9f29e84e7e36551b2090e5f7f7654a":[1,0,106,11,5],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#ad740671e21cab96f93d90e0f19607d91":[1,0,106,11,1],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#adce2400780d37bf756d3d91a56065e93":[1,0,106,11,0],
+"structGaussianSplatRenderer_1_1CompositeStageInput.html#adea49290d96012147826acd9c542f202":[1,0,106,11,8],
+"structGaussianSplatRenderer_1_1CullStageInput.html":[1,0,106,8],
+"structGaussianSplatRenderer_1_1CullStageInput.html#a173477f4ac526bae720c94f70a7c7963":[1,0,106,8,4],
+"structGaussianSplatRenderer_1_1CullStageInput.html#a3b0649d91d2a0fad66cb9a1af1b0e8b6":[1,0,106,8,3],
+"structGaussianSplatRenderer_1_1CullStageInput.html#a52af286324e0afdbd132ab7599417299":[1,0,106,8,2],
 "structGaussianSplatRenderer_1_1CullStageInput.html#a8d2586d6dcc165227437b23132a6442f":[1,0,106,8,0],
 "structGaussianSplatRenderer_1_1CullStageInput.html#ab7c87a3d72868592a0709e219c970faf":[1,0,106,8,1],
 "structGaussianSplatRenderer_1_1CullStageInput.html#ad605354d687009cc228abdd61df2bd0d":[1,0,106,8,5],
@@ -237,17 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a0707601841e5181d9e2947b3f4a9f54a":[1,0,107,3,7],
 "structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a108ed86f60604030bd764e5a0a9ccb70":[1,0,107,3,2],
 "structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a28288190363a23dbd19f2a6b63178786":[1,0,107,3,4],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a390cc67c621c13046222a9eb21bb4bb7":[1,0,107,3,8],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a5ba2e48d608ec9147621b9c5c33ea686":[1,0,107,3,13],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a7b9939077df8bafdcfa5f3304777ed2e":[1,0,107,3,6],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a99120b093281bea0802238dfa164dc37":[1,0,107,3,12],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a9ccdbbf493b8a0e4268a3fbfabb406c7":[1,0,107,3,10],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ab61f2c9e6ba9a3ce707d35ad28a4ae29":[1,0,107,3,17],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ab8e3735a060f8ae13ab12f4ba348f646":[1,0,107,3,14],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#aba6bde95ecf800f87b14aaf265ed3dad":[1,0,107,3,3],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ac0129c264841f756353881af23a71fcf":[1,0,107,3,15],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ac9f91854661dcfd69ebf5c212c5d5f67":[1,0,107,3,9],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ada336972237dd0c5aabab31e3a78178a":[1,0,107,3,0],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#adf287b58e7ee74f24d7873749c8ebb3b":[1,0,107,3,11],
-"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ae53f5d241f7650b3a88b31553c0f6129":[1,0,107,3,16]
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a390cc67c621c13046222a9eb21bb4bb7":[1,0,107,3,8]
 };

@@ -1,5 +1,17 @@
 var NAVTREEINDEX38 =
 {
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a5ba2e48d608ec9147621b9c5c33ea686":[1,0,107,3,13],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a7b9939077df8bafdcfa5f3304777ed2e":[1,0,107,3,6],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a99120b093281bea0802238dfa164dc37":[1,0,107,3,12],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#a9ccdbbf493b8a0e4268a3fbfabb406c7":[1,0,107,3,10],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ab61f2c9e6ba9a3ce707d35ad28a4ae29":[1,0,107,3,17],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ab8e3735a060f8ae13ab12f4ba348f646":[1,0,107,3,14],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#aba6bde95ecf800f87b14aaf265ed3dad":[1,0,107,3,3],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ac0129c264841f756353881af23a71fcf":[1,0,107,3,15],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ac9f91854661dcfd69ebf5c212c5d5f67":[1,0,107,3,9],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ada336972237dd0c5aabab31e3a78178a":[1,0,107,3,0],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#adf287b58e7ee74f24d7873749c8ebb3b":[1,0,107,3,11],
+"structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#ae53f5d241f7650b3a88b31553c0f6129":[1,0,107,3,16],
 "structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#aead4fb556efd0021817c27fdbd02d337":[1,0,107,3,5],
 "structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html#aed17354ca40c17b4266e05644ff1d0d6":[1,0,107,3,1],
 "structGaussianSplatSceneDirector_1_1SubmissionCounts.html":[1,0,107,2],
@@ -237,17 +249,5 @@ var NAVTREEINDEX38 =
 "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html#a9dedbd550243c87b638acf57ea1b131f":[0,0,12,0,5,0],
 "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html#a9dedbd550243c87b638acf57ea1b131f":[1,0,9,0,5,0],
 "structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html#adb00d20f0d2d84882d07a10be49d5245":[0,0,12,0,5,1],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html#adb00d20f0d2d84882d07a10be49d5245":[1,0,9,0,5,1],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html":[0,0,12,0,3],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html":[1,0,9,0,3],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#a2d64d6946381f167542eebd8af3af434":[0,0,12,0,3,1],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#a2d64d6946381f167542eebd8af3af434":[1,0,9,0,3,1],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ab9a961e0ab078210f31be12d8c3e16b7":[0,0,12,0,3,0],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ab9a961e0ab078210f31be12d8c3e16b7":[1,0,9,0,3,0],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ae46d6359bc7c7eac4829dd75aa3cd06c":[0,0,12,0,3,3],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#ae46d6359bc7c7eac4829dd75aa3cd06c":[1,0,9,0,3,3],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#af9da00cc57004b1297dbdf0291927318":[0,0,12,0,3,2],
-"structGaussianSplatting_1_1ComputeInfrastructure_1_1UniformBindingContract.html#af9da00cc57004b1297dbdf0291927318":[1,0,9,0,3,2],
-"structGaussianSplatting_1_1GaussianData.html":[0,0,12,10],
-"structGaussianSplatting_1_1GaussianData.html":[1,0,9,9]
+"structGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationRecord.html#adb00d20f0d2d84882d07a10be49d5245":[1,0,9,0,5,1]
 };

@@ -1,5 +1,17 @@
 var NAVTREEINDEX53 =
 {
+"structSortingStrategyConfig.html#a777134502f78b3db1455bda220b35053ae84949df091aad9d1e77f7b3a5388277":[1,0,250,0,3],
+"structSortingStrategyConfig.html#a7bf07de972f33026754a81273032950c":[1,0,250,11],
+"structSortingStrategyConfig.html#a82240dd669681b9fca01a9d0e04de7a4":[1,0,250,6],
+"structSortingStrategyConfig.html#a9f344c865269beb0f1b9dc34bc176a98":[1,0,250,10],
+"structSortingStrategyConfig.html#ab6e3f2e833b5eaa2a7dc90b76744ff76":[1,0,250,8],
+"structSortingStrategyConfig.html#acf840725f18de9ffb82dbb4bcd47321f":[1,0,250,12],
+"structSortingStrategyConfig.html#aed26122666b64cc2a537e12cdd42bd08":[1,0,250,4],
+"structSortingStrategyConfig.html#af1788d2db8b82f17b8ce85531fb77f95":[1,0,250,3],
+"structSortingStrategyConfig.html#af7fa9c862b244c58768b43c72b8f9e87":[1,0,250,2],
+"structSortingStrategyConfig.html#afae89cbb9c0f8bd44f44b9400d25cf2b":[1,0,250,1],
+"structSphereEffectorGPU.html":[1,0,260],
+"structSphereEffectorGPU.html#a8fb537e266cf7b37f73583e63aa14061":[1,0,260,2],
 "structSphereEffectorGPU.html#ac610c64957932919e62ed08c84814a0e":[1,0,260,0],
 "structSphereEffectorGPU.html#adc097d26e75055b784c1f71b12527797":[1,0,260,1],
 "structSplatRefGPU.html":[1,0,262],
@@ -237,17 +249,5 @@ var NAVTREEINDEX53 =
 "structStreamingUploadPipeline_1_1PendingChunkUpload.html#acdfb8ffb85d2d4bef9d78740791bd5bc":[1,0,278,4,13],
 "structStreamingUploadPipeline_1_1PendingChunkUpload.html#ad4125e64cb0f3c06bbb3e6257d32ff94":[1,0,278,4,4],
 "structStreamingUploadPipeline_1_1PendingChunkUpload.html#ae7512dae3fb09c58163a44091f8068a4":[1,0,278,4,5],
-"structStreamingUploadPipeline_1_1PendingChunkUpload.html#aef403d1673fdda177bb93bef0c9947a0":[1,0,278,4,0],
-"structStreamingUploadPipeline_1_1UploadBudgetState.html":[1,0,278,7],
-"structStreamingUploadPipeline_1_1UploadBudgetState.html#a366cd43b0f493a00846eed846de67235":[1,0,278,7,1],
-"structStreamingUploadPipeline_1_1UploadBudgetState.html#a7cca97a3432b1f8c00b07fe96fa96dca":[1,0,278,7,2],
-"structStreamingUploadPipeline_1_1UploadBudgetState.html#a9a1427824f27f468bee1e79cbe8f3584":[1,0,278,7,0],
-"structStreamingUploadPipeline_1_1UploadBudgetState.html#af8c721e150efa3cddb8b5825beae6137":[1,0,278,7,3],
-"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html":[1,0,278,1],
-"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a6b192575956f46f26b0a15b486cfb97a":[1,0,278,1,3],
-"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c":[1,0,278,1,1],
-"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a9637c45a3c04099278d8bc9aea186652":[1,0,278,1,2],
-"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#ac24266c3882d042d5c7ab919c77f3579":[1,0,278,1,0],
-"structStreamingUploadPipeline_1_1UploadCoalescingPlan.html":[1,0,278,2],
-"structStreamingUploadPipeline_1_1UploadCoalescingPlan.html#a3efe212979ed669faed405d321779d0a":[1,0,278,2,0]
+"structStreamingUploadPipeline_1_1PendingChunkUpload.html#aef403d1673fdda177bb93bef0c9947a0":[1,0,278,4,0]
 };

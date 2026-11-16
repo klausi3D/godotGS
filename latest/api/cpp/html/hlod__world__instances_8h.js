@@ -22,14 +22,19 @@ var hlod__world__instances_8h =
     [ "gs_hlod_bundle::rows_refusal", "namespacegs__hlod__bundle.html#a7667be2d4b50290bc4ab701ec5885ed7", null ],
     [ "gs_hlod_bundle::tally_rows", "namespacegs__hlod__bundle.html#a84ea7cd0bbb53ca7859883b6ba584688", null ],
     [ "gs_hlod_bundle::visible_chunk_capacity", "namespacegs__hlod__bundle.html#a461196fc677f4afb6399acc8052ef838", null ],
+    [ "gs_hlod_bundle::world_demand_overlap_growth", "namespacegs__hlod__bundle.html#a15a6c4c205b320df8da4a170a2dc8eee", null ],
+    [ "gs_hlod_bundle::world_demand_overlap_records", "namespacegs__hlod__bundle.html#ae8daadd939292344b2453dfd79793ecb", null ],
     [ "gs_hlod_bundle::world_floor_records", "namespacegs__hlod__bundle.html#aebeacd0f06c3d498d8f69784d754b6cd", null ],
     [ "gs_hlod_bundle::world_floor_splats", "namespacegs__hlod__bundle.html#a73e1a358a0b3d8534bec90592ed9f75f", null ],
     [ "gs_hlod_bundle::world_need_splats", "namespacegs__hlod__bundle.html#ac48033ad04b30efd84fd3d3c483f34b2", null ],
     [ "gs_hlod_bundle::world_overlap_need", "namespacegs__hlod__bundle.html#a3c7ddbe7677d51ed0ea4539eea095427", null ],
+    [ "gs_hlod_bundle::world_overlap_seed_records", "namespacegs__hlod__bundle.html#a9e5a0a493a544b5e073c4489d0ff3d20", null ],
     [ "gs_hlod_bundle::world_plus_objects_overlap_growth", "namespacegs__hlod__bundle.html#ace189ac73a478e95713b25c5a32b927f", null ],
     [ "gs_hlod_bundle::world_plus_objects_overlap_records", "namespacegs__hlod__bundle.html#af49a448e746707c3fdafd1783bd1b188", null ],
     [ "gs_hlod_bundle::world_view_caps", "namespacegs__hlod__bundle.html#ae72f22de6f4e32708849f9e6f4aa7879", null ],
     [ "gs_hlod_bundle::INSTANCE_REFUSAL_REASON", "namespacegs__hlod__bundle.html#ad92285d4724b46921d5f4c82b4303eca", null ],
     [ "gs_hlod_bundle::WORLD_FLOOR_DENOMINATOR", "namespacegs__hlod__bundle.html#a5d07f490c6e2af20a636add3b5f612a6", null ],
-    [ "gs_hlod_bundle::WORLD_FLOOR_NUMERATOR", "namespacegs__hlod__bundle.html#ace143557f0a0682c639d8d69cbe0c48e", null ]
+    [ "gs_hlod_bundle::WORLD_FLOOR_NUMERATOR", "namespacegs__hlod__bundle.html#ace143557f0a0682c639d8d69cbe0c48e", null ],
+    [ "gs_hlod_bundle::WORLD_OVERLAP_RECORDS_PER_LEAF", "namespacegs__hlod__bundle.html#a86025d47eff86c4acb8e9b91948bfae8", null ],
+    [ "gs_hlod_bundle::WORLD_OVERLAP_SEED_FLOOR_RECORDS", "namespacegs__hlod__bundle.html#a2b4edf47ebc32cbca8f264e5d690047a", null ]
 ];
