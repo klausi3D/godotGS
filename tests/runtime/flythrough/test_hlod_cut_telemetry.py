@@ -149,7 +149,7 @@ class HlodPressureTelemetry(unittest.TestCase):
         self.assertIn('if epoch != _hlod_pressure_victim_epoch:', self.source)
         self.assertIn('_hlod_pressure_victim_last_sequence = 0', self.source)
         self.assertIn('"epoch_resets_total": _hlod_pressure_victim_epoch_resets', self.source)
-        self.assertIn('var measured := same_epoch and before != null', self.source)
+        self.assertIn('var measured: bool = bool(same_epoch and before != null', self.source)
         self.assertIn('const HLOD_PRESSURE_VICTIM_LIMIT := 4096', self.source)
         summary_source = (HERE / "run_probe.py").read_text(encoding="utf-8")
         self.assertIn('out["hlod_pressure"] = ps.hlod_pressure_summary(result.get("checkpoints"), trace)', summary_source)
