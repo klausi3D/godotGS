@@ -1372,15 +1372,25 @@ bool hlod_create_buffer(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd
     // Fail after one real allocation, so rollback must release a partial candidate.
     if (r_bundle.owned_count == 1 && p_renderer->test_hlod_publication_refuses(4)) { return false; }
 #endif
+    // #1466: a buffer without a payload is created empty and zeroed on the device. Building it from a zero-filled host
+    // vector held its size twice on the host (the vector, then RenderingDevice's transfer staging buffer): 1.85 GB for
+    // the 925.6 MB streamed atlas of T0.
+    const uint64_t staged_bytes = gs_hlod_bundle::creation_host_staged_bytes(p_bytes, p_data != nullptr);
     Vector<uint8_t> initial;
-    if (!gs_resize_or_fail(initial, p_bytes, "HLOD candidate upload")) { return false; }
-    if (p_data) { memcpy(initial.ptrw(), p_data, p_bytes); } else { initial.fill(0); }
+    if (staged_bytes != 0) {
+        if (!gs_resize_or_fail(initial, p_bytes, "HLOD candidate upload")) { return false; }
+        if (p_data) { memcpy(initial.ptrw(), p_data, p_bytes); } else { initial.fill(0); }
+    }
     r_rid = p_rd->storage_buffer_create(uint32_t(p_bytes), initial,
             p_indirect ? RD::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT : 0);
     if (!r_rid.is_valid()) { return false; }
     p_renderer->track_resource_owner(r_rid, p_rd);
     r_bundle.owned[r_bundle.owned_count++] = r_rid;
     r_bundle.bytes += p_bytes;
+    r_bundle.host_staged_bytes += staged_bytes;
+    // The buffer is owned before it is cleared: a refused clear leaves undefined content, so the candidate fails and the
+    // caller's rollback releases this buffer with the rest (release_hlod_bundle), like any later failure.
+    if (staged_bytes == 0 && p_rd->buffer_clear(r_rid, 0, uint32_t(p_bytes)) != OK) { return false; }
     return true;
 }
 
@@ -1576,6 +1586,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
     state.hlod_stream_ready_frames = state.hlod_stream_loading_frames = state.hlod_stream_first_ready_frame = 0;
     state.hlod_stream_frames = 0;
     state.hlod_prepared_snapshot.unref();
+    state.hlod_cut_telemetry.valid = false;
     state.hlod_active = false;
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
@@ -2417,6 +2428,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 
 bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_context) {
     auto &state = get_resource_state();
+    state.hlod_cut_telemetry.valid = false;
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = state.hlod_cpu_cut_usec = 0;
@@ -2895,6 +2907,14 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         state.hlod_world_overlap_demand_records = MAX(state.hlod_world_overlap_demand_records,
                 gs_hlod_bundle::world_demand_overlap_records(outcome.view.record_demand, admission.records));
         state.hlod_world_overlap_demand_build = state.hlod_bundle_builds;
+    }
+    gs_hlod_runtime::CutHistory::Result diagnostic_cut;
+    const gs_hlod_runtime::CutHistory *diagnostic_history = frame_context_manager.get_hlod_view_set().cut_diagnostics(
+            RenderFrameContextManager::hlod_view_key(identity), instance.instance_key, diagnostic_cut);
+    if (outcome.view.view_key == RenderFrameContextManager::hlod_view_key(identity) && diagnostic_history &&
+            diagnostic_cut.status != gs_hlod_runtime::CutHistory::INVALID) {
+        state.hlod_cut_telemetry.capture(*diagnostic_history, diagnostic_cut, world_nodes,
+                outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u);
     }
     if (state.hlod_streaming) {
         // Desired(view) is demand only: it requests, it never makes anything drawable. It is available while the

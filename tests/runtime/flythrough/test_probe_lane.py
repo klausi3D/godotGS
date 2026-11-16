@@ -28,6 +28,8 @@ import copy
 import math
 import os
 import re
+import subprocess
+import time
 import struct
 import sys
 import tempfile
@@ -1487,6 +1489,205 @@ class CountProvenance(unittest.TestCase):
         self.assertIn("_camera.global_transform.basis.y", orientation)
 
 
+class SettleStreakProvenance(unittest.TestCase):
+    """#1455: replay scalar decisions and the production pump without Godot.
+
+    Frame numbers for the count/streak boundary come from the issue's diagnosed
+    candidate p1 C7 (pose 32081, render 32093, count source/streak start 32090).
+    Sequences, digests and clocks below are CONSTRUCTED policy inputs, not captured
+    producer receipts. The replay supplies settled route/pose state; it does not
+    exercise camera matching, streaming, GPU readbacks or wall-clock timing.
+
+    Optional pure helpers use the seams _count_sample_is_after_streak(stats,
+    streak_first_frame) and _settle_digest_is_stable(stats, streak_digest). Before
+    they exist, fall back to today's pose-fresh count gate and digest-blind streak.
+    Thus the old predicate fails assertions, rather than a missing-helper lookup.
+    Replaying the pump as well catches helpers whose callers are never wired up.
+    """
+
+    POSE_FIRST = 32081
+    STREAK_FIRST = 32090
+
+    def setUp(self):
+        self.gd = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.streak_required = int(re.search(r"^const SETTLE_STREAK := (\d+)$", self.gd, re.M)[1])
+
+    def compile_body(self, name, env, optional=False):
+        match = re.search(rf"^func {name}\(([^\n]*)\)[^\n]*:\n(.*?)(?=^func |\Z)",
+                          self.gd, re.M | re.S)
+        if optional and match is None:
+            return
+        self.assertIsNotNone(match, f"existing production function {name} is missing")
+        args = re.sub(r":\s*\w+", "", match[1])
+        body = match[2].split("\n\n\n")[0]
+        body = re.sub(r"\bvar (\w+)(?:\s*:\s*\w+)?\s*:?=", r"\1 =", body)
+        for gd, py in (("true", "True"), ("false", "False"), ("null", "None")):
+            body = re.sub(rf"\b{gd}\b", py, body)
+        body = body.replace("await _frame()", "_frame()")
+        exec(f"def {name}({args}):\n" + body, env)
+
+    def helpers(self, stats=None):
+        env = {"typeof": type, "TYPE_INT": int, "TYPE_STRING": str,
+               "_pose_first_frame": self.POSE_FIRST, "_last_stats": stats or {}}
+        self.compile_body("_count_sample_is_fresh", env)
+        # These fallbacks are the current production decisions, not the fix.
+        env["_count_sample_is_after_streak"] = lambda stats, first: env["_count_sample_is_fresh"](
+            stats, self.POSE_FIRST)
+        env["_settle_digest_is_stable"] = lambda stats, digest: True
+        for name in ("_count_sample_is_after_streak", "_settle_digest_is_stable"):
+            self.compile_body(name, env, optional=True)
+        return env
+
+    def sample(self, render, source, **extra):
+        return {"render_frame_counter": render, "rendered_splat_count_source_frame": source, **extra}
+
+    def replay_pump(self, samples):
+        env = self.helpers()
+        tick = 0
+        frame = 0
+
+        def next_frame():
+            nonlocal tick, frame
+            env["_last_stats"] = samples[min(frame, len(samples) - 1)]
+            frame += 1
+            tick += 1000
+
+        env.update({
+            "Time": mock.Mock(get_ticks_usec=lambda: tick),
+            "SETTLE_STREAK": self.streak_required, "_plan": {},
+            "_frame": next_frame, "_update_pose_first_frame": lambda: None,
+            "_stats_pose_error": lambda: 0.0,
+            "_settled": lambda: env["_last_stats"].get("demand_settled", True)
+            and env["_count_sample_is_fresh"](env["_last_stats"], self.POSE_FIRST),
+        })
+        self.compile_body("_pump_settle", env)
+        # All supplied samples finish before this deadline; the next poll misses
+        # it. No real clock or arbitrary iteration cap determines acceptance.
+        return env["_pump_settle"]((len(samples) + 0.5) / 1000.0)
+
+    def verdict(self, stats, settle, cache=None):
+        env = self.helpers(stats)
+        self.compile_body("_checkpoint_evidence_verdict", env)
+        return env["_checkpoint_evidence_verdict"](
+            settle, {"applicable": False} if cache is None else cache)
+
+    def test_count_source_must_be_strictly_after_streak_start(self):
+        env = self.helpers()
+        for source, expected in ((32089, False), (32090, False), (32091, True)):
+            with self.subTest(source=source):
+                stats = self.sample(32093, source)
+                accepted = 3 >= self.streak_required \
+                    and env["_count_sample_is_fresh"](stats, self.POSE_FIRST) \
+                    and env["_count_sample_is_after_streak"](stats, self.STREAK_FIRST)
+                self.assertEqual(accepted, expected,
+                                 f"count source {source} must be > streak start 32090; pose freshness is insufficient")
+
+    def test_pump_keeps_polling_until_count_describes_the_streak(self):
+        samples = [self.sample(frame, 32090) for frame in range(32090, 32094)]
+        samples.append(self.sample(32094, 32091))
+        receipt = self.replay_pump(samples)
+        self.assertTrue(receipt["settled"], receipt)
+        self.assertEqual(receipt["frames"], 5,
+                         "the pump must wait past the three-frame streak for a count sourced after frame 32090")
+        self.assertEqual(receipt.get("streak_first_frame"), 32090)
+
+    def test_old_count_cannot_settle_even_with_a_long_streak(self):
+        receipt = self.replay_pump([self.sample(frame, 32090) for frame in range(32090, 32099)])
+        self.assertFalse(receipt["settled"],
+                         "a long settled streak cannot make a count sourced at its first frame valid")
+        self.assertEqual(receipt.get("reason"), "settle_deadline_missed")
+        self.assertEqual(receipt.get("streak_first_frame"), 32090)
+
+    def test_digest_helper_rejects_a_changed_drawn_node_set(self):
+        stable = self.helpers()["_settle_digest_is_stable"]
+        self.assertTrue(stable({"hlod_drawn_node_digest": "cut-a"}, "cut-a"))
+        self.assertFalse(stable({"hlod_drawn_node_digest": "cut-b"}, "cut-a"),
+                         "a changed drawn-node digest must restart the settled streak")
+
+    def test_digest_change_restarts_streak_at_the_changed_frame(self):
+        samples = [self.sample(frame, frame - 1, hlod_drawn_node_digest=digest)
+                   for frame, digest in ((32090, "cut-a"), (32091, "cut-a"),
+                                         (32092, "cut-b"), (32093, "cut-b"), (32094, "cut-b"))]
+        receipt = self.replay_pump(samples)
+        self.assertTrue(receipt["settled"], receipt)
+        self.assertEqual(receipt["frames"], 5,
+                         "a digest change on frame 32092 must restart, rather than finish, the streak")
+        self.assertEqual(receipt.get("streak_first_frame"), 32092)
+        self.assertEqual(receipt.get("streak_digest"), "cut-b")
+        self.assertEqual(receipt["settle_usec"], 3000)
+
+    def test_nonsettled_sample_restarts_streak_and_count_barrier(self):
+        samples = [self.sample(32090, 32089), self.sample(32091, 32090, demand_settled=False),
+                   self.sample(32092, 32091), self.sample(32093, 32092),
+                   self.sample(32094, 32092), self.sample(32095, 32093)]
+        receipt = self.replay_pump(samples)
+        self.assertTrue(receipt["settled"], receipt)
+        self.assertEqual(receipt["frames"], 6,
+                         "after demand resumes, the old streak's count barrier cannot be reused")
+        self.assertEqual(receipt.get("streak_first_frame"), 32092)
+        self.assertEqual(receipt["settle_usec"], 3000)
+
+    def test_absent_or_null_digest_does_not_block_or_fabricate_identity(self):
+        stable = self.helpers()["_settle_digest_is_stable"]
+        for digest_stats in ({}, {"hlod_drawn_node_digest": None}):
+            with self.subTest(digest_stats=digest_stats):
+                self.assertTrue(stable(digest_stats, "cut-a"))
+                receipt = self.replay_pump([self.sample(frame, frame - 1, **digest_stats)
+                                            for frame in range(32090, 32093)])
+                self.assertTrue(receipt["settled"], "the pinned base/chunk route need not export a digest")
+                self.assertIsNone(receipt.get("streak_digest"), "never fabricate a missing digest")
+
+    def test_missing_or_invalid_count_source_never_settles(self):
+        for value in (None, -1, "32091", 32091.0, True, 32099):
+            with self.subTest(source=value):
+                receipt = self.replay_pump([self.sample(frame, value) for frame in range(32090, 32094)])
+                self.assertFalse(receipt["settled"], "an invalid/future count source cannot settle")
+                self.assertEqual(receipt.get("reason"), "settle_deadline_missed")
+        receipt = self.replay_pump([{"render_frame_counter": frame} for frame in range(32090, 32094)])
+        self.assertFalse(receipt["settled"], "an absent count source cannot settle")
+        self.assertEqual(receipt.get("reason"), "settle_deadline_missed")
+
+    def test_settle_receipt_records_streak_first_frame_and_available_digest(self):
+        for digest_stats in ({}, {"hlod_drawn_node_digest": None},
+                             {"hlod_drawn_node_digest": "cut-a"}, {"hlod_drawn_node_digest": ""}):
+            with self.subTest(digest_stats=digest_stats):
+                receipt = self.replay_pump([self.sample(frame, frame - 1, **digest_stats)
+                                            for frame in range(32090, 32093)])
+                self.assertTrue(receipt["settled"], receipt)
+                self.assertEqual(receipt.get("streak_first_frame"), 32090,
+                                 "settle receipts must export the streak's render frame, not just elapsed time")
+                self.assertEqual(receipt.get("streak_digest"), digest_stats.get("hlod_drawn_node_digest"))
+
+    def test_checkpoint_verdict_rejects_count_at_or_before_streak_start(self):
+        for source in (32089, 32090):
+            with self.subTest(source=source):
+                self.assertEqual(self.verdict(self.sample(32093, source),
+                                              {"settled": True, "streak_first_frame": 32090}),
+                                 "checkpoint_unsettled",
+                                 "checkpoint evidence must independently require a count after the streak start")
+
+    def test_checkpoint_verdict_rejects_missing_or_invalid_streak_start(self):
+        for settle in ({"settled": True}, *({"settled": True, "streak_first_frame": value}
+                                          for value in (None, -1, "32090", 32090.0, True, 32094))):
+            with self.subTest(settle=settle):
+                self.assertEqual(self.verdict(self.sample(32093, 32091), settle), "checkpoint_unsettled",
+                                 "without a valid streak-first render frame the count cannot prove settlement")
+
+    def test_checkpoint_verdict_preserves_valid_deadline_and_cache_results(self):
+        stats = self.sample(32093, 32091)
+        settle = {"settled": True, "streak_first_frame": 32090}
+        self.assertEqual(self.verdict(stats, settle), "VALID")
+        for enabled, expected in ((False, "VALID"), (True, "static_sort_cache_unsupported"),
+                                  (None, "static_sort_cache_state_unavailable")):
+            with self.subTest(enabled=enabled):
+                self.assertEqual(self.verdict(stats, settle, {"applicable": True, "enabled": enabled}), expected)
+        for deadline in ({"reason": "settle_deadline_missed"},
+                         {"forward_progress": {"deadline_missed": True}}):
+            with self.subTest(deadline=deadline):
+                self.assertEqual(self.verdict(self.sample(32093, 32090), {**settle, **deadline}),
+                                 "checkpoint_settle_deadline_missed")
+
+
 class CoverageWiring(unittest.TestCase):
     """Gate repair: deleting any wire of the completeness signal turns this red."""
 
@@ -1528,6 +1729,155 @@ class CoverageWiring(unittest.TestCase):
         wf = (ROOT / ".github" / "workflows" / "beyond_vram_flythrough.yml").read_text(encoding="utf-8")
         self.assertIn("name: beyond-vram-screenshots-", wf)
         self.assertIn("path: ${{ runner.temp }}/bvw-out/**/screenshots/", wf)
+
+
+def _rss_trace(times):
+    """Constructed: six-column trace rows at the given t_usec; the placement arithmetic is the point."""
+    fields = ["row", "engine_frame", "t_usec", "phase", "pass_index", "segment", "state"]
+    rows = [(i, 100 + i, t, 0, 0, 3 if i < 2 else 4, ps.STATE_MOVING) for i, t in enumerate(times)]
+    return ps.Trace(fields, "q" * len(fields), rows, 0)
+
+
+class RssTimeline(unittest.TestCase):
+    """#1466: the harness exported only the RSS peak, so a +1.9 GB peak could not be placed in time."""
+
+    GIB = 1 << 30
+
+    def test_the_os_high_water_mark_places_a_peak_no_poll_hit(self) -> None:
+        # Constructed sampler rows: the mark jumps to 4 GiB between 0.4 s and 0.6 s, while no polled
+        # RSS ever exceeds 2 GiB (the transient was allocated and released between two polls).
+        rows = [(0.2, 1 * self.GIB, 1 * self.GIB), (0.4, 2 * self.GIB, 2 * self.GIB),
+                (0.6, 2 * self.GIB, 4 * self.GIB), (0.8, 2 * self.GIB, 4 * self.GIB)]
+        out = ps.rss_timeline(rows, 1000.0, 0.2)
+        self.assertEqual(out["peak_window"]["status"], ps.OK)
+        self.assertEqual((out["peak_window"]["after_t_s"], out["peak_window"]["by_t_s"]), (0.4, 0.6))
+        self.assertEqual((out["peak_window"]["bytes"], out["peak_window"]["source"]), (4 * self.GIB, "os_high_water_mark"))
+        self.assertEqual((out["peak_sampled"]["t_s"], out["peak_sampled"]["rss_bytes"]), (0.4, 2 * self.GIB))
+        self.assertEqual(out["timeline"]["points"], [[t, rss] for t, rss, _ in rows])
+        self.assertEqual((out["timeline"]["t0_unix_s"], out["timeline"]["source_samples"]), (1000.0, 4))
+        # The mark already final at the first sample: the peak lies before it, from process start.
+        early = ps.rss_timeline([(0.2, 1, 9), (0.4, 1, 9)], 1000.0, 0.2)["peak_window"]
+        self.assertEqual((early["after_t_s"], early["by_t_s"]), (0.0, 0.2))
+
+    def test_without_the_mark_only_the_largest_poll_is_claimed(self) -> None:
+        rows = [(0.2, 5, None), (0.4, 9, None), (0.6, 7, None)]
+        window = ps.rss_timeline(rows, 1000.0, 0.2)["peak_window"]
+        self.assertEqual((window["after_t_s"], window["by_t_s"], window["bytes"], window["source"]),
+                         (0.4, 0.4, 9, "polled_sample"))
+        # One sample without the mark is enough to stop claiming an OS-located window.
+        mixed = ps.rss_timeline([(0.2, 5, 5), (0.4, 9, None)], 1000.0, 0.2)["peak_window"]
+        self.assertEqual(mixed["source"], "polled_sample")
+
+    def test_absent_or_malformed_samples_are_missing_never_zero(self) -> None:
+        for samples in ([], None, [(0.2, 5)], [(0.2, "5", 5)], [(0.4, 5, 5), (0.2, 6, 6)], [(float("nan"), 5, 5)]):
+            with self.subTest(samples=samples):
+                out = ps.rss_timeline(samples, 1000.0, 0.2)
+                for key in ("timeline", "peak_sampled", "peak_window"):
+                    self.assertEqual(out[key]["status"], ps.MISSING, key)
+                    self.assertIsNone(out[key]["value"], key)
+                    self.assertTrue(out[key]["reason"], key)
+                self.assertNotIn("points", out["timeline"])
+
+    def test_the_timeline_is_bounded_and_keeps_each_bucket_maximum(self) -> None:
+        rows = [(round(0.2 * (i + 1), 3), 1000 + (i * 37) % 101, 2000) for i in range(5000)]
+        rows[1234] = (rows[1234][0], 999_999, 2000)
+        out = ps.rss_timeline(rows, 1000.0, 0.2)
+        points = out["timeline"]["points"]
+        self.assertLessEqual(len(points), ps.RSS_TIMELINE_MAX_POINTS)
+        self.assertGreater(len(points), ps.RSS_TIMELINE_MAX_POINTS // 2)
+        self.assertIn([rows[1234][0], 999_999], points)
+        self.assertEqual(max(p[1] for p in points), max(r[1] for r in rows))
+        self.assertEqual([p[0] for p in points], sorted(p[0] for p in points))
+        self.assertEqual(out["timeline"]["source_samples"], 5000)
+
+    def location(self, window, times, **result):
+        rss = {"peak_window": {"status": ps.OK, "after_t_s": window[0], "by_t_s": window[1], "bytes": 7,
+                               "source": "os_high_water_mark"},
+               "timeline": {"status": ps.OK, "t0_unix_s": 1000.0, "points": [[0.2, 7]]}}
+        # The probe read its clocks 0.5 s after the sampler started: ticks 2,000,000 at unix 1000.5.
+        base = {"start_unix_s": 1000.5, "start_usec": 2_000_000, "apply_usec": 2_300_000}
+        base.update(result)
+        return ps.rss_peak_location(rss, {k: v for k, v in base.items() if v is not None}, _rss_trace(times))
+
+    def test_the_peak_window_maps_onto_the_rows_whose_frames_overlap_it(self) -> None:
+        # Sampler 1.0 s..1.2 s is probe ticks 2,500,000..2,700,000.
+        times = [2_400_000, 2_550_000, 2_650_000, 2_800_000, 2_900_000]
+        record = self.location((1.0, 1.2), times)
+        self.assertEqual(record["status"], ps.OK)
+        value = record["value"]
+        self.assertEqual(value["window_t_usec"], [2_500_000, 2_700_000])
+        self.assertEqual(value["position"], "within_trace")
+        # Row 1's frame (2.40 s..2.55 s) and row 3's (2.65 s..2.80 s) both overlap; row 0 ended before, row 4 began after.
+        self.assertEqual((value["rows"]["count"], value["rows"]["first"]["row"], value["rows"]["last"]["row"]), (3, 1, 3))
+        self.assertEqual((value["rows"]["first"]["segment"], value["rows"]["last"]["segment"]), (3, 4))
+        self.assertEqual(value["rows"]["first"]["engine_frame"], 101)
+        self.assertEqual(value["window_s_after_apply_world"], [0.2, 0.4])
+        self.assertEqual((value["peak_bytes"], value["peak_source"]), (7, "os_high_water_mark"))
+
+    def test_a_window_outside_the_trace_is_named_not_assigned_to_a_row(self) -> None:
+        times = [2_800_000, 2_900_000]
+        before = self.location((1.0, 1.2), times)["value"]
+        self.assertEqual((before["position"], before["rows"]), ("before_first_trace_row", {"count": 0}))
+        after = self.location((3.0, 3.2), times)["value"]
+        self.assertEqual((after["position"], after["rows"]), ("after_last_trace_row", {"count": 0}))
+        # A window that ends inside the first row's frame belongs to that row.
+        self.assertEqual(self.location((1.0, 1.35), times)["value"]["rows"]["first"]["row"], 0)
+        self.assertEqual(self.location((1.0, 1.2), times, apply_usec=None)["value"]["window_s_after_apply_world"],
+                         "not_measured")
+
+    def test_no_shared_clock_or_no_rows_is_missing(self) -> None:
+        times = [2_400_000, 2_550_000]
+        for label, record in (
+                ("probe wall clock", self.location((1.0, 1.2), times, start_unix_s=None)),
+                ("probe ticks", self.location((1.0, 1.2), times, start_usec=None)),
+                ("empty trace", self.location((1.0, 1.2), [])),
+                ("no sampler window", ps.rss_peak_location({"peak_window": ps.missing("no RSS sample")}, {}, _rss_trace(times))),
+                ("no sampler block", ps.rss_peak_location(None, None, None))):
+            with self.subTest(label):
+                self.assertEqual(record["status"], ps.MISSING)
+                self.assertIsNone(record["value"])
+                self.assertTrue(record["reason"])
+
+    def test_the_sampler_exports_the_timeline_of_a_real_process(self) -> None:
+        # The real producer: RssSampler polling a live child of this test for about a second.
+        with mock.patch.object(rp, "RSS_POLL_S", 0.05):
+            proc = subprocess.Popen([sys.executable, "-c", "import time; b = bytearray(32 << 20); time.sleep(1.0)"])
+            sampler = rp.RssSampler(proc)
+            sampler.start()
+            proc.wait(timeout=60)
+            sampler.join(timeout=5)
+        result = sampler.result()
+        if sys.platform not in ("win32",) and not sys.platform.startswith("linux"):
+            self.assertEqual(result["timeline"]["status"], ps.MISSING)
+            self.assertEqual(result["peak_window"]["status"], ps.MISSING)
+            return
+        self.assertEqual(result["peak_rss_bytes"]["status"], ps.OK)
+        timeline, window = result["timeline"], result["peak_window"]
+        self.assertEqual((timeline["status"], window["status"]), (ps.OK, ps.OK))
+        self.assertEqual(timeline["source_samples"], result["samples"])
+        self.assertGreaterEqual(len(timeline["points"]), 2)
+        self.assertLess(abs(timeline["t0_unix_s"] - time.time()), 120.0)
+        self.assertEqual(window["source"], "os_high_water_mark")
+        self.assertEqual(window["bytes"], result["peak_rss_bytes"]["value"])
+        self.assertLessEqual(window["after_t_s"], window["by_t_s"])
+        self.assertGreaterEqual(window["bytes"], max(p[1] for p in timeline["points"]))
+
+    def test_a_process_that_was_never_sampled_reports_missing(self) -> None:
+        class Gone:
+            pid = 0
+
+            def poll(self):
+                return 0
+
+        result = rp.RssSampler(Gone()).result()
+        self.assertEqual(result["samples"], 0)
+        for key in ("peak_rss_bytes", "timeline", "peak_sampled", "peak_window"):
+            self.assertEqual(result[key]["status"], ps.MISSING, key)
+
+    def test_the_probe_exports_the_wall_clock_beside_its_ticks(self) -> None:
+        # Source pin only: the engine is not run here. The runner run is what proves the value.
+        source = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.assertRegex(source, r'"start_usec": Time\.get_ticks_usec\(\), "start_unix_s": Time\.get_unix_time_from_system\(\)')
 
 
 class Statistics(unittest.TestCase):

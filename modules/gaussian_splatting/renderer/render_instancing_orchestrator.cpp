@@ -197,6 +197,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 			renderer->publish_hlod_bundle(false);
 			auto &hlod_state = renderer->get_resource_state();
 			hlod_state.hlod_frame_active = false;
+			hlod_state.hlod_cut_telemetry.valid = false;
 			hlod_state.hlod_selected_nodes = hlod_state.hlod_selected_parents = hlod_state.hlod_visited_nodes = 0;
 			hlod_state.hlod_selected_splats = hlod_state.hlod_cpu_cut_usec = 0;
 			hlod_state.hlod_cpu_prepare_usec = 0;

@@ -1,6 +1,7 @@
 extern "C" int test_hlod_runtime_selection_cpp_force_link() { return 0; }
 #include "test_macros.h"
 #include "../lod/hlod_runtime_selection.h"
+#include "../renderer/hlod_cut_telemetry.h"
 #include "../core/gs_vector_alloc.h"
 #include <algorithm>
 #include <limits>
@@ -88,6 +89,151 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut retains complete parent on unav
 	CHECK_FALSE(gs_hlod_runtime::allocation_bytes(8, 8, bytes, 64));
 	CHECK(gs_hlod_runtime::allocation_bytes(8, 8, bytes, 80));
 	CHECK(bytes == 80);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] cut diagnostics distinguish history holds cap refusals and demanded residency misses") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	// Historical selection workspace for this topology (5a438363cd6), excluding report-only scratch.
+	CHECK(gs_hlod_runtime::CutHistory::workspace_bytes(7) == 368);
+	CHECK(history.allocated_bytes() == 392); // Includes the separately accounted 24-byte diagnostic allocation.
+	auto r = request();
+	uint8_t resident[7] = {1, 0, 1, 1, 1, 1, 1};
+	r.resident = resident; r.resident_count = 7;
+	auto missing = history.select(data, r);
+	CHECK(missing.residency_missed_count == 1);
+	CHECK(history.diagnostic_flags(0) == (gs_hlod_runtime::CutHistory::RESIDENCY_MISSED | gs_hlod_runtime::CutHistory::MISS_DEMANDED));
+	CHECK(missing.first_cap_refused_node == -1);
+	CHECK(history.demand_count() == 1);
+	r.page_splats = 1; r.page_budget = 2; // Root fits; the missing-child closure does not.
+	auto undemanded = history.select(data, r);
+	CHECK(undemanded.residency_missed_count == 1);
+	CHECK(history.diagnostic_flags(0) == gs_hlod_runtime::CutHistory::RESIDENCY_MISSED);
+	CHECK(undemanded.first_cap_refused_node == 0);
+	CHECK(history.demand_count() == 0);
+	r.resident = nullptr; r.page_splats = 0;
+	r.splat_budget = 10;
+	auto capped = history.select(data, r);
+	CHECK(capped.budget_bound);
+	CHECK(capped.first_cap_refused_node == 2);
+	CHECK(capped.residency_missed_count == 0);
+	CHECK(history.diagnostic_flags(0) == 0);
+	r.splat_budget = 100;
+	history.select(data, r); // Seed both interior refinements above the upper threshold.
+	r.focal_pixels = 6.25; // e(interior) == 1.25 tau: retained only because of history.
+	auto held = history.select(data, r);
+	CHECK(held.hysteresis_held_count == 2);
+	CHECK(history.diagnostic_flags(1) == gs_hlod_runtime::CutHistory::HYSTERESIS_HELD);
+	CHECK(history.diagnostic_flags(2) == gs_hlod_runtime::CutHistory::HYSTERESIS_HELD);
+	CHECK(held.selected_count == 4);
+	const uint64_t bytes = history.allocated_bytes();
+	r.focal_pixels = 5; // e == tau: history must no longer hold either refinement.
+	auto released = history.select(data, r);
+	CHECK(released.hysteresis_held_count == 0);
+	CHECK(released.selected_count == 2);
+	CHECK(history.diagnostic_flags(1) == 0);
+	CHECK(history.allocated_bytes() == bytes);
+	history.invalidate();
+	r.focal_pixels = 6.25;
+	CHECK(history.select(data, r).hysteresis_held_count == 0);
+	r.tau_pixels = 0; // Invalid invocations must not leak previous diagnostic flags.
+	CHECK(history.select(data, r).status == gs_hlod_runtime::CutHistory::INVALID);
+	CHECK(history.diagnostic_flags(2) == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] identical final pose and residency admit different history fixed points (#1455)") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	data.nodes.write[3].topology.payload_count = 3;
+	data.nodes.write[4].topology.payload_count = 4;
+	data.nodes.write[5].topology.payload_count = 4;
+	data.nodes.write[6].topology.payload_count = 5;
+	gs_hlod_runtime::CutHistory left, right;
+	if (!left.reserve(7) || !right.reserve(7)) { FAIL("cut workspaces unavailable"); return; }
+	auto r = request();
+	r.splat_budget = 11; // Either child refinement fits; both together (16) do not.
+	left.select(data, r); // Stable ties refine node 1; node 2 then hits the cap.
+	uint8_t resident[7] = {1, 1, 1, 0, 1, 1, 1};
+	r.resident = resident; r.resident_count = 7;
+	right.select(data, r); // A miss at node 1 lets resident node 2 refine instead.
+	r.resident = nullptr; // Both histories now see the exact same all-resident input.
+	r.focal_pixels = 5.5; // Both interiors have tau < e=1.1 < 1.25 tau.
+	for (int repeat = 0; repeat < 4; ++repeat) {
+		const auto a = left.select(data, r);
+		const auto b = right.select(data, r);
+		CHECK(a.status == gs_hlod_runtime::CutHistory::COMPLETE);
+		CHECK(b.status == gs_hlod_runtime::CutHistory::COMPLETE);
+		CHECK(a.selected_count == 3);
+		CHECK(b.selected_count == 3);
+		CHECK(a.selected_splats == 9);
+		CHECK(b.selected_splats == 11);
+		CHECK(a.hysteresis_held_count == 1);
+		CHECK(b.hysteresis_held_count == 1);
+		CHECK(left.diagnostic_flags(1) == gs_hlod_runtime::CutHistory::HYSTERESIS_HELD);
+		CHECK(right.diagnostic_flags(2) == gs_hlod_runtime::CutHistory::HYSTERESIS_HELD);
+		CHECK(left.demand_count() == 0);
+		CHECK(right.demand_count() == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] cut telemetry hashes sorted IDs and replaces diagnostics between frames") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.splat_budget = 10;
+	const auto cut = history.select(data, r);
+	gs_hlod_runtime::DrawRecord records[3];
+	records[0].node = 4; records[1].node = 2; records[2].node = 3;
+	HlodCutTelemetry telemetry;
+	telemetry.capture(history, cut, 7, records, 3);
+	CHECK(telemetry.valid);
+	CHECK(telemetry.budget_bound);
+	CHECK(telemetry.first_cap_refused_node == 2);
+	if (telemetry.drawn_ids.size() != 3) { FAIL("expected three drawn IDs"); return; }
+	CHECK(telemetry.drawn_ids[0] == 2);
+	CHECK(telemetry.drawn_ids[1] == 3);
+	CHECK(telemetry.drawn_ids[2] == 4);
+	const String digest = telemetry.drawn_digest;
+	std::swap(records[0], records[1]);
+	telemetry.capture(history, cut, 7, records, 3);
+	CHECK(telemetry.drawn_digest == digest);
+	records[0].node = 1;
+	telemetry.capture(history, cut, 7, records, 3);
+	CHECK(telemetry.drawn_digest != digest);
+	uint8_t resident[7] = {1, 0, 1, 1, 1, 1, 1};
+	r.resident = resident; r.resident_count = 7;
+	const auto missing = history.select(data, r);
+	telemetry.capture(history, missing, 7, nullptr, 0);
+	CHECK(telemetry.drawn_ids.is_empty());
+	CHECK(telemetry.drawn_digest == "cbf29ce484222325"); // FNV-1a empty input, never an absence sentinel.
+	CHECK(telemetry.first_cap_refused_node == -1);
+	if (telemetry.residency_missed.size() != 1 || telemetry.residency_missed_demanded.size() != 1) {
+		FAIL("expected one demanded parent"); return;
+	}
+	CHECK(telemetry.residency_missed[0] == 0);
+	CHECK(bool(telemetry.residency_missed_demanded[0]));
+	Dictionary saved;
+	telemetry.append_stats(saved, true);
+	r.page_splats = 1; r.page_budget = 2;
+	const auto undemanded = history.select(data, r);
+	telemetry.capture(history, undemanded, 7, records, 3);
+	Dictionary next;
+	telemetry.append_stats(next, true);
+	const Array saved_demanded = saved["hlod_cut_residency_missed_demanded"];
+	const Array next_demanded = next["hlod_cut_residency_missed_demanded"];
+	if (saved_demanded.size() != 1 || next_demanded.size() != 1) { FAIL("missing snapshot demand status"); return; }
+	CHECK(bool(saved_demanded[0]));
+	CHECK_FALSE(bool(next_demanded[0]));
+	const PackedInt32Array saved_ids = saved["hlod_drawn_node_ids"];
+	CHECK(saved_ids.is_empty());
+	telemetry.valid = false;
+	telemetry.append_stats(next, true);
+	CHECK(next["hlod_drawn_node_ids"].get_type() == Variant::NIL);
+	CHECK(next["hlod_cut_residency_missed"].get_type() == Variant::NIL);
 }
 // Binary tree of 7 nodes: a huge root payload that never fits, interiors 40 and leaves 4 splats.
 static void heavy_root_tree(GaussianSplatHlodRuntimeData &r_data) {

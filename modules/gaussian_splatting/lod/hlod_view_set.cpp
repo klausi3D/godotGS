@@ -432,6 +432,23 @@ const DesiredRecord *ViewSet::desired(uint64_t p_view_key, uint32_t &r_count) co
 	return nullptr;
 }
 
+const CutHistory *ViewSet::cut_diagnostics(uint64_t p_view_key, uint64_t p_instance_key, CutHistory::Result &r_result) const {
+	r_result = CutHistory::Result();
+	bool selected = false;
+	for (uint32_t i = 0; i < result_count; ++i) { selected |= result_store[i].view_key == p_view_key; }
+	if (!selected) { return nullptr; }
+	for (const View &view : views) {
+		if (view.view_key != p_view_key) { continue; }
+		for (const InstanceSlot &slot : view.slots) {
+			if (slot.instance_key == p_instance_key) {
+				r_result = slot.last_cut;
+				return &slot.history;
+			}
+		}
+	}
+	return nullptr;
+}
+
 uint64_t ViewSet::drawn_origin_revision(uint64_t p_view_key) const {
 	for (int i = 0; i < views.size(); ++i) {
 		if (views[i].view_key == p_view_key) { return views[i].ready ? views[i].drawn_origin_revision : 0; }
@@ -480,6 +497,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 		result.draw_generation = view.draw_generation;
 		view.ready = false; // Re-established only by a READY outcome below.
 		view.desired_count = 0; // Demand is per selection; a view that is not selected has none.
+		for (int s = 0; s < view.slots.size(); ++s) { view.slots.write[s].last_cut = CutHistory::Result(); }
 		if (view.origin_revision != p_snapshot.origin_revision) {
 			// The frame moved: every history and the published draw set belong to the old offsets. Drop them
 			// before anything is selected; the published set is replaced only by a complete selection below.
@@ -558,6 +576,7 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				if (!p_snapshot.origin.translated(camera_delta, camera_precise)) { any_failed = true; continue; }
 			}
 			const CutHistory::Result cut = slot.history.select(*asset.data.ptr(), request);
+			slot.last_cut = cut;
 			result.selected_splats += cut.selected_splats;
 			result.visited_nodes += cut.visited_nodes;
 			result.estimated_records += cut.estimated_records;

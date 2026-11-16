@@ -108,6 +108,29 @@ TEST_CASE("[GaussianSplatting][HLOD] one-row bundle ledger equals the single-row
 	CHECK(shapes == 5u * 5u * 4u * 2u * 2u);
 }
 
+// #1466: a bundle buffer with no host payload (the streamed atlas, the visible/splat-ref/draw-entry lists, the counters and
+// indirect headers) must not be created from a zero-filled host vector of its size. T0's streamed atlas is 5,259,264 records
+// of 176 B; staged from the host it cost that size twice (the vector and RenderingDevice's transfer staging buffer).
+TEST_CASE("[GaussianSplatting][HLOD] a bundle buffer without a host payload stages no host bytes at creation") {
+	const uint64_t t0_atlas_bytes = 5259264ull * sizeof(PackedGaussian);
+	CHECK(t0_atlas_bytes == 925630464ull);
+	// No payload: nothing of the buffer's size may be allocated on the host, whatever the size.
+	const uint64_t clearable[] = { 4u, 12u, sizeof(GaussianSplatting::IndirectDispatchLayout), sizeof(SplatRefGPU), sizeof(DrawnNodeGPU),
+		sizeof(VisibleChunkRefGPU), sizeof(PackedGaussian), sizeof(PackedGaussianQuantized), t0_atlas_bytes, uint64_t(UINT32_MAX) - 3u };
+	for (uint64_t bytes : clearable) {
+		CHECK_MESSAGE(creation_host_staged_bytes(bytes, false) == 0u, "bytes=", bytes);
+	}
+	// A payload is staged in full: the legal route for the tables, the instance rows and a whole-tree atlas.
+	for (uint64_t bytes : clearable) {
+		CHECK_MESSAGE(creation_host_staged_bytes(bytes, true) == bytes, "bytes=", bytes);
+	}
+	// RD::buffer_clear takes a multiple of four bytes. A payload-free size that is not one keeps the host zero fill, so the
+	// buffer's content is defined either way.
+	for (uint64_t bytes : { uint64_t(1), uint64_t(2), uint64_t(3), uint64_t(13), uint64_t(UINT32_MAX) }) {
+		CHECK_MESSAGE(creation_host_staged_bytes(bytes, false) == bytes, "bytes=", bytes);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] one world row packs to exactly the director's row, field by field and byte by byte") {
 	Rows rows;
 	rows.instances.push_back(world_identity_row());

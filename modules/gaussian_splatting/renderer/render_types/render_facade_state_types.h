@@ -10,6 +10,7 @@
 #include "../../io/gs_payload_page_store.h"
 #include "../device_vram_ledger.h"
 #include "../hlod_node_streamer.h"
+#include "../hlod_cut_telemetry.h"
 #include "../hlod_world_instances.h"
 #include "../hlod_shadow_caster_plan.h"
 #include "../../lod/hlod_auto_route.h"
@@ -60,6 +61,9 @@ struct HlodBundle {
     uint32_t owned_count = 0;
     uint64_t device_id = 0;
     uint64_t bytes = 0;
+    // Host bytes staged while creating owned[] (gs_hlod_bundle::creation_host_staged_bytes): held by the host, transiently,
+    // on top of the device allocation. Diagnostic only; not part of the VRAM ledger.
+    uint64_t host_staged_bytes = 0;
     uint64_t generation = 0;
     bool quantized = false;
     Vector<DrawnNodeGPU> draw_entries;
@@ -125,6 +129,7 @@ struct ResourceState {
     uint64_t hlod_view_epoch = 0;
     uint32_t hlod_visited_nodes = 0;
     uint32_t hlod_selected_nodes = 0;
+    HlodCutTelemetry hlod_cut_telemetry; // Last main cut, render-thread-owned, no selection input.
     uint32_t hlod_selected_parents = 0;
     uint64_t hlod_selected_splats = 0;
     double hlod_estimated_records = 0.0;

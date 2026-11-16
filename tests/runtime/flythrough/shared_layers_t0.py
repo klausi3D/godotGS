@@ -391,6 +391,9 @@ def native_metrics(result: dict, run: dict, trace, route: str, probe: dict) -> d
     metrics = {
         "overlap_sync_cuts": sync_cut_measurements(result),
         "os_peak_rss_bytes": run.get("rss", {}).get("peak_rss_bytes"),
+        # #1466 (report-only): where the peak sits. Absent sampler or clock data stays not measured.
+        "os_rss_timeline": run.get("rss", {}).get("timeline", missing("the RSS sampler exported no timeline")),
+        "os_rss_peak_location": ps.rss_peak_location(run.get("rss"), result, trace),
         "device_vram_ledger": stats.get("device_vram_ledger"),
         "gpu_memory_usage_mb": missing("#1441 renderer placeholder is not measured VRAM"),
         "stop_convergence": convergence["stop"] or missing("no stop checkpoint observations"),
