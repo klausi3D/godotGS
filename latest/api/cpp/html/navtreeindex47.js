@@ -1,5 +1,8 @@
 var NAVTREEINDEX47 =
 {
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aeb33d78f8498990ce1c892a5af8258bf":[0,0,14,9,0,3],
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aeb33d78f8498990ce1c892a5af8258bf":[1,0,10,9,0,3],
+"structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aee50579319ae1c6f77d263f6f0740586":[0,0,14,9,0,2],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#aee50579319ae1c6f77d263f6f0740586":[1,0,10,9,0,2],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#af7561f3014fecf03ca5dd11ff4146c7c":[0,0,14,9,0,6],
 "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html#af7561f3014fecf03ca5dd11ff4146c7c":[1,0,10,9,0,6],
@@ -246,8 +249,5 @@ var NAVTREEINDEX47 =
 "structGlobalAtlasState.html":[1,0,116],
 "structGlobalAtlasState.html#a1b147c41246f87628a93d393ec9971aa":[1,0,116,1],
 "structGlobalAtlasState.html#a71a5cb14a74b158ffb538cefc1dcf90f":[1,0,116,5],
-"structGlobalAtlasState.html#ac1da2505c32d258b8d981f033c266cec":[1,0,116,0],
-"structGlobalAtlasState.html#ad5f7e8afa82f36537466d8926929c8ff":[1,0,116,3],
-"structGlobalAtlasState.html#adc96e6253292bb33af9174e161ba49cb":[1,0,116,4],
-"structGlobalAtlasState.html#ae874d9b09cbe8636f602f079168fd278":[1,0,116,2]
+"structGlobalAtlasState.html#ac1da2505c32d258b8d981f033c266cec":[1,0,116,0]
 };

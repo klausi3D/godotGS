@@ -1,5 +1,8 @@
 var NAVTREEINDEX54 =
 {
+"structStreamingVisibilityController_1_1ZeroVisibleRecoveryState.html#ad5cf1bcea8f4ade73c32275882ba23c5":[1,0,278,2,1],
+"structTileAdaptiveController.html":[1,0,279],
+"structTileAdaptiveController.html#a109af847c4c92743353c38c70dc593c9":[1,0,279,7],
 "structTileAdaptiveController.html#a23bc6b41b6292f80c4a1c700e9f323be":[1,0,279,11],
 "structTileAdaptiveController.html#a415f6887e49464334b1004464bf6a760":[1,0,279,6],
 "structTileAdaptiveController.html#a721ee617a16e861a59fa15a173acce93":[1,0,279,10],
@@ -246,8 +249,5 @@ var NAVTREEINDEX54 =
 "structTileRendererDebugStats.html#a9838607badcb424fd668a1e99512c039":[1,0,287,22],
 "structTileRendererDebugStats.html#a9e00c10b62aaf933564e1c4a0bd854a8":[1,0,287,16],
 "structTileRendererDebugStats.html#aa1b66a5895c050f6a729cbd7ab682361":[1,0,287,14],
-"structTileRendererDebugStats.html#aa4e92851250d38397bbb38859d683a73":[1,0,287,20],
-"structTileRendererDebugStats.html#aa5b7a7b71bae3321f35f65eca0be6872":[1,0,287,15],
-"structTileRendererDebugStats.html#aaad60188ce8c3c69a639acdc3bdaa150":[1,0,287,36],
-"structTileRendererDebugStats.html#aad3650cea19a05aed07e6487a08d3a19":[1,0,287,23]
+"structTileRendererDebugStats.html#aa4e92851250d38397bbb38859d683a73":[1,0,287,20]
 };

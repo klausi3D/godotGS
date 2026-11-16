@@ -1,5 +1,6 @@
 var NAVTREEINDEX27 =
 {
+"splat__ref__encoding_8h_source.html":[2,0,0,0,12,98],
 "spz__loader_8cpp.html":[2,0,0,0,6,39],
 "spz__loader_8h.html":[2,0,0,0,6,40],
 "spz__loader_8h_source.html":[2,0,0,0,6,40],
@@ -248,6 +249,5 @@ var NAVTREEINDEX27 =
 "structCullParams.html#a0414415c3e0e4b3a46c8a5a46152452f":[1,0,59,3],
 "structCullParams.html#a165ef33119c67d40c3c2841777e37b98":[1,0,59,2],
 "structCullParams.html#a36b0cd3a239442c09cf9f4a6d3b9f90a":[1,0,59,4],
-"structCullParams.html#a44f357e2983be45c7d3db2f3951695dc":[1,0,59,14],
-"structCullParams.html#a483862d1e4cb3d83f850f1696286f13c":[1,0,59,19]
+"structCullParams.html#a44f357e2983be45c7d3db2f3951695dc":[1,0,59,14]
 };

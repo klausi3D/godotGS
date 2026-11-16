@@ -1,5 +1,8 @@
 var NAVTREEINDEX48 =
 {
+"structGlobalAtlasState.html#ad5f7e8afa82f36537466d8926929c8ff":[1,0,116,3],
+"structGlobalAtlasState.html#adc96e6253292bb33af9174e161ba49cb":[1,0,116,4],
+"structGlobalAtlasState.html#ae874d9b09cbe8636f602f079168fd278":[1,0,116,2],
 "structGlobalAtlasState.html#ae96b936acc2934720c64664aa282126a":[1,0,116,6],
 "structGsSplatShadowCaster_1_1Inputs.html":[1,0,129,0],
 "structGsSplatShadowCaster_1_1Inputs.html#a1d91c203917731feca8e1d5704bf35a2":[1,0,129,0,8],
@@ -246,8 +249,5 @@ var NAVTREEINDEX48 =
 "structNodeResidency_1_1RequestResult.html#aa1f8db7b002d51bb1102c8c398d12c10":[1,0,173,5,2],
 "structNodeResidency_1_1RequestResult.html#ac2ef2c3e9fe3d80450d05d6b68b5291e":[1,0,173,5,7],
 "structNodeResidency_1_1RequestResult.html#aecf39d146e1c2ce519f55e936ac967ee":[1,0,173,5,0],
-"structNodeResidency_1_1RequestResult.html#aee8dcd54ccf07567120e17f9b8d4dbd2":[1,0,173,5,5],
-"structNodeResidency_1_1Stats.html":[1,0,173,3],
-"structNodeResidency_1_1Stats.html#a1761d7b69e53e47080cb84d787f05ae9":[1,0,173,3,22],
-"structNodeResidency_1_1Stats.html#a1f312e89b27ee6c1adff93eac4b992d7":[1,0,173,3,1]
+"structNodeResidency_1_1RequestResult.html#aee8dcd54ccf07567120e17f9b8d4dbd2":[1,0,173,5,5]
 };

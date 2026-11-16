@@ -1,5 +1,8 @@
 var NAVTREEINDEX64 =
 {
+"structspz_1_1CoordinateConverter.html#a9b9c47f64b52cd28bbc33d377081f96b":[1,0,31,9,1],
+"structspz_1_1CoordinateConverter.html#ad3c2ae29dd795cc59421508edef8c0fd":[0,0,45,9,2],
+"structspz_1_1CoordinateConverter.html#ad3c2ae29dd795cc59421508edef8c0fd":[1,0,31,9,2],
 "structspz_1_1GaussianCloud.html":[0,0,45,10],
 "structspz_1_1GaussianCloud.html":[1,0,31,10],
 "structspz_1_1GaussianCloud.html#a06976ef86dcaa0d22155ce852f976fc6":[0,0,45,10,9],

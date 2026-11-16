@@ -186,10 +186,11 @@ var searchData=
   ['create_5fsorter_183',['create_sorter',['../classGPUSorterFactory.html#ac0ea84851e66783a7fba258465ce1593',1,'GPUSorterFactory']]],
   ['create_5funiform_5fset_5fchecked_184',['create_uniform_set_checked',['../namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a72fbc97357b86bdc2e17276b7d59e1f6',1,'GaussianSplatting::ComputeInfrastructure']]],
   ['create_5fvariant_185',['create_variant',['../classRadixSort.html#a560eff6b4dd241c9ad6d20d27f01323d',1,'RadixSort']]],
-  ['cull_186',['cull',['../classICuller.html#aaec57ea3699d09afa87e5d7e7007623d',1,'ICuller::cull()'],['../classGPUCuller.html#ab94d3537015423ef5829f3028570e66e',1,'GPUCuller::cull(const CullParams &amp;p_params, const CullInputBuffers &amp;p_input) override']]],
-  ['cull_5ffor_5fview_187',['cull_for_view',['../classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22',1,'GPUCuller::cull_for_view()'],['../classGaussianSplatRenderer.html#a792d2d40b60ecae6d4cca63821266a11',1,'GaussianSplatRenderer::cull_for_view()'],['../classRenderQualityOrchestrator.html#a8df672e11d861ccc6e4704e671a80cb6',1,'RenderQualityOrchestrator::cull_for_view()']]],
-  ['cull_5fhierarchical_188',['cull_hierarchical',['../classGaussianSplatting_1_1HierarchicalSplatStructure.html#a29e24fc361ca07c1d2258956ea629d23',1,'GaussianSplatting::HierarchicalSplatStructure']]],
-  ['cullstage_189',['CullStage',['../structRenderPipelineStages_1_1CullStage.html#a9fc186868d029fcb7dda9825c7d6e4da',1,'RenderPipelineStages::CullStage']]],
-  ['current_5fframe_5fserial_190',['current_frame_serial',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a96bc3c5c7493d40ca6211046e6dc4170',1,'GaussianSplatting::GpuPassTiming']]],
-  ['current_5fpass_191',['current_pass',['../classgs__world__writer_1_1Writer.html#a47fd5c8650f7465bf9fca6991009973a',1,'gs_world_writer::Writer']]]
+  ['creation_5fhost_5fstaged_5fbytes_186',['creation_host_staged_bytes',['../namespacegs__hlod__bundle.html#af9f720af74313a654566d6ebebb0157e',1,'gs_hlod_bundle']]],
+  ['cull_187',['cull',['../classICuller.html#aaec57ea3699d09afa87e5d7e7007623d',1,'ICuller::cull()'],['../classGPUCuller.html#ab94d3537015423ef5829f3028570e66e',1,'GPUCuller::cull(const CullParams &amp;p_params, const CullInputBuffers &amp;p_input) override']]],
+  ['cull_5ffor_5fview_188',['cull_for_view',['../classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22',1,'GPUCuller::cull_for_view()'],['../classGaussianSplatRenderer.html#a792d2d40b60ecae6d4cca63821266a11',1,'GaussianSplatRenderer::cull_for_view()'],['../classRenderQualityOrchestrator.html#a8df672e11d861ccc6e4704e671a80cb6',1,'RenderQualityOrchestrator::cull_for_view()']]],
+  ['cull_5fhierarchical_189',['cull_hierarchical',['../classGaussianSplatting_1_1HierarchicalSplatStructure.html#a29e24fc361ca07c1d2258956ea629d23',1,'GaussianSplatting::HierarchicalSplatStructure']]],
+  ['cullstage_190',['CullStage',['../structRenderPipelineStages_1_1CullStage.html#a9fc186868d029fcb7dda9825c7d6e4da',1,'RenderPipelineStages::CullStage']]],
+  ['current_5fframe_5fserial_191',['current_frame_serial',['../namespaceGaussianSplatting_1_1GpuPassTiming.html#a96bc3c5c7493d40ca6211046e6dc4170',1,'GaussianSplatting::GpuPassTiming']]],
+  ['current_5fpass_192',['current_pass',['../classgs__world__writer_1_1Writer.html#a47fd5c8650f7465bf9fca6991009973a',1,'gs_world_writer::Writer']]]
 ];

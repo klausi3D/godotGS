@@ -1,5 +1,8 @@
 var NAVTREEINDEX60 =
 {
+"structgs__hlod__runtime_1_1ViewSet_1_1AdmitResult.html#a85a7dfeefa342a12661e8402b893da14":[1,0,18,14,0,1],
+"structgs__hlod__runtime_1_1ViewSet_1_1AdmitResult.html#ad8f7bbc500339b7f3e18b83fac31044f":[0,0,26,14,0,0],
+"structgs__hlod__runtime_1_1ViewSet_1_1AdmitResult.html#ad8f7bbc500339b7f3e18b83fac31044f":[1,0,18,14,0,0],
 "structgs__hlod__runtime_1_1ViewSet_1_1Ledger.html":[0,0,26,14,2],
 "structgs__hlod__runtime_1_1ViewSet_1_1Ledger.html":[1,0,18,14,2],
 "structgs__hlod__runtime_1_1ViewSet_1_1Ledger.html#a3d242768ce843d3f5550e43f7ddcdc22":[0,0,26,14,2,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX60 =
 "structgs__shadow__caster_1_1PassPlan.html#aac658765232d9ebeb0858416fdd7f877":[1,0,20,1,0],
 "structgs__shadow__caster_1_1PassPlan.html#abd5141c48998a6ce27475bb416d07e29":[0,0,30,1,3],
 "structgs__shadow__caster_1_1PassPlan.html#abd5141c48998a6ce27475bb416d07e29":[1,0,20,1,3],
-"structgs__shadow__caster_1_1PassPlan.html#aec7f8ae943eddf70a52a026d47a3fb65":[0,0,30,1,2],
-"structgs__shadow__caster_1_1PassPlan.html#aec7f8ae943eddf70a52a026d47a3fb65":[1,0,20,1,2],
-"structgs__sort__policy_1_1ReadbackPolicy.html":[0,0,31,0],
-"structgs__sort__policy_1_1ReadbackPolicy.html":[1,0,21,0]
+"structgs__shadow__caster_1_1PassPlan.html#aec7f8ae943eddf70a52a026d47a3fb65":[0,0,30,1,2]
 };

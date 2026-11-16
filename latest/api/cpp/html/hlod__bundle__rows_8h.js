@@ -7,6 +7,7 @@ var hlod__bundle__rows_8h =
       [ "gs_hlod_bundle::PreparedRows::REBUILD", "namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aaac75592fa549dce0833e49b89944bf685", null ]
     ] ],
     [ "gs_hlod_bundle::bundle_bytes", "namespacegs__hlod__bundle.html#a9ecd045189c49de7045e04f9f2f4bb9d", null ],
+    [ "gs_hlod_bundle::creation_host_staged_bytes", "namespacegs__hlod__bundle.html#af9f720af74313a654566d6ebebb0157e", null ],
     [ "gs_hlod_bundle::dense_id_for_asset", "namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b", null ],
     [ "gs_hlod_bundle::pack_instance_rows", "namespacegs__hlod__bundle.html#a4e841ec1dae151d4e89b6a8394f18635", null ],
     [ "gs_hlod_bundle::prepared_rows_action", "namespacegs__hlod__bundle.html#a40fc17a3d3c3e96b93d1dc87fc4a4dfc", null ],

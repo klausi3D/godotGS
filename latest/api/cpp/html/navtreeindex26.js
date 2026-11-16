@@ -1,5 +1,6 @@
 var NAVTREEINDEX26 =
 {
+"painterly__renderer__interfaces_8h.html#a94b11279f9268e25bb59016906266f2aaaa1780b4fcce2d5d9af13dc25386d111":[2,0,0,0,5,24,7,1],
 "painterly__renderer__interfaces_8h_source.html":[2,0,0,0,5,24],
 "performance__monitors_8cpp.html":[2,0,0,0,3,62],
 "performance__monitors_8h.html":[2,0,0,0,3,63],
@@ -248,6 +249,5 @@ var NAVTREEINDEX26 =
 "splat__count__sample_8h_source.html":[2,0,0,0,5,31],
 "splat__ref__encoding_8h.html":[2,0,0,0,12,98],
 "splat__ref__encoding_8h.html#aac3beb997cfb28446ada332d14002112":[2,0,0,0,12,98,1],
-"splat__ref__encoding_8h.html#abc5fd197131b3fce3a00c3124c137685":[2,0,0,0,12,98,0],
-"splat__ref__encoding_8h_source.html":[2,0,0,0,12,98]
+"splat__ref__encoding_8h.html#abc5fd197131b3fce3a00c3124c137685":[2,0,0,0,12,98,0]
 };

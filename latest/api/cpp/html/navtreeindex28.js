@@ -1,5 +1,6 @@
 var NAVTREEINDEX28 =
 {
+"structCullParams.html#a483862d1e4cb3d83f850f1696286f13c":[1,0,59,19],
 "structCullParams.html#a74fea8b82fefc194017a9f868a2f9f40":[1,0,59,0],
 "structCullParams.html#a76f4461624ea5c5e952d4b63dc9835e8":[1,0,59,10],
 "structCullParams.html#a7889456b62feb476ef83f30868588efa":[1,0,59,8],
@@ -248,6 +249,5 @@ var NAVTREEINDEX28 =
 "structGPUCuller_1_1CullingSummary.html#a921072085e859c89a4fbf57f6cb2c20f":[1,0,119,4,4],
 "structGPUCuller_1_1CullingSummary.html#a9e617d5b2062df11f2f8b0b49825517c":[1,0,119,4,8],
 "structGPUCuller_1_1CullingSummary.html#aa1de80ef52678d1d26c1742d1acc5947":[1,0,119,4,1],
-"structGPUCuller_1_1CullingSummary.html#aa9f7106ce1342c9b026f5bececce9462":[1,0,119,4,5],
-"structGPUCuller_1_1CullingSummary.html#aeb4278e4428de5e7ec79a2a6b1df3b1e":[1,0,119,4,0]
+"structGPUCuller_1_1CullingSummary.html#aa9f7106ce1342c9b026f5bececce9462":[1,0,119,4,5]
 };

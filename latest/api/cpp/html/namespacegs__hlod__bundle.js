@@ -18,6 +18,7 @@ var namespacegs__hlod__bundle =
     [ "bundle_bytes", "namespacegs__hlod__bundle.html#a9ecd045189c49de7045e04f9f2f4bb9d", null ],
     [ "bundle_bytes", "namespacegs__hlod__bundle.html#a851658f14e579b533b96e30e59fbca30", null ],
     [ "canonical_capacity", "namespacegs__hlod__bundle.html#a0c5e43a8feeb1cd73cbfc7a708bb438c", null ],
+    [ "creation_host_staged_bytes", "namespacegs__hlod__bundle.html#af9f720af74313a654566d6ebebb0157e", null ],
     [ "dense_id_for_asset", "namespacegs__hlod__bundle.html#ac12c9dcf8bad844866d0e79a1277306b", null ],
     [ "dense_id_for_asset", "namespacegs__hlod__bundle.html#a3b584f5a796f2a4fe8de8d645f053a13", null ],
     [ "instance_camera_offset", "namespacegs__hlod__bundle.html#a16414fbf154011e40982799ac0ee909e", null ],

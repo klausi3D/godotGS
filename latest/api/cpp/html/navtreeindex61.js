@@ -1,5 +1,8 @@
 var NAVTREEINDEX61 =
 {
+"structgs__shadow__caster_1_1PassPlan.html#aec7f8ae943eddf70a52a026d47a3fb65":[1,0,20,1,2],
+"structgs__sort__policy_1_1ReadbackPolicy.html":[0,0,31,0],
+"structgs__sort__policy_1_1ReadbackPolicy.html":[1,0,21,0],
 "structgs__sort__policy_1_1ReadbackPolicy.html#a3f49a76e42d5818f3e90afbea4147d7f":[0,0,31,0,4],
 "structgs__sort__policy_1_1ReadbackPolicy.html#a3f49a76e42d5818f3e90afbea4147d7f":[1,0,21,0,4],
 "structgs__sort__policy_1_1ReadbackPolicy.html#a98cbaf900820613b24d65a1337d5aeac":[0,0,31,0,3],
@@ -246,8 +249,5 @@ var NAVTREEINDEX61 =
 "structgs__world__generator_1_1Params.html#aa371a33ae312e98777c34a87070c6977":[1,0,26,1,37],
 "structgs__world__generator_1_1Params.html#aa73de4043a3b11f44321853dd7913c71":[0,0,37,1,24],
 "structgs__world__generator_1_1Params.html#aa73de4043a3b11f44321853dd7913c71":[1,0,26,1,24],
-"structgs__world__generator_1_1Params.html#aae216ba19d3eca1bd7c5ac9311ed9d40":[0,0,37,1,0],
-"structgs__world__generator_1_1Params.html#aae216ba19d3eca1bd7c5ac9311ed9d40":[1,0,26,1,0],
-"structgs__world__generator_1_1Params.html#ab49470362f4fea138c12271ed0fca3d7":[0,0,37,1,39],
-"structgs__world__generator_1_1Params.html#ab49470362f4fea138c12271ed0fca3d7":[1,0,26,1,39]
+"structgs__world__generator_1_1Params.html#aae216ba19d3eca1bd7c5ac9311ed9d40":[0,0,37,1,0]
 };

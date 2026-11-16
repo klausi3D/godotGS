@@ -1,5 +1,6 @@
 var NAVTREEINDEX29 =
 {
+"structGPUCuller_1_1CullingSummary.html#aeb4278e4428de5e7ec79a2a6b1df3b1e":[1,0,119,4,0],
 "structGPUCuller_1_1CullingSummary.html#af9439cc725677293ce36d5e1ada1bd8c":[1,0,119,4,9],
 "structGPUCuller_1_1InstancePipelineInputs.html":[1,0,119,3],
 "structGPUCuller_1_1InstancePipelineInputs.html#a313a96f37decfb096c500c0ab780dbfb":[1,0,119,3,6],
@@ -248,6 +249,5 @@ var NAVTREEINDEX29 =
 "structGaussianRenderConfig_1_1PainterlyConfig.html#a27d09434752a23a4f7431338273a8a5b":[1,0,1,2,2],
 "structGaussianRenderConfig_1_1PainterlyConfig.html#a32056404258797195761263c266c67ba":[0,0,2,2,6],
 "structGaussianRenderConfig_1_1PainterlyConfig.html#a32056404258797195761263c266c67ba":[1,0,1,2,6],
-"structGaussianRenderConfig_1_1PainterlyConfig.html#a5f583c32ea4379499da6f45ed1f45ada":[0,0,2,2,1],
-"structGaussianRenderConfig_1_1PainterlyConfig.html#a5f583c32ea4379499da6f45ed1f45ada":[1,0,1,2,1]
+"structGaussianRenderConfig_1_1PainterlyConfig.html#a5f583c32ea4379499da6f45ed1f45ada":[0,0,2,2,1]
 };

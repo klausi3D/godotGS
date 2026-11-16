@@ -1,5 +1,8 @@
 var NAVTREEINDEX49 =
 {
+"structNodeResidency_1_1Stats.html":[1,0,173,3],
+"structNodeResidency_1_1Stats.html#a1761d7b69e53e47080cb84d787f05ae9":[1,0,173,3,22],
+"structNodeResidency_1_1Stats.html#a1f312e89b27ee6c1adff93eac4b992d7":[1,0,173,3,1],
 "structNodeResidency_1_1Stats.html#a20d219ce3ddeee825ce23db675ccd986":[1,0,173,3,26],
 "structNodeResidency_1_1Stats.html#a26abbac68eeeac3076a7ae160069d47c":[1,0,173,3,21],
 "structNodeResidency_1_1Stats.html#a32c3c072dc6c6c01428f23a0b9b70405":[1,0,173,3,17],
@@ -246,8 +249,5 @@ var NAVTREEINDEX49 =
 "structPayloadPageStore_1_1Identity.html#a360a419d2c6c23ca2eddb78f246fc7c8":[1,0,195,2,1],
 "structPayloadPageStore_1_1Identity.html#a8979c18284bbe5a20c5704490cd967b0":[1,0,195,2,2],
 "structPayloadPageStore_1_1Identity.html#aacdd699c0bdf8fadf4a6c581a170b4a6":[1,0,195,2,3],
-"structPayloadPageStore_1_1Identity.html#aafc4387263da3e1781daf5ede56edca4":[1,0,195,2,0],
-"structPayloadPageStore_1_1PageDescriptor.html":[1,0,195,1],
-"structPayloadPageStore_1_1PageDescriptor.html#a1a5155f9b7312e4590c45abee85525c3":[1,0,195,1,1],
-"structPayloadPageStore_1_1PageDescriptor.html#a1c6a05e34cffcc6c30e495ad1c342ce9":[1,0,195,1,7]
+"structPayloadPageStore_1_1Identity.html#aafc4387263da3e1781daf5ede56edca4":[1,0,195,2,0]
 };

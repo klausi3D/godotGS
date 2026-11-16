@@ -1,5 +1,8 @@
 var NAVTREEINDEX32 =
 {
+"structGaussianRenderFacadeState_1_1ResourceState.html#adc58f0f2dc1c7189b56797965ecc0848":[1,0,3,2,35],
+"structGaussianRenderFacadeState_1_1ResourceState.html#ae19df285b979a5cb4d5b6c5b50b0fa84":[0,0,4,2,45],
+"structGaussianRenderFacadeState_1_1ResourceState.html#ae19df285b979a5cb4d5b6c5b50b0fa84":[1,0,3,2,45],
 "structGaussianRenderFacadeState_1_1ResourceState.html#ae1c118d1e91684f3783b6017bd58bf1d":[0,0,4,2,46],
 "structGaussianRenderFacadeState_1_1ResourceState.html#ae1c118d1e91684f3783b6017bd58bf1d":[1,0,3,2,46],
 "structGaussianRenderFacadeState_1_1ResourceState.html#ae32b5d12b244635b3a1c0a9631edceae":[0,0,4,2,91],
@@ -246,8 +249,5 @@ var NAVTREEINDEX32 =
 "structGaussianRenderFrame_1_1TextureTraceEntry.html#a84e906aadb09b4bd5ef4ee9bb75807ef":[1,0,4,1,0],
 "structGaussianRenderFrame_1_1TextureTraceEntry.html#ab08fce367c065851cf28f682726ca97f":[0,0,5,1,1],
 "structGaussianRenderFrame_1_1TextureTraceEntry.html#ab08fce367c065851cf28f682726ca97f":[1,0,4,1,1],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html":[0,0,6,2],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html":[1,0,5,2],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a02de8f1d2fac87e9bb05dfc631bbb83d":[0,0,6,2,14],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#a02de8f1d2fac87e9bb05dfc631bbb83d":[1,0,5,2,14]
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html":[0,0,6,2]
 };

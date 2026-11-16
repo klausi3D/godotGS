@@ -116,6 +116,7 @@ Functions</h2></td></tr>
 <tr class="memitem:ab7e774d2969508c17424a72706b0b557" id="r_ab7e774d2969508c17424a72706b0b557"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab7e774d2969508c17424a72706b0b557">rows_refusal</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, uint64_t p_node_count)</td></tr>
 <tr class="memitem:a4e841ec1dae151d4e89b6a8394f18635" id="r_a4e841ec1dae151d4e89b6a8394f18635"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4e841ec1dae151d4e89b6a8394f18635">pack_instance_rows</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, LocalVector&lt; <a class="el" href="structInstanceDataGPU.html">InstanceDataGPU</a> &gt; &amp;r_packed)</td></tr>
 <tr class="memitem:a9ecd045189c49de7045e04f9f2f4bb9d" id="r_a9ecd045189c49de7045e04f9f2f4bb9d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ecd045189c49de7045e04f9f2f4bb9d">bundle_bytes</a> (uint64_t p_node_count, uint64_t p_records, bool p_relative, bool p_quantized, uint32_t p_capacity, uint32_t p_rows)</td></tr>
+<tr class="memitem:af9f720af74313a654566d6ebebb0157e" id="r_af9f720af74313a654566d6ebebb0157e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af9f720af74313a654566d6ebebb0157e">creation_host_staged_bytes</a> (uint64_t p_bytes, bool p_has_host_payload)</td></tr>
 <tr class="memitem:a40fc17a3d3c3e96b93d1dc87fc4a4dfc" id="r_a40fc17a3d3c3e96b93d1dc87fc4a4dfc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#af66c1700ac5f6460060b8b0b095067aa">PreparedRows</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a40fc17a3d3c3e96b93d1dc87fc4a4dfc">prepared_rows_action</a> (uint64_t p_prepared_asset_generation, uint64_t p_asset_generation, uint64_t p_prepared_row_generation, uint64_t p_row_generation, uint32_t p_prepared_rows, uint32_t p_row_count)</td></tr>
 <tr class="memitem:a3b584f5a796f2a4fe8de8d645f053a13" id="r_a3b584f5a796f2a4fe8de8d645f053a13"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3b584f5a796f2a4fe8de8d645f053a13">dense_id_for_asset</a> (uint64_t p_asset_id, const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;p_region)</td></tr>
 <tr class="memitem:a84ea7cd0bbb53ca7859883b6ba584688" id="r_a84ea7cd0bbb53ca7859883b6ba584688"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a84ea7cd0bbb53ca7859883b6ba584688">tally_rows</a> (const <a class="el" href="structgs__hlod__bundle_1_1Rows.html">Rows</a> &amp;p_rows, <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;r_region)</td></tr>
@@ -417,6 +418,35 @@ Variables</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const <a class="el" href="structgs__hlod__bundle_1_1InstanceRegion.html">InstanceRegion</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_region</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af9f720af74313a654566d6ebebb0157e" name="af9f720af74313a654566d6ebebb0157e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af9f720af74313a654566d6ebebb0157e">&#9670;&#160;</a></span>creation_host_staged_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_bundle::creation_host_staged_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_has_host_payload</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
