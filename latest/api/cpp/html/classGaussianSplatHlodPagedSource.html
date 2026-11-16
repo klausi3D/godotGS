@@ -125,7 +125,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a04118277e7ec94ca529e56f152e738cf" id="r_a04118277e7ec94ca529e56f152e738cf"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a04118277e7ec94ca529e56f152e738cf">read_node_payload_from_store</a> (<a class="el" href="classPayloadPageStore.html">PayloadPageStore</a> &amp;p_store, uint64_t p_requester, uint64_t p_ticket, uint32_t p_node, Vector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, Vector&lt; Vector3 &gt; &amp;r_sh, String &amp;r_reason, <a class="el" href="structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html">ReadStorageObserver</a> *p_observer=nullptr) const</td></tr>
 <tr class="memitem:a622dceee0237da964b8ddc1c66d596b0" id="r_a622dceee0237da964b8ddc1c66d596b0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structGaussianSplatHlodPagedSource_1_1Stats.html">Stats</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a622dceee0237da964b8ddc1c66d596b0">get_stats</a> () const</td></tr>
 <tr class="memitem:ae247d0bf0fa935277d630af5c5eed4e7" id="r_ae247d0bf0fa935277d630af5c5eed4e7"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae247d0bf0fa935277d630af5c5eed4e7">get_max_record_bytes</a> () const</td></tr>
-<tr class="memitem:aa3aad7c6bf60837edcffdbb4bc2cd317" id="r_aa3aad7c6bf60837edcffdbb4bc2cd317"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa3aad7c6bf60837edcffdbb4bc2cd317">get_node_read_working_set_bytes</a> (uint32_t p_node) const</td></tr>
+<tr class="memitem:a3c185c06fe1289cd97ec83e9666400ab" id="r_a3c185c06fe1289cd97ec83e9666400ab"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c185c06fe1289cd97ec83e9666400ab">get_node_read_working_set_bytes</a> (uint32_t p_node, bool p_use_store=false) const</td></tr>
 <tr class="memitem:a8daf825ec0c03210af2bd084c18e0ca8" id="r_a8daf825ec0c03210af2bd084c18e0ca8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8daf825ec0c03210af2bd084c18e0ca8">get_index_digest</a> (uint8_t r_digest[32]) const</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
@@ -243,8 +243,8 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="aa3aad7c6bf60837edcffdbb4bc2cd317" name="aa3aad7c6bf60837edcffdbb4bc2cd317"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa3aad7c6bf60837edcffdbb4bc2cd317">&#9670;&#160;</a></span>get_node_read_working_set_bytes()</h2>
+<a id="a3c185c06fe1289cd97ec83e9666400ab" name="a3c185c06fe1289cd97ec83e9666400ab"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3c185c06fe1289cd97ec83e9666400ab">&#9670;&#160;</a></span>get_node_read_working_set_bytes()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -252,8 +252,12 @@ Static Public Member Functions</h2></td></tr>
         <tr>
           <td class="memname">uint64_t GaussianSplatHlodPagedSource::get_node_read_working_set_bytes </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span></td><td>)</td>
-          <td> const</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_node</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_use_store</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;) const</td>
         </tr>
       </table>
 </div><div class="memdoc">
