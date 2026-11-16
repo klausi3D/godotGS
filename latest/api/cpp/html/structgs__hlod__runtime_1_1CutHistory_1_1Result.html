@@ -108,8 +108,44 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:acd0e584f21527b475d089d081cf4061a" id="r_acd0e584f21527b475d089d081cf4061a"><td class="memItemLeft" align="right" valign="top">int32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acd0e584f21527b475d089d081cf4061a">first_cap_refused_node</a> = -1</td></tr>
 <tr class="memitem:a1e4a359fc93ef5132997db32c081f970" id="r_a1e4a359fc93ef5132997db32c081f970"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e4a359fc93ef5132997db32c081f970">hysteresis_held_count</a> = 0</td></tr>
 <tr class="memitem:a660d43093f71ecd7b3b30be1faa07d14" id="r_a660d43093f71ecd7b3b30be1faa07d14"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a660d43093f71ecd7b3b30be1faa07d14">residency_missed_count</a> = 0</td></tr>
+<tr class="memitem:a87e58bc4c06e40b8bcc6a85f1d196e9b" id="r_a87e58bc4c06e40b8bcc6a85f1d196e9b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a87e58bc4c06e40b8bcc6a85f1d196e9b">closure_measured</a> = false</td></tr>
+<tr class="memitem:a7346b1fe7ffe1c0dd07cddb210fb9663" id="r_a7346b1fe7ffe1c0dd07cddb210fb9663"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7346b1fe7ffe1c0dd07cddb210fb9663">demanded_closure_pages</a> = 0</td></tr>
+<tr class="memitem:a00f62ebe3d5f27425e4abf6a5a2076ec" id="r_a00f62ebe3d5f27425e4abf6a5a2076ec"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a00f62ebe3d5f27425e4abf6a5a2076ec">page_budget</a> = 0</td></tr>
+<tr class="memitem:a29dc90a9445e181bba03f20ec26bb28f" id="r_a29dc90a9445e181bba03f20ec26bb28f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a29dc90a9445e181bba03f20ec26bb28f">bootstrap_bypass_pages</a> = 0</td></tr>
+<tr class="memitem:acae13b6b9423c181fffcd3dce42513b7" id="r_acae13b6b9423c181fffcd3dce42513b7"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acae13b6b9423c181fffcd3dce42513b7">resident_refinement_bypass_pages</a> = 0</td></tr>
+<tr class="memitem:ad08639c54fa956435f4b1a5b4a1df67d" id="r_ad08639c54fa956435f4b1a5b4a1df67d"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad08639c54fa956435f4b1a5b4a1df67d">bootstrap_bypass_over_budget</a> = false</td></tr>
+<tr class="memitem:ab063965a0444bdc4eee0ba54ca054212" id="r_ab063965a0444bdc4eee0ba54ca054212"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab063965a0444bdc4eee0ba54ca054212">resident_refinement_bypass_over_budget</a> = false</td></tr>
+<tr class="memitem:a67ef37397ea111c6d36136449594443b" id="r_a67ef37397ea111c6d36136449594443b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a67ef37397ea111c6d36136449594443b">page_refused_groups</a> = 0</td></tr>
 </table>
 <a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="ad08639c54fa956435f4b1a5b4a1df67d" name="ad08639c54fa956435f4b1a5b4a1df67d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad08639c54fa956435f4b1a5b4a1df67d">&#9670;&#160;</a></span>bootstrap_bypass_over_budget</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::CutHistory::Result::bootstrap_bypass_over_budget = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a29dc90a9445e181bba03f20ec26bb28f" name="a29dc90a9445e181bba03f20ec26bb28f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a29dc90a9445e181bba03f20ec26bb28f">&#9670;&#160;</a></span>bootstrap_bypass_pages</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::CutHistory::Result::bootstrap_bypass_pages = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a406feb3109430b87734434f0c10d177f" name="a406feb3109430b87734434f0c10d177f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a406feb3109430b87734434f0c10d177f">&#9670;&#160;</a></span>bootstrapped</h2>
 
@@ -132,6 +168,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool gs_hlod_runtime::CutHistory::Result::budget_bound = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a87e58bc4c06e40b8bcc6a85f1d196e9b" name="a87e58bc4c06e40b8bcc6a85f1d196e9b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87e58bc4c06e40b8bcc6a85f1d196e9b">&#9670;&#160;</a></span>closure_measured</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::CutHistory::Result::closure_measured = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7346b1fe7ffe1c0dd07cddb210fb9663" name="a7346b1fe7ffe1c0dd07cddb210fb9663"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7346b1fe7ffe1c0dd07cddb210fb9663">&#9670;&#160;</a></span>demanded_closure_pages</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::CutHistory::Result::demanded_closure_pages = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -194,6 +258,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a00f62ebe3d5f27425e4abf6a5a2076ec" name="a00f62ebe3d5f27425e4abf6a5a2076ec"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a00f62ebe3d5f27425e4abf6a5a2076ec">&#9670;&#160;</a></span>page_budget</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::CutHistory::Result::page_budget = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a67ef37397ea111c6d36136449594443b" name="a67ef37397ea111c6d36136449594443b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a67ef37397ea111c6d36136449594443b">&#9670;&#160;</a></span>page_refused_groups</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_runtime::CutHistory::Result::page_refused_groups = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ac4fc0902bae7187e91a387cc451277f8" name="ac4fc0902bae7187e91a387cc451277f8"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ac4fc0902bae7187e91a387cc451277f8">&#9670;&#160;</a></span>record_demand</h2>
 
@@ -216,6 +308,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_hlod_runtime::CutHistory::Result::residency_missed_count = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab063965a0444bdc4eee0ba54ca054212" name="ab063965a0444bdc4eee0ba54ca054212"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab063965a0444bdc4eee0ba54ca054212">&#9670;&#160;</a></span>resident_refinement_bypass_over_budget</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_runtime::CutHistory::Result::resident_refinement_bypass_over_budget = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acae13b6b9423c181fffcd3dce42513b7" name="acae13b6b9423c181fffcd3dce42513b7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acae13b6b9423c181fffcd3dce42513b7">&#9670;&#160;</a></span>resident_refinement_bypass_pages</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::CutHistory::Result::resident_refinement_bypass_pages = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -153,6 +153,8 @@ var hierarchy =
     [ "GaussianStreamingTypes::DiagnosticsState::EffectiveSettingsSample", "structGaussianStreamingTypes_1_1DiagnosticsState_1_1EffectiveSettingsSample.html", null ],
     [ "gs_gsq::EncodeParams", "structgs__gsq_1_1EncodeParams.html", null ],
     [ "GaussianRenderFrame::ErrorRecoveryStateMachine", "structGaussianRenderFrame_1_1ErrorRecoveryStateMachine.html", null ],
+    [ "gs_hlod_runtime::NodeResidency::EvictionEvent", "structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html", null ],
+    [ "NodeResidency::EvictionEvent", "structNodeResidency_1_1EvictionEvent.html", null ],
     [ "GaussianSplatting::ComputeInfrastructure::FallbackDecision", "structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision.html", null ],
     [ "gs_world_generator::Feature", "structgs__world__generator_1_1Feature.html", null ],
     [ "Float16Utils::Float16ConversionStats", "structFloat16Utils_1_1Float16ConversionStats.html", null ],

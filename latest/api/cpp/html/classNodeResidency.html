@@ -100,6 +100,7 @@ Classes</h2></td></tr>
 <tr class="memitem:Config" id="r_Config"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structNodeResidency_1_1Config.html">Config</a></td></tr>
 <tr class="memitem:Ticket" id="r_Ticket"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a></td></tr>
 <tr class="memitem:Stats" id="r_Stats"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structNodeResidency_1_1Stats.html">Stats</a></td></tr>
+<tr class="memitem:EvictionEvent" id="r_EvictionEvent"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structNodeResidency_1_1EvictionEvent.html">EvictionEvent</a></td></tr>
 <tr class="memitem:EditedLeaf" id="r_EditedLeaf"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structNodeResidency_1_1EditedLeaf.html">EditedLeaf</a></td></tr>
 <tr class="memitem:RequestResult" id="r_RequestResult"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structNodeResidency_1_1RequestResult.html">RequestResult</a></td></tr>
 </table><table class="memberdecls">
@@ -113,6 +114,10 @@ Public Types</h2></td></tr>
 , <br />
 &#160;&#160;<a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28a0a91d28880693272f9ed8de0e26a34f3">FAILED</a>
 <br />
+ }</td></tr>
+<tr class="memitem:a3ed66e9df7f1592d5363a1661bf64f21" id="r_a3ed66e9df7f1592d5363a1661bf64f21"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ed66e9df7f1592d5363a1661bf64f21">EvictionClass</a> : uint8_t { <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21ae754fd55a783511bd2cad1657c5dde7e">EVICTION_IN_CUT</a> = 0
+, <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21abeacbbf7804335c5b6788ff00469344e">EVICTION_IN_TRANSITION</a>
+, <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21a812953509c4fced0258a7d418ae859d1">EVICTION_NEITHER</a>
  }</td></tr>
 <tr class="memitem:a915a85c338d9c9482401941ce7c33635" id="r_a915a85c338d9c9482401941ce7c33635"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a915a85c338d9c9482401941ce7c33635">EditResult</a> : uint8_t { <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a4cd40aea09ed5e79d6d1a0ea262d8124">EDIT_OK</a> = 0
 , <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a56615e199371b1a55667245bcdd6ebe3">EDIT_BUSY</a>
@@ -128,6 +133,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a161fb566e568bc5922114f3b42f3894d" id="r_a161fb566e568bc5922114f3b42f3894d"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a161fb566e568bc5922114f3b42f3894d">frame</a> () const</td></tr>
 <tr class="memitem:a7425e4fa621ee751c2600d7d533231e6" id="r_a7425e4fa621ee751c2600d7d533231e6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7425e4fa621ee751c2600d7d533231e6">protect_drawn</a> (const uint32_t *p_nodes, uint32_t p_count)</td></tr>
 <tr class="memitem:aab72d85d381a0f253954a6b4fa86894a" id="r_aab72d85d381a0f253954a6b4fa86894a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aab72d85d381a0f253954a6b4fa86894a">is_protected</a> (uint32_t p_node) const</td></tr>
+<tr class="memitem:a7f3e47306ed4d750d4243a1f3598abff" id="r_a7f3e47306ed4d750d4243a1f3598abff"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f3e47306ed4d750d4243a1f3598abff">observe_demand</a> (const uint32_t *p_demand, uint32_t p_count)</td></tr>
+<tr class="memitem:a1228a9d601c568de512dae994f68fcdf" id="r_a1228a9d601c568de512dae994f68fcdf"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1228a9d601c568de512dae994f68fcdf">eviction_event_count</a> () const</td></tr>
+<tr class="memitem:ab3c480c244ba46ec051cdb3c15c6fb7b" id="r_ab3c480c244ba46ec051cdb3c15c6fb7b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab3c480c244ba46ec051cdb3c15c6fb7b">eviction_event</a> (uint32_t p_index, <a class="el" href="structNodeResidency_1_1EvictionEvent.html">EvictionEvent</a> &amp;r_event) const</td></tr>
 <tr class="memitem:ada563f33bb344cfe3781a60512b74a68" id="r_ada563f33bb344cfe3781a60512b74a68"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structNodeResidency_1_1RequestResult.html">RequestResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ada563f33bb344cfe3781a60512b74a68">request</a> (const uint32_t *p_demand, uint32_t p_count, LocalVector&lt; <a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;r_tickets)</td></tr>
 <tr class="memitem:ab41780c7be4e6790579aad95d784d98b" id="r_ab41780c7be4e6790579aad95d784d98b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab41780c7be4e6790579aad95d784d98b">is_pending</a> (const <a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
 <tr class="memitem:adde4d545faa3835f483956e1aa766cc5" id="r_adde4d545faa3835f483956e1aa766cc5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adde4d545faa3835f483956e1aa766cc5">begin_upload</a> (const <a class="el" href="structNodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket)</td></tr>
@@ -163,6 +171,10 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:abc578d0d3a57bed527fd5ff6b9210007" id="r_abc578d0d3a57bed527fd5ff6b9210007"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abc578d0d3a57bed527fd5ff6b9210007">world_generation</a> () const</td></tr>
 <tr class="memitem:a09d6da5294a3a53e73c5174c2f2c0eb3" id="r_a09d6da5294a3a53e73c5174c2f2c0eb3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a09d6da5294a3a53e73c5174c2f2c0eb3">device_generation</a> () const</td></tr>
 <tr class="memitem:af13e7234ad5710949b608e6cf7330b51" id="r_af13e7234ad5710949b608e6cf7330b51"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structNodeResidency_1_1Config.html">Config</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af13e7234ad5710949b608e6cf7330b51">config</a> () const</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-static-attribs" class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
+Static Public Attributes</h2></td></tr>
+<tr class="memitem:a0a5c8ba4fd43928787a183c543da1606" id="r_a0a5c8ba4fd43928787a183c543da1606"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0a5c8ba4fd43928787a183c543da1606">EVICTION_EVENT_CAPACITY</a> = 4096</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
 <a id="a915a85c338d9c9482401941ce7c33635" name="a915a85c338d9c9482401941ce7c33635"></a>
@@ -181,6 +193,25 @@ Public Member Functions</h2></td></tr>
 <tr><td class="fieldname"><a id="a915a85c338d9c9482401941ce7c33635a56615e199371b1a55667245bcdd6ebe3" name="a915a85c338d9c9482401941ce7c33635a56615e199371b1a55667245bcdd6ebe3"></a>EDIT_BUSY&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a915a85c338d9c9482401941ce7c33635a79b9c86769a8f6dcd2f4397c6c22c572" name="a915a85c338d9c9482401941ce7c33635a79b9c86769a8f6dcd2f4397c6c22c572"></a>EDIT_INVALID&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a915a85c338d9c9482401941ce7c33635a5953a88be876701d5396417bc01d08d8" name="a915a85c338d9c9482401941ce7c33635a5953a88be876701d5396417bc01d08d8"></a>EDIT_NO_SPACE&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a3ed66e9df7f1592d5363a1661bf64f21" name="a3ed66e9df7f1592d5363a1661bf64f21"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3ed66e9df7f1592d5363a1661bf64f21">&#9670;&#160;</a></span>EvictionClass</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21">gs_hlod_runtime::NodeResidency::EvictionClass</a> : uint8_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a3ed66e9df7f1592d5363a1661bf64f21ae754fd55a783511bd2cad1657c5dde7e" name="a3ed66e9df7f1592d5363a1661bf64f21ae754fd55a783511bd2cad1657c5dde7e"></a>EVICTION_IN_CUT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a3ed66e9df7f1592d5363a1661bf64f21abeacbbf7804335c5b6788ff00469344e" name="a3ed66e9df7f1592d5363a1661bf64f21abeacbbf7804335c5b6788ff00469344e"></a>EVICTION_IN_TRANSITION&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a3ed66e9df7f1592d5363a1661bf64f21a812953509c4fced0258a7d418ae859d1" name="a3ed66e9df7f1592d5363a1661bf64f21a812953509c4fced0258a7d418ae859d1"></a>EVICTION_NEITHER&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -448,6 +479,52 @@ Public Member Functions</h2></td></tr>
           <td></td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab3c480c244ba46ec051cdb3c15c6fb7b" name="ab3c480c244ba46ec051cdb3c15c6fb7b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab3c480c244ba46ec051cdb3c15c6fb7b">&#9670;&#160;</a></span>eviction_event()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#ab3c480c244ba46ec051cdb3c15c6fb7b">gs_hlod_runtime::NodeResidency::eviction_event</a> </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_index</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structNodeResidency_1_1EvictionEvent.html">EvictionEvent</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>r_event</em></span>&#160;) const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1228a9d601c568de512dae994f68fcdf" name="a1228a9d601c568de512dae994f68fcdf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1228a9d601c568de512dae994f68fcdf">&#9670;&#160;</a></span>eviction_event_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a1228a9d601c568de512dae994f68fcdf">gs_hlod_runtime::NodeResidency::eviction_event_count</a> </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -729,6 +806,27 @@ Public Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7f3e47306ed4d750d4243a1f3598abff" name="a7f3e47306ed4d750d4243a1f3598abff"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7f3e47306ed4d750d4243a1f3598abff">&#9670;&#160;</a></span>observe_demand()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a7f3e47306ed4d750d4243a1f3598abff">gs_hlod_runtime::NodeResidency::observe_demand</a> </td>
+          <td>(</td>
+          <td class="paramtype">const uint32_t *</td>          <td class="paramname"><span class="paramname"><em>p_demand</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>&#160;)</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -1092,6 +1190,29 @@ Public Member Functions</h2></td></tr>
   </td>
   <td class="mlabels-right">
 <span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a name="doc-variable-members" id="doc-variable-members"></a><h2 id="header-doc-variable-members" class="groupheader">Member Data Documentation</h2>
+<a id="a0a5c8ba4fd43928787a183c543da1606" name="a0a5c8ba4fd43928787a183c543da1606"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0a5c8ba4fd43928787a183c543da1606">&#9670;&#160;</a></span>EVICTION_EVENT_CAPACITY</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html#a0a5c8ba4fd43928787a183c543da1606">gs_hlod_runtime::NodeResidency::EVICTION_EVENT_CAPACITY</a> = 4096</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span><span class="mlabel constexpr">constexpr</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">

@@ -18,6 +18,19 @@ var classHlodNodeStreamer =
       [ "EDIT_REJECTED_NO_VIEW", "classHlodNodeStreamer.html#a296a308f121815961db48475963c577cab309a454865339c13b1d109ba7cba32d", null ],
       [ "EDIT_REJECTED_LINEAGE", "classHlodNodeStreamer.html#a296a308f121815961db48475963c577cafcec2bf74287adbb0ee06c2b18d8139a", null ]
     ] ],
+    [ "RefusingGate", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10", [
+      [ "REFUSING_NONE", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10acb0ca03b62e8b1f95428d66104869649", null ],
+      [ "REFUSING_ALLOCATION", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10a561b7e2161068303870d1a006ec52e52", null ],
+      [ "REFUSING_OVERSIZED_LATCH", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10a280674080c05d8b88a79abb96eba0634", null ],
+      [ "REFUSING_TRANSPORT_BUDGET", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10a97762e6e2cfacd4e6f04a0ebfadab305", null ],
+      [ "REFUSING_OVERSIZED_WAIT_LIVE", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10a74197df3b24ee5c80c8bb2bfdfbd7075", null ],
+      [ "REFUSING_RETAINED_BUDGET", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10abe47bc57671609a7918e1773990aec20", null ],
+      [ "REFUSING_WORKER_PERMIT", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10af6e69fdfca055e2b911aa0d4a173ba46", null ],
+      [ "REFUSING_METADATA_CLEAR", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10a9b32493e5cd158db63da7bbbe09f316f", null ],
+      [ "REFUSING_REQUEST_BUDGET", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10ae7456c21f7a2c773b3e8b42702a3b005", null ],
+      [ "REFUSING_FAILED_DEPENDENCY", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10a86a97bdfeb7735212b54df6fc96f6d70", null ],
+      [ "REFUSING_GATE_COUNT", "classHlodNodeStreamer.html#ad7801084dbe3aa90b09cc9ea40ff2e10afbe3ef5f11ce6edbb34623d70fc93de9", null ]
+    ] ],
     [ "~HlodNodeStreamer", "classHlodNodeStreamer.html#a494d5eccfbd807162307eb8c417f8c2b", null ],
     [ "atlas_bytes_capacity", "classHlodNodeStreamer.html#ac3aa1994612720c75027002ed0773bc9", null ],
     [ "begin_frame", "classHlodNodeStreamer.html#a076889c376a6cbad967e644f4b99904b", null ],
@@ -26,6 +39,7 @@ var classHlodNodeStreamer =
     [ "get_data", "classHlodNodeStreamer.html#a8c589358f961a6192b6ff8d81dd87c13", null ],
     [ "get_last_commit_result", "classHlodNodeStreamer.html#a6659f41f5f04742f0b70367c971bbabc", null ],
     [ "get_payload_telemetry", "classHlodNodeStreamer.html#a8970850b4a53b9929fb46e3af6a4fc00", null ],
+    [ "get_pressure_eviction_events", "classHlodNodeStreamer.html#a003acea7d565779ff3e4ac69e35ec7b4", null ],
     [ "get_residency", "classHlodNodeStreamer.html#ae03a8fcf679c8bc6f55795e2d3267b9d", null ],
     [ "get_retained_byte_cap", "classHlodNodeStreamer.html#a94559732c4df8d77d1b43d2c72876251", null ],
     [ "get_telemetry", "classHlodNodeStreamer.html#a290e7fff5bf385be4107db8b2885a102", null ],

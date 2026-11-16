@@ -112,6 +112,22 @@ Classes</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-types" class="groupheader"><a id="pub-types" name="pub-types"></a>
 Public Types</h2></td></tr>
+<tr class="memitem:ad7801084dbe3aa90b09cc9ea40ff2e10" id="r_ad7801084dbe3aa90b09cc9ea40ff2e10"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10">RefusingGate</a> : uint8_t { <br />
+&#160;&#160;<a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10acb0ca03b62e8b1f95428d66104869649">REFUSING_NONE</a> = 0
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10a561b7e2161068303870d1a006ec52e52">REFUSING_ALLOCATION</a> = 1
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10a280674080c05d8b88a79abb96eba0634">REFUSING_OVERSIZED_LATCH</a> = 2
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10a97762e6e2cfacd4e6f04a0ebfadab305">REFUSING_TRANSPORT_BUDGET</a> = 3
+, <br />
+&#160;&#160;<a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10a74197df3b24ee5c80c8bb2bfdfbd7075">REFUSING_OVERSIZED_WAIT_LIVE</a> = 4
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10abe47bc57671609a7918e1773990aec20">REFUSING_RETAINED_BUDGET</a> = 5
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10af6e69fdfca055e2b911aa0d4a173ba46">REFUSING_WORKER_PERMIT</a> = 6
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10a9b32493e5cd158db63da7bbbe09f316f">REFUSING_METADATA_CLEAR</a> = 7
+, <br />
+&#160;&#160;<a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10ae7456c21f7a2c773b3e8b42702a3b005">REFUSING_REQUEST_BUDGET</a> = 8
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10a86a97bdfeb7735212b54df6fc96f6d70">REFUSING_FAILED_DEPENDENCY</a> = 9
+, <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10afbe3ef5f11ce6edbb34623d70fc93de9">REFUSING_GATE_COUNT</a>
+<br />
+ }</td></tr>
 <tr class="memitem:a296a308f121815961db48475963c577c" id="r_a296a308f121815961db48475963c577c"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a296a308f121815961db48475963c577c">EditStageResult</a> : uint8_t { <br />
 &#160;&#160;<a class="el" href="#a296a308f121815961db48475963c577ca2c3ea838e0b878bafd4a1b804765cb35">EDIT_STAGED</a> = 0
 , <a class="el" href="#a296a308f121815961db48475963c577caf2b695a8be2e8990446bd04264323b69">EDIT_REJECTED_BUSY</a>
@@ -154,6 +170,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ae03a8fcf679c8bc6f55795e2d3267b9d" id="r_ae03a8fcf679c8bc6f55795e2d3267b9d"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html">gs_hlod_runtime::NodeResidency</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae03a8fcf679c8bc6f55795e2d3267b9d">get_residency</a> () const</td></tr>
 <tr class="memitem:afde394d989dc890d13d5423fde052e64" id="r_afde394d989dc890d13d5423fde052e64"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afde394d989dc890d13d5423fde052e64">update</a> (RenderingDevice *p_device, const <a class="el" href="structHlodNodeStreamer_1_1Buffers.html">Buffers</a> &amp;p_buffers, const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count)</td></tr>
 <tr class="memitem:a290e7fff5bf385be4107db8b2885a102" id="r_a290e7fff5bf385be4107db8b2885a102"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structHlodNodeStreamer_1_1Telemetry.html">Telemetry</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a290e7fff5bf385be4107db8b2885a102">get_telemetry</a> () const</td></tr>
+<tr class="memitem:a003acea7d565779ff3e4ac69e35ec7b4" id="r_a003acea7d565779ff3e4ac69e35ec7b4"><td class="memItemLeft" align="right" valign="top">Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a003acea7d565779ff3e4ac69e35ec7b4">get_pressure_eviction_events</a> () const</td></tr>
 <tr class="memitem:a8970850b4a53b9929fb46e3af6a4fc00" id="r_a8970850b4a53b9929fb46e3af6a4fc00"><td class="memItemLeft" align="right" valign="top">Variant&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8970850b4a53b9929fb46e3af6a4fc00">get_payload_telemetry</a> () const</td></tr>
 <tr class="memitem:ad302605616d01af31c14273224892d9a" id="r_ad302605616d01af31c14273224892d9a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad302605616d01af31c14273224892d9a">root_failed</a> () const</td></tr>
 <tr class="memitem:ac3aa1994612720c75027002ed0773bc9" id="r_ac3aa1994612720c75027002ed0773bc9"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac3aa1994612720c75027002ed0773bc9">atlas_bytes_capacity</a> () const</td></tr>
@@ -161,6 +178,7 @@ Public Member Functions</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
 Static Public Member Functions</h2></td></tr>
+<tr class="memitem:a233093b3b2fed94273dc4d63693f25ba" id="r_a233093b3b2fed94273dc4d63693f25ba"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10">RefusingGate</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a233093b3b2fed94273dc4d63693f25ba">classify_admission_refusal</a> (bool p_oversized_latch, bool p_transport_full, bool p_oversized_wait_live, bool p_retained_full)</td></tr>
 <tr class="memitem:a7b07567dbf43a3cdf124e27a016a088f" id="r_a7b07567dbf43a3cdf124e27a016a088f"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7b07567dbf43a3cdf124e27a016a088f">split_protection_and_demand</a> (const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count, LocalVector&lt; uint32_t &gt; &amp;r_protected, LocalVector&lt; uint32_t &gt; &amp;r_demand)</td></tr>
 </table>
 <a name="doc-enum-members" id="doc-enum-members"></a><h2 id="header-doc-enum-members" class="groupheader">Member Enumeration Documentation</h2>
@@ -203,6 +221,33 @@ Static Public Member Functions</h2></td></tr>
 <tr><td class="fieldname"><a id="a296a308f121815961db48475963c577ca45dd9c9462ebebf805afbe655b9610ff" name="a296a308f121815961db48475963c577ca45dd9c9462ebebf805afbe655b9610ff"></a>EDIT_REJECTED_INFEASIBLE&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a296a308f121815961db48475963c577cab309a454865339c13b1d109ba7cba32d" name="a296a308f121815961db48475963c577cab309a454865339c13b1d109ba7cba32d"></a>EDIT_REJECTED_NO_VIEW&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a296a308f121815961db48475963c577cafcec2bf74287adbb0ee06c2b18d8139a" name="a296a308f121815961db48475963c577cafcec2bf74287adbb0ee06c2b18d8139a"></a>EDIT_REJECTED_LINEAGE&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="ad7801084dbe3aa90b09cc9ea40ff2e10" name="ad7801084dbe3aa90b09cc9ea40ff2e10"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad7801084dbe3aa90b09cc9ea40ff2e10">&#9670;&#160;</a></span>RefusingGate</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10">HlodNodeStreamer::RefusingGate</a> : uint8_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10acb0ca03b62e8b1f95428d66104869649" name="ad7801084dbe3aa90b09cc9ea40ff2e10acb0ca03b62e8b1f95428d66104869649"></a>REFUSING_NONE&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10a561b7e2161068303870d1a006ec52e52" name="ad7801084dbe3aa90b09cc9ea40ff2e10a561b7e2161068303870d1a006ec52e52"></a>REFUSING_ALLOCATION&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10a280674080c05d8b88a79abb96eba0634" name="ad7801084dbe3aa90b09cc9ea40ff2e10a280674080c05d8b88a79abb96eba0634"></a>REFUSING_OVERSIZED_LATCH&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10a97762e6e2cfacd4e6f04a0ebfadab305" name="ad7801084dbe3aa90b09cc9ea40ff2e10a97762e6e2cfacd4e6f04a0ebfadab305"></a>REFUSING_TRANSPORT_BUDGET&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10a74197df3b24ee5c80c8bb2bfdfbd7075" name="ad7801084dbe3aa90b09cc9ea40ff2e10a74197df3b24ee5c80c8bb2bfdfbd7075"></a>REFUSING_OVERSIZED_WAIT_LIVE&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10abe47bc57671609a7918e1773990aec20" name="ad7801084dbe3aa90b09cc9ea40ff2e10abe47bc57671609a7918e1773990aec20"></a>REFUSING_RETAINED_BUDGET&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10af6e69fdfca055e2b911aa0d4a173ba46" name="ad7801084dbe3aa90b09cc9ea40ff2e10af6e69fdfca055e2b911aa0d4a173ba46"></a>REFUSING_WORKER_PERMIT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10a9b32493e5cd158db63da7bbbe09f316f" name="ad7801084dbe3aa90b09cc9ea40ff2e10a9b32493e5cd158db63da7bbbe09f316f"></a>REFUSING_METADATA_CLEAR&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10ae7456c21f7a2c773b3e8b42702a3b005" name="ad7801084dbe3aa90b09cc9ea40ff2e10ae7456c21f7a2c773b3e8b42702a3b005"></a>REFUSING_REQUEST_BUDGET&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10a86a97bdfeb7735212b54df6fc96f6d70" name="ad7801084dbe3aa90b09cc9ea40ff2e10a86a97bdfeb7735212b54df6fc96f6d70"></a>REFUSING_FAILED_DEPENDENCY&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ad7801084dbe3aa90b09cc9ea40ff2e10afbe3ef5f11ce6edbb34623d70fc93de9" name="ad7801084dbe3aa90b09cc9ea40ff2e10afbe3ef5f11ce6edbb34623d70fc93de9"></a>REFUSING_GATE_COUNT&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -289,6 +334,45 @@ Static Public Member Functions</h2></td></tr>
 
 </div>
 </div>
+<a id="a233093b3b2fed94273dc4d63693f25ba" name="a233093b3b2fed94273dc4d63693f25ba"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a233093b3b2fed94273dc4d63693f25ba">&#9670;&#160;</a></span>classify_admission_refusal()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="#ad7801084dbe3aa90b09cc9ea40ff2e10">HlodNodeStreamer::RefusingGate</a> HlodNodeStreamer::classify_admission_refusal </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_oversized_latch</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_transport_full</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_oversized_wait_live</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_retained_full</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a7c6b7321644aa310e8fcf1beece2ed5c" name="a7c6b7321644aa310e8fcf1beece2ed5c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a7c6b7321644aa310e8fcf1beece2ed5c">&#9670;&#160;</a></span>commit_staged_edit()</h2>
 
@@ -368,6 +452,23 @@ Static Public Member Functions</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">Variant HlodNodeStreamer::get_payload_telemetry </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a003acea7d565779ff3e4ac69e35ec7b4" name="a003acea7d565779ff3e4ac69e35ec7b4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a003acea7d565779ff3e4ac69e35ec7b4">&#9670;&#160;</a></span>get_pressure_eviction_events()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Array HlodNodeStreamer::get_pressure_eviction_events </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td> const</td>

@@ -4,6 +4,7 @@ var classgs__hlod__runtime_1_1NodeResidency =
     [ "Config", "structgs__hlod__runtime_1_1NodeResidency_1_1Config.html", "structgs__hlod__runtime_1_1NodeResidency_1_1Config" ],
     [ "Ticket", "structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html", "structgs__hlod__runtime_1_1NodeResidency_1_1Ticket" ],
     [ "Stats", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats.html", "structgs__hlod__runtime_1_1NodeResidency_1_1Stats" ],
+    [ "EvictionEvent", "structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html", "structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent" ],
     [ "EditedLeaf", "structgs__hlod__runtime_1_1NodeResidency_1_1EditedLeaf.html", "structgs__hlod__runtime_1_1NodeResidency_1_1EditedLeaf" ],
     [ "RequestResult", "structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult.html", "structgs__hlod__runtime_1_1NodeResidency_1_1RequestResult" ],
     [ "EditResult", "classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635", [
@@ -11,6 +12,11 @@ var classgs__hlod__runtime_1_1NodeResidency =
       [ "EDIT_BUSY", "classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a56615e199371b1a55667245bcdd6ebe3", null ],
       [ "EDIT_INVALID", "classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a79b9c86769a8f6dcd2f4397c6c22c572", null ],
       [ "EDIT_NO_SPACE", "classgs__hlod__runtime_1_1NodeResidency.html#a915a85c338d9c9482401941ce7c33635a5953a88be876701d5396417bc01d08d8", null ]
+    ] ],
+    [ "EvictionClass", "classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21", [
+      [ "EVICTION_IN_CUT", "classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21ae754fd55a783511bd2cad1657c5dde7e", null ],
+      [ "EVICTION_IN_TRANSITION", "classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21abeacbbf7804335c5b6788ff00469344e", null ],
+      [ "EVICTION_NEITHER", "classgs__hlod__runtime_1_1NodeResidency.html#a3ed66e9df7f1592d5363a1661bf64f21a812953509c4fced0258a7d418ae859d1", null ]
     ] ],
     [ "State", "classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28", [
       [ "ABSENT", "classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28ad6b2cfe28c56a5b9cdb63865e43f3265", null ],
@@ -32,6 +38,8 @@ var classgs__hlod__runtime_1_1NodeResidency =
     [ "edit_prefetch", "classgs__hlod__runtime_1_1NodeResidency.html#ac68ce6b1153d129bd3245d605aa3c28b", null ],
     [ "edit_ready", "classgs__hlod__runtime_1_1NodeResidency.html#a946ed2930a38e7c2d35bf14f44b61490", null ],
     [ "evict", "classgs__hlod__runtime_1_1NodeResidency.html#a87d94c66e7eea51a2e5dc8efd77aad0c", null ],
+    [ "eviction_event", "classgs__hlod__runtime_1_1NodeResidency.html#ab3c480c244ba46ec051cdb3c15c6fb7b", null ],
+    [ "eviction_event_count", "classgs__hlod__runtime_1_1NodeResidency.html#a1228a9d601c568de512dae994f68fcdf", null ],
     [ "fail_load", "classgs__hlod__runtime_1_1NodeResidency.html#aa26345f5945bfbec048474a0bdae796e", null ],
     [ "finish_shadow", "classgs__hlod__runtime_1_1NodeResidency.html#a2a31adb25970ae73250c63368fdd2d65", null ],
     [ "finish_shadow_transfer", "classgs__hlod__runtime_1_1NodeResidency.html#a442d8340d89a100ccb51878aeedb3092", null ],
@@ -45,6 +53,7 @@ var classgs__hlod__runtime_1_1NodeResidency =
     [ "is_shadow_pending", "classgs__hlod__runtime_1_1NodeResidency.html#a5ab78b163c0ec2bcef735170d7c1217e", null ],
     [ "is_stale", "classgs__hlod__runtime_1_1NodeResidency.html#aa467263f7674d391f9e5afd30a9314ac", null ],
     [ "node_count", "classgs__hlod__runtime_1_1NodeResidency.html#a5ee487c479c36808ceb2847db64dcb81", null ],
+    [ "observe_demand", "classgs__hlod__runtime_1_1NodeResidency.html#a7f3e47306ed4d750d4243a1f3598abff", null ],
     [ "pages_for", "classgs__hlod__runtime_1_1NodeResidency.html#a85e8fad817855972e258e0dac5946305", null ],
     [ "protect_drawn", "classgs__hlod__runtime_1_1NodeResidency.html#a7425e4fa621ee751c2600d7d533231e6", null ],
     [ "request", "classgs__hlod__runtime_1_1NodeResidency.html#ada563f33bb344cfe3781a60512b74a68", null ],
