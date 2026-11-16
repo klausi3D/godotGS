@@ -1300,8 +1300,8 @@ def _hlod_pressure_lines(report):
     report = _dict(report)
     lines = ["", "## HLOD pressure diagnostics (#1483)", "",
              "Report-only. Missing observations stay not measured; no value in this table changes the verdict.", "",
-             "| arm / checkpoint | closure pages / cap | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "| arm / checkpoint | closure pages / cap | placement reserve pages | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
 
     def clean(value):
         return "not measured" if value is None else str(value).replace("|", "/").replace("\n", " ")
@@ -1310,7 +1310,7 @@ def _hlod_pressure_lines(report):
         rows = _dict(report.get(route)).get("checkpoints")
         rows = rows if isinstance(rows, list) else []
         if not rows:
-            lines.append(f"| {route} | " + " | ".join(["not measured"] * 7) + " |")
+            lines.append(f"| {route} | " + " | ".join(["not measured"] * 8) + " |")
         for row in rows:
             row = _dict(row)
             receipt = _dict(row.get("observation"))
@@ -1333,6 +1333,7 @@ def _hlod_pressure_lines(report):
                        if victims.get("measured") is True and isinstance(events, list) else "not measured")
             lines.append(f"| {route} / {clean(row.get('checkpoint'))} pass {clean(row.get('pass_index'))} | "
                          f"{val('demanded_closure_pages')} / {val('page_budget')} | "
+                         f"{val('placement_reserve_pages')} | "
                          f"{val('pages_free')} / {val('largest_free_run')} | "
                          f"{val('fragmented_groups')} / {val('skipped_groups_total')} | "
                          f"{delta('allocation_refused')} | in_cut {delta('evicted_in_cut')}, "

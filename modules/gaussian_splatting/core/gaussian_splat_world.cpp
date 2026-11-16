@@ -1255,6 +1255,7 @@ Error GaussianSplatWorld::_capture_hlod_paged_snapshot(const Ref<GaussianSplatHl
     }
     next->owner_key = get_instance_id();
     next->owned_cpu_bytes = bytes;
+    next->prepare_placement_reserve();
     next->preparation_usec = OS::get_singleton()->get_ticks_usec() - started;
     r_reason = String();
     r_snapshot = next;
@@ -1423,6 +1424,7 @@ Error GaussianSplatWorld::capture_hlod_runtime_snapshot(Ref<GaussianSplatHlodRun
     next->source_world = Ref<Resource>(const_cast<GaussianSplatWorld *>(this));
     next->owner_key = get_instance_id();
     next->owned_cpu_bytes = bytes;
+    next->prepare_placement_reserve();
     next->preparation_usec = OS::get_singleton()->get_ticks_usec() - started;
     r_reason = String();
     r_snapshot = next;

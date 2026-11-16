@@ -123,6 +123,9 @@ public:
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
 		uint32_t blocked_groups_this_frame = 0;
 		uint32_t fragmented_groups_this_frame = 0;
+		// Selection observation, render-thread-owned. No selection this frame means unmeasured, not zero.
+		bool placement_reserve_measured = false;
+		uint64_t placement_reserve_pages = 0;
 		// Owner-thread snapshots; worker-visible ledger values are sampled under
 		// ReservationLedger::mutex, the existing admission/mailbox lock.
 		bool pressure_measured = false;
@@ -389,6 +392,8 @@ public:
 			const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count,
 			LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand);
 
+	// Render-thread handoff after selection; begin_frame clears it if this frame never selects.
+	void capture_placement_reserve(const gs_hlod_runtime::CutHistory::Result &p_cut);
 	const Telemetry &get_telemetry() const { return telemetry; }
 	Array get_pressure_eviction_events() const; // Current-frame batch only; probe retains its capped history.
 	Variant get_payload_telemetry() const; // Null when this route has no measured page store.

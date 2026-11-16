@@ -61,6 +61,11 @@ public:
 	bool quantized_eligible = true;
 	GaussianData::SaveSnapshot leaves;
 	Vector<Node> nodes;
+	// Prepared before publication; immutable readers (including render/streaming threads) never update this cache.
+	// One node is one contiguous atlas allocation. Stale ancestors have no resident payload and are excluded.
+	uint32_t max_node_payload_count = 0;
+	bool placement_reserve_prepared = false;
+	void prepare_placement_reserve(); // Call after populating nodes/edit_state, including edit/rebase replacements.
 	Vector<Gaussian> parents;
 	Vector<Vector3> parent_sh;
 	// Package E1: a snapshot of a V4 paged world describes the nodes (topology, footprint, DC metrics) from the

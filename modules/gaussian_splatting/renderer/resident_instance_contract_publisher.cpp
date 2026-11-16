@@ -2429,6 +2429,9 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
 bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_context) {
     auto &state = get_resource_state();
     state.hlod_cut_telemetry.valid = false;
+    if (state.hlod_streamer.is_valid()) {
+        state.hlod_streamer->capture_placement_reserve(gs_hlod_runtime::CutHistory::Result());
+    }
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = state.hlod_cpu_cut_usec = 0;
@@ -2917,6 +2920,9 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
                 outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u);
     }
     if (state.hlod_streaming) {
+        state.hlod_streamer->capture_placement_reserve(
+                diagnostic_history && outcome.view.view_key == RenderFrameContextManager::hlod_view_key(identity) ?
+                diagnostic_cut : gs_hlod_runtime::CutHistory::Result());
         // Desired(view) is demand only: it requests, it never makes anything drawable. It is available while the
         // view is still loading, which is exactly when the coarse frontier has to be requested.
         uint32_t desired_count = 0;

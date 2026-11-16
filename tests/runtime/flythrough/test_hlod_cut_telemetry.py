@@ -260,6 +260,16 @@ class HlodPressureTelemetry(unittest.TestCase):
         self.assertIsNone(re.search(rf'r_stats\["{key}"\]\s*=', closure),
                           "direct cut telemetry must not overwrite the streamer's observation")
 
+    def test_placement_reserve_clears_before_frame_preparation_can_return(self):
+        # Wiring check for fallback paths that return before the streamer's begin_frame boundary.
+        path = HERE.parents[2] / "modules/gaussian_splatting/renderer/resident_instance_contract_publisher.cpp"
+        source = path.read_text(encoding="utf-8")
+        prepare = source[source.index("bool GaussianSplatRenderer::prepare_hlod_frame("):]
+        first_return = prepare.index("return ")
+        reset = re.search(r"capture_placement_reserve\(gs_hlod_runtime::CutHistory::Result\(\)\)", prepare)
+        self.assertIsNotNone(reset, "a frame without selection must clear the previous reserve observation")
+        self.assertLess(reset.start(), first_return, "fallback before begin_frame must not publish stale reserve pages")
+
     def test_placement_reserve_gauge_preserves_zero_absence_and_reset(self):
         # Constructed semantic inputs, not recordings of the native producer.
         key = "hlod_stream_placement_reserve_pages"
