@@ -205,6 +205,25 @@ def read_trace(path: Path) -> Trace:
     return trace
 
 
+HLOD_PLACEMENT_RESERVE_STATES = {-1: "absent", 0: "unprepared", 1: "measured"}
+HLOD_PLACEMENT_RESERVE_STATE = "hlod_stream_placement_reserve_state"
+HLOD_PLACEMENT_RESERVE_PAGES = "hlod_stream_placement_reserve_pages"
+
+
+def hlod_placement_reserve_observation(values: object) -> dict:
+    """Decode one report-only reserve observation; unprepared means option-1 admission, never measured zero."""
+    values = values if isinstance(values, dict) else {}
+    code = values.get(HLOD_PLACEMENT_RESERVE_STATE)
+    state = HLOD_PLACEMENT_RESERVE_STATES.get(code, "absent") if type(code) is int else "absent"
+    absent = {"state": "absent", "measured": False, "value": None, "reason": "no complete placement reserve observation"}
+    if state == "unprepared":
+        return {**absent, "state": state, "reason": "snapshot reserve unprepared; option-1 physical-page admission active"}
+    pages = values.get(HLOD_PLACEMENT_RESERVE_PAGES)
+    if state != "measured" or type(pages) is not int or pages < 0:
+        return absent
+    return {"state": state, "measured": True, "value": pages}
+
+
 def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
     """Report one native numeric column; absence/partial coverage never becomes zero.
 
@@ -212,13 +231,25 @@ def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
     is separate from the maximum. A decrease invalidates the delta, not a gate.
     """
     absent = {"measured": False, "value": None, "reason": f"no complete native {field} observation"}
-    if not rows or field not in trace.index:
+    if field == HLOD_PLACEMENT_RESERVE_PAGES:
+        samples = [hlod_placement_reserve_observation({
+            HLOD_PLACEMENT_RESERVE_STATE: trace.get(trace.rows[row], HLOD_PLACEMENT_RESERVE_STATE) if HLOD_PLACEMENT_RESERVE_STATE in trace.index else None,
+            HLOD_PLACEMENT_RESERVE_PAGES: trace.get(trace.rows[row], field) if field in trace.index else None}) for row in rows]
+        if not samples:
+            return {**absent, "state": "absent"}
+        if not all(sample["measured"] for sample in samples):
+            states = sorted({sample["state"] for sample in samples})
+            return {**absent, "state": states[0] if len(states) == 1 else "mixed", "states": states,
+                    "rows": len(rows), "samples_measured": sum(sample["measured"] for sample in samples)}
+    elif not rows or field not in trace.index:
         return absent
     values = [trace.get(trace.rows[row], field) for row in rows]
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in values):
         return {**absent, "rows": len(rows), "samples_measured": sum(
             type(value) in (int, float) and math.isfinite(value) and value >= 0 for value in values)}
     out = {"measured": True, "value": values[-1], "first": values[0], "max": max(values), "rows": len(rows)}
+    if field == HLOD_PLACEMENT_RESERVE_PAGES:
+        out["state"] = "measured"
     if field.endswith("_total"):
         monotonic = all(after >= before for before, after in zip(values, values[1:]))
         epoch_key = "hlod_stream_pressure_epoch"

@@ -123,7 +123,8 @@ public:
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
 		uint32_t blocked_groups_this_frame = 0;
 		uint32_t fragmented_groups_this_frame = 0;
-		// Selection observation, render-thread-owned. No selection this frame means unmeasured, not zero.
+		// Selection observation, render-thread-owned. No selection is absent; an unprepared selection uses no reserve.
+		gs_hlod_runtime::CutHistory::PlacementReserveState placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
 		bool placement_reserve_measured = false;
 		uint64_t placement_reserve_pages = 0;
 		// Owner-thread snapshots; worker-visible ledger values are sampled under

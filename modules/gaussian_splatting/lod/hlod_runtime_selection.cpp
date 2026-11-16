@@ -70,8 +70,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			!std::isfinite(p_request.record_budget) || p_request.record_budget < 0 ||
 			!std::isfinite(p_request.tile_area) || p_request.tile_area <= 0 ||
 			(p_request.resident && p_request.resident_count != count) ||
-			(p_request.tie_rank && p_request.tie_rank_count != count) ||
-			(p_request.page_splats != 0 && !p_data.placement_reserve_prepared)) {
+			(p_request.tie_rank && p_request.tie_rank_count != count)) {
 		return out;
 	}
 	if (epoch == UINT64_MAX) {
@@ -154,7 +153,10 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		return (uint64_t(p_data.nodes[p_node].topology.payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
 	};
 	out.closure_measured = p_request.page_splats != 0;
-	out.placement_reserve_measured = out.closure_measured;
+	if (out.closure_measured) {
+		out.placement_reserve_state = p_data.placement_reserve_prepared ? RESERVE_MEASURED : RESERVE_UNPREPARED;
+	}
+	out.placement_reserve_measured = out.placement_reserve_state == RESERVE_MEASURED;
 	if (out.placement_reserve_measured) {
 		out.placement_reserve_pages = (uint64_t(p_data.max_node_payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
 	}

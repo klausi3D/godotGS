@@ -126,6 +126,7 @@ class HlodPressureTelemetry(unittest.TestCase):
                       "hlod_stream_skipped_groups_total", "hlod_stream_fragmented_groups",
                       "hlod_stream_pages_free", "hlod_stream_largest_free_run",
                       "hlod_stream_demanded_closure_pages", "hlod_stream_placement_reserve_pages",
+                      "hlod_stream_placement_reserve_state",
                       "hlod_stream_bootstrap_bypass_pages",
                       "hlod_stream_resident_refinement_bypass_pages", "hlod_stream_page_refused_groups_total",
                       "hlod_stream_evicted_in_cut_total", "hlod_stream_evicted_in_transition_total",
@@ -233,6 +234,8 @@ class HlodPressureTelemetry(unittest.TestCase):
                                      "reserve availability must default to unmeasured")
                 self.assertIsNotNone(re.search(r"uint64_t\s+placement_reserve_pages\s*=\s*0\s*;", source),
                                      "selection and streamer must carry the observed reserve pages")
+                self.assertIsNotNone(re.search(r"placement_reserve_state\s*=\s*(?:[\w:]+::)?RESERVE_ABSENT\s*;", source),
+                                     "reserve state must default to absent, distinct from an unprepared selection")
 
     def test_placement_reserve_is_handed_from_selection_to_streamer(self):
         root = HERE.parents[2] / "modules/gaussian_splatting/renderer"
@@ -243,7 +246,7 @@ class HlodPressureTelemetry(unittest.TestCase):
         streamer = (root / "hlod_node_streamer.cpp").read_text(encoding="utf-8")
         body = re.search(rf"void HlodNodeStreamer::{handoff.group(1)}\([^{{]*\{{(.*?)(?=\n\}})", streamer, re.S)
         self.assertIsNotNone(body, "the publisher's handoff must have a streamer implementation")
-        for field in ("placement_reserve_measured", "placement_reserve_pages"):
+        for field in ("placement_reserve_measured", "placement_reserve_pages", "placement_reserve_state"):
             self.assertTrue(field in body.group(1), f"streamer handoff must capture {field}")
 
     def test_placement_reserve_native_export_is_nullable_and_owned_by_streamer(self):
@@ -256,9 +259,41 @@ class HlodPressureTelemetry(unittest.TestCase):
         self.assertRegex(expression, r"\bt\.placement_reserve_measured\s*\?")
         self.assertIn("t.placement_reserve_pages", expression)
         self.assertRegex(expression, r":\s*Variant\(\)\s*$", "absent selection must export null, never measured zero")
+        state_key = "hlod_stream_placement_reserve_state"
+        state_exports = re.findall(rf'stats\["{state_key}"\]\s*=\s*([^;]+);', native)
+        self.assertEqual(len(state_exports), 1, "reserve state must have one render-stats export")
+        self.assertIn("t.placement_reserve_state", state_exports[0])
+        self.assertIn("RESERVE_ABSENT", state_exports[0])
+        self.assertRegex(state_exports[0], r":\s*Variant\(\)\s*$")
         closure = (root / "hlod_cut_telemetry.h").read_text(encoding="utf-8")
-        self.assertIsNone(re.search(rf'r_stats\["{key}"\]\s*=', closure),
-                          "direct cut telemetry must not overwrite the streamer's observation")
+        for field in (key, state_key):
+            self.assertIsNone(re.search(rf'r_stats\["{field}"\]\s*=', closure),
+                              "direct cut telemetry must not overwrite the streamer's observation")
+
+    def test_placement_reserve_state_codes_match_native_protocol(self):
+        path = HERE.parents[2] / "modules/gaussian_splatting/lod/hlod_runtime_selection.h"
+        enum = re.search(r"enum PlacementReserveState\s*\{([^}]+)\}", path.read_text(encoding="utf-8"))
+        self.assertIsNotNone(enum)
+        states = {int(value): name.lower() for name, value in re.findall(r"RESERVE_(\w+)\s*=\s*(-?\d+)", enum.group(1))}
+        self.assertEqual(states, ps.HLOD_PLACEMENT_RESERVE_STATES)
+
+    def test_placement_reserve_checkpoint_encodings_require_state_and_value(self):
+        key, state = ps.HLOD_PLACEMENT_RESERVE_PAGES, ps.HLOD_PLACEMENT_RESERVE_STATE
+        cases = (({}, "absent", None), ({key: 0}, "absent", None),
+                 ({state: None, key: 9}, "absent", None), ({state: -1, key: 9}, "absent", None),
+                 ({state: 0, key: None}, "unprepared", None), ({state: 0, key: 9}, "unprepared", None),
+                 ({state: 1, key: 0}, "measured", 0), ({state: 1, key: 3}, "measured", 3),
+                 ({state: 1}, "absent", None), ({state: 1, key: -1}, "absent", None),
+                 ({state: 1, key: True}, "absent", None), ({state: True, key: 0}, "absent", None),
+                 ({state: 7, key: 3}, "absent", None))
+        for values, expected_state, expected_value in cases:
+            with self.subTest(values=values):
+                observation = ps.hlod_placement_reserve_observation(values)
+                self.assertEqual(observation["state"], expected_state)
+                self.assertEqual(observation["value"], expected_value)
+                self.assertIs(observation["measured"], expected_state == "measured")
+                if expected_state == "unprepared":
+                    self.assertIn("physical-page admission", observation["reason"])
 
     def test_placement_reserve_clears_before_frame_preparation_can_return(self):
         # Wiring check for fallback paths that return before the streamer's begin_frame boundary.
@@ -273,6 +308,7 @@ class HlodPressureTelemetry(unittest.TestCase):
     def test_placement_reserve_gauge_preserves_zero_absence_and_reset(self):
         # Constructed semantic inputs, not recordings of the native producer.
         key = "hlod_stream_placement_reserve_pages"
+        state = "hlod_stream_placement_reserve_state"
         for fields, values in ((["row"], (0,)), ([key], ()), ([key], (-1,)), ([key], (3, -1))):
             with self.subTest(fields=fields, values=values):
                 trace = ps.Trace(fields, "q", [(value,) for value in values], 0)
@@ -282,7 +318,7 @@ class HlodPressureTelemetry(unittest.TestCase):
                 self.assertTrue(observation["reason"])
         for values in ((0, 0), (3, 3), (7, 0)):
             with self.subTest(values=values):
-                trace = ps.Trace([key], "q", [(value,) for value in values], 0)
+                trace = ps.Trace([key, state], "qq", [(value, 1) for value in values], 0)
                 observation = ps.hlod_pressure_column(trace, [0, 1], key)
                 self.assertIs(observation["measured"], True)
                 self.assertEqual(observation["value"], values[-1])
@@ -290,6 +326,18 @@ class HlodPressureTelemetry(unittest.TestCase):
                 self.assertNotIn("delta", observation, "reserve is a gauge, not a cumulative counter")
                 summary = ps.hlod_pressure_summary([], trace)
                 self.assertEqual(summary["trace"]["columns"][key], observation)
+
+    def test_placement_reserve_trace_distinguishes_unprepared_absent_and_mixed_states(self):
+        key, state = ps.HLOD_PLACEMENT_RESERVE_PAGES, ps.HLOD_PLACEMENT_RESERVE_STATE
+        for codes, expected in (((0, 0), "unprepared"), ((-1, -1), "absent"),
+                                ((1, 0), "mixed"), ((0, 1), "mixed"), ((1, -1), "mixed")):
+            with self.subTest(codes=codes):
+                trace = ps.Trace([key, state], "qq", [(9, code) for code in codes], 0)
+                observation = ps.hlod_pressure_column(trace, [0, 1], key)
+                self.assertEqual(observation["state"], expected)
+                self.assertIs(observation["measured"], False)
+                self.assertIsNone(observation["value"])
+                self.assertNotIn("max", observation)
 
     def test_trace_counter_deltas_and_checkpoint_receipts_are_report_only(self):
         key = "hlod_stream_allocation_refused_total"

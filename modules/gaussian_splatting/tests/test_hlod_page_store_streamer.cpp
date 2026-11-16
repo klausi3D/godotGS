@@ -469,42 +469,52 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] pressure telemet
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] placement reserve capture preserves zero and clears absent frames and lifecycle resets (#1483)") {
 	Harness h;
 	CHECK_FALSE(h.streamer.get_telemetry().placement_reserve_measured);
+	CHECK(h.streamer.get_telemetry().placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
 	if (!h.init()) { return; }
 	const Streamer::Telemetry &t = h.streamer.get_telemetry();
 	CHECK_FALSE(t.placement_reserve_measured);
 	gs_hlod_runtime::CutHistory::Result cut;
 	cut.status = gs_hlod_runtime::CutHistory::COMPLETE;
+	cut.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_MEASURED;
 	cut.placement_reserve_measured = true;
 	cut.placement_reserve_pages = 3;
 	h.streamer.capture_placement_reserve(cut);
 	CHECK(t.placement_reserve_measured);
 	CHECK(t.placement_reserve_pages == 3);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED);
 	cut.placement_reserve_pages = 0;
 	h.streamer.capture_placement_reserve(cut);
 	CHECK(t.placement_reserve_measured);
 	CHECK(t.placement_reserve_pages == 0); // A measured zero survives independently of pressure counters.
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED);
 	cut.placement_reserve_measured = false;
+	cut.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED;
 	cut.placement_reserve_pages = 99;
 	h.streamer.capture_placement_reserve(cut);
 	CHECK_FALSE(t.placement_reserve_measured);
 	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED);
 	cut.placement_reserve_measured = true;
+	cut.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_MEASURED;
 	cut.placement_reserve_pages = 3;
 	h.streamer.capture_placement_reserve(cut);
 	cut.status = gs_hlod_runtime::CutHistory::INVALID;
 	h.streamer.capture_placement_reserve(cut);
 	CHECK_FALSE(t.placement_reserve_measured);
 	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
 	cut.status = gs_hlod_runtime::CutHistory::UNAVAILABLE; // A loading selection still measures headroom.
 	h.streamer.capture_placement_reserve(cut);
 	CHECK(t.placement_reserve_measured);
 	h.streamer.begin_frame(); // No selection follows this frame.
 	CHECK_FALSE(t.placement_reserve_measured);
 	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
 	h.streamer.capture_placement_reserve(cut);
 	h.streamer.shutdown();
 	CHECK_FALSE(t.placement_reserve_measured);
 	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
 	h.streamer.capture_placement_reserve(cut); // An inactive streamer cannot resurrect the observation.
 	CHECK_FALSE(t.placement_reserve_measured);
 	if (!h.streamer.init(h.fixture.snapshot, h.config, h.world, h.device)) { FAIL("streamer reinitialization failed"); return; }

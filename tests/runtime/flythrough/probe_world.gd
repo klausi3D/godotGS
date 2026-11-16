@@ -119,6 +119,7 @@ const HLOD_PRESSURE_FIELDS := [
 	["hlod_stream_allocation_other_total", "q"],
 	["hlod_stream_closure_measured", "q"], ["hlod_stream_demanded_closure_pages", "q"],
 	["hlod_stream_placement_reserve_pages", "q"],
+	["hlod_stream_placement_reserve_state", "q"], # 1 measured, 0 unprepared fallback, -1/null absent.
 	["hlod_stream_bootstrap_bypass_pages", "q"], ["hlod_stream_resident_refinement_bypass_pages", "q"],
 	["hlod_stream_bootstrap_bypass_over_budget", "q"], ["hlod_stream_resident_refinement_bypass_over_budget", "q"],
 	["hlod_stream_page_budget", "q"],

@@ -1371,7 +1371,7 @@ TEST_CASE("[GaussianSplatting][HLOD] direct cut telemetry preserves the streamer
 	}
 }
 
-TEST_CASE("[GaussianSplatting][HLOD] placement reserve cache excludes stale nodes and fails closed before preparation (#1483)") {
+TEST_CASE("[GaussianSplatting][HLOD] placement reserve cache excludes stale nodes and unprepared snapshots still draw (#1483)") {
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data);
 	data.nodes.write[0].topology.payload_count = 5000; // Larger than every live node, but stale after an edit.
@@ -1394,13 +1394,90 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve cache excludes stale node
 	CHECK(cut.placement_reason == gs_hlod_runtime::CutHistory::PLACEMENT_NONE);
 	data.placement_reserve_prepared = false;
 	const auto unprepared = history.select(data, r);
-	CHECK(unprepared.status == gs_hlod_runtime::CutHistory::INVALID);
-	CHECK(unprepared.selected_count == 0);
+	CHECK(unprepared.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(selected_of(history, unprepared) == std::vector<uint32_t>{ 1, 2 });
+	CHECK(unprepared.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED);
 	CHECK_FALSE(unprepared.placement_reserve_measured);
 	r.page_splats = 0;
 	const auto disabled = history.select(data, r);
 	CHECK(disabled.status == gs_hlod_runtime::CutHistory::COMPLETE);
 	CHECK_FALSE(disabled.placement_reserve_measured);
 	CHECK(disabled.placement_reserve_pages == 0);
+	CHECK(disabled.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] unprepared reserve preserves option-1 cut demand and physical page admission (#1483)") {
+	GaussianSplatHlodRuntimeData data;
+	placement_reserve_tree(data);
+	data.placement_reserve_prepared = false;
+	data.max_node_payload_count = UINT32_MAX; // An unprepared cache must never influence admission.
+	gs_hlod_runtime::CutHistory history, reference;
+	if (!history.reserve(3) || !reference.reserve(3)) { FAIL("cut workspaces unavailable"); return; }
+	auto r = placement_reserve_request();
+	uint8_t resident[3] = { 1, 1, 1 };
+	SUBCASE("ready children") {}
+	SUBCASE("missing children") { resident[1] = resident[2] = 0; }
+	r.resident = resident; r.resident_count = 3;
+	r.page_budget = 6; // Option 1 admits this exact physical fit: root 1 + children 2+3 pages.
+	const auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED);
+	CHECK_FALSE(cut.placement_reserve_measured);
+	CHECK(cut.placement_reserve_pages == 0);
+	CHECK(cut.page_budget == 6);
+	CHECK(cut.demanded_closure_pages == 6);
+	CHECK(cut.page_refused_groups == 0);
+	CHECK_FALSE(cut.budget_bound);
+	CHECK(cut.placement_reason == gs_hlod_runtime::CutHistory::PLACEMENT_NONE);
+	if (resident[1]) {
+		CHECK(selected_of(history, cut) == std::vector<uint32_t>{ 1, 2 });
+		CHECK(demand_of(history).empty());
+	} else {
+		CHECK(selected_of(history, cut) == std::vector<uint32_t>{ 0 });
+		CHECK(demand_of(history) == std::vector<uint32_t>{ 1, 2 });
+	}
+	r.page_splats = 0; // The physical-fit option-1 frontier also equals the page-disabled reference here.
+	const auto expected = reference.select(data, r);
+	CHECK(selected_of(history, cut) == selected_of(reference, expected));
+	CHECK(demand_of(history) == demand_of(reference));
+	r.page_splats = 1024;
+	r.page_budget = 5; // Fallback must still enforce pages; it is not disabled page admission.
+	const auto refused = history.select(data, r);
+	CHECK(refused.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(selected_of(history, refused) == std::vector<uint32_t>{ 0 });
+	CHECK(demand_of(history).empty());
+	CHECK(refused.demanded_closure_pages == 1);
+	CHECK(refused.page_refused_groups == 1);
+	CHECK(refused.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED);
+	CHECK(refused.placement_reason == gs_hlod_runtime::CutHistory::PLACEMENT_NONE);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] prepared zero placement reserve is measured and distinct from unprepared and absent (#1483)") {
+	GaussianSplatHlodRuntimeData data;
+	placement_reserve_tree(data);
+	// Zero-payload synthetic nodes exercise the zero encoding without claiming a valid on-disk world.
+	for (int64_t i = 0; i < data.nodes.size(); ++i) { data.nodes.write[i].topology.payload_count = 0; }
+	data.prepare_placement_reserve();
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	auto r = placement_reserve_request();
+	r.page_budget = 0;
+	const auto measured = history.select(data, r);
+	CHECK(measured.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(measured.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED);
+	CHECK(measured.placement_reserve_measured);
+	CHECK(measured.placement_reserve_pages == 0);
+	CHECK(selected_of(history, measured) == std::vector<uint32_t>{ 1, 2 });
+	data.placement_reserve_prepared = false;
+	const auto unprepared = history.select(data, r);
+	CHECK(unprepared.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(unprepared.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED);
+	CHECK_FALSE(unprepared.placement_reserve_measured);
+	CHECK(unprepared.placement_reserve_pages == 0);
+	CHECK(selected_of(history, unprepared) == std::vector<uint32_t>{ 1, 2 });
+	r.page_splats = 0;
+	const auto absent = history.select(data, r);
+	CHECK(absent.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
+	CHECK_FALSE(absent.placement_reserve_measured);
 }
 }

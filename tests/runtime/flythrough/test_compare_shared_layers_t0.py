@@ -1976,7 +1976,10 @@ class ComparisonContract(unittest.TestCase):
                                   "dropped_count": 10000, "sequence_gaps_total": 20000}},
             {"snapshot": {"values": []}, "settle_window": "malformed", "eviction_victims": None},
             *({"report_only": True, "snapshot": {"values": {"hlod_stream_placement_reserve_pages": value}}}
-              for value in (None, 0, 3, 999999, -1)))
+              for value in (None, 0, 3, 999999, -1)),
+            *({"report_only": True, "snapshot": {"values": {"hlod_stream_placement_reserve_state": state,
+                                                           "hlod_stream_placement_reserve_pages": pages}}}
+              for state, pages in ((None, 999999), (0, None), (0, 999999), (1, 0), (1, 999999))))
         for failure in (False, True):
             experiment = copy.deepcopy(self.experiment)
             if failure:
@@ -2010,11 +2013,18 @@ class ComparisonContract(unittest.TestCase):
                         self.assertIn("oversized_latch", markdown)
                         self.assertIn("10000 overwritten; 20000 unobserved", markdown)
 
-    def test_placement_reserve_diagnostics_table_distinguishes_absence_from_measured_zero(self):
+    def test_placement_reserve_diagnostics_table_distinguishes_absent_unprepared_and_measured_zero(self):
         # Report-only semantic receipts; no native capture or settlement evidence is claimed.
         key = "hlod_stream_placement_reserve_pages"
-        for values, expected in (({}, "not measured"), ({key: None}, "not measured"),
-                                 ({key: 0}, "0"), ({key: 3}, "3"), ({key: 999999}, "999999")):
+        state = "hlod_stream_placement_reserve_state"
+        for values, expected_state, expected in (({}, "not measured", "not measured"),
+                ({key: 0}, "not measured", "not measured"),
+                ({state: None, key: 9}, "not measured", "not measured"),
+                ({state: 0, key: None}, "unprepared", "not measured"),
+                ({state: 0, key: 9}, "unprepared", "not measured"),
+                ({state: 1, key: 0}, "measured", "0"), ({state: 1, key: 3}, "measured", "3"),
+                ({state: 1, key: 999999}, "measured", "999999"),
+                ({state: 1}, "not measured", "not measured")):
             with self.subTest(values=values):
                 receipt = {"report_only": True, "snapshot": {"values": values}}
                 report = {"hlod_pressure_report": {"hlod": {"checkpoints": [
@@ -2023,11 +2033,13 @@ class ComparisonContract(unittest.TestCase):
                 headers = next(line for line in markdown.splitlines() if line.startswith("| arm / checkpoint |"))
                 columns = [cell.strip().lower() for cell in headers.split("|")[1:-1]]
                 self.assertIn("placement reserve pages", columns)
+                self.assertIn("placement reserve state", columns)
                 rows = [line for line in markdown.splitlines() if line.startswith("| hlod / C5 pass 0 |")]
                 self.assertEqual(len(rows), 1)
                 cells = [cell.strip() for cell in rows[0].split("|")[1:-1]]
                 self.assertEqual(len(cells), len(columns))
                 self.assertEqual(cells[columns.index("placement reserve pages")], expected)
+                self.assertEqual(cells[columns.index("placement reserve state")], expected_state)
 
     def test_pressure_variant_without_pressure_evidence_is_a_named_non_pass(self):
         def teleports(arm):
