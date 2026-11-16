@@ -459,7 +459,14 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 	out["transport_generation"] = int64_t(counters.source_generation);
 	out["stage_time_scope"] = "worker_cpu_sum";
 	out["read_time_scope"] = "reader_wall_sum";
-	out["verify_scope"] = p_route == "hlod" ? "gsq_header_and_stored_digest_inside_v4_record" : "gsq_header_and_stored_digest";
+	out["verify_scope"] = p_route == "hlod" ? "gsq_header_parse_only_stored_bytes_covered_by_v4_record_digest" : "gsq_header_and_stored_digest";
+	if (p_route == "hlod") {
+		out["record_verify_nsec"] = int64_t(counters.record_verify_nsec - collection_base.record_verify_nsec);
+		out["record_verify_scope"] = "v4_record_envelope_sha256_and_optional_payload_validation_worker_cpu_sum";
+		out["node_load_nsec"] = int64_t(counters.node_load_nsec - collection_base.node_load_nsec);
+		out["node_load_scope"] = "successful_runtime_node_load_wall_sum_including_io_wait";
+		out["nodes_loaded"] = int64_t(counters.nodes_loaded - collection_base.nodes_loaded);
+	}
 	struct Counter {
 		const char *name;
 		uint64_t Stats::*member;
@@ -473,6 +480,7 @@ Dictionary PayloadPageStore::get_telemetry(const String &p_route) const {
 		{ "page_failures", &Stats::page_failures }, { "stored_bytes_read", &Stats::stored_bytes_read },
 		{ "digest_verification_failures", &Stats::digest_verification_failures },
 		{ "verify_nsec", &Stats::verify_nsec }, { "decode_nsec", &Stats::decode_nsec },
+		{ "pages_stored_digest_covered_by_record", &Stats::pages_stored_digest_covered_by_record },
 		{ "pages_decoded_digest_checked", &Stats::pages_decoded_digest_checked },
 		{ "pages_decoded_digest_skipped", &Stats::pages_decoded_digest_skipped },
 		{ "pages_decoded_digest_unavailable", &Stats::pages_decoded_digest_unavailable },
@@ -694,7 +702,8 @@ Error PayloadPageStore::decode_gsq_page(const StoredPage &p_page, DecoderLease &
 }
 
 Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLease &p_decoder, uint32_t p_offset,
-		uint32_t p_count, uint32_t p_sh_degree, Gaussian *r_gaussians, Vector3 *r_sh, String &r_reason) {
+		uint32_t p_count, uint32_t p_sh_degree, Gaussian *r_gaussians, Vector3 *r_sh, String &r_reason,
+		bool p_enclosing_digest_verified) {
 	r_reason = String();
 	bool valid_owner;
 	{
@@ -722,7 +731,8 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 	const uint64_t page_bytes = error == OK ? stored - p_offset : 0;
 	gs_gsq::PageInfo info;
 	if (error == OK) {
-		error = gs_gsq::verify_page(bytes, page_bytes, info, r_reason);
+		error = p_enclosing_digest_verified ? gs_gsq::parse_page_header(bytes, page_bytes, info, r_reason)
+										   : gs_gsq::verify_page(bytes, page_bytes, info, r_reason);
 	}
 	const uint64_t verify_nsec = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - decode_begin).count());
@@ -753,6 +763,7 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 		MutexLock lock(mutex);
 		counters.pages_verified++;
 		counters.pages_decoded++;
+		if (p_enclosing_digest_verified) { counters.pages_stored_digest_covered_by_record++; }
 		counters.splats_decoded += p_count;
 		counters.decode_nsec += decode_nsec;
 		counters.verify_nsec += verify_nsec;
@@ -766,6 +777,13 @@ Error PayloadPageStore::decode_gsq_subrange(const StoredPage &p_page, DecoderLea
 		}
 	}
 	return OK;
+}
+
+void PayloadPageStore::record_node_load(uint64_t p_record_verify_nsec, uint64_t p_node_load_nsec) {
+	MutexLock lock(mutex);
+	counters.record_verify_nsec += p_record_verify_nsec;
+	counters.node_load_nsec += p_node_load_nsec;
+	counters.nodes_loaded++;
 }
 
 void PayloadPageStore::record_decoded_content(uint64_t p_id, const Gaussian *p_gaussians, const Vector3 *p_sh,

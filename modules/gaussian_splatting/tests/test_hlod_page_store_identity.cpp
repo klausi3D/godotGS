@@ -4,8 +4,11 @@ extern "C" int test_hlod_page_store_identity_cpp_force_link() { return 0; }
 #include "../io/gs_payload_page_store.h"
 #include "../renderer/hlod_node_pack.h"
 #include "core/config/project_settings.h"
+#include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
+#include "core/io/marshalls.h"
 
+#include <cstddef>
 #include <cstring>
 
 namespace TestHlodPageStoreIdentity {
@@ -182,12 +185,24 @@ static void identity(bool p_gsq, bool p_store_path) {
 			FAIL("D3-2 GSQ V4 reads must use and return common-store decoder leases and count every verified decoded node");
 			return;
 		}
+		// The telemetry collection follows source replacement; cumulative worker
+		// counters must not leak into the next source's per-page-in arithmetic.
+		if (fixture.source->install_in_page_store(store, 2) != OK) {
+			FAIL("runtime verification counters require a fresh source collection");
+			return;
+		}
+		const Dictionary fresh = store.get_telemetry("hlod");
+		CHECK(int64_t(fresh.get("record_verify_nsec", -1)) == 0);
+		CHECK(int64_t(fresh.get("node_load_nsec", -1)) == 0);
+		CHECK(int64_t(fresh.get("nodes_loaded", -1)) == 0);
+		CHECK(int64_t(fresh.get("pages_stored_digest_covered_by_record", -1)) == 0);
+		CHECK(store.stats().reads.completed_ok == stats.reads.completed_ok);
 	}
 }
 
-enum Corruption { ENVELOPE, CONTENT_GENERATION, STORED_BODY };
+enum Corruption { ENVELOPE, CONTENT_GENERATION, STORED_BODY, GSQ_DIGEST_FIELD, GSQ_FRAME, GSQ_RESEALED_FRAME, TRUNCATED };
 
-static bool corrupt_record(bool p_gsq, bool p_store_path, Corruption p_corruption) {
+static bool corrupt_record(bool p_gsq, bool p_store_path, Corruption p_corruption, bool p_full_validation = true) {
 	TestHlodPageStore::Fixture fixture;
 	if (!fixture.build(p_gsq)) {
 		return false;
@@ -198,6 +213,7 @@ static bool corrupt_record(bool p_gsq, bool p_store_path, Corruption p_corruptio
 	}
 	PayloadPageStore store;
 	if (p_store_path) {
+		fixture.source->_test_set_runtime_full_payload_validation(p_full_validation);
 		PayloadPageStore::Config config;
 		config.reader_count = 1;
 		config.max_bytes_in_flight = 8u * 1024u * 1024u;
@@ -224,9 +240,40 @@ static bool corrupt_record(bool p_gsq, bool p_store_path, Corruption p_corruptio
 	}
 	// Mutate actual production output after source/catalog capture. Header magic,
 	// stamp and stored digest exercise three independent base V4 refusal rules.
-	const uint64_t within_record = p_corruption == ENVELOPE ? 0u :
-			(p_corruption == CONTENT_GENERATION ? 32u : body);
-	bytes.ptrw()[record.offset + within_record] ^= 1u;
+	if (p_corruption == TRUNCATED) {
+		if (!gs_resize_or_fail(bytes, record.offset + record.stored_bytes - 1u, "runtime truncated record")) {
+			FAIL("could not truncate the isolated runtime record fixture");
+			return false;
+		}
+	} else {
+		uint64_t within_record = p_corruption == ENVELOPE ? 0u :
+				(p_corruption == CONTENT_GENERATION ? 32u : body);
+		if (p_corruption == GSQ_DIGEST_FIELD || p_corruption == GSQ_FRAME || p_corruption == GSQ_RESEALED_FRAME) {
+			within_record = body + (p_corruption == GSQ_DIGEST_FIELD ? 32u : gs_gsq::kPageHeaderBytes);
+			if (!p_gsq || within_record >= record.stored_bytes) {
+				FAIL("runtime GSQ corruption requires a stored page header and frame");
+				return false;
+			}
+		}
+		bytes.ptrw()[record.offset + within_record] ^= 1u;
+		if (p_corruption == GSQ_RESEALED_FRAME) {
+			// Deliberately repair the inner digest only: verify_page must accept
+			// this page, while the unchanged V4 digest must still refuse it.
+			uint8_t *page = bytes.ptrw() + record.offset + body;
+			const uint64_t page_bytes = record.stored_bytes - body;
+			CryptoCore::SHA256Context hash;
+			hash.start();
+			hash.update(page, 32u);
+			hash.update(page + gs_gsq::kHeaderBytes, page_bytes - gs_gsq::kHeaderBytes);
+			hash.finish(page + 32u);
+			gs_gsq::PageInfo info;
+			String inner_reason;
+			if (gs_gsq::verify_page(page, page_bytes, info, inner_reason) != OK) {
+				FAIL("resealed GSQ page must pass its inner stored-digest check: ", inner_reason.utf8().get_data());
+				return false;
+			}
+		}
+	}
 	{
 		Ref<FileAccess> file = FileAccess::open(fixture.path, FileAccess::WRITE);
 		if (file.is_null()) {
@@ -254,13 +301,18 @@ static bool corrupt_record(bool p_gsq, bool p_store_path, Corruption p_corruptio
 	const Error error = p_store_path ? fixture.source->read_node_payload_from_store(store, 17, 1, 0,
 			gaussians, sh, reason) : fixture.source->read_node_payload(0, gaussians, sh, reason);
 	const String expected = p_corruption == ENVELOPE ? "v4_payload_record_header_mismatch" :
-			(p_corruption == CONTENT_GENERATION ? "v4_content_generation_mismatch" : "v4_payload_digest_mismatch");
-	if (error != ERR_FILE_CORRUPT || reason != expected || !gaussians.is_empty() || !sh.is_empty()) {
+			(p_corruption == CONTENT_GENERATION ? "v4_content_generation_mismatch" :
+					(p_corruption == TRUNCATED ? "v4_payload_truncated" : "v4_payload_digest_mismatch"));
+	const Error expected_error = p_corruption == TRUNCATED ? ERR_FILE_EOF : ERR_FILE_CORRUPT;
+	if (error != expected_error || reason != expected || !gaussians.is_empty() || !sh.is_empty()) {
 		FAIL("D3-2 V4 transport must preserve the base envelope/stamp/digest refusal and clear existing output: expected ",
 				expected.utf8().get_data(), "; got ", reason.utf8().get_data());
 		return false;
 	}
 	if (p_store_path) {
+		const Dictionary telemetry = store.get_telemetry("hlod");
+		CHECK(int64_t(telemetry.get("pages_decoded", -1)) == 0);
+		CHECK(int64_t(telemetry.get("pages_stored_digest_covered_by_record", -1)) == 0);
 		const PayloadPageStore::Stats stats = store.stats();
 		if (stats.live_reservations != 0 || stats.reservations_acquired != stats.reservations_released ||
 				stats.retained_bytes != 0 || stats.decoders_leased != 0) {
@@ -269,6 +321,120 @@ static bool corrupt_record(bool p_gsq, bool p_store_path, Corruption p_corruptio
 		}
 	}
 	return true;
+}
+
+static bool write_package_bytes(const String &p_path, const Vector<uint8_t> &p_bytes) {
+	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
+	if (file.is_null()) {
+		FAIL("runtime verification test could not open its isolated package for writing");
+		return false;
+	}
+	if (!file->store_buffer(p_bytes.ptr(), p_bytes.size())) {
+		FAIL("runtime verification test could not write its isolated package");
+		return false;
+	}
+	file->flush();
+	if (file->get_error() != OK) {
+		FAIL("runtime verification test could not flush its isolated package");
+		return false;
+	}
+	return true;
+}
+
+static void sha256(const uint8_t *p_bytes, uint64_t p_size, uint8_t *r_digest) {
+	CryptoCore::SHA256Context hash;
+	hash.start();
+	hash.update(p_bytes, p_size);
+	hash.finish(r_digest);
+}
+
+static void digest_consistent_invalid_payload() {
+	TestHlodPageStore::Fixture fixture;
+	if (!fixture.build(false)) {
+		return;
+	}
+	if (fixture.source.is_null() || fixture.source->get_nodes().is_empty()) {
+		FAIL("semantic validation test requires a writer-produced raw node");
+		return;
+	}
+	Error read_error = ERR_BUG;
+	Vector<uint8_t> bytes = FileAccess::get_file_as_bytes(fixture.path, &read_error);
+	const GaussianSplatHlodPagedSource::NodeRecord &record = fixture.source->get_nodes()[0];
+	if (read_error != OK || uint64_t(bytes.size()) < gs_world_paged::kHeaderBytes ||
+			record.offset > uint64_t(bytes.size()) || record.stored_bytes > uint64_t(bytes.size()) - record.offset ||
+			record.stored_bytes < gs_world_paged::kPayloadRecordHeaderBytes + sizeof(Gaussian)) {
+		FAIL("semantic validation fixture must contain a complete raw record and header");
+		return;
+	}
+	const uint64_t index = decode_uint64(bytes.ptr() + 112u);
+	const uint64_t page_count = decode_uint64(bytes.ptr() + 120u);
+	const uint64_t records_bytes = uint64_t(fixture.node_count) * gs_world_paged::kIndexRecordBytes;
+	if (page_count != 1u || fixture.node_count > gs_world_paged::kRecordsPerIndexPage ||
+			index > uint64_t(bytes.size()) || gs_world_paged::kIndexPageHeaderBytes + records_bytes > uint64_t(bytes.size()) - index) {
+		FAIL("semantic validation reseal helper requires the fixture's single complete index page");
+		return;
+	}
+	// A malformed-input construction derived from real producer output. Repair
+	// every digest, so only semantic validation can reject the NaN opacity.
+	const uint64_t opacity = record.offset + gs_world_paged::kPayloadRecordHeaderBytes + offsetof(Gaussian, opacity);
+	encode_uint32(0x7fc00000u, bytes.ptrw() + opacity);
+	const uint64_t index_record = index + gs_world_paged::kIndexPageHeaderBytes;
+	sha256(bytes.ptr() + record.offset, record.stored_bytes, bytes.ptrw() + index_record + 192u);
+	sha256(bytes.ptr() + index_record, records_bytes, bytes.ptrw() + index + 32u);
+	sha256(bytes.ptr() + index + 32u, 32u, bytes.ptrw() + 176u);
+	sha256(bytes.ptr(), gs_world_paged::kHeaderBytes - 32u, bytes.ptrw() + gs_world_paged::kHeaderBytes - 32u);
+	if (!write_package_bytes(fixture.path, bytes)) {
+		return;
+	}
+	Ref<GaussianSplatHlodPagedSource> source;
+	source.instantiate();
+	if (source.is_null()) {
+		FAIL("semantic validation test could not allocate a source");
+		return;
+	}
+	GaussianSplatHlodTree tree;
+	Dictionary metadata;
+	String reason;
+	if (source->open(fixture.path, tree, metadata, reason) != OK) {
+		FAIL("digest-consistent semantic fixture must open before loading a node: ", reason.utf8().get_data());
+		return;
+	}
+	PayloadPageStore store;
+	PayloadPageStore::Config config;
+	config.reader_count = 1;
+	config.max_idle_handles = 0;
+	config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+	source->_test_set_runtime_full_payload_validation(true);
+	if (store.start(config) != OK || source->install_in_page_store(store, 1) != OK) {
+		FAIL("semantic validation test requires an installed runtime source");
+		return;
+	}
+	Vector<Gaussian> gaussians;
+	Vector<Vector3> sh;
+	// Explicit ON exercises semantic rejection independently of global settings.
+	CHECK(source->read_node_payload_from_store(store, 17, 1, 0, gaussians, sh, reason) == ERR_FILE_CORRUPT);
+	CHECK(reason.begins_with("v4_payload_invalid: "));
+	CHECK(gaussians.is_empty());
+	CHECK(sh.is_empty());
+	source->_test_set_runtime_full_payload_validation(false);
+	if (source->read_node_payload_from_store(store, 17, 2, 0, gaussians, sh, reason) != OK ||
+			gaussians.size() != fixture.splats_per_node) {
+		FAIL("explicitly disabled semantic validation must expose the digest-consistent payload: ", reason.utf8().get_data());
+		return;
+	}
+	uint32_t opacity_bits = 0;
+	std::memcpy(&opacity_bits, &gaussians[0].opacity, sizeof(opacity_bits));
+	CHECK(opacity_bits == 0x7fc00000u);
+	// The runtime override must never weaken the offline/import reader.
+	CHECK(source->read_node_payload(0, gaussians, sh, reason) == ERR_FILE_CORRUPT);
+	CHECK(reason.begins_with("v4_payload_invalid: "));
+	CHECK(gaussians.is_empty());
+	CHECK(sh.is_empty());
+	source->_test_set_runtime_full_payload_validation(true);
+	CHECK(source->read_node_payload_from_store(store, 17, 3, 0, gaussians, sh, reason) == ERR_FILE_CORRUPT);
+	CHECK(reason.begins_with("v4_payload_invalid: "));
+	CHECK(gaussians.is_empty());
+	CHECK(sh.is_empty());
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3StoreIdentity] codec-none base payload and raw/quantized records match independent goldens") {
@@ -315,6 +481,85 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][RuntimeVerify] full runti
 	const Variant initial = settings->property_get_revert(key);
 	CHECK(initial.get_type() == Variant::BOOL);
 	CHECK(bool(initial));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][RuntimeVerify] cheap GSQ runtime loads reject all record-byte corruption without output") {
+	for (Corruption corruption : { ENVELOPE, GSQ_DIGEST_FIELD, GSQ_FRAME, GSQ_RESEALED_FRAME }) {
+		CAPTURE(corruption);
+		if (!corrupt_record(true, true, corruption, false)) {
+			return;
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][RuntimeVerify] cheap runtime loads reject a short record without a file-size preflight") {
+	for (bool gsq : { false, true }) {
+		CAPTURE(gsq);
+		if (!corrupt_record(gsq, true, TRUNCATED, false)) {
+			return;
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][RuntimeVerify] appended bytes cannot change a runtime node and offline length checks remain strict") {
+	for (bool gsq : { false, true }) {
+		CAPTURE(gsq);
+		TestHlodPageStore::Fixture fixture;
+		if (!fixture.build(gsq)) {
+			return;
+		}
+		if (fixture.source.is_null()) {
+			FAIL("appended-byte test requires its writer-produced source");
+			return;
+		}
+		PayloadPageStore store;
+		PayloadPageStore::Config config;
+		config.reader_count = 1;
+		config.max_idle_handles = 0;
+		config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+		fixture.source->_test_set_runtime_full_payload_validation(false);
+		if (store.start(config) != OK || fixture.source->install_in_page_store(store, 1) != OK) {
+			FAIL("appended-byte test requires an installed runtime source");
+			return;
+		}
+		Error read_error = ERR_BUG;
+		Vector<uint8_t> bytes = FileAccess::get_file_as_bytes(fixture.path, &read_error);
+		if (read_error != OK || bytes.is_empty()) {
+			FAIL("appended-byte test must read the original package");
+			return;
+		}
+		if (!gs_resize_or_fail(bytes, uint64_t(bytes.size()) + 1u, "runtime appended byte")) {
+			FAIL("appended-byte test could not grow the isolated package");
+			return;
+		}
+		bytes.ptrw()[bytes.size() - 1] = 0xa5u;
+		if (!write_package_bytes(fixture.path, bytes)) {
+			return;
+		}
+		Vector<Gaussian> actual, expected;
+		Vector<Vector3> sh, expected_sh;
+		String reason;
+		for (uint32_t node = 0; node < fixture.node_count; ++node) {
+			CAPTURE(node);
+			if (fixture.source->read_node_payload_from_store(store, 17, node + 1u, node, actual, sh, reason) != OK ||
+					!fixture.expected_payload(node, expected, expected_sh)) {
+				FAIL("appending bytes outside the installed catalog must preserve the runtime node: ", reason.utf8().get_data());
+				return;
+			}
+			// Includes leaves: disabling checks must retain centre reconstruction.
+			if (!check_packed(fixture, node, actual, sh, expected, expected_sh)) {
+				return;
+			}
+		}
+		CHECK(fixture.source->read_node_payload(0, actual, sh, reason) == ERR_FILE_CORRUPT);
+		CHECK(reason == "v4_file_changed_length");
+		CHECK(actual.is_empty());
+		CHECK(sh.is_empty());
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][RuntimeVerify] semantic validation rejects a digest-consistent invalid payload and remains mandatory offline") {
+	digest_consistent_invalid_payload();
 }
 
 } // namespace TestHlodPageStoreIdentity

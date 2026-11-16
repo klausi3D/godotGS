@@ -24,8 +24,9 @@
 // centre); read_node_payload() hands the runtime the same absolute float32 leaf positions the resident load
 // produces, so a node packs bit-identically whichever way it was read.
 //
-// Integrity metadata never replaces semantic validation: every page and record is hashed AND its topology,
-// finiteness, bounds and metrics are re-derived and compared. Failures carry a distinct reason string.
+// Offline reads always re-derive payload finiteness, bounds and metrics. Runtime
+// reads do so by default; the install-time setting can explicitly disable those
+// checks. Record integrity and structural/header checks are always enforced.
 
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_hlod_tree.h"
@@ -131,7 +132,8 @@ bool validate_node_payload(const double p_cell_center[3], uint32_t p_sh_high_ord
 
 } // namespace gs_world_paged
 
-// An open V4 package. Immutable after open(); both read methods are thread-safe.
+// An open V4 package. Catalog immutable after open(); both read methods are
+// thread-safe. Runtime validation policy is snapshotted at first installation.
 // Offline reads retain the independent direct-file path. Runtime workers use the
 // renderer-owned common store's transport and transient exclusive decoder leases.
 class GaussianSplatHlodPagedSource : public RefCounted {
@@ -194,8 +196,9 @@ public:
 	// drain; installing the immutable catalog never changes this source. GSQ uses
 	// one full-record descriptor; codec-none uses bounded read-service windows.
 	Error install_in_page_store(PayloadPageStore &p_store, uint64_t p_generation) const;
-	// Same validation and decoded-digest policy as read_node_payload(), with the
-	// supplied store owning transport, decoder leases and stage accounting.
+	// Record integrity is mandatory; full payload validation uses the install-time
+	// project setting (default true). Leaf reconstruction always runs. The supplied
+	// store owns transport, decoder leases and stage accounting.
 	// The caller owns this optional observer. Calls run on the reading worker,
 	// outside every store lock. Values describe allocated buffer capacities independently of
 	// reservation counters; stored bytes are announced before service submission
@@ -211,6 +214,12 @@ public:
 			ReadStorageObserver *p_observer = nullptr) const;
 
 	Stats get_stats() const;
+
+#ifdef TESTS_ENABLED
+	// Source-local override, independent of global project settings and preserved
+	// across installation. Atomic so it cannot race a worker's policy snapshot.
+	void _test_set_runtime_full_payload_validation(bool p_enabled);
+#endif
 
 	// Test seam: the largest payload record this package can ever read in one call.
 	uint64_t get_max_record_bytes() const { return max_record_bytes; }
@@ -236,6 +245,10 @@ private:
 	// Guarded by decoder_mutex. Once installed for runtime, even concurrent
 	// offline leases return without retaining uncharged idle scratch.
 	mutable bool runtime_installed = false;
+	mutable std::atomic<bool> runtime_full_payload_validation{ true };
+#ifdef TESTS_ENABLED
+	bool runtime_validation_overridden = false; // decoder_mutex.
+#endif
 	gs_gsq::DecodeContext *_lease_decoder() const;
 	void _return_decoder(gs_gsq::DecodeContext *p_decoder) const;
 	bool opened = false;

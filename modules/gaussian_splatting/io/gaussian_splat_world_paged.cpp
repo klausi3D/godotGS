@@ -8,12 +8,14 @@
 #include "gs_payload_page_store.h"
 #include "gsq/gsq_codec.h"
 
+#include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
 #include "core/math/math_funcs.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -937,6 +939,16 @@ Error GaussianSplatHlodPagedSource::install_in_page_store(PayloadPageStore &p_st
 		// contexts. Do not carry that cached scratch into a runtime bundle outside
 		// its reservations. No store lock is held while taking decoder_mutex.
 		MutexLock lock(decoder_mutex);
+		if (!runtime_installed) {
+#ifdef TESTS_ENABLED
+			if (!runtime_validation_overridden)
+#endif
+			{
+				ProjectSettings *settings = ProjectSettings::get_singleton();
+				runtime_full_payload_validation.store(settings == nullptr || bool(settings->get_setting(
+						"rendering/gaussian_splatting/hlod/runtime_full_payload_validation", true)));
+			}
+		}
 		runtime_installed = true;
 		for (gs_gsq::DecodeContext *idle : idle_decoders) {
 			memdelete(idle);
@@ -946,9 +958,24 @@ Error GaussianSplatHlodPagedSource::install_in_page_store(PayloadPageStore &p_st
 	return p_store.replace_source(path, p_generation, pages, uint64_t(get_instance_id()));
 }
 
+#ifdef TESTS_ENABLED
+void GaussianSplatHlodPagedSource::_test_set_runtime_full_payload_validation(bool p_enabled) {
+	MutexLock lock(decoder_mutex);
+	runtime_validation_overridden = true;
+	runtime_full_payload_validation.store(p_enabled);
+}
+#endif
+
 Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStore &p_store,
 		uint64_t p_requester, uint64_t p_ticket, uint32_t p_node, Vector<Gaussian> &r_gaussians,
 		Vector<Vector3> &r_sh, String &r_reason, ReadStorageObserver *p_observer) const {
+	const auto load_begin = std::chrono::steady_clock::now();
+	const bool full_validation = runtime_full_payload_validation.load();
+	uint64_t record_verify_nsec = 0;
+	auto add_verify_time = [&](std::chrono::steady_clock::time_point p_begin) {
+		record_verify_nsec += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - p_begin).count());
+	};
 	r_gaussians.clear();
 	r_sh.clear();
 	p_store.begin_capture();
@@ -993,15 +1020,9 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		return fail(ERR_FILE_CORRUPT, "v4_payload_record_size_inconsistent");
 	}
 	stored = rec.stored_bytes;
-	// Match the offline reader's length-before-record validation without opening
-	// another payload reader. The common service is the sole payload transport.
-	const int64_t file_bytes = FileAccess::get_size(path);
-	if (file_bytes < 0) {
-		return fail(ERR_FILE_CANT_OPEN, "v4_cannot_reopen");
-	}
-	if (uint64_t(file_bytes) != info.file_bytes) {
-		return fail(ERR_FILE_CORRUPT, "v4_file_changed_length");
-	}
+	// The catalog was length-checked at open. A short record is refused below,
+	// changed record bytes by the outer digest. Appended bytes are outside the
+	// immutable catalog and cannot affect this node; avoid reopening for get_size.
 	auto read_page = [&](const PayloadPageStore::PageDescriptor &p_descriptor) -> Error {
 		// Includes CowData's rounded capacity and both allocation headers. The
 		// caller resets the previous page before another request can allocate.
@@ -1023,6 +1044,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		return OK;
 	};
 	auto validate_envelope = [&](const uint8_t *p_head) -> Error {
+		const auto verify_begin = std::chrono::steady_clock::now();
 		In in(p_head);
 		const uint32_t magic = in.u32();
 		const uint32_t node = in.u32();
@@ -1041,11 +1063,15 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		if (gen != info.content_generation) {
 			return fail(ERR_FILE_CORRUPT, "v4_content_generation_mismatch");
 		}
+		add_verify_time(verify_begin);
 		return OK;
 	};
+	const auto hash_begin = std::chrono::steady_clock::now();
 	CryptoCore::SHA256Context ctx;
 	ctx.start();
+	add_verify_time(hash_begin);
 	auto verify_record_digest = [&]() -> Error {
+		const auto verify_begin = std::chrono::steady_clock::now();
 		uint8_t digest[32];
 		ctx.finish(digest);
 		// Preserve node-level source telemetry; store counters count the actual
@@ -1058,6 +1084,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		if (memcmp(digest, rec.digest, sizeof(digest)) != 0) {
 			return fail(ERR_FILE_CORRUPT, "v4_payload_digest_mismatch");
 		}
+		add_verify_time(verify_begin);
 		return OK;
 	};
 	auto allocate_decoded = [&]() -> Error {
@@ -1081,7 +1108,9 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		const uint8_t *head = page.get_bytes().ptr();
 		error = validate_envelope(head);
 		if (error != OK) { return error; }
+		const auto verify_begin = std::chrono::steady_clock::now();
 		ctx.update(head, size_t(stored));
+		add_verify_time(verify_begin);
 		error = verify_record_digest();
 		if (error != OK) { return error; }
 		error = allocate_decoded();
@@ -1093,7 +1122,7 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 			return fail(error, "v4_cannot_allocate_payload");
 		}
 		error = p_store.decode_gsq_subrange(page, decoder, uint32_t(kPayloadRecordHeaderBytes), count,
-				info.sh_degree, r_gaussians.ptrw(), r_sh.ptrw(), why);
+				info.sh_degree, r_gaussians.ptrw(), r_sh.ptrw(), why, true);
 		if (error != OK) {
 			if (why == "gsq_page_layout_mismatch") {
 				return fail(ERR_FILE_CORRUPT, "v4_gsq_page_layout_mismatch");
@@ -1119,7 +1148,9 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 				error = allocate_decoded();
 				if (error != OK) { return error; }
 			}
+			const auto verify_begin = std::chrono::steady_clock::now();
 			ctx.update(window, descriptor.stored_bytes);
+			add_verify_time(verify_begin);
 			const uint64_t window_end = offset + descriptor.stored_bytes;
 			const uint64_t gaussian_begin = MAX(offset, kPayloadRecordHeaderBytes);
 			const uint64_t gaussian_copy_end = MIN(window_end, gaussian_end);
@@ -1139,26 +1170,36 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 		const Error error = verify_record_digest();
 		if (error != OK) { return error; }
 	}
-	// Same node-relative semantics, leaf reconstruction, and exact index metric
-	// comparisons as read_node_payload. V4 never imports chunk's BV-K9c policy.
-	if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {
-		return fail(ERR_FILE_CORRUPT, "v4_payload_invalid: " + why);
+	// Validation sees node-relative positions; reconstruction is a required
+	// transform even when the optional semantic checks are disabled.
+	if (full_validation) {
+		const auto verify_begin = std::chrono::steady_clock::now();
+		if (!validate_node_payload(rec.cell_center, record_high_order, rec.topology, r_gaussians.ptr(), r_sh.ptr(), why)) {
+			return fail(ERR_FILE_CORRUPT, "v4_payload_invalid: " + why);
+		}
+		add_verify_time(verify_begin);
 	}
 	if (rec.is_leaf) {
 		reconstruct_leaf_positions(r_gaussians.ptrw(), count, rec.cell_center);
 	}
-	NodeMetrics metrics;
-	if (!compute_node_metrics(r_gaussians.ptr(), count, rec.cell_center, rec.is_leaf, metrics, why)) {
-		return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_invalid");
-	}
-	if (metrics.footprint != rec.metrics.footprint || metrics.dc_encoding != rec.metrics.dc_encoding ||
-			metrics.homogeneous_dc != rec.metrics.homogeneous_dc || metrics.center_exact != rec.metrics.center_exact) {
-		return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_mismatch");
+	if (full_validation) {
+		const auto verify_begin = std::chrono::steady_clock::now();
+		NodeMetrics metrics;
+		if (!compute_node_metrics(r_gaussians.ptr(), count, rec.cell_center, rec.is_leaf, metrics, why)) {
+			return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_invalid");
+		}
+		if (metrics.footprint != rec.metrics.footprint || metrics.dc_encoding != rec.metrics.dc_encoding ||
+				metrics.homogeneous_dc != rec.metrics.homogeneous_dc || metrics.center_exact != rec.metrics.center_exact) {
+			return fail(ERR_FILE_CORRUPT, "v4_payload_metrics_mismatch");
+		}
+		add_verify_time(verify_begin);
 	}
 	p_store.record_decoded_content(p_node, r_gaussians.ptr(), r_sh.ptr(), count, info.sh_degree);
 	release_transport();
 	r_reason = String();
 	p_store.end_capture(true, String());
+	p_store.record_node_load(record_verify_nsec, uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - load_begin).count()));
 	return OK;
 }
 
