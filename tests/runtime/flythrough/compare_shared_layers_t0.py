@@ -94,7 +94,7 @@ MIGRATION_FAILURES = ("hlod_stream_payload_read_failures_total", "hlod_stream_fa
 VARIANTS = ("unconstrained", "pressure")
 PRESSURE_ATLAS_SETTING = "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb"
 PRESSURE_ATLAS_BAND = (0.20, 0.25)
-PRESSURE_DRAWN_BUDGET_SPLATS = 250_000
+PRESSURE_DRAWN_BUDGET_SPLATS = 1_000_000  # SCRATCH #1483 A 1M proof only; never merged.
 PRESSURE_WORK = ("upload_completions", "upload_bytes", "read_completions", "pages_decoded")
 
 

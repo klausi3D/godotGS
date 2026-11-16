@@ -40,7 +40,7 @@ VARIANTS = ("unconstrained", "pressure")
 # Read by the HLOD publisher for the streamed atlas (DeviceVramLedger::atlas_limit); whole MiB.
 PRESSURE_ATLAS_SETTING = "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb"
 PRESSURE_ATLAS_FRACTION = (0.20, 0.25)  # Of the tree's pages (#1471).
-PRESSURE_DRAWN_BUDGET_SPLATS = 250_000  # Pressure-variant node cap; separate from D2's 1M oracle.
+PRESSURE_DRAWN_BUDGET_SPLATS = 1_000_000  # SCRATCH #1483 A 1M proof only; never merged.
 PRESSURE_PAGE_SPLATS = 1024  # HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS
 PRESSURE_RECORD_BYTES = 176  # sizeof(PackedGaussian); the lane keeps per-chunk quantization off.
 
