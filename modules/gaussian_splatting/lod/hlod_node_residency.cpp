@@ -578,7 +578,8 @@ bool NodeResidency::finish_upload(const Ticket &p_ticket, bool p_success) {
 	return true;
 }
 
-bool NodeResidency::fail_load(const Ticket &p_ticket) {
+bool NodeResidency::fail_load(const Ticket &p_ticket, FailureClass p_class) {
+	(void)p_class; // Stage 1: preserve the existing failure accounting for the RED tests.
 	if (!ticket_current(p_ticket, LOADING)) {
 		count_rejected_completion(p_ticket);
 		return false;

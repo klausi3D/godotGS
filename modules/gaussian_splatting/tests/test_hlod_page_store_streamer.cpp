@@ -433,6 +433,139 @@ static bool hold_gsq_workers(Harness &p_harness) {
 	return true;
 }
 
+static bool failure_root_descriptor(const TestHlodPageStore::Fixture &p_fixture, PayloadPageStore::PageDescriptor &r_page) {
+	if (p_fixture.source.is_null() || p_fixture.source->get_nodes().size() != 1) {
+		FAIL("failure-policy fixture requires one real V4 source record"); return false;
+	}
+	const auto &record = p_fixture.source->get_nodes()[0];
+	if (record.stored_bytes < 2 || record.stored_bytes > PayloadReadService::read_slice_bytes) {
+		FAIL("failure-policy fixture requires one complete codec-none read window"); return false;
+	}
+	r_page.id = 0;
+	r_page.offset = record.offset;
+	r_page.stored_bytes = uint32_t(record.stored_bytes);
+	r_page.splat_count = record.topology.payload_count;
+	r_page.sh_degree = p_fixture.degree;
+	memcpy(r_page.stored_digest, record.digest, sizeof(r_page.stored_digest));
+	return true;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] page store refusal errors distinguish invalid requests from temporary unavailability") {
+	TestHlodPageStore::Fixture fixture;
+	if (!fixture.build(false, 0, 32, 0)) { return; }
+	PayloadPageStore::PageDescriptor descriptor;
+	if (!failure_root_descriptor(fixture, descriptor)) { return; }
+	const PayloadReadService::SubmitResult refusals[] = {
+		PayloadReadService::SUBMIT_TOO_LARGE, PayloadReadService::SUBMIT_INVALID,
+		PayloadReadService::SUBMIT_NOT_RUNNING, PayloadReadService::SUBMIT_DUPLICATE_TICKET
+	};
+	for (auto refusal : refusals) {
+		INFO("native refusal: ", int(refusal));
+		PayloadPageStore store;
+		PayloadPageStore::Config config;
+		config.reader_count = 1;
+		config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+		config.max_bytes_in_flight = descriptor.stored_bytes - (refusal == PayloadReadService::SUBMIT_TOO_LARGE ? 1u : 0u);
+		if (store.start(config) != OK || fixture.source->install_in_page_store(store, 1) != OK) {
+			FAIL("refusal fixture could not install the real V4 catalog"); return;
+		}
+		if (refusal == PayloadReadService::SUBMIT_INVALID) {
+			// Install a different descriptor, so the adapter's real request cannot match.
+			LocalVector<PayloadPageStore::PageDescriptor> changed;
+			changed.push_back(descriptor);
+			++changed[0].offset;
+			if (store.replace_source(fixture.path, 2, changed) != OK) { FAIL("could not install mismatched catalog"); return; }
+		} else if (refusal == PayloadReadService::SUBMIT_NOT_RUNNING) {
+			store.shutdown();
+		} else if (refusal == PayloadReadService::SUBMIT_DUPLICATE_TICKET) {
+			if (store.request(17, 1, descriptor) != PayloadReadService::SUBMIT_OK) { FAIL("could not retain a live ticket"); return; }
+		}
+		if (store.request(17, 1, descriptor) != refusal) { FAIL("native page store did not produce the intended refusal"); return; }
+		Vector<Gaussian> gaussians;
+		Vector<Vector3> sh;
+		String why;
+		const Error error = fixture.source->read_node_payload_from_store(store, 17, 1, 0, gaussians, sh, why);
+		const bool permanent = refusal == PayloadReadService::SUBMIT_TOO_LARGE || refusal == PayloadReadService::SUBMIT_INVALID;
+		CHECK(error == (permanent ? ERR_INVALID_DATA : ERR_UNAVAILABLE));
+		CHECK(gs_hlod_runtime::classify_load_error(error) ==
+				(permanent ? gs_hlod_runtime::FAILURE_PERMANENT : gs_hlod_runtime::FAILURE_RETRY_LATER));
+		CHECK(why == "v4_page_store_request_refused");
+		CHECK(gaussians.is_empty());
+		CHECK(sh.is_empty());
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] a real busy page store reaches residency as retry later and recovers") {
+	// Keep one completed real page charged to a one-page store. This provokes
+	// SUBMIT_BUSY independently of worker timing, without a fault-injection hook.
+	TestHlodPageStore::Fixture fixture;
+	if (!fixture.build(false, 0, 32, 0)) { return; }
+	PayloadPageStore::PageDescriptor descriptor;
+	if (!failure_root_descriptor(fixture, descriptor) || !WorkerThreadPool::get_singleton()) {
+		FAIL("busy-streamer fixture requires its V4 descriptor and worker pool"); return;
+	}
+	PayloadPageStore store;
+	PayloadPageStore::Config store_config;
+	store_config.reader_count = 1;
+	store_config.max_bytes_in_flight = descriptor.stored_bytes;
+	store_config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+	store_config.decoder_retention_cap = 0;
+	if (store.start(store_config) != OK) { FAIL("busy fixture could not start its page store"); return; }
+	Streamer streamer;
+	Streamer::Config config;
+	config.atlas_pages = 1;
+	config.max_jobs_in_flight = 1;
+	if (streamer.init_with_page_store(fixture.snapshot, config, 21, 41, store) != OK) {
+		FAIL("busy fixture could not initialize the real streamer"); return;
+	}
+	Streamer::TestControl control;
+	control.cpu_upload_sink = true;
+	if (streamer._test_set_control(control) != OK) { FAIL("busy fixture could not enable the CPU upload sink"); return; }
+	PayloadPageStore::StoredPage held;
+	if (store.request(UINT64_MAX, 1, descriptor) != PayloadReadService::SUBMIT_OK ||
+			!store.wait(UINT64_MAX, 1, held) || held.get_error() != OK) {
+		FAIL("busy fixture could not retain its real completed page"); return;
+	}
+	CHECK(store.stats().caller_bytes == descriptor.stored_bytes);
+	Vector<Gaussian> gaussians;
+	Vector<Vector3> sh;
+	String why;
+	CHECK(fixture.source->read_node_payload_from_store(store, UINT64_MAX - 1, 1, 0, gaussians, sh, why) == ERR_BUSY);
+	gs_hlod_runtime::DesiredRecord demand;
+	demand.node = 0;
+	const auto step = [&]() {
+		streamer.begin_frame();
+		streamer.update(nullptr, Streamer::Buffers(), &demand, 1, nullptr, 0);
+	};
+	const auto refused = gs_pump_until([&]() {
+		step();
+		return streamer.get_residency().stats().failed_total != 0;
+	});
+	if (!refused.ready()) { FAIL("real busy store never reached the residency failure path"); return; }
+	const auto stats = streamer.get_residency().stats();
+	const auto telemetry = streamer.get_telemetry();
+	CHECK(store.stats().refused_retained_busy >= 2);
+	CHECK(stats.failed_total == 1);
+	CHECK(stats.failed_retry_later_total == 1);
+	CHECK(stats.failed_permanent_total == 0);
+	CHECK(stats.retry_later_waiting == 1);
+	CHECK(stats.permanently_failed == 0);
+	CHECK_FALSE(streamer.root_failed());
+	CHECK(telemetry.failed_total == stats.failed_total);
+	CHECK(telemetry.failed_retry_later_total == 1);
+	CHECK(telemetry.failed_permanent_total == 0);
+	CHECK(telemetry.retry_later_waiting == 1);
+	held.reset();
+	const auto recovered = gs_pump_until([&]() {
+		step();
+		return streamer.get_residency().state(0) == Residency::RESIDENT;
+	});
+	if (!recovered.ready()) { FAIL("releasing real store pressure never made the root resident"); return; }
+	CHECK(streamer.get_telemetry().retry_later_waiting == 0);
+	CHECK(streamer.get_telemetry().failed_retry_later_total == 1);
+	CHECK(streamer.get_telemetry().failed_permanent_total == 0);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] read admission telemetry names the unchanged predicate order") {
 	CHECK(Streamer::classify_admission_refusal(false, false, false, false) == Streamer::REFUSING_NONE);
 	CHECK(Streamer::classify_admission_refusal(true, true, true, true) == Streamer::REFUSING_OVERSIZED_LATCH);

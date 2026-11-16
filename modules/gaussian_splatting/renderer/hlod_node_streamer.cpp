@@ -307,6 +307,7 @@ HlodNodeStreamer::PackResult &HlodNodeStreamer::PackResult::operator=(PackResult
 		reservation.reset();
 		ticket = p_other.ticket;
 		ok = p_other.ok;
+		failure_class = p_other.failure_class;
 		source_instance_id = p_other.source_instance_id;
 		content_generation = p_other.content_generation;
 		reservation = std::move(p_other.reservation);
@@ -1822,6 +1823,7 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.loading = s.loading + s.uploading;
 	telemetry.failed = s.failed;
 	telemetry.permanently_failed = s.permanently_failed;
+	telemetry.retry_later_waiting = s.retry_later_waiting;
 	telemetry.pages_resident = s.pages_resident;
 	telemetry.pages_in_flight = s.pages_in_flight;
 	telemetry.pages_retiring = s.pages_retiring;
@@ -1830,6 +1832,8 @@ void HlodNodeStreamer::refresh_telemetry() {
 	telemetry.cancelled_total = s.cancelled_total;
 	telemetry.evicted_total = s.evicted_total;
 	telemetry.failed_total = s.failed_total;
+	telemetry.failed_permanent_total = s.failed_permanent_total;
+	telemetry.failed_retry_later_total = s.failed_retry_later_total;
 	telemetry.skipped_groups_total = s.skipped_groups_total;
 	telemetry.pressure_measured = s.pressure_measured;
 	telemetry.pages_free = s.pages_free;

@@ -371,7 +371,9 @@ class RunnerPlumbing(unittest.TestCase):
 
     def test_chunk_hlod_only_observations_are_scoped_as_inapplicable_never_zero(self):
         observed = shared.observations({"route": "chunk"}, 0)
-        for key in ("nonresident_drawn_nodes", "hlod_stream_failed_total", "hlod_stream_late_dropped_total"):
+        for key in ("nonresident_drawn_nodes", "hlod_stream_failed_total", "hlod_stream_late_dropped_total",
+                    "hlod_stream_failed_permanent_total", "hlod_stream_failed_retry_later_total",
+                    "hlod_stream_retry_later_waiting_nodes"):
             marker = observed["failures"][key]
             self.assertIs(marker["measured"], False)
             self.assertIs(marker["applicable"], False)
