@@ -28,6 +28,8 @@ import copy
 import math
 import os
 import re
+import subprocess
+import time
 import struct
 import sys
 import tempfile
@@ -1528,6 +1530,155 @@ class CoverageWiring(unittest.TestCase):
         wf = (ROOT / ".github" / "workflows" / "beyond_vram_flythrough.yml").read_text(encoding="utf-8")
         self.assertIn("name: beyond-vram-screenshots-", wf)
         self.assertIn("path: ${{ runner.temp }}/bvw-out/**/screenshots/", wf)
+
+
+def _rss_trace(times):
+    """Constructed: six-column trace rows at the given t_usec; the placement arithmetic is the point."""
+    fields = ["row", "engine_frame", "t_usec", "phase", "pass_index", "segment", "state"]
+    rows = [(i, 100 + i, t, 0, 0, 3 if i < 2 else 4, ps.STATE_MOVING) for i, t in enumerate(times)]
+    return ps.Trace(fields, "q" * len(fields), rows, 0)
+
+
+class RssTimeline(unittest.TestCase):
+    """#1466: the harness exported only the RSS peak, so a +1.9 GB peak could not be placed in time."""
+
+    GIB = 1 << 30
+
+    def test_the_os_high_water_mark_places_a_peak_no_poll_hit(self) -> None:
+        # Constructed sampler rows: the mark jumps to 4 GiB between 0.4 s and 0.6 s, while no polled
+        # RSS ever exceeds 2 GiB (the transient was allocated and released between two polls).
+        rows = [(0.2, 1 * self.GIB, 1 * self.GIB), (0.4, 2 * self.GIB, 2 * self.GIB),
+                (0.6, 2 * self.GIB, 4 * self.GIB), (0.8, 2 * self.GIB, 4 * self.GIB)]
+        out = ps.rss_timeline(rows, 1000.0, 0.2)
+        self.assertEqual(out["peak_window"]["status"], ps.OK)
+        self.assertEqual((out["peak_window"]["after_t_s"], out["peak_window"]["by_t_s"]), (0.4, 0.6))
+        self.assertEqual((out["peak_window"]["bytes"], out["peak_window"]["source"]), (4 * self.GIB, "os_high_water_mark"))
+        self.assertEqual((out["peak_sampled"]["t_s"], out["peak_sampled"]["rss_bytes"]), (0.4, 2 * self.GIB))
+        self.assertEqual(out["timeline"]["points"], [[t, rss] for t, rss, _ in rows])
+        self.assertEqual((out["timeline"]["t0_unix_s"], out["timeline"]["source_samples"]), (1000.0, 4))
+        # The mark already final at the first sample: the peak lies before it, from process start.
+        early = ps.rss_timeline([(0.2, 1, 9), (0.4, 1, 9)], 1000.0, 0.2)["peak_window"]
+        self.assertEqual((early["after_t_s"], early["by_t_s"]), (0.0, 0.2))
+
+    def test_without_the_mark_only_the_largest_poll_is_claimed(self) -> None:
+        rows = [(0.2, 5, None), (0.4, 9, None), (0.6, 7, None)]
+        window = ps.rss_timeline(rows, 1000.0, 0.2)["peak_window"]
+        self.assertEqual((window["after_t_s"], window["by_t_s"], window["bytes"], window["source"]),
+                         (0.4, 0.4, 9, "polled_sample"))
+        # One sample without the mark is enough to stop claiming an OS-located window.
+        mixed = ps.rss_timeline([(0.2, 5, 5), (0.4, 9, None)], 1000.0, 0.2)["peak_window"]
+        self.assertEqual(mixed["source"], "polled_sample")
+
+    def test_absent_or_malformed_samples_are_missing_never_zero(self) -> None:
+        for samples in ([], None, [(0.2, 5)], [(0.2, "5", 5)], [(0.4, 5, 5), (0.2, 6, 6)], [(float("nan"), 5, 5)]):
+            with self.subTest(samples=samples):
+                out = ps.rss_timeline(samples, 1000.0, 0.2)
+                for key in ("timeline", "peak_sampled", "peak_window"):
+                    self.assertEqual(out[key]["status"], ps.MISSING, key)
+                    self.assertIsNone(out[key]["value"], key)
+                    self.assertTrue(out[key]["reason"], key)
+                self.assertNotIn("points", out["timeline"])
+
+    def test_the_timeline_is_bounded_and_keeps_each_bucket_maximum(self) -> None:
+        rows = [(round(0.2 * (i + 1), 3), 1000 + (i * 37) % 101, 2000) for i in range(5000)]
+        rows[1234] = (rows[1234][0], 999_999, 2000)
+        out = ps.rss_timeline(rows, 1000.0, 0.2)
+        points = out["timeline"]["points"]
+        self.assertLessEqual(len(points), ps.RSS_TIMELINE_MAX_POINTS)
+        self.assertGreater(len(points), ps.RSS_TIMELINE_MAX_POINTS // 2)
+        self.assertIn([rows[1234][0], 999_999], points)
+        self.assertEqual(max(p[1] for p in points), max(r[1] for r in rows))
+        self.assertEqual([p[0] for p in points], sorted(p[0] for p in points))
+        self.assertEqual(out["timeline"]["source_samples"], 5000)
+
+    def location(self, window, times, **result):
+        rss = {"peak_window": {"status": ps.OK, "after_t_s": window[0], "by_t_s": window[1], "bytes": 7,
+                               "source": "os_high_water_mark"},
+               "timeline": {"status": ps.OK, "t0_unix_s": 1000.0, "points": [[0.2, 7]]}}
+        # The probe read its clocks 0.5 s after the sampler started: ticks 2,000,000 at unix 1000.5.
+        base = {"start_unix_s": 1000.5, "start_usec": 2_000_000, "apply_usec": 2_300_000}
+        base.update(result)
+        return ps.rss_peak_location(rss, {k: v for k, v in base.items() if v is not None}, _rss_trace(times))
+
+    def test_the_peak_window_maps_onto_the_rows_whose_frames_overlap_it(self) -> None:
+        # Sampler 1.0 s..1.2 s is probe ticks 2,500,000..2,700,000.
+        times = [2_400_000, 2_550_000, 2_650_000, 2_800_000, 2_900_000]
+        record = self.location((1.0, 1.2), times)
+        self.assertEqual(record["status"], ps.OK)
+        value = record["value"]
+        self.assertEqual(value["window_t_usec"], [2_500_000, 2_700_000])
+        self.assertEqual(value["position"], "within_trace")
+        # Row 1's frame (2.40 s..2.55 s) and row 3's (2.65 s..2.80 s) both overlap; row 0 ended before, row 4 began after.
+        self.assertEqual((value["rows"]["count"], value["rows"]["first"]["row"], value["rows"]["last"]["row"]), (3, 1, 3))
+        self.assertEqual((value["rows"]["first"]["segment"], value["rows"]["last"]["segment"]), (3, 4))
+        self.assertEqual(value["rows"]["first"]["engine_frame"], 101)
+        self.assertEqual(value["window_s_after_apply_world"], [0.2, 0.4])
+        self.assertEqual((value["peak_bytes"], value["peak_source"]), (7, "os_high_water_mark"))
+
+    def test_a_window_outside_the_trace_is_named_not_assigned_to_a_row(self) -> None:
+        times = [2_800_000, 2_900_000]
+        before = self.location((1.0, 1.2), times)["value"]
+        self.assertEqual((before["position"], before["rows"]), ("before_first_trace_row", {"count": 0}))
+        after = self.location((3.0, 3.2), times)["value"]
+        self.assertEqual((after["position"], after["rows"]), ("after_last_trace_row", {"count": 0}))
+        # A window that ends inside the first row's frame belongs to that row.
+        self.assertEqual(self.location((1.0, 1.35), times)["value"]["rows"]["first"]["row"], 0)
+        self.assertEqual(self.location((1.0, 1.2), times, apply_usec=None)["value"]["window_s_after_apply_world"],
+                         "not_measured")
+
+    def test_no_shared_clock_or_no_rows_is_missing(self) -> None:
+        times = [2_400_000, 2_550_000]
+        for label, record in (
+                ("probe wall clock", self.location((1.0, 1.2), times, start_unix_s=None)),
+                ("probe ticks", self.location((1.0, 1.2), times, start_usec=None)),
+                ("empty trace", self.location((1.0, 1.2), [])),
+                ("no sampler window", ps.rss_peak_location({"peak_window": ps.missing("no RSS sample")}, {}, _rss_trace(times))),
+                ("no sampler block", ps.rss_peak_location(None, None, None))):
+            with self.subTest(label):
+                self.assertEqual(record["status"], ps.MISSING)
+                self.assertIsNone(record["value"])
+                self.assertTrue(record["reason"])
+
+    def test_the_sampler_exports_the_timeline_of_a_real_process(self) -> None:
+        # The real producer: RssSampler polling a live child of this test for about a second.
+        with mock.patch.object(rp, "RSS_POLL_S", 0.05):
+            proc = subprocess.Popen([sys.executable, "-c", "import time; b = bytearray(32 << 20); time.sleep(1.0)"])
+            sampler = rp.RssSampler(proc)
+            sampler.start()
+            proc.wait(timeout=60)
+            sampler.join(timeout=5)
+        result = sampler.result()
+        if sys.platform not in ("win32",) and not sys.platform.startswith("linux"):
+            self.assertEqual(result["timeline"]["status"], ps.MISSING)
+            self.assertEqual(result["peak_window"]["status"], ps.MISSING)
+            return
+        self.assertEqual(result["peak_rss_bytes"]["status"], ps.OK)
+        timeline, window = result["timeline"], result["peak_window"]
+        self.assertEqual((timeline["status"], window["status"]), (ps.OK, ps.OK))
+        self.assertEqual(timeline["source_samples"], result["samples"])
+        self.assertGreaterEqual(len(timeline["points"]), 2)
+        self.assertLess(abs(timeline["t0_unix_s"] - time.time()), 120.0)
+        self.assertEqual(window["source"], "os_high_water_mark")
+        self.assertEqual(window["bytes"], result["peak_rss_bytes"]["value"])
+        self.assertLessEqual(window["after_t_s"], window["by_t_s"])
+        self.assertGreaterEqual(window["bytes"], max(p[1] for p in timeline["points"]))
+
+    def test_a_process_that_was_never_sampled_reports_missing(self) -> None:
+        class Gone:
+            pid = 0
+
+            def poll(self):
+                return 0
+
+        result = rp.RssSampler(Gone()).result()
+        self.assertEqual(result["samples"], 0)
+        for key in ("peak_rss_bytes", "timeline", "peak_sampled", "peak_window"):
+            self.assertEqual(result[key]["status"], ps.MISSING, key)
+
+    def test_the_probe_exports_the_wall_clock_beside_its_ticks(self) -> None:
+        # Source pin only: the engine is not run here. The runner run is what proves the value.
+        source = (HERE / "probe_world.gd").read_text(encoding="utf-8")
+        self.assertRegex(source, r'"start_usec": Time\.get_ticks_usec\(\), "start_unix_s": Time\.get_unix_time_from_system\(\)')
 
 
 class Statistics(unittest.TestCase):

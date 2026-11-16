@@ -83,6 +83,18 @@ inline uint64_t bundle_bytes(uint64_t p_node_count, uint64_t p_records, bool p_r
 			6 * sizeof(uint32_t) + 2 * sizeof(GaussianSplatting::IndirectDispatchLayout);
 }
 
+// Host bytes that creating one bundle buffer of `p_bytes` stages (hlod_create_buffer). A buffer with a host payload is
+// created from a host vector of its size, and RenderingDevice copies that vector through a transfer staging buffer of at
+// least the same size, so the host holds the bytes twice until both are released. A buffer without a payload is created
+// empty and zeroed on the device (RD::buffer_clear), which stages nothing. #1466: the streamed atlas has no payload at
+// creation (the node streamer pages it in), yet it was created from a zero-filled vector of its full size: 925.6 MB on T0,
+// about 1.85 GB of host memory for a buffer that is all zero.
+// RD::buffer_clear takes a multiple of four bytes; a payload-free size that is not one keeps the host zero fill, so the
+// content is defined either way. No bundle buffer has such a size today (every record stride is a multiple of four).
+inline uint64_t creation_host_staged_bytes(uint64_t p_bytes, bool p_has_host_payload) {
+	return (p_has_host_payload || (p_bytes % 4u) != 0u) ? p_bytes : 0u;
+}
+
 enum class PreparedRows {
 	CURRENT, // Nothing changed: publish as is.
 	REUPLOAD, // Row content changed, asset set and row count did not: re-upload the rows in place.

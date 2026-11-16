@@ -1127,6 +1127,126 @@ def gsq_decode_split(stats: object) -> Dict[str, object]:
     return out
 
 
+# --------------------------------------------------------------------------
+# Host RSS over time (#1466). The peak alone cannot say what raised it.
+# --------------------------------------------------------------------------
+
+#: Upper bound of exported timeline points; each point is the maximum of its bucket.
+RSS_TIMELINE_MAX_POINTS = 512
+
+
+def _finite(value: object) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def rss_timeline(samples: object, t0_unix_s: object, poll_s: float,
+                 max_points: int = RSS_TIMELINE_MAX_POINTS) -> Dict[str, object]:
+    """The sampler's rows as a bounded timeline, and the window in which the peak was reached.
+
+    ``samples`` are ``(t_s, rss_bytes, hwm_bytes or None)`` in sampling order; ``t_s`` counts
+    from the sampler's start (the process spawn) and ``t0_unix_s`` is the wall clock at that
+    instant. Where the OS reports its own high-water mark with every sample, the peak lies
+    between the last sample that still showed a lower mark and the first that shows the final
+    one, so it is located to one poll interval even when no poll hit it. Without the mark only
+    the largest polled sample is known and the window is that instant.
+    """
+    rows = [s for s in samples if isinstance(s, (tuple, list)) and len(s) == 3
+            and _finite(s[0]) and type(s[1]) is int and s[1] >= 0] if isinstance(samples, (list, tuple)) else []
+    if not rows or (isinstance(samples, (list, tuple)) and len(rows) != len(samples)):
+        reason = "no RSS sample" if not rows else "malformed RSS sample rows"
+        return {"timeline": missing(reason), "peak_sampled": missing(reason), "peak_window": missing(reason)}
+    if any(b[0] < a[0] for a, b in zip(rows, rows[1:])):
+        reason = "RSS sample times are not monotonic"
+        return {"timeline": missing(reason), "peak_sampled": missing(reason), "peak_window": missing(reason)}
+    buckets = max(1, int(max_points))
+    span = rows[-1][0] - rows[0][0]
+    # Every sample is a point while they fit; beyond that, equal time buckets that keep their maximum.
+    bucket_s = (span / buckets) if len(rows) > buckets and span > 0 else 0.0
+    points: List[List[float]] = []
+    for position, (t_s, rss, _hwm) in enumerate(rows):
+        index = min(buckets - 1, int((t_s - rows[0][0]) / bucket_s)) if bucket_s > 0 else (
+            position if len(rows) <= buckets else 0)
+        if points and points[-1][0] == index:
+            if rss > points[-1][2]:
+                points[-1][1:] = [t_s, rss]
+        else:
+            points.append([index, t_s, rss])
+    timeline = {"status": OK, "unit": "bytes", "t0_unix_s": t0_unix_s if _finite(t0_unix_s) else None,
+                "clock": "seconds since the sampler started at process spawn", "poll_s": poll_s,
+                "bucket_s": round(bucket_s, 3), "source_samples": len(rows),
+                "scope": "largest polled RSS per bucket, at the time it was sampled",
+                "points": [[round(p[1], 3), p[2]] for p in points]}
+    peak_index = max(range(len(rows)), key=lambda i: (rows[i][1], -i))
+    peak_sampled = {"status": OK, "t_s": rows[peak_index][0], "rss_bytes": rows[peak_index][1]}
+    marks = [r[2] for r in rows]
+    if all(type(m) is int for m in marks):
+        final = max(marks)
+        first = next(i for i, m in enumerate(marks) if m == final)
+        window = {"status": OK, "after_t_s": rows[first - 1][0] if first > 0 else 0.0, "by_t_s": rows[first][0],
+                  "bytes": final, "source": "os_high_water_mark",
+                  "scope": "the OS high-water mark reached its final value between these two samples"}
+    else:
+        window = {"status": OK, "after_t_s": rows[peak_index][0], "by_t_s": rows[peak_index][0],
+                  "bytes": rows[peak_index][1], "source": "polled_sample",
+                  "scope": "largest polled sample only; a peak between polls is not located"}
+    return {"timeline": timeline, "peak_sampled": peak_sampled, "peak_window": window}
+
+
+def rss_peak_location(rss: object, result: object, trace: Optional[Trace]) -> Dict[str, object]:
+    """Which trace rows the RSS peak window covers, on the probe's own clock.
+
+    The sampler and the probe each read the wall clock once (``timeline.t0_unix_s`` and the
+    result's ``start_unix_s`` beside ``start_usec``); that pair maps a sampler time onto the
+    trace's ``t_usec``. A trace row closes the frame interval that ends at its ``t_usec``, so
+    the rows reported are those whose interval overlaps the window. Any missing input is
+    MISSING with the reason; nothing here is a verdict.
+    """
+    rss = rss if isinstance(rss, dict) else {}
+    result = result if isinstance(result, dict) else {}
+    window, timeline = rss.get("peak_window"), rss.get("timeline")
+    if not isinstance(window, dict) or window.get("status") != OK:
+        return missing("no RSS peak window: " + str((window or {}).get("reason", "the sampler exported none")))
+    t0 = timeline.get("t0_unix_s") if isinstance(timeline, dict) else None
+    start_unix, start_usec = result.get("start_unix_s"), result.get("start_usec")
+    if not _finite(t0) or not _finite(start_unix) or type(start_usec) is not int:
+        return missing("no shared clock: the sampler's t0_unix_s or the probe's start_unix_s/start_usec is absent")
+    if trace is None or not trace.rows or "t_usec" not in trace.index:
+        return missing("no trace rows to place the RSS peak window in")
+
+    def ticks(t_s: float) -> int:
+        return int(round(start_usec + (t0 + t_s - start_unix) * 1e6))
+
+    after, by = ticks(window["after_t_s"]), ticks(window["by_t_s"])
+    times = trace.col("t_usec")
+
+    def describe(i: int) -> Dict[str, object]:
+        row = trace.rows[i]
+        return {name: trace.get(row, name) for name in ("row", "engine_frame", "t_usec", "phase", "pass_index",
+                                                        "segment", "state") if name in trace.index}
+
+    value: Dict[str, object] = {
+        "window_s": [window["after_t_s"], window["by_t_s"]], "window_t_usec": [after, by],
+        "peak_bytes": window.get("bytes"), "peak_source": window.get("source"),
+        "clock": "probe Time.get_ticks_usec(); sampler times mapped through one wall-clock reading per process",
+        "first_trace_row_t_usec": times[0], "last_trace_row_t_usec": times[-1], "trace_rows": len(times)}
+    apply_usec = result.get("apply_usec")
+    value["window_s_after_apply_world"] = ([round((after - apply_usec) / 1e6, 3), round((by - apply_usec) / 1e6, 3)]
+                                           if type(apply_usec) is int else "not_measured")
+    if by <= times[0]:
+        # Before the first row closed: process start, world load, apply_world and the first frames' setup.
+        value["position"] = "before_first_trace_row"
+        value["rows"] = {"count": 0}
+    elif after >= times[-1]:
+        value["position"] = "after_last_trace_row"
+        value["rows"] = {"count": 0}
+    else:
+        overlapping = [i for i, t in enumerate(times) if t > after and (times[i - 1] if i else -math.inf) < by]
+        value["position"] = "within_trace"
+        value["rows"] = {"count": len(overlapping), "first": describe(overlapping[0]), "last": describe(overlapping[-1])}
+    return {"status": OK, "value": value,
+            "scope": "trace rows whose frame interval overlaps the RSS peak window; diagnostic, no threshold"}
+
+
 def rows_where(trace: Trace, **conds) -> List[int]:
     idx = {k: trace.index[k] for k in conds}
     out = []
