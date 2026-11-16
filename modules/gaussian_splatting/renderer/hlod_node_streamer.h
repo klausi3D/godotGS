@@ -64,6 +64,9 @@ public:
 		uint32_t pool_threads = 0;
 		uint32_t reserved_pool_threads = 0;
 		uint32_t max_jobs_in_flight = 16;
+		// Pure publisher policy; also used by host tests with small/unknown pools.
+		void set_worker_pool(uint32_t p_logical_cpus, uint32_t p_pool_threads);
+		uint32_t page_store_reader_count() const;
 		// Base read-admission input. Codec-none and GSQ store streams derive their
 		// retained cap from node allocations and base-equivalent concurrency; other
 		// paths retain this cap. A node above this input still runs alone.
@@ -263,6 +266,8 @@ public:
 		uint64_t jobs_started = 0;
 		uint64_t admission_waits = 0;
 		uint32_t jobs_in_flight = 0;
+		uint32_t tasks_outstanding = 0; // Real WorkerThreadPool handles, including completed/uncollected tasks.
+		uint64_t mailbox_publications = 0; // Cumulative actual handoffs; survives shutdown's mailbox clear.
 		uint32_t pending_tickets = 0;
 		uint32_t mailbox_outputs = 0;
 		uint32_t ready_outputs = 0;
@@ -430,6 +435,7 @@ private:
 		TestFault fault = TEST_FAULT_NONE;
 		uint64_t faults_triggered = 0;
 		uint32_t held_workers = 0;
+		uint64_t mailbox_publications = 0;
 		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
 		Vector<TestPublication> publications;
 		bool observe_shadows = false;

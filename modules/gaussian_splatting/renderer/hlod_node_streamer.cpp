@@ -18,6 +18,16 @@ HlodNodeStreamer::~HlodNodeStreamer() {
 	shutdown();
 }
 
+void HlodNodeStreamer::Config::set_worker_pool(uint32_t p_logical_cpus, uint32_t p_pool_threads) {
+	logical_cpus = p_logical_cpus;
+	pool_threads = p_pool_threads;
+	reserved_pool_threads = 0;
+}
+
+uint32_t HlodNodeStreamer::Config::page_store_reader_count() const {
+	return max_jobs_in_flight;
+}
+
 HlodNodeStreamer::RefusingGate HlodNodeStreamer::classify_admission_refusal(bool p_oversized_latch,
 		bool p_transport_full, bool p_oversized_wait_live, bool p_retained_full) {
 	if (p_oversized_latch) { return REFUSING_OVERSIZED_LATCH; }
@@ -504,6 +514,8 @@ HlodNodeStreamer::TestSnapshot HlodNodeStreamer::_test_snapshot() const {
 	result.jobs_started = ledger->jobs_started;
 	result.admission_waits = ledger->admission_waits;
 	result.jobs_in_flight = ledger->jobs;
+	result.tasks_outstanding = tasks.size();
+	result.mailbox_publications = ledger->mailbox_publications;
 	result.pending_tickets = pending.size();
 	if (mailbox.is_valid()) {
 		for (const PackResult &r : mailbox->done) { if (!r.ticket.shadow) { ++result.mailbox_outputs; } }
@@ -825,6 +837,9 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		}
 		result.queue_enter_nsec = payload_clock_nsec();
 		job->mailbox->done.push_back(std::move(result));
+#ifdef TESTS_ENABLED
+		++job->mailbox->ledger->mailbox_publications;
+#endif
 	}
 	memdelete(job);
 }
