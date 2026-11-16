@@ -29,7 +29,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 TRACE_MAGIC = b"GSBV7TR1"
-TRACE_SCHEMA = "godotgs-bv07-probe-trace/1"
+TRACE_SCHEMA = "godotgs-bv07-probe-trace/2"
+TRACE_SCHEMAS = frozenset(("godotgs-bv07-probe-trace/1", TRACE_SCHEMA))
 RESULT_SCHEMA = "godotgs-bv07-probe-result/1"
 SUMMARY_SCHEMA = "godotgs-bv07-probe-summary/1"
 
@@ -53,6 +54,16 @@ INVALID = "INVALID"
 #: ADR G15 / G14 frame-interval bounds, used here only to count frames (report-only).
 SLOW_FRAME_MS = 50.0
 HITCH_FRAME_MS = 250.0
+
+# Native report-only enum in renderer/hlod_node_streamer.h. Numeric values are
+# stable trace contracts; multiple outstanding blockers can coexist and the
+# native producer gives pending-job admission refusals precedence over allocation
+# and other scheduling blockers in this stream frame.
+HLOD_REFUSING_GATE_NAMES = {
+    0: "none", 1: "allocation_refused", 2: "oversized_latch", 3: "transport_budget",
+    4: "oversized_wait_live", 5: "retained_budget", 6: "worker_permit", 7: "metadata_clear",
+    8: "request_budget", 9: "failed_dependency",
+}
 
 
 class TraceError(ValueError):
@@ -176,8 +187,8 @@ def read_trace(path: Path) -> Trace:
         header = json.loads(data[12:12 + hlen].decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise TraceError(f"{path}: header is not JSON: {exc}") from exc
-    if header.get("schema") != TRACE_SCHEMA:
-        raise TraceError(f"{path}: schema {header.get('schema')!r}, expected {TRACE_SCHEMA}")
+    if header.get("schema") not in TRACE_SCHEMAS:
+        raise TraceError(f"{path}: schema {header.get('schema')!r}, expected one of {sorted(TRACE_SCHEMAS)}")
     fields = list(header.get("fields", []))
     types = str(header.get("types", ""))
     if not fields or len(fields) != len(types) or set(types) - {"q", "d"}:
@@ -192,6 +203,64 @@ def read_trace(path: Path) -> Trace:
         if trace.get(r, "row") != i:
             raise TraceError(f"{path}: row {i} carries index {trace.get(r, 'row')}")
     return trace
+
+
+def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
+    """Report one native numeric column; absence/partial coverage never becomes zero.
+
+    *_total observations are process cumulative counters, so their endpoint delta
+    is separate from the maximum. A decrease invalidates the delta, not a gate.
+    """
+    absent = {"measured": False, "value": None, "reason": f"no complete native {field} observation"}
+    if not rows or field not in trace.index:
+        return absent
+    values = [trace.get(trace.rows[row], field) for row in rows]
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in values):
+        return {**absent, "rows": len(rows), "samples_measured": sum(
+            type(value) in (int, float) and math.isfinite(value) and value >= 0 for value in values)}
+    out = {"measured": True, "value": values[-1], "first": values[0], "max": max(values), "rows": len(rows)}
+    if field.endswith("_total"):
+        monotonic = all(after >= before for before, after in zip(values, values[1:]))
+        epoch_key = "hlod_stream_pressure_epoch"
+        epochs = [trace.get(trace.rows[row], epoch_key) for row in rows] if epoch_key in trace.index else []
+        same_epoch = bool(epochs) and all(type(epoch) is int and epoch > 0 and epoch == epochs[0] for epoch in epochs)
+        measured = monotonic and same_epoch
+        out["delta"] = {"measured": measured, "value": values[-1] - values[0] if measured else None}
+        if not measured:
+            out["delta"]["reason"] = "native epoch unavailable or changed, or counter decreased in the reported window"
+    return out
+
+
+def hlod_pressure_summary(checkpoints: object, trace: Optional[Trace] = None) -> dict:
+    """#1483 report only: preserve checkpoint receipts and summarize trace columns.
+
+    This function has no evidence verdict. Old traces and binaries retain an
+    explicit unavailable receipt; even extreme pressure cannot alter acceptance.
+    The schema is self describing, so native scalar columns are discovered.
+    """
+    rows = []
+    for checkpoint in checkpoints if isinstance(checkpoints, list) else []:
+        if not isinstance(checkpoint, dict):
+            continue
+        receipt = checkpoint.get("hlod_pressure")
+        rows.append({"checkpoint": checkpoint.get("checkpoint"), "pass_index": checkpoint.get("pass_index"),
+                     "observation": copy.deepcopy(receipt) if isinstance(receipt, dict) else {
+                         "measured": False, "value": None, "reason": "probe did not export checkpoint pressure telemetry"}})
+    trace_record = {"measured": False, "value": None, "reason": "no pressure trace supplied"}
+    if trace is not None:
+        indices = list(range(len(trace.rows)))
+        marker = hlod_pressure_column(trace, indices, "hlod_stream_pressure_measured")
+        epoch = hlod_pressure_column(trace, indices, "hlod_stream_pressure_epoch")
+        measured = marker.get("measured") is True and marker.get("first") == 1 and marker.get("value") == 1 \
+            and epoch.get("measured") is True and epoch.get("first", 0) > 0 \
+            and all(value == 1 for value in trace.col("hlod_stream_pressure_measured"))
+        trace_record = {"measured": measured, "columns": {
+            field: hlod_pressure_column(trace, indices, field)
+            for field in trace.fields if field.startswith("hlod_stream_")}}
+        if not measured:
+            trace_record["reason"] = "native pressure measurement marker or epoch absent/unavailable in one or more rows"
+    return {"report_only": True, "trace": trace_record, "checkpoints": rows,
+            "scope": "native per-frame scalar observations and checkpoint settle endpoints; no verdict or threshold"}
 
 
 # --------------------------------------------------------------------------

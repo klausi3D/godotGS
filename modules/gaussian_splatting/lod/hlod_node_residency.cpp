@@ -27,6 +27,8 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	retiring.clear();
 	candidates.clear();
 	evicted_log.clear();
+	eviction_events.clear();
+	eviction_events_next = eviction_events_count = 0;
 	cancelled_generations.clear();
 	cancelled_next = 0;
 	allocator.clear();
@@ -71,6 +73,8 @@ bool NodeResidency::reset(const Vector<NodeInfo> &p_nodes, const Config &p_confi
 	mask = std::move(next_mask);
 	committed_revision = cfg.committed_edit_revision;
 	allocator.reset(cfg.page_capacity);
+	eviction_events.resize(EVICTION_EVENT_CAPACITY);
+	totals.pressure_measured = true;
 	return true;
 }
 
@@ -96,6 +100,12 @@ void NodeResidency::begin_frame(uint64_t p_frame) {
 
 void NodeResidency::protect_drawn(const uint32_t *p_nodes, uint32_t p_count) {
 	for (uint32_t i = 0; i < p_count; ++i) {
+		// Keep report marks independent of protected_frame: request() also stamps protection for groups
+		// that are wanted but are not part of the current drawn cut.
+		for (uint32_t observed = p_nodes[i]; observed < uint32_t(nodes.size()); observed = nodes[observed].parent) {
+			if (nodes[observed].observed_cut_frame == current_frame) { break; }
+			nodes.write[observed].observed_cut_frame = current_frame;
+		}
 		uint32_t n = p_nodes[i];
 		bool first = true;
 		while (n < uint32_t(nodes.size())) {
@@ -107,6 +117,79 @@ void NodeResidency::protect_drawn(const uint32_t *p_nodes, uint32_t p_count) {
 			node.last_drawn_frame = current_frame;
 			first = false;
 			n = node.parent;
+		}
+	}
+}
+
+void NodeResidency::observe_demand(const uint32_t *p_demand, uint32_t p_count) {
+	for (uint32_t i = 0; i < p_count; ++i) {
+		const uint32_t index = p_demand[i];
+		if (index >= uint32_t(nodes.size())) { continue; }
+		const Node &n = nodes[index];
+		if (!n.stale && n.state != RESIDENT && n.parent < uint32_t(nodes.size())) {
+			nodes.write[n.parent].observed_transition_frame = current_frame;
+		}
+	}
+}
+
+void NodeResidency::record_eviction(uint32_t p_node) {
+	const Node &n = nodes[p_node];
+	EvictionEvent event;
+	event.sequence = totals.evicted_total;
+	event.frame = current_frame;
+	event.node = p_node;
+	if (n.observed_cut_frame == current_frame) {
+		event.classification = EVICTION_IN_CUT;
+		++totals.evicted_in_cut_total;
+	} else if (n.parent < uint32_t(nodes.size()) && nodes[n.parent].observed_transition_frame == current_frame) {
+		event.classification = EVICTION_IN_TRANSITION;
+		++totals.evicted_in_transition_total;
+	} else {
+		event.classification = EVICTION_NEITHER;
+		++totals.evicted_neither_total;
+	}
+	eviction_events[eviction_events_next] = event;
+	eviction_events_next = (eviction_events_next + 1u) % EVICTION_EVENT_CAPACITY;
+	if (eviction_events_count < EVICTION_EVENT_CAPACITY) {
+		++eviction_events_count;
+	} else {
+		++totals.eviction_events_dropped_total;
+	}
+}
+
+bool NodeResidency::eviction_event(uint32_t p_index, EvictionEvent &r_event) const {
+	if (p_index >= eviction_events_count) { return false; }
+	const uint32_t oldest = (eviction_events_next + EVICTION_EVENT_CAPACITY - eviction_events_count) % EVICTION_EVENT_CAPACITY;
+	r_event = eviction_events[(oldest + p_index) % EVICTION_EVENT_CAPACITY];
+	return true;
+}
+
+void NodeResidency::record_allocation_refusal(uint32_t p_pages, uint32_t p_exclude_parent) {
+	++totals.allocation_refused_total;
+	const uint64_t free = allocator.get_free_page_count();
+	if (p_pages > cfg.page_capacity) {
+		++totals.allocation_over_page_budget_total;
+	} else if (free >= p_pages) {
+		++totals.allocation_no_contiguous_run_total;
+	} else if (free + pages_retiring >= p_pages) {
+		++totals.allocation_pending_retire_total;
+	} else {
+		// Observe the exact eligibility predicate used by evict_for(), without collecting/sorting candidates
+		// or changing any node. "Protected capacity" includes the current group's parent/sibling exclusions.
+		uint64_t reclaimable = free + pages_retiring;
+		for (uint32_t i = 0; i < uint32_t(nodes.size()); ++i) {
+			const Node &n = nodes[i];
+			if (n.state == RESIDENT && !is_protected(i) && i != p_exclude_parent &&
+					(p_exclude_parent == UINT32_MAX || n.parent != p_exclude_parent)) {
+				reclaimable += n.pages;
+			}
+		}
+		if (reclaimable < p_pages) {
+			++totals.allocation_protected_capacity_total;
+		} else if (evictions_this_frame >= cfg.evictions_per_frame) {
+			++totals.allocation_eviction_limit_total;
+		} else {
+			++totals.allocation_other_total;
 		}
 	}
 }
@@ -164,6 +247,7 @@ bool NodeResidency::evict(uint32_t p_node) {
 	retire_run(n);
 	evicted_log.push_back(p_node);
 	++totals.evicted_total;
+	record_eviction(p_node);
 	++evictions_this_frame;
 	return true;
 }
@@ -268,6 +352,7 @@ uint32_t NodeResidency::evict_window(uint32_t p_pages, uint32_t p_exclude_parent
 
 NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets) {
 	RequestResult out;
+	observe_demand(p_demand, p_count);
 	// The selector can list a node twice (a bootstrap expansion and the refinement walk both reach it). One
 	// node is one demand and gets at most one run: keep the first occurrence, in priority order.
 	demand_unique.clear();
@@ -384,6 +469,7 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		if (!placed) {
 			++out.skipped_groups;
 			++totals.skipped_groups_total;
+			record_allocation_refusal(total_pages, parent);
 			if (uint64_t(allocator.get_free_page_count()) >= total_pages) {
 				++out.fragmented_groups;
 			} else if (uint64_t(allocator.get_free_page_count()) + pages_retiring >= total_pages) {
@@ -923,6 +1009,7 @@ bool NodeResidency::commit_edit() {
 		if (was_resident) {
 			evicted_log.push_back(index); // The glue clears its GPU metadata.
 			++totals.evicted_total;
+			record_eviction(index);
 		}
 	}
 	committed_revision = staged_revision;

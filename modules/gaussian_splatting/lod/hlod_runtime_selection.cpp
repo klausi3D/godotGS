@@ -152,11 +152,28 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		if (p_request.page_splats == 0 || stale(p_node)) { return 0; } // A stale node holds no pages once the edit is committed.
 		return (uint64_t(p_data.nodes[p_node].topology.payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
 	};
+	out.closure_measured = p_request.page_splats != 0;
+	out.page_budget = p_request.page_budget;
+	// Observational union, independent of closure_pages/plan_pages used by the existing policy.
+	// Every visited refinement already has its parent in this union. Unique marks also cover
+	// bootstrap demand encountered again by the ordinary walk without double charging it.
+	auto report_pages = [&](uint32_t p_node, uint8_t p_bypass) {
+		const uint64_t pages = pages_of(p_node);
+		uint8_t &flags = diagnostics.write[p_node];
+		if (!(flags & PAGE_ACCOUNTED)) { out.demanded_closure_pages += pages; flags |= PAGE_ACCOUNTED; }
+		if (p_bypass == BOOTSTRAP_PAGE_ACCOUNTED && !(flags & BOOTSTRAP_PAGE_ACCOUNTED)) {
+			out.bootstrap_bypass_pages += pages; flags |= BOOTSTRAP_PAGE_ACCOUNTED;
+		}
+		if (p_bypass == RESIDENT_PAGE_ACCOUNTED && !(flags & RESIDENT_PAGE_ACCOUNTED)) {
+			out.resident_refinement_bypass_pages += pages; flags |= RESIDENT_PAGE_ACCOUNTED;
+		}
+	};
 	// Pages that stay resident: the cut and all of its ancestors. Refining a node keeps it (as an ancestor) and
 	// adds its children, so the closure only grows by the children's pages.
 	uint64_t closure_pages = pages_of(0);
 	out.visited_nodes = 1;
 	if (!visible(0)) { out.status = EMPTY; return out; }
+	report_pages(0, 0);
 	const bool root_stale = stale(0);
 	if (!root_stale && !available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
@@ -249,7 +266,15 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				// Parent stays; no partial replacement. The bootstrap needs this expansion, so every missing
 				// visible child is demanded together (a whole transition, never a subset).
 				missing_residency = true;
-				missed(parent, push_group(missing_children, missing_count));
+				const bool demanded = push_group(missing_children, missing_count);
+				missed(parent, demanded);
+				if (demanded) {
+					for (uint32_t j = 0; j < n.child_count; ++j) {
+						const uint32_t child = n.first_child + j;
+						if (visible(child)) { report_pages(child, BOOTSTRAP_PAGE_ACCOUNTED); }
+					}
+					out.bootstrap_bypass_over_budget |= out.closure_measured && out.demanded_closure_pages > out.page_budget;
+				}
 				continue;
 			}
 			const uint32_t next_count = out.selected_count - 1 + visible_children;
@@ -262,6 +287,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			selected_position.write[last] = removed;
 			if (stale(parent)) { --stale_selected; }
 			for (uint32_t j = 0; j < visible_children; ++j) {
+				report_pages(children[j], BOOTSTRAP_PAGE_ACCOUNTED);
 				selected.write[out.selected_count] = children[j];
 				selected_position.write[children[j]] = out.selected_count++;
 				if (stale(children[j])) { ++stale_selected; }
@@ -270,6 +296,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			out.selected_splats = out.selected_splats - n.payload_count + child_splats;
 			out.estimated_records = next_cost;
 			closure_pages += child_pages;
+			out.bootstrap_bypass_over_budget |= out.closure_measured && out.demanded_closure_pages > out.page_budget;
 			refined.write[parent] = epoch; // Same hysteresis stamp as ordinary refinement.
 		}
 		// Refinement below starts from the complete frontier, not from the bootstrap heap.
@@ -326,8 +353,12 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 					int64_t(out.selected_count) + plan_count + d_count <= int64_t(p_request.node_budget) &&
 					(p_request.page_splats == 0 || closure_pages + plan_pages + child_pages <= p_request.page_budget);
 			const double planned_cost = MAX(0.0, out.estimated_records + plan_cost + d_cost);
+			if (out.closure_measured && closure_pages + plan_pages + child_pages > p_request.page_budget) { ++out.page_refused_groups; }
 			if (other_caps_fit && planned_cost <= record_cap) {
 				demanded = push_group(missing_children, missing_count);
+				if (demanded) {
+					for (uint32_t j = 0; j < visible_children; ++j) { report_pages(children[j], 0); }
+				}
 				plan_pages += child_pages;
 				plan_splats += d_splats;
 				plan_count += d_count;
@@ -356,10 +387,12 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		selected.write[removed] = last;
 		selected_position.write[last] = removed;
 		for (uint32_t j = 0; j < visible_children; ++j) {
+			report_pages(children[j], RESIDENT_PAGE_ACCOUNTED);
 			selected.write[out.selected_count] = children[j];
 			selected_position.write[children[j]] = out.selected_count++;
 			enqueue(children[j]);
 		}
+		out.resident_refinement_bypass_over_budget |= out.closure_measured && out.demanded_closure_pages > out.page_budget;
 		if (previous != 0 && refined[parent] == previous) {
 			const double e = error(parent);
 			if (e > p_request.tau_pixels && e <= 1.25 * p_request.tau_pixels) {

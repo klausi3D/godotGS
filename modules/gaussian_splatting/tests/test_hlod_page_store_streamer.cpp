@@ -433,6 +433,38 @@ static bool hold_gsq_workers(Harness &p_harness) {
 	return true;
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] read admission telemetry names the unchanged predicate order") {
+	CHECK(Streamer::classify_admission_refusal(false, false, false, false) == Streamer::REFUSING_NONE);
+	CHECK(Streamer::classify_admission_refusal(true, true, true, true) == Streamer::REFUSING_OVERSIZED_LATCH);
+	CHECK(Streamer::classify_admission_refusal(false, true, true, true) == Streamer::REFUSING_TRANSPORT_BUDGET);
+	CHECK(Streamer::classify_admission_refusal(false, false, true, true) == Streamer::REFUSING_OVERSIZED_WAIT_LIVE);
+	CHECK(Streamer::classify_admission_refusal(false, false, false, true) == Streamer::REFUSING_RETAINED_BUDGET);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] pressure telemetry distinguishes measured idle zero from absent") {
+	Harness h;
+	if (!h.init()) { return; }
+	h.demand.clear();
+	h.step();
+	const Streamer::Telemetry &t = h.streamer.get_telemetry();
+	CHECK(t.pressure_measured);
+	CHECK(t.gate_measured);
+	CHECK(t.pages_free == h.config.atlas_pages);
+	CHECK(t.largest_free_run == h.config.atlas_pages);
+	CHECK(t.allocation_refused_total == 0);
+	CHECK(t.live_reservations == 0);
+	CHECK(t.pending_count == 0);
+	CHECK(t.ready_count == 0);
+	CHECK(t.refusing_gate == Streamer::REFUSING_NONE);
+	CHECK(t.gate_frames_total[Streamer::REFUSING_NONE] == 1);
+	for (uint32_t gate = 1; gate < Streamer::REFUSING_GATE_COUNT; ++gate) { CHECK(t.gate_frames_total[gate] == 0); }
+	CHECK_FALSE(t.cancelled_running_jobs_measured);
+	CHECK(h.streamer.get_pressure_eviction_events().is_empty());
+	// Multiple views do not manufacture extra frame counts.
+	h.streamer.update(nullptr, Streamer::Buffers(), nullptr, 0, nullptr, 0);
+	CHECK(t.gate_frames_total[Streamer::REFUSING_NONE] == 1);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] GSQ SH3 charge equals the rounded decode or pack phase maximum") {
 	Harness h;
 	if (!h.init_gsq_sh3(false, true) || !gsq_sh3_contract_fixture(h)) {
@@ -763,6 +795,16 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] oversized single
 	CHECK_MESSAGE(h.sample.jobs_started == 1, "D3-2 oversized output must block every other job until upload/discard");
 	CHECK_MESSAGE(h.sample.oversized_reservation_bytes == h.largest_reservation,
 			"D3-2 oversized reservation must be visible at its full size");
+	const Streamer::Telemetry &pressure = h.streamer.get_telemetry();
+	CHECK(pressure.gate_measured);
+	CHECK(pressure.pending_count == h.sample.pending_tickets);
+	CHECK(pressure.ready_count == h.sample.ready_outputs);
+	CHECK(pressure.live_reservations == h.sample.live_reservations);
+	CHECK(pressure.oversized_reservation_bytes == h.sample.oversized_reservation_bytes);
+	CHECK(pressure.oversized_latch);
+	CHECK(pressure.oversized_wait_live);
+	CHECK(pressure.refusing_gate == Streamer::REFUSING_OVERSIZED_LATCH);
+	CHECK(pressure.gate_frames_total[Streamer::REFUSING_OVERSIZED_LATCH] > 0);
 	const Dictionary held = exported_queue(h.streamer, "retained");
 	CHECK(int64_t(held.get("byte_bound", -1)) == int64_t(h.largest_reservation));
 	CHECK(int64_t(held.get("jobs", -1)) == 1);
@@ -840,12 +882,39 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] cancellation ret
 		FAIL("D3-2 completed ordinary nodes must remain evictable through the real eviction path");
 		return;
 	}
+	h.streamer.update(nullptr, Streamer::Buffers(), nullptr, 0, nullptr, 0);
+	const Array victims = h.streamer.get_pressure_eviction_events();
+	if (victims.size() != 1) {
+		FAIL("The current-frame pressure export must contain the actual ordinary eviction");
+		return;
+	}
+	const Dictionary victim = victims[0];
+	CHECK(int64_t(victim.get("node", -1)) == int64_t(leaf));
+	CHECK(int64_t(victim.get("class", -1)) == Residency::EVICTION_NEITHER);
+	CHECK(int64_t(victim.get("frame", -1)) == int64_t(h.streamer.get_residency().frame()));
+	CHECK(int64_t(victim.get("sequence", -1)) == int64_t(h.streamer.get_telemetry().evicted_total));
+	CHECK(h.streamer.get_telemetry().evicted_neither_total == 1);
+	CHECK(h.streamer.get_telemetry().evicted_in_cut_total == 0);
 	h.step();
+	CHECK(h.streamer.get_pressure_eviction_events().is_empty());
+	CHECK(victims.size() == 1); // A later metrics query must not mutate a retained prior report.
 	CHECK_MESSAGE(h.streamer.get_residency().state(leaf) != Residency::RESIDENT,
 			"D3-2 evicted ordinary node remained RESIDENT");
+	const uint64_t first_epoch = h.streamer.get_telemetry().pressure_epoch;
+	CHECK(first_epoch > 0);
 	h.streamer.shutdown();
 	h.store.shutdown();
 	h.check_released();
+	// The same owner, source, world and device can be reinitialized. A distinct
+	// report epoch must prevent the old event sequence from hiding new victims.
+	if (!h.streamer.init(h.fixture.snapshot, h.config, h.world, h.device)) {
+		FAIL("The same snapshot must reinitialize for the pressure epoch contract");
+		return;
+	}
+	CHECK(h.streamer.get_telemetry().pressure_epoch > first_epoch);
+	CHECK(h.streamer.get_telemetry().evicted_total == 0);
+	CHECK(h.streamer.get_residency().eviction_event_count() == 0);
+	CHECK(h.streamer.get_pressure_eviction_events().is_empty());
 }
 
 enum GenerationChange { SOURCE, WORLD, DEVICE };

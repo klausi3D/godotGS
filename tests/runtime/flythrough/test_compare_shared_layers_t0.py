@@ -1954,6 +1954,53 @@ class ComparisonContract(unittest.TestCase):
         self.assertNotIn("pressure", report)
         self.assertNotIn("Pressure variant", driver.render_markdown(report))
 
+    def test_1483_report_only_pressure_cannot_change_summary_or_comparator_verdict(self):
+        # Constructed diagnostic contracts, not captures of a pressure binary.
+        # Host/runtime CI separately exercises the new native producer.
+        diagnostics = (None, {
+            "report_only": True, "verdict": "VALID", "evidence_verdict": "VALID",
+            "snapshot": {"values": {"hlod_stream_demanded_closure_pages": 999999,
+                                     "hlod_stream_page_budget": 1, "hlod_stream_refusing_gate": 2,
+                                     "hlod_stream_pages_free": 0, "hlod_stream_largest_free_run": 0}},
+            "settle_window": {"counter_deltas": {
+                "hlod_stream_allocation_refused_total": {"measured": True, "value": 999999},
+                "hlod_stream_evicted_in_cut_total": {"measured": True, "value": 999999}}},
+            "eviction_victims": {"measured": True, "events": [{"sequence": 1, "frame": 2, "node": 3, "class": 0}],
+                                  "dropped_count": 10000, "sequence_gaps_total": 20000}},
+            {"snapshot": {"values": []}, "settle_window": "malformed", "eviction_victims": None})
+        for failure in (False, True):
+            experiment = copy.deepcopy(self.experiment)
+            if failure:
+                experiment["arms"]["hlod"]["observed"]["exit_code"] = 91
+            baseline = driver.compare(experiment)
+            for receipt in diagnostics:
+                with self.subTest(failure=failure, receipt=receipt):
+                    changed = copy.deepcopy(experiment)
+                    for arm in changed["arms"].values():
+                        checkpoints = [cp for measured_pass in arm["probe"]["passes"]
+                                       for cp in measured_pass["checkpoints"]]
+                        before = ps.checkpoint_evidence_summary(checkpoints)
+                        for cp in checkpoints:
+                            cp["hlod_pressure"] = copy.deepcopy(receipt)
+                        after = ps.checkpoint_evidence_summary(checkpoints)
+                        self.assertEqual((after["verdict"], after["reasons"]), (before["verdict"], before["reasons"]))
+                        arm["probe"]["hlod_pressure"] = ps.hlod_pressure_summary(checkpoints)
+                    report = driver.compare(changed)
+                    for key in ("verdict", "exit_code", "reasons"):
+                        self.assertEqual(report[key], baseline[key], key)
+                    observed = report["hlod_pressure_report"]["hlod"]["checkpoints"][0]["observation"]
+                    if receipt is None:
+                        self.assertIs(observed["measured"], False)
+                        self.assertIsNone(observed["value"])
+                    else:
+                        self.assertEqual(observed, receipt)
+                    markdown = driver.render_markdown(report)
+                    self.assertIn("HLOD pressure diagnostics (#1483)", markdown)
+                    if receipt is diagnostics[1]:
+                        self.assertIn("999999 / 1", markdown)
+                        self.assertIn("oversized_latch", markdown)
+                        self.assertIn("10000 overwritten; 20000 unobserved", markdown)
+
     def test_pressure_variant_without_pressure_evidence_is_a_named_non_pass(self):
         def teleports(arm):
             return [row for row in arm["pressure"]["settles"] if row["kind"] == "teleport"]

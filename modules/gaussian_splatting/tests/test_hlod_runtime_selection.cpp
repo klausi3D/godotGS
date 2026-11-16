@@ -666,6 +666,116 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut plans demand in atlas pages, an
 	history.select(data, r);
 	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
 }
+TEST_CASE("[GaussianSplatting][HLOD] pressure closure counts ancestors and complete transition overlap without changing demand") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	uint8_t resident[7] = { 1, 1, 1, 0, 0, 0, 0 };
+	r.resident = resident; r.resident_count = 7;
+	r.page_splats = 3;
+	r.page_budget = 7;
+	const uint64_t bytes = history.allocated_bytes();
+	const auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.closure_measured);
+	// Root 1 + interiors 1+1 + demanded leaf pair 2+2 = 7, including the retained parent.
+	CHECK(cut.demanded_closure_pages == 7);
+	CHECK(cut.page_budget == 7);
+	CHECK(cut.resident_refinement_bypass_pages == 2);
+	CHECK_FALSE(cut.resident_refinement_bypass_over_budget);
+	CHECK(cut.bootstrap_bypass_pages == 0);
+	CHECK(cut.page_refused_groups == 1);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4 });
+	CHECK(cut.selected_count == 2);
+	HlodCutTelemetry telemetry;
+	telemetry.capture(history, cut, 7, nullptr, 0);
+	Dictionary first;
+	telemetry.append_stats(first, true);
+	CHECK(bool(first["hlod_stream_closure_measured"]));
+	CHECK(int64_t(first["hlod_stream_demanded_closure_pages"]) == 7);
+	CHECK(int64_t(first["hlod_stream_page_refused_groups_total"]) == 1);
+	r.page_budget = 11;
+	const auto both = history.select(data, r);
+	CHECK(both.demanded_closure_pages == 11);
+	CHECK(both.page_refused_groups == 0);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 3, 4, 5, 6 });
+	telemetry.capture(history, both, 7, nullptr, 0);
+	Dictionary second;
+	telemetry.append_stats(second, true);
+	CHECK(int64_t(second["hlod_stream_demanded_closure_pages"]) == 11);
+	CHECK(int64_t(second["hlod_stream_page_refused_groups_total"]) == 1);
+	CHECK(int64_t(first["hlod_stream_demanded_closure_pages"]) == 7); // Retained snapshot is immutable.
+	CHECK(history.allocated_bytes() == bytes);
+
+	// Existing resident-child policy bypasses the page check: observe it, do not coarsen it.
+	for (uint8_t &value : resident) { value = 1; }
+	r.page_budget = 3;
+	const auto bypass = history.select(data, r);
+	CHECK(bypass.selected_count == 4);
+	CHECK(history.demand_count() == 0);
+	CHECK(bypass.demanded_closure_pages == 11);
+	CHECK(bypass.resident_refinement_bypass_pages == 10);
+	CHECK(bypass.resident_refinement_bypass_over_budget);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] pressure bootstrap charges resident siblings and missing children above the unchanged cap") {
+	GaussianSplatHlodRuntimeData data;
+	heavy_root_tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.camera = Vector3();
+	r.tau_pixels = 1e9;
+	r.splat_budget = 90;
+	r.page_splats = 16;
+	r.page_budget = 10;
+	uint8_t resident[7] = { 1, 1, 0, 1, 1, 1, 1 };
+	r.resident = resident; r.resident_count = 7;
+	const auto missing = history.select(data, r);
+	CHECK(missing.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
+	CHECK(demand_of(history) == std::vector<uint32_t>{ 2 });
+	// ceil(100/16) + ceil(40/16) + ceil(40/16) = 7+3+3, despite only node 2 being missing.
+	CHECK(missing.demanded_closure_pages == 13);
+	CHECK(missing.bootstrap_bypass_pages == 6);
+	CHECK(missing.bootstrap_bypass_over_budget);
+	CHECK(missing.resident_refinement_bypass_pages == 0);
+	resident[2] = 1;
+	const auto ready = history.select(data, r);
+	CHECK(ready.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(ready.selected_count == 2);
+	CHECK(ready.demanded_closure_pages == 13);
+	CHECK(ready.bootstrap_bypass_pages == 6);
+	CHECK(ready.bootstrap_bypass_over_budget);
+	CHECK(history.demand_count() == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] pressure page telemetry distinguishes missing measurement from measured zero") {
+	GaussianSplatHlodRuntimeData data;
+	tree(data);
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	HlodCutTelemetry telemetry;
+	telemetry.capture(history, history.select(data, r), 7, nullptr, 0);
+	Dictionary stats;
+	telemetry.append_stats(stats, true);
+	CHECK_FALSE(bool(stats["hlod_stream_closure_measured"]));
+	CHECK(stats["hlod_stream_demanded_closure_pages"].get_type() == Variant::NIL);
+	CHECK(stats["hlod_stream_page_refused_groups_total"].get_type() == Variant::NIL);
+	r.page_splats = 1024; r.page_budget = 7;
+	const auto measured = history.select(data, r);
+	telemetry.capture(history, measured, 7, nullptr, 0);
+	telemetry.append_stats(stats, true);
+	CHECK(bool(stats["hlod_stream_closure_measured"]));
+	CHECK(int64_t(stats["hlod_stream_page_refused_groups"]) == 0);
+	telemetry.valid = false;
+	telemetry.append_stats(stats, true);
+	CHECK_FALSE(bool(stats["hlod_stream_closure_measured"]));
+	CHECK(stats["hlod_stream_demanded_closure_pages"].get_type() == Variant::NIL);
+}
+
 // #1472: the record budget is the allocated overlap storage. A storage below the view's demand does not overflow, it
 // holds the cut coarse, so the selector names the step the record cap ALONE refused and the route can grow the storage.
 TEST_CASE("[GaussianSplatting][HLOD] runtime cut reports the record demand only the record cap refused (#1472)") {

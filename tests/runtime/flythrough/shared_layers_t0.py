@@ -553,6 +553,8 @@ def pressure_observations(result: dict, trace, route: str, pressure: dict) -> di
                                   else missing(progress.get("reason", "producer did not capture this settle window's progress"))),
                "drawn_splats": cp.get("drawn_splats", missing("checkpoint has no drawn count")),
                "drawn_nodes": cp.get("hlod_drawn_nodes", missing("checkpoint has no drawn-node count"))}
+        # #1483: report-only, never one of the pressure acceptance requirements.
+        row["hlod_pressure"] = copy.deepcopy(cp.get("hlod_pressure", missing("probe has no pressure diagnostics")))
         if "frames" in settle:
             row["frames"] = settle["frames"]
         settles.append(row)

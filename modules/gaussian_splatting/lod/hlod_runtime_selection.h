@@ -77,11 +77,22 @@ public:
 		int32_t first_cap_refused_node = -1;
 		uint32_t hysteresis_held_count = 0;
 		uint32_t residency_missed_count = 0;
+		// Report-only union of the current cut, its ancestors, and every visible child of an
+		// issued transition (including resident siblings). Parents remain charged during overlap.
+		// These fields never participate in selection or admission. page_splats == 0 is unmeasured.
+		bool closure_measured = false;
+		uint64_t demanded_closure_pages = 0;
+		uint64_t page_budget = 0;
+		uint64_t bootstrap_bypass_pages = 0;
+		uint64_t resident_refinement_bypass_pages = 0;
+		bool bootstrap_bypass_over_budget = false;
+		bool resident_refinement_bypass_over_budget = false;
+		uint32_t page_refused_groups = 0; // Missing-child groups whose page-cap predicate failed.
 	};
 	enum DiagnosticFlag : uint8_t { HYSTERESIS_HELD = 1, RESIDENCY_MISSED = 2, MISS_DEMANDED = 4 };
 	// Per-node flags, valid until the next select/invalidate/reserve. HYSTERESIS_HELD means an
 	// ordinary transition actually taken solely in the history band, never a bootstrap expansion.
-	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node]; }
+	uint8_t diagnostic_flags(uint32_t p_node) const { return diagnostics[p_node] & (HYSTERESIS_HELD | RESIDENCY_MISSED | MISS_DEMANDED); }
 	bool reserve(uint32_t p_nodes);
 	void invalidate();
 	// Desired(view) (ADR 14.1), ordered by the selector's own refinement priority (highest first): the
@@ -107,6 +118,8 @@ public:
 	static uint64_t workspace_bytes(uint32_t p_nodes);
 
 private:
+	// Spare bits in already admitted diagnostic scratch; no additional allocation or admission charge.
+	enum PageDiagnosticFlag : uint8_t { PAGE_ACCOUNTED = 8, BOOTSTRAP_PAGE_ACCOUNTED = 16, RESIDENT_PAGE_ACCOUNTED = 32 };
 	struct Candidate { uint32_t node = 0; uint32_t tie = 0; double priority = 0.0; };
 	Vector<Candidate> heap;
 	Vector<uint32_t> selected;
