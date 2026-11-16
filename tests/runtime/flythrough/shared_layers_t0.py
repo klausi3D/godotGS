@@ -40,7 +40,7 @@ VARIANTS = ("unconstrained", "pressure")
 # Read by the HLOD publisher for the streamed atlas (DeviceVramLedger::atlas_limit); whole MiB.
 PRESSURE_ATLAS_SETTING = "rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb"
 PRESSURE_ATLAS_FRACTION = (0.20, 0.25)  # Of the tree's pages (#1471).
-PRESSURE_DRAWN_BUDGET_SPLATS = 1_000_000  # D2's builder-oracle budget, here as the node cap.
+PRESSURE_DRAWN_BUDGET_SPLATS = 250_000  # Pressure-variant node cap; separate from D2's 1M oracle.
 PRESSURE_PAGE_SPLATS = 1024  # HlodNodeStreamer::Config::DEFAULT_PAGE_SPLATS
 PRESSURE_RECORD_BYTES = 176  # sizeof(PackedGaussian); the lane keeps per-chunk quantization off.
 
@@ -521,7 +521,7 @@ def pressure_request(tree: Path) -> dict:
             "page_splats": PRESSURE_PAGE_SPLATS, "record_bytes": PRESSURE_RECORD_BYTES,
             "tree_pages_source": "V4 node directory of the prepared tree, read before any arm runs",
             "chunk_arm": {"role": "unconstrained_reference", "reason": (
-                "every arm gets the same settings and the same 1M node cap, but the atlas override is read "
+                "every arm gets the same settings and the same 250k node cap, but the atlas override is read "
                 "only by the resident/HLOD publisher: the chunk streaming system has its own VRAM regulator "
                 "and no page cap that corresponds to a fraction of an HLOD tree, so no equivalent chunk "
                 "constraint is claimed and no pressure evidence is required of the chunk arm")}}
@@ -795,7 +795,7 @@ def run(repo: Path, binary: Path, base_binary: Path, base_build_info: Path, cach
                 experiment["variant"] = copy.deepcopy(extra["pressure"])
                 if isinstance(prepared.get("builder_oracle"), dict):
                     prepared["builder_oracle"]["scope"] = (
-                        "D2 builder oracle only; the pressure variant requests the same 1M as the runtime node cap")
+                        "D2 builder oracle only (1M); separate from the pressure variant's 250k runtime node cap")
             manifest = read_json(plain.with_suffix(".manifest.json"))
             path = rp.probe_path.resolve_path(manifest)
             truth = rp.probe_groundtruth.build_groundtruth(manifest, path, rp.probe_path.checkpoints(path), rp.CAMERA, rp.ASPECT)
