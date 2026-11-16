@@ -1198,6 +1198,8 @@ TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] read cancellation at the 
 	config.reader_count = 1;
 	config.max_bytes_in_flight = fixture.source->get_max_record_bytes();
 	config.max_idle_handles = 0;
+	// install_in_page_store refuses a store without the runtime retained-byte policy.
+	config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
 	if (store.start(config) != OK || fixture.source->install_in_page_store(store, 1) != OK) {
 		FAIL("cancel-race fixture could not install its real paged source"); return;
 	}
