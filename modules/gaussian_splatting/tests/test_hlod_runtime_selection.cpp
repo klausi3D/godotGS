@@ -1109,19 +1109,86 @@ TEST_CASE("[GaussianSplatting][HLOD] runtime cut reports the record demand only 
 	CHECK(cut.record_demand == 0.0);
 }
 
-// Placement reserve fixtures allocate no payload. A node, rather than a sibling group, is one contiguous run.
-// 500/1500/2500 splats at 1024/page cost 1/2/3 pages: closure 6, reserve ceil(2500/1024) = 3.
-static void placement_reserve_tree(GaussianSplatHlodRuntimeData &r_data) {
-	r_data.nodes.resize(3);
-	const uint32_t payloads[3] = { 500, 1500, 2500 };
+TEST_CASE("[GaussianSplatting][HLOD] whole-tree atlas capacity admits the main-view wall closure without placement headroom (#1483)") {
+	GaussianSplatHlodRuntimeData data;
+	data.nodes.resize(3); // Main-view wall: one coarse payload and two leaves, no payload allocation here.
+	const uint32_t payloads[3] = { 256, 12800, 12800 };
 	for (uint32_t i = 0; i < 3; ++i) {
-		auto &n = r_data.nodes.write[i];
-		n.bounds_center = Vector3(0, 0, -10);
-		n.topology.payload_count = payloads[i];
+		data.nodes.write[i].bounds_center = Vector3(0, 0, -10);
+		data.nodes.write[i].topology.payload_count = payloads[i];
 	}
-	r_data.nodes.write[0].topology.first_child = 1;
-	r_data.nodes.write[0].topology.child_count = 2;
-	r_data.nodes.write[0].topology.geometric_error = 4.0f;
+	data.nodes.write[0].topology.first_child = 1;
+	data.nodes.write[0].topology.child_count = 2;
+	data.nodes.write[0].topology.geometric_error = 4.0f;
+	data.prepare_placement_reserve();
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	auto r = request();
+	r.splat_budget = 40000;
+	r.node_budget = 3;
+	r.page_splats = 1024;
+	uint8_t resident[3] = { 1, 1, 1 };
+	SUBCASE("ready leaves") {}
+	SUBCASE("missing leaves") { resident[1] = resident[2] = 0; }
+	r.resident = resident; r.resident_count = 3;
+	r.page_budget = 27; // 1 + 13 + 13: the atlas can retain every node, so no placement reserve is needed.
+	const auto cut = history.select(data, r);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED);
+	CHECK(cut.placement_reserve_measured);
+	CHECK(cut.placement_reserve_pages == 0);
+	CHECK(cut.placement_reason == gs_hlod_runtime::CutHistory::PLACEMENT_NONE);
+	CHECK(cut.demanded_closure_pages == 27);
+	CHECK(cut.page_budget == 27);
+	CHECK(cut.page_refused_groups == 0);
+	CHECK_FALSE(cut.budget_bound);
+	if (resident[1]) {
+		CHECK(selected_of(history, cut) == std::vector<uint32_t>{ 1, 2 });
+		CHECK(cut.selected_splats == 25600);
+		CHECK(demand_of(history).empty());
+	} else {
+		CHECK(selected_of(history, cut) == std::vector<uint32_t>{ 0 });
+		CHECK(demand_of(history) == std::vector<uint32_t>{ 1, 2 });
+	}
+	CHECK(covers_without_overlap(history, cut.selected_count, 3));
+	r.page_budget = 26; // One physical page short: the exception must stop here.
+	const auto refused = history.select(data, r);
+	CHECK(refused.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(refused.placement_reserve_pages == 13);
+	CHECK(selected_of(history, refused) == std::vector<uint32_t>{ 0 });
+	CHECK(demand_of(history).empty());
+	CHECK(refused.page_refused_groups == 1);
+	r.page_splats = 512;
+	r.page_budget = 51; // 1 + 25 + 25, but the cached total was prepared for 1024/page.
+	const auto different_geometry = history.select(data, r);
+	CHECK(different_geometry.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(different_geometry.placement_reserve_pages == 25);
+	CHECK(selected_of(history, different_geometry) == std::vector<uint32_t>{ 0 });
+	CHECK(demand_of(history).empty());
+	data.prepare_placement_reserve(512);
+	CHECK(data.max_node_payload_count == 12800);
+	CHECK(data.placement_page_splats == 512);
+	CHECK(data.placement_node_pages == 51);
+	const auto prepared_geometry = history.select(data, r);
+	CHECK(prepared_geometry.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(prepared_geometry.placement_reserve_pages == 0);
+	CHECK(prepared_geometry.demanded_closure_pages == 51);
+	CHECK(prepared_geometry.page_refused_groups == 0);
+	CHECK(selected_of(history, prepared_geometry) == (resident[1] ? std::vector<uint32_t>{ 1, 2 } : std::vector<uint32_t>{ 0 }));
+	CHECK(demand_of(history) == (resident[1] ? std::vector<uint32_t>{} : std::vector<uint32_t>{ 1, 2 }));
+}
+
+// Placement reserve fixtures allocate no payload. A node, rather than a sibling group, is one contiguous run.
+// 500/1500/2500 splats at 1024/page cost 1/2/3 pages: transition closure 6, reserve ceil(2500/1024) = 3.
+// Four unrefined grandchildren keep the whole tree at 14 pages, above the budgets testing reserve pressure.
+static void placement_reserve_tree(GaussianSplatHlodRuntimeData &r_data) {
+	tree(r_data);
+	const uint32_t payloads[7] = { 500, 1500, 2500, 2000, 2000, 2000, 2000 };
+	for (uint32_t i = 0; i < 7; ++i) {
+		auto &n = r_data.nodes.write[i];
+		n.topology.payload_count = payloads[i];
+		n.topology.geometric_error = i == 0 ? 4.0f : 0.0f;
+	}
 	r_data.prepare_placement_reserve();
 }
 static gs_hlod_runtime::CutRequest placement_reserve_request() {
@@ -1136,7 +1203,7 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve refuses a physically exac
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data);
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	r.page_budget = 6; // Closure fits the physical atlas exactly, but exceeds the admission ceiling of 3.
 	const auto cut = history.select(data, r);
@@ -1146,7 +1213,7 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve refuses a physically exac
 	CHECK(cut.placement_reason == gs_hlod_runtime::CutHistory::RESERVE_ROOT_ONLY);
 	CHECK(cut.placement_reserve_measured);
 	CHECK(cut.placement_reserve_pages == 3);
-	CHECK(covers_without_overlap(history, cut.selected_count, 3));
+	CHECK(covers_without_overlap(history, cut.selected_count, 7));
 	CHECK(cut.demanded_closure_pages == 1);
 	CHECK(cut.page_budget == 6); // Reserve is headroom; it does not rewrite the physical budget.
 	CHECK(cut.page_refused_groups == 1);
@@ -1159,7 +1226,7 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve equals the rounded larges
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data);
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	uint64_t first_admitted_budget = 0;
 	for (uint64_t pages = 6; pages <= 12; ++pages) {
@@ -1184,12 +1251,12 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve preserves the cut and dem
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data);
 	gs_hlod_runtime::CutHistory bounded, unbounded;
-	if (!bounded.reserve(3) || !unbounded.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!bounded.reserve(7) || !unbounded.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
-	uint8_t resident[3] = { 1, 1, 1 };
+	uint8_t resident[7] = { 1, 1, 1 };
 	SUBCASE("ready children") {}
 	SUBCASE("missing children") { resident[1] = resident[2] = 0; }
-	r.resident = resident; r.resident_count = 3;
+	r.resident = resident; r.resident_count = 7;
 	r.page_splats = 0;
 	const auto before = unbounded.select(data, r);
 	r.page_splats = 1024;
@@ -1241,13 +1308,13 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve larger than the atlas ret
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data); // Reserve 3 exceeds physical budget 2; the mandatory root needs only 1.
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	r.page_budget = 2;
 	const auto cut = history.select(data, r);
 	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
 	CHECK(selected_of(history, cut) == std::vector<uint32_t>{ 0 });
-	CHECK(covers_without_overlap(history, cut.selected_count, 3));
+	CHECK(covers_without_overlap(history, cut.selected_count, 7));
 	CHECK(cut.placement_reason == gs_hlod_runtime::CutHistory::RESERVE_ROOT_ONLY);
 	CHECK(cut.demanded_closure_pages == 1);
 	CHECK(cut.page_refused_groups > 0);
@@ -1265,8 +1332,8 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve larger than the atlas ret
 	CHECK(over_splats.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
 	CHECK(over_splats.selected_count == 0);
 	r.splat_budget = 10000;
-	uint8_t absent[3] = { 0, 0, 0 };
-	r.resident = absent; r.resident_count = 3;
+	uint8_t absent[7] = { 0, 0, 0 };
+	r.resident = absent; r.resident_count = 7;
 	const auto loading = history.select(data, r);
 	CHECK(loading.status == gs_hlod_runtime::CutHistory::UNAVAILABLE);
 	CHECK(loading.selected_count == 0);
@@ -1278,13 +1345,13 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve admits ready and demanded
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data);
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
-	uint8_t resident[3] = { 1, 1, 1 };
+	uint8_t resident[7] = { 1, 1, 1 };
 	SUBCASE("ready group") {}
 	SUBCASE("one missing sibling") { resident[2] = 0; }
 	SUBCASE("both missing siblings") { resident[1] = resident[2] = 0; }
-	r.resident = resident; r.resident_count = 3;
+	r.resident = resident; r.resident_count = 7;
 	r.page_budget = 8; // Six-page transition exceeds L=5 even though physical capacity is sufficient.
 	const auto refused = history.select(data, r);
 	CHECK(refused.status == gs_hlod_runtime::CutHistory::COMPLETE);
@@ -1316,14 +1383,14 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve applies equally to ready 
 	data.nodes.write[2].topology.payload_count = 1500;
 	data.prepare_placement_reserve();
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	r.splat_budget = 2000; // Root fails the splat cap; its complete child frontier fits it exactly.
 	r.tau_pixels = 1e9; // Isolate forced bootstrap from ordinary quality refinement.
-	uint8_t resident[3] = { 1, 1, 1 };
+	uint8_t resident[7] = { 1, 1, 1 };
 	SUBCASE("ready bootstrap children") {}
 	SUBCASE("missing bootstrap children") { resident[1] = resident[2] = 0; }
-	r.resident = resident; r.resident_count = 3;
+	r.resident = resident; r.resident_count = 7;
 	r.page_budget = 6; // Closure 3+1+2=6, reserve 3: transition must be refused.
 	const auto refused = history.select(data, r);
 	CHECK(refused.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_INFEASIBLE);
@@ -1337,7 +1404,7 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve applies equally to ready 
 		CHECK(admitted.status == gs_hlod_runtime::CutHistory::COMPLETE);
 		CHECK(selected_of(history, admitted) == std::vector<uint32_t>{ 1, 2 });
 		CHECK(admitted.selected_splats == 2000);
-		CHECK(covers_without_overlap(history, admitted.selected_count, 3));
+		CHECK(covers_without_overlap(history, admitted.selected_count, 7));
 		CHECK(demand_of(history).empty());
 	} else {
 		CHECK(admitted.status == gs_hlod_runtime::CutHistory::BOOTSTRAP_MISSING_RESIDENCY);
@@ -1351,12 +1418,12 @@ TEST_CASE("[GaussianSplatting][HLOD] direct cut telemetry preserves the streamer
 	GaussianSplatHlodRuntimeData data;
 	placement_reserve_tree(data);
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	r.page_budget = 64;
 	const auto cut = history.select(data, r);
 	HlodCutTelemetry telemetry;
-	telemetry.capture(history, cut, 3, nullptr, 0);
+	telemetry.capture(history, cut, 7, nullptr, 0);
 	Dictionary stats;
 	const String key = "hlod_stream_placement_reserve_pages";
 	telemetry.append_stats(stats, false);
@@ -1376,13 +1443,13 @@ TEST_CASE("[GaussianSplatting][HLOD] placement reserve cache excludes stale node
 	placement_reserve_tree(data);
 	data.nodes.write[0].topology.payload_count = 5000; // Larger than every live node, but stale after an edit.
 	data.edit_revision = 1;
-	data.edit_state.resize(3);
+	data.edit_state.resize(7);
 	data.edit_state.fill(GaussianSplatHlodRuntimeData::EDIT_CLEAN);
 	data.edit_state.write[0] = GaussianSplatHlodRuntimeData::EDIT_STALE;
 	data.prepare_placement_reserve();
 	CHECK(data.max_node_payload_count == 2500);
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	r.page_budget = 8; // Live closure 2+3, plus three pages of reserve; no stale-root pages.
 	const auto cut = history.select(data, r);
@@ -1412,12 +1479,12 @@ TEST_CASE("[GaussianSplatting][HLOD] unprepared reserve preserves option-1 cut d
 	data.placement_reserve_prepared = false;
 	data.max_node_payload_count = UINT32_MAX; // An unprepared cache must never influence admission.
 	gs_hlod_runtime::CutHistory history, reference;
-	if (!history.reserve(3) || !reference.reserve(3)) { FAIL("cut workspaces unavailable"); return; }
+	if (!history.reserve(7) || !reference.reserve(7)) { FAIL("cut workspaces unavailable"); return; }
 	auto r = placement_reserve_request();
-	uint8_t resident[3] = { 1, 1, 1 };
+	uint8_t resident[7] = { 1, 1, 1 };
 	SUBCASE("ready children") {}
 	SUBCASE("missing children") { resident[1] = resident[2] = 0; }
-	r.resident = resident; r.resident_count = 3;
+	r.resident = resident; r.resident_count = 7;
 	r.page_budget = 6; // Option 1 admits this exact physical fit: root 1 + children 2+3 pages.
 	const auto cut = history.select(data, r);
 	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
@@ -1459,7 +1526,7 @@ TEST_CASE("[GaussianSplatting][HLOD] prepared zero placement reserve is measured
 	for (int64_t i = 0; i < data.nodes.size(); ++i) { data.nodes.write[i].topology.payload_count = 0; }
 	data.prepare_placement_reserve();
 	gs_hlod_runtime::CutHistory history;
-	if (!history.reserve(3)) { FAIL("cut workspace unavailable"); return; }
+	if (!history.reserve(7)) { FAIL("cut workspace unavailable"); return; }
 	auto r = placement_reserve_request();
 	r.page_budget = 0;
 	const auto measured = history.select(data, r);

@@ -159,6 +159,12 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	out.placement_reserve_measured = out.placement_reserve_state == RESERVE_MEASURED;
 	if (out.placement_reserve_measured) {
 		out.placement_reserve_pages = (uint64_t(p_data.max_node_payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
+		// When every live node fits, no eviction/placement headroom is needed. Atlas sizing already caps
+		// small worlds at this exact total; reserving more would permanently prevent their full refinement.
+		// A different page geometry keeps the conservative reserve rather than trusting an incompatible sum.
+		if (p_data.placement_page_splats == p_request.page_splats && p_data.placement_node_pages <= p_request.page_budget) {
+			out.placement_reserve_pages = 0;
+		}
 	}
 	out.page_budget = p_request.page_budget;
 	const uint64_t admission_pages = p_request.page_budget > out.placement_reserve_pages ?
