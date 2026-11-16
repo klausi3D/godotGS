@@ -74,6 +74,30 @@ class RunnerPlumbing(unittest.TestCase):
         source.pop("overlap_sync_cuts")
         self.assertEqual(shared.native_metrics(source, {}, None, "chunk", {})["overlap_sync_cuts"]["status"], "not_measured")
 
+    def test_rss_timeline_and_peak_location_reach_the_arm_measurements(self):
+        # #1466. Sampler rows through the producer-side summary; the trace rows are constructed.
+        rss = {"peak_rss_bytes": shared.ps.metric(4 << 30, unit="bytes"),
+               **shared.ps.rss_timeline([(0.2, 1 << 30, 1 << 30), (0.4, 2 << 30, 4 << 30), (0.6, 2 << 30, 4 << 30)], 1000.0, 0.2)}
+        fields = ["row", "engine_frame", "t_usec", "phase", "pass_index", "segment", "state", "drawn_splats"]
+        trace = shared.ps.Trace(fields, "q" * len(fields), [(0, 7, 2_250_000, 0, 0, 1, 0, 0), (1, 8, 2_500_000, 0, 0, 1, 0, 0)], 0)
+        result = {"start_unix_s": 1000.0, "start_usec": 2_000_000, "apply_usec": 2_100_000}
+        metrics = shared.native_metrics(result, {"rss": rss}, trace, "chunk", {})
+        self.assertEqual(metrics["os_rss_timeline"]["points"], [[0.2, 1 << 30], [0.4, 2 << 30], [0.6, 2 << 30]])
+        location = metrics["os_rss_peak_location"]
+        self.assertEqual(location["status"], shared.ps.OK)
+        self.assertEqual((location["value"]["position"], location["value"]["rows"]["first"]["row"],
+                          location["value"]["rows"]["last"]["row"]), ("within_trace", 0, 1))
+        self.assertEqual(location["value"]["peak_bytes"], 4 << 30)
+        # No sampler block, no probe clock, no trace: each is not measured with its reason, never a row 0.
+        absent = shared.native_metrics({}, {}, None, "chunk", {})
+        self.assertIs(absent["os_rss_timeline"]["measured"], False)
+        self.assertEqual(absent["os_rss_peak_location"]["status"], shared.ps.MISSING)
+        no_clock = shared.native_metrics({"start_usec": 2_000_000}, {"rss": rss}, trace, "chunk", {})
+        self.assertEqual(no_clock["os_rss_peak_location"]["status"], shared.ps.MISSING)
+        self.assertIn("clock", no_clock["os_rss_peak_location"]["reason"])
+        self.assertEqual(shared.native_metrics(result, {"rss": rss}, None, "chunk", {})["os_rss_peak_location"]["status"],
+                         shared.ps.MISSING)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

@@ -388,6 +388,83 @@ class ComparisonContract(unittest.TestCase):
         report = self.assert_verdict("VALID")
         self.assertEqual(report["metrics"]["hlod"]["io"]["admission_waits"]["value"], 1)
 
+    def test_admission_waits_are_reported_as_not_comparable_across_routes(self):
+        # #1466: hlod counts ledger refusals, chunk only what passes its callers' pre-gates.
+        self.use_scoped_observation_policy()
+        self.arm()["native"]["payload_telemetry"]["admission_waits"] = 2860
+        self.arm()["observed"]["saturation"]["admission_waits"] = 2860
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["reasons"], [])
+        rows = {route: report["metrics"][route]["io"]["admission_waits"] for route in ("chunk", "hlod")}
+        self.assertEqual((rows["chunk"]["value"], rows["hlod"]["value"]), (0, 2860))
+        for route, row in rows.items():
+            self.assertIs(row["measured"], True)
+            self.assertIs(row["comparable_across_routes"], False)
+            self.assertEqual(row["scope"], driver.ADMISSION_WAIT_SCOPES[route])
+        self.assertNotEqual(rows["chunk"]["scope"], rows["hlod"]["scope"])
+        comparability = report["route_comparability"]["admission_waits"]
+        self.assertEqual(comparability["status"], "not_comparable")
+        self.assertIn("pre-gates", comparability["reason"])
+        text = driver.render_markdown(report)
+        self.assertIn("## Admission waits across routes (#1466)", text)
+        self.assertIn("`io / admission_waits` is not comparable between chunk and hlod:", text)
+        line = next(l for l in text.splitlines() if l.startswith("| io / admission_waits |"))
+        self.assertIn("| 0 (upload-pipeline refusals at the pack in-flight cap only", line)
+        self.assertIn("| 2860 (node-streamer ledger refusals", line)
+        self.assertEqual(line.count("not comparable with"), 2)
+        # The other back-pressure row keeps one meaning on both routes and is not annotated.
+        self.assertNotIn("comparable_across_routes", report["metrics"]["hlod"]["io"]["reads_refused_busy"])
+
+    def test_an_unmeasured_admission_wait_stays_not_measured_and_unusable(self):
+        self.use_scoped_observation_policy()
+        self.arm("chunk")["native"]["payload_telemetry"].pop("admission_waits")
+        self.arm("chunk")["observed"]["saturation"].pop("admission_waits")
+        report = self.assert_verdict("UNUSABLE", "missing_metric")
+        row = report["metrics"]["chunk"]["io"]["admission_waits"]
+        self.assertIs(row["measured"], False)
+        self.assertIsNone(row["value"])
+        self.assertNotIn("comparable_across_routes", row)
+        line = next(l for l in driver.render_markdown(report).splitlines() if l.startswith("| io / admission_waits |"))
+        self.assertIn("| not measured: ", line)
+        # The cross-route statement does not depend on either value.
+        self.assertEqual(report["route_comparability"]["admission_waits"]["status"], "not_comparable")
+
+    def test_host_rss_peak_location_and_timeline_are_reported_without_a_verdict(self):
+        # #1466. Sampler rows and the placement go through the producer-side helpers; the values are constructed.
+        gib = 1 << 30
+        rss = ps.rss_timeline([(0.2, gib, gib), (0.4, 2 * gib, 4 * gib), (0.6, 2 * gib, 4 * gib)], 1000.0, 0.2)
+        fields = ["row", "engine_frame", "t_usec", "phase", "pass_index", "segment", "state"]
+        trace = ps.Trace(fields, "q" * len(fields), [(0, 7, 2_250_000, 0, 0, 1, ps.STATE_MOVING),
+                                                    (1, 8, 2_500_000, 0, 0, 1, ps.STATE_MOVING)], 0)
+        result = {"start_unix_s": 1000.0, "start_usec": 2_000_000, "apply_usec": 2_100_000}
+        optional = self.arm("hlod")["optional_measurements"]
+        optional["os_peak_rss_bytes"] = ps.metric(4 * gib, unit="bytes")
+        optional["os_rss_timeline"] = rss["timeline"]
+        optional["os_rss_peak_location"] = ps.rss_peak_location(rss, result, trace)
+        report = self.assert_verdict("VALID")
+        self.assertEqual(report["reasons"], [])
+        hlod, chunk = report["host_rss"]["hlod"], report["host_rss"]["chunk"]
+        self.assertEqual(hlod["peak_bytes"]["value"], 4 * gib)
+        self.assertEqual(hlod["peak_location"]["value"]["rows"]["first"]["row"], 0)
+        self.assertEqual(hlod["timeline"]["points"], [[0.2, gib], [0.4, 2 * gib], [0.6, 2 * gib]])
+        # The chunk arm of this scenario exported none of the three: not measured, each with a reason.
+        for key in ("peak_bytes", "peak_location", "timeline"):
+            self.assertIs(chunk[key]["measured"], False, key)
+            self.assertIsNone(chunk[key]["value"], key)
+            self.assertTrue(chunk[key]["reason"], key)
+        text = driver.render_markdown(report)
+        section = text[text.index("## Host RSS: peak, where it sits, timeline (#1466)"):text.index("## Frame time")]
+        self.assertIn(f"- hlod: peak 4.00 GiB ({4 * gib} B).", section)
+        self.assertIn("  - peak reached [0.2, 0.4] s after process start ([0.1, 0.3] s after apply_world;", section)
+        self.assertIn("within_trace, trace rows 0..1 (phase 0, pass 0, segment 1, moving); source os_high_water_mark.", section)
+        self.assertIn("0.2 s 1.00 GiB, 0.4 s 2.00 GiB, 0.6 s 2.00 GiB.", section)
+        self.assertIn("- chunk: peak not measured: not sampled in this unit-test replay.", section)
+        self.assertIn("  - peak location not measured: the arm exported no RSS peak location.", section)
+        self.assertIn("  - timeline not measured: the arm exported no RSS timeline.", section)
+        # A report written before the block existed renders as not measured, never as zeros.
+        report.pop("host_rss")
+        self.assertIn("- hlod: peak not measured: measurement unavailable.", driver.render_markdown(report))
+
     def test_reintroduced_route_specific_cap_override_is_a_settings_mismatch(self):
         for key in ("configured_read_byte_cap", "configured_max_jobs_in_flight",
                     "configured_upload_bytes_per_frame", "normal_retained_byte_bound"):
@@ -1215,6 +1292,35 @@ class ComparisonContract(unittest.TestCase):
             with self.scenario(side=side):
                 self.migration_checkpoint_1454(side).pop("drawn_nodes")
                 self.assert_verdict("UNUSABLE", "migration_identity_mismatch")
+
+    def test_cut_diagnostics_pass_through_without_affecting_comparison_rules(self):
+        before = driver.compare(self.experiment)
+        diagnostics = {"hlod_drawn_node_digest": "0123456789abcdef", "hlod_cut_hysteresis_held": [1],
+                       "hlod_cut_budget_bound": True, "hlod_cut_first_cap_refused_node": 7,
+                       "hlod_cut_residency_missed": [2], "hlod_cut_residency_missed_demanded": [False]}
+        for index, ids in enumerate(([1, 2], [1, 4])):
+            self.migration_checkpoint_1454("candidate", index).update(diagnostics, hlod_drawn_node_ids=ids)
+        row = self.migration_checkpoint_1454("base")
+        for key in (*diagnostics, "hlod_drawn_node_ids"):
+            row[key] = None
+        after = driver.compare(self.experiment)
+        for key in ("verdict", "exit_code", "reasons"):
+            self.assertEqual(after[key], before[key], key)
+        for key in ("draw_differences", "checkpoint_pairs", "within_binary_changes"):
+            self.assertEqual(after["migration_observations"][key], before["migration_observations"][key], key)
+        observations = after["migration_observations"]["candidate_drawn_id_repeat"]
+        c2 = next(record for record in observations if record["checkpoint"] == "C2")
+        self.assertEqual(c2["symmetric_difference"], [2, 4])
+        receipts = after["checkpoint_evidence"]["checkpoints"]
+        candidate = next(record for record in receipts if record["arm"] == "migration_candidate"
+                         and record["pass_index"] == 0 and record["checkpoint"] == "C2")
+        base = next(record for record in receipts if record["arm"] == "migration_base"
+                    and record["pass_index"] == 0 and record["checkpoint"] == "C2")
+        for key, value in diagnostics.items():
+            self.assertEqual(candidate[key], value)
+            self.assertIsNone(base[key])
+        self.assertEqual(candidate["hlod_drawn_node_ids"], [1, 2])
+        self.assertIsNone(base["hlod_drawn_node_ids"])
 
     def checkpoint_policy_1454(self):
         """Constructed comparison policy, not an instrumented-base execution.

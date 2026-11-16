@@ -270,6 +270,26 @@ TEST_CASE("[GaussianSplatting][HLOD] perspective and box-frustum views get indep
 	CHECK(tight_set.view_count() == 1);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD] cut diagnostics require a current selection and preserve admission boundaries") {
+	auto tree = make_tree(IDENT);
+	auto snap = snapshot(tree, 1000, 1000 + vb(1));
+	ViewSet set;
+	CHECK(set.admit_view(snap, perspective(1)).status == ViewSet::ADMITTED);
+	CutHistory::Result cut;
+	CHECK(set.cut_diagnostics(1, 11, cut) == nullptr);
+	snap.views.push_back(perspective(1));
+	CHECK(set.select(snap) == ViewSet::SNAPSHOT_OK);
+	const CutHistory *history = set.cut_diagnostics(1, 11, cut);
+	if (!history) { FAIL("selected slot has no diagnostics"); return; }
+	CHECK(cut.status == CutHistory::COMPLETE);
+	CHECK(cut.selected_count > 0);
+	CHECK(set.cut_diagnostics(1, 99, cut) == nullptr);
+	snap.assets.clear(); // Validation fails before any slot is selected this invocation.
+	CHECK(set.select(snap) == ViewSet::SNAPSHOT_INVALID);
+	CHECK(set.cut_diagnostics(1, 11, cut) == nullptr);
+	CHECK(cut.status == CutHistory::INVALID);
+}
+
 TEST_CASE("[GaussianSplatting][HLOD] a third view that does not fit is refused explicitly and leaves existing cuts unchanged") {
 	auto tree = make_tree(IDENT);
 	auto snap = snapshot(tree, 1000, 1000 + 2 * vb(1) + vb(1) / 2);
