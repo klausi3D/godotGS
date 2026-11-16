@@ -1005,15 +1005,17 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	auto read_page = [&](const PayloadPageStore::PageDescriptor &p_descriptor) -> Error {
 		// Includes CowData's rounded capacity and both allocation headers. The
 		// caller resets the previous page before another request can allocate.
-		if (!gs_hlod_runtime::allocation_bytes(p_descriptor.stored_bytes, 1, stored_extent)) {
-			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		const Error size_error = gs_hlod_runtime::checked_allocation_bytes(p_descriptor.stored_bytes, 1, stored_extent);
+		if (size_error != OK) {
+			return fail(size_error, "v4_cannot_allocate_payload");
 		}
 		observe(); // Covers the real service -> stash -> caller allocation.
 		const PayloadReadService::SubmitResult submitted = p_store.request(p_requester, p_ticket, p_descriptor);
 		if (submitted != PayloadReadService::SUBMIT_OK) {
 			return fail(submitted == PayloadReadService::SUBMIT_BUSY ? ERR_BUSY :
-					(submitted == PayloadReadService::SUBMIT_NOT_RUNNING || submitted == PayloadReadService::SUBMIT_DUPLICATE_TICKET ?
-							ERR_UNAVAILABLE : ERR_INVALID_DATA),
+					(submitted == PayloadReadService::SUBMIT_TOO_LARGE ? ERR_PARAMETER_RANGE_ERROR :
+							(submitted == PayloadReadService::SUBMIT_NOT_RUNNING || submitted == PayloadReadService::SUBMIT_DUPLICATE_TICKET ?
+									ERR_UNAVAILABLE : ERR_INVALID_DATA)),
 					"v4_page_store_request_refused");
 		}
 		if (!p_store.wait(p_requester, p_ticket, page)) {
@@ -1064,9 +1066,12 @@ Error GaussianSplatHlodPagedSource::read_node_payload_from_store(PayloadPageStor
 	};
 	auto allocate_decoded = [&]() -> Error {
 		uint64_t gaussian_allocation = 0, sh_allocation = 0;
-		if (!gs_hlod_runtime::allocation_bytes(g_bytes, 1, gaussian_allocation) ||
-				!gs_hlod_runtime::allocation_bytes(s_bytes, 1, sh_allocation)) {
-			return fail(ERR_OUT_OF_MEMORY, "v4_cannot_allocate_payload");
+		Error size_error = gs_hlod_runtime::checked_allocation_bytes(g_bytes, 1, gaussian_allocation);
+		if (size_error == OK) {
+			size_error = gs_hlod_runtime::checked_allocation_bytes(s_bytes, 1, sh_allocation);
+		}
+		if (size_error != OK) {
+			return fail(size_error, "v4_cannot_allocate_payload");
 		}
 		decoded_extent = gaussian_allocation + sh_allocation;
 		observe();

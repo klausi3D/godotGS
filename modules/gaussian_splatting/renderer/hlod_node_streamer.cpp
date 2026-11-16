@@ -749,6 +749,11 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 	out.quant = &result.quant;
 	out.metrics = &metrics;
 	const auto allocate_output = [&]() -> bool {
+		uint64_t output_bytes = 0;
+		const uint64_t stride = job->params.quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian);
+		if (gs_hlod_runtime::checked_allocation_bytes(count, stride, output_bytes) != OK) {
+			return false; // Unrepresentable size keeps the default permanent class.
+		}
 		bool sized = count != 0;
 		if (sized && job->params.quantized) {
 			sized = gs_resize_or_fail(result.quantized, count, "HLOD node payload (quantized)");

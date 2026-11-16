@@ -433,6 +433,25 @@ static bool hold_gsq_workers(Harness &p_harness) {
 	return true;
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] unrepresentable payload allocation sizes are permanent") {
+	// Valid V4 records bound every dimension before allocation. Exercise the
+	// shared read/pack size check directly, without attempting huge allocations.
+	uint64_t bytes = 0;
+	CHECK(gs_hlod_runtime::checked_allocation_bytes(1024, 1, bytes, 1040) == OK);
+	CHECK(bytes == 1040);
+	const Error errors[] = {
+		gs_hlod_runtime::checked_allocation_bytes(UINT64_MAX, 2, bytes), // Multiplication overflow.
+		gs_hlod_runtime::checked_allocation_bytes(UINT64_MAX, 1, bytes), // Power-of-two rounding overflow.
+		gs_hlod_runtime::checked_allocation_bytes(1024, 1, bytes, 1039), // Headers exceed the size limit.
+		gs_hlod_runtime::checked_allocation_bytes(1025, 1, bytes, 1040), // Rounded payload exceeds the size limit.
+	};
+	for (Error error : errors) {
+		CHECK(error == ERR_PARAMETER_RANGE_ERROR);
+		CHECK(gs_hlod_runtime::classify_load_error(error) == gs_hlod_runtime::FAILURE_PERMANENT);
+	}
+	CHECK(bytes == 0);
+}
+
 static bool failure_root_descriptor(const TestHlodPageStore::Fixture &p_fixture, PayloadPageStore::PageDescriptor &r_page) {
 	if (p_fixture.source.is_null() || p_fixture.source->get_nodes().size() != 1) {
 		FAIL("failure-policy fixture requires one real V4 source record"); return false;
@@ -486,7 +505,9 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] page store refus
 		String why;
 		const Error error = fixture.source->read_node_payload_from_store(store, 17, 1, 0, gaussians, sh, why);
 		const bool permanent = refusal == PayloadReadService::SUBMIT_TOO_LARGE || refusal == PayloadReadService::SUBMIT_INVALID;
-		CHECK(error == (permanent ? ERR_INVALID_DATA : ERR_UNAVAILABLE));
+		const Error expected_error = refusal == PayloadReadService::SUBMIT_TOO_LARGE ? ERR_PARAMETER_RANGE_ERROR :
+				(permanent ? ERR_INVALID_DATA : ERR_UNAVAILABLE);
+		CHECK(error == expected_error);
 		CHECK(gs_hlod_runtime::classify_load_error(error) ==
 				(permanent ? gs_hlod_runtime::FAILURE_PERMANENT : gs_hlod_runtime::FAILURE_RETRY_LATER));
 		CHECK(why == "v4_page_store_request_refused");
