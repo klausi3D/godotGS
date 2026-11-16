@@ -463,8 +463,8 @@ func _hlod_pressure_snapshot() -> Dictionary:
 
 func _hlod_pressure_settle_window(first: Dictionary) -> Dictionary:
 	var last := _hlod_pressure_snapshot()
-	var same_epoch := first.get("epoch") != null and int(first.get("epoch")) > 0 \
-			and first.get("epoch") == last.get("epoch")
+	var same_epoch: bool = bool(first.get("epoch") != null and int(first.get("epoch")) > 0 \
+			and first.get("epoch") == last.get("epoch"))
 	var deltas := {}
 	for field in HLOD_PRESSURE_FIELDS:
 		var key: String = field[0]
@@ -472,7 +472,7 @@ func _hlod_pressure_settle_window(first: Dictionary) -> Dictionary:
 			continue
 		var before = first.get("values", {}).get(key)
 		var after = last["values"].get(key)
-		var measured := same_epoch and before != null and after != null and int(after) >= int(before)
+		var measured: bool = bool(same_epoch and before != null and after != null and int(after) >= int(before))
 		deltas[key] = {"measured": measured, "value": int(after) - int(before) if measured else null}
 		if not measured:
 			deltas[key]["reason"] = "native epoch unavailable or changed, or counter absent/decreased at an endpoint"
