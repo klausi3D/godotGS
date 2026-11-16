@@ -27,7 +27,7 @@ name: Beyond-VRAM Fly-through
 # All arms use shipped capacity settings. Ordinary backpressure is reported;
 # no-progress failures use only the existing cold/stop/teleport settle windows.
 # shared_layers_variant=pressure (#1471) is the same paired run with the HLOD atlas
-# capped to 20-25 % of the tree's pages (existing resident atlas override) and a 1M
+# capped to 20-25 % of the tree's pages (existing resident atlas override) and a 250k
 # drawn budget on every arm. It is usable only with observed pressure: evictions > 0,
 # budget-bound frames > 0, a teleport settle that had to stream; otherwise UNUSABLE
 # with a named reason. The chunk arm stays the unconstrained reference. The default
@@ -79,7 +79,7 @@ on:
           - "saturate"
           - "skip_compare"
       shared_layers_variant:
-        description: "shared_layers_t0 only: pressure (#1471) caps the HLOD atlas to 20-25 % of the tree pages and the drawn budget to 1M, and is UNUSABLE without observed evictions, budget-bound frames and a streaming teleport settle; control must be none"
+        description: "shared_layers_t0 only: pressure (#1471) caps the HLOD atlas to 20-25 % of the tree pages and the drawn budget to 250k, and is UNUSABLE without observed evictions, budget-bound frames and a streaming teleport settle; control must be none"
         required: false
         default: "unconstrained"
         type: choice
