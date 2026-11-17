@@ -1606,6 +1606,7 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_loading_nodes"] = t.loading;
         stats["hlod_stream_failed_nodes"] = t.failed;
         stats["hlod_stream_permanently_failed_nodes"] = t.permanently_failed;
+        stats["hlod_stream_retry_later_waiting_nodes"] = t.retry_later_waiting;
         stats["hlod_stream_drawn_nodes"] = t.drawn;
         stats["hlod_stream_requested_this_frame"] = t.requested_this_frame;
         stats["hlod_stream_uploaded_this_frame"] = t.uploaded_this_frame;
@@ -1622,6 +1623,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_cancelled_total"] = int64_t(t.cancelled_total);
         stats["hlod_stream_evicted_total"] = int64_t(t.evicted_total);
         stats["hlod_stream_failed_total"] = int64_t(t.failed_total);
+        stats["hlod_stream_failed_permanent_total"] = int64_t(t.failed_permanent_total);
+        stats["hlod_stream_failed_retry_later_total"] = int64_t(t.failed_retry_later_total);
         stats["hlod_stream_skipped_groups_total"] = int64_t(t.skipped_groups_total);
         stats["hlod_stream_stall_frames"] = t.stall_frames;
         stats["hlod_stream_blocked_groups"] = t.blocked_groups_this_frame;

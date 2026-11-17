@@ -106,6 +106,7 @@ public:
 		uint32_t loading = 0; // LOADING + UPLOADING
 		uint32_t failed = 0;
 		uint32_t permanently_failed = 0;
+		uint32_t retry_later_waiting = 0;
 		uint32_t drawn = 0;
 		uint32_t requested_this_frame = 0;
 		uint32_t uploaded_this_frame = 0;
@@ -122,6 +123,8 @@ public:
 		uint64_t cancelled_total = 0;
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;
+		uint64_t failed_permanent_total = 0;
+		uint64_t failed_retry_later_total = 0;
 		uint64_t skipped_groups_total = 0;
 		uint32_t stall_frames = 0; // Consecutive frames with demand, nothing in flight and nothing placeable.
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
@@ -507,6 +510,7 @@ private:
 	struct PackResult {
 		gs_hlod_runtime::NodeResidency::Ticket ticket;
 		bool ok = false;
+		gs_hlod_runtime::FailureClass failure_class = gs_hlod_runtime::FAILURE_PERMANENT;
 		uint64_t source_instance_id = 0, content_generation = 0;
 		// Declared before the vectors: storage is destroyed before the permit.
 		std::unique_ptr<Reservation> reservation;

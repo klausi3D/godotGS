@@ -37,11 +37,30 @@
 
 #include "../core/gaussian_splat_hlod_runtime_data.h"
 #include "../core/streaming_atlas.h"
+#include "core/error/error_list.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/vector.h"
 #include <cstdint>
 
 namespace gs_hlod_runtime {
+
+enum FailureClass : uint8_t { FAILURE_PERMANENT = 0, FAILURE_RETRY_LATER };
+
+// Load-error policy: ERR_BUSY, ERR_OUT_OF_MEMORY, ERR_UNAVAILABLE and ERR_SKIP
+// retry later (ERR_SKIP reaches HLOD only for read-service cancellation/shutdown).
+// All other errors fail closed: corrupt records/digests/decodes,
+// layout mismatches, missing/unopenable files, changed lengths, EOF and I/O errors.
+inline FailureClass classify_load_error(Error p_error) {
+	switch (p_error) {
+		case ERR_BUSY:
+		case ERR_OUT_OF_MEMORY:
+		case ERR_UNAVAILABLE:
+		case ERR_SKIP:
+			return FAILURE_RETRY_LATER;
+		default:
+			return FAILURE_PERMANENT;
+	}
+}
 
 class NodeResidency {
 public:
@@ -71,6 +90,7 @@ public:
 		// A LOADING request that was not demanded for this many frames is cancelled.
 		uint32_t cancel_grace_frames = 4;
 		uint32_t retry_delay_frames = 8;
+		uint32_t retry_later_max_delay_frames = 64; // Zero is treated as one frame.
 		uint32_t max_failures = 3;
 		bool pin_root = true; // The root is the complete coarse fallback; it is never evicted.
 		uint64_t committed_edit_revision = 0; // Package F1: the edit revision of the snapshot this table describes.
@@ -92,6 +112,7 @@ public:
 
 	struct Stats {
 		uint32_t absent = 0, loading = 0, uploading = 0, resident = 0, failed = 0, permanently_failed = 0;
+		uint32_t retry_later_waiting = 0;
 		uint32_t pages_resident = 0; // Pages of RESIDENT nodes.
 		uint32_t pages_in_flight = 0; // Pages of LOADING and UPLOADING nodes.
 		uint32_t pages_retiring = 0; // Freed runs still awaiting retirement.
@@ -108,6 +129,8 @@ public:
 		uint64_t late_dropped_cancelled_total = 0;
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;
+		uint64_t failed_permanent_total = 0; // fail_load attempts only, by class.
+		uint64_t failed_retry_later_total = 0;
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
 		// Report-only pressure observations, reset with the residency table. Each finally skipped allocation
 		// group increments refused and exactly one reason; failed/retry-blocked and request-capped groups do not.
@@ -212,7 +235,7 @@ public:
 	// UPLOADING ticket can make a node RESIDENT.
 	bool finish_upload(const Ticket &p_ticket, bool p_success);
 	// The worker could not read or validate the payload.
-	bool fail_load(const Ticket &p_ticket);
+	bool fail_load(const Ticket &p_ticket, FailureClass p_class = FAILURE_PERMANENT);
 	// Drops an in-flight request (LOADING or UPLOADING). Its run is not reusable until the retirement delay
 	// elapsed and its ticket is dead. Returns false for a node that is not in flight.
 	bool cancel(uint32_t p_node);
@@ -293,6 +316,8 @@ private:
 		uint64_t retry_after_frame = 0;
 		uint64_t demand_pass = 0; // request() pass that last listed this node (duplicate demand is one demand).
 		uint32_t failures = 0;
+		uint32_t retry_later_failures = 0;
+		FailureClass last_failure_class = FAILURE_PERMANENT;
 		// Package F1.
 		bool stale = false; // Ancestor of an edited leaf: never requested, never drawn, not protected, not pinned.
 		bool edit_hold = false; // Replacement child of a staged edit: protected until the edit commits or is cancelled.

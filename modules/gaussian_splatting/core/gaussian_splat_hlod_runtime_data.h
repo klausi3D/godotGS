@@ -127,6 +127,11 @@ namespace gs_hlod_runtime {
 // This also admits simulated narrower size_t limits without attempting huge allocations.
 bool allocation_bytes(uint64_t p_count, uint64_t p_stride, uint64_t &r_bytes,
 		uint64_t p_size_limit = SIZE_MAX);
+// Unrepresentable allocation sizes are data errors, not transient allocator pressure.
+inline Error checked_allocation_bytes(uint64_t p_count, uint64_t p_stride, uint64_t &r_bytes,
+		uint64_t p_size_limit = SIZE_MAX) {
+	return allocation_bytes(p_count, p_stride, r_bytes, p_size_limit) ? OK : ERR_PARAMETER_RANGE_ERROR;
+}
 // The structural count admission of a capture (both the resident and the paged one): nullptr when a tree of
 // `p_nodes` nodes with this payload can be represented on the route, else "hlod_source_admission_limit". Memory is
 // admitted separately, by bytes (CPU_BYTE_LIMIT at capture, the device ledger at publication).
