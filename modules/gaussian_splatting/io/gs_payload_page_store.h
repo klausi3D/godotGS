@@ -235,6 +235,13 @@ public:
 	uint64_t take_thread_last_capture_decode_nsec();
 
 #ifdef TESTS_ENABLED
+	// Configure before start(), like the underlying read-service seam.
+	void _test_set_read_hook(PayloadReadService::ReadHook p_hook, void *p_user) {
+		read_service._test_set_read_hook(p_hook, p_user);
+	}
+	bool _test_read_cancelled(uint64_t p_service_ticket) const {
+		return read_service._test_read_cancelled(p_service_ticket);
+	}
 	Error _test_set_telemetry_delays(uint32_t p_read_usec, uint32_t p_decode_usec);
 	// Same compile gate as PayloadReadService::_test_set_read_hook: absent from
 	// non-test release templates. Faults alter the REAL dispatch handoff, never

@@ -207,6 +207,9 @@ public:
 	// is (0, decoded bytes, 0), and the caller observes its eventual clear itself.
 	struct ReadStorageObserver {
 		virtual void storage_changed(uint64_t p_stored_bytes, uint64_t p_decoded_bytes, uint64_t p_workspace_bytes) = 0;
+		// Optional per-job token. The caller also cancels its store requester to
+		// wake wait(); this check closes submissions racing that cancellation.
+		virtual bool is_cancelled() const { return false; }
 		virtual ~ReadStorageObserver() = default;
 	};
 	Error read_node_payload_from_store(PayloadPageStore &p_store, uint64_t p_requester, uint64_t p_ticket,

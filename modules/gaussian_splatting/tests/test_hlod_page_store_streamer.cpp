@@ -5,6 +5,7 @@ extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 #include "../io/gaussian_splat_world_paged.h"
 #include "../io/gs_payload_page_store.h"
 #include "../renderer/hlod_node_streamer.h"
+#include "../core/gs_upload_sizing.h"
 
 #include <cstring>
 
@@ -1104,6 +1105,147 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] validation uploa
 			return;
 		}
 		CHECK_MESSAGE(h.sample.reservations_released == released, "D3-2 repeated shutdown released an owner twice");
+	}
+}
+
+// A finite slow read which yields when the real service cancels its ticket.
+// This models cancellation at a slice boundary, not interruption of an OS
+// syscall. Against base, no cancellation arrives and the hook finishes late.
+struct SlowRead {
+	PayloadPageStore *store = nullptr;
+	std::atomic<bool> entered{ false }, released{ false }, saw_cancel{ false };
+	std::atomic<uint64_t> deadline_usec{ 0 };
+	static constexpr uint64_t duration_usec = 4 * 1000 * 1000;
+
+	static void hook(void *p_user, uint64_t p_ticket, uint64_t p_offset) {
+		SlowRead &slow = *static_cast<SlowRead *>(p_user);
+		uint64_t expected = 0;
+		slow.deadline_usec.compare_exchange_strong(expected, OS::get_singleton()->get_ticks_usec() + duration_usec);
+		slow.entered.store(true);
+		while (!slow.released.load() && OS::get_singleton()->get_ticks_usec() < slow.deadline_usec.load()) {
+			if (slow.store->_test_read_cancelled(p_ticket)) {
+				slow.saw_cancel.store(true);
+				break;
+			}
+			OS::get_singleton()->delay_usec(1000); // Independent reader; frames keep pumping on the owner.
+		}
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels slow IO before joining and never publishes cancelled jobs") {
+	SlowRead slow; // Outlives the harness/readers, including on an early return.
+	Harness h;
+	slow.store = &h.store;
+	h.store._test_set_read_hook(&SlowRead::hook, &slow);
+	if (!h.init()) { return; }
+	const auto started = gs_pump_until([&]() {
+		h.step();
+		return slow.entered.load() && h.sample.jobs_in_flight > 0;
+	});
+	if (!started.ready()) { FAIL("slow read never entered the real store with a live streamer job"); return; }
+	if (OS::get_singleton()->get_ticks_usec() + 2 * 1000 * 1000 >= slow.deadline_usec.load()) {
+		FAIL("slow-read setup exhausted the timing margin before shutdown"); return;
+	}
+	if (!h.observations_ok || h.sample.tasks_outstanding == 0 || h.sample.mailbox_publications != 0 ||
+			h.store.stats().reads.reading == 0 || slow.saw_cancel.load()) {
+		FAIL("shutdown timing requires a real outstanding uncancelled read with no published output"); return;
+	}
+	const uint64_t before = OS::get_singleton()->get_ticks_usec();
+	h.streamer.shutdown();
+	const uint64_t elapsed = OS::get_singleton()->get_ticks_usec() - before;
+	slow.released.store(true); // Also release hooks on the old (late-returning) path.
+	CHECK_MESSAGE(elapsed < 1000 * 1000, "shutdown waited for slow IO instead of cancelling before join; usec=", elapsed);
+	CHECK_MESSAGE(slow.saw_cancel.load(), "the slow read never saw cancellation from shutdown");
+	h.sample = h.streamer._test_snapshot();
+	CHECK(h.sample.tasks_outstanding == 0);
+	CHECK(h.sample.jobs_in_flight == 0);
+	CHECK(h.sample.mailbox_publications == 0); // A mailbox clear must not hide a late handoff.
+	CHECK(h.sample.mailbox_outputs == 0);
+	CHECK(h.sample.ready_outputs == 0);
+	CHECK(no_residents(h));
+	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(h.store.stats().reads.cancelled_reading > 0);
+	if (!h.check_released()) { return; }
+	const uint64_t released = h.sample.reservations_released;
+	h.streamer.shutdown();
+	CHECK(h.streamer._test_snapshot().reservations_released == released);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels jobs held before request without publishing or reading") {
+	Harness h;
+	if (!h.init() || !reach_holder(h, WORKER)) { return; }
+	if (h.sample.tasks_outstanding == 0 || h.sample.jobs_started == 0 ||
+			h.sample.mailbox_publications != 0 || h.store.stats().reads.submitted != 0) {
+		FAIL("pre-request cancellation requires an admitted held task with no read or mailbox handoff"); return;
+	}
+	h.streamer.shutdown(); // Must mark cancellation BEFORE releasing the deliberate worker hold.
+	h.sample = h.streamer._test_snapshot();
+	CHECK(h.sample.tasks_outstanding == 0);
+	CHECK(h.sample.jobs_in_flight == 0);
+	CHECK(h.sample.mailbox_publications == 0);
+	CHECK(h.store.stats().reads.submitted == 0);
+	CHECK(no_residents(h));
+	CHECK(h.streamer._test_publications().is_empty());
+	h.check_released();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] read cancellation at the submission boundary stops all later raw windows") {
+	TestHlodPageStore::Fixture fixture;
+	PayloadPageStore store;
+	// Multiple raw read windows make a lost cancellation resubmit the same key.
+	if (!fixture.build(false, 0, 4206, 3)) { return; }
+	PayloadPageStore::Config config;
+	config.reader_count = 1;
+	config.max_bytes_in_flight = fixture.source->get_max_record_bytes();
+	config.max_idle_handles = 0;
+	// install_in_page_store refuses a store without the runtime retained-byte policy.
+	config.admission_policy = PayloadPageStore::ADMIT_RETAINED_BYTES;
+	if (store.start(config) != OK || fixture.source->install_in_page_store(store, 1) != OK) {
+		FAIL("cancel-race fixture could not install its real paged source"); return;
+	}
+	struct CancelAtSubmit : GaussianSplatHlodPagedSource::ReadStorageObserver {
+		PayloadPageStore &store;
+		bool cancelled = false;
+		explicit CancelAtSubmit(PayloadPageStore &p_store) : store(p_store) {}
+		void storage_changed(uint64_t p_stored, uint64_t p_decoded, uint64_t p_workspace) override {
+			if (p_stored != 0 && !cancelled) {
+				cancelled = true;
+				store.cancel_requester(987); // No request exists yet: cancellation alone is not sticky.
+			}
+		}
+		bool is_cancelled() const override { return cancelled; }
+	} observer(store);
+	Vector<Gaussian> gaussians;
+	Vector<Vector3> sh;
+	String why;
+	const Error error = fixture.source->read_node_payload_from_store(store, 987, 987, 0, gaussians, sh, why, &observer);
+	CHECK(observer.cancelled);
+	CHECK(error == ERR_UNAVAILABLE);
+	CHECK(gaussians.is_empty());
+	CHECK(sh.is_empty());
+	CHECK(store.stats().reads.submitted <= 1); // Never start another window after the cancelled submit.
+	CHECK(store.stats().live_reservations == 0);
+	CHECK(store.stats().reservations_acquired == store.stats().reservations_released);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] publisher pool reservation and store readers follow actual worker slots") {
+	struct Case { uint32_t cpus, pool, slots, reserved; };
+	const Case cases[] = { { 0, 0, 16, 0 }, { 32, 32, 16, 16 }, { 64, 16, 15, 1 }, { 8, 8, 4, 1 },
+		{ 0, 4, 3, 1 }, { 2, 2, 1, 1 }, { 1, 1, 1, 0 }, { 0, 1, 1, 0 } };
+	for (const Case &entry : cases) {
+		CAPTURE(entry.cpus);
+		CAPTURE(entry.pool);
+		Streamer::Config config;
+		config.set_worker_pool(entry.cpus, entry.pool);
+		CHECK(config.logical_cpus == entry.cpus);
+		CHECK(config.pool_threads == entry.pool);
+		CHECK(config.reserved_pool_threads == entry.reserved);
+		const uint32_t slots = GSUploadSizing::worker_count(config.max_jobs_in_flight, config.logical_cpus,
+				config.pool_threads, config.reserved_pool_threads);
+		CHECK(slots == entry.slots);
+		CHECK(config.page_store_reader_count() == (entry.slots == 0 ? 1 : entry.slots));
+		config.max_jobs_in_flight = 0;
+		CHECK(config.page_store_reader_count() == 1);
 	}
 }
 
