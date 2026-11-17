@@ -1669,6 +1669,127 @@ struct SlowRead {
 	}
 };
 
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] an abandoned in-flight read counts as cancellation without capture or payload read failures (#1483 B)") {
+	SlowRead slow; // Outlives readers even when a precondition fails.
+	Harness h;
+	slow.store = &h.store;
+	slow.released.store(true); // Let the root and sibling seed reads finish normally.
+	h.store._test_set_read_hook(&SlowRead::hook, &slow);
+	if (!h.init()) { return; }
+	h.config.atlas_pages = 3; // Root + resident sibling + in-flight child fill the atlas.
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+		FAIL("cancelled-read accounting fixture could not initialize its three-page atlas"); return;
+	}
+	h.retained_cap = h.streamer.get_retained_byte_cap();
+	h.control.hold_uploads = false;
+	if (!h.set_control()) { return; }
+	h.demand.clear();
+	for (uint32_t node : { 0u, 3u }) {
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		h.demand.push_back(wanted);
+	}
+	const auto seeded = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || (h.streamer.get_residency().state(0) == Residency::RESIDENT &&
+				h.streamer.get_residency().state(3) == Residency::RESIDENT && h.sample.jobs_in_flight == 0 &&
+				h.sample.live_reservations == 0);
+	});
+	if (!seeded.ready() || !h.observations_ok) {
+		FAIL("cancelled-read accounting requires a real resident root and sibling"); return;
+	}
+	const auto before = h.store.stats();
+	CHECK(before.captures_failed == 0);
+	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 0);
+	slow.entered.store(false);
+	slow.saw_cancel.store(false);
+	slow.deadline_usec.store(0);
+	slow.released.store(false);
+	h.demand.clear();
+	gs_hlod_runtime::DesiredRecord lower;
+	lower.node = 4;
+	h.demand.push_back(lower);
+	const auto reading = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || (slow.entered.load() && h.store.stats().reads.reading == 1 &&
+				h.sample.jobs_in_flight == 1 && h.streamer.get_residency().state(4) == Residency::LOADING);
+	});
+	if (!reading.ready() || !h.observations_ok || slow.saw_cancel.load() ||
+			OS::get_singleton()->get_ticks_usec() + 2 * 1000 * 1000 >= slow.deadline_usec.load()) {
+		FAIL("abandonment requires an uncancelled real read still held at its slice boundary"); return;
+	}
+	CHECK(h.streamer.get_residency().stats().pages_free == 0);
+	CHECK(h.streamer.get_telemetry().protected_sibling_nodes == 1);
+	h.demand.clear();
+	for (uint32_t node : { 5u, 6u, 4u }) {
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = node;
+		h.demand.push_back(wanted);
+	}
+	h.step(); // Only priority arbitration may cancel the read; never call a cancel seam.
+	CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 1);
+	CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
+	CHECK(slow.saw_cancel.load());
+	slow.released.store(true);
+	h.demand.clear(); // Drain the cancelled capture without admitting another read.
+	if (!h.drain()) { return; }
+	const auto after = h.store.stats();
+	const Dictionary capture = h.store.get_telemetry("hlod");
+	CHECK(after.captures == before.captures + 1);
+	CHECK(after.reads.submitted == before.reads.submitted + 1);
+	CHECK(after.reads.cancelled_reading >= 1);
+	CHECK(int64_t(capture.get("cancellations", -1)) >= 1);
+	CHECK(after.reads.completed_failed == 0);
+	CHECK(after.captures_failed == 0);
+	CHECK(int64_t(capture.get("captures_failed", -1)) == 0);
+	CHECK(after.last_failure_reason.is_empty());
+	CHECK(String(capture.get("last_failure_reason", "missing")).is_empty());
+	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 0);
+	CHECK(h.streamer.get_residency().stats().failed_permanent_total == 0);
+	CHECK(h.bound_ok);
+	h.check_released();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] a real reader IO error still counts exactly one failed capture and payload read (#1483 B)") {
+	Harness h;
+	if (!h.init()) { return; }
+	h.demand.clear();
+	gs_hlod_runtime::DesiredRecord root;
+	root.node = 0;
+	h.demand.push_back(root);
+	// The snapshot/catalog are already open, but no service read or handle exists yet.
+	// Removing only this fixture's file injects a real reader open error, not a pack failure.
+	if (h.store.stats().reads.submitted != 0 || DirAccess::remove_absolute(h.fixture.path) != OK) {
+		FAIL("IO-error control could not remove its unread fixture payload"); return;
+	}
+	const auto failed = gs_pump_until([&]() {
+		h.step();
+		return !h.observations_ok || h.streamer.get_residency().state(0) == Residency::FAILED;
+	});
+	if (!failed.ready() || !h.observations_ok) {
+		FAIL("the real reader IO error never reached the streamer's failed-read path"); return;
+	}
+	h.demand.clear(); // Stop after the first failed attempt; do not exercise retry policy here.
+	if (!h.drain()) { return; }
+	const auto stats = h.store.stats();
+	const Dictionary capture = h.store.get_telemetry("hlod");
+	CHECK(stats.captures == 1);
+	CHECK(stats.reads.submitted == 1);
+	CHECK(stats.reads.completed_failed == 1);
+	CHECK(stats.captures_failed == 1);
+	CHECK(int64_t(capture.get("captures_failed", -1)) == 1);
+	CHECK(int64_t(capture.get("read_failures", -1)) == 1);
+	CHECK(int64_t(capture.get("cancellations", -1)) == 0);
+	CHECK_FALSE(stats.last_failure_reason.is_empty());
+	CHECK(stats.last_failure_reason != "v4_page_store_request_cancelled");
+	CHECK(String(capture.get("last_failure_reason", "")) == stats.last_failure_reason);
+	CHECK(h.streamer.get_telemetry().payload_read_failures_total == 1);
+	CHECK(h.streamer.get_residency().stats().failed_permanent_total == 1);
+	CHECK(h.streamer._test_publications().is_empty());
+	CHECK(h.bound_ok);
+	h.check_released();
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][WorldIO][D3Store] shutdown cancels slow IO before joining and never publishes cancelled jobs") {
 	SlowRead slow; // Outlives the harness/readers, including on an early return.
 	Harness h;
