@@ -845,6 +845,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		return sized;
 	};
 	bool read_ok = false;
+	bool read_cancelled = false; // Accounting outcome, not a late sample of the cancellation token.
 	const auto pack = [&](const gs_hlod_pack::PayloadView *p_view = nullptr) {
 		if (job->cancellation->cancelled.load()) { return false; }
 		const uint64_t started = payload_clock_nsec();
@@ -857,6 +858,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 	};
 	const GaussianSplatHlodRuntimeData::EditedLeaf *edited_leaf = d.find_edited(job->ticket.node);
 	if (job->cancellation->cancelled.load()) {
+		read_cancelled = true;
 		// Use the ordinary failed-job cleanup below, including read stats and
 		// the reservation. No request, decode, pack or mailbox ownership begins.
 		if (result.reservation) { result.reservation->finish_transport(); }
@@ -880,7 +882,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		observation.cancellation = job->cancellation;
 		const Error read_error = job->store ?
 				d.paged_source->read_node_payload_from_store(*job->store, job->ticket.request_generation,
-						job->ticket.request_generation, job->ticket.node, gaussians, sh, why, &observation) :
+						job->ticket.request_generation, job->ticket.node, gaussians, sh, why, &observation, &read_cancelled) :
 				d.paged_source->read_node_payload(job->ticket.node, gaussians, sh, why);
 		if (result.reservation) { result.reservation->finish_transport(); }
 		read_ok = read_error == OK;
@@ -899,7 +901,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 		result.ok = allocate_output() && pack();
 	}
 	// The scoped decoded arrays above have been destroyed before releasing work.
-	if (job->counted) { job->stats->end_read(job->reserved_bytes, job->read_bytes, read_ok); }
+	if (job->counted) { job->stats->end_read(job->reserved_bytes, job->read_bytes, read_ok, read_cancelled); }
 	{
 		MutexLock lock(job->mailbox->ledger->mutex);
 		if (result.reservation) {

@@ -212,9 +212,10 @@ public:
 		virtual bool is_cancelled() const { return false; }
 		virtual ~ReadStorageObserver() = default;
 	};
+	// Optional cancellation outcome is for accounting only; Error/reason protocol is unchanged.
 	Error read_node_payload_from_store(PayloadPageStore &p_store, uint64_t p_requester, uint64_t p_ticket,
 			uint32_t p_node, Vector<Gaussian> &r_gaussians, Vector<Vector3> &r_sh, String &r_reason,
-			ReadStorageObserver *p_observer = nullptr) const;
+			ReadStorageObserver *p_observer = nullptr, bool *r_cancelled = nullptr) const;
 
 	Stats get_stats() const;
 

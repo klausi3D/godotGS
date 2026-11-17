@@ -818,8 +818,8 @@ void PayloadPageStore::begin_capture(bool p_reset_decode_span) {
 	else { ++counters.captures_on_worker_threads; }
 }
 
-void PayloadPageStore::end_capture(bool p_success, const String &p_reason) {
-	if (!p_success) {
+void PayloadPageStore::end_capture(bool p_success, const String &p_reason, bool p_cancelled) {
+	if (!p_success && !p_cancelled) {
 		MutexLock lock(mutex);
 		counters.captures_failed++;
 		// The V4 adapter verifies its outer stored digest before GSQ decode.

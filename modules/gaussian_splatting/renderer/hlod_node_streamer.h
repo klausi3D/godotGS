@@ -503,7 +503,7 @@ private:
 			while (now > peak && !in_flight_bytes_peak.compare_exchange_weak(peak, now)) {
 			}
 		}
-		void end_read(uint64_t p_reserved, uint64_t p_file_bytes, bool p_ok) {
+		void end_read(uint64_t p_reserved, uint64_t p_file_bytes, bool p_ok, bool p_cancelled = false) {
 			in_flight_bytes.fetch_sub(p_reserved);
 			in_flight.fetch_sub(1);
 			if (p_ok) {
@@ -512,7 +512,7 @@ private:
 				uint64_t seen = largest.load();
 				while (p_file_bytes > seen && !largest.compare_exchange_weak(seen, p_file_bytes)) {
 				}
-			} else {
+			} else if (!p_cancelled) {
 				failures.fetch_add(1);
 			}
 		}

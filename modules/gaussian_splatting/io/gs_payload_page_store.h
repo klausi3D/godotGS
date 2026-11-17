@@ -231,7 +231,8 @@ public:
 	// Thread-local decode span is reset at begin and taken exactly once after end.
 	// The adapter's legacy null-index refusal counts a capture without resetting it.
 	void begin_capture(bool p_reset_decode_span = true);
-	void end_capture(bool p_success, const String &p_reason);
+	// Transport cancellation is already counted by the read service, not as a failed capture.
+	void end_capture(bool p_success, const String &p_reason, bool p_cancelled = false);
 	uint64_t take_thread_last_capture_decode_nsec();
 
 #ifdef TESTS_ENABLED
