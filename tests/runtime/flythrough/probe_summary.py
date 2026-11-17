@@ -205,6 +205,25 @@ def read_trace(path: Path) -> Trace:
     return trace
 
 
+HLOD_PLACEMENT_RESERVE_STATES = {-1: "absent", 0: "unprepared", 1: "measured"}
+HLOD_PLACEMENT_RESERVE_STATE = "hlod_stream_placement_reserve_state"
+HLOD_PLACEMENT_RESERVE_PAGES = "hlod_stream_placement_reserve_pages"
+
+
+def hlod_placement_reserve_observation(values: object) -> dict:
+    """Decode one report-only reserve observation; unprepared means option-1 admission, never measured zero."""
+    values = values if isinstance(values, dict) else {}
+    code = values.get(HLOD_PLACEMENT_RESERVE_STATE)
+    state = HLOD_PLACEMENT_RESERVE_STATES.get(code, "absent") if type(code) is int else "absent"
+    absent = {"state": "absent", "measured": False, "value": None, "reason": "no complete placement reserve observation"}
+    if state == "unprepared":
+        return {**absent, "state": state, "reason": "snapshot reserve unprepared; option-1 physical-page admission active"}
+    pages = values.get(HLOD_PLACEMENT_RESERVE_PAGES)
+    if state != "measured" or type(pages) is not int or pages < 0:
+        return absent
+    return {"state": state, "measured": True, "value": pages}
+
+
 def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
     """Report one native numeric column; absence/partial coverage never becomes zero.
 
@@ -212,13 +231,25 @@ def hlod_pressure_column(trace: Trace, rows: Sequence[int], field: str) -> dict:
     is separate from the maximum. A decrease invalidates the delta, not a gate.
     """
     absent = {"measured": False, "value": None, "reason": f"no complete native {field} observation"}
-    if not rows or field not in trace.index:
+    if field == HLOD_PLACEMENT_RESERVE_PAGES:
+        samples = [hlod_placement_reserve_observation({
+            HLOD_PLACEMENT_RESERVE_STATE: trace.get(trace.rows[row], HLOD_PLACEMENT_RESERVE_STATE) if HLOD_PLACEMENT_RESERVE_STATE in trace.index else None,
+            HLOD_PLACEMENT_RESERVE_PAGES: trace.get(trace.rows[row], field) if field in trace.index else None}) for row in rows]
+        if not samples:
+            return {**absent, "state": "absent"}
+        if not all(sample["measured"] for sample in samples):
+            states = sorted({sample["state"] for sample in samples})
+            return {**absent, "state": states[0] if len(states) == 1 else "mixed", "states": states,
+                    "rows": len(rows), "samples_measured": sum(sample["measured"] for sample in samples)}
+    elif not rows or field not in trace.index:
         return absent
     values = [trace.get(trace.rows[row], field) for row in rows]
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in values):
         return {**absent, "rows": len(rows), "samples_measured": sum(
             type(value) in (int, float) and math.isfinite(value) and value >= 0 for value in values)}
     out = {"measured": True, "value": values[-1], "first": values[0], "max": max(values), "rows": len(rows)}
+    if field == HLOD_PLACEMENT_RESERVE_PAGES:
+        out["state"] = "measured"
     if field.endswith("_total"):
         monotonic = all(after >= before for before, after in zip(values, values[1:]))
         epoch_key = "hlod_stream_pressure_epoch"
@@ -1080,6 +1111,17 @@ def route_telemetry_summary(block: object, *, route: str, source_generation: int
         return invalid("producer reported a payload failure")
     if not block["verify_scope"] or block["stage_time_scope"] != "worker_cpu_sum":
         return invalid("unknown verification or CPU timing scope")
+    # Older captures predate runtime record/node timings. Preserve their absence;
+    # These stages are outside decode_nsec and never enter its remainder.
+    for key in ("record_verify_nsec", "node_load_nsec", "nodes_loaded"):
+        if key not in block:
+            continue
+        value = block[key]
+        if not numeric(value) or value < 0 or value != int(value):
+            return invalid(f"invalid {key}")
+    for key, scope in (("record_verify_nsec", "record_verify_scope"), ("node_load_nsec", "node_load_scope")):
+        if key in block and (not isinstance(block.get(scope), str) or not block[scope].strip()):
+            return invalid(f"missing {scope}")
     for total, worker, main in (
         ("captures", "captures_on_worker_threads", "captures_on_main_thread"),
         ("pages_decoded", "pages_decoded_on_worker_threads", "pages_decoded_on_main_thread"),
@@ -1146,8 +1188,9 @@ def route_telemetry_summary(block: object, *, route: str, source_generation: int
 
 def gsq_decode_split(stats: object) -> Dict[str, object]:
     """BV-K9b: the GSQ decode span (the pipeline's "decode" stage) split into its parts, as
-    per-page means in ms and shares of the span: the stored-page verify (header + stored
-    SHA-256), decode (the remainder: zstd frame decompression, LUTs, dequantisation and the
+    per-page means in ms and shares of the span: GSQ verification (see verify_scope;
+    HLOD parses the header, with stored bytes covered by its V4 record digest),
+    decode (the remainder: zstd frame decompression, LUTs, dequantisation and the
     page-table checks) and the decoded digest (SHA-256 over the decoded splats). zstd is not
     timed apart: that would change gsq_codec.*, a world-cache generator source.
     Counters are whole-run totals of the world's source."""
