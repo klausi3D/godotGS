@@ -753,6 +753,15 @@
       "test_coverage": "inventory_only"
     },
     {
+      "effective_state": "GaussianSplatHlodPagedSource::runtime_full_payload_validation",
+      "key": "rendering/gaussian_splatting/hlod/runtime_full_payload_validation",
+      "notes": "Validate decoded runtime HLOD node payload fields, support bounds, and node metrics after record integrity verification. Defaults on: writer paths do not all validate the exact runtime decoded form, and record digests prove byte identity rather than semantic validity for buggy, older, or self-consistent producers. Snapshotted when a paged source is first installed in the page store; changing the setting affects new paged sources. Offline reads always retain full validation.",
+      "owner": "GaussianSplatHlodPagedSource",
+      "reload_semantics": "on_demand",
+      "test_coverage": "partial",
+      "visibility": "editor_visible"
+    },
+    {
       "effective_state": "Gaussian importer/cache path.gsplatworld_compression_enabled",
       "key": "rendering/gaussian_splatting/import/gsplatworld_compression_enabled",
       "test_coverage": "inventory_only"

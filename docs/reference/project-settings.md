@@ -99,8 +99,8 @@ A default is shown as the C++ expression passed at registration (for example a n
 
 | Coverage | Count |
 | --- | ---: |
-| Keys in the manifest | 198 |
-| Registered by the module at startup | 186 |
+| Keys in the manifest | 199 |
+| Registered by the module at startup | 187 |
 | Read by the module but not registered | 7 |
 | Deprecated aliases (read only, never registered) | 5 |
 
@@ -741,6 +741,25 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
       <td><pre><code>rendering/gaussian_splatting/gpu_sorting/workgroup_size</code></pre></td>
       <td><pre><code>GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/renderer/gpu_sorting_config.cpp</code></pre></td>
+    </tr>
+  </tbody>
+</table>
+
+#### hlod
+
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>Default (as registered)</th>
+      <th>Registered in</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>rendering/gaussian_splatting/hlod/runtime_full_payload_validation</code></pre></td>
+      <td><pre><code>true</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/register_types.cpp</code></pre></td>
     </tr>
   </tbody>
 </table>

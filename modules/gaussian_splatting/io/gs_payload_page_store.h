@@ -154,6 +154,11 @@ public:
 		uint64_t splats_decoded = 0;
 		uint64_t decode_nsec = 0;
 		uint64_t verify_nsec = 0;
+		uint64_t pages_stored_digest_covered_by_record = 0;
+		// Successful V4 runtime loads only. Record verification is OUTSIDE decode_nsec.
+		uint64_t record_verify_nsec = 0;
+		uint64_t node_load_nsec = 0; // Worker invocation wall sum, including IO wait.
+		uint64_t nodes_loaded = 0;
 		uint64_t digest_nsec = 0;
 		uint64_t pages_decoded_digest_checked = 0;
 		uint64_t pages_decoded_digest_skipped = 0;
@@ -202,6 +207,7 @@ public:
 	void record_decoded_content(uint64_t p_id, const Gaussian *p_gaussians, const Vector3 *p_sh,
 			uint32_t p_count, uint32_t p_sh_degree);
 	bool uses_retained_admission() const;
+	void record_node_load(uint64_t p_record_verify_nsec, uint64_t p_node_load_nsec);
 
 	// V4 uses transient leases so idle scratch cannot escape the streamer's
 	// working-set reservation. Existing chunk callers retain their pool policy.
@@ -211,13 +217,16 @@ public:
 	// On failure: no output, DIGEST_NOT_PERFORMED, a gsq_* reason, one page failure.
 	Error decode_gsq_page(const StoredPage &p_page, DecoderLease &p_decoder, bool p_verify_decoded_digest,
 			DecodedPage &r_page, String &r_reason);
-	// Decode a complete GSQ page inside an adapter-owned opaque envelope. Checks
-	// the entire GSQ stored digest and expected shape before writing caller-owned
+	// Decode a complete GSQ page inside an adapter-owned opaque envelope. By default
+	// checks the entire GSQ stored digest and expected shape before writing caller-owned
 	// buffers. No canonical decoded digest exists in this contract: the adapter
 	// keeps its own decoded-validation policy. Stage counters use the same meanings
 	// as decode_gsq_page; chunk's directory and digest checks remain unchanged.
+	// p_enclosing_digest_verified is permitted ONLY after verifying a digest over
+	// ALL subrange bytes (including the GSQ digest field); then only parse the header.
 	Error decode_gsq_subrange(const StoredPage &p_page, DecoderLease &p_decoder, uint32_t p_offset,
-			uint32_t p_count, uint32_t p_sh_degree, Gaussian *r_gaussians, Vector3 *r_sh, String &r_reason);
+			uint32_t p_count, uint32_t p_sh_degree, Gaussian *r_gaussians, Vector3 *r_sh, String &r_reason,
+			bool p_enclosing_digest_verified = false);
 	// Adapter capture boundary; page decode counts stay separate from captures.
 	// Thread-local decode span is reset at begin and taken exactly once after end.
 	// The adapter's legacy null-index refusal counts a capture without resetting it.

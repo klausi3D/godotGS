@@ -82,8 +82,8 @@ METRICS = {
                     "stale_generation_publications", "nonresident_drawn_nodes", "overflow_events", "drop_events"),
     "io": ("stored_bytes", "requests", "queue_latency_ns", "read_latency_ns", "throughput_bytes_s",
            "cancellations", "retained_completion_peak_bytes", "admission_waits", "reads_refused_busy"),
-    "decode_pack": ("verify_ns", "decode_span_ns", "digest_ns", "decode_remainder_ns", "pack_ns",
-                    "splats", "pages", "worker_captures", "main_thread_captures"),
+    "decode_pack": ("verify_ns", "record_verify_ns", "decode_span_ns", "digest_ns", "decode_remainder_ns", "pack_ns",
+                    "node_load_ns", "nodes_loaded", "splats", "pages", "worker_captures", "main_thread_captures"),
     "cpu_memory": ("os_peak_rss_bytes", "active_bytes", "stored_bytes", "mailbox_bytes", "ready_bytes",
                    "shadow_bytes", "retained_bytes", "active_bytes_peak", "stored_bytes_peak",
                    "mailbox_bytes_peak", "ready_bytes_peak", "shadow_bytes_peak", "retained_bytes_peak",
@@ -688,6 +688,40 @@ class ComparisonContract(unittest.TestCase):
             for q in (95, 99):
                 self.assertEqual(metrics["performance"][f"moving_frame_p{q}_ms"]["value"],
                                  native["passes"][0]["moving_frame_interval"][f"p{q}_time_weighted"]["value"])
+
+    def test_runtime_node_work_is_reported_with_its_own_scope(self):
+        # Constructed reporting policy, not measurements attributed to the D3-5 capture.
+        payload = self.arm()["probe"]["payload_telemetry"]
+        payload.update(record_verify_nsec=12345, node_load_nsec=67890, nodes_loaded=2,
+                       record_verify_scope="v4_record_envelope_sha256_and_optional_payload_validation_worker_cpu_sum",
+                       node_load_scope="successful_runtime_node_load_wall_sum_including_io_wait")
+        report = driver.compare(self.experiment)
+        metrics = report["metrics"]["hlod"]["decode_pack"]
+        for key, value, scope in (("record_verify_ns", 12345, "record_verify_scope"),
+                                  ("node_load_ns", 67890, "node_load_scope"), ("nodes_loaded", 2, None)):
+            record = metrics.get(key, {})
+            self.assertIs(record.get("measured"), True, record)
+            self.assertEqual(record.get("value"), value)
+            if scope:
+                self.assertEqual(record.get("scope"), payload[scope])
+        text = driver.render_markdown(report)
+        self.assertIn("| decode_pack / record_verify_ns | not measured: ", text)
+        self.assertIn("12345 (" + payload["record_verify_scope"] + ")", text)
+        self.assertIn("67890 (" + payload["node_load_scope"] + ")", text)
+        self.assertIn("| decode_pack / nodes_loaded | not measured: nodes_loaded not exported by this route or probe | 2 |", text)
+
+    def test_absent_runtime_node_work_is_not_measured_in_json_and_markdown(self):
+        report = driver.compare(self.experiment)
+        for route in ("chunk", "hlod"):
+            for key in ("record_verify_ns", "node_load_ns", "nodes_loaded"):
+                record = report["metrics"][route]["decode_pack"].get(key, {})
+                self.assertIs(record.get("measured"), False, record)
+                self.assertIsNone(record.get("value"))
+                self.assertTrue(record.get("reason"))
+        lines = driver.render_markdown(report).splitlines()
+        for key in ("record_verify_ns", "node_load_ns", "nodes_loaded"):
+            row = next((line for line in lines if line.startswith(f"| decode_pack / {key} |")), "")
+            self.assertEqual(row.count("not measured: "), 2, row)
 
     def test_missing_arm_is_not_run_and_never_valid(self):
         for route in ("chunk", "hlod"):
