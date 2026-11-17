@@ -482,12 +482,14 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] transition telem
 	CHECK(idle.abandoned_transitions_this_frame == 0);
 	CHECK(h.streamer.transition_workspace_bytes() >= h.streamer.get_residency().transition_workspace_bytes());
 	CHECK(h.streamer.transition_workspace_bytes() > 0);
+	const uint64_t source_generation = h.store.stats().source_generation;
 	h.streamer.shutdown();
 	CHECK_FALSE(h.streamer.get_telemetry().transitions_measured);
 	CHECK(h.streamer.get_telemetry().transition_state == Residency::TRANSITIONS_ABSENT);
 	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK || !h.set_control()) {
 		FAIL("could not reinitialize transition observations"); return;
 	}
+	CHECK(h.store.stats().source_generation == source_generation + 1);
 	h.step();
 	CHECK(h.streamer.get_telemetry().transitions_measured);
 	CHECK(h.streamer.get_telemetry().transition_state == Residency::NORMAL);

@@ -342,8 +342,10 @@ HlodNodeStreamer::PackResult &HlodNodeStreamer::PackResult::operator=(PackResult
 Error HlodNodeStreamer::init_with_page_store(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config,
 		uint64_t p_world_generation, uint64_t p_device_generation, PayloadPageStore &p_store) {
 	if (p_data.is_null() || !p_data->is_paged()) { return ERR_INVALID_PARAMETER; }
-	const uint64_t next_generation = page_store == &p_store ? store_generation + 1 : 1;
 	shutdown();
+	// The external store outlives this binding, including an explicit shutdown(). Its catalog
+	// generation must advance even when shutdown() has already cleared page_store.
+	const uint64_t next_generation = p_store.stats().source_generation + 1;
 	if (next_generation == 0) { return ERR_INVALID_PARAMETER; }
 	const Error installed = p_data->paged_source->install_in_page_store(p_store, next_generation);
 	if (installed != OK) { return installed; }

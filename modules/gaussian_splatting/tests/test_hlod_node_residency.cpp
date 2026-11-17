@@ -450,6 +450,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] pressure telemetry distinguishes
 			if (!make_resident_at(res, n, n + 1u)) { FAIL("could not arrange atlas runs"); return; }
 		}
 		res.begin_frame(10);
+		res.withdraw_transitions(); // Fixture loads are complete; these runs must be evictable, not admitted siblings.
 		if (!res.evict(2)) { FAIL("could not create the fragmented free runs"); return; }
 		const uint32_t drawn[1] = { 4 };
 		res.protect_drawn(drawn, 1);
@@ -523,6 +524,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] eviction report ring retains the
 			FAIL("could not reload the next real eviction victim"); return;
 		}
 		sim.res.begin_frame(3u + uint64_t(i) * 2u);
+		sim.res.withdraw_transitions(); // Finish the fixture's reload ownership before exercising a real eviction.
 		if (!sim.res.evict(7)) { FAIL("expected a real unprotected eviction"); return; }
 	}
 	CHECK(sim.res.eviction_event_count() == Residency::EVICTION_EVENT_CAPACITY);
@@ -644,6 +646,48 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] loading, ready and failed are re
 		CHECK(sim.tickets.size() == 0);
 	}
 	CHECK(sim.drawn == std::vector<uint32_t>{ 0 });
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] retry cooldown preserves already admitted sibling work until its own completion (#1483 B)") {
+	Sim sim;
+	if (!one_page_tree(sim, 4) || !make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 1, 2)) {
+		FAIL("could not prepare the resident parent and its missing children"); return;
+	}
+	sim.res.begin_frame(10);
+	const uint32_t demand[2] = { 3, 4 };
+	LocalVector<Residency::Ticket> admitted;
+	sim.res.request(demand, 2, admitted);
+	if (admitted.size() != 2) { FAIL("both sibling tickets must be admitted before one fails"); return; }
+	const auto failed = admitted[0], sibling = admitted[1];
+	bool uploading = false;
+	SUBCASE("sibling still waits for its serialized read") {}
+	SUBCASE("sibling has already begun upload") {
+		uploading = true;
+		if (!sim.res.begin_upload(sibling)) { FAIL("could not begin the sibling upload"); return; }
+	}
+	if (!sim.res.fail_load(failed)) { FAIL("could not fail the first admitted child"); return; }
+	// Repeated polls in the same logical frame cannot retry the failed child or cancel its admitted peer.
+	for (uint32_t poll = 0; poll < 3; ++poll) {
+		LocalVector<Residency::Ticket> again;
+		const auto blocked = sim.res.request(demand, 2, again);
+		CHECK(blocked.blocked_groups == 1);
+		CHECK(again.is_empty());
+		CHECK(sim.res.state(sibling.node) == (uploading ? Residency::UPLOADING : Residency::LOADING));
+		CHECK(sim.res.stats().cancelled_total == 0);
+		CHECK(sim.res.stats().abandoned_transitions_total == 0);
+		CHECK_FALSE(sim.res.is_protected(1)); // Cooldown releases the parent's soft lease.
+	}
+	if ((!uploading && !sim.res.begin_upload(sibling)) || !sim.res.finish_upload(sibling, true)) {
+		FAIL("retry cooldown invalidated a sibling's original ticket"); return;
+	}
+	sim.res.begin_frame(10 + sim.res.config().retry_delay_frames);
+	LocalVector<Residency::Ticket> retried;
+	sim.res.request(demand, 2, retried);
+	if (retried.size() != 1) { FAIL("only the failed child must retry after cooldown"); return; }
+	CHECK(retried[0].node == failed.node);
+	CHECK(retried[0].request_generation != failed.request_generation);
+	CHECK(sim.res.state(sibling.node) == Residency::RESIDENT);
+	CHECK(sim.res.stats().failed_total == 1);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][Residency] a root that can never load is a failure, not loading") {
@@ -1284,6 +1328,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a group skipped only because its
 		return;
 	}
 	sim.res.begin_frame(10);
+	sim.res.withdraw_transitions(); // Completed fixture loads must not own the bystander's transition.
 	CHECK(sim.res.evict(9)); // One page is now retiring (3 frames), none free.
 	CHECK(sim.res.stats().pages_free == 0);
 	CHECK(sim.res.stats().pages_retiring == 1);
@@ -1384,6 +1429,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a failed child is reported as su
 		if (!r_res.reset(infos, config(5, 0), 1, 1)) { return false; }
 		if (!make_resident_at(r_res, 0, 1) || !make_resident_at(r_res, 2, 2) || !make_resident_at(r_res, 4, 3)) { return false; }
 		r_res.begin_frame(10);
+		r_res.withdraw_transitions(); // Arrange free runs after ending the fixture's admitted transition.
 		return r_res.evict(2); // Holes: pages 1-2 and page 4.
 	};
 	{
@@ -1439,6 +1485,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay a
 		if (!make_resident_at(res, n, frame++)) { FAIL("could not make node resident"); return; }
 	}
 	res.begin_frame(20);
+	res.withdraw_transitions(); // Fillers are completed setup data, not an admitted sibling group under test.
 	for (uint32_t n : { 7u, 8u, 9u, 10u }) { CHECK(res.evict(n)); }
 	res.begin_frame(23); // The fillers retired: p1, p3, p5, p7 are free.
 	CHECK(res.stats().pages_free == 4);

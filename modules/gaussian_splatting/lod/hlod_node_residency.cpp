@@ -595,19 +595,24 @@ NodeResidency::RequestResult NodeResidency::request(const uint32_t *p_demand, ui
 		need_scratch.clear();
 		uint32_t total_pages = 0;
 		bool blocked = false;
+		bool terminal_dependency = false;
 		for (uint32_t n = g.head; n != UINT32_MAX; n = nodes[n].next_demand) {
 			const Node &node = nodes[n];
-			if (node.stale || (node.offered_keep && node.state != RESIDENT)) { blocked = true; }
+			if (node.stale || (node.offered_keep && node.state != RESIDENT)) { blocked = terminal_dependency = true; }
 			else if (node.state == LOADING || node.state == UPLOADING || node.state == RESIDENT) { ++out.satisfied; }
-			else if (node.state == FAILED && (node.failures >= cfg.max_failures || current_frame < node.retry_after_frame)) { blocked = true; }
-			else if (node.alloc_key != 0) { blocked = true; }
+			else if (node.state == FAILED && (node.failures >= cfg.max_failures || current_frame < node.retry_after_frame)) {
+				blocked = true;
+				terminal_dependency = terminal_dependency || node.failures >= cfg.max_failures;
+			} else if (node.alloc_key != 0) { blocked = true; }
 			else { need_scratch.push_back(n); total_pages += node.pages; }
 		}
 		if (blocked) {
 			++out.blocked_groups;
-			// A failed dependency is not placement pressure. It cannot perpetuate admission or hold a
-			// previously suppressed suffix hostage, including when retry becomes permanently impossible.
-			abandon_group(key, false);
+			// A blocked dependency cannot retain soft protection or suppress the suffix. A retryable
+			// cooldown must still let already-admitted siblings finish/fail and release their own permits:
+			// cancelling them here can erase serialized jobs before they even perform their first read.
+			if (terminal_dependency) { abandon_group(key, false); }
+			else if (g.active) { lease_group(key, false); g.active = false; }
 			if (arbitration_head == key) {
 				arbitration_head = UINT32_MAX;
 				for (uint32_t lower : group_order) { groups.write[lower].suppressed = false; }

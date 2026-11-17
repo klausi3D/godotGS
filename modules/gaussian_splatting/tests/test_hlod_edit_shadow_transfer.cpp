@@ -406,7 +406,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] C cancel mid trans
 	// Prove allocator reuse by an actual ordinary reload, then another edit.
 	h.drawn.clear();
 	const uint32_t reload = h.fixture.leaves[0]; // stage() guarded nonempty cardinality.
-	h.streamer.begin_frame(); // Drop the previous frame's protection before evicting.
+	h.streamer.begin_frame(); // Expire the previous frame's drawn stamps.
+	// An empty selection also withdraws admitted transition leases. Keep h.demand for the actual reload.
+	const Streamer::Buffers buffers;
+	h.streamer.update(nullptr, buffers, nullptr, 0, nullptr, 0);
 	if (h.streamer._test_evict_node(reload) != OK) { FAIL("D3-3 reuse must evict an actual served leaf"); return; }
 	const auto reloaded = gs_pump_until([&]() {
 		h.step(false);
@@ -496,7 +499,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Edit][WorldIO][D3Shadow] G held shadow and 
 		// One variant saturates bytes; the other has the default byte envelope
 		// and saturates jobs, so deleting either shared limit is observable.
 		const uint32_t ordinary = h.fixture.leaves[0];
-		h.streamer.begin_frame();
+		h.streamer.begin_frame(); // Expire drawn stamps before withdrawing admitted transition leases.
+		// Reconcile an empty selection; h.demand stays intact for the competing ordinary jobs below.
+		const Streamer::Buffers buffers;
+		h.streamer.update(nullptr, buffers, nullptr, 0, nullptr, 0);
 		if (h.streamer._test_evict_node(ordinary) != OK) { FAIL("D3-3 ordinary competition must evict a real leaf"); return; }
 		if (h.streamer._test_evict_node(h.fixture.leaves[1]) != OK) { FAIL("D3-3 ordinary competition needs a second pending leaf"); return; }
 		h.control.hold_workers = true;
