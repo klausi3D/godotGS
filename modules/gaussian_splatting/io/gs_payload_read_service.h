@@ -150,6 +150,12 @@ public:
 		test_read_hook = p_hook;
 		test_read_hook_user = p_user;
 	}
+	// For a slow-read hook which yields at the same cancellation boundary as
+	// the real sliced reader. Safe from the hook: it runs outside this mutex.
+	bool _test_read_cancelled(uint64_t p_ticket) const {
+		MutexLock lock(mutex);
+		return !tickets.has(p_ticket);
+	}
 #endif
 
 private:

@@ -64,6 +64,9 @@ public:
 		uint32_t pool_threads = 0;
 		uint32_t reserved_pool_threads = 0;
 		uint32_t max_jobs_in_flight = 16;
+		// Pure publisher policy; also used by host tests with small/unknown pools.
+		void set_worker_pool(uint32_t p_logical_cpus, uint32_t p_pool_threads);
+		uint32_t page_store_reader_count() const;
 		// Base read-admission input. Codec-none and GSQ store streams derive their
 		// retained cap from node allocations and base-equivalent concurrency; other
 		// paths retain this cap. A node above this input still runs alone.
@@ -213,8 +216,8 @@ public:
 	// drain. Admission uses this streamer's Config, without chunk defaults.
 	Error init_with_page_store(const Ref<GaussianSplatHlodRuntimeData> &p_data, const Config &p_config,
 			uint64_t p_world_generation, uint64_t p_device_generation, PayloadPageStore &p_store);
-	// Waits for outstanding worker jobs (bounded: at most max_jobs_in_flight, each packs one node) and drops
-	// every pending payload. Idempotent. After this nothing refers to the snapshot but the caller.
+	// Cancels outstanding jobs/store requesters before joining workers and dropping
+	// pending payloads. Active IO drains at its next read-slice boundary. Idempotent.
 	void shutdown();
 	bool is_active() const { return active; }
 	// Render-thread ownership check; the caller owns p_store through worker drain.
@@ -266,6 +269,8 @@ public:
 		uint64_t jobs_started = 0;
 		uint64_t admission_waits = 0;
 		uint32_t jobs_in_flight = 0;
+		uint32_t tasks_outstanding = 0; // Real WorkerThreadPool handles, including completed/uncollected tasks.
+		uint64_t mailbox_publications = 0; // Cumulative actual handoffs; survives shutdown's mailbox clear.
 		uint32_t pending_tickets = 0;
 		uint32_t mailbox_outputs = 0;
 		uint32_t ready_outputs = 0;
@@ -433,6 +438,7 @@ private:
 		TestFault fault = TEST_FAULT_NONE;
 		uint64_t faults_triggered = 0;
 		uint32_t held_workers = 0;
+		uint64_t mailbox_publications = 0;
 		Semaphore worker_gate; // Test-only wait; never a ready-slot wait.
 		Vector<TestPublication> publications;
 		bool observe_shadows = false;
@@ -527,6 +533,14 @@ private:
 		Ref<ReservationLedger> ledger;
 		LocalVector<PackResult> done; // Guarded by ledger->mutex.
 	};
+	class JobCancellation : public RefCounted {
+	public:
+		// Set under ledger->mutex to serialize cancellation with mailbox publication;
+		// workers sample atomically at stage boundaries, outside that lock.
+		std::atomic<bool> cancelled{ false };
+		PayloadPageStore *store = nullptr; // Immutable; owner drains tasks before freeing it.
+		uint64_t requester = 0;
+	};
 	struct Job {
 		Ref<GaussianSplatHlodRuntimeData> data;
 		gs_hlod_runtime::NodeResidency::Ticket ticket;
@@ -538,10 +552,13 @@ private:
 		uint64_t reserved_bytes = 0; // Honest store working set; non-store reads retain conservative read + packed accounting.
 		bool counted = false; // begin_read() was called for this job, so end_read() must be.
 		PayloadPageStore *store = nullptr; // Borrowed; renderer drains jobs before store shutdown.
+		Ref<JobCancellation> cancellation;
 		std::unique_ptr<Reservation> reservation;
 	};
 	struct ReadObservation : GaussianSplatHlodPagedSource::ReadStorageObserver {
 		Reservation *reservation = nullptr;
+		Ref<JobCancellation> cancellation;
+		bool is_cancelled() const override { return cancellation.is_valid() && cancellation->cancelled.load(); }
 		void storage_changed(uint64_t p_stored, uint64_t p_decoded, uint64_t p_workspace) override;
 	};
 
@@ -550,6 +567,7 @@ private:
 			uint64_t &r_bytes, uint64_t &r_output) const;
 	Error configure_retained_budget();
 	void start_jobs();
+	void cancel_outstanding_jobs(); // Teardown only; marks all tokens before draining store requesters.
 	void collect_finished_tasks(bool p_wait_all);
 	void drain_mailbox();
 	void release_staged_edit_data();
@@ -598,7 +616,11 @@ private:
 	Vector<ChunkQuantizationGPU> test_quantization;
 	LocalVector<std::unique_ptr<Reservation>> test_leaked_shadow_permits; // Real leak control, reclaimed on teardown.
 #endif
-	LocalVector<WorkerThreadPool::TaskID> tasks;
+	struct Task {
+		WorkerThreadPool::TaskID id = WorkerThreadPool::INVALID_TASK_ID;
+		Ref<JobCancellation> cancellation; // Co-owned with Job, valid even after run_job deletes Job.
+	};
+	LocalVector<Task> tasks; // Render-thread owned; workers never mutate the task list.
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> pending; // Requested, job not started.
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> shadow_pending; // Tickets only; permits are acquired at worker admission.
 	LocalVector<PackResult> shadow_ready; // Charged packed/partial output, drained incrementally by update(), never by commit.
