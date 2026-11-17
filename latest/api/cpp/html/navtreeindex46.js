@@ -1,5 +1,6 @@
 var NAVTREEINDEX46 =
 {
+"structGaussianSplatting_1_1TileTimingState.html#a7a1d97748dd40f549a13f0524cbfe4af":[1,0,9,64,8],
 "structGaussianSplatting_1_1TileTimingState.html#a7af3e12744180945b02bba3ecec76f4d":[0,0,12,65,28],
 "structGaussianSplatting_1_1TileTimingState.html#a7af3e12744180945b02bba3ecec76f4d":[1,0,9,64,28],
 "structGaussianSplatting_1_1TileTimingState.html#a871cfdc3424aaa8e926a0ccd3485cab5":[0,0,12,65,19],
@@ -248,6 +249,5 @@ var NAVTREEINDEX46 =
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#ac4fd917ed9c313b6d964cbe217fc3dd0":[1,0,10,5,10],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#acc5485af7b60515d52ddfcb034e696bb":[0,0,14,5,15],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#acc5485af7b60515d52ddfcb034e696bb":[1,0,10,5,15],
-"structGaussianStreamingTypes_1_1DiagnosticsState.html":[0,0,14,9],
-"structGaussianStreamingTypes_1_1DiagnosticsState.html":[1,0,10,9]
+"structGaussianStreamingTypes_1_1DiagnosticsState.html":[0,0,14,9]
 };

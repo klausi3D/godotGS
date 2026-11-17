@@ -189,8 +189,9 @@ var NAVTREEINDEX36 =
 "structGaussianSplatHlodPagedSource_1_1NodeRecord.html#abc3135e87e62fd75c789e86fdd83135a":[1,0,92,0,0],
 "structGaussianSplatHlodPagedSource_1_1NodeRecord.html#af3afc51b1e65aba59bb471d85e2eeabd":[1,0,92,0,3],
 "structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html":[1,0,92,3],
-"structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html#a240464e8c626bb1640913ba16b94bd3a":[1,0,92,3,1],
+"structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html#a240464e8c626bb1640913ba16b94bd3a":[1,0,92,3,2],
 "structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html#adc639d603da623c1909297cead946656":[1,0,92,3,0],
+"structGaussianSplatHlodPagedSource_1_1ReadStorageObserver.html#adfbd9ca9f225fdab3b1367d169133354":[1,0,92,3,1],
 "structGaussianSplatHlodPagedSource_1_1Stats.html":[1,0,92,2],
 "structGaussianSplatHlodPagedSource_1_1Stats.html#a329adcb1441b3b2a4336a2452ef295be":[1,0,92,2,2],
 "structGaussianSplatHlodPagedSource_1_1Stats.html#a33ae5e751ff853c52b253a85e23c702f":[1,0,92,2,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX36 =
 "structGaussianSplatMergeResult.html#a95ff4193a8853c0d779d5d1f4d9f8869":[1,0,96,1],
 "structGaussianSplatMergeResult.html#ad5d3b80a9bf76b40f7cd6f61a65ca255":[1,0,96,0],
 "structGaussianSplatMergeResult.html#adfd373f985649a2d943af88f26f6cd40":[1,0,96,2],
-"structGaussianSplatMergeSource.html":[1,0,97],
-"structGaussianSplatMergeSource.html#a5b6b148cb29cfb5c9f911620276147ec":[1,0,97,2]
+"structGaussianSplatMergeSource.html":[1,0,97]
 };

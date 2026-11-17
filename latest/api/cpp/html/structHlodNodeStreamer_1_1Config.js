@@ -1,5 +1,7 @@
 var structHlodNodeStreamer_1_1Config =
 [
+    [ "page_store_reader_count", "structHlodNodeStreamer_1_1Config.html#a8057e9eed1896ca263715822e5c3e4d6", null ],
+    [ "set_worker_pool", "structHlodNodeStreamer_1_1Config.html#a00469221683e076ca9eb9c7ea31376bd", null ],
     [ "atlas_pages", "structHlodNodeStreamer_1_1Config.html#a637d4774da19617d4fdc3918847b04d4", null ],
     [ "edit_timeout_frames", "structHlodNodeStreamer_1_1Config.html#a5eb32e7dfc094d40ccb480baad3d0f02", null ],
     [ "logical_cpus", "structHlodNodeStreamer_1_1Config.html#a303a9ad421f115a037f45cd10b28e2f6", null ],

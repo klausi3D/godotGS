@@ -1,5 +1,8 @@
 var NAVTREEINDEX62 =
 {
+"structgs__world__format_1_1HeaderLayout.html":[0,0,35,0],
+"structgs__world__format_1_1HeaderLayout.html":[1,0,24,0],
+"structgs__world__format_1_1HeaderLayout.html#a3923e53bff53cd5f3464bbd05dab374f":[0,0,35,0,4],
 "structgs__world__format_1_1HeaderLayout.html#a3923e53bff53cd5f3464bbd05dab374f":[1,0,24,0,4],
 "structgs__world__format_1_1HeaderLayout.html#a3a9c4905b6bb91edc1e7a421dcc44016":[0,0,35,0,0],
 "structgs__world__format_1_1HeaderLayout.html#a3a9c4905b6bb91edc1e7a421dcc44016":[1,0,24,0,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX62 =
 "structgs__world__generator_1_1Plan.html#a24b67832ab140e93fc87d048f265d723":[0,0,37,6,12],
 "structgs__world__generator_1_1Plan.html#a24b67832ab140e93fc87d048f265d723":[1,0,26,6,12],
 "structgs__world__generator_1_1Plan.html#a33d1821c798dac60ce9f4b371c74df38":[0,0,37,6,10],
-"structgs__world__generator_1_1Plan.html#a33d1821c798dac60ce9f4b371c74df38":[1,0,26,6,10],
-"structgs__world__generator_1_1Plan.html#a40ccd7e72a38260c7c28464a27e66e3a":[0,0,37,6,6],
-"structgs__world__generator_1_1Plan.html#a40ccd7e72a38260c7c28464a27e66e3a":[1,0,26,6,6],
-"structgs__world__generator_1_1Plan.html#a47b17aa187aed68da880c8ee7b05dbd8":[0,0,37,6,2]
+"structgs__world__generator_1_1Plan.html#a33d1821c798dac60ce9f4b371c74df38":[1,0,26,6,10]
 };

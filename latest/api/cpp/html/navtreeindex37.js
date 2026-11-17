@@ -1,5 +1,6 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatMergeSource.html#a5b6b148cb29cfb5c9f911620276147ec":[1,0,97,2],
 "structGaussianSplatMergeSource.html#a72549ccd06500ce6864089c7d370e38c":[1,0,97,1],
 "structGaussianSplatMergeSource.html#ae6efd8f18fa41402278f8f63aa6a67b7":[1,0,97,0],
 "structGaussianSplatPerformanceOverlay_1_1FrameClock.html":[1,0,105,0],
@@ -248,6 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ac35de490fd7dc1ed76e9c8064c7a0fd7":[1,0,107,6,11],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ad804c2c35bb8c7a7dc9c8b5a38b8f652":[1,0,107,6,5],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#ae23dbc7687b3bde6d04dc308c2ed6b00":[1,0,107,6,0],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#aeabec469ddeaf1973d529909073e1bda":[1,0,107,6,9],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#af859605b37bbb5e62df3eda661541321":[1,0,107,6,1]
+"structGaussianSplatSceneDirector_1_1InstanceRecord.html#aeabec469ddeaf1973d529909073e1bda":[1,0,107,6,9]
 };

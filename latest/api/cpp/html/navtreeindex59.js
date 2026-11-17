@@ -1,5 +1,8 @@
 var NAVTREEINDEX59 =
 {
+"structgs__hlod__bundle_1_1InstanceAsset.html#ae24d83ba6b9b3759bc9b95516825250e":[0,0,23,1,8],
+"structgs__hlod__bundle_1_1InstanceAsset.html#ae24d83ba6b9b3759bc9b95516825250e":[1,0,16,1,8],
+"structgs__hlod__bundle_1_1InstanceRegion.html":[0,0,23,2],
 "structgs__hlod__bundle_1_1InstanceRegion.html":[1,0,16,2],
 "structgs__hlod__bundle_1_1InstanceRegion.html#a184d892fcd5a0aeb3a2711829f7fa2e8":[0,0,23,2,1],
 "structgs__hlod__bundle_1_1InstanceRegion.html#a184d892fcd5a0aeb3a2711829f7fa2e8":[1,0,16,2,1],
@@ -246,8 +249,5 @@ var NAVTREEINDEX59 =
 "structgs__hlod__runtime_1_1NodeResidency_1_1EditedLeaf.html#afdcea851e52698be0103e488e99fb657":[0,0,26,1,5,1],
 "structgs__hlod__runtime_1_1NodeResidency_1_1EditedLeaf.html#afdcea851e52698be0103e488e99fb657":[1,0,18,1,5,1],
 "structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html":[0,0,26,1,4],
-"structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html":[1,0,18,1,4],
-"structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html#ab774356ebbc066ac1c4741c25292ccc0":[0,0,26,1,4,0],
-"structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html#ab774356ebbc066ac1c4741c25292ccc0":[1,0,18,1,4,0],
-"structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html#ac98e404f4b2c3281a142adc7f337a54d":[0,0,26,1,4,1]
+"structgs__hlod__runtime_1_1NodeResidency_1_1EvictionEvent.html":[1,0,18,1,4]
 };

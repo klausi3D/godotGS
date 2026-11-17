@@ -1,5 +1,8 @@
 var NAVTREEINDEX52 =
 {
+"structRenderDeviceManager_1_1CrossDeviceOperation.html#a79d440130ec72f05fdd671f411ac2608":[1,0,216,1,0],
+"structRenderDeviceManager_1_1CrossDeviceOperation.html#acb83115ca1a13280f29aae0215493f62":[1,0,216,1,2],
+"structRenderDeviceManager_1_1CrossDeviceOperation.html#add73a45939871f925f6fd5aecf620d31":[1,0,216,1,3],
 "structRenderDeviceManager_1_1TextureTraceEntry.html":[1,0,216,0],
 "structRenderDeviceManager_1_1TextureTraceEntry.html#a245309b025316bbf7e0556d62ccbe423":[1,0,216,0,1],
 "structRenderDeviceManager_1_1TextureTraceEntry.html#a412146e361dc3b9b22e9c9619dc4089d":[1,0,216,0,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX52 =
 "structSortFrameContext.html#a5f1a1c5139736e22fea4d2feba05a9ea":[1,0,247,1],
 "structSortFrameContext.html#a6caec7194c7c1664b6ee041414a08766":[1,0,247,2],
 "structSortFrameContext.html#a6dfa5681e7a1f938fbb7af292a5ef93a":[1,0,247,0],
-"structSortFrameContext.html#a8d1284218b6678639ecb1cbc2d06d7ed":[1,0,247,3],
-"structSortKeyConfig.html":[1,0,251],
-"structSortKeyConfig.html#a265a90c4bc8a5e75bdcc9c1c8f3a9b58":[1,0,251,4],
-"structSortKeyConfig.html#a402e9a4972f256779594762d0868c4d5":[1,0,251,1]
+"structSortFrameContext.html#a8d1284218b6678639ecb1cbc2d06d7ed":[1,0,247,3]
 };

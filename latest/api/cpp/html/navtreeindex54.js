@@ -1,5 +1,8 @@
 var NAVTREEINDEX54 =
 {
+"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a069c281d75cb226463946e485ebbbc08":[1,0,277,0,7],
+"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a0a4bdcdc6bf1b442f329cad779c53599":[1,0,277,0,6],
+"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a3859b599dd5f321d50b9cfb4c350674b":[1,0,277,0,2],
 "structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a8c5b8f4318e2637495963ff8f52fa7e8":[1,0,277,0,5],
 "structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#aaedb3da993aa6e74bc1a707bca723afa":[1,0,277,0,4],
 "structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#ae1a54454065f97ca6cdc2b61d7dc1621":[1,0,277,0,3],
@@ -246,8 +249,5 @@ var NAVTREEINDEX54 =
 "structTilePrefixScanStage_1_1PrefixDispatchContext.html#a7ad0db83795e6771c4c0f678facb7c76":[1,0,283,0,4],
 "structTilePrefixScanStage_1_1PrefixDispatchContext.html#a7ba6ba7eb1ef7999bebd9002d605ff72":[1,0,283,0,0],
 "structTilePrefixScanStage_1_1PrefixDispatchContext.html#a7ca77e019add4db016f8987b2c6d36c5":[1,0,283,0,3],
-"structTilePrefixScanStage_1_1PrefixDispatchContext.html#a93b7ba5b3888d8bd42221d99f00319a4":[1,0,283,0,1],
-"structTileProjectionLayout.html":[1,0,284],
-"structTileProjectionLayout_1_1PackedPayload.html":[1,0,284,1],
-"structTileProjectionLayout_1_1PackedPayload.html#ae366ce09eccc517fceac3d104f9496a2":[1,0,284,1,0]
+"structTilePrefixScanStage_1_1PrefixDispatchContext.html#a93b7ba5b3888d8bd42221d99f00319a4":[1,0,283,0,1]
 };

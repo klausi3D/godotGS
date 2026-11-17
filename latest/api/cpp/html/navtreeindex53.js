@@ -1,5 +1,8 @@
 var NAVTREEINDEX53 =
 {
+"structSortKeyConfig.html":[1,0,251],
+"structSortKeyConfig.html#a265a90c4bc8a5e75bdcc9c1c8f3a9b58":[1,0,251,4],
+"structSortKeyConfig.html#a402e9a4972f256779594762d0868c4d5":[1,0,251,1],
 "structSortKeyConfig.html#a8b7281ee84d46392831aff4c74f4df21":[1,0,251,2],
 "structSortKeyConfig.html#aa8cfece2641ea7001d399303570568f7":[1,0,251,3],
 "structSortKeyConfig.html#ab40a57816076eb1a621efe37f6a22d9f":[1,0,251,0],
@@ -246,8 +249,5 @@ var NAVTREEINDEX53 =
 "structStreamingStats.html#aee598f258f3869a019a98f22f60a53ba":[1,0,276,8],
 "structStreamingStats.html#af48018f7e2e75374340c9ced80b367de":[1,0,276,6],
 "structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html":[1,0,277,0],
-"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a02d8011095e1bcc7cc59d439623ecd3c":[1,0,277,0,0],
-"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a069c281d75cb226463946e485ebbbc08":[1,0,277,0,7],
-"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a0a4bdcdc6bf1b442f329cad779c53599":[1,0,277,0,6],
-"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a3859b599dd5f321d50b9cfb4c350674b":[1,0,277,0,2]
+"structStreamingTelemetryAdapter_1_1QueuePressureSnapshot.html#a02d8011095e1bcc7cc59d439623ecd3c":[1,0,277,0,0]
 };

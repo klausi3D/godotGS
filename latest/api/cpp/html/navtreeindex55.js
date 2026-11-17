@@ -1,5 +1,8 @@
 var NAVTREEINDEX55 =
 {
+"structTileProjectionLayout.html":[1,0,284],
+"structTileProjectionLayout_1_1PackedPayload.html":[1,0,284,1],
+"structTileProjectionLayout_1_1PackedPayload.html#ae366ce09eccc517fceac3d104f9496a2":[1,0,284,1,0],
 "structTileProjectionLayout_1_1Payload.html":[1,0,284,0],
 "structTileProjectionLayout_1_1Payload.html#a2d3d2a300fa5816ca8ccaa1e94a08e21":[1,0,284,0,0],
 "structTileRasterizerStage.html":[1,0,286],
@@ -246,8 +249,5 @@ var NAVTREEINDEX55 =
 "structVRAMBudgetConfig.html#a8dde1be8236e3a0645573b4d0b2ca2db":[1,0,293,15],
 "structVRAMBudgetConfig.html#a8de261b1602f1aef3d518c8bb81fcc0b":[1,0,293,3],
 "structVRAMBudgetConfig.html#a8ed4781d72484798df1cc8076a73c31f":[1,0,293,2],
-"structVRAMBudgetConfig.html#aac2da1e09140f1b92e61325f8cbe980d":[1,0,293,16],
-"structVRAMBudgetConfig.html#ac0a6b471f8ac0636d3229b9cdac2c90b":[1,0,293,4],
-"structVRAMBudgetConfig.html#ac9a75bb4ebbeecdef4828e0527bb83ba":[1,0,293,12],
-"structVRAMBudgetConfig.html#aea8b1a257384ffb6ab8d58ad83e6285b":[1,0,293,13]
+"structVRAMBudgetConfig.html#aac2da1e09140f1b92e61325f8cbe980d":[1,0,293,16]
 };

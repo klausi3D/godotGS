@@ -1,5 +1,8 @@
 var NAVTREEINDEX56 =
 {
+"structVRAMBudgetConfig.html#ac0a6b471f8ac0636d3229b9cdac2c90b":[1,0,293,4],
+"structVRAMBudgetConfig.html#ac9a75bb4ebbeecdef4828e0527bb83ba":[1,0,293,12],
+"structVRAMBudgetConfig.html#aea8b1a257384ffb6ab8d58ad83e6285b":[1,0,293,13],
 "structVRAMBudgetConfig.html#aef2e33619d91a9072ff25c3efeff8287":[1,0,293,6],
 "structVRAMBudgetConfig.html#af591fd88db6ce6411cd2f5a0a5e1740c":[1,0,293,1],
 "structVRAMDebugStats.html":[1,0,295],
@@ -246,8 +249,5 @@ var NAVTREEINDEX56 =
 "structgs__hlod_1_1BoundsAccumulator.html#a6cfbfb5113fa8aecc0a20b8cd72df3cc":[0,0,21,37,3],
 "structgs__hlod_1_1BoundsAccumulator.html#a6cfbfb5113fa8aecc0a20b8cd72df3cc":[1,0,14,37,3],
 "structgs__hlod_1_1BoundsAccumulator.html#aa3e65aa53f83b2db64060d63d3aedc8f":[0,0,21,37,1],
-"structgs__hlod_1_1BoundsAccumulator.html#aa3e65aa53f83b2db64060d63d3aedc8f":[1,0,14,37,1],
-"structgs__hlod_1_1BoundsAccumulator.html#ab333d2353216788fd2cd775a6e859d35":[0,0,21,37,2],
-"structgs__hlod_1_1BoundsAccumulator.html#ab333d2353216788fd2cd775a6e859d35":[1,0,14,37,2],
-"structgs__hlod_1_1BoundsAccumulator.html#ac34965761523b46f11c6dd25f56e17c7":[0,0,21,37,0]
+"structgs__hlod_1_1BoundsAccumulator.html#aa3e65aa53f83b2db64060d63d3aedc8f":[1,0,14,37,1]
 };

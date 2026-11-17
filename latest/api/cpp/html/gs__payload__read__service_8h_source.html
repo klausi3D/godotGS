@@ -252,81 +252,87 @@ $(function(){initNavTree('gs__payload__read__service_8h_source.html','',''); });
 <div class="line"><a id="l00150" name="l00150"></a><span class="lineno">  150</span>        test_read_hook = p_hook;</div>
 <div class="line"><a id="l00151" name="l00151"></a><span class="lineno">  151</span>        test_read_hook_user = p_user;</div>
 <div class="line"><a id="l00152" name="l00152"></a><span class="lineno">  152</span>    }</div>
-<div class="line"><a id="l00153" name="l00153"></a><span class="lineno">  153</span><span class="preprocessor">#endif</span></div>
-<div class="line"><a id="l00154" name="l00154"></a><span class="lineno">  154</span> </div>
-<div class="line"><a id="l00155" name="l00155"></a><span class="lineno">  155</span><span class="keyword">private</span>:</div>
-<div class="line"><a id="l00156" name="l00156"></a><span class="lineno">  156</span>    <span class="keyword">enum</span> RequestState {</div>
-<div class="line"><a id="l00157" name="l00157"></a><span class="lineno">  157</span>        REQUEST_QUEUED,</div>
-<div class="line"><a id="l00158" name="l00158"></a><span class="lineno">  158</span>        REQUEST_READING,</div>
-<div class="line"><a id="l00159" name="l00159"></a><span class="lineno">  159</span>        REQUEST_READY,</div>
-<div class="line"><a id="l00160" name="l00160"></a><span class="lineno">  160</span>    };</div>
-<div class="line"><a id="l00161" name="l00161"></a><span class="lineno">  161</span> </div>
-<div class="line"><a id="l00162" name="l00162"></a><span class="lineno">  162</span>    <span class="keyword">struct </span>Request {</div>
-<div class="line"><a id="l00163" name="l00163"></a><span class="lineno">  163</span>        SelfList&lt;Request&gt; link;</div>
-<div class="line"><a id="l00164" name="l00164"></a><span class="lineno">  164</span>        String file;</div>
-<div class="line"><a id="l00165" name="l00165"></a><span class="lineno">  165</span>        uint64_t offset = 0;</div>
-<div class="line"><a id="l00166" name="l00166"></a><span class="lineno">  166</span>        uint64_t length = 0;</div>
-<div class="line"><a id="l00167" name="l00167"></a><span class="lineno">  167</span>        uint64_t ticket = 0;</div>
-<div class="line"><a id="l00168" name="l00168"></a><span class="lineno">  168</span>        RequestState state = REQUEST_QUEUED;</div>
-<div class="line"><a id="l00169" name="l00169"></a><span class="lineno">  169</span>        uint64_t queued_nsec = 0;</div>
-<div class="line"><a id="l00170" name="l00170"></a><span class="lineno">  170</span>        Error error = <a class="code hl_enumvalue" href="namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66ae0aa021e21dddbd6d8cecec71e9cf564">OK</a>;</div>
-<div class="line"><a id="l00171" name="l00171"></a><span class="lineno">  171</span>        Vector&lt;uint8_t&gt; bytes;</div>
-<div class="line"><a id="l00172" name="l00172"></a><span class="lineno">  172</span>        <span class="comment">// Set under the mutex, read by the reader between slices without it. A cancelled</span></div>
-<div class="line"><a id="l00173" name="l00173"></a><span class="lineno">  173</span>        <span class="comment">// READING request has left `tickets`. Normally its reader deletes it; when</span></div>
-<div class="line"><a id="l00174" name="l00174"></a><span class="lineno">  174</span>        <span class="comment">// cancel_waiting is set, the cancelling waiter owns deletion after read_drained.</span></div>
-<div class="line"><a id="l00175" name="l00175"></a><span class="lineno">  175</span>        SafeFlag cancelled;</div>
-<div class="line"><a id="l00176" name="l00176"></a><span class="lineno">  176</span>        <span class="comment">// Both guarded by `mutex`; the reader signals only after freeing its buffer</span></div>
-<div class="line"><a id="l00177" name="l00177"></a><span class="lineno">  177</span>        <span class="comment">// and releasing the charged bytes. The waiter then deletes this request.</span></div>
-<div class="line"><a id="l00178" name="l00178"></a><span class="lineno">  178</span>        <span class="keywordtype">bool</span> cancel_waiting = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00179" name="l00179"></a><span class="lineno">  179</span>        <span class="keywordtype">bool</span> read_drained = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00180" name="l00180"></a><span class="lineno">  180</span> </div>
-<div class="line"><a id="l00181" name="l00181"></a><span class="lineno">  181</span>        Request() :</div>
-<div class="line"><a id="l00182" name="l00182"></a><span class="lineno">  182</span>                link(this) {}</div>
-<div class="line"><a id="l00183" name="l00183"></a><span class="lineno">  183</span>    };</div>
-<div class="line"><a id="l00184" name="l00184"></a><span class="lineno">  184</span> </div>
-<div class="line"><a id="l00185" name="l00185"></a><span class="lineno">  185</span>    <span class="keyword">struct </span>IdleHandle {</div>
-<div class="line"><a id="l00186" name="l00186"></a><span class="lineno">  186</span>        String file;</div>
-<div class="line"><a id="l00187" name="l00187"></a><span class="lineno">  187</span>        Ref&lt;FileAccess&gt; handle;</div>
-<div class="line"><a id="l00188" name="l00188"></a><span class="lineno">  188</span>    };</div>
-<div class="line"><a id="l00189" name="l00189"></a><span class="lineno">  189</span> </div>
-<div class="line"><a id="l00190" name="l00190"></a><span class="lineno">  190</span>    <span class="keyword">enum</span> ServiceState {</div>
-<div class="line"><a id="l00191" name="l00191"></a><span class="lineno">  191</span>        SERVICE_NEW,</div>
-<div class="line"><a id="l00192" name="l00192"></a><span class="lineno">  192</span>        SERVICE_RUNNING,</div>
-<div class="line"><a id="l00193" name="l00193"></a><span class="lineno">  193</span>        SERVICE_STOPPING,</div>
-<div class="line"><a id="l00194" name="l00194"></a><span class="lineno">  194</span>        SERVICE_STOPPED,</div>
-<div class="line"><a id="l00195" name="l00195"></a><span class="lineno">  195</span>    };</div>
-<div class="line"><a id="l00196" name="l00196"></a><span class="lineno">  196</span> </div>
-<div class="line"><a id="l00197" name="l00197"></a><span class="lineno">  197</span>    <span class="keyword">static</span> <span class="keywordtype">void</span> _reader_entry(<span class="keywordtype">void</span> *p_self);</div>
-<div class="line"><a id="l00198" name="l00198"></a><span class="lineno">  198</span>    <span class="keywordtype">void</span> _reader_loop();</div>
-<div class="line"><a id="l00199" name="l00199"></a><span class="lineno">  199</span>    Error _read(Request &amp;p_request, Ref&lt;FileAccess&gt; &amp;r_handle, Vector&lt;uint8_t&gt; &amp;r_bytes, uint64_t &amp;r_read, <span class="keywordtype">bool</span> &amp;r_opened);</div>
-<div class="line"><a id="l00200" name="l00200"></a><span class="lineno">  200</span>    Ref&lt;FileAccess&gt; _take_idle_handle_locked(<span class="keyword">const</span> String &amp;p_file);</div>
-<div class="line"><a id="l00201" name="l00201"></a><span class="lineno">  201</span>    <span class="keywordtype">void</span> _take_ready_locked(<a class="code hl_struct" href="structPayloadReadService_1_1Completion.html">Completion</a> &amp;r_completion);</div>
-<div class="line"><a id="l00202" name="l00202"></a><span class="lineno">  202</span>    <span class="keywordtype">void</span> _cancel_locked(Request *p_request);</div>
-<div class="line"><a id="l00203" name="l00203"></a><span class="lineno">  203</span> </div>
-<div class="line"><a id="l00204" name="l00204"></a><span class="lineno">  204</span>    <a class="code hl_struct" href="structPayloadReadService_1_1Config.html">Config</a> config;</div>
-<div class="line"><a id="l00205" name="l00205"></a><span class="lineno">  205</span>    LocalVector&lt;Thread *&gt; readers;</div>
-<div class="line"><a id="l00206" name="l00206"></a><span class="lineno">  206</span>    SafeFlag stopping; <span class="comment">// Set under the mutex, read by readers between slices without it.</span></div>
-<div class="line"><a id="l00207" name="l00207"></a><span class="lineno">  207</span> </div>
-<div class="line"><a id="l00208" name="l00208"></a><span class="lineno">  208</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
-<div class="line"><a id="l00209" name="l00209"></a><span class="lineno">  209</span>    ReadHook test_read_hook = <span class="keyword">nullptr</span>;</div>
-<div class="line"><a id="l00210" name="l00210"></a><span class="lineno">  210</span>    <span class="keywordtype">void</span> *test_read_hook_user = <span class="keyword">nullptr</span>;</div>
-<div class="line"><a id="l00211" name="l00211"></a><span class="lineno">  211</span><span class="preprocessor">#endif</span></div>
-<div class="line"><a id="l00212" name="l00212"></a><span class="lineno">  212</span> </div>
-<div class="line"><a id="l00213" name="l00213"></a><span class="lineno">  213</span>    <span class="keyword">mutable</span> BinaryMutex mutex;</div>
-<div class="line"><a id="l00214" name="l00214"></a><span class="lineno">  214</span>    ConditionVariable work_cv; <span class="comment">// Readers: `pending` gained a request, or stopping.</span></div>
-<div class="line"><a id="l00215" name="l00215"></a><span class="lineno">  215</span>    ConditionVariable ready_cv; <span class="comment">// Completion/ready/drain waiters and shutdown share state-change notifications.</span></div>
-<div class="line"><a id="l00216" name="l00216"></a><span class="lineno">  216</span>    ServiceState state = SERVICE_NEW;</div>
-<div class="line"><a id="l00217" name="l00217"></a><span class="lineno">  217</span>    uint32_t waiters = 0; <span class="comment">// Threads inside wait_completion(), wait_ready() or a cancellation drain.</span></div>
-<div class="line"><a id="l00218" name="l00218"></a><span class="lineno">  218</span>    uint64_t handle_epoch = 0; <span class="comment">// release_handles() bumps it; a read leased in an older epoch drops its handle.</span></div>
-<div class="line"><a id="l00219" name="l00219"></a><span class="lineno">  219</span>    SelfList&lt;Request&gt;::List pending;</div>
-<div class="line"><a id="l00220" name="l00220"></a><span class="lineno">  220</span>    SelfList&lt;Request&gt;::List ready;</div>
-<div class="line"><a id="l00221" name="l00221"></a><span class="lineno">  221</span>    HashMap&lt;uint64_t, Request *&gt; tickets; <span class="comment">// Every live ticket: QUEUED, READING or READY, never cancelled.</span></div>
-<div class="line"><a id="l00222" name="l00222"></a><span class="lineno">  222</span>    LocalVector&lt;IdleHandle&gt; idle_handles; <span class="comment">// Oldest first, at most config.max_idle_handles.</span></div>
-<div class="line"><a id="l00223" name="l00223"></a><span class="lineno">  223</span>    <a class="code hl_struct" href="structPayloadReadService_1_1Stats.html">Stats</a> counters;</div>
-<div class="line"><a id="l00224" name="l00224"></a><span class="lineno">  224</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
-<div class="line"><a id="l00225" name="l00225"></a><span class="lineno">  225</span>    uint32_t test_read_delay_usec = 0; <span class="comment">// mutex; copied at dequeue, slept outside it.</span></div>
-<div class="line"><a id="l00226" name="l00226"></a><span class="lineno">  226</span><span class="preprocessor">#endif</span></div>
-<div class="line"><a id="l00227" name="l00227"></a><span class="lineno">  227</span>};</div>
+<div class="line"><a id="l00153" name="l00153"></a><span class="lineno">  153</span>    <span class="comment">// For a slow-read hook which yields at the same cancellation boundary as</span></div>
+<div class="line"><a id="l00154" name="l00154"></a><span class="lineno">  154</span>    <span class="comment">// the real sliced reader. Safe from the hook: it runs outside this mutex.</span></div>
+<div class="line"><a id="l00155" name="l00155"></a><span class="lineno">  155</span>    <span class="keywordtype">bool</span> _test_read_cancelled(uint64_t p_ticket)<span class="keyword"> const </span>{</div>
+<div class="line"><a id="l00156" name="l00156"></a><span class="lineno">  156</span>        MutexLock lock(mutex);</div>
+<div class="line"><a id="l00157" name="l00157"></a><span class="lineno">  157</span>        <span class="keywordflow">return</span> !tickets.has(p_ticket);</div>
+<div class="line"><a id="l00158" name="l00158"></a><span class="lineno">  158</span>    }</div>
+<div class="line"><a id="l00159" name="l00159"></a><span class="lineno">  159</span><span class="preprocessor">#endif</span></div>
+<div class="line"><a id="l00160" name="l00160"></a><span class="lineno">  160</span> </div>
+<div class="line"><a id="l00161" name="l00161"></a><span class="lineno">  161</span><span class="keyword">private</span>:</div>
+<div class="line"><a id="l00162" name="l00162"></a><span class="lineno">  162</span>    <span class="keyword">enum</span> RequestState {</div>
+<div class="line"><a id="l00163" name="l00163"></a><span class="lineno">  163</span>        REQUEST_QUEUED,</div>
+<div class="line"><a id="l00164" name="l00164"></a><span class="lineno">  164</span>        REQUEST_READING,</div>
+<div class="line"><a id="l00165" name="l00165"></a><span class="lineno">  165</span>        REQUEST_READY,</div>
+<div class="line"><a id="l00166" name="l00166"></a><span class="lineno">  166</span>    };</div>
+<div class="line"><a id="l00167" name="l00167"></a><span class="lineno">  167</span> </div>
+<div class="line"><a id="l00168" name="l00168"></a><span class="lineno">  168</span>    <span class="keyword">struct </span>Request {</div>
+<div class="line"><a id="l00169" name="l00169"></a><span class="lineno">  169</span>        SelfList&lt;Request&gt; link;</div>
+<div class="line"><a id="l00170" name="l00170"></a><span class="lineno">  170</span>        String file;</div>
+<div class="line"><a id="l00171" name="l00171"></a><span class="lineno">  171</span>        uint64_t offset = 0;</div>
+<div class="line"><a id="l00172" name="l00172"></a><span class="lineno">  172</span>        uint64_t length = 0;</div>
+<div class="line"><a id="l00173" name="l00173"></a><span class="lineno">  173</span>        uint64_t ticket = 0;</div>
+<div class="line"><a id="l00174" name="l00174"></a><span class="lineno">  174</span>        RequestState state = REQUEST_QUEUED;</div>
+<div class="line"><a id="l00175" name="l00175"></a><span class="lineno">  175</span>        uint64_t queued_nsec = 0;</div>
+<div class="line"><a id="l00176" name="l00176"></a><span class="lineno">  176</span>        Error error = <a class="code hl_enumvalue" href="namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66ae0aa021e21dddbd6d8cecec71e9cf564">OK</a>;</div>
+<div class="line"><a id="l00177" name="l00177"></a><span class="lineno">  177</span>        Vector&lt;uint8_t&gt; bytes;</div>
+<div class="line"><a id="l00178" name="l00178"></a><span class="lineno">  178</span>        <span class="comment">// Set under the mutex, read by the reader between slices without it. A cancelled</span></div>
+<div class="line"><a id="l00179" name="l00179"></a><span class="lineno">  179</span>        <span class="comment">// READING request has left `tickets`. Normally its reader deletes it; when</span></div>
+<div class="line"><a id="l00180" name="l00180"></a><span class="lineno">  180</span>        <span class="comment">// cancel_waiting is set, the cancelling waiter owns deletion after read_drained.</span></div>
+<div class="line"><a id="l00181" name="l00181"></a><span class="lineno">  181</span>        SafeFlag cancelled;</div>
+<div class="line"><a id="l00182" name="l00182"></a><span class="lineno">  182</span>        <span class="comment">// Both guarded by `mutex`; the reader signals only after freeing its buffer</span></div>
+<div class="line"><a id="l00183" name="l00183"></a><span class="lineno">  183</span>        <span class="comment">// and releasing the charged bytes. The waiter then deletes this request.</span></div>
+<div class="line"><a id="l00184" name="l00184"></a><span class="lineno">  184</span>        <span class="keywordtype">bool</span> cancel_waiting = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00185" name="l00185"></a><span class="lineno">  185</span>        <span class="keywordtype">bool</span> read_drained = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00186" name="l00186"></a><span class="lineno">  186</span> </div>
+<div class="line"><a id="l00187" name="l00187"></a><span class="lineno">  187</span>        Request() :</div>
+<div class="line"><a id="l00188" name="l00188"></a><span class="lineno">  188</span>                link(this) {}</div>
+<div class="line"><a id="l00189" name="l00189"></a><span class="lineno">  189</span>    };</div>
+<div class="line"><a id="l00190" name="l00190"></a><span class="lineno">  190</span> </div>
+<div class="line"><a id="l00191" name="l00191"></a><span class="lineno">  191</span>    <span class="keyword">struct </span>IdleHandle {</div>
+<div class="line"><a id="l00192" name="l00192"></a><span class="lineno">  192</span>        String file;</div>
+<div class="line"><a id="l00193" name="l00193"></a><span class="lineno">  193</span>        Ref&lt;FileAccess&gt; handle;</div>
+<div class="line"><a id="l00194" name="l00194"></a><span class="lineno">  194</span>    };</div>
+<div class="line"><a id="l00195" name="l00195"></a><span class="lineno">  195</span> </div>
+<div class="line"><a id="l00196" name="l00196"></a><span class="lineno">  196</span>    <span class="keyword">enum</span> ServiceState {</div>
+<div class="line"><a id="l00197" name="l00197"></a><span class="lineno">  197</span>        SERVICE_NEW,</div>
+<div class="line"><a id="l00198" name="l00198"></a><span class="lineno">  198</span>        SERVICE_RUNNING,</div>
+<div class="line"><a id="l00199" name="l00199"></a><span class="lineno">  199</span>        SERVICE_STOPPING,</div>
+<div class="line"><a id="l00200" name="l00200"></a><span class="lineno">  200</span>        SERVICE_STOPPED,</div>
+<div class="line"><a id="l00201" name="l00201"></a><span class="lineno">  201</span>    };</div>
+<div class="line"><a id="l00202" name="l00202"></a><span class="lineno">  202</span> </div>
+<div class="line"><a id="l00203" name="l00203"></a><span class="lineno">  203</span>    <span class="keyword">static</span> <span class="keywordtype">void</span> _reader_entry(<span class="keywordtype">void</span> *p_self);</div>
+<div class="line"><a id="l00204" name="l00204"></a><span class="lineno">  204</span>    <span class="keywordtype">void</span> _reader_loop();</div>
+<div class="line"><a id="l00205" name="l00205"></a><span class="lineno">  205</span>    Error _read(Request &amp;p_request, Ref&lt;FileAccess&gt; &amp;r_handle, Vector&lt;uint8_t&gt; &amp;r_bytes, uint64_t &amp;r_read, <span class="keywordtype">bool</span> &amp;r_opened);</div>
+<div class="line"><a id="l00206" name="l00206"></a><span class="lineno">  206</span>    Ref&lt;FileAccess&gt; _take_idle_handle_locked(<span class="keyword">const</span> String &amp;p_file);</div>
+<div class="line"><a id="l00207" name="l00207"></a><span class="lineno">  207</span>    <span class="keywordtype">void</span> _take_ready_locked(<a class="code hl_struct" href="structPayloadReadService_1_1Completion.html">Completion</a> &amp;r_completion);</div>
+<div class="line"><a id="l00208" name="l00208"></a><span class="lineno">  208</span>    <span class="keywordtype">void</span> _cancel_locked(Request *p_request);</div>
+<div class="line"><a id="l00209" name="l00209"></a><span class="lineno">  209</span> </div>
+<div class="line"><a id="l00210" name="l00210"></a><span class="lineno">  210</span>    <a class="code hl_struct" href="structPayloadReadService_1_1Config.html">Config</a> config;</div>
+<div class="line"><a id="l00211" name="l00211"></a><span class="lineno">  211</span>    LocalVector&lt;Thread *&gt; readers;</div>
+<div class="line"><a id="l00212" name="l00212"></a><span class="lineno">  212</span>    SafeFlag stopping; <span class="comment">// Set under the mutex, read by readers between slices without it.</span></div>
+<div class="line"><a id="l00213" name="l00213"></a><span class="lineno">  213</span> </div>
+<div class="line"><a id="l00214" name="l00214"></a><span class="lineno">  214</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
+<div class="line"><a id="l00215" name="l00215"></a><span class="lineno">  215</span>    ReadHook test_read_hook = <span class="keyword">nullptr</span>;</div>
+<div class="line"><a id="l00216" name="l00216"></a><span class="lineno">  216</span>    <span class="keywordtype">void</span> *test_read_hook_user = <span class="keyword">nullptr</span>;</div>
+<div class="line"><a id="l00217" name="l00217"></a><span class="lineno">  217</span><span class="preprocessor">#endif</span></div>
+<div class="line"><a id="l00218" name="l00218"></a><span class="lineno">  218</span> </div>
+<div class="line"><a id="l00219" name="l00219"></a><span class="lineno">  219</span>    <span class="keyword">mutable</span> BinaryMutex mutex;</div>
+<div class="line"><a id="l00220" name="l00220"></a><span class="lineno">  220</span>    ConditionVariable work_cv; <span class="comment">// Readers: `pending` gained a request, or stopping.</span></div>
+<div class="line"><a id="l00221" name="l00221"></a><span class="lineno">  221</span>    ConditionVariable ready_cv; <span class="comment">// Completion/ready/drain waiters and shutdown share state-change notifications.</span></div>
+<div class="line"><a id="l00222" name="l00222"></a><span class="lineno">  222</span>    ServiceState state = SERVICE_NEW;</div>
+<div class="line"><a id="l00223" name="l00223"></a><span class="lineno">  223</span>    uint32_t waiters = 0; <span class="comment">// Threads inside wait_completion(), wait_ready() or a cancellation drain.</span></div>
+<div class="line"><a id="l00224" name="l00224"></a><span class="lineno">  224</span>    uint64_t handle_epoch = 0; <span class="comment">// release_handles() bumps it; a read leased in an older epoch drops its handle.</span></div>
+<div class="line"><a id="l00225" name="l00225"></a><span class="lineno">  225</span>    SelfList&lt;Request&gt;::List pending;</div>
+<div class="line"><a id="l00226" name="l00226"></a><span class="lineno">  226</span>    SelfList&lt;Request&gt;::List ready;</div>
+<div class="line"><a id="l00227" name="l00227"></a><span class="lineno">  227</span>    HashMap&lt;uint64_t, Request *&gt; tickets; <span class="comment">// Every live ticket: QUEUED, READING or READY, never cancelled.</span></div>
+<div class="line"><a id="l00228" name="l00228"></a><span class="lineno">  228</span>    LocalVector&lt;IdleHandle&gt; idle_handles; <span class="comment">// Oldest first, at most config.max_idle_handles.</span></div>
+<div class="line"><a id="l00229" name="l00229"></a><span class="lineno">  229</span>    <a class="code hl_struct" href="structPayloadReadService_1_1Stats.html">Stats</a> counters;</div>
+<div class="line"><a id="l00230" name="l00230"></a><span class="lineno">  230</span><span class="preprocessor">#ifdef TESTS_ENABLED</span></div>
+<div class="line"><a id="l00231" name="l00231"></a><span class="lineno">  231</span>    uint32_t test_read_delay_usec = 0; <span class="comment">// mutex; copied at dequeue, slept outside it.</span></div>
+<div class="line"><a id="l00232" name="l00232"></a><span class="lineno">  232</span><span class="preprocessor">#endif</span></div>
+<div class="line"><a id="l00233" name="l00233"></a><span class="lineno">  233</span>};</div>
 </div>
 <div class="ttc" id="aclassPayloadReadService_html_a05a860384088707ff83418a0c30b8917"><div class="ttname"><a href="classPayloadReadService.html#a05a860384088707ff83418a0c30b8917">PayloadReadService::operator=</a></div><div class="ttdeci">PayloadReadService &amp; operator=(const PayloadReadService &amp;)=delete</div></div>
 <div class="ttc" id="aclassPayloadReadService_html_a1b9f5d286bde7d063fce3559e23e82ea"><div class="ttname"><a href="classPayloadReadService.html#a1b9f5d286bde7d063fce3559e23e82ea">PayloadReadService::SubmitResult</a></div><div class="ttdeci">SubmitResult</div><div class="ttdef"><b>Definition</b> gs_payload_read_service.h:61</div></div>
