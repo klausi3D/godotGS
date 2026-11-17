@@ -2248,9 +2248,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 MAX<uint32_t>(2u, gs::settings::get_uint(stream_settings, "rendering/rendering_device/vsync/frame_queue_size", 2u)));
         OS *stream_os = OS::get_singleton();
         WorkerThreadPool *stream_pool = WorkerThreadPool::get_singleton();
-        stream_config.logical_cpus = stream_os ? uint32_t(MAX(0, stream_os->get_processor_count())) : 0u;
-        stream_config.pool_threads = stream_pool ? uint32_t(MAX(0, stream_pool->get_thread_count())) : 0u;
-        stream_config.reserved_pool_threads = 0;
+        stream_config.set_worker_pool(stream_os ? uint32_t(MAX(0, stream_os->get_processor_count())) : 0u,
+                stream_pool ? uint32_t(MAX(0, stream_pool->get_thread_count())) : 0u);
         // Keep HLOD's own 16 jobs / 8 MiB read cap / 32 MiB per frame. Runner
         // defaults give 128 MiB / 2 = 64 MiB staging, above 32 MiB, and a
         // 32-thread runner keeps 16 job slots; no chunk tuning is adopted.
@@ -2343,7 +2342,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
                 // These are HLOD's existing job/read bounds, not chunk-route
                 // defaults. The transport cap accommodates its one-node exception;
                 // continuous admission remains governed by the streamer envelope.
-                store_config.reader_count = stream_config.max_jobs_in_flight;
+                store_config.reader_count = stream_config.page_store_reader_count();
                 store_config.max_bytes_in_flight = MAX(stream_config.max_inflight_read_bytes,
                         served->paged_source->get_max_record_bytes());
                 store_config.max_idle_handles = 0;
