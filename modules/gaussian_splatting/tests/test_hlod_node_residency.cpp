@@ -690,6 +690,166 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] retry cooldown preserves already
 	CHECK(sim.res.stats().failed_total == 1);
 }
 
+// Synchronous model-only polling: these bounds count frames, never worker progress.
+static bool init_failure_root(Residency &r_res, const Residency::Config &p_config) {
+	Vector<Residency::NodeInfo> infos;
+	infos.resize(1);
+	infos.write[0].splat_count = 1;
+	if (!r_res.reset(infos, p_config, 1, 1)) {
+		FAIL("failure-policy root setup failed");
+		return false;
+	}
+	return true;
+}
+
+static bool request_failure_root(Residency &r_res, uint64_t &r_frame, Residency::Ticket &r_ticket, uint32_t p_max_gap) {
+	const uint32_t root = 0;
+	for (uint32_t gap = 0; gap < p_max_gap; ++gap) {
+		r_res.begin_frame(++r_frame);
+		LocalVector<Residency::Ticket> tickets;
+		r_res.request(&root, 1, tickets);
+		if (!tickets.is_empty()) {
+			if (tickets.size() != 1) { FAIL("expected exactly one root request"); return false; }
+			r_ticket = tickets[0];
+			return true;
+		}
+	}
+	FAIL("root was not re-requested within ", p_max_gap, " frames");
+	return false;
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] load error policy retries only busy, OOM, unavailable and cancelled reads") {
+	// Enumerate the Error domain so file, corruption, validation, I/O and unknown
+	// policy codes (including ERR_BUG, ERR_LINK_FAILED and FAILED) all fail closed.
+	for (int value = OK; value < ERR_MAX; ++value) {
+		const Error error = static_cast<Error>(value);
+		const FailureClass expected = error == ERR_BUSY || error == ERR_OUT_OF_MEMORY || error == ERR_UNAVAILABLE || error == ERR_SKIP ?
+				FAILURE_RETRY_LATER : FAILURE_PERMANENT;
+		INFO("Error code: ", value);
+		CHECK(classify_load_error(error) == expected);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] transient load failures exceed max failures and still become resident") {
+	const Error errors[] = { ERR_BUSY, ERR_OUT_OF_MEMORY, ERR_UNAVAILABLE, ERR_SKIP };
+	for (Error error : errors) {
+		INFO("transient Error code: ", int(error));
+		Residency res;
+		auto cfg = config(1, 0);
+		cfg.pin_root = false; // Re-request after success to check that the backoff resets.
+		if (!init_failure_root(res, cfg)) { return; }
+		uint64_t frame = 0;
+		Residency::Ticket ticket;
+		if (!request_failure_root(res, frame, ticket, 1)) { return; }
+		uint64_t first_gap = 0;
+		for (uint32_t attempt = 1; attempt <= 6; ++attempt) {
+			if (!res.fail_load(ticket, classify_load_error(error))) { FAIL("current root failure was rejected"); return; }
+			const auto stats = res.stats();
+			CHECK(res.state(0) == Residency::FAILED);
+			CHECK(stats.failed_total == attempt);
+			CHECK(stats.failed_retry_later_total == attempt);
+			CHECK(stats.failed_permanent_total == 0);
+			CHECK(stats.failed_permanent_total + stats.failed_retry_later_total == stats.failed_total);
+			CHECK(stats.permanently_failed == 0);
+			CHECK_FALSE(res.root_permanently_failed());
+			CHECK(stats.retry_later_waiting == 1);
+			LocalVector<Residency::Ticket> same_frame;
+			const uint32_t root = 0;
+			res.request(&root, 1, same_frame);
+			CHECK(same_frame.is_empty());
+			const uint64_t failed_frame = frame;
+			if (!request_failure_root(res, frame, ticket, cfg.retry_later_max_delay_frames)) { return; }
+			if (attempt == 1) { first_gap = frame - failed_frame; }
+			CHECK(res.stats().retry_later_waiting == 0);
+		}
+		if (!res.begin_upload(ticket) || !res.finish_upload(ticket, true)) { FAIL("retried root did not finish uploading"); return; }
+		CHECK(res.state(0) == Residency::RESIDENT);
+		CHECK(res.stats().retry_later_waiting == 0);
+		CHECK(res.stats().permanently_failed == 0);
+		CHECK(res.stats().completed_total == 1);
+		res.begin_frame(++frame);
+		if (!res.evict(0) || !request_failure_root(res, frame, ticket, 1)) { FAIL("successful root could not be loaded again"); return; }
+		if (!res.fail_load(ticket, FAILURE_RETRY_LATER)) { FAIL("post-success transient failure was rejected"); return; }
+		const uint64_t failed_frame = frame;
+		if (!request_failure_root(res, frame, ticket, cfg.retry_later_max_delay_frames)) { return; }
+		CHECK(frame - failed_frame == first_gap);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] permanent load failures retain the exact attempt limit and linear delay") {
+	const bool explicit_classes[] = { false, true };
+	for (bool explicit_class : explicit_classes) {
+		INFO("explicit permanent class: ", explicit_class);
+		Residency res;
+		const auto cfg = config(1, 0);
+		if (!init_failure_root(res, cfg)) { return; }
+		uint64_t frame = 0;
+		Residency::Ticket ticket;
+		if (!request_failure_root(res, frame, ticket, 1)) { return; }
+		for (uint32_t attempt = 1; attempt <= cfg.max_failures; ++attempt) {
+			const bool failed = explicit_class ? res.fail_load(ticket, FAILURE_PERMANENT) : res.fail_load(ticket);
+			if (!failed) { FAIL("current permanent failure was rejected"); return; }
+			const auto stats = res.stats();
+			CHECK(stats.failed_total == attempt);
+			CHECK(stats.failed_permanent_total == attempt);
+			CHECK(stats.failed_retry_later_total == 0);
+			CHECK(stats.retry_later_waiting == 0);
+			CHECK(stats.permanently_failed == (attempt == cfg.max_failures ? 1 : 0));
+			CHECK(res.root_permanently_failed() == (attempt == cfg.max_failures));
+			if (attempt < cfg.max_failures) {
+				const uint64_t failed_frame = frame;
+				const uint32_t expected_gap = cfg.retry_delay_frames * attempt;
+				if (!request_failure_root(res, frame, ticket, expected_gap)) { return; }
+				CHECK(frame - failed_frame == expected_gap);
+			}
+		}
+		res.begin_frame(frame + 10000);
+		LocalVector<Residency::Ticket> tickets;
+		const uint32_t root = 0;
+		res.request(&root, 1, tickets);
+		CHECK(tickets.is_empty());
+		// A duplicate completion must not inflate either class total.
+		CHECK_FALSE(res.fail_load(ticket, FAILURE_RETRY_LATER));
+		CHECK(res.stats().failed_permanent_total == cfg.max_failures);
+		CHECK(res.stats().failed_retry_later_total == 0);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] retry later backoff is deterministic monotone bounded and never spins") {
+	const uint32_t base_delays[] = { 0, 3, UINT32_MAX };
+	for (uint32_t base_delay : base_delays) {
+		INFO("base retry delay: ", base_delay);
+		auto cfg = config(1, 0);
+		cfg.retry_delay_frames = base_delay;
+		cfg.retry_later_max_delay_frames = 7;
+		cfg.max_failures = 100; // Isolate delay bounds from the permanent-attempt limit.
+		Residency first, second;
+		if (!init_failure_root(first, cfg) || !init_failure_root(second, cfg)) { return; }
+		uint64_t first_frame = 0, second_frame = 0, previous_gap = 0;
+		Residency::Ticket first_ticket, second_ticket;
+		if (!request_failure_root(first, first_frame, first_ticket, 1) ||
+				!request_failure_root(second, second_frame, second_ticket, 1)) { return; }
+		for (uint32_t attempt = 0; attempt < 40; ++attempt) {
+			if (!first.fail_load(first_ticket, FAILURE_RETRY_LATER) || !second.fail_load(second_ticket, FAILURE_RETRY_LATER)) {
+				FAIL("current transient failure was rejected"); return;
+			}
+			LocalVector<Residency::Ticket> same_frame;
+			const uint32_t root = 0;
+			first.request(&root, 1, same_frame);
+			CHECK(same_frame.is_empty());
+			const uint64_t failed_frame = first_frame;
+			if (!request_failure_root(first, first_frame, first_ticket, cfg.retry_later_max_delay_frames) ||
+					!request_failure_root(second, second_frame, second_ticket, cfg.retry_later_max_delay_frames)) { return; }
+			const uint64_t gap = first_frame - failed_frame;
+			CHECK(gap >= 1);
+			CHECK(gap <= cfg.retry_later_max_delay_frames);
+			CHECK(gap >= previous_gap);
+			CHECK(first_frame == second_frame);
+			previous_gap = gap;
+		}
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][Residency] a root that can never load is a failure, not loading") {
 	Sim sim;
 	if (!sim.init(3, 32)) { FAIL("residency setup failed"); return; }

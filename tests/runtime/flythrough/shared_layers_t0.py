@@ -326,6 +326,9 @@ def observations(result: dict, exit_code: int) -> dict:
         "drop_events": missing("drop totals require native per-frame summary"),
         "digest_verification_failures": payload_peak("digest_verification_failures"),
         "hlod_stream_failed_total": hlod_peak("hlod_stream_failed_total"),
+        "hlod_stream_failed_permanent_total": hlod_peak("hlod_stream_failed_permanent_total"),
+        "hlod_stream_failed_retry_later_total": hlod_peak("hlod_stream_failed_retry_later_total"),
+        "hlod_stream_retry_later_waiting_nodes": hlod_peak("hlod_stream_retry_later_waiting_nodes"),
         "hlod_stream_late_dropped_total": hlod_peak("hlod_stream_late_dropped_total"),
     }
     return {"settings": process_settings(result), "source_generation": result.get("source_generation"),

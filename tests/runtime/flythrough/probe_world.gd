@@ -562,6 +562,7 @@ func _sample_and_write() -> void:
 				"visible_splats": _node.get_max_splat_count(), "drawn_splats": _node.get_max_splat_count()})
 		for key in ["hlod_stream_nonresident_drawn", "hlod_stream_stall_frames", "hlod_stream_blocked_groups",
 				"hlod_stream_failed_total", "hlod_stream_late_dropped_total", "hlod_stream_drawn_nodes",
+				"hlod_stream_failed_permanent_total", "hlod_stream_failed_retry_later_total", "hlod_stream_retry_later_waiting_nodes",
 				"hlod_stream_resident_nodes", "rendered_splat_count", "instance_count_overflow_events",
 				"overflow_drop_events", "binning_drop_events", "raster_tile_cap_drop_events"]:
 			if stats.has(key):

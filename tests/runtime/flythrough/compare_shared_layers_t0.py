@@ -37,8 +37,8 @@ METRICS = {
                     "stale_generation_publications", "nonresident_drawn_nodes", "overflow_events", "drop_events"),
     "io": ("stored_bytes", "requests", "queue_latency_ns", "read_latency_ns", "throughput_bytes_s",
            "cancellations", "retained_completion_peak_bytes", "admission_waits", "reads_refused_busy"),
-    "decode_pack": ("verify_ns", "decode_span_ns", "digest_ns", "decode_remainder_ns", "pack_ns",
-                    "splats", "pages", "worker_captures", "main_thread_captures"),
+    "decode_pack": ("verify_ns", "record_verify_ns", "decode_span_ns", "digest_ns", "decode_remainder_ns", "pack_ns",
+                    "node_load_ns", "nodes_loaded", "splats", "pages", "worker_captures", "main_thread_captures"),
     "cpu_memory": ("os_peak_rss_bytes", "active_bytes", "stored_bytes", "mailbox_bytes", "ready_bytes",
                    "shadow_bytes", "retained_bytes", "active_bytes_peak", "stored_bytes_peak",
                    "mailbox_bytes_peak", "ready_bytes_peak", "shadow_bytes_peak", "retained_bytes_peak",
@@ -393,6 +393,12 @@ def _route_metrics(arm):
         put("decode_pack", key, telemetry.get(source))
     put("decode_pack", "digest_ns", telemetry.get("digest_nsec"),
         f"decoded digest {telemetry.get('digest_status', 'not observed')}; no measured duration")
+    for key, source, scope in (("record_verify_ns", "record_verify_nsec", "record_verify_scope"),
+                               ("node_load_ns", "node_load_nsec", "node_load_scope")):
+        put("decode_pack", key, telemetry.get(source), f"{source} not exported by this route or probe")
+        if out["decode_pack"][key]["measured"]:
+            out["decode_pack"][key]["scope"] = telemetry.get(scope, "scope not exported by this route or probe")
+    put("decode_pack", "nodes_loaded", telemetry.get("nodes_loaded"), "nodes_loaded not exported by this route or probe")
     for key in METRICS["cpu_memory"]:
         put("cpu_memory", key, optional.get(key, telemetry.get(key)))
     queues = _dict(obs.get("queues"))
@@ -938,7 +944,7 @@ def compare(experiment: dict) -> dict:
             "passes": {route: copy.deepcopy(_dict(_dict(arms.get(route)).get("probe")).get("passes", []))
                        for route in ("chunk", "hlod")},
             "forward_progress": {route: _progress_summary(arms.get(route), route) for route in ("chunk", "hlod")},
-            "measurement_scopes": {"decode_pack": "worker_cpu_sum; not zstd wall time",
+            "measurement_scopes": {"decode_pack": "worker_cpu_sum except node_load_ns (elapsed sum including IO wait); not zstd wall time",
                                    "io_latency": "reader_wall_sum and read queue sum",
                                    "frame_intervals": "time-weighted nearest rank, cold and repeat reported separately",
                                    "frame_time": FRAME_TIME_SCOPE},
@@ -1401,7 +1407,8 @@ def render_markdown(report: dict) -> str:
     """Keep measurement scopes and unavailable values visible."""
     lines = [f"# Shared layers T0: {report.get('verdict', 'NOT_RUN')}", "",
              "Report-only diagnostic; this is not a Tier A verdict. No performance regression threshold is applied.", "",
-             "Worker stage times are CPU sums, not wall latency or separately measured zstd time.", ""]
+             "Worker stage times are CPU sums, not wall latency or separately measured zstd time. "
+             "node_load_ns is an elapsed sum over successful worker loads, including IO wait.", ""]
     lines += [f"Control verdict: {report.get('control_verdict', 'NOT_REQUESTED')}. "
               "A detected control succeeds only when non-control arms are otherwise usable.", ""]
     for route, identity in _dict(report.get("content_identity")).items():

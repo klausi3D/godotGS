@@ -1131,6 +1131,17 @@ def route_telemetry_summary(block: object, *, route: str, source_generation: int
         return invalid("producer reported a payload failure")
     if not block["verify_scope"] or block["stage_time_scope"] != "worker_cpu_sum":
         return invalid("unknown verification or CPU timing scope")
+    # Older captures predate runtime record/node timings. Preserve their absence;
+    # These stages are outside decode_nsec and never enter its remainder.
+    for key in ("record_verify_nsec", "node_load_nsec", "nodes_loaded"):
+        if key not in block:
+            continue
+        value = block[key]
+        if not numeric(value) or value < 0 or value != int(value):
+            return invalid(f"invalid {key}")
+    for key, scope in (("record_verify_nsec", "record_verify_scope"), ("node_load_nsec", "node_load_scope")):
+        if key in block and (not isinstance(block.get(scope), str) or not block[scope].strip()):
+            return invalid(f"missing {scope}")
     for total, worker, main in (
         ("captures", "captures_on_worker_threads", "captures_on_main_thread"),
         ("pages_decoded", "pages_decoded_on_worker_threads", "pages_decoded_on_main_thread"),
@@ -1197,8 +1208,9 @@ def route_telemetry_summary(block: object, *, route: str, source_generation: int
 
 def gsq_decode_split(stats: object) -> Dict[str, object]:
     """BV-K9b: the GSQ decode span (the pipeline's "decode" stage) split into its parts, as
-    per-page means in ms and shares of the span: the stored-page verify (header + stored
-    SHA-256), decode (the remainder: zstd frame decompression, LUTs, dequantisation and the
+    per-page means in ms and shares of the span: GSQ verification (see verify_scope;
+    HLOD parses the header, with stored bytes covered by its V4 record digest),
+    decode (the remainder: zstd frame decompression, LUTs, dequantisation and the
     page-table checks) and the decoded digest (SHA-256 over the decoded splats). zstd is not
     timed apart: that would change gsq_codec.*, a world-cache generator source.
     Counters are whole-run totals of the world's source."""
