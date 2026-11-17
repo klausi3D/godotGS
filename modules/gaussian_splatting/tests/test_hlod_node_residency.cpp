@@ -768,6 +768,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] transient load failures exceed m
 		CHECK(res.stats().permanently_failed == 0);
 		CHECK(res.stats().completed_total == 1);
 		res.begin_frame(++frame);
+		// This model has no selector to withdraw the completed transition's ownership.
+		// End that fixture ownership so the existing eviction/reload checks exercise an evictable root.
+		res.withdraw_transitions();
 		if (!res.evict(0) || !request_failure_root(res, frame, ticket, 1)) { FAIL("successful root could not be loaded again"); return; }
 		if (!res.fail_load(ticket, FAILURE_RETRY_LATER)) { FAIL("post-success transient failure was rejected"); return; }
 		const uint64_t failed_frame = frame;
