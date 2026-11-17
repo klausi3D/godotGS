@@ -583,14 +583,26 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 			result.budget_bound = result.budget_bound || cut.budget_bound;
 			result.record_demand += cut.record_demand;
 			result.edit_forced = result.edit_forced || cut.edit_forced;
-			for (uint32_t k = 0; k < slot.history.demand_count(); ++k) {
+			// An incomplete bootstrap is one bundle: demand and resident keeps must fit together.
+			// Publishing only some of its residency ownership would discard progress each frame.
+			const bool bootstrap_truncated = cut.status == CutHistory::BOOTSTRAP_MISSING_RESIDENCY &&
+					uint64_t(slot.history.demand_count()) + slot.history.partial_frontier_count() >
+							uint32_t(view.desired.size()) - view.desired_count;
+			result.desired_truncated |= bootstrap_truncated;
+			if (bootstrap_truncated) {
+				// The current reservation cannot own this whole bundle. Report a refusal instead of
+				// waiting indefinitely with no demand that could make the frontier resident.
+				any_not_admitted = true;
+				if (result.worst_status == CutHistory::COMPLETE) { result.worst_status = CutHistory::BOOTSTRAP_INFEASIBLE; }
+			}
+			for (uint32_t k = 0; !bootstrap_truncated && k < slot.history.demand_count(); ++k) {
 				if (view.desired_count >= uint32_t(view.desired.size())) {
 					result.desired_truncated = true;
 					// Never leave half a group: drop the copied siblings of the first node that did not fit.
-					const uint32_t parent = asset.data->nodes[slot.history.demand_node(k)].topology.parent;
+					const uint32_t ordinal = slot.history.demand_transition(k).ordinal;
 					while (view.desired_count != 0 && !view.desired[view.desired_count - 1].keep &&
 							view.desired[view.desired_count - 1].instance_key == inst.instance_key &&
-							asset.data->nodes[view.desired[view.desired_count - 1].node].topology.parent == parent) {
+							view.desired[view.desired_count - 1].transition.ordinal == ordinal) {
 						--view.desired_count;
 					}
 					break;
@@ -599,13 +611,15 @@ ViewSet::SnapshotStatus ViewSet::select(const SelectionSnapshot &p_snapshot) {
 				want.instance_key = inst.instance_key;
 				want.node = slot.history.demand_node(k);
 				want.keep = false;
+				want.transition = slot.history.demand_transition(k);
 			}
-			for (uint32_t k = 0; k < slot.history.partial_frontier_count(); ++k) {
+			for (uint32_t k = 0; !bootstrap_truncated && k < slot.history.partial_frontier_count(); ++k) {
 				if (view.desired_count >= uint32_t(view.desired.size())) { result.desired_truncated = true; break; }
 				DesiredRecord &want = view.desired.write[view.desired_count++];
 				want.instance_key = inst.instance_key;
 				want.node = slot.history.partial_frontier_node(k);
 				want.keep = true;
+				want.transition = { UINT32_MAX, 0, 0, 0, TRANSITION_BOOTSTRAP };
 			}
 			result.desired_count = view.desired_count;
 			switch (cut.status) {

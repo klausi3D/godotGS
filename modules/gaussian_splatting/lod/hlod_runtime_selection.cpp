@@ -16,8 +16,10 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	Vector<uint32_t> new_selected, new_positions;
 	Vector<uint64_t> new_refined;
 	Vector<uint32_t> new_demand;
+	Vector<TransitionGroup> new_groups;
 	Vector<uint8_t> new_diagnostics;
 	if (!gs_resize_or_fail(new_demand, p_nodes, "HLOD cut demand") ||
+			!gs_resize_or_fail(new_groups, p_nodes, "HLOD cut transition groups") ||
 			!gs_resize_or_fail(new_diagnostics, p_nodes, "HLOD cut diagnostics") ||
 			!gs_resize_or_fail(new_heap, p_nodes, "HLOD cut heap") ||
 			!gs_resize_or_fail(new_selected, p_nodes, "HLOD cut selection") ||
@@ -32,6 +34,7 @@ bool CutHistory::reserve(uint32_t p_nodes) {
 	selected_position = std::move(new_positions);
 	refined = std::move(new_refined);
 	demand = std::move(new_demand);
+	demand_groups = std::move(new_groups);
 	diagnostics = std::move(new_diagnostics);
 	demand_size = 0;
 	capacity = p_nodes;
@@ -51,6 +54,7 @@ uint64_t CutHistory::workspace_bytes(uint32_t p_nodes) {
 	if (!allocation_bytes(p_nodes, sizeof(Candidate), one)) { return 0; } bytes += one;
 	if (!allocation_bytes(p_nodes, sizeof(uint32_t), one)) { return 0; } bytes += one * 3; // selection, positions and demand
 	if (!allocation_bytes(p_nodes, sizeof(uint64_t), one)) { return 0; } bytes += one;
+	if (!allocation_bytes(p_nodes, sizeof(TransitionGroup), one)) { return 0; } bytes += one;
 	return bytes;
 }
 
@@ -83,12 +87,16 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	// treat duplicates as one demand.
 	// A group is demanded whole or not at all: a truncated group would request part of a transition that can
 	// then never complete.
-	auto push_group = [&](const uint32_t *p_nodes, uint32_t p_count) {
+	auto push_group = [&](const uint32_t *p_nodes, uint32_t p_count, TransitionGroup p_group) {
 		if (demand_size + p_count > capacity) { return false; }
-		for (uint32_t i = 0; i < p_count; ++i) { demand.write[demand_size++] = p_nodes[i]; }
+		p_group.ordinal = demand_size;
+		for (uint32_t i = 0; i < p_count; ++i) {
+			demand_groups.write[demand_size] = p_group;
+			demand.write[demand_size++] = p_nodes[i];
+		}
 		return true;
 	};
-	auto push_demand = [&](uint32_t p_node) { push_group(&p_node, 1); };
+	auto push_demand = [&](uint32_t p_node) { push_group(&p_node, 1, { UINT32_MAX, p_node, 0, 1, TRANSITION_ROOT }); };
 	auto refused = [&](uint32_t p_node) {
 		if (out.first_cap_refused_node < 0) { out.first_cap_refused_node = int32_t(p_node); }
 	};
@@ -238,8 +246,15 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		const uint64_t work_limit = 1 + uint64_t(p_request.node_budget) * gs_hlod::kMaxChildren;
 		bool missing_residency = false;
 		auto fail = [&](SelectStatus p_status) {
-			// `selected` still holds the frontier reached so far (all resident); only the count is cleared.
-			partial_size = p_status == BOOTSTRAP_MISSING_RESIDENCY ? out.selected_count : 0u;
+			// Only resident non-stale frontier nodes may receive keep ownership. A stale ancestor can
+			// still be in this working frontier when its mandatory expansion is blocked on residency.
+			partial_size = 0;
+			if (p_status == BOOTSTRAP_MISSING_RESIDENCY) {
+				for (uint32_t i = 0; i < out.selected_count; ++i) {
+					const uint32_t node = selected[i];
+					if (!stale(node) && available(node)) { selected.write[partial_size++] = node; }
+				}
+			}
 			out.status = p_status;
 			out.selected_count = 0;
 			out.selected_splats = 0;
@@ -285,6 +300,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			double child_costs[gs_hlod::kMaxChildren];
 			uint64_t child_pages = 0;
 			uint32_t visible_children = 0;
+			uint16_t visible_mask = 0;
 			uint64_t child_splats = 0;
 			double child_cost = 0.0;
 			bool children_ready = true;
@@ -294,6 +310,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				const uint32_t child = n.first_child + j;
 				if (++out.visited_nodes > work_limit) { return fail(BOOTSTRAP_EXHAUSTED); }
 				if (!visible(child)) { continue; }
+				visible_mask |= uint16_t(1u << j);
 				child_pages += pages_of(child); // Missing children and resident siblings share the same transition.
 				if (!stale(child) && !available(child)) { children_ready = false; missing_children[missing_count++] = child; continue; }
 				const double c = cost(child);
@@ -311,7 +328,8 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 				// Parent stays; no partial replacement. The bootstrap needs this expansion, so every missing
 				// visible child is demanded together (a whole transition, never a subset).
 				missing_residency = true;
-				const bool demanded = push_group(missing_children, missing_count);
+				const bool demanded = push_group(missing_children, missing_count,
+						{ parent, n.first_child, 0, visible_mask, TRANSITION_BOOTSTRAP });
 				missed(parent, demanded);
 				if (demanded) {
 					reserve_transition(parent, child_pages);
@@ -362,6 +380,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		const auto &n = p_data.nodes[parent].topology;
 		uint32_t children[gs_hlod::kMaxChildren];
 		uint32_t visible_children = 0;
+		uint16_t visible_mask = 0;
 		uint64_t child_splats = 0;
 		double child_cost = 0;
 		bool complete = true;
@@ -375,6 +394,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 			const uint32_t child = n.first_child + j;
 			++out.visited_nodes;
 			if (!visible(child)) { continue; }
+			visible_mask |= uint16_t(1u << j);
 			if (!available(child)) { complete = false; missing_children[missing_count++] = child; }
 			children[visible_children++] = child;
 			child_pages += pages_of(child);
@@ -400,7 +420,8 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 					pages_fit;
 			const double planned_cost = MAX(0.0, out.estimated_records + plan_cost + d_cost);
 			if (other_caps_fit && planned_cost <= record_cap) {
-				demanded = push_group(missing_children, missing_count);
+				demanded = push_group(missing_children, missing_count,
+						{ parent, n.first_child, 0, visible_mask, TRANSITION_REFINEMENT });
 				if (demanded) {
 					reserve_transition(parent, child_pages);
 					for (uint32_t j = 0; j < visible_children; ++j) { report_pages(children[j], 0); }

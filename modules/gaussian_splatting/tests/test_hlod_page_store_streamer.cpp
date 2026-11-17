@@ -467,6 +467,78 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] pressure telemet
 	CHECK(t.gate_frames_total[Streamer::REFUSING_NONE] == 1);
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] transition telemetry preserves absence measured idle and lifecycle reset (#1483 B)") {
+	Harness h;
+	CHECK_FALSE(h.streamer.get_telemetry().transitions_measured);
+	CHECK(h.streamer.get_telemetry().transition_state == Residency::TRANSITIONS_ABSENT);
+	if (!h.init()) { return; }
+	h.demand.clear();
+	h.step();
+	const auto idle = h.streamer.get_telemetry();
+	CHECK(idle.transitions_measured);
+	CHECK(idle.transition_state == Residency::NORMAL);
+	CHECK(idle.protected_sibling_nodes == 0);
+	CHECK(idle.abandoned_transitions_total == 0);
+	CHECK(idle.abandoned_transitions_this_frame == 0);
+	CHECK(h.streamer.transition_workspace_bytes() >= h.streamer.get_residency().transition_workspace_bytes());
+	CHECK(h.streamer.transition_workspace_bytes() > 0);
+	h.streamer.shutdown();
+	CHECK_FALSE(h.streamer.get_telemetry().transitions_measured);
+	CHECK(h.streamer.get_telemetry().transition_state == Residency::TRANSITIONS_ABSENT);
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK || !h.set_control()) {
+		FAIL("could not reinitialize transition observations"); return;
+	}
+	h.step();
+	CHECK(h.streamer.get_telemetry().transitions_measured);
+	CHECK(h.streamer.get_telemetry().transition_state == Residency::NORMAL);
+	CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 0);
+	CHECK(h.streamer.get_telemetry().abandoned_transitions_this_frame == 0);
+	CHECK(idle.transitions_measured); // A copied checkpoint cannot alias the lifecycle reset.
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] shared owners fail closed without cancelling another owners work (#1483 B)") {
+	for (bool reverse : { false, true }) {
+		CAPTURE(reverse);
+		Harness h;
+		if (!h.init()) { return; }
+		h.demand.clear();
+		gs_hlod_runtime::DesiredRecord lower;
+		lower.node = 4;
+		h.demand.push_back(lower);
+		if (!reach_holder(h, WORKER)) { return; }
+		const auto before = h.streamer.get_residency().stats();
+		if (before.loading != 1) { FAIL("shared-owner test requires a real held ordinary request"); return; }
+		gs_hlod_runtime::CutRequest view;
+		h.streamer.register_view(reverse ? 202 : 101, view);
+		h.streamer.register_view(reverse ? 101 : 202, view);
+		for (uint64_t owner : { 101u, 202u, 101u }) {
+			h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0, owner);
+			CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
+			CHECK(h.streamer.get_telemetry().transitions_measured);
+			CHECK(h.streamer.get_telemetry().desired > 0);
+			CHECK(h.streamer.get_residency().stats().cancelled_total == before.cancelled_total);
+			CHECK(h.streamer.get_residency().stats().requested_total == before.requested_total);
+			CHECK(h.streamer.get_residency().state(4) == Residency::LOADING);
+		}
+		CHECK(h.streamer.unregister_view(202));
+		// Multiple instances are also owners, even when there is only one registered view.
+		gs_hlod_runtime::DesiredRecord instances[2];
+		instances[0].instance_key = 1; instances[0].node = 5;
+		instances[1].instance_key = 2; instances[1].node = 6;
+		h.streamer.update(nullptr, Streamer::Buffers(), instances, 2, nullptr, 0, 101);
+		CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == 0);
+		CHECK(h.streamer.get_residency().state(4) == Residency::LOADING);
+		// Once only one owner remains, replacing the old single owner explicitly withdraws its work.
+		h.demand.clear();
+		h.streamer.update(nullptr, Streamer::Buffers(), nullptr, 0, nullptr, 0, 101);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
+		h.control.hold_workers = h.control.hold_mailbox = h.control.hold_uploads = false;
+		if (!h.set_control() || !h.drain() || !h.check_released()) { return; }
+		CHECK(h.streamer._test_publications().is_empty());
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] placement reserve capture preserves zero and clears absent frames and lifecycle resets (#1483)") {
 	Harness h;
 	CHECK_FALSE(h.streamer.get_telemetry().placement_reserve_measured);
@@ -994,6 +1066,7 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] priority abandon
 			}
 		}
 		CHECK(h.streamer.get_residency().stats().pages_free == 0);
+		CHECK(h.streamer.get_telemetry().protected_sibling_nodes == 1);
 		h.demand.clear();
 		for (uint32_t node : { 5u, 6u, 4u }) {
 			gs_hlod_runtime::DesiredRecord wanted;
@@ -1004,6 +1077,12 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] priority abandon
 		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
 		CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
 		CHECK(h.streamer.get_telemetry().desired == 3); // Unmet selection demand BEFORE abandonment filtering.
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 1);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_this_frame == 1);
+		CHECK(h.streamer.get_telemetry().transition_state == Residency::RETIREMENT_WAIT);
+		h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 1);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_this_frame == 1);
 		h.control.hold_workers = h.control.hold_mailbox = h.control.hold_uploads = false;
 		if (!h.set_control()) { return; }
 		const auto progressed = gs_pump_until([&]() {

@@ -2578,8 +2578,11 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         // Each admitted view (and this one, if it is new) is charged its history and draw records against the same
         // headroom every frame (ViewSet::admit_view / select): node_budget = the world's nodes, one world instance.
         const uint32_t views = MIN<uint32_t>(frame_context_manager.get_hlod_view_set().view_count() + 1u, RenderFrameContextManager::HLOD_MAX_VIEWS);
+        const uint64_t histories = hlod_view_reservation_bytes(input->nodes.size(), views);
+        const uint64_t transitions = state.hlod_streaming ? state.hlod_streamer->transition_workspace_bytes() : 0;
+        const uint64_t cpu_reservation = transitions > UINT64_MAX - histories ? UINT64_MAX : histories + transitions;
         mandatory_bytes = ResidentAtlasBudget::hlod_mandatory_outstanding_bytes(grid_bytes, tile->get_hlod_scratch_outstanding_bytes(scratch_params),
-                hlod_view_reservation_bytes(input->nodes.size(), views));
+                cpu_reservation);
     }
     // Safe point for the overlap storage: the previous frames' measured overlap demand, before this frame's passes. It runs
     // before the per-view grid decision below, so that decision (and the seed) reads the grown capacity. Optional: only
@@ -2894,7 +2897,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     } else {
         asset.resident.clear();
     }
-    asset.payload_bytes = 0;
+    // Shared CPU transition metadata is charged once through the existing asset ledger, not job B or RD bytes.
+    asset.payload_bytes = state.hlod_streaming ? state.hlod_streamer->transition_workspace_bytes() : 0;
     gs_hlod_runtime::SnapshotInstance &instance = snapshot.instances.write[0];
     instance.instance_key = 1;
     instance.asset_index = 0;
@@ -2932,7 +2936,8 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
         stream_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
         stream_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
         state.hlod_streamer->update(get_device_state().rd, stream_buffers, desired, desired_count,
-                outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u);
+                outcome.active() ? outcome.records : nullptr, outcome.active() ? outcome.record_count : 0u,
+                RenderFrameContextManager::hlod_view_key(identity));
         state.hlod_edit_event = state.hlod_streamer->get_telemetry().edit_event;
 #ifdef TESTS_ENABLED
         hlod_edit_probe_step();

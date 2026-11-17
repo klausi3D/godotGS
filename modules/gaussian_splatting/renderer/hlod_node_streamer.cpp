@@ -320,6 +320,7 @@ HlodNodeStreamer::PackResult &HlodNodeStreamer::PackResult::operator=(PackResult
 		quantized.clear();
 		reservation.reset();
 		ticket = p_other.ticket;
+		cancellation = std::move(p_other.cancellation);
 		ok = p_other.ok;
 		source_instance_id = p_other.source_instance_id;
 		content_generation = p_other.content_generation;
@@ -670,6 +671,13 @@ bool HlodNodeStreamer::init(const Ref<GaussianSplatHlodRuntimeData> &p_data, con
 	telemetry.pages_capacity = p_config.atlas_pages;
 	telemetry.edit_revision = p_data->edit_revision;
 	active = true;
+	transition_owner_bound = false;
+	const uint32_t node_count = data->nodes.size();
+	demand_scratch.reserve(uint64_t(node_count) * 2);
+	prefetch_scratch.reserve(uint64_t(node_count) * 2);
+	drawn_scratch.reserve(node_count);
+	kept_scratch.reserve(node_count);
+	transition_scratch.reserve(uint64_t(node_count) * 2);
 	return true;
 }
 
@@ -685,6 +693,30 @@ void HlodNodeStreamer::cancel_outstanding_jobs() {
 	// may need it. Task controls outlive Job, including completed tasks.
 	for (const Task &task : tasks) {
 		if (task.cancellation->store) {
+			task.cancellation->store->cancel_requester(task.cancellation->requester);
+		}
+	}
+}
+
+void HlodNodeStreamer::cancel_withdrawn_jobs() {
+	// tasks and residency are render-thread owned. The existing ledger mutex closes the worker's
+	// mailbox-publication race; never call the store while holding that mutex.
+	{
+		MutexLock lock(ledger->mutex);
+		for (const Task &task : tasks) {
+			if (!task.ticket.shadow && residency.was_cancelled(task.ticket)) { task.cancellation->cancelled.store(true); }
+		}
+		for (PackResult &result : mailbox->done) {
+			if (!result.ticket.shadow && residency.was_cancelled(result.ticket) && result.cancellation.is_valid()) {
+				result.cancellation->cancelled.store(true);
+			}
+		}
+		for (PackResult &result : ready) {
+			if (residency.was_cancelled(result.ticket) && result.cancellation.is_valid()) { result.cancellation->cancelled.store(true); }
+		}
+	}
+	for (const Task &task : tasks) {
+		if (task.cancellation->cancelled.load() && task.cancellation->store) {
 			task.cancellation->store->cancel_requester(task.cancellation->requester);
 		}
 	}
@@ -706,6 +738,9 @@ void HlodNodeStreamer::collect_finished_tasks(bool p_wait_all) {
 }
 
 void HlodNodeStreamer::shutdown() {
+	telemetry.transitions_measured = false;
+	telemetry.transition_state = NodeResidency::TRANSITIONS_ABSENT;
+	telemetry.protected_sibling_nodes = telemetry.abandoned_transitions_this_frame = 0;
 	telemetry.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
 	telemetry.placement_reserve_measured = false;
 	telemetry.placement_reserve_pages = 0;
@@ -753,6 +788,7 @@ void HlodNodeStreamer::run_job(void *p_userdata) {
 	Job *job = static_cast<Job *>(p_userdata);
 	PackResult result;
 	result.ticket = job->ticket;
+	result.cancellation = job->cancellation;
 	result.reservation = std::move(job->reservation);
 	const GaussianSplatHlodRuntimeData &d = *job->data.ptr();
 	if (d.is_paged()) {
@@ -974,6 +1010,7 @@ void HlodNodeStreamer::start_jobs() {
 		Task tracked;
 		tracked.id = task;
 		tracked.cancellation = cancellation;
+		tracked.ticket = p_ticket;
 		tasks.push_back(tracked);
 		return true;
 	};
@@ -1047,6 +1084,11 @@ void HlodNodeStreamer::drain_mailbox() {
 	MutexLock lock(ledger->mutex);
 	for (uint32_t i = 0; i < mailbox->done.size();) {
 		PackResult &r = mailbox->done[i];
+		if (!r.ticket.shadow && r.cancellation.is_valid() && r.cancellation->cancelled.load()) {
+			residency.discard_known_cancelled(r.ticket);
+			mailbox->done.remove_at(i);
+			continue;
+		}
 #ifdef TESTS_ENABLED
 		if (ledger->control.hold_mailbox) { ++i; continue; }
 #endif
@@ -1269,6 +1311,7 @@ void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_b
 	frame_eviction_start_total = telemetry.evicted_total;
 	frame_eviction_truncated = 0;
 	residency.begin_frame(++frame);
+	telemetry.abandoned_transitions_this_frame = 0;
 	frame_written_bytes = 0;
 	frame_edit_uploads = residency.is_edit_staged() || !pending_metadata_clears.is_empty();
 	if (last_commit_result == COMMIT_NOTHING && p_buffers && residency.is_edit_staged()) {
@@ -1604,6 +1647,11 @@ bool HlodNodeStreamer::upload_ordinary_ready(RenderingDevice *p_device, const Bu
 	const uint64_t stride = record_stride();
 	const uint64_t atlas_capacity = atlas_bytes_capacity();
 	PackResult &r = ready[p_ready_index];
+	if (r.cancellation.is_valid() && r.cancellation->cancelled.load()) {
+		residency.discard_known_cancelled(r.ticket);
+		ready.remove_at(p_ready_index);
+		return true;
+	}
 	if (!r.ok) {
 		residency.fail_load(r.ticket); // A stale ticket is only counted as dropped.
 		ready.remove_at(p_ready_index);
@@ -1770,7 +1818,7 @@ void HlodNodeStreamer::clear_evicted(RenderingDevice *p_device, const Buffers &p
 }
 
 void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffers, const gs_hlod_runtime::DesiredRecord *p_desired,
-		uint32_t p_desired_count, const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count) {
+		uint32_t p_desired_count, const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count, uint64_t p_owner) {
 	if (!active) {
 		return;
 	}
@@ -1786,15 +1834,51 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	telemetry.uploaded_bytes_this_frame = 0;
 	frame_admission_refusing_gate = REFUSING_NONE;
 	telemetry.oversized_wait_live = false;
-	split_protection_and_demand(p_desired, p_desired_count, p_drawn, p_drawn_count, drawn_scratch, demand_scratch);
+	split_protection_and_demand(p_desired, p_desired_count, p_drawn, p_drawn_count, drawn_scratch, demand_scratch,
+			&kept_scratch, &transition_scratch);
+	telemetry.desired = 0;
+	for (uint32_t node : demand_scratch) { if (residency.state(node) != NodeResidency::RESIDENT) { ++telemetry.desired; } }
+	telemetry.drawn = p_drawn_count;
+	bool multiple_owners = views.size() > 1;
+	uint64_t instance = 0;
+	bool instance_seen = false;
+	auto observe_instance = [&](uint64_t key) {
+		if (instance_seen && instance != key) { multiple_owners = true; }
+		instance = key; instance_seen = true;
+	};
+	for (uint32_t i = 0; i < p_desired_count; ++i) { observe_instance(p_desired[i].instance_key); }
+	for (uint32_t i = 0; i < p_drawn_count; ++i) { observe_instance(p_drawn[i].instance_key); }
+	if (multiple_owners) {
+		// Preserve all existing owners' work and draw dependencies. Never let render-call order arbitrate
+		// shared ownership: this first implementation explicitly freezes reconciliation for that case.
+		residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
+		refresh_telemetry();
+		telemetry.transitions_measured = true;
+		telemetry.transition_state = NodeResidency::UNSUPPORTED_OWNERS;
+		return;
+	}
+	if (transition_owner_bound && (transition_owner != p_owner || (instance_seen && transition_instance != instance))) {
+		residency.withdraw_transitions(); cancel_withdrawn_jobs();
+	}
+	transition_owner = p_owner;
+	if (instance_seen) { transition_instance = instance; }
+	transition_owner_bound = true;
 	if (residency.is_edit_staged()) {
 		// The replacement cut of a staged edit is ordinary demand (whole transitions, same admission), ahead of the view's.
 		prefetch_scratch.clear();
 		residency.edit_prefetch(prefetch_scratch);
+		const uint32_t edit_count = prefetch_scratch.size();
+		const uint32_t view_count = transition_scratch.size();
+		transition_scratch.resize(edit_count + view_count);
+		for (uint32_t i = view_count; i-- > 0;) { transition_scratch[edit_count + i] = transition_scratch[i]; }
+		for (uint32_t i = 0; i < edit_count; ++i) { transition_scratch[i] = gs_hlod_runtime::TransitionGroup(); }
 		for (uint32_t i = 0; i < demand_scratch.size(); ++i) {
 			prefetch_scratch.push_back(demand_scratch[i]);
 		}
 		demand_scratch = prefetch_scratch;
+		// Keep view descriptors intact behind the edit's existing higher-priority prefetch ordering.
+		telemetry.desired = 0;
+		for (uint32_t node : demand_scratch) { if (residency.state(node) != NodeResidency::RESIDENT) { ++telemetry.desired; } }
 		if (residency.edit_blocked()) {
 			cancel_staged_edit();
 			telemetry.edit_event = "blocked";
@@ -1819,7 +1903,8 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 		}
 	}
 	const NodeResidency::RequestResult requested = draining_metadata ? NodeResidency::RequestResult() :
-			residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch);
+			residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch, transition_scratch.ptr(), kept_scratch.ptr(), kept_scratch.size());
+	cancel_withdrawn_jobs();
 	// Metadata of nodes evicted by this request is cleared before any upload of this update: a node evicted and
 	// requested again is not in the log (NodeResidency), and a payload that lands below is never zeroed after.
 	clear_evicted(p_device, p_buffers);
@@ -1856,8 +1941,6 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 #endif
 	const bool nothing_moving = stats.loading + stats.uploading == 0 && pending.is_empty() && ready.is_empty();
 	telemetry.stall_frames = (p_desired_count != 0 && nothing_moving && requested.requested == 0) ? telemetry.stall_frames + 1 : 0;
-	telemetry.desired = demand_scratch.size();
-	telemetry.drawn = p_drawn_count;
 	const RefusingGate previous_gate = telemetry.refusing_gate;
 	telemetry.refusing_gate = REFUSING_NONE;
 	if (!pending.is_empty() || !shadow_pending.is_empty()) {
@@ -1878,15 +1961,28 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 }
 
 void HlodNodeStreamer::split_protection_and_demand(const gs_hlod_runtime::DesiredRecord *p_desired, uint32_t p_desired_count,
-		const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count, LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand) {
+		const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count, LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand,
+		LocalVector<uint32_t> *r_kept, LocalVector<gs_hlod_runtime::TransitionGroup> *r_groups) {
 	r_protected.clear();
 	r_demand.clear();
+	if (r_kept) { r_kept->clear(); }
+	if (r_groups) { r_groups->clear(); }
 	for (uint32_t i = 0; i < p_drawn_count; ++i) {
 		r_protected.push_back(p_drawn[i].node);
 	}
 	for (uint32_t i = 0; i < p_desired_count; ++i) {
-		(p_desired[i].keep ? r_protected : r_demand).push_back(p_desired[i].node);
+		if (p_desired[i].keep) { (r_kept ? *r_kept : r_protected).push_back(p_desired[i].node); }
+		else {
+			r_demand.push_back(p_desired[i].node);
+			if (r_groups) { r_groups->push_back(p_desired[i].transition); }
+		}
 	}
+}
+
+uint64_t HlodNodeStreamer::transition_workspace_bytes() const {
+	return residency.transition_workspace_bytes() +
+			(uint64_t(kept_scratch.get_capacity()) + demand_scratch.get_capacity() + prefetch_scratch.get_capacity() + drawn_scratch.get_capacity()) * sizeof(uint32_t) +
+			uint64_t(transition_scratch.get_capacity()) * sizeof(gs_hlod_runtime::TransitionGroup);
 }
 
 void HlodNodeStreamer::capture_placement_reserve(const gs_hlod_runtime::CutHistory::Result &p_cut) {
@@ -1898,6 +1994,11 @@ void HlodNodeStreamer::capture_placement_reserve(const gs_hlod_runtime::CutHisto
 
 void HlodNodeStreamer::refresh_telemetry() {
 	const NodeResidency::Stats s = residency.stats();
+	telemetry.transitions_measured = active && s.transitions_measured;
+	telemetry.protected_sibling_nodes = s.protected_sibling_nodes;
+	telemetry.abandoned_transitions_total = s.abandoned_transitions_total;
+	telemetry.abandoned_transitions_this_frame = s.abandoned_transitions_this_frame;
+	telemetry.transition_state = active ? s.transition_state : NodeResidency::TRANSITIONS_ABSENT;
 	telemetry.resident = s.resident;
 	telemetry.edit_staged = s.edit_staged;
 	telemetry.edit_waiting_for_space = s.edit_waiting_for_space;

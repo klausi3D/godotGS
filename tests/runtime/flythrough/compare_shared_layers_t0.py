@@ -1301,8 +1301,8 @@ def _hlod_pressure_lines(report):
     lines = ["", "## HLOD pressure diagnostics (#1483)", "",
              "Report-only. Missing observations stay not measured; no value in this table changes the verdict. "
              "Unprepared reserve uses option-1 physical-page admission without measured headroom.", "",
-             "| arm / checkpoint | closure pages / cap | placement reserve pages | placement reserve state | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "| arm / checkpoint | closure pages / cap | placement reserve pages | placement reserve state | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history | protected siblings | abandoned delta / this frame | transition state |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
 
     def clean(value):
         return "not measured" if value is None else str(value).replace("|", "/").replace("\n", " ")
@@ -1311,13 +1311,14 @@ def _hlod_pressure_lines(report):
         rows = _dict(report.get(route)).get("checkpoints")
         rows = rows if isinstance(rows, list) else []
         if not rows:
-            lines.append(f"| {route} | " + " | ".join(["not measured"] * 9) + " |")
+            lines.append(f"| {route} | " + " | ".join(["not measured"] * 12) + " |")
         for row in rows:
             row = _dict(row)
             receipt = _dict(row.get("observation"))
             values = _dict(_dict(receipt.get("snapshot")).get("values"))
             deltas = _dict(_dict(receipt.get("settle_window")).get("counter_deltas"))
             reserve = ps.hlod_placement_reserve_observation(values)
+            transition = ps.hlod_transition_observation(values)
 
             def val(key):
                 return clean(values.get("hlod_stream_" + key))
@@ -1340,7 +1341,9 @@ def _hlod_pressure_lines(report):
                          f"{val('fragmented_groups')} / {val('skipped_groups_total')} | "
                          f"{delta('allocation_refused')} | in_cut {delta('evicted_in_cut')}, "
                          f"in_transition {delta('evicted_in_transition')}, neither {delta('evicted_neither')} | "
-                         f"{clean(gate_name)} | {history} |")
+                         f"{clean(gate_name)} | {history} | {val('protected_sibling_nodes')} | "
+                         f"{delta('abandoned_transitions')} / {val('abandoned_transitions_this_frame')} | "
+                         f"{clean(transition['state'] if transition['measured'] else None)} |")
     return lines
 
 

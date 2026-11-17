@@ -127,6 +127,12 @@ public:
 		// Why the stall: a failed child blocks a transition; enough free pages without a contiguous run.
 		uint32_t blocked_groups_this_frame = 0;
 		uint32_t fragmented_groups_this_frame = 0;
+		// Render-thread snapshots only; workers never access these fields. Worker ledger samples below
+		// still use ReservationLedger::mutex, the existing admission/mailbox lock.
+		bool transitions_measured = false;
+		uint32_t protected_sibling_nodes = 0, abandoned_transitions_this_frame = 0;
+		uint64_t abandoned_transitions_total = 0;
+		gs_hlod_runtime::NodeResidency::TransitionState transition_state = gs_hlod_runtime::NodeResidency::TRANSITIONS_ABSENT;
 		// Selection observation, render-thread-owned. No selection is absent; an unprepared selection uses no reserve.
 		gs_hlod_runtime::CutHistory::PlacementReserveState placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
 		bool placement_reserve_measured = false;
@@ -390,14 +396,18 @@ public:
 	// starts worker jobs, uploads completed payloads (bounded) and clears the metadata of evicted nodes.
 	// `p_device` must be the device the buffers belong to; a different device generation drops every payload.
 	void update(RenderingDevice *p_device, const Buffers &p_buffers, const gs_hlod_runtime::DesiredRecord *p_desired,
-			uint32_t p_desired_count, const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count);
+			uint32_t p_desired_count, const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count, uint64_t p_owner = 0);
 
 	// Splits a view's Desired records into what must be protected and what must be requested: drawn nodes and the
 	// resident "keep" part of an incomplete bootstrap frontier are protected (nothing is drawn until the frontier
 	// is complete, but evicting it would undo the work every frame); only the other records are demand.
+	// Runtime callers supply r_kept/r_groups: bootstrap keeps then become revocable plan dependencies,
+	// separate from r_protected's genuinely drawn nodes. The six-argument form retains legacy splitting.
 	static void split_protection_and_demand(const gs_hlod_runtime::DesiredRecord *p_desired, uint32_t p_desired_count,
 			const gs_hlod_runtime::DrawRecord *p_drawn, uint32_t p_drawn_count,
-			LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand);
+			LocalVector<uint32_t> &r_protected, LocalVector<uint32_t> &r_demand,
+			LocalVector<uint32_t> *r_kept = nullptr, LocalVector<gs_hlod_runtime::TransitionGroup> *r_groups = nullptr);
+	uint64_t transition_workspace_bytes() const;
 
 	// Render-thread handoff after selection; begin_frame clears it if this frame never selects.
 	void capture_placement_reserve(const gs_hlod_runtime::CutHistory::Result &p_cut);
@@ -504,10 +514,12 @@ private:
 			}
 		}
 	};
+	class JobCancellation;
 	struct PackResult {
 		gs_hlod_runtime::NodeResidency::Ticket ticket;
 		bool ok = false;
 		uint64_t source_instance_id = 0, content_generation = 0;
+		Ref<JobCancellation> cancellation; // Exact token outlives task retirement and the bounded residency report history.
 		// Declared before the vectors: storage is destroyed before the permit.
 		std::unique_ptr<Reservation> reservation;
 		Vector<PackedGaussian> raw;
@@ -571,6 +583,7 @@ private:
 	Error configure_retained_budget();
 	void start_jobs();
 	void cancel_outstanding_jobs(); // Teardown only; marks all tokens before draining store requesters.
+	void cancel_withdrawn_jobs(); // Ledger mutex serializes cancellation against worker publication.
 	void collect_finished_tasks(bool p_wait_all);
 	void drain_mailbox();
 	void release_staged_edit_data();
@@ -622,6 +635,7 @@ private:
 	struct Task {
 		WorkerThreadPool::TaskID id = WorkerThreadPool::INVALID_TASK_ID;
 		Ref<JobCancellation> cancellation; // Co-owned with Job, valid even after run_job deletes Job.
+		gs_hlod_runtime::NodeResidency::Ticket ticket; // Render-thread only; immutable after submission.
 	};
 	LocalVector<Task> tasks; // Render-thread owned; workers never mutate the task list.
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> pending; // Requested, job not started.
@@ -640,6 +654,12 @@ private:
 	LocalVector<PackResult> ready; // Packed, waiting for the per-frame upload budget (still LOADING).
 	LocalVector<gs_hlod_runtime::NodeResidency::Ticket> tickets_scratch;
 	LocalVector<uint32_t> demand_scratch;
+	LocalVector<uint32_t> kept_scratch;
+	LocalVector<gs_hlod_runtime::TransitionGroup> transition_scratch;
+	// Render-thread confined; workers never read ownership or reconciliation scratch.
+	uint64_t transition_owner = 0;
+	uint64_t transition_instance = 0;
+	bool transition_owner_bound = false;
 	LocalVector<uint32_t> prefetch_scratch;
 	struct RegisteredView {
 		uint64_t key = 0;

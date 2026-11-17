@@ -269,6 +269,58 @@ class HlodPressureTelemetry(unittest.TestCase):
                 self.assertIs(summary["trace"]["measured"], True)
                 self.assertEqual(summary["trace"]["columns"][field], observation)
 
+    def test_transition_state_protocol_matches_native_enum(self):
+        path = HERE.parents[2] / "modules/gaussian_splatting/lod/hlod_node_residency.h"
+        enum = re.search(r"enum TransitionState(?:\s*:\s*\w+)?\s*\{([^}]+)\}", path.read_text(encoding="utf-8"))
+        self.assertIsNotNone(enum)
+        states = {int(value): name.removeprefix("TRANSITIONS_").lower()
+                  for name, value in re.findall(r"(\w+)\s*=\s*(-?\d+)", enum.group(1))}
+        self.assertEqual(states, ps.HLOD_TRANSITION_STATES)
+
+    def test_transition_native_numeric_exports_are_nullable_and_state_keeps_absence(self):
+        root = HERE.parents[2] / "modules/gaussian_splatting/renderer"
+        native = (root / "render_diagnostics_orchestrator.cpp").read_text(encoding="utf-8")
+        for field in TRANSITION_PRESSURE_FIELDS[:-1]:
+            with self.subTest(field=field):
+                exports = re.findall(rf'stats\["{field}"\]\s*=\s*([^;]+);', native)
+                self.assertEqual(len(exports), 1)
+                self.assertRegex(exports[0], r"\bt\.transitions_measured\s*\?")
+                self.assertIn("t." + field.removeprefix("hlod_stream_"), exports[0])
+                self.assertRegex(exports[0], r":\s*Variant\(\)\s*$")
+        exports = re.findall(r'stats\["hlod_stream_transition_state"\]\s*=\s*([^;]+);', native)
+        self.assertEqual(exports, ["int64_t(t.transition_state)"])
+        header = (root / "hlod_node_streamer.h").read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r"bool\s+transitions_measured\s*=\s*false\s*;", header))
+        self.assertIsNotNone(re.search(r"transition_state\s*=\s*[\w:]+::TRANSITIONS_ABSENT\s*;", header))
+
+    def test_transition_state_decoding_requires_a_known_integer_code(self):
+        # Prescribed semantic input, not a native capture or settlement evidence.
+        state = ps.HLOD_TRANSITION_STATE
+        for code in (None, -1, 4, 999999, True, 0.0, "0"):
+            with self.subTest(code=code):
+                observation = ps.hlod_transition_observation({state: code})
+                self.assertEqual(observation["state"], "absent")
+                self.assertIs(observation["measured"], False)
+                self.assertIsNone(observation["value"])
+                self.assertTrue(observation["reason"])
+                trace = ps.Trace([state], "q", [(code,)], 0)
+                column = ps.hlod_pressure_column(trace, [0], state)
+                self.assertIs(column["measured"], False)
+                self.assertIsNone(column["value"])
+        for code, name in ps.HLOD_TRANSITION_STATES.items():
+            if code < 0:
+                continue
+            with self.subTest(code=code):
+                observation = ps.hlod_transition_observation({state: code})
+                self.assertEqual(observation, {"state": name, "measured": True, "value": code})
+                trace = ps.Trace([state], "q", [(code,), (0,)], 0)
+                column = ps.hlod_pressure_column(trace, [0, 1], state)
+                self.assertIs(column["measured"], True)
+                self.assertEqual(column["value"], 0)
+                self.assertEqual(column["state"], "normal")
+                self.assertEqual(column["states"], sorted({name, "normal"}))
+                self.assertNotIn("delta", column)
+
     def test_abandoned_transition_total_deltas_require_monotonic_same_epoch_samples(self):
         field = "hlod_stream_abandoned_transitions_total"
         for values, epochs, expected in (((0, 0, 0), (7, 7, 7), 0),

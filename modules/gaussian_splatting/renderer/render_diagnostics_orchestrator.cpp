@@ -1631,6 +1631,10 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
         stats["hlod_stream_pressure_measured"] = t.pressure_measured;
         stats["hlod_stream_placement_reserve_pages"] = t.placement_reserve_measured ? Variant(int64_t(t.placement_reserve_pages)) : Variant();
         stats["hlod_stream_placement_reserve_state"] = t.placement_reserve_state != gs_hlod_runtime::CutHistory::RESERVE_ABSENT ? Variant(int64_t(t.placement_reserve_state)) : Variant();
+        stats["hlod_stream_protected_sibling_nodes"] = t.transitions_measured ? Variant(int64_t(t.protected_sibling_nodes)) : Variant();
+        stats["hlod_stream_abandoned_transitions_total"] = t.transitions_measured ? Variant(int64_t(t.abandoned_transitions_total)) : Variant();
+        stats["hlod_stream_abandoned_transitions_this_frame"] = t.transitions_measured ? Variant(int64_t(t.abandoned_transitions_this_frame)) : Variant();
+        stats["hlod_stream_transition_state"] = int64_t(t.transition_state); // TRANSITIONS_ABSENT remains -1, never normal/zero.
         stats["hlod_stream_pressure_epoch"] = t.pressure_measured ? int64_t(t.pressure_epoch) : -1;
         stats["hlod_stream_pages_free"] = t.pressure_measured ? int64_t(t.pages_free) : -1;
         stats["hlod_stream_largest_free_run"] = t.pressure_measured ? int64_t(t.largest_free_run) : -1;

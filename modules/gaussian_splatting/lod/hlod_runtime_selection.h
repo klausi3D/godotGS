@@ -2,6 +2,7 @@
 #define GS_HLOD_RUNTIME_SELECTION_H
 
 #include "../core/gaussian_splat_hlod_runtime_data.h"
+#include "hlod_transition.h"
 #include "core/math/plane.h"
 
 namespace gs_hlod_runtime {
@@ -111,6 +112,7 @@ public:
 	// Valid until the next select(); preallocated, so select() still never allocates.
 	uint32_t demand_count() const { return demand_size; }
 	uint32_t demand_node(uint32_t p_index) const { return demand[p_index]; }
+	const TransitionGroup &demand_transition(uint32_t p_index) const { return demand_groups[p_index]; }
 	// BOOTSTRAP_MISSING_RESIDENCY only: the resident part of the frontier the bootstrap had reached when it ran
 	// out of residency (nodes the quality rule wants kept, already resident). It is not a cut and is never
 	// drawn, but the residency layer must not evict it while the rest of the frontier loads: a complete group
@@ -136,6 +138,7 @@ private:
 	Vector<uint32_t> selected_position;
 	Vector<uint64_t> refined;
 	Vector<uint32_t> demand;
+	Vector<TransitionGroup> demand_groups; // Parallel to demand; admitted before select(), owner-thread only.
 	Vector<uint8_t> diagnostics; // Preallocated; cleared per selection. Only TRANSITION_PLANNED participates in admission.
 	uint32_t demand_size = 0;
 	uint32_t partial_size = 0;

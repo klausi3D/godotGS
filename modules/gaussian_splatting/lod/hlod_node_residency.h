@@ -1,6 +1,8 @@
 #ifndef GS_HLOD_NODE_RESIDENCY_H
 #define GS_HLOD_NODE_RESIDENCY_H
 
+#include "hlod_transition.h"
+
 // ADR docs/architecture/adr-hlod-streaming.md sections 6.6, 14.1 and 14.2 (package D1).
 //
 // CPU-only residency model for HLOD tree nodes. It is the node-level front of the streaming system's page
@@ -45,6 +47,9 @@ namespace gs_hlod_runtime {
 
 class NodeResidency {
 public:
+	// Stable, report-only protocol. No complete cut is manufactured by a blocked transition.
+	enum TransitionState { TRANSITIONS_ABSENT = -1, NORMAL = 0, RETIREMENT_WAIT = 1,
+		COARSE_PLACEMENT_BLOCKED = 2, UNSUPPORTED_OWNERS = 3 };
 	enum State : uint8_t {
 		ABSENT = 0,
 		LOADING, // Run allocated, payload being read/packed. Not drawable.
@@ -109,6 +114,11 @@ public:
 		uint64_t evicted_total = 0;
 		uint64_t failed_total = 0;
 		uint64_t skipped_groups_total = 0; // Whole transitions that did not fit and were skipped.
+		bool transitions_measured = false;
+		uint32_t protected_sibling_nodes = 0;
+		uint64_t abandoned_transitions_total = 0;
+		uint32_t abandoned_transitions_this_frame = 0;
+		TransitionState transition_state = TRANSITIONS_ABSENT;
 		// Report-only pressure observations, reset with the residency table. Each finally skipped allocation
 		// group increments refused and exactly one reason; failed/retry-blocked and request-capped groups do not.
 		bool pressure_measured = false;
@@ -175,7 +185,8 @@ public:
 	bool reset(const Vector<NodeInfo> &p_nodes, const Config &p_config, uint64_t p_world_generation, uint64_t p_device_generation);
 	bool is_initialized() const { return !nodes.is_empty(); }
 
-	// Starts a frame: retires freed runs whose delay elapsed and clears the per-frame protection.
+	// Starts a frame: retires freed runs and expires drawn stamps. Soft leases survive until selection
+	// renews/withdraws the offered group, including across final upload completion.
 	void begin_frame(uint64_t p_frame);
 	uint64_t frame() const { return current_frame; }
 
@@ -197,8 +208,17 @@ public:
 	// children are admitted as one whole transition: every run is allocated or none is. A group that does not
 	// fit (after bounded eviction outside the protected closure) is skipped, not waited for. Appends tickets
 	// for the nodes that now need a payload. Also cancels LOADING requests that stayed undemanded past the
-	// grace period.
-	RequestResult request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets);
+	// grace period. Explicit descriptors retain visible residents absent from missing demand. All bootstrap
+	// emissions and keeps form one revocable plan; no partial bootstrap bundle is admitted.
+	RequestResult request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets,
+			const TransitionGroup *p_transitions = nullptr, const uint32_t *p_kept = nullptr, uint32_t p_kept_count = 0);
+	// Single-owner reconciliation only. The streamer refuses concurrent owners before calling request().
+	// Owner-thread only, like the rest of this class; never clear drawn/edited protection when withdrawing.
+	void withdraw_transitions();
+	bool executable(uint32_t p_node) const;
+	bool was_cancelled(const Ticket &p_ticket) const;
+	void discard_known_cancelled(const Ticket &p_ticket); // Streamer holds the exact cancellation token, beyond the report ring.
+	uint64_t transition_workspace_bytes() const;
 
 	// True while the ticket is the node's current request and its payload has not been handed to the upload
 	// yet (LOADING). Does not count as a dropped completion; used to skip work for cancelled requests.
@@ -287,6 +307,13 @@ private:
 		uint64_t last_drawn_frame = 0;
 		uint64_t last_demand_frame = 0;
 		uint64_t protected_frame = UINT64_MAX; // == current_frame while protected.
+		// Owner-thread transition leases are independent of the non-revocable drawn stamp above.
+		uint32_t leases = 0, sibling_leases = 0;
+		uint32_t first_child = UINT32_MAX, next_sibling = UINT32_MAX;
+		uint32_t offered_group = UINT32_MAX, next_demand = UINT32_MAX;
+		bool offered_keep = false;
+		bool bootstrap_sibling = false;
+		uint64_t abandoned_generation = 0; // One unconsumed abandoned completion per node, independent of the 256 report entries.
 		// Observational marks only: never read by protection, selection, allocation or admission decisions.
 		uint64_t observed_cut_frame = UINT64_MAX;
 		uint64_t observed_transition_frame = UINT64_MAX; // This parent has a missing demanded child.
@@ -317,14 +344,31 @@ private:
 	LocalVector<Retiring> retiring;
 	LocalVector<uint32_t> candidates; // Eviction scratch.
 	LocalVector<uint32_t> evicted_log;
-	LocalVector<uint32_t> demand_unique; // request() scratch: the demand without duplicates, order kept.
 	uint64_t world_gen = 0, device_gen = 0;
 	uint64_t current_frame = 0;
-	uint64_t request_serial = 0, alloc_serial = 0, dedup_pass = 0;
+	uint64_t request_serial = 0, alloc_serial = 0;
 	uint32_t requests_this_frame = 0;
 	uint32_t evictions_this_frame = 0;
 	uint32_t pages_retiring = 0;
 	Stats totals;
+	// All preallocated by reset(), confined to the residency owner thread. Workers never access these
+	// fields; the streamer copies diagnostics on that same thread, alongside its existing stats.
+	struct Group {
+		TransitionGroup descriptor;
+		uint64_t offered_pass = 0;
+		uint64_t blocked_signature = 0;
+		uint32_t head = UINT32_MAX, tail = UINT32_MAX;
+		bool active = false, suppressed = false, coarse_blocked = false;
+	};
+	Vector<Group> groups;
+	LocalVector<uint32_t> group_order;
+	LocalVector<uint32_t> need_scratch;
+	uint64_t reconciliation = 0;
+	uint64_t transition_signature = 0;
+	uint32_t arbitration_head = UINT32_MAX;
+	void lease_group(uint32_t p_group, bool p_acquire);
+	void abandon_group(uint32_t p_group, bool p_count);
+	bool group_complete(uint32_t p_group) const;
 	LocalVector<EvictionEvent> eviction_events; // Sized once by reset(), never grown on the frame path.
 	uint32_t eviction_events_next = 0, eviction_events_count = 0;
 	void record_eviction(uint32_t p_node);

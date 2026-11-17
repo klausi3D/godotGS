@@ -750,9 +750,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a lower-priority group cannot ev
 	CHECK(sim.res.state(3) == Residency::RESIDENT);
 }
 
-// #1483 B: these regressions intentionally use the current public API. Transition descriptors, owner IDs
-// and the explicit COARSE_PLACEMENT_BLOCKED enum do not exist yet; their API-specific assertions belong
-// with the implementation. No resident sibling is manually added to the selector's missing-only demand.
+// #1483 B: no resident sibling is manually added to the selector's missing-only demand.
 TEST_CASE("[GaussianSplatting][HLOD][Residency] missing-only selection demand protects a resident sibling through renewal and cut transfer (#1483 B)") {
 	Sim sim;
 	if (!one_page_tree(sim, 6)) { FAIL("residency setup failed"); return; }
@@ -828,6 +826,9 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a higher-priority arrival abando
 	LocalVector<Residency::Ticket> head;
 	sim.res.request(demand, 6, head);
 	CHECK(sim.res.stats().cancelled_total == 1);
+	CHECK(sim.res.stats().abandoned_transitions_total == 1);
+	CHECK(sim.res.stats().abandoned_transitions_this_frame == 1);
+	CHECK(sim.res.stats().transition_state == Residency::NORMAL);
 	CHECK_FALSE(sim.res.is_pending(abandoned));
 	CHECK(sim.res.state(4) == Residency::ABSENT);
 	CHECK_FALSE(sim.res.is_protected(3));
@@ -881,7 +882,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] full occupancy abandons lower wo
 			CHECK((ticket.node == 5 || ticket.node == 6));
 			if (ticket.node == 5 || ticket.node == 6) { head.push_back(ticket); }
 		}
-		if (frame < 11 + retire_delay) { CHECK(head.is_empty()); }
+		if (frame < 11 + retire_delay) {
+			CHECK(head.is_empty());
+			CHECK(sim.res.stats().transition_state == Residency::RETIREMENT_WAIT);
+		}
 		const auto stats = sim.res.stats();
 		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring <= 3);
 		CHECK(sim.res.state(0) == Residency::RESIDENT);
@@ -932,8 +936,8 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] irreducible drawn fragmentation 
 	CHECK(sim.tickets.is_empty());
 	const auto blocked = sim.res.stats();
 	CHECK(blocked.allocation_refused_total > 0);
-	// With no residency/cap/owner change, coarse blockage must suppress further placement churn. The
-	// new explicit transition-state export is covered by the Python schema contract; no new enum here.
+	CHECK(blocked.transition_state == Residency::COARSE_PLACEMENT_BLOCKED);
+	// With no residency/cap/owner change, coarse blockage must suppress further placement churn.
 	for (uint32_t retry = 0; retry < 12; ++retry) {
 		sim.step();
 		CHECK(sim.cut.status == CutHistory::COMPLETE);
@@ -944,10 +948,281 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] irreducible drawn fragmentation 
 		CHECK(sim.res.stats().pages_in_flight == 0);
 		CHECK(sim.res.stats().evicted_total == blocked.evicted_total);
 		CHECK(sim.res.stats().requested_total == blocked.requested_total);
+		CHECK(sim.res.stats().transition_state == Residency::COARSE_PLACEMENT_BLOCKED);
 	}
 	CHECK(sim.res.stats().allocation_refused_total == blocked.allocation_refused_total);
 }
 
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a permanently failed arbitration head releases soft leases and lower suppression (#1483 B)") {
+	GaussianSplatHlodRuntimeData data;
+	binary_tree(data, 4, 1000, 1000);
+	Vector<Residency::NodeInfo> infos;
+	Residency res;
+	auto cfg = config(4, 0);
+	cfg.max_failures = 1;
+	if (!make_node_infos(data, infos) || !res.reset(infos, cfg, 1, 1) ||
+			!make_resident_at(res, 0, 1) || !make_resident_at(res, 3, 2)) {
+		FAIL("failed-head residency setup failed"); return;
+	}
+	res.begin_frame(10);
+	const uint32_t lower[1] = { 4 };
+	LocalVector<Residency::Ticket> initial;
+	res.request(lower, 1, initial);
+	if (initial.size() != 1) { FAIL("lower transition was not admitted"); return; }
+	// Two new children cannot fit until the lower transition is explicitly abandoned. This creates
+	// an actual arbitration head and suppressed lower work, rather than only an ordinary failed group.
+	res.begin_frame(11);
+	const uint32_t demand[3] = { 5, 6, 4 };
+	LocalVector<Residency::Ticket> head;
+	res.request(demand, 3, head);
+	if (head.size() != 2) { FAIL("arbitration head was not admitted"); return; }
+	CHECK(res.stats().abandoned_transitions_total == 1);
+	Residency::Ticket failed, sibling;
+	for (const auto &ticket : head) {
+		if (ticket.node == 5) { failed = ticket; }
+		if (ticket.node == 6) { sibling = ticket; }
+	}
+	if (!failed.valid() || !sibling.valid()) { FAIL("head did not contain the intended sibling pair"); return; }
+	if (!res.begin_upload(sibling) || !res.finish_upload(sibling, true) || !res.fail_load(failed)) {
+		FAIL("could not complete one sibling and permanently fail the other"); return;
+	}
+	CHECK(res.stats().permanently_failed == 1);
+	bool drawn_sibling = false;
+	SUBCASE("resident sibling had only a revocable lease") {}
+	SUBCASE("resident sibling is also drawn") { drawn_sibling = true; }
+	res.begin_frame(12);
+	if (drawn_sibling) {
+		const uint32_t drawn[1] = { 6 };
+		res.protect_drawn(drawn, 1);
+	}
+	LocalVector<Residency::Ticket> eligible_lower;
+	const auto result = res.request(demand, 3, eligible_lower);
+	CHECK(result.blocked_groups == 1);
+	CHECK(result.skipped_groups == 0);
+	CHECK(result.fragmented_groups == 0);
+	CHECK(result.pending_retire_groups == 0);
+	CHECK(result.requested == 1);
+	if (eligible_lower.size() != 1) { FAIL("failed head left eligible lower work suppressed"); return; }
+	CHECK(eligible_lower[0].node == 4);
+	CHECK(res.state(5) == Residency::FAILED);
+	CHECK(res.state(6) == Residency::RESIDENT);
+	CHECK(res.is_protected(6) == drawn_sibling);
+	CHECK(res.is_protected(2) == drawn_sibling);
+	CHECK(res.stats().protected_sibling_nodes == 1); // Only resident child 3 of the renewed lower group.
+	CHECK(res.stats().transition_state == Residency::NORMAL);
+	CHECK(res.stats().abandoned_transitions_total == 1); // Failure withdrawal is not priority abandonment.
+	CHECK(res.stats().abandoned_transitions_this_frame == 0);
+	CHECK(res.evict(6) == !drawn_sibling);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] native transition telemetry distinguishes absence measured idle values and reset (#1483 B)") {
+	CHECK(int(Residency::TRANSITIONS_ABSENT) == -1);
+	CHECK(int(Residency::NORMAL) == 0);
+	CHECK(int(Residency::RETIREMENT_WAIT) == 1);
+	CHECK(int(Residency::COARSE_PLACEMENT_BLOCKED) == 2);
+	CHECK(int(Residency::UNSUPPORTED_OWNERS) == 3);
+	Residency absent;
+	const auto unavailable = absent.stats();
+	CHECK_FALSE(unavailable.transitions_measured);
+	CHECK(unavailable.transition_state == Residency::TRANSITIONS_ABSENT);
+	Sim sim;
+	if (!one_page_tree(sim, 3)) { FAIL("residency setup failed"); return; }
+	const auto idle = sim.res.stats();
+	CHECK(idle.transitions_measured);
+	CHECK(idle.transition_state == Residency::NORMAL);
+	CHECK(idle.protected_sibling_nodes == 0);
+	CHECK(idle.abandoned_transitions_total == 0);
+	CHECK(idle.abandoned_transitions_this_frame == 0);
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2)) {
+		FAIL("could not prepare a measured sibling lease"); return;
+	}
+	sim.res.begin_frame(10);
+	const uint32_t lower[1] = { 4 };
+	LocalVector<Residency::Ticket> initial;
+	sim.res.request(lower, 1, initial);
+	if (initial.size() != 1) { FAIL("lower transition was not admitted"); return; }
+	CHECK(sim.res.stats().protected_sibling_nodes == 1);
+	sim.res.begin_frame(11);
+	const uint32_t demand[3] = { 5, 6, 4 };
+	LocalVector<Residency::Ticket> head;
+	sim.res.request(demand, 3, head);
+	const auto measured = sim.res.stats();
+	CHECK(measured.transitions_measured);
+	CHECK(measured.protected_sibling_nodes == 0);
+	CHECK(measured.abandoned_transitions_total == 1);
+	CHECK(measured.abandoned_transitions_this_frame == 1);
+	CHECK(measured.transition_state == Residency::NORMAL);
+	sim.res.begin_frame(12);
+	CHECK(sim.res.stats().abandoned_transitions_total == 1);
+	CHECK(sim.res.stats().abandoned_transitions_this_frame == 0);
+	CHECK(measured.abandoned_transitions_this_frame == 1); // A retained native snapshot is immutable.
+	Vector<Residency::NodeInfo> infos;
+	if (!make_node_infos(*sim.data.ptr(), infos) || !sim.res.reset(infos, config(3, 0), 2, 2)) {
+		FAIL("residency reset failed"); return;
+	}
+	const auto reset = sim.res.stats();
+	CHECK(reset.transitions_measured);
+	CHECK(reset.transition_state == Residency::NORMAL);
+	CHECK(reset.protected_sibling_nodes == 0);
+	CHECK(reset.abandoned_transitions_total == 0);
+	CHECK(reset.abandoned_transitions_this_frame == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] explicit transition visibility leases resident visible siblings only (#1483 B)") {
+	Vector<Residency::NodeInfo> infos;
+	infos.resize(4); // Root with three children; child 3 is outside this view's frustum.
+	for (uint32_t i = 0; i < 4; ++i) {
+		infos.write[i].splat_count = 1000;
+		infos.write[i].parent = i == 0 ? UINT32_MAX : 0;
+		infos.write[i].height = i == 0 ? 1 : 0;
+	}
+	Residency res;
+	auto cfg = config(4, 0);
+	cfg.pin_root = false; // The transition itself must protect its parent in both subcases.
+	if (!res.reset(infos, cfg, 1, 1)) { FAIL("residency setup failed"); return; }
+	for (uint32_t node : { 0u, 1u, 3u }) {
+		if (!make_resident_at(res, node, node + 1)) { FAIL("could not prepare resident siblings"); return; }
+	}
+	res.begin_frame(10);
+	const uint32_t missing[1] = { 2 };
+	TransitionGroup transition[1] = { { 0, 1, 0, 3, TRANSITION_REFINEMENT } };
+	SUBCASE("ordinary refinement") {}
+	SUBCASE("bootstrap also preserves its visible resident child") { transition[0].kind = TRANSITION_BOOTSTRAP; }
+	LocalVector<Residency::Ticket> tickets;
+	const auto result = res.request(missing, 1, tickets, transition);
+	CHECK(result.requested == 1);
+	CHECK(res.is_protected(0));
+	CHECK(res.is_protected(1));
+	CHECK_FALSE(res.is_protected(3));
+	CHECK(res.stats().protected_sibling_nodes == 1);
+	CHECK_FALSE(res.evict(0));
+	CHECK_FALSE(res.evict(1));
+	CHECK(res.evict(3)); // The invisible resident remains reclaimable under the explicit visible mask.
+	res.withdraw_transitions();
+	CHECK_FALSE(res.is_protected(0));
+	CHECK(res.evict(0));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] drawn protection survives revocation of an overlapping sibling lease (#1483 B)") {
+	Sim sim;
+	if (!one_page_tree(sim, 4)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2)) {
+		FAIL("could not prepare drawn sibling"); return;
+	}
+	sim.res.begin_frame(10);
+	const uint32_t lower[1] = { 4 };
+	LocalVector<Residency::Ticket> initial;
+	sim.res.request(lower, 1, initial);
+	if (initial.size() != 1) { FAIL("lower transition was not admitted"); return; }
+	sim.res.begin_frame(11);
+	const uint32_t drawn[1] = { 3 };
+	sim.res.protect_drawn(drawn, 1);
+	const uint32_t demand[3] = { 5, 6, 4 };
+	LocalVector<Residency::Ticket> head;
+	sim.res.request(demand, 3, head);
+	CHECK(head.size() == 2);
+	CHECK(sim.res.stats().abandoned_transitions_total == 1);
+	CHECK(sim.res.stats().protected_sibling_nodes == 0);
+	CHECK_FALSE(sim.res.is_pending(initial[0]));
+	CHECK(sim.res.is_protected(3));
+	CHECK(sim.res.is_protected(1)); // Ancestor protection belongs to the actual drawn node.
+	CHECK_FALSE(sim.res.evict(3));
+	// No drawn renewal next frame: the old soft lease must not keep the node protected either.
+	sim.res.begin_frame(12);
+	const uint32_t higher[2] = { 5, 6 };
+	LocalVector<Residency::Ticket> repeated;
+	sim.res.request(higher, 2, repeated);
+	CHECK_FALSE(sim.res.is_protected(3));
+	CHECK_FALSE(sim.res.is_protected(1));
+	CHECK(sim.res.evict(3));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] bootstrap keeps are revocable bundle ownership and a stale root never gains a keep lease (#1483 B)") {
+	Sim sim;
+	if (!one_page_tree(sim, 4)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2)) {
+		FAIL("could not prepare bootstrap keeps"); return;
+	}
+	sim.res.begin_frame(10);
+	const uint32_t demand[1] = { 4 }, kept[1] = { 3 };
+	const TransitionGroup transition[1] = { { 1, 3, 0, 3, TRANSITION_BOOTSTRAP } };
+	LocalVector<Residency::Ticket> tickets;
+	sim.res.request(demand, 1, tickets, transition, kept, 1);
+	if (tickets.size() != 1) { FAIL("bootstrap missing child was not admitted"); return; }
+	CHECK(sim.res.is_protected(3));
+	CHECK_FALSE(sim.res.evict(3));
+	CHECK(sim.res.stats().protected_sibling_nodes == 1);
+	sim.res.withdraw_transitions();
+	CHECK_FALSE(sim.res.is_protected(3));
+	CHECK(sim.res.stats().protected_sibling_nodes == 0);
+	CHECK_FALSE(sim.res.is_pending(tickets[0]));
+	CHECK(sim.res.evict(3)); // A keep did not acquire a non-revocable drawn stamp.
+	Vector<Residency::NodeInfo> infos;
+	if (!make_node_infos(*sim.data.ptr(), infos)) { FAIL("could not make stale residency table"); return; }
+	infos.write[0].stale = true;
+	if (!sim.res.reset(infos, config(4, 0), 2, 2)) { FAIL("stale residency reset failed"); return; }
+	sim.res.begin_frame(20);
+	const uint32_t stale_keep[1] = { 0 };
+	LocalVector<Residency::Ticket> refused;
+	const auto result = sim.res.request(nullptr, 0, refused, nullptr, stale_keep, 1);
+	CHECK(result.blocked_groups == 1);
+	CHECK(refused.is_empty());
+	CHECK_FALSE(sim.res.is_protected(0));
+	CHECK(sim.res.stats().protected_sibling_nodes == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] mass transition abandonment classifies every distinct late ticket beyond the legacy cancel window (#1483 B)") {
+	GaussianSplatHlodRuntimeData data;
+	binary_tree(data, 10, 1000, 1000);
+	Vector<Residency::NodeInfo> infos;
+	Residency res;
+	if (!make_node_infos(data, infos) || !res.reset(infos, config(513, 0), 1, 1) || !make_resident_at(res, 0, 1)) {
+		FAIL("mass abandonment setup failed"); return;
+	}
+	std::vector<uint32_t> lower(512);
+	for (uint32_t i = 0; i < 512; ++i) { lower[i] = 511 + i; }
+	LocalVector<Residency::Ticket> pending;
+	// Synchronous request-cap accounting: 64 requests per frame, eight reconciliations, no workers.
+	for (uint32_t pass = 0; pass < 8; ++pass) {
+		res.begin_frame(10 + pass);
+		LocalVector<Residency::Ticket> tickets;
+		const auto result = res.request(lower.data(), uint32_t(lower.size()), tickets);
+		CHECK(result.requested == 64);
+		for (const auto &ticket : tickets) { pending.push_back(ticket); }
+		CHECK(res.stats().cancelled_total == 0);
+		CHECK(res.stats().pages_in_flight == (pass + 1) * 64);
+	}
+	if (pending.size() != 512) { FAIL("expected 512 distinct pending leaf tickets, got ", pending.size()); return; }
+	for (uint32_t i = 0; i < pending.size(); ++i) { CHECK(pending[i].node == 511 + i); }
+	CHECK(res.stats().pages_free == 0);
+	std::vector<uint32_t> demand = { 1, 2 };
+	demand.insert(demand.end(), lower.begin(), lower.end());
+	res.begin_frame(20);
+	const uint32_t drawn[1] = { 0 };
+	res.protect_drawn(drawn, 1);
+	LocalVector<Residency::Ticket> head;
+	const auto result = res.request(demand.data(), uint32_t(demand.size()), head);
+	CHECK(result.requested == 2);
+	if (head.size() != 2) { FAIL("highest-priority whole transition did not progress"); return; }
+	CHECK(head[0].node == 1);
+	CHECK(head[1].node == 2);
+	CHECK(res.stats().cancelled_total == 512);
+	CHECK(res.stats().abandoned_transitions_total == 256);
+	CHECK(res.stats().abandoned_transitions_this_frame == 256);
+	CHECK(res.stats().transition_state == Residency::NORMAL);
+	for (const auto &ticket : pending) {
+		if (ticket.node < 511 || ticket.node >= 1023) { FAIL("invalid pending leaf ticket ", ticket.node); return; }
+		CHECK_FALSE(res.is_pending(ticket));
+		CHECK_FALSE(res.begin_upload(ticket));
+		CHECK(res.resident_mask()[ticket.node] == 0);
+	}
+	CHECK(res.stats().late_dropped_cancelled_total == 512);
+	CHECK(res.stats().late_dropped_total == 0);
+	CHECK_FALSE(res.begin_upload(pending[0])); // The second delivery is real duplicate loss.
+	CHECK(res.stats().late_dropped_cancelled_total == 512);
+	CHECK(res.stats().late_dropped_total == 1);
+}
 
 TEST_CASE("[GaussianSplatting][HLOD][Residency] duplicate demand is one demand and never leaks a run") {
 	Sim sim;
