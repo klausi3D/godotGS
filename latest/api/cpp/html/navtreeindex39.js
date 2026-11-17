@@ -1,5 +1,6 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1BufferOwnership.html#add8c0b8b5f80b10f4880f4b5e690bc90":[0,0,12,73,2],
 "structGaussianSplatting_1_1BufferOwnership.html#add8c0b8b5f80b10f4880f4b5e690bc90":[1,0,9,72,2],
 "structGaussianSplatting_1_1ChangeEntry.html":[0,0,12,23],
 "structGaussianSplatting_1_1ChangeEntry.html":[1,0,9,22],
@@ -248,6 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a64d61b0003958592c59e238232ff8dc8":[0,0,12,16,3,1],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a64d61b0003958592c59e238232ff8dc8":[1,0,9,15,3,1],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[0,0,12,16,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[1,0,9,15,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html#a05bb0654836ea020e8ebc112930beb3b":[0,0,12,16,1,6]
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[1,0,9,15,1]
 };

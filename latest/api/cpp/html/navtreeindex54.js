@@ -1,5 +1,10 @@
 var NAVTREEINDEX54 =
 {
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a40ec51ffa4bdd96bb2563362ed5e34d3":[1,0,275,0,5],
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a4296adcc14a0a8692d615de97343334f":[1,0,275,0,6],
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#a83ae4de0981483b14633740089f0f7b8":[1,0,275,0,4],
+"structStreamingQueuePressureController_1_1ScanBudgetInput.html#af764edea42c38a3d6df05a1c65ceee50":[1,0,275,0,1],
+"structStreamingQueuePressureController_1_1ScanBudgetResult.html":[1,0,275,1],
 "structStreamingQueuePressureController_1_1ScanBudgetResult.html#a9f2a9ebcfe165c5f39aa8da22f241aa4":[1,0,275,1,0],
 "structStreamingQueuePressureController_1_1ScanBudgetResult.html#aadaf2d60812abdbc40999cbfe7f438b6":[1,0,275,1,1],
 "structStreamingQueuePressureController_1_1ScanBudgetResult.html#ab11656c7f63b30ca90f90509dc6458e5":[1,0,275,1,2],
@@ -244,10 +249,5 @@ var NAVTREEINDEX54 =
 "structTilePrefixScanStage.html#a099f2bc0c87cd5fe893b97cc7667fdf6":[1,0,283,21],
 "structTilePrefixScanStage.html#a16368f4bceaa808723868cbbef335420":[1,0,283,3],
 "structTilePrefixScanStage.html#a182b335a4868907957ca5023bc7b59de":[1,0,283,11],
-"structTilePrefixScanStage.html#a45387d64235e01e4fd19a84206f3479e":[1,0,283,1],
-"structTilePrefixScanStage.html#a4a3b295bfe844e68f392599cd26db133":[1,0,283,16],
-"structTilePrefixScanStage.html#a4dd4907ade7f3c722fc9147f9e71bfbc":[1,0,283,14],
-"structTilePrefixScanStage.html#a5043990372d0df4f02169ba64c0b8bba":[1,0,283,4],
-"structTilePrefixScanStage.html#a50e6ae7cd36dc620a8cee41fed361ad1":[1,0,283,19],
-"structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abad":[1,0,283,2]
+"structTilePrefixScanStage.html#a45387d64235e01e4fd19a84206f3479e":[1,0,283,1]
 };

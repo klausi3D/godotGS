@@ -1,5 +1,6 @@
 var NAVTREEINDEX21 =
 {
+"gaussian__splat__world__io_8h.html":[2,0,0,0,6,9],
 "gaussian__splat__world__io_8h.html#a17cc2633e50d05074348d805af831f7e":[2,0,0,0,6,9,3],
 "gaussian__splat__world__io_8h_source.html":[2,0,0,0,6,9],
 "gaussian__splat__world__paged_8cpp.html":[2,0,0,0,6,10],
@@ -248,6 +249,5 @@ var NAVTREEINDEX21 =
 "hlod__edit_8cpp.html":[2,0,0,0,7,3],
 "hlod__edit_8h.html":[2,0,0,0,7,4],
 "hlod__edit_8h_source.html":[2,0,0,0,7,4],
-"hlod__matched__arms_8cpp.html":[2,0,0,0,7,5],
-"hlod__matched__arms_8h.html":[2,0,0,0,7,6]
+"hlod__matched__arms_8cpp.html":[2,0,0,0,7,5]
 };

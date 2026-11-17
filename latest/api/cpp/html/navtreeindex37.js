@@ -1,5 +1,6 @@
 var NAVTREEINDEX37 =
 {
+"structGaussianSplatHlodTree.html#a924fa08032ccdf0cb4a2a1e3822e66de":[1,0,94,5],
 "structGaussianSplatHlodTree.html#a9d4c5427ff9feb940f8270bb2445cff3":[1,0,94,9],
 "structGaussianSplatHlodTree.html#aa7124d6497c0a2b50dba379f86dbc402":[1,0,94,20],
 "structGaussianSplatHlodTree.html#ab6c2bda9ee4f2202230ed12ea366bf0f":[1,0,94,17],
@@ -248,6 +249,5 @@ var NAVTREEINDEX37 =
 "structGaussianSplatSceneDirector_1_1AssetRecord.html#ac260a87dbde0d96d7570e611d54ea6c9":[1,0,107,7,2],
 "structGaussianSplatSceneDirector_1_1AssetRecord.html#acbbec78fa928c5d9a64c7dacf109fd91":[1,0,107,7,0],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html":[1,0,107,6],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a042700f9e9d20120cedfcbe28644cade":[1,0,107,6,14],
-"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a1afa8eb853bae6b763edb55cf1ffe59d":[1,0,107,6,20]
+"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a042700f9e9d20120cedfcbe28644cade":[1,0,107,6,14]
 };

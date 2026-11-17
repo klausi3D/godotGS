@@ -25,7 +25,7 @@ var searchData=
   ['decide_5foverflow_5fmode_22',['decide_overflow_mode',['../structTilePrefixScanStage.html#adfd4ac0672700b754efb403e299f6893',1,'TilePrefixScanStage']]],
   ['decode_23',['decode',['../namespaceGaussianSplatting_1_1ScenePayload.html#a7a143bdd88a3ce772d60ac16133b0313',1,'GaussianSplatting::ScenePayload']]],
   ['decode_5fgsq_5fpage_24',['decode_gsq_page',['../classPayloadPageStore.html#a4b363d6784680da4e6862fdbcd9d36f6',1,'PayloadPageStore']]],
-  ['decode_5fgsq_5fsubrange_25',['decode_gsq_subrange',['../classPayloadPageStore.html#acdb847e7379ea321a1e45c3b80f83330',1,'PayloadPageStore']]],
+  ['decode_5fgsq_5fsubrange_25',['decode_gsq_subrange',['../classPayloadPageStore.html#af1107be89066d7dfd9f2cc82e2a03ca3',1,'PayloadPageStore']]],
   ['decode_5fposition_5fquantized_26',['decode_position_quantized',['../namespaceFloat16Utils.html#a8c6c453065791f7d3e1bb76d199d547a',1,'Float16Utils']]],
   ['decode_5frange_27',['decode_range',['../classgs__gsq_1_1DecodeContext.html#a557bfdb32c8f4ded48fa74fdb14ef574',1,'gs_gsq::DecodeContext']]],
   ['decode_5frecord_28',['decode_record',['../namespaceGaussianSplatting_1_1ScenePayload.html#a59ddd16a71c25074f21dcdfd5585742c',1,'GaussianSplatting::ScenePayload']]],

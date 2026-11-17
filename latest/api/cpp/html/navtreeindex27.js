@@ -1,5 +1,6 @@
 var NAVTREEINDEX27 =
 {
+"residency__budget__controller_8h_source.html":[2,0,0,0,3,67],
 "resident__atlas__budget_8h.html":[2,0,0,0,12,81],
 "resident__atlas__budget_8h_source.html":[2,0,0,0,12,81],
 "resident__instance__contract__publisher_8cpp.html":[2,0,0,0,12,82],
@@ -248,6 +249,5 @@ var NAVTREEINDEX27 =
 "structChunkLODMetadata.html#a54ff1b742c1b57420056823d377eccbc":[1,0,47,5],
 "structChunkLODMetadata.html#a6c9f13febc206260671e31cc7988c209":[1,0,47,2],
 "structChunkLODMetadata.html#aa03fa8a8183b927d0071685827115e54":[1,0,47,1],
-"structChunkLODMetadata.html#aa93192ea0c40bde401b545e9872b1348":[1,0,47,4],
-"structChunkLODMetadata.html#ab880d0601b281bb57c9b35b4dd20ef9d":[1,0,47,3]
+"structChunkLODMetadata.html#aa93192ea0c40bde401b545e9872b1348":[1,0,47,4]
 };

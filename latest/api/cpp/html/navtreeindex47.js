@@ -1,5 +1,6 @@
 var NAVTREEINDEX47 =
 {
+"structGaussianStreamingTypes_1_1ConfigOverrides.html#a7412d50e4d37f7eab161c101b9fd6d6a":[0,0,14,5,5],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#a7412d50e4d37f7eab161c101b9fd6d6a":[1,0,10,5,5],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#a7f1906ceb207ba94420533460519dc92":[0,0,14,5,11],
 "structGaussianStreamingTypes_1_1ConfigOverrides.html#a7f1906ceb207ba94420533460519dc92":[1,0,10,5,11],
@@ -248,6 +249,5 @@ var NAVTREEINDEX47 =
 "structGaussianStreamingTypes_1_1SchedulerState.html#adfea320b966171d53eacfdc9b2af6cae":[0,0,14,8,56],
 "structGaussianStreamingTypes_1_1SchedulerState.html#adfea320b966171d53eacfdc9b2af6cae":[1,0,10,8,56],
 "structGaussianStreamingTypes_1_1SchedulerState.html#ae0a9a8da166e2a0a81ecd054e384921f":[0,0,14,8,13],
-"structGaussianStreamingTypes_1_1SchedulerState.html#ae0a9a8da166e2a0a81ecd054e384921f":[1,0,10,8,13],
-"structGaussianStreamingTypes_1_1SchedulerState.html#ae726ef7e08f0d814caa1b81fb7601003":[0,0,14,8,50]
+"structGaussianStreamingTypes_1_1SchedulerState.html#ae0a9a8da166e2a0a81ecd054e384921f":[1,0,10,8,13]
 };

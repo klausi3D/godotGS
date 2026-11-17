@@ -1,5 +1,6 @@
 var NAVTREEINDEX18 =
 {
+"classgs__hlod_1_1bake__admission_1_1ResultRollback.html#afaa9104826fa89e0ffb5370b274d8122":[0,0,21,0,0,1],
 "classgs__hlod_1_1bake__admission_1_1ResultRollback.html#afaa9104826fa89e0ffb5370b274d8122":[1,0,14,0,0,1],
 "classgs__hlod__runtime_1_1CutHistory.html":[0,0,26,3],
 "classgs__hlod__runtime_1_1CutHistory.html":[1,0,18,3],
@@ -248,6 +249,5 @@ var NAVTREEINDEX18 =
 "classgs__world__frame_1_1OriginShiftHook.html#a3fcbea4705f5dfd34dd4e53907c61547":[0,0,36,2,1],
 "classgs__world__frame_1_1OriginShiftHook.html#a3fcbea4705f5dfd34dd4e53907c61547":[1,0,25,2,1],
 "classgs__world__frame_1_1OriginShiftHook.html#a99710244f3cf49a00f14b0a05ef705e9":[0,0,36,2,0],
-"classgs__world__frame_1_1OriginShiftHook.html#a99710244f3cf49a00f14b0a05ef705e9":[1,0,25,2,0],
-"classgs__world__frame_1_1WorldOriginContext.html":[0,0,36,3]
+"classgs__world__frame_1_1OriginShiftHook.html#a99710244f3cf49a00f14b0a05ef705e9":[1,0,25,2,0]
 };

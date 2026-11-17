@@ -133,9 +133,10 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a68396c7103f5b883480f7cdf2e41b4a2" id="r_a68396c7103f5b883480f7cdf2e41b4a2"><td class="memItemLeft" align="right" valign="top">Dictionary&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a68396c7103f5b883480f7cdf2e41b4a2">get_telemetry</a> (const String &amp;p_route) const</td></tr>
 <tr class="memitem:aaf381da323aeb56e28d9c3bf2fe61d2c" id="r_aaf381da323aeb56e28d9c3bf2fe61d2c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaf381da323aeb56e28d9c3bf2fe61d2c">record_decoded_content</a> (uint64_t p_id, const <a class="el" href="structGaussian.html">Gaussian</a> *p_gaussians, const Vector3 *p_sh, uint32_t p_count, uint32_t p_sh_degree)</td></tr>
 <tr class="memitem:ae72bb77ac26cfd21b7561be8b8f13932" id="r_ae72bb77ac26cfd21b7561be8b8f13932"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae72bb77ac26cfd21b7561be8b8f13932">uses_retained_admission</a> () const</td></tr>
+<tr class="memitem:aee11b9f678a50f54c7fb9ef78598eef4" id="r_aee11b9f678a50f54c7fb9ef78598eef4"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aee11b9f678a50f54c7fb9ef78598eef4">record_node_load</a> (uint64_t p_record_verify_nsec, uint64_t p_node_load_nsec)</td></tr>
 <tr class="memitem:a6636b7c3785b406ad1d21b2d035fa28e" id="r_a6636b7c3785b406ad1d21b2d035fa28e"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6636b7c3785b406ad1d21b2d035fa28e">lease_decoder</a> (<a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;r_lease, bool p_retain_on_return=true)</td></tr>
 <tr class="memitem:a4b363d6784680da4e6862fdbcd9d36f6" id="r_a4b363d6784680da4e6862fdbcd9d36f6"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4b363d6784680da4e6862fdbcd9d36f6">decode_gsq_page</a> (const <a class="el" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;p_page, <a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;p_decoder, bool p_verify_decoded_digest, <a class="el" href="structPayloadPageStore_1_1DecodedPage.html">DecodedPage</a> &amp;r_page, String &amp;r_reason)</td></tr>
-<tr class="memitem:acdb847e7379ea321a1e45c3b80f83330" id="r_acdb847e7379ea321a1e45c3b80f83330"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acdb847e7379ea321a1e45c3b80f83330">decode_gsq_subrange</a> (const <a class="el" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;p_page, <a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;p_decoder, uint32_t p_offset, uint32_t p_count, uint32_t p_sh_degree, <a class="el" href="structGaussian.html">Gaussian</a> *r_gaussians, Vector3 *r_sh, String &amp;r_reason)</td></tr>
+<tr class="memitem:af1107be89066d7dfd9f2cc82e2a03ca3" id="r_af1107be89066d7dfd9f2cc82e2a03ca3"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af1107be89066d7dfd9f2cc82e2a03ca3">decode_gsq_subrange</a> (const <a class="el" href="classPayloadPageStore_1_1StoredPage.html">StoredPage</a> &amp;p_page, <a class="el" href="classPayloadPageStore_1_1DecoderLease.html">DecoderLease</a> &amp;p_decoder, uint32_t p_offset, uint32_t p_count, uint32_t p_sh_degree, <a class="el" href="structGaussian.html">Gaussian</a> *r_gaussians, Vector3 *r_sh, String &amp;r_reason, bool p_enclosing_digest_verified=false)</td></tr>
 <tr class="memitem:ad381c369e8e84f5651364c241967e2fd" id="r_ad381c369e8e84f5651364c241967e2fd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad381c369e8e84f5651364c241967e2fd">begin_capture</a> (bool p_reset_decode_span=true)</td></tr>
 <tr class="memitem:a3a7f6eeb8aaa49d20546768de3a6b0c6" id="r_a3a7f6eeb8aaa49d20546768de3a6b0c6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3a7f6eeb8aaa49d20546768de3a6b0c6">end_capture</a> (bool p_success, const String &amp;p_reason)</td></tr>
 <tr class="memitem:ae4495ad3cfb93a57fa34b85c675ff4d3" id="r_ae4495ad3cfb93a57fa34b85c675ff4d3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae4495ad3cfb93a57fa34b85c675ff4d3">take_thread_last_capture_decode_nsec</a> ()</td></tr>
@@ -335,8 +336,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="acdb847e7379ea321a1e45c3b80f83330" name="acdb847e7379ea321a1e45c3b80f83330"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acdb847e7379ea321a1e45c3b80f83330">&#9670;&#160;</a></span>decode_gsq_subrange()</h2>
+<a id="af1107be89066d7dfd9f2cc82e2a03ca3" name="af1107be89066d7dfd9f2cc82e2a03ca3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af1107be89066d7dfd9f2cc82e2a03ca3">&#9670;&#160;</a></span>decode_gsq_subrange()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -379,7 +380,12 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>&#160;)</td>
+          <td class="paramtype">String &amp;</td>          <td class="paramname"><span class="paramname"><em>r_reason</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>p_enclosing_digest_verified</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -500,6 +506,27 @@ Public Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>p_sh_degree</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aee11b9f678a50f54c7fb9ef78598eef4" name="aee11b9f678a50f54c7fb9ef78598eef4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aee11b9f678a50f54c7fb9ef78598eef4">&#9670;&#160;</a></span>record_node_load()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void PayloadPageStore::record_node_load </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_record_verify_nsec</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_node_load_nsec</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

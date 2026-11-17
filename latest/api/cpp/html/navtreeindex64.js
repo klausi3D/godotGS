@@ -1,5 +1,10 @@
 var NAVTREEINDEX64 =
 {
+"structgs__world__writer_1_1Progress.html#adba28ede70d2dbcf6cf13c6c407754d5":[0,0,39,3,3],
+"structgs__world__writer_1_1Progress.html#adba28ede70d2dbcf6cf13c6c407754d5":[1,0,28,3,3],
+"structgs__world__writer_1_1Report.html":[0,0,39,4],
+"structgs__world__writer_1_1Report.html":[1,0,28,4],
+"structgs__world__writer_1_1Report.html#a2002320e34f84305ac1e6d5ee4f664eb":[0,0,39,4,13],
 "structgs__world__writer_1_1Report.html#a2002320e34f84305ac1e6d5ee4f664eb":[1,0,28,4,13],
 "structgs__world__writer_1_1Report.html#a2819b3614fd5d9b0f95268305bfe8a1e":[0,0,39,4,4],
 "structgs__world__writer_1_1Report.html#a2819b3614fd5d9b0f95268305bfe8a1e":[1,0,28,4,4],
@@ -244,10 +249,5 @@ var NAVTREEINDEX64 =
 "structspz_1_1GaussianCloud.html#a39112262c37df02039aaae763006dc36":[0,0,45,10,7],
 "structspz_1_1GaussianCloud.html#a39112262c37df02039aaae763006dc36":[1,0,31,10,7],
 "structspz_1_1GaussianCloud.html#a675e90d4e7e210c57e46cdfb1b0373c2":[0,0,45,10,3],
-"structspz_1_1GaussianCloud.html#a675e90d4e7e210c57e46cdfb1b0373c2":[1,0,31,10,3],
-"structspz_1_1GaussianCloud.html#a849d75973f0b0a601afa9ade6499c319":[0,0,45,10,2],
-"structspz_1_1GaussianCloud.html#a849d75973f0b0a601afa9ade6499c319":[1,0,31,10,2],
-"structspz_1_1GaussianCloud.html#a9a0fa00c0624bcea4d577706b7b867a8":[0,0,45,10,0],
-"structspz_1_1GaussianCloud.html#a9a0fa00c0624bcea4d577706b7b867a8":[1,0,31,10,0],
-"structspz_1_1GaussianCloud.html#ab41461ab12d2f4b541ab5fd933acfcad":[0,0,45,10,8]
+"structspz_1_1GaussianCloud.html#a675e90d4e7e210c57e46cdfb1b0373c2":[1,0,31,10,3]
 };

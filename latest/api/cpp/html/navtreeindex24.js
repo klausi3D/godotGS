@@ -1,5 +1,6 @@
 var NAVTREEINDEX24 =
 {
+"namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303ea47f0b30e8efe0c1a29c1ece5abd0f07f":[0,0,16,0,3,1],
 "namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303eabf314684d6b75e1f14d6de1328bbf999":[0,0,16,0,3,0],
 "namespacegs_1_1settings.html#ab80a8a2f092f535a0e426647d13b93f2":[0,0,16,0,4],
 "namespacegs_1_1settings.html#ab92300a72b06e29f307ccf3df62781d0":[0,0,16,0,5],
@@ -248,6 +249,5 @@ var NAVTREEINDEX24 =
 "namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106":[0,0,28,1],
 "namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a0cfb08c7ab7533901dc073d6b7f0e39a":[0,0,28,1,8],
 "namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a13b0af488d94be2d081f3f55dcd76786":[0,0,28,1,3],
-"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a4b032b083e9b0502597cb9ddbc3f0af6":[0,0,28,1,4],
-"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a7484c5a4af658e646e720c596a54b19a":[0,0,28,1,5]
+"namespacegs__logger.html#a7f049102602d82ca033df79a6f25c106a4b032b083e9b0502597cb9ddbc3f0af6":[0,0,28,1,4]
 };

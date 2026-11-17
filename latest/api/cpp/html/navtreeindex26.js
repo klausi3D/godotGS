@@ -1,5 +1,6 @@
 var NAVTREEINDEX26 =
 {
+"namespacespz.html#a6642a9173b32a73afbca7052e7768ec0":[0,0,45,46],
 "namespacespz.html#a67495b563f8b7fd24ed60ffe518acd1d":[0,0,45,73],
 "namespacespz.html#a67c1be9865450ad45220eb8bc7143a6c":[0,0,45,79],
 "namespacespz.html#a6f8b1a0c01ae2ff10a0031e95bb2f200":[0,0,45,44],
@@ -248,6 +249,5 @@ var NAVTREEINDEX26 =
 "rendering__error_8h.html":[2,0,0,0,12,80],
 "rendering__error_8h_source.html":[2,0,0,0,12,80],
 "residency__budget__controller_8cpp.html":[2,0,0,0,3,66],
-"residency__budget__controller_8h.html":[2,0,0,0,3,67],
-"residency__budget__controller_8h_source.html":[2,0,0,0,3,67]
+"residency__budget__controller_8h.html":[2,0,0,0,3,67]
 };

@@ -1,5 +1,10 @@
 var NAVTREEINDEX65 =
 {
+"structspz_1_1GaussianCloud.html#a849d75973f0b0a601afa9ade6499c319":[0,0,45,10,2],
+"structspz_1_1GaussianCloud.html#a849d75973f0b0a601afa9ade6499c319":[1,0,31,10,2],
+"structspz_1_1GaussianCloud.html#a9a0fa00c0624bcea4d577706b7b867a8":[0,0,45,10,0],
+"structspz_1_1GaussianCloud.html#a9a0fa00c0624bcea4d577706b7b867a8":[1,0,31,10,0],
+"structspz_1_1GaussianCloud.html#ab41461ab12d2f4b541ab5fd933acfcad":[0,0,45,10,8],
 "structspz_1_1GaussianCloud.html#ab41461ab12d2f4b541ab5fd933acfcad":[1,0,31,10,8],
 "structspz_1_1GaussianCloud.html#abd9f7a834bd45063dae23ea780409f4e":[0,0,45,10,5],
 "structspz_1_1GaussianCloud.html#abd9f7a834bd45063dae23ea780409f4e":[1,0,31,10,5],

@@ -1,5 +1,6 @@
 var NAVTREEINDEX23 =
 {
+"namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8a9c0818e0622aadfcb2e59cfe5299b4":[0,0,12,79,3],
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396aaff175b8d0aa8fd8039d06cba5a7e256":[0,0,12,79,4],
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396ae66aa6e86c6fd816012fa41cc1c6ecd0":[0,0,12,79,2],
 "namespaceGaussianSplatting.html#aa7a85fe5e903a1c6a58bdf61d83b9329":[0,0,12,125],
@@ -248,6 +249,5 @@ var NAVTREEINDEX23 =
 "namespacegs.html#a842388fdd8570c279fca283f7865851d":[0,0,16,4],
 "namespacegs.html#adad8a6dc9a05cb05215df4ae294f7742":[0,0,16,3],
 "namespacegs_1_1settings.html":[0,0,16,0],
-"namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303e":[0,0,16,0,3],
-"namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303ea47f0b30e8efe0c1a29c1ece5abd0f07f":[0,0,16,0,3,1]
+"namespacegs_1_1settings.html#aa27837ccd5814217365e11a518ac303e":[0,0,16,0,3]
 };

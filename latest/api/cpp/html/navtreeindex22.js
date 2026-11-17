@@ -1,5 +1,6 @@
 var NAVTREEINDEX22 =
 {
+"hlod__matched__arms_8h.html":[2,0,0,0,7,6],
 "hlod__matched__arms_8h_source.html":[2,0,0,0,7,6],
 "hlod__node__pack_8cpp.html":[2,0,0,0,12,33],
 "hlod__node__pack_8h.html":[2,0,0,0,12,34],
@@ -248,6 +249,5 @@ var NAVTREEINDEX22 =
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a44d7b12a89dea5859fe7018823742893":[0,0,12,79,1],
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a581953f6b20ad7f993b64b1dc632032e":[0,0,12,79,6],
 "namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a7ad4905b4543ab4a1637dd23c50e36ce":[0,0,12,79,0],
-"namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8943d3c6321ab82bd787bf650934ba03":[0,0,12,79,5],
-"namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8a9c0818e0622aadfcb2e59cfe5299b4":[0,0,12,79,3]
+"namespaceGaussianSplatting.html#aa687ca71ebe1b2910197c731eff75396a8943d3c6321ab82bd787bf650934ba03":[0,0,12,79,5]
 };

@@ -132,6 +132,10 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a4176baccc44892737ad7cbcf8041a969" id="r_a4176baccc44892737ad7cbcf8041a969"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4176baccc44892737ad7cbcf8041a969">splats_decoded</a> = 0</td></tr>
 <tr class="memitem:ad17c198a43a62b65750142fbadaff36e" id="r_ad17c198a43a62b65750142fbadaff36e"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad17c198a43a62b65750142fbadaff36e">decode_nsec</a> = 0</td></tr>
 <tr class="memitem:a9eb88def379bba2500f33cb04b88b878" id="r_a9eb88def379bba2500f33cb04b88b878"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9eb88def379bba2500f33cb04b88b878">verify_nsec</a> = 0</td></tr>
+<tr class="memitem:a18ec1bb336ba57c0e669817480b1d968" id="r_a18ec1bb336ba57c0e669817480b1d968"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18ec1bb336ba57c0e669817480b1d968">pages_stored_digest_covered_by_record</a> = 0</td></tr>
+<tr class="memitem:a906bc7d1216c451c6d10258af1aa04cb" id="r_a906bc7d1216c451c6d10258af1aa04cb"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a906bc7d1216c451c6d10258af1aa04cb">record_verify_nsec</a> = 0</td></tr>
+<tr class="memitem:a4995b167d7b031abcd70f4fbd33e6a1c" id="r_a4995b167d7b031abcd70f4fbd33e6a1c"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4995b167d7b031abcd70f4fbd33e6a1c">node_load_nsec</a> = 0</td></tr>
+<tr class="memitem:ae6860bce43e934ea66682aa5ec51bd53" id="r_ae6860bce43e934ea66682aa5ec51bd53"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae6860bce43e934ea66682aa5ec51bd53">nodes_loaded</a> = 0</td></tr>
 <tr class="memitem:a173fad4b3fcc441c6f54a0c2cf7be049" id="r_a173fad4b3fcc441c6f54a0c2cf7be049"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a173fad4b3fcc441c6f54a0c2cf7be049">digest_nsec</a> = 0</td></tr>
 <tr class="memitem:aa42c0b3e8a7f98f2a353dc4d3707ce3b" id="r_aa42c0b3e8a7f98f2a353dc4d3707ce3b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa42c0b3e8a7f98f2a353dc4d3707ce3b">pages_decoded_digest_checked</a> = 0</td></tr>
 <tr class="memitem:a6cfc3905932e46bba42b5fb41185653f" id="r_a6cfc3905932e46bba42b5fb41185653f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6cfc3905932e46bba42b5fb41185653f">pages_decoded_digest_skipped</a> = 0</td></tr>
@@ -396,6 +400,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a4995b167d7b031abcd70f4fbd33e6a1c" name="a4995b167d7b031abcd70f4fbd33e6a1c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4995b167d7b031abcd70f4fbd33e6a1c">&#9670;&#160;</a></span>node_load_nsec</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::node_load_nsec = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae6860bce43e934ea66682aa5ec51bd53" name="ae6860bce43e934ea66682aa5ec51bd53"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae6860bce43e934ea66682aa5ec51bd53">&#9670;&#160;</a></span>nodes_loaded</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::nodes_loaded = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="afde1420772db1f4f521c68e6492e331b" name="afde1420772db1f4f521c68e6492e331b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#afde1420772db1f4f521c68e6492e331b">&#9670;&#160;</a></span>page_failures</h2>
 
@@ -494,6 +526,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a18ec1bb336ba57c0e669817480b1d968" name="a18ec1bb336ba57c0e669817480b1d968"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a18ec1bb336ba57c0e669817480b1d968">&#9670;&#160;</a></span>pages_stored_digest_covered_by_record</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::pages_stored_digest_covered_by_record = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a5a7b6235b867ba56137da4b6df599a60" name="a5a7b6235b867ba56137da4b6df599a60"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a5a7b6235b867ba56137da4b6df599a60">&#9670;&#160;</a></span>pages_verified</h2>
 
@@ -572,6 +618,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname"><a class="el" href="structPayloadReadService_1_1Stats.html">PayloadReadService::Stats</a> PayloadPageStore::Stats::reads</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a906bc7d1216c451c6d10258af1aa04cb" name="a906bc7d1216c451c6d10258af1aa04cb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a906bc7d1216c451c6d10258af1aa04cb">&#9670;&#160;</a></span>record_verify_nsec</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t PayloadPageStore::Stats::record_verify_nsec = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

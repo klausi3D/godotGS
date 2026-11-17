@@ -1,5 +1,6 @@
 var NAVTREEINDEX41 =
 {
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a94763672f07e6b953c1dea1fc5a9b0f4":[0,0,12,54,2],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a94763672f07e6b953c1dea1fc5a9b0f4":[1,0,9,53,2],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#ab184f60cf6c76f6cb3f1b0cff0500238":[0,0,12,54,1],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#ab184f60cf6c76f6cb3f1b0cff0500238":[1,0,9,53,1],
@@ -248,6 +249,5 @@ var NAVTREEINDEX41 =
 "structGaussianSplatting_1_1TileDiagnosticsState.html#ae5489ba582da14d4e91bd2aa4f3a6922":[0,0,12,67,34],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#ae5489ba582da14d4e91bd2aa4f3a6922":[1,0,9,66,34],
 "structGaussianSplatting_1_1TileDiagnosticsState.html#ae8a6798df23c6d84b461e3d36d3c7e55":[0,0,12,67,24],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#ae8a6798df23c6d84b461e3d36d3c7e55":[1,0,9,66,24],
-"structGaussianSplatting_1_1TileDiagnosticsState.html#aea848fb7a377423231a3e73d0ba03534":[0,0,12,67,32]
+"structGaussianSplatting_1_1TileDiagnosticsState.html#ae8a6798df23c6d84b461e3d36d3c7e55":[1,0,9,66,24]
 };
