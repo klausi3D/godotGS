@@ -1851,20 +1851,18 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	for (uint32_t i = 0; i < p_desired_count; ++i) { observe_instance(p_desired[i].instance_key); }
 	for (uint32_t i = 0; i < p_drawn_count; ++i) { observe_instance(p_drawn[i].instance_key); }
 	if (multiple_owners) {
-		// Preserve all existing owners' work and draw dependencies. Never let render-call order arbitrate
-		// shared ownership: this first implementation explicitly freezes reconciliation for that case.
-		residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
-		refresh_telemetry();
-		telemetry.transitions_measured = true;
-		telemetry.transition_state = NodeResidency::UNSUPPORTED_OWNERS;
-		return;
+		// Shared views use legacy admission: release B's soft protection without cancelling work.
+		// Do this before edit allocation, even when metadata clearing defers this update's requests.
+		residency.release_transition_leases();
+		transition_owner_bound = false;
+	} else {
+		if (transition_owner_bound && (transition_owner != p_owner || (instance_seen && transition_instance != instance))) {
+			residency.withdraw_transitions(); cancel_withdrawn_jobs();
+		}
+		transition_owner = p_owner;
+		if (instance_seen) { transition_instance = instance; }
+		transition_owner_bound = true;
 	}
-	if (transition_owner_bound && (transition_owner != p_owner || (instance_seen && transition_instance != instance))) {
-		residency.withdraw_transitions(); cancel_withdrawn_jobs();
-	}
-	transition_owner = p_owner;
-	if (instance_seen) { transition_instance = instance; }
-	transition_owner_bound = true;
 	if (residency.is_edit_staged()) {
 		// The replacement cut of a staged edit is ordinary demand (whole transitions, same admission), ahead of the view's.
 		prefetch_scratch.clear();
@@ -1888,6 +1886,7 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	}
 	// Protection first (ADR 14.1): drawn versions and their ancestors cannot be evicted by this frame's requests.
 	residency.protect_drawn(drawn_scratch.ptr(), drawn_scratch.size());
+	if (multiple_owners) { residency.protect_drawn(kept_scratch.ptr(), kept_scratch.size()); } // Legacy bootstrap keep protection.
 	residency.observe_demand(demand_scratch.ptr(), demand_scratch.size()); // Victim classification only, before edit-era eviction too.
 	tickets_scratch.clear();
 	const bool draining_metadata = !pending_metadata_clears.is_empty();
@@ -1905,7 +1904,8 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 		}
 	}
 	const NodeResidency::RequestResult requested = draining_metadata ? NodeResidency::RequestResult() :
-			residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch, transition_scratch.ptr(), kept_scratch.ptr(), kept_scratch.size());
+			(multiple_owners ? residency.request_legacy(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch) :
+					residency.request(demand_scratch.ptr(), demand_scratch.size(), tickets_scratch, transition_scratch.ptr(), kept_scratch.ptr(), kept_scratch.size()));
 	cancel_withdrawn_jobs();
 	// Metadata of nodes evicted by this request is cleared before any upload of this update: a node evicted and
 	// requested again is not in the log (NodeResidency), and a payload that lands below is never zeroed after.
@@ -1960,6 +1960,7 @@ void HlodNodeStreamer::update(RenderingDevice *p_device, const Buffers &p_buffer
 	gate_counted_frame = frame;
 	telemetry.gate_measured = true;
 	refresh_telemetry();
+	if (multiple_owners) { telemetry.transition_state = NodeResidency::UNSUPPORTED_OWNERS; } // B protection off; legacy admission active.
 }
 
 void HlodNodeStreamer::split_protection_and_demand(const gs_hlod_runtime::DesiredRecord *p_desired, uint32_t p_desired_count,

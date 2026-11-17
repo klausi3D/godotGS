@@ -48,6 +48,7 @@ namespace gs_hlod_runtime {
 class NodeResidency {
 public:
 	// Stable, report-only protocol. No complete cut is manufactured by a blocked transition.
+	// UNSUPPORTED_OWNERS means legacy admission is active, without transition leases or abandonment.
 	enum TransitionState { TRANSITIONS_ABSENT = -1, NORMAL = 0, RETIREMENT_WAIT = 1,
 		COARSE_PLACEMENT_BLOCKED = 2, UNSUPPORTED_OWNERS = 3 };
 	enum State : uint8_t {
@@ -212,7 +213,13 @@ public:
 	// emissions and keeps form one revocable plan; no partial bootstrap bundle is admitted.
 	RequestResult request(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets,
 			const TransitionGroup *p_transitions = nullptr, const uint32_t *p_kept = nullptr, uint32_t p_kept_count = 0);
-	// Single-owner reconciliation only. The streamer refuses concurrent owners before calling request().
+	// Shared-owner fallback uses the pre-transition-policy consecutive missing-demand groups, protection
+	// stamps and grace cancellation. It never acquires transition leases or abandons another group.
+	RequestResult request_legacy(const uint32_t *p_demand, uint32_t p_count, LocalVector<Ticket> &r_tickets);
+	// Drop only transition policy state on entering legacy admission. Preserve tickets, drawn/edit holds
+	// and cancellation tombstones. Call before edit allocation even when metadata clears defer requests.
+	void release_transition_leases();
+	// Single-owner reconciliation only. The streamer uses request_legacy() for concurrent owners.
 	// Owner-thread only, like the rest of this class; never clear drawn/edited protection when withdrawing.
 	void withdraw_transitions();
 	bool executable(uint32_t p_node) const;

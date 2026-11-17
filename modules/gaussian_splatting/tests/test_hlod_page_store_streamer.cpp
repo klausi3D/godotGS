@@ -525,13 +525,17 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] shared owners fa
 		CHECK(h.streamer.unregister_view(202));
 		// Multiple instances are also owners, even when there is only one registered view.
 		gs_hlod_runtime::DesiredRecord instances[2];
-		instances[0].instance_key = 1; instances[0].node = 5;
-		instances[1].instance_key = 2; instances[1].node = 6;
+		// Both owners refer to the already-held request; this probe adds no new legacy work.
+		instances[0].instance_key = 1; instances[0].node = 4;
+		instances[1].instance_key = 2; instances[1].node = 4;
 		h.streamer.update(nullptr, Streamer::Buffers(), instances, 2, nullptr, 0, 101);
 		CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS);
 		CHECK(h.streamer.get_residency().stats().cancelled_total == 0);
 		CHECK(h.streamer.get_residency().state(4) == Residency::LOADING);
 		// Once only one owner remains, replacing the old single owner explicitly withdraws its work.
+		// Rebind that owner after legacy admission, then expire its frame-only want stamp.
+		h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0, 0);
+		h.streamer.begin_frame();
 		h.demand.clear();
 		h.streamer.update(nullptr, Streamer::Buffers(), nullptr, 0, nullptr, 0, 101);
 		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
@@ -539,6 +543,99 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] shared owners fa
 		if (!h.set_control() || !h.drain() || !h.check_released()) { return; }
 		CHECK(h.streamer._test_publications().is_empty());
 	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD] shared views admit missing demand and evict through the legacy path (#1483 B)") {
+	Harness h;
+	if (!h.init()) { return; }
+	h.streamer.shutdown();
+	h.config.atlas_pages = 3; // Synthetic pressure: pinned root plus two served nodes.
+	if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+		FAIL("shared-view legacy fixture could not initialize its three-page atlas"); return;
+	}
+	h.retained_cap = h.streamer.get_retained_byte_cap();
+	h.demand.clear();
+	h.control.hold_uploads = false;
+	auto step_owner = [&](uint64_t p_owner) {
+		h.streamer.begin_frame();
+		h.streamer.update(nullptr, Streamer::Buffers(), h.demand.ptr(), h.demand.size(), nullptr, 0, p_owner);
+		h.sample = h.streamer._test_snapshot();
+		h.observations_ok = h.observations_ok && h.sample.observation_error == OK;
+		h.bound_ok = h.bound_ok && bounded(h.sample, h.config, h.retained_cap);
+		const auto stats = h.streamer.get_residency().stats();
+		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring <= 3);
+	};
+	auto load_missing = [&](uint32_t p_node, uint64_t p_owner, bool p_shared, bool p_evict) {
+		CAPTURE(p_node);
+		CAPTURE(p_owner);
+		if (h.streamer.get_residency().state(p_node) != Residency::ABSENT) { FAIL("phase must offer only a missing node"); return false; }
+		h.demand.clear();
+		gs_hlod_runtime::DesiredRecord wanted;
+		wanted.node = p_node;
+		h.demand.push_back(wanted);
+		h.control.hold_workers = true;
+		if (!h.set_control()) { return false; }
+		const auto before = h.streamer.get_residency().stats();
+		step_owner(p_owner);
+		const auto first = h.streamer.get_residency().stats();
+		// Admission and eviction are synchronous model actions: the frozen path fails before an async wait.
+		if ((!p_evict && first.requested_total != before.requested_total + 1) ||
+				(p_evict && first.evicted_total != before.evicted_total + 1)) {
+			FAIL("shared-view legacy admission did not request or evict for fresh demand"); return false;
+		}
+		if (p_evict) {
+			const auto admitted = gs_pump_until([&]() {
+				step_owner(p_owner);
+				return !h.observations_ok || h.streamer.get_residency().state(p_node) == Residency::LOADING;
+			});
+			if (!admitted.ready() || !h.observations_ok) { FAIL("legacy eviction did not admit the missing node after retirement: ", admitted.describe()); return false; }
+		}
+		CHECK(h.streamer.get_residency().stats().requested_total == before.requested_total + 1);
+		h.control.hold_workers = false;
+		if (!h.set_control()) { return false; }
+		const auto resident = gs_pump_until([&]() {
+			step_owner(p_owner);
+			return !h.observations_ok || (h.streamer.get_residency().state(p_node) == Residency::RESIDENT &&
+					h.sample.tasks_outstanding == 0 && h.sample.live_reservations == 0);
+		});
+		if (!resident.ready() || !h.observations_ok) { FAIL("view's missing node never became actually resident: ", resident.describe()); return false; }
+		CHECK(h.bound_ok);
+		CHECK(h.streamer.get_residency().stats().cancelled_total == before.cancelled_total);
+		CHECK(h.streamer.get_residency().stats().late_dropped_total == 0);
+		CHECK(h.streamer.get_telemetry().protected_sibling_nodes == 0);
+		CHECK(h.streamer.get_telemetry().abandoned_transitions_total == 0);
+		if (p_shared) { CHECK(h.streamer.get_telemetry().transition_state == Residency::UNSUPPORTED_OWNERS); }
+		return true;
+	};
+	if (!load_missing(0, 0, false, false)) { return; }
+	gs_hlod_runtime::CutRequest view;
+	view.frustum_enabled = false;
+	view.focal_pixels = 100;
+	view.tau_pixels = 1.0e9;
+	view.node_budget = h.fixture.node_count;
+	view.splat_budget = 1u << 30;
+	view.record_budget = 1.0e9;
+	h.streamer.register_view(101, view);
+	h.streamer.register_view(202, view);
+	if (!load_missing(1, 101, true, false) || !load_missing(2, 202, true, false)) { return; }
+	CHECK(h.streamer.get_residency().state(1) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().stats().pages_free == 0);
+	// Parent 1 and pinned root 0 survive node 3's allocation; the actual served node 2 pays for it.
+	if (!load_missing(3, 101, true, true)) { return; }
+	CHECK(h.streamer.get_residency().state(0) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().state(1) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().state(2) == Residency::ABSENT);
+	CHECK(h.streamer.get_residency().state(3) == Residency::RESIDENT);
+	CHECK(h.streamer.get_residency().stats().evicted_total == 1);
+	CHECK(h.streamer.get_residency().stats().requested_total == 4);
+	const auto publications = h.streamer._test_publications();
+	if (publications.size() != 4) { FAIL("legacy views must publish all four actual node payloads"); return; }
+	for (uint32_t node = 0; node < 4; ++node) {
+		CHECK(publications[node].node == node);
+		CHECK(publications[node].metadata_splat_count == h.fixture.splats_per_node);
+	}
+	CHECK(h.store.stats().reads.completed_ok == 4);
+	if (!h.check_released()) { return; }
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] placement reserve capture preserves zero and clears absent frames and lifecycle resets (#1483)") {
