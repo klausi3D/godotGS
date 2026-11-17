@@ -39,6 +39,22 @@ bool GaussianSplatHlodRuntimeData::is_current() const {
 	return world && world->is_hlod_runtime_snapshot_current(*this);
 }
 
+void GaussianSplatHlodRuntimeData::prepare_placement_reserve(uint32_t p_page_splats) {
+	max_node_payload_count = 0;
+	placement_node_pages = 0;
+	placement_page_splats = p_page_splats;
+	for (int64_t i = 0; i < nodes.size(); ++i) {
+		if (!is_stale(uint32_t(i))) {
+			const uint32_t count = nodes[i].topology.payload_count;
+			max_node_payload_count = MAX(max_node_payload_count, count);
+			if (p_page_splats != 0) {
+				placement_node_pages += (uint64_t(count) + p_page_splats - 1u) / p_page_splats;
+			}
+		}
+	}
+	placement_reserve_prepared = true;
+}
+
 bool GaussianSplatHlodRuntimeData::index_in_edited_leaf(uint64_t p_index) const {
 	for (int64_t i = 0; i < edited.size(); ++i) {
 		if (p_index >= edited[i].base_first && p_index - edited[i].base_first < edited[i].base_count) {

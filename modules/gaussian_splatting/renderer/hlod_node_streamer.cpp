@@ -706,6 +706,9 @@ void HlodNodeStreamer::collect_finished_tasks(bool p_wait_all) {
 }
 
 void HlodNodeStreamer::shutdown() {
+	telemetry.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
+	telemetry.placement_reserve_measured = false;
+	telemetry.placement_reserve_pages = 0;
 	if (mailbox.is_null() && tasks.is_empty()) {
 		return;
 	}
@@ -1257,6 +1260,9 @@ HlodNodeStreamer::EditCommitResult HlodNodeStreamer::commit_staged_edit(Renderin
 }
 
 void HlodNodeStreamer::begin_frame(RenderingDevice *p_device, const Buffers *p_buffers) {
+	telemetry.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
+	telemetry.placement_reserve_measured = false;
+	telemetry.placement_reserve_pages = 0;
 	last_commit_result = pending_commit_result;
 	pending_commit_result = COMMIT_NOTHING;
 	if (!active) { return; }
@@ -1881,6 +1887,13 @@ void HlodNodeStreamer::split_protection_and_demand(const gs_hlod_runtime::Desire
 	for (uint32_t i = 0; i < p_desired_count; ++i) {
 		(p_desired[i].keep ? r_protected : r_demand).push_back(p_desired[i].node);
 	}
+}
+
+void HlodNodeStreamer::capture_placement_reserve(const gs_hlod_runtime::CutHistory::Result &p_cut) {
+	telemetry.placement_reserve_state = active && p_cut.status != gs_hlod_runtime::CutHistory::INVALID ?
+			p_cut.placement_reserve_state : gs_hlod_runtime::CutHistory::RESERVE_ABSENT;
+	telemetry.placement_reserve_measured = telemetry.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED;
+	telemetry.placement_reserve_pages = telemetry.placement_reserve_measured ? p_cut.placement_reserve_pages : 0;
 }
 
 void HlodNodeStreamer::refresh_telemetry() {

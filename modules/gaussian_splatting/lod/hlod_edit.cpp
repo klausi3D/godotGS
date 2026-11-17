@@ -204,6 +204,7 @@ EditStatus make_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_base,
 	for (uint32_t i = 0; i < merged.size(); ++i) {
 		next->edited.write[i] = merged[i];
 	}
+	next->prepare_placement_reserve();
 	r_snapshot = next;
 	r_reason = String();
 	return EditStatus::OK;
@@ -287,6 +288,7 @@ bool rebase_edited_snapshot(const Ref<GaussianSplatHlodRuntimeData> &p_edited, c
 	next->edit_parent_id = p_edited->edit_parent_id;
 	next->edit_state = p_edited->edit_state;
 	next->edited = p_edited->edited;
+	next->prepare_placement_reserve();
 	r_snapshot = next;
 	return true;
 }

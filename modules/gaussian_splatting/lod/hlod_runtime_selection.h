@@ -34,7 +34,9 @@ struct CutRequest {
 	uint32_t tie_rank_count = 0;
 	// Page admission for the cut and residency demand (ADR 6.6): when page_splats != 0, a node occupies
 	// ceil(payload / page) atlas pages. Every transition must fit page_budget together with the cut, every
-	// ancestor of it, and already demanded transitions. Parents stay charged during parent/child overlap.
+	// ancestor of it, and already demanded transitions, leaving the largest non-stale node's run as reserve.
+	// Unprepared snapshots retain option-1 admission without reserve. Parents stay charged during overlap.
+	// The mandatory root uses physical page_budget.
 	uint32_t page_splats = 0;
 	uint64_t page_budget = 0;
 };
@@ -55,8 +57,12 @@ public:
 	// Not named `Status`: X11/Xlib.h #defines Status, and this header reaches the X11 display server TU.
 	enum SelectStatus { COMPLETE, EMPTY, INVALID, UNAVAILABLE, BOOTSTRAP_EXHAUSTED, BOOTSTRAP_ARITHMETIC,
 		BOOTSTRAP_MISSING_RESIDENCY, BOOTSTRAP_INFEASIBLE };
+	enum PlacementReason { PLACEMENT_NONE, RESERVE_ROOT_ONLY };
+	// Stable report-only trace codes: absent -> null/-1; unprepared -> option-1 physical-page admission.
+	enum PlacementReserveState { RESERVE_ABSENT = -1, RESERVE_UNPREPARED = 0, RESERVE_MEASURED = 1 };
 	struct Result {
 		SelectStatus status = INVALID;
+		PlacementReason placement_reason = PLACEMENT_NONE; // COMPLETE root retained when reserve prevents expansion.
 		uint32_t selected_count = 0;
 		uint32_t visited_nodes = 0;
 		uint64_t selected_splats = 0;
@@ -75,6 +81,10 @@ public:
 		int32_t first_cap_refused_node = -1;
 		uint32_t hysteresis_held_count = 0;
 		uint32_t residency_missed_count = 0;
+		// Effective headroom: measured zero when the whole live tree fits; unprepared uses zero without a measurement.
+		PlacementReserveState placement_reserve_state = RESERVE_ABSENT;
+		bool placement_reserve_measured = false;
+		uint64_t placement_reserve_pages = 0;
 		// Report-only union of the current cut, its ancestors, and every visible child of an
 		// issued transition (including resident siblings). Parents remain charged during overlap.
 		// These fields never participate in selection or admission. page_splats == 0 is unmeasured.

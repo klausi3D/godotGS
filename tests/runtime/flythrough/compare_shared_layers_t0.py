@@ -1299,9 +1299,10 @@ def _hlod_pressure_lines(report):
     """Pressure diagnostics have no acceptance status or threshold."""
     report = _dict(report)
     lines = ["", "## HLOD pressure diagnostics (#1483)", "",
-             "Report-only. Missing observations stay not measured; no value in this table changes the verdict.", "",
-             "| arm / checkpoint | closure pages / cap | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "Report-only. Missing observations stay not measured; no value in this table changes the verdict. "
+             "Unprepared reserve uses option-1 physical-page admission without measured headroom.", "",
+             "| arm / checkpoint | closure pages / cap | placement reserve pages | placement reserve state | free / largest run | fragmented / skipped | allocation refusal delta | eviction class deltas | refusing gate | victim history |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
 
     def clean(value):
         return "not measured" if value is None else str(value).replace("|", "/").replace("\n", " ")
@@ -1310,12 +1311,13 @@ def _hlod_pressure_lines(report):
         rows = _dict(report.get(route)).get("checkpoints")
         rows = rows if isinstance(rows, list) else []
         if not rows:
-            lines.append(f"| {route} | " + " | ".join(["not measured"] * 7) + " |")
+            lines.append(f"| {route} | " + " | ".join(["not measured"] * 9) + " |")
         for row in rows:
             row = _dict(row)
             receipt = _dict(row.get("observation"))
             values = _dict(_dict(receipt.get("snapshot")).get("values"))
             deltas = _dict(_dict(receipt.get("settle_window")).get("counter_deltas"))
+            reserve = ps.hlod_placement_reserve_observation(values)
 
             def val(key):
                 return clean(values.get("hlod_stream_" + key))
@@ -1333,6 +1335,7 @@ def _hlod_pressure_lines(report):
                        if victims.get("measured") is True and isinstance(events, list) else "not measured")
             lines.append(f"| {route} / {clean(row.get('checkpoint'))} pass {clean(row.get('pass_index'))} | "
                          f"{val('demanded_closure_pages')} / {val('page_budget')} | "
+                         f"{clean(reserve['value'])} | {clean(reserve['state'] if reserve['state'] != 'absent' else None)} | "
                          f"{val('pages_free')} / {val('largest_free_run')} | "
                          f"{val('fragmented_groups')} / {val('skipped_groups_total')} | "
                          f"{delta('allocation_refused')} | in_cut {delta('evicted_in_cut')}, "

@@ -153,7 +153,22 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		return (uint64_t(p_data.nodes[p_node].topology.payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
 	};
 	out.closure_measured = p_request.page_splats != 0;
+	if (out.closure_measured) {
+		out.placement_reserve_state = p_data.placement_reserve_prepared ? RESERVE_MEASURED : RESERVE_UNPREPARED;
+	}
+	out.placement_reserve_measured = out.placement_reserve_state == RESERVE_MEASURED;
+	if (out.placement_reserve_measured) {
+		out.placement_reserve_pages = (uint64_t(p_data.max_node_payload_count) + p_request.page_splats - 1u) / p_request.page_splats;
+		// When every live node fits, no eviction/placement headroom is needed. Atlas sizing already caps
+		// small worlds at this exact total; reserving more would permanently prevent their full refinement.
+		// A different page geometry keeps the conservative reserve rather than trusting an incompatible sum.
+		if (p_data.placement_page_splats == p_request.page_splats && p_data.placement_node_pages <= p_request.page_budget) {
+			out.placement_reserve_pages = 0;
+		}
+	}
 	out.page_budget = p_request.page_budget;
+	const uint64_t admission_pages = p_request.page_budget > out.placement_reserve_pages ?
+			p_request.page_budget - out.placement_reserve_pages : 0;
 	// Observational union, independent of closure_pages/plan_pages used by admission.
 	// Every visited refinement already has its parent in this union. Unique marks also cover
 	// bootstrap demand encountered again by the ordinary walk without double charging it.
@@ -172,6 +187,7 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	// adds its children, so the closure only grows by the children's pages.
 	uint64_t closure_pages = pages_of(0);
 	uint64_t plan_pages = 0;
+	bool reserve_blocked = out.placement_reserve_measured && closure_pages > admission_pages;
 	auto unplanned_pages = [&](uint32_t p_parent, uint64_t p_child_pages) -> uint64_t {
 		return diagnostics[p_parent] & TRANSITION_PLANNED ? 0 : p_child_pages;
 	};
@@ -180,8 +196,11 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	auto transition_fits = [&](uint32_t p_parent, uint64_t p_child_pages) {
 		if (p_request.page_splats == 0) { return true; }
 		const uint64_t additional = unplanned_pages(p_parent, p_child_pages);
-		const bool fits = closure_pages <= p_request.page_budget && plan_pages <= p_request.page_budget - closure_pages &&
+		const bool fits = closure_pages <= admission_pages && plan_pages <= admission_pages - closure_pages &&
+				additional <= admission_pages - closure_pages - plan_pages;
+		const bool physically_fits = closure_pages <= p_request.page_budget && plan_pages <= p_request.page_budget - closure_pages &&
 				additional <= p_request.page_budget - closure_pages - plan_pages;
+		reserve_blocked |= !fits && physically_fits;
 		if (!fits) { ++out.page_refused_groups; refused(p_parent); }
 		return fits;
 	};
@@ -193,7 +212,9 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 	if (!visible(0)) { out.status = EMPTY; return out; }
 	report_pages(0, 0);
 	// Every possible closure contains the root. Neither loading it nor refining it can fix this cap.
-	if (!transition_fits(0, 0)) { out.status = BOOTSTRAP_INFEASIBLE; return out; }
+	if (p_request.page_splats != 0 && closure_pages > p_request.page_budget) {
+		++out.page_refused_groups; refused(0); out.status = BOOTSTRAP_INFEASIBLE; return out;
+	}
 	const bool root_stale = stale(0);
 	if (!root_stale && !available(0)) { push_demand(0); out.status = UNAVAILABLE; return out; }
 	const double root_cost = cost(0);
@@ -445,6 +466,9 @@ CutHistory::Result CutHistory::select(const GaussianSplatHlodRuntimeData &p_data
 		}
 	}
 	out.status = out.selected_count ? COMPLETE : EMPTY;
+	if (out.status == COMPLETE && out.selected_count == 1 && selected[0] == 0 && reserve_blocked) {
+		out.placement_reason = RESERVE_ROOT_ONLY;
+	}
 	return out;
 }
 }

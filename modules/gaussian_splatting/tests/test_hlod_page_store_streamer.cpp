@@ -4,6 +4,7 @@ extern "C" int test_hlod_page_store_streamer_cpp_force_link() { return 0; }
 #include "gs_test_pump.h"
 #include "../io/gaussian_splat_world_paged.h"
 #include "../io/gs_payload_page_store.h"
+#include "../lod/hlod_edit.h"
 #include "../renderer/hlod_node_streamer.h"
 #include "../core/gs_upload_sizing.h"
 
@@ -464,6 +465,130 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] pressure telemet
 	// Multiple views do not manufacture extra frame counts.
 	h.streamer.update(nullptr, Streamer::Buffers(), nullptr, 0, nullptr, 0);
 	CHECK(t.gate_frames_total[Streamer::REFUSING_NONE] == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] placement reserve capture preserves zero and clears absent frames and lifecycle resets (#1483)") {
+	Harness h;
+	CHECK_FALSE(h.streamer.get_telemetry().placement_reserve_measured);
+	CHECK(h.streamer.get_telemetry().placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
+	if (!h.init()) { return; }
+	const Streamer::Telemetry &t = h.streamer.get_telemetry();
+	CHECK_FALSE(t.placement_reserve_measured);
+	gs_hlod_runtime::CutHistory::Result cut;
+	cut.status = gs_hlod_runtime::CutHistory::COMPLETE;
+	cut.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_MEASURED;
+	cut.placement_reserve_measured = true;
+	cut.placement_reserve_pages = 3;
+	h.streamer.capture_placement_reserve(cut);
+	CHECK(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 3);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED);
+	cut.placement_reserve_pages = 0;
+	h.streamer.capture_placement_reserve(cut);
+	CHECK(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0); // A measured zero survives independently of pressure counters.
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_MEASURED);
+	cut.placement_reserve_measured = false;
+	cut.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED;
+	cut.placement_reserve_pages = 99;
+	h.streamer.capture_placement_reserve(cut);
+	CHECK_FALSE(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_UNPREPARED);
+	cut.placement_reserve_measured = true;
+	cut.placement_reserve_state = gs_hlod_runtime::CutHistory::RESERVE_MEASURED;
+	cut.placement_reserve_pages = 3;
+	h.streamer.capture_placement_reserve(cut);
+	cut.status = gs_hlod_runtime::CutHistory::INVALID;
+	h.streamer.capture_placement_reserve(cut);
+	CHECK_FALSE(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
+	cut.status = gs_hlod_runtime::CutHistory::UNAVAILABLE; // A loading selection still measures headroom.
+	h.streamer.capture_placement_reserve(cut);
+	CHECK(t.placement_reserve_measured);
+	h.streamer.begin_frame(); // No selection follows this frame.
+	CHECK_FALSE(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
+	h.streamer.capture_placement_reserve(cut);
+	h.streamer.shutdown();
+	CHECK_FALSE(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0);
+	CHECK(t.placement_reserve_state == gs_hlod_runtime::CutHistory::RESERVE_ABSENT);
+	h.streamer.capture_placement_reserve(cut); // An inactive streamer cannot resurrect the observation.
+	CHECK_FALSE(t.placement_reserve_measured);
+	if (!h.streamer.init(h.fixture.snapshot, h.config, h.world, h.device)) { FAIL("streamer reinitialization failed"); return; }
+	CHECK_FALSE(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0);
+	h.streamer.capture_placement_reserve(cut);
+	if (!h.streamer.init(h.fixture.snapshot, h.config, h.world, h.device)) { FAIL("active streamer reset failed"); return; }
+	CHECK_FALSE(t.placement_reserve_measured);
+	CHECK(t.placement_reserve_pages == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][Edit] placement reserve is refreshed after a growing edit rebase and shrink (#1483)") {
+	TestHlodPageStore::Fixture fixture;
+	if (!fixture.build(false, 3, 256, 0)) { return; } // Whole tree stays larger than the pressure-test atlas.
+	CHECK(fixture.snapshot->placement_reserve_prepared);
+	CHECK(fixture.snapshot->max_node_payload_count == 256);
+	CHECK(fixture.snapshot->placement_node_pages == 15);
+	CHECK(fixture.snapshot->placement_page_splats == 1024);
+	gs_hlod_runtime::LeafEdit edit;
+	edit.node = 7;
+	Vector<Gaussian> samples;
+	if (!fixture.expected_payload(edit.node, samples, edit.sh) || samples.is_empty() ||
+			!gs_resize_or_fail(edit.gaussians, 2049, "reserve growing edit fixture")) {
+		FAIL("growing edit fixture payload unavailable"); return;
+	}
+	edit.gaussians.fill(samples[0]); // Duplicate validated, in-bounds samples; no geometry or node-cap change.
+	Ref<GaussianSplatHlodRuntimeData> edited;
+	String reason;
+	if (gs_hlod_runtime::make_edited_snapshot(fixture.snapshot, 0, &edit, 1, edited, reason) != gs_hlod_runtime::EditStatus::OK || edited.is_null()) {
+		FAIL("growing edit failed: ", reason.utf8().get_data()); return;
+	}
+	CHECK(edited->placement_reserve_prepared);
+	CHECK(edited->max_node_payload_count == 2049);
+	CHECK(edited->placement_node_pages == 14); // Three stale ancestors excluded; the grown leaf costs three pages.
+	CHECK(fixture.snapshot->max_node_payload_count == 256);
+	Ref<GaussianSplatHlodRuntimeData> fresh, rebased;
+	if (fixture.world->capture_hlod_runtime_snapshot(fresh, reason) != OK || fresh.is_null() ||
+			!gs_hlod_runtime::rebase_edited_snapshot(edited, fresh, rebased) || rebased.is_null()) {
+		FAIL("edited reserve rebase failed: ", reason.utf8().get_data()); return;
+	}
+	CHECK(fresh->placement_reserve_prepared);
+	CHECK(fresh->max_node_payload_count == 256);
+	CHECK(fresh->placement_node_pages == 15);
+	CHECK(rebased->placement_reserve_prepared);
+	CHECK(rebased->max_node_payload_count == 2049);
+	CHECK(rebased->placement_node_pages == 14);
+	gs_hlod_runtime::CutRequest request;
+	request.frustum_enabled = false;
+	request.focal_pixels = 1;
+	request.tau_pixels = 1e9;
+	request.record_budget = 1e9;
+	request.splat_budget = 10000;
+	request.node_budget = 15;
+	request.page_splats = 1024;
+	request.page_budget = 9; // Forced frontier {2,4,7,8} costs 1+1+3+1, with three pages of headroom.
+	gs_hlod_runtime::CutHistory history;
+	if (!history.reserve(15)) { FAIL("cut workspace unavailable"); return; }
+	const auto cut = history.select(*rebased.ptr(), request);
+	CHECK(cut.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(cut.placement_reserve_pages == 3);
+	CHECK(cut.demanded_closure_pages == 6);
+	edit.gaussians = samples;
+	Ref<GaussianSplatHlodRuntimeData> shrunk;
+	if (gs_hlod_runtime::make_edited_snapshot(rebased, 1, &edit, 1, shrunk, reason) != gs_hlod_runtime::EditStatus::OK || shrunk.is_null()) {
+		FAIL("shrinking edit failed: ", reason.utf8().get_data()); return;
+	}
+	CHECK(shrunk->placement_reserve_prepared);
+	CHECK(shrunk->max_node_payload_count == 256);
+	CHECK(shrunk->placement_node_pages == 12);
+	CHECK(rebased->max_node_payload_count == 2049);
+	const auto smaller = history.select(*shrunk.ptr(), request);
+	CHECK(smaller.status == gs_hlod_runtime::CutHistory::COMPLETE);
+	CHECK(smaller.placement_reserve_pages == 1);
 }
 
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] GSQ SH3 charge equals the rounded decode or pack phase maximum") {
