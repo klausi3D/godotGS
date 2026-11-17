@@ -35,6 +35,7 @@ var classHlodNodeStreamer =
     [ "atlas_bytes_capacity", "classHlodNodeStreamer.html#ac3aa1994612720c75027002ed0773bc9", null ],
     [ "begin_frame", "classHlodNodeStreamer.html#a076889c376a6cbad967e644f4b99904b", null ],
     [ "cancel_staged_edit", "classHlodNodeStreamer.html#a57e51bf120501fe963b82c5d73ff433f", null ],
+    [ "capture_placement_reserve", "classHlodNodeStreamer.html#aa9dd339ac08ac3e490135e6f7cf829d1", null ],
     [ "commit_staged_edit", "classHlodNodeStreamer.html#a7c6b7321644aa310e8fcf1beece2ed5c", null ],
     [ "get_data", "classHlodNodeStreamer.html#a8c589358f961a6192b6ff8d81dd87c13", null ],
     [ "get_last_commit_result", "classHlodNodeStreamer.html#a6659f41f5f04742f0b70367c971bbabc", null ],

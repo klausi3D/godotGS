@@ -1,5 +1,10 @@
 var NAVTREEINDEX8 =
 {
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1d5e1e6b7013309bd17c97f0b21cbf80":[1,0,9,5,2],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1deeba3b62f2c7c2a01bd0851645c78a":[0,0,12,6,23],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1deeba3b62f2c7c2a01bd0851645c78a":[1,0,9,5,23],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a24b3b91ca4b0c61c18b5c79c04677c02":[0,0,12,6,21],
+"classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a24b3b91ca4b0c61c18b5c79c04677c02":[1,0,9,5,21],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2605f7845d7e74fff516a806ce964c28":[0,0,12,6,28],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2605f7845d7e74fff516a806ce964c28":[1,0,9,5,28],
 "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a2f7101a3596ab0de166c87931cca8a50":[0,0,12,6,34],
@@ -244,10 +249,5 @@ var NAVTREEINDEX8 =
 "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#ab8231e7c0b2c05e03ea2587a97e8430f":[1,0,9,1,0,3],
 "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#ad5a34dab0fa67a2eaf5f2c085c039c64":[0,0,12,2,0,1],
 "classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#ad5a34dab0fa67a2eaf5f2c085c039c64":[1,0,9,1,0,1],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#ae0be57fee280d7c9a9e4c109bb101e2a":[0,0,12,2,0,0],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#ae0be57fee280d7c9a9e4c109bb101e2a":[1,0,9,1,0,0],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#afd4f9b38c908b453882fdf9f385d8918":[0,0,12,2,0,4],
-"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#afd4f9b38c908b453882fdf9f385d8918":[1,0,9,1,0,4],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html":[0,0,12,16],
-"classGaussianSplatting_1_1HierarchicalSplatStructure.html":[1,0,9,15]
+"classGaussianSplatting_1_1GpuPassTiming_1_1ScopedPassTimestamp.html#ae0be57fee280d7c9a9e4c109bb101e2a":[0,0,12,2,0,0]
 };

@@ -112,6 +112,13 @@ Public Types</h2></td></tr>
 , <a class="el" href="#a4a237ae21eeecf3f5a72bf474936b044a471326e6dea7901dc72143cb4cf547f4">BOOTSTRAP_INFEASIBLE</a>
 <br />
  }</td></tr>
+<tr class="memitem:a64d3dec280986dd5d507b9f8e362b440" id="r_a64d3dec280986dd5d507b9f8e362b440"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a64d3dec280986dd5d507b9f8e362b440">PlacementReason</a> { <a class="el" href="#a64d3dec280986dd5d507b9f8e362b440a55538b5cdadc186673f075690c45f70f">PLACEMENT_NONE</a>
+, <a class="el" href="#a64d3dec280986dd5d507b9f8e362b440a36a60d5a66110db18ad21bfdbcf02913">RESERVE_ROOT_ONLY</a>
+ }</td></tr>
+<tr class="memitem:abc16abac1d6ac3ada72a66786a37d166" id="r_abc16abac1d6ac3ada72a66786a37d166"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abc16abac1d6ac3ada72a66786a37d166">PlacementReserveState</a> { <a class="el" href="#abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f">RESERVE_ABSENT</a> = -1
+, <a class="el" href="#abc16abac1d6ac3ada72a66786a37d166a285a21ea8bf98be30f4f900f8dc9ff40">RESERVE_UNPREPARED</a> = 0
+, <a class="el" href="#abc16abac1d6ac3ada72a66786a37d166ab27d7bd105b8fa809e031ccf965e1783">RESERVE_MEASURED</a> = 1
+ }</td></tr>
 <tr class="memitem:a80f108e04b0cb2f6ecfc91d32e6c2c2c" id="r_a80f108e04b0cb2f6ecfc91d32e6c2c2c"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2c">DiagnosticFlag</a> : uint8_t { <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f">HYSTERESIS_HELD</a> = 1
 , <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152">RESIDENCY_MISSED</a> = 2
 , <a class="el" href="#a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8">MISS_DEMANDED</a> = 4
@@ -150,6 +157,43 @@ Static Public Member Functions</h2></td></tr>
 <tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f" name="a80f108e04b0cb2f6ecfc91d32e6c2c2caa649db867827a80f5c873ac88401115f"></a>HYSTERESIS_HELD&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152" name="a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152"></a>RESIDENCY_MISSED&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8" name="a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8"></a>MISS_DEMANDED&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a64d3dec280986dd5d507b9f8e362b440" name="a64d3dec280986dd5d507b9f8e362b440"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a64d3dec280986dd5d507b9f8e362b440">&#9670;&#160;</a></span>PlacementReason</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#a64d3dec280986dd5d507b9f8e362b440">gs_hlod_runtime::CutHistory::PlacementReason</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a64d3dec280986dd5d507b9f8e362b440a55538b5cdadc186673f075690c45f70f" name="a64d3dec280986dd5d507b9f8e362b440a55538b5cdadc186673f075690c45f70f"></a>PLACEMENT_NONE&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a64d3dec280986dd5d507b9f8e362b440a36a60d5a66110db18ad21bfdbcf02913" name="a64d3dec280986dd5d507b9f8e362b440a36a60d5a66110db18ad21bfdbcf02913"></a>RESERVE_ROOT_ONLY&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="abc16abac1d6ac3ada72a66786a37d166" name="abc16abac1d6ac3ada72a66786a37d166"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abc16abac1d6ac3ada72a66786a37d166">&#9670;&#160;</a></span>PlacementReserveState</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#abc16abac1d6ac3ada72a66786a37d166">gs_hlod_runtime::CutHistory::PlacementReserveState</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f" name="abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f"></a>RESERVE_ABSENT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="abc16abac1d6ac3ada72a66786a37d166a285a21ea8bf98be30f4f900f8dc9ff40" name="abc16abac1d6ac3ada72a66786a37d166a285a21ea8bf98be30f4f900f8dc9ff40"></a>RESERVE_UNPREPARED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="abc16abac1d6ac3ada72a66786a37d166ab27d7bd105b8fa809e031ccf965e1783" name="abc16abac1d6ac3ada72a66786a37d166ab27d7bd105b8fa809e031ccf965e1783"></a>RESERVE_MEASURED&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>

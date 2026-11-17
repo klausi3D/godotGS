@@ -169,6 +169,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ac61f0b04960aa05e4c60ca6d8fa5a820" id="r_ac61f0b04960aa05e4c60ca6d8fa5a820"><td class="memItemLeft" align="right" valign="top">const Vector&lt; uint8_t &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac61f0b04960aa05e4c60ca6d8fa5a820">resident_mask</a> () const</td></tr>
 <tr class="memitem:ae03a8fcf679c8bc6f55795e2d3267b9d" id="r_ae03a8fcf679c8bc6f55795e2d3267b9d"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="classgs__hlod__runtime_1_1NodeResidency.html">gs_hlod_runtime::NodeResidency</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae03a8fcf679c8bc6f55795e2d3267b9d">get_residency</a> () const</td></tr>
 <tr class="memitem:afde394d989dc890d13d5423fde052e64" id="r_afde394d989dc890d13d5423fde052e64"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afde394d989dc890d13d5423fde052e64">update</a> (RenderingDevice *p_device, const <a class="el" href="structHlodNodeStreamer_1_1Buffers.html">Buffers</a> &amp;p_buffers, const <a class="el" href="structgs__hlod__runtime_1_1DesiredRecord.html">gs_hlod_runtime::DesiredRecord</a> *p_desired, uint32_t p_desired_count, const <a class="el" href="structgs__hlod__runtime_1_1DrawRecord.html">gs_hlod_runtime::DrawRecord</a> *p_drawn, uint32_t p_drawn_count)</td></tr>
+<tr class="memitem:aa9dd339ac08ac3e490135e6f7cf829d1" id="r_aa9dd339ac08ac3e490135e6f7cf829d1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa9dd339ac08ac3e490135e6f7cf829d1">capture_placement_reserve</a> (const <a class="el" href="structgs__hlod__runtime_1_1CutHistory_1_1Result.html">gs_hlod_runtime::CutHistory::Result</a> &amp;p_cut)</td></tr>
 <tr class="memitem:a290e7fff5bf385be4107db8b2885a102" id="r_a290e7fff5bf385be4107db8b2885a102"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structHlodNodeStreamer_1_1Telemetry.html">Telemetry</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a290e7fff5bf385be4107db8b2885a102">get_telemetry</a> () const</td></tr>
 <tr class="memitem:a003acea7d565779ff3e4ac69e35ec7b4" id="r_a003acea7d565779ff3e4ac69e35ec7b4"><td class="memItemLeft" align="right" valign="top">Array&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a003acea7d565779ff3e4ac69e35ec7b4">get_pressure_eviction_events</a> () const</td></tr>
 <tr class="memitem:a8970850b4a53b9929fb46e3af6a4fc00" id="r_a8970850b4a53b9929fb46e3af6a4fc00"><td class="memItemLeft" align="right" valign="top">Variant&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8970850b4a53b9929fb46e3af6a4fc00">get_payload_telemetry</a> () const</td></tr>
@@ -327,6 +328,23 @@ Static Public Member Functions</h2></td></tr>
           <td class="memname">bool HlodNodeStreamer::cancel_staged_edit </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa9dd339ac08ac3e490135e6f7cf829d1" name="aa9dd339ac08ac3e490135e6f7cf829d1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa9dd339ac08ac3e490135e6f7cf829d1">&#9670;&#160;</a></span>capture_placement_reserve()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void HlodNodeStreamer::capture_placement_reserve </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1CutHistory_1_1Result.html">gs_hlod_runtime::CutHistory::Result</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_cut</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>

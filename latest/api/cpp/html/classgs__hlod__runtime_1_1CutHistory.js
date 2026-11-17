@@ -6,6 +6,15 @@ var classgs__hlod__runtime_1_1CutHistory =
       [ "RESIDENCY_MISSED", "classgs__hlod__runtime_1_1CutHistory.html#a80f108e04b0cb2f6ecfc91d32e6c2c2ca1f1bee01433c9eaf544da75fa4948152", null ],
       [ "MISS_DEMANDED", "classgs__hlod__runtime_1_1CutHistory.html#a80f108e04b0cb2f6ecfc91d32e6c2c2ca95c0980a39cb81911eee0eacfd3db3b8", null ]
     ] ],
+    [ "PlacementReason", "classgs__hlod__runtime_1_1CutHistory.html#a64d3dec280986dd5d507b9f8e362b440", [
+      [ "PLACEMENT_NONE", "classgs__hlod__runtime_1_1CutHistory.html#a64d3dec280986dd5d507b9f8e362b440a55538b5cdadc186673f075690c45f70f", null ],
+      [ "RESERVE_ROOT_ONLY", "classgs__hlod__runtime_1_1CutHistory.html#a64d3dec280986dd5d507b9f8e362b440a36a60d5a66110db18ad21bfdbcf02913", null ]
+    ] ],
+    [ "PlacementReserveState", "classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166", [
+      [ "RESERVE_ABSENT", "classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f", null ],
+      [ "RESERVE_UNPREPARED", "classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166a285a21ea8bf98be30f4f900f8dc9ff40", null ],
+      [ "RESERVE_MEASURED", "classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166ab27d7bd105b8fa809e031ccf965e1783", null ]
+    ] ],
     [ "SelectStatus", "classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044", [
       [ "COMPLETE", "classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044af15dffdf2731a8615bec639f8c9ec524", null ],
       [ "EMPTY", "classgs__hlod__runtime_1_1CutHistory.html#a4a237ae21eeecf3f5a72bf474936b044acdd14239d90c5135289e09c68a0e045b", null ],

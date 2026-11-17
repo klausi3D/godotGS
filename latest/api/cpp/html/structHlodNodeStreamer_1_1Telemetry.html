@@ -121,6 +121,9 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:a648ce596b665f69e8785641036f938b3" id="r_a648ce596b665f69e8785641036f938b3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a648ce596b665f69e8785641036f938b3">stall_frames</a> = 0</td></tr>
 <tr class="memitem:a56e04d7e53d2cda59f5401ad27b355a2" id="r_a56e04d7e53d2cda59f5401ad27b355a2"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a56e04d7e53d2cda59f5401ad27b355a2">blocked_groups_this_frame</a> = 0</td></tr>
 <tr class="memitem:a4d4d8ec5b1bbea467918fd3de85ad9a6" id="r_a4d4d8ec5b1bbea467918fd3de85ad9a6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d4d8ec5b1bbea467918fd3de85ad9a6">fragmented_groups_this_frame</a> = 0</td></tr>
+<tr class="memitem:a611fe3f968b39852090eaee2362fa260" id="r_a611fe3f968b39852090eaee2362fa260"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166">gs_hlod_runtime::CutHistory::PlacementReserveState</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a611fe3f968b39852090eaee2362fa260">placement_reserve_state</a> = <a class="el" href="classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f">gs_hlod_runtime::CutHistory::RESERVE_ABSENT</a></td></tr>
+<tr class="memitem:aeadbeae8d40076db2ba28d723dd9b604" id="r_aeadbeae8d40076db2ba28d723dd9b604"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aeadbeae8d40076db2ba28d723dd9b604">placement_reserve_measured</a> = false</td></tr>
+<tr class="memitem:a0c63f3513929359d2ab72853e1ea9d79" id="r_a0c63f3513929359d2ab72853e1ea9d79"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0c63f3513929359d2ab72853e1ea9d79">placement_reserve_pages</a> = 0</td></tr>
 <tr class="memitem:ada3b6e8aff3e421f7a508a4d26aab9ba" id="r_ada3b6e8aff3e421f7a508a4d26aab9ba"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ada3b6e8aff3e421f7a508a4d26aab9ba">pressure_measured</a> = false</td></tr>
 <tr class="memitem:afaa994550bc4762ef39aa897796ea4bb" id="r_afaa994550bc4762ef39aa897796ea4bb"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afaa994550bc4762ef39aa897796ea4bb">pressure_epoch</a> = 0</td></tr>
 <tr class="memitem:a3cf86eeaee17b869d6a74cdf02c2a001" id="r_a3cf86eeaee17b869d6a74cdf02c2a001"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3cf86eeaee17b869d6a74cdf02c2a001">pages_free</a> = 0</td></tr>
@@ -1005,6 +1008,48 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t HlodNodeStreamer::Telemetry::permanently_failed = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aeadbeae8d40076db2ba28d723dd9b604" name="aeadbeae8d40076db2ba28d723dd9b604"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aeadbeae8d40076db2ba28d723dd9b604">&#9670;&#160;</a></span>placement_reserve_measured</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool HlodNodeStreamer::Telemetry::placement_reserve_measured = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0c63f3513929359d2ab72853e1ea9d79" name="a0c63f3513929359d2ab72853e1ea9d79"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0c63f3513929359d2ab72853e1ea9d79">&#9670;&#160;</a></span>placement_reserve_pages</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t HlodNodeStreamer::Telemetry::placement_reserve_pages = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a611fe3f968b39852090eaee2362fa260" name="a611fe3f968b39852090eaee2362fa260"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a611fe3f968b39852090eaee2362fa260">&#9670;&#160;</a></span>placement_reserve_state</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166">gs_hlod_runtime::CutHistory::PlacementReserveState</a> HlodNodeStreamer::Telemetry::placement_reserve_state = <a class="el" href="classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166a80f1acdd4896207095af72bef503852f">gs_hlod_runtime::CutHistory::RESERVE_ABSENT</a></td>
         </tr>
       </table>
 </div><div class="memdoc">

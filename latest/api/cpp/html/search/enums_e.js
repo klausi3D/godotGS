@@ -7,6 +7,8 @@ var searchData=
   ['passtype_4',['PassType',['../classPainterlyPassGraph.html#ad61191bdb56d6891953313b000f33a0b',1,'PainterlyPassGraph']]],
   ['payloadsavemode_5',['PayloadSaveMode',['../classResourceFormatSaverGaussianSplatWorld.html#a08c4e99fa62b7901d6d710c19f3cda95',1,'ResourceFormatSaverGaussianSplatWorld']]],
   ['phase_6',['Phase',['../namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6',1,'gs_world_writer']]],
-  ['prefixoverflowmode_7',['PrefixOverflowMode',['../structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abad',1,'TilePrefixScanStage']]],
-  ['preparedrows_8',['PreparedRows',['../namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aa',1,'gs_hlod_bundle']]]
+  ['placementreason_7',['PlacementReason',['../classgs__hlod__runtime_1_1CutHistory.html#a64d3dec280986dd5d507b9f8e362b440',1,'gs_hlod_runtime::CutHistory']]],
+  ['placementreservestate_8',['PlacementReserveState',['../classgs__hlod__runtime_1_1CutHistory.html#abc16abac1d6ac3ada72a66786a37d166',1,'gs_hlod_runtime::CutHistory']]],
+  ['prefixoverflowmode_9',['PrefixOverflowMode',['../structTilePrefixScanStage.html#a53327882cd260df1b35fa3ac2933abad',1,'TilePrefixScanStage']]],
+  ['preparedrows_10',['PreparedRows',['../namespacegs__hlod__bundle.html#af66c1700ac5f6460060b8b0b095067aa',1,'gs_hlod_bundle']]]
 ];
