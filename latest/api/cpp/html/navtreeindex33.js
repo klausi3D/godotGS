@@ -1,5 +1,10 @@
 var NAVTREEINDEX33 =
 {
+"structGaussianRenderFrame_1_1DiagnosticsState.html#a67cd1d59775b540eea7ff63ca9af5156":[1,0,4,5,2],
+"structGaussianRenderFrame_1_1DiagnosticsState.html#a70d6d33ef06d462e00c111ffea9164ba":[0,0,5,5,5],
+"structGaussianRenderFrame_1_1DiagnosticsState.html#a70d6d33ef06d462e00c111ffea9164ba":[1,0,4,5,5],
+"structGaussianRenderFrame_1_1DiagnosticsState.html#a7444bd503407832a4e8b5ee44006ea85":[0,0,5,5,9],
+"structGaussianRenderFrame_1_1DiagnosticsState.html#a7444bd503407832a4e8b5ee44006ea85":[1,0,4,5,9],
 "structGaussianRenderFrame_1_1DiagnosticsState.html#a75090e46d1d52604469c27fb95c2e207":[0,0,5,5,25],
 "structGaussianRenderFrame_1_1DiagnosticsState.html#a75090e46d1d52604469c27fb95c2e207":[1,0,4,5,25],
 "structGaussianRenderFrame_1_1DiagnosticsState.html#a86e39bda68f155b1c4da5825eb10e4b7":[0,0,5,5,26],
@@ -244,10 +249,5 @@ var NAVTREEINDEX33 =
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac02fb8dea561510869918df12cab5bab":[1,0,5,2,80],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac3352f3b511b24ef70e2068bdc0dbb3b":[0,0,6,2,36],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac3352f3b511b24ef70e2068bdc0dbb3b":[1,0,5,2,36],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac8b0b1785b5d006a9adef1c010336d66":[0,0,6,2,78],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac8b0b1785b5d006a9adef1c010336d66":[1,0,5,2,78],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#aca43fe9b06b53669f8d63dc0953db3f6":[0,0,6,2,31],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#aca43fe9b06b53669f8d63dc0953db3f6":[1,0,5,2,31],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#acac4596900a04ab5d9f09d64579943c7":[0,0,6,2,60],
-"structGaussianRenderPerformance_1_1PerformanceMetrics.html#acac4596900a04ab5d9f09d64579943c7":[1,0,5,2,60]
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac8b0b1785b5d006a9adef1c010336d66":[0,0,6,2,78]
 };

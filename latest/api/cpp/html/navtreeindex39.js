@@ -1,5 +1,10 @@
 var NAVTREEINDEX39 =
 {
+"structGaussianSplatting_1_1BufferOwnership.html#a7b1cec8775479976be1810bb0a160a83":[1,0,9,72,1],
+"structGaussianSplatting_1_1BufferOwnership.html#a8825ae9719e64f85e8b64b25e9467bc1":[0,0,12,73,0],
+"structGaussianSplatting_1_1BufferOwnership.html#a8825ae9719e64f85e8b64b25e9467bc1":[1,0,9,72,0],
+"structGaussianSplatting_1_1BufferOwnership.html#ab9895690c8961474cd05855e4ea2fd59":[0,0,12,73,3],
+"structGaussianSplatting_1_1BufferOwnership.html#ab9895690c8961474cd05855e4ea2fd59":[1,0,9,72,3],
 "structGaussianSplatting_1_1BufferOwnership.html#add8c0b8b5f80b10f4880f4b5e690bc90":[0,0,12,73,2],
 "structGaussianSplatting_1_1BufferOwnership.html#add8c0b8b5f80b10f4880f4b5e690bc90":[1,0,9,72,2],
 "structGaussianSplatting_1_1ChangeEntry.html":[0,0,12,23],
@@ -244,10 +249,5 @@ var NAVTREEINDEX39 =
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a11fa8fb97e5bec6a536a031205914e69":[1,0,9,15,3,3],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a22ebc7db7da1e39245bc49a74b03f364":[0,0,12,16,3,0],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a22ebc7db7da1e39245bc49a74b03f364":[1,0,9,15,3,0],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a5cc01feaf268c10a203929d9ae4a4410":[0,0,12,16,3,2],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a5cc01feaf268c10a203929d9ae4a4410":[1,0,9,15,3,2],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a64d61b0003958592c59e238232ff8dc8":[0,0,12,16,3,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a64d61b0003958592c59e238232ff8dc8":[1,0,9,15,3,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[0,0,12,16,1],
-"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[1,0,9,15,1]
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a5cc01feaf268c10a203929d9ae4a4410":[0,0,12,16,3,2]
 };

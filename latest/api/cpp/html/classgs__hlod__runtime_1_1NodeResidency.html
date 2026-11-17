@@ -140,7 +140,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ab41780c7be4e6790579aad95d784d98b" id="r_ab41780c7be4e6790579aad95d784d98b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab41780c7be4e6790579aad95d784d98b">is_pending</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket) const</td></tr>
 <tr class="memitem:adde4d545faa3835f483956e1aa766cc5" id="r_adde4d545faa3835f483956e1aa766cc5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adde4d545faa3835f483956e1aa766cc5">begin_upload</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket)</td></tr>
 <tr class="memitem:aca59c9d168ab15f6917a79997e740ce0" id="r_aca59c9d168ab15f6917a79997e740ce0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aca59c9d168ab15f6917a79997e740ce0">finish_upload</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket, bool p_success)</td></tr>
-<tr class="memitem:aa26345f5945bfbec048474a0bdae796e" id="r_aa26345f5945bfbec048474a0bdae796e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa26345f5945bfbec048474a0bdae796e">fail_load</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket)</td></tr>
+<tr class="memitem:a077041d87e9a680957c9905b94710239" id="r_a077041d87e9a680957c9905b94710239"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a077041d87e9a680957c9905b94710239">fail_load</a> (const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;p_ticket, <a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91">FailureClass</a> p_class=<a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78">FAILURE_PERMANENT</a>)</td></tr>
 <tr class="memitem:a330da4928979c9e92f9fd600f4317c78" id="r_a330da4928979c9e92f9fd600f4317c78"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a330da4928979c9e92f9fd600f4317c78">cancel</a> (uint32_t p_node)</td></tr>
 <tr class="memitem:a87d94c66e7eea51a2e5dc8efd77aad0c" id="r_a87d94c66e7eea51a2e5dc8efd77aad0c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a87d94c66e7eea51a2e5dc8efd77aad0c">evict</a> (uint32_t p_node)</td></tr>
 <tr class="memitem:a1baa884286603b8f050c553cecd72b32" id="r_a1baa884286603b8f050c553cecd72b32"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a915a85c338d9c9482401941ce7c33635">EditResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1baa884286603b8f050c553cecd72b32">stage_edit</a> (uint64_t p_revision, const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1EditedLeaf.html">EditedLeaf</a> *p_leaves, uint32_t p_count, LocalVector&lt; <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &gt; &amp;r_tickets)</td></tr>
@@ -529,8 +529,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="aa26345f5945bfbec048474a0bdae796e" name="aa26345f5945bfbec048474a0bdae796e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa26345f5945bfbec048474a0bdae796e">&#9670;&#160;</a></span>fail_load()</h2>
+<a id="a077041d87e9a680957c9905b94710239" name="a077041d87e9a680957c9905b94710239"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a077041d87e9a680957c9905b94710239">&#9670;&#160;</a></span>fail_load()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -538,8 +538,12 @@ Static Public Attributes</h2></td></tr>
         <tr>
           <td class="memname">bool gs_hlod_runtime::NodeResidency::fail_load </td>
           <td>(</td>
-          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span></td><td>)</td>
+          <td class="paramtype">const <a class="el" href="structgs__hlod__runtime_1_1NodeResidency_1_1Ticket.html">Ticket</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>p_ticket</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype"><a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91">FailureClass</a></td>          <td class="paramname"><span class="paramname"><em>p_class</em></span><span class="paramdefsep"> = </span><span class="paramdefval"><a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78">FAILURE_PERMANENT</a></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

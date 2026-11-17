@@ -22,6 +22,8 @@ var structNodeResidency_1_1Stats =
     [ "evicted_total", "structNodeResidency_1_1Stats.html#ac7fbac507d1b25d115d09916fa65b2a3", null ],
     [ "eviction_events_dropped_total", "structNodeResidency_1_1Stats.html#a3cb0b36f0fc1dd79cf5dc38f45054460", null ],
     [ "failed", "structNodeResidency_1_1Stats.html#aa7f5b57dfaf57d1184a6ed90b53b0bfc", null ],
+    [ "failed_permanent_total", "structNodeResidency_1_1Stats.html#adb36d5899eab0faee15adff007eb94c1", null ],
+    [ "failed_retry_later_total", "structNodeResidency_1_1Stats.html#ae0114ca87ea5fa0e4756d1a7de96ffd5", null ],
     [ "failed_total", "structNodeResidency_1_1Stats.html#a3d7c38da078f378a37e6f26cc9130f7f", null ],
     [ "largest_free_run", "structNodeResidency_1_1Stats.html#a7937e66124d4ef2f80edc1cd2838485b", null ],
     [ "late_dropped_cancelled_total", "structNodeResidency_1_1Stats.html#aa855f2960e41c69a57796db35e07a089", null ],
@@ -36,6 +38,7 @@ var structNodeResidency_1_1Stats =
     [ "pressure_measured", "structNodeResidency_1_1Stats.html#a7c1820b4dfe0c4f28f72cf6363726e58", null ],
     [ "requested_total", "structNodeResidency_1_1Stats.html#a1761d7b69e53e47080cb84d787f05ae9", null ],
     [ "resident", "structNodeResidency_1_1Stats.html#adc31b055b54c5e0ba68fc2e6eaba548c", null ],
+    [ "retry_later_waiting", "structNodeResidency_1_1Stats.html#af785604ccbb434197aefff2384cb9221", null ],
     [ "skipped_groups_total", "structNodeResidency_1_1Stats.html#abd7b7f5e6287b0f98fc2094d9fa82c72", null ],
     [ "stale_nodes", "structNodeResidency_1_1Stats.html#ad435ed7537f9ab64c8e3f721e51f488a", null ],
     [ "uploading", "structNodeResidency_1_1Stats.html#a20d219ce3ddeee825ce23db675ccd986", null ]

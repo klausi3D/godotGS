@@ -1,5 +1,10 @@
 var NAVTREEINDEX27 =
 {
+"rendering__error_8cpp.html":[2,0,0,0,12,79],
+"rendering__error_8h.html":[2,0,0,0,12,80],
+"rendering__error_8h_source.html":[2,0,0,0,12,80],
+"residency__budget__controller_8cpp.html":[2,0,0,0,3,66],
+"residency__budget__controller_8h.html":[2,0,0,0,3,67],
 "residency__budget__controller_8h_source.html":[2,0,0,0,3,67],
 "resident__atlas__budget_8h.html":[2,0,0,0,12,81],
 "resident__atlas__budget_8h_source.html":[2,0,0,0,12,81],
@@ -244,10 +249,5 @@ var NAVTREEINDEX27 =
 "structChunkBounds.html#a120f62e074ff77a080fcad158e711f9a":[1,0,46,0],
 "structChunkBounds.html#a72f991086f91468cb535892fd7e251ef":[1,0,46,1],
 "structChunkBounds.html#ab6e6eb09396b8ca3cec40a8aada44084":[1,0,46,3],
-"structChunkBounds.html#ad7a8153f0285313abcc0a0aa45553775":[1,0,46,2],
-"structChunkLODMetadata.html":[1,0,47],
-"structChunkLODMetadata.html#a54ff1b742c1b57420056823d377eccbc":[1,0,47,5],
-"structChunkLODMetadata.html#a6c9f13febc206260671e31cc7988c209":[1,0,47,2],
-"structChunkLODMetadata.html#aa03fa8a8183b927d0071685827115e54":[1,0,47,1],
-"structChunkLODMetadata.html#aa93192ea0c40bde401b545e9872b1348":[1,0,47,4]
+"structChunkBounds.html#ad7a8153f0285313abcc0a0aa45553775":[1,0,46,2]
 };

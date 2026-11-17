@@ -1,5 +1,10 @@
 var NAVTREEINDEX40 =
 {
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a5cc01feaf268c10a203929d9ae4a4410":[1,0,9,15,3,2],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a64d61b0003958592c59e238232ff8dc8":[0,0,12,16,3,1],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html#a64d61b0003958592c59e238232ff8dc8":[1,0,9,15,3,1],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[0,0,12,16,1],
+"structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html":[1,0,9,15,1],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html#a05bb0654836ea020e8ebc112930beb3b":[0,0,12,16,1,6],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html#a05bb0654836ea020e8ebc112930beb3b":[1,0,9,15,1,6],
 "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1OctreeNode.html#a17307cdd2061025b3f5be8913bee45d2":[0,0,12,16,1,1],
@@ -244,10 +249,5 @@ var NAVTREEINDEX40 =
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a1c4f1812b6b69e130764400781d8840d":[1,0,9,53,9],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a2330e745c3dc138a6f8ee981d478511b":[0,0,12,54,0],
 "structGaussianSplatting_1_1SphereEffectorRenderData.html#a2330e745c3dc138a6f8ee981d478511b":[1,0,9,53,0],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a2ac3e8ecd791ff507a22f141cd8ccef5":[0,0,12,54,4],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a2ac3e8ecd791ff507a22f141cd8ccef5":[1,0,9,53,4],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a414e613fe919314d92cc0e3a36eef06c":[0,0,12,54,6],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a414e613fe919314d92cc0e3a36eef06c":[1,0,9,53,6],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a712c16ec90fe9c29c6c1fd4b19757050":[0,0,12,54,8],
-"structGaussianSplatting_1_1SphereEffectorRenderData.html#a712c16ec90fe9c29c6c1fd4b19757050":[1,0,9,53,8]
+"structGaussianSplatting_1_1SphereEffectorRenderData.html#a2ac3e8ecd791ff507a22f141cd8ccef5":[0,0,12,54,4]
 };

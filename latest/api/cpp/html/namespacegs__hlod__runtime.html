@@ -129,16 +129,21 @@ Enumerations</h2></td></tr>
 , <a class="el" href="#ab8dd45d354a0b510d3b8b7ece7384c9eaed2e823bcbd37a9170187f058b4a9687">OVER_CPU_BUDGET</a>
 <br />
  }</td></tr>
+<tr class="memitem:a13094606ca42a651f039b6be3f925d91" id="r_a13094606ca42a651f039b6be3f925d91"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a13094606ca42a651f039b6be3f925d91">FailureClass</a> : uint8_t { <a class="el" href="#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78">FAILURE_PERMANENT</a> = 0
+, <a class="el" href="#a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab">FAILURE_RETRY_LATER</a>
+ }</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
 <tr class="memitem:af87fa44af335c0570ce8b6d3921d87bd" id="r_af87fa44af335c0570ce8b6d3921d87bd"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af87fa44af335c0570ce8b6d3921d87bd">allocation_bytes</a> (uint64_t p_count, uint64_t p_stride, uint64_t &amp;r_bytes, uint64_t p_size_limit=SIZE_MAX)</td></tr>
+<tr class="memitem:a7f706972640d427011a0ce9724e24fe9" id="r_a7f706972640d427011a0ce9724e24fe9"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f706972640d427011a0ce9724e24fe9">checked_allocation_bytes</a> (uint64_t p_count, uint64_t p_stride, uint64_t &amp;r_bytes, uint64_t p_size_limit=SIZE_MAX)</td></tr>
 <tr class="memitem:a1e87014962341bef2f3e7bb03881f5cb" id="r_a1e87014962341bef2f3e7bb03881f5cb"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1e87014962341bef2f3e7bb03881f5cb">source_admission_refusal</a> (uint64_t p_leaf_splats, uint64_t p_interior_splats, uint64_t p_nodes)</td></tr>
 <tr class="memitem:a6cb82adb5c380c5fb8b89fcd23d2caee" id="r_a6cb82adb5c380c5fb8b89fcd23d2caee"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6cb82adb5c380c5fb8b89fcd23d2caee">edit_status_name</a> (<a class="el" href="#ab8dd45d354a0b510d3b8b7ece7384c9e">EditStatus</a> p_status)</td></tr>
 <tr class="memitem:a5e8c6ffc065d98ac885eed70663401e8" id="r_a5e8c6ffc065d98ac885eed70663401e8"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#ab8dd45d354a0b510d3b8b7ece7384c9e">EditStatus</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e8c6ffc065d98ac885eed70663401e8">make_edited_snapshot</a> (const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_base, uint64_t p_expected_revision, const <a class="el" href="structgs__hlod__runtime_1_1LeafEdit.html">LeafEdit</a> *p_edits, uint32_t p_count, Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;r_snapshot, String &amp;r_reason)</td></tr>
 <tr class="memitem:abd7c436fb4d163d664ecf98e96282dab" id="r_abd7c436fb4d163d664ecf98e96282dab"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7c436fb4d163d664ecf98e96282dab">collect_edited_since</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_from, const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_to, LocalVector&lt; uint32_t &gt; &amp;r_nodes)</td></tr>
 <tr class="memitem:af5fbea107bc9dd60f16dbba3c3de7787" id="r_af5fbea107bc9dd60f16dbba3c3de7787"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af5fbea107bc9dd60f16dbba3c3de7787">rebase_edited_snapshot</a> (const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_edited, const Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;p_target, Ref&lt; <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &gt; &amp;r_snapshot)</td></tr>
 <tr class="memitem:aac6bda8b9962836f0bc125a4b49322ee" id="r_aac6bda8b9962836f0bc125a4b49322ee"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aac6bda8b9962836f0bc125a4b49322ee">make_node_infos</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_data, Vector&lt; <a class="el" href="structNodeResidency_1_1NodeInfo.html">NodeResidency::NodeInfo</a> &gt; &amp;r_infos)</td></tr>
+<tr class="memitem:a951ce7420d909229aea9446e13b651cf" id="r_a951ce7420d909229aea9446e13b651cf"><td class="memItemLeft" align="right" valign="top"><a class="el" href="#a13094606ca42a651f039b6be3f925d91">FailureClass</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a951ce7420d909229aea9446e13b651cf">classify_load_error</a> (Error p_error)</td></tr>
 <tr class="memitem:a18ae358510bd7acac4c6f2a8a56200f0" id="r_a18ae358510bd7acac4c6f2a8a56200f0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18ae358510bd7acac4c6f2a8a56200f0">make_node_key</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_data, uint32_t p_node, uint64_t p_asset_key, <a class="el" href="structgs__hlod__runtime_1_1NodeKey.html">NodeKey</a> &amp;r_key)</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
@@ -183,6 +188,24 @@ Variables</h2></td></tr>
 
 </div>
 </div>
+<a id="a13094606ca42a651f039b6be3f925d91" name="a13094606ca42a651f039b6be3f925d91"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a13094606ca42a651f039b6be3f925d91">&#9670;&#160;</a></span>FailureClass</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#a13094606ca42a651f039b6be3f925d91">gs_hlod_runtime::FailureClass</a> : uint8_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78" name="a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78"></a>FAILURE_PERMANENT&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab" name="a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab"></a>FAILURE_RETRY_LATER&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
 <a id="af87fa44af335c0570ce8b6d3921d87bd" name="af87fa44af335c0570ce8b6d3921d87bd"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#af87fa44af335c0570ce8b6d3921d87bd">&#9670;&#160;</a></span>allocation_bytes()</h2>
@@ -211,6 +234,70 @@ Variables</h2></td></tr>
           <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_size_limit</em></span><span class="paramdefsep"> = </span><span class="paramdefval">SIZE_MAX</span>&#160;)</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7f706972640d427011a0ce9724e24fe9" name="a7f706972640d427011a0ce9724e24fe9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7f706972640d427011a0ce9724e24fe9">&#9670;&#160;</a></span>checked_allocation_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error gs_hlod_runtime::checked_allocation_bytes </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_stride</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;</td>          <td class="paramname"><span class="paramname"><em>r_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t</td>          <td class="paramname"><span class="paramname"><em>p_size_limit</em></span><span class="paramdefsep"> = </span><span class="paramdefval">SIZE_MAX</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a951ce7420d909229aea9446e13b651cf" name="a951ce7420d909229aea9446e13b651cf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a951ce7420d909229aea9446e13b651cf">&#9670;&#160;</a></span>classify_load_error()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="#a13094606ca42a651f039b6be3f925d91">FailureClass</a> gs_hlod_runtime::classify_load_error </td>
+          <td>(</td>
+          <td class="paramtype">Error</td>          <td class="paramname"><span class="paramname"><em>p_error</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>

@@ -1,5 +1,17 @@
 var NAVTREEINDEX52 =
 {
+"structRasterStats.html#acee30debbfb6afd29dee3533540f9a8d":[1,0,212,36],
+"structRasterStats.html#ad1ae2a5ef6bfb6639d8bee017e0ac8e6":[1,0,212,6],
+"structRasterStats.html#ad8f5bdf350c4dab0d14842b1d37db0a4":[1,0,212,31],
+"structRasterStats.html#adca5e258a91741d44a6db9330383e3d7":[1,0,212,19],
+"structRasterStats.html#ae325a160dce4fb4019ab5e3d418acfc8":[1,0,212,29],
+"structRasterStats.html#ae911433f94d5cf087d056680faee54aa":[1,0,212,30],
+"structRasterStats.html#aeb644f520a89a8cbe2484436d15a2f84":[1,0,212,27],
+"structRasterStats.html#aebbbdbdcbeaebb5ccd04af2caffc4562":[1,0,212,24],
+"structRasterStats.html#aefbc8959c2caee04477b4f1b40845102":[1,0,212,35],
+"structRasterStats.html#afc93ce6c92498181eacbe8f54bc4c633":[1,0,212,21],
+"structRasterStats.html#afd4bf85cec9e310c463b17d89632ce4e":[1,0,212,18],
+"structRenderConfigOrchestrator_1_1Dependencies.html":[1,0,213,0],
 "structRenderConfigOrchestrator_1_1Dependencies.html#a0080f54ae93f9d37006f128c2f832c8c":[1,0,213,0,1],
 "structRenderConfigOrchestrator_1_1Dependencies.html#a70f794d347cfc97dcad9ff64b728cbce":[1,0,213,0,3],
 "structRenderConfigOrchestrator_1_1Dependencies.html#a97106b0ba1b85fd211fa8414fd8c6fe5":[1,0,213,0,2],
@@ -237,17 +249,5 @@ var NAVTREEINDEX52 =
 "structSHCompressionMetrics.html#a9f9d0156536676ff63fde3e02f6b4a17":[1,0,242,2],
 "structSHCompressionMetrics.html#ad8ab71ece81f1eedf39e3b1ca397ec14":[1,0,242,3],
 "structSHCompressionMetrics.html#add332ab02fcbcff702eb039d7475a82b":[1,0,242,4],
-"structSHConfig.html":[1,0,243],
-"structSHConfig.html#a4a03b4e6b6b4776e5b8c887c6a6d1b87":[1,0,243,3],
-"structSHConfig.html#a53af17e15102e3657bc14e30cbff6b91":[1,0,243,0],
-"structSHConfig.html#a5d1141fe904aa023d4fbef2196ff2b53":[1,0,243,1],
-"structSHConfig.html#a62d49517c1baf3d93a284a8b300359f4":[1,0,243,6],
-"structSHConfig.html#a715d2721e7bc8a40a3d8b29164f2ee7f":[1,0,243,5],
-"structSHConfig.html#a99fe2f0357c0793e9ebbff93698c3973":[1,0,243,7],
-"structSHConfig.html#aa534c502c5fdcbe8b5f0a7e39010c5e6":[1,0,243,2],
-"structSHConfig.html#ab79832b105346c731a3a8d8a1d2c7df5":[1,0,243,4],
-"structSHConfig.html#abf8910d022e4d232341a2cd9ce8ec75d":[1,0,243,8],
-"structSPZLoader_1_1SPZHeader.html":[1,0,265,0],
-"structSPZLoader_1_1SPZHeader.html#a2dcfffe3774479e1ba3a842d5942cec5":[1,0,265,0,5],
-"structSPZLoader_1_1SPZHeader.html#a30d8fa14fa354b89c109777c889782ea":[1,0,265,0,3]
+"structSHConfig.html":[1,0,243]
 };

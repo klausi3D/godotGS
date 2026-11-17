@@ -1,5 +1,10 @@
 var NAVTREEINDEX34 =
 {
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#ac8b0b1785b5d006a9adef1c010336d66":[1,0,5,2,78],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#aca43fe9b06b53669f8d63dc0953db3f6":[0,0,6,2,31],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#aca43fe9b06b53669f8d63dc0953db3f6":[1,0,5,2,31],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#acac4596900a04ab5d9f09d64579943c7":[0,0,6,2,60],
+"structGaussianRenderPerformance_1_1PerformanceMetrics.html#acac4596900a04ab5d9f09d64579943c7":[1,0,5,2,60],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#acc6c9b74e876e980400351b4b3b22777":[0,0,6,2,32],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#acc6c9b74e876e980400351b4b3b22777":[1,0,5,2,32],
 "structGaussianRenderPerformance_1_1PerformanceMetrics.html#aceb03c8ea89f464dcb39d03bf8154845":[0,0,6,2,53],
@@ -244,10 +249,5 @@ var NAVTREEINDEX34 =
 "structGaussianRenderPipeline_1_1RasterStageOutput.html#aa46f8400c921d1613dc1f824ab416bc1":[1,0,6,9,6],
 "structGaussianRenderPipeline_1_1RasterStageOutput.html#abf4485c3e8b3b016fb9447ceb1e97962":[0,0,7,9,9],
 "structGaussianRenderPipeline_1_1RasterStageOutput.html#abf4485c3e8b3b016fb9447ceb1e97962":[1,0,6,9,9],
-"structGaussianRenderPipeline_1_1RasterStageOutput.html#ace77d05c6c8957f1cfff587f272ea9a1":[0,0,7,9,5],
-"structGaussianRenderPipeline_1_1RasterStageOutput.html#ace77d05c6c8957f1cfff587f272ea9a1":[1,0,6,9,5],
-"structGaussianRenderPipeline_1_1RenderFramePlan.html":[0,0,7,13],
-"structGaussianRenderPipeline_1_1RenderFramePlan.html":[1,0,6,13],
-"structGaussianRenderPipeline_1_1RenderFramePlan.html#a11fae2374f5029e508c7337a54cef213":[0,0,7,13,6],
-"structGaussianRenderPipeline_1_1RenderFramePlan.html#a11fae2374f5029e508c7337a54cef213":[1,0,6,13,6]
+"structGaussianRenderPipeline_1_1RasterStageOutput.html#ace77d05c6c8957f1cfff587f272ea9a1":[0,0,7,9,5]
 };

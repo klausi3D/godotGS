@@ -29,7 +29,13 @@ var namespacegs__hlod__runtime =
       [ "CENTER_NOT_EXACT", "namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9eafc3fb4bb72be239404ad19e7a409c57d", null ],
       [ "OVER_CPU_BUDGET", "namespacegs__hlod__runtime.html#ab8dd45d354a0b510d3b8b7ece7384c9eaed2e823bcbd37a9170187f058b4a9687", null ]
     ] ],
+    [ "FailureClass", "namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91", [
+      [ "FAILURE_PERMANENT", "namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78", null ],
+      [ "FAILURE_RETRY_LATER", "namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab", null ]
+    ] ],
     [ "allocation_bytes", "namespacegs__hlod__runtime.html#af87fa44af335c0570ce8b6d3921d87bd", null ],
+    [ "checked_allocation_bytes", "namespacegs__hlod__runtime.html#a7f706972640d427011a0ce9724e24fe9", null ],
+    [ "classify_load_error", "namespacegs__hlod__runtime.html#a951ce7420d909229aea9446e13b651cf", null ],
     [ "collect_edited_since", "namespacegs__hlod__runtime.html#abd7c436fb4d163d664ecf98e96282dab", null ],
     [ "edit_status_name", "namespacegs__hlod__runtime.html#a6cb82adb5c380c5fb8b89fcd23d2caee", null ],
     [ "make_edited_snapshot", "namespacegs__hlod__runtime.html#a5e8c6ffc065d98ac885eed70663401e8", null ],

@@ -1,5 +1,10 @@
 var NAVTREEINDEX26 =
 {
+"namespacespz.html#a548b59d78a6ec7627a21f807d6577211":[0,0,45,60],
+"namespacespz.html#a54de377c6449e872ee77be8f69f1fee1":[0,0,45,41],
+"namespacespz.html#a57dbdd7522b133ac5dcc7f89f2326d04":[0,0,45,45],
+"namespacespz.html#a6247540e7504a09a9dc6c85d3fe36c7e":[0,0,45,61],
+"namespacespz.html#a63050fc648ef6e01d25412e7caa39b3c":[0,0,45,26],
 "namespacespz.html#a6642a9173b32a73afbca7052e7768ec0":[0,0,45,46],
 "namespacespz.html#a67495b563f8b7fd24ed60ffe518acd1d":[0,0,45,73],
 "namespacespz.html#a67c1be9865450ad45220eb8bc7143a6c":[0,0,45,79],
@@ -244,10 +249,5 @@ var NAVTREEINDEX26 =
 "renderer__interfaces_8h_source.html":[2,0,0,0,5,30],
 "rendering__diagnostics_8cpp.html":[2,0,0,0,12,77],
 "rendering__diagnostics_8h.html":[2,0,0,0,12,78],
-"rendering__diagnostics_8h_source.html":[2,0,0,0,12,78],
-"rendering__error_8cpp.html":[2,0,0,0,12,79],
-"rendering__error_8h.html":[2,0,0,0,12,80],
-"rendering__error_8h_source.html":[2,0,0,0,12,80],
-"residency__budget__controller_8cpp.html":[2,0,0,0,3,66],
-"residency__budget__controller_8h.html":[2,0,0,0,3,67]
+"rendering__diagnostics_8h_source.html":[2,0,0,0,12,78]
 };

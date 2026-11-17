@@ -93,6 +93,7 @@ $(function(){initNavTree('hlod__node__residency_8h.html','',''); });
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="gaussian__splat__hlod__runtime__data_8h_source.html">../core/gaussian_splat_hlod_runtime_data.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="streaming__atlas_8h_source.html">../core/streaming_atlas.h</a>&quot;</code><br />
+<code>#include &quot;core/error/error_list.h&quot;</code><br />
 <code>#include &quot;core/templates/local_vector.h&quot;</code><br />
 <code>#include &quot;core/templates/vector.h&quot;</code><br />
 <code>#include &lt;cstdint&gt;</code><br />
@@ -124,8 +125,15 @@ Classes</h2></td></tr>
 Namespaces</h2></td></tr>
 <tr class="memitem:gs_5Fhlod_5Fruntime" id="r_gs_5Fhlod_5Fruntime"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod__runtime.html">gs_hlod_runtime</a></td></tr>
 </table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-enum-members" class="groupheader"><a id="enum-members" name="enum-members"></a>
+Enumerations</h2></td></tr>
+<tr class="memitem:a13094606ca42a651f039b6be3f925d91" id="r_a13094606ca42a651f039b6be3f925d91"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91">gs_hlod_runtime::FailureClass</a> : uint8_t { <a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78">gs_hlod_runtime::FAILURE_PERMANENT</a> = 0
+, <a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab">gs_hlod_runtime::FAILURE_RETRY_LATER</a>
+ }</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:a951ce7420d909229aea9446e13b651cf" id="r_a951ce7420d909229aea9446e13b651cf"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91">FailureClass</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod__runtime.html#a951ce7420d909229aea9446e13b651cf">gs_hlod_runtime::classify_load_error</a> (Error p_error)</td></tr>
 <tr class="memitem:aac6bda8b9962836f0bc125a4b49322ee" id="r_aac6bda8b9962836f0bc125a4b49322ee"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacegs__hlod__runtime.html#aac6bda8b9962836f0bc125a4b49322ee">gs_hlod_runtime::make_node_infos</a> (const <a class="el" href="classGaussianSplatHlodRuntimeData.html">GaussianSplatHlodRuntimeData</a> &amp;p_data, Vector&lt; <a class="el" href="structNodeResidency_1_1NodeInfo.html">NodeResidency::NodeInfo</a> &gt; &amp;r_infos)</td></tr>
 </table>
 </div><!-- contents -->

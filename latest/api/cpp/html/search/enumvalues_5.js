@@ -2,13 +2,15 @@ var searchData=
 [
   ['fail_0',['FAIL',['../namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6ac2759effffc94bb9acc71d69fe3e8a1f',1,'GaussianSplatting']]],
   ['failed_1',['FAILED',['../classgs__hlod__runtime_1_1NodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28a0a91d28880693272f9ed8de0e26a34f3',1,'gs_hlod_runtime::NodeResidency::FAILED'],['../classgs__hlod__runtime_1_1ViewSet.html#a06d5685034fdcb3ae0ca9d9de819ba5fafca6af0b600419a6815af79b897078ee',1,'gs_hlod_runtime::ViewSet::FAILED'],['../classGSAtomicFileTransaction.html#aeed58611bb5ab01eb0f118d07d5e842bab9e14d9b2886bcff408b85aefa780419',1,'GSAtomicFileTransaction::FAILED'],['../classgs__world__writer_1_1Writer.html#a11338e9bac65a12690482f3d15890a14ab9e14d9b2886bcff408b85aefa780419',1,'gs_world_writer::Writer::FAILED'],['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946ab9e14d9b2886bcff408b85aefa780419',1,'GaussianRenderPipeline::StageResult::FAILED'],['../classNodeResidency.html#a0c175f76a275ed75f0d10cc76a776f28a0a91d28880693272f9ed8de0e26a34f3',1,'NodeResidency::FAILED'],['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bab9e14d9b2886bcff408b85aefa780419',1,'FAILED:&#160;gpu_sorting_pipeline_interfaces.h']]],
-  ['fallback_2',['FALLBACK',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946af35b388d8d4adeab05bce916c73d7a72',1,'GaussianRenderPipeline::StageResult']]],
-  ['fallback_5fused_3',['FALLBACK_USED',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba453ff96dc7e039691b670d8b246a54f5',1,'gpu_sorting_pipeline_interfaces.h']]],
-  ['fatal_4',['FATAL',['../classRenderingError.html#a26195ebe324bdb8bd6483632c8068380a19da7170bea36556dde582519795f3fc',1,'RenderingError']]],
-  ['finalizing_5',['FINALIZING',['../namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6a4766d063d62e2112da80412f36c3ed07',1,'gs_world_writer']]],
-  ['fits_6',['FITS',['../namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b',1,'GaussianSplatting']]],
-  ['force_5fcpu_5foverride_7',['FORCE_CPU_OVERRIDE',['../namespaceGaussianSplatting.html#a4da9145f34a054fc10a9369700af7ba4a2a5aad1664f828448481ee7377612724',1,'GaussianSplatting']]],
-  ['forceoff_8',['ForceOff',['../namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a166d20aa6a9e4682ff7109afa8946dad',1,'GaussianSplatting']]],
-  ['forceon_9',['ForceOn',['../namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a6fa9b12f12b20b64444789b4bbae210f',1,'GaussianSplatting']]],
-  ['frame_10',['FRAME',['../namespacegs__hlod__auto__route.html#a0aaf9173c339d854241848338cb671c0ac57e921596445b99ab85558984966184',1,'gs_hlod_auto_route']]]
+  ['failure_5fpermanent_2',['FAILURE_PERMANENT',['../namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91ab14503ac69e94303d609eef3e3827d78',1,'gs_hlod_runtime']]],
+  ['failure_5fretry_5flater_3',['FAILURE_RETRY_LATER',['../namespacegs__hlod__runtime.html#a13094606ca42a651f039b6be3f925d91a6e0362936680a167cdaca9cf7e01b1ab',1,'gs_hlod_runtime']]],
+  ['fallback_4',['FALLBACK',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946af35b388d8d4adeab05bce916c73d7a72',1,'GaussianRenderPipeline::StageResult']]],
+  ['fallback_5fused_5',['FALLBACK_USED',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba453ff96dc7e039691b670d8b246a54f5',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['fatal_6',['FATAL',['../classRenderingError.html#a26195ebe324bdb8bd6483632c8068380a19da7170bea36556dde582519795f3fc',1,'RenderingError']]],
+  ['finalizing_7',['FINALIZING',['../namespacegs__world__writer.html#af2f092b0d82a0132fb9ec7afd85671e6a4766d063d62e2112da80412f36c3ed07',1,'gs_world_writer']]],
+  ['fits_8',['FITS',['../namespaceGaussianSplatting.html#a00c95599047b9feec787475781225887a6c9f7af0b3d765adfa41f8a5ecb6bd5b',1,'GaussianSplatting']]],
+  ['force_5fcpu_5foverride_9',['FORCE_CPU_OVERRIDE',['../namespaceGaussianSplatting.html#a4da9145f34a054fc10a9369700af7ba4a2a5aad1664f828448481ee7377612724',1,'GaussianSplatting']]],
+  ['forceoff_10',['ForceOff',['../namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a166d20aa6a9e4682ff7109afa8946dad',1,'GaussianSplatting']]],
+  ['forceon_11',['ForceOn',['../namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47a6fa9b12f12b20b64444789b4bbae210f',1,'GaussianSplatting']]],
+  ['frame_12',['FRAME',['../namespacegs__hlod__auto__route.html#a0aaf9173c339d854241848338cb671c0ac57e921596445b99ab85558984966184',1,'gs_hlod_auto_route']]]
 ];

@@ -102,6 +102,7 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:adc31b055b54c5e0ba68fc2e6eaba548c" id="r_adc31b055b54c5e0ba68fc2e6eaba548c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adc31b055b54c5e0ba68fc2e6eaba548c">resident</a> = 0</td></tr>
 <tr class="memitem:aa7f5b57dfaf57d1184a6ed90b53b0bfc" id="r_aa7f5b57dfaf57d1184a6ed90b53b0bfc"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa7f5b57dfaf57d1184a6ed90b53b0bfc">failed</a> = 0</td></tr>
 <tr class="memitem:a26abbac68eeeac3076a7ae160069d47c" id="r_a26abbac68eeeac3076a7ae160069d47c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a26abbac68eeeac3076a7ae160069d47c">permanently_failed</a> = 0</td></tr>
+<tr class="memitem:af785604ccbb434197aefff2384cb9221" id="r_af785604ccbb434197aefff2384cb9221"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af785604ccbb434197aefff2384cb9221">retry_later_waiting</a> = 0</td></tr>
 <tr class="memitem:af974d7d5a80561e5d9e37a436d3bea0b" id="r_af974d7d5a80561e5d9e37a436d3bea0b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af974d7d5a80561e5d9e37a436d3bea0b">pages_resident</a> = 0</td></tr>
 <tr class="memitem:a32c3c072dc6c6c01428f23a0b9b70405" id="r_a32c3c072dc6c6c01428f23a0b9b70405"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a32c3c072dc6c6c01428f23a0b9b70405">pages_in_flight</a> = 0</td></tr>
 <tr class="memitem:a3c01f413a01790e66a09349d586f1b8c" id="r_a3c01f413a01790e66a09349d586f1b8c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c01f413a01790e66a09349d586f1b8c">pages_retiring</a> = 0</td></tr>
@@ -114,6 +115,8 @@ Public Attributes</h2></td></tr>
 <tr class="memitem:aa855f2960e41c69a57796db35e07a089" id="r_aa855f2960e41c69a57796db35e07a089"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa855f2960e41c69a57796db35e07a089">late_dropped_cancelled_total</a> = 0</td></tr>
 <tr class="memitem:ac7fbac507d1b25d115d09916fa65b2a3" id="r_ac7fbac507d1b25d115d09916fa65b2a3"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac7fbac507d1b25d115d09916fa65b2a3">evicted_total</a> = 0</td></tr>
 <tr class="memitem:a3d7c38da078f378a37e6f26cc9130f7f" id="r_a3d7c38da078f378a37e6f26cc9130f7f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3d7c38da078f378a37e6f26cc9130f7f">failed_total</a> = 0</td></tr>
+<tr class="memitem:adb36d5899eab0faee15adff007eb94c1" id="r_adb36d5899eab0faee15adff007eb94c1"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adb36d5899eab0faee15adff007eb94c1">failed_permanent_total</a> = 0</td></tr>
+<tr class="memitem:ae0114ca87ea5fa0e4756d1a7de96ffd5" id="r_ae0114ca87ea5fa0e4756d1a7de96ffd5"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae0114ca87ea5fa0e4756d1a7de96ffd5">failed_retry_later_total</a> = 0</td></tr>
 <tr class="memitem:abd7b7f5e6287b0f98fc2094d9fa82c72" id="r_abd7b7f5e6287b0f98fc2094d9fa82c72"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd7b7f5e6287b0f98fc2094d9fa82c72">skipped_groups_total</a> = 0</td></tr>
 <tr class="memitem:a7c1820b4dfe0c4f28f72cf6363726e58" id="r_a7c1820b4dfe0c4f28f72cf6363726e58"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7c1820b4dfe0c4f28f72cf6363726e58">pressure_measured</a> = false</td></tr>
 <tr class="memitem:a89cb2566f4e4f7c88adc6eed538a1c9f" id="r_a89cb2566f4e4f7c88adc6eed538a1c9f"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a89cb2566f4e4f7c88adc6eed538a1c9f">allocation_refused_total</a> = 0</td></tr>
@@ -445,6 +448,34 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="adb36d5899eab0faee15adff007eb94c1" name="adb36d5899eab0faee15adff007eb94c1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adb36d5899eab0faee15adff007eb94c1">&#9670;&#160;</a></span>failed_permanent_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::NodeResidency::Stats::failed_permanent_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae0114ca87ea5fa0e4756d1a7de96ffd5" name="ae0114ca87ea5fa0e4756d1a7de96ffd5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae0114ca87ea5fa0e4756d1a7de96ffd5">&#9670;&#160;</a></span>failed_retry_later_total</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_hlod_runtime::NodeResidency::Stats::failed_retry_later_total = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a3d7c38da078f378a37e6f26cc9130f7f" name="a3d7c38da078f378a37e6f26cc9130f7f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3d7c38da078f378a37e6f26cc9130f7f">&#9670;&#160;</a></span>failed_total</h2>
 
@@ -635,6 +666,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint32_t gs_hlod_runtime::NodeResidency::Stats::resident = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af785604ccbb434197aefff2384cb9221" name="af785604ccbb434197aefff2384cb9221"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af785604ccbb434197aefff2384cb9221">&#9670;&#160;</a></span>retry_later_waiting</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_hlod_runtime::NodeResidency::Stats::retry_later_waiting = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

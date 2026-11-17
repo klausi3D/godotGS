@@ -1,5 +1,10 @@
 var NAVTREEINDEX38 =
 {
+"structGaussianSplatSceneDirector_1_1AssetRecord.html#aa500fb3e8be34df78f7a43da8936528b":[1,0,107,7,3],
+"structGaussianSplatSceneDirector_1_1AssetRecord.html#ac260a87dbde0d96d7570e611d54ea6c9":[1,0,107,7,2],
+"structGaussianSplatSceneDirector_1_1AssetRecord.html#acbbec78fa928c5d9a64c7dacf109fd91":[1,0,107,7,0],
+"structGaussianSplatSceneDirector_1_1InstanceRecord.html":[1,0,107,6],
+"structGaussianSplatSceneDirector_1_1InstanceRecord.html#a042700f9e9d20120cedfcbe28644cade":[1,0,107,6,14],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a1afa8eb853bae6b763edb55cf1ffe59d":[1,0,107,6,20],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a38b7af18c4e76e892abaf4392d0f9600":[1,0,107,6,12],
 "structGaussianSplatSceneDirector_1_1InstanceRecord.html#a4437c7659a41923ff82c884128e1ab1c":[1,0,107,6,23],
@@ -244,10 +249,5 @@ var NAVTREEINDEX38 =
 "structGaussianSplatting_1_1BufferOwnership.html":[1,0,9,72],
 "structGaussianSplatting_1_1BufferOwnership.html#a591406940842357f958274e83898c7c0":[0,0,12,73,4],
 "structGaussianSplatting_1_1BufferOwnership.html#a591406940842357f958274e83898c7c0":[1,0,9,72,4],
-"structGaussianSplatting_1_1BufferOwnership.html#a7b1cec8775479976be1810bb0a160a83":[0,0,12,73,1],
-"structGaussianSplatting_1_1BufferOwnership.html#a7b1cec8775479976be1810bb0a160a83":[1,0,9,72,1],
-"structGaussianSplatting_1_1BufferOwnership.html#a8825ae9719e64f85e8b64b25e9467bc1":[0,0,12,73,0],
-"structGaussianSplatting_1_1BufferOwnership.html#a8825ae9719e64f85e8b64b25e9467bc1":[1,0,9,72,0],
-"structGaussianSplatting_1_1BufferOwnership.html#ab9895690c8961474cd05855e4ea2fd59":[0,0,12,73,3],
-"structGaussianSplatting_1_1BufferOwnership.html#ab9895690c8961474cd05855e4ea2fd59":[1,0,9,72,3]
+"structGaussianSplatting_1_1BufferOwnership.html#a7b1cec8775479976be1810bb0a160a83":[0,0,12,73,1]
 };

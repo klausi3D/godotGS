@@ -1,5 +1,10 @@
 var NAVTREEINDEX28 =
 {
+"structChunkLODMetadata.html":[1,0,47],
+"structChunkLODMetadata.html#a54ff1b742c1b57420056823d377eccbc":[1,0,47,5],
+"structChunkLODMetadata.html#a6c9f13febc206260671e31cc7988c209":[1,0,47,2],
+"structChunkLODMetadata.html#aa03fa8a8183b927d0071685827115e54":[1,0,47,1],
+"structChunkLODMetadata.html#aa93192ea0c40bde401b545e9872b1348":[1,0,47,4],
 "structChunkLODMetadata.html#ab880d0601b281bb57c9b35b4dd20ef9d":[1,0,47,3],
 "structChunkLODMetadata.html#ade2f96f81ebc298444ea1af4c933ac75":[1,0,47,0],
 "structChunkLODMetadata.html#aeb1fc396d5b37b83bf790cd5704ab861":[1,0,47,6],
@@ -244,10 +249,5 @@ var NAVTREEINDEX28 =
 "structFrustumCullParamsGPU.html#acfc68aef0c9a6d4ce9bbb754a0464033":[1,0,72,8],
 "structFrustumCullParamsGPU.html#adf653a22e5fa3a4325437837a436180b":[1,0,72,9],
 "structGPUBufferManager_1_1BufferHandle.html":[1,0,118,0],
-"structGPUBufferManager_1_1BufferHandle.html#a31014a0f55154cb02c0651319f63b688":[1,0,118,0,1],
-"structGPUBufferManager_1_1BufferHandle.html#ab2fa82c5c026517c5dfc6d9d1a67c284":[1,0,118,0,2],
-"structGPUBufferManager_1_1BufferHandle.html#ad2bc351ff6b054d4c1465af642fada87":[1,0,118,0,0],
-"structGPUBufferManager_1_1SortKey.html":[1,0,118,1],
-"structGPUBufferManager_1_1SortKey.html#a0dc873ab81680978207427f884f02983":[1,0,118,1,1],
-"structGPUBufferManager_1_1SortKey.html#a702b4d6341f0116a36c63e25f55eefd7":[1,0,118,1,0]
+"structGPUBufferManager_1_1BufferHandle.html#a31014a0f55154cb02c0651319f63b688":[1,0,118,0,1]
 };
