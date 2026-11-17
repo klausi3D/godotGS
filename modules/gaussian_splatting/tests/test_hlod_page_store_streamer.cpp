@@ -949,6 +949,86 @@ TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] oversized single
 	h.check_released();
 }
 
+TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] priority abandonment drains real output owners without publishing the abandoned child (#1483 B)") {
+	// Use only existing streamer APIs. The CPU sink replaces device writes; request arbitration, store
+	// reads, worker/mailbox/ready ownership, partial cursors and publication gates all remain real.
+	for (uint32_t phase = 0; phase < 4; ++phase) {
+		CAPTURE(phase);
+		Harness h;
+		if (!h.init()) { return; }
+		h.config.atlas_pages = 3; // Root + resident sibling + the admitted missing child fill the atlas.
+		h.config.upload_bytes_per_frame = 64 * sizeof(PackedGaussian); // Four slices for a 256-splat node.
+		if (h.streamer.init_with_page_store(h.fixture.snapshot, h.config, h.world, h.device, h.store) != OK) {
+			FAIL("could not initialize the three-page abandonment fixture"); return;
+		}
+		h.retained_cap = h.streamer.get_retained_byte_cap();
+		h.control.hold_uploads = false;
+		if (!h.set_control()) { return; }
+		h.demand.clear();
+		for (uint32_t node : { 0u, 3u }) {
+			gs_hlod_runtime::DesiredRecord wanted;
+			wanted.node = node;
+			h.demand.push_back(wanted);
+		}
+		const auto seeded = gs_pump_until([&]() {
+			h.step();
+			return !h.observations_ok || (h.streamer.get_residency().state(0) == Residency::RESIDENT &&
+					h.streamer.get_residency().state(3) == Residency::RESIDENT && h.sample.live_reservations == 0);
+		});
+		if (!seeded.ready() || !h.observations_ok) {
+			FAIL("the real root and resident sibling never finished loading"); return;
+		}
+		h.demand.clear();
+		gs_hlod_runtime::DesiredRecord lower;
+		lower.node = 4;
+		h.demand.push_back(lower);
+		h.control.hold_uploads = true;
+		const Holder holder = phase == 0 ? WORKER : (phase == 1 ? MAILBOX : READY);
+		if (!reach_holder(h, holder)) { return; }
+		if (phase == 3) {
+			h.control.hold_uploads = false;
+			if (!h.set_control()) { return; }
+			h.step(); // One actual atlas slice, with the metadata-last boundary still ahead.
+			if (h.sample.partial_upload_bytes == 0 || h.streamer.get_residency().state(4) != Residency::LOADING) {
+				FAIL("the lower child never reached a real partial-upload owner"); return;
+			}
+		}
+		CHECK(h.streamer.get_residency().stats().pages_free == 0);
+		h.demand.clear();
+		for (uint32_t node : { 5u, 6u, 4u }) {
+			gs_hlod_runtime::DesiredRecord wanted;
+			wanted.node = node;
+			h.demand.push_back(wanted);
+		}
+		h.step(); // Higher-priority arrival must cause cancellation; the test never calls a cancel seam.
+		CHECK(h.streamer.get_residency().stats().cancelled_total == 1);
+		CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
+		CHECK(h.streamer.get_telemetry().desired == 3); // Unmet selection demand BEFORE abandonment filtering.
+		h.control.hold_workers = h.control.hold_mailbox = h.control.hold_uploads = false;
+		if (!h.set_control()) { return; }
+		const auto progressed = gs_pump_until([&]() {
+			h.step(); // Keep offering the abandoned demand; it must not steal the head's released capacity.
+			return !h.observations_ok || (h.streamer.get_residency().state(5) == Residency::RESIDENT &&
+					h.streamer.get_residency().state(6) == Residency::RESIDENT && h.sample.jobs_in_flight == 0 &&
+					h.sample.pending_tickets == 0 && h.sample.mailbox_outputs == 0 && h.sample.ready_outputs == 0 &&
+					h.sample.live_reservations == 0);
+		});
+		if (!progressed.ready() || !h.observations_ok) {
+			FAIL("the higher-priority transition never completed after abandonment and owner drain"); return;
+		}
+		CHECK(h.streamer.get_residency().state(0) == Residency::RESIDENT);
+		CHECK(h.streamer.get_residency().state(4) == Residency::ABSENT);
+		CHECK(h.streamer.get_telemetry().late_dropped_total == 0);
+		const Vector<Streamer::TestPublication> publications = h.streamer._test_publications();
+		CHECK(publications.size() == 4); // Exactly the two seed nodes and the two head children.
+		for (const auto &publication : publications) {
+			CHECK(publication.node != 4); // A counter cannot substitute for absence at the real metadata write.
+		}
+		CHECK(h.bound_ok);
+		if (!h.check_released()) { return; }
+	}
+}
+
 TEST_CASE("[GaussianSplatting][HLOD][PagedV4][WorldIO][D3Store] cancellation retarget and eviction release each ordinary owner once") {
 	for (Holder holder : { WORKER, MAILBOX, READY }) {
 		CAPTURE(holder);

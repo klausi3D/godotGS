@@ -36,6 +36,13 @@ FIELDS = (
     "hlod_cut_residency_missed_demanded",
 )
 VALUES = ([3, 8], "e43c7632e0fd9a6e", [1], True, 5, [2, 4], [True, False])
+# Requested transition policy, not an inventory of the native producer's output.
+TRANSITION_PRESSURE_FIELDS = (
+    "hlod_stream_protected_sibling_nodes",
+    "hlod_stream_abandoned_transitions_total",
+    "hlod_stream_abandoned_transitions_this_frame",
+    "hlod_stream_transition_state",
+)
 
 
 class HlodCutTelemetry(unittest.TestCase):
@@ -131,7 +138,8 @@ class HlodPressureTelemetry(unittest.TestCase):
                       "hlod_stream_resident_refinement_bypass_pages", "hlod_stream_page_refused_groups_total",
                       "hlod_stream_evicted_in_cut_total", "hlod_stream_evicted_in_transition_total",
                       "hlod_stream_evicted_neither_total", "hlod_stream_refusing_gate",
-                      "hlod_stream_live_reservations", "hlod_stream_oversized_reservation_bytes"):
+                      "hlod_stream_live_reservations", "hlod_stream_oversized_reservation_bytes",
+                      *TRANSITION_PRESSURE_FIELDS):
             with self.subTest(field=field):
                 self.assertIn(field, self.fields)
         self.assertEqual(len(self.fields), len(set(self.fields)), "trace fields must be unique")
@@ -202,6 +210,9 @@ class HlodPressureTelemetry(unittest.TestCase):
         gate_names = re.findall(r'"([a-z_]+)"', names.group(1))
         self.assertEqual(dict(enumerate(gate_names)), ps.HLOD_REFUSING_GATE_NAMES)
         exported.update(f"hlod_stream_gate_{name}_frames_total" for name in gate_names)
+        for field in TRANSITION_PRESSURE_FIELDS:
+            with self.subTest(required_transition_field=field):
+                self.assertIn(field, exported, "transition diagnostic requires a native scalar producer")
         for field in exported:
             with self.subTest(field=field):
                 self.assertIn(field, self.fields, "native pressure field never reaches the trace/checkpoint scalar schema")
@@ -224,6 +235,78 @@ class HlodPressureTelemetry(unittest.TestCase):
         self.assertEqual(observation["delta"], {"measured": True, "value": 0})
         self.assertIs(ps.hlod_pressure_summary([], zero)["trace"]["measured"], False,
                       "a counter without the native measurement marker is not a new pressure capture")
+
+    def test_transition_columns_distinguish_absence_from_measured_zero_and_positive(self):
+        # Constructed semantic inputs for the existing reader, never a native capture.
+        for field in TRANSITION_PRESSURE_FIELDS:
+            for columns, values in ((["row"], (0,)), ([field], ()),
+                                    ([field], (-1,)), ([field], (0, -1))):
+                with self.subTest(field=field, columns=columns, values=values):
+                    trace = ps.Trace(columns, "q", [(value,) for value in values], 0)
+                    observation = ps.hlod_pressure_column(trace, list(range(len(trace.rows))), field)
+                    self.assertIs(observation["measured"], False)
+                    self.assertIsNone(observation["value"])
+                    self.assertTrue(observation["reason"])
+            for value in (0, 3):
+                with self.subTest(field=field, measured_value=value):
+                    trace = ps.Trace([field, "hlod_stream_pressure_epoch"], "qq", [(value, 7)], 0)
+                    observation = ps.hlod_pressure_column(trace, [0], field)
+                    self.assertIs(observation["measured"], True)
+                    self.assertEqual(observation["value"], value)
+
+    def test_transition_gauges_can_reset_to_zero_without_counter_deltas(self):
+        for field in ("hlod_stream_protected_sibling_nodes",
+                      "hlod_stream_abandoned_transitions_this_frame", "hlod_stream_transition_state"):
+            with self.subTest(field=field):
+                trace = ps.Trace(["hlod_stream_pressure_measured", "hlod_stream_pressure_epoch", field],
+                                 "qqq", [(1, 7, 3), (1, 7, 0)], 0)
+                observation = ps.hlod_pressure_column(trace, [0, 1], field)
+                self.assertIs(observation["measured"], True)
+                self.assertEqual(observation["value"], 0)
+                self.assertEqual(observation["max"], 3)
+                self.assertNotIn("delta", observation, "a per-frame count/state is a gauge")
+                summary = ps.hlod_pressure_summary([], trace)
+                self.assertIs(summary["trace"]["measured"], True)
+                self.assertEqual(summary["trace"]["columns"][field], observation)
+
+    def test_abandoned_transition_total_deltas_require_monotonic_same_epoch_samples(self):
+        field = "hlod_stream_abandoned_transitions_total"
+        for values, epochs, expected in (((0, 0, 0), (7, 7, 7), 0),
+                                        ((3, 5, 8), (7, 7, 7), 5),
+                                        ((3, 2, 8), (7, 7, 7), None),
+                                        ((3, 5, 8), (7, 7, 8), None),
+                                        ((3, 5, 8), (-1, -1, -1), None)):
+            with self.subTest(values=values, epochs=epochs):
+                trace = ps.Trace([field, "hlod_stream_pressure_epoch"], "qq", list(zip(values, epochs)), 0)
+                observation = ps.hlod_pressure_column(trace, [0, 1, 2], field)
+                self.assertIs(observation["measured"], True)
+                self.assertEqual(observation["value"], values[-1])
+                self.assertIs(observation["delta"]["measured"], expected is not None)
+                self.assertEqual(observation["delta"]["value"], expected)
+                if expected is None:
+                    self.assertTrue(observation["delta"]["reason"])
+        trace = ps.Trace([field], "q", [(0,), (3,)], 0)
+        observation = ps.hlod_pressure_column(trace, [0, 1], field)
+        self.assertIs(observation["delta"]["measured"], False)
+        self.assertIsNone(observation["delta"]["value"])
+
+    def test_transition_checkpoint_receipts_are_preserved_without_conferring_a_verdict(self):
+        field = "hlod_stream_abandoned_transitions_total"
+        receipt = {"report_only": True,
+                   "snapshot": {"values": dict(zip(TRANSITION_PRESSURE_FIELDS, (0, 8, 0, 3)))},
+                   "settle_window": {"counter_deltas": {field: {"measured": True, "value": 5}}}}
+        checkpoint = {"checkpoint": "C5", "pass_index": 0, "segment": "stop", "hlod_pressure": receipt}
+        expected = copy.deepcopy(receipt)
+        summary = ps.hlod_pressure_summary([checkpoint])
+        self.assertEqual(summary["checkpoints"][0]["observation"], expected)
+        self.assertNotIn("verdict", summary)
+        result = {"checkpoints": [checkpoint], "segments": [{"pass_index": 0, "id": "stop", "kind": "stop"}]}
+        pressure = shared.pressure_observations(result, None, "hlod", {})
+        self.assertEqual(pressure["settles"][0]["hlod_pressure"], expected)
+        receipt["snapshot"]["values"][field] = 999
+        receipt["settle_window"]["counter_deltas"][field]["value"] = 999
+        self.assertEqual(summary["checkpoints"][0]["observation"], expected,
+                         "persisted transition receipts must not alias mutable checkpoint input")
 
     def test_placement_reserve_observation_is_declared_on_selection_and_streamer(self):
         root = HERE.parents[2] / "modules/gaussian_splatting"

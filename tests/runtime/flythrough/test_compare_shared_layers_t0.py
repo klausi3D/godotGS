@@ -1979,12 +1979,29 @@ class ComparisonContract(unittest.TestCase):
               for value in (None, 0, 3, 999999, -1)),
             *({"report_only": True, "snapshot": {"values": {"hlod_stream_placement_reserve_state": state,
                                                            "hlod_stream_placement_reserve_pages": pages}}}
-              for state, pages in ((None, 999999), (0, None), (0, 999999), (1, 0), (1, 999999))))
+              for state, pages in ((None, 999999), (0, None), (0, 999999), (1, 0), (1, 999999))),
+            *({"report_only": True, "snapshot": {"values": {
+                "hlod_stream_protected_sibling_nodes": value,
+                "hlod_stream_abandoned_transitions_total": value,
+                "hlod_stream_abandoned_transitions_this_frame": value,
+                "hlod_stream_transition_state": value}}}
+              for value in (None, -1, 0, 3, 999999)),
+            *({"report_only": True, "snapshot": {"values": {
+                "hlod_stream_protected_sibling_nodes": 0,
+                "hlod_stream_abandoned_transitions_total": 8,
+                "hlod_stream_abandoned_transitions_this_frame": 0,
+                "hlod_stream_transition_state": 3}},
+               "settle_window": {"counter_deltas": {
+                   "hlod_stream_abandoned_transitions_total": delta}}}
+              for delta in ({"measured": True, "value": 0}, {"measured": True, "value": 5},
+                            {"measured": False, "value": None, "reason": "native epoch changed"},
+                            {"measured": False, "value": None, "reason": "counter decreased"})))
         for failure in (False, True):
             experiment = copy.deepcopy(self.experiment)
             if failure:
                 experiment["arms"]["hlod"]["observed"]["exit_code"] = 91
             baseline = driver.compare(experiment)
+            self.assertEqual(baseline["verdict"], "UNUSABLE" if failure else "VALID")
             for receipt in diagnostics:
                 with self.subTest(failure=failure, receipt=receipt):
                     changed = copy.deepcopy(experiment)

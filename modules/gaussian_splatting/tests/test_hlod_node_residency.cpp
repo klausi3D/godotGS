@@ -750,6 +750,204 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] a lower-priority group cannot ev
 	CHECK(sim.res.state(3) == Residency::RESIDENT);
 }
 
+// #1483 B: these regressions intentionally use the current public API. Transition descriptors, owner IDs
+// and the explicit COARSE_PLACEMENT_BLOCKED enum do not exist yet; their API-specific assertions belong
+// with the implementation. No resident sibling is manually added to the selector's missing-only demand.
+TEST_CASE("[GaussianSplatting][HLOD][Residency] missing-only selection demand protects a resident sibling through renewal and cut transfer (#1483 B)") {
+	Sim sim;
+	if (!one_page_tree(sim, 6)) { FAIL("residency setup failed"); return; }
+	// Drawn parents 1/2 cover the whole tree. Child 3 is the oldest evictable resident and its sibling 4
+	// is missing. There is room for 4, but not also for lower-priority children 5/6 without evicting 3.
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2) ||
+			!make_resident_at(sim.res, 1, 3) || !make_resident_at(sim.res, 2, 4)) {
+		FAIL("could not prepare the complete coarse cut and its resident child"); return;
+	}
+	sim.frame = 9;
+	sim.step(false);
+	CHECK(sim.cut.status == CutHistory::COMPLETE);
+	CHECK(exact_cover(sim, 4));
+	if (sim.demand != std::vector<uint32_t>({ 4, 5, 6 })) {
+		FAIL("the real selector must emit only missing children, with parent 1 first"); return;
+	}
+	sim.request_result = sim.res.request(sim.demand.data(), uint32_t(sim.demand.size()), sim.tickets);
+	CHECK(sim.request_result.requested == 1);
+	CHECK(sim.request_result.evicted == 0);
+	CHECK(sim.res.state(3) == Residency::RESIDENT);
+	CHECK(sim.res.is_protected(3));
+	CHECK(sim.res.is_protected(1));
+	Residency::Ticket missing;
+	for (const auto &ticket : sim.tickets) {
+		CHECK(ticket.node == 4);
+		if (ticket.node == 4) { missing = ticket; }
+	}
+	if (!missing.valid()) { FAIL("the admitted missing child did not receive a ticket"); return; }
+	// Renew while 4 is still loading; neither the missing-only demand nor a new frame loses 3's lease.
+	sim.step();
+	CHECK(sim.res.state(3) == Residency::RESIDENT);
+	CHECK(sim.res.is_protected(3));
+	CHECK(sim.res.is_protected(1));
+	CHECK(exact_cover(sim, 4));
+	sim.arrive(missing);
+	CHECK(sim.res.state(4) == Residency::RESIDENT);
+	CHECK(sim.res.is_protected(4)); // Completion must retain protection until selection consumes it.
+	CHECK_FALSE(sim.res.evict(4));
+	sim.step();
+	CHECK(sim.cut.status == CutHistory::COMPLETE);
+	CHECK(sim.drawn == std::vector<uint32_t>({ 2, 3, 4 }));
+	CHECK(every_drawn_resident(sim));
+	CHECK(exact_cover(sim, 4));
+	CHECK(sim.res.is_protected(3));
+	CHECK(sim.res.is_protected(4));
+	CHECK(sim.res.is_protected(1));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a higher-priority arrival abandons lower tickets and protection without immediate readmission (#1483 B)") {
+	Sim sim;
+	if (!one_page_tree(sim, 3)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2)) {
+		FAIL("could not prepare a resident sibling"); return;
+	}
+	sim.res.begin_frame(10);
+	const uint32_t lower[1] = { 4 };
+	LocalVector<Residency::Ticket> initial;
+	sim.res.request(lower, 1, initial);
+	if (initial.size() != 1) { FAIL("the lower transition was not admitted"); return; }
+	const Residency::Ticket abandoned = initial[0];
+	bool uploading = false;
+	SUBCASE("loading ticket") {}
+	SUBCASE("partially uploaded ticket") {
+		uploading = true;
+		if (!sim.res.begin_upload(abandoned)) { FAIL("could not begin the lower upload"); return; }
+	}
+	sim.res.begin_frame(11);
+	const uint32_t root[1] = { 0 };
+	sim.res.protect_drawn(root, 1);
+	// Emission order is the priority. The lower transition remains wanted by selection; the arbiter must
+	// withdraw its executable demand itself. Duplicate emissions must not cancel or allocate twice.
+	const uint32_t demand[6] = { 5, 6, 4, 5, 6, 4 };
+	LocalVector<Residency::Ticket> head;
+	sim.res.request(demand, 6, head);
+	CHECK(sim.res.stats().cancelled_total == 1);
+	CHECK_FALSE(sim.res.is_pending(abandoned));
+	CHECK(sim.res.state(4) == Residency::ABSENT);
+	CHECK_FALSE(sim.res.is_protected(3));
+	CHECK_FALSE(sim.res.is_protected(1));
+	CHECK(sim.res.state(0) == Residency::RESIDENT);
+	CHECK(sim.res.is_protected(0));
+	CHECK(head.size() == 2);
+	for (const auto &ticket : head) { CHECK((ticket.node == 5 || ticket.node == 6)); }
+	// Exercise the actual generation gates, without calling cancel() on behalf of the implementation.
+	if (uploading) { CHECK_FALSE(sim.res.finish_upload(abandoned, true)); }
+	else { CHECK_FALSE(sim.res.begin_upload(abandoned)); }
+	CHECK(sim.res.resident_mask()[4] == 0);
+	CHECK(sim.res.stats().late_dropped_cancelled_total == 1);
+	CHECK(sim.res.stats().late_dropped_total == 0);
+	const uint64_t requested = sim.res.stats().requested_total;
+	LocalVector<Residency::Ticket> repeated;
+	sim.res.request(demand, 6, repeated);
+	CHECK(repeated.is_empty());
+	CHECK(sim.res.stats().requested_total == requested);
+	CHECK(sim.res.stats().cancelled_total == 1);
+	CHECK(sim.res.state(4) == Residency::ABSENT);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] full occupancy abandons lower work and admits the head after normal retirement (#1483 B)") {
+	Sim sim;
+	constexpr uint32_t retire_delay = 3;
+	if (!one_page_tree(sim, 3, retire_delay)) { FAIL("residency setup failed"); return; }
+	if (!make_resident_at(sim.res, 0, 1) || !make_resident_at(sim.res, 3, 2)) {
+		FAIL("could not prepare full-occupancy dependencies"); return;
+	}
+	sim.res.begin_frame(10);
+	const uint32_t lower[1] = { 4 };
+	LocalVector<Residency::Ticket> initial;
+	sim.res.request(lower, 1, initial);
+	if (initial.size() != 1) { FAIL("the lower transition was not admitted"); return; }
+	CHECK(sim.res.stats().pages_free == 0);
+	for (uint32_t node : { 0u, 3u, 4u }) { CHECK(sim.res.is_protected(node)); }
+	const uint32_t demand[3] = { 5, 6, 4 };
+	const uint32_t root[1] = { 0 };
+	LocalVector<Residency::Ticket> head;
+	// This is a synchronous model bound, not a poll of workers: allow cancellation retirement plus one
+	// subsequent eviction retirement. The lower demand is deliberately offered on EVERY reconciliation.
+	for (uint64_t frame = 11; frame <= 12 + 2 * retire_delay; ++frame) {
+		sim.res.begin_frame(frame);
+		sim.res.protect_drawn(root, 1);
+		LocalVector<Residency::Ticket> tickets;
+		sim.res.request(demand, 3, tickets);
+		CHECK(sim.res.stats().cancelled_total == 1);
+		CHECK_FALSE(sim.res.is_pending(initial[0]));
+		for (const auto &ticket : tickets) {
+			CHECK((ticket.node == 5 || ticket.node == 6));
+			if (ticket.node == 5 || ticket.node == 6) { head.push_back(ticket); }
+		}
+		if (frame < 11 + retire_delay) { CHECK(head.is_empty()); }
+		const auto stats = sim.res.stats();
+		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring <= 3);
+		CHECK(sim.res.state(0) == Residency::RESIDENT);
+		CHECK(sim.res.state(4) == Residency::ABSENT);
+	}
+	if (head.size() != 2) { FAIL("the highest-priority whole transition did not progress after bounded retirement"); return; }
+	for (const auto &ticket : head) { sim.arrive(ticket); }
+	CHECK(sim.res.state(5) == Residency::RESIDENT);
+	CHECK(sim.res.state(6) == Residency::RESIDENT);
+	sim.frame = 12 + 2 * retire_delay;
+	sim.step(false);
+	CHECK(sim.cut.status == CutHistory::COMPLETE);
+	CHECK(every_drawn_resident(sim));
+	CHECK(exact_cover(sim, 4));
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] irreducible drawn fragmentation retains complete coverage and bounds unchanged retries (#1483 B)") {
+	Sim sim;
+	sim.data.instantiate();
+	binary_tree(*sim.data.ptr(), 3, 1000, 1000);
+	sim.data->nodes.write[3].topology.payload_count = 2500; // Three contiguous pages.
+	sim.data->nodes.write[5].topology.payload_count = 1500;
+	sim.data->nodes.write[6].topology.payload_count = 1500;
+	Vector<Residency::NodeInfo> infos;
+	if (!make_node_infos(*sim.data.ptr(), infos) || !sim.history.reserve(7) ||
+			!sim.res.reset(infos, config(7, 0), 1, 1)) {
+		FAIL("fragmented residency setup failed"); return;
+	}
+	// Pages: root@0, filler 5@1-2, drawn parent 1@3, filler 6@4-5, drawn parent 2@6.
+	uint64_t frame = 1;
+	for (uint32_t node : { 0u, 5u, 1u, 6u, 2u }) {
+		if (!make_resident_at(sim.res, node, frame++)) { FAIL("could not arrange fragmented runs"); return; }
+	}
+	sim.res.begin_frame(20);
+	LocalVector<Residency::Ticket> withdrawn;
+	sim.res.request(nullptr, 0, withdrawn); // No transition from fixture construction still owns a lease.
+	if (!sim.res.evict(5) || !sim.res.evict(6)) { FAIL("could not remove the two fillers"); return; }
+	CHECK(sim.res.stats().pages_free == 4);
+	CHECK(sim.res.stats().largest_free_run == 2);
+	sim.frame = 20;
+	sim.req.page_splats = 1024;
+	sim.req.page_budget = 7; // The whole desired closure fits; its three-page run cannot be placed.
+	sim.step();
+	if (sim.demand != std::vector<uint32_t>({ 3, 4 })) {
+		FAIL("fragmentation must leave the highest-priority transition as unmet selection demand"); return;
+	}
+	CHECK(sim.request_result.fragmented_groups == 1);
+	CHECK(sim.tickets.is_empty());
+	const auto blocked = sim.res.stats();
+	CHECK(blocked.allocation_refused_total > 0);
+	// With no residency/cap/owner change, coarse blockage must suppress further placement churn. The
+	// new explicit transition-state export is covered by the Python schema contract; no new enum here.
+	for (uint32_t retry = 0; retry < 12; ++retry) {
+		sim.step();
+		CHECK(sim.cut.status == CutHistory::COMPLETE);
+		CHECK(every_drawn_resident(sim));
+		CHECK(exact_cover(sim, 3));
+		CHECK(sim.demand.size() > 0); // Empty executable work must never masquerade as satisfied quality.
+		CHECK(sim.tickets.is_empty());
+		CHECK(sim.res.stats().pages_in_flight == 0);
+		CHECK(sim.res.stats().evicted_total == blocked.evicted_total);
+		CHECK(sim.res.stats().requested_total == blocked.requested_total);
+	}
+	CHECK(sim.res.stats().allocation_refused_total == blocked.allocation_refused_total);
+}
+
 
 TEST_CASE("[GaussianSplatting][HLOD][Residency] duplicate demand is one demand and never leaks a run") {
 	Sim sim;
