@@ -1836,4 +1836,837 @@ TEST_CASE("[GaussianSplatting][HLOD][Residency] at the production retire delay a
 	CHECK(res.state(6) == Residency::RESIDENT); // The third bystander was never needed.
 }
 
+// Synchronous CPU device sink: allocation, cached B blockage, capped copying, the safe frame-boundary
+// switch and retirement all use production paths. There are no workers or asynchronous readiness polls.
+struct CompactionFixture {
+	using Streamer = HlodNodeStreamer;
+	static constexpr uint64_t FIRST_BLOCKED_FRAME = 100;
+	static constexpr uint64_t FIRST_COPY_FRAME = FIRST_BLOCKED_FRAME + 7; // The required R=8, independent of the red-proof constant.
+	static constexpr uint32_t SOURCE = 2, BLOCKED = 7, COMPETITOR = 8;
+	Ref<GaussianSplatHlodRuntimeData> data;
+	Streamer streamer;
+	Streamer::Buffers buffers;
+	LocalVector<Residency::Ticket> tickets;
+	uint32_t source_pages = 2, hole_pages = 3, target_pages = 8, capacity = 14;
+	uint32_t source_first = 4, destination_first = 10;
+	uint32_t drawn[4] = { 0, 4, 6, SOURCE };
+	uint32_t drawn_count = 3;
+
+	Residency &residency() { return streamer._test_residency(); }
+
+	bool init(uint32_t p_source_pages = 2, bool p_quantized = false) {
+		source_pages = p_source_pages;
+		hole_pages = source_pages + 1;
+		target_pages = 2 * hole_pages + source_pages;
+		capacity = 2 * hole_pages + 2 * source_pages + 4;
+		source_first = 1 + hole_pages;
+		destination_first = 2 * hole_pages + source_pages + 2;
+		data.instantiate();
+		if (data->nodes.resize(9) != OK) { FAIL("could not size compaction node fixture"); return false; }
+		const uint32_t pages[9] = { 1, hole_pages, source_pages, hole_pages, 1, source_pages, 1, target_pages, target_pages };
+		for (uint32_t node = 0; node < 9; ++node) {
+			auto &topology = data->nodes.write[node].topology;
+			topology.payload_count = pages[node] * 1024;
+			// The competitor is a distinct transition. Adding it to BLOCKED's sibling group would
+			// legitimately make that whole group exceed this fixture's page budget.
+			topology.parent = node == 0 ? gs_hlod::kNoParent : (node == BLOCKED ? SOURCE : (node == COMPETITOR ? 4 : 0));
+			topology.height = node == 0 ? 2 : (node == SOURCE ? 1 : 0);
+		}
+		Streamer::Config cfg;
+		cfg.atlas_pages = capacity;
+		cfg.retire_delay_frames = 3;
+		cfg.quantized = p_quantized;
+		if (!streamer.init(data, cfg, 1, 1)) { FAIL("compaction streamer initialization failed"); return false; }
+		Streamer::TestControl control;
+		control.cpu_upload_sink = true;
+		if (streamer._test_set_control(control) != OK || streamer._test_observe_shadow_transfers() != OK) {
+			FAIL("compaction fixture requires the real CPU device-write observations"); return false;
+		}
+		// For S=2: root@0, filler@1-3, source@4-5, filler@6-8, drawn@9,
+		// destination filler@10-11, drawn@12, scratch@13. The exact one-page scratch
+		// hole keeps its budget charge out of the target hole; the exact S-page destination is elsewhere.
+		for (uint32_t node = 0; node < 7; ++node) {
+			if (!make_resident_at(residency(), node, node + 1) || streamer._test_seed_resident_metadata(node) != OK) {
+				FAIL("could not populate compaction fixture runs and metadata"); return false;
+			}
+		}
+		residency().begin_frame(20);
+		residency().request(nullptr, 0, tickets); // Withdraw fixture-only leases before removing fillers.
+		if (!residency().evict(1) || !residency().evict(3) || !residency().evict(5)) {
+			FAIL("could not fragment compaction fixture"); return false;
+		}
+		residency().begin_frame(23);
+		if (residency().stats().pages_free != 2 * hole_pages + source_pages + 1 ||
+				residency().stats().largest_free_run != hole_pages) {
+			FAIL("fixture must have enough total free pages without a fitting run"); return false;
+		}
+		return true;
+	}
+
+	void begin(uint64_t p_token, bool p_source_drawn = false) {
+		drawn_count = p_source_drawn ? 4 : 3;
+		streamer.begin_server_frame(p_token, nullptr, &buffers, drawn, drawn_count);
+		streamer.begin_frame(nullptr, &buffers, p_token);
+		residency().protect_drawn(drawn, drawn_count);
+	}
+
+	Residency::RequestResult request(bool p_competitor = false) {
+		tickets.clear();
+		const uint32_t demand[2] = { BLOCKED, COMPETITOR };
+		return residency().request(demand, p_competitor ? 2 : 1, tickets);
+	}
+
+	Residency::RequestResult step(uint64_t p_token, bool p_source_drawn = false, bool p_competitor = false) {
+		begin(p_token, p_source_drawn);
+		const auto result = request(p_competitor);
+		streamer._test_compaction_step(nullptr, buffers, drawn, drawn_count);
+		return result;
+	}
+
+	bool reach_copy() {
+		for (uint64_t token = FIRST_BLOCKED_FRAME; token <= FIRST_COPY_FRAME; ++token) { step(token); }
+		if (residency().stats().compaction_pages_moved_total == 0) {
+			FAIL("the eighth consecutive real blocked demand must start compaction"); return false;
+		}
+		return true;
+	}
+
+	bool run_is(uint32_t p_node, uint32_t p_first, uint32_t p_pages) {
+		uint32_t first = 0, pages = 0;
+		return residency().run(p_node, first, pages) && first == p_first && pages == p_pages;
+	}
+
+	bool metadata_base_is(uint32_t p_node, uint32_t p_first) const {
+		ChunkMetaGPU meta = {};
+		return streamer._test_compaction_meta(p_node, meta) && meta.atlas_base == p_first * 1024;
+	}
+
+	void check_accounting() {
+		const auto stats = residency().stats();
+		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring == residency().allocator_used_pages());
+		CHECK(residency().allocator_used_pages() + stats.pages_free == capacity);
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] cached coarse blockage starts undrawn compaction on server frame eight and admits the node (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init()) { return; }
+	uint64_t refused = 0;
+	for (uint64_t token = h.FIRST_BLOCKED_FRAME; token < h.FIRST_COPY_FRAME; ++token) {
+		const auto result = h.step(token);
+		CHECK(result.requested == 0);
+		CHECK(h.tickets.is_empty());
+		CHECK_FALSE(h.residency().compaction_active());
+		CHECK(h.residency().stats().compaction_pages_moved_total == 0);
+		if (token == h.FIRST_BLOCKED_FRAME) { refused = h.residency().stats().allocation_refused_total; }
+		CHECK(h.residency().stats().allocation_refused_total == refused); // B's cached coarse_blocked branch.
+	}
+	CHECK(refused > 0);
+	h.step(h.FIRST_COPY_FRAME);
+	// The charged duplicate temporarily makes new group planning budget-bound; the already-started
+	// move must remain needed and complete without treating its own reservation as withdrawal.
+	CHECK(h.residency().compaction_move_needed());
+	CHECK_FALSE(h.residency().compaction_active());
+	CHECK(h.residency().stats().compaction_pages_moved_total == h.source_pages);
+	CHECK(h.residency().compaction_move().node == h.SOURCE);
+	CHECK(h.run_is(h.SOURCE, h.source_first, h.source_pages));
+	CHECK(h.metadata_base_is(h.SOURCE, h.source_first));
+	CHECK(h.residency().stats().compaction_moves_total == 0); // Submitted pages are not GPU completion.
+	// Three server frames to complete the copy, then three to retire its old source.
+	for (uint64_t token = h.FIRST_COPY_FRAME + 1; token <= h.FIRST_COPY_FRAME + 6; ++token) { h.step(token); }
+	CHECK(h.residency().stats().compaction_moves_total == 1);
+	if (h.tickets.size() != 1) { FAIL("compaction must make the blocked whole run placeable"); return; }
+	CHECK(h.tickets[0].node == h.BLOCKED);
+	CHECK(h.residency().begin_upload(h.tickets[0]));
+	CHECK(h.residency().finish_upload(h.tickets[0], true));
+	CHECK(h.residency().state(h.BLOCKED) == Residency::RESIDENT);
+	h.check_accounting();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a drawn node never moves during useful undrawn compaction (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init()) { return; }
+	const uint32_t drawn_first = 2 * h.hole_pages + h.source_pages + 1;
+	bool unchanged_before_copy = true;
+	for (uint64_t token = h.FIRST_BLOCKED_FRAME; token <= h.FIRST_COPY_FRAME; ++token) {
+		h.step(token);
+		unchanged_before_copy = h.run_is(4, drawn_first, 1) && h.metadata_base_is(4, drawn_first) && unchanged_before_copy;
+	}
+	CHECK(h.residency().stats().compaction_pages_moved_total > 0); // A disabled feature cannot satisfy safety vacuously.
+	CHECK(unchanged_before_copy);
+	for (uint64_t token = h.FIRST_COPY_FRAME; token <= h.FIRST_COPY_FRAME + 6; ++token) {
+		if (token != h.FIRST_COPY_FRAME) { h.step(token); }
+		CHECK(h.run_is(4, drawn_first, 1));
+		CHECK(h.metadata_base_is(4, drawn_first));
+		CHECK(h.residency().state(4) == Residency::RESIDENT);
+	}
+	CHECK(h.residency().stats().compaction_moves_total > 0);
+	const auto copies = h.streamer._test_compaction_copies();
+	CHECK_FALSE(copies.is_empty());
+	for (const auto &copy : copies) {
+		CHECK(copy.node == h.SOURCE);
+		CHECK(copy.node != 0);
+		CHECK(copy.node != 4);
+		CHECK(copy.node != 6);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] completed compaction defers a drawn switch and retires its authoritative source (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init(2, true) || !h.reach_copy()) { return; }
+	CHECK(h.residency().stats().compaction_pages_moved_total > 0);
+	for (uint64_t token = h.FIRST_COPY_FRAME + 1; token <= h.FIRST_COPY_FRAME + 3; ++token) {
+		h.step(token, true); // The source became drawn after submission; it keeps using its original address.
+		CHECK(h.run_is(h.SOURCE, h.source_first, h.source_pages));
+		CHECK(h.metadata_base_is(h.SOURCE, h.source_first));
+		CHECK(h.residency().stats().compaction_moves_total == 0);
+	}
+	CHECK(h.residency().compaction_copy_complete());
+	CHECK(h.residency().stats().compaction_switch_deferred_total == 1);
+	h.streamer.begin_frame(nullptr, &h.buffers, h.FIRST_COPY_FRAME + 3); // Another view of the same server frame.
+	CHECK(h.residency().stats().compaction_switch_deferred_total == 1);
+	const uint64_t switch_boundary_view_frame = h.residency().frame();
+	h.step(h.FIRST_COPY_FRAME + 4);
+	CHECK(h.residency().stats().compaction_moves_total == 1);
+	CHECK(h.run_is(h.SOURCE, h.destination_first, h.source_pages));
+	CHECK(h.metadata_base_is(h.SOURCE, h.destination_first));
+	CHECK(h.residency().stats().pages_retiring == h.source_pages);
+	const uint32_t charged = h.residency().allocator_used_pages();
+	for (uint64_t token = h.FIRST_COPY_FRAME + 5; token < h.FIRST_COPY_FRAME + 7; ++token) {
+		h.step(token);
+		CHECK(h.residency().allocator_used_pages() == charged);
+		CHECK(h.residency().stats().pages_retiring == h.source_pages);
+	}
+	h.begin(h.FIRST_COPY_FRAME + 7);
+	// The old source retires now, and compaction ends, releasing its already-retired scratch page too.
+	CHECK(h.residency().allocator_used_pages() == charged - h.source_pages - 1);
+	CHECK(h.residency().stats().pages_retiring == 0);
+	CHECK_FALSE(h.residency().has_compaction_scratch());
+	h.check_accounting();
+	// Inspect the actual metadata/quantization write arguments: both address words switch together.
+	Vector<CompactionFixture::Streamer::TestWrite> writes;
+	if (h.streamer._test_shadow_writes(writes) != OK) { FAIL("compaction address-write observations unavailable"); return; }
+	uint32_t meta_switches = 0, quant_switches = 0;
+	for (const auto &write : writes) {
+		if (write.node != h.SOURCE || write.bytes != sizeof(uint32_t)) { continue; }
+		if (write.kind == CompactionFixture::Streamer::TestWrite::METADATA) {
+			++meta_switches;
+			CHECK(write.meta.atlas_base == h.destination_first * 1024);
+			CHECK(write.frame == switch_boundary_view_frame);
+		} else if (write.kind == CompactionFixture::Streamer::TestWrite::QUANTIZATION) {
+			++quant_switches;
+			CHECK(write.quant.start_index == h.destination_first * 1024);
+			CHECK(write.frame == switch_boundary_view_frame);
+		}
+	}
+	CHECK(meta_switches == 1);
+	CHECK(quant_switches == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] compaction charges scratch and both runs until source retirement (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init() || !h.reach_copy()) { return; }
+	const uint32_t resident_pages = h.source_pages + 3;
+	const uint32_t dual_charge = resident_pages + h.source_pages + 1;
+	CHECK(h.residency().stats().compaction_pages_moved_total > 0);
+	CHECK(h.residency().has_compaction_scratch());
+	CHECK(h.residency().allocator_used_pages() == dual_charge);
+	CHECK(h.residency().stats().pages_resident == resident_pages);
+	CHECK(h.residency().stats().pages_in_flight == h.source_pages + 1);
+	h.check_accounting();
+	for (uint64_t token = h.FIRST_COPY_FRAME + 1; token < h.FIRST_COPY_FRAME + 6; ++token) {
+		h.step(token, false, true); // Offer a competing whole run while preserving the original blocked demand.
+		CHECK(h.residency().state(h.COMPETITOR) == Residency::ABSENT);
+		CHECK(h.tickets.is_empty());
+		CHECK(h.residency().allocator_used_pages() == dual_charge);
+		h.check_accounting();
+		if (token >= h.FIRST_COPY_FRAME + 3) {
+			CHECK(h.residency().stats().compaction_moves_total == 1);
+			CHECK(h.residency().stats().pages_retiring == h.source_pages);
+			CHECK(h.residency().stats().pages_in_flight == 1); // Only scratch remains in flight after the switch.
+		}
+	}
+	h.begin(h.FIRST_COPY_FRAME + 6);
+	CHECK(h.residency().stats().compaction_moves_total == 1);
+	CHECK(h.residency().allocator_used_pages() == dual_charge - h.source_pages - 1);
+	CHECK(h.residency().stats().pages_retiring == 0);
+	CHECK_FALSE(h.residency().has_compaction_scratch());
+	h.check_accounting();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] compaction page cap is shared by all views of one server frame (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init(6) || !h.reach_copy()) { return; }
+	CHECK(h.residency().stats().compaction_pages_moved_total == 4);
+	CHECK(h.residency().stats().compaction_frames_total == 1);
+	CHECK(h.residency().stats().compaction_cap_limited_frames_total == 1);
+	CHECK(h.residency().compaction_move().copied_pages == 4);
+	for (uint32_t view = 0; view < 3; ++view) {
+		h.streamer.begin_frame(nullptr, &h.buffers, h.FIRST_COPY_FRAME);
+		h.residency().protect_drawn(h.drawn, h.drawn_count);
+		h.request();
+		h.streamer._test_compaction_step(nullptr, h.buffers, h.drawn, h.drawn_count);
+		CHECK(h.residency().stats().compaction_pages_moved_total == 4);
+		CHECK(h.residency().stats().compaction_frames_total == 1);
+		CHECK(h.residency().compaction_move().copied_pages == 4);
+	}
+	h.step(h.FIRST_COPY_FRAME + 1);
+	CHECK(h.residency().stats().compaction_pages_moved_total == 6);
+	CHECK(h.residency().stats().compaction_frames_total == 2);
+	CHECK(h.residency().stats().compaction_cap_limited_frames_total == 1);
+	CHECK(h.residency().stats().compaction_moves_total == 0);
+	CHECK(h.run_is(h.SOURCE, h.source_first, h.source_pages));
+	const auto copies = h.streamer._test_compaction_copies();
+	if (copies.size() != 6) { FAIL("six source pages must produce six actual page-copy observations"); return; }
+	const uint64_t page_bytes = 1024 * sizeof(PackedGaussian);
+	for (uint32_t page = 0; page < 6; ++page) {
+		CHECK(copies[page].server_frame == h.FIRST_COPY_FRAME + (page < 4 ? 0 : 1));
+		CHECK(copies[page].node == h.SOURCE);
+		CHECK(copies[page].source_offset == uint64_t(h.source_first + page) * page_bytes);
+		CHECK(copies[page].destination_offset == uint64_t(h.destination_first + page) * page_bytes);
+		CHECK(copies[page].bytes == page_bytes);
+	}
+	h.step(h.FIRST_COPY_FRAME + 2);
+	h.step(h.FIRST_COPY_FRAME + 3);
+	CHECK(h.residency().stats().compaction_moves_total == 0);
+	h.step(h.FIRST_COPY_FRAME + 4); // Completion delay is counted from the last copied page, not the first.
+	CHECK(h.residency().stats().compaction_moves_total == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] active compaction counts frames with every resident source drawn (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init()) { return; }
+	for (uint64_t token = h.FIRST_BLOCKED_FRAME; token <= h.FIRST_COPY_FRAME; ++token) { h.step(token, true); }
+	CHECK(h.residency().compaction_active()); // Threshold-disabled red proof must fail here, too.
+	CHECK(h.residency().stats().compaction_no_candidate_frames_total == 1);
+	CHECK(h.residency().stats().compaction_pages_moved_total == 0);
+	CHECK(h.residency().stats().compaction_frames_total == 0);
+	CHECK(h.residency().stats().compaction_cap_limited_frames_total == 0);
+	CHECK(h.residency().stats().compaction_moves_total == 0);
+	CHECK(h.run_is(h.SOURCE, h.source_first, h.source_pages));
+	h.streamer.begin_frame(nullptr, &h.buffers, h.FIRST_COPY_FRAME);
+	h.streamer._test_compaction_step(nullptr, h.buffers, h.drawn, h.drawn_count);
+	CHECK(h.residency().stats().compaction_no_candidate_frames_total == 1);
+	h.step(h.FIRST_COPY_FRAME + 1, true);
+	CHECK(h.residency().stats().compaction_no_candidate_frames_total == 2);
+	CHECK(h.residency().stats().compaction_frames_total == 0);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] withdrawn demand and changed transition identity restart compaction's blocked streak (#1483 C)") {
+	SUBCASE("withdrawal") {
+		CompactionFixture h;
+		if (!h.init()) { return; }
+		for (uint64_t token = h.FIRST_BLOCKED_FRAME; token < h.FIRST_BLOCKED_FRAME + 4; ++token) { h.step(token); }
+		for (uint64_t token = h.FIRST_BLOCKED_FRAME + 4; token < h.FIRST_BLOCKED_FRAME + 6; ++token) {
+			h.begin(token);
+			h.tickets.clear();
+			h.residency().request(nullptr, 0, h.tickets);
+			h.streamer._test_compaction_step(nullptr, h.buffers, h.drawn, h.drawn_count);
+			CHECK_FALSE(h.residency().compaction_active());
+		}
+		for (uint64_t token = h.FIRST_BLOCKED_FRAME + 6; token < h.FIRST_BLOCKED_FRAME + 13; ++token) {
+			h.step(token);
+			CHECK(h.residency().stats().compaction_pages_moved_total == 0);
+		}
+		h.step(h.FIRST_BLOCKED_FRAME + 13);
+		CHECK(h.residency().stats().compaction_pages_moved_total == h.source_pages);
+	}
+	SUBCASE("transition identity") {
+		CompactionFixture h;
+		if (!h.init()) { return; }
+		for (uint64_t token = h.FIRST_BLOCKED_FRAME; token < h.FIRST_COPY_FRAME; ++token) { h.step(token); }
+		TransitionGroup descriptor;
+		descriptor.kind = TRANSITION_REFINEMENT;
+		descriptor.parent = h.SOURCE;
+		descriptor.first_child = h.BLOCKED;
+		descriptor.visible_mask = 1;
+		const uint32_t demand = h.BLOCKED;
+		for (uint64_t token = h.FIRST_COPY_FRAME; token <= h.FIRST_COPY_FRAME + 7; ++token) {
+			h.begin(token);
+			h.tickets.clear();
+			h.residency().request(&demand, 1, h.tickets, &descriptor);
+			h.streamer._test_compaction_step(nullptr, h.buffers, h.drawn, h.drawn_count);
+			if (token < h.FIRST_COPY_FRAME + 7) {
+				CHECK_FALSE(h.residency().compaction_active());
+				CHECK(h.residency().stats().compaction_pages_moved_total == 0);
+			}
+		}
+		CHECK(h.residency().stats().compaction_pages_moved_total == h.source_pages);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] evicting a copied compaction source retires both runs without publishing (#1483 C)") {
+	CompactionFixture h;
+	if (!h.init() || !h.reach_copy()) { return; }
+	CHECK(h.residency().stats().compaction_pages_moved_total > 0);
+	const uint32_t charged = h.residency().allocator_used_pages();
+	if (!h.residency().evict(h.SOURCE)) { FAIL("undrawn source must be evictable to exercise cancellation"); return; }
+	CHECK_FALSE(h.residency().compaction_move().valid());
+	CHECK(h.residency().stats().compaction_moves_total == 0);
+	CHECK(h.residency().stats().pages_retiring == 2 * h.source_pages);
+	CHECK(h.residency().allocator_used_pages() == charged);
+	for (uint32_t view = 0; view < 4; ++view) {
+		h.streamer.begin_frame(nullptr, &h.buffers, h.FIRST_COPY_FRAME);
+		CHECK(h.residency().stats().pages_retiring == 2 * h.source_pages);
+		CHECK(h.residency().allocator_used_pages() == charged);
+	}
+	for (uint64_t token = h.FIRST_COPY_FRAME + 1; token <= h.FIRST_COPY_FRAME + 3; ++token) {
+		h.begin(token);
+		h.tickets.clear();
+		h.residency().request(nullptr, 0, h.tickets);
+		h.streamer._test_compaction_step(nullptr, h.buffers, h.drawn, h.drawn_count);
+		CHECK(h.residency().stats().compaction_moves_total == 0);
+		CHECK(h.residency().state(h.SOURCE) == Residency::ABSENT);
+		if (token < h.FIRST_COPY_FRAME + 3) { CHECK(h.residency().allocator_used_pages() == charged); }
+	}
+	CHECK(h.residency().stats().pages_retiring == 0);
+	CHECK_FALSE(h.residency().has_compaction_scratch());
+	CHECK(h.residency().allocator_used_pages() == 3); // Only the drawn root and two boundary nodes survive.
+	h.check_accounting();
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] whole-group atlas placement simulates supplied-order best-fit without mutation (#1483 C)") {
+	GaussianAtlasAllocator allocator;
+	allocator.reset(47);
+	const uint32_t sizes[8] = { 1, 20, 1, 10, 6, 1, 6, 1 };
+	for (uint32_t node = 0; node < 8; ++node) {
+		uint32_t first = 0;
+		if (!allocator.allocate_slot(node + 1, sizes[node], first)) { FAIL("could not populate whole-group allocator fixture"); return; }
+	}
+	for (uint64_t key : { 2u, 4u, 7u }) { allocator.release_slot(key); }
+	CHECK(allocator.get_free_page_count() == 37);
+	CHECK(allocator.get_largest_free_run() == 20);
+	CHECK(allocator.can_allocate(16));
+	LocalVector<GaussianAtlasAllocator::PageRun> before;
+	for (uint32_t index = 0; index < allocator.get_free_run_count(); ++index) {
+		GaussianAtlasAllocator::PageRun run;
+		if (!allocator.get_free_run(index, run)) { FAIL("could not snapshot allocator holes"); return; }
+		before.push_back(run);
+	}
+	const uint32_t blocked[2] = { 16, 16 };
+	uint32_t failed_pages = 0;
+	uint64_t placed_pages = 0;
+	CHECK_FALSE(allocator.can_allocate_all(blocked, 2, &failed_pages, &placed_pages));
+	CHECK(failed_pages == 16);
+	CHECK(placed_pages == 16); // Both nodes fit individually, but the second lacks a run after the first.
+	// The supplied sequence fails: 4 consumes the six-page hole before either 6.
+	// The allocator dry run must preserve the caller's admission order, even when another order fits.
+	const uint32_t ordered_failure[5] = { 20, 4, 6, 6, 1 };
+	CHECK_FALSE(allocator.can_allocate_all(ordered_failure, 5, &failed_pages, &placed_pages));
+	CHECK(failed_pages == 6);
+	CHECK(placed_pages == 30);
+	CHECK(ordered_failure[0] == 20);
+	CHECK(ordered_failure[1] == 4);
+	CHECK(ordered_failure[2] == 6);
+	CHECK(ordered_failure[3] == 6);
+	CHECK(ordered_failure[4] == 1);
+	const uint32_t fitting[5] = { 20, 6, 6, 4, 1 };
+	CHECK(allocator.can_allocate_all(fitting, 5, &failed_pages, &placed_pages));
+	CHECK(failed_pages == 0);
+	CHECK(placed_pages == 37);
+	CHECK(fitting[0] == 20);
+	CHECK(fitting[1] == 6);
+	CHECK(fitting[2] == 6);
+	CHECK(fitting[3] == 4);
+	CHECK(fitting[4] == 1);
+	CHECK(allocator.can_allocate_all(nullptr, 0, &failed_pages, &placed_pages));
+	CHECK(failed_pages == 0);
+	CHECK(placed_pages == 0);
+	CHECK(allocator.get_free_page_count() == 37);
+	CHECK(allocator.get_used_page_count() == 10);
+	CHECK(allocator.get_largest_free_run() == 20);
+	CHECK(allocator.get_allocation_count() == 5);
+	if (allocator.get_free_run_count() != before.size()) { FAIL("whole-group dry run changed the free-run list"); return; }
+	for (uint32_t index = 0; index < before.size(); ++index) {
+		GaussianAtlasAllocator::PageRun after;
+		if (!allocator.get_free_run(index, after)) { FAIL("whole-group dry run lost a free run"); return; }
+		CHECK(after.first_page == before[index].first_page);
+		CHECK(after.page_count == before[index].page_count);
+	}
+	const uint64_t live_keys[5] = { 1, 3, 5, 6, 8 };
+	const uint32_t live_first[5] = { 0, 21, 32, 38, 45 };
+	const uint32_t live_pages[5] = { 1, 1, 6, 1, 1 };
+	for (uint32_t index = 0; index < 5; ++index) {
+		GaussianAtlasAllocator::PageRun run;
+		if (!allocator.get_run(live_keys[index], run)) { FAIL("whole-group dry run lost an allocated run"); return; }
+		CHECK(run.first_page == live_first[index]);
+		CHECK(run.page_count == live_pages[index]);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] atlas dry run matches real allocation failure in the same member order (#1483 C)") {
+	auto prepare = [](GaussianAtlasAllocator &r_allocator) {
+		r_allocator.reset(11);
+		uint32_t first = 0;
+		if (!r_allocator.allocate_slot(1, 6, first) || !r_allocator.allocate_slot(2, 1, first) ||
+				!r_allocator.allocate_slot(3, 4, first)) { return false; }
+		r_allocator.release_slot(1);
+		r_allocator.release_slot(3);
+		return true;
+	};
+	GaussianAtlasAllocator allocator, scratch_allocator;
+	if (!prepare(allocator) || !prepare(scratch_allocator)) { FAIL("could not prepare two independent six/four-hole allocators"); return; }
+	const uint32_t requests[3] = { 3, 3, 4 };
+	uint32_t simulated_failure = 0;
+	uint64_t simulated_placed = 0;
+	const bool simulated_fit = allocator.can_allocate_all(requests, 3, &simulated_failure, &simulated_placed);
+	bool actual_fit = true;
+	uint32_t actual_failure = 0;
+	uint64_t actual_placed = 0;
+	for (uint32_t index = 0; index < 3; ++index) {
+		uint32_t first = 0;
+		if (!scratch_allocator.allocate_slot(10 + index, requests[index], first)) {
+			actual_fit = false;
+			actual_failure = requests[index];
+			break;
+		}
+		actual_placed += requests[index];
+	}
+	CHECK_FALSE(actual_fit);
+	CHECK(actual_failure == 4);
+	CHECK(actual_placed == 6);
+	CHECK(simulated_fit == actual_fit);
+	CHECK(simulated_failure == actual_failure);
+	CHECK(simulated_placed == actual_placed);
+	CHECK(requests[0] == 3);
+	CHECK(requests[1] == 3);
+	CHECK(requests[2] == 4);
+	CHECK(allocator.get_free_page_count() == 10);
+	CHECK(allocator.get_used_page_count() == 1);
+	CHECK(allocator.get_allocation_count() == 1);
+	if (allocator.get_free_run_count() != 2) { FAIL("dry run changed the six/four-hole free-run count"); return; }
+	GaussianAtlasAllocator::PageRun first_hole, second_hole, barrier;
+	if (!allocator.get_free_run(0, first_hole) || !allocator.get_free_run(1, second_hole) || !allocator.get_run(2, barrier)) {
+		FAIL("dry run changed the six/four-hole allocator's runs"); return;
+	}
+	CHECK(first_hole.first_page == 0);
+	CHECK(first_hole.page_count == 6);
+	CHECK(second_hole.first_page == 7);
+	CHECK(second_hole.page_count == 4);
+	CHECK(barrier.first_page == 6);
+	CHECK(barrier.page_count == 1);
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] compaction repairs whole-group fragmentation when every requested node fits individually (#1483 C)") {
+	for (bool legacy : { false, true }) {
+		CAPTURE(legacy);
+		using Streamer = HlodNodeStreamer;
+		constexpr uint32_t source = 4, first_child = 8, second_child = 9;
+		constexpr uint64_t first_blocked_frame = 100, first_copy_frame = first_blocked_frame + 7;
+		Ref<GaussianSplatHlodRuntimeData> data;
+		data.instantiate();
+		if (data->nodes.resize(10) != OK) { FAIL("could not size group compaction fixture"); return; }
+		const uint32_t sizes[10] = { 1, 20, 1, 10, 6, 1, 6, 1, 16, 16 };
+		for (uint32_t node = 0; node < 10; ++node) {
+			auto &topology = data->nodes.write[node].topology;
+			topology.payload_count = sizes[node] * 1024;
+			topology.parent = node == 0 ? gs_hlod::kNoParent : (node >= first_child ? source : 0);
+			topology.height = node == 0 ? 2 : (node == source ? 1 : 0);
+		}
+		Streamer streamer;
+		Streamer::Config cfg;
+		cfg.atlas_pages = 47;
+		cfg.retire_delay_frames = 3;
+		if (!streamer.init(data, cfg, 1, 1)) { FAIL("group compaction streamer initialization failed"); return; }
+		Streamer::TestControl control;
+		control.cpu_upload_sink = true;
+		if (streamer._test_set_control(control) != OK) { FAIL("group compaction requires CPU device-copy observations"); return; }
+		Residency &res = streamer._test_residency();
+		for (uint32_t node = 0; node < 8; ++node) {
+			if (!make_resident_at(res, node, node + 1) || streamer._test_seed_resident_metadata(node) != OK) {
+				FAIL("could not populate group compaction runs"); return;
+			}
+		}
+		LocalVector<Residency::Ticket> tickets;
+		res.begin_frame(20);
+		res.request(nullptr, 0, tickets);
+		if (!res.evict(1) || !res.evict(3) || !res.evict(6)) { FAIL("could not remove group fixture fillers"); return; }
+		res.begin_frame(23);
+		// Free holes are 20@1, 10@22, 6@39 and scratch 1@46. Two 16-page siblings each
+		// fit the 20-page hole individually; sequential placement of their whole group cannot fit.
+		CHECK(res.stats().pages_free == 37);
+		CHECK(res.stats().largest_free_run == 20);
+		CHECK(res.stats().largest_free_run >= res.pages_for(first_child));
+		CHECK(res.stats().largest_free_run >= res.pages_for(second_child));
+		CHECK(res.stats().pages_free >= res.pages_for(first_child) + res.pages_for(second_child));
+		const uint32_t drawn[4] = { 0, 2, 5, 7 };
+		const uint32_t demand[2] = { first_child, second_child };
+		Streamer::Buffers buffers;
+		auto step = [&](uint64_t p_token) {
+			streamer.begin_server_frame(p_token, nullptr, &buffers, drawn, 4);
+			streamer.begin_frame(nullptr, &buffers, p_token);
+			res.protect_drawn(drawn, 4);
+			tickets.clear();
+			const auto result = legacy ? res.request_legacy(demand, 2, tickets) : res.request(demand, 2, tickets);
+			streamer._test_compaction_step(nullptr, buffers, drawn, 4);
+			return result;
+		};
+		uint64_t refused = 0;
+		for (uint64_t token = first_blocked_frame; token <= first_copy_frame; ++token) {
+			const auto result = step(token);
+			CHECK(result.requested == 0);
+			CHECK(tickets.is_empty());
+			if (token == first_blocked_frame) { refused = res.stats().allocation_refused_total; }
+			if (!legacy && token < first_copy_frame) {
+				CHECK(res.stats().allocation_refused_total == refused); // The unchanged B group uses cached coarse_blocked.
+			}
+			if (token < first_copy_frame) {
+				CHECK_FALSE(res.compaction_active());
+				CHECK(res.stats().compaction_pages_moved_total == 0);
+				CHECK(res.stats().compaction_frames_total == 0);
+				CHECK(res.stats().compaction_moves_total == 0);
+				CHECK(res.stats().compaction_no_candidate_frames_total == 0);
+			}
+		}
+		CHECK(refused > 0);
+		CHECK(res.stats().compaction_pages_moved_total == 4);
+		CHECK(res.stats().compaction_frames_total == 1); // The eighth blocked server frame starts the copy.
+		CHECK_FALSE(res.compaction_active()); // Actual free pages are below 32 while both runs are charged.
+		CHECK(res.compaction_move_needed());
+		CHECK(res.compaction_move().node == source);
+		CHECK(res.compaction_move().source_first == 32);
+		CHECK(res.compaction_move().destination_first == 39);
+		CHECK(res.compaction_move().copied_pages == 4);
+		step(first_copy_frame + 1);
+		CHECK(res.stats().compaction_pages_moved_total == 6);
+		CHECK(res.stats().pages_free == 30); // The scratch page and duplicate run temporarily consume admission headroom.
+		CHECK(res.stats().pages_in_flight == 7);
+		CHECK(res.allocator_used_pages() == 17);
+		for (uint64_t token = first_copy_frame + 2; token < first_copy_frame + 4; ++token) {
+			step(token);
+			CHECK(res.compaction_move().valid()); // A budget shortfall caused by its own destination must not cancel the copy.
+			CHECK(res.stats().compaction_moves_total == 0);
+			CHECK(res.allocator_used_pages() == 17);
+		}
+		for (uint64_t token = first_copy_frame + 4; token < first_copy_frame + 7; ++token) {
+			step(token);
+			CHECK(res.stats().compaction_moves_total == 1);
+			CHECK(res.stats().pages_retiring == 6);
+			CHECK(tickets.is_empty());
+		}
+		step(first_copy_frame + 7); // Retiring the old source leaves distinct 20-page and 16-page holes.
+		CHECK(res.stats().compaction_moves_total == 1);
+		CHECK(res.stats().compaction_pages_moved_total == 6);
+		if (tickets.size() != 2) { FAIL("compaction must admit both sixteen-page siblings as one whole group"); return; }
+		CHECK(tickets[0].node == first_child);
+		CHECK(tickets[1].node == second_child);
+		for (const auto &ticket : tickets) {
+			CHECK(res.begin_upload(ticket));
+			CHECK(res.finish_upload(ticket, true));
+		}
+		CHECK(res.state(first_child) == Residency::RESIDENT);
+		CHECK(res.state(second_child) == Residency::RESIDENT);
+		const auto stats = res.stats();
+		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring == res.allocator_used_pages());
+		CHECK(res.allocator_used_pages() + stats.pages_free == 47);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] a later capped legacy subset preserves the full blocked group's compaction streak (#1483 C)") {
+	Vector<Residency::NodeInfo> infos;
+	if (infos.resize(12) != OK) { FAIL("could not size multi-view blocked-group fixture"); return; }
+	const uint32_t sizes[12] = { 1, 20, 1, 10, 6, 1, 6, 1, 16, 16, 1, 1 };
+	for (uint32_t node = 0; node < 12; ++node) {
+		auto &info = infos.write[node];
+		info.splat_count = sizes[node] * 1024;
+		info.parent = node == 0 ? UINT32_MAX : (node == 8 || node == 9 ? 4 : (node == 10 || node == 11 ? 2 : 0));
+		info.height = node == 0 ? 2 : (node == 2 || node == 4 ? 1 : 0);
+	}
+	auto cfg = config(47, 0);
+	cfg.max_requests_per_frame = 2;
+	Residency res;
+	if (!res.reset(infos, cfg, 1, 1)) { FAIL("could not initialize multi-view blocked-group fixture"); return; }
+	for (uint32_t node = 0; node < 8; ++node) {
+		if (!make_resident_at(res, node, node + 1)) { FAIL("could not populate multi-view blocked-group runs"); return; }
+	}
+	LocalVector<Residency::Ticket> tickets;
+	res.begin_frame(20);
+	res.request(nullptr, 0, tickets);
+	if (!res.evict(1) || !res.evict(3) || !res.evict(6)) { FAIL("could not fragment multi-view blocked-group fixture"); return; }
+	const uint32_t drawn[4] = { 0, 2, 5, 7 };
+	const uint32_t full_group[2] = { 8, 9 };
+	const uint32_t dummy_group[2] = { 10, 11 };
+	const uint32_t fitting_subset = 8;
+	for (uint64_t token = 100; token <= 107; ++token) {
+		res.begin_frame(token);
+		res.protect_drawn(drawn, 4);
+		tickets.clear();
+		const auto blocked = res.request_legacy(full_group, 2, tickets);
+		CHECK(blocked.requested == 0);
+		CHECK(blocked.fragmented_groups == 1);
+		CHECK(tickets.is_empty());
+		if (token < 107) { CHECK_FALSE(res.compaction_active()); }
+		else { CHECK(res.compaction_active()); }
+		// Consume the existing two-request allowance with another parent's real B tickets, then
+		// return their pages immediately. This leaves the original holes and request cap intact.
+		tickets.clear();
+		const auto dummies = res.request(dummy_group, 2, tickets);
+		CHECK(dummies.requested == 2);
+		if (tickets.size() != 2) { FAIL("dummy admissions must consume exactly two request permits"); return; }
+		for (const auto &ticket : tickets) {
+			if (!res.begin_upload(ticket) || !res.finish_upload(ticket, true)) {
+				FAIL("could not complete the dummy request permits"); return;
+			}
+		}
+		res.release_transition_leases();
+		if (!res.evict(10) || !res.evict(11)) { FAIL("could not return undrawn dummy runs"); return; }
+		CHECK(res.stats().pages_free == 37);
+		CHECK(res.stats().largest_free_run == 20);
+		// Another view wants one fitting member of the same parent. Its capped subset cannot
+		// replace the earlier failed set {8,9}, or advance that set's streak twice in one token.
+		tickets.clear();
+		const auto subset = res.request_legacy(&fitting_subset, 1, tickets);
+		CHECK(subset.capped);
+		CHECK(subset.requested == 0);
+		CHECK(tickets.is_empty());
+		if (token < 107) { CHECK_FALSE(res.compaction_active()); }
+		else { CHECK(res.compaction_active()); }
+	}
+	if (!res.acquire_compaction_scratch()) { FAIL("eighth blocked server frame must reserve compaction scratch"); return; }
+	if (!res.plan_compaction(drawn, 4)) { FAIL("the retained full blocked set must permit useful undrawn compaction"); return; }
+	CHECK(res.compaction_move().node == 4);
+	CHECK(res.compaction_move().source_first == 32);
+	CHECK(res.compaction_move().destination_first == 39);
+	CHECK(res.compaction_move().pages == 6);
+	CHECK(res.allocator_used_pages() == 17);
+	const auto stats = res.stats();
+	CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring == res.allocator_used_pages());
+}
+
+// The same physical holes distinguish a budget refusal (5+5 > 9 free) from a fragmented
+// group (4+4 <= 9 free) whose only undrawn source would merely exchange equally useful holes.
+struct CompactionRefusalFixture {
+	using Streamer = HlodNodeStreamer;
+	Ref<GaussianSplatHlodRuntimeData> data;
+	Streamer streamer;
+	Streamer::Buffers buffers;
+	LocalVector<Residency::Ticket> tickets;
+	uint32_t drawn[4] = { 0, 2, 5, 7 };
+
+	Residency &residency() { return streamer._test_residency(); }
+
+	bool init(uint32_t p_requested_pages) {
+		data.instantiate();
+		if (data->nodes.resize(10) != OK) { FAIL("could not size compaction refusal fixture"); return false; }
+		const uint32_t pages[10] = { 1, 5, 1, 2, 2, 1, 1, 1, p_requested_pages, p_requested_pages };
+		for (uint32_t node = 0; node < 10; ++node) {
+			auto &topology = data->nodes.write[node].topology;
+			topology.payload_count = pages[node] * 1024;
+			topology.parent = node == 0 ? gs_hlod::kNoParent : (node >= 8 ? 4 : 0);
+			topology.height = node == 0 ? 2 : (node == 4 ? 1 : 0);
+		}
+		Streamer::Config cfg;
+		cfg.atlas_pages = 15;
+		cfg.retire_delay_frames = 0;
+		if (!streamer.init(data, cfg, 1, 1)) { FAIL("could not initialize compaction refusal fixture"); return false; }
+		Streamer::TestControl control;
+		control.cpu_upload_sink = true;
+		if (streamer._test_set_control(control) != OK) { FAIL("compaction refusal fixture requires the CPU device sink"); return false; }
+		for (uint32_t node = 0; node < 8; ++node) {
+			if (!make_resident_at(residency(), node, node + 1) || streamer._test_seed_resident_metadata(node) != OK) {
+				FAIL("could not populate compaction refusal runs and metadata"); return false;
+			}
+		}
+		residency().begin_frame(20);
+		residency().request(nullptr, 0, tickets);
+		if (!residency().evict(1) || !residency().evict(3) || !residency().evict(6)) {
+			FAIL("could not remove compaction refusal fillers"); return false;
+		}
+		// Root@0, free5@1, drawn@6, free2@7, source2@9, drawn@11, free1@12,
+		// drawn@13, free1@14. The group's parent is the undrawn source, so normal
+		// admission cannot evict it; every other resident is drawn for each test frame.
+		if (residency().stats().pages_free != 9 || residency().stats().largest_free_run != 5) {
+			FAIL("compaction refusal fixture requires free runs of 5,2,1,1 pages"); return false;
+		}
+		return true;
+	}
+
+	Residency::RequestResult step(uint64_t p_token, bool p_legacy = false) {
+		streamer.begin_server_frame(p_token, nullptr, &buffers, drawn, 4);
+		streamer.begin_frame(nullptr, &buffers, p_token);
+		residency().protect_drawn(drawn, 4);
+		tickets.clear();
+		const uint32_t demand[2] = { 8, 9 };
+		const auto result = p_legacy ? residency().request_legacy(demand, 2, tickets) : residency().request(demand, 2, tickets);
+		streamer._test_compaction_step(nullptr, buffers, drawn, 4);
+		return result;
+	}
+
+	bool runs_unchanged() {
+		const uint32_t nodes[5] = { 0, 2, 4, 5, 7 };
+		const uint32_t expected_first[5] = { 0, 6, 9, 11, 13 };
+		const uint32_t expected_pages[5] = { 1, 1, 2, 1, 1 };
+		for (uint32_t index = 0; index < 5; ++index) {
+			uint32_t first = 0, pages = 0;
+			ChunkMetaGPU meta = {};
+			if (!residency().run(nodes[index], first, pages) || first != expected_first[index] || pages != expected_pages[index] ||
+					!streamer._test_compaction_meta(nodes[index], meta) || meta.atlas_base != expected_first[index] * 1024) { return false; }
+		}
+		return true;
+	}
+};
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] protected-capacity budget refusals never activate group compaction (#1483 C)") {
+	for (bool legacy : { false, true }) {
+		CAPTURE(legacy);
+		CompactionRefusalFixture h;
+		if (!h.init(5)) { return; }
+		for (uint64_t token = 100; token < 116; ++token) { // Sixteen synchronous server frames exceed the R=8 trigger.
+			const auto result = h.step(token, legacy);
+			const auto stats = h.residency().stats();
+			CHECK(result.requested == 0);
+			CHECK(result.fragmented_groups == 0);
+			CHECK(h.tickets.is_empty());
+			CHECK(stats.pages_free < h.residency().pages_for(8) + h.residency().pages_for(9));
+			CHECK(stats.allocation_refused_total > 0);
+			CHECK(stats.allocation_protected_capacity_total > 0);
+			CHECK(stats.allocation_over_page_budget_total == 0);
+			CHECK(stats.allocation_no_contiguous_run_total == 0);
+			CHECK_FALSE(h.residency().compaction_active());
+			CHECK_FALSE(h.residency().has_compaction_scratch());
+			CHECK_FALSE(h.residency().compaction_move().valid());
+			CHECK(stats.compaction_pages_moved_total == 0);
+			CHECK(stats.compaction_moves_total == 0);
+			CHECK(stats.compaction_frames_total == 0);
+			CHECK(stats.compaction_no_candidate_frames_total == 0);
+			CHECK(stats.evicted_total == 3); // Only the deliberate fixture fillers were evicted.
+			CHECK(stats.pages_free == 9);
+			CHECK(h.residency().allocator_used_pages() == 6);
+			CHECK(h.runs_unchanged());
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][HLOD][Residency] active group compaction refuses a move that cannot improve the placed prefix (#1483 C)") {
+	CompactionRefusalFixture h;
+	if (!h.init(4)) { return; }
+	for (uint64_t token = 100; token <= 111; ++token) {
+		const auto result = h.step(token);
+		const auto stats = h.residency().stats();
+		CHECK(result.requested == 0);
+		CHECK(h.tickets.is_empty());
+		if (token < 107) {
+			CHECK_FALSE(h.residency().compaction_active());
+			CHECK(stats.compaction_no_candidate_frames_total == 0);
+		} else {
+			CHECK(h.residency().compaction_active()); // Threshold-disabled mutation must fail by assertion.
+			CHECK(stats.compaction_no_candidate_frames_total == token - 106);
+			CHECK(h.residency().has_compaction_scratch());
+			CHECK(h.residency().allocator_used_pages() == 7);
+			CHECK(stats.pages_free == 8);
+		}
+		// Moving the two-page source@9 into free5@1 shrinks that hole to 3 and grows
+		// free2+source2 to 4. This swaps which hole fits one four-page member: the placed
+		// prefix stays 4, and the second member still fails. There is no strict progress.
+		CHECK_FALSE(h.residency().compaction_move().valid());
+		CHECK(stats.compaction_pages_moved_total == 0);
+		CHECK(stats.compaction_moves_total == 0);
+		CHECK(stats.compaction_frames_total == 0);
+		CHECK(stats.compaction_cap_limited_frames_total == 0);
+		CHECK(stats.evicted_total == 3);
+		CHECK(h.runs_unchanged());
+		CHECK(stats.pages_resident + stats.pages_in_flight + stats.pages_retiring == h.residency().allocator_used_pages());
+	}
+}
+
 }

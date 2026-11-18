@@ -157,6 +157,12 @@ public:
 		uint64_t evicted_in_transition_total = 0;
 		uint64_t evicted_neither_total = 0;
 		uint64_t eviction_events_dropped_total = 0; // Oldest events overwritten by the bounded report ring.
+		uint64_t compaction_pages_moved_total = 0;
+		uint64_t compaction_moves_total = 0;
+		uint64_t compaction_frames_total = 0;
+		uint64_t compaction_no_candidate_frames_total = 0;
+		uint64_t compaction_cap_limited_frames_total = 0;
+		uint64_t compaction_switch_deferred_total = 0;
 		// Package F1.
 		bool edit_staged = false;
 		bool edit_waiting_for_space = false; // Admitted, but the shadow runs are not allocated yet (pages retiring or to be freed).
@@ -180,6 +186,16 @@ public:
 		EvictionClass classification = EVICTION_NEITHER;
 	};
 	static constexpr uint32_t EVICTION_EVENT_CAPACITY = 4096;
+	// ADR 6.6: R consecutive blocked server frames of the same placement group start compaction.
+	static constexpr uint32_t COMPACTION_SKIP_FRAMES = UINT32_MAX;
+	// Copy allowance is shared by all views of one server frame, never reset per view.
+	static constexpr uint32_t COMPACTION_PAGES_PER_FRAME = 4;
+	struct CompactionMove {
+		uint32_t node = UINT32_MAX;
+		uint32_t source_first = 0, destination_first = 0, pages = 0, copied_pages = 0;
+		uint64_t last_copy_frame = 0;
+		bool valid() const { return node != UINT32_MAX; }
+	};
 
 	enum EditResult : uint8_t {
 		EDIT_OK = 0,
@@ -213,6 +229,32 @@ public:
 	// renews/withdraws the offered group, including across final upload completion.
 	void begin_frame(uint64_t p_frame);
 	uint64_t frame() const { return current_frame; }
+	// Explicit server clock leaves the existing per-view frame/caps unchanged. Standalone CPU callers
+	// that do not supply a token use begin_frame() as their server clock.
+	void begin_server_frame(uint64_t p_token);
+	uint64_t server_frame() const { return current_server_frame; }
+	bool compaction_active() const;
+	bool acquire_compaction_scratch();
+	bool has_compaction_scratch() const { return compaction_scratch_key != 0; }
+	// Caller must wait the server-frame GPU retirement distance after the last scratch use,
+	// destroy its scratch buffer, then release this charge (also safe if no copy was submitted).
+	void release_compaction_scratch();
+	bool plan_compaction(const uint32_t *p_drawn, uint32_t p_count);
+	const CompactionMove &compaction_move() const { return pending_move; }
+	bool compaction_move_current() const;
+	bool compaction_move_needed() const;
+	bool compaction_retiring() const;
+	// Call before submitting either leg, so partial GPU-copy failure also retires touched addresses.
+	void touch_compaction_copy();
+	void record_compaction_copy(uint32_t p_pages);
+	bool compaction_copy_complete() const;
+	bool switch_compaction();
+	void cancel_compaction();
+	// Atlas-owner teardown only: the GPU buffers are being destroyed, so no run will be reused.
+	void clear_compaction();
+	void record_compaction_frame(bool p_copied, bool p_cap_limited, bool p_no_candidate);
+	void defer_compaction_switch();
+	uint32_t allocator_used_pages() const { return allocator.get_used_page_count(); }
 
 	// Protection (ADR 14.1): union over admitted views of drawn versions and their fallback coverage.
 	// Marks each node and all of its ancestors, and stamps them as drawn this frame. Call once per admitted
@@ -349,6 +391,11 @@ private:
 		uint64_t observed_transition_frame = UINT64_MAX; // This parent has a missing demanded child.
 		uint64_t retry_after_frame = 0;
 		uint64_t demand_pass = 0; // request() pass that last listed this node (duplicate demand is one demand).
+		uint64_t compaction_demand_frame = UINT64_MAX;
+		uint64_t placement_blocked_frame = UINT64_MAX, placement_identity = 0;
+		uint32_t placement_blocked_streak = 0;
+		bool placement_compaction_active = false; // Latched at R; later request caps do not end demanded compaction.
+		uint64_t compaction_read_until = 0; // Source reads survive cancellation independently of per-view retirement.
 		uint32_t failures = 0;
 		uint32_t retry_later_failures = 0;
 		FailureClass last_failure_class = FAILURE_PERMANENT;
@@ -367,6 +414,7 @@ private:
 		uint32_t first_page = 0;
 		uint32_t pages = 0;
 		uint64_t retire_frame = 0;
+		bool server_clock = false;
 	};
 
 	Vector<Node> nodes;
@@ -378,13 +426,24 @@ private:
 	LocalVector<uint32_t> evicted_log;
 	uint64_t world_gen = 0, device_gen = 0;
 	uint64_t current_frame = 0;
+	uint64_t current_server_frame = 0;
+	bool explicit_server_clock = false;
+	CompactionMove pending_move;
+	uint64_t move_source_key = 0, move_destination_key = 0, move_request_generation = 0;
+	uint64_t move_world_generation = 0, move_device_generation = 0;
+	bool move_copy_touched = false;
+	uint64_t compaction_scratch_key = 0;
+	uint32_t compaction_scratch_first = 0;
+	uint64_t compaction_recorded_frame = UINT64_MAX, compaction_deferred_frame = UINT64_MAX;
+	uint64_t compaction_copy_frame = UINT64_MAX;
+	uint32_t compaction_copied_this_frame = 0;
 	uint64_t request_serial = 0, alloc_serial = 0;
 	uint32_t requests_this_frame = 0;
 	uint32_t evictions_this_frame = 0;
 	uint32_t pages_retiring = 0;
 	Stats totals;
-	// All preallocated by reset(), confined to the residency owner thread. Workers never access these
-	// fields; the streamer copies diagnostics on that same thread, alongside its existing stats.
+	// Transition arbitration is preallocated by reset(), confined to the residency owner thread.
+	// Workers never access these fields; the separate failed-set pool below may grow while recording demand.
 	struct Group {
 		TransitionGroup descriptor;
 		uint64_t offered_pass = 0;
@@ -393,6 +452,21 @@ private:
 		bool active = false, suppressed = false, coarse_blocked = false;
 	};
 	Vector<Group> groups;
+	// Independent ordered failed need sets: views (or separate legacy groups) can offer different
+	// sequences of one parent's children. Expired slots are reused; a pending move pins its slot.
+	struct PlacementGroup {
+		LocalVector<uint32_t> members; // Captured allocate_all order; skip allocated members without reordering.
+		uint64_t offered_frame = UINT64_MAX;
+	};
+	Vector<PlacementGroup> placement_groups;
+	// Owner-thread dry-run workspace, preallocated by reset(); const queries mutate scratch only.
+	mutable LocalVector<uint32_t> compaction_page_scratch;
+	mutable LocalVector<uint32_t> compaction_member_scratch;
+	mutable LocalVector<GaussianAtlasAllocator::PageRun> compaction_run_scratch;
+	LocalVector<GaussianAtlasAllocator::PageRun> compaction_candidate_runs;
+	LocalVector<uint32_t> compaction_group_scratch;
+	Vector<uint64_t> compaction_baseline;
+	uint32_t move_placement_group = UINT32_MAX;
 	LocalVector<uint32_t> group_order;
 	LocalVector<uint32_t> need_scratch;
 	uint64_t reconciliation = 0;
@@ -419,7 +493,23 @@ private:
 	void release_edit_state();
 
 	uint64_t make_alloc_key(uint32_t p_node);
-	void retire_run(Node &r_node);
+	void retire_run(Node &r_node, bool p_server_clock = false);
+	void retire_due_runs(bool p_server_clock);
+	void advance_server_clock(uint64_t p_token);
+	void observe_compaction_demand(uint32_t p_node, uint64_t p_identity);
+	void record_placement_blocked(uint32_t p_node);
+	void record_group_placement_blocked(const uint32_t *p_members, uint32_t p_count);
+	void order_admission_members(uint32_t *p_members, uint32_t p_count) const;
+	uint32_t observe_placement_group(const uint32_t *p_members, uint32_t p_count, bool p_create = false);
+	bool node_placement_fits(uint32_t p_node) const;
+	bool placement_group_observed(uint32_t p_group) const;
+	void reset_placeable_group(uint32_t p_group);
+	uint64_t placement_group_pages(uint32_t p_group) const;
+	bool placement_group_demanded(uint32_t p_group) const;
+	bool placement_group_fits(uint32_t p_group, uint32_t *r_failure = nullptr, uint64_t *r_placed = nullptr) const;
+	bool placement_group_fragmented(uint32_t p_group, uint32_t *r_failure = nullptr, uint64_t *r_placed = nullptr) const;
+	void copy_free_runs(LocalVector<GaussianAtlasAllocator::PageRun> &r_runs) const;
+	uint32_t compaction_blocked_pages() const;
 	void release_run_now(Node &r_node);
 	void release_unrequested_run(Node &r_node);
 	bool ticket_current(const Ticket &p_ticket, State p_expected) const;

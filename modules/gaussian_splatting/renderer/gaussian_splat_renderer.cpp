@@ -2108,6 +2108,30 @@ bool GaussianSplatRenderer::_render_hlod_shadow_casters(const Projection &p_ligh
     return _finish_shadow_render_result(r_result);
 }
 
+uint64_t GaussianSplatRenderer::hlod_stream_compaction_boundary(RenderingDevice *p_device) {
+    const uint64_t token = RSG::rasterizer ? RSG::rasterizer->get_frame_number() : 0;
+    auto &state = get_resource_state();
+    if (state.hlod_streamer.is_null() || !state.hlod_streamer->is_active()) { return token; }
+    if (state.hlod_streamer->server_frame_started(token)) { return token; }
+    HlodNodeStreamer::Buffers buffers;
+    buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
+    buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
+    buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
+    LocalVector<uint32_t> drawn;
+    // These are the published sets any shadow/main consumer can reference at this boundary, including
+    // views not selected yet this frame. Later selections may draw a copying node from its old primary run.
+    const auto &view_set = frame_context_manager.get_hlod_view_set();
+    for (uint32_t i = 0; i < state.hlod_streamer->registered_view_count(); ++i) {
+        const uint64_t key = state.hlod_streamer->registered_view_key(i);
+        if (!frame_context_manager.is_hlod_view_live(key)) { continue; }
+        uint32_t count = 0;
+        const gs_hlod_runtime::DrawRecord *records = view_set.drawn(key, count);
+        for (uint32_t n = 0; n < count; ++n) { drawn.push_back(records[n].node); }
+    }
+    state.hlod_streamer->begin_server_frame(token, p_device, &buffers, drawn.ptr(), drawn.size());
+    return token;
+}
+
 bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_projection, const Transform3D &p_light_transform,
         const Rect2i &p_atlas_rect, RID p_shadow_framebuffer, bool p_flip_y, RID p_light,
         int p_light_type, int p_omni_shadow_mode, int p_shadow_pass) {
@@ -2157,6 +2181,7 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
         return _finish_shadow_render_result(result);
     }
 
+    hlod_stream_compaction_boundary(rd);
     if (_is_hlod_shadow_route_owner()) {
         // HLOD route (#1095, #1163): real casters from the main view's draw list, or an explicit refusal. Never the
         // color pipeline: a light view there would refuse the route and could release or idle the HLOD bundle.

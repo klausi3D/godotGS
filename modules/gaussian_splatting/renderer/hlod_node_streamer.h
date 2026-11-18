@@ -149,6 +149,9 @@ public:
 		uint64_t allocation_no_contiguous_run_total = 0, allocation_protected_capacity_total = 0;
 		uint64_t allocation_over_page_budget_total = 0, allocation_pending_retire_total = 0;
 		uint64_t allocation_eviction_limit_total = 0, allocation_other_total = 0;
+		uint64_t compaction_pages_moved_total = 0, compaction_moves_total = 0;
+		uint64_t compaction_frames_total = 0, compaction_no_candidate_frames_total = 0;
+		uint64_t compaction_cap_limited_frames_total = 0, compaction_switch_deferred_total = 0;
 		uint64_t evicted_in_cut_total = 0, evicted_in_transition_total = 0, evicted_neither_total = 0;
 		uint64_t eviction_events_dropped_total = 0, eviction_events_truncated_total = 0;
 		bool gate_measured = false;
@@ -239,7 +242,12 @@ public:
 	// Retires freed runs; call once per frame before the selector reads resident_mask() or get_data(). With a device, this
 	// is also the publication boundary of a staged edit (package F1): when the replacement cut is complete and ready the
 	// edit commits HERE, so the order "commit, then select" is structural and cannot be skipped by a caller.
-	void begin_frame(RenderingDevice *p_device = nullptr, const Buffers *p_buffers = nullptr);
+	void begin_frame(RenderingDevice *p_device = nullptr, const Buffers *p_buffers = nullptr, uint64_t p_server_frame = UINT64_MAX);
+	// Once before the earliest shadow/main consumer. Published drawn sets are the union of all live views;
+	// a subsequent selection can draw an in-flight source because its primary address has not changed.
+	void begin_server_frame(uint64_t p_server_frame, RenderingDevice *p_device, const Buffers *p_buffers,
+			const uint32_t *p_drawn = nullptr, uint32_t p_drawn_count = 0);
+	bool server_frame_started(uint64_t p_token) const { return server_frame == p_token; }
 	EditCommitResult get_last_commit_result() const { return last_commit_result; }
 
 	// --- Package F1 ---
@@ -338,6 +346,15 @@ public:
 		bool fail_validation = false;
 		bool fail_upload = false;
 	};
+	struct TestCopy {
+		uint64_t server_frame = 0, source_offset = 0, destination_offset = 0, bytes = 0;
+		uint32_t node = UINT32_MAX;
+	};
+	Vector<TestCopy> _test_compaction_copies() const { return test_compaction_copies; }
+	gs_hlod_runtime::NodeResidency &_test_residency() { return residency; }
+	void _test_compaction_step(RenderingDevice *p_device, const Buffers &p_buffers, const uint32_t *p_drawn, uint32_t p_count);
+	Error _test_seed_resident_metadata(uint32_t p_node);
+	bool _test_compaction_meta(uint32_t p_node, ChunkMetaGPU &r_meta) const;
 	enum TestFault {
 		TEST_FAULT_NONE,
 		TEST_FAULT_DROP_OUTPUT_CHARGE,
@@ -614,6 +631,10 @@ private:
 			const void *p_payload = nullptr);
 #endif
 	void refresh_telemetry();
+	void step_compaction(RenderingDevice *p_device, const Buffers &p_buffers);
+	bool compaction_node_drawn(uint32_t p_node) const;
+	Error patch_compaction_address(RenderingDevice *p_device, const Buffers &p_buffers, uint32_t p_node, uint32_t p_base);
+	void free_compaction_scratch();
 	void record_upload_slice(PackResult &p_result, uint64_t p_started_nsec, uint64_t p_bytes);
 	void record_upload_completion(const PackResult &p_result);
 
@@ -634,6 +655,7 @@ private:
 #ifdef TESTS_ENABLED
 	Vector<ChunkMetaGPU> test_metadata; // Render-thread CPU device-write sink only.
 	Vector<ChunkQuantizationGPU> test_quantization;
+	Vector<TestCopy> test_compaction_copies;
 	LocalVector<std::unique_ptr<Reservation>> test_leaked_shadow_permits; // Real leak control, reclaimed on teardown.
 #endif
 	struct Task {
@@ -678,6 +700,12 @@ private:
 	uint64_t world_generation = 0;
 	uint64_t device_generation = 0;
 	uint64_t frame = 0;
+	// Render-thread only, like residency. Compaction never uses the per-view frame above.
+	uint64_t server_frame = UINT64_MAX, compaction_step_frame = UINT64_MAX;
+	LocalVector<uint32_t> compaction_drawn;
+	RID compaction_scratch; // Owned here; freed after its last server-frame retirement boundary or shutdown.
+	ObjectID compaction_scratch_owner; // Weak device identity: also handles a live non-singleton device on teardown.
+	uint64_t compaction_scratch_device = 0, compaction_scratch_last_use = 0;
 	uint64_t frame_eviction_start_total = 0, frame_eviction_truncated = 0;
 	RefusingGate frame_admission_refusing_gate = REFUSING_NONE;
 	uint64_t gate_counted_frame = UINT64_MAX;

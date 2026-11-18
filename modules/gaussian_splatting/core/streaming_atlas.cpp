@@ -43,6 +43,50 @@ bool GaussianAtlasAllocator::can_allocate(uint32_t p_page_count) const {
 	return false;
 }
 
+bool GaussianAtlasAllocator::can_allocate_all(const uint32_t *p_pages, uint32_t p_count, uint32_t *r_first_failing_pages, uint64_t *r_placed_pages) const {
+	LocalVector<PageRun> simulated_free_runs = free_runs;
+	return simulate_allocate_all(simulated_free_runs, p_pages, p_count, r_first_failing_pages, r_placed_pages);
+}
+
+// Preserve request order, matching repeated allocate_slot() calls. Best-fit and its
+// lowest-address tie match allocate_slot() below (streaming_atlas.cpp:109-118).
+bool GaussianAtlasAllocator::simulate_allocate_all(LocalVector<PageRun> &r_free_runs, const uint32_t *p_pages, uint32_t p_count, uint32_t *r_first_failing_pages, uint64_t *r_placed_pages) {
+	if (r_first_failing_pages) {
+		*r_first_failing_pages = 0;
+	}
+	if (r_placed_pages) {
+		*r_placed_pages = 0;
+	}
+	for (uint32_t request = 0; request < p_count; ++request) {
+		const uint32_t pages = p_pages[request];
+		uint32_t best = UINT32_MAX;
+		for (uint32_t i = 0; pages > 0 && i < r_free_runs.size(); ++i) {
+			const PageRun &hole = r_free_runs[i];
+			if (hole.page_count >= pages && (best == UINT32_MAX || hole.page_count < r_free_runs[best].page_count ||
+					(hole.page_count == r_free_runs[best].page_count && hole.first_page < r_free_runs[best].first_page))) {
+				best = i;
+			}
+		}
+		if (best == UINT32_MAX) {
+			if (r_first_failing_pages) {
+				*r_first_failing_pages = pages;
+			}
+			return false;
+		}
+		PageRun &hole = r_free_runs[best];
+		if (hole.page_count == pages) {
+			r_free_runs.remove_at(best);
+		} else {
+			hole.first_page += pages;
+			hole.page_count -= pages;
+		}
+		if (r_placed_pages) {
+			*r_placed_pages += pages;
+		}
+	}
+	return true;
+}
+
 uint32_t GaussianAtlasAllocator::get_largest_free_run() const {
 	uint32_t largest = 0;
 	for (const PageRun &run : free_runs) {
@@ -89,6 +133,38 @@ bool GaussianAtlasAllocator::allocate_slot(uint64_t p_chunk_key, uint32_t p_page
 	run_map[p_chunk_key] = run;
 	r_slot = run.first_page;
 	return true;
+}
+
+bool GaussianAtlasAllocator::get_free_run(uint32_t p_index, PageRun &r_run) const {
+	if (p_index >= free_runs.size()) { return false; }
+	r_run = free_runs[p_index];
+	return true;
+}
+
+bool GaussianAtlasAllocator::allocate_run_at(uint64_t p_chunk_key, const PageRun &p_run) {
+	if (p_run.page_count == 0 || p_run.first_page > capacity || p_run.page_count > capacity - p_run.first_page) { return false; }
+	if (const PageRun *existing = run_map.getptr(p_chunk_key)) {
+		return existing->first_page == p_run.first_page && existing->page_count == p_run.page_count;
+	}
+	for (uint32_t i = 0; i < free_runs.size(); ++i) {
+		const PageRun hole = free_runs[i];
+		if (p_run.first_page < hole.first_page || p_run.first_page - hole.first_page > hole.page_count ||
+				p_run.page_count > hole.page_count - (p_run.first_page - hole.first_page)) { continue; }
+		const uint32_t before = p_run.first_page - hole.first_page;
+		const uint32_t after = hole.page_count - before - p_run.page_count;
+		if (before != 0) {
+			free_runs[i].page_count = before;
+			if (after != 0) { free_runs.insert(i + 1, PageRun{ p_run.first_page + p_run.page_count, after }); }
+		} else if (after != 0) {
+			free_runs[i] = PageRun{ p_run.first_page + p_run.page_count, after };
+		} else {
+			free_runs.remove_at(i);
+		}
+		free_page_count -= p_run.page_count;
+		run_map[p_chunk_key] = p_run;
+		return true;
+	}
+	return false;
 }
 
 void GaussianAtlasAllocator::_insert_free_run(uint32_t p_first_page, uint32_t p_page_count) {

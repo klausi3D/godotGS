@@ -117,6 +117,9 @@ const HLOD_PRESSURE_FIELDS := [
 	["hlod_stream_allocation_protected_capacity_total", "q"], ["hlod_stream_allocation_over_page_budget_total", "q"],
 	["hlod_stream_allocation_pending_retire_total", "q"], ["hlod_stream_allocation_eviction_limit_total", "q"],
 	["hlod_stream_allocation_other_total", "q"],
+	["hlod_stream_compaction_pages_moved_total", "q"], ["hlod_stream_compaction_moves_total", "q"],
+	["hlod_stream_compaction_frames_total", "q"], ["hlod_stream_compaction_no_candidate_frames_total", "q"],
+	["hlod_stream_compaction_cap_limited_frames_total", "q"], ["hlod_stream_compaction_switch_deferred_total", "q"],
 	["hlod_stream_closure_measured", "q"], ["hlod_stream_demanded_closure_pages", "q"],
 	["hlod_stream_placement_reserve_pages", "q"],
 	["hlod_stream_placement_reserve_state", "q"], # 1 measured, 0 unprepared fallback, -1/null absent.

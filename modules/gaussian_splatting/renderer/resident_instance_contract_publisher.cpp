@@ -3535,12 +3535,13 @@ Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::adopt_hlod_served_snaps
 
 Ref<GaussianSplatHlodRuntimeData> GaussianSplatRenderer::hlod_stream_commit_boundary() {
     auto &state = get_resource_state();
+    const uint64_t server_frame = hlod_stream_compaction_boundary(get_device_state().rd);
     HlodNodeStreamer::Buffers frame_buffers;
     frame_buffers.atlas = state.hlod_relative.buffers.atlas_gaussian_buffer;
     frame_buffers.chunk_meta = state.hlod_relative.buffers.chunk_meta_buffer;
     frame_buffers.quantization = state.hlod_relative.buffers.quantization_buffer;
     // The publication boundary of a staged edit is inside begin_frame(): commit first.
-    state.hlod_streamer->begin_frame(get_device_state().rd, &frame_buffers);
+    state.hlod_streamer->begin_frame(get_device_state().rd, &frame_buffers, server_frame);
     if (!state.hlod_streamer->is_active()) {
         return Ref<GaussianSplatHlodRuntimeData>(); // A failed commit part-way: the caller releases the bundle.
     }
