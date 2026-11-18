@@ -187,7 +187,7 @@ public:
 	};
 	static constexpr uint32_t EVICTION_EVENT_CAPACITY = 4096;
 	// ADR 6.6: R consecutive blocked server frames of the same placement group start compaction.
-	static constexpr uint32_t COMPACTION_SKIP_FRAMES = UINT32_MAX;
+	static constexpr uint32_t COMPACTION_SKIP_FRAMES = 8;
 	// Copy allowance is shared by all views of one server frame, never reset per view.
 	static constexpr uint32_t COMPACTION_PAGES_PER_FRAME = 4;
 	struct CompactionMove {
