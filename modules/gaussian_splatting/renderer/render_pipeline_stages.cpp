@@ -743,6 +743,15 @@ static uint64_t _compute_cull_config_signature(const GaussianSplatRenderer &p_re
 	seed = _hash_float_bits(config.distance_cull_max_rate, seed);
 	seed = _hash_float_bits(state.tiny_splat_screen_radius_px, seed);
 	seed = _hash_u64(static_cast<uint64_t>(MAX(0, p_renderer.get_performance_settings().max_splats)), seed);
+	// Regulator-driven capacity changes do not change a fitting frame's output.
+	// Only an engaged admission plan adds its effective capacity to this signature.
+	const Ref<GaussianStreamingSystem> &streaming_system = p_state_view.get_streaming_state().current_streaming_system;
+	const bool admission_engaged = p_renderer.get_instance_backend_policy() == GaussianSplatRenderer::InstanceBackendPolicy::STREAMING &&
+			streaming_system.is_valid() && streaming_system->is_drawn_splat_admission_engaged();
+	seed = _hash_bool(admission_engaged, seed);
+	if (admission_engaged) {
+		seed = _hash_u64(streaming_system->get_engaged_drawn_splat_cap(), seed);
+	}
 	// Per-splat scene-depth clip (slice D): toggling either setting changes the raster
 	// output under a static camera, so it must invalidate the compositor's cached
 	// render (cull-signature-cache rule: every new knob joins the signature).

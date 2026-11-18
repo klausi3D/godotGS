@@ -756,6 +756,11 @@ uint32_t GPUSortingPipeline::get_max_elements() const {
     return 0;
 }
 
+uint32_t GPUSortingPipeline::get_instance_sorter_capacity() const {
+    return gpu_sorter.is_valid() ? gpu_sorter->get_max_elements()
+            : (sort_ctx.runtime.fallback_sorter_valid ? sort_ctx.runtime.fallback_sorter_max_elements : 0);
+}
+
 void GPUSortingPipeline::release_buffers() {
     RenderingDevice *resource_device = sort_resource_device ? sort_resource_device : rd;
 
@@ -2375,9 +2380,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     uint32_t max_visible_splats = inputs.max_visible_splats;
     // Use the pipeline's own gpu_sorter capacity (rebuilt to full multi-instance
     // budget), not sorting_state.gpu_sorter (single-instance perf_settings.max_splats).
-    const uint32_t sorter_capacity = gpu_sorter.is_valid()
-            ? gpu_sorter->get_max_elements()
-            : (sort_ctx.runtime.fallback_sorter_valid ? sort_ctx.runtime.fallback_sorter_max_elements : 0);
+    const uint32_t sorter_capacity = get_instance_sorter_capacity();
     if (sorter_capacity > 0 && max_visible_splats > sorter_capacity) {
         max_visible_splats = sorter_capacity;
     }

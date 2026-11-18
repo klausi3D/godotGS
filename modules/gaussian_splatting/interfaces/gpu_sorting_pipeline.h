@@ -62,6 +62,7 @@ public:
     void mark_sorter_dirty() override { sorter_needs_rebuild = true; }
     String get_algorithm_name() const override;
     uint32_t get_max_elements() const override;
+    uint32_t get_instance_sorter_capacity() const;
 
     // IGPUSortingPipeline interface - Buffer management
     void ensure_buffers(uint32_t p_required_elements) override;

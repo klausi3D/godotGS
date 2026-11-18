@@ -4517,6 +4517,9 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_prim
 }
 
 void GaussianStreamingSystem::begin_frame() {
+    // Remove last frame's draw-only decisions before the unchanged LOD policy
+    // and any upload retirement can observe chunk parameters.
+    visibility.restore_draw_cap_lod_parameters(*this);
     current_frame_idx = (current_frame_idx + 1) % RING_BUFFER_FRAMES;
     FrameData &frame = frame_data[current_frame_idx];
     frame.frame_number = total_frame_count++;

@@ -329,6 +329,14 @@ public:
     // pushes its effective render distance every frame; <= 0 means unbounded.
     void set_load_distance_limit(float p_limit) { visibility.set_load_distance_limit(p_limit); }
     float get_load_distance_limit() const { return visibility.get_load_distance_limit(); }
+    // Owner-thread checks after streaming and the original sort allocation/clamp.
+    // No frustum tests or LOD writes on the non-binding path.
+    bool drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts) const;
+    void apply_drawn_splat_admission(uint64_t p_cap, const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
+            const Transform3D &p_camera_transform, const Projection &p_projection,
+            bool p_frustum_culling_enabled, float p_frustum_plane_slack);
+    bool is_drawn_splat_admission_engaged() const { return visibility.draw_cap_admission_engaged; }
+    uint64_t get_engaged_drawn_splat_cap() const { return visibility.effective_drawn_splat_cap; }
     // #1087: apply a pending project-settings reload (g_lod_config included) now, so a
     // caller can derive this frame's load distance limit from current settings before
     // update_streaming() (which would otherwise reload them only after the push).

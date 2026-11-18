@@ -45,6 +45,29 @@ void GaussianStreamingSystem::_update_chunk_lod_parameters(const Vector3 &camera
 	visibility.update_chunk_lod_parameters(*this, camera_pos);
 }
 
+bool GaussianStreamingSystem::drawn_splat_cap_would_bind(uint64_t p_cap, const HashMap<uint32_t, uint32_t> &p_instance_counts) const {
+	return visibility.drawn_splat_cap_would_bind(*this, p_cap, p_instance_counts);
+}
+
+void GaussianStreamingSystem::apply_drawn_splat_admission(uint64_t p_cap,
+		const LocalVector<StreamingVisibilityController::DrawInstance> &p_instances,
+		const Transform3D &p_camera_transform, const Projection &p_projection,
+		bool p_frustum_culling_enabled, float p_frustum_plane_slack) {
+	visibility.effective_drawn_splat_cap = p_cap;
+	visibility.draw_instances = p_instances;
+	visibility.draw_frustum_culling_enabled = p_frustum_culling_enabled;
+	visibility.draw_frustum_plane_slack = MAX(1.0f, p_frustum_plane_slack);
+	visibility.draw_frustum_planes = p_projection.get_projection_planes(p_camera_transform);
+	visibility.update_draw_cap_lod_parameters(*this, p_camera_transform.origin);
+	visibility.draw_cap_admission_engaged = true;
+	GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
+	RenderingDevice *rd = primary_device_override ? primary_device_override
+			: (last_upload_device ? last_upload_device : (manager ? manager->get_primary_rendering_device() : nullptr));
+	// Only binding frames need a second metadata publication. Allocation and
+	// the ordinary streaming/LOD/blend pipeline have already finished unchanged.
+	global_atlas_registry.sync_to_gpu(*this, rd);
+}
+
 Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 	Dictionary stats;
 	const LODConfig &lod_config = _get_lod_config();
@@ -129,6 +152,10 @@ Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 	stats["min_opacity_multiplier"] = min_opacity; // Minimum opacity multiplier among visible chunks
 	stats["chunks_in_transition"] = chunks_in_transition; // Chunks currently blending between LOD levels
 	stats["transitions_this_frame"] = visibility.lod_transitions_this_frame; // LOD level/target transitions updated this frame.
+	stats["draw_cap_coarsened_chunks_this_frame"] = visibility.draw_cap_coarsened_chunks_this_frame;
+	stats["draw_cap_refused_chunks_this_frame"] = visibility.draw_cap_refused_chunks_this_frame;
+	stats["draw_cap_coarsened_chunks_total"] = int64_t(visibility.draw_cap_coarsened_chunks_total);
+	stats["draw_cap_refused_chunks_total"] = int64_t(visibility.draw_cap_refused_chunks_total);
 
 	// LOD blend configuration (from LODBlendConfig)
 	stats["blend_distance"] = visibility.lod_blend_config.blend_distance;

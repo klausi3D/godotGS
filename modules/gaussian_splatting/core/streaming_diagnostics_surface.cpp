@@ -308,6 +308,11 @@ void GaussianStreamingSystem::end_frame_with_overlay(AnalyticsOverlay p_overlay)
     const LODConfig &lod_config = _get_lod_config();
     analytics[AK::lod_enabled] = lod_config.enabled;
     analytics[AK::effective_splat_count] = get_effective_splat_count();
+    // Draw-cap decisions remain observable even with distance LOD disabled.
+    analytics[AK::draw_cap_coarsened_chunks_this_frame] = visibility.draw_cap_coarsened_chunks_this_frame;
+    analytics[AK::draw_cap_refused_chunks_this_frame] = visibility.draw_cap_refused_chunks_this_frame;
+    analytics[AK::draw_cap_coarsened_chunks_total] = int64_t(visibility.draw_cap_coarsened_chunks_total);
+    analytics[AK::draw_cap_refused_chunks_total] = int64_t(visibility.draw_cap_refused_chunks_total);
     if (lod_config.enabled) {
         Dictionary lod_stats = get_lod_debug_stats();
         analytics[AK::lod_reduction_ratio] = lod_stats.get("reduction_ratio", 0.0f);

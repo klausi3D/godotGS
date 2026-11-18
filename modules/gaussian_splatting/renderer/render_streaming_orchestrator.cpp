@@ -16,6 +16,7 @@
 
 #include "core/error/error_macros.h"
 #include "core/math/math_defs.h"
+#include "core/math/quaternion.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
 #include <algorithm>
 #include <cstdint>
@@ -826,6 +827,57 @@ const RenderStreamingOrchestrator::VisibleLODSelection &RenderStreamingOrchestra
 	visible_lod_selection_shadow_only = shadow_only;
 
 	return visible_lod_selection;
+}
+
+bool RenderStreamingOrchestrator::apply_chunk_drawn_cap(GaussianStreamingSystem *p_streaming_system, uint32_t p_cap,
+		const Transform3D &p_camera_transform, const Projection &p_projection) {
+	const uint32_t instance_count = instance_pipeline_instance_cache.size();
+	HashMap<uint32_t, uint32_t> instance_counts;
+	if (instance_pipeline_submission_asset_ids_cache.size() != instance_count) {
+		return false; // The instance-contract validator rejects mismatched submissions.
+	}
+	for (uint64_t submission_id : instance_pipeline_submission_asset_ids_cache) {
+		const uint32_t asset_id = _peek_streaming_asset_slot(submission_id);
+		if (asset_id != UINT32_MAX) {
+			instance_counts[asset_id]++;
+		}
+	}
+	// O(chunks + instances), no transforms/frustum tests or writes. All resident
+	// effective counts are charged, including offscreen chunks, so this is an
+	// upper bound on GPU emission. A fitting frame retains the original plan.
+	if (!p_streaming_system->drawn_splat_cap_would_bind(p_cap, instance_counts)) {
+		return false;
+	}
+	GaussianSplatRenderer::FrameStateProvider state_provider(renderer);
+	const GaussianSplatRenderer::IFrameStateView &state_view = state_provider;
+	LocalVector<StreamingVisibilityController::DrawInstance> draw_instances;
+	if (instance_pipeline_submission_asset_ids_cache.size() == instance_count) {
+		for (uint32_t i = 0; i < instance_count; i++) {
+			const uint32_t asset_id = _peek_streaming_asset_slot(instance_pipeline_submission_asset_ids_cache[i]);
+			if (asset_id == UINT32_MAX) {
+				continue; // The instance-contract validator rejects an unmapped submission.
+			}
+			const InstanceDataGPU &instance = instance_pipeline_instance_cache[i];
+			StreamingVisibilityController::DrawInstance draw_instance;
+			draw_instance.asset_id = asset_id;
+			if ((instance.ids[1] & GS_INSTANCE_FLAG_ROTATION_IDENTITY) == 0) {
+				draw_instance.transform.basis = Basis(Quaternion(instance.rotation[0], instance.rotation[1], instance.rotation[2], instance.rotation[3]));
+			}
+			if ((instance.ids[1] & GS_INSTANCE_FLAG_SCALE_IDENTITY) == 0) {
+				const float scale = Math::abs(instance.translation_scale[3]);
+				draw_instance.transform.basis.scale(Vector3(scale, scale, scale));
+			}
+			if ((instance.ids[1] & GS_INSTANCE_FLAG_TRANSLATION_ZERO) == 0) {
+				draw_instance.transform.origin = Vector3(instance.translation_scale[0], instance.translation_scale[1], instance.translation_scale[2]);
+			}
+			draw_instances.push_back(draw_instance);
+		}
+	}
+	const GPUCuller *culler = state_view.get_gpu_culler();
+	p_streaming_system->apply_drawn_splat_admission(p_cap, draw_instances, p_camera_transform, p_projection,
+			culler && culler->get_config().frustum_culling,
+			culler ? culler->get_config().cull_frustum_plane_slack : 1.0f);
+	return true;
 }
 
 void RenderStreamingOrchestrator::consume_visible_lod_selection_for_residency(
@@ -1729,9 +1781,9 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 	if (streaming_state.current_streaming_system.is_valid()) {
 		atlas_generation = streaming_state.current_streaming_system->get_atlas_generation();
 	}
-	const uint64_t base_content_generation = _mix_content_generation(instance_generation, atlas_generation);
-	const uint64_t contract_generation = _mix_content_generation(instance_asset_generation, atlas_generation);
-	const uint64_t upload_generation = base_content_generation;
+	uint64_t base_content_generation = _mix_content_generation(instance_generation, atlas_generation);
+	uint64_t contract_generation = _mix_content_generation(instance_asset_generation, atlas_generation);
+	uint64_t upload_generation = base_content_generation;
 	const uint64_t previous_contract_generation = resource_state.instance_pipeline_contract_generation;
 	const uint64_t previous_contract_fingerprint = resource_state.instance_pipeline_contract_fingerprint;
 	const uint64_t previous_upload_generation = resource_state.instance_pipeline_upload_generation;
@@ -2000,6 +2052,22 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 					buffers.max_visible_chunks = buffers.max_visible_splats;
 				}
 			}
+		}
+		// Admission runs only after the original allocation/clamp, against the
+		// same effective capacity depth emission uses (including its fallback).
+		const uint32_t sorter_capacity = sorting_pipeline ? sorting_pipeline->get_instance_sorter_capacity() : 0;
+		const uint32_t admission_cap = sorter_capacity > 0 ? MIN(buffers.max_visible_splats, sorter_capacity) : buffers.max_visible_splats;
+		if (apply_chunk_drawn_cap(streaming_system, admission_cap, streaming_camera_transform, cull_projection)) {
+			buffers.max_visible_splats = admission_cap;
+			atlas_generation = streaming_system->get_atlas_generation();
+			base_content_generation = _mix_content_generation(instance_generation, atlas_generation);
+			contract_generation = _mix_content_generation(instance_asset_generation, atlas_generation);
+			upload_generation = base_content_generation;
+			resource_state_mut.instance_pipeline_content_generation = base_content_generation;
+			const GlobalAtlasState &admitted_atlas = streaming_system->get_global_atlas_state();
+			buffers.asset_meta_buffer = admitted_atlas.asset_meta_buffer;
+			buffers.chunk_meta_buffer = admitted_atlas.chunk_meta_buffer;
+			buffers.asset_chunk_index_buffer = admitted_atlas.asset_chunk_index_buffer;
 		}
 		instance_pipeline_max_visible_splats = buffers.max_visible_splats;
 		instance_pipeline_max_visible_chunks = buffers.max_visible_chunks;
